@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-purl
+  labels:
+    app: osramp-purl
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osramp-purl
+  template:
+    metadata:
+      labels:
+        app: osramp-purl
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: listener
+        image: listener:dev
+        imagePullPolicy: Never
+        env:
+        - name: NATS_URL
+          value: "nats://nats.backend.svc.cluster.local:4222"
+        - name: TASK_SUBJECT
+          value: "tasks.purl"
+        - name: CONSUMER_NAME
+          value: "purl-consumer"
+        - name: STREAM_NAME
+          value: "TASKS"
+        - name: WORKER_ID
+          value: "purl-worker-1"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+      - name: processor
+        image: processor:dev
+        imagePullPolicy: Never
+        env:
+        - name: SOCKET_PATH
+          value: "/shared/tasks.sock"
+        - name: DEBUG
+          value: "true"
+        - name: NATS_URL
+          value: "nats://nats.backend.svc.cluster.local:4222"
+        - name: NATS_INPUT_SUBJECT
+          value: "tasks.input"
+        - name: NATS_RESULT_SUBJECT
+          value: "tasks.results"
+        - name: WORK_DIR
+          value: "/tmp/purl-tasks"
+        - name: WORKER_ID
+          value: "purl-processor-1"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: purl-cache
+          mountPath: /tmp/purl-tasks/purl_cache
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]
+      volumes:
+      - name: shared-data
+        emptyDir:
+          medium: Memory
+          sizeLimit: 100Mi
+      - name: tmp-volume
+        emptyDir:
+          sizeLimit: 1Gi
+      - name: purl-cache
+        emptyDir:
+          sizeLimit: 500Mi

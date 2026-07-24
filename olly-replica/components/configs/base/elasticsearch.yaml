@@ -1,0 +1,47 @@
+# The sole external data source of the Olly pipeline: a single-node
+# Elasticsearch carrying the three index patterns as data streams
+# (app-logs-*, infra-logs-*, audit-logs-*), seeded by the Job below.
+#
+# HTTP TLS is disabled in the replica for simplicity; authn stays on and
+# API keys are enabled so the elk_search_logs MCP server (build order step 4)
+# can get its read-only key scoped to exactly the three patterns.
+apiVersion: elasticsearch.k8s.elastic.co/v1
+kind: Elasticsearch
+metadata:
+  name: olly
+spec:
+  version: 8.17.0
+  http:
+    tls:
+      selfSignedCertificate:
+        disabled: true
+  nodeSets:
+    - name: default
+      count: 1
+      config:
+        # kind nodes do not raise vm.max_map_count; niofs keeps the node
+        # bootable without host sysctls.
+        node.store.allow_mmap: false
+        xpack.security.authc.api_key.enabled: true
+      podTemplate:
+        spec:
+          containers:
+            - name: elasticsearch
+              env:
+                - name: ES_JAVA_OPTS
+                  value: "-Xms512m -Xmx512m"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 1Gi
+                limits:
+                  memory: 1536Mi
+      volumeClaimTemplates:
+        - metadata:
+            name: elasticsearch-data
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 2Gi

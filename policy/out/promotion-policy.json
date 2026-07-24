@@ -1,0 +1,22 @@
+{
+  "expires": "2027-07-09T06:26:53Z",
+  "steps": {
+    "vex-analysis": {
+      "name": "vex-analysis",
+      "attestations": [
+        { "type": "https://witness.dev/attestations/material/v0.1" },
+        { "type": "https://witness.dev/attestations/command-run/v0.1" },
+        { "type": "https://witness.dev/attestations/product/v0.1" }
+      ],
+      "functionaries": [
+        { "type": "publickey", "publickeyid": "f3c14b2c424c6a2f3b60f86defcf4773f8695b98a9e1ef44bdd719c3a4c32984" }
+      ]
+    }
+  },
+  "publickeys": {
+    "f3c14b2c424c6a2f3b60f86defcf4773f8695b98a9e1ef44bdd719c3a4c32984": {
+      "keyid": "f3c14b2c424c6a2f3b60f86defcf4773f8695b98a9e1ef44bdd719c3a4c32984",
+      "key": "LS0tLS1CRUdJTiBQVUJMSUMgS0VZLS0tLS0NCk1Db3dCUVlESzJWd0F5RUFnNXJXVmFmZUxKVXR1dlZDc05Rdi9KbkZTY05QNTFNVUUyT1h2SUczZkZFPQ0KLS0tLS1FTkQgUFVCTElDIEtFWS0tLS0tDQo="
+    }
+  }
+}

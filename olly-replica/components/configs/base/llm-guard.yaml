@@ -1,0 +1,133 @@
+# LLM Guard: the in-cluster scanner that sits on the Olly -> Orbit A2A hop for
+# the Estate 95 Security Sandbox. Olly POSTs the message it is about to send to
+# Orbit to /analyze/prompt (Secrets + Anonymize + PromptInjection + Toxicity +
+# Gibberish), and Orbit's reply to /analyze/output, gating on is_valid. It is a
+# defence-in-depth layer behind the deterministic redactor: the redactor holds
+# the secret/PII boundary by fixed pattern, the model-based scanners catch the
+# shapes a regex cannot (novel injections, model-detected PII). Toggling is at
+# the Olly routing level (sentinel's LLM_GUARD_ENABLED), so this pod can stay
+# resident while the demo switches the guard in and out of the path.
+#
+# CPU-only. Scanner models are pulled from Hugging Face on the first scan
+# (lazy_load), so the pod stays light (~0.5GB) until its first scan, then loads
+# the ~2-3GB of models for that direction on demand.
+#
+# OPT-IN / dormant by default (replicas: 0). The lightweight scanner set needs
+# ~2-3GB of headroom on the kind node, and the full estate already fills a 10GB
+# node. Loading models on a full node OOMs the container runtime. To use the
+# Security Sandbox: give Docker Desktop >=14GB, then
+#   kubectl -n olly-replica scale deploy llm-guard --replicas=1
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-guard
+  labels:
+    app: llm-guard
+spec:
+  # Dormant by default; scale to 1 once the node has RAM headroom (see above).
+  replicas: 0
+  # A single memory-heavy model server: kill the old pod before starting the new
+  # one (Recreate) rather than surging to two guards, which will not both fit on
+  # a constrained kind node. A brief scan gap during a redeploy is acceptable.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: llm-guard
+  template:
+    metadata:
+      labels:
+        app: llm-guard
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+      containers:
+        - name: llm-guard
+          image: olly-llm-guard:dev
+          imagePullPolicy: Never
+          env:
+            - name: APP_NAME
+              value: Estate 95 LLM Guard
+            - name: LOG_LEVEL
+              value: INFO
+            # Lazy load: keep the pod light until it is actually scanned, then
+            # load only the models for that direction. Lighter peak memory than
+            # loading all scanners at boot, which matters on a constrained node.
+            # The generous scan timeout lets that first on-demand download finish
+            # instead of tripping a request timeout (408).
+            - name: LAZY_LOAD
+              value: "true"
+            - name: SCAN_FAIL_FAST
+              value: "false"
+            - name: SCAN_PROMPT_TIMEOUT
+              value: "300"
+            - name: SCAN_OUTPUT_TIMEOUT
+              value: "300"
+            - name: RATE_LIMIT_ENABLED
+              value: "false"
+            # Local demo bearer token gating the scan API. Not a production
+            # secret: the sentinel presents the same value in LLM_GUARD_TOKEN.
+            - name: AUTH_TOKEN
+              value: llm-guard-token
+            # Console tracing/metrics exporters are chatty; Prometheus serves the
+            # numbers on /metrics without flooding the pod log with span dumps.
+            - name: TRACING_EXPORTER
+              value: console
+            - name: METRICS_TYPE
+              value: prometheus
+            # Hugging Face model cache under $HOME, on the writable emptyDir so a
+            # container restart in the same pod reuses the download.
+            - name: HF_HOME
+              value: /home/user/.cache/huggingface
+          ports:
+            - name: http
+              containerPort: 8000
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          # Big grace: the first boot downloads ~5-6 scanner models before the
+          # server answers /healthz. Ready only once they are all loaded.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 90
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 250m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: model-cache
+              mountPath: /home/user/.cache
+      volumes:
+        # Scanner-model download cache. An emptyDir survives a container restart
+        # within the pod, so only a fresh pod re-downloads.
+        - name: model-cache
+          emptyDir:
+            sizeLimit: 8Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: llm-guard
+  labels:
+    app: llm-guard
+spec:
+  selector:
+    app: llm-guard
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

@@ -1,0 +1,65 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-archiver
+  labels:
+    app: osramp-archiver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osramp-archiver
+  template:
+    metadata:
+      labels:
+        app: osramp-archiver
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: archiver
+        image: archiver:dev
+        imagePullPolicy: Never
+        env:
+        - name: NATS_URL
+          value: "nats://nats.backend.svc.cluster.local:4222"
+        - name: WORKER_ID
+          value: "archiver-1"
+        - name: STREAM_NAME
+          value: "TASKS"
+        - name: CONSUMER_NAME
+          value: "task-archiver"
+        - name: RESULT_SUBJECT
+          value: "tasks.results"
+        - name: DB_HOST
+          value: "postgres.backend.svc.cluster.local"
+        - name: DB_PORT
+          value: "5432"
+        - name: DB_NAME
+          value: "task_archive"
+        - name: DB_USER
+          value: "archiver"
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: DB_PASSWORD
+        - name: DB_SSL_MODE
+          value: "disable"
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+type: Opaque
+stringData:
+  DB_PASSWORD: archiver-password

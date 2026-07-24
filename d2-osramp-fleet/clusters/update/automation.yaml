@@ -1,0 +1,132 @@
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: image-update-automation
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  dependsOn:
+    - apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      name: imageupdateautomations.image.toolkit.fluxcd.io
+  inputs:
+    - namespace: "apps"
+      repository: "https://github.com/acme-co/osramp.git"
+      pushBranch: "image-updates"
+      updatePoliciesPath: "./d2-osramp-apps/update-policies"
+      componentsPath: "./d2-osramp-apps/components"
+    - namespace: "infra"
+      repository: "https://github.com/acme-co/osramp.git"
+      pushBranch: "image-updates"
+      updatePoliciesPath: "./d2-infra/update-policies"
+      componentsPath: "./d2-infra/components"
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: << inputs.namespace >>
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: flux-runtime-info
+        namespace: << inputs.namespace >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: "flux-system/flux-runtime-info"
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: github-auth
+        namespace: << inputs.namespace >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: "flux-system/github-auth"
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: flux
+        namespace: << inputs.namespace >>
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: flux
+        namespace: << inputs.namespace >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: admin
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.namespace >>
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      metadata:
+        name: << inputs.namespace >>
+        namespace: << inputs.namespace >>
+      spec:
+        interval: 10m
+        ref:
+          branch: main
+        secretRef:
+          name: github-auth
+        url: << inputs.repository >>
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: << inputs.namespace >>
+        namespace: << inputs.namespace >>
+      spec:
+        serviceAccountName: flux
+        targetNamespace: << inputs.namespace >>
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef:
+          kind: GitRepository
+          name: << inputs.namespace >>
+        path: "<< inputs.updatePoliciesPath >>"
+        prune: true
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info
+    - apiVersion: image.toolkit.fluxcd.io/v1beta2
+      kind: ImageUpdateAutomation
+      metadata:
+        name: << inputs.namespace >>
+        namespace: << inputs.namespace >>
+      spec:
+        interval: 30m
+        sourceRef:
+          kind: GitRepository
+          name: << inputs.namespace >>
+        git:
+          checkout:
+            ref:
+              branch: main
+          commit:
+            author:
+              email: acme-osramp-bot@users.noreply.github.com
+              name: acme-osramp-bot
+            messageTemplate: |
+              Automated image update
+
+              Files:
+              {{ range $filename, $_ := .Changed.FileChanges -}}
+              - {{ $filename }}
+              {{ end -}}
+
+              Objects:
+              {{ range $resource, $changes := .Changed.Objects -}}
+              - {{ $resource.Kind }} {{ $resource.Name }}
+                Changes:
+              {{- range $_, $change := $changes }}
+                  - {{ $change.OldValue }} -> {{ $change.NewValue }}
+              {{ end -}}
+              {{ end -}}
+          push:
+            branch: << inputs.pushBranch >>
+        update:
+          path: "<< inputs.componentsPath >>"
+          strategy: Setters

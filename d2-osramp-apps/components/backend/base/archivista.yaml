@@ -1,0 +1,67 @@
+---
+# Source: archivista/templates/service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: osramp-archivista
+  labels:
+    helm.sh/chart: archivista-0.8.5
+    app.kubernetes.io/name: archivista
+    app.kubernetes.io/instance: osramp
+    app.kubernetes.io/version: "0.11.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - port: 8082
+      targetPort: graphql
+      protocol: TCP
+      name: graphql
+  selector:
+    app.kubernetes.io/name: archivista
+    app.kubernetes.io/instance: osramp
+---
+# Source: archivista/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-archivista
+  labels:
+    helm.sh/chart: archivista-0.8.5
+    app.kubernetes.io/name: archivista
+    app.kubernetes.io/instance: osramp
+    app.kubernetes.io/version: "0.11.0"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: archivista
+      app.kubernetes.io/instance: osramp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: archivista
+        app.kubernetes.io/instance: osramp
+    spec:
+      securityContext:
+        {}
+      containers:
+        - name: archivista
+          securityContext:
+            {}
+          image: "ghcr.io/in-toto/archivista:0.11.0"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ARCHIVISTA_BLOB_STORE_USE_TLS
+              value: "FALSE"
+          envFrom:
+            - secretRef:
+                name: osramp-archivista
+          ports:
+            - name: graphql
+              containerPort: 8082
+              protocol: TCP
+          resources:
+            {}
+      serviceAccountName: default

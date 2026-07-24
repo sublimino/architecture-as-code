@@ -1,0 +1,15 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-archiver
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+      - name: ghcr-auth
+      containers:
+      - name: archiver
+        imagePullPolicy: Always
+        env:
+        - name: WORKER_ID
+          value: "archiver-1"

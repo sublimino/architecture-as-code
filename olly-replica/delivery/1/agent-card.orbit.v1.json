@@ -1,0 +1,45 @@
+{
+  "name": "orbit",
+  "description": "Action sub-agent for Olly Sentinel. Given a completed RCA enrichment, Orbit proposes exactly one action from a closed enum (troubleshoot, remediate_restart_service, no_action) as an action-proposal.v1 payload. It proposes; it never acts. Every proposal is held in state 'proposed' until a human approves it with an ed25519-signed approval token that Orbit cannot mint, after which a deterministic executor performs the action under a separate write-entitled identity. This is the strategic decision from the design: Olly as a component with TROUBLESHOOT / REMEDIATE actions, reachable via Self-Healing or a direct authorized user request. A direct A2A message/send invokes propose_action and returns an input-required task that the signed approval resolves.",
+  "url": "http://olly-sentinel.olly-replica.svc.cluster.local:8081/",
+  "version": "0.1.0",
+  "provider": {
+    "organization": "ControlPlane / Acme GCO",
+    "url": "https://github.com/acme-co/osramp"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "propose_action",
+      "name": "Propose a remediation action",
+      "description": "Given a correlation-ID for a triaged incident, propose one action from the action-proposal.v1 closed enum and return it in state 'proposed'. The proposal requires human approval before execution: propose_action is gated by tool-confirmation, so a message/send comes back as an A2A input-required task that pauses until a decision. Approval is an ed25519-signed token bound to the specific proposal (proposal_id, correlation_id, action); Orbit holds only the public key and cannot approve its own proposals. Nothing runs until an approved proposal is executed by the deterministic executor under a separate write-entitled identity.",
+      "tags": ["sre", "remediation", "action", "hitl", "approval", "governed", "gco"],
+      "examples": [
+        "{\"correlation_id\": \"corr-2026-0001\", \"action_request\": \"propose\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "eems": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "EEMS-issued bearer token identifying the caller. Orbit itself holds the read-only gco-sentinel-read role and no write entitlement; the executor runs under a separate write-entitled identity."
+    },
+    "approval_jwt": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "An ed25519-signed approval token (EdDSA JWT) authorizing a specific proposal to move proposed -> approved -> executed. Minted by the approval service, which holds the private key; Orbit verifies with the public key only and cannot mint one. Claims bind the token to one proposal_id, correlation_id, and action, so it cannot be replayed onto another proposal."
+    }
+  },
+  "security": [
+    {
+      "eems": ["elk.logs.read"],
+      "approval_jwt": ["action.approve"]
+    }
+  ]
+}

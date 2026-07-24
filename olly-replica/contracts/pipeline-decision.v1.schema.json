@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/pipeline-decision.v1.schema.json",
+  "title": "PipelineDecision",
+  "description": "One record per gate the incident flow evaluates, published to olly.pipeline.decisions and keyed by correlation-ID. This is observability, not a business edge: emitting a decision record never changes routing, and a 'reject' branch still ends the flow exactly as the design doc describes. It exists because the branch actually taken was previously visible only in unstructured pod logs, which cannot be replayed after a restart and cannot be joined across components. Together the records for one correlation-ID are the causality chain for that incident, and are what the console renders as both a decision tree and a SIEM-style audit timeline.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "event_id",
+    "app_id",
+    "component",
+    "gate",
+    "branch",
+    "reason",
+    "ts"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "correlation_id": {
+      "type": "string",
+      "description": "The join key across every component and every record. Never an INC number.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Distinguishes records that share a correlation-ID, which the loop-guard and dedup branches require: a replayed incident carries one correlation-ID across several distinct event_ids.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "app_id": {
+      "type": "string",
+      "description": "Empty only when the gate rejected the event before app_id could be trusted (schema_validate).",
+      "maxLength": 64
+    },
+    "component": {
+      "type": "string",
+      "enum": ["noi_mapping_service", "olly_sentinel", "io_automation"],
+      "description": "Which lane of the flow diagram evaluated the gate."
+    },
+    "gate": {
+      "type": "string",
+      "enum": [
+        "schema_validate",
+        "subscription",
+        "automation_eligibility",
+        "source_filter",
+        "dedup",
+        "loop_guard",
+        "eems_entitlement",
+        "mcp_fanout",
+        "correlate",
+        "hitl",
+        "llm_guard",
+        "orbit_a2a",
+        "publish",
+        "ticket_write"
+      ],
+      "description": "The decision point. Ordered roughly by position in the flow, though a single incident never traverses all of them. 'llm_guard' records the model-based scanner on the Olly -> Orbit A2A hop; 'orbit_a2a' records Olly handing the action decision to Orbit over A2A."
+    },
+    "branch": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "reject",
+        "skip",
+        "duplicate",
+        "loop_guarded",
+        "parked",
+        "auto_remediated",
+        "scanned",
+        "blocked",
+        "engaged",
+        "complete",
+        "fail"
+      ],
+      "description": "Which way the gate went. 'pass' continues the flow; every other value is terminal for that record's component. 'scanned' marks a clean LLM Guard pass on the Olly -> Orbit hop, 'blocked' a tripped scan that held the hand-off, 'engaged' the A2A hand-off to Orbit."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Human-readable justification, safe to render. Scrubbed of secrets by the emitter.",
+      "maxLength": 512
+    },
+    "ts": { "type": "string", "format": "date-time" },
+    "enrichment_pass": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 16,
+      "description": "Which enrichment pass produced this record; the loop guard bounds it."
+    },
+    "fault_domain": {
+      "type": "string",
+      "enum": ["application", "infrastructure", "dependency", "change", "data", "unknown"]
+    },
+    "confidence_score": { "type": "number", "minimum": 0, "maximum": 1 },
+    "duration_ms": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Wall-clock time the gate took, so the causality chain doubles as a latency trace."
+    },
+    "detail": {
+      "type": "object",
+      "description": "Gate-specific context, capped so a record stays renderable in a table cell.",
+      "maxProperties": 8
+    }
+  }
+}

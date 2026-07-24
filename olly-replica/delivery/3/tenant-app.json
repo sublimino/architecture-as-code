@@ -1,0 +1,990 @@
+{
+  "title": "Tenant App View (Olly replica)",
+  "uid": "tenant-app-view",
+  "tags": [
+    "olly-replica",
+    "tenant",
+    "per-app"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "links": [
+    {
+      "title": "Open incidents in ServiceNow",
+      "type": "link",
+      "icon": "external link",
+      "url": "${snow_url}/incident_list.do",
+      "targetBlank": true,
+      "tooltip": "Browse the Olly-tracked incidents in the ServiceNow PDI"
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "app",
+        "label": "Tenant app",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "olly-prom"
+        },
+        "query": {
+          "query": "label_values(tenant_app_up, app_id)",
+          "refId": "a"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "inventory-service",
+          "value": "inventory-service"
+        }
+      },
+      {
+        "name": "snow_url",
+        "label": "ServiceNow base URL",
+        "description": "Your PDI base URL; match SERVICENOW_URL in .env.",
+        "type": "constant",
+        "query": "https://dev12345.service-now.com",
+        "current": {
+          "text": "https://dev12345.service-now.com",
+          "value": "https://dev12345.service-now.com"
+        },
+        "hide": 2
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Health: $app (live application metrics)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Request rate",
+      "description": "req/s served by $app (tenant-app /metrics).",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(tenant_app_requests_total{app_id=\"$app\"}[5m]))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "area",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "reqps",
+          "decimals": 1
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Error rate",
+      "description": "5xx as a percentage of all requests for $app.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "100 * sum(rate(tenant_app_requests_total{app_id=\"$app\",code=\"500\"}[5m])) / clamp_min(sum(rate(tenant_app_requests_total{app_id=\"$app\"}[5m])), 0.001)",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "percent",
+          "decimals": 2,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Latency p95",
+      "description": "95th percentile request latency for $app.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(tenant_app_request_duration_seconds_bucket{app_id=\"$app\"}[5m])))",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.2
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Serving",
+      "description": "tenant_app_up: 1 when $app is serving. NO DATA renders explicitly, never green.",
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max(tenant_app_up{app_id=\"$app\"})",
+          "instant": true
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "UP",
+                  "color": "green"
+                },
+                "0": {
+                  "text": "DOWN",
+                  "color": "red"
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request rate by response code",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (code) (rate(tenant_app_requests_total{app_id=\"$app\"}[1m]))",
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "reqps",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 6
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(tenant_app_request_duration_seconds_bucket{app_id=\"$app\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(tenant_app_request_duration_seconds_bucket{app_id=\"$app\"}[5m])))",
+          "legendFormat": "p95"
+        },
+        {
+          "refId": "C",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(tenant_app_request_duration_seconds_bucket{app_id=\"$app\"}[5m])))",
+          "legendFormat": "p99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "custom": {
+            "drawStyle": "line"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Pod CPU (cores)",
+      "description": "Real container CPU for $app from cAdvisor: genuine pod metrics now that the tenant app is a real workload.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"olly-replica\", pod=~\"$app-.*\", container=\"app\"}[5m]))",
+          "legendFormat": "cpu cores"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Pod memory (working set)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(container_memory_working_set_bytes{namespace=\"olly-replica\", pod=~\"$app-.*\", container=\"app\"})",
+          "legendFormat": "working set"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "bytes",
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 200,
+      "type": "row",
+      "title": "Security: Aqua / Trivy ($app)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "bargauge",
+      "title": "Image vulnerabilities by severity",
+      "description": "Provenance: trivy-operator VulnerabilityReports for $app's workload, exported as Prometheus metrics. Scoped read-only Aqua feed.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (severity) (trivy_image_vulnerabilities{exported_namespace=\"olly-replica\", resource_name=~\"$app.*\"})",
+          "legendFormat": "{{severity}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "none",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "table",
+      "title": "Vulnerabilities by image and severity ($app)",
+      "description": "Affected runtime images for this tenant and their vulnerability counts by severity (Trivy Operator). For CVE-level detail, use the estate dashboard's Aqua drill-down.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (image_repository, image_tag, severity) (trivy_image_vulnerabilities{exported_namespace=\"olly-replica\", resource_name=~\"$app.*\"})",
+          "instant": true,
+          "format": "table"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "job": true,
+              "instance": true,
+              "container": true,
+              "endpoint": true,
+              "namespace": true,
+              "pod": true,
+              "service": true
+            },
+            "renameByName": {
+              "image_repository": "image",
+              "image_tag": "tag",
+              "Value": "count"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "sortBy": [
+          {
+            "displayName": "count",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "severity"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Critical": {
+                        "color": "red",
+                        "index": 0
+                      },
+                      "High": {
+                        "color": "orange",
+                        "index": 1
+                      },
+                      "Medium": {
+                        "color": "yellow",
+                        "index": 2
+                      },
+                      "Low": {
+                        "color": "blue",
+                        "index": 3
+                      },
+                      "Unknown": {
+                        "color": "text",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 400,
+      "type": "row",
+      "title": "Agent control tower: $app (RCA lifecycle and incidents)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 31
+      },
+      "panels": []
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Incident lifecycle throughput ($app)",
+      "description": "Agent-emitted Prometheus metrics, sliced to this tenant by the app_id label the sentinel now stamps on every counter.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(rate(olly_incidents_received_total{app_id=\"$app\"}[5m]))",
+          "legendFormat": "received"
+        },
+        {
+          "refId": "B",
+          "expr": "sum(rate(olly_incidents_processed_total{outcome=\"completed\", app_id=\"$app\"}[5m]))",
+          "legendFormat": "completed"
+        },
+        {
+          "refId": "C",
+          "expr": "sum(rate(olly_incidents_processed_total{outcome=\"failed\", app_id=\"$app\"}[5m]))",
+          "legendFormat": "failed"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "custom": {
+            "drawStyle": "line",
+            "spanNulls": true,
+            "showPoints": "always",
+            "pointSize": 6,
+            "lineWidth": 2,
+            "fillOpacity": 8
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 14,
+      "type": "bargauge",
+      "title": "Pipeline stage latency p90 ($app, last 1h)",
+      "description": "Per-stage p90 RCA timings for this tenant over the last hour from olly_stage_duration_seconds. A snapshot rather than a timeline, because RCA runs are on-demand and a rate-based line goes gappy between them; the sub-15-minute time-to-RCA target is the sum across these stages.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "olly-prom"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.9, sum by (stage, le) (rate(olly_stage_duration_seconds_bucket{app_id=\"$app\"}[1h])))",
+          "legendFormat": "{{stage}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "NO DATA",
+          "unit": "s",
+          "decimals": 3,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Incidents ($app)",
+      "description": "Individual incidents for this tenant (olly-incidents index, mirrored from the IO Mapping Service). state=enriched means Olly has posted an RCA. Click an INC to open that exact record in ServiceNow. 24h look-back so the startup-seeded incidents stay visible.",
+      "timeFrom": "24h",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "olly-es-incidents"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "app_id:$app",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "50"
+              }
+            }
+          ],
+          "bucketAggs": []
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "@timestamp": true,
+              "_id": true,
+              "_index": true,
+              "_type": true,
+              "correlation_id": true,
+              "app_id": true,
+              "alert_type": true,
+              "confidence_score": true,
+              "created_at": true,
+              "rca_summary": true,
+              "highlight": true,
+              "sort": true
+            },
+            "indexByName": {
+              "inc_number": 0,
+              "state": 1,
+              "fault_domain": 2,
+              "short_description": 3,
+              "enriched_at": 4,
+              "sys_id": 5
+            },
+            "renameByName": {
+              "inc_number": "INC",
+              "fault_domain": "fault domain",
+              "short_description": "summary",
+              "enriched_at": "enriched"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {
+          "noValue": "no incidents yet"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "sys_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "INC"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open ${__value.text} in ServiceNow",
+                    "url": "${snow_url}/incident.do?sys_id=${__data.fields.sys_id}&sysparm_record_target=incident",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "state"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "enriched": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "in_progress": {
+                        "color": "yellow",
+                        "index": 1
+                      },
+                      "new": {
+                        "color": "blue",
+                        "index": 2
+                      },
+                      "auto_remediated": {
+                        "color": "orange",
+                        "index": 3
+                      },
+                      "raw": {
+                        "text": "raw",
+                        "color": "#808080",
+                        "index": 4
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Recent errors: app-logs-* ($app)",
+      "description": "Error log evidence for $app. Untrusted text: Grafana's default HTML escaping is the sanitisation control (design doc §6 safety suite). Seeded fixture, so a 24h look-back.",
+      "timeFrom": "24h",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 40
+      },
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "olly-es-app"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "query": "level:ERROR AND app_id:$app",
+          "timeField": "@timestamp",
+          "metrics": [
+            {
+              "id": "1",
+              "type": "raw_data",
+              "settings": {
+                "size": "20"
+              }
+            }
+          ],
+          "bucketAggs": []
+        }
+      ],
+      "options": {
+        "showHeader": true
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "^(?!(@timestamp|app_id|level|message)$).*"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {
+              "@timestamp": 0,
+              "app_id": 1,
+              "level": 2,
+              "message": 3
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "title": "",
+      "transparent": true,
+      "id": 1300,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 49
+      },
+      "options": {
+        "mode": "html",
+        "content": "<div class=\"acme-inject\" style=\"display:none\"></div>\n<div id=\"acme-space\" style=\"position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:radial-gradient(1100px 640px at 80% -12%,#14264d 0%,rgba(8,12,22,0) 60%),radial-gradient(820px 560px at 8% 112%,#241a4a 0%,rgba(8,12,22,0) 55%),linear-gradient(180deg,#05070f 0%,#0a1122 55%,#06080f 100%);\">\n  <canvas id=\"acme-stars\" style=\"position:absolute;inset:0;width:100%;height:100%;\"></canvas>\n  <svg id=\"acme-scene\" viewBox=\"20 150 280 152\" preserveAspectRatio=\"xMaxYMin meet\" style=\"position:absolute;right:0.8vw;top:104px;width:min(25vw,340px);height:auto;opacity:.95;overflow:visible;\">\n    <defs>\n      <radialGradient id=\"acp\" cx=\"38%\" cy=\"30%\" r=\"78%\"><stop offset=\"0%\" stop-color=\"#2f628f\"/><stop offset=\"52%\" stop-color=\"#173a5e\"/><stop offset=\"100%\" stop-color=\"#0c1f36\"/></radialGradient>\n      <radialGradient id=\"aca\" cx=\"50%\" cy=\"50%\" r=\"50%\"><stop offset=\"72%\" stop-color=\"rgba(87,148,242,0)\"/><stop offset=\"90%\" stop-color=\"rgba(87,148,242,.34)\"/><stop offset=\"100%\" stop-color=\"rgba(87,148,242,0)\"/></radialGradient>\n    </defs>\n    <path id=\"aco\" fill=\"none\" stroke=\"rgba(125,165,225,.16)\" stroke-width=\"1\" stroke-dasharray=\"3 6\" d=\"M 30,222 a 120,58 0 1,1 240,0 a 120,58 0 1,1 -240,0\"/>\n    <circle cx=\"150\" cy=\"236\" r=\"66\" fill=\"url(#aca)\"/>\n    <circle cx=\"150\" cy=\"236\" r=\"54\" fill=\"url(#acp)\" stroke=\"rgba(120,170,220,.28)\" stroke-width=\"1\"/>\n    <g id=\"acme-sat\" transform=\"translate(270,222)\">\n      <rect x=\"-19\" y=\"-4\" width=\"11\" height=\"8\" rx=\"1\" fill=\"#22406a\" stroke=\"#5794f2\" stroke-width=\".7\"/>\n      <rect x=\"8\" y=\"-4\" width=\"11\" height=\"8\" rx=\"1\" fill=\"#22406a\" stroke=\"#5794f2\" stroke-width=\".7\"/>\n      <rect x=\"-5\" y=\"-5\" width=\"10\" height=\"10\" rx=\"2\" fill=\"#e7edf6\" stroke=\"#9fb3cc\" stroke-width=\".8\"/>\n      <circle cx=\"0\" cy=\"-8.5\" r=\"2.6\" fill=\"#cbd8e8\" stroke=\"#9fb3cc\" stroke-width=\".6\"/>\n      <line x1=\"0\" y1=\"-5\" x2=\"0\" y2=\"-8.5\" stroke=\"#9fb3cc\" stroke-width=\".8\"/>\n    </g>\n  </svg>\n</div>\n<button id=\"acme-theme-toggle\" type=\"button\" title=\"Switch between the space theme and the default Grafana theme\">Default theme</button>\n<style id=\"acme-theme-src\">\n  /* Space theme. Copied into <head> so it survives dashboard navigation;\n     .acme-plain on <html> switches back to light Grafana. */\n  html:not(.acme-plain) { background: #06080f !important; }\n  html:not(.acme-plain) body { background: transparent !important; }\n  html:not(.acme-plain) .main-view, html:not(.acme-plain) .dashboard-container, html:not(.acme-plain) .scrollbar-view,\n  html:not(.acme-plain) .react-grid-layout, html:not(.acme-plain) .page-dashboard,\n  html:not(.acme-plain) [class*=\"dashboard-content\"], html:not(.acme-plain) [class*=\"dashboardCanvas\"],\n  html:not(.acme-plain) [class*=\"pageContent\"] { background: transparent !important; }\n  /* White card + under-glow on data panels only (markers excluded).\n     No forced background, so colorMode colours survive. */\n  html:not(.acme-plain) .panel-container:not(:has(.acme-inject)):not(:has(.acme-titlecard)) {\n    border: 1px solid rgba(154,188,255,.42) !important; border-radius: 12px !important;\n    box-shadow: 0 8px 20px -8px rgba(4,8,22,.55), 0 2px 5px rgba(4,8,22,.30), 0 0 0 1px rgba(154,188,255,.16) !important; }\n  /* Round + clip the content so a colorMode:background stat reads as a rounded tile. */\n  html:not(.acme-plain) .panel-container:not(:has(.acme-inject)):not(:has(.acme-titlecard)) .panel-content,\n  html:not(.acme-plain) .panel-container:not(:has(.acme-inject)):not(:has(.acme-titlecard)) [data-testid=\"panel content\"] {\n    border-radius: 10px !important; overflow: hidden !important; }\n  html:not(.acme-plain) .panel-container:has(.acme-inject), html:not(.acme-plain) .panel-container:has(.acme-titlecard) {\n    background: transparent !important; border: 0 !important; box-shadow: none !important; }\n  html:not(.acme-plain) .panel-title, html:not(.acme-plain) [class*=\"panel-title\"], html:not(.acme-plain) [class*=\"PanelChrome\"] [class*=\"title\"] {\n    color: #1f2733 !important; text-transform: none; letter-spacing: 0; text-shadow: none !important; font-size: 12.5px !important; font-weight: 640; }\n  /* Section headers (native type:row): white title text on the starfield.\n     Grafana 11.4 tags the title data-testid=\"dashboard-row-title-<title>\";\n     .dashboard-row__title is the fallback. Only the title is recoloured, so\n     collapse still works. */\n  html:not(.acme-plain) .dashboard-row__title,\n  html:not(.acme-plain) [data-testid*=\"dashboard-row-title\"],\n  html:not(.acme-plain) [data-testid*=\"dashboard-row-title\"] * {\n    color: #ffffff !important; background: transparent !important; border: 0 !important; box-shadow: none !important;\n    text-shadow: 0 1px 4px rgba(0,0,0,.85), 0 0 2px rgba(0,0,0,.6) !important;\n    font-weight: 700; font-size: 13px; letter-spacing: 0; text-transform: none;\n    cursor: pointer !important; pointer-events: auto !important; }\n  html:not(.acme-plain) .dashboard-row { background: transparent !important; border: 0 !important; }\n  /* Table: light header + hairline row separators. */\n  html:not(.acme-plain) [role=\"table\"] [role=\"columnheader\"] {\n    background: #f4f6fa !important; color: #1f2733 !important; font-weight: 640; border-bottom: 1px solid rgba(154,188,255,.45) !important; }\n  html:not(.acme-plain) [role=\"row\"] [role=\"cell\"] { border-bottom: 1px solid rgba(120,140,175,.18) !important; }\n  html:not(.acme-plain) [role=\"row\"]:hover [role=\"cell\"] { background: rgba(50,116,217,.06) !important; }\n  html:not(.acme-plain) a, html:not(.acme-plain) a:link { color: #3274d9 !important; }\n  html.acme-plain #acme-space { display: none !important; }\n  /* Default theme: drop the title card's inline glow + blue rim so it sits flat. */\n  html.acme-plain .acme-titlecard { box-shadow: none !important; border-color: #e4e7eb !important; }\n  /* planet sits clear below the header band regardless of the inline top */\n  #acme-scene { top: clamp(104px, 13vh, 150px) !important; }\n  /* theme toggle: fixed pill, bottom-middle */\n  #acme-theme-toggle { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 2000; cursor: pointer;\n    font: 600 12px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 6px 12px; border-radius: 8px;\n    color: #1f2733; background: #fff; border: 1px solid rgba(154,188,255,.45); box-shadow: 0 4px 12px rgba(0,0,0,.4), 0 0 0 1px rgba(154,188,255,.14); }\n  html.acme-plain #acme-theme-toggle { border: 1px solid #d3d8de; box-shadow: 0 2px 8px rgba(24,39,75,.15); }\n</style>\n<script>\n(function () {\n  try { if (localStorage.getItem('acme-theme') === 'plain') document.documentElement.classList.add('acme-plain'); } catch (e) {}\n  var doc = document.documentElement;\n  function label() { var b = document.getElementById('acme-theme-toggle'); if (b) b.textContent = doc.classList.contains('acme-plain') ? 'Space theme' : 'Default theme'; }\n  // Copy the panel <style> into a persistent <head> element so the theme\n  // survives the panel unmounting on navigation.\n  function ensureStyle() {\n    var src = document.getElementById('acme-theme-src');\n    var head = document.getElementById('acme-theme-style');\n    if (!head) { head = document.createElement('style'); head.id = 'acme-theme-style'; document.head.appendChild(head); }\n    if (src && head.textContent !== src.textContent) head.textContent = src.textContent;\n  }\n  // Keep exactly one #acme-space, parked as a direct <body> child (persistent across nav).\n  function keepSpace() {\n    var nodes = document.querySelectorAll('#acme-space'), body = document.body, keep = null, i;\n    for (i = 0; i < nodes.length; i++) { if (nodes[i].parentNode === body) { keep = nodes[i]; break; } }\n    if (!keep && nodes.length) { keep = nodes[0]; body.insertBefore(keep, body.firstChild); }\n    for (i = 0; i < nodes.length; i++) { if (nodes[i] !== keep) nodes[i].remove(); }\n    return keep;\n  }\n  // Dedupe the toggle and wire it once.\n  function placeToggle() {\n    var keep = window.__acmeToggle || null, nodes = document.querySelectorAll('#acme-theme-toggle'), i;\n    for (i = 0; i < nodes.length; i++) { if (!keep && nodes[i].__wired) keep = nodes[i]; }\n    if (!keep && nodes.length) keep = nodes[0];\n    if (!keep) return;\n    window.__acmeToggle = keep;\n    for (i = 0; i < nodes.length; i++) { if (nodes[i] !== keep) nodes[i].remove(); }\n    if (!keep.__wired) { keep.__wired = true; keep.addEventListener('click', function () { var plain = doc.classList.toggle('acme-plain'); try { localStorage.setItem('acme-theme', plain ? 'plain' : 'space'); } catch (e) {} label(); }); }\n    // Keep as a direct <body> child. Don't append into Grafana's React-managed\n    // header: React removes foreign children and re-appending loops.\n    if (keep.parentNode !== document.body) document.body.appendChild(keep);\n    label();\n  }\n  function boot() { ensureStyle(); keepSpace(); placeToggle(); }\n  boot();\n  // Starfield on the persistent #acme-space canvas; restarts if it stalls.\n  if (!window.__acmeStars) {\n    window.__acmeStars = true;\n    // rafId tracks the single pending frame; start() is idempotent (no-op while a\n    // frame is scheduled) so focus/visibility/toggle can't spawn a second loop.\n    var x, st = [], w = 0, h = 0, dpr = 1, beat = 0, rafId = 0, cv = null, sat = null, satA = 0;\n    function canvas() { var s = document.getElementById('acme-space'); return s ? s.querySelector('#acme-stars') : null; }\n    function seed() { var n = Math.max(80, Math.round(w * h / 6500)); st = []; for (var i = 0; i < n; i++) { var l = 1 + Math.floor(Math.random() * 3); st.push({ x: Math.random() * w, y: Math.random() * h, r: (4 - l) * 0.45 + 0.25, sp: (4 - l) * 0.055 + 0.015, tw: Math.random() * 6.283, tws: 0.015 + Math.random() * 0.035, h: l }); } }\n    function resize() { cv = canvas(); if (!cv) return; x = cv.getContext('2d'); dpr = Math.min(window.devicePixelRatio || 1, 2); w = window.innerWidth; h = window.innerHeight; cv.width = w * dpr; cv.height = h * dpr; x.setTransform(dpr, 0, 0, dpr, 0, 0); seed(); }\n    function frame() { rafId = 0; beat++; if (!cv || !document.body.contains(cv)) { return; } if (!doc.classList.contains('acme-plain')) { x.clearRect(0, 0, w, h); for (var i = 0; i < st.length; i++) { var s = st[i]; s.x -= s.sp; if (s.x < -2) { s.x = w + 2; s.y = Math.random() * h; } s.tw += s.tws; x.globalAlpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(s.tw)); x.fillStyle = s.h === 1 ? '#d3ddf2' : (s.h === 2 ? '#9fb6e8' : '#7d92c6'); x.beginPath(); x.arc(s.x, s.y, s.r, 0, 6.283); x.fill(); } x.globalAlpha = 1; if (!sat || !document.body.contains(sat)) sat = document.getElementById('acme-sat'); if (sat) { satA += 0.0075; sat.setAttribute('transform', 'translate(' + (150 + 120 * Math.cos(satA)).toFixed(1) + ',' + (222 + 58 * Math.sin(satA)).toFixed(1) + ')'); } } rafId = requestAnimationFrame(frame); }\n    function start() { if (rafId) return; if (!cv || !document.body.contains(cv)) resize(); if (cv) rafId = requestAnimationFrame(frame); }\n    resize(); start();\n    window.addEventListener('resize', resize);\n    window.addEventListener('focus', start);\n    document.addEventListener('visibilitychange', function () { if (!document.hidden) start(); });\n    var last = -1;\n    setInterval(function () { if (!cv || !document.body.contains(cv)) { if (rafId) cancelAnimationFrame(rafId); rafId = 0; resize(); start(); return; } if (beat === last) { if (rafId) cancelAnimationFrame(rafId); rafId = 0; start(); } last = beat; }, 1000);\n  }\n  // Re-assert theme + toggle across Grafana's SPA route changes.\n  if (!window.__acmeThemeInstalled) {\n    window.__acmeThemeInstalled = true;\n    // Re-assert on SPA route changes + a 1.5s heartbeat. No MutationObserver:\n    // a body-wide observer fires on every panel render.\n    ['pushState', 'replaceState'].forEach(function (m) { var o = history[m]; history[m] = function () { var r = o.apply(this, arguments); setTimeout(boot, 0); return r; }; });\n    window.addEventListener('popstate', function () { setTimeout(boot, 0); });\n    setInterval(boot, 1500);\n  }\n})();\n</script>"
+      }
+    }
+  ]
+}

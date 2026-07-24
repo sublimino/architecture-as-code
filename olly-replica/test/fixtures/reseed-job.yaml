@@ -1,0 +1,47 @@
+# Test-time reseed: re-runs the seed script so the demo incidents are stamped
+# with a fresh @timestamp (the ingest pipeline overrides @timestamp at write
+# time) and therefore fall inside the sentinel's query window on a cluster
+# that was first seeded hours ago. The suite's setup_file builds the
+# `olly-reseed` configMap from the working-tree seed files, so `make olly-test`
+# always exercises the current scenarios without waiting for a Flux reconcile.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: olly-reseed
+  labels:
+    app: olly-reseed
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: olly-reseed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: curlimages/curl:8.8.0
+          command: ["/bin/sh", "/seed/seed-logs.sh"]
+          env:
+            - name: ES_URL
+              value: http://olly-es-http:9200
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: olly-es-elastic-user
+                  key: elastic
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: seed
+          configMap:
+            name: olly-reseed

@@ -1,0 +1,89 @@
+# Kafka stand-in: a single Redpanda broker carrying the event_response and
+# olly_eligible topics (created by the topics Job in configs). TLS and the
+# console stay off in the replica; topic ACLs and mTLS are the client-side
+# controls (threat model, Kafka row) and get demonstrated against the real
+# estate, not the kind cluster.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: redpanda
+spec:
+  interval: 1h
+  url: https://charts.redpanda.com
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: redpanda
+spec:
+  interval: 1h
+  releaseName: redpanda
+  chart:
+    spec:
+      chart: redpanda
+      # Track the 5.9 line; pin to the resolved patch once the first
+      # reconcile records it (same convention as the infra image policies).
+      version: "5.9.x"
+      sourceRef:
+        kind: HelmRepository
+        name: redpanda
+  install:
+    timeout: 9m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 9m
+    remediation:
+      retries: 3
+  values:
+    statefulset:
+      replicas: 1
+    tls:
+      enabled: false
+    external:
+      enabled: false
+    console:
+      enabled: false
+    resources:
+      cpu:
+        cores: 1
+        overprovisioned: true
+      memory:
+        # Seastar reserves --memory up front and aborts if that much isn't
+        # physically available inside the cgroup. At container.max 1Gi the
+        # chart asked seastar for 819M but only ~778M was free in the 1Gi
+        # limit ("insufficient physical memory ... needed 858783744 available
+        # 815792128"), so the broker crash-looped before the admin API ever
+        # came up (which then showed up as the postStart hook / readiness 500
+        # failures). 2Gi gives seastar (--memory 1638M) real headroom; the
+        # node has ample free memory for a single-broker replica.
+        container:
+          max: 2Gi
+    storage:
+      persistentVolume:
+        size: 2Gi
+  # In overprovisioned mode the chart sets only CPU/memory limits, so
+  # Kubernetes defaults the requests to match them (a full reserved CPU) and
+  # the pod won't schedule on a small or busy node — this was the e2e timeout
+  # (redpanda Pending -> olly-controllers not Ready -> olly-configs blocked).
+  # Pin a small request; redpanda runs fine on shared CPU when overprovisioned.
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: StatefulSet
+              name: redpanda
+            patch: |
+              apiVersion: apps/v1
+              kind: StatefulSet
+              metadata:
+                name: redpanda
+              spec:
+                template:
+                  spec:
+                    containers:
+                      - name: redpanda
+                        resources:
+                          requests:
+                            cpu: 250m
+                            memory: 512Mi

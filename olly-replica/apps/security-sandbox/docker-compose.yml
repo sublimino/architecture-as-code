@@ -1,0 +1,34 @@
+# promptfoo red-team driver for the Estate 95 Security Sandbox.
+#
+# One container: promptfoo with its web UI on :3000. It runs on the operator's
+# machine (not in the kind cluster) and drives attacks at the console broker's
+# Security Sandbox probe (host.docker.internal:8675/api/security/probe), which
+# forwards them to the live Olly agent with LLM Guard on or off per the config.
+#
+# The in-cluster LLM Guard scanner is deployed as a pod (see
+# components/configs/base/llm-guard.yaml), NOT here, so this stack is only the
+# red-team runner. Bring it up with `make -C olly-replica security-sandbox-up`.
+services:
+  promptfoo:
+    image: ghcr.io/promptfoo/promptfoo:latest
+    container_name: olly-promptfoo
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./promptfoo:/app/config
+      - promptfoo_data:/home/promptfoo/.promptfoo
+    environment:
+      - PROMPTFOO_SHARE_CHUNK_SIZE=10
+      # Attack generation and grading use an LLM provider. Supply at least one
+      # key in .env (OpenRouter is the cheapest path; the same key Olly uses).
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+    extra_hosts:
+      # Reach the console broker on the host from inside the container. Docker
+      # Desktop resolves host.docker.internal already; this keeps Linux working.
+      - "host.docker.internal:host-gateway"
+    command: ["view", "-y", "--host", "0.0.0.0", "--port", "3000"]
+
+volumes:
+  promptfoo_data:

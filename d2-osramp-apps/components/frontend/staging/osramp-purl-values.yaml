@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-purl
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+      - name: ghcr-auth
+      containers:
+      - name: listener
+        imagePullPolicy: Always
+        env:
+        - name: STREAM_NAME
+          value: "TASKS_STAGING"
+        - name: CONSUMER_NAME
+          value: "purl-consumer-staging"
+        - name: WORKER_ID
+          value: "purl-worker-staging-1"
+      - name: processor
+        imagePullPolicy: Always
+        env:
+        - name: WORK_DIR
+          value: "/tmp/purl-tasks-staging"
+        - name: WORKER_ID
+          value: "purl-processor-staging-1"

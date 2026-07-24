@@ -1,0 +1,53 @@
+# Create the pipeline topics on the Redpanda broker, mirroring the client
+# estate: the NOI Event Queue (netcool.io.events), the IO-Declined topic that
+# routes Mapping-Service rejections to Olly (stand-in name until the real one
+# is confirmed), and the shared response topic the IO Mapping Service
+# consumes to update ServiceNow -- Olly publishes enrichment there and never
+# writes to ServiceNow directly. The response topic carries two shapes: RCA
+# enrichments from Olly and IO automation results, so both branches of the
+# flow converge there as the diagram shows. olly.pipeline.decisions is
+# observability only: one pipeline-decision.v1 record per gate the flow
+# evaluates, which is what makes the branch actually taken replayable.
+# Deterministic and idempotent: describe first, create only what is missing.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: olly-topics
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: olly-topics
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: rpk
+          image: docker.redpanda.com/redpandadata/redpanda:v24.2.4
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              BROKER="redpanda-0.redpanda.olly-replica.svc.cluster.local:9093"
+              for i in $(seq 1 60); do
+                rpk cluster info -X brokers="${BROKER}" >/dev/null 2>&1 && break
+                echo "waiting for the redpanda broker (${i}/60)"
+                sleep 5
+              done
+              rpk cluster info -X brokers="${BROKER}" >/dev/null
+              for topic in netcool.io.events netcool.io.events.declined ideas-172472-sn30.167564-impact.event_response olly.pipeline.decisions; do
+                if rpk topic describe "${topic}" -X brokers="${BROKER}" >/dev/null 2>&1; then
+                  echo "topic ${topic} already exists"
+                else
+                  rpk topic create "${topic}" -p 1 -r 1 -X brokers="${BROKER}"
+                fi
+              done
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi

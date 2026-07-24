@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Estate 95: OSRAMP / Olly Sentinel console</title>
+  <link rel="stylesheet" href="win95.css">
+</head>
+<body>
+  <div id="desktop">
+    <div id="icons"></div>
+  </div>
+
+  <nav id="startmenu" aria-label="Start menu">
+    <div class="band">Estate&nbsp;<b>95</b></div>
+    <div class="items" id="startitems"></div>
+  </nav>
+
+  <div id="taskbar">
+    <button id="startbtn" aria-haspopup="true"><span class="logo"><i></i><i></i><i></i><i></i></span> Start</button>
+    <span class="tb-div"></span>
+    <div id="tasks"></div>
+    <button id="themebtn" title="Toggle light / after-dark desktop" aria-label="Toggle theme">◐</button>
+    <span id="tray"><span id="clock">12:00 PM</span></span>
+  </div>
+
+  <!-- core -->
+  <script src="estate95.js"></script>
+  <!-- window modules (each self-registers) -->
+  <script src="windows/readme.js"></script>
+  <script src="windows/osramp-console.js"></script>
+  <script src="windows/control-panel.js"></script>
+  <script src="windows/agent-cards.js"></script>
+  <script src="windows/orbit.js"></script>
+  <script src="windows/servicenow.js"></script>
+  <script src="windows/cluster.js"></script>
+  <script src="windows/terminal.js"></script>
+  <script src="windows/pipeline.js"></script>
+  <script src="windows/adk-studio.js"></script>
+  <script src="windows/eval-lab.js"></script>
+  <script src="windows/grafana.js"></script>
+  <script src="windows/security-sandbox.js"></script>
+  <script src="windows/agentic-sre.js"></script>
+  <script src="orbit-alerts.js"></script>
+  <script>Estate95.boot({ openOnBoot: ["readme"] });</script>
+</body>
+</html>

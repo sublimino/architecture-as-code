@@ -1,0 +1,120 @@
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: kube-prometheus-stack
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "30m"
+    fluxcd.controlplane.io/reconcileTimeout: "5m"
+spec:
+  wait: true
+  serviceAccountName: flux
+  dependsOn:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: cert-manager
+      ready: true
+      readyExpr: status.observedGeneration >= 0
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: ingress
+      ready: true
+      readyExpr: status.observedGeneration >= 0
+  inputs:
+    - tenant: "monitoring"
+      clusterDomain: ${CLUSTER_DOMAIN}
+  resources:
+    - apiVersion: helm.toolkit.fluxcd.io/v2
+      kind: HelmRelease
+      metadata:
+        name: kube-prometheus-stack
+        namespace: << inputs.tenant >>
+      spec:
+        serviceAccountName: flux
+        interval: 1h
+        chartRef:
+          kind: OCIRepository
+          name: kube-prometheus-stack
+        install:
+          crds: Create
+          timeout: 9m
+          # cold clusters can spend longer than the timeout pulling images;
+          # keep retrying instead of stalling the whole infra dependency chain
+          remediation:
+            retries: -1
+        upgrade:
+          crds: CreateReplace
+          timeout: 9m
+          remediation:
+            retries: 3
+        driftDetection:
+          mode: enabled
+          ignore:
+            # Ignore "validated" annotation which is not inserted during install
+            - paths: ["/metadata/annotations/prometheus-operator-validated"]
+              target:
+                kind: PrometheusRule
+        # https://github.com/prometheus-community/helm-charts/blob/main/charts/kube-prometheus-stack/values.yaml
+        values:
+          alertmanager:
+            enabled: false
+          prometheus:
+            prometheusSpec:
+              retention: 48h
+              resources:
+                requests:
+                  cpu: 1000m
+                  memory: 1Gi
+              serviceMonitorNamespaceSelector: {}
+              serviceMonitorSelector:
+                matchLabels:
+                  osramp.acme.co/scrape: Enabled
+              podMonitorNamespaceSelector: {}
+              podMonitorSelector:
+                matchLabels:
+                  osramp.acme.co/scrape: Enabled
+          grafana:
+            assertNoLeakedSecrets: false
+            defaultDashboardsEnabled: false
+            grafana.ini:
+              server:
+                root_url: https://grafana.<< inputs.clusterDomain >>
+              users:
+                allow_sign_up: false
+                auto_assign_org: true
+                auto_assign_org_role: Viewer
+            route:
+              main:
+                enabled: true
+                hostnames:
+                  - grafana.<< inputs.clusterDomain >>
+                parentRefs:
+                  - name: cluster
+                    namespace: ingress
+                    sectionName: https
+        postRenderers:
+          - kustomize:
+              patches:
+                - patch: |
+                    - op: add
+                      path: "/metadata/labels/app.fluxcd.io~1component"
+                      value: "metrics"
+                    - op: add
+                      path: "/metadata/labels/osramp.acme.co~1scrape"
+                      value: "Enabled"
+                  target:
+                    kind: ServiceMonitor
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: kube-prometheus-stack
+        namespace: << inputs.tenant >>
+      spec:
+        interval: 1h
+        url: oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack
+        layerSelector:
+          mediaType: "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+          operation: copy
+        ref:
+          tag: "87.10.1" # {"$imagepolicy": "infra:kube-prometheus-stack:tag"}

@@ -1,0 +1,21 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+spec:
+  template:
+    spec:
+      containers:
+      - name: minio
+        env:
+        - name: MINIO_ROOT_USER
+          value: "archivista_staging"
+        - name: MINIO_ROOT_PASSWORD
+          value: "archivista_staging_secret_key"
+      - name: mc-create-bucket
+        env:
+        - name: MINIO_ROOT_USER
+          value: "archivista_staging"
+        - name: MINIO_ROOT_PASSWORD
+          value: "archivista_staging_secret_key"

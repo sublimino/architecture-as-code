@@ -1,0 +1,141 @@
+# The elk_search_logs MCP server. The init container holds the only use of
+# the elastic superuser credential: it mints a read-only API key scoped to
+# exactly the three index patterns (7d expiry, re-minted on every pod start)
+# and hands it over on a shared in-memory volume. The server process never
+# sees the superuser credential — it holds the scoped key and nothing else.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elk-search-mcp
+  labels:
+    app: elk-search-mcp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elk-search-mcp
+  template:
+    metadata:
+      labels:
+        app: elk-search-mcp
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      initContainers:
+        - name: mint-scoped-key
+          image: curlimages/curl:8.8.0
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              i=0
+              until curl -fsS -u "elastic:${ELASTIC_PASSWORD}" "${ES_URL}/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null 2>&1; do
+                i=$((i + 1)); [ "${i}" -gt 120 ] && echo "elasticsearch never came up" && exit 1
+                echo "waiting for elasticsearch (${i}/120)"; sleep 5
+              done
+              curl -fsS -u "elastic:${ELASTIC_PASSWORD}" -X POST "${ES_URL}/_security/api_key" \
+                -H 'Content-Type: application/json' \
+                -d '{
+                  "name": "elk-search-mcp",
+                  "expiration": "7d",
+                  "role_descriptors": {
+                    "olly_logs_reader": {
+                      "indices": [{
+                        "names": ["app-logs-*", "infra-logs-*", "audit-logs-*", "traces-*"],
+                        "privileges": ["read", "view_index_metadata"]
+                      }]
+                    }
+                  }
+                }' > /var/run/olly/es-apikey.json
+              echo "scoped api key minted"
+          env:
+            - name: ES_URL
+              value: http://olly-es-http:9200
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: olly-es-elastic-user
+                  key: elastic
+          volumeMounts:
+            - name: apikey
+              mountPath: /var/run/olly
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: mcp
+          image: olly-elk-mcp:dev
+          imagePullPolicy: Never
+          env:
+            - name: ES_URL
+              value: http://olly-es-http:9200
+            - name: API_KEY_FILE
+              value: /var/run/olly/es-apikey.json
+            - name: MAX_DOCS
+              value: "100"
+            - name: MAX_RANGE_MINUTES
+              value: "1440"
+            # Backing sources for the expanded (7-tool) read-only surface.
+            - name: PROM_URL
+              value: http://kube-prometheus-stack-prometheus.monitoring:9090
+            - name: MAPPING_URL
+              value: http://io-mapping-stub:8080
+            - name: TRACES_INDEX
+              value: traces-*
+            - name: TENANT_PORT
+              value: ":8080"
+            # COIN entitlement on the /mcp transport: verify the sentinel's
+            # bearer and that the tool's scope is in its permitted_actions.
+            - name: AUTHZ_ENABLED
+              value: "true"
+            - name: AUTHZ_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: olly-authz
+                  key: jwt-secret
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          volumeMounts:
+            - name: apikey
+              mountPath: /var/run/olly
+              readOnly: true
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: apikey
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elk-search-mcp
+  labels:
+    app: elk-search-mcp
+spec:
+  selector:
+    app: elk-search-mcp
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

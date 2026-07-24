@@ -1,0 +1,9 @@
+# Self-signed issuer for the local demo. A production deployment would use an
+# ACME issuer (Let's Encrypt with a DNS01 solver) here instead; kind clusters
+# have no public DNS, so certificates are issued from a cluster-local root.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cluster-issuer
+spec:
+  selfSigned: {}

@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/action-proposal.v1.schema.json",
+  "title": "ActionProposal",
+  "description": "Later-phase contract, absent from Phase 1 on purpose ('currently no actions will be taken'). It pins the strategic decision: Olly Sentinel becomes a component with TROUBLESHOOT / REMEDIATE actions, invokable via Self-Healing or an authorized user request. The model proposes one action from a closed enum; a human approves; a deterministic executor performs it under a write-entitled identity that is not gco-sentinel-read. The model never holds execution credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "proposal_id",
+    "correlation_id",
+    "app_id",
+    "action",
+    "justification",
+    "approval"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "proposal_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "correlation_id": {
+      "type": "string",
+      "description": "The join key from the originating event; the executor resolves the target through it, never through free text.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "app_id": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$" },
+    "action": {
+      "type": "string",
+      "enum": ["troubleshoot", "remediate_restart_service", "no_action"],
+      "description": "Closed enum, deliberately tiny: the TROUBLESHOOT component action (read-only deep dive), one concrete remediation shape (service restart via the Execution Layer), and the null action. Growing this list is a governance decision, not a code change."
+    },
+    "justification": { "type": "string", "maxLength": 2000 },
+    "evidence_refs": {
+      "type": "array",
+      "maxItems": 8,
+      "items": { "type": "string", "maxLength": 256 },
+      "description": "Pointers into the RCA enrichment evidence entries this proposal rests on."
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state"],
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["proposed", "approved", "rejected", "executed"],
+          "description": "Only a deterministic executor moves proposed -> executed, and only via approved."
+        },
+        "approved_by": { "type": "string", "maxLength": 128 },
+        "decided_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

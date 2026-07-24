@@ -1,0 +1,11 @@
+# Negative-test fixture: a chart repository that is not on the fleet source
+# allowlist. Applying this into the tenant namespace must be DENIED by the
+# CEL ValidatingAdmissionPolicy.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: evil
+  namespace: olly-replica
+spec:
+  interval: 1h
+  url: https://evil.example.com/charts

@@ -1,0 +1,29 @@
+name: image-updates
+
+on:
+  # Manual trigger only. Automatic push/merge/tag/schedule triggers are disabled for now;
+  # run these from the Actions tab (workflow_dispatch).
+  workflow_dispatch:
+jobs:
+  pull-request:
+    if: github.event_name != 'create' || github.ref_name == 'image-updates'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Create Pull Request
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+        run: |
+          gh pr create \
+            --repo=${GITHUB_REPO} \
+            --head=image-updates \
+            --base=main \
+            --fill-first

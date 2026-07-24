@@ -1,0 +1,210 @@
+{
+  "lanes": [
+    {
+      "id": "control",
+      "title": "Environment: bring the whole demo up and down",
+      "console": "control",
+      "steps": [
+        {
+          "id": "lifecycle",
+          "name": "Cluster lifecycle",
+          "owner": "Platform team",
+          "phase": "Local demo",
+          "status": "implemented",
+          "description": "Bring the full local environment up (kind cluster, in-cluster registry, signed artifacts, Flux bootstrap, images, reconcile) or tear it down. These serialize: only one lifecycle action runs at a time so destructive operations never overlap.",
+          "actions": [
+            { "id": "setup", "label": "Install prerequisites (setup.sh)", "command": ["./scripts/setup.sh"], "class": "lifecycle" },
+            { "id": "up", "label": "Bring the whole demo up (make up)", "command": ["make", "up"], "class": "lifecycle" },
+            { "id": "wait", "label": "Wait for GitOps convergence", "command": ["make", "wait"], "class": "lifecycle" },
+            { "id": "down", "label": "Delete the kind cluster (make down)", "command": ["make", "down"], "class": "lifecycle" },
+            { "id": "teardown", "label": "Tear down cluster + build state", "command": ["make", "teardown"], "class": "lifecycle" },
+            { "id": "teardown-all", "label": "Tear down everything, incl. tools", "command": ["make", "teardown-all"], "class": "lifecycle" }
+          ]
+        },
+        {
+          "id": "olly",
+          "name": "Olly Sentinel + ADK",
+          "owner": "GCO / Agentic SRE",
+          "phase": "Phase 1",
+          "status": "implemented",
+          "description": "Run the enrichment loop end to end, run the ADK eval (signal-check gate + rca_readiness), launch adk web for ADK Studio, and wire ServiceNow / LLM secrets from .env.",
+          "actions": [
+            { "id": "olly-test", "label": "Run the enrichment-loop bats suite", "command": ["make", "olly-test"], "class": "lifecycle" },
+            { "id": "olly-eval", "label": "Run the ADK eval (gate + rca_readiness)", "command": ["make", "olly-eval"], "class": "background" },
+            { "id": "olly-adk-web", "label": "Launch adk web (ADK Studio :8000)", "command": ["make", "olly-adk-web"], "class": "background" },
+            { "id": "olly-pdi-secret", "label": "Wire ServiceNow PDI from .env", "command": ["make", "olly-pdi-secret"], "class": "lifecycle" },
+            { "id": "olly-llm-secret", "label": "Wire the LLM narrator from .env", "command": ["make", "olly-llm-secret"], "class": "lifecycle" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "deliver",
+      "title": "Deliver: signed artifacts to running clusters",
+      "console": "osramp",
+      "steps": [
+        {
+          "id": "source",
+          "name": "Source and CI",
+          "owner": "Application team",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "Manifests and app code live in git. On merge to main, GitHub Actions packages each component as an OCI artifact and builds the app images with SBOM and provenance. Locally, make push-local performs the identical publish against the in-cluster registry.",
+          "actions": [
+            { "id": "push-local", "label": "Publish signed artifacts (local registry)", "command": ["make", "push-local"] }
+          ]
+        },
+        {
+          "id": "registry",
+          "name": "OCI registry (zot / GHCR)",
+          "owner": "Platform team",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "Every input to the cluster is an OCI artifact: manifests, images, signatures. Locally this is zot running in-cluster; in CI-published mode it is GHCR. Signatures travel with the artifacts.",
+          "actions": [
+            { "id": "registry-status", "label": "Check registry health", "command": ["kubectl", "-n", "registry", "get", "pods", "-o", "wide"] }
+          ]
+        },
+        {
+          "id": "flux",
+          "name": "Flux verification and reconciliation",
+          "owner": "Platform team",
+          "phase": "Phase 3 (L3/L4)",
+          "status": "implemented",
+          "description": "Flux pulls the artifacts, verifies the cosign signature (keyless OIDC identity in CI mode, the local key pair in local mode) before reconciling, and converges cluster state. Nothing unsigned reaches the cluster.",
+          "actions": [
+            { "id": "flux-status", "label": "Show reconciliation status", "command": ["kubectl", "get", "kustomizations,ocirepositories,resourcesets", "-A"] },
+            { "id": "wait-reconciled", "label": "Wait for full convergence", "command": ["make", "wait"] }
+          ]
+        },
+        {
+          "id": "policies",
+          "name": "Admission policies",
+          "owner": "Security team authors, platform team enforces",
+          "phase": "Phase 3 (L3/L4)",
+          "status": "implemented",
+          "description": "A CEL ValidatingAdmissionPolicy restricts every tenant Flux source to an allowlist, so a compromised tenant cannot point the cluster at an arbitrary registry. Witness policy verification at admission time lands in stage 4.",
+          "actions": [
+            { "id": "policy-status", "label": "Show admission policies", "command": ["kubectl", "get", "validatingadmissionpolicies,validatingadmissionpolicybindings"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "operate",
+      "title": "Operate: the OSRAMP ingestion pipeline",
+      "console": "osramp",
+      "steps": [
+        {
+          "id": "queue",
+          "name": "Ingestion queue (purl intake)",
+          "owner": "Application team",
+          "phase": "Phase 1 (L1)",
+          "status": "implemented",
+          "description": "Third-party packages enter as purls on a NATS JetStream queue. The purl worker checks the cache and queues an isolated install and analysis for anything new.",
+          "actions": [
+            { "id": "publish-purl", "label": "Ingest pkg:npm/lodash@4.17.21", "command": ["./scripts/publish-purl.sh", "pkg:npm/lodash@4.17.21"] },
+            { "id": "queue-logs", "label": "Show purl worker logs", "command": ["kubectl", "logs", "-n", "frontend", "-l", "app=osramp-purl", "-c", "processor", "--tail", "40"] }
+          ]
+        },
+        {
+          "id": "processor",
+          "name": "Analysis worker (SBOM under witness)",
+          "owner": "Application team",
+          "phase": "Phase 1 (L1)",
+          "status": "implemented",
+          "description": "The worker installs the package in an isolated directory and generates an SPDX SBOM with syft. The SBOM step runs under witness run, producing a signed in-toto attestation, and publishes results back to the queue.",
+          "actions": [
+            { "id": "processor-logs", "label": "Show processor logs", "command": ["kubectl", "logs", "-n", "frontend", "-l", "app=osramp-multipurpose", "-c", "processor", "--tail", "40"] }
+          ]
+        },
+        {
+          "id": "archivista",
+          "name": "Archivista evidence store",
+          "owner": "Platform team",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "Signed attestations from every witness run land here: SBOM generation, test evidence, VEX analysis. Anything a policy decision later relies on is queryable by anyone with access, across teams.",
+          "actions": [
+            { "id": "attested-test", "label": "Run tests under witness (evidence to Archivista)", "command": ["make", "attested-test"] }
+          ]
+        },
+        {
+          "id": "archive-db",
+          "name": "Results archive (PostgreSQL)",
+          "owner": "Application team",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "Task results, full SBOM documents, and attestation signatures are archived relationally for reporting and the KPI dashboards.",
+          "actions": [
+            { "id": "db-recent", "label": "Show recent task results", "command": ["kubectl", "exec", "-n", "backend", "postgres", "--", "psql", "task_archive", "archiver", "-c", "SELECT task_id, status, result_type, archived_at FROM task_results ORDER BY archived_at DESC LIMIT 10;"] }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "assure",
+      "title": "Assure: triage, policy, and remediation",
+      "console": "osramp",
+      "steps": [
+        {
+          "id": "scan-vex",
+          "name": "Scan and VEX triage",
+          "owner": "Security team (VA sub-team)",
+          "phase": "Phase 1 (L1)",
+          "status": "implemented",
+          "description": "grype scans the stored SBOMs; the VA sub-team triages findings into signed OpenVEX statements: a shared base image CVE, a govulncheck-proven unreachable finding, and an inline-mitigation record. The rescan with VEX applied goes green for the triaged findings.",
+          "actions": [
+            { "id": "vex-demo", "label": "Run the full VEX triage demo", "command": ["make", "vex-demo"] }
+          ]
+        },
+        {
+          "id": "evidence-query",
+          "name": "Attested VEX retrieval",
+          "owner": "Security and platform teams",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "Downstream consumers fetch the merged, attested VEX from Archivista and feed it to their own scanners, so one triage decision is reused everywhere.",
+          "actions": [
+            { "id": "fetch-vex", "label": "Fetch attested VEX from Archivista", "command": ["./scripts/fetch-vex.sh"] }
+          ]
+        },
+        {
+          "id": "e2e",
+          "name": "End-to-end verification",
+          "owner": "Application team",
+          "phase": "Phase 2 (L2)",
+          "status": "implemented",
+          "description": "The bats suite drives the whole pipeline: publish a task, watch it process, verify SBOM generation, witness attestation, and archival, straight from the cluster.",
+          "actions": [
+            { "id": "run-tests", "label": "Run the e2e test suite", "command": ["make", "test"] }
+          ]
+        },
+        {
+          "id": "policy-gate",
+          "name": "Policy gates (promotion and admission)",
+          "owner": "Security team authors, platform team enforces",
+          "phase": "Phase 3 (L3/L4)",
+          "status": "implemented",
+          "description": "A signed witness policy gates promotion: artifacts with attested pipeline evidence pass, tampered ones fail closed, and both decisions land in Archivista. At the cluster boundary, Kyverno denies any pod whose image lacks a valid cosign signature. The revocation walkthrough shows trust being withdrawn and restored end to end.",
+          "actions": [
+            { "id": "promotion-demo", "label": "Promotion gate: approve one, reject one", "command": ["make", "promotion-demo"] },
+            { "id": "admission-demo", "label": "Admission: unsigned image denied", "command": ["make", "admission-demo"] },
+            { "id": "revocation-demo", "label": "Revoke and restore artifact trust", "command": ["make", "revocation-demo"] }
+          ]
+        },
+        {
+          "id": "agent",
+          "name": "Agentic remediation (human in the loop)",
+          "owner": "Security and platform teams jointly",
+          "phase": "Phase 4",
+          "status": "implemented",
+          "description": "A sandboxed agent (nono, kernel-enforced) analyzes one CVE against the SBOM, VEX, and reachability evidence and produces a structured recommendation. It stops at the human gate; applying the change requires an explicit approval and lands as a PR branch, with every step witness-attested. Needs nono and the claude CLI on a Linux host; guardrails are in agent/GUARDRAILS.md.",
+          "actions": [
+            { "id": "agent-demo", "label": "Analyze CVE-2022-32149 (recommend only)", "command": ["make", "agent-demo"] }
+          ]
+        }
+      ]
+    }
+  ]
+}

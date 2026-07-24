@@ -1,0 +1,168 @@
+# Olly Sentinel: the Google ADK agent runtime (the same shape ARC manages in
+# the client estate), consuming the queue and IO-Declined topics, fanning
+# read-only MCP queries out under gco-sentinel-read scopes, and publishing
+# contract-validated RCA enrichment to the response topic. Port 8080 also
+# serves the A2A surface: the committed AgentCard at
+# /.well-known/agent-card.json and message/send for the direct TROUBLESHOOT
+# skill. Read-only by construction: no ServiceNow endpoint, no ES
+# credential, no write scope anywhere in this pod. Set LLM_URL to an
+# OpenAI-compatible gateway (Ollama locally) to swap the deterministic RCA
+# narrative for a model-generated one; Gemini/Vertex runs natively via ADK.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: olly-sentinel
+  labels:
+    app: olly-sentinel
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olly-sentinel
+  template:
+    metadata:
+      labels:
+        app: olly-sentinel
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: sentinel
+          image: olly-sentinel:dev
+          imagePullPolicy: Never
+          env:
+            - name: KAFKA_BROKERS
+              value: redpanda.olly-replica.svc.cluster.local:9093
+            - name: CONSUME_TOPICS
+              value: netcool.io.events,netcool.io.events.declined
+            - name: RESPONSE_TOPIC
+              value: ideas-172472-sn30.167564-impact.event_response
+            - name: DECISIONS_TOPIC
+              value: olly.pipeline.decisions
+            - name: MCP_URL
+              value: http://elk-search-mcp:8080
+            - name: EEMS_ROLE
+              value: gco-sentinel-read
+            - name: EEMS_SCOPES
+              value: elk.logs.read,grafana.dashboards.read,io.events.read,cmdb.topology.read,observr.traces.read,drift.changes.read,servicenow.incidents.read
+            # ARC identity chain: Olly mints a COIN M2M token on-behalf-of the
+            # SRE on-call and carries it on every MCP call + the Orbit A2A hop.
+            - name: AUTHZ_ENABLED
+              value: "true"
+            - name: COIN_URL
+              value: http://olly-authz:8001
+            - name: AUTHZ_ACME_ID
+              value: e12345
+            - name: AUTHZ_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: olly-authz
+                  key: jwt-secret
+            - name: HITL_ENABLED
+              value: "false"
+            # Orbit: the action sub-agent. When enabled, restart-addressable or
+            # low-confidence enrichments are parked as action proposals awaiting
+            # a signed approval. The sentinel mounts only the PUBLIC approval
+            # key, so it can verify an approval but never mint one.
+            - name: ORBIT_ENABLED
+              value: "true"
+            - name: APPROVAL_PUBKEY_FILE
+              value: /var/run/olly/orbit-approval-pub.pem
+            # LLM Guard: the in-cluster scanner on the Olly -> Orbit A2A hop.
+            # Off by default; the Security Sandbox flips LLM_GUARD_ENABLED to
+            # route the hand-off through the scanner (input + output). When on
+            # and a scan trips, the proposal is held and the block is emitted to
+            # the decision bus. Absent guard = the hand-off behaves as before.
+            - name: LLM_GUARD_ENABLED
+              value: "false"
+            - name: LLM_GUARD_URL
+              value: http://llm-guard.olly-replica.svc.cluster.local:8000
+            - name: LLM_GUARD_TOKEN
+              value: llm-guard-token
+            - name: AGENT_VERSION
+              value: dev
+            - name: EVAL_RUN_ID
+              value: local-dev
+          # Optional LLM narrator config (LLM_PROVIDER/LLM_MODEL/LLM_API_KEY/
+          # LLM_URL). `make olly-llm-secret` creates this from .env; absent, the
+          # sentinel uses its deterministic RCA. The model narrates, never decides.
+          envFrom:
+            - secretRef:
+                name: olly-llm
+                optional: true
+          ports:
+            - name: metrics
+              containerPort: 8080
+            # Orbit's own A2A endpoint. propose_action is approval-gated, so a
+            # message/send here returns an A2A input-required task.
+            - name: orbit-a2a
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: orbit-approval-pub
+              mountPath: /var/run/olly
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        # The PUBLIC half of the orbit approval keypair. Public key material,
+        # so a ConfigMap is the right home (not a Secret). The private half
+        # never enters the cluster; it lives with the broker on the operator's
+        # machine.
+        - name: orbit-approval-pub
+          configMap:
+            name: orbit-approval-pub
+            optional: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: olly-sentinel
+  labels:
+    app: olly-sentinel
+spec:
+  selector:
+    app: olly-sentinel
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+    - name: orbit-a2a
+      port: 8081
+      targetPort: orbit-a2a
+---
+# Lifecycle metrics into the monitoring stack; the Eye in the Sky control
+# tower reads them from Prometheus.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: olly-sentinel
+  labels:
+    app.fluxcd.io/component: "metrics"
+    osramp.acme.co/scrape: Enabled
+spec:
+  selector:
+    matchLabels:
+      app: olly-sentinel
+  endpoints:
+    - port: metrics
+      interval: 30s

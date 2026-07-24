@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base
+patches:
+  - path: archiver-values.yaml
+    target:
+      kind: Deployment
+      name: osramp-archiver
+  - path: listener-values.yaml
+    target:
+      kind: Deployment
+      name: osramp-multipurpose
+  - path: osramp-purl-values.yaml
+    target:
+      kind: Deployment
+      name: osramp-purl
+images:
+  - name: archiver
+    newName: ghcr.io/acme-co/osramp/images/archiver
+    newTag: latest-stable
+  - name: listener
+    newName: ghcr.io/acme-co/osramp/images/listener
+    newTag: latest-stable
+  - name: processor
+    newName: ghcr.io/acme-co/osramp/images/processor
+    newTag: latest-stable

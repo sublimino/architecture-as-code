@@ -1,0 +1,50 @@
+# The parity pipeline: CI runs the exact make targets a developer runs
+# locally. A kind cluster hosts the zot registry, artifacts are pushed and
+# cosign-signed, Flux reconciles the fleet from them, the app images are
+# built and loaded, and the bats suite plus the VEX demo run against the
+# result, with test evidence attested into Archivista.
+name: e2e-local
+
+# Manual only. The full stack (kube-prometheus-stack, ECK, Redpanda, a 3-node
+# NATS, minio/postgres/archivista, the apps) oversubscribes a standard 2-vCPU
+# GitHub runner, so Prometheus and Redpanda land Pending and the reconcile
+# times out. Run it on demand from the Actions tab (or `gh workflow run
+# e2e-local.yaml`) on a machine with room, rather than gating every push.
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools and build the environment
+        run: ./scripts/setup.sh
+      - name: End-to-end tests (witness attested)
+        run: make attested-test
+      - name: Olly enrichment loop tests
+        run: make olly-test
+      - name: VEX triage demo
+        run: make vex-demo
+      - name: Promotion gate demo (witness policy)
+        run: make promotion-demo
+      - name: Admission demo (Kyverno signature verification)
+        run: make admission-demo
+      - name: Trust revocation walkthrough
+        run: make revocation-demo
+      - name: Fetch attested VEX from Archivista
+        run: |
+          kubectl -n backend port-forward svc/osramp-archivista 8082:8082 &
+          sleep 3
+          ./scripts/fetch-vex.sh || echo "no attested VEX yet (witness signing path inactive)"
+      - name: Debug failure
+        if: failure()
+        run: |
+          kubectl get pods -A
+          kubectl -n flux-system get fluxinstance,resourceset,kustomization,ocirepository -o wide || true
+          kubectl -n flux-system logs deploy/flux-operator --tail=50 || true
+          kubectl -n flux-system logs deploy/source-controller --tail=50 || true
+          kubectl -n frontend get pods -o wide || true
+          kubectl -n olly-replica get pods,elasticsearch,helmrelease -o wide || true
+          kubectl -n trivy-system get pods,helmrelease -o wide || true
+          flux get all --all-namespaces || true

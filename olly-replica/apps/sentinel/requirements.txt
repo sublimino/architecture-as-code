@@ -1,0 +1,22 @@
+# The agent runtime is Google ADK (what ARC manages internally); its [a2a]
+# extra provides the native A2A serving path (to_a2a), pinned by ADK itself
+# to a compatible a2a-sdk line. The [eval] extra adds AgentEvaluator + the
+# ROUGE/LLM-judge metrics and the `adk web` Eval tab machinery, so the same
+# eval runs three ways (web UI, `adk eval` CLI, pytest). Track current lines
+# for now; pin exact versions once the first CI resolve records them.
+google-adk[a2a,eval]>=2.0
+a2a-sdk[http-server]>=1.0,<2
+aiokafka>=0.11
+httpx>=0.27
+jsonschema>=4.21
+prometheus-client>=0.20
+uvicorn>=0.30
+# Only needed for non-Gemini gateways (Ollama locally); Gemini/Vertex via
+# ARC uses ADK's native model path.
+litellm>=1.60
+# Eval + local dev: the pytest gate (test_rca_signals + AgentEvaluator) and
+# .env loading for `adk web` / `make olly-eval`. python-dotenv mirrors the demo
+# conftest; the image also installs pytest explicitly in its build stage.
+pytest>=8.0
+pytest-asyncio>=0.23
+python-dotenv>=1.0

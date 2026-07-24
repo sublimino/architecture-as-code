@@ -1,0 +1,11 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-archiver
+spec:
+  template:
+    spec:
+      containers:
+      - name: archiver
+        image: archiver:dev
+        imagePullPolicy: Never

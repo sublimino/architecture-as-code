@@ -1,0 +1,1170 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_OLLY-PROMETHEUS",
+      "label": "olly-prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    },
+    {
+      "name": "DS_OLLY-ES-AUDIT-LOGS",
+      "label": "olly-es-audit-logs",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "elasticsearch",
+      "pluginName": "Elasticsearch"
+    },
+    {
+      "name": "VAR_SNOW_URL",
+      "type": "constant",
+      "label": "snow_url",
+      "value": "https://dev12345.service-now.com",
+      "description": ""
+    }
+  ],
+  "__elements": {},
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "elasticsearch",
+      "name": "Elasticsearch",
+      "version": "1.0.0"
+    },
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "11.4.0"
+    },
+    {
+      "type": "datasource",
+      "id": "prometheus",
+      "name": "Prometheus",
+      "version": "1.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "text",
+      "name": "Text",
+      "version": ""
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [
+    {
+      "icon": "dashboard",
+      "targetBlank": false,
+      "title": "Eye in the Sky (SRE) drill-down",
+      "type": "link",
+      "url": "/d/eye-in-the-sky/eye-in-the-sky"
+    },
+    {
+      "icon": "external link",
+      "targetBlank": true,
+      "title": "ServiceNow",
+      "type": "link",
+      "url": "${snow_url}/incident_list.do"
+    }
+  ],
+  "panels": [
+    {
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "code": {
+          "language": "plaintext",
+          "showLineNumbers": false,
+          "showMiniMap": false
+        },
+        "content": "\n<canvas id=\"mx-rain\" style=\"position:fixed;inset:0;z-index:0;pointer-events:none;\"></canvas>\n<script>\n(function(){\n  if (window.__mxRain) return; window.__mxRain = true;\n  var c = document.getElementById('mx-rain');\n  document.body.insertBefore(c, document.body.firstChild);\n  var ctx = c.getContext('2d');\n  function size(){ c.width = window.innerWidth; c.height = window.innerHeight; }\n  size(); window.addEventListener('resize', size);\n  var glyphs = ('01011001'+'\\u30A2\\u30A6\\u30A8\\u30AB\\u30B5\\u30BF\\u30CA\\u30CF\\u30DE\\u30E9'+'0123456789ABCDEF').split('');\n  var fs = 14, cols = 0, drops = [];\n  function reset(){ cols = Math.floor(window.innerWidth/fs); drops = []; for (var i=0;i<cols;i++) drops[i] = Math.random()*-50; }\n  reset(); window.addEventListener('resize', reset);\n  function draw(){\n    ctx.fillStyle = 'rgba(5,7,10,0.075)'; ctx.fillRect(0,0,c.width,c.height);\n    ctx.font = fs+'px monospace';\n    for (var i=0;i<drops.length;i++){\n      var t = glyphs[Math.floor(Math.random()*glyphs.length)];\n      var y = drops[i]*fs;\n      ctx.fillStyle = Math.random() > 0.985 ? '#ccffdd' : '#00c853';\n      ctx.fillText(t, i*fs, y);\n      if (y > c.height && Math.random() > 0.975) drops[i] = 0;\n      drops[i] += 0.6;\n    }\n  }\n  setInterval(draw, 50);\n})();\n</script>\n\n<style>\nbody { background: #05070a !important; }\n.main-view, .dashboard-container, .scrollbar-view, .react-grid-layout,\n.page-dashboard, [class*=\"dashboard-content\"], [class*=\"DashboardScene\"] {\n  background: transparent !important;\n}\n#mx-rain { opacity: .45; }\nbody, .panel-content, [class*=\"panel\"] table, [role=\"grid\"] {\n  font-family: 'Cascadia Code','JetBrains Mono','SF Mono','Courier New',monospace !important;\n}\n.panel-container, [class*=\"panel-container\"], section[class*=\"panel\"] {\n  background: rgba(6,12,10,.92) !important;\n  border: 1px solid rgba(0,230,118,.30) !important;\n  box-shadow: 0 0 14px rgba(0,230,118,.10) !important; border-radius: 2px !important;\n}\n.panel-title, [class*=\"panel-title\"], [class*=\"PanelChrome\"] [class*=\"title\"] {\n  color: #00e676 !important; text-transform: uppercase; letter-spacing: 1.6px;\n  font-size: 12px !important; text-shadow: 0 0 6px rgba(0,230,118,.45);\n}\nth, [role=\"columnheader\"] {\n  color: #00e676 !important; text-transform: uppercase; letter-spacing: 1px;\n  border-color: rgba(0,230,118,.28) !important; background: rgba(0,230,118,.05) !important;\n}\ntd, [role=\"cell\"] { border-color: rgba(0,230,118,.10) !important; }\na, a:link { color: #00e5ff !important; }\n</style>\n\n<div style=\"background:#0b0f0d; border:1px solid #00e676; box-shadow:0 0 12px rgba(0,230,118,.25) inset; padding:10px 14px; font-family:'Cascadia Code','Courier New',monospace;\">\n  <div style=\"color:#00e676; font-size:18px; letter-spacing:2px; text-shadow:0 0 8px rgba(0,230,118,.6);\">&#9616; EYE IN THE SKY // ESTATE CONTROL</div>\n  <div style=\"color:#5f6b6b; font-size:12px; margin-top:4px;\">\n    Every managed service on one board. Rows link to the tenant view; ticket counts and Escalate open ServiceNow;\n    the SRE link (top right) drops into the drill-down control tower.\n  </div>\n</div>\n",
+        "mode": "html"
+      },
+      "pluginVersion": "11.4.0",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_OLLY-PROMETHEUS}"
+      },
+      "description": "Managed apps with a 5xx error rate below 3%.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5f6b6b",
+                "value": null
+              },
+              {
+                "color": "#00e676",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 4
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "count((100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)) < 3) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Healthy apps",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_OLLY-PROMETHEUS}"
+      },
+      "description": "Managed apps with a 5xx error rate between 3% and 10%.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5f6b6b",
+                "value": null
+              },
+              {
+                "color": "#ffb300",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 4
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "count(((100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)) >= 3) and ((100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)) < 10)) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Warning apps",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_OLLY-PROMETHEUS}"
+      },
+      "description": "Managed apps with a 5xx error rate at or above 10%.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5f6b6b",
+                "value": null
+              },
+              {
+                "color": "#ff3d3d",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 4
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "count((100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)) >= 10) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Critical apps",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_OLLY-PROMETHEUS}"
+      },
+      "description": "PrometheusRule alerts firing for a managed app right now (error-rate and latency rules).",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#00e676",
+                "value": null
+              },
+              {
+                "color": "#ff3d3d",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 4
+      },
+      "id": 5,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "count(ALERTS{alertstate=\"firing\", app_id!=\"\"}) or vector(0)",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Alerts firing",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_OLLY-ES-AUDIT-LOGS}"
+      },
+      "description": "Config-change, deploy and rollout records in the audit log over the dashboard window, estate-wide. These are the change events the RCA correlates against incidents (changes are the leading cause of the seeded faults).",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5f6b6b",
+                "value": null
+              },
+              {
+                "color": "#00e5ff",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 4
+      },
+      "id": 6,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "1h",
+                "min_doc_count": "0"
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_OLLY-ES-AUDIT-LOGS}"
+          },
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "message:(config OR change OR deploy OR rollout)",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "title": "Config changes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "elasticsearch",
+        "uid": "${DS_OLLY-ES-AUDIT-LOGS}"
+      },
+      "description": "The subset of those change records that landed on an upstream service (payments-api, inventory-service). A change to a shared upstream carries a wider blast radius, so it is called out separately.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "#5f6b6b",
+                "value": null
+              },
+              {
+                "color": "#00e5ff",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 4
+      },
+      "id": 7,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "bucketAggs": [
+            {
+              "field": "@timestamp",
+              "id": "2",
+              "settings": {
+                "interval": "1h",
+                "min_doc_count": "0"
+              },
+              "type": "date_histogram"
+            }
+          ],
+          "datasource": {
+            "type": "elasticsearch",
+            "uid": "${DS_OLLY-ES-AUDIT-LOGS}"
+          },
+          "metrics": [
+            {
+              "id": "1",
+              "type": "count"
+            }
+          ],
+          "query": "message:(config OR change OR deploy) AND app_id:(payments-api OR inventory-service)",
+          "refId": "A",
+          "timeField": "@timestamp"
+        }
+      ],
+      "title": "Upstream-svc changes",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_OLLY-PROMETHEUS}"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Application"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 160
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open ${__value.text} dashboard",
+                    "url": "/d/tenant-app-view/tenant-app-view?var-app=${__value.text}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Condition"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "from": 0,
+                      "result": {
+                        "color": "#00e676",
+                        "index": 0,
+                        "text": "● Healthy"
+                      },
+                      "to": 2.9999
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 3,
+                      "result": {
+                        "color": "#ffb300",
+                        "index": 1,
+                        "text": "● Warning"
+                      },
+                      "to": 9.9999
+                    },
+                    "type": "range"
+                  },
+                  {
+                    "options": {
+                      "from": 10,
+                      "result": {
+                        "color": "#ff3d3d",
+                        "index": 2,
+                        "text": "● Critical"
+                      },
+                      "to": 1000000000
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#00e676",
+                      "value": null
+                    },
+                    {
+                      "color": "#ffb300",
+                      "value": 3
+                    },
+                    {
+                      "color": "#ff3d3d",
+                      "value": 10
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Serving"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "1": {
+                        "color": "#00e676",
+                        "index": 0,
+                        "text": "Serving"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "0": {
+                        "color": "#ff3d3d",
+                        "index": 1,
+                        "text": "Down"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Upstream health"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "1": {
+                        "color": "#00e676",
+                        "index": 0,
+                        "text": "● healthy"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "0": {
+                        "color": "#ff3d3d",
+                        "index": 1,
+                        "text": "● degraded"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "#5f6b6b",
+                        "index": 2,
+                        "text": "● n/a (leaf)"
+                      }
+                    },
+                    "type": "special"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last checked"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Checked at"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg response"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 3
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#00e676",
+                      "value": null
+                    },
+                    {
+                      "color": "#ffb300",
+                      "value": 0.15
+                    },
+                    {
+                      "color": "#ff3d3d",
+                      "value": 0.4
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alerts"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#00e676",
+                      "value": null
+                    },
+                    {
+                      "color": "#ff3d3d",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "INC/CHG"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "#5f6b6b",
+                      "value": null
+                    },
+                    {
+                      "color": "#00e5ff",
+                      "value": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open ${__data.fields.Application} tickets in ServiceNow",
+                    "url": "${snow_url}/incident_list.do?sysparm_query=short_descriptionLIKE${__data.fields.Application}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Escalation"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "match": "null",
+                      "result": {
+                        "color": "#3a2a00",
+                        "index": 0,
+                        "text": "⛑ Escalate"
+                      }
+                    },
+                    "type": "special"
+                  },
+                  {
+                    "options": {
+                      "from": -1000000000,
+                      "result": {
+                        "color": "#3a2a00",
+                        "index": 1,
+                        "text": "⛑ Escalate"
+                      },
+                      "to": 1000000000
+                    },
+                    "type": "range"
+                  }
+                ]
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Raise a new incident for ${__data.fields.Application}",
+                    "url": "${snow_url}/incident.do?sys_id=-1&sysparm_query=short_description%3D%5B${__data.fields.Application}%5D"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 8,
+      "options": {
+        "cellHeight": "md",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "11.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "max by (app_id) (tenant_app_up)",
+          "format": "table",
+          "instant": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "min by (app_id) (tenant_app_upstream_up)",
+          "format": "table",
+          "instant": true,
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "time() - max by (app_id) (timestamp(tenant_app_up))",
+          "format": "table",
+          "instant": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "1000 * max by (app_id) (timestamp(tenant_app_up))",
+          "format": "table",
+          "instant": true,
+          "refId": "I"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "sum by (app_id) (rate(tenant_app_request_duration_seconds_sum[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_request_duration_seconds_count[5m])), 0.001)",
+          "format": "table",
+          "instant": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "sum by (app_id) (ALERTS{alertstate=\"firing\", app_id!=\"\"}) or (max by (app_id)(tenant_app_up) * 0)",
+          "format": "table",
+          "instant": true,
+          "refId": "F"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "sum by (app_id) (olly_incidents) and on (app_id) tenant_app_up",
+          "format": "table",
+          "instant": true,
+          "refId": "G"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${DS_OLLY-PROMETHEUS}"
+          },
+          "expr": "max by (app_id) (tenant_app_up)",
+          "format": "table",
+          "instant": true,
+          "refId": "H"
+        }
+      ],
+      "title": "Applications",
+      "transformations": [
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "app_id",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "Time 1": true,
+              "Time 2": true,
+              "Time 3": true,
+              "Time 4": true,
+              "Time 5": true,
+              "Time 6": true,
+              "Time 7": true,
+              "Time 8": true,
+              "Time 9": true
+            },
+            "indexByName": {
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "Value #D": 4,
+              "Value #E": 6,
+              "Value #F": 7,
+              "Value #G": 8,
+              "Value #H": 9,
+              "Value #I": 5,
+              "app_id": 0
+            },
+            "renameByName": {
+              "Value #A": "Condition",
+              "Value #B": "Serving",
+              "Value #C": "Upstream health",
+              "Value #D": "Last checked",
+              "Value #E": "Avg response",
+              "Value #F": "Alerts",
+              "Value #G": "INC/CHG",
+              "Value #H": "Escalation",
+              "Value #I": "Checked at",
+              "app_id": "Application"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 40,
+  "tags": [
+    "osramp",
+    "olly",
+    "estate"
+  ],
+  "templating": {
+    "list": [
+      {
+        "hide": 2,
+        "name": "snow_url",
+        "query": "${VAR_SNOW_URL}",
+        "skipUrlSync": true,
+        "type": "constant",
+        "current": {
+          "value": "${VAR_SNOW_URL}",
+          "text": "${VAR_SNOW_URL}",
+          "selected": false
+        },
+        "options": [
+          {
+            "value": "${VAR_SNOW_URL}",
+            "text": "${VAR_SNOW_URL}",
+            "selected": false
+          }
+        ]
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Eye in the Sky (Estate)",
+  "uid": "estate-pane",
+  "version": 1,
+  "weekStart": ""
+}

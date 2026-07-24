@@ -1,0 +1,106 @@
+# olly-authz: the in-cluster ARC identity chain (COIN issuer / PlainID PDP /
+# EEMS PIP), deployed as a real service Olly, Orbit, and elk-search-mcp call
+# over the network. Pure stdlib python3; the three services are co-located in
+# one pod (internal COIN->PDP->EEMS calls stay on loopback) and the Service
+# exposes all three ports. The HS256 secret is shared with every verifier.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: olly-authz
+  labels:
+    app: olly-authz
+type: Opaque
+stringData:
+  # Demo signing secret for the replica, like the committed Grafana admin
+  # password. Every verifier (olly-authz, elk-search-mcp, Orbit) reads this.
+  jwt-secret: "acme-co-authz-dev-secret"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: olly-authz
+  labels:
+    app: olly-authz
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: olly-authz
+  template:
+    metadata:
+      labels:
+        app: olly-authz
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: authz
+          image: olly-authz:dev
+          imagePullPolicy: Never
+          env:
+            - name: AUTHZ_BIND_HOST
+              value: "0.0.0.0"
+            - name: AUTHZ_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: olly-authz
+                  key: jwt-secret
+            - name: AUTHZ_AUDIT_LOG
+              value: /tmp/acme-authz-audit.jsonl
+          ports:
+            - name: coin
+              containerPort: 8001
+            - name: pdp
+              containerPort: 8002
+            - name: eems
+              containerPort: 8003
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: coin
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: coin
+            initialDelaySeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 4Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: olly-authz
+  labels:
+    app: olly-authz
+spec:
+  selector:
+    app: olly-authz
+  ports:
+    - name: coin
+      port: 8001
+      targetPort: coin
+    - name: pdp
+      port: 8002
+      targetPort: pdp
+    - name: eems
+      port: 8003
+      targetPort: eems

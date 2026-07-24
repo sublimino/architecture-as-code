@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/rca-enrichment.v1.schema.json",
+  "title": "RcaEnrichment",
+  "description": "The enrichment payload Olly publishes to the Kafka response topic (ideas-172472-sn30.167564-impact.event_response), keyed by correlation-ID. Olly does NOT write to ServiceNow directly: the IO Mapping Service consumes this topic and performs the ticket update under its own identity, so the write scope lives outside the agent entirely. Phase 1 is 100% read-only against production systems.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "correlation_id",
+    "idempotency_key",
+    "agent",
+    "rca",
+    "redaction"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "correlation_id": {
+      "type": "string",
+      "description": "The join key carried from the consumed event; the Mapping Service uses it to locate the ticket. No INC number appears in this payload.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "sha256 over (event_id, correlation_id, enrichment_pass). The loop guard rejects a publish whose pass number exceeds the per-correlation-ID bound.",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "enrichment_pass": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3,
+      "description": "Loop-guard counter; the bound is enforced by the publisher, this field only makes the pass auditable."
+    },
+    "agent": { "$ref": "#/$defs/agentAttribution" },
+    "ci": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "The affected configuration item resolved from the CMDB by correlation-ID (enriched-flow step 4). Empty when the CMDB has no record for the app; never invented from the app_id alone."
+    },
+    "rca": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["summary", "probable_cause", "confidence_score"],
+      "properties": {
+        "summary": { "type": "string", "maxLength": 4000 },
+        "probable_cause": { "type": "string", "maxLength": 2000 },
+        "fault_domain": {
+          "type": "string",
+          "enum": ["application", "infrastructure", "dependency", "change", "data", "unknown"]
+        },
+        "confidence_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Confidence derived deterministically from evidence strength: how many sources corroborated, whether a change correlated, and the error-signal density. Not model-produced; low-confidence enrichments are the HITL-parking trigger."
+        },
+        "affected_cis": {
+          "type": "array",
+          "maxItems": 32,
+          "description": "The blast radius: CIs downstream of the affected CI in the CMDB topology, resolved from the live dependency graph, not a static document.",
+          "items": { "type": "string", "maxLength": 128 }
+        },
+        "suspected_change": {
+          "type": "string",
+          "pattern": "^CHG[0-9]{7,10}$",
+          "description": "Present only when the DRIFT / ServiceNow CHG MCP tool actually returned a change record correlating with the incident window, never inferred from log text alone."
+        },
+        "evidence_timeline": {
+          "type": "array",
+          "maxItems": 32,
+          "description": "Dated observations across sources, ordered, that the RCA rests on. Each entry names the source it came from so a human can rerun it.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["source", "detail"],
+            "properties": {
+              "at": { "type": "string", "maxLength": 40 },
+              "source": {
+                "type": "string",
+                "enum": ["elk", "grafana_gem", "io_events", "cmdb", "observr", "drift", "servicenow_inc", "servicenow_chg"]
+              },
+              "detail": { "type": "string", "maxLength": 300 }
+            }
+          }
+        },
+        "suggested_actions": {
+          "type": "array",
+          "maxItems": 10,
+          "description": "Suggested remediation actions as text for the SRE. Phase 1 takes no actions; anything executable goes through the action-proposal contract in later phases.",
+          "items": { "type": "string", "maxLength": 512 }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "description": "The evidence timeline behind the RCA: one entry per MCP query that contributed, so a human can rerun exactly what the agent saw. Every source is read-only under the gco-sentinel-read EEMS role.",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source", "scope", "query"],
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": ["servicenow_inc", "servicenow_chg", "elk", "grafana_gem", "io_events", "cmdb", "observr", "drift"]
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "servicenow.incidents.read",
+              "elk.logs.read",
+              "grafana.dashboards.read",
+              "io.events.read",
+              "cmdb.topology.read",
+              "observr.traces.read",
+              "drift.changes.read"
+            ],
+            "description": "The EEMS read-only scope the query executed under; audit-logged to the SIEM trail."
+          },
+          "query": { "type": "string", "maxLength": 2048 },
+          "doc_count": { "type": "integer", "minimum": 0 },
+          "observed_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applied", "secrets_found"],
+      "properties": {
+        "applied": { "type": "boolean" },
+        "secrets_found": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Count of secret-shaped strings stripped before publishing. The safety suite plants fake secrets in test logs and asserts they never reach this payload."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "agentAttribution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "eval_run_id"],
+      "properties": {
+        "name": { "const": "olly-sentinel" },
+        "version": { "type": "string", "maxLength": 64 },
+        "eval_run_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "The green eval run this agent version demoed under; an agent version without one does not demo."
+        },
+        "model_id": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "e.g. gemini-2.5-flash via the ARC gateway; the replica's local shim reports its own model here."
+        }
+      }
+    }
+  }
+}

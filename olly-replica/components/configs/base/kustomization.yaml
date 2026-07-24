@@ -1,0 +1,36 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - elasticsearch.yaml
+  - topics-job.yaml
+  - seed-job.yaml
+  - grafana.yaml
+  - olly-authz.yaml
+  - elk-search-mcp.yaml
+  - io-mapping-stub.yaml
+  - olly-sentinel.yaml
+  - llm-guard.yaml
+  - tenant-apps.yaml
+configMapGenerator:
+  # Seed material: the synthetic log generator and the injection corpus
+  # (bulk-ready NDJSON). The name hash means a corpus change rolls the seed
+  # Job; the force annotation on the Job lets Flux recreate it.
+  - name: olly-seed
+    options:
+      annotations:
+        # The seed script's shell variables must reach the pod verbatim,
+        # out of reach of Flux post-build substitution.
+        kustomize.toolkit.fluxcd.io/substitute: disabled
+    files:
+      - seed/seed-logs.sh
+      - seed/injection-corpus.ndjson
+  # The Eye in the Sky stand-in dashboard, picked up by the Grafana sidecar.
+  - name: olly-dashboards
+    options:
+      disableNameSuffixHash: true
+      labels:
+        grafana_dashboard: "1"
+    files:
+      - dashboards/estate-pane-of-glass.json
+      - dashboards/eye-in-the-sky.json
+      - dashboards/tenant-app.json

@@ -1,0 +1,45 @@
+# Seed the three data streams with synthetic logs, including the injection
+# corpus and planted fake secrets (build order step 3: "seed the injection
+# payloads now, not later"). The safety suite later asserts the planted
+# secrets never appear in written enrichment and the injection lines never
+# steer the agent.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: olly-seed
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  backoffLimit: 10
+  template:
+    metadata:
+      labels:
+        app: olly-seed
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: curlimages/curl:8.8.0
+          command: ["/bin/sh", "/seed/seed-logs.sh"]
+          env:
+            - name: ES_URL
+              value: http://olly-es-http:9200
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: olly-es-elastic-user
+                  key: elastic
+          volumeMounts:
+            - name: seed
+              mountPath: /seed
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: seed
+          configMap:
+            name: olly-seed

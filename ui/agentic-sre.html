@@ -1,0 +1,1386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Agentic SRE Dashboard</title>
+<style>
+  :root {
+    --bg:#f5f6f8; --panel:#ffffff; --panel2:#fbfcfd; --line:#e4e7eb; --line2:#d3d8de; --hover:#f0f5fd;
+    --ink:#1f2733; --dim:#5b6472; --dim2:#8a94a3;
+    --blue:#3274d9; --blue2:#5794f2; --green:#3aa657; --yellow:#d9a400; --orange:#ff780a; --red:#e0384e; --purple:#6b4fbb;
+    --green-bg:#e9f6ec; --orange-bg:#fdf1e5; --red-bg:#fceaed; --blue-bg:#e9f1fd;
+    --green-fl:#cdeed5; --orange-fl:#ffe4c6; --red-fl:#fbd2d8;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --shadow:0 1px 2px rgba(24,39,75,.06),0 2px 6px rgba(24,39,75,.04);
+  }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; }
+  body { background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:14px; line-height:1.45; }
+  a { color:var(--blue); text-decoration:none; } a:hover { text-decoration:underline; }
+  button { font:inherit; }
+
+  header { display:flex; align-items:center; gap:16px; padding:11px 22px; border-bottom:1px solid var(--line); background:#fff; position:sticky; top:0; z-index:30; box-shadow:var(--shadow); }
+  .brand { display:flex; align-items:center; gap:11px; }
+  .brand .mark { width:30px; height:30px; border-radius:8px; display:grid; place-items:center; background:linear-gradient(135deg,var(--blue),#4a90e2); color:#fff; font-weight:800; font-size:16px; }
+  .brand h1 { font-size:16px; margin:0; letter-spacing:.2px; font-weight:660; }
+  .brand .sub { font-size:11px; color:var(--dim); }
+  nav.tabs { display:flex; gap:4px; margin-left:6px; }
+  nav.tabs button { background:transparent; border:1px solid transparent; color:var(--dim); padding:7px 15px; border-radius:8px; cursor:pointer; font-weight:520; }
+  nav.tabs button.active { background:#eef4fe; border-color:#cfe0fa; color:var(--blue); }
+  nav.tabs button:hover:not(.active) { background:var(--bg); color:var(--ink); }
+  .spacer { flex:1; }
+  .toolbar { display:flex; align-items:center; gap:8px; }
+  select.sel, input.in { font:inherit; font-size:12.5px; padding:6px 9px; border-radius:7px; border:1px solid var(--line2); background:#fff; color:var(--ink); }
+  .icon-btn { width:32px; height:32px; border-radius:8px; border:1px solid var(--line2); background:#fff; color:var(--dim); cursor:pointer; display:grid; place-items:center; font-size:15px; }
+  .icon-btn.sm { width:26px; height:26px; font-size:14px; }
+  .icon-btn:hover { border-color:var(--blue); color:var(--blue); }
+  .icon-btn .ic { display:inline-block; line-height:1; }
+  .icon-btn.spin .ic { animation:spin .7s linear; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .conn { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--dim); }
+  .dot { width:9px; height:9px; border-radius:50%; background:var(--dim2); }
+  .dot.ok { background:var(--green); } .dot.bad { background:var(--red); }
+
+  main { padding:18px 22px 44px; }
+  .view { display:none; } .view.active { display:block; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:15px 16px 14px; box-shadow:var(--shadow); }
+  .panel > h2 { margin:0 0 2px; font-size:13.5px; font-weight:640; }
+  .panel > .hint { color:var(--dim); font-size:11.5px; margin:0 0 12px; }
+  /* collapsible + drag-reorderable panels; .half panels share a row, a lone
+     .half grows back to full width, full panels stack */
+  .restack { display:flex; flex-flow:row wrap; align-items:flex-start; gap:16px; }
+  .repanel { flex:1 1 100%; min-width:0; box-sizing:border-box; }
+  .repanel.half { flex:1 1 calc(50% - 8px); }
+  .panel-bar { display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .panel-bar h2 { margin:0; font-size:13.5px; font-weight:640; }
+  .drag-handle { cursor:grab; color:var(--dim2); font-size:13px; line-height:1; user-select:none; letter-spacing:-2px; padding-right:2px; }
+  .drag-handle:hover { color:var(--blue); } .drag-handle:active { cursor:grabbing; }
+  .collapse-x { border:none; background:none; color:var(--dim); cursor:pointer; font-size:13px; padding:2px 5px; transition:transform .15s; }
+  .collapse-x:hover { color:var(--blue); }
+  .repanel.collapsed .collapse-x { transform:rotate(-90deg); }
+  .repanel.collapsed > :not(.panel-bar) { display:none; }
+  .repanel.dragging { opacity:.5; outline:2px dashed var(--blue); outline-offset:-1px; }
+  .drop-ind { position:fixed; z-index:60; background:var(--blue); border-radius:3px; pointer-events:none; display:none; box-shadow:0 0 0 1px #fff, 0 1px 4px rgba(0,0,0,.25); }
+  .row { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .spc { flex:1; }
+  code { font-family:var(--mono); color:#b1361e; background:#faf0ee; padding:1px 5px; border-radius:4px; font-size:12px; }
+  .muted { color:var(--dim); } .mono { font-family:var(--mono); }
+  .btn { font-size:12px; padding:7px 12px; border-radius:8px; cursor:pointer; border:1px solid var(--line2); background:#fff; color:var(--ink); }
+  .btn:hover { border-color:var(--blue); color:var(--blue); }
+  .btn.sm { padding:4px 9px; font-size:11.5px; }
+  .btn.red { background:var(--red); border-color:var(--red); color:#fff; font-weight:560; }
+  .btn.red:hover { background:#c62c40; border-color:#c62c40; color:#fff; }
+  .notice { color:var(--dim); font-size:12px; padding:14px; border:1px dashed var(--line2); border-radius:10px; text-align:center; background:var(--panel2); }
+  .notice.bad { color:#9a5b00; border-color:#e7cf9a; background:#fdf7ea; }
+  .mt { margin-top:16px; }
+
+  /* left-rail columns (grafana + registry share this shape) */
+  .rail { display:flex; flex-direction:column; gap:8px; }
+  .rail .rail-head { display:flex; align-items:center; gap:8px; margin-bottom:2px; }
+  .rail .rail-head .rail-title { font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--dim); font-weight:600; }
+  .collapse-btn { width:26px; height:26px; border-radius:7px; border:1px solid var(--line2); background:#fff; color:var(--dim); cursor:pointer; flex:none; }
+  .collapse-btn:hover { border-color:var(--blue); color:var(--blue); }
+  .rail.collapsed .rail-body, .rail.collapsed .rail-title { display:none; }
+
+  .gf-links { display:flex; flex-direction:column; gap:9px; }
+  .gf-links a { display:flex; flex-direction:column; gap:1px; padding:10px 13px; border:1px solid var(--line2); border-radius:10px; background:#fff; box-shadow:var(--shadow); }
+  .gf-links a:hover { border-color:var(--blue); text-decoration:none; }
+  .gf-links a b { color:var(--ink); font-size:12px; font-weight:620; }
+  .gf-links a span { color:var(--dim); font-size:10.5px; }
+  .gf-links a .ext { color:var(--blue); font-size:10.5px; }
+
+  .eye-wrap { display:grid; grid-template-columns:210px minmax(0,1fr); gap:16px; align-items:start; }
+  .eye-wrap.gf-collapsed { grid-template-columns:44px minmax(0,1fr); }
+  @media (max-width:900px){ .eye-wrap { grid-template-columns:1fr; } }
+  .eye-side { position:sticky; top:66px; }
+
+  /* counters */
+  .counters { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin-bottom:16px; }
+  @media (max-width:900px){ .counters { grid-template-columns:repeat(2,1fr); } }
+  .counter { background:#fff; border:1px solid var(--line); border-radius:12px; padding:14px 15px; box-shadow:var(--shadow); cursor:pointer; transition:transform .12s, box-shadow .12s; border-top:3px solid var(--dim2); }
+  .counter:hover { transform:translateY(-1px); box-shadow:0 3px 10px rgba(24,39,75,.1); }
+  .counter.active { outline:2px solid currentColor; outline-offset:1px; }
+  .counter .n { font-size:30px; font-weight:730; letter-spacing:-.5px; line-height:1; }
+  .counter .l { color:var(--dim); font-size:11px; margin-top:7px; text-transform:uppercase; letter-spacing:.4px; font-weight:560; }
+  .counter.ok { border-top-color:var(--green); color:var(--green); } .counter.ok .n { color:var(--green); }
+  .counter.warn { border-top-color:var(--orange); color:var(--orange); } .counter.warn .n { color:var(--orange); }
+  .counter.crit { border-top-color:var(--red); color:var(--red); } .counter.crit .n { color:var(--red); }
+  .counter.info { border-top-color:var(--blue); color:var(--blue); } .counter.info .n { color:var(--blue); }
+  .counter .l { color:var(--dim); }
+
+  /* tables */
+  table { width:100%; border-collapse:collapse; font-size:12.5px; }
+  th { text-align:left; color:var(--dim); font-weight:600; font-size:10.5px; text-transform:uppercase; letter-spacing:.4px; padding:8px 10px; border-bottom:2px solid var(--line2); }
+  th.sortable { cursor:pointer; user-select:none; } th.sortable:hover { color:var(--blue); }
+  th.th-clear, td.td-esc { text-align:center; }
+  th.th-clear { padding:4px 8px; }
+  th.th-clear .btn { text-transform:none; letter-spacing:0; font-weight:600; }
+  th .arr { font-size:9px; opacity:.6; }
+  td { padding:9px 10px; border-bottom:1px solid var(--line); }
+  tbody tr.approw:hover { background:var(--hover); }
+  td .lnk.appname { font-weight:700; }
+  tbody tr.dim-out { opacity:.25; }
+  @keyframes fl-ok { 0%,100%{ background:#fff; } 28%{ background:var(--green-fl); } }
+  @keyframes fl-warn { 0%,100%{ background:#fff; } 28%{ background:var(--orange-fl); } }
+  @keyframes fl-crit { 0%,100%{ background:#fff; } 28%{ background:var(--red-fl); } }
+  tbody tr.flash-ok { animation:fl-ok 1.2s ease; } tbody tr.flash-warn { animation:fl-warn 1.2s ease; } tbody tr.flash-crit { animation:fl-crit 1.2s ease; }
+  .pill { display:inline-flex; align-items:center; gap:5px; font-size:11px; padding:2px 9px; border-radius:999px; font-weight:520; }
+  .pill::before { content:""; width:7px; height:7px; border-radius:50%; background:currentColor; }
+  .pill.ok { color:var(--green); background:var(--green-bg); } .pill.warn { color:var(--orange); background:var(--orange-bg); }
+  .pill.crit { color:var(--red); background:var(--red-bg); } .pill.dim { color:var(--dim); background:#eef0f3; } .pill.info { color:var(--blue); background:var(--blue-bg); }
+  .lnk { color:var(--blue); cursor:pointer; } .lnk:hover { text-decoration:underline; }
+  .filter-badge { cursor:pointer; }
+
+  /* control tower */
+  .kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:11px; margin-bottom:14px; }
+  @media (max-width:1000px){ .kpis { grid-template-columns:repeat(3,1fr); } }
+  @media (max-width:560px){ .kpis { grid-template-columns:repeat(2,1fr); } }
+  .kpi { background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:12px 13px; }
+  .kpi.click { cursor:pointer; } .kpi.click:hover { border-color:var(--blue); background:#f4f8ff; }
+  .kpi .n { font-size:21px; font-weight:700; }
+  .kpi .l { color:var(--dim); font-size:10.5px; margin-top:5px; font-weight:520; }
+  .kpi .s { color:var(--dim2); font-size:10px; margin-top:2px; }
+  .kpi.hero { grid-column:1/-1; background:linear-gradient(90deg,#eef5ff,#f6faff); border-color:#cfe0fa; }
+  .kpi.hero .n { color:var(--blue); }
+  .bars { display:flex; flex-direction:column; gap:7px; }
+  .bar { display:grid; grid-template-columns:130px 1fr 58px; gap:8px; align-items:center; font-size:11.5px; }
+  .bar .track { height:8px; background:#eef0f3; border-radius:5px; overflow:hidden; }
+  .bar .fill { height:100%; background:linear-gradient(90deg,var(--blue),var(--blue2)); border-radius:5px; }
+  .bar .v { text-align:right; color:var(--dim); font-family:var(--mono); font-size:11px; }
+  /* incident chart */
+  .incbar { display:grid; grid-template-columns:130px 1fr 44px; gap:10px; align-items:center; margin-bottom:8px; font-size:11.5px; }
+  .incbar .inclabel { color:var(--ink); font-weight:560; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .incstack { display:flex; height:20px; border-radius:5px; background:#eef0f3; }
+  .incseg { height:100%; transition:transform .12s, filter .12s, box-shadow .12s, width .3s; cursor:pointer; position:relative; }
+  .incseg:first-child { border-top-left-radius:5px; border-bottom-left-radius:5px; }
+  .incseg:last-child { border-top-right-radius:5px; border-bottom-right-radius:5px; }
+  .incseg:hover { transform:translateY(-3px); filter:brightness(1.13); box-shadow:0 3px 9px rgba(24,39,75,.24); border-radius:4px; z-index:2; }
+  .incbar .inclabel.lnk { cursor:pointer; }
+  .incbar .inclabel.lnk:hover { color:var(--blue); text-decoration:underline; }
+  /* HITL per-app approvals */
+  .hitl-app { border:1px solid var(--line); border-radius:10px; padding:11px 12px; margin-bottom:10px; background:var(--panel2); }
+  .hitl-apphead { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+  .hitl-prop { border:1px solid var(--line); border-radius:9px; padding:10px 11px; margin-bottom:8px; background:#fff; }
+  .hitl-prop:last-child { margin-bottom:0; }
+  .incbar .inccount { text-align:right; color:var(--dim); font-family:var(--mono); }
+  .inclegend { display:flex; gap:13px; flex-wrap:wrap; font-size:10.5px; color:var(--dim); margin-top:9px; }
+  .inclegend i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px; vertical-align:middle; }
+
+  .grid2 { display:grid; grid-template-columns:1.35fr 1fr; gap:16px; }
+  @media (max-width:1000px){ .grid2 { grid-template-columns:1fr; } }
+
+  /* agentic layout: registry rail + main */
+  .agentic-wrap { position:relative; display:grid; grid-template-columns:250px minmax(0,1fr); gap:16px; align-items:start; }
+  .agentic-wrap.reg-collapsed { grid-template-columns:44px minmax(0,1fr); }
+  .reg-side { position:sticky; top:66px; }
+  .agent-item { display:flex; align-items:center; gap:10px; padding:9px 10px; border:1px solid var(--line2); border-radius:10px; background:#fff; cursor:pointer; box-shadow:var(--shadow); }
+  .agent-item:hover { border-color:var(--blue); }
+  .agent-item.active { border-color:var(--blue); background:#eef4fe; }
+  .agent-item .ico { width:28px; height:28px; border-radius:8px; display:grid; place-items:center; font-size:15px; background:#f2f5f8; border:1px solid var(--line); flex:none; }
+  .agent-item .nm { font-weight:610; font-size:12.5px; }
+  .agent-item .st { font-size:10px; margin-top:1px; }
+  .st.live { color:var(--green); } .st.reference { color:var(--dim); }
+  .health-dot { width:8px; height:8px; border-radius:50%; margin-left:auto; flex:none; background:var(--dim2); }
+  .health-dot.ok { background:var(--green); } .health-dot.bad { background:var(--red); }
+
+  /* agent detail: opens to the right of the rail */
+  .ag-detail { position:absolute; top:0; left:266px; width:min(480px,46vw); background:#fff; border:1px solid var(--line2); border-radius:12px;
+    box-shadow:0 10px 40px rgba(24,39,75,.16); padding:18px 20px 20px; max-height:calc(100vh - 96px); overflow:auto;
+    transform:translateX(-14px); opacity:0; pointer-events:none; transition:transform .18s, opacity .18s; z-index:14; }
+  .ag-detail.open { transform:none; opacity:1; pointer-events:auto; }
+  .agentic-wrap.reg-collapsed .ag-detail { left:60px; }
+  .ag-detail .x { position:absolute; top:12px; right:14px; border:none; background:none; color:var(--dim); font-size:22px; cursor:pointer; }
+  .ag-detail h3 { margin:0; font-size:16px; }
+  .metagrid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:12px 0 0; }
+  .metagrid-last { display:flex; justify-content:center; gap:6px; margin:6px 0 12px; }
+  .metagrid-last .meta { min-width:150px; }
+  .meta { display:flex; align-items:baseline; gap:6px; padding:5px 9px; border:1px solid var(--line); border-radius:7px; background:var(--panel2); font-size:11px; min-width:0; }
+  .meta .meta-k { font-size:9px; text-transform:uppercase; letter-spacing:.3px; color:var(--dim); font-weight:600; flex:none; }
+  .meta .meta-v { font-weight:620; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .envs { display:flex; gap:6px; flex-wrap:wrap; }
+  .env { display:inline-flex; align-items:center; gap:6px; font-size:10.5px; padding:3px 10px; border-radius:6px; border:1px solid var(--line2); color:var(--ink); }
+  .env .env-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+  .env .env-dot.g { background:var(--green); box-shadow:0 0 6px var(--green); }
+  .env .env-dot.o { background:var(--orange); box-shadow:0 0 6px var(--orange); }
+  .env .env-dot.r { background:var(--red); box-shadow:0 0 6px var(--red); }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { font-size:10.5px; padding:3px 8px; border-radius:999px; background:#f2f5f8; border:1px solid var(--line); color:var(--dim); }
+  .chip.accent { color:var(--blue); border-color:#cfe0fa; background:#eef4fe; }
+  .subcard { border:1px solid var(--line); border-radius:9px; padding:9px 11px; margin-bottom:7px; background:var(--panel2); }
+  pre.json { background:#0d1420; color:#c9d6ee; border-radius:9px; padding:12px; overflow:auto; font-size:11px; max-height:340px; margin:8px 0 0; }
+  .sect-t { font-size:11px; text-transform:uppercase; letter-spacing:.4px; color:var(--dim); margin:16px 0 7px; font-weight:600; }
+
+  /* interactive flow */
+  .flow-toolbar { display:flex; align-items:center; gap:6px; margin-bottom:9px; }
+  .flow-box { border:1px solid var(--line); border-radius:10px; background:#fafbfc; height:460px; overflow:hidden; position:relative; }
+  .flow-box svg { width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+  .flow-box svg.panning { cursor:grabbing; }
+  .node-fo .box { position:relative; width:100%; height:100%; background:#fff; border:1px solid var(--line2); border-left-width:4px; border-radius:6px; padding:4px 6px; box-sizing:border-box; overflow:hidden; box-shadow:var(--shadow); cursor:grab; }
+  .node-fo .box:hover { border-color:var(--blue); }
+  .node-fo .nl { font-weight:680; font-size:11px; line-height:1.12; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; padding-right:14px; }
+  .node-fo .ns { color:var(--dim); font-size:9px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .node-fo .nb { position:absolute; right:3px; top:2px; font-size:9px; font-family:var(--mono); color:var(--dim); background:#eef0f3; border-radius:4px; padding:0 4px; }
+  .legend { display:flex; gap:14px; flex-wrap:wrap; font-size:11px; color:var(--dim); margin-top:10px; }
+  .legend span > i { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:6px; vertical-align:middle; }
+
+  .console { background:#0d1420; color:#d7e2f4; border-radius:9px; padding:11px 12px; font-family:var(--mono); font-size:11px; white-space:pre-wrap; overflow:auto; max-height:300px; }
+  .console .dim { color:#7d8aa0; } .console .r { color:#ff8a8a; }
+
+  .tl-head { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  .tl-head h2 { margin:0; font-size:14px; font-weight:650; }
+  .timeline { list-style:none; margin:0; padding:0; max-height:420px; overflow:auto; }
+  .timeline li { display:grid; grid-template-columns:16px 1fr auto; gap:11px; padding:9px 4px; border-bottom:1px solid var(--line); align-items:start; cursor:pointer; }
+  .timeline li:hover { background:var(--hover); } .timeline li:last-child { border-bottom:0; }
+  .tl-dot { width:10px; height:10px; border-radius:50%; margin-top:4px; background:var(--blue); }
+  .tl-dot.ok { background:var(--green); } .tl-dot.warn { background:var(--orange); } .tl-dot.crit { background:var(--red); }
+  .tl-main { font-size:12.5px; font-weight:560; } .tl-main .g { color:var(--dim); font-family:var(--mono); font-size:10.5px; font-weight:400; margin-left:6px; }
+  .tl-reason { color:var(--dim); font-size:11px; margin-top:2px; }
+  .tl-meta { color:var(--blue); font-family:var(--mono); font-size:10px; margin-top:3px; }
+  .tl-time { color:var(--dim2); font-size:10.5px; font-family:var(--mono); white-space:nowrap; }
+  .foot { color:var(--dim2); font-size:11px; text-align:center; margin-top:26px; }
+
+  /* ===== space theme (toggleable) ===== */
+  #space-bg { position:fixed; inset:0; z-index:-1; display:none; pointer-events:none; overflow:hidden;
+    background:
+      radial-gradient(1100px 640px at 80% -12%, #14264d 0%, rgba(8,12,22,0) 60%),
+      radial-gradient(820px 560px at 8% 112%, #241a4a 0%, rgba(8,12,22,0) 55%),
+      linear-gradient(180deg, #05070f 0%, #0a1122 55%, #06080f 100%); }
+  body.space #space-bg { display:block; }
+  #starfield { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  #space-scene { position:absolute; left:10px; bottom:6px; width:min(33vw,380px); height:auto; opacity:.92; }
+  #space-scene .sc-orbit-line { fill:none; stroke:rgba(125,165,225,.16); stroke-width:1; stroke-dasharray:3 6; }
+  #space-scene .sc-ping, #space-scene .sc-beam-g, #space-scene .sc-sweep, #space-scene .sc-towers, #space-scene .sc-uplinks { opacity:0; transition:opacity .4s ease; }
+  #space-scene.sc-estate .sc-ping { opacity:1; }
+  #space-scene.sc-sre .sc-beam-g, #space-scene.sc-sre .sc-sweep, #space-scene.sc-sre .sc-towers { opacity:1; }
+  #space-scene.sc-tenant .sc-towers, #space-scene.sc-tenant .sc-uplinks { opacity:1; }
+
+  body.space { background:#06080f; }
+  body.space header { background:rgba(18,24,40,.6); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    border-bottom-color:rgba(255,255,255,.08); box-shadow:0 1px 0 rgba(255,255,255,.04); }
+  body.space .brand h1 { color:#fff; } body.space .brand .sub { color:#9aa6bb; }
+  body.space nav.tabs button { color:#aeb9cc; }
+  body.space nav.tabs button.active { background:rgba(80,130,240,.24); border-color:rgba(120,160,240,.42); color:#fff; }
+  body.space nav.tabs button:hover:not(.active) { background:rgba(255,255,255,.07); color:#fff; }
+  body.space .conn { color:#aeb9cc; }
+  body.space .icon-btn, body.space select.sel, body.space input.in { background:rgba(255,255,255,.95); }
+  /* section panels: edge + lift on the space background */
+  body.space .panel { border:1.5px solid rgba(154,188,255,.5) !important;
+    box-shadow:0 22px 52px -12px rgba(0,0,0,.64), 0 6px 20px rgba(0,0,0,.42), 0 0 0 1px rgba(154,188,255,.26) !important; }
+  /* standalone cards: lighter lift */
+  body.space .counter, body.space .gf-links a { border:1px solid rgba(154,188,255,.36) !important;
+    box-shadow:0 10px 24px -8px rgba(0,0,0,.5), 0 0 0 1px rgba(154,188,255,.16) !important; }
+  /* inner elements stay flat */
+  body.space .kpi, body.space #efficiency .kpi, body.space #efficiency > * { box-shadow:none !important; }
+  /* rail headers: white chips */
+  body.space .rail-head { background:#fff; border:1px solid rgba(154,188,255,.36); border-radius:9px;
+    padding:7px 10px; margin-bottom:8px; box-shadow:0 10px 24px -8px rgba(0,0,0,.5), 0 0 0 1px rgba(154,188,255,.14); }
+  body.space .rail-title { color:var(--dim) !important; text-shadow:none !important; }
+  body.space .collapse-btn { color:var(--dim) !important; }
+  body.space .collapse-btn:hover { color:var(--blue) !important; }
+
+  .seg { display:inline-flex; align-items:center; border:1px solid var(--line2); border-radius:8px; overflow:hidden; background:#fff; }
+  .seg button { border:none; background:transparent; color:var(--dim); padding:6px 10px; cursor:pointer; font-size:11.5px; font-weight:560; line-height:1; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:#eef4fe; color:var(--blue); }
+  .seg button:not(.on):hover { color:var(--ink); }
+  body.space .seg { background:rgba(255,255,255,.95); }
+  #bg-toggle { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); z-index:40; box-shadow:0 8px 24px rgba(24,39,75,.2); }
+  body.space #bg-toggle { box-shadow:0 10px 28px rgba(0,0,0,.55), 0 0 0 1px rgba(154,188,255,.2); }
+
+  /* ===== A2A diagram ===== */
+  .a2a-diagram { border:1px solid var(--line); border-radius:10px; background:#fafbfc; height:250px; overflow:hidden; position:relative; margin-bottom:12px; }
+  #a2asvg { width:100%; height:100%; display:block; cursor:grab; touch-action:none; }
+  #a2asvg.panning { cursor:grabbing; }
+  #a2asvg .a2n { fill:#fff; stroke:var(--line2); stroke-width:1.4; }
+  #a2asvg .a2n.olly { stroke:var(--blue); } #a2asvg .a2n.authz { stroke:var(--purple); } #a2asvg .a2n.orbit { stroke:var(--orange); } #a2asvg .a2n.broker { stroke:var(--green); }
+  #a2asvg .a2node { cursor:pointer; } #a2asvg .a2node:hover .a2n { stroke-width:2.7; } #a2asvg .a2hit { cursor:pointer; }
+  #a2asvg .a2nt { font:640 12px var(--sans); fill:var(--ink); } #a2asvg .a2ns { font:400 9px var(--mono); fill:var(--dim); }
+  #a2asvg .a2e { fill:none; stroke:var(--line2); stroke-width:1.7; transition:stroke .2s, opacity .2s; opacity:.45; }
+  #a2asvg .a2e.on { opacity:1; stroke-dasharray:6 5; animation:a2aflow .6s linear infinite; }
+  #a2asvg .a2el { font:500 9.5px var(--sans); fill:var(--dim2); transition:fill .2s; stroke:#fafbfc; stroke-width:3; paint-order:stroke; stroke-linejoin:round; cursor:pointer; } #a2asvg .a2el.on { fill:var(--ink); font-weight:600; }
+  @keyframes a2aflow { to { stroke-dashoffset:-22; } }
+  .a2a-body { display:grid; grid-template-columns:minmax(0,1.05fr) minmax(0,1fr); gap:14px; }
+  @media (max-width:760px){ .a2a-body { grid-template-columns:1fr; } }
+  .a2a-ctx { border:1px solid var(--line); border-radius:10px; padding:11px 12px; background:#fff; font-size:12px; }
+  .a2a-ctx .kv { display:flex; gap:8px; margin:3px 0; align-items:baseline; } .a2a-ctx .kv b { color:var(--dim); font-weight:600; min-width:92px; font-size:10.5px; text-transform:uppercase; letter-spacing:.3px; }
+  .a2a-ctx .mono { font-family:var(--mono); font-size:11px; color:var(--ink); word-break:break-all; }
+  .a2a-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:1px; }
+  .a2a-chip { font-size:10px; padding:2px 8px; border-radius:20px; border:1px solid var(--line2); background:var(--panel2); color:var(--dim); font-family:var(--mono); }
+  .a2a-chip.act { border-color:var(--green); background:var(--green-bg); color:var(--green); }
+  .a2a-chip.drop { border-color:var(--line2); background:var(--bg); color:var(--dim2); text-decoration:line-through; opacity:.7; }
+  .a2a-steps { display:flex; flex-direction:column; gap:6px; max-height:230px; overflow:auto; }
+  .a2a-step { display:flex; gap:8px; align-items:flex-start; padding:6px 9px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  .a2a-step .sd { width:8px; height:8px; border-radius:50%; margin-top:4px; flex:none; background:var(--dim2); }
+  .a2a-step.token .sd { background:var(--purple); } .a2a-step.send .sd { background:var(--blue); } .a2a-step.reply .sd { background:var(--orange); } .a2a-step.approved .sd { background:var(--green); } .a2a-step.denied .sd { background:var(--red); }
+  .a2a-step .st { flex:1; min-width:0; font-size:11.5px; } .a2a-step .st .t { font-weight:560; } .a2a-step .st .m { color:var(--dim); font-size:10px; margin-top:1px; font-family:var(--mono); word-break:break-word; }
+  .a2a-step .tm { color:var(--dim2); font-size:10px; font-family:var(--mono); white-space:nowrap; }
+  body.space .a2a-diagram, body.space .a2a-ctx, body.space .a2a-step { border-color:rgba(154,188,255,.2); }
+</style>
+</head>
+<body>
+<div id="space-bg" aria-hidden="true">
+  <canvas id="starfield"></canvas>
+  <svg id="space-scene" viewBox="0 0 320 300" preserveAspectRatio="xMinYMax meet">
+    <defs>
+      <radialGradient id="sc-planet" cx="38%" cy="30%" r="78%">
+        <stop offset="0%" stop-color="#2f628f"/><stop offset="52%" stop-color="#173a5e"/><stop offset="100%" stop-color="#0c1f36"/>
+      </radialGradient>
+      <radialGradient id="sc-atmo" cx="50%" cy="50%" r="50%">
+        <stop offset="72%" stop-color="rgba(87,148,242,0)"/><stop offset="90%" stop-color="rgba(87,148,242,.34)"/><stop offset="100%" stop-color="rgba(87,148,242,0)"/>
+      </radialGradient>
+      <linearGradient id="sc-sweep" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="rgba(58,166,87,0)"/><stop offset="100%" stop-color="rgba(58,166,87,.5)"/>
+      </linearGradient>
+      <clipPath id="sc-clip"><circle cx="150" cy="236" r="54"/></clipPath>
+    </defs>
+
+    <path id="sc-orbit" class="sc-orbit-line" d="M 30,222 a 120,58 0 1,1 240,0 a 120,58 0 1,1 -240,0"/>
+    <circle cx="150" cy="236" r="66" fill="url(#sc-atmo)"/>
+    <circle cx="150" cy="236" r="54" fill="url(#sc-planet)" stroke="rgba(120,170,220,.28)" stroke-width="1"/>
+
+    <!-- SRE view: rotating radar sweep on the surface -->
+    <g class="sc-sweep">
+      <g clip-path="url(#sc-clip)">
+        <g>
+          <path d="M150,236 L150,182 A54,54 0 0,1 204,236 Z" fill="url(#sc-sweep)"/>
+          <line x1="150" y1="236" x2="150" y2="182" stroke="rgba(58,166,87,.85)" stroke-width="1.3"/>
+          <animateTransform attributeName="transform" type="rotate" from="0 150 236" to="360 150 236" dur="3.4s" repeatCount="indefinite"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- apps on the surface (SRE scan + tenant uplinks) -->
+    <g class="sc-towers">
+      <g fill="#c8d6e8"><rect x="122" y="230" width="6" height="11" rx="1"/><rect x="147" y="224" width="6" height="11" rx="1"/><rect x="172" y="231" width="6" height="11" rx="1"/></g>
+      <circle cx="125" cy="228" r="2.4" fill="var(--orange)"><animate attributeName="opacity" values="1;.25;1" dur="1.4s" repeatCount="indefinite"/></circle>
+      <circle cx="150" cy="222" r="2.4" fill="var(--green)"><animate attributeName="opacity" values="1;.3;1" dur="1.1s" repeatCount="indefinite"/></circle>
+      <circle cx="175" cy="229" r="2.4" fill="var(--orange)"><animate attributeName="opacity" values="1;.3;1" dur="1.7s" repeatCount="indefinite"/></circle>
+    </g>
+
+    <!-- SRE view: scan beam from the satellite to the planet -->
+    <g class="sc-beam-g">
+      <line id="sc-beam" x1="150" y1="164" x2="150" y2="236" stroke="rgba(58,166,87,.42)" stroke-width="3.4" stroke-linecap="round"/>
+      <line id="sc-beam2" x1="150" y1="164" x2="150" y2="236" stroke="rgba(130,240,170,.9)" stroke-width="1" stroke-linecap="round"/>
+      <circle cx="150" cy="236" r="4" fill="none" stroke="var(--green)" stroke-width="1.3"><animate attributeName="r" values="3;13" dur="1.3s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="1.3s" repeatCount="indefinite"/></circle>
+    </g>
+
+    <!-- Tenant view: uplinks from the apps to the satellite -->
+    <g class="sc-uplinks" fill="none" stroke="rgba(58,166,87,.82)" stroke-width="1.3" stroke-dasharray="4 8">
+      <line id="sc-up1" x1="125" y1="226" x2="150" y2="164"><animate attributeName="stroke-dashoffset" from="0" to="-24" dur="1s" repeatCount="indefinite"/></line>
+      <line id="sc-up2" x1="150" y1="220" x2="150" y2="164"><animate attributeName="stroke-dashoffset" from="0" to="-24" dur=".9s" repeatCount="indefinite"/></line>
+      <line id="sc-up3" x1="175" y1="227" x2="150" y2="164"><animate attributeName="stroke-dashoffset" from="0" to="-24" dur="1.15s" repeatCount="indefinite"/></line>
+    </g>
+
+    <!-- Estate view: pulsing ping from the satellite -->
+    <g class="sc-ping">
+      <circle id="sc-ping1" cx="150" cy="164" r="4" fill="none" stroke="rgba(87,148,242,.85)" stroke-width="1.5"><animate attributeName="r" values="3;22" dur="1.6s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="1.6s" repeatCount="indefinite"/></circle>
+      <circle id="sc-ping2" cx="150" cy="164" r="4" fill="none" stroke="rgba(87,148,242,.6)" stroke-width="1.2"><animate attributeName="r" values="3;22" dur="1.6s" begin="0.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".7;0" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+    </g>
+
+    <!-- satellite; JS positions it along the orbit each frame -->
+    <g id="sc-sat">
+      <rect x="-19" y="-4" width="11" height="8" rx="1" fill="#22406a" stroke="#5794f2" stroke-width=".7"/>
+      <rect x="8" y="-4" width="11" height="8" rx="1" fill="#22406a" stroke="#5794f2" stroke-width=".7"/>
+      <line x1="-13.5" y1="-4" x2="-13.5" y2="4" stroke="#5794f2" stroke-width=".5"/><line x1="13.5" y1="-4" x2="13.5" y2="4" stroke="#5794f2" stroke-width=".5"/>
+      <rect x="-5" y="-5" width="10" height="10" rx="2" fill="#e7edf6" stroke="#9fb3cc" stroke-width=".8"/>
+      <circle cx="0" cy="-8.5" r="2.6" fill="#cbd8e8" stroke="#9fb3cc" stroke-width=".6"/>
+      <line x1="0" y1="-5" x2="0" y2="-8.5" stroke="#9fb3cc" stroke-width=".8"/>
+    </g>
+  </svg>
+</div>
+<header>
+  <div class="brand"><div class="mark">A</div><div><h1>Agentic SRE Dashboard</h1><div class="sub">acme-co estate</div></div></div>
+  <nav class="tabs"><button data-view="eye" class="active">Eye in the Sky</button><button data-view="agentic">Agentic SRE</button></nav>
+  <div class="spacer"></div>
+  <div class="toolbar">
+    <div class="conn"><span class="dot" id="conn-dot"></span><span id="conn-txt">checking&hellip;</span></div>
+    <select class="sel" id="trange" title="historical view: evaluate the estate metrics as of this point in time (like Grafana's time range). Use when live ingestion has paused so existing data still shows.">
+      <option value="0" selected>Live</option><option value="900">&minus;15m</option><option value="3600">&minus;1h</option><option value="10800">&minus;3h</option><option value="21600">&minus;6h</option><option value="43200">&minus;12h</option><option value="86400">&minus;24h</option><option value="604800">&minus;7d</option>
+    </select>
+    <select class="sel" id="interval" title="auto-refresh interval">
+      <option value="0">Off</option><option value="1000">1s</option><option value="2000">2s</option><option value="5000" selected>5s</option><option value="10000">10s</option><option value="30000">30s</option><option value="60000">1m</option><option value="300000">5m</option><option value="900000">15m</option><option value="3600000">1h</option><option value="21600000">6h</option><option value="86400000">24h</option>
+    </select>
+    <button class="icon-btn" id="refresh" title="refresh now"><span class="ic">&#8635;</span></button>
+  </div>
+</header>
+
+<main>
+  <!-- ============ Eye in the Sky ============ -->
+  <section id="view-eye" class="view active">
+    <div class="eye-wrap" id="eyewrap">
+      <aside class="eye-side"><div class="rail" id="gfrail">
+        <div class="rail-head"><button class="collapse-btn" id="gf-collapse" title="collapse">&#9776;</button><span class="rail-title">Grafana dashboards</span></div>
+        <div class="rail-body gf-links" id="gflinks"></div>
+      </div></aside>
+      <div class="eye-main">
+        <div class="counters" id="counters"></div>
+        <div class="restack" id="eye-stack">
+          <div class="panel repanel" data-panel="apps">
+            <div class="panel-bar"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Applications</h2><span class="spc"></span><span class="pill dim filter-badge" id="appfilter" style="display:none"></span><button class="collapse-x" title="collapse">&#9662;</button></div>
+            <p class="hint">Per-app health from Prometheus. Click a header to sort; click an application name for its Grafana dashboard; INC/CHG opens ServiceNow; Escalate raises an INC.</p>
+            <div style="overflow:auto"><table id="apps"><thead><tr id="apps-head"></tr></thead><tbody><tr><td colspan="8" class="muted">loading&hellip;</td></tr></tbody></table></div>
+          </div>
+          <div class="panel repanel" data-panel="tower">
+            <div class="panel-bar"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Agent control tower</h2><span class="spc"></span><button class="collapse-x" title="collapse">&#9662;</button></div>
+            <p class="hint">RCA lifecycle and live agent status. Incidents, enriched and HITL are the same live data shown across the dashboard; RCA p90 and tokens are agent runtime metrics.</p>
+            <div class="kpis" id="kpis"></div>
+            <div class="row" style="margin:10px 0 8px"><div class="sect-t" style="margin:0">Incidents across the estate</div><span class="spc"></span><select class="sel" id="incfilter"><option value="all">All apps</option></select></div>
+            <div id="incsummary" class="muted" style="font-size:11.5px;margin-bottom:9px"></div>
+            <div id="incchart"><div class="muted" style="font-size:12px">loading&hellip;</div></div>
+            <div class="inclegend" id="inclegend"></div>
+            <div id="efficiency" style="margin:14px 0 4px"></div>
+            <div class="sect-t">Pipeline stage latency p90 (1h)</div>
+            <div class="bars" id="stagebars"><div class="muted" style="font-size:12px">loading&hellip;</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ Agentic SRE ============ -->
+  <section id="view-agentic" class="view">
+    <div class="agentic-wrap" id="agwrap">
+      <aside class="reg-side"><div class="rail" id="regrail">
+        <div class="rail-head"><button class="collapse-btn" id="reg-collapse" title="collapse">&#9776;</button><span class="rail-title">Agent Registry</span></div>
+        <div class="rail-body" id="registry"><div class="notice">loading&hellip;</div></div>
+      </div></aside>
+
+      <div class="ag-detail" id="drawer"><button class="x" id="drawer-x">&times;</button><div id="drawer-body"></div></div>
+
+      <div style="min-width:0">
+        <div class="restack" id="ag-stack">
+        <div class="panel repanel" data-panel="flow">
+          <div class="panel-bar"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Incident decision flow</h2><span class="spc"></span><span class="pill dim" id="flow-status">connecting</span><button class="collapse-x" title="collapse">&#9662;</button></div>
+          <p class="hint">The live client flow from estate event to ServiceNow INC. Each gate on <code>olly.pipeline.decisions</code> lights up as an incident takes it. Drag nodes to rearrange, scroll to zoom, click a node or a line for the real data behind it.</p>
+          <div class="flow-toolbar">
+            <button class="icon-btn sm" id="fz-in" title="zoom in">+</button>
+            <button class="icon-btn sm" id="fz-out" title="zoom out">&#8722;</button>
+            <button class="icon-btn sm" id="fz-fit" title="fit / reset view">&#9974;</button>
+            <span class="muted" style="font-size:11px">drag nodes &middot; scroll to zoom &middot; drag background to pan</span>
+          </div>
+          <div class="flow-box"><svg id="flowsvg"><g id="flow-vp"><g id="flow-edges"></g><g id="flow-nodes"></g></g></svg></div>
+          <div class="legend" id="flow-legend"></div>
+          <div id="nodepane" style="display:none;margin-top:12px">
+            <div class="row" style="margin-bottom:6px"><b id="nodepane-t" style="font-size:12.5px">Node</b><span class="spc"></span><button class="btn sm" id="nodepane-x">close</button></div>
+            <div class="console" id="nodepane-c"></div>
+          </div>
+        </div>
+
+        <div class="panel repanel" data-panel="a2a">
+          <div class="panel-bar"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Agent-to-Agent (A2A) &middot; COIN &amp; AuthZ-CTX</h2><span class="spc"></span><span class="pill dim" id="a2a-status">waiting</span><button class="collapse-x" title="collapse">&#9662;</button></div>
+          <p class="hint">The live Olly &rarr; Orbit hand-off. Olly mints a COIN M2M token on-behalf-of the SRE on-call, carries it as <code>X-AuthZ-CTX</code> on the A2A <code>message/send</code>, and Orbit re-validates and narrows it (never widens) before proposing. One <code>authz_ctx_id</code> anchors the chain end to end. Click a node or a line for the real logs behind it.</p>
+          <div class="flow-toolbar">
+            <button class="icon-btn sm" id="a2z-in" title="zoom in">+</button>
+            <button class="icon-btn sm" id="a2z-out" title="zoom out">&#8722;</button>
+            <button class="icon-btn sm" id="a2z-fit" title="fit / reset view">&#9974;</button>
+            <span class="muted" style="font-size:11px">click nodes/lines for real logs &middot; scroll to zoom &middot; drag to pan</span>
+          </div>
+          <div class="a2a-diagram"><svg id="a2asvg"><g id="a2a-vp"></g></svg></div>
+          <div id="a2a-inspect" style="display:none;margin:10px 0 2px">
+            <div class="row" style="margin-bottom:6px"><b id="a2a-inspect-t" style="font-size:12.5px">A2A step</b><span class="spc"></span><button class="btn sm" id="a2a-inspect-x">close</button></div>
+            <div class="console" id="a2a-inspect-c"></div>
+          </div>
+          <div class="a2a-body">
+            <div class="a2a-ctx" id="a2a-ctx"><div class="muted" style="font-size:12px">no A2A exchange yet &mdash; run <code>make a2a-demo</code> (or park a restart-shaped incident) to see the live hand-off</div></div>
+            <div class="a2a-steps" id="a2a-steps"></div>
+          </div>
+        </div>
+
+        <div class="panel repanel" data-panel="hitl">
+          <div class="panel-bar"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Human-in-the-loop approvals</h2><span class="spc"></span><span class="muted" style="font-size:11px">approve as</span><input class="in" id="hitl-approver" value="estate95-operator" style="width:170px" /><button class="collapse-x" title="collapse">&#9662;</button></div>
+          <p class="hint">Open action proposals parked by Orbit per application, awaiting a signed decision. Approving mints an ed25519 token bound to that one proposal; the agent cannot mint it.</p>
+          <div id="hitl"><div class="muted" style="font-size:12px">loading&hellip;</div></div>
+        </div>
+
+        <div class="panel repanel" data-panel="timeline">
+          <div class="panel-bar tl-head"><span class="drag-handle" title="drag to reorder">&#10303;</span><h2>Live Execution Timeline</h2><span class="pill dim" id="tl-count">0 events</span><span class="spc"></span>
+            <input class="in" id="tlfilter" placeholder="filter: correlation id, app id, gate, reason&hellip;" style="width:300px" />
+            <button class="btn sm" id="tlfilter-clear">clear</button><button class="collapse-x" title="collapse">&#9662;</button>
+          </div>
+          <ul class="timeline" id="timeline"><li><div></div><div class="notice" style="grid-column:1/-1">waiting for the decision bus (bring the demo up)&hellip;</div><div></div></li></ul>
+          <div id="tl-detail" style="display:none;margin-top:12px"><div class="sect-t">Decision record</div><div class="console" id="tl-detail-c"></div></div>
+        </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<div class="seg" id="bg-toggle" title="background theme">
+  <button data-bg="default" class="on">Default</button>
+  <button data-bg="space">Space</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var SNOW_URL = "https://dev379184.service-now.com";
+  var GRAFANA = "http://localhost:3000";
+  var APPS_ORDER = ["inventory-service", "payments-api", "customer-portal"];
+  var svgNS = "http://www.w3.org/2000/svg";
+
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  function el(t, a, kids) {
+    var n = document.createElement(t); a = a || {};
+    for (var k in a) { if (k === "class") n.className = a[k]; else if (k === "html") n.innerHTML = a[k]; else if (a[k] != null) n.setAttribute(k, a[k]); }
+    (kids || []).forEach(function (c) { if (c == null) return; n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+    return n;
+  }
+  async function getJSON(path) { var r = await fetch(path); var t = await r.text(); var b; try { b = JSON.parse(t); } catch (e) { b = t; } if (!r.ok) throw Object.assign(new Error((b && b.error) || r.statusText), { status: r.status }); return b; }
+  async function postJSON(path, body) { var r = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) }); var t = await r.text(); var b; try { b = JSON.parse(t); } catch (e) { b = t; } if (!r.ok) throw Object.assign(new Error((b && b.error) || t || r.statusText), { status: r.status }); return b; }
+  // Lookback: evaluate the PromQL at a past instant via &time=.
+  function promTimeParam() { var s = $("#trange"), off = s ? Number(s.value || 0) : 0; return off > 0 ? "&time=" + (Math.floor(Date.now() / 1000) - off) : ""; }
+  async function prom(q) { var r = await getJSON("/api/metrics/query?q=" + encodeURIComponent(q) + promTimeParam()); var res = (r && r.data && r.data.result) || []; return res.map(function (x) { return { labels: x.metric || {}, value: Number(x.value ? x.value[1] : NaN) }; }); }
+  async function promOne(q) { try { var a = await prom(q); return a.length ? a[0].value : null; } catch (e) { return null; } }
+  function fmt(n, d) { return n == null || isNaN(n) ? "—" : Number(n).toFixed(d == null ? 0 : d); }
+  function gfDash(uid, extra) { return GRAFANA + "/d/" + uid + (extra || ""); }
+  function snowAppList(app) { return SNOW_URL + "/incident_list.do?sysparm_query=short_descriptionLIKE" + encodeURIComponent(app); }
+  function snowAppState(app, state) { return SNOW_URL + "/incident_list.do?sysparm_query=short_descriptionLIKE" + encodeURIComponent(app) + "^descriptionLIKE" + encodeURIComponent(state); }
+  // Olly writes "enriched" into the ticket description; LIKE / NOT LIKE splits
+  // enriched from the rest.
+  function snowEnriched(positive) { return SNOW_URL + "/incident_list.do?sysparm_query=" + encodeURIComponent((positive ? "descriptionLIKE" : "descriptionNOT LIKE") + "enriched"); }
+
+  // ---- tabs / toolbar ----
+  document.querySelectorAll("nav.tabs button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      document.querySelectorAll("nav.tabs button").forEach(function (b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.querySelectorAll(".view").forEach(function (v) { v.classList.remove("active"); });
+      $("#view-" + btn.dataset.view).classList.add("active");
+      if (btn.dataset.view === "eye") loadEye();
+      if (btn.dataset.view === "agentic") { loadAgentic(); requestAnimationFrame(fitView); requestAnimationFrame(a2fit); }
+    });
+  });
+  var timer = null;
+  function refreshActive() { if ($("#view-eye").classList.contains("active")) loadEye(); else loadAgentic(); }
+  function schedule() { if (timer) clearInterval(timer); var ms = Number($("#interval").value || 0); if (ms > 0) timer = setInterval(refreshActive, ms); }
+  $("#interval").addEventListener("change", schedule);
+  $("#trange").addEventListener("change", function () { var hist = Number(this.value) > 0; this.style.borderColor = hist ? "var(--orange)" : ""; this.style.color = hist ? "var(--orange)" : ""; refreshActive(); });
+  $("#refresh").addEventListener("click", function () { this.classList.remove("spin"); void this.offsetWidth; this.classList.add("spin"); refreshActive(); });
+  $("#gf-collapse").addEventListener("click", function () { $("#gfrail").classList.toggle("collapsed"); $("#eyewrap").classList.toggle("gf-collapsed"); });
+  $("#reg-collapse").addEventListener("click", function () { $("#regrail").classList.toggle("collapsed"); $("#agwrap").classList.toggle("reg-collapsed"); });
+
+  async function pingBroker() { try { await getJSON("/api/health"); $("#conn-dot").className = "dot ok"; $("#conn-txt").textContent = "broker connected"; return true; } catch (e) { $("#conn-dot").className = "dot bad"; $("#conn-txt").textContent = "broker unreachable"; return false; } }
+
+  // ================= Eye in the Sky =================
+  var DASHES = [
+    { uid: "estate-pane", t: "Eye in the Sky (Estate View)", s: "single pane, one row per app", scene: "estate" },
+    { uid: "eye-in-the-sky", t: "Eye in the Sky (SRE View)", s: "control tower: RCA lifecycle, HITL", scene: "sre" },
+    { uid: "tenant-app-view", t: "Tenant App View", s: "per-app metrics + vulns", scene: "tenant" }
+  ];
+  function grafanaLinks() { var host = $("#gflinks"); host.innerHTML = ""; DASHES.forEach(function (d) { host.appendChild(el("a", { href: gfDash(d.uid), target: "_blank", rel: "noopener", "data-scene": d.scene }, [el("b", {}, [d.t]), el("span", {}, [d.s]), el("span", { class: "ext" }, ["open in Grafana ↗"])])); }); }
+
+  var COND = "100 * sum by (app_id) (rate(tenant_app_requests_total{code=\"500\"}[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_requests_total[5m])), 0.001)";
+  var activeFilter = null;   // 'healthy' | 'warning' | 'critical' | null
+  var LVL2K = { healthy: "ok", warning: "warn", critical: "crit" };
+  async function loadCounters(incidents) {
+    var host = $("#counters");
+    var defs = [
+      ["Healthy", "ok", "count((" + COND + ") < 3) or vector(0)", "healthy"],
+      ["Warning", "warn", "count(((" + COND + ") >= 3) and ((" + COND + ") < 10)) or vector(0)", "warning"],
+      ["Critical", "crit", "count((" + COND + ") >= 10) or vector(0)", "critical"],
+      ["Alerts firing", "info", "count(ALERTS{alertstate=\"firing\", app_id!=\"\"}) or vector(0)", null]
+    ];
+    var vals = await Promise.all(defs.map(function (d) { return promOne(d[2]); }));
+    var cfg = incidents == null ? null : incidents.filter(function (t) { return (t.fault_domain || "").indexOf("change") >= 0; }).length;
+    host.innerHTML = "";
+    defs.forEach(function (d, i) {
+      var c = el("div", { class: "counter " + d[1] + (activeFilter === d[3] ? " active" : ""), title: d[3] ? "click to highlight " + d[3] + " apps" : "" }, [el("div", { class: "n" }, [fmt(vals[i])]), el("div", { class: "l" }, [d[0]])]);
+      if (d[3]) c.addEventListener("click", function () { toggleFilter(d[3]); });
+      host.appendChild(c);
+    });
+    host.appendChild(el("div", { class: "counter info", title: "config/change incidents" }, [el("div", { class: "n" }, [cfg == null ? "—" : String(cfg)]), el("div", { class: "l" }, ["Config changes"])]));
+  }
+  function toggleFilter(level) {
+    activeFilter = activeFilter === level ? null : level;
+    document.querySelectorAll("#counters .counter").forEach(function (c) { c.classList.toggle("active", !!activeFilter && c.classList.contains(LVL2K[level]) && c.classList.contains(LVL2K[activeFilter] || "")); });
+    var badge = $("#appfilter");
+    if (activeFilter) { badge.style.display = ""; badge.className = "pill " + LVL2K[activeFilter] + " filter-badge"; badge.textContent = "showing " + activeFilter + " ✕"; } else { badge.style.display = "none"; }
+    applyAppFilter();
+  }
+  $("#appfilter").addEventListener("click", function () { if (activeFilter) toggleFilter(activeFilter); });
+  function clearAppFilters() { activeFilter = null; sortKey = "app"; sortDir = 1; document.querySelectorAll("#counters .counter").forEach(function (c) { c.classList.remove("active"); }); $("#appfilter").style.display = "none"; renderApps(); }
+  function applyAppFilter() {
+    document.querySelectorAll("#apps tbody tr").forEach(function (tr) {
+      if (!tr.dataset.level) return;
+      tr.classList.remove("flash-ok", "flash-warn", "flash-crit");
+      if (!activeFilter) { tr.classList.remove("dim-out"); return; }
+      if (tr.dataset.level === activeFilter) { tr.classList.remove("dim-out"); void tr.offsetWidth; tr.classList.add("flash-" + LVL2K[activeFilter]); }
+      else tr.classList.add("dim-out");
+    });
+  }
+
+  // apps data + sortable table
+  var appsData = [], sortKey = "app", sortDir = 1;
+  var COLS = [
+    { key: "app", label: "Application", desc: "Tenant application ID; click a name to open its Grafana dashboard" },
+    { key: "cond", label: "Condition", desc: "HTTP 5xx error rate over 5m. Healthy <3%, Warning <10%, Critical ≥10%" },
+    { key: "up", label: "Serving", desc: "Whether the app is up and answering requests right now" },
+    { key: "upstream", label: "Upstream", desc: "Health of the app's upstream dependency (leaf = no upstream)" },
+    { key: "resp", label: "Avg resp", desc: "Average request latency over the last 5 minutes" },
+    { key: "alerts", label: "Alerts", desc: "Prometheus alerts currently firing for this app" },
+    { key: "inc", label: "INC/CHG", desc: "Open ServiceNow incidents for this app; click the count to view them" },
+    { key: "", label: "" }
+  ];
+  function condInfo(v) { if (v == null || isNaN(v)) return { k: "dim", t: "n/a", lvl: "" }; return v < 3 ? { k: "ok", t: "Healthy " + v.toFixed(1) + "%", lvl: "healthy" } : v < 10 ? { k: "warn", t: "Warning " + v.toFixed(1) + "%", lvl: "warning" } : { k: "crit", t: "Critical " + v.toFixed(1) + "%", lvl: "critical" }; }
+  function buildHead() {
+    var tr = $("#apps-head"); tr.innerHTML = "";
+    COLS.forEach(function (c) {
+      if (!c.key) {
+        // The escalation column header carries the Clear filters control.
+        var cbtn = el("button", { class: "btn sm", id: "apps-clear", title: "clear active filters and sort" }, ["Clear filters"]);
+        cbtn.addEventListener("click", clearAppFilters);
+        tr.appendChild(el("th", { class: "th-clear" }, [cbtn]));
+        return;
+      }
+      var arr = sortKey === c.key ? (sortDir > 0 ? " ▲" : " ▼") : "";
+      var th = el("th", { class: "sortable", title: c.desc || "" }, [c.label, arr ? el("span", { class: "arr" }, [arr]) : null]);
+      th.addEventListener("click", function () { if (sortKey === c.key) sortDir = -sortDir; else { sortKey = c.key; sortDir = 1; } renderApps(); });
+      tr.appendChild(th);
+    });
+  }
+  function renderApps() {
+    buildHead();
+    var body = $("#apps").querySelector("tbody");
+    if (!appsData.length) { body.innerHTML = "<tr><td colspan='8' class='muted'>no app metrics yet (is Prometheus reachable? rebuild the broker + bring the cluster up)</td></tr>"; return; }
+    var rows = appsData.slice().sort(function (a, b) {
+      var x = a[sortKey], y = b[sortKey];
+      if (sortKey === "app") return a.app.localeCompare(b.app) * sortDir;
+      x = x == null ? -1 : x; y = y == null ? -1 : y; return (x - y) * sortDir;
+    });
+    body.innerHTML = "";
+    rows.forEach(function (r) {
+      var ci = condInfo(r.cond);
+      var serve = r.up >= 1 ? el("span", { class: "pill ok" }, ["Serving"]) : el("span", { class: "pill crit" }, ["Down"]);
+      var upv = r.upstream == null ? el("span", { class: "pill dim" }, ["leaf"]) : (r.upstream >= 1 ? el("span", { class: "pill ok" }, ["healthy"]) : el("span", { class: "pill crit" }, ["degraded"]));
+      var incLink = el("a", { class: "lnk mono", href: SNOW_URL + "/incident_list.do?sysparm_query=short_descriptionLIKE" + encodeURIComponent(r.app), target: "_blank", rel: "noopener", title: "open " + r.app + " incidents in ServiceNow" }, [fmt(r.inc)]);
+      var esc = el("a", { class: "btn red sm", href: SNOW_URL + "/incident.do?sys_id=-1&sysparm_query=" + encodeURIComponent("short_description=[" + r.app + "]"), target: "_blank", rel: "noopener", title: "raise an INC for " + r.app }, ["Escalate"]);
+      var nameLink = el("b", { class: "lnk appname", title: "open " + r.app + " in Grafana ↗" }, [r.app]);
+      nameLink.addEventListener("click", function () { window.open(gfDash("tenant-app-view", "/tenant-app-view?var-app=" + encodeURIComponent(r.app)), "_blank"); });
+      var tr = el("tr", { class: "approw", "data-level": ci.lvl }, [
+        el("td", {}, [nameLink]), el("td", {}, [el("span", { class: "pill " + ci.k }, [ci.t])]),
+        el("td", {}, [serve]), el("td", {}, [upv]), el("td", { class: "mono" }, [r.resp == null ? "—" : (r.resp * 1000).toFixed(0) + " ms"]),
+        el("td", { class: "mono" }, [fmt(r.alerts)]), el("td", {}, [incLink]), el("td", { class: "td-esc" }, [esc])
+      ]);
+      body.appendChild(tr);
+    });
+    applyAppFilter();
+  }
+  async function loadApps() {
+    try {
+      var qs = { cond: COND, up: "max by (app_id) (tenant_app_up)", upstream: "min by (app_id) (tenant_app_upstream_up)",
+        resp: "sum by (app_id) (rate(tenant_app_request_duration_seconds_sum[5m])) / clamp_min(sum by (app_id) (rate(tenant_app_request_duration_seconds_count[5m])), 0.001)",
+        alerts: "sum by (app_id) (ALERTS{alertstate=\"firing\", app_id!=\"\"}) or (max by (app_id)(tenant_app_up) * 0)", inc: "sum by (app_id) (olly_incidents)" };
+      var keys = Object.keys(qs), results = await Promise.all(keys.map(function (k) { return prom(qs[k]); }));
+      var apps = {};
+      keys.forEach(function (k, i) { results[i].forEach(function (r) { var a = r.labels.app_id; if (!a) return; (apps[a] = apps[a] || { app: a })[k] = r.value; }); });
+      appsData = Object.keys(apps).map(function (a) { return apps[a]; });
+      renderApps();
+    } catch (e) { $("#apps").querySelector("tbody").innerHTML = "<tr><td colspan='8' class='notice bad' style='display:table-cell'>metrics unavailable: " + (e.status === 503 ? "cluster/Prometheus not reachable" : (e.message || "error")) + "</td></tr>"; }
+  }
+
+  async function loadTower(incidents, proposals) {
+    var kpis = $("#kpis"), bars = $("#stagebars");
+    // Incidents/Enriched/Unenriched from the ServiceNow ticket store; HITL from
+    // Orbit's proposal store.
+    var total = incidents == null ? null : incidents.length;
+    var enriched = incidents == null ? null : incidents.filter(function (t) { return t.state === "enriched" || t.enriched_at; }).length;
+    var unenriched = (total == null || enriched == null) ? null : total - enriched;
+    var hitl = proposals == null ? null : proposals.length;
+    var tokens = await promOne("sum(increase(olly_llm_tokens_total[1h]))"), rcaP90 = await promOne("histogram_quantile(0.9, sum by (le) (rate(olly_stage_duration_seconds_bucket[1h])))");
+    var eff = (rcaP90 && rcaP90 > 0) ? (3600 / rcaP90) : null;
+    kpis.innerHTML = "";
+    var items = [
+      ["Incidents", total == null ? "—" : String(total), "total in the estate", function () { window.open(SNOW_URL + "/incident_list.do", "_blank"); }],
+      ["Enriched", enriched == null ? "—" : String(enriched), "Olly-enriched RCA", function () { window.open(snowEnriched(true), "_blank"); }],
+      ["Unenriched", unenriched == null ? "—" : String(unenriched), "awaiting RCA", function () { window.open(snowEnriched(false), "_blank"); }],
+      ["HITL pending", hitl == null ? "—" : String(hitl), "awaiting approval", function () { document.querySelector('nav.tabs button[data-view="agentic"]').click(); }],
+      ["RCA p90", rcaP90 == null ? "—" : (rcaP90 < 60 ? rcaP90.toFixed(1) + "s" : (rcaP90 / 60).toFixed(1) + "m"), "stage latency", null],
+      ["Tokens / hr", tokens == null ? "—" : (tokens >= 1000 ? (tokens / 1000).toFixed(1) + "k" : fmt(tokens)), "LLM usage", null]
+    ];
+    items.forEach(function (it) { var k = el("div", { class: "kpi" + (it[3] ? " click" : "") }, [el("div", { class: "n" }, [it[1]]), el("div", { class: "l" }, [it[0]]), el("div", { class: "s" }, [it[2]])]); if (it[3]) k.addEventListener("click", it[3]); kpis.appendChild(k); });
+    var effHost = $("#efficiency"); effHost.innerHTML = "";
+    effHost.appendChild(el("div", { class: "kpi hero" }, [el("div", { class: "n" }, [eff == null ? "—" : "~" + Math.round(eff) + "x faster"]), el("div", { class: "l" }, ["Efficiency vs manual triage (no enrichment)"]), el("div", { class: "s" }, ["agent RCA p90 vs a 1-hour manual baseline"])]));
+    try {
+      var st = (await prom("histogram_quantile(0.9, sum by (stage, le) (rate(olly_stage_duration_seconds_bucket[1h])))")).filter(function (s) { return s.labels.stage && !isNaN(s.value); });
+      if (!st.length) { bars.innerHTML = "<div class='muted' style='font-size:12px'>no stage metrics yet</div>"; return; }
+      var max = Math.max.apply(null, st.map(function (s) { return s.value; })) || 1; bars.innerHTML = "";
+      st.sort(function (a, b) { return b.value - a.value; }).forEach(function (s) { bars.appendChild(el("div", { class: "bar" }, [el("span", {}, [s.labels.stage]), el("div", { class: "track" }, [el("div", { class: "fill", style: "width:" + Math.max(3, s.value / max * 100) + "%" }, [])]), el("span", { class: "v" }, [(s.value * 1000).toFixed(0) + "ms"])])); });
+    } catch (e) { bars.innerHTML = "<div class='notice bad' style='font-size:12px'>stage metrics unavailable</div>"; }
+  }
+  // ---- incidents across the estate (from the ServiceNow ticket store) ----
+  var incFilter = "all", estateIncidents = null;
+  var STATE_COLORS = { enriched: "var(--green)", in_progress: "var(--yellow)", new: "var(--blue)", auto_remediated: "var(--orange)", raw: "var(--dim2)" };
+  var STATE_ORDER = ["new", "in_progress", "enriched", "auto_remediated", "raw"];
+  var STATE_LABEL = { raw: "unenriched" };
+  function stateLabel(s) { return (STATE_LABEL[s] || s).replace(/_/g, " "); }
+  async function loadIncidents(list) {
+    if (list !== undefined) estateIncidents = list;
+    list = estateIncidents;
+    var chart = $("#incchart"), summary = $("#incsummary"), legend = $("#inclegend"), filt = $("#incfilter");
+    if (list == null) { chart.innerHTML = "<div class='notice bad' style='font-size:12px'>incident store not reachable (bring the demo up)</div>"; summary.textContent = ""; legend.innerHTML = ""; return; }
+    var apps = Array.from(new Set(list.map(function (t) { return t.app_id; }).filter(Boolean))).sort();
+    var cur = filt.value || "all";
+    filt.innerHTML = "<option value='all'>All apps</option>" + apps.map(function (a) { return "<option value='" + a + "'>" + a + "</option>"; }).join("");
+    filt.value = (cur === "all" || apps.indexOf(cur) >= 0) ? cur : "all"; incFilter = filt.value;
+    var filtered = incFilter === "all" ? list : list.filter(function (t) { return t.app_id === incFilter; });
+    var enriched = filtered.filter(function (t) { return t.state === "enriched" || t.enriched_at; }).length;
+    summary.textContent = filtered.length + " incidents · " + enriched + " enriched · " + (filtered.length - enriched) + " unenriched";
+    var byApp = {};
+    filtered.forEach(function (t) { var a = t.app_id || "unknown", s = t.state || "new"; (byApp[a] = byApp[a] || {})[s] = (byApp[a][s] || 0) + 1; });
+    var names = Object.keys(byApp).sort();
+    chart.innerHTML = "";
+    if (!names.length) { chart.innerHTML = "<div class='muted' style='font-size:12px'>no incidents</div>"; }
+    names.forEach(function (a) {
+      var counts = byApp[a], total = Object.keys(counts).reduce(function (s, k) { return s + counts[k]; }, 0);
+      var stack = el("div", { class: "incstack" }, []);
+      var order = STATE_ORDER.concat(Object.keys(counts).filter(function (s) { return STATE_ORDER.indexOf(s) < 0; }));
+      order.forEach(function (s) {
+        if (!counts[s]) return;
+        var seg = el("div", { class: "incseg", style: "width:" + (counts[s] / total * 100) + "%;background:" + (STATE_COLORS[s] || "var(--dim2)"), title: stateLabel(s) + " · " + counts[s] + " incidents (click to open in ServiceNow)" }, []);
+        seg.addEventListener("click", function () { window.open(snowAppState(a, s), "_blank"); });
+        stack.appendChild(seg);
+      });
+      var nameEl = el("span", { class: "inclabel lnk", title: "open " + a + " incidents in ServiceNow ↗" }, [a]);
+      nameEl.addEventListener("click", function () { window.open(snowAppList(a), "_blank"); });
+      var totalEl = el("span", { class: "inccount lnk", title: "open all " + a + " incidents in ServiceNow ↗", style: "cursor:pointer" }, [String(total)]);
+      totalEl.addEventListener("click", function () { window.open(snowAppList(a), "_blank"); });
+      chart.appendChild(el("div", { class: "incbar" }, [nameEl, stack, totalEl]));
+    });
+    legend.innerHTML = STATE_ORDER.map(function (s) { return "<span><i style='background:" + STATE_COLORS[s] + "'></i>" + stateLabel(s) + "</span>"; }).join("");
+  }
+  $("#incfilter").addEventListener("change", function () { incFilter = this.value; loadIncidents(); });
+
+  // ---- HITL approvals per application (Orbit proposal store) ----
+  async function loadHitl(proposals) {
+    var host = $("#hitl");
+    if (proposals == null) { host.innerHTML = "<div class='notice bad' style='font-size:12px'>proposal store not reachable (bring the demo up)</div>"; return; }
+    if (!proposals.length) { host.innerHTML = "<div class='notice' style='font-size:12px'>no HITL requests pending across the estate</div>"; return; }
+    var byApp = {};
+    proposals.forEach(function (p) { var a = p.app_id || "unknown"; (byApp[a] = byApp[a] || []).push(p); });
+    host.innerHTML = "";
+    Object.keys(byApp).sort().forEach(function (a) {
+      var box = el("div", { class: "hitl-app" }, [el("div", { class: "hitl-apphead" }, [el("b", {}, [a]), el("span", { class: "pill warn" }, [byApp[a].length + " pending"])])]);
+      byApp[a].forEach(function (p) { box.appendChild(renderProposal(p)); });
+      host.appendChild(box);
+    });
+  }
+  function renderProposal(p) {
+    var conf = p.confidence_score != null ? Number(p.confidence_score).toFixed(2) : "n/a";
+    var ak = p.action === "remediate_restart_service" ? "crit" : "info";
+    var approve = el("button", { class: "btn primary sm" }, ["Approve & sign"]);
+    var reject = el("button", { class: "btn sm" }, ["Reject"]);
+    var box = el("div", { class: "hitl-prop" }, [
+      el("div", { class: "row", style: "gap:8px" }, [el("span", { class: "pill " + ak }, [p.action]), el("span", { class: "pill info" }, ["confidence " + conf]), p.fault_domain ? el("span", { class: "chip" }, [p.fault_domain]) : null, el("code", { style: "font-size:10px" }, [p.correlation_id || ""])]),
+      el("div", { class: "muted", style: "font-size:11.5px;margin:6px 0" }, [p.justification || ""]),
+      el("div", { class: "row", style: "gap:8px" }, [approve, reject])
+    ]);
+    approve.addEventListener("click", function () { decideHitl(p, "approve", [approve, reject]); });
+    reject.addEventListener("click", function () { decideHitl(p, "reject", [approve, reject]); });
+    return box;
+  }
+  async function decideHitl(p, kind, btns) {
+    btns.forEach(function (b) { b.disabled = true; });
+    var who = ($("#hitl-approver").value || "estate95-operator").trim();
+    try {
+      if (kind === "approve") await postJSON("/api/orbit/approve", { proposal_id: p.proposal_id, approved_by: who });
+      else await postJSON("/api/orbit/reject", { proposal_id: p.proposal_id, rejected_by: who });
+      loadAgentic();
+    } catch (e) { alert((kind === "approve" ? "Approval denied: " : "Reject failed: ") + (e.message || "unknown")); btns.forEach(function (b) { b.disabled = false; }); }
+  }
+
+  var eyeLoading = false;
+  async function loadEye() {
+    if (eyeLoading) return; eyeLoading = true; grafanaLinks();
+    var incidents = null, proposals = null;
+    try { var ri = await getJSON("/api/incidents"); incidents = Array.isArray(ri) ? ri : []; } catch (e) {}
+    try { var rp = await getJSON("/api/orbit/proposals?state=proposed"); proposals = Array.isArray(rp) ? rp : []; } catch (e) {}
+    await Promise.all([loadCounters(incidents), loadApps(), loadTower(incidents, proposals), loadIncidents(incidents)]);
+    eyeLoading = false;
+  }
+  async function loadAgentic() {
+    var proposals = null;
+    try { var rp = await getJSON("/api/orbit/proposals?state=proposed"); proposals = Array.isArray(rp) ? rp : []; } catch (e) {}
+    loadHitl(proposals);
+  }
+
+  // ================= registry rail =================
+  var REGISTRY = [];
+  async function loadRegistry() {
+    var host = $("#registry"); try { REGISTRY = await getJSON("/registry.json"); } catch (e) { REGISTRY = []; }
+    host.innerHTML = ""; if (!REGISTRY.length) { host.appendChild(el("div", { class: "notice" }, ["registry unavailable"])); return; }
+    var wrap = el("div", { class: "rail", style: "gap:8px" }, []);
+    REGISTRY.forEach(function (a) {
+      var item = el("div", { class: "agent-item", "data-id": a.id }, [el("div", { class: "ico" }, [a.icon || "🤖"]),
+        el("div", { style: "min-width:0" }, [el("div", { class: "nm" }, [a.label]), el("div", { class: "st " + a.status }, [a.status + " · " + (a.autonomy || "")])]),
+        el("div", { class: "health-dot", id: "hd-" + a.id }, [])]);
+      item.addEventListener("click", function () { document.querySelectorAll(".agent-item").forEach(function (x) { x.classList.remove("active"); }); item.classList.add("active"); openAgent(a); });
+      wrap.appendChild(item);
+    });
+    host.appendChild(wrap);
+    REGISTRY.forEach(function (a) { if (a.status !== "live") return; fetch("/api/agent-card/live/" + a.id).then(function (r) { var d = $("#hd-" + a.id); if (d) d.className = "health-dot " + (r.ok ? "ok" : "bad"); }).catch(function () {}); });
+  }
+
+  async function openAgent(a) {
+    var body = $("#drawer-body"); body.innerHTML = "";
+    body.appendChild(el("div", { class: "row", style: "gap:11px" }, [
+      el("div", { class: "ico", style: "width:42px;height:42px;font-size:23px;border-radius:10px;display:grid;place-items:center;background:#f2f5f8;border:1px solid var(--line);flex:none" }, [a.icon || "🤖"]),
+      el("div", { style: "min-width:0" }, [
+        el("div", { class: "row", style: "gap:8px" }, [el("h3", {}, [a.label]), el("span", { class: "pill " + (a.status === "live" ? "ok" : "dim") }, [a.status])]),
+        el("div", { class: "muted", style: "font-size:12px;margin-top:2px" }, [a.purpose])
+      ])
+    ]));
+    var meta = function (k, v) { var sv = v == null || v === "" ? "—" : String(v); return el("div", { class: "meta" }, [el("span", { class: "meta-k" }, [k]), el("span", { class: "meta-v", title: sv }, [sv])]); };
+    body.appendChild(el("div", { class: "metagrid" }, [
+      meta("Autonomy", a.autonomy), meta("Visibility", a.visibility), meta("Team", a.team),
+      meta("Creator", a.creator), meta("App ID", a.appId), meta("Framework", a.framework),
+      meta("Data class", a.dataClass), meta("Provider", a.provider), meta("Models", (a.models || []).join(", "))
+    ]));
+    body.appendChild(el("div", { class: "metagrid-last" }, [meta("Created", a.created), meta("Updated", a.updated)]));
+    body.appendChild(el("div", { class: "sect-t" }, ["Live environments"]));
+    body.appendChild(el("div", { class: "envs" }, Object.keys(a.environments || {}).map(function (k) {
+      var v = a.environments[k], cls = v === "live" ? "g" : (v === "planned" ? "o" : "r");
+      return el("span", { class: "env", title: k + ": " + v }, [el("span", { class: "env-dot " + cls }, []), k + " · " + v]);
+    })));
+    body.appendChild(el("div", { class: "sect-t" }, ["Dependencies"]));
+    body.appendChild(el("div", { class: "chips" }, (a.dependencies || []).map(function (d) { return el("span", { class: "chip" }, [d]); })));
+    body.appendChild(el("div", { class: "sect-t" }, ["Live metrics"]));
+    var mhost = el("div", { class: "kpis", style: "grid-template-columns:repeat(3,1fr)" }, [el("div", { class: "muted", style: "font-size:12px" }, ["loading…"])]); body.appendChild(mhost); agentMetrics(a, mhost);
+
+    var cardFmt = el("div", {}, [el("span", { class: "muted", style: "font-size:12px" }, ["loading card…"])]);
+    var cardJson = el("div", { style: "display:none" }, []);
+    var showingJson = false;
+    var jsonToggle = el("button", { class: "btn sm" }, ["{ } JSON"]);
+    jsonToggle.addEventListener("click", function () { showingJson = !showingJson; cardFmt.style.display = showingJson ? "none" : "block"; cardJson.style.display = showingJson ? "block" : "none"; jsonToggle.textContent = showingJson ? "‹ formatted" : "{ } JSON"; });
+    body.appendChild(el("div", { class: "row", style: "margin:16px 0 8px;gap:8px" }, [el("div", { class: "sect-t", style: "margin:0" }, ["A2A agent card"]), el("span", { class: "spc" }, []), jsonToggle]));
+    body.appendChild(cardFmt); body.appendChild(cardJson);
+    try {
+      var card = await getJSON("/api/agent-card/" + a.id);
+      cardFmt.innerHTML = "";
+      var caps = card.capabilities || {};
+      cardFmt.appendChild(el("div", { class: "metagrid" }, [
+        meta("Version", card.version), meta("Provider", card.provider && card.provider.organization),
+        meta("Streaming", caps.streaming ? "yes" : "no"), meta("Push", caps.pushNotifications ? "yes" : "no"),
+        meta("Input", (card.defaultInputModes || []).join(", ")), meta("Output", (card.defaultOutputModes || []).join(", "))
+      ]));
+      if (card.url) { cardFmt.appendChild(el("div", { class: "sect-t" }, ["Endpoint"])); cardFmt.appendChild(el("code", { style: "font-size:11px;word-break:break-all" }, [card.url])); }
+      cardFmt.appendChild(el("div", { class: "sect-t" }, ["Skills"]));
+      (card.skills || []).forEach(function (s) {
+        cardFmt.appendChild(el("div", { class: "subcard" }, [
+          el("div", { class: "row", style: "gap:6px" }, [el("b", { style: "font-size:12px" }, [s.name || s.id]), s.id ? el("span", { class: "chip accent", style: "font-size:9.5px" }, [s.id]) : null]),
+          s.description ? el("div", { class: "muted", style: "font-size:11px;margin-top:3px" }, [s.description]) : null,
+          (s.tags && s.tags.length) ? el("div", { class: "chips", style: "margin-top:5px" }, s.tags.map(function (t) { return el("span", { class: "chip" }, [t]); })) : null
+        ]));
+      });
+      var schemes = card.securitySchemes || {};
+      if (Object.keys(schemes).length) {
+        cardFmt.appendChild(el("div", { class: "sect-t" }, ["Security schemes"]));
+        Object.keys(schemes).forEach(function (name) {
+          var s = schemes[name];
+          cardFmt.appendChild(el("div", { class: "subcard" }, [
+            el("div", { class: "row", style: "gap:6px" }, [el("b", { style: "font-size:11.5px" }, [name]), el("span", { class: "chip" }, [s.scheme || s.type || ""])]),
+            s.description ? el("div", { class: "muted", style: "font-size:11px;margin-top:2px" }, [s.description]) : null
+          ]));
+        });
+      }
+      cardJson.appendChild(el("pre", { class: "json" }, [JSON.stringify(card, null, 2)]));
+    } catch (e) { cardFmt.innerHTML = ""; cardFmt.appendChild(el("div", { class: "notice bad" }, [e.status === 404 ? "no committed card for this reference agent" : "card unavailable: " + (e.message || "error")])); jsonToggle.style.display = "none"; }
+    $("#drawer").classList.add("open");
+  }
+  async function agentMetrics(a, host) {
+    var defs = a.id === "olly-sentinel" ? [["Enriched", "sum(olly_incidents_processed_total{outcome=\"completed\"})"], ["Received", "sum(olly_incidents_received_total)"], ["Tokens/hr", "sum(increase(olly_llm_tokens_total[1h]))"]]
+      : a.id === "orbit" ? [["HITL pending", "sum(olly_hitl_pending)"], ["Enriched", "sum(olly_incidents_processed_total{outcome=\"completed\"})"], ["Failed", "sum(olly_incidents_processed_total{outcome=\"failed\"})"]] : null;
+    if (!defs) { host.innerHTML = "<div class='muted' style='font-size:12px'>reference agent, no live metrics in this estate</div>"; return; }
+    var vals = await Promise.all(defs.map(function (d) { return promOne(d[1]); })); host.innerHTML = "";
+    defs.forEach(function (d, i) { host.appendChild(el("div", { class: "kpi" }, [el("div", { class: "n" }, [vals[i] == null ? "—" : fmt(vals[i])]), el("div", { class: "l" }, [d[0]])])); });
+  }
+  $("#drawer-x").addEventListener("click", function () { $("#drawer").classList.remove("open"); document.querySelectorAll(".agent-item").forEach(function (x) { x.classList.remove("active"); }); });
+
+  // ================= interactive decision flow =================
+  var FNODES = {
+    event: { label: "Infra / App event", sub: "monitored estate", col: 0, row: 3, kind: "src" },
+    noi: { label: "NOI", sub: "normalise · dedup · subscription", col: 1, row: 3, kind: "proc" },
+    raw: { label: "Raw INC", sub: "no subscription", col: 2, row: 0, kind: "term" },
+    queue: { label: "netcool.io.events", sub: "NOI event queue", col: 2, row: 4, kind: "topic" },
+    auto: { label: "IO Automation", sub: "Ansible AAP · self-heal", col: 3, row: 2, kind: "proc" },
+    declined: { label: "netcool.io.events.declined", sub: "routed to Olly", col: 3, row: 5, kind: "topic" },
+    olly: { label: "Olly Sentinel", sub: "7-tool MCP · RCA", col: 4, row: 5, kind: "agent" },
+    parked: { label: "Orbit", sub: "propose · awaiting approval", col: 5, row: 6, kind: "hitl" },
+    response: { label: "event_response", sub: "enrichment / automation result", col: 5, row: 3, kind: "topic" },
+    ticket: { label: "ServiceNow INC", sub: "Mapping Service writes", col: 6, row: 2, kind: "sink" }
+  };
+  var FEDGES = [
+    { from: "event", to: "noi", desc: "Infra/app alerts stream into NOI (Netcool/OMNIbus + Impact) for normalisation, dedup, and matching against the Self-Healing subscription list." },
+    { gate: "subscription", branch: "reject", from: "noi", to: "raw", label: "not subscribed", desc: "App is not subscribed to Self-Healing. NOI opens an unenriched Raw INC directly in ServiceNow and the flow ends here." },
+    { gate: "subscription", branch: "pass", from: "noi", to: "queue", label: "subscribed", desc: "Subscribed app. NOI publishes the normalised event to the netcool.io.events Kafka topic for IO orchestration." },
+    { gate: "automation_eligibility", branch: "auto_remediated", from: "queue", to: "auto", label: "eligible", desc: "IO judges the event auto-remediable and runs an Ansible AAP playbook (self-heal). Olly is bypassed; the outcome goes to event_response." },
+    { gate: "automation_eligibility", branch: "pass", from: "queue", to: "declined", label: "declined", desc: "Not auto-remediable. IO republishes the event to netcool.io.events.declined so the agent can triage it." },
+    { from: "auto", to: "response", label: "result", desc: "IO Automation writes its remediation outcome to the event_response Kafka topic." },
+    { from: "raw", to: "ticket", label: "raise INC", desc: "IO Mapping Service persists the unenriched raw incident to ServiceNow as an INC record." },
+    { gate: "source_filter", branch: "pass", from: "declined", to: "olly", label: "triage", desc: "Olly Sentinel consumes source=io_declined events and runs a read-only RCA over the 7-tool MCP fan-out under gco-sentinel-read EEMS scopes, keyed by correlation_id." },
+    { gate: "hitl", branch: "parked", from: "olly", to: "parked", label: "A2A", desc: "Restart-shaped or low-confidence RCA. Olly hands the proposal to Orbit over A2A (JSON-RPC message/send). Orbit parks an action-proposal.v1 awaiting a signed ed25519 human approval; the agent cannot self-approve." },
+    { gate: "publish", branch: "complete", from: "olly", to: "response", label: "enriched", desc: "Olly publishes the enrichment (rca-enrichment.v1) to the event_response topic, keyed by correlation_id. Olly never writes ServiceNow directly." },
+    { gate: "ticket_write", branch: "complete", from: "response", to: "ticket", label: "write", desc: "IO Mapping Service (NOI) consumes event_response and PATCHes the ServiceNow INC work notes under its own write-entitled identity." }
+  ];
+  var KIND = { src: "#1466b8", proc: "#6b4fbb", topic: "#b3760a", agent: "#0a7d0a", hitl: "#8a6d00", term: "#8b0000", sink: "#0a5a8a" };
+  var COLW = 150, ROWH = 84, PADX = 14, PADY = 14, NODEW = 128, NODEH = 56;
+  var fnodes = {}, fedges = [], fstate = { s: 1, tx: 0, ty: 0 };
+  function fnx(c) { return PADX + c * COLW + (COLW - NODEW) / 2; }
+  function fny(r) { return PADY + r * ROWH + (ROWH - NODEH) / 2; }
+  function applyT() { $("#flow-vp").setAttribute("transform", "translate(" + fstate.tx + "," + fstate.ty + ") scale(" + fstate.s + ")"); }
+  function redrawEdges() {
+    fedges.forEach(function (f) { var a = fnodes[f.e.from], b = fnodes[f.e.to]; if (!a || !b) return;
+      var x1 = a.x + a.w, y1 = a.y + a.h / 2, x2 = b.x, y2 = b.y + b.h / 2, mx = (x1 + x2) / 2;
+      var d = "M " + x1 + " " + y1 + " C " + mx + " " + y1 + ", " + mx + " " + y2 + ", " + x2 + " " + y2;
+      f.path.setAttribute("d", d); if (f.hit) f.hit.setAttribute("d", d);
+      if (f.label) { f.label.setAttribute("x", mx); f.label.setAttribute("y", (y1 + y2) / 2 - 4); }
+    });
+  }
+  function showEdgeInfo(f) {
+    var pane = $("#nodepane"), c = $("#nodepane-c"); pane.style.display = "block";
+    var from = FNODES[f.e.from], to = FNODES[f.e.to];
+    $("#nodepane-t").textContent = (from ? from.label : f.e.from) + " → " + (to ? to.label : f.e.to);
+    c.innerHTML = "";
+    c.appendChild(el("span", { class: "dim" }, ["// hop: " + f.e.from + " → " + f.e.to + (f.e.gate ? "   [gate " + f.e.gate + " · branch " + f.e.branch + "]" : "   [direct hop]") + "\n\n"]));
+    c.appendChild(el("span", {}, [f.e.desc || "Direct hop between components; no decision gate."]));
+  }
+  function buildFlow() {
+    var edgesG = $("#flow-edges"), nodesG = $("#flow-nodes");
+    Object.keys(FNODES).forEach(function (id) {
+      var n = FNODES[id], node = { x: fnx(n.col), y: fny(n.row), w: NODEW, h: NODEH, def: n, count: 0 };
+      var g = document.createElementNS(svgNS, "g"); g.setAttribute("class", "node");
+      var fo = document.createElementNS(svgNS, "foreignObject"); fo.setAttribute("width", NODEW); fo.setAttribute("height", NODEH);
+      var box = document.createElement("div"); box.setAttribute("class", "node-fo"); box.style.width = "100%"; box.style.height = "100%";
+      box.innerHTML = '<div class="box" style="border-left-color:' + (KIND[n.kind] || "#888") + '"><div class="nl">' + n.label + '</div><div class="ns">' + n.sub + '</div><span class="nb">0</span></div>';
+      fo.appendChild(box); g.appendChild(fo); nodesG.appendChild(g);
+      node.g = g; node.badge = box.querySelector(".nb"); node.boxEl = box.querySelector(".box");
+      g.setAttribute("transform", "translate(" + node.x + "," + node.y + ")");
+      attachNodeDrag(id, node, g); fnodes[id] = node;
+    });
+    FEDGES.forEach(function (e) {
+      var p = document.createElementNS(svgNS, "path"); p.setAttribute("fill", "none"); p.setAttribute("stroke", "#c2c8d0"); p.setAttribute("stroke-width", "1.6"); p.setAttribute("opacity", ".8"); edgesG.appendChild(p);
+      var hit = document.createElementNS(svgNS, "path"); hit.setAttribute("fill", "none"); hit.setAttribute("stroke", "transparent"); hit.setAttribute("stroke-width", "16"); hit.style.cursor = "pointer"; edgesG.appendChild(hit);
+      var label = null;
+      if (e.label) { label = document.createElementNS(svgNS, "text"); label.setAttribute("text-anchor", "middle"); label.setAttribute("font-size", "10"); label.setAttribute("fill", "#556"); label.setAttribute("stroke", "#fafbfc"); label.setAttribute("stroke-width", "3"); label.setAttribute("paint-order", "stroke"); label.setAttribute("stroke-linejoin", "round"); label.style.cursor = "pointer"; label.textContent = e.label; edgesG.appendChild(label); }
+      var f = { e: e, path: p, hit: hit, label: label };
+      hit.addEventListener("mousedown", function (ev) { ev.stopPropagation(); });
+      hit.addEventListener("click", function (ev) { ev.stopPropagation(); showEdgeInfo(f); });
+      if (label) { label.addEventListener("mousedown", function (ev) { ev.stopPropagation(); }); label.addEventListener("click", function (ev) { ev.stopPropagation(); showEdgeInfo(f); }); }
+      fedges.push(f);
+    });
+    redrawEdges(); attachPanZoom(); fitView();
+    $("#flow-legend").innerHTML = '<span><i style="background:#0a7d0a"></i>enriched (Olly)</span><span><i style="background:#8a6d00"></i>parked (Orbit HITL)</span><span><i style="background:#6b4fbb"></i>self-heal (automation)</span><span><i style="background:#8b0000"></i>raw INC · no subscription</span>';
+  }
+  function attachNodeDrag(id, node, g) {
+    g.addEventListener("mousedown", function (ev) {
+      ev.stopPropagation(); ev.preventDefault(); var sx = ev.clientX, sy = ev.clientY, moved = 0;
+      function mm(e) { var dx = (e.clientX - sx) / fstate.s, dy = (e.clientY - sy) / fstate.s; moved += Math.abs(e.clientX - sx) + Math.abs(e.clientY - sy); node.x += dx; node.y += dy; sx = e.clientX; sy = e.clientY; g.setAttribute("transform", "translate(" + node.x + "," + node.y + ")"); redrawEdges(); }
+      function mu() { document.removeEventListener("mousemove", mm); document.removeEventListener("mouseup", mu); if (moved < 5) inspectNode(id, node.def.label); }
+      document.addEventListener("mousemove", mm); document.addEventListener("mouseup", mu);
+    });
+  }
+  function attachPanZoom() {
+    var svg = $("#flowsvg");
+    svg.addEventListener("mousedown", function (ev) { if (ev.target.closest(".node")) return; var sx = ev.clientX, sy = ev.clientY; svg.classList.add("panning");
+      function mm(e) { fstate.tx += (e.clientX - sx); fstate.ty += (e.clientY - sy); sx = e.clientX; sy = e.clientY; applyT(); }
+      function mu() { document.removeEventListener("mousemove", mm); document.removeEventListener("mouseup", mu); svg.classList.remove("panning"); }
+      document.addEventListener("mousemove", mm); document.addEventListener("mouseup", mu); });
+    svg.addEventListener("wheel", function (ev) { ev.preventDefault(); var rect = svg.getBoundingClientRect(); zoomAt(ev.clientX - rect.left, ev.clientY - rect.top, ev.deltaY < 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+  }
+  function zoomAt(cx, cy, factor) { var s2 = Math.max(0.3, Math.min(3, fstate.s * factor)); var wx = (cx - fstate.tx) / fstate.s, wy = (cy - fstate.ty) / fstate.s; fstate.s = s2; fstate.tx = cx - wx * s2; fstate.ty = cy - wy * s2; applyT(); }
+  function fitView() {
+    var svg = $("#flowsvg"), rect = svg.getBoundingClientRect(), W = rect.width || 900, H = rect.height || 460;
+    var minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
+    Object.keys(fnodes).forEach(function (id) { var n = fnodes[id]; minx = Math.min(minx, n.x); miny = Math.min(miny, n.y); maxx = Math.max(maxx, n.x + n.w); maxy = Math.max(maxy, n.y + n.h); });
+    if (minx > maxx) return; var ww = maxx - minx, wh = maxy - miny, pad = 24;
+    var s = Math.min((W - pad * 2) / ww, (H - pad * 2) / wh); s = Math.max(0.3, Math.min(1.6, s));
+    fstate.s = s; fstate.tx = pad - minx * s + (W - pad * 2 - ww * s) / 2; fstate.ty = pad - miny * s + (H - pad * 2 - wh * s) / 2; applyT();
+  }
+  $("#fz-in").addEventListener("click", function () { var r = $("#flowsvg").getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1.2); });
+  $("#fz-out").addEventListener("click", function () { var r = $("#flowsvg").getBoundingClientRect(); zoomAt(r.width / 2, r.height / 2, 1 / 1.2); });
+  $("#fz-fit").addEventListener("click", function () { Object.keys(fnodes).forEach(function (id) { var n = fnodes[id], d = n.def; n.x = fnx(d.col); n.y = fny(d.row); n.g.setAttribute("transform", "translate(" + n.x + "," + n.y + ")"); }); redrawEdges(); fitView(); });
+  window.addEventListener("resize", function () { if ($("#view-agentic").classList.contains("active")) { fitView(); a2fit(); } });
+
+  function edgeFor(g, b) { return fedges.find(function (x) { return x.e.gate === g && x.e.branch === b; }); }
+  var pulseTimers = new Set();
+  function lightEdge(rec) {
+    var f = edgeFor(rec.gate, rec.branch);
+    if (!f && (rec.gate === "orbit_a2a" || rec.gate === "llm_guard")) f = fedges.find(function (x) { return x.e.from === "olly" && x.e.to === "parked"; });
+    if (!f) return; var col = KIND[FNODES[f.e.to].kind] || "#0a7d0a";
+    f.path.setAttribute("stroke", col); f.path.setAttribute("stroke-width", "2.8"); f.path.setAttribute("opacity", "1");
+    var tn = fnodes[f.e.to]; if (tn) { tn.count++; tn.badge.textContent = String(tn.count); tn.boxEl.style.boxShadow = "0 0 0 2px " + col; }
+    var id = setTimeout(function () { f.path.setAttribute("stroke", "#c2c8d0"); f.path.setAttribute("stroke-width", "1.6"); f.path.setAttribute("opacity", ".8"); if (tn) tn.boxEl.style.boxShadow = "var(--shadow)"; pulseTimers.delete(id); }, 1500);
+    pulseTimers.add(id);
+  }
+  async function inspectNode(id, label) {
+    var pane = $("#nodepane"), c = $("#nodepane-c"); pane.style.display = "block"; $("#nodepane-t").textContent = label;
+    c.innerHTML = ""; c.appendChild(el("span", { class: "dim" }, ["Fetching " + label + "…\n"]));
+    try { var data = await getJSON("/api/pipeline/node/" + id); c.innerHTML = "";
+      var kl = { topic: "kafka topic", logs: "pod logs", incidents: "ServiceNow store", elk: "Elasticsearch" }[data.kind] || data.kind;
+      c.appendChild(el("span", { class: "dim" }, ["// " + (data.title || label) + "\n// [" + kl + (data.source ? " · " + data.source : "") + "]\n\n"]));
+      (data.lines || []).forEach(function (ln) { c.appendChild(el("span", {}, [String(ln) + "\n"])); }); c.scrollTop = 0;
+    } catch (e) { c.innerHTML = ""; c.appendChild(el("span", { class: "r" }, [e.status === 503 ? "Cluster not reachable. Bring the demo up.\n" : "Could not load node data: " + (e.message || "unknown") + "\n"])); }
+  }
+  $("#nodepane-x").addEventListener("click", function () { $("#nodepane").style.display = "none"; });
+
+  // ================= timeline =================
+  var STATE_MAP = { schema_validate: ["Event validated", "ok"], subscription: ["Subscription check", "ok"], automation_eligibility: ["Automation check", "ok"], source_filter: ["Routed to Olly", "ok"], mcp_fanout: ["Evidence gathered", "ok"], correlate: ["Correlation completed", "ok"], hitl: ["Parked for approval", "warn"], llm_guard: ["Scanned by LLM Guard", "ok"], orbit_a2a: ["Handed to Orbit (A2A)", "ok"], publish: ["Enrichment published", "ok"], ticket_write: ["ServiceNow updated", "ok"], dedup: ["Duplicate check", "ok"], loop_guard: ["Loop guard", "ok"] };
+  var tlCount = 0;
+  function matchFilter(rec) { var f = ($("#tlfilter").value || "").trim().toLowerCase(); if (!f) return true; return [rec.correlation_id, rec.app_id, rec.event_id, rec.gate, rec.branch, rec.reason].some(function (x) { return String(x || "").toLowerCase().indexOf(f) >= 0; }); }
+  function tlAdd(rec) {
+    var ul = $("#timeline"); if (ul.dataset.empty !== "0") { ul.innerHTML = ""; ul.dataset.empty = "0"; }
+    var map = STATE_MAP[rec.gate] || [rec.gate || "decision", "ok"];
+    var kind = (rec.branch === "reject" || rec.branch === "blocked" || rec.branch === "fail") ? "crit" : (rec.branch === "parked" ? "warn" : map[1]);
+    var meta = [rec.app_id ? "app:" + rec.app_id : "", rec.correlation_id ? rec.correlation_id : ""].filter(Boolean).join("  ");
+    var li = el("li", {}, [el("div", { class: "tl-dot " + kind }, []), el("div", {}, [el("div", { class: "tl-main" }, [map[0], el("span", { class: "g" }, [rec.gate + "/" + rec.branch])]), el("div", { class: "tl-reason" }, [rec.reason || ""]), meta ? el("div", { class: "tl-meta" }, [meta]) : null]), el("div", { class: "tl-time" }, [(rec.ts || "").replace("T", " ").replace("Z", "")])]);
+    li._rec = rec; li.addEventListener("click", function () { showRecord(rec); }); if (!matchFilter(rec)) li.style.display = "none";
+    ul.insertBefore(li, ul.firstChild); while (ul.children.length > 150) ul.removeChild(ul.lastChild); tlCount++; $("#tl-count").textContent = tlCount + " events";
+  }
+  function showRecord(rec) { var d = $("#tl-detail"), c = $("#tl-detail-c"); d.style.display = "block"; c.innerHTML = "";
+    ["ts", "component", "gate", "branch", "correlation_id", "event_id", "app_id", "fault_domain", "topic", "partition", "offset", "key", "reason"].forEach(function (k) { if (rec[k] == null) return; c.appendChild(el("span", {}, [el("span", { class: "dim" }, [(k + ":").padEnd(16)]), String(rec[k]) + "\n"])); });
+    if (rec.detail) c.appendChild(el("span", {}, [el("span", { class: "dim" }, ["detail:         "]), JSON.stringify(rec.detail) + "\n"])); }
+  $("#tlfilter").addEventListener("input", function () { document.querySelectorAll("#timeline li").forEach(function (li) { if (!li._rec) return; li.style.display = matchFilter(li._rec) ? "" : "none"; }); });
+  $("#tlfilter-clear").addEventListener("click", function () { $("#tlfilter").value = ""; document.querySelectorAll("#timeline li").forEach(function (li) { li.style.display = ""; }); });
+
+  function startSSE() {
+    try { var es = new EventSource("/api/pipeline/events");
+      function live() { $("#flow-status").textContent = "live"; $("#flow-status").className = "pill ok"; }
+      es.addEventListener("hello", live); es.addEventListener("ping", live);
+      es.addEventListener("decision", function (e) { live(); try { var r = JSON.parse(e.data); lightEdge(r); tlAdd(r); a2aConsume(r); } catch (x) {} });
+      es.onerror = function () { $("#flow-status").textContent = "cluster not ready"; $("#flow-status").className = "pill crit"; };
+    } catch (e) {}
+  }
+
+  // ---- collapsible + drag-reorderable panels ----
+  function saveLayout(container, key) {
+    try {
+      var panels = Array.prototype.slice.call(container.querySelectorAll("[data-panel]"));
+      localStorage.setItem(key, JSON.stringify({
+        order: panels.map(function (p) { return p.dataset.panel; }),
+        collapsed: panels.filter(function (p) { return p.classList.contains("collapsed"); }).map(function (p) { return p.dataset.panel; }),
+        half: panels.filter(function (p) { return p.classList.contains("half"); }).map(function (p) { return p.dataset.panel; })
+      }));
+    } catch (e) {}
+  }
+  function setupPanels(container, key) {
+    if (!container) return;
+    function maybeFit() { var f = container.querySelector('[data-panel="flow"]'); if (f && !f.classList.contains("collapsed") && $("#view-agentic").classList.contains("active")) requestAnimationFrame(fitView); }
+    var ind = document.createElement("div"); ind.className = "drop-ind"; document.body.appendChild(ind);
+    function hideInd() { ind.style.display = "none"; }
+    container.querySelectorAll("[data-panel]").forEach(function (p) {
+      var bar = p.querySelector(".panel-bar");
+      if (!bar) return;
+      var collapse = bar.querySelector(".collapse-x");
+      var handle = bar.querySelector(".drag-handle");
+      if (collapse) collapse.addEventListener("click", function () { p.classList.toggle("collapsed"); maybeFit(); saveLayout(container, key); });
+      if (handle) handle.addEventListener("mousedown", function (e) {
+        e.preventDefault();
+        var startX = e.clientX, startY = e.clientY, dragging = false, drop = null;
+        function begin() { dragging = true; p.classList.add("dragging"); document.body.style.userSelect = "none"; }
+        // nearest sibling by center distance, then the edge the pointer favors
+        function locate(ev) {
+          var best = null, bestD = Infinity;
+          container.querySelectorAll("[data-panel]").forEach(function (s) {
+            if (s === p) return;
+            var r = s.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            var d = Math.hypot(ev.clientX - cx, ev.clientY - cy);
+            if (d < bestD) { bestD = d; best = { el: s, r: r }; }
+          });
+          if (!best) return null;
+          var r = best.r, fx = (ev.clientX - r.left) / r.width, fy = (ev.clientY - r.top) / r.height;
+          var horiz = Math.min(fx, 1 - fx) <= Math.min(fy, 1 - fy);
+          return horiz ? { el: best.el, r: r, axis: "h", after: (1 - fx) < fx } : { el: best.el, r: r, axis: "v", after: (1 - fy) < fy };
+        }
+        function paint(d) {
+          var r = d.r, m = 3;
+          if (d.axis === "h") { ind.style.width = m + "px"; ind.style.height = r.height + "px"; ind.style.top = r.top + "px"; ind.style.left = (d.after ? r.right - m : r.left) + "px"; }
+          else { ind.style.height = m + "px"; ind.style.width = r.width + "px"; ind.style.left = r.left + "px"; ind.style.top = (d.after ? r.bottom - m : r.top) + "px"; }
+          ind.style.display = "block";
+        }
+        function mm(ev) {
+          if (!dragging) { if (Math.abs(ev.clientX - startX) < 4 && Math.abs(ev.clientY - startY) < 4) return; begin(); }
+          drop = locate(ev); if (drop) paint(drop); else hideInd();
+        }
+        function mu() {
+          document.removeEventListener("mousemove", mm); document.removeEventListener("mouseup", mu);
+          document.body.style.userSelect = ""; hideInd(); p.classList.remove("dragging");
+          if (dragging && drop) {
+            var t = drop.el;
+            if (drop.axis === "h") { p.classList.add("half"); t.classList.add("half"); } else { p.classList.remove("half"); }
+            if (drop.after) { if (t.nextSibling !== p) container.insertBefore(p, t.nextSibling); }
+            else if (t.previousSibling !== p) container.insertBefore(p, t);
+            saveLayout(container, key); maybeFit();
+          }
+        }
+        document.addEventListener("mousemove", mm); document.addEventListener("mouseup", mu);
+      });
+    });
+    try {
+      var saved = JSON.parse(localStorage.getItem(key) || "null");
+      if (saved) {
+        (saved.order || []).forEach(function (id) { var p = container.querySelector('[data-panel="' + id + '"]'); if (p) container.appendChild(p); });
+        (saved.collapsed || []).forEach(function (id) { var p = container.querySelector('[data-panel="' + id + '"]'); if (p) p.classList.add("collapsed"); });
+        (saved.half || []).forEach(function (id) { var p = container.querySelector('[data-panel="' + id + '"]'); if (p) p.classList.add("half"); });
+      }
+    } catch (e) {}
+  }
+
+  // ---- space theme: starfield + orbiting-satellite scene ----
+  var sf = { c: null, x: null, st: [], raf: 0, w: 0, h: 0, dpr: 1 };
+  function sfInit() { sf.c = $("#starfield"); if (!sf.c) return; sf.x = sf.c.getContext("2d"); window.addEventListener("resize", function () { if (document.body.classList.contains("space")) sfResize(); }); }
+  function sfResize() {
+    if (!sf.c) return;
+    sf.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    sf.w = sf.c.clientWidth || window.innerWidth; sf.h = sf.c.clientHeight || window.innerHeight;
+    sf.c.width = sf.w * sf.dpr; sf.c.height = sf.h * sf.dpr; sf.x.setTransform(sf.dpr, 0, 0, sf.dpr, 0, 0);
+    var n = Math.max(70, Math.round(sf.w * sf.h / 6500)); sf.st = [];
+    for (var i = 0; i < n; i++) { var layer = 1 + Math.floor(Math.random() * 3); sf.st.push({ x: Math.random() * sf.w, y: Math.random() * sf.h, r: (4 - layer) * 0.45 + 0.25, sp: (4 - layer) * 0.055 + 0.015, tw: Math.random() * 6.283, tws: 0.015 + Math.random() * 0.035, h: layer }); }
+  }
+  function sfFrame() {
+    if (!document.body.classList.contains("space")) { sf.raf = 0; return; }
+    var x = sf.x; x.clearRect(0, 0, sf.w, sf.h);
+    for (var i = 0; i < sf.st.length; i++) {
+      var s = sf.st[i]; s.x -= s.sp; if (s.x < -2) { s.x = sf.w + 2; s.y = Math.random() * sf.h; }
+      s.tw += s.tws; x.globalAlpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(s.tw));
+      x.fillStyle = s.h === 1 ? "#d3ddf2" : (s.h === 2 ? "#9fb6e8" : "#7d92c6");
+      x.beginPath(); x.arc(s.x, s.y, s.r, 0, 6.283); x.fill();
+    }
+    x.globalAlpha = 1; sceneUpdate(); sf.raf = requestAnimationFrame(sfFrame);
+  }
+  function sfStart() { if (!sf.raf && sf.c && document.body.classList.contains("space")) sf.raf = requestAnimationFrame(sfFrame); }
+  function sfStop() { if (sf.raf) { cancelAnimationFrame(sf.raf); sf.raf = 0; } }
+  // Satellite orbit runs in JS so the ping and uplink beams anchor to its
+  // position each frame.
+  var scn = null;
+  function sceneUpdate() {
+    if (!scn) { var g = function (id) { return document.getElementById(id); };
+      scn = { sat: g("sc-sat"), p1: g("sc-ping1"), p2: g("sc-ping2"), b1: g("sc-beam"), b2: g("sc-beam2"), u1: g("sc-up1"), u2: g("sc-up2"), u3: g("sc-up3"), th: -1.2 }; }
+    if (!scn.sat) return;
+    scn.th += 0.0038; var sx = 150 + 120 * Math.cos(scn.th), sy = 222 + 58 * Math.sin(scn.th);
+    var X = sx.toFixed(1), Y = sy.toFixed(1);
+    scn.sat.setAttribute("transform", "translate(" + X + "," + Y + ")");
+    if (scn.p1) { scn.p1.setAttribute("cx", X); scn.p1.setAttribute("cy", Y); }
+    if (scn.p2) { scn.p2.setAttribute("cx", X); scn.p2.setAttribute("cy", Y); }
+    if (scn.b1) { scn.b1.setAttribute("x1", X); scn.b1.setAttribute("y1", Y); }
+    if (scn.b2) { scn.b2.setAttribute("x1", X); scn.b2.setAttribute("y1", Y); }
+    if (scn.u1) { scn.u1.setAttribute("x2", X); scn.u1.setAttribute("y2", Y); }
+    if (scn.u2) { scn.u2.setAttribute("x2", X); scn.u2.setAttribute("y2", Y); }
+    if (scn.u3) { scn.u3.setAttribute("x2", X); scn.u3.setAttribute("y2", Y); }
+  }
+  function setScene(mode) { var s = $("#space-scene"); if (!s) return; s.classList.remove("sc-estate", "sc-sre", "sc-tenant"); if (mode === "estate") s.classList.add("sc-estate"); else if (mode === "sre") s.classList.add("sc-sre"); else if (mode === "tenant") s.classList.add("sc-tenant"); }
+  function setBg(mode, save) {
+    var space = mode === "space"; document.body.classList.toggle("space", space);
+    document.querySelectorAll("#bg-toggle button").forEach(function (b) { b.classList.toggle("on", b.dataset.bg === mode); });
+    if (save) { try { localStorage.setItem("bg-theme", mode); } catch (e) {} }
+    if (space) { sfResize(); sfStart(); } else { sfStop(); }
+  }
+  document.querySelectorAll("#bg-toggle button").forEach(function (b) { b.addEventListener("click", function () { setBg(b.dataset.bg, true); }); });
+  document.addEventListener("visibilitychange", function () { if (document.hidden) sfStop(); else sfStart(); });
+  (function () { var gl = $("#gflinks"); if (!gl) return;
+    gl.addEventListener("mouseover", function (e) { var a = e.target.closest("a[data-scene]"); if (a) setScene(a.getAttribute("data-scene")); });
+    gl.addEventListener("mouseleave", function () { setScene("orbit"); });
+  })();
+
+  // ---- A2A diagram (COIN M2M + AuthZ-CTX, Olly <-> Orbit) ----
+  var A2A = { cid: null, rec: {} };
+  var A2NS = "http://www.w3.org/2000/svg";
+  function a2se(tag, attrs, kids) { var n = document.createElementNS(A2NS, tag); for (var k in attrs) if (attrs[k] != null) n.setAttribute(k, attrs[k]); (kids || []).forEach(function (c) { if (c == null) return; n.appendChild(typeof c === "string" ? document.createTextNode(c) : c); }); return n; }
+  function a2short(s) { s = String(s || ""); return s.length > 15 ? s.slice(0, 13) + "…" : s; }
+  function buildA2A() {
+    var svg = $("#a2asvg"), vp = $("#a2a-vp"); if (!svg || !vp) return;
+    vp.innerHTML = ""; svg.querySelectorAll("defs").forEach(function (d) { d.remove(); });
+    svg.appendChild(a2se("defs", {}, [a2se("marker", { id: "a2arrow", viewBox: "0 0 10 10", refX: "8", refY: "5", markerWidth: "6.5", markerHeight: "6.5", orient: "auto-start-reverse" }, [a2se("path", { d: "M0,0 L10,5 L0,10 z", fill: "var(--dim)" })])]));
+    // Each edge = visible path + wide transparent hit path; each node = a group.
+    // Click opens the logs for that step (edge phase -> decision record; node
+    // id -> pod logs).
+    function edge(id, d, phase) {
+      vp.appendChild(a2se("path", { id: id, class: "a2e", d: d, "marker-end": "url(#a2arrow)" }));
+      var hit = a2se("path", { class: "a2hit", d: d, fill: "none", stroke: "transparent", "stroke-width": "16" });
+      hit.addEventListener("click", function (ev) { ev.stopPropagation(); a2aInspectEdge(phase); });
+      vp.appendChild(hit);
+    }
+    function elabel(id, x, y, t, phase) {
+      var txt = a2se("text", { id: id, class: "a2el", x: x, y: y, "text-anchor": "middle" }, [t]);
+      txt.addEventListener("click", function (ev) { ev.stopPropagation(); a2aInspectEdge(phase); });
+      vp.appendChild(txt);
+    }
+    function node(cls, x, y, title, sub) {
+      var g = a2se("g", { class: "a2node", "data-node": "a2a-" + cls });
+      g.appendChild(a2se("rect", { class: "a2n " + cls, x: x, y: y, width: 170, height: 56, rx: 11 }));
+      g.appendChild(a2se("text", { class: "a2nt", x: x + 85, y: y + 25, "text-anchor": "middle" }, [title]));
+      g.appendChild(a2se("text", { class: "a2ns", x: x + 85, y: y + 40, "text-anchor": "middle" }, [sub]));
+      g.addEventListener("click", function (ev) { ev.stopPropagation(); a2aInspectNode("a2a-" + cls, title); });
+      vp.appendChild(g);
+    }
+    // 6-step cycle: on-call identity exchanged at olly-authz for a COIN token
+    // minted on-behalf-of the human (1,2); Olly carries it to Orbit as X-AuthZ-CTX
+    // (3); Orbit re-validates and narrows it (4); proposal pauses for a human
+    // decision (5); human signs the ed25519 approval and it runs (6).
+    edge("a2e-identity", "M468,28 L172,28", "identity");
+    edge("a2e-token", "M85,58 L85,158", "identity");
+    edge("a2e-send", "M170,188 L464,188", "handoff");
+    edge("a2e-narrow", "M638,176 C692,166 692,206 638,198", "handoff");
+    edge("a2e-pause", "M520,158 L520,58", "input_required");
+    edge("a2e-approve", "M586,58 L586,158", "approved");
+    elabel("a2l-identity", 320, 18, "① H2M identity (SRE on-call)", "identity");
+    elabel("a2l-token", 85, 112, "② COIN token · OBO", "identity");
+    elabel("a2l-send", 319, 176, "③ message/send + X-AuthZ-CTX", "handoff");
+    elabel("a2l-narrow", 553, 242, "④ re-validate · narrow (restart 3→1)", "handoff");
+    elabel("a2l-pause", 500, 82, "⑤ input-required (HITL pause)", "input_required");
+    elabel("a2l-approve", 606, 146, "⑥ signed approval → executed", "approved");
+    node("authz", 0, 0, "olly-authz", "COIN · PlainID · EEMS");
+    node("broker", 468, 0, "Human + broker", "SRE on-call · signs ed25519");
+    node("olly", 0, 160, "Olly Sentinel", "agent-a · read-only");
+    node("orbit", 468, 160, "Orbit", "agent-b · propose");
+    a2attachPanZoom(); requestAnimationFrame(a2fit);
+  }
+  var a2s = { s: 1, tx: 0, ty: 0 }, a2pz = false;
+  function a2applyT() { var vp = $("#a2a-vp"); if (vp) vp.setAttribute("transform", "translate(" + a2s.tx + "," + a2s.ty + ") scale(" + a2s.s + ")"); }
+  function a2zoomAt(cx, cy, f) { var s2 = Math.max(0.2, Math.min(2.4, a2s.s * f)); var wx = (cx - a2s.tx) / a2s.s, wy = (cy - a2s.ty) / a2s.s; a2s.s = s2; a2s.tx = cx - wx * s2; a2s.ty = cy - wy * s2; a2applyT(); }
+  function a2attachPanZoom() {
+    if (a2pz) return; a2pz = true; var svg = $("#a2asvg"); if (!svg) return;
+    svg.addEventListener("mousedown", function (ev) { if (ev.target.closest && ev.target.closest(".a2node,.a2hit,.a2el")) return; var sx = ev.clientX, sy = ev.clientY; svg.classList.add("panning");
+      function mm(e) { a2s.tx += (e.clientX - sx); a2s.ty += (e.clientY - sy); sx = e.clientX; sy = e.clientY; a2applyT(); }
+      function mu() { document.removeEventListener("mousemove", mm); document.removeEventListener("mouseup", mu); svg.classList.remove("panning"); }
+      document.addEventListener("mousemove", mm); document.addEventListener("mouseup", mu); });
+    svg.addEventListener("wheel", function (ev) { ev.preventDefault(); var r = svg.getBoundingClientRect(); a2zoomAt(ev.clientX - r.left, ev.clientY - r.top, ev.deltaY < 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+  }
+  function a2fit() {
+    var svg = $("#a2asvg"), vp = $("#a2a-vp"); if (!svg || !vp) return;
+    var rect = svg.getBoundingClientRect(), W = rect.width || 620, H = rect.height || 250, bb;
+    try { bb = vp.getBBox(); } catch (e) { return; }
+    if (!bb || !bb.width || !bb.height) return;
+    var pad = 16, s = Math.min((W - pad * 2) / bb.width, (H - pad * 2) / bb.height); s = Math.max(0.2, Math.min(2.4, s));
+    a2s.s = s; a2s.tx = pad - bb.x * s + (W - pad * 2 - bb.width * s) / 2; a2s.ty = pad - bb.y * s + (H - pad * 2 - bb.height * s) / 2; a2applyT();
+  }
+  $("#a2z-in").addEventListener("click", function () { var r = $("#a2asvg").getBoundingClientRect(); a2zoomAt(r.width / 2, r.height / 2, 1.2); });
+  $("#a2z-out").addEventListener("click", function () { var r = $("#a2asvg").getBoundingClientRect(); a2zoomAt(r.width / 2, r.height / 2, 1 / 1.2); });
+  $("#a2z-fit").addEventListener("click", a2fit);
+  // Click-through to the logs for a node or edge. A node fetches its pod-log
+  // trail from the broker; an edge shows the decision-bus record from SSE.
+  function a2aShow() { var p = $("#a2a-inspect"); if (p) p.style.display = "block"; }
+  // Per-step config: the decision phase, the pod-log node(s), and the agent card
+  // for that step. The hand-off step shows Olly -> Orbit message/send and Orbit's
+  // card, not Olly's MCP reads.
+  var A2A_PHASE_CFG = {
+    identity:       { title: "COIN M2M token (OBO)",         nodes: ["a2a-authz"],             card: "" },
+    handoff:        { title: "A2A message/send + AuthZ-CTX", nodes: ["a2a-send"],              card: "orbit" },
+    input_required: { title: "input-required (HITL pause)",  nodes: ["a2a-send", "a2a-orbit"], card: "orbit" },
+    approved:       { title: "signed approval → executed",   nodes: ["a2a-broker"],            card: "" }
+  };
+  var A2A_NODE_CFG = {
+    "a2a-authz":  { title: "olly-authz · COIN mint (OBO)",                 phase: "identity", nodes: ["a2a-authz"],             card: "" },
+    "a2a-olly":   { title: "Olly (agent-a) · reads under the token",       phase: "identity", nodes: ["a2a-olly"],              card: "olly-sentinel" },
+    "a2a-orbit":  { title: "Orbit (agent-b) · A2A hand-off + re-validate", phase: "handoff",  nodes: ["a2a-send", "a2a-orbit"], card: "orbit" },
+    "a2a-broker": { title: "Human + broker · HITL approval",               phase: "approved", nodes: ["a2a-broker"],            card: "" }
+  };
+  // Inspector shows, when available: the decision record for this step (SSE),
+  // the pod-log trail(s) from the broker, and the agent card for this hop.
+  async function a2aInspect(title, phase, nodeIds, cardId) {
+    a2aShow(); var c = $("#a2a-inspect-c"); if (!c) return;
+    $("#a2a-inspect-t").textContent = title || "A2A step"; c.innerHTML = "";
+    var any = false, r = (A2A.rec || {})[phase];
+    if (r) {
+      any = true;
+      c.appendChild(el("span", { class: "dim" }, ["// live decision · olly.pipeline.decisions · gate=" + r.gate + " branch=" + r.branch + "\n// " + (r.ts || "") + " · correlation_id=" + (r.correlation_id || "") + "\n\n"]));
+      c.appendChild(el("span", {}, [(r.reason || "") + "\n"]));
+      if (r.detail) c.appendChild(el("span", {}, ["\n" + JSON.stringify(r.detail, null, 2) + "\n"]));
+    }
+    for (var i = 0; i < (nodeIds || []).length; i++) {
+      try {
+        var data = await getJSON("/api/pipeline/node/" + nodeIds[i]);
+        var lines = (data.lines || []).filter(function (l) { return String(l).indexOf("no records yet") < 0; });
+        if (lines.length) {
+          any = true;
+          c.appendChild(el("span", { class: "dim" }, ["\n// pod logs · " + (data.title || nodeIds[i]) + "\n"]));
+          lines.forEach(function (ln) { c.appendChild(el("span", {}, [String(ln) + "\n"])); });
+        }
+      } catch (e) {}
+    }
+    if (cardId) {
+      try {
+        var card = await getJSON("/api/agent-card/" + cardId);
+        any = true;
+        c.appendChild(el("span", { class: "dim" }, ["\n// agent card discovered at this hop · a peer fetches this card\n// (/.well-known/agent-card.json) to learn how to authenticate before calling.\n\n"]));
+        c.appendChild(el("span", {}, ["name: " + (card.name || "") + "\nurl:  " + (card.url || "") + "\n"]));
+        var ss = card.securitySchemes || {};
+        Object.keys(ss).forEach(function (k) { var s = ss[k]; c.appendChild(el("span", {}, ["securityScheme " + k + " (" + (s.type || "") + (s.in ? ", " + s.in + " " + s.name : (s.scheme ? " " + s.scheme : "")) + "): " + String(s.description || "").slice(0, 150) + "\n"])); });
+        (card.skills || []).forEach(function (s) { c.appendChild(el("span", { class: "dim" }, ["skill " + s.id + " · " + (s.name || "") + "\n"])); });
+      } catch (e) {}
+    }
+    if (!any) c.appendChild(el("span", { class: "dim" }, ["(no logs for this step yet. Run `make a2a-demo` with the dashboard open.)\n"]));
+    c.scrollTop = 0;
+  }
+  function a2aInspectNode(id, title) { var cfg = A2A_NODE_CFG[id] || {}; a2aInspect(cfg.title || title, cfg.phase, cfg.nodes || [id], cfg.card); }
+  function a2aInspectEdge(phase) { var cfg = A2A_PHASE_CFG[phase] || {}; a2aInspect(cfg.title, phase, cfg.nodes || [], cfg.card); }
+  $("#a2a-inspect-x").addEventListener("click", function () { $("#a2a-inspect").style.display = "none"; });
+  function a2aReset() { ["identity", "token", "send", "narrow", "pause", "approve"].forEach(function (k) { var e = document.getElementById("a2e-" + k), l = document.getElementById("a2l-" + k); if (e) e.classList.remove("on"); if (l) l.classList.remove("on"); }); }
+  function a2aLight(k) { var e = document.getElementById("a2e-" + k), l = document.getElementById("a2l-" + k); if (e) e.classList.add("on"); if (l) l.classList.add("on"); }
+  function a2aStep(kind, title, meta, ts) {
+    var host = $("#a2a-steps"); if (!host) return;
+    host.insertBefore(el("div", { class: "a2a-step " + kind }, [el("div", { class: "sd" }, []), el("div", { class: "st" }, [el("div", { class: "t" }, [title]), meta ? el("div", { class: "m" }, [meta]) : null]), el("div", { class: "tm" }, [(ts || "").replace("T", " ").replace("Z", "").slice(11)])]), host.firstChild);
+    while (host.children.length > 40) host.removeChild(host.lastChild);
+  }
+  function renderA2Actx() {
+    var host = $("#a2a-ctx"); if (!host || !A2A.cid) return; host.innerHTML = "";
+    function kv(k, v) { return el("div", { class: "kv" }, [el("b", {}, [k]), el("span", { class: "mono" }, [v])]); }
+    host.appendChild(kv("authz_ctx_id", A2A.ctx || "—"));
+    host.appendChild(kv("username", (A2A.acme || "—") + " (ACME id)"));
+    host.appendChild(kv("actor", A2A.actor || "agent"));
+    host.appendChild(kv("decision", A2A.decision || "—"));
+    var nmap = {}; (A2A.narrowed || []).forEach(function (s) { var p = String(s).split(":"); nmap[p[0]] = p[1]; });
+    var haveN = A2A.narrowed && A2A.narrowed.length;
+    var chips = el("div", { class: "a2a-chips" }, []);
+    (A2A.permitted || []).forEach(function (a) { var kept = haveN ? (a in nmap) : true; chips.appendChild(el("span", { class: "a2a-chip" + (haveN ? (kept ? " act" : " drop") : "") }, [a + (kept && nmap[a] != null ? ":" + nmap[a] : "")])); });
+    host.appendChild(el("div", { class: "kv" }, [el("b", {}, ["permitted"]), chips]));
+    if (haveN) {
+      var nc = el("div", { class: "a2a-chips" }, []); A2A.narrowed.forEach(function (s) { nc.appendChild(el("span", { class: "a2a-chip act" }, [s])); });
+      host.appendChild(el("div", { class: "kv" }, [el("b", {}, ["narrowed@orbit"]), nc]));
+    }
+    if (A2A.task) host.appendChild(kv("orbit task", a2short(A2A.task) + " · " + (A2A.state || "")));
+  }
+  function a2aConsume(r) {
+    if (!r) return; var d = r.detail || {};
+    if (r.gate === "orbit_a2a" && d.phase) {
+      $("#a2a-status").textContent = "live"; $("#a2a-status").className = "pill ok";
+      if (d.phase === "identity") {
+        A2A = { cid: r.correlation_id, ctx: d.authz_ctx_id, acme: d.acme_id, actor: d.actor, decision: d.decision, permitted: d.permitted_actions || [], narrowed: [], task: null, state: null, rec: { identity: r } };
+        a2aReset(); a2aLight("identity"); a2aLight("token"); renderA2Actx();
+        a2aStep("token", "COIN M2M token minted", "OBO " + (d.acme_id || "?") + " · " + (d.decision || "") + " · ctx " + a2short(d.authz_ctx_id), r.ts);
+      } else if (d.phase === "handoff") {
+        if (r.correlation_id === A2A.cid) { A2A.narrowed = d.narrowed || []; A2A.action = d.action; }
+        A2A.rec = A2A.rec || {}; A2A.rec.handoff = r;
+        a2aLight("send"); a2aLight("narrow"); renderA2Actx();
+        a2aStep("send", "message/send → Orbit", "action " + (d.action || "?") + " · narrowed [" + ((d.narrowed || []).join(", ")) + "] · X-AuthZ-CTX", r.ts);
+      } else if (d.phase === "input_required") {
+        if (r.correlation_id === A2A.cid) { A2A.task = d.orbit_task_id; A2A.state = d.state; }
+        A2A.rec = A2A.rec || {}; A2A.rec.input_required = r;
+        a2aLight("pause"); renderA2Actx();
+        a2aStep("reply", "input-required → awaits human", "task " + a2short(d.orbit_task_id) + " · state " + (d.state || "?"), r.ts);
+      }
+    } else if (r.gate === "llm_guard" && d.direction) {
+      a2aStep(r.branch === "blocked" ? "denied" : "send", "LLM Guard " + (r.branch === "blocked" ? "held" : "cleared") + " (" + d.direction + ")", r.reason || "", r.ts);
+    } else if (r.gate === "hitl" && r.branch === "parked") {
+      a2aStep("send", "Orbit parked proposal", (d.action || "") + " awaiting signed approval", r.ts);
+    } else if (r.gate === "publish" && r.branch === "complete" && d.approved_by) {
+      A2A.rec = A2A.rec || {}; A2A.rec.approved = r;
+      a2aLight("approve");
+      a2aStep("approved", "Signed approval → executed", "approved by " + d.approved_by + " · " + (d.action || ""), r.ts);
+    } else if (r.gate === "hitl" && r.branch === "reject") {
+      a2aStep("denied", "Proposal rejected", (d.action || "") + " dropped", r.ts);
+    }
+  }
+
+  // ---- boot ----
+  buildFlow(); buildA2A(); loadRegistry(); startSSE(); schedule();
+  setupPanels($("#eye-stack"), "eye-layout"); setupPanels($("#ag-stack"), "ag-layout");
+  sfInit(); (function () { var m = "default"; try { m = localStorage.getItem("bg-theme") || "default"; } catch (e) {} setBg(m === "space" ? "space" : "default", false); })();
+  pingBroker().then(function () { loadEye(); loadAgentic(); });
+  setInterval(pingBroker, 9000);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "knowledge-mcp",
+  "description": "Retrieval agent (reference peer in the registry, not deployed in this replica). It answers 'has this happened before, and what did we do?' by running retrieval-augmented generation over the ServiceNow and Confluence knowledge base: past incidents, known-error articles, and runbooks. Olly and the triage agent call it as a peer for grounding. Unlike Olly, it queries no live telemetry and proposes no RCA; it returns cited prior art. It runs a larger context model tuned for grounded synthesis with citations.",
+  "url": "https://arc.internal.example/agents/knowledge-mcp",
+  "version": "2.0.1",
+  "provider": {
+    "organization": "GCO Knowledge Platform",
+    "url": "https://arc.internal.example"
+  },
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "retrieve_prior_art",
+      "name": "Retrieve prior incidents and runbooks",
+      "description": "Given a service and a symptom, retrieve the most relevant past incidents, known-error articles, and runbook steps from ServiceNow and Confluence, and return an LLM synthesis with citations back to each source document. Read-only over the knowledge corpus; it grounds other agents, it does not act.",
+      "tags": ["knowledge", "rag", "retrieval", "citations", "servicenow", "confluence", "llm"],
+      "examples": [
+        "{\"service\": \"Card Payments & Settlement\", \"symptom\": \"settlement worker OOM during EOD batch\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "eems": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "EEMS bearer for role gco-knowledge-read: read-only across the knowledge corpus."
+    }
+  },
+  "security": [
+    { "eems": ["knowledge.read", "servicenow.incidents.read"] }
+  ]
+}

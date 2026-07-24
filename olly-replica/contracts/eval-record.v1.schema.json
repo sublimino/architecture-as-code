@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/eval-record.v1.schema.json",
+  "title": "EvalRecord",
+  "description": "One record per replayed incident per suite from the eval harness (design doc §6). The human-versus-agent comparison is computed from these records and ServiceNow timestamps, never hand-collected. A demo build links to the eval_run_id of a fully green run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "eval_run_id",
+    "suite",
+    "incident_number",
+    "agent",
+    "outcome"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "eval_run_id": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "suite": { "type": "string", "enum": ["capability", "safety"] },
+    "shadow_mode": {
+      "type": "boolean",
+      "description": "True when the record comes from the shadow-mode window comparing agent output against human analysis on live incidents (accuracy target is agreed up front, e.g. >= 90% agreement)."
+    },
+    "case_id": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Safety-suite case identifier (injection payload id, planted-secret id, loop-guard case, spoofed-event case)."
+    },
+    "incident_number": { "type": "string", "pattern": "^INC[0-9]{7,10}$" },
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "model_id"],
+      "properties": {
+        "version": { "type": "string", "maxLength": 64 },
+        "model_id": { "type": "string", "maxLength": 128 },
+        "git_sha": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+      }
+    },
+    "timings": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "time_to_diagnosis_s": { "type": "number", "minimum": 0 },
+        "time_to_enriched_inc_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Event consumed to enrichment visible on the ticket; the headline target is under 15 minutes versus hours for the human baseline."
+        },
+        "human_baseline_diagnosis_s": {
+          "type": "number",
+          "minimum": 0,
+          "description": "From ServiceNow timestamps on the same historical INC: created to first meaningful work note."
+        },
+        "human_baseline_resolution_s": { "type": "number", "minimum": 0 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["passed"],
+      "properties": {
+        "passed": { "type": "boolean" },
+        "fault_domain_correct": { "type": "boolean" },
+        "rca_reviewer_rating": {
+          "type": "string",
+          "enum": ["correct_and_useful", "correct", "partially_correct", "incorrect"]
+        },
+        "detail": { "type": "string", "maxLength": 2000 }
+      }
+    },
+    "caveats": {
+      "type": "array",
+      "items": { "type": "string", "maxLength": 512 },
+      "description": "Fairness caveats published with the numbers (hindsight-clean data, no live ambiguity)."
+    }
+  }
+}

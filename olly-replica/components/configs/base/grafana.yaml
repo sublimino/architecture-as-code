@@ -1,0 +1,128 @@
+# The Eye in the Sky stand-in: a dedicated Grafana with provisioned
+# Elasticsearch datasources (one per allowed index pattern, mirroring the
+# scoped-access model) and the estate dashboard loaded by the sidecar.
+# It reads Trivy Operator's "Aqua pane" metrics from the existing
+# kube-prometheus-stack, provenance-labelled on the panel.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: grafana
+spec:
+  interval: 1h
+  url: https://grafana.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: eye-in-the-sky
+spec:
+  interval: 1h
+  releaseName: eye-in-the-sky
+  chart:
+    spec:
+      chart: grafana
+      version: "8.8.2"
+      sourceRef:
+        kind: HelmRepository
+        name: grafana
+  install:
+    timeout: 9m
+    remediation:
+      retries: -1
+  upgrade:
+    timeout: 9m
+    remediation:
+      retries: 3
+  values:
+    # Demo credential for a throwaway kind cluster; the client deployment
+    # authenticates against the bank IdP and entitlement-filters at the
+    # datasource (design doc §3, aggregate view row).
+    adminUser: admin
+    adminPassword: olly-replica-demo
+    # The single pane of glass is the landing page. The light theme carries the
+    # space-white look (white panels on an animated starfield); disable_sanitize_html
+    # lets each dashboard's text panel inject that background stylesheet + canvas
+    # (acceptable on a throwaway kind cluster, where every dashboard is provisioned
+    # from this repo). The path is where the sidecar writes provisioned dashboards.
+    grafana.ini:
+      panels:
+        disable_sanitize_html: true
+      users:
+        default_theme: light
+      dashboards:
+        default_home_dashboard_path: /tmp/dashboards/estate-pane-of-glass.json
+    testFramework:
+      enabled: false
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 512Mi
+    envValueFrom:
+      ELASTIC_PASSWORD:
+        secretKeyRef:
+          name: olly-es-elastic-user
+          key: elastic
+    datasources:
+      datasources.yaml:
+        apiVersion: 1
+        datasources:
+          - name: olly-es-app-logs
+            uid: olly-es-app
+            type: elasticsearch
+            access: proxy
+            url: http://olly-es-http:9200
+            basicAuth: true
+            basicAuthUser: elastic
+            secureJsonData:
+              basicAuthPassword: $__env{ELASTIC_PASSWORD}
+            jsonData:
+              index: "app-logs-*"
+              timeField: "@timestamp"
+          - name: olly-es-infra-logs
+            uid: olly-es-infra
+            type: elasticsearch
+            access: proxy
+            url: http://olly-es-http:9200
+            basicAuth: true
+            basicAuthUser: elastic
+            secureJsonData:
+              basicAuthPassword: $__env{ELASTIC_PASSWORD}
+            jsonData:
+              index: "infra-logs-*"
+              timeField: "@timestamp"
+          - name: olly-es-audit-logs
+            uid: olly-es-audit
+            type: elasticsearch
+            access: proxy
+            url: http://olly-es-http:9200
+            basicAuth: true
+            basicAuthUser: elastic
+            secureJsonData:
+              basicAuthPassword: $__env{ELASTIC_PASSWORD}
+            jsonData:
+              index: "audit-logs-*"
+              timeField: "@timestamp"
+          - name: olly-prometheus
+            uid: olly-prom
+            type: prometheus
+            access: proxy
+            url: http://kube-prometheus-stack-prometheus.monitoring:9090
+          - name: olly-es-incidents
+            uid: olly-es-incidents
+            type: elasticsearch
+            access: proxy
+            url: http://olly-es-http:9200
+            basicAuth: true
+            basicAuthUser: elastic
+            secureJsonData:
+              basicAuthPassword: $__env{ELASTIC_PASSWORD}
+            jsonData:
+              index: "olly-incidents"
+              timeField: "@timestamp"
+    sidecar:
+      dashboards:
+        enabled: true
+        label: grafana_dashboard
+        labelValue: "1"

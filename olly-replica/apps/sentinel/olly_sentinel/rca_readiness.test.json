@@ -1,0 +1,106 @@
+{
+  "eval_set_id": "rca_readiness",
+  "name": "RCA readiness (capability)",
+  "description": "Curated regression suite for the Olly Sentinel triage skill. Each case sends the same {correlation_id, app_id} triage request the A2A card skill takes, and checks the agent returns a coherent rca-enrichment for a seeded golden incident. The loose ROUGE response_match is a sanity check; the hard fault_domain / evidence / redaction assertions are in tests/test_rca_signals.py.",
+  "eval_cases": [
+    {
+      "eval_id": "inventory_service_rca",
+      "conversation": [
+        {
+          "invocation_id": "rca-inventory-service-0000",
+          "user_content": {
+            "parts": [
+              {
+                "text": "{\"correlation_id\": \"corr-inventory-service\", \"app_id\": \"inventory-service\"}"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"schema_version\": \"v1\", \"correlation_id\": \"corr-inventory-service\", \"idempotency_key\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"enrichment_pass\": 1, \"agent\": {\"name\": \"olly-sentinel\", \"version\": \"dev\", \"eval_run_id\": \"local-dev\", \"model_id\": \"deterministic-fallback\"}, \"rca\": {\"summary\": \"Deterministic RCA for inventory-service (app_failure_burst): 14 error docs across 29 evidence docs. Probable cause: db connection pool exhausted: timeout acquiring connection to positions-ledger-db after 5000ms (pool size 20, waiters 30). Evidence sample: connection pool exhausted, upstream call to positions-ledger-db failed, circuit breaker half-open.\", \"probable_cause\": \"db connection pool exhausted: timeout acquiring connection to positions-ledger-db after 5000ms (pool size 20, waiters 30)\", \"fault_domain\": \"dependency\", \"confidence_score\": 0.7, \"suggested_actions\": [\"review the sampled evidence lines against the app's runbook\", \"if the fault domain is dependency, check the downstream service before restarting anything\"]}, \"evidence\": [{\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"app-logs-* app_id:inventory-service\", \"doc_count\": 25, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"audit-logs-* app_id:inventory-service\", \"doc_count\": 2, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"infra-logs-* app_id:inventory-service\", \"doc_count\": 2, \"observed_at\": \"2026-07-17T00:00:00Z\"}], \"redaction\": {\"applied\": true, \"secrets_found\": 1}}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "olly_sentinel",
+        "user_id": "eval",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "payments_api_rca",
+      "conversation": [
+        {
+          "invocation_id": "rca-payments-api-0001",
+          "user_content": {
+            "parts": [
+              {
+                "text": "{\"correlation_id\": \"corr-payments-api\", \"app_id\": \"payments-api\"}"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"schema_version\": \"v1\", \"correlation_id\": \"corr-payments-api\", \"idempotency_key\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"enrichment_pass\": 1, \"agent\": {\"name\": \"olly-sentinel\", \"version\": \"dev\", \"eval_run_id\": \"local-dev\", \"model_id\": \"deterministic-fallback\"}, \"rca\": {\"summary\": \"Deterministic RCA for payments-api (app_failure_burst): 12 error docs across 28 evidence docs. Probable cause: container settlement-worker restarted 6 times in 8m, last state=OOMKilled exit_code=137. Evidence sample: settlement worker OOMKilled mid EOD batch, memory limit 512Mi exceeded, node under MemoryPressure, pod evicted.\", \"probable_cause\": \"container settlement-worker restarted 6 times in 8m, last state=OOMKilled exit_code=137\", \"fault_domain\": \"infrastructure\", \"confidence_score\": 0.7, \"suggested_actions\": [\"review the sampled evidence lines against the app's runbook\", \"if the fault domain is dependency, check the downstream service before restarting anything\"]}, \"evidence\": [{\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"app-logs-* app_id:payments-api\", \"doc_count\": 22, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"audit-logs-* app_id:payments-api\", \"doc_count\": 3, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"infra-logs-* app_id:payments-api\", \"doc_count\": 3, \"observed_at\": \"2026-07-17T00:00:00Z\"}], \"redaction\": {\"applied\": true, \"secrets_found\": 3}}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "olly_sentinel",
+        "user_id": "eval",
+        "state": {}
+      }
+    },
+    {
+      "eval_id": "customer_portal_rca",
+      "conversation": [
+        {
+          "invocation_id": "rca-customer-portal-0002",
+          "user_content": {
+            "parts": [
+              {
+                "text": "{\"correlation_id\": \"corr-customer-portal\", \"app_id\": \"customer-portal\"}"
+              }
+            ],
+            "role": "user"
+          },
+          "final_response": {
+            "parts": [
+              {
+                "text": "{\"schema_version\": \"v1\", \"correlation_id\": \"corr-customer-portal\", \"idempotency_key\": \"0000000000000000000000000000000000000000000000000000000000000000\", \"enrichment_pass\": 1, \"agent\": {\"name\": \"olly-sentinel\", \"version\": \"dev\", \"eval_run_id\": \"local-dev\", \"model_id\": \"deterministic-fallback\"}, \"rca\": {\"summary\": \"Deterministic RCA for customer-portal (app_failure_burst): 13 error docs across 26 evidence docs. Probable cause: HTTP 500 serving GET /portal/accounts/summary for signed-in customer (build v2.4.1). Evidence sample: unhandled NullPointerException in AccountSummaryController.render, error rate 42% since release v2.4.1 breaching SLO.\", \"probable_cause\": \"HTTP 500 serving GET /portal/accounts/summary for signed-in customer (build v2.4.1)\", \"fault_domain\": \"application\", \"confidence_score\": 0.7, \"suggested_actions\": [\"review the sampled evidence lines against the app's runbook\", \"if the fault domain is dependency, check the downstream service before restarting anything\"]}, \"evidence\": [{\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"app-logs-* app_id:customer-portal\", \"doc_count\": 22, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"audit-logs-* app_id:customer-portal\", \"doc_count\": 3, \"observed_at\": \"2026-07-17T00:00:00Z\"}, {\"source\": \"elk\", \"scope\": \"elk.logs.read\", \"query\": \"infra-logs-* app_id:customer-portal\", \"doc_count\": 1, \"observed_at\": \"2026-07-17T00:00:00Z\"}], \"redaction\": {\"applied\": true, \"secrets_found\": 0}}"
+              }
+            ],
+            "role": "model"
+          },
+          "intermediate_data": {
+            "tool_uses": [],
+            "intermediate_responses": []
+          }
+        }
+      ],
+      "session_input": {
+        "app_name": "olly_sentinel",
+        "user_id": "eval",
+        "state": {}
+      }
+    }
+  ]
+}

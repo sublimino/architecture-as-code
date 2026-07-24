@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/dashboard-pane.v1.schema.json",
+  "title": "DashboardPane",
+  "description": "The Eye in the Sky pane payload. Eye in the Sky is the observability and control-tower layer for the agent: complete lifecycle visibility of every incident the agent processes (received, in-progress, awaiting approval and by whom, completed/failed) with timelines, sourced from agent-emitted Prometheus metrics, alongside the estate health view. Values here are untrusted text (titles, note excerpts): the Grafana panel output-encodes them; that control is separate from injection-safe context assembly and both must exist.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "app_id",
+    "health",
+    "incidents"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "app_id": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$" },
+    "health": {
+      "type": "string",
+      "enum": ["healthy", "warning", "critical", "no_data", "stale"],
+      "description": "no_data and stale are first-class states: killing the log shipper or the metrics emitter must not render green. A 'critical' label must name its source."
+    },
+    "health_source": { "type": "string", "maxLength": 256 },
+    "incidents": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["correlation_id", "lifecycle_state", "authored_by"],
+        "properties": {
+          "correlation_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "The join key; the pane is keyed by it, matching the agent, which never handles INC numbers."
+          },
+          "inc_number": {
+            "type": "string",
+            "pattern": "^INC[0-9]{7,10}$",
+            "description": "Display-only, resolved by the dashboard's own ServiceNow feed after the Mapping Service updates the ticket; never supplied by the agent."
+          },
+          "lifecycle_state": {
+            "type": "string",
+            "enum": ["received", "in_progress", "awaiting_approval", "completed", "failed"],
+            "description": "The agent-lifecycle states Eye in the Sky tracks end to end."
+          },
+          "awaiting_approver": {
+            "type": "string",
+            "maxLength": 128,
+            "description": "Present when lifecycle_state is awaiting_approval: who the triage is parked on (HITL)."
+          },
+          "short_description": { "type": "string", "maxLength": 512 },
+          "authored_by": {
+            "type": "string",
+            "enum": ["human", "agent"],
+            "description": "Drives the visual distinction between agent and human entries on the pane."
+          },
+          "agent": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "version"],
+            "properties": {
+              "name": { "const": "olly-sentinel" },
+              "version": { "type": "string", "maxLength": 64 },
+              "eval_run_id": { "type": "string", "maxLength": 128 }
+            }
+          },
+          "stage_timings_s": {
+            "type": "object",
+            "description": "Per-stage pipeline timings in seconds (consume, context, mcp_fanout, correlate, llm_rca, publish), the timeline Eye in the Sky renders per incident.",
+            "additionalProperties": { "type": "number", "minimum": 0 },
+            "maxProperties": 12
+          },
+          "enriched_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "as_of"],
+      "properties": {
+        "source": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Where this pane's data came from (e.g. 'agent prometheus metrics', 'trivy-operator CRDs via prometheus', 'servicenow feed'), rendered as the panel's provenance label."
+        },
+        "as_of": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}

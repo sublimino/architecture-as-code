@@ -1,0 +1,59 @@
+{
+  "name": "olly-sentinel",
+  "description": "AI SRE agent for GCO incident triage and enrichment. Read-only against production systems: consumes Self-Healing-eligible events, resolves context by correlation-ID (never an INC number), fans read-only MCP queries out under EEMS entitlements, and returns an rca-enrichment.v1 payload. Every read runs under a COIN-minted M2M token obtained on-behalf-of the human ACME id (OBO: the human stays the subject, the agent is the actor), and one authz_ctx_id anchors every MCP query and the Olly -> Orbit hand-off so 'who authorized this?' is a single audit lookup. Ticket writes happen downstream via the IO Mapping Service, never by this agent. Any action beyond read-only triage is delegated to the Orbit agent (agent-card.orbit.v1), which proposes one action and pauses for human approval as an A2A input-required task; this agent proposes evidence only and holds no write entitlement.",
+  "url": "http://olly-sentinel.olly-replica.svc.cluster.local:8080/",
+  "version": "0.2.0",
+  "provider": {
+    "organization": "ControlPlane / Acme GCO",
+    "url": "https://github.com/acme-co/osramp"
+  },
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "triage_enrich_incident",
+      "name": "Triage and enrich incident",
+      "description": "Given a correlation-ID (and optionally app_id / alert context) for a Self-Healing-eligible event, gather read-only evidence via MCP tools, correlate, and return a structured RCA per contracts/rca-enrichment.v1.schema.json. This is the strategic TROUBLESHOOT action: the same logic Self-Healing routes to, invokable directly by an authorized user. No remediation is performed and nothing is written to ServiceNow.",
+      "tags": ["sre", "rca", "triage", "read-only", "elk", "servicenow", "gco"],
+      "examples": [
+        "{\"correlation_id\": \"corr-2026-0001\", \"app_id\": \"inventory-service\", \"alert_type\": \"app_failure_burst\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "eems": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "EEMS-issued bearer identifying the caller and its entitlements for role gco-sentinel-read. Read-only scopes only; the agent holds no write entitlement anywhere. In the replica the entitlement is derived at token issuance by the in-cluster olly-authz PDP (PlainID Rego) reading EEMS attributes as a PIP. In the ARC estate this bearer resolves to the coin_m2m credential below, so the entitlement view and the transport credential are the same token."
+    },
+    "coin_m2m": {
+      "type": "oauth2",
+      "description": "The machine identity Olly presents on every read. Olly exchanges the human ACME id for an M2M-enhanced token (OBO: username preserved as the subject, agent as the actor) and carries the bearer on each MCP tool call; elk-search-mcp verifies the HS256 signature and the per-tool scope on the /mcp transport before returning any data. The same token travels as the X-AuthZ-CTX on the Olly -> Orbit A2A hop (see the orbit card). tokenUrl here is the in-cluster olly-authz issuer; in the ARC estate it resolves to the COIN issuer (for example https://<coin-host>/as/token.oauth2), and the grant is a token-exchange rather than a bare client-credentials call.",
+      "flows": {
+        "clientCredentials": {
+          "tokenUrl": "http://olly-authz:8001/token",
+          "scopes": {
+            "elk.logs.read": "Read application and infrastructure logs from ELK",
+            "grafana.dashboards.read": "Read Grafana / GEM dashboards and panels",
+            "io.events.read": "Read IO / Netcool events",
+            "cmdb.topology.read": "Read CMDB CIs and dependency topology",
+            "observr.traces.read": "Read distributed traces",
+            "drift.changes.read": "Read drift / change records",
+            "servicenow.incidents.read": "Read ServiceNow incident records",
+            "troubleshoot": "Run the read-only RCA (the strategic TROUBLESHOOT action)"
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "coin_m2m": ["elk.logs.read", "troubleshoot"],
+      "eems": ["elk.logs.read"]
+    }
+  ]
+}

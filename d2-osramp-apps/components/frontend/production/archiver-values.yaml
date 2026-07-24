@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-archiver
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-auth
+      containers:
+        - name: archiver
+          imagePullPolicy: IfNotPresent
+          resources:
+            limits:
+              memory: "256Mi"
+              cpu: "250m"
+            requests:
+              memory: "128Mi"
+              cpu: "100m"

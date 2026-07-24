@@ -1,0 +1,37 @@
+{
+  "name": "incident-triage",
+  "description": "Front-line triage agent (reference peer in the registry, not deployed in this replica). Where Olly Sentinel does deep multi-source root-cause enrichment on declined events, this agent sits earlier in the flow: it reads a raw inbound alert, uses a fast LLM to summarise it in one line, assigns severity and an ITIL priority, and decides whether to auto-close, route to a runbook, or hand off to Olly for enrichment. Optimised for latency over depth, so it runs on a small fast model.",
+  "url": "https://arc.internal.example/agents/incident-triage",
+  "version": "1.4.0",
+  "provider": {
+    "organization": "GCO SRE Platform (ARC)",
+    "url": "https://arc.internal.example"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": true
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "classify_and_route",
+      "name": "Classify, score and route an alert",
+      "description": "Given a raw alert, use an LLM to produce a one-line summary, assign severity (1-5) and an ITIL priority, and return a routing decision: auto_close, runbook, or handoff_to_olly. This is a fast first pass, not a root-cause analysis; the deep RCA belongs to Olly Sentinel.",
+      "tags": ["sre", "triage", "classification", "severity", "routing", "llm"],
+      "examples": [
+        "{\"alert\": \"JVM heap 97% on PAYMENTS-APP-07\", \"source\": \"netcool\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "eems": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "EEMS bearer for role gco-sre-triage: read alerts plus route incidents."
+    }
+  },
+  "security": [
+    { "eems": ["incidents.read", "incidents.route"] }
+  ]
+}

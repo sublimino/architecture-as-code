@@ -1,0 +1,224 @@
+/* ===========================================================================
+   Estate 95: a Windows-95 design system for the OSRAMP / Olly demo console.
+   Authentic chrome (bevels, navy title bars, group boxes) carries the identity;
+   a considered "After Dark" variant keeps both themes legible.
+   =========================================================================== */
+:root {
+  --silver: #c0c0c0;
+  --silver-lt: #dfdfdf;
+  --white: #ffffff;
+  --gray: #808080;
+  --ink: #0a0a0a;
+  --face-text: #1a1a1a;
+  --desktop: #128372;
+  --desktop-2: #0e6d5f;
+  --title-a1: #000080;
+  --title-a2: #1084d0;
+  --title-i1: #7f7f7f;
+  --title-i2: #b0b0b0;
+  --title-text: #ffffff;
+  --ok: #0a7d0a; --ok-bg: #d7ecd7;
+  --warn: #8a6d00; --warn-bg: #f2ead0;
+  --crit: #8b0000; --crit-bg: #f0dada;
+  --info: #000080; --info-bg: #dbe0f2;
+  --console-bg: #000000; --console-fg: #33ff66;
+  --link: #0000cc;
+  --sel: #000080;
+  --font-ui: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Courier New", monospace;
+  --bevel-out: inset -1px -1px var(--ink), inset 1px 1px var(--white), inset -2px -2px var(--gray), inset 2px 2px var(--silver-lt);
+  --bevel-in: inset -1px -1px var(--white), inset 1px 1px var(--gray), inset -2px -2px var(--silver-lt), inset 2px 2px var(--ink);
+  --bevel-thin-out: inset -1px -1px var(--gray), inset 1px 1px var(--white);
+  --bevel-thin-in: inset -1px -1px var(--white), inset 1px 1px var(--gray);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --desktop: #06201d; --desktop-2: #041613; --console-fg: #4dff88; }
+}
+:root[data-theme="light"] { --desktop: #128372; --desktop-2: #0e6d5f; }
+:root[data-theme="dark"]  { --desktop: #06201d; --desktop-2: #041613; --console-fg: #4dff88; }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--face-text);
+  background: radial-gradient(120% 120% at 50% 0%, var(--desktop) 0%, var(--desktop-2) 100%);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ---- Desktop + icons ------------------------------------------------------ */
+#desktop { position: fixed; inset: 0 0 40px 0; overflow: hidden; }
+#icons { position: absolute; top: 12px; left: 12px; display: flex; flex-direction: column; gap: 14px; z-index: 1; }
+.desk-icon {
+  width: 84px; display: flex; flex-direction: column; align-items: center; gap: 5px;
+  background: none; border: 1px solid transparent; cursor: pointer; padding: 4px 3px; position: relative;
+  color: #fff; font-family: var(--font-ui); font-size: 11px; line-height: 1.2; text-align: center;
+}
+.desk-icon .glyph { font-size: 26px; filter: drop-shadow(1px 1px 0 rgba(0,0,0,.5)); }
+.desk-icon .cap { padding: 1px 3px; text-shadow: 1px 1px 0 rgba(0,0,0,.55); }
+.desk-icon:hover .cap { background: #0a1e8a; }
+.desk-icon:focus-visible { outline: 1px dotted #fff; }
+
+/* ---- Window chrome -------------------------------------------------------- */
+.win {
+  position: absolute; background: var(--silver); box-shadow: var(--bevel-out);
+  padding: 3px; display: flex; flex-direction: column; min-width: 260px; min-height: 120px;
+}
+.win.active { }
+.win .titlebar {
+  display: flex; align-items: center; gap: 6px; padding: 3px 3px 3px 6px;
+  background: linear-gradient(90deg, var(--title-i1), var(--title-i2));
+  color: var(--title-text); font-weight: 700; font-size: 12px; cursor: default; flex: 0 0 auto;
+}
+.win.active .titlebar { background: linear-gradient(90deg, var(--title-a1), var(--title-a2)); }
+.win .titlebar .t-ico { font-size: 13px; }
+.win .titlebar .t-name { flex: 1 1 auto; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .2px; }
+.win .titlebar .tbtns { display: flex; gap: 2px; }
+.win .titlebar .tbtn {
+  width: 18px; height: 16px; background: var(--silver); box-shadow: var(--bevel-out);
+  color: #000; font-size: 10px; line-height: 12px; display: grid; place-items: center;
+  cursor: pointer; padding: 0; border: 0; font-weight: 700; font-family: var(--font-ui);
+}
+.win .titlebar .tbtn:active { box-shadow: var(--bevel-in); }
+.win .win-body { flex: 1 1 auto; background: var(--silver); box-shadow: var(--bevel-in); margin-top: 3px; overflow: auto; padding: 12px; }
+.win.min { height: auto !important; min-height: 0; }
+.win.min .win-body { display: none; }
+.win .resize { position: absolute; right: 0; bottom: 0; width: 16px; height: 16px; cursor: nwse-resize; }
+
+/* ---- Typography + common ------------------------------------------------- */
+.win-body h2, .win-body h3, .win-body h4 { margin: 0; text-wrap: balance; }
+.win-body p { margin: 0 0 9px; }
+.eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--gray); font-weight: 700; margin: 0 0 5px; }
+code, .mono { font-family: var(--font-mono); font-size: 12px; background: #eaeaea; padding: 0 3px; box-shadow: var(--bevel-thin-in); user-select: text; }
+a { color: var(--link); }
+.muted { color: var(--gray); }
+.right { text-align: right; }
+.tnum { font-variant-numeric: tabular-nums; }
+
+/* ---- Buttons + form controls --------------------------------------------- */
+.btn {
+  background: var(--silver); box-shadow: var(--bevel-out); border: 0; color: #000;
+  font-family: var(--font-ui); font-size: 12px; padding: 4px 12px; cursor: pointer; min-width: 70px;
+}
+.btn:active { box-shadow: var(--bevel-in); padding: 5px 11px 3px 13px; }
+.btn:disabled { color: var(--gray); text-shadow: 1px 1px 0 var(--white); cursor: default; }
+.btn:focus-visible { outline: 1px dotted #000; outline-offset: -4px; }
+.field { background: var(--white); box-shadow: var(--bevel-in); border: 0; padding: 4px 6px; font-family: var(--font-mono); font-size: 12px; width: 100%; }
+select.field { font-family: var(--font-ui); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.stack { display: flex; flex-direction: column; gap: 8px; }
+
+/* ---- Group box (fieldset) ------------------------------------------------- */
+.gb { border: 1px solid var(--gray); box-shadow: var(--bevel-thin-out); position: relative; padding: 14px 12px 12px; margin-top: 12px; }
+.gb > .lg { position: absolute; top: -8px; left: 9px; background: var(--silver); padding: 0 6px; font-weight: 700; font-size: 12px; }
+
+/* ---- Pills ---------------------------------------------------------------- */
+.pill { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 1px 7px; box-shadow: var(--bevel-thin-out); white-space: nowrap; }
+.pill.ok { background: var(--ok-bg); color: var(--ok); }
+.pill.warn { background: var(--warn-bg); color: var(--warn); }
+.pill.crit { background: var(--crit-bg); color: var(--crit); }
+.pill.info { background: var(--info-bg); color: var(--info); }
+.pill.plain { background: #e6e6e6; color: #222; }
+
+/* ---- Tables --------------------------------------------------------------- */
+.tablewrap { overflow: auto; box-shadow: var(--bevel-in); background: var(--white); }
+table.grid { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.grid th, table.grid td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #d3d3d3; vertical-align: top; }
+table.grid thead th { background: var(--silver); box-shadow: var(--bevel-thin-out); position: sticky; top: 0; font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+table.grid tbody tr:nth-child(even) { background: #f3f3f3; }
+table.grid tbody tr.sel { background: var(--sel); color: #fff; }
+table.grid tbody tr.clickable { cursor: pointer; }
+table.grid tbody tr.active-row { background: var(--info-bg); box-shadow: inset 2px 0 0 var(--title-a1); }
+table.grid tbody tr.active-row td { font-weight: 500; }
+
+/* ---- Console / terminal pane --------------------------------------------- */
+.console { background: var(--console-bg); color: var(--console-fg); font-family: var(--font-mono); font-size: 12px; line-height: 1.5; padding: 8px 10px; box-shadow: var(--bevel-in); overflow: auto; white-space: pre-wrap; word-break: break-word; user-select: text; }
+.console .u { color: #fff; }
+.console .g { color: #8fe9a8; }
+.console .r { color: #ff8a8a; }
+.console .dim { color: #6ad48c; opacity: .75; }
+
+/* ---- Tabs ----------------------------------------------------------------- */
+.tabs { display: flex; gap: 2px; margin-bottom: -1px; position: relative; z-index: 1; }
+.tab { background: var(--silver); box-shadow: var(--bevel-thin-out); border: 0; padding: 4px 12px; font-family: var(--font-ui); font-size: 12px; cursor: pointer; }
+.tab.active { font-weight: 700; padding-bottom: 6px; }
+.tabpane { border: 1px solid var(--gray); box-shadow: var(--bevel-thin-out); padding: 12px; background: var(--silver); }
+
+/* ---- Iframe host ---------------------------------------------------------- */
+.frame-host { width: 100%; height: 100%; background: var(--white); box-shadow: var(--bevel-in); }
+.frame-host iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+/* ---- Loading / empty ------------------------------------------------------ */
+.notice { display: flex; gap: 9px; align-items: flex-start; background: #fbfbe4; box-shadow: var(--bevel-thin-out); padding: 9px 11px; font-size: 12px; }
+.notice.err { background: var(--crit-bg); }
+.spin { display: inline-block; }
+
+/* ---- Taskbar -------------------------------------------------------------- */
+#taskbar {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 40px; z-index: 1000;
+  background: var(--silver); box-shadow: var(--bevel-out); border-top: 1px solid var(--white);
+  display: flex; align-items: center; gap: 6px; padding: 3px 6px;
+}
+#startbtn { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 13px; background: var(--silver); box-shadow: var(--bevel-out); padding: 3px 10px 3px 7px; cursor: pointer; border: 0; font-family: var(--font-ui); color: #000; }
+#startbtn:active, #startbtn.on { box-shadow: var(--bevel-in); }
+#startbtn .logo { display: inline-grid; grid-template-columns: 7px 7px; grid-template-rows: 7px 7px; gap: 1px; }
+#startbtn .logo i { display: block; }
+#startbtn .logo i:nth-child(1){background:#ff3b30;} #startbtn .logo i:nth-child(2){background:#34c759;}
+#startbtn .logo i:nth-child(3){background:#007aff;} #startbtn .logo i:nth-child(4){background:#ffcc00;}
+.tb-div { width: 2px; height: 26px; box-shadow: var(--bevel-thin-in); margin: 0 2px; }
+#tasks { display: flex; gap: 4px; flex: 1 1 auto; overflow: hidden; }
+.task { flex: 0 1 168px; min-width: 0; text-align: left; font-size: 12px; padding: 3px 9px; background: var(--silver); box-shadow: var(--bevel-out); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; font-family: var(--font-ui); color: #000; display: flex; align-items: center; gap: 6px; position: relative; }
+.task.active { box-shadow: var(--bevel-in); font-weight: 700; }
+#tray { display: flex; align-items: center; gap: 8px; box-shadow: var(--bevel-thin-in); padding: 4px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+#themebtn { background: var(--silver); box-shadow: var(--bevel-out); border: 0; cursor: pointer; font-size: 13px; padding: 3px 7px; font-family: var(--font-ui); }
+#themebtn:active { box-shadow: var(--bevel-in); }
+
+/* ---- Start menu ----------------------------------------------------------- */
+#startmenu { position: fixed; left: 6px; bottom: 44px; z-index: 1100; width: 300px; background: var(--silver); box-shadow: var(--bevel-out); padding: 3px; display: none; }
+#startmenu.on { display: flex; }
+#startmenu .band { writing-mode: vertical-rl; transform: rotate(180deg); background: linear-gradient(0deg, #000080, #1084d0); color: #fff; font-weight: 800; font-size: 19px; letter-spacing: 1px; padding: 12px 6px; text-align: center; }
+#startmenu .band b { color: #c9c9ff; }
+#startmenu .items { flex: 1 1 auto; padding: 3px; max-height: 60vh; overflow-y: auto; }
+#startmenu .mi { display: flex; align-items: center; gap: 9px; padding: 6px 8px; cursor: pointer; font-size: 13px; border: 0; background: none; width: 100%; text-align: left; font-family: var(--font-ui); color: #000; }
+#startmenu .mi:hover { background: var(--sel); color: #fff; }
+#startmenu .mi .g { font-size: 16px; width: 20px; text-align: center; }
+#startmenu .sep { height: 2px; box-shadow: var(--bevel-thin-in); margin: 3px 2px; }
+
+/* ---- Notification badges + toasts ---------------------------------------- */
+.badge {
+  position: absolute; top: 1px; right: 12px; min-width: 17px; height: 17px; padding: 0 4px;
+  background: var(--crit); color: #fff; font-size: 10px; font-weight: 700; line-height: 17px;
+  text-align: center; border-radius: 9px; box-shadow: 0 0 0 1.5px #fff, 1px 1px 2px rgba(0,0,0,.5);
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.task .badge { top: -6px; right: 4px; }
+
+#toasts {
+  position: fixed; right: 10px; bottom: 48px; z-index: 1200;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+}
+.toast {
+  width: 300px; background: var(--silver); box-shadow: var(--bevel-out); padding: 3px;
+  opacity: 0; transform: translateY(10px); transition: opacity .18s ease, transform .18s ease;
+}
+.toast.show { opacity: 1; transform: translateY(0); }
+.toast .toast-title {
+  display: flex; align-items: center; gap: 6px; padding: 3px 3px 3px 6px;
+  background: linear-gradient(90deg, var(--title-a1), var(--title-a2));
+  color: var(--title-text); font-weight: 700; font-size: 12px;
+}
+.toast .t-ico { font-size: 13px; }
+.toast .t-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast .tbtns { display: flex; gap: 2px; }
+.toast .tbtn {
+  width: 18px; height: 16px; background: var(--silver); box-shadow: var(--bevel-out);
+  color: #000; font-size: 10px; line-height: 12px; display: grid; place-items: center;
+  cursor: pointer; padding: 0; border: 0; font-weight: 700; font-family: var(--font-ui);
+}
+.toast .tbtn:active { box-shadow: var(--bevel-in); }
+.toast .toast-body { box-shadow: var(--bevel-in); background: var(--silver); margin-top: 3px; padding: 9px 10px; font-size: 12px; line-height: 1.4; }
+.toast .toast-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 7px 2px 3px; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

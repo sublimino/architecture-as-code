@@ -1,0 +1,112 @@
+# The IO Mapping Service stand-in: routes queue events (subscription gate,
+# decline -> IO-Declined topic) and consumes the event_response topic as the
+# only component that updates tickets. Point SERVICENOW_URL at a PDI to write
+# real work notes; the in-memory ticket store (HTTP :8080) is the stand-in
+# and the test suite's assertion surface either way.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: io-mapping-stub
+  labels:
+    app: io-mapping-stub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: io-mapping-stub
+  template:
+    metadata:
+      labels:
+        app: io-mapping-stub
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+      containers:
+        - name: mapping
+          image: olly-stubs:dev
+          imagePullPolicy: Never
+          env:
+            - name: KAFKA_BROKERS
+              value: redpanda.olly-replica.svc.cluster.local:9093
+            - name: EVENTS_TOPIC
+              value: netcool.io.events
+            - name: DECLINED_TOPIC
+              value: netcool.io.events.declined
+            - name: RESPONSE_TOPIC
+              value: ideas-172472-sn30.167564-impact.event_response
+            - name: DECISIONS_TOPIC
+              value: olly.pipeline.decisions
+            - name: SUBSCRIBED_APPS
+              value: inventory-service,payments-api,customer-portal,fx-pricing-engine,card-auth-gateway,statement-generator
+            # Elasticsearch credentials so the stub mirrors tickets into the
+            # olly-incidents index (the dashboards' individual-incident feed).
+            # ECK generates the elastic-user secret; the stub only writes.
+            - name: ELASTIC_URL
+              value: http://olly-es-http:9200
+            - name: ELASTIC_USER
+              value: elastic
+            - name: ELASTIC_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: olly-es-elastic-user
+                  key: elastic
+          # The ServiceNow PDI wiring: put the PDI credentials in a local
+          # .env (SERVICENOW_URL, SERVICENOW_USER, SERVICENOW_PASSWORD), then
+          # `make olly-pdi-secret` creates this secret and restarts the pod.
+          # Until then the in-memory ticket store stands in.
+          envFrom:
+            - secretRef:
+                name: servicenow-pdi
+                optional: true
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: io-mapping-stub
+  labels:
+    app: io-mapping-stub
+spec:
+  selector:
+    app: io-mapping-stub
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+# Scrape the mapping service's incident counts (olly_incidents{app_id}) so the
+# estate table sources ticket counts from Prometheus.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: io-mapping-stub
+  labels:
+    app.fluxcd.io/component: "metrics"
+    osramp.acme.co/scrape: Enabled
+spec:
+  selector:
+    matchLabels:
+      app: io-mapping-stub
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

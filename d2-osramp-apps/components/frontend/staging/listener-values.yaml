@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-multipurpose
+spec:
+  template:
+    spec:
+      imagePullSecrets:
+      - name: ghcr-auth
+      containers:
+      - name: listener
+        imagePullPolicy: Always
+        env:
+        - name: WORKER_ID
+          value: "multipurpose-worker-staging-1"
+        - name: STREAM_NAME
+          value: "TASKS"
+        - name: CONSUMER_NAME
+          value: "multipurpose-consumer"
+      - name: processor
+        imagePullPolicy: Always
+        env:
+        - name: WORKER_ID
+          value: "multipurpose-processor-staging-1"

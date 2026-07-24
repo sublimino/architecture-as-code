@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flux-runtime-info
+  namespace: flux-system
+  labels:
+    toolkit.fluxcd.io/runtime: "true"
+    reconcile.fluxcd.io/watch: Enabled
+  annotations:
+    kustomize.toolkit.fluxcd.io/ssa: "Merge"
+data:
+  ARTIFACT_TAG: latest
+  ENVIRONMENT: local
+  CLUSTER_NAME: osramp
+  CLUSTER_DOMAIN: osramp.acme.local
+  REGISTRY_BASE: zot.registry.svc.cluster.local:5000/acme
+  REGISTRY_INSECURE: "true"
+  IMAGE_BASE: unused-in-local-mode
+  # Unused in local mode: the tenants/local overlay replaces keyless
+  # verification with the local cosign key pair.
+  ARTIFACT_SUBJECT_WORKFLOW: local
+  ARTIFACT_SUBJECT_GIT_REF: local

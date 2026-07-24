@@ -1,0 +1,89 @@
+# NOTE: MinIO is nearing end of support upstream. It stays in the demo as the
+# Archivista blob store for now; replacing it needs its own analysis first.
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  annotations:
+    # the bucket-init script uses shell ${VAR} syntax that Flux post-build
+    # substitution must not touch
+    kustomize.toolkit.fluxcd.io/substitute: disabled
+spec:
+  selector:
+    matchLabels:
+      app: minio
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        args:
+        - server
+        - /data
+        env:
+        - name: MINIO_ROOT_USER
+          value: "archivista"
+        - name: MINIO_ROOT_PASSWORD
+          value: "archivista_secret_key"
+        ports:
+        - containerPort: 9000 # S3 API port
+        - containerPort: 9001 # Console port
+        volumeMounts:
+        - name: storage
+          mountPath: /data
+      - name: mc-create-bucket
+        image: minio/mc
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            mc alias set local http://localhost:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}
+            until mc ls; do
+              sleep 1
+            done
+            mc mb local/attestations
+            tail -f /dev/null
+        env:
+        - name: MINIO_ROOT_USER
+          value: "archivista"
+        - name: MINIO_ROOT_PASSWORD
+          value: "archivista_secret_key"
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: minio
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio
+spec:
+  type: ClusterIP
+  selector:
+    app: minio
+  ports:
+    - protocol: TCP
+      port: 9000
+      targetPort: 9000
+      name: s3-api
+    - protocol: TCP
+      port: 9001
+      targetPort: 9001
+      name: console

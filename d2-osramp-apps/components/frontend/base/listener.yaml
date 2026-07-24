@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: osramp-multipurpose
+  labels:
+    app: osramp-multipurpose
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: osramp-multipurpose
+  template:
+    metadata:
+      labels:
+        app: osramp-multipurpose
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+      - name: listener
+        image: listener:dev
+        imagePullPolicy: Never
+        env:
+        - name: NATS_URL
+          value: "nats://nats.backend.svc.cluster.local:4222"
+        - name: STREAM_NAME
+          value: "TASKS"
+        - name: CONSUMER_NAME
+          value: "multipurpose-consumer"
+        - name: TASK_SUBJECT
+          value: "tasks.input"
+        - name: WORKER_ID
+          value: "multipurpose-worker-1"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+      - name: processor
+        image: processor:dev
+        imagePullPolicy: Never
+        env:
+        - name: SOCKET_PATH
+          value: "/shared/tasks.sock"
+        - name: DEBUG
+          value: "true"
+        - name: NATS_URL
+          value: "nats://nats.backend.svc.cluster.local:4222"
+        - name: WORKER_ID
+          value: "multipurpose-processor-1"
+        volumeMounts:
+        - name: shared-data
+          mountPath: /shared
+        - name: tmp-volume
+          mountPath: /tmp
+        - name: signing
+          mountPath: "/var/run/signing/"
+          readOnly: true
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          capabilities:
+            drop: ["ALL"]
+      volumes:
+      - name: signing
+        secret:
+          secretName: signing-key
+          defaultMode: 0444
+      - name: shared-data
+        emptyDir:
+          medium: Memory
+          sizeLimit: 100Mi
+      - name: tmp-volume
+        emptyDir:
+          sizeLimit: 1Gi

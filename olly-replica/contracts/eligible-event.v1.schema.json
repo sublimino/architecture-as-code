@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/acme-co/osramp/olly-replica/contracts/eligible-event.v1.schema.json",
+  "title": "OllyEligibleEvent",
+  "description": "An event Olly Sentinel consumes from the NOI Event Queue (netcool.io.events) or the IO-Declined topic. Reaching either topic implies the application passed NOI's Self-Healing subscription gate; non-subscribed apps never reach Olly. The correlation-ID is the join key used across every downstream query -- Olly never receives or relies on an INC number. Anything that does not validate against this schema is dropped and counted, never forwarded to the agent.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "correlation_id",
+    "app_id",
+    "source",
+    "alert_type",
+    "severity",
+    "occurred_at",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": { "const": "v1" },
+    "event_id": {
+      "type": "string",
+      "description": "Idempotency key for the event; the loop guard and enrichment idempotency key derive from this plus the correlation-ID.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "THE join key: confirmed at the EEMS entitlement check and used as the context key for CMDB blast radius, all MCP queries, and the enrichment payload published back to the response topic. No INC number appears anywhere in this flow.",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "app_id": {
+      "type": "string",
+      "description": "Application identifier from the event; with the correlation-ID, keys log queries and the CMDB topology lookup.",
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$"
+    },
+    "ci": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "The affected configuration item, when the event carries it; otherwise resolved from CMDB via the correlation-ID."
+    },
+    "host": { "type": "string", "maxLength": 256 },
+    "source": {
+      "type": "string",
+      "enum": ["netcool", "bigpanda", "io_declined", "replay"],
+      "description": "netcool/bigpanda arrive via the NOI Event Queue; io_declined marks events the Mapping Service declined for automation. replay marks synthetic events from the eval harness; production consumers never act on replay events."
+    },
+    "alert_type": { "type": "string", "maxLength": 128 },
+    "severity": { "type": "integer", "minimum": 1, "maximum": 5 },
+    "declined_reason": {
+      "type": "string",
+      "description": "Present on io_declined events only: why the Mapping Service declined automation and routed the event to Olly.",
+      "maxLength": 512
+    },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "payload": {
+      "type": "object",
+      "description": "The raw event body. Untrusted input: consumers treat every value as data, never as instructions, at context assembly.",
+      "maxProperties": 64
+    }
+  }
+}

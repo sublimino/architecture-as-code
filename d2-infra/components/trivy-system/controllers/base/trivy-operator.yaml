@@ -1,0 +1,66 @@
+# Aqua Security's open source Trivy Operator: the replica's stand-in for the
+# client's Aqua feed into Eye in the Sky. It continuously emits
+# VulnerabilityReports, ConfigAuditReports, and ExposedSecretReports as CRDs
+# for the scanned namespaces, giving OSRAMP a runtime-side evidence source
+# next to the build-time attestations. If an Aqua Enterprise trial license
+# lands later, its chart replaces this one; the dashboard only consumes the
+# data feed, so nothing else changes.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: aquasecurity
+spec:
+  interval: 1h
+  url: https://aquasecurity.github.io/helm-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: trivy-operator
+spec:
+  interval: 1h
+  releaseName: trivy-operator
+  chart:
+    spec:
+      chart: trivy-operator
+      version: "0.34.0"
+      sourceRef:
+        kind: HelmRepository
+        name: aquasecurity
+  install:
+    crds: Create
+    timeout: 5m
+    remediation:
+      retries: -1
+  upgrade:
+    crds: CreateReplace
+    timeout: 5m
+    remediation:
+      retries: 3
+  values:
+    # Chart 0.24.1 shipped operator 0.22.0, which predates Kubernetes 1.31's
+    # JobSuccessPolicy: on k8s >=1.31 a completed scan Job carries a
+    # `SuccessCriteriaMet` condition that 0.22.0 rejects ("unrecognized scan
+    # job condition: SuccessCriteriaMet"), so no VulnerabilityReports are ever
+    # written and the Aqua pane stays empty. Chart 0.34.0 (operator 0.32.0)
+    # handles the condition and tracks current Kubernetes. Its default image is
+    # mirror.gcr.io/aquasec/trivy-operator, so no image override is needed (an
+    # earlier override to "0.24.1" was wrong: that is the chart version, not a
+    # published operator tag, and it 404'd on pull).
+    #
+    # Bound the scan surface: the OSRAMP tenants and the olly replica. Keeps
+    # CI load predictable; widen per environment overlay when needed.
+    targetNamespaces: "frontend,backend,olly-replica"
+    operator:
+      scanJobsConcurrentLimit: 1
+    trivy:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+    # The ServiceMonitor is authored in configs so it carries the fleet's
+    # scrape label and survives a chart swap (e.g. to Aqua Enterprise).
+    serviceMonitor:
+      enabled: false

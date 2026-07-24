@@ -1,0 +1,42 @@
+apiVersion: fluxcd.controlplane.io/v1
+kind: FluxInstance
+metadata:
+  name: flux
+  namespace: flux-system
+spec:
+  distribution:
+    version: "2.x"
+    registry: "ghcr.io/fluxcd"
+    artifact: "oci://ghcr.io/controlplaneio-fluxcd/flux-operator-manifests:latest"
+  components:
+    - source-controller
+    - kustomize-controller
+    - helm-controller
+    - notification-controller
+    - image-reflector-controller
+    - image-automation-controller
+  cluster:
+    type: kubernetes
+    multitenant: true
+    tenantDefaultServiceAccount: flux
+    networkPolicy: true
+    domain: "cluster.local"
+  sync:
+    kind: OCIRepository
+    url: "oci://ghcr.io/acme-co/osramp/fleet"
+    ref: "latest"
+    path: "clusters/update"
+    pullSecret: "ghcr-auth"
+  kustomize:
+    patches:
+      - target:
+          kind: OCIRepository
+          name: flux-system
+        patch: |
+          - op: add
+            path: /spec/verify
+            value:
+              provider: cosign
+              matchOIDCIdentity:
+              - issuer: ^https://token\.actions\.githubusercontent\.com$
+                subject: ^https://github\.com/acme-co/osramp/\.github/workflows/push-artifacts\.yaml@refs/heads/main$

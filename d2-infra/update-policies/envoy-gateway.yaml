@@ -1,0 +1,23 @@
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImageRepository
+metadata:
+  name: envoy-gateway
+spec:
+  image: "docker.io/envoyproxy/gateway-helm"
+  interval: 12h
+  provider: generic
+---
+apiVersion: image.toolkit.fluxcd.io/v1
+kind: ImagePolicy
+metadata:
+  name: envoy-gateway
+spec:
+  imageRepositoryRef:
+    name: envoy-gateway
+  filterTags:
+    pattern: "^v(?P<version>\\d+\\.\\d+\\.\\d+)$"
+    extract: "$version"
+  policy:
+    semver:
+      range: ">=1.0.0"

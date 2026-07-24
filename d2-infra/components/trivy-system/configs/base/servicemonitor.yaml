@@ -1,0 +1,17 @@
+# Export the trivy-operator report metrics into the existing monitoring
+# stack; the Eye in the Sky stand-in reads them from Prometheus as the
+# provenance-labelled "Aqua pane" (scoped, read-only data feed).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: trivy-operator
+  labels:
+    app.fluxcd.io/component: "metrics"
+    osramp.acme.co/scrape: Enabled
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trivy-operator
+  endpoints:
+    - port: metrics
+      interval: 60s

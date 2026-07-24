@@ -1,0 +1,56 @@
+# Reusable witness-attested step. Callers wrap any command in `witness run`
+# so its execution evidence is signed and uploaded as a workflow artifact
+# (and to Archivista when a server is reachable from the runner).
+#
+# Usage from another workflow:
+#   jobs:
+#     build:
+#       uses: ./.github/workflows/reusable-witness-step.yaml
+#       with:
+#         step-name: build
+#         command: make -C d2-osramp-apps build
+name: reusable-witness-step
+
+on:
+  workflow_call:
+    inputs:
+      step-name:
+        required: true
+        type: string
+      command:
+        required: true
+        type: string
+      archivista-server:
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  witness-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install witness
+        run: curl -fsSL https://raw.githubusercontent.com/in-toto/witness/main/install-witness.sh | bash
+      - name: Generate ephemeral signing key
+        run: |
+          openssl genpkey -algorithm ed25519 -out witness.pem
+          openssl pkey -in witness.pem -pubout -out witness-pub.pem
+      - name: Run step under witness
+        run: |
+          EXTRA_ARGS=""
+          if [ -n "${{ inputs.archivista-server }}" ]; then
+            EXTRA_ARGS="--enable-archivista --archivista-server=${{ inputs.archivista-server }}"
+          fi
+          witness run --step "${{ inputs.step-name }}" \
+            -o "${{ inputs.step-name }}.attestation.json" \
+            -k witness.pem ${EXTRA_ARGS} \
+            -- ${{ inputs.command }}
+      - name: Upload attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: attestation-${{ inputs.step-name }}
+          path: |
+            ${{ inputs.step-name }}.attestation.json
+            witness-pub.pem

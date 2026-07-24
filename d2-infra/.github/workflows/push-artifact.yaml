@@ -1,0 +1,45 @@
+name: push-artifact
+
+on:
+  # Manual trigger only. Automatic push/merge/tag/schedule triggers are disabled for now;
+  # run these from the Actions tab (workflow_dispatch).
+  workflow_dispatch:
+jobs:
+  flux-push:
+    strategy:
+      fail-fast: false
+      matrix:
+        component:
+          - cert-manager
+          - ingress
+          - monitoring
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # for pushing
+      id-token: write # for signing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Install flux
+        uses: controlplaneio-fluxcd/distribution/actions/setup@main
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Push artifact
+        uses: controlplaneio-fluxcd/distribution/actions/push@main
+        id: push
+        with:
+          repository: ghcr.io/${{ github.repository }}/${{ matrix.component }}
+          path: "./components/${{ matrix.component }}"
+          diff-tag: latest
+      - name: Sign artifact
+        if: steps.push.outputs.pushed == 'true'
+        run: cosign sign --yes $DIGEST_URL
+        env:
+          DIGEST_URL: ${{ steps.push.outputs.digest-url }}

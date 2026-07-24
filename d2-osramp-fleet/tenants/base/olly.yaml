@@ -1,0 +1,134 @@
+# The Olly Sentinel replica tenant: one namespace carrying the pipeline from
+# olly-replica/agentic-sre-design-doc.md (Redpanda, Elasticsearch via ECK,
+# the Grafana stand-in, and later the MCP server, stubs, and agent). The
+# tenant follows the same evidence chain as everything else: its manifests
+# arrive as a cosign-verified OCI artifact, and its namespace carries the
+# tenant role label so the Flux source allowlist gates every chart repo it
+# pulls from.
+#
+# The service account gets cluster-admin like the infra tenants because its
+# controllers layer installs operators (ECK) that carry CRDs; the workloads
+# themselves stay namespaced.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: olly
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  dependsOn:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: monitoring
+      ready: true
+      readyExpr: status.observedGeneration >= 0
+  inputs:
+    - tenant: "olly-replica"
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: << inputs.tenant >>
+        labels:
+          toolkit.fluxcd.io/role: "tenant"
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: flux-runtime-info
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: "flux-system/flux-runtime-info"
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-auth
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: "flux-system/ghcr-auth"
+      type: kubernetes.io/dockerconfigjson
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: flux
+        namespace: << inputs.tenant >>
+      imagePullSecrets:
+        - name: ghcr-auth
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: flux-olly-<< inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: olly
+        namespace: << inputs.tenant >>
+      spec:
+        interval: 5m
+        serviceAccountName: flux
+        url: "oci://${REGISTRY_BASE}/olly/olly-replica"
+        insecure: ${REGISTRY_INSECURE}
+        ref:
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+          - issuer: ^https://token\.actions\.githubusercontent\.com$
+            subject: ^https://github\.com/acme-co/osramp/\.github/workflows/<< inputs.artifactSubjectWorkflow >>\.yaml@<< inputs.artifactSubjectGitRef >>$
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: olly-controllers
+        namespace: << inputs.tenant >>
+      spec:
+        targetNamespace: << inputs.tenant >>
+        serviceAccountName: flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 10m
+        sourceRef:
+          kind: OCIRepository
+          name: olly
+        path: "./controllers/<< inputs.environment >>"
+        prune: true
+        # No postBuild substitution: olly manifests use no flux-runtime-info
+        # vars, and Flux's strict envsubst would otherwise choke on shell
+        # ${...} and Grafana $__env{...} literals in the manifests.
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: olly-configs
+        namespace: << inputs.tenant >>
+      spec:
+        dependsOn:
+          - name: olly-controllers
+        targetNamespace: << inputs.tenant >>
+        serviceAccountName: flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 10m
+        sourceRef:
+          kind: OCIRepository
+          name: olly
+        path: "./configs/<< inputs.environment >>"
+        prune: true
+        # No postBuild substitution: olly manifests use no flux-runtime-info
+        # vars, and Flux's strict envsubst would otherwise choke on shell
+        # ${...} and Grafana $__env{...} literals in the manifests.

@@ -1,0 +1,36 @@
+# Local signing material: the cosign key pair never leaves this machine
+.keys/
+
+# Build output
+tools/demo-console/demo-console
+tools/demo-console/demo-console.exe
+vex/out/
+
+# Vendored scanner binaries (installed by scripts/setup.sh, not committed)
+grype.zip
+grypebin/
+
+# Local secrets: ServiceNow PDI credentials and anything else per-machine.
+# scripts/olly-pdi-secret.sh reads these to create the in-cluster secret;
+# the values never get committed. Copy .env.example to .env to fill in.
+.env
+.env.local
+
+# Google ADK local dev artefacts: the eval venv and the generated run history
+# (eval_history/*.evalset_result.json + session.db) the web UI / adk eval write
+# under the agent folder. Kept out of the repo; the GUI's Eval Lab summarizes
+# them at runtime rather than committing them.
+olly-replica/apps/sentinel/.venv/
+olly-replica/apps/sentinel/olly_sentinel/.adk/
+demo/*/.venv/
+demo/**/.adk/session.db
+
+# Estate 95 console: scoped read-only kubeconfig (holds a cluster token)
+.estate95/
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# .DS_Store
+.DS_Store

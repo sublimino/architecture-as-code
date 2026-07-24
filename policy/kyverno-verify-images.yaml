@@ -1,0 +1,35 @@
+# Admission-time signature verification for OSRAMP demo workloads. Any image
+# pulled from the local registry's acme/images path must carry a cosign
+# signature from the demo key, or admission is denied.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: osramp-verify-image-signatures
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 30
+  failurePolicy: Fail
+  rules:
+    - name: verify-acme-image-signatures
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - admission-demo
+      verifyImages:
+        - imageReferences:
+            - "zot.registry.svc.cluster.local:5000/acme/images/*"
+          failureAction: Enforce
+          imageRegistryCredentials:
+            allowInsecureRegistry: true
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: |-
+                      ${COSIGN_PUBLIC_KEY}
+                    rekor:
+                      ignoreTlog: true
+                    ctlog:
+                      ignoreSCT: true

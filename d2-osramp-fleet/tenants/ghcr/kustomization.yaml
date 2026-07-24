@@ -1,0 +1,6 @@
+# GHCR mode: artifacts are pulled from GitHub Container Registry and verified
+# against the cosign keyless OIDC identity of the publishing workflow.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../base

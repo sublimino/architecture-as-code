@@ -1,0 +1,109 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fe-signalloom
+  labels:
+    app.kubernetes.io/name: fe-signalloom
+    bao.controlplane.io/consumer: fe-signalloom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fe-signalloom
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fe-signalloom
+        bao.controlplane.io/consumer: fe-signalloom
+    spec:
+      serviceAccountName: fe-signalloom
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-postgresql
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -ec
+            - until pg_isready -h postgresql.inf-signalloom.svc.cluster.local -p 5432 -U "$POSTGRES_USER"; do sleep 2; done
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: POSTGRES_USER
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: POSTGRES_PASSWORD
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: discovery-portal
+          image: ${REGISTRY_BASE}/signalloom/apps/fe-signalloom:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              value: redis://redis.inf-signalloom.svc.cluster.local:6379/0
+            - name: REPORT_STORE_BACKEND
+              value: s3
+            - name: S3_ENDPOINT_URL
+              value: http://minio.inf-signalloom.svc.cluster.local:9000
+            - name: S3_BUCKET
+              value: discovery-reports
+            - name: S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-storage
+                  key: S3_ACCESS_KEY_ID
+            - name: S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-storage
+                  key: S3_SECRET_ACCESS_KEY
+            - name: LLM_DISCOVERY_BACKEND
+              value: fake-openai
+            - name: CRM_BACKEND
+              value: fake-hubspot
+            - name: NOTIFICATION_BACKEND
+              value: fake-slack
+            - name: OUTBOUND_REPORTING_BACKEND
+              value: fake-email
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            failureThreshold: 30
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 256Mi

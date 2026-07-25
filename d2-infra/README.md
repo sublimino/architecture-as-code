@@ -1,10 +1,10 @@
 # d2-infra
 
-Infrastructure repository for the Acme Co. OSRAMP demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and `d2-osramp-apps` (the OSRAMP application services).
+Infrastructure logical source directory for the Acme Co. OSRAMP demo. It defines the Kubernetes cluster add-ons that the applications depend on, delivered as signed OCI artifacts and reconciled by Flux as the cluster admin. It pairs with `d2-osramp-fleet` (cluster and tenant definitions) and `d2-osramp-apps` (the OSRAMP application services); these are monorepo directories, not separate Git repositories.
 
 ## Scope and access control
 
-This repository is owned by the platform team. It defines infrastructure components such as:
+This logical source directory is owned by the platform team. It defines infrastructure components such as:
 
 - Cluster add-ons (CRD controllers, admission controllers, monitoring)
 - Cluster-wide definitions (namespaces, gateway classes, RBAC)
@@ -19,7 +19,7 @@ It is reconciled on the cluster fleet by Flux as the cluster admin, so access is
 | `ingress` | Envoy Gateway with a cluster-wide Gateway (HTTP redirected to HTTPS, TLS from the cluster certificate). |
 | `monitoring` | kube-prometheus-stack (Prometheus and Grafana with the Flux dashboards) and metrics-server. Monitors opt in with the `osramp.acme.co/scrape: Enabled` label. |
 
-## Repository structure
+## Directory structure
 
 - The `components` dir contains the Flux HelmReleases for cluster add-ons with custom configuration per environment.
 - The `update-policies` dir contains the Flux configuration for automating OCI chart updates of the Helm releases.

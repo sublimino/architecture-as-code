@@ -18,6 +18,7 @@ OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
 D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= plan/d2-bao-integration
+ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up
 up: cluster registry signing-keys push-local bootstrap-local images workload-key wait olly-pdi-secret olly-llm-secret orbit-approval-configmap security-sandbox ## Build the full local demo environment.
@@ -39,8 +40,8 @@ signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command s
 ##@ Cluster lifecycle
 
 .PHONY: cluster
-cluster: ## Create the kind cluster if it does not exist.
-	kind get clusters 2>/dev/null | grep -qx $(CLUSTER_NAME) || kind create cluster --name $(CLUSTER_NAME)
+cluster: ## Create the Kind cluster with a persistent host-backed Zot cache.
+	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" ./scripts/create-kind-cluster.sh
 
 .PHONY: down
 down: ## Delete the kind cluster.
@@ -53,6 +54,10 @@ teardown: ## Tear down the environment: delete the cluster + local build state.
 .PHONY: teardown-all
 teardown-all: ## Tear down everything, including the tools setup.sh installed.
 	./scripts/teardown.sh --all
+
+.PHONY: zot-cache-reset
+zot-cache-reset: ## Remove persisted local Zot OCI data; the next `make up` repopulates it.
+	rm -rf "$(ZOT_CACHE_DIR)"
 
 .PHONY: registry
 registry: ## Deploy the in-cluster zot registry.
@@ -129,6 +134,10 @@ orbit-approval-configmap: signing-keys ## Publish the PUBLIC orbit approval key 
 .PHONY: test
 test: ## Run the end-to-end bats suite against the running cluster.
 	$(MAKE) -C d2-osramp-apps test
+
+.PHONY: test-zot-cache
+test-zot-cache: ## Verify the Kind/Zot persistent-cache configuration without a cluster.
+	bats test/zot-cache.bats
 
 .PHONY: attested-test
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.

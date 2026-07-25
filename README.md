@@ -97,7 +97,7 @@ The later phases build on this stored evidence rather than changing the core flo
 
 ### GitOps delivery (Flux D2, gitless GitOps)
 
-Cluster state is not pulled from git at runtime. CI packages each repository's manifests as OCI artifacts, signs them with cosign keyless (GitHub OIDC), and pushes them to GHCR. Flux inside the cluster pulls the artifacts, verifies that the signature identity matches the exact workflow and branch that was supposed to publish them, and reconciles. Staging tracks the `latest` tag, production tracks `latest-stable`, and a rollback is one `flux tag` command. A CEL ValidatingAdmissionPolicy rejects any tenant Flux source that is not on the allowlist, so a compromised tenant cannot point the cluster at an arbitrary registry.
+Cluster state is not pulled from git at runtime. CI packages each logical D2 source directory's manifests as OCI artifacts, signs them with cosign keyless (GitHub OIDC), and pushes them to GHCR. Flux inside the cluster pulls the artifacts, verifies that the signature identity matches the exact workflow and branch that was supposed to publish them, and reconciles. Staging tracks the `latest` tag, production tracks `latest-stable`, and a rollback is one `flux tag` command. A CEL ValidatingAdmissionPolicy rejects any tenant Flux source that is not on the allowlist, so a compromised tenant cannot point the cluster at an arbitrary registry.
 
 Local mode keeps the whole model intact without GitHub: `make push-local` pushes the same artifacts to a zot registry running inside the cluster and signs them with a locally generated cosign key, and the `clusters/local` fleet definition verifies against that key's public half. The trust chain is identical in shape; only the identity provider differs.
 
@@ -105,9 +105,10 @@ Local mode keeps the whole model intact without GitHub: `make push-local` pushes
 
 | Path | What it is |
 | --- | --- |
-| `d2-osramp-apps/` | Application repository: the three Go services (`apps/`), their Kubernetes manifests (`components/`), the bats end-to-end test suite (`test/`), and the CI workflows. Owned by the application team. |
-| `d2-infra/` | Infrastructure repository: cluster add-ons (cert-manager with a self-signed issuer, Envoy Gateway ingress, kube-prometheus-stack and metrics-server) in the controllers/configs layout the fleet expects, each with base, staging, production, and preview overlays and their own publish workflows. Owned by the platform team. |
-| `d2-osramp-fleet/` | Platform repository: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), Terraform bootstrap (`terraform/`), and the e2e CI workflows. Owned by the platform team. |
+| `d2-osramp-apps/` | Application logical source directory: the three Go services (`apps/`), Kubernetes manifests (`components/`), bats end-to-end test suite (`test/`), and component-local workflows. Owned by the application team; its Flux reconciliation boundary is namespace-scoped, not a separate Git repository. |
+| `d2-infra/` | Infrastructure logical source directory: cluster add-ons (cert-manager with a self-signed issuer, Envoy Gateway ingress, kube-prometheus-stack and metrics-server) in the controllers/configs layout the fleet expects. Owned by the platform team. Its infrastructure tenants intentionally retain cluster-admin authority. |
+| `d2-osramp-fleet/` | Platform logical source directory: cluster definitions (`clusters/`), tenant ResourceSets (`tenants/`), Terraform bootstrap (`terraform/`), and e2e workflows. Owned by the platform team. |
+| `d2-signalloom-{fleet,infra,apps}/` | Planned Signal Loom logical source directories in this monorepo. They will reuse the D2 patterns while retaining separate signed OCI artefacts and reconciliation boundaries; they are not new Git repositories. |
 | `olly-replica/` | The Olly Sentinel replica tenant: contracts (versioned JSON schemas), the ELK/Redpanda/Grafana data plane as Flux manifests, seed data with the injection corpus, and scaffolds for the MCP server, stubs, agent, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
 | `ui/` + `tools/demo-console/` | The interactive architecture map (plain HTML/CSS/JS) and the Go service that executes its actions with streamed output. |
 | `scripts/` | The orchestration behind the make targets: `setup.sh` (tool install plus full build), local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, VEX retrieval. |
@@ -146,7 +147,7 @@ make test             # run the bats end-to-end suite against the result
 
 `./scripts/setup.sh --tools-only` installs without building; `make up` builds without installing.
 
-To remove it all again, `scripts/teardown.sh` is the inverse of `setup.sh`: `make teardown` (or `./scripts/teardown.sh`) deletes the cluster, the built images, and local build state; `make teardown-all` (or `./scripts/teardown.sh --all`) also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
+For the normal fast loop, keep the cluster running: `make push-local` updates the signed OCI artefacts in Zot, then reconcile only the affected Flux source and run `make wait`. Zot stores OCI data in the host-backed `ZOT_CACHE_DIR` (default `.cache/zot`), mounted through Kind into the Zot pod at `/var/lib/zot`; this survives `make down && make up` and makes cluster restarts reuse already-pushed images and artefacts. `make down && make up` is therefore a fast cluster/reconciliation rehearsal, not an empty-registry test. Use `make zot-cache-reset && make up` when a deliberately empty registry is required. Use `make teardown` (or `./scripts/teardown.sh`) only for a full bootstrap/trust-root reset because it also removes local keys and generated build state; `make teardown-all` also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
 
 `make up` is a composition of granular targets (`make help` lists them): `cluster`, `registry` (zot), `signing-keys` (a local cosign key pair plus a witness key), `push-local` (flux push each component artifact to zot and cosign-sign the digests), `bootstrap-local` (Flux Operator with a FluxInstance that verifies signatures against the local public key), `images` (docker build and kind load), `workload-key`, and `wait`. Nothing reaches the cluster unsigned, even locally.
 
@@ -234,7 +235,7 @@ The same pipeline runs in GitHub Actions, so local and CI behavior match. The ro
 | `release-artifacts` | `v*` tag | versioned artifacts plus the `latest-stable` pointer production tracks |
 | `reusable-witness-step` | `workflow_call` | wraps any command in `witness run` so its evidence is signed and preserved |
 
-The per-repository workflows inside `d2-osramp-apps`, `d2-infra`, and `d2-osramp-fleet` remain intact for the day these split back into standalone repositories.
+The component-local workflows inside `d2-osramp-apps`, `d2-infra`, and `d2-osramp-fleet` remain intact to support their current logical ownership boundaries and any future extraction justified by CI, release or access-control needs.
 
 ## Validation status
 

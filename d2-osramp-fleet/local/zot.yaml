@@ -1,7 +1,8 @@
 # In-cluster OCI registry for local mode. Manifest artifacts are pushed here
 # from the host (via `kubectl port-forward`) and pulled by Flux at
 # zot.registry.svc.cluster.local:5000. Anonymous access is intentional:
-# this registry only ever runs inside a local kind cluster.
+# this registry only ever runs inside a local Kind cluster. Its data is mounted
+# from the host through Kind so OCI artefacts survive a cluster restart.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -44,6 +45,22 @@ spec:
       labels:
         app: zot
     spec:
+      # The root Makefile maps ZOT_CACHE_DIR into each Kind node at this path.
+      # The init container makes that host-backed directory writable by Zot's
+      # non-root UID without relaxing the registry container's security context.
+      initContainers:
+        - name: prepare-data
+          image: busybox:1.36.1
+          command: ["sh", "-ec", "mkdir -p /var/lib/zot && chown 65532:65532 /var/lib/zot && chmod 0770 /var/lib/zot"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            runAsUser: 0
+            runAsGroup: 0
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/zot
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -75,8 +92,9 @@ spec:
           configMap:
             name: zot-config
         - name: data
-          emptyDir:
-            sizeLimit: 2Gi
+          hostPath:
+            path: /var/local/osramp-zot-cache
+            type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: Service

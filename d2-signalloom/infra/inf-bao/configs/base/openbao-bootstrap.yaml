@@ -1,0 +1,33 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-spire-bootstrap
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: quay.io/openbao/openbao:2.1.1
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_TOKEN
+              value: signalloom-demo-root-token
+          command:
+            - sh
+            - -ec
+            - |
+              until bao status >/dev/null 2>&1; do sleep 2; done
+              bao secrets enable -path=kv kv-v2 || true
+              cat >/tmp/policy.hcl <<'POLICY'
+              path "kv/data/signalloom/fe-signalloom" { capabilities = ["read"] }
+              POLICY
+              bao policy write signalloom-fe-signalloom /tmp/policy.hcl
+              bao auth enable jwt || true
+              bao write auth/jwt/role/signalloom-fe-signalloom \
+                role_type=jwt bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom \
+                user_claim=sub policies=signalloom-fe-signalloom
+              bao kv put kv/signalloom/fe-signalloom value=non-production-demo-secret

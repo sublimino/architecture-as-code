@@ -6,13 +6,16 @@ CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 KIND_BIN="${KIND_BIN:-kind}"
 ZOT_CACHE_DIR="${ZOT_CACHE_DIR:-.cache/zot}"
 
+mkdir -p "$ZOT_CACHE_DIR"
+ZOT_CACHE_DIR="$(cd "$ZOT_CACHE_DIR" && pwd -P)"
+# This cache is deliberately local-only.  Make the hostPath writable by Zot's
+# fixed non-root UID; the pod has no privileged init container to chown it.
+chmod 0777 "$ZOT_CACHE_DIR"
+
 if "$KIND_BIN" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
   echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR"
   exit 0
 fi
-
-mkdir -p "$ZOT_CACHE_DIR"
-ZOT_CACHE_DIR="$(cd "$ZOT_CACHE_DIR" && pwd -P)"
 
 # This is deliberately a local-development path. Reject YAML control characters
 # rather than emitting an ambiguous Kind configuration.

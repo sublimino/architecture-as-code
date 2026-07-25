@@ -1,0 +1,235 @@
+# Canonical Signalloom ResourceSet source. The active fleet carries an identical
+# copy at d2-osramp-fleet/tenants/local/signalloom.yaml because Flux consumes
+# only the fleet OCI artifact.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: signalloom-infra
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  inputs:
+    - tenant: inf-bao
+      component: inf-bao
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+    - tenant: inf-signalloom
+      component: inf-signalloom
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: << inputs.tenant >>
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: flux-runtime-info
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: flux-system/flux-runtime-info
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-auth
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: flux-system/ghcr-auth
+      type: kubernetes.io/dockerconfigjson
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: flux
+        namespace: << inputs.tenant >>
+      imagePullSecrets:
+        - name: ghcr-auth
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: flux-<< inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: cluster-admin
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: << inputs.component >>
+        namespace: << inputs.tenant >>
+      spec:
+        interval: 5m
+        serviceAccountName: flux
+        url: oci://${REGISTRY_BASE}/signalloom/infra/<< inputs.component >>
+        insecure: ${REGISTRY_INSECURE}
+        ref:
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: ^https://token\.actions\.githubusercontent\.com$
+              subject: ^https://github\.com/acme-co/osramp/\.github/workflows/<< inputs.artifactSubjectWorkflow >>\.yaml@<< inputs.artifactSubjectGitRef >>$
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infra-controllers
+        namespace: << inputs.tenant >>
+      spec:
+        targetNamespace: << inputs.tenant >>
+        serviceAccountName: flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef:
+          kind: OCIRepository
+          name: << inputs.component >>
+        path: ./controllers/<< inputs.environment >>
+        prune: true
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: infra-configs
+        namespace: << inputs.tenant >>
+      spec:
+        dependsOn:
+          - name: infra-controllers
+        targetNamespace: << inputs.tenant >>
+        serviceAccountName: flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef:
+          kind: OCIRepository
+          name: << inputs.component >>
+        path: ./configs/<< inputs.environment >>
+        prune: true
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: signalloom-apps
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  dependsOn:
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: inf-signalloom
+      ready: true
+      readyExpr: status.observedGeneration >= 0
+  inputs:
+    - tenant: fe-signalloom
+      component: fe-signalloom
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: << inputs.tenant >>
+        labels:
+          toolkit.fluxcd.io/role: tenant
+    - apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: flux-runtime-info
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: flux-system/flux-runtime-info
+        labels:
+          reconcile.fluxcd.io/watch: Enabled
+    - apiVersion: v1
+      kind: Secret
+      metadata:
+        name: ghcr-auth
+        namespace: << inputs.tenant >>
+        annotations:
+          fluxcd.controlplane.io/copyFrom: flux-system/ghcr-auth
+      type: kubernetes.io/dockerconfigjson
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: flux
+        namespace: << inputs.tenant >>
+      imagePullSecrets:
+        - name: ghcr-auth
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: flux
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: admin
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata:
+        name: << inputs.component >>
+        namespace: << inputs.tenant >>
+        labels:
+          bao.controlplane.io/consumer: fe-signalloom
+      spec:
+        interval: 5m
+        serviceAccountName: flux
+        url: oci://${REGISTRY_BASE}/signalloom/apps/<< inputs.component >>
+        insecure: ${REGISTRY_INSECURE}
+        ref:
+          tag: << inputs.tag >>
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: ^https://token\.actions\.githubusercontent\.com$
+              subject: ^https://github\.com/acme-co/osramp/\.github/workflows/<< inputs.artifactSubjectWorkflow >>\.yaml@<< inputs.artifactSubjectGitRef >>$
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: apps
+        namespace: << inputs.tenant >>
+        labels:
+          bao.controlplane.io/consumer: fe-signalloom
+      spec:
+        targetNamespace: << inputs.tenant >>
+        serviceAccountName: flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef:
+          kind: OCIRepository
+          name: << inputs.component >>
+        path: ./<< inputs.environment >>
+        prune: true
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info

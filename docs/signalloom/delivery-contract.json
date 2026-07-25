@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "repository": "osramp-demo",
+  "integrationBranch": "integration/signalloom-d2-v2.0.0",
+  "releaseBranch": "main",
+  "requiredRoots": [
+    "SIGNALLOOM_PLATFORM_ROOT",
+    "OSRAMP_PRODUCT_ROOT",
+    "OSRAMP_DEMO_ROOT",
+    "D2_BAO_ROOT"
+  ],
+  "deploymentGuard": "Run make signalloom-check successfully before creating or applying any Kubernetes pod or workload."
+}

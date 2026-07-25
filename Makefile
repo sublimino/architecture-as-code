@@ -17,7 +17,7 @@ SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
 OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
 D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
-SIGNALLOOM_INTEGRATION_BRANCH ?= plan/d2-bao-integration
+SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.0.0
 ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up
@@ -30,8 +30,12 @@ help: ## Display this help.
 ##@ Signal Loom preflight
 
 .PHONY: signalloom-check
-signalloom-check: ## Validate Signal Loom, OSRAMP, demo, and D2-BAO source roots.
+signalloom-check: signalloom-contract-check ## Validate the delivery contract and Signal Loom source roots before deployment.
 	./scripts/signalloom-preflight.sh check "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)"
+
+.PHONY: signalloom-contract-check
+signalloom-contract-check: ## Statically validate delivery branch, repository, and deployment guard.
+	./scripts/signalloom-contract-check.sh "docs/signalloom/delivery-contract.json" "$(SIGNALLOOM_INTEGRATION_BRANCH)"
 
 .PHONY: signalloom-help
 signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command sequence.

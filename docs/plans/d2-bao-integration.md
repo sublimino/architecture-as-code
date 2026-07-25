@@ -218,29 +218,6 @@ diagnosis.
 | Authorised consumer | Dedicated OSRAMP service account receives only its allowed demo secret. |
 | Unauthorised consumer | Different namespace/service account receives denial and no secret data. |
 
-## Proposal errata — partial Phase 2 recovery integration
-
-2026-07-26: partial Phase 2 recovery integration completed in the Governor
-worktree. Qualified P2-7 recovery commit `efe6c0d187bdd255d38ed55b0f69cd8d3e01766d`
-was merged with `--no-ff` into `integration/signalloom-d2-v2.0.0`; its merge
-parent is the requested integration baseline
-`97efebaf94180beefc267011d85b9fb9dfe2498e`. The recovery corrects Zot
-non-root cache initialisation compatibility and adds regression coverage for
-existing-cluster cache preparation.
-
-Validation passed:
-
-- `make signalloom-check`
-- `make test-zot-cache test-demo-lifecycle` — 3/3 and 4/4
-- `make -C d2-signalloom test` — 9/9
-- `make -C d2-signalloom bao-test-config`
-- `shellcheck` on all shell files changed by `efe6c0d`
-- `git diff --check` against the merge parent and integration baseline
-
-This is partial integration evidence only; no Gates C/D/E or release approval
-is claimed. P2-8 must revalidate from the resulting clean integration HEAD.
-
-<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
 | Unsigned image | Kyverno/admission rejects it. |
 | Network-deny | Pod outside the approved path cannot reach OpenBao. |
 | Reset | Documented local teardown/rebuild returns to a known baseline. |
@@ -273,3 +250,27 @@ enforcement.
 
 Only after this slice passes should injector/CSI integration reach a real
 OSRAMP service.
+
+## Proposal errata — partial Phase 2 recovery integration
+
+2026-07-26: partial Phase 2 recovery integration completed in the Governor
+worktree. Qualified P2-7 recovery commit `efe6c0d187bdd255d38ed55b0f69cd8d3e01766d`
+was merged with `--no-ff` into `integration/signalloom-d2-v2.0.0`; its merge
+parent is the requested integration baseline
+`97efebaf94180beefc267011d85b9fb9dfe2498e`. The recovery corrects Zot
+non-root cache initialisation compatibility and adds regression coverage for
+existing-cluster cache preparation.
+
+Validation passed:
+
+- `make signalloom-check`
+- `make test-zot-cache test-demo-lifecycle` — 3/3 and 4/4
+- `make -C d2-signalloom test` — 9/9
+- `make -C d2-signalloom bao-test-config`
+- `shellcheck` on all shell files changed by `efe6c0d`
+- `git diff --check` against the merge parent and integration baseline
+
+This is partial integration evidence only; no Gates C/D/E or release approval
+is claimed. P2-8 must revalidate from the resulting clean integration HEAD.
+
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->

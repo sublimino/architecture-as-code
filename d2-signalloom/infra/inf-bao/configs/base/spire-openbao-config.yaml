@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-server-config
+data:
+  server.conf: |
+    server { bind_address = "0.0.0.0" bind_port = "8081" trust_domain = "signalloom.demo" data_dir = "/run/spire/data" }
+    plugins { DataStore "sql" { plugin_data { database_type = "sqlite3" connection_string = "/run/spire/data/datastore.sqlite3" } } KeyManager "disk" { plugin_data { directory = "/run/spire/data" } } NodeAttestor "join_token" { } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-agent-config
+data:
+  agent.conf: |
+    agent { data_dir = "/run/spire/data" socket_path = "/run/spire/sockets/agent.sock" trust_domain = "signalloom.demo" server_address = "spire-server.inf-bao.svc.cluster.local" server_port = "8081" }
+    plugins { KeyManager "memory" { } NodeAttestor "join_token" { plugin_data { join_token = "signalloom-demo-agent" } } WorkloadAttestor "k8s" { } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openbao-spire-policy
+data:
+  signalloom-fe-signalloom.hcl: |
+    path "kv/data/signalloom/fe-signalloom" { capabilities = ["read"] }
+  identity.json: |
+    {"namespace":"fe-signalloom","serviceAccount":"fe-signalloom","selector":["k8s:ns:fe-signalloom","k8s:sa:fe-signalloom"],"spiffeID":"spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom","audience":"openbao","role":"signalloom-fe-signalloom","policy":"kv/data/signalloom/fe-signalloom","negativeServiceAccount":"fe-signalloom-negative"}

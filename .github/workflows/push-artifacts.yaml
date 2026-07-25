@@ -20,10 +20,16 @@ jobs:
             path: ./d2-infra/components/monitoring
           - repository: infra/trivy-system
             path: ./d2-infra/components/trivy-system
+          - repository: signalloom/infra/inf-bao
+            path: ./d2-signalloom/infra/inf-bao
+          - repository: signalloom/infra/inf-signalloom
+            path: ./d2-signalloom/infra/inf-signalloom
           - repository: apps/frontend
             path: ./d2-osramp-apps/components/frontend
           - repository: apps/backend
             path: ./d2-osramp-apps/components/backend
+          - repository: signalloom/apps/fe-signalloom
+            path: ./d2-signalloom/apps/fe-signalloom
           - repository: olly/olly-replica
             path: ./olly-replica/components
     runs-on: ubuntu-latest

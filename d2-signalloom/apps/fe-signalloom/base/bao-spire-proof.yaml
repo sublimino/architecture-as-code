@@ -1,0 +1,74 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bao-spire-positive-proof
+  labels:
+    bao.controlplane.io/consumer: fe-signalloom
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        bao.controlplane.io/consumer: fe-signalloom
+    spec:
+      restartPolicy: Never
+      serviceAccountName: fe-signalloom
+      initContainers:
+        - name: jwt-svid
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          command: ["sh", "-ec", "spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock > /work/jwt && test -s /work/jwt"]
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+      containers:
+        - name: proof
+          image: quay.io/openbao/openbao:2.1.1
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+          command: ["sh", "-ec", "bao write -field=token auth/jwt/login role=signalloom-fe-signalloom jwt=\"$(cat /work/jwt)\" >/work/bao-token && BAO_TOKEN=$(cat /work/bao-token) bao kv get kv/signalloom/fe-signalloom >/dev/null && echo 'bounded Bao/SPIRE proof passed'"]
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: spire-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bao-spire-negative-proof
+  labels:
+    bao.controlplane.io/consumer: fe-signalloom
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        bao.controlplane.io/consumer: fe-signalloom
+    spec:
+      restartPolicy: Never
+      serviceAccountName: fe-signalloom-negative
+      initContainers:
+        - name: jwt-svid
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          command: ["sh", "-ec", "if spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock; then echo 'unexpected identity'; exit 1; fi; echo 'denied as expected'; exit 1"]
+          volumeMounts:
+            - name: spire-socket
+              mountPath: /run/spire/sockets
+      containers:
+        - name: proof
+          image: registry.k8s.io/pause:3.10
+      volumes:
+        - name: spire-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: Directory

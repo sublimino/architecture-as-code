@@ -9,10 +9,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        component:
-          - archiver
-          - listener
-          - processor
+          include:
+            - image: images/archiver
+              context: ./d2-osramp-apps/apps/archiver
+            - image: images/listener
+              context: ./d2-osramp-apps/apps/listener
+            - image: images/processor
+              context: ./d2-osramp-apps/apps/processor
+            - image: signalloom/apps/fe-signalloom
+              context: ./d2-signalloom/apps/fe-signalloom
+            - image: signalloom/infra/fake-integration-proxy
+              context: ./d2-signalloom/apps/fake-integration-proxy
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -42,7 +49,7 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ghcr.io/${{ github.repository }}/images/${{ matrix.component }}
+            ghcr.io/${{ github.repository }}/${{ matrix.image }}
           tags: |
             type=raw,value=${{ steps.prep.outputs.VERSION }}
             type=raw,value=latest
@@ -54,11 +61,11 @@ jobs:
           provenance: true
           push: true
           builder: ${{ steps.buildx.outputs.name }}
-          context: "./d2-osramp-apps/apps/${{ matrix.component }}"
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64/v8
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
       - name: Sign image
-        run: cosign sign --yes ghcr.io/${{ github.repository }}/images/${{ matrix.component }}@${DIGEST}
+        run: cosign sign --yes ghcr.io/${{ github.repository }}/${{ matrix.image }}@${DIGEST}
         env:
           DIGEST: ${{ steps.push.outputs.digest }}

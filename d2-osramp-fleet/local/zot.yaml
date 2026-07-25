@@ -46,18 +46,19 @@ spec:
         app: zot
     spec:
       # The root Makefile maps ZOT_CACHE_DIR into each Kind node at this path.
-      # The init container makes that host-backed directory writable by Zot's
-      # non-root UID without relaxing the registry container's security context.
+      # create-kind-cluster.sh prepares this local-only cache as writable; the
+      # init container verifies access without requiring a privileged UID.
       initContainers:
         - name: prepare-data
           image: busybox:1.36.1
-          command: ["sh", "-ec", "mkdir -p /var/lib/zot && chown 65532:65532 /var/lib/zot && chmod 0770 /var/lib/zot"]
+          command: ["sh", "-ec", "test -d /var/lib/zot && test -w /var/lib/zot"]
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-            runAsUser: 0
-            runAsGroup: 0
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
           volumeMounts:
             - name: data
               mountPath: /var/lib/zot

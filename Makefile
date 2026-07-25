@@ -47,9 +47,15 @@ signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command s
 cluster: ## Create the Kind cluster with a persistent host-backed Zot cache.
 	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" ./scripts/create-kind-cluster.sh
 
+.PHONY: cluster-up
+cluster-up: cluster ## Phase 2 alias: create the shared Kind cluster.
+
 .PHONY: down
 down: ## Delete the kind cluster.
 	-kind delete cluster --name $(CLUSTER_NAME)
+
+.PHONY: cluster-down
+cluster-down: down ## Phase 2 alias: delete the shared Kind cluster.
 
 .PHONY: teardown
 teardown: ## Tear down the environment: delete the cluster + local build state.
@@ -95,6 +101,13 @@ push-local: ## Push signed manifest artifacts to the in-cluster registry.
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
 	$(MAKE) -C d2-osramp-fleet bootstrap-local COSIGN_PUB=../$(KEYS_DIR)/cosign.pub
 
+.PHONY: flux-bootstrap
+flux-bootstrap: bootstrap-local ## Phase 2 alias: bootstrap the sole Flux control plane.
+
+.PHONY: flux-test
+flux-test: ## Verify Flux readiness, including the Signalloom ResourceSets.
+	./scripts/demo-lifecycle.sh flux-test
+
 .PHONY: images
 images: ## Build the app and olly-replica images and load them into kind.
 	$(MAKE) -C d2-osramp-apps build
@@ -139,9 +152,64 @@ orbit-approval-configmap: signing-keys ## Publish the PUBLIC orbit approval key 
 test: ## Run the end-to-end bats suite against the running cluster.
 	$(MAKE) -C d2-osramp-apps test
 
+##@ Composable demo lifecycle
+
+.PHONY: demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down
+demo-bao-up: ## Reconcile and wait for only the bounded OpenBao/SPIRE slice.
+	./scripts/demo-lifecycle.sh bao-up
+demo-bao-test-config: ## Render and statically validate the bounded Bao/SPIRE proof.
+	$(MAKE) -C d2-signalloom bao-test-config
+demo-bao-test: demo-bao-test-config ## Run bounded positive and negative Bao/SPIRE proof.
+	./scripts/demo-lifecycle.sh bao-test
+demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
+	./scripts/demo-lifecycle.sh bao-down
+
+.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down
+demo-signalloom-up: ## Reconcile and wait for Signalloom dependencies and application slice.
+	./scripts/demo-lifecycle.sh signalloom-up
+demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
+	$(MAKE) -C d2-signalloom test
+demo-signalloom-test: demo-signalloom-test-config ## Verify Signalloom Flux readiness and runtime assertions.
+	./scripts/demo-lifecycle.sh signalloom-test
+demo-signalloom-down: ## Prune Signalloom only; shared Bao remains untouched.
+	./scripts/demo-lifecycle.sh signalloom-down
+
+.PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
+demo-osramp-up: cluster-up registry flux-bootstrap images ## Reconcile existing OSRAMP demo workload.
+	$(MAKE) wait
+demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running slice.
+	kubectl kustomize d2-osramp-apps/components >/dev/null
+demo-osramp-test: demo-osramp-test-config ## Run existing OSRAMP acceptance tests.
+	$(MAKE) test
+demo-osramp-down: ## Remove OSRAMP application namespaces without deleting shared Kind.
+	kubectl delete namespace frontend backend --ignore-not-found --wait=true
+
+.PHONY: demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down
+demo-olly-up: ## Reconcile the existing Olly slice and wait for readiness.
+	flux reconcile kustomization olly-configs -n olly-replica --with-source
+	kubectl -n olly-replica wait kustomization/olly-configs --for=condition=ready --timeout="$${DEMO_WAIT_TIMEOUT:-10m}"
+demo-olly-test-config: ## Render the Olly component configuration without a running slice.
+	kubectl kustomize olly-replica/components >/dev/null
+demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
+	$(MAKE) olly-test
+demo-olly-down: ## Remove the Olly slice without deleting shared Kind.
+	kubectl delete namespace olly-replica --ignore-not-found --wait=true
+
+.PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
+demo-signalloom-stack-up: demo-bao-up demo-bao-test demo-signalloom-up demo-signalloom-test ## Compose Bao proof before Signalloom.
+demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.
+demo-signalloom-stack-purge: demo-signalloom-stack-down ## Remove Bao only after an authoritative empty consumer query.
+	./scripts/demo-lifecycle.sh stack-purge
+demo-signalloom-stack-purge-force: demo-signalloom-stack-down ## Explicitly override unknown or remaining consumer state.
+	DEMO_BAO_FORCE=1 ./scripts/demo-lifecycle.sh stack-purge
+
 .PHONY: test-zot-cache
 test-zot-cache: ## Verify the Kind/Zot persistent-cache configuration without a cluster.
 	bats test/zot-cache.bats
+
+.PHONY: test-demo-lifecycle
+test-demo-lifecycle: ## Validate composable lifecycle aliases and fail-closed purge semantics.
+	bats test/demo-lifecycle.bats
 
 .PHONY: attested-test
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.

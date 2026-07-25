@@ -76,3 +76,47 @@ patches:
             namespace: << inputs.tenant >>
             annotations:
               fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"
+  - target:
+      group: fluxcd.controlplane.io
+      version: v1
+      kind: ResourceSet
+      name: signalloom-infra
+    patch: |
+      - op: replace
+        path: /spec/resources/5/spec/verify
+        value:
+          provider: cosign
+          secretRef:
+            name: cosign-pub
+      - op: add
+        path: /spec/resources/-
+        value:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cosign-pub
+            namespace: << inputs.tenant >>
+            annotations:
+              fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"
+  - target:
+      group: fluxcd.controlplane.io
+      version: v1
+      kind: ResourceSet
+      name: signalloom-apps
+    patch: |
+      - op: replace
+        path: /spec/resources/5/spec/verify
+        value:
+          provider: cosign
+          secretRef:
+            name: cosign-pub
+      - op: add
+        path: /spec/resources/-
+        value:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cosign-pub
+            namespace: << inputs.tenant >>
+            annotations:
+              fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"

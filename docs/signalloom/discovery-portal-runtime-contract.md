@@ -1,7 +1,7 @@
 # Signal Loom discovery-portal runtime contract
 
-**Card:** SLDPB-P1-1  
-**Evidence boundary:** Source inspection only; paths and line numbers below are relative to `/home/andy/src/cp/platform`.  
+**Card:** SLDPB-P1-1
+**Evidence boundary:** Source inspection only; paths and line numbers below are relative to `/home/andy/src/cp/platform`.
 **Assessment date:** 2026-07-25
 
 This is a reviewable runtime contract, not a claim about deployed Azure state. “Observed” records what the source says. “Recommendation” records the proposed D2 landing decision.

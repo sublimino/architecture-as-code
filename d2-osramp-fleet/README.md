@@ -1,7 +1,7 @@
 # d2-fleet
 
 > [!NOTE]
-> This repository is part of the reference architecture for the
+> This logical source directory is part of the reference architecture for the
 > [ControlPlane Enterprise for Flux CD](https://fluxcd.control-plane.io/).
 >
 > The `d2` reference architecture comprised of
@@ -14,20 +14,20 @@
 
 ## Scope and Access Control
 
-This repository is managed by the platform team who are responsible for
+This logical source directory is managed by the platform team who are responsible for
 the Kubernetes infrastructure and have direct access to the fleet of clusters.
 
-The platform team that manages this repository must have **admin** rights to the `d2-fleet` repository
+The platform team that manages this directory must have **admin** rights to the monorepo path and
 and **cluster admin** rights to all clusters in the fleet to be able to perform the following tasks:
 
 - Bootstrap Flux Operator with multi-tenancy restrictions on the fleet of clusters.
-- Configure the delivery of platform components (defined in [d2-infra repository](../d2-infra)).
-- Configure the delivery of applications (defined in [d2-apps repository](../d2-osramp-apps)).
+- Configure the delivery of platform components (defined in [d2-infra](../d2-infra)).
+- Configure the delivery of applications (defined in [d2-osramp-apps](../d2-osramp-apps)).
 
 ## OCI Artifacts
 
-The content of the D2 repositories are packaged as OCI Artifacts and published
-to GitHub Container Registry using GitHub Actions workflows defined in each repository.
+The content of the D2 logical source directories is packaged as OCI Artifacts and published
+to GitHub Container Registry using GitHub Actions workflows in this monorepo.
 The artifacts are signed with the Cosign keyless procedure using the GitHub Actions OIDC.
 
 Flux running in the clusters, pulls the OCI Artifacts to reconcile the desired state and
@@ -51,7 +51,7 @@ are synced from the `latest` tag, while the production clusters are synced from 
 
 ### Components Artifacts
 
-The infrastructure components from `d2-infra` and the applications from `d2-apps` follow the same pattern
+The infrastructure components from `d2-infra` and the applications from `d2-osramp-apps` follow the same pattern
 and are packaged as OCI Artifacts. The delivery of these components is performed by the Flux Operator
 using the [ResourceSet](tenants) definitions.
 
@@ -104,8 +104,7 @@ It is recommended to create a dedicated GitHub account for the Flux bot. This ac
 by the Flux source-controller running on clusters to authenticate with GitHub Container Registry
 to pull the OCI Artifacts.
 
-The Flux bot account must have read access to the `d2-fleet`, `d2-infra` and `d2-apps` repositories,
-and the GitHub Personal Access Token (PAT) should grant read-only access to the GitHub Container Registry
+The Flux bot account must have read access to the monorepo package namespace, and the GitHub Personal Access Token (PAT) should grant read-only access to the GitHub Container Registry
 by selecting the `read:packages` scope.
 
 ### Bootstrap a Kubernetes Cluster
@@ -145,16 +144,16 @@ directory.
 
 ## Onboarding Platform Components
 
-The platform team is responsible for onboarding the platform components defined as Flux HelmReleases in the
-[d2-infra repository](../d2-infra) and set the dependencies
+The platform team is responsible for onboarding the platform components defined as Flux HelmReleases in
+[d2-infra](../d2-infra) and setting the dependencies
 between the components.
 
 Platform components are cluster add-ons such as CRDs and their respective controllers,
 and are reconciled by Flux as the **cluster admin**.
 
-To onboard a component from the `d2-infra` repository, the platform team must add a
+To onboard a component from the `d2-infra` directory, the platform team must add a
 line for the component in the `.github/workflows/push-artifact.yaml` GitHub Actions
-workflow file of the `d2-infra` repository:
+workflow file for the `d2-infra` directory:
 
 ```yaml
       ...
@@ -166,7 +165,7 @@ workflow file of the `d2-infra` repository:
 
 With this, an OCI Artifact will be published and signed for the new component.
 
-On the `d2-fleet` repository, the platform team must add a new set of inputs for the
+In this fleet directory, the platform team must add a new set of inputs for the
 `infra` `ResourceSet`:
 
 ```yaml
@@ -185,7 +184,7 @@ This set includes an `OCIRepository` object that points to the OCI Artifact, and
 objects consuming the artifact, `infra-controllers` and `infra-configs`, that together configure the
 reconciliation of the new component.
 
-The typical structure of the `d2-infra` repository is as follows:
+The typical structure of the `d2-infra` logical source directory is as follows:
 
 ```shell
 ./components/

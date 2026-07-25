@@ -1,21 +1,21 @@
 # d2-osramp-apps
 
 > [!NOTE]
-> This repository is the application tenant of the Acme Co. OSRAMP demo,
+> This logical source directory is the application tenant of the Acme Co. OSRAMP demo,
 > following the Flux D2 reference architecture together with the
 > `d2-osramp-fleet` and `d2-infra` directories of the monorepo.
 
 ## Scope and Access Control
 
-This repository is managed by the dev teams who are responsible for
+This logical source directory is managed by the dev teams who are responsible for
 the delivery of applications to the Kubernetes cluster fleet.
 
-This repository is used to define the application components such as:
+It defines the application components such as:
 
 - Flux HelmRepositories (pointing to the application Helm charts in container registries)
 - Flux HelmReleases for the applications with custom configuration per environment
 
-This repository is reconciled on the cluster fleet by Flux as the **namespace admin**
+It is reconciled on the cluster fleet by Flux as the **namespace admin**
 and can't contain Kubernetes cluster-wide definitions such as CRDs, Cluster Roles, Namespaces, etc.
 
 The platform team that manages the `d2-osramp-fleet` directory assigns the
@@ -37,7 +37,7 @@ make up          # cluster, registry, keys, signed artifacts, Flux, images
 make test        # end-to-end suite
 ```
 
-For tight inner-loop work on the services themselves, this repository has a
+For tight inner-loop work on the services themselves, this directory has a
 direct path that bypasses GitOps:
 
 ```bash
@@ -49,9 +49,9 @@ make build           # build the three images and load them into kind
 make test            # bats end-to-end suite
 ```
 
-## Repository Structure
+## Directory structure
 
-This repository contains the following directories:
+This logical source directory contains the following directories:
 
 - The **components** dir contains Flux HelmReleases that define how the applications
   are deployed to the cluster fleet and which configuration should be used for each environment.

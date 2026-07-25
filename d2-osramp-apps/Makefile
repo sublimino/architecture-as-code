@@ -1,6 +1,7 @@
 NAME ?= osramp
 
 CLUSTER_NAME := $(NAME)
+DOCKER_BUILD_NETWORK ?= host
 
 ARCH := $(shell uname -m | sed 's/x86_64/amd64/')
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
@@ -70,20 +71,20 @@ signing-key:
 
 .PHONY: archiver-build
 archiver-build: ## Build and load the archiver container
-	docker build -t archiver:dev apps/archiver
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t archiver:dev apps/archiver
 	kind load docker-image archiver:dev --name $(CLUSTER_NAME)
 	kubectl -n frontend delete po -l app=osramp-archiver
 
 .PHONY: listener-build
 listener-build: ## Build and load the listener container
-	docker build -t listener:dev apps/listener
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t listener:dev apps/listener
 	kind load docker-image listener:dev --name $(CLUSTER_NAME)
 	kubectl -n frontend delete po -l app=osramp-multipurpose
 	kubectl -n frontend delete po -l app=osramp-purl
 
 .PHONY: processor-build
 processor-build: ## Build and load the processor container
-	docker build -t processor:dev apps/processor
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t processor:dev apps/processor
 	kind load docker-image processor:dev --name $(CLUSTER_NAME)
 	kubectl -n frontend delete po -l app=osramp-multipurpose
 	kubectl -n frontend delete po -l app=osramp-purl

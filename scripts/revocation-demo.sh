@@ -49,7 +49,7 @@ digest=$(flux push artifact "oci://${REGISTRY}/apps/frontend:latest" \
   --source=local --revision="restored@sha1:$(git rev-parse HEAD 2>/dev/null || echo 1111111111111111111111111111111111111111)" \
   --insecure-registry --output json | jq -r '.digest')
 COSIGN_PASSWORD="" cosign sign --yes --key "${COSIGN_KEY}" \
-  --tlog-upload=false --allow-insecure-registry \
+  --use-signing-config=false --tlog-upload=false --allow-insecure-registry \
   "${REGISTRY}/apps/frontend@${digest}"
 echo "signed artifact pushed; asking Flux to reconcile"
 reconcile_frontend

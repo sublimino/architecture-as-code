@@ -9,10 +9,17 @@ resources=(
   ResourceSet/flux-system/infra
   ResourceSet/flux-system/apps
   ResourceSet/flux-system/olly
+  ResourceSet/flux-system/signalloom-infra
+  ResourceSet/flux-system/signalloom-apps
   Kustomization/backend/apps
   Kustomization/frontend/apps
   Kustomization/trivy-system/infra-configs
   Kustomization/olly-replica/olly-configs
+  Kustomization/inf-bao/infra-controllers
+  Kustomization/inf-bao/infra-configs
+  Kustomization/inf-signalloom/infra-controllers
+  Kustomization/inf-signalloom/infra-configs
+  Kustomization/fe-signalloom/apps
 )
 
 for resource in "${resources[@]}"; do

@@ -44,9 +44,13 @@ push_and_sign fleet d2-osramp-fleet
 for component in cert-manager ingress monitoring trivy-system; do
   push_and_sign "infra/${component}" "d2-infra/components/${component}"
 done
+for component in inf-bao inf-signalloom; do
+  push_and_sign "signalloom/infra/${component}" "d2-signalloom/infra/${component}"
+done
 for component in frontend backend; do
   push_and_sign "apps/${component}" "d2-osramp-apps/components/${component}"
 done
+push_and_sign "signalloom/apps/fe-signalloom" "d2-signalloom/apps/fe-signalloom"
 push_and_sign "olly/olly-replica" "olly-replica/components"
 
 echo "all artifacts pushed and signed"

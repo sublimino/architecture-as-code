@@ -26,7 +26,10 @@ grep -Fq 'name: signalloom-apps' "$source_file"
 grep -Fq 'tenant: inf-bao' "$source_file"
 grep -Fq 'tenant: inf-signalloom' "$source_file"
 grep -Fq 'tenant: fe-signalloom' "$source_file"
-! grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2-signalloom/fleet"
+if grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2-signalloom/fleet"; then
+  printf 'd2-signalloom/fleet must not bootstrap a Flux control plane.\n' >&2
+  exit 1
+fi
 
 if command -v kustomize >/dev/null 2>&1; then
   kustomize build "$root/d2-osramp-fleet/tenants/local" >/dev/null

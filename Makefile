@@ -13,6 +13,11 @@ SHELL = /usr/bin/env bash -o pipefail
 
 CLUSTER_NAME ?= osramp
 KEYS_DIR := .keys
+SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
+OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
+OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
+D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
+SIGNALLOOM_INTEGRATION_BRANCH ?= plan/d2-bao-integration
 
 .PHONY: up
 up: cluster registry signing-keys push-local bootstrap-local images workload-key wait olly-pdi-secret olly-llm-secret orbit-approval-configmap security-sandbox ## Build the full local demo environment.
@@ -20,6 +25,16 @@ up: cluster registry signing-keys push-local bootstrap-local images workload-key
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+
+##@ Signal Loom preflight
+
+.PHONY: signalloom-check
+signalloom-check: ## Validate Signal Loom, OSRAMP, demo, and D2-BAO source roots.
+	./scripts/signalloom-preflight.sh check "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)"
+
+.PHONY: signalloom-help
+signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command sequence.
+	./scripts/signalloom-preflight.sh help "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)" "$(SIGNALLOOM_INTEGRATION_BRANCH)"
 
 ##@ Cluster lifecycle
 

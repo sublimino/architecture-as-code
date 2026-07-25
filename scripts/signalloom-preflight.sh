@@ -61,7 +61,7 @@ show_help() {
 	printf '  D2_BAO_ROOT=%s\n' "$4"
 	printf '\nIntegration branch expectation: %s\n' "$5"
 	printf '\nSafe staged sequence (no deployment):\n'
-	printf '  1. make signalloom-check\n'
+	printf '  1. make signalloom-check (includes static delivery-contract validation)\n'
 	printf '  2. make signalloom-help\n'
 	printf '  3. Review the deployment profiles before adding any up/down commands.\n'
 }

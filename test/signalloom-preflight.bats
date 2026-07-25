@@ -38,11 +38,16 @@ setup() {
 	[[ "$output" == *"missing git root: SIGNALLOOM_PLATFORM_ROOT="* ]]
 }
 
-@test "make help exposes both targets and signalloom help lists four roots" {
+@test "make help exposes contract and preflight targets and signalloom help lists four roots" {
 	run make help
 	[ "$status" -eq 0 ]
+	[[ "$output" == *"signalloom-contract-check"* ]]
 	[[ "$output" == *"signalloom-check"* ]]
 	[[ "$output" == *"signalloom-help"* ]]
+
+	run make signalloom-contract-check
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"delivery contract passed"* ]]
 
 	run make signalloom-help \
 		SIGNALLOOM_PLATFORM_ROOT="$platform_root" \

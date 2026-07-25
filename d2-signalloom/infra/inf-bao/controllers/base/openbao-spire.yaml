@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openbao
+  labels:
+    app.kubernetes.io/name: openbao
+    app.kubernetes.io/part-of: signalloom-bao-proof
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openbao
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openbao
+    spec:
+      containers:
+        - name: openbao
+          image: quay.io/openbao/openbao:2.1.1
+          args: ["server", "-dev", "-dev-root-token-id=signalloom-demo-root-token", "-dev-listen-address=0.0.0.0:8200"]
+          env:
+            - name: BAO_DEV_ROOT_TOKEN_ID
+              value: signalloom-demo-root-token
+          ports:
+            - name: http
+              containerPort: 8200
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openbao
+spec:
+  selector:
+    app.kubernetes.io/name: openbao
+  ports:
+    - name: http
+      port: 8200
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spire-server
+  labels:
+    app.kubernetes.io/name: spire-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spire-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spire-server
+    spec:
+      containers:
+        - name: spire-server
+          image: ghcr.io/spiffe/spire-server:1.11.1
+          args: ["spire-server", "run", "-config", "/run/spire/config/server.conf"]
+          volumeMounts:
+            - name: config
+              mountPath: /run/spire/config
+      volumes:
+        - name: config
+          configMap:
+            name: spire-server-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-server
+spec:
+  selector:
+    app.kubernetes.io/name: spire-server
+  ports:
+    - name: grpc
+      port: 8081
+      targetPort: 8081
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: spire-agent
+  labels:
+    app.kubernetes.io/name: spire-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spire-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spire-agent
+    spec:
+      hostPID: true
+      containers:
+        - name: spire-agent
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          args: ["spire-agent", "run", "-config", "/run/spire/config/agent.conf"]
+          volumeMounts:
+            - name: config
+              mountPath: /run/spire/config
+            - name: sockets
+              mountPath: /run/spire/sockets
+      volumes:
+        - name: config
+          configMap:
+            name: spire-agent-config
+        - name: sockets
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate

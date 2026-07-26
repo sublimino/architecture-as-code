@@ -14,6 +14,12 @@ if kubectl -n "$namespace" wait "job/$negative" --for=condition=complete --timeo
   exit 1
 fi
 kubectl -n "$namespace" wait "job/$negative" --for=condition=failed --timeout="$timeout"
-kubectl -n "$namespace" logs "job/$positive" | grep -Fq 'bounded Bao/SPIRE proof passed'
-kubectl -n "$namespace" logs "job/$negative" | grep -Fq 'denied as expected'
+if ! kubectl -n "$namespace" logs "job/$positive" | grep -Fq 'bounded Bao/SPIRE proof passed'; then
+  echo 'positive Bao/SPIRE proof did not emit its success marker' >&2
+  exit 1
+fi
+if ! kubectl -n "$namespace" logs "job/$negative" | grep -Fq 'denied as expected'; then
+  echo 'negative Bao/SPIRE proof did not emit its denial marker' >&2
+  exit 1
+fi
 printf 'bounded Bao/SPIRE positive and negative identity proof passed\n'

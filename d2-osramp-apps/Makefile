@@ -99,9 +99,12 @@ postgres-shell: ## Connect to the backend postgres dynamically using in-cluster 
 processor-shell: ## Exec into to the multipurpose processor
 	kubectl exec -it -n frontend deploy/osramp-multipurpose --container processor -- bash
 
-.PHONY: test
+.PHONY: test test-config
 test: ## Run the bats test suite
 	cd test && bats osramp.bats
+
+test-config: ## Run deterministic backend manifest checks
+	cd test && bats backend-config.bats
 
 
 .PHONY: gen-archivista

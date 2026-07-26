@@ -37,6 +37,8 @@ spec:
         args:
         - server
         - /data
+        - --console-address
+        - :9001
         env:
         - name: MINIO_ROOT_USER
           value: "archivista"
@@ -57,7 +59,7 @@ spec:
             until mc ls; do
               sleep 1
             done
-            mc mb local/attestations
+            mc mb --ignore-existing local/attestations
             tail -f /dev/null
         env:
         - name: MINIO_ROOT_USER

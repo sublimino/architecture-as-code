@@ -13,6 +13,19 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -eq 0 ]
 }
 
+@test "Bao proof init containers use the shell-capable SPIRE helper" {
+  proof="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
+  helper="$root/d2-signalloom/proof-helper.Dockerfile"
+  run grep -cF 'image: signalloom-spire-helper:local' "$proof"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+  run grep -cF 'command: ["/bin/sh", "-ec"]' "$proof"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+  run grep -F 'FROM alpine:3.20' "$helper"
+  [ "$status" -eq 0 ]
+}
+
 @test "OpenBao bypasses the root su-exec transition without weakening its pod security context" {
   run kubectl kustomize "$root/d2-signalloom/infra/inf-bao/controllers/local"
   [ "$status" -eq 0 ]

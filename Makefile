@@ -117,6 +117,11 @@ images: ## Build the app and olly-replica images and load them into kind.
 	$(MAKE) -C d2-osramp-apps build
 	$(MAKE) -C olly-replica build
 
+.PHONY: signalloom-spire-helper
+signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper into Kind.
+	docker build -f d2-signalloom/proof-helper.Dockerfile -t signalloom-spire-helper:local d2-signalloom
+	kind load docker-image --name $(CLUSTER_NAME) signalloom-spire-helper:local
+
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.
 	@for i in $$(seq 1 60); do \
@@ -169,7 +174,7 @@ demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
 
 .PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down
-demo-signalloom-up: ## Reconcile and wait for Signalloom dependencies and application slice.
+demo-signalloom-up: signalloom-spire-helper ## Reconcile and wait for Signalloom dependencies and application slice.
 	./scripts/demo-lifecycle.sh signalloom-up
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test

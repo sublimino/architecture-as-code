@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: spire-agent
+  labels:
+    app.kubernetes.io/name: spire-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: spire-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: spire-agent
+    spec:
+      hostPID: true
+      containers:
+        - name: spire-agent
+          image: ghcr.io/spiffe/spire-agent:1.11.1
+          args: ["-config", "/run/spire/config/agent.conf", "-expandEnv"]
+          env:
+            - name: JOIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: spire-agent-join-token
+                  key: token
+          volumeMounts:
+            - name: config
+              mountPath: /run/spire/config
+            - name: data
+              mountPath: /run/spire/data
+            - name: sockets
+              mountPath: /run/spire/sockets
+      volumes:
+        - name: config
+          configMap:
+            name: spire-agent-config
+        - name: data
+          emptyDir: {}
+        - name: sockets
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate

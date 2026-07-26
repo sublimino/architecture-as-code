@@ -15,8 +15,13 @@ spec:
       serviceAccountName: fe-signalloom
       initContainers:
         - name: jwt-svid
-          image: ghcr.io/spiffe/spire-agent:1.11.1
-          command: ["sh", "-ec", "spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock > /work/jwt && test -s /work/jwt"]
+          image: signalloom-spire-helper:local
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock -output json | sed -n 's/.*"svid":"\([^"]*\)".*/\1/p' > /work/jwt
+              test -s /work/jwt
           volumeMounts:
             - name: work
               mountPath: /work
@@ -59,8 +64,14 @@ spec:
       serviceAccountName: fe-signalloom-negative
       initContainers:
         - name: jwt-svid
-          image: ghcr.io/spiffe/spire-agent:1.11.1
-          command: ["sh", "-ec", "if spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock; then echo 'unexpected identity'; exit 1; fi; echo 'denied as expected'; exit 1"]
+          image: signalloom-spire-helper:local
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              if spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock; then echo 'unexpected identity'; exit 1; fi
+              echo 'denied as expected'
+              exit 1
           volumeMounts:
             - name: spire-socket
               mountPath: /run/spire/sockets

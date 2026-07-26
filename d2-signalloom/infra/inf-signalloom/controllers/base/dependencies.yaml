@@ -1,102 +1,88 @@
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: bitnami-postgresql
-spec:
-  interval: 1h
-  url: oci://registry-1.docker.io/bitnamicharts/postgresql
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
-  ref:
-    tag: "18.8.0"
----
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
+# Disposable local Kind dependencies; no external tenant OCI sources are used.
+apiVersion: apps/v1
+kind: Deployment
 metadata:
   name: postgresql
 spec:
-  interval: 30m
-  chartRef:
-    kind: OCIRepository
-    name: bitnami-postgresql
-  install:
-    remediation:
-      retries: -1
-  values:
-    architecture: standalone
-    auth:
-      database: discovery_portal
-      username: discovery_portal
-    primary:
-      persistence:
-        enabled: true
-        storageClass: "standard"
-        size: 1Gi
-      initdb:
-        scriptsConfigMap: discovery-portal-bootstrap
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: postgresql}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: postgresql}
+    spec:
+      containers:
+        - name: postgresql
+          image: postgres:16-alpine
+          env:
+            - {name: POSTGRES_DB, value: signalloom}
+            - {name: POSTGRES_USER, value: signalloom}
+            - {name: POSTGRES_PASSWORD, value: signalloom}
+          ports: [{name: postgresql, containerPort: 5432}]
+          volumeMounts: [{name: init, mountPath: /docker-entrypoint-initdb.d}]
+          readinessProbe:
+            exec: {command: [pg_isready, -U, signalloom, -d, signalloom]}
+      volumes:
+        - name: init
+          configMap: {name: discovery-portal-bootstrap}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: bitnami-redis
+apiVersion: v1
+kind: Service
+metadata: {name: postgresql}
 spec:
-  interval: 1h
-  url: oci://registry-1.docker.io/bitnamicharts/redis
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
-  ref:
-    tag: "27.0.17"
+  selector: {app.kubernetes.io/name: postgresql}
+  ports: [{name: postgresql, port: 5432, targetPort: postgresql}]
 ---
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: redis
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: redis}
 spec:
-  interval: 30m
-  chartRef:
-    kind: OCIRepository
-    name: bitnami-redis
-  install:
-    remediation:
-      retries: -1
-  values:
-    architecture: standalone
-    master:
-      persistence:
-        enabled: false
-    replica:
-      replicaCount: 0
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: redis}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: redis}
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{name: redis, containerPort: 6379}]
+          readinessProbe:
+            exec: {command: [redis-cli, ping]}
 ---
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: minio
+apiVersion: v1
+kind: Service
+metadata: {name: redis}
 spec:
-  interval: 1h
-  url: oci://registry-1.docker.io/minio/minio
-  layerSelector:
-    mediaType: application/vnd.cncf.helm.chart.content.v1.tar+gzip
-    operation: copy
-  ref:
-    tag: "8.0.10"
+  selector: {app.kubernetes.io/name: redis}
+  ports: [{name: redis, port: 6379, targetPort: redis}]
 ---
-apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: minio
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: minio}
 spec:
-  interval: 30m
-  chartRef:
-    kind: OCIRepository
-    name: minio
-  install:
-    remediation:
-      retries: -1
-  values:
-    mode: standalone
-    persistence:
-      enabled: true
-      storageClass: "standard"
-      size: 1Gi
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: minio}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: minio}
+    spec:
+      containers:
+        - name: minio
+          image: minio/minio:latest
+          args: [server, /data]
+          env:
+            - {name: MINIO_ROOT_USER, value: minio}
+            - {name: MINIO_ROOT_PASSWORD, value: minio123}
+          ports: [{name: s3, containerPort: 9000}]
+          readinessProbe:
+            httpGet: {path: /minio/health/ready, port: s3}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: minio}
+spec:
+  selector: {app.kubernetes.io/name: minio}
+  ports: [{name: s3, port: 9000, targetPort: s3}]

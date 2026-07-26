@@ -1,0 +1,11 @@
+{
+  "name": "acceptance",
+  "private": true,
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

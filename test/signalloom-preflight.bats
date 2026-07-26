@@ -60,3 +60,21 @@ setup() {
 	[[ "$output" == *"OSRAMP_DEMO_ROOT=$demo_root"* ]]
 	[[ "$output" == *"D2_BAO_ROOT=$d2_bao_root"* ]]
 }
+
+@test "delivery contract rejects missing immutable digest or signer constraints" {
+	contract="$tmp_root/delivery-contract.json"
+	cp "$BATS_TEST_DIRNAME/../docs/signalloom/delivery-contract.json" "$contract"
+
+	jq 'del(.immutableDigest)' "$contract" >"$contract.tmp" && mv "$contract.tmp" "$contract"
+	run "$BATS_TEST_DIRNAME/../scripts/signalloom-contract-check.sh" \
+		"$contract" "integration/signalloom-d2-v2.0.0"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"contract schema or branch policy is invalid"* ]]
+
+	cp "$BATS_TEST_DIRNAME/../docs/signalloom/delivery-contract.json" "$contract"
+	jq '.signer.ci.issuer = "https://untrusted.example"' "$contract" >"$contract.tmp" && mv "$contract.tmp" "$contract"
+	run "$BATS_TEST_DIRNAME/../scripts/signalloom-contract-check.sh" \
+		"$contract" "integration/signalloom-d2-v2.0.0"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"contract schema or branch policy is invalid"* ]]
+}

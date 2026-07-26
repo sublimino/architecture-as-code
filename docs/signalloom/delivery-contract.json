@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "repository": "osramp-demo",
   "integrationBranch": "integration/signalloom-d2-v2.0.0",
   "releaseBranch": "main",
@@ -9,5 +9,41 @@
     "OSRAMP_DEMO_ROOT",
     "D2_BAO_ROOT"
   ],
-  "deploymentGuard": "Run make signalloom-check successfully before creating or applying any Kubernetes pod or workload."
+  "deploymentGuard": "Run make signalloom-check successfully before creating or applying any Kubernetes pod or workload.",
+  "signer": {
+    "ci": {
+      "provider": "cosign-keyless-oidc",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "subjectRegex": "^https://github\\.com/controlplaneio-in-toto/osramp-demo/\\.github/workflows/(push-images|push-artifacts|release-artifacts)\\.yaml@refs/(heads/main|tags/v[0-9]+\\.[0-9]+\\.[0-9]+)$"
+    },
+    "local": {
+      "provider": "cosign-key",
+      "trustAnchorPath": ".keys/cosign.pub",
+      "scope": "local-demo-only"
+    }
+  },
+  "immutableDigest": {
+    "algorithm": "sha256",
+    "referenceRegex": "^sha256:[a-f0-9]{64}$",
+    "tagPolicy": "Tags are discovery-only; verification, SBOM, provenance, promotion, and rollback evidence bind to the resolved digest."
+  },
+  "sbomProvenance": {
+    "sbomRequired": true,
+    "sbomFormat": "spdx-json",
+    "provenanceRequired": true,
+    "provenancePredicateType": "https://slsa.dev/provenance/v1"
+  },
+  "verification": {
+    "failClosed": true,
+    "requiredEvidence": [
+      "signature",
+      "resolved-digest",
+      "sbom",
+      "provenance"
+    ]
+  },
+  "revocationRotation": {
+    "revocation": "Withdraw the affected trust anchor or signer identity, reject newly resolved artifacts that depend on it, and preserve the failed verification result with its digest.",
+    "rotation": "Use an overlap window with both old and new trust anchors accepted; record successful verification by both, then remove the old anchor and verify rejection."
+  }
 }

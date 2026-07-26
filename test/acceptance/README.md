@@ -1,15 +1,15 @@
-# acceptance
+# Browser acceptance tests
 
-To install dependencies:
+The canonical instructions are in [`../../TESTING.md`](../../TESTING.md). The short setup path is:
 
 ```bash
-bun install
+bun install --frozen-lockfile
+bunx playwright install ffmpeg
 ```
 
 To run:
 
 ```bash
-bun run 
+cd ../..
+make acceptance-test
 ```
-
-This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.

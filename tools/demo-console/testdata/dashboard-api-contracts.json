@@ -1,0 +1,22 @@
+[
+  {"method":"GET","path":"/api/health","response":"{ok,ns}","owner":"handler","location":"main.go:1398","gap":""},
+  {"method":"GET","path":"/api/steps","response":"steps.json","owner":"persistence","location":"ui/steps.json","gap":""},
+  {"method":"POST","path":"/api/runs","response":"{id}","owner":"persistence","location":"main.go:handleRuns; console.runs","gap":""},
+  {"method":"GET","path":"/api/runs/{id}/events","response":"SSE line/exit","owner":"persistence","location":"main.go:handleEvents; console.runs","gap":""},
+  {"method":"GET","path":"/api/cluster/overview","response":"{pods,flux,ready}","owner":"adapter","location":"main.go:handleClusterOverview; kubectl","gap":""},
+  {"method":"GET","path":"/api/incidents[/{id}]","response":"incident array/object","owner":"adapter","location":"main.go:handleIncidents; mapping-stub","gap":""},
+  {"method":"GET","path":"/api/agent-card/{name}","response":"AgentCard JSON","owner":"persistence","location":"olly-replica/contracts/*.json","gap":""},
+  {"method":"GET","path":"/api/agent-card/live/{name}","response":"AgentCard JSON","owner":"adapter","location":"main.go:handleAgentCardLive; sentinel","gap":""},
+  {"method":"GET","path":"/api/orbit/proposals","response":"proposal array","owner":"adapter","location":"orbit.go:registerOrbit; sentinel","gap":""},
+  {"method":"POST","path":"/api/orbit/approve","response":"approval JSON","owner":"adapter","location":"orbit.go:registerOrbit; signed sentinel proxy","gap":""},
+  {"method":"POST","path":"/api/orbit/reject","response":"rejection JSON","owner":"adapter","location":"orbit.go:registerOrbit; sentinel","gap":""},
+  {"method":"GET","path":"/api/eval-history","response":"{runs,scorecard,note}","owner":"persistence","location":".adk/eval_history/*.json","gap":""},
+  {"method":"GET","path":"/api/pipeline/node/{id}","response":"{id,title,kind,source,lines}","owner":"adapter","location":"main.go:handlePipelineNode; Kafka/log adapters","gap":""},
+  {"method":"GET","path":"/api/pipeline/events","response":"SSE events","owner":"adapter","location":"main.go:handlePipelineEvents; Kafka/ticket polling","gap":""},
+  {"method":"GET","path":"/api/metrics/query","response":"Prometheus query JSON","owner":"adapter","location":"metrics.go:registerMetrics; Prometheus","gap":""},
+  {"method":"GET","path":"/api/security/status","response":"guard status JSON","owner":"adapter","location":"security.go:registerSecurity; LLM Guard","gap":""},
+  {"method":"POST","path":"/api/security/scan","response":"scan verdict JSON","owner":"adapter","location":"security.go:registerSecurity; LLM Guard","gap":""},
+  {"method":"POST","path":"/api/security/probe","response":"guarded agent JSON","owner":"adapter","location":"security.go:registerSecurity; LLM Guard/Sentinel","gap":""},
+  {"method":"GET","path":"/proxy/{adk|grafana}/...","response":"proxied HTTP response","owner":"adapter","location":"main.go:handleProxy; allowlisted services","gap":""},
+  {"method":"WS","path":"/ws/term","response":"terminal text frames","owner":"handler","location":"main.go:handleTerm; local command runner","gap":""}
+]

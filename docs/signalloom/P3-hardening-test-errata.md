@@ -403,3 +403,27 @@ integration contract condition that `main` is not an ancestor of
 `integration/signalloom-d2-v2.0.0`. This record therefore claims a qualified
 Phase 6 failure, not a release, Gate C/D/E pass, or complete Bao/SPIRE runtime
 proof.
+
+## SLD21 P6 Governor qualified completion
+
+<!-- machine-completion-tag: SLD21-P6-GOV -->
+<!-- machine-tag: SLD21-P6-GOV-QUALIFIED-2026-07-26T21:04:00+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- integration-sha: 14f1846e333774e6780f64a923f6978c8652b1b0 -->
+<!-- recovery-commits: 76e9d04647a88b1e5da5ca7f817e4bb621b4da70,60123eb23165fa0fe9c5cf7fff13ac023638d322 -->
+<!-- status: qualified-complete validation=passed owner=phase6-governor -->
+<!-- scope: single-kind-osramp-local-signalloom-only -->
+
+The Governor verified that recovery commits `76e9d046` and `60123eb2` are
+already ancestors of integration HEAD `14f1846e`; no redundant merge was made.
+With principal-approved local recreation, `kind get clusters` returned exactly
+one cluster, `osramp`. `CLUSTER_NAME=osramp make demo-signalloom-up` converged,
+then `make demo-signalloom-runtime-test` passed: source validation 20/20,
+focused runtime BATS 2/2, and lifecycle BATS 4/4.
+
+This completion is qualified. It preserves the Phase 6 positive Bao/SPIRE proof
+blocker recorded above: no `nodes/proxy` RBAC, ClusterRole, ClusterRoleBinding,
+or other trust-boundary change was introduced. It does not claim release
+approval, Gate C/D/E proof completion, delivery-contract clearance, board-state
+modification, or a remote push. The machine outcome is retained locally at
+`MEMORY/WORK/20260726-210400_phase6-governor-outcome.json`.

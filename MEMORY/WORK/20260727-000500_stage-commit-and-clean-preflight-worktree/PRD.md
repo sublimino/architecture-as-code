@@ -2,11 +2,11 @@
 task: Stage commit and clean preflight worktree
 slug: 20260727-000500_stage-commit-and-clean-preflight-worktree
 effort: standard
-phase: verify
+phase: complete
 progress: 8/8
 mode: interactive
 started: 2026-07-27T00:05:00+01:00
-updated: 2026-07-27T00:09:00+01:00
+updated: 2026-07-27T00:10:00+01:00
 ---
 
 ## Context
@@ -50,3 +50,10 @@ source content beyond the existing working-tree changes.
 - ISC-6: Commit `1a252ae` recorded the staged changes.
 - ISC-7: Post-commit status was checked for an empty worktree.
 - ISC-8: Kanban branch-check was run for `SLDPB` and the integration branch; no actionable result was emitted. The bundled Bats test requires a missing shared helper path in the skill installation, so it was not initially runnable.
+
+## Learning
+
+- The bundled Bats test passed after temporary local helper-path compatibility was supplied.
+- A smarter workflow would verify the skill test harness before claiming validation.
+- CodeReview was selected but unavailable because `roborev` is not installed.
+- Cleanup should remain scoped to the current integration worktree unless ownership is proven.

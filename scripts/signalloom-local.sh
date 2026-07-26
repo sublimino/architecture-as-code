@@ -47,6 +47,7 @@ prepare() {
   make -C "$repo_root" push-local
   make -C "$repo_root" bootstrap-local
   make -C "$repo_root" signalloom-spire-helper
+  make -C "$repo_root" signalloom-images
 }
 
 up() {

@@ -126,6 +126,11 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 	docker build -f d2-signalloom/proof-helper.Dockerfile -t signalloom-spire-helper:local d2-signalloom
 	kind load docker-image --name $(CLUSTER_NAME) signalloom-spire-helper:local
 
+.PHONY: signalloom-images
+signalloom-images: ## Build and load local Signal Loom workload images into Kind.
+	docker build -t zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom
+	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom:latest
+
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.
 	@for i in $$(seq 1 60); do \

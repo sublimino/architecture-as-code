@@ -86,3 +86,24 @@ This is a partial integration pass only. It does not approve Phase 3, does
 not claim P3-5 runtime proof, and does not convert static or fake-boundary
 results into live Kind, Bao/SPIRE, Flux, portal, or hosted evidence. P3-5
 must be recreated from the resulting clean integration HEAD.
+
+## Governor verification rerun
+
+<!-- machine-tag: SIGNALLOOM-P3-PARTIAL-INTEGRATION-STRICT-RERUN-2026-07-26T08:29:41+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- integration-sha: e21a9e559107e0f335651e69d2be598c245c08eb -->
+<!-- scope: verification-rerun-only -->
+
+The dedicated Governor worktree was clean at `e21a9e559107e0f335651e69d2be598c245c08eb`.
+The four qualified inputs remained reachable, signed by the trusted repository
+key, and present through the existing no-ff merge commits. Strict validation was
+rerun successfully: `make signalloom-check`, `make demo-signalloom-test-config`
+(12/12), `make test-demo-lifecycle` (4/4), `bats
+test/signalloom-flux-integration.bats` (3/3), `make test-zot-cache` (3/3),
+`make test-bao-spire-proof-harness` (5/5), `make -C d2-signalloom
+bao-test-config`, `make -C d2-signalloom test` (12/12), `bash -n
+scripts/bao-spire-proof.sh`, and `git diff --check`.
+
+This remains a partial integration verification only. It does not approve Phase
+3 or claim P3-5 runtime proof; P3-5 must be recreated from this clean
+integration SHA.

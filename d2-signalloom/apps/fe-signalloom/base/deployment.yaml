@@ -104,6 +104,8 @@ spec:
             capabilities:
               drop: ["ALL"]
             readOnlyRootFilesystem: true
+            runAsUser: 999
+            runAsGroup: 999
           resources:
             requests:
               cpu: 50m

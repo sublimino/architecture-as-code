@@ -17,27 +17,35 @@ spec:
         - name: jwt-svid
           image: signalloom-spire-helper:local
           imagePullPolicy: Never
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              until spire-agent healthcheck -socketPath /run/spire/sockets/agent.sock; do sleep 1; done
-              for attempt in $(seq 1 30); do
-                spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock -output json | sed -n 's/.*"svid":"\([^"]*\)".*/\1/p' > /work/jwt && test -s /work/jwt && break
-                sleep 1
-              done
-              test -s /work/jwt
+          command: ["/usr/local/bin/signalloom-spire-proof"]
+          args: ["write", "--audience", "openbao", "--socket", "/run/spire/sockets/agent.sock", "--output", "/work/jwt"]
           volumeMounts:
             - name: work
               mountPath: /work
             - name: spire-socket
               mountPath: /run/spire/sockets
+        - name: bao-login
+          image: quay.io/openbao/openbao:2.1.1
+          command: ["/bin/bao"]
+          args: ["login", "-no-print", "-method=jwt", "-path=jwt", "role=signalloom-fe-signalloom", "jwt=@/work/jwt"]
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: HOME
+              value: /work/home
+          volumeMounts:
+            - name: work
+              mountPath: /work
       containers:
         - name: proof
           image: quay.io/openbao/openbao:2.1.1
           env:
             - name: BAO_ADDR
               value: http://openbao.inf-bao.svc.cluster.local:8200
-          command: ["sh", "-ec", "bao write -field=token auth/jwt/login role=signalloom-fe-signalloom jwt=\"$(cat /work/jwt)\" >/work/bao-token && BAO_TOKEN=$(cat /work/bao-token) bao kv get kv/signalloom/fe-signalloom >/dev/null && echo 'bounded Bao/SPIRE proof passed'"]
+            - name: HOME
+              value: /work/home
+          command: ["/bin/bao"]
+          args: ["kv", "get", "kv/signalloom/fe-signalloom"]
           volumeMounts:
             - name: work
               mountPath: /work
@@ -70,13 +78,8 @@ spec:
         - name: jwt-svid
           image: signalloom-spire-helper:local
           imagePullPolicy: Never
-          command: ["/bin/sh", "-ec"]
-          args:
-            - |
-              until spire-agent healthcheck -socketPath /run/spire/sockets/agent.sock; do sleep 1; done
-              if spire-agent api fetch jwt -audience openbao -socketPath /run/spire/sockets/agent.sock; then echo 'unexpected identity'; exit 1; fi
-              echo 'denied as expected'
-              exit 1
+          command: ["/usr/local/bin/signalloom-spire-proof"]
+          args: ["expect-denied", "--audience", "openbao", "--socket", "/run/spire/sockets/agent.sock"]
           volumeMounts:
             - name: spire-socket
               mountPath: /run/spire/sockets

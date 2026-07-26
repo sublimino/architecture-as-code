@@ -49,9 +49,11 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F 'serviceAccountName: fe-signalloom-negative' "$proof"
   [ "$status" -eq 0 ]
-  run grep -F 'bounded Bao/SPIRE proof passed' "$proof"
+  run grep -F 'args: ["write", "--audience", "openbao"' "$proof"
   [ "$status" -eq 0 ]
-  run grep -F 'denied as expected' "$proof"
+  run grep -F 'args: ["expect-denied", "--audience", "openbao"' "$proof"
+  [ "$status" -eq 0 ]
+  run grep -F 'denied as expected' "$repo_root/d2-signalloom/proof-helper/main.go"
   [ "$status" -eq 0 ]
   run grep -F 'condition=failed' "$runner"
   [ "$status" -eq 0 ]

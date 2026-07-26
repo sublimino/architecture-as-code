@@ -39,7 +39,15 @@ grep -Fq 'kv/data/signalloom/fe-signalloom' "$configs/openbao-bootstrap.yaml"
 grep -Fq 'serviceAccountName: fe-signalloom' "$proof"
 grep -Fq 'serviceAccountName: fe-signalloom-negative' "$proof"
 grep -Fq '/run/spire/sockets/agent.sock' "$proof"
-grep -Fq 'auth/jwt/login role=signalloom-fe-signalloom' "$proof"
-grep -Fq 'bao kv get kv/signalloom/fe-signalloom' "$proof"
+if grep -Eq 'command: \[("/bin/)?(ba)?sh"' "$proof"; then
+  printf 'Bao/SPIRE proof assumes a shell executable\n' >&2
+  exit 1
+fi
+[[ $(grep -Fc 'command: ["/usr/local/bin/signalloom-spire-proof"]' "$proof") -eq 2 ]]
+grep -Fq 'name: bao-login' "$proof"
+grep -Fq 'command: ["/bin/bao"]' "$proof"
+grep -Fq 'args: ["login", "-no-print", "-method=jwt", "-path=jwt", "role=signalloom-fe-signalloom", "jwt=@/work/jwt"]' "$proof"
+grep -Fq 'args: ["kv", "get", "kv/signalloom/fe-signalloom"]' "$proof"
+grep -Fq 'value: /work/home' "$proof"
 grep -Fq 'bao.controlplane.io/consumer: fe-signalloom' "$proof"
 printf 'bounded Bao/SPIRE identity and proof configuration validates\n'

@@ -5,6 +5,7 @@ SHELL = /usr/bin/env bash -o pipefail
 test: ## Validate the D2 topology, dependency components, and Discovery Portal package.
 	./test/validate-topology.sh
 	bash ./test/validate-dependencies.sh
+	cd proof-helper && go test ./...
 	@if command -v bats >/dev/null 2>&1; then bats test/topology.bats test/portal-package.bats test/bootstrap.bats test/bao-spire.bats test/least-privilege.bats; fi
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.

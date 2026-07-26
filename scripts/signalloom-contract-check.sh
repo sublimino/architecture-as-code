@@ -37,6 +37,13 @@ jq -e '
   (.sbomProvenance.provenancePredicateType == "https://slsa.dev/provenance/v1") and
   (.verification.failClosed == true) and
   (.verification.requiredEvidence == ["signature", "resolved-digest", "sbom", "provenance"]) and
+  (.securityAssurance.evidenceScope == "candidate-only; repository-local definition; no production credentials, data, cloud resources, external scans, or release action") and
+  (.securityAssurance.requiredGates == ["sast", "dast", "sca", "secret-scan", "sbom", "pentest"]) and
+  (.securityAssurance.acceptedDispositions == ["pass", "risk-accepted-exception", "not-applicable"]) and
+  (.securityAssurance.rejectedDispositions == ["not-run", "warning-only", "unverified", "digest-mismatch", "expired-exception"]) and
+  (.securityAssurance.releasePack.path == "docs/signalloom/security-release-pack.md") and
+  (.securityAssurance.releasePack.requiredFields == ["candidate-identity", "evidence-ledger", "gate-dispositions", "exceptions", "approvals", "rollback-reference", "release-decision"]) and
+  (.securityAssurance.releasePack.releaseDecision == "fail-closed; no-go until every required gate has a current accepted disposition bound to the candidate digest") and
   (.revocationRotation.revocation | type == "string" and length > 0) and
   (.revocationRotation.rotation | type == "string" and length > 0)
 ' "$contract_path" >/dev/null || die "contract schema or branch policy is invalid"

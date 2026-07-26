@@ -34,8 +34,12 @@ signalloom-check: signalloom-contract-check ## Validate the delivery contract an
 	./scripts/signalloom-preflight.sh check "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)"
 
 .PHONY: signalloom-contract-check
-signalloom-contract-check: ## Statically validate delivery branch, repository, and deployment guard.
+signalloom-contract-check: signalloom-security-release-pack-check ## Statically validate delivery branch, repository, and delivery evidence guard.
 	./scripts/signalloom-contract-check.sh "docs/signalloom/delivery-contract.json" "$(SIGNALLOOM_INTEGRATION_BRANCH)"
+
+.PHONY: signalloom-security-release-pack-check
+signalloom-security-release-pack-check: ## Statically validate the security release-pack template.
+	./scripts/signalloom-security-release-pack-check.sh "docs/signalloom/security-release-pack.md"
 
 .PHONY: signalloom-help
 signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command sequence.

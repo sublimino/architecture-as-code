@@ -13,24 +13,34 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -eq 0 ]
 }
 
-@test "Bao proof init containers use the shell-capable SPIRE helper" {
-  proof="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
-  helper="$root/d2-signalloom/proof-helper.Dockerfile"
-  run grep -cF 'image: signalloom-spire-helper:local' "$proof"
+@test "Bao proof uses direct OpenBao commands and shared token storage" {
+  manifest="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
+
+  run yq -r 'select(.kind == "Job" and .metadata.name == "bao-spire-positive-proof") | .spec.template.spec.initContainers[] | select(.name == "bao-login") | [.command | join(" "), .args | join(" "), (.env[] | select(.name == "HOME").value)] | @tsv' "$manifest"
   [ "$status" -eq 0 ]
-  [ "$output" = "2" ]
-  run grep -cF 'command: ["/bin/sh", "-ec"]' "$proof"
+  [ "$output" = $'/bin/bao\tlogin -no-print -method=jwt -path=jwt role=signalloom-fe-signalloom jwt=@/work/jwt\t/work/home' ]
+
+  run yq -r 'select(.kind == "Job" and .metadata.name == "bao-spire-positive-proof") | .spec.template.spec.containers[] | select(.name == "proof") | [.command | join(" "), .args | join(" "), (.env[] | select(.name == "HOME").value)] | @tsv' "$manifest"
   [ "$status" -eq 0 ]
-  [ "$output" = "2" ]
-  run grep -F 'FROM alpine:3.20' "$helper"
-  [ "$status" -eq 0 ]
+  [ "$output" = $'/bin/bao\tkv get kv/signalloom/fe-signalloom\t/work/home' ]
 }
 
-@test "Bao proof waits for the SPIRE workload API before fetching identities" {
-  proof="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
-  run grep -cF 'spire-agent healthcheck -socketPath /run/spire/sockets/agent.sock' "$proof"
+@test "Bao proof JWT-SVID commands use the executable shipped in their image" {
+  manifest="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
+
+  run yq -e '
+    select(.kind == "Job")
+    | .spec.template.spec.initContainers[]
+    | select(.name == "jwt-svid")
+    | ((.command | length) == 1
+      and .command[0] == "/usr/local/bin/signalloom-spire-proof"
+      and (.args[0] == "write" or .args[0] == "expect-denied"))
+  ' "$manifest"
   [ "$status" -eq 0 ]
-  [ "$output" = "2" ]
+  [[ "$output" != *"false"* ]]
+
+  run grep -E '(/bin/)?(ba)?sh|[|]|sed|[$][(]|cat /work/jwt' "$manifest"
+  [ "$status" -ne 0 ]
 }
 
 @test "OpenBao bypasses the root su-exec transition without weakening its pod security context" {

@@ -18,6 +18,12 @@ setup() {
   [ "$output" = $'/livez\t/livez\t/readyz\tredis://redis.inf-signalloom.svc.cluster.local:6379/0\thttp://minio.inf-signalloom.svc.cluster.local:9000' ]
 }
 
+@test "Discovery Portal specifies the image user numerically" {
+  run yq -e 'select(.kind == "Deployment") | .spec.template.spec.containers[] | select(.name == "discovery-portal") | (.securityContext.runAsUser == 999 and (.securityContext.runAsUser | tag) == "!!int")' "$manifest"
+  [ "$status" -eq 0 ]
+  [ "$output" = "true" ]
+}
+
 @test "Discovery Portal has a service and named demo Secrets" {
   run yq -e 'select(.kind == "Secret") | (.metadata.name == "discovery-portal-database" or .metadata.name == "discovery-portal-storage")' "$root/d2-signalloom/apps/fe-signalloom/base/secrets.yaml"
   [ "$status" -eq 0 ]

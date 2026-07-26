@@ -68,10 +68,10 @@ run_proof() {
   [ "$status" -ne 0 ]
 }
 
-@test "fails when a successful positive job lacks its success marker" {
+@test "accepts a completed positive job without shell-generated log markers" {
   run_proof positive-marker-missing
-  [ "$status" -ne 0 ]
-  [[ "$output" == *'positive Bao/SPIRE proof did not emit its success marker'* ]]
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'bounded Bao/SPIRE positive and negative identity proof passed'* ]]
 }
 
 @test "fails when the negative job lacks its denial marker" {

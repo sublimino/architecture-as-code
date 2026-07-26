@@ -173,3 +173,20 @@ reviewed against the repository evidence:
 Validation after the review passed: `make signalloom-check`,
 `make demo-signalloom-test-config`, `make test-demo-lifecycle`,
 `bats test/signalloom-flux-integration.bats`, and `git diff --check`.
+
+## Demo-to-hosted threat-model errata
+
+<!-- machine-tag: SIGNALLOOM-DEMO-HOSTED-THREAT-ERRATA-2026-07-26T04:59:53+01:00 -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+This ISO-offset errata records a repository-only, non-production review of
+`demo-to-hosted-threat-model.md`. It is source-backed by the checked-in D2
+portal code, deployment, report-store boundary, schema, and Make targets. It
+adds no credentials, infrastructure, provider calls, or release authorization.
+
+The review passes the Kanban documentation check because it assigns owners and
+hosted promotion gates, identifies authorization/tenant isolation, report
+access, secrets, ingress, egress, resilience, pod hardening, and artifact
+integrity risks, and binds each to an explicit verification criterion. It does
+not mark any hosted gate complete: the document deliberately treats every
+required hosted control as a future, separately evidenced acceptance item.

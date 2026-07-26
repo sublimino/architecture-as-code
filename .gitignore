@@ -28,6 +28,11 @@ demo/**/.adk/session.db
 # Estate 95 console: scoped read-only kubeconfig (holds a cluster token)
 .estate95/
 
+# In-cluster zot registry cache mirrored to the host during push-local.
+# Files under .cache/zot/ are written by the zot container as UID 65532 and
+# are unreadable by git (status chokes on .cache/zot/acme/). Local-only.
+.cache/
+
 # Python bytecode
 __pycache__/
 *.py[cod]

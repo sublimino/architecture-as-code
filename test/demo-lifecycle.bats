@@ -47,6 +47,7 @@ SCRIPT
   [[ "$output" != *"signalloom-local.sh up"* ]]
   [[ "$output" != *"olly-up.sh"* ]]
   [[ "$output" != *"osramp-up.sh"* ]]
+  [[ "$output" != *"demo-lifecycle.sh bao-up"* ]]
 }
 
 @test "demo help states that no demos run and lists opt-in commands" {
@@ -54,9 +55,22 @@ SCRIPT
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"No demos are running"* ]]
+  [[ "$output" == *"Next: choose one demo to start"* ]]
   [[ "$output" == *"demo-signalloom-up"* ]]
   [[ "$output" == *"demo-osramp-up"* ]]
   [[ "$output" == *"demo-olly-up"* ]]
+  [[ "$output" == *"demo-bao-up"* ]]
+}
+
+@test "control panel describes make up as foundation-only startup" {
+  run jq -e '
+    ([.lanes[] | select(.id == "control") | .title | contains("foundation")] | any) and
+    ([.lanes[] | select(.id == "control") | .steps[] | select(.id == "lifecycle") |
+      (.description | contains("shared foundation")) and
+      (.actions[] | select(.id == "up") | .label | contains("foundation"))] | any)
+  ' "$root/ui/steps.json"
+
+  [ "$status" -eq 0 ]
 }
 
 @test "Signal Loom startup checks foundation health before activation" {

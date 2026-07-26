@@ -2,7 +2,7 @@
   "lanes": [
     {
       "id": "control",
-      "title": "Environment: bring the whole demo up and down",
+      "title": "Environment: bring the shared foundation up and down",
       "console": "control",
       "steps": [
         {
@@ -11,10 +11,10 @@
           "owner": "Platform team",
           "phase": "Local demo",
           "status": "implemented",
-          "description": "Bring the full local environment up (kind cluster, in-cluster registry, signed artifacts, Flux bootstrap, images, reconcile) or tear it down. These serialize: only one lifecycle action runs at a time so destructive operations never overlap.",
+          "description": "Bring the shared foundation up (Kind cluster, in-cluster registry, signed foundation artifacts, Flux bootstrap, and reconciliation) or tear it down. Demo workloads remain inactive until their explicit demo startup command. These serialize: only one lifecycle action runs at a time so destructive operations never overlap.",
           "actions": [
             { "id": "setup", "label": "Install prerequisites (setup.sh)", "command": ["./scripts/setup.sh"], "class": "lifecycle" },
-            { "id": "up", "label": "Bring the whole demo up (make up)", "command": ["make", "up"], "class": "lifecycle" },
+            { "id": "up", "label": "Bring the shared foundation up (make up)", "command": ["make", "up"], "class": "lifecycle" },
             { "id": "wait", "label": "Wait for GitOps convergence", "command": ["make", "wait"], "class": "lifecycle" },
             { "id": "down", "label": "Delete the kind cluster (make down)", "command": ["make", "down"], "class": "lifecycle" },
             { "id": "teardown", "label": "Tear down cluster + build state", "command": ["make", "teardown"], "class": "lifecycle" },

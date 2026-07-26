@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # One-shot setup for the OSRAMP demo: installs every required tool (skipping
-# anything already present), then builds the full local environment. The
+# anything already present), then creates the shared local foundation. The
 # e2e-local GitHub Actions workflow runs this same script, so local and CI
 # setup cannot drift.
 #
 # Usage:
 #   ./scripts/setup.sh                install missing tools, then `make up`
 #   ./scripts/setup.sh --tools-only   install missing tools and stop
-#   ./scripts/setup.sh --up-only      skip installs, just build the environment
+#   ./scripts/setup.sh --up-only      skip installs, create the shared foundation
 #
 # Linux and macOS (WSL2 on Windows). Docker must already be installed and
 # running; everything else is handled here.
@@ -120,11 +120,14 @@ case "${MODE}" in
   all|"")
     install_tools
     echo
-    echo "=== building the local environment"
+    echo "=== creating the shared cluster foundation"
     make up
     echo
-    echo "environment ready. Next steps:"
-    echo "  make test        end-to-end suite"
+    echo "shared cluster healthy. No demos are running. Next steps:"
+    echo "  make demo-signalloom-up   start the Signalloom demo"
+    echo "  make demo-osramp-up       start the OSRAMP demo"
+    echo "  make demo-olly-up         start the olly demo"
+    echo "  make test                 OSRAMP end-to-end suite after demo-osramp-up"
     echo "  make vex-demo    Phase 1 VEX triage"
     echo "  make console     the interactive map at http://localhost:8675"
     ;;

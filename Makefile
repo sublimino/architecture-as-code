@@ -4,9 +4,8 @@
 # bats (tests), syft/grype/govulncheck/vexctl/witness (VEX demo). On Windows,
 # run from WSL2 or Git Bash.
 #
-# `make up` builds the whole demo: kind cluster, in-cluster zot registry,
-# signed OCI artifacts, Flux bootstrap, app images, then waits for the
-# GitOps reconciliation to converge.
+# `make up` creates only the shared cluster foundation. It does not start a
+# demo; run one of the advertised `demo-*-up` targets after it is healthy.
 
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -21,7 +20,15 @@ SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.0.0
 ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up
-up: cluster registry signing-keys push-local bootstrap-local images workload-key wait olly-pdi-secret olly-llm-secret orbit-approval-configmap security-sandbox ## Build the full local demo environment.
+up: ## Create the shared cluster foundation and advertise opt-in demos.
+	$(MAKE) cluster
+	$(MAKE) registry
+	$(MAKE) signing-keys
+	$(MAKE) push-local-foundation
+	$(MAKE) bootstrap-local
+	$(MAKE) wait
+	$(MAKE) healthcheck
+	$(MAKE) demo-help
 
 .PHONY: help
 help: ## Display this help.
@@ -105,6 +112,14 @@ signing-keys: ## Generate the local cosign and witness keys.
 push-local: ## Push signed manifest artifacts to the in-cluster registry.
 	./scripts/push-local.sh
 
+.PHONY: push-local-foundation
+push-local-foundation: ## Push only the fleet and shared infrastructure artifacts.
+	./scripts/push-local.sh foundation
+
+.PHONY: push-local-signalloom
+push-local-signalloom: ## Push Signal Loom artifacts for the explicit demo lifecycle.
+	./scripts/push-local.sh signalloom
+
 .PHONY: bootstrap-local
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
 	$(MAKE) -C d2-osramp-fleet bootstrap-local COSIGN_PUB=../$(KEYS_DIR)/cosign.pub
@@ -142,8 +157,16 @@ workload-key: ## Generate the ed25519 key the processor signs attestations with.
 	$(MAKE) -C d2-osramp-apps signing-key
 
 .PHONY: wait
-wait: ## Wait for the GitOps reconciliation to converge.
+wait: ## Wait for shared infrastructure reconciliation to converge.
 	./scripts/wait-reconciled.sh
+
+.PHONY: healthcheck
+healthcheck: ## Verify the shared cluster foundation is ready for demos.
+	./scripts/healthcheck.sh
+
+.PHONY: demo-help
+demo-help: ## Show demos available after the shared cluster becomes healthy.
+	@printf '\nCluster foundation is ready. No demos are running.\n\nAvailable demos:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n\n'
 
 .PHONY: olly-pdi-secret
 olly-pdi-secret: ## Create the ServiceNow PDI secret from .env (no-op without one).
@@ -183,8 +206,11 @@ demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
 
 .PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-down
-demo-signalloom-up: ## Restore Signal Loom frontend (durable: restores ResourceSet inputs).
-	./scripts/signalloom-up.sh
+demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
+	$(MAKE) push-local-signalloom
+	$(MAKE) signalloom-spire-helper
+	$(MAKE) signalloom-images
+	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.

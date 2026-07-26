@@ -43,6 +43,10 @@ line_number() {
   [ -n "$frontend" ]
   [ "$bao" -lt "$infra" ]
   [ "$infra" -lt "$frontend" ]
+  grep -Fq 'patch resourceset/signalloom-infra --type merge' "$log"
+  grep -Fq 'patch resourceset/signalloom-apps --type merge' "$log"
+  grep -Fq 'annotate resourceset/signalloom-infra reconcile.fluxcd.io/requestedAt=' "$log"
+  grep -Fq 'annotate resourceset/signalloom-apps reconcile.fluxcd.io/requestedAt=' "$log"
   grep -Fq 'wait resourceset/signalloom-infra --for=condition=ready' "$log"
   grep -Fq 'wait resourceset/signalloom-apps --for=condition=ready' "$log"
 }

@@ -287,3 +287,27 @@ console: ## Serve the Estate 95 win95 console (whole demo) at http://localhost:8
 .PHONY: readonly-kubeconfig
 readonly-kubeconfig: ## Create the scoped read-only kubeconfig the terminal uses.
 	./scripts/olly-readonly-kubeconfig.sh
+
+.PHONY: doctor
+doctor: ## Run the cluster health check (all components).
+	./scripts/doctor.sh
+
+.PHONY: olly-down
+olly-down: ## Remove Olly Sentinel replica from the cluster.
+	./scripts/olly-down.sh
+
+.PHONY: olly-up
+olly-up: ## Restore Olly Sentinel replica to the cluster.
+	./scripts/olly-up.sh
+
+.PHONY: osramp-down
+osramp-down: ## Remove OSRAMP apps (frontend + backend) from the cluster.
+	./scripts/osramp-down.sh
+
+.PHONY: osramp-up
+osramp-up: ## Restore OSRAMP apps (frontend + backend) to the cluster.
+	./scripts/osramp-up.sh
+
+.PHONY: acceptance-test
+acceptance-test: ## Run browser-driven acceptance tests (Playwright).
+	./scripts/acceptance-test.sh

@@ -36,7 +36,7 @@ docker save listener:dev -o "${LISTENER_TAR}"
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/listener:signed" >/dev/null
 SIGNED_DIGEST=$(crane digest --insecure "${REGISTRY_HOST}/acme/images/listener:signed")
 COSIGN_PASSWORD="" cosign sign --yes --key .keys/cosign.key \
-  --tlog-upload=false --allow-insecure-registry \
+  --use-signing-config=false --tlog-upload=false --allow-insecure-registry \
   "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"
 
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/unsigned:latest" >/dev/null

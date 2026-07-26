@@ -1,6 +1,7 @@
 NAME ?= osramp
 
 CLUSTER_NAME := $(NAME)
+DOCKER_BUILD_NETWORK ?= host
 
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -13,37 +14,37 @@ build: sentinel-build elk-mcp-build stubs-build tenant-app-build authz-build ## 
 
 .PHONY: sentinel-build
 sentinel-build: ## Build and load the sentinel image (Google ADK + A2A).
-	docker build -f apps/sentinel/Dockerfile -t olly-sentinel:dev .
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/sentinel/Dockerfile -t olly-sentinel:dev .
 	kind load docker-image olly-sentinel:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l app=olly-sentinel 2>/dev/null || true
 
 .PHONY: authz-build
 authz-build: ## Build and load the olly-authz image (COIN / PlainID / EEMS chain).
-	docker build -f apps/authz/Dockerfile -t olly-authz:dev apps/authz
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/authz/Dockerfile -t olly-authz:dev apps/authz
 	kind load docker-image olly-authz:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l app=olly-authz 2>/dev/null || true
 
 .PHONY: elk-mcp-build
 elk-mcp-build: ## Build and load the elk-search-mcp image.
-	docker build -f apps/Dockerfile --build-arg APP=elk-search-mcp -t olly-elk-mcp:dev .
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=elk-search-mcp -t olly-elk-mcp:dev .
 	kind load docker-image olly-elk-mcp:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l app=elk-search-mcp 2>/dev/null || true
 
 .PHONY: stubs-build
 stubs-build: ## Build and load the stubs image (mapping stub + replay producer).
-	docker build -f apps/Dockerfile --build-arg APP=mapping-stub -t olly-stubs:dev .
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=mapping-stub -t olly-stubs:dev .
 	kind load docker-image olly-stubs:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l app=io-mapping-stub 2>/dev/null || true
 
 .PHONY: tenant-app-build
 tenant-app-build: ## Build and load the tenant-app image (the 3 managed apps).
-	docker build -f apps/Dockerfile --build-arg APP=tenant-app -t olly-tenant-app:dev .
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=tenant-app -t olly-tenant-app:dev .
 	kind load docker-image olly-tenant-app:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l osramp.acme.co/tenant-app=true 2>/dev/null || true
 
 .PHONY: llm-guard-build
 llm-guard-build: ## Build and load the LLM Guard scanner image (Security Sandbox).
-	docker build -f apps/llm-guard/Dockerfile -t olly-llm-guard:dev apps/llm-guard
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/llm-guard/Dockerfile -t olly-llm-guard:dev apps/llm-guard
 	kind load docker-image olly-llm-guard:dev --name $(CLUSTER_NAME)
 	kubectl -n olly-replica delete po -l app=llm-guard 2>/dev/null || true
 

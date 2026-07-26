@@ -28,11 +28,16 @@ zot-up: ## Deploy the in-cluster zot registry for local mode.
 bootstrap-local: ## Deploy Flux Operator syncing from the in-cluster zot registry.
 	@test -f $(COSIGN_PUB) || { echo "$(COSIGN_PUB) not found; run 'make signing-keys' at the repo root"; exit 1; }
 
-	helm upgrade --install flux-operator oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator \
-	  --namespace flux-system \
-	  --create-namespace \
-	  --set multitenancy.enabled=true \
-	  --wait
+	@if kubectl -n flux-system get helmrelease flux-operator >/dev/null 2>&1; then \
+	  echo "flux-operator is managed by Flux; waiting for its HelmRelease"; \
+	  kubectl -n flux-system wait helmrelease/flux-operator --for=condition=Ready --timeout=5m; \
+	else \
+	  helm upgrade --install flux-operator oci://ghcr.io/controlplaneio-fluxcd/charts/flux-operator \
+	    --namespace flux-system \
+	    --create-namespace \
+	    --set multitenancy.enabled=true \
+	    --wait; \
+	fi
 
 	# zot is anonymous; the pull secret only exists because the tenant
 	# templates reference it

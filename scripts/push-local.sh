@@ -34,6 +34,7 @@ push_and_sign() {
     --output json | jq -r '.digest')
   COSIGN_PASSWORD="" cosign sign --yes \
     --key "${COSIGN_KEY}" \
+    --use-signing-config=false \
     --tlog-upload=false \
     --allow-insecure-registry \
     "${REGISTRY}/${repo}@${digest}"

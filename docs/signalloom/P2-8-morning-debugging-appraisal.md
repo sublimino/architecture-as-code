@@ -190,3 +190,40 @@ access, secrets, ingress, egress, resilience, pod hardening, and artifact
 integrity risks, and binds each to an explicit verification criterion. It does
 not mark any hosted gate complete: the document deliberately treats every
 required hosted control as a future, separately evidenced acceptance item.
+## Flux tenancy and network-boundary errata
+
+<!-- machine-tag: P2-8-FLUX-TENANCY-ERRATA-2026-07-26T06:05:50+01:00 -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+At `2026-07-26T06:05:50+01:00`, the non-production Signalloom fleet boundary
+was tightened without provisioning a cluster, using credentials, accessing
+production data, running an external scan, or changing the Kanban board or
+proposal. The canonical source and fleet-consumed copy remain byte-identical.
+
+- `inf-bao`, `inf-signalloom`, and `fe-signalloom` are tenant-labelled, so the
+  fail-closed Flux source allowlist covers infrastructure and application
+  sources alike.
+- Their Flux reconciliation service accounts disable automatic token mounts and
+  are namespace-bound with `RoleBinding` to `admin`; the prior Signalloom
+  `ClusterRoleBinding` to `cluster-admin` is absent. Cluster-scoped components
+  must instead receive a separately reviewed platform-owned boundary.
+- Each Signalloom namespace now has ingress/egress default deny and a narrow
+  allow path: gateway to portal, portal to its three backing services and
+  OpenBao, and portal to the Bao/SPIRE endpoint. DNS and local dependency
+  control paths are explicit. This is rendered/static evidence, not a claim of
+  live-policy enforcement.
+- Positive and negative identity outcomes remain distinct: the authorised
+  `fe-signalloom` proof must complete after reading its seeded demo secret;
+  `fe-signalloom-negative` must fail and emit `denied as expected`.
+
+Validation passed from the Kanban runtime worktree:
+
+- `make -C d2-signalloom test` (12/12 Bats assertions, including the added
+  least-privilege positive/negative regression suite)
+- `bats test/signalloom-flux-integration.bats` (3/3)
+- `kubectl kustomize d2-osramp-fleet/tenants/local >/dev/null`
+- `git diff --check`
+
+No live reconciliation or workload proof was attempted; the known runtime
+Bao/portal readiness blockers remain unqualified rather than being promoted
+by these static checks.

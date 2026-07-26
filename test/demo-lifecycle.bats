@@ -15,8 +15,16 @@ if [[ "$*" == *get* ]]; then
     unknown) printf 'api unavailable' >&2; exit 1 ;;
   esac
 fi
+if [[ "$*" == *exec* ]]; then
+  if [[ "$*" == *'token generate'* ]]; then printf 'Token: local-demo-token\n'; elif [[ "$*" == *'entry create'* ]]; then printf 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom\n'; fi
+fi
 SCRIPT
   chmod +x "$bin/kubectl"
+  cat >"$bin/flux" <<'SCRIPT'
+#!/usr/bin/env bash
+exit 0
+SCRIPT
+  chmod +x "$bin/flux"
 }
 
 @test "compatibility aliases and every canonical lifecycle target are real Make targets" {
@@ -46,4 +54,12 @@ SCRIPT
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=consumer DEMO_BAO_FORCE=1 "$root/scripts/demo-lifecycle.sh" stack-purge
   [ "$status" -eq 0 ]
   grep -Fq 'delete namespace inf-bao' "$log"
+}
+
+@test "Bao lifecycle generates a fresh local agent token after server readiness" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty "$root/scripts/demo-lifecycle.sh" bao-up
+  [ "$status" -eq 0 ]
+  grep -Fq 'exec deployment/spire-server -- /opt/spire/bin/spire-server token generate' "$log"
+  grep -Fq 'create secret generic spire-agent-join-token --from-literal=token=local-demo-token' "$log"
+  grep -Fq 'entry create -spiffeID spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom' "$log"
 }

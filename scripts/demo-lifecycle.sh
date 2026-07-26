@@ -40,7 +40,44 @@ delete_slice() {
   kubectl delete namespace "$namespace" --ignore-not-found --wait=true
 }
 
-bao_up() { reconcile_slice "$BAO_NAMESPACE"; }
+bootstrap_spire_agent_join_token() {
+  local output token
+  output=$(kubectl -n "$BAO_NAMESPACE" exec deployment/spire-server -- /opt/spire/bin/spire-server token generate \
+    -spiffeID "spiffe://signalloom.demo/agent/kind" 2>&1) || {
+    printf 'failed to generate local SPIRE agent join token\n%s\n' "$output" >&2
+    return 1
+  }
+  if [[ ! "$output" =~ Token:[[:space:]]+([^[:space:]]+) ]]; then
+    printf 'SPIRE token generation returned no token\n%s\n' "$output" >&2
+    return 1
+  fi
+  token="${BASH_REMATCH[1]}"
+  kubectl -n "$BAO_NAMESPACE" create secret generic spire-agent-join-token \
+    --from-literal=token="$token" --dry-run=client -o yaml | kubectl apply -f -
+}
+
+register_spire_proof_identity() {
+  local server=(kubectl -n "$BAO_NAMESPACE" exec deployment/spire-server -- /opt/spire/bin/spire-server)
+  if "${server[@]}" entry show -spiffeID "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom" \
+    -parentID "spiffe://signalloom.demo/agent/kind" -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom \
+    | grep -Fq 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom'; then
+    return 0
+  fi
+  "${server[@]}" entry create \
+    -spiffeID "spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom" \
+    -parentID "spiffe://signalloom.demo/agent/kind" \
+    -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom
+}
+
+bao_up() {
+  require_command kubectl
+  require_command flux
+  kubectl get namespace "$BAO_NAMESPACE" >/dev/null
+  wait_kustomization "$BAO_NAMESPACE" infra-controllers
+  bootstrap_spire_agent_join_token
+  wait_kustomization "$BAO_NAMESPACE" infra-configs
+  register_spire_proof_identity
+}
 bao_down() { delete_slice "$BAO_NAMESPACE" inf-bao; }
 signalloom_up() {
   reconcile_slice inf-signalloom

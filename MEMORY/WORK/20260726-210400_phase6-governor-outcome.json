@@ -1,0 +1,22 @@
+{
+  "machine_tag": "phase6-governor.outcome.v1",
+  "recorded_at": "2026-07-26T21:04:00+01:00",
+  "integration_worktree": "/home/andy/src/cp/osramp-demo/worktrees/signalloom-d2-v2.0.0/governor",
+  "integration_head": "14f1846e333774e6780f64a923f6978c8652b1b0",
+  "verified_recovery_commits": [
+    "76e9d04647a88b1e5da5ca7f817e4bb621b4da70",
+    "60123eb23165fa0fe9c5cf7fff13ac023638d322"
+  ],
+  "integration_action": "already_ancestors_no_redundant_merge",
+  "kind_clusters_after_recreate": ["osramp"],
+  "clean_cluster_acceptance": {
+    "demo_signalloom_up": "passed",
+    "demo_signalloom_runtime_test": "passed",
+    "runtime_bats": "2/2",
+    "signalloom_static_tests": "20/20",
+    "lifecycle_bats": "4/4"
+  },
+  "git_push_executed": false,
+  "board_state_modified": false,
+  "outcome": "passed"
+}

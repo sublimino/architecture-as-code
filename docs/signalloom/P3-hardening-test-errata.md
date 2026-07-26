@@ -427,3 +427,78 @@ or other trust-boundary change was introduced. It does not claim release
 approval, Gate C/D/E proof completion, delivery-contract clearance, board-state
 modification, or a remote push. The machine outcome is retained locally at
 `MEMORY/WORK/20260726-210400_phase6-governor-outcome.json`.
+
+## SLD21 P7-PRE qualified pre-flight baseline
+
+<!-- machine-completion-tag: SLD21-P7-PRE -->
+<!-- machine-tag: SLD21-P7-PRE-QUALIFIED-2026-07-26T21:33:19+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- scope: single-kind-osramp-local-signalloom-only -->
+<!-- status: qualified-complete validation=partial owner=p7-preflight -->
+
+The observation-only P7 pre-flight ran against context `kind-osramp`, with the
+Kind API reachable. The Signal Loom inventory was restricted to `fe-signalloom`
+and `inf-signalloom`; unrelated namespaces were not changed or remediated.
+
+### Runtime baseline
+
+- `fe-signalloom/fe-signalloom-768c9d75d5-lqgpx` was `1/1 Running`; the
+  deployment was `1/1 Available` and the canonical readiness wait passed.
+- `inf-signalloom` contained running `minio`, `postgresql`, and `redis` pods;
+  no Jobs existed in that namespace.
+- `fe-signalloom` contained `bao-spire-positive-proof` and
+  `bao-spire-negative-proof`; both Jobs were `Failed 0/1` with
+  `BackoffLimitExceeded` Events.
+- Flux Kustomizations `fe-signalloom/apps`, `inf-signalloom/infra-configs`,
+  and `inf-signalloom/infra-controllers` reported `Ready=True`.
+- Signal Loom warnings were four qualified findings: two dependency readiness
+  probe warnings in `inf-signalloom`, plus the two proof Job backoff warnings in
+  `fe-signalloom`.
+- The positive proof log reported `PermissionDenied desc = no identity issued`;
+  the negative proof log emitted `denied as expected`. Therefore positive proof
+  failed and negative denial behavior was evidenced, but the combined proof did
+  not pass.
+
+Unrelated warning Events were separately observed in `kube-system`,
+`local-path-storage`, `registry`, `flux-system`, `trivy-system`, `cert-manager`,
+`monitoring`, and `olly-replica`. They are excluded from Signal Loom ownership.
+
+### Ancestry and P6 evidence
+
+`integration/signalloom-d2-v2.0.0` resolved to `cd6066e`; the detached local
+HEAD was `ab80656`; `main` was `df65bb2`. Both
+`git merge-base --is-ancestor main integration/signalloom-d2-v2.0.0` and
+`git merge-base --is-ancestor integration/signalloom-d2-v2.0.0 HEAD` failed.
+This preserves the existing delivery-contract qualification.
+
+P6 evidence was verified in this document and
+`MEMORY/WORK/20260726-210400_phase6-governor-outcome.json`: tag
+`SLD21-P6-GOV-QUALIFIED-2026-07-26T21:04:00+01:00`, scope
+`single-kind-osramp-local-signalloom-only`, integration SHA `14f1846e`,
+`demo-signalloom-runtime-test` passed, runtime BATS was `2/2`, static tests
+were `20/20`, and lifecycle BATS was `4/4`.
+
+### Canonical checks and test targets
+
+```bash
+kubectl -n fe-signalloom wait deployment/fe-signalloom \
+  --for=condition=available --timeout=5m
+./scripts/bao-spire-proof.sh
+kubectl get events -A --field-selector type=Warning -o json
+make demo-signalloom-test-config
+make demo-signalloom-test
+make demo-signalloom-runtime-test
+bats test/signalloom-local-lifecycle.bats test/signalloom-preflight.bats \
+  test/signalloom-flux-integration.bats
+```
+
+The static Signal Loom target passed `20/20`; runtime BATS passed `2/2`.
+Lifecycle contract tests had one unrelated repository assertion failure (test
+7, help-output expectation) while the other eleven tests passed. The Bao/SPIRE
+runtime command remains qualified-failing because the positive Job failed.
+The Kubernetes error-absence check is defined but fails for the four listed
+Signal Loom warnings; no clean error-free claim is made.
+
+No application source, unrelated tenant, cluster resource, reconciliation, or
+cleanup operation was changed by this pre-flight. This is qualified P7-PRE
+completion only, not release approval or a positive Bao/SPIRE gate.

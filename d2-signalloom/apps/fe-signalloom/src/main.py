@@ -8,6 +8,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from adapters import load_adapter_selections
+from api_compat import install_compatibility_api
 from db.connection import close_db_pool, get_pool, init_db_pool
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Signal Loom Discovery Portal", version="0.1.0", lifespan=lifespan)
+install_compatibility_api(app)
 
 
 @app.get("/health")

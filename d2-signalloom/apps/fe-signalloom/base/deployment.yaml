@@ -59,6 +59,17 @@ spec:
                 secretKeyRef:
                   name: discovery-portal-database
                   key: DATABASE_URL
+            - name: API_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: API_JWT_SECRET
+            - name: API_JWT_ISSUER
+              value: http://dex.dex.svc.cluster.local:5556/dex
+            - name: API_JWT_AUDIENCE
+              value: signalloom-api
+            - name: API_SUBJECT_TENANTS
+              value: '{"demo-user":"tenant-demo"}'
             - name: REDIS_URL
               value: redis://redis.inf-signalloom.svc.cluster.local:6379/0
             - name: REPORT_STORE_BACKEND

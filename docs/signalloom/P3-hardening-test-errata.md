@@ -49,3 +49,40 @@ case changes exactly one fake-kubectl outcome, asserts non-zero exit status,
 and, where the production script emits a diagnostic, asserts that diagnostic.
 No runtime readiness, network-policy enforcement, or application request is
 claimed by this local harness.
+
+## Governor partial-integration pass errata
+
+<!-- machine-tag: SIGNALLOOM-P3-PARTIAL-INTEGRATION-PASS-2026-07-26T08:03:00+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- scope: committed-input-recovery-and-static-tests-only -->
+
+The Governor recovered and verified four signed, committed Phase 3 inputs in
+the dedicated Governor worktree. P3-1 is `dbe6d31c78a2ed23ddcde88e6b7cc5b2310b7dad`,
+P3-2 is `5cc782c94853e85dda2b1ac144536f07861a6904`, P3-3 is
+`586668fadf038553624aa135b05ddbd53225ff27` (located through the
+`refs/kanban/checkpoints/Yjc5N2M/turn/2` task:b797c evidence ref), and P3-4 is
+`bf78420f451cac83cfe73a71844191032c2cc49e`. All four signatures verified
+against the repository's trusted signing key.
+
+Each input was merged with `--no-ff` into
+`integration/signalloom-d2-v2.0.0`. The P3-3 merge required conflict
+resolution only to retain both independent documentation errata sections;
+its implementation and test changes were accepted unchanged.
+
+Strict repository validation passed after integration:
+
+- `make signalloom-check`
+- `make demo-signalloom-test-config` (12/12)
+- `make test-demo-lifecycle` (4/4)
+- `bats test/signalloom-flux-integration.bats` (3/3)
+- `make test-zot-cache` (3/3)
+- `make test-bao-spire-proof-harness` (5/5)
+- `make -C d2-signalloom bao-test-config`
+- `make -C d2-signalloom test` (12/12)
+- `bash -n scripts/bao-spire-proof.sh`
+- `git diff --check`
+
+This is a partial integration pass only. It does not approve Phase 3, does
+not claim P3-5 runtime proof, and does not convert static or fake-boundary
+results into live Kind, Bao/SPIRE, Flux, portal, or hosted evidence. P3-5
+must be recreated from the resulting clean integration HEAD.

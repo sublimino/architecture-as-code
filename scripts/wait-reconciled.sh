@@ -1,25 +1,21 @@
 #!/usr/bin/env bash
-# Wait for the local GitOps reconciliation to converge: the fleet sync, the
-# tenant ResourceSets, and the per-tenant Kustomizations.
+# Wait for the shared cluster foundation: fleet sync, policy/infra ResourceSets,
+# and shared infrastructure Kustomizations. Demo resources are deliberately
+# excluded and start only through their explicit lifecycle targets.
 set -euo pipefail
 
 resources=(
   Kustomization/flux-system/flux-system
   ResourceSet/flux-system/policies
   ResourceSet/flux-system/infra
-  ResourceSet/flux-system/apps
-  ResourceSet/flux-system/olly
-  ResourceSet/flux-system/signalloom-infra
-  ResourceSet/flux-system/signalloom-apps
-  Kustomization/backend/apps
-  Kustomization/frontend/apps
+  Kustomization/cert-manager/infra-controllers
+  Kustomization/cert-manager/infra-configs
+  Kustomization/ingress/infra-controllers
+  Kustomization/ingress/infra-configs
+  Kustomization/monitoring/infra-controllers
+  Kustomization/monitoring/infra-configs
+  Kustomization/trivy-system/infra-controllers
   Kustomization/trivy-system/infra-configs
-  Kustomization/olly-replica/olly-configs
-  Kustomization/inf-bao/infra-controllers
-  Kustomization/inf-bao/infra-configs
-  Kustomization/inf-signalloom/infra-controllers
-  Kustomization/inf-signalloom/infra-configs
-  Kustomization/fe-signalloom/apps
 )
 
 for resource in "${resources[@]}"; do

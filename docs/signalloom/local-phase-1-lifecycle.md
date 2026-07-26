@@ -1,8 +1,13 @@
 # Signal Loom Phase 1 local lifecycle
 
-`make demo-signalloom-up` is the deterministic local, clean-cluster path. It creates
-Kind, starts zot, signs and publishes the three Signal Loom OCI artifacts,
-bootstraps Flux, then reconciles in this fixed order:
+Start the shared cluster foundation first:
+
+```bash
+make up
+```
+
+This performs a foundation health check and starts no demos. `make demo-signalloom-up`
+then publishes the three Signalloom OCI artifacts and reconciles in this fixed order:
 
 1. `inf-bao` controllers and configs (including the local SPIRE join token);
 2. `inf-signalloom` controllers and configs;
@@ -10,9 +15,9 @@ bootstraps Flux, then reconciles in this fixed order:
 
 Run `make signalloom-check` first for the static delivery-contract gate.
 
-The command waits for both Signal Loom ResourceSets before accessing their
-tenant namespaces, so it is safe on an otherwise empty Kind cluster. It does
-not reuse `make up`, which starts unrelated OSRAMP and Olly workloads.
+The command waits for both Signalloom ResourceSets before accessing their tenant
+namespaces. It starts only the requested Signalloom slice; OSRAMP and olly remain
+inactive.
 
 Use `make demo-signalloom-test` for Flux-only readiness checks and
 `make demo-signalloom-runtime-test` for focused BATS/DETIK assertions against

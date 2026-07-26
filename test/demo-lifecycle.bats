@@ -34,6 +34,56 @@ SCRIPT
   [[ "$output" == *"create-kind-cluster.sh"* ]]
 }
 
+@test "root up creates only the shared foundation before advertising demos" {
+  run make -n up
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"push-local-foundation"* ]]
+  [[ "$output" == *"bootstrap-local"* ]]
+  [[ "$output" == *"healthcheck"* ]]
+  [[ "$output" == *"demo-help"* ]]
+  [[ "$output" != *"make images"* ]]
+  [[ "$output" != *"workload-key"* ]]
+  [[ "$output" != *"signalloom-local.sh up"* ]]
+  [[ "$output" != *"olly-up.sh"* ]]
+  [[ "$output" != *"osramp-up.sh"* ]]
+}
+
+@test "demo help states that no demos run and lists opt-in commands" {
+  run make -n demo-help
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No demos are running"* ]]
+  [[ "$output" == *"demo-signalloom-up"* ]]
+  [[ "$output" == *"demo-osramp-up"* ]]
+  [[ "$output" == *"demo-olly-up"* ]]
+}
+
+@test "Signal Loom startup checks foundation health before activation" {
+  run make -n demo-signalloom-up
+
+  [ "$status" -eq 0 ]
+  health_line=$(printf '%s\n' "$output" | grep -n -F './scripts/healthcheck.sh' | cut -d: -f1)
+  up_line=$(printf '%s\n' "$output" | grep -n -F './scripts/signalloom-local.sh up' | cut -d: -f1)
+  [ -n "$health_line" ]
+  [ -n "$up_line" ]
+  [ "$health_line" -lt "$up_line" ]
+  [[ "$output" == *"push-local-signalloom"* ]]
+  [[ "$output" != *"make up"* ]]
+}
+
+@test "demo ResourceSets default to inactive inputs" {
+  run grep -F 'inputs: []' \
+    "$root/d2-osramp-fleet/tenants/base/apps.yaml" \
+    "$root/d2-osramp-fleet/tenants/base/olly.yaml" \
+    "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+
+  [ "$status" -eq 0 ]
+  [ "$(grep -Fc 'inputs: []' "$root/d2-osramp-fleet/tenants/local/signalloom.yaml")" -eq 2 ]
+  cmp -s "$root/d2-signalloom/fleet/local/signalloom.yaml" \
+    "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+}
+
 @test "stack purge fails closed while a labelled Bao consumer remains" {
   run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=consumer "$root/scripts/demo-lifecycle.sh" stack-purge
   [ "$status" -ne 0 ]

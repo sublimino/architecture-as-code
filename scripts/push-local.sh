@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Push the fleet, infra, and apps manifest artifacts to the in-cluster zot
-# registry and sign each digest with the local cosign key. Flux inside the
-# cluster pulls the same repositories at zot.registry.svc.cluster.local:5000.
+# Push manifest artifacts to the in-cluster Zot registry and sign each digest
+# with the local cosign key. `foundation` excludes every demo artifact.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+
+mode="${1:-all}"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
 COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
@@ -40,17 +41,43 @@ push_and_sign() {
     "${REGISTRY}/${repo}@${digest}"
 }
 
-push_and_sign fleet d2-osramp-fleet
-for component in cert-manager ingress monitoring trivy-system; do
-  push_and_sign "infra/${component}" "d2-infra/components/${component}"
-done
-for component in inf-bao inf-signalloom; do
-  push_and_sign "signalloom/infra/${component}" "d2-signalloom/infra/${component}"
-done
-for component in frontend backend; do
-  push_and_sign "apps/${component}" "d2-osramp-apps/components/${component}"
-done
-push_and_sign "signalloom/apps/fe-signalloom" "d2-signalloom/apps/fe-signalloom"
-push_and_sign "olly/olly-replica" "olly-replica/components"
+push_foundation() {
+  push_and_sign fleet d2-osramp-fleet
+  for component in cert-manager ingress monitoring trivy-system; do
+    push_and_sign "infra/${component}" "d2-infra/components/${component}"
+  done
+}
+
+push_signalloom() {
+  for component in inf-bao inf-signalloom; do
+    push_and_sign "signalloom/infra/${component}" "d2-signalloom/infra/${component}"
+  done
+  push_and_sign "signalloom/apps/fe-signalloom" "d2-signalloom/apps/fe-signalloom"
+}
+
+push_osramp() {
+  for component in frontend backend; do
+    push_and_sign "apps/${component}" "d2-osramp-apps/components/${component}"
+  done
+}
+
+push_olly() {
+  push_and_sign "olly/olly-replica" "olly-replica/components"
+}
+
+case "${mode}" in
+  foundation) push_foundation ;;
+  signalloom) push_signalloom ;;
+  all)
+    push_foundation
+    push_signalloom
+    push_osramp
+    push_olly
+    ;;
+  *)
+    echo "usage: $0 [all|foundation|signalloom]" >&2
+    exit 64
+    ;;
+esac
 
 echo "all artifacts pushed and signed"

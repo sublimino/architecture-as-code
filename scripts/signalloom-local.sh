@@ -39,15 +39,19 @@ prepare() {
   if [[ "${SIGNALLOOM_SKIP_PREPARE:-0}" == 1 ]]; then
     return 0
   fi
-  # Keep every bootstrap action in one recipe, rather than relying on make's
-  # prerequisite scheduling when callers pass -j.
-  make -C "$repo_root" cluster
-  make -C "$repo_root" registry
-  make -C "$repo_root" signing-keys
-  make -C "$repo_root" push-local
-  make -C "$repo_root" bootstrap-local
+  # `make up` creates the shared foundation without starting a demo.
+  make -C "$repo_root" up
+  make -C "$repo_root" push-local-signalloom
   make -C "$repo_root" signalloom-spire-helper
   make -C "$repo_root" signalloom-images
+}
+
+activate_resourceset() {
+  local name="$1" inputs="$2"
+  kubectl -n flux-system patch "resourceset/${name}" --type merge \
+    -p "{\"spec\":{\"inputs\":${inputs}}}"
+  kubectl -n flux-system annotate "resourceset/${name}" \
+    reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 }
 
 up() {
@@ -55,13 +59,14 @@ up() {
   require_command flux
   prepare
 
-  # The infrastructure ResourceSet materialises both infrastructure tenants.
-  # Bao must finish its bounded bootstrap before its dependent infrastructure;
-  # the apps ResourceSet is then allowed to materialise the frontend tenant.
+  # Both ResourceSets are inactive after `make up`; this explicit lifecycle
+  # enables Signal Loom's infra first, then its frontend.
+  activate_resourceset signalloom-infra '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-bao","environment":"local","tag":"latest","tenant":"inf-bao"},{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-signalloom","environment":"local","tag":"latest","tenant":"inf-signalloom"}]'
   wait_resourceset signalloom-infra
   wait_namespace inf-bao
   "$repo_root/scripts/demo-lifecycle.sh" bao-up
   wait_namespace inf-signalloom
+  activate_resourceset signalloom-apps '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"local","tag":"latest","tenant":"fe-signalloom"}]'
   "$repo_root/scripts/demo-lifecycle.sh" signalloom-up
   wait_resourceset signalloom-apps
   wait_namespace fe-signalloom

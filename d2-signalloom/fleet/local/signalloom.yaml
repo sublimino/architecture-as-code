@@ -9,19 +9,8 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: "5m"
 spec:
-  inputs:
-    - tenant: inf-bao
-      component: inf-bao
-      tag: "${ARTIFACT_TAG}"
-      environment: "${ENVIRONMENT}"
-      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
-      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
-    - tenant: inf-signalloom
-      component: inf-signalloom
-      tag: "${ARTIFACT_TAG}"
-      environment: "${ENVIRONMENT}"
-      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
-      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  # Signal Loom infrastructure starts only through `make demo-signalloom-up`.
+  inputs: []
   resources:
     - apiVersion: v1
       kind: Namespace
@@ -146,13 +135,8 @@ spec:
       namespace: inf-signalloom
       ready: true
       readyExpr: status.observedGeneration >= 0
-  inputs:
-    - tenant: fe-signalloom
-      component: fe-signalloom
-      tag: "${ARTIFACT_TAG}"
-      environment: "${ENVIRONMENT}"
-      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
-      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  # The Signal Loom frontend starts only through `make demo-signalloom-up`.
+  inputs: []
   resources:
     - apiVersion: v1
       kind: Namespace

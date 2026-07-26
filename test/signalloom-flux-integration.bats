@@ -29,16 +29,14 @@ setup() {
   [ "$(grep -c 'name: cosign-pub' <<<"$output")" -ge 2 ]
 }
 
-@test "global waits follow Bao then Signalloom infrastructure then portal" {
+@test "global wait excludes every opt-in Signalloom resource" {
   waits="$repo_root/scripts/wait-reconciled.sh"
-  bao=$(grep -n 'Kustomization/inf-bao/infra-configs' "$waits" | cut -d: -f1)
-  infra=$(grep -n 'Kustomization/inf-signalloom/infra-configs' "$waits" | cut -d: -f1)
-  portal=$(grep -n 'Kustomization/fe-signalloom/apps' "$waits" | cut -d: -f1)
-  [ -n "$bao" ]
-  [ -n "$infra" ]
-  [ -n "$portal" ]
-  [ "$bao" -lt "$infra" ]
-  [ "$infra" -lt "$portal" ]
+  grep -Fq 'ResourceSet/flux-system/infra' "$waits"
+  ! grep -Fq 'ResourceSet/flux-system/signalloom-infra' "$waits"
+  ! grep -Fq 'ResourceSet/flux-system/signalloom-apps' "$waits"
+  ! grep -Fq 'Kustomization/inf-bao/infra-configs' "$waits"
+  ! grep -Fq 'Kustomization/inf-signalloom/infra-configs' "$waits"
+  ! grep -Fq 'Kustomization/fe-signalloom/apps' "$waits"
 }
 
 @test "Signalloom apps recreates immutable proof Jobs during Flux reconciliation" {

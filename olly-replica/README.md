@@ -100,6 +100,7 @@ silently writes no VulnerabilityReports on newer clusters.
 
 ```bash
 ./scripts/setup.sh        # or `make up` if the tools are installed
+make demo-olly-up
 kubectl -n olly-replica get pods,elasticsearch,helmrelease
 kubectl -n olly-replica port-forward svc/eye-in-the-sky-grafana 3000:80
 # http://localhost:3000  (admin / olly-replica-demo)

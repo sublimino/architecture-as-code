@@ -138,18 +138,19 @@ You do not install these by hand: `./scripts/setup.sh` installs everything excep
 
 ### Local quickstart (no GitHub credentials needed)
 
-One script installs every missing tool (pinned versions, skips what you have) and builds the whole environment, including the real GitOps path: a kind cluster, an in-cluster zot registry, cosign-signed manifest artifacts, Flux verifying and reconciling them, and the app images. Docker is the only precondition.
+One script installs every missing tool (pinned versions, skips what you have) and creates the shared GitOps foundation: a kind cluster, an in-cluster Zot registry, cosign-signed foundation artifacts, and Flux reconciliation. Docker is the only precondition.
 
 ```bash
-./scripts/setup.sh    # install tools, then build everything (same script CI runs)
-make test             # run the bats end-to-end suite against the result
+./scripts/setup.sh    # install tools, then create a healthy shared cluster
+make demo-osramp-up   # opt into the OSRAMP workload before its end-to-end suite
+make test             # run the OSRAMP bats end-to-end suite
 ```
 
 `./scripts/setup.sh --tools-only` installs without building; `make up` builds without installing.
 
-For the normal fast loop, keep the cluster running: `make push-local` updates the signed OCI artefacts in Zot, then reconcile only the affected Flux source and run `make wait`. Zot stores OCI data in the host-backed `ZOT_CACHE_DIR` (default `.cache/zot`), mounted through Kind into the Zot pod at `/var/lib/zot`; this survives `make down && make up` and makes cluster restarts reuse already-pushed images and artefacts. `make down && make up` is therefore a fast cluster/reconciliation rehearsal, not an empty-registry test. Use `make zot-cache-reset && make up` when a deliberately empty registry is required. Use `make teardown` (or `./scripts/teardown.sh`) only for a full bootstrap/trust-root reset because it also removes local keys and generated build state; `make teardown-all` also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
+For the normal fast loop, keep the cluster running: `make up` creates the shared foundation and confirms it is healthy without starting a demo. It prints the available opt-in targets: `make demo-signalloom-up`, `make demo-osramp-up`, `make demo-olly-up`, and `make demo-bao-up`. `make signalloom-images` builds the local Signalloom frontend and pushes it into Zot. Zot stores OCI data in the host-backed `ZOT_CACHE_DIR` (default `.cache/zot`), mounted through Kind into the Zot pod at `/var/lib/zot`; this survives `make down && make up` and makes cluster restarts reuse already-pushed foundation artifacts. Use `make zot-cache-reset && make up` when a deliberately empty registry is required. Use `make teardown` (or `./scripts/teardown.sh`) only for a full bootstrap/trust-root reset because it also removes local keys and generated build state; `make teardown-all` also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
 
-`make up` is a composition of granular targets (`make help` lists them): `cluster`, `registry` (zot), `signing-keys` (a local cosign key pair plus a witness key), `push-local` (flux push each component artifact to zot and cosign-sign the digests), `bootstrap-local` (Flux Operator with a FluxInstance that verifies signatures against the local public key), `images` (docker build and kind load), `workload-key`, and `wait`. Nothing reaches the cluster unsigned, even locally.
+`make up` composes only foundation targets (`make help` lists them): `cluster`, `registry` (Zot), `signing-keys` (a local cosign key pair plus a witness key), `push-local-foundation` (the fleet and shared infrastructure), `bootstrap-local` (Flux Operator with a FluxInstance that verifies signatures against the local public key), `wait`, and `healthcheck`. Demo images, workloads, and secrets are activated only by their corresponding `demo-*-up` command. Nothing reaches the cluster unsigned, even locally.
 
 There is also a shortcut that skips GitOps entirely for tight inner-loop work on the services: `make -C d2-osramp-apps local-dev` applies the manifests directly with kustomize.
 

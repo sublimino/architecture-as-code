@@ -33,8 +33,9 @@ The full environment is built from the repository root:
 
 ```bash
 cd ..            # the monorepo root
-make up          # cluster, registry, keys, signed artifacts, Flux, images
-make test        # end-to-end suite
+make up          # healthy shared cluster foundation; no workloads start
+make demo-osramp-up
+make test        # end-to-end suite for the opted-in OSRAMP workload
 ```
 
 For tight inner-loop work on the services themselves, this directory has a

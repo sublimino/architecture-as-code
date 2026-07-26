@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # olly-down.sh — Remove Olly Sentinel replica from the cluster.
-# Removes Flux Kustomization finalizers to allow clean namespace deletion,
-# then deletes the olly-replica namespace entirely.
-# The ResourceSet in flux-system is left intact (it will recreate on resume).
+# Patches the ResourceSet inputs to empty (stops Flux recreating), then
+# clears all finalizers and deletes the namespace.
 
-set -euo pipefail
+set -eo pipefail
 
 NAMESPACE="olly-replica"
 RESOURCESET="olly"
@@ -15,47 +14,71 @@ if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
   exit 0
 fi
 
-echo "==> Suspending and removing finalizers from Kustomizations in ${NAMESPACE}..."
-for ks in $(kubectl get kustomizations -n "${NAMESPACE}" -o name 2>/dev/null); do
-  kubectl patch "${ks}" -n "${NAMESPACE}" --type merge \
-    -p '{"spec":{"suspend":true},"metadata":{"finalizers":null}}' 2>/dev/null || true
+echo "==> Saving ResourceSet inputs for later restoration..."
+kubectl get resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  -o jsonpath='{.spec.inputs}' > /tmp/.olly-resourceset-inputs.json 2>/dev/null
+
+echo "==> Patching ResourceSet '${RESOURCESET}' to empty inputs (stops recreation)..."
+kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  --type merge -p '{"spec":{"inputs":[]}}'
+kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
+
+sleep 2
+
+echo "==> Clearing all Flux-managed finalizers in ${NAMESPACE}..."
+for kind in kustomizations helmreleases helmcharts helmrepositories ocirepositories; do
+  kubectl get "${kind}" -n "${NAMESPACE}" -o name 2>/dev/null | \
+    xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type json \
+    -p '[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
 done
 
-echo "==> Removing finalizers from CRD instances (Elasticsearch, Redpanda)..."
+echo "==> Clearing CRD instance finalizers (Elasticsearch, Redpanda)..."
 for crd in elasticsearches.elasticsearch.k8s.elastic.co redpandas.cluster.redpanda.com; do
   kubectl get "${crd}" -n "${NAMESPACE}" -o name 2>/dev/null | \
     xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type merge \
     -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
 done
 
+echo "==> Clearing PVC finalizers..."
+kubectl get pvc -n "${NAMESPACE}" -o name 2>/dev/null | \
+  xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type json \
+  -p '[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+
 echo "==> Deleting namespace '${NAMESPACE}'..."
 kubectl delete namespace "${NAMESPACE}" --timeout=30s 2>/dev/null || true
 
-# If namespace is stuck Terminating, clear any remaining finalizers
-sleep 3
+# Wait for termination
+for i in $(seq 1 20); do
+  kubectl get namespace "${NAMESPACE}" &>/dev/null || break
+  # Clear any stragglers
+  if [ "$i" -eq 5 ] || [ "$i" -eq 10 ]; then
+    for kind in kustomizations helmreleases helmcharts helmrepositories ocirepositories; do
+      kubectl get "${kind}" -n "${NAMESPACE}" -o name 2>/dev/null | \
+        xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type json \
+        -p '[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+    done
+    kubectl get pvc -n "${NAMESPACE}" -o name 2>/dev/null | \
+      xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type json \
+      -p '[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+  fi
+  sleep 2
+done
+
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-  echo "    Namespace still terminating — clearing remaining finalizers..."
-  kubectl get kustomizations -n "${NAMESPACE}" -o name 2>/dev/null | \
-    xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type merge \
-    -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
-  for crd in elasticsearches.elasticsearch.k8s.elastic.co redpandas.cluster.redpanda.com; do
-    kubectl get "${crd}" -n "${NAMESPACE}" -o name 2>/dev/null | \
-      xargs -I {} kubectl patch {} -n "${NAMESPACE}" --type merge \
-      -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
-  done
-  for i in $(seq 1 15); do
-    kubectl get namespace "${NAMESPACE}" &>/dev/null || break
-    sleep 2
-  done
+  echo "    Namespace still Terminating — force-finalizing via API..."
+  kubectl get ns "${NAMESPACE}" -o json 2>/dev/null | \
+    python3 -c "import sys,json; ns=json.load(sys.stdin); ns['spec']['finalizers']=[]; json.dump(ns,sys.stdout)" | \
+    kubectl replace --raw "/api/v1/namespaces/${NAMESPACE}/finalize" -f - &>/dev/null || true
+  sleep 3
 fi
 
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-  echo "WARNING: namespace ${NAMESPACE} still in Terminating state."
-  echo "         Resources are gone but namespace finalizer is stuck."
-  echo "         Functionally, Olly is removed from the cluster."
+  echo "WARNING: namespace ${NAMESPACE} still Terminating after force-finalize."
 else
   echo "==> Namespace '${NAMESPACE}' fully deleted."
 fi
 
 echo "==> Olly removed from cluster."
-echo "    Run olly-up.sh to restore (triggers ResourceSet '${RESOURCESET}' reconciliation)."
+echo "    ResourceSet inputs saved to /tmp/.olly-resourceset-inputs.json"
+echo "    Run olly-up.sh to restore."

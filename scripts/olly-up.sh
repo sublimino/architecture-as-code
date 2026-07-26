@@ -1,25 +1,41 @@
 #!/usr/bin/env bash
 # olly-up.sh — Restore Olly Sentinel replica to the cluster.
-# Triggers the Flux ResourceSet to reconcile, which recreates the namespace
-# and all Olly workloads.
+# Restores the ResourceSet inputs and triggers reconciliation.
 # Requires: images already loaded into kind (run `make images` if needed).
 
-set -euo pipefail
+set -eo pipefail
 
 NAMESPACE="olly-replica"
 RESOURCESET="olly"
 FLUX_NS="flux-system"
+INPUTS_FILE="/tmp/.olly-resourceset-inputs.json"
+
+# Default inputs if saved file doesn't exist
+DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","environment":"local","tag":"latest","tenant":"olly-replica"}]'
 
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
   echo "==> Namespace '${NAMESPACE}' already exists."
-  echo "    Checking if workloads are running..."
-  kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null | head -10
+  kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null | \
+    awk '{printf "    %-50s %s\n", $1, $3}' | head -10
   echo ""
-  echo "    To force re-reconciliation, delete the namespace first with olly-down.sh"
+  echo "    To force re-deploy, run olly-down.sh first."
   exit 0
 fi
 
-echo "==> Triggering ResourceSet '${RESOURCESET}' reconciliation..."
+# Determine inputs to restore
+if [ -f "${INPUTS_FILE}" ] && [ -s "${INPUTS_FILE}" ]; then
+  INPUTS=$(cat "${INPUTS_FILE}")
+  echo "==> Restoring ResourceSet inputs from saved file..."
+else
+  INPUTS="${DEFAULT_INPUTS}"
+  echo "==> Using default ResourceSet inputs (no saved file found)..."
+fi
+
+echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
+kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"
+
+echo "==> Triggering immediate reconciliation..."
 kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 
@@ -38,11 +54,12 @@ if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
   exit 1
 fi
 
-echo "==> Waiting for Kustomizations to reconcile..."
-for i in $(seq 1 12); do
-  READY=$(kubectl get kustomizations -n "${NAMESPACE}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-  if echo "${READY}" | grep -qv "False" && [ -n "${READY}" ]; then
-    echo "    Kustomizations Ready."
+echo "==> Waiting for Kustomizations to become Ready..."
+for i in $(seq 1 18); do
+  READY_COUNT=$(kubectl get kustomizations -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || true)
+  TOTAL=$(kubectl get kustomizations -n "${NAMESPACE}" --no-headers 2>/dev/null | wc -l || true)
+  if [ "${READY_COUNT}" -eq "${TOTAL}" ] && [ "${TOTAL}" -gt 0 ]; then
+    echo "    All ${TOTAL} Kustomization(s) Ready."
     break
   fi
   sleep 10

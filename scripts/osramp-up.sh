@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 # osramp-up.sh — Restore OSRAMP application to the cluster.
-# Triggers the Flux ResourceSet to reconcile, recreating frontend + backend
-# namespaces and all OSRAMP workloads.
+# Restores the ResourceSet inputs and triggers reconciliation.
 # Requires: images already loaded into kind (run `make images` if needed).
 
-set -euo pipefail
+set -eo pipefail
 
 NAMESPACES=("frontend" "backend")
 RESOURCESET="apps"
 FLUX_NS="flux-system"
+INPUTS_FILE="/tmp/.osramp-resourceset-inputs.json"
+
+# Default inputs if saved file doesn't exist
+DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","environment":"local","tag":"latest","tenant":"frontend"},{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","environment":"local","tag":"latest","tenant":"backend"}]'
 
 # Check if already up
 ALL_EXIST=true
@@ -26,11 +29,24 @@ if [ "${ALL_EXIST}" = true ]; then
     kubectl get pods -n "${ns}" --no-headers 2>/dev/null | head -5
   done
   echo ""
-  echo "    To force re-reconciliation, run osramp-down.sh first."
+  echo "    To force re-deploy, run osramp-down.sh first."
   exit 0
 fi
 
-echo "==> Triggering ResourceSet '${RESOURCESET}' reconciliation..."
+# Determine inputs to restore
+if [ -f "${INPUTS_FILE}" ] && [ -s "${INPUTS_FILE}" ]; then
+  INPUTS=$(cat "${INPUTS_FILE}")
+  echo "==> Restoring ResourceSet inputs from saved file..."
+else
+  INPUTS="${DEFAULT_INPUTS}"
+  echo "==> Using default ResourceSet inputs (no saved file found)..."
+fi
+
+echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
+kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"
+
+echo "==> Triggering immediate reconciliation..."
 kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 
@@ -48,11 +64,12 @@ for ns in "${NAMESPACES[@]}"; do
   fi
 done
 
-echo "==> Waiting for Kustomizations to reconcile..."
+echo "==> Waiting for Kustomizations to become Ready..."
 for ns in "${NAMESPACES[@]}"; do
-  for i in $(seq 1 12); do
-    READY=$(kubectl get kustomizations -n "${ns}" -o jsonpath='{.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
-    if echo "${READY}" | grep -qv "False" && [ -n "${READY}" ]; then
+  for i in $(seq 1 18); do
+    READY_COUNT=$(kubectl get kustomizations -n "${ns}" -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || true)
+    TOTAL=$(kubectl get kustomizations -n "${ns}" --no-headers 2>/dev/null | wc -l || true)
+    if [ "${READY_COUNT}" -eq "${TOTAL}" ] && [ "${TOTAL}" -gt 0 ]; then
       echo "    ${ns}: Kustomizations Ready."
       break
     fi
@@ -61,8 +78,9 @@ for ns in "${NAMESPACES[@]}"; do
 done
 
 echo "==> Recreating workload signing key (not Flux-managed)..."
-make -C "$(git rev-parse --show-toplevel)" workload-key 2>/dev/null || \
-  echo "    WARNING: could not run 'make workload-key' — osramp-multipurpose will fail without it."
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo /home/andy/src/cp/osramp-demo)"
+make -C "${REPO_ROOT}" workload-key 2>/dev/null || \
+  echo "    WARNING: could not run 'make workload-key' — osramp-multipurpose may fail."
 
 echo "==> Pod status:"
 for ns in "${NAMESPACES[@]}"; do

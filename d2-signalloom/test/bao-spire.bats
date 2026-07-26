@@ -26,6 +26,13 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -eq 0 ]
 }
 
+@test "Bao proof waits for the SPIRE workload API before fetching identities" {
+  proof="$root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
+  run grep -cF 'spire-agent healthcheck -socketPath /run/spire/sockets/agent.sock' "$proof"
+  [ "$status" -eq 0 ]
+  [ "$output" = "2" ]
+}
+
 @test "OpenBao bypasses the root su-exec transition without weakening its pod security context" {
   run kubectl kustomize "$root/d2-signalloom/infra/inf-bao/controllers/local"
   [ "$status" -eq 0 ]

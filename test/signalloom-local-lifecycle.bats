@@ -47,6 +47,15 @@ line_number() {
   grep -Fq 'wait resourceset/signalloom-apps --for=condition=ready' "$log"
 }
 
+@test "local lifecycle builds the SPIRE helper before loading the portal image" {
+  script="$root/scripts/signalloom-local.sh"
+  helper=$(grep -n 'signalloom-spire-helper' "$script" | cut -d: -f1)
+  image=$(grep -n 'signalloom-images' "$script" | cut -d: -f1)
+  [ -n "$helper" ]
+  [ -n "$image" ]
+  [ "$helper" -lt "$image" ]
+}
+
 @test "Phase 1 is exposed through the approved demo lifecycle rather than a new wrapper" {
   run make -n demo-signalloom-up demo-signalloom-test demo-signalloom-down
 

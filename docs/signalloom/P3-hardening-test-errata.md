@@ -107,3 +107,71 @@ scripts/bao-spire-proof.sh`, and `git diff --check`.
 This remains a partial integration verification only. It does not approve Phase
 3 or claim P3-5 runtime proof; P3-5 must be recreated from this clean
 integration SHA.
+
+## Phase 2 Gate C/D/E runtime recovery handoff
+
+<!-- machine-tag: SIGNALLOOM-PHASE2-RUNTIME-HANDOFF-2026-07-26T13:25:12+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- integration-sha: e1c969c -->
+<!-- scope: local-kind-zot-flux-only status=deferred owner=phase2-governor -->
+
+Principal-directed handoff: this record is limited to reversible local/demo
+runtime recovery. It neither changes `board.json` or the Obsidian proposal nor
+authorises hosted, hardening, production, Phase 3+, external infrastructure,
+credentials, or a release. The bounded source/test recovery is committed as
+`e1c969c` and is deliberately handed to the dedicated Phase 2 Governor for
+timeboxed integration validation. No push was performed.
+
+### Demonstrated local evidence
+
+- The initial Kind runtime diagnostic recovered the exact OpenBao failure from
+  the node container runtime: `su-exec: setgroups: Operation not permitted`.
+  The OpenBao Deployment now invokes `/bin/bao` directly as the image's
+  non-root UID/GID while retaining `allowPrivilegeEscalation: false` and dropped
+  capabilities; a constrained local image experiment started successfully,
+  whereas the stock entrypoint failed with the recorded `setgroups` error.
+- Flux reconciled the repaired Bao controller and config slices from signed
+  local Zot OCI artifacts. The local lifecycle generated an ephemeral SPIRE
+  join token and registered the bounded positive workload identity. The final
+  successful `demo-bao-up` output is in retained evidence.
+- The Signalloom dependency slice reconciled using direct disposable local
+  PostgreSQL, Redis, and MinIO workloads rather than relaxing the tenant OCI
+  source allowlist. Its bootstrap ConfigMap was moved into the controller slice
+  to avoid the controller/config dependency deadlock.
+- Static verification passed after the recovery: `make signalloom-check`,
+  `make demo-signalloom-test-config` (16/16), `bats
+  test/bao-spire-proof.bats test/demo-lifecycle.bats
+  test/signalloom-flux-integration.bats` (13/13), shell syntax checks, and
+  `git diff --check`.
+
+### Deferred runtime gap and current state
+
+The final `make demo-signalloom-up` remained non-green. Flux reports
+`fe-signalloom/apps` `Ready=False`; its retained API diagnostic records a
+reconciliation failure attempting to update the existing negative proof Job's
+immutable pod template after the local SPIRE helper change. Earlier attempts
+also recorded the original distroless SPIRE image lacking `sh` and the portal
+init container image/root-security-context mismatch. The repair source includes
+the bounded helper and lifecycle scaffolding, but **no live positive/negative
+identity proof, portal readiness proof, lifecycle idempotency proof, teardown
+safety proof, or Gate C/D/E pass is claimed**. The incoming Governor must start
+from the current committed source with a clean, timeboxed local Kind/Zot/Flux
+validation plan, delete/recreate only disposable demo Jobs as appropriate, and
+re-run those proofs with fresh diagnostics.
+
+### Retained exact evidence
+
+All command transcripts and diagnostics are retained locally at
+`/tmp/opencode/signalloom-d2-v2.0.0-20260726T1105+0100/`. Key transcripts are:
+
+- `22-helper-build-static.log` — local helper build and static failure-path
+  suite;
+- `24-live-agent-env-helper.log` — Bao/Flux reconciliation prior to the
+  escaped Flux variable correction;
+- `25-live-app-proof.log` — latest live Signalloom stack attempt;
+- `26-final-static-verification.log` — final passing static verification.
+
+The final observation-only snapshot recorded `inf-bao` and `inf-signalloom`
+Flux slices reconciled, while `fe-signalloom/apps` stayed false for the
+immutable negative Job update. No additional lifecycle command was run after
+the principal-directed stop.

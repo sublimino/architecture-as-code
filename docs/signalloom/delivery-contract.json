@@ -42,6 +42,42 @@
       "provenance"
     ]
   },
+  "securityAssurance": {
+    "evidenceScope": "candidate-only; repository-local definition; no production credentials, data, cloud resources, external scans, or release action",
+    "requiredGates": [
+      "sast",
+      "dast",
+      "sca",
+      "secret-scan",
+      "sbom",
+      "pentest"
+    ],
+    "acceptedDispositions": [
+      "pass",
+      "risk-accepted-exception",
+      "not-applicable"
+    ],
+    "rejectedDispositions": [
+      "not-run",
+      "warning-only",
+      "unverified",
+      "digest-mismatch",
+      "expired-exception"
+    ],
+    "releasePack": {
+      "path": "docs/signalloom/security-release-pack.md",
+      "requiredFields": [
+        "candidate-identity",
+        "evidence-ledger",
+        "gate-dispositions",
+        "exceptions",
+        "approvals",
+        "rollback-reference",
+        "release-decision"
+      ],
+      "releaseDecision": "fail-closed; no-go until every required gate has a current accepted disposition bound to the candidate digest"
+    }
+  },
   "revocationRotation": {
     "revocation": "Withdraw the affected trust anchor or signer identity, reject newly resolved artifacts that depend on it, and preserve the failed verification result with its digest.",
     "rotation": "Use an overlap window with both old and new trust anchors accepted; record successful verification by both, then remove the old anchor and verify rejection."

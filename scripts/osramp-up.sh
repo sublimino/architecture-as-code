@@ -60,6 +60,10 @@ for ns in "${NAMESPACES[@]}"; do
   done
 done
 
+echo "==> Recreating workload signing key (not Flux-managed)..."
+make -C "$(git rev-parse --show-toplevel)" workload-key 2>/dev/null || \
+  echo "    WARNING: could not run 'make workload-key' — osramp-multipurpose will fail without it."
+
 echo "==> Pod status:"
 for ns in "${NAMESPACES[@]}"; do
   echo "    --- ${ns} ---"

@@ -229,7 +229,10 @@ spec:
         serviceAccountName: flux
         interval: 30m
         retryInterval: 5m
-        wait: true
+        # Phase 1 establishes Flux delivery only. Workload health and the
+        # deliberately negative SPIRE proof are acceptance evidence for later
+        # phases, so they must not hold this delivery Kustomization unready.
+        wait: false
         timeout: 5m
         sourceRef:
           kind: OCIRepository

@@ -45,6 +45,10 @@ signalloom-security-release-pack-check: ## Statically validate the security rele
 signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command sequence.
 	./scripts/signalloom-preflight.sh help "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)" "$(SIGNALLOOM_INTEGRATION_BRANCH)"
 
+.PHONY: test-demo-signalloom-lifecycle
+test-demo-signalloom-lifecycle: ## Test the deterministic local Signal Loom lifecycle with fake kubectl/Flux clients.
+	bats test/signalloom-local-lifecycle.bats
+
 ##@ Cluster lifecycle
 
 .PHONY: cluster
@@ -173,13 +177,15 @@ demo-bao-test: demo-bao-test-config ## Run bounded positive and negative Bao/SPI
 demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
 
-.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down
-demo-signalloom-up: signalloom-spire-helper ## Reconcile and wait for Signalloom dependencies and application slice.
-	./scripts/demo-lifecycle.sh signalloom-up
+.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-down
+demo-signalloom-up: ## Create local Kind/zot/Flux and reconcile Signal Loom Phase 1 in dependency order.
+	./scripts/signalloom-local.sh up
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test
-demo-signalloom-test: demo-signalloom-test-config ## Verify Signalloom Flux readiness and runtime assertions.
-	./scripts/demo-lifecycle.sh signalloom-test
+demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.
+	./scripts/signalloom-local.sh verify
+demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
+	bats d2-signalloom/test/runtime.bats
 demo-signalloom-down: ## Prune Signalloom only; shared Bao remains untouched.
 	./scripts/demo-lifecycle.sh signalloom-down
 
@@ -205,7 +211,7 @@ demo-olly-down: ## Remove the Olly slice without deleting shared Kind.
 	kubectl delete namespace olly-replica --ignore-not-found --wait=true
 
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
-demo-signalloom-stack-up: demo-bao-up demo-bao-test demo-signalloom-up demo-signalloom-test ## Compose Bao proof before Signalloom.
+demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
 demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.
 demo-signalloom-stack-purge: demo-signalloom-stack-down ## Remove Bao only after an authoritative empty consumer query.
 	./scripts/demo-lifecycle.sh stack-purge

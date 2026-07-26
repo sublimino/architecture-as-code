@@ -18,7 +18,7 @@ if ! kubectl -n "$namespace" logs "job/$positive" | grep -Fq 'bounded Bao/SPIRE 
   echo 'positive Bao/SPIRE proof did not emit its success marker' >&2
   exit 1
 fi
-if ! kubectl -n "$namespace" logs "job/$negative" | grep -Fq 'denied as expected'; then
+if ! kubectl -n "$namespace" logs "job/$negative" -c jwt-svid | grep -Fq 'denied as expected'; then
   echo 'negative Bao/SPIRE proof did not emit its denial marker' >&2
   exit 1
 fi

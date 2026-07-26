@@ -16,3 +16,16 @@ setup() {
     "$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
   [ "$status" -eq 0 ]
 }
+
+@test "Phase 1 frontend reconciliation does not wait on later acceptance jobs" {
+  run python3 - "$repo_root/d2-signalloom/fleet/local/signalloom.yaml" <<'PY'
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text()
+apps = text[text.index('name: apps\n', text.index('name: signalloom-apps')):]
+assert 'wait: false' in apps
+assert 'wait: true' not in apps.split('postBuild:', 1)[0]
+PY
+  [ "$status" -eq 0 ]
+}

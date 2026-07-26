@@ -229,3 +229,28 @@ live Kind acceptance. The Grafana route's target is source-tested only; an
 operational path test needs a disposable local cluster and should be reported
 separately. This erratum records the boundary rather than converting local
 fixtures into runtime proof.
+## Negative proof log selection correction
+
+<!-- machine-tag: SIGNALLOOM-P3-IDENTITY-LOG-SELECTION-2026-07-26T16:56:00+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- commit: 738c5cd97c1970ce94491aad9550c8a82cdd3ba3 -->
+<!-- scope: static-runtime-verifier-and-fixture-harness-only -->
+
+The bounded positive and negative identity proof Jobs remain distinct: the
+authorised `fe-signalloom` Job must complete after its Bao read, while the
+unauthorised `fe-signalloom-negative` Job must fail after its SPIRE identity
+request is denied. The negative denial marker is intentionally emitted by the
+failing `jwt-svid` init container. The runtime verifier now explicitly selects
+that container when collecting the negative Job log; unqualified Job logs can
+select the regular `proof` container, which does not start after init failure.
+
+The local deterministic harness now fails if that explicit container selector
+is removed. `make test-bao-spire-proof-harness` passed 5/5, `make -C
+d2-signalloom bao-test-config`, `make -C d2-signalloom test` passed 17/17,
+`make signalloom-check`, `bash -n scripts/bao-spire-proof.sh`, and `git diff
+--check` passed for this correction.
+
+This is qualified static and fake-boundary evidence only. It does not claim a
+live Kind reconciliation, a live SPIRE identity denial, a live OpenBao read,
+Flux application readiness, or any Gate C/D/E runtime result. No board state
+was edited and no remote push was performed.

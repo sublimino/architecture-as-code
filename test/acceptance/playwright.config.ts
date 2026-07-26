@@ -8,6 +8,8 @@ export default defineConfig({
     headless: true,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
+    trace: "retain-on-failure",
+    video: "retain-on-failure",
   },
   projects: [
     {
@@ -18,5 +20,5 @@ export default defineConfig({
       },
     },
   ],
-  reporter: [["list"], ["html", { open: "never" }]],
+  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
 });

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures";
 
 /**
  * Simple browser-driven acceptance tests for the OSRAMP demo cluster.

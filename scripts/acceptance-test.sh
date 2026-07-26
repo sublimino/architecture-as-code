@@ -2,7 +2,7 @@
 # acceptance-test.sh — Run browser-driven acceptance tests against the cluster.
 # Sets up port-forwards, runs Playwright tests, cleans up.
 
-set -eo pipefail
+set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -50,14 +50,18 @@ fi
 
 echo "==> Running Playwright tests..."
 cd "${TEST_DIR}"
+set +e
 bunx playwright test --config=playwright.config.ts "$@"
 EXIT=$?
+set -e
 
 if [ "${EXIT}" -eq 0 ]; then
   echo "==> All acceptance tests passed."
 else
   echo "==> Some tests failed (exit ${EXIT})."
   echo "    Report: ${TEST_DIR}/playwright-report/index.html"
+  echo "    Artifacts: ${TEST_DIR}/test-results/"
+  echo "    Inspect a trace: cd ${TEST_DIR} && bunx playwright show-trace test-results/<failed-test>/trace.zip"
 fi
 
 exit "${EXIT}"

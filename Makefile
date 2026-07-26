@@ -166,7 +166,7 @@ healthcheck: ## Verify the shared cluster foundation is ready for demos.
 
 .PHONY: demo-help
 demo-help: ## Show demos available after the shared cluster becomes healthy.
-	@printf '\nCluster foundation is ready. No demos are running.\n\nAvailable demos:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n\n'
+	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n\n'
 
 .PHONY: olly-pdi-secret
 olly-pdi-secret: ## Create the ServiceNow PDI secret from .env (no-op without one).
@@ -217,7 +217,7 @@ demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom 
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
-demo-signalloom-down: ## Remove Signal Loom frontend (durable: empties ResourceSet inputs).
+demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
 	./scripts/signalloom-down.sh
 
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
@@ -227,7 +227,7 @@ demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running
 	kubectl kustomize d2-osramp-apps/components >/dev/null
 demo-osramp-test: demo-osramp-test-config ## Run existing OSRAMP acceptance tests.
 	$(MAKE) test
-demo-osramp-down: ## Remove OSRAMP frontend+backend (durable: empties ResourceSet inputs).
+demo-osramp-down: ## Remove OSRAMP frontend+backend via shared ResourceSet cleanup.
 	./scripts/osramp-down.sh
 
 .PHONY: demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down
@@ -237,7 +237,7 @@ demo-olly-test-config: ## Render the Olly component configuration without a runn
 	kubectl kustomize olly-replica/components >/dev/null
 demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
 	$(MAKE) olly-test
-demo-olly-down: ## Remove Olly Sentinel replica (durable: empties ResourceSet inputs).
+demo-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
 	./scripts/olly-down.sh
 
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
@@ -318,7 +318,7 @@ doctor: ## Run the cluster health check (all components).
 	./scripts/doctor.sh
 
 .PHONY: olly-down
-olly-down: ## Remove Olly Sentinel replica from the cluster.
+olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
 	./scripts/olly-down.sh
 
 .PHONY: olly-up
@@ -326,7 +326,7 @@ olly-up: ## Restore Olly Sentinel replica to the cluster.
 	./scripts/olly-up.sh
 
 .PHONY: osramp-down
-osramp-down: ## Remove OSRAMP apps (frontend + backend) from the cluster.
+osramp-down: ## Remove OSRAMP apps via shared ResourceSet cleanup.
 	./scripts/osramp-down.sh
 
 .PHONY: osramp-up
@@ -334,7 +334,7 @@ osramp-up: ## Restore OSRAMP apps (frontend + backend) to the cluster.
 	./scripts/osramp-up.sh
 
 .PHONY: signalloom-down
-signalloom-down: ## Remove Signal Loom frontend from the cluster.
+signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
 	./scripts/signalloom-down.sh
 
 .PHONY: signalloom-up

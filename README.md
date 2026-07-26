@@ -144,9 +144,12 @@ One script installs every missing tool (pinned versions, skips what you have) an
 ./scripts/setup.sh    # install tools, then create a healthy shared cluster
 make demo-osramp-up   # opt into the OSRAMP workload before its end-to-end suite
 make test             # run the OSRAMP bats end-to-end suite
+make acceptance-test  # run the browser acceptance suite
 ```
 
 `./scripts/setup.sh --tools-only` installs without building; `make up` builds without installing.
+
+Browser acceptance setup, diagnostics, and the latest observed baseline are documented in [TESTING.md](TESTING.md). Use [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) when a person needs to review the live browser experience and record evidence.
 
 For the normal fast loop, keep the cluster running: `make up` creates the shared foundation and confirms it is healthy without starting a demo. It prints the available opt-in targets: `make demo-signalloom-up`, `make demo-osramp-up`, `make demo-olly-up`, and `make demo-bao-up`. `make signalloom-images` builds the local Signalloom frontend and pushes it into Zot. Zot stores OCI data in the host-backed `ZOT_CACHE_DIR` (default `.cache/zot`), mounted through Kind into the Zot pod at `/var/lib/zot`; this survives `make down && make up` and makes cluster restarts reuse already-pushed foundation artifacts. Use `make zot-cache-reset && make up` when a deliberately empty registry is required. Use `make teardown` (or `./scripts/teardown.sh`) only for a full bootstrap/trust-root reset because it also removes local keys and generated build state; `make teardown-all` also uninstalls the CLIs `setup.sh` added. Your `.env` is left untouched.
 
@@ -240,7 +243,7 @@ The component-local workflows inside `d2-osramp-apps`, `d2-infra`, and `d2-osram
 
 ## Validation status
 
-Everything below marked working was executed against a live cluster on 2026-07-09: the full signed local GitOps loop (kind, zot, cosign-signed artifacts, Flux verification, three-tenant reconciliation), all 8 end-to-end tests, the complete VEX demo with every triaged finding suppressed on rescan, witness-attested test evidence stored in and retrieved from Archivista, the promotion gate (genuine artifact approved, tampered artifact rejected), Kyverno admission (signed image admitted, unsigned denied), the trust revocation walkthrough, and the console executing live actions. Two things have not run yet: the agent demo (needs nono and the claude CLI on a Linux host) and the GHCR-published workflows (they run on first push to a GitHub remote).
+The historical validation run on 2026-07-09 covered the full signed local GitOps loop, all eight OSRAMP end-to-end tests, the VEX demo, witness-attested evidence, governance demos, and the interactive console. The latest V2.5 browser baseline on 2026-07-26 passed four tests (Grafana and SignalLoom) and failed four tests because the Archivista and Olly customer-portal services were unavailable. See [TESTING.md](TESTING.md) and [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) for reproducible commands and review evidence.
 
 ## Current state and roadmap
 

@@ -148,8 +148,9 @@ Extend the OSRAMP artefact process rather than adding a parallel delivery path:
 - Do not add a second FluxInstance, second Flux Operator or an alternate source
   verification policy for D2-BAO.
 
-**Exit criteria:** `make up` from a clean machine reaches a healthy OSRAMP
-baseline plus a healthy `openbao-system`; `flux get all -A` shows all new
+**Exit criteria:** `make up` from a clean machine reaches a healthy shared
+foundation without activating demo workloads. `make demo-bao-up` then reaches a
+healthy `openbao-system`; `flux get all -A` shows the explicitly activated Bao
 sources and Kustomizations Ready.
 
 ### Phase 3 — bootstrap, identity and demo consumer
@@ -211,7 +212,8 @@ diagnosis.
 
 | Scenario | Expected result |
 | --- | --- |
-| Clean `make up` | Existing OSRAMP workload plus `openbao-system` reach Ready without manual kubectl mutation. |
+| Clean `make up` | Shared foundation reaches Ready without demo workloads or manual kubectl mutation. |
+| Explicit `make demo-bao-up` | `openbao-system` reaches Ready after opt-in activation. |
 | Local signed source | Flux accepts the local Zot/OpenBao artefact signed by the generated local key. |
 | Untrusted source | Fleet policy rejects a tenant source outside the allowlist. |
 | Bootstrap re-reconcile | Reconciliation does not reinitialise/reseal or rotate bootstrap material. |

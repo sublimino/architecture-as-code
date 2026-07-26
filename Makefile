@@ -211,6 +211,10 @@ test-zot-cache: ## Verify the Kind/Zot persistent-cache configuration without a 
 test-demo-lifecycle: ## Validate composable lifecycle aliases and fail-closed purge semantics.
 	bats test/demo-lifecycle.bats
 
+.PHONY: test-bao-spire-proof-harness
+test-bao-spire-proof-harness: ## Verify positive and negative Bao/SPIRE runtime-proof assertions with a local fake kubectl.
+	bats test/bao-spire-proof.bats
+
 .PHONY: attested-test
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.
 	./scripts/attested-test.sh

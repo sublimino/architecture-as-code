@@ -143,3 +143,33 @@ suite that asserts object readiness, denies the negative service account,
 obtains the expected workload identity, performs a portal request, repeats a
 non-destructive up operation for idempotency, and verifies guard behavior
 without deleting live shared state.
+
+## Re-baseline errata: Appendix B and Phase 3 review
+
+<!-- machine-tag: P2-8-REBASE-REVIEW-2026-07-26T03:30:55+01:00 -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+The completed demo was re-baselined at `integration/signalloom-d2-v2.0.0`
+(`48657aa8facd2ce6446877bac77d4b357b2d8ba2`) without modifying the proposal,
+`board.json`, another worktree, or any external environment. Appendix B's
+duplication guard and Phase 3's bounded bootstrap/identity requirements were
+reviewed against the repository evidence:
+
+- **Duplication boundary:** retain the existing controller and delivery owners;
+  no second Flux, cert-manager, Kyverno, monitoring, or alternate source-policy
+  owner is justified by the current evidence.
+- **Phase 3 safety boundary:** keep bootstrap state disposable and local, use a
+  dedicated non-critical consumer and service account, prove both allowed and
+  denied access, and do not make backend, NATS, PostgreSQL, or workflow paths
+  depend on the demo secret.
+- **Shared-pattern decision:** reuse only the evidenced lifecycle/Make target
+  and fail-closed purge patterns (`test/demo-lifecycle.bats`, 4/4), plus the
+  existing static topology/dependency checks (9/9). No new generic abstraction
+  or production secret path is introduced.
+- **Qualification boundary:** this review passes as documentation/re-baseline
+  evidence; the existing real-runtime Bao readiness and portal acceptance
+  blockers remain blocked and are not promoted to release evidence.
+
+Validation after the review passed: `make signalloom-check`,
+`make demo-signalloom-test-config`, `make test-demo-lifecycle`,
+`bats test/signalloom-flux-integration.bats`, and `git diff --check`.

@@ -183,37 +183,36 @@ demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
 
 .PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-down
-demo-signalloom-up: ## Create local Kind/zot/Flux and reconcile Signal Loom Phase 1 in dependency order.
-	./scripts/signalloom-local.sh up
+demo-signalloom-up: ## Restore Signal Loom frontend (durable: restores ResourceSet inputs).
+	./scripts/signalloom-up.sh
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
-demo-signalloom-down: ## Prune Signalloom only; shared Bao remains untouched.
-	./scripts/demo-lifecycle.sh signalloom-down
+demo-signalloom-down: ## Remove Signal Loom frontend (durable: empties ResourceSet inputs).
+	./scripts/signalloom-down.sh
 
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
-demo-osramp-up: cluster-up registry flux-bootstrap images ## Reconcile existing OSRAMP demo workload.
-	$(MAKE) wait
+demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
+	./scripts/osramp-up.sh
 demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running slice.
 	kubectl kustomize d2-osramp-apps/components >/dev/null
 demo-osramp-test: demo-osramp-test-config ## Run existing OSRAMP acceptance tests.
 	$(MAKE) test
-demo-osramp-down: ## Remove OSRAMP application namespaces without deleting shared Kind.
-	kubectl delete namespace frontend backend --ignore-not-found --wait=true
+demo-osramp-down: ## Remove OSRAMP frontend+backend (durable: empties ResourceSet inputs).
+	./scripts/osramp-down.sh
 
 .PHONY: demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down
-demo-olly-up: ## Reconcile the existing Olly slice and wait for readiness.
-	flux reconcile kustomization olly-configs -n olly-replica --with-source
-	kubectl -n olly-replica wait kustomization/olly-configs --for=condition=ready --timeout="$${DEMO_WAIT_TIMEOUT:-10m}"
+demo-olly-up: ## Restore Olly Sentinel replica (durable: restores ResourceSet inputs).
+	./scripts/olly-up.sh
 demo-olly-test-config: ## Render the Olly component configuration without a running slice.
 	kubectl kustomize olly-replica/components >/dev/null
 demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
 	$(MAKE) olly-test
-demo-olly-down: ## Remove the Olly slice without deleting shared Kind.
-	kubectl delete namespace olly-replica --ignore-not-found --wait=true
+demo-olly-down: ## Remove Olly Sentinel replica (durable: empties ResourceSet inputs).
+	./scripts/olly-down.sh
 
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
@@ -287,3 +286,35 @@ console: ## Serve the Estate 95 win95 console (whole demo) at http://localhost:8
 .PHONY: readonly-kubeconfig
 readonly-kubeconfig: ## Create the scoped read-only kubeconfig the terminal uses.
 	./scripts/olly-readonly-kubeconfig.sh
+
+.PHONY: doctor
+doctor: ## Run the cluster health check (all components).
+	./scripts/doctor.sh
+
+.PHONY: olly-down
+olly-down: ## Remove Olly Sentinel replica from the cluster.
+	./scripts/olly-down.sh
+
+.PHONY: olly-up
+olly-up: ## Restore Olly Sentinel replica to the cluster.
+	./scripts/olly-up.sh
+
+.PHONY: osramp-down
+osramp-down: ## Remove OSRAMP apps (frontend + backend) from the cluster.
+	./scripts/osramp-down.sh
+
+.PHONY: osramp-up
+osramp-up: ## Restore OSRAMP apps (frontend + backend) to the cluster.
+	./scripts/osramp-up.sh
+
+.PHONY: signalloom-down
+signalloom-down: ## Remove Signal Loom frontend from the cluster.
+	./scripts/signalloom-down.sh
+
+.PHONY: signalloom-up
+signalloom-up: ## Restore Signal Loom frontend to the cluster.
+	./scripts/signalloom-up.sh
+
+.PHONY: acceptance-test
+acceptance-test: ## Run browser-driven acceptance tests (Playwright).
+	./scripts/acceptance-test.sh

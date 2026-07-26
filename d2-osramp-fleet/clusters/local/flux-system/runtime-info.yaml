@@ -15,7 +15,7 @@ data:
   CLUSTER_DOMAIN: osramp.acme.local
   REGISTRY_BASE: zot.registry.svc.cluster.local:5000/acme
   REGISTRY_INSECURE: "true"
-  IMAGE_BASE: unused-in-local-mode
+  IMAGE_BASE: zot.registry.svc.cluster.local:5000/acme/images
   # Unused in local mode: the tenants/local overlay replaces keyless
   # verification with the local cosign key pair.
   ARTIFACT_SUBJECT_WORKFLOW: local

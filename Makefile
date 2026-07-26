@@ -142,9 +142,19 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 	kind load docker-image --name $(CLUSTER_NAME) signalloom-spire-helper:local
 
 .PHONY: signalloom-images
-signalloom-images: ## Build and load local Signal Loom workload images into Kind.
-	docker build -t zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom
-	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/signalloom/apps/fe-signalloom:latest
+signalloom-images: ## Build and persist local Signal Loom workload images in Zot.
+	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	IMAGE_TAR=$$(mktemp); \
+	trap 'kill $$PORT_FORWARD_PID 2>/dev/null || true; rm -f "$$IMAGE_TAR"' EXIT; \
+	for _ in $$(seq 1 60); do \
+		curl -fsS http://localhost:5001/v2/ >/dev/null 2>&1 && break; \
+		sleep 0.5; \
+	done; \
+	curl -fsS http://localhost:5001/v2/ >/dev/null; \
+	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom; \
+	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
+	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest
 
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.

@@ -25,9 +25,9 @@ curl -fsS "http://localhost:5001/v2/" >/dev/null
 
 push_and_sign() {
   local repo="$1" path="$2"
-  echo "pushing oci://${REGISTRY}/${repo}:latest from ${path}"
+  echo "pushing oci://${REGISTRY}/${repo}:staging from ${path}"
   local digest
-  digest=$(flux push artifact "oci://${REGISTRY}/${repo}:latest" \
+  digest=$(flux push artifact "oci://${REGISTRY}/${repo}:staging" \
     --path="${path}" \
     --source="local" \
     --revision="${REVISION}" \
@@ -38,7 +38,9 @@ push_and_sign() {
     --use-signing-config=false \
     --tlog-upload=false \
     --allow-insecure-registry \
+    --registry-referrers-mode=legacy \
     "${REGISTRY}/${repo}@${digest}"
+  crane tag --insecure "${REGISTRY}/${repo}@${digest}" latest
 }
 
 push_foundation() {

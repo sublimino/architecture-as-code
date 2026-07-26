@@ -23,9 +23,8 @@ cmp --silent "$source_file" "$fleet_file"
 grep -Fqx '  - signalloom.yaml' "$root/d2-osramp-fleet/tenants/local/kustomization.yaml"
 grep -Fq 'name: signalloom-infra' "$source_file"
 grep -Fq 'name: signalloom-apps' "$source_file"
-grep -Fq 'tenant: inf-bao' "$source_file"
-grep -Fq 'tenant: inf-signalloom' "$source_file"
-grep -Fq 'tenant: fe-signalloom' "$source_file"
+grep -Fq 'namespace: inf-signalloom' "$source_file"
+grep -Fq 'bao.controlplane.io/consumer: fe-signalloom' "$source_file"
 if grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2-signalloom/fleet"; then
   printf 'd2-signalloom/fleet must not bootstrap a Flux control plane.\n' >&2
   exit 1

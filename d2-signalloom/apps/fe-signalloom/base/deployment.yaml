@@ -48,7 +48,7 @@ spec:
               drop: ["ALL"]
       containers:
         - name: discovery-portal
-          image: ${REGISTRY_BASE}/signalloom/apps/fe-signalloom:${ARTIFACT_TAG}
+          image: ${IMAGE_BASE}/signalloom/apps/fe-signalloom:${ARTIFACT_TAG}
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

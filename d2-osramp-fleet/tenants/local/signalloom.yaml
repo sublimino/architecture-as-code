@@ -239,6 +239,9 @@ spec:
           name: << inputs.component >>
         path: ./<< inputs.environment >>
         prune: true
+        # Proof Jobs are intentionally revised as the SPIRE assertion evolves;
+        # Kubernetes makes Job pod templates immutable, so Flux must recreate it.
+        force: true
         postBuild:
           substituteFrom:
             - kind: ConfigMap

@@ -40,3 +40,10 @@ setup() {
   [ "$bao" -lt "$infra" ]
   [ "$infra" -lt "$portal" ]
 }
+
+@test "Signalloom apps recreates immutable proof Jobs during Flux reconciliation" {
+  manifest="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "signalloom-apps") | .spec.resources[] | select(.kind == "Kustomization" and .metadata.name == "apps") | .spec.force == true' "$manifest"
+  [ "$status" -eq 0 ]
+  [ "$output" = "true" ]
+}

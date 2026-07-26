@@ -317,3 +317,89 @@ Post-merge `make demo-signalloom-test-config`, `make test-demo-lifecycle`,
 was already false at pre-merge commit `6901c5576983a28f96c471b7563221e56706bc67`.
 This outcome does not claim a complete phase pass, runtime Gate C/D/E result,
 board-state edit, or remote push.
+
+## Phase 6 recovery qualified failure
+
+<!-- machine-tag: SIGNALLOOM-PHASE6-RECOVERY-FAIL-2026-07-26T19:28:03+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- integration-sha: 879291f090ef4fc57c438335ae15f5c967928425 -->
+<!-- task-sha: eac7e5c30071b1255c430e523462e09f97b9b93b -->
+<!-- status: blocked validation=failed owner=phase6-recovery -->
+<!-- blocker: spire-agent-lacks-get-nodes-proxy-rbac -->
+<!-- unsigned-commit-exception: principal-authorized-yubikey-unavailable -->
+<!-- scope: single-kind-osramp-local-signalloom-only -->
+
+The recovery task was committed locally and rebased onto the current local
+integration tip. The retained unsigned task commits implement direct,
+image-resident Bao/SPIRE proof commands, focused helper tests, numeric portal
+identity configuration, and portal database-pool startup. The final task SHA is
+`eac7e5c30071b1255c430e523462e09f97b9b93b`; no push, merge into integration,
+or Kanban board edit was performed. Unsigned commits were explicitly authorised
+while the principal's YubiKey was unavailable.
+
+### Passing evidence
+
+- `kind get clusters` was inspected before recreation, the existing `osramp`
+  cluster was deleted, the inventory was confirmed empty, and the canonical
+  `CLUSTER_NAME=osramp make demo-signalloom-up` lifecycle recreated only
+  `osramp`.
+- `make -C d2-signalloom test` passed 20/20, including direct helper command,
+  shell-dependency rejection, numeric `runAsUser`, and preserved identity
+  boundary checks. `make test-bao-spire-proof-harness` passed 5/5 and
+  `make test-demo-signalloom-lifecycle` passed 4/4.
+- The helper image built successfully. Its Go tests cover exact JWT extraction,
+  malformed and ambiguous responses, retry behaviour, file mode `0600`, and
+  fail-closed negative identity handling.
+- The portal's containerised Python suite passed 11/11. Live
+  `deployment/fe-signalloom` is `1/1 Available`; its replacement pod is `1/1
+  Running` and no longer reports `CreateContainerConfigError`.
+- `make demo-signalloom-test` passed. Both Signalloom ResourceSets and all five
+  tenant Kustomizations report `Ready=True`.
+- Exactly five expected Flux deployments exist in `flux-system`: one operator
+  plus source, kustomize, helm, and notification controllers. No second Flux
+  control plane was created.
+- The negative proof Job reaches `Failed` and its `jwt-svid` init container logs
+  `denied as expected`, preserving the intended unauthorised boundary.
+
+### Blocking runtime evidence
+
+The positive proof Job reaches `Failed`, not `Complete`. Its direct helper
+executable starts successfully, then receives `PermissionDenied: no identity
+issued`. SPIRE's Kubernetes workload attestor first demonstrated that the
+node-local kubelet was unreachable from the existing agent network namespace.
+A bounded diagnostic using node networking and local certificate-verification
+bypass then reached the kubelet and exposed the decisive existing-RBAC failure:
+
+```text
+403 Forbidden (user=system:serviceaccount:inf-bao:default,
+verb=get, resource=nodes, subresource(s)=[pods proxy])
+```
+
+`kubectl auth can-i get nodes/proxy
+--as=system:serviceaccount:inf-bao:default` returns `no`. Per the principal's
+safety boundary, no ClusterRole, ClusterRoleBinding, broader permission, or
+lasting security-posture change was introduced. The diagnostic host-networking
+and kubelet-verification changes were reverted in source and in the live
+`inf-bao` slice before this record was written.
+
+### Minimum-privilege escalation requiring principal approval
+
+The narrow Kubernetes-native correction would create a dedicated
+`inf-bao/spire-agent` ServiceAccount, grant only `get` on the `nodes/proxy`
+subresource through a dedicated ClusterRole, and bind that role only to the new
+ServiceAccount. The DaemonSet would use that identity plus an explicitly trusted
+Kind kubelet CA and node-local network path. Acceptance must prove the positive
+Job completes, the negative Job remains denied, `kubectl auth can-i` grants only
+the required verb/resource, and no unrelated ServiceAccount gains access.
+
+Alternatives are to expose and use a read-only kubelet endpoint in the disposable
+Kind configuration, or replace Kubernetes workload attestation with a different
+selector model. Both alter a larger trust boundary and are not recommended over
+the dedicated minimum-privilege identity. Principal approval is required before
+any option is implemented.
+
+`make signalloom-check` remains independently blocked by the pre-existing
+integration contract condition that `main` is not an ancestor of
+`integration/signalloom-d2-v2.0.0`. This record therefore claims a qualified
+Phase 6 failure, not a release, Gate C/D/E pass, or complete Bao/SPIRE runtime
+proof.

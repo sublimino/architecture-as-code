@@ -254,7 +254,6 @@ This is qualified static and fake-boundary evidence only. It does not claim a
 live Kind reconciliation, a live SPIRE identity denial, a live OpenBao read,
 Flux application readiness, or any Gate C/D/E runtime result. No board state
 was edited and no remote push was performed.
-
 ## OSRAMP backend configuration validation errata
 
 <!-- machine-tag: OSRAMP-BACKEND-VALIDATION-2026-07-26T17:00:47+01:00 -->

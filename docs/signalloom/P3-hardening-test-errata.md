@@ -254,3 +254,44 @@ This is qualified static and fake-boundary evidence only. It does not claim a
 live Kind reconciliation, a live SPIRE identity denial, a live OpenBao read,
 Flux application readiness, or any Gate C/D/E runtime result. No board state
 was edited and no remote push was performed.
+
+## OSRAMP backend configuration validation errata
+
+<!-- machine-tag: OSRAMP-BACKEND-VALIDATION-2026-07-26T17:00:47+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- scope: repository-local-source-test-and-disposable-container-only -->
+
+This bounded record validates the checked-in OSRAMP PostgreSQL, Redis, and
+MinIO configuration plus the Discovery Portal bootstrap drift contract. It
+does not modify `board.json`, an Obsidian proposal, a Kubernetes cluster, or
+any external system; no push is authorised or claimed.
+
+`make -C d2-osramp-apps test-config` passed its five deterministic checks:
+backend rendering, PostgreSQL archive-bootstrap declarations, Redis source and
+explicit drift policy, MinIO console binding, and restart-safe bucket setup.
+The base and staging backend manifests rendered through `kubectl kustomize`.
+
+A disposable `postgres:18` container executed the extracted ConfigMap bootstrap
+on a fresh data directory. It established superuser roles `archiver` and
+`postgres`, created `task_archive`, and returned `true` for the configured
+application user's `CREATE` privilege. Image `PGDATA` was
+`/var/lib/postgresql/18/docker`, matching the checked-in Pod mount.
+
+The pre-correction MinIO bucket command failed on its second invocation because
+`attestations` already existed. The committed command now uses
+`mc mb --ignore-existing local/attestations`; a disposable MinIO runtime passed
+both first and repeated bucket setup while its process arguments contained
+`--console-address :9001`.
+
+Redis remains deliberately excluded from the backend base Kustomization, and
+its HelmRelease declares `driftDetection.mode: disabled`. The validation proves
+those source facts and the pinned OCI chart reference only; it does not claim a
+deployed Redis release or active Redis drift remediation.
+
+Bootstrap validation passed `make -C d2-signalloom bootstrap-drift`,
+`bats test/bootstrap.bats` (2/2), and `make -C d2-signalloom test` (17/17).
+An isolated copied checkout whose committed bootstrap contract was deliberately
+altered made `check-bootstrap-drift.sh` fail, proving the checker rejects that
+drift fixture. These are deterministic source and disposable-container results,
+not live cluster readiness, Flux reconciliation, external object-storage, or
+production acceptance evidence.

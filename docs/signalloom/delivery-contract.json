@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "repository": "osramp-demo",
-  "integrationBranch": "integration/signalloom-d2-v2.0.0",
+  "integrationBranch": "integration/signalloom-d2-v2.5.0",
   "releaseBranch": "main",
   "requiredRoots": [
     "SIGNALLOOM_PLATFORM_ROOT",

@@ -16,7 +16,7 @@ SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
 OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
 D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
-SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.0.0
+SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up

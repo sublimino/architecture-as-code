@@ -64,9 +64,9 @@ line_number() {
   run make -n demo-signalloom-up demo-signalloom-test demo-signalloom-down
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"signalloom-local.sh up"* ]]
+  [[ "$output" == *"signalloom-up.sh"* ]]
   [[ "$output" == *"signalloom-local.sh verify"* ]]
-  [[ "$output" != *"signalloom-up:"* ]]
+  [[ "$output" == *"signalloom-down.sh"* ]]
 }
 
 @test "verify performs focused Flux readiness checks without bootstrap work" {

@@ -37,6 +37,14 @@ class ProxyTest(unittest.TestCase):
         connection.close()
         return response.status, body
 
+    def raw_request(self, method, path, payload, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port)
+        connection.request(method, path, payload, headers or {})
+        response = connection.getresponse()
+        body = json.loads(response.read())
+        connection.close()
+        return response.status, body
+
     def test_all_route_groups_return_deterministic_fixtures(self):
         for path in ("/llm/assistants", "/crm/contacts", "/notification/messages", "/outbound-reporting/reports"):
             status, first = self.request("POST", path, {"name": "demo"})
@@ -63,6 +71,22 @@ class ProxyTest(unittest.TestCase):
         self.request("POST", "/crm/customer", {})
         self.assertEqual((200, {"requests": []}), self.request("DELETE", "/_test/requests"))
         self.assertEqual(404, self.request("GET", "/unrecognised")[0])
+
+    def test_reset_clears_capture_without_reverting_fixtures(self):
+        self.request("PUT", "/_test/fixtures/crm/preserved", {"id": "preserved"})
+        self.request("POST", "/crm/preserved", {"name": "captured"})
+        self.assertEqual((200, {"requests": []}), self.request("DELETE", "/_test/requests"))
+        self.assertEqual((200, {"requests": []}), self.request("GET", "/_test/requests"))
+        self.assertEqual((200, {"id": "preserved"}), self.request("POST", "/crm/preserved", {}))
+
+    def test_capture_redacts_non_json_request_bodies(self):
+        secret = b"token=never-store"
+        self.assertEqual(200, self.raw_request("POST", "/llm/assistants", secret, {
+            "Content-Type": "text/plain"})[0])
+        status, captured = self.request("GET", "/_test/requests")
+        self.assertEqual(200, status)
+        self.assertEqual("[REDACTED_NON_JSON_BODY]", captured["requests"][0]["body"])
+        self.assertNotIn("never-store", json.dumps(captured))
 
     def test_control_api_is_not_exposed_outside_demo(self):
         old = os.environ.pop("SIGNALLOOM_DEMO_PROFILE")

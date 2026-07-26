@@ -175,3 +175,57 @@ The final observation-only snapshot recorded `inf-bao` and `inf-signalloom`
 Flux slices reconciled, while `fe-signalloom/apps` stayed false for the
 immutable negative Job update. No additional lifecycle command was run after
 the principal-directed stop.
+
+## Local proxy and demo-control validation errata
+
+<!-- machine-tag: SIGNALLOOM-LOCAL-PROXY-CONTROL-VALIDATION-2026-07-26T16:53:34+01:00 -->
+<!-- scope: deterministic-local-handler-and-container-tests-only -->
+
+This repository-local validation adds deterministic coverage for the desktop
+console proxy and the fake integration-proxy demo controls. It does not modify
+`board.json`, the Obsidian proposal, another worktree, a Kind cluster, hosted
+services, or any external system. No push was performed.
+
+### Established behaviour
+
+- `/proxy/adk/` selects the host-local ADK target at
+  `127.0.0.1:${ADK_PORT:-8000}`. Its new handler test uses an ephemeral local
+  HTTP backend and proves subpath rewriting, query preservation, successful
+  response propagation, and removal of upstream framing headers.
+- `/proxy/grafana/` is allowlisted to the supervised port-forward target
+  `olly-replica/eye-in-the-sky-grafana:80`; the target mapping is covered as a
+  deterministic source-level assertion. It was not contacted.
+- Unrecognised `/proxy/<name>/...` names return the console's JSON `503`
+  unavailable response rather than selecting an arbitrary target. The handler
+  itself deliberately has no authentication or origin check; its current
+  access boundary is the default local console binding. Changing that posture
+  was outside this validation scope.
+- `DELETE /_test/requests` clears only in-memory captured request history. It
+  does not revert fixture overrides, rebuild a container, reconcile a cluster,
+  or reset any lifecycle state. `GET /_test/requests` observes the capture
+  history, while `PUT /_test/fixtures/<category>/<name>` changes a demo fixture.
+- Demo controls return `404` outside `SIGNALLOOM_DEMO_PROFILE=demo`. Captured
+  structured secret-shaped fields are replaced with `[REDACTED]`, sensitive
+  headers are excluded from capture, and non-JSON bodies become
+  `[REDACTED_NON_JSON_BODY]`.
+
+### Local evidence
+
+The following commands exited zero in this worktree:
+
+```text
+go test ./...                                  # tools/demo-console (3 tests)
+make -C d2-signalloom/apps/fake-integration-proxy test
+# 6 in-process deterministic handler tests
+make -C d2-signalloom/apps/fake-integration-proxy container-test
+# Docker build plus isolated container smoke test
+git diff --check
+```
+
+This evidence does **not** establish a running ADK service, Grafana login or
+embedding success, a `kubectl port-forward`, browser behaviour, network-policy
+enforcement, production authentication, persistence across proxy restarts, or
+live Kind acceptance. The Grafana route's target is source-tested only; an
+operational path test needs a disposable local cluster and should be reported
+separately. This erratum records the boundary rather than converting local
+fixtures into runtime proof.

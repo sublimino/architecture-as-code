@@ -2,11 +2,11 @@
 task: Validate Signalloom harness wiring, ancestry, tests, evidence, commit
 slug: 20260726-221300_validate-signalloom-harness-ancestry-tests-evidence-commit
 effort: extended
-phase: verify
+phase: complete
 progress: 15/17
 mode: interactive
 started: 2026-07-26T22:13:00+01:00
-updated: 2026-07-26T22:24:00+01:00
+updated: 2026-07-26T22:26:00+01:00
 ---
 
 ## Context
@@ -98,3 +98,14 @@ features, edit board.json, touch another worktree, push, or create a PR.
 - Proposal graph checks found P0 and P1 pre-flight dependency rows.
 - `git diff --check` passed. `roborev` was unavailable, so AI review evidence
   was not available; manual diff review found only six targeted line changes.
+
+## Learning
+
+- The first baseline exposed two independent stale harness assumptions: the
+  V2.0 branch name and obsolete lifecycle wrapper commands.
+- A smarter workflow would inspect branch occupancy before planning a commit;
+  the target ref's other worktree explains why this run must remain detached.
+- No additional capability was needed; CodeReview was invoked but unavailable
+  because `roborev` is not installed.
+- The strongest result is an honest fail-closed errata record rather than
+  weakening the ancestry guard to manufacture a green check.

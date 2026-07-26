@@ -30,7 +30,7 @@ case "$args" in
       printf 'bounded Bao/SPIRE proof passed\n'
     fi
     ;;
-  *'logs job/bao-spire-negative-proof'*)
+  *'logs job/bao-spire-negative-proof -c jwt-svid'*)
     if [[ "${BAO_PROOF_SCENARIO:-pass}" == negative-marker-missing ]]; then
       printf 'authentication unexpectedly succeeded\n'
     else

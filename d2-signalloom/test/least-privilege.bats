@@ -55,4 +55,6 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F 'condition=failed' "$runner"
   [ "$status" -eq 0 ]
+  run grep -F 'logs "job/$negative" -c jwt-svid' "$runner"
+  [ "$status" -eq 0 ]
 }

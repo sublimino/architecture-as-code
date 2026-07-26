@@ -2,11 +2,11 @@
 task: Clean local directory and commit if needed
 slug: 20260727-001300_clean-local-directory-and-commit-if-needed
 effort: standard
-phase: verify
+phase: complete
 progress: 8/8
 mode: interactive
 started: 2026-07-27T00:13:00+01:00
-updated: 2026-07-27T00:18:00+01:00
+updated: 2026-07-27T00:20:00+01:00
 ---
 
 ## Context
@@ -46,3 +46,9 @@ clear stale-ownership evidence.
 - ISC-4: Kanban self-test returned `self-test: PASS`.
 - ISC-6/7: PRD staged and committed as `85f2ecc`.
 - ISC-8: Final status will be checked after this verification record is committed.
+
+## Learning
+
+- The local directory was already clean except for the session PRD.
+- Worktree cleanup must remain ownership-aware; detached paths were preserved.
+- Kanban self-test remained healthy throughout the cleanup pass.

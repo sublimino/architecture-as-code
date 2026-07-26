@@ -294,3 +294,26 @@ altered made `check-bootstrap-drift.sh` fail, proving the checker rejects that
 drift fixture. These are deterministic source and disposable-container results,
 not live cluster readiness, Flux reconciliation, external object-storage, or
 production acceptance evidence.
+
+## Phase 2 Governor integration outcome
+
+<!-- machine-tag: SIGNALLOOM-PHASE2-GOVERNOR-INTEGRATION-BLOCKED-2026-07-26T17:33:00+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- integration-sha: 093c07d -->
+<!-- status: blocked validation=failed owner=phase2-governor -->
+<!-- scope: repository-local-merge-and-static-validation-only -->
+
+The Governor merged the signed, verified implementation commits
+`b23a817dde143326ecf40ea240d8c22adae5dc4d`,
+`1453fd77c87d6a9ad5944a64d8c700ca3240e0af`, and
+`9c511c137568c72ac71b76344cc01a6457ac16f7` into this dedicated local
+integration branch. The resulting merge commits are `e5ce462`, `da16b0f`, and
+`093c07d`; conflict resolution retained each independent evidence record.
+
+Post-merge `make demo-signalloom-test-config`, `make test-demo-lifecycle`,
+`bats test/signalloom-flux-integration.bats`, and `git diff --check` passed.
+`make signalloom-check` is blocked because its delivery-contract guard requires
+`main` to be an ancestor of `integration/signalloom-d2-v2.0.0`; the condition
+was already false at pre-merge commit `6901c5576983a28f96c471b7563221e56706bc67`.
+This outcome does not claim a complete phase pass, runtime Gate C/D/E result,
+board-state edit, or remote push.

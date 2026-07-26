@@ -1,15 +1,17 @@
 """Small database-pool seam used by application startup and readiness."""
+import os
 from typing import Any
+
+import asyncpg
 
 _pool: Any | None = None
 
 
 async def init_db_pool() -> None:
-    """Initialise the pool in the full portal runtime.
-
-    Packaging this task keeps the initialization seam deliberately injectable; the
-    deployment task supplies the concrete asyncpg pool construction.
-    """
+    """Initialise the PostgreSQL pool once for the portal runtime."""
+    global _pool
+    if _pool is None:
+        _pool = await asyncpg.create_pool(dsn=os.environ["DATABASE_URL"])
 
 
 async def close_db_pool() -> None:

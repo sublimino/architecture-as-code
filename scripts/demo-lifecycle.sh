@@ -75,6 +75,9 @@ bao_up() {
   kubectl get namespace "$BAO_NAMESPACE" >/dev/null
   wait_kustomization "$BAO_NAMESPACE" infra-controllers
   bootstrap_spire_agent_join_token
+  # SPIRE join tokens are single-use. Restart an existing agent after replacing
+  # the projected token so repeated local reconciliation cannot retain it.
+  kubectl -n "$BAO_NAMESPACE" delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found
   wait_kustomization "$BAO_NAMESPACE" infra-configs
   register_spire_proof_identity
 }

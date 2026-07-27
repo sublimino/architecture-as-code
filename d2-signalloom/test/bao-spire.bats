@@ -78,6 +78,14 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -ne 0 ]
 }
 
+@test "SPIRE agent has only the local kubelet proxy permission it needs" {
+  fleet="$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+  run yq ea -e 'select(.kind == "ResourceSet" and .metadata.name == "signalloom-spire-rbac") | .spec.resources[] | select(.kind == "ClusterRole") | ((.rules[0].apiGroups[0] == "") and (.rules[0].resources[0] == "nodes/proxy") and (.rules[0].verbs[0] == "get"))' "$fleet"
+  [ "$status" -eq 0 ]
+  run yq ea -e 'select(.kind == "ResourceSet" and .metadata.name == "signalloom-spire-rbac") | .spec.resources[] | select(.kind == "ClusterRoleBinding") | ((.subjects[0].kind == "ServiceAccount") and (.subjects[0].name == "spire-agent") and (.subjects[0].namespace == "inf-bao") and (.roleRef.name == "signalloom-spire-agent-kubelet"))' "$fleet"
+  [ "$status" -eq 0 ]
+}
+
 @test "local SPIRE bootstrap has a disk key path and explicitly bounded insecure bootstrap" {
   config="$root/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
   run grep -F 'keys_path = "/run/spire/data/keys.json"' "$config"

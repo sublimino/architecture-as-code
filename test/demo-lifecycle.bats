@@ -125,5 +125,6 @@ SCRIPT
   [ "$status" -eq 0 ]
   grep -Fq 'exec deployment/spire-server -- /opt/spire/bin/spire-server token generate' "$log"
   grep -Fq 'create secret generic spire-agent-join-token --from-literal=token=local-demo-token' "$log"
+  grep -Fq 'delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found' "$log"
   grep -Fq 'entry create -spiffeID spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom' "$log"
 }

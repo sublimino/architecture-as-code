@@ -231,6 +231,7 @@ demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest 
 	./scripts/signalloom-test-1.sh
 demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
 	./scripts/signalloom-down.sh
+	./scripts/signalloom-runtime-test.sh
 
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).

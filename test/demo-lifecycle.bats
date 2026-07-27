@@ -16,7 +16,17 @@ if [[ "$*" == *get* ]]; then
   esac
 fi
 if [[ "$*" == *exec* ]]; then
-  if [[ "$*" == *'token generate'* ]]; then printf 'Token: local-demo-token\n'; elif [[ "$*" == *'entry create'* ]]; then printf 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom\n'; fi
+  if [[ "$*" == *'token generate'* ]]; then
+    printf 'Token: local-demo-token\n'
+  elif [[ "$*" == *'entry create'* ]]; then
+    printf 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom\n'
+  elif [[ "$*" == *'bundle show -format spiffe'* ]]; then
+    if [[ "${KUBECTL_JWT_KEYS:-one}" == two ]]; then
+      printf '{"keys":[{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"Sm_8qNnrAGgIreZrJYZoxYSBoLnQrIR5wuvRXpM-moM","y":"Bw4Nxy8aEwIlVQZxjoHr2qAXCpbQ2J2-syBUYOXkYzA"},{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"Sm_8qNnrAGgIreZrJYZoxYSBoLnQrIR5wuvRXpM-moM","y":"Bw4Nxy8aEwIlVQZxjoHr2qAXCpbQ2J2-syBUYOXkYzA"}]}'
+    else
+      printf '{"keys":[{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"Sm_8qNnrAGgIreZrJYZoxYSBoLnQrIR5wuvRXpM-moM","y":"Bw4Nxy8aEwIlVQZxjoHr2qAXCpbQ2J2-syBUYOXkYzA"}]}'
+    fi
+  fi
 fi
 SCRIPT
   chmod +x "$bin/kubectl"
@@ -125,4 +135,23 @@ SCRIPT
   grep -Fq 'create secret generic spire-agent-join-token --from-literal=token=local-demo-token' "$log"
   grep -Fq 'delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found' "$log"
   grep -Fq 'entry create -spiffeID spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom' "$log"
+  grep -Fq -- '-parentID spiffe://signalloom.demo/agent/kind -selector k8s:ns:fe-signalloom -selector k8s:sa:fe-signalloom' "$log"
+	 grep -Fq 'delete job openbao-spire-bootstrap --ignore-not-found --wait=true' "$log"
+	 grep -Fq 'wait job/openbao-spire-bootstrap --for=condition=complete' "$log"
+	 grep -Fq 'bundle show -format spiffe' "$log"
+	 grep -Fq 'exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token bao write auth/jwt/config jwt_validation_pubkeys=' "$log"
+}
+
+@test "Signal Loom startup recreates both proof Jobs after identity registration" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
+    "$root/scripts/demo-lifecycle.sh" signalloom-up
+  [ "$status" -eq 0 ]
+  grep -Fq 'delete job bao-spire-positive-proof bao-spire-negative-proof --ignore-not-found --wait=true' "$log"
+}
+
+@test "Bao lifecycle configures every active SPIRE JWT key" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty KUBECTL_JWT_KEYS=two \
+    "$root/scripts/demo-lifecycle.sh" bao-up
+  [ "$status" -eq 0 ]
+  [ "$(grep -Fo -- '-----BEGIN PUBLIC KEY-----' "$log" | wc -l)" -eq 2 ]
 }

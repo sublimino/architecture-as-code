@@ -18,10 +18,7 @@ case "$args" in
     [[ "${BAO_PROOF_SCENARIO:-pass}" != positive-incomplete ]]
     ;;
   *'wait job/bao-spire-negative-proof --for=condition=complete'*)
-    [[ "${BAO_PROOF_SCENARIO:-pass}" == negative-unexpected-success ]]
-    ;;
-  *'wait job/bao-spire-negative-proof --for=condition=failed'*)
-    [[ "${BAO_PROOF_SCENARIO:-pass}" != negative-not-failed ]]
+    [[ "${BAO_PROOF_SCENARIO:-pass}" != negative-incomplete ]]
     ;;
   *'logs job/bao-spire-positive-proof'*)
     if [[ "${BAO_PROOF_SCENARIO:-pass}" == positive-marker-missing ]]; then
@@ -57,14 +54,8 @@ run_proof() {
   [[ "$output" == *'bounded Bao/SPIRE positive and negative identity proof passed'* ]]
 }
 
-@test "fails when the negative identity unexpectedly completes" {
-  run_proof negative-unexpected-success
-  [ "$status" -ne 0 ]
-  [[ "$output" == *'negative Bao/SPIRE identity unexpectedly succeeded'* ]]
-}
-
-@test "fails when the negative identity does not reach Failed" {
-  run_proof negative-not-failed
+@test "fails when the negative denial proof does not complete" {
+  run_proof negative-incomplete
   [ "$status" -ne 0 ]
 }
 

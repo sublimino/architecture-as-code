@@ -41,12 +41,16 @@ Dex has one static local user:
 | Subject (`sub`) | `demo-user` |
 | Username | `demo-user` |
 | Email | `demo-user@signalloom.local` |
-| Password verifier | Checked-in bcrypt hash only |
+| Password | `demo-user` |
+| Password verifier | Checked-in cost-10 bcrypt hash |
 | Tenant | `tenant-demo` |
 
-The verifier is intentionally not plaintext. A test operator supplies the
-corresponding local-demo password out of band; no password value belongs in
-this repository, image, test output, or erratum.
+This deliberately obvious credential makes TEST-1 a self-contained local-only demo.
+It is principal-approved on 2026-07-27 and must never be reused outside the
+disposable Kind environment. The manifest stores only its cost-10 bcrypt
+verifier; the plaintext is documented here and supplied to the browser process
+by the local TEST-1 Make target. An explicit `DEX_DEMO_PASSWORD` still overrides
+the default for validation and rotation exercises.
 
 For API authorization, `API_SUBJECT_TENANTS` is authoritative:
 `demo-user -> tenant-demo`. `OIDC_TENANT_MAPPING` is retained as dashboard
@@ -74,20 +78,20 @@ the configured JWKS endpoint. It maps only a validated `sub` through
 | ID | Layer | Assertion | Expected result |
 | --- | --- | --- | --- |
 | OIDC-CONTRACT-001 | Unit | Manifest issuer, client, callback, and scopes match this document. | Pass. |
-| OIDC-CONTRACT-002 | Unit | Static user has a bcrypt verifier; no plaintext password field exists. | Pass. |
+| OIDC-CONTRACT-002 | Unit | Static user has the documented cost-10 bcrypt verifier. | Pass. |
 | OIDC-CONTRACT-003 | Runtime | Discovery advertises the configured issuer and JWKS endpoint. | Pass when Docker is available. |
 | OIDC-API-001 | API | Valid Dex RS256 ID token for mapped `demo-user` returns `tenant-demo`. | 200. |
 | OIDC-API-002 | API | Token lacking `signalloom-api` audience is rejected. | 401 `invalid_token`. |
 | OIDC-API-003 | API | Unknown subject is denied without mapping disclosure. | 403 `tenant_forbidden`. |
 | OIDC-API-004 | API | Forged tenant claim cannot override server subject mapping. | 200 for mapped tenant only. |
 | OIDC-RUNTIME-001 | Runtime | Dex starts and serves discovery plus non-empty JWKS. | Pass when Docker is available. |
-| OIDC-BROWSER-001 | Deferred | Browser login, callback, nonce, expiry, and logout complete. | Not covered by this card. |
+| OIDC-BROWSER-001 | Runtime | Browser login, callback, authenticated API journey, and logout complete. | Covered by TEST-1. |
 
 `d2-signalloom/test/dex-auth.bats` covers the static unit contract;
 `d2-signalloom/test/dex-runtime.bats` covers the optional disposable Dex runtime
 endpoints; and `src/tests/test_api_compat.py` covers API bearer authorization.
-None issues a demo password, uses a production credential, or asserts a live
-Auth0/Dex-to-API trust chain.
+The TEST-1 Make target supplies only the documented local-demo password; no
+production credential or external Auth0 trust chain participates.
 
 ## Update — end-to-end local login enablement (2026-07-27)
 

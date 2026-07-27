@@ -18,11 +18,11 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
 
   run yq -r 'select(.kind == "Job" and .metadata.name == "bao-spire-positive-proof") | .spec.template.spec.initContainers[] | select(.name == "bao-login") | [.command | join(" "), .args | join(" "), (.env[] | select(.name == "HOME").value)] | @tsv' "$manifest"
   [ "$status" -eq 0 ]
-  [ "$output" = $'/bin/bao\tlogin -no-print -method=jwt -path=jwt role=signalloom-fe-signalloom jwt=@/work/jwt\t/work/home' ]
+  [ "$output" = $'/usr/local/bin/signalloom-spire-proof\texchange --address http://openbao.inf-bao.svc.cluster.local:8200 --role signalloom-fe-signalloom --jwt /work/jwt --output /work/home/.vault-token\t/work/home' ]
 
   run yq -r 'select(.kind == "Job" and .metadata.name == "bao-spire-positive-proof") | .spec.template.spec.containers[] | select(.name == "proof") | [.command | join(" "), .args | join(" "), (.env[] | select(.name == "HOME").value)] | @tsv' "$manifest"
   [ "$status" -eq 0 ]
-  [ "$output" = $'/bin/bao\tkv get kv/signalloom/fe-signalloom\t/work/home' ]
+  [ "$output" = $'/bin/bao\tread kv/data/signalloom/fe-signalloom\t/work/home' ]
 }
 
 @test "Bao proof JWT-SVID commands use the executable shipped in their image" {
@@ -30,7 +30,7 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
 
   run yq -e '
     select(.kind == "Job")
-    | .spec.template.spec.initContainers[]
+    | (.spec.template.spec.initContainers + .spec.template.spec.containers)[]
     | select(.name == "jwt-svid")
     | ((.command | length) == 1
       and .command[0] == "/usr/local/bin/signalloom-spire-proof"
@@ -39,8 +39,19 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -eq 0 ]
   [[ "$output" != *"false"* ]]
 
+	 run yq -e '
+	   select(.kind == "Job" and .metadata.name == "bao-spire-negative-proof")
+	   | (.spec.template.spec | has("initContainers") | not)
+	     and (.spec.template.spec.containers | length) == 1
+	     and .spec.template.spec.containers[0].name == "jwt-svid"
+	     and .spec.template.spec.containers[0].args[0] == "expect-denied"
+	 ' "$manifest"
+	 [ "$status" -eq 0 ]
+
   run grep -E '(/bin/)?(ba)?sh|[|]|sed|[$][(]|cat /work/jwt' "$manifest"
   [ "$status" -ne 0 ]
+	 run grep -F 'registry.k8s.io/pause' "$manifest"
+	 [ "$status" -ne 0 ]
 }
 
 @test "OpenBao bypasses the root su-exec transition without weakening its pod security context" {

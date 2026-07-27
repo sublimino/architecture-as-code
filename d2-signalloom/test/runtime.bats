@@ -8,6 +8,14 @@ load '../../d2-osramp-apps/test/lib/detik'
 DETIK_CLIENT_NAME="kubectl"
 DETIK_CLIENT_NAMESPACE="fe-signalloom"
 
+teardown() {
+  kubectl -n default delete pod "signalloom-network-denial-${BATS_TEST_NUMBER:-0}" \
+    --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  if [ -n "${GATEWAY_FORWARD_PID:-}" ]; then
+    kill "$GATEWAY_FORWARD_PID" >/dev/null 2>&1 || true
+  fi
+}
+
 @test "Phase 1 Flux tenants are reconciled in a running local cluster" {
   for pair in inf-bao:infra-configs inf-signalloom:infra-configs fe-signalloom:apps; do
     IFS=: read -r namespace name <<<"$pair"
@@ -16,7 +24,69 @@ DETIK_CLIENT_NAMESPACE="fe-signalloom"
   done
 }
 
-@test "DETIK observes the reconciled frontend deployment" {
+@test "DETIK observes reconciled dashboard and API deployments" {
   run verify "there is 1 deployment named 'fe-signalloom'"
   [ "$status" -eq 0 ]
+  run verify "there is 1 deployment named 'dashboard-signalloom'"
+  [ "$status" -eq 0 ]
+}
+
+@test "DETIK observes dashboard and API Gateway routes" {
+  run verify "there is 1 httproute named 'signalloom-dashboard'"
+  [ "$status" -eq 0 ]
+  run verify "there is 1 httproute named 'signalloom-api'"
+  [ "$status" -eq 0 ]
+}
+
+@test "Gateway serves dashboard root and reaches authenticated API path" {
+  gateway_service="$(kubectl -n ingress get service \
+    -l gateway.envoyproxy.io/owning-gateway-name=cluster \
+    -o jsonpath='{.items[0].metadata.name}')"
+  [ -n "$gateway_service" ]
+  kubectl -n ingress port-forward "service/$gateway_service" 18443:443 \
+    >"$BATS_TEST_TMPDIR/gateway-port-forward.log" 2>&1 &
+  GATEWAY_FORWARD_PID=$!
+  for _ in $(seq 1 20); do
+    curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
+      --insecure --silent --output /dev/null https://dashboard.osramp.acme.local:18443/ && break
+    sleep 0.25
+  done
+  run curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
+    --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    https://dashboard.osramp.acme.local:18443/
+  if [ "$status" -ne 0 ]; then
+    cat "$BATS_TEST_TMPDIR/gateway-port-forward.log" >&3
+  fi
+  [ "$status" -eq 0 ]
+  [ "$output" = "200" ]
+  run curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
+    --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    https://dashboard.osramp.acme.local:18443/api/settings
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^(401|403)$ ]]
+}
+
+@test "Gateway-only policies deny direct dashboard and API connections" {
+  image="$(kubectl -n fe-signalloom get deployment fe-signalloom \
+    -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  pod="signalloom-network-denial-${BATS_TEST_NUMBER:-0}"
+  run kubectl -n default run "$pod" --restart=Never --image="$image" \
+    --image-pull-policy=IfNotPresent --command -- \
+    python -c 'import socket,sys
+targets = (("dashboard-signalloom.fe-signalloom.svc.cluster.local", 8080), ("fe-signalloom-api.fe-signalloom.svc.cluster.local", 8000))
+for host, port in targets:
+    try:
+        socket.create_connection((host, port), 3)
+    except OSError as error:
+        print(f"DIRECT_DENIED:{host}:{type(error).__name__}")
+        continue
+    print(f"DIRECT_REACHABLE:{host}")
+    sys.exit(1)'
+  [ "$status" -eq 0 ]
+  run kubectl -n default wait "pod/$pod" --for=jsonpath='{.status.phase}'=Succeeded --timeout=60s
+  [ "$status" -eq 0 ]
+  run kubectl -n default logs "$pod"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"DIRECT_DENIED:dashboard-signalloom.fe-signalloom.svc.cluster.local:"* ]]
+  [[ "$output" == *"DIRECT_DENIED:fe-signalloom-api.fe-signalloom.svc.cluster.local:"* ]]
 }

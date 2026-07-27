@@ -40,9 +40,15 @@ spec:
             readOnlyRootFilesystem: true
             runAsUser: 101
             runAsGroup: 101
+          volumeMounts:
+            - name: nginx-tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 25m
               memory: 64Mi
             limits:
               memory: 128Mi
+      volumes:
+        - name: nginx-tmp
+          emptyDir: {}

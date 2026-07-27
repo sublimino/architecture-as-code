@@ -158,6 +158,10 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
+	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest d2-signalloom/apps/dashboard-signalloom; \
+	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest; \
+	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest; \
+	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest; \
 	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy; \
 	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev
 

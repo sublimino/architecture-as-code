@@ -94,8 +94,6 @@ SCRIPT
 
   [ "$status" -eq 0 ]
   [ "$(grep -Fc 'inputs: []' "$root/d2-osramp-fleet/tenants/local/signalloom.yaml")" -eq 2 ]
-  cmp -s "$root/d2-signalloom/fleet/local/signalloom.yaml" \
-    "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 }
 
 @test "stack purge fails closed while a labelled Bao consumer remains" {

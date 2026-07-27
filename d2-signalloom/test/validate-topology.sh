@@ -2,11 +2,11 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-source_file="$root/d2-signalloom/fleet/local/signalloom.yaml"
-fleet_file="$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+# Single canonical Signal Loom tenant ResourceSet, owned by the fleet — Flux
+# reconciles only files inside the fleet OCI artifact.
+canonical="$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 
 required=(
-  d2-signalloom/fleet/local/signalloom.yaml
   d2-signalloom/infra/inf-bao/controllers/local/kustomization.yaml
   d2-signalloom/infra/inf-bao/configs/local/kustomization.yaml
   d2-signalloom/infra/inf-signalloom/controllers/local/kustomization.yaml
@@ -19,14 +19,13 @@ for path in "${required[@]}"; do
   test -f "$root/$path"
 done
 
-cmp --silent "$source_file" "$fleet_file"
 grep -Fqx '  - signalloom.yaml' "$root/d2-osramp-fleet/tenants/local/kustomization.yaml"
-grep -Fq 'name: signalloom-infra' "$source_file"
-grep -Fq 'name: signalloom-apps' "$source_file"
-grep -Fq 'namespace: inf-signalloom' "$source_file"
-grep -Fq 'bao.controlplane.io/consumer: fe-signalloom' "$source_file"
-if grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2-signalloom/fleet"; then
-  printf 'd2-signalloom/fleet must not bootstrap a Flux control plane.\n' >&2
+grep -Fq 'name: signalloom-infra' "$canonical"
+grep -Fq 'name: signalloom-apps' "$canonical"
+grep -Fq 'namespace: inf-signalloom' "$canonical"
+grep -Fq 'bao.controlplane.io/consumer: fe-signalloom' "$canonical"
+if grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2-signalloom"; then
+  printf 'd2-signalloom delivery slice must not bootstrap a Flux control plane.\n' >&2
   exit 1
 fi
 

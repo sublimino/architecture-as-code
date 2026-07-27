@@ -110,3 +110,66 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+---
+# The dashboard nginx proxies /dex and /api (single-origin login), so it needs
+# egress to DNS, Dex (inf-signalloom), and the in-namespace compatibility API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dashboard-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dashboard-signalloom
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dex
+      ports:
+        - protocol: TCP
+          port: 5556
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# Permit the dashboard's /api proxy to reach the compatibility API in-namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dashboard-to-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fe-signalloom
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dashboard-signalloom
+      ports:
+        - protocol: TCP
+          port: 8000

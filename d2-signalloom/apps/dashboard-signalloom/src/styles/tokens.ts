@@ -1,0 +1,33 @@
+export const colors = {
+  deepMidnight: '#020617',
+  slateDark: '#0F172A',
+  elevatedSlate: '#1E293B',
+  cyanLoom: '#06B6D4',
+  irisViolet: '#8B5CF6',
+  tealLoom: '#10B981',
+  amber: '#D97706',
+  red: '#DC2626',
+  electricWhite: '#F8FAFC',
+  muted: '#94A3B8',
+  slateGray: '#475569',
+}
+
+export const statusColors = {
+  active: colors.tealLoom,
+  compliant: colors.tealLoom,
+  pass: colors.tealLoom,
+  good: colors.tealLoom,
+  resolved: colors.tealLoom,
+  enrolled: colors.cyanLoom,
+  pending: colors.cyanLoom,
+  reassessmentRequested: colors.cyanLoom,
+  suspended: colors.amber,
+  warning: colors.amber,
+  newViolation: colors.amber,
+  revoked: colors.red,
+  nonCompliant: colors.red,
+  failed: colors.red,
+  critical: colors.red,
+  notClassified: colors.slateGray,
+  acknowledged: colors.slateGray,
+}

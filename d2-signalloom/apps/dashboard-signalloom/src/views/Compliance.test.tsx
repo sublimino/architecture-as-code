@@ -1,0 +1,124 @@
+/**
+ * Tests for Compliance view framework-selection state-sync.
+ *
+ * Bug [86caeju0w]: Compliance page was showing ALL governance_frameworks from
+ * the DB, ignoring the tenant's selected_frameworks from /tenant/settings.
+ * These tests assert that only enabled frameworks are displayed.
+ */
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import Compliance from './Compliance'
+import { api } from '../api/client'
+
+// ── Mocks ──────────────────────────────────────────────────────────────────
+
+const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({ getAccessTokenSilently }),
+}))
+
+vi.mock('../App', () => ({
+  useAppContext: () => ({ setFailingControls: vi.fn() }),
+}))
+
+vi.mock('../api/client', () => ({
+  api: {
+    compliance: {
+      posture: vi.fn(),
+      frameworks: vi.fn(),
+      summary: vi.fn(),
+    },
+    agents: { list: vi.fn() },
+    settings: vi.fn(),
+  },
+}))
+
+const FRAMEWORKS = [
+  { id: 'fw-soc2', name: 'SOC 2 Type II', version: '2017', regulatory_body: 'AICPA', compliance_deadline: null, control_count: 3, controls: [] },
+  { id: 'fw-euai', name: 'EU AI Act', version: null, regulatory_body: 'EU', compliance_deadline: null, control_count: 3, controls: [] },
+]
+
+const EMPTY_POSTURE = { agents: [] }
+const EMPTY_AGENTS = { agents: [] }
+const EMPTY_SUMMARY = { total_agents: 0, agents_assessed: 0, controls_passing: 0, controls_failing: 0, controls_pending: 0, posture_score: null }
+const BASE_SETTINGS = { tenant_id: 'tid', org_name: 'Acme', plan_tier: null, agent_count: 0, billing_tier: null, api_key_status: null, consent_required: false, cookie_preferences: null }
+
+function setup() {
+  vi.mocked(api.compliance.posture).mockResolvedValue(EMPTY_POSTURE as never)
+  vi.mocked(api.compliance.frameworks).mockResolvedValue(FRAMEWORKS as never)
+  vi.mocked(api.compliance.summary).mockResolvedValue(EMPTY_SUMMARY as never)
+  vi.mocked(api.agents.list).mockResolvedValue(EMPTY_AGENTS as never)
+}
+
+function renderCompliance() {
+  return render(
+    <MemoryRouter>
+      <Compliance />
+    </MemoryRouter>
+  )
+}
+
+// ── Tests ──────────────────────────────────────────────────────────────────
+
+describe('Compliance framework filter', () => {
+  beforeEach(() => {
+    setup()
+  })
+
+  it('shows all frameworks when selected_frameworks is empty (unset)', async () => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...BASE_SETTINGS,
+      selected_frameworks: [],
+    } as never)
+
+    renderCompliance()
+
+    await waitFor(() => {
+      expect(screen.getByText('SOC 2 Type II')).toBeInTheDocument()
+      expect(screen.getByText('EU AI Act')).toBeInTheDocument()
+    })
+  })
+
+  it('shows only enabled frameworks when selected_frameworks is non-empty', async () => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...BASE_SETTINGS,
+      selected_frameworks: ['fw-soc2'],
+    } as never)
+
+    renderCompliance()
+
+    await waitFor(() => {
+      expect(screen.getByText('SOC 2 Type II')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('EU AI Act')).not.toBeInTheDocument()
+  })
+
+  it('shows no framework cards when all frameworks are disabled', async () => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...BASE_SETTINGS,
+      selected_frameworks: ['fw-other'],  // an ID not in the DB response
+    } as never)
+
+    renderCompliance()
+
+    await waitFor(() => {
+      expect(screen.queryByText('SOC 2 Type II')).not.toBeInTheDocument()
+      expect(screen.queryByText('EU AI Act')).not.toBeInTheDocument()
+    })
+  })
+
+  it('shows all frameworks when settings API response omits selected_frameworks (graceful fallback, no crash)', async () => {
+    vi.mocked(api.settings).mockResolvedValue({
+      ...BASE_SETTINGS,
+      // selected_frameworks deliberately absent — simulates an older API version
+    } as never)
+
+    renderCompliance()
+
+    await waitFor(() => {
+      expect(screen.getByText('SOC 2 Type II')).toBeInTheDocument()
+      expect(screen.getByText('EU AI Act')).toBeInTheDocument()
+    })
+  })
+})

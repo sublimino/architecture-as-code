@@ -60,19 +60,21 @@ spec:
                   name: discovery-portal-database
                   key: DATABASE_URL
             - name: API_JWT_ISSUER
-              value: http://dex.inf-signalloom.svc.cluster.local:5556/dex
+              value: http://localhost:5173/dex
             - name: API_JWT_AUDIENCE
               value: signalloom-api
             - name: API_JWT_AUTHORIZED_PARTY
               value: signalloom-dashboard
             - name: API_JWKS_URL
               value: http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys
+            # Dex emits sub as its connector-encoded id (protobuf of userID+connector),
+            # not the raw userID; map that actual sub. (Kept demo-user too for clarity.)
             - name: API_SUBJECT_TENANTS
-              value: '{"demo-user":"tenant-demo"}'
+              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo"}'
             - name: OIDC_PROVIDER
               value: generic
             - name: OIDC_ISSUER_URL
-              value: http://dex.inf-signalloom.svc.cluster.local:5556/dex
+              value: http://localhost:5173/dex
             - name: OIDC_CLIENT_ID
               value: signalloom-dashboard
             - name: OIDC_REDIRECT_URI

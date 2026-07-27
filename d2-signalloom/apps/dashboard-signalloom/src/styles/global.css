@@ -1,0 +1,95 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #020617;
+  --surface: #0F172A;
+  --surface2: #1E293B;
+  --border: #1E293B;
+  --border-subtle: #334155;
+  --cyan: #06B6D4;
+  --violet: #8B5CF6;
+  --teal: #10B981;
+  --amber: #D97706;
+  --error: #DC2626;
+  --text: #F8FAFC;
+  --muted: #94A3B8;
+  --slate-gray: #475569;
+  --radius: 8px;
+  --radius-sm: 4px;
+  /* legacy aliases kept for existing components */
+  --warning: #D97706;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+button { cursor: pointer; font-family: inherit; }
+
+input, select, textarea {
+  font-family: inherit;
+  background: var(--surface2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  padding: 6px 10px;
+  font-size: 13px;
+  outline: none;
+}
+input:focus, select:focus, textarea:focus { border-color: var(--cyan); }
+select option { background: var(--surface); }
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  border: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+.btn:hover { opacity: 0.85; }
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: var(--cyan); color: #020617; }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border-subtle); }
+.btn-danger { background: var(--error); color: #fff; }
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Row flash on auto-refresh */
+@keyframes row-flash {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(6, 182, 212, 0.06); }
+}
+.row-flash { animation: row-flash 0.7s ease-out; }

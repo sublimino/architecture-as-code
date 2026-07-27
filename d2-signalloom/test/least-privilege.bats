@@ -2,14 +2,11 @@
 
 setup() {
   repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
-  canonical="$repo_root/d2-signalloom/fleet/local/signalloom.yaml"
-  active="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+  # Single canonical Signal Loom tenant ResourceSet, owned by the fleet.
+  canonical="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 }
 
 @test "Signalloom tenants remain namespace-bound outside their exact SPIRE grant" {
-  run cmp --silent "$canonical" "$active"
-  [ "$status" -eq 0 ]
-
   run grep -F 'name: cluster-admin' "$canonical"
   [ "$status" -ne 0 ]
 

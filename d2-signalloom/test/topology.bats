@@ -10,15 +10,8 @@ setup() {
   [[ "$output" == *"topology validation passed"* ]]
 }
 
-@test "active local fleet composes the canonical Signalloom ResourceSet source" {
-  run cmp --silent \
-    "$repo_root/d2-signalloom/fleet/local/signalloom.yaml" \
-    "$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
-  [ "$status" -eq 0 ]
-}
-
 @test "Phase 1 frontend reconciliation does not wait on later acceptance jobs" {
-  run python3 - "$repo_root/d2-signalloom/fleet/local/signalloom.yaml" <<'PY'
+  run python3 - "$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml" <<'PY'
 import sys
 from pathlib import Path
 

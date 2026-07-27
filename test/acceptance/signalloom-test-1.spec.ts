@@ -1,9 +1,11 @@
 import { createHmac } from "node:crypto";
 import { expect, test } from "./fixtures";
 
-const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "http://127.0.0.1:8675";
-const API_URL = process.env.SIGNALLOOM_API_URL ?? "http://127.0.0.1:18000";
+const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://127.0.0.1:18443";
+const API_URL = process.env.SIGNALLOOM_API_URL ?? DASHBOARD_URL;
 const DEX_URL = process.env.SIGNALLOOM_DEX_URL ?? "http://127.0.0.1:15556";
+
+test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 
 const windows = [
   ["Dashboard root", null, "Estate 95"],
@@ -52,21 +54,6 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
     });
   }
 
-  test("browser cannot address private persistence directly", async ({ page }) => {
-    await page.goto(DASHBOARD_URL);
-    const reachable = await page.evaluate(async () => {
-      try {
-        await fetch("http://postgresql.inf-signalloom.svc.cluster.local:5432", {
-          mode: "no-cors",
-          signal: AbortSignal.timeout(2_000),
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    });
-    expect(reachable).toBe(false);
-  });
 });
 
 test.describe("SignalLoom TEST-1 Dex and API contracts", () => {

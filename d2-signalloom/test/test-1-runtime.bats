@@ -59,9 +59,23 @@ service_proxy() {
 }
 
 @test "TEST-1 NetworkPolicy blocks API external egress" {
+  run kubectl -n fe-signalloom get deployment fe-signalloom
+  [ "$status" -eq 0 ]
   run kubectl -n fe-signalloom exec deployment/fe-signalloom -- \
-    python -c 'import socket; socket.create_connection(("example.com", 443), 3)'
-  [ "$status" -ne 0 ]
+    python -c 'import socket; print(socket.__name__)'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"socket"* ]]
+  run kubectl -n fe-signalloom exec deployment/fe-signalloom -- \
+    python -c 'import socket,sys
+try:
+    socket.create_connection(("example.com", 443), 3)
+except OSError as error:
+    print(f"EGRESS_DENIED:{type(error).__name__}")
+    sys.exit(0)
+print("EGRESS_REACHABLE")
+sys.exit(1)'
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"EGRESS_DENIED:"* ]]
 }
 
 @test "TEST-1 NetworkPolicy blocks unauthorised persistence access" {
@@ -69,9 +83,34 @@ service_proxy() {
     -o jsonpath='{.spec.template.spec.containers[0].image}')"
   run kubectl -n fe-signalloom run "${TEST_POD_PREFIX}-unauthorised" \
     --restart=Never --image="$image" --command -- \
-    python -c 'import socket; socket.create_connection(("postgresql.inf-signalloom.svc.cluster.local", 5432), 3)'
+    python -c 'import socket,sys
+try:
+    socket.create_connection(("postgresql.inf-signalloom.svc.cluster.local", 5432), 3)
+except OSError as error:
+    print(f"POLICY_DENIED:{type(error).__name__}")
+    sys.exit(0)
+print("PERSISTENCE_REACHABLE")
+sys.exit(1)'
   [ "$status" -eq 0 ]
   run kubectl -n fe-signalloom wait "pod/${TEST_POD_PREFIX}-unauthorised" \
-    --for=jsonpath='{.status.phase}'=Failed --timeout=60s
+    --for=jsonpath='{.status.phase}'=Succeeded --timeout=60s
   [ "$status" -eq 0 ]
+  run kubectl -n fe-signalloom logs "${TEST_POD_PREFIX}-unauthorised"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"POLICY_DENIED:"* ]]
+}
+
+@test "TEST-1 exposes no persistence Service outside its cluster boundary" {
+  for service in postgresql redis minio fake-integration-proxy dex; do
+    run kubectl -n inf-signalloom get service "$service" \
+      -o jsonpath='{.spec.type}:{.spec.externalName}:{.spec.externalIPs}'
+    [ "$status" -eq 0 ]
+    [[ "$output" == "ClusterIP::"* ]]
+  done
+  run kubectl -n fe-signalloom get httproutes.gateway.networking.k8s.io -o yaml
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"name: postgresql"* ]]
+  [[ "$output" != *"name: redis"* ]]
+  [[ "$output" != *"name: minio"* ]]
+  [[ "$output" != *"name: fake-integration-proxy"* ]]
 }

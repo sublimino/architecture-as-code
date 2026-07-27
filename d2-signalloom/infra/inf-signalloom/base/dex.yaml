@@ -23,6 +23,11 @@ stringData:
         redirectURIs:
           - http://localhost:5173/callback
         secret: signalloom-dashboard-local-only
+      - id: signalloom-api
+        name: Signalloom Compatibility API Local
+        secret: signalloom-api-local-only
+        trustedPeers:
+          - signalloom-dashboard
     staticPasswords:
       - email: demo-user@signalloom.local
         hash: $2y$10$2n.j1ndrN9e5UOO9mzQjXu2BXMFhbpr/9eTWHwjZuptjVPq7ZfpRu

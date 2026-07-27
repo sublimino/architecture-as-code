@@ -1,5 +1,4 @@
 """Configuration for the vendored Discovery Portal."""
-from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -18,9 +17,10 @@ class Settings(BaseSettings):
     s3_secret_access_key: str = ""
     s3_region: str = "us-east-1"
     s3_bucket: str = "discovery-reports"
-    api_jwt_secret: SecretStr = SecretStr("")
-    api_jwt_issuer: str = "http://dex.dex.svc.cluster.local:5556/dex"
+    api_jwt_issuer: str = "http://dex.inf-signalloom.svc.cluster.local:5556/dex"
     api_jwt_audience: str = "signalloom-api"
+    api_jwt_authorized_party: str = "signalloom-dashboard"
+    api_jwks_url: str = "http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys"
     api_subject_tenants: dict[str, str] = {"demo-user": "tenant-demo"}
 
 

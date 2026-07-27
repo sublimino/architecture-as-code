@@ -8,4 +8,6 @@ resources:
   - deployment.yaml
   - service.yaml
   - api-service.yaml
+  - dashboard-deployment.yaml
+  - dashboard-service.yaml
   - gateway-route.yaml

@@ -15,6 +15,7 @@ stringData:
       http: 0.0.0.0:5556
     oauth2:
       skipApprovalScreen: true
+      passwordConnector: local
     enablePasswordDB: true
     staticClients:
       - id: signalloom-dashboard
@@ -24,7 +25,7 @@ stringData:
         secret: signalloom-dashboard-local-only
     staticPasswords:
       - email: demo-user@signalloom.local
-        hash: $2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy
+        hash: $2y$10$2n.j1ndrN9e5UOO9mzQjXu2BXMFhbpr/9eTWHwjZuptjVPq7ZfpRu
         username: demo-user
         userID: demo-user
 ---

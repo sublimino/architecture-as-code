@@ -9,7 +9,7 @@ setup() {
 }
 
 @test "Dex credentials are bcrypt-hashed and never plaintext" {
-  run grep -F 'hash: $2a$' "$dex_manifest"
+  run grep -E 'hash: \$2[aby]\$' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -E '^[[:space:]]*(password|passwords):' "$dex_manifest"
   [ "$status" -ne 0 ]
@@ -65,5 +65,20 @@ setup() {
   run grep -F 'path: /healthz' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'args: ["dex", "serve", "/etc/dex/config.yaml"]' "$dex_manifest"
+  [ "$status" -eq 0 ]
+}
+
+@test "local Kustomize overlay renders the complete Dex runtime" {
+  run kubectl kustomize "$root/d2-signalloom/infra/inf-signalloom/configs/local"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"kind: Secret"* ]]
+  [[ "$output" == *"name: dex-local-auth"* ]]
+  [[ "$output" == *"kind: Deployment"* ]]
+  [[ "$output" == *"name: dex"* ]]
+  [[ "$output" == *"kind: Service"* ]]
+}
+
+@test "Dex password grant uses the local password connector" {
+  run grep -F 'passwordConnector: local' "$dex_manifest"
   [ "$status" -eq 0 ]
 }

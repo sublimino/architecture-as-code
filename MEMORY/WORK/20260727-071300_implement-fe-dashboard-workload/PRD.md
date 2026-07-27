@@ -2,12 +2,12 @@
 task: Implement separate fe-dashboard workload fully
 slug: 20260727-071300_implement-fe-dashboard-workload
 effort: advanced
-phase: plan
+phase: blocked
 progress: 0/28
 mode: interactive
 iteration: retry-after-ancestry-reconciliation
 started: 2026-07-27T07:13:00+01:00
-updated: 2026-07-27T07:17:00+01:00
+updated: 2026-07-27T07:19:00+01:00
 token_estimate: 44000
 ---
 
@@ -29,6 +29,12 @@ errata using the Obsidian CLI.
 - Existing task-worktree changes must remain outside this card's commit.
 - Container execution may require an available local Docker daemon.
 - Retry preflight found the claimed common SHA `e799fb3` is now only the merge base; current HEAD and required integration ref have diverged again.
+
+### Blocker
+
+The live `integration/signalloom-d2-v2.5.0` ref (`d6da1e7`) is not an
+ancestor of task HEAD (`346e830`). The integration owner must reconcile the
+required ref to contain the task base before this card can modify source.
 
 ### Plan
 

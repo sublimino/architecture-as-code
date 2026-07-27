@@ -76,6 +76,13 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "Dex has writable temporary storage under read-only root filesystem" {
+  run grep -F 'mountPath: /tmp' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'emptyDir: {}' "$dex_manifest"
+  [ "$status" -eq 0 ]
+}
+
 @test "local Kustomize overlay renders the complete Dex runtime" {
   run kubectl kustomize "$root/d2-signalloom/infra/inf-signalloom/configs/local"
   [ "$status" -eq 0 ]

@@ -52,9 +52,12 @@ signalloom-security-release-pack-check: ## Statically validate the security rele
 signalloom-help: ## Show Signal Loom roots and the safe pre-deployment command sequence.
 	./scripts/signalloom-preflight.sh help "$(SIGNALLOOM_PLATFORM_ROOT)" "$(OSRAMP_PRODUCT_ROOT)" "$(OSRAMP_DEMO_ROOT)" "$(D2_BAO_ROOT)" "$(SIGNALLOOM_INTEGRATION_BRANCH)"
 
-.PHONY: test-demo-signalloom-lifecycle
+.PHONY: test-demo-signalloom-lifecycle test-signalloom-security-validation-evidence
 test-demo-signalloom-lifecycle: ## Test the deterministic local Signal Loom lifecycle with fake kubectl/Flux clients.
 	bats test/signalloom-local-lifecycle.bats
+
+test-signalloom-security-validation-evidence: ## Verify Signal Loom fail-closed security validation evidence.
+	bats test/signalloom-security-validation-evidence.bats
 
 ##@ Cluster lifecycle
 

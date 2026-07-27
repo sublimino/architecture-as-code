@@ -60,6 +60,14 @@ line_number() {
   [ "$helper" -lt "$image" ]
 }
 
+@test "local lifecycle loads the fake integration proxy image into Kind" {
+  run make -n signalloom-images
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"docker build -t fake-integration-proxy:dev"* ]]
+  [[ "$output" == *"kind load docker-image --name osramp fake-integration-proxy:dev"* ]]
+}
+
 @test "Phase 1 is exposed through the approved demo lifecycle rather than a new wrapper" {
   run make -n demo-signalloom-up demo-signalloom-test demo-signalloom-down
 

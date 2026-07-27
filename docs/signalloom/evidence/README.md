@@ -1,7 +1,8 @@
 # SLDPB25-P2-2 — Dashboard image supply-chain evidence
 
 Regenerate with `make signalloom-dashboard-image` (wraps `scripts/build-sign-dashboard.sh`).
-All artifacts bind to the resolved image digest in `dashboard-signalloom.digest.txt`.
+The resolved image digest, signature, SBOM, and provenance are recorded here.
+The binding limitations for the local-demo evidence are described below.
 
 | Artifact | File | Producer |
 |----------|------|----------|

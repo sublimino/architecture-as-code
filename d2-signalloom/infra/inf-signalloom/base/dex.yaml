@@ -8,7 +8,7 @@ metadata:
 type: Opaque
 stringData:
   config.yaml: |
-    issuer: http://dex.inf-signalloom.svc.cluster.local:5556/dex
+    issuer: http://localhost:5173/dex
     storage:
       type: memory
     web:
@@ -20,9 +20,9 @@ stringData:
     staticClients:
       - id: signalloom-dashboard
         name: Signalloom Dashboard Local
+        public: true
         redirectURIs:
           - http://localhost:5173/callback
-        secret: signalloom-dashboard-local-only
       - id: signalloom-api
         name: Signalloom Compatibility API Local
         secret: signalloom-api-local-only
@@ -30,7 +30,8 @@ stringData:
           - signalloom-dashboard
     staticPasswords:
       - email: demo-user@signalloom.local
-        hash: $2y$10$2n.j1ndrN9e5UOO9mzQjXu2BXMFhbpr/9eTWHwjZuptjVPq7ZfpRu
+        # bcrypt("demo-user") — local-demo credential only (see docs/signalloom).
+        hash: $2b$10$NZGZWtWZgbrmmuDU5Bf.N.38ar7tskOwJ176v1qo5p3UWw1dlIE4C
         username: demo-user
         userID: demo-user
 ---
@@ -76,8 +77,13 @@ spec:
               port: http
           livenessProbe:
             httpGet:
-              path: /healthz
+              # Dex serves endpoints under the issuer path (/dex); the bare
+              # /healthz 404s once the issuer has a path, so probe a served path.
+              path: /dex/.well-known/openid-configuration
               port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

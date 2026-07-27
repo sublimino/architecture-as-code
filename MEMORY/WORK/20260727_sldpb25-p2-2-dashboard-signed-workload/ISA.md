@@ -2,8 +2,8 @@
 task: Complete SLDPB25-P2-2 dashboard signed image + SPA workload, recover orphans
 slug: 20260727_sldpb25-p2-2-dashboard-signed-workload
 effort: E5
-phase: verify
-progress: 32/34
+phase: complete
+progress: 34/34
 mode: algorithm
 started: 2026-07-27T18:10:00+01:00
 updated: 2026-07-27T18:10:00+01:00
@@ -109,8 +109,8 @@ nested-worktree violation surfaced.
 - [x] ISC-30: Anti: no test is a tautology (grep-only of the file it claims to test) — container test boots a container.
 
 ### Landing / integrity
-- [ ] ISC-31: Changes committed to `integration/signalloom-d2-v2.5.0`, scoped to P2-2 (no stray files).
-- [ ] ISC-32: `git status` clean of unintended modifications after commit.
+- [x] ISC-31: Committed 65cce28 (GPG-signed) on integration/signalloom-d2-v2.5.0, 8 P2-2 files only.
+- [x] ISC-32: Post-commit `git status` shows only pre-existing files + hook checkpoint sidecar; no P2-2 leftovers.
 - [x] ISC-33: Cross-vendor audit run — Cato wrapper infra-broken (hardcoded WORK_DIR + wrong codex path); SUBSTITUTED with direct `codex exec` GPT-5.4 read-only audit. Verdict CONCERNS, no critical blocker, commit-worthy for TRL-2 with limitations explicit.
 - [x] ISC-34: Advisor consulted at commitment boundary and before completion; gaps addressed.
 
@@ -187,4 +187,11 @@ nested-worktree violation surfaced.
 - ISC-22..25/26/27: `bats dashboard-package.bats` 4/4 + `gateway-routing.bats` 5/5.
 - ISC-28/30: container test boots a real container (not a grep tautology) — PASS.
 - ISC-33: `codex exec` GPT-5.4 cross-vendor audit → CONCERNS, no critical, commit-worthy for TRL-2.
+- ISC-34: Advisor at commitment boundary (pre-build) + final (pre-complete). Final gaps closed:
+  Service selector==pod labels==matchLabels (`dashboard-signalloom`); securityContext runAsNonRoot+
+  readOnlyRootFilesystem+drop ALL; cosign verify ran against the DIGEST `@sha256:b4da206d…` not a tag.
+  Advisor's "ISA attribution mismatch" was a `--auto-state` false alarm (it loaded an unrelated errata
+  ISA); this P2-2 ISA explicitly scopes the commit. Enforcement boundary recorded: supply-chain
+  evidence is PRODUCED and locally verifiable but NOT enforced at deploy time (tag-ref + kyverno
+  admission-demo ns only) — deferred to P2-GOV/P3-1 by design.
 

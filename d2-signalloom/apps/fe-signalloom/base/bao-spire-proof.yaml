@@ -25,12 +25,11 @@ spec:
             - name: spire-socket
               mountPath: /run/spire/sockets
         - name: bao-login
-          image: quay.io/openbao/openbao:2.1.1
-          command: ["/bin/bao"]
-          args: ["login", "-no-print", "-method=jwt", "-path=jwt", "role=signalloom-fe-signalloom", "jwt=@/work/jwt"]
+          image: signalloom-spire-helper:local
+          imagePullPolicy: Never
+          command: ["/usr/local/bin/signalloom-spire-proof"]
+          args: ["exchange", "--address", "http://openbao.inf-bao.svc.cluster.local:8200", "--role", "signalloom-fe-signalloom", "--jwt", "/work/jwt", "--output", "/work/home/.vault-token"]
           env:
-            - name: BAO_ADDR
-              value: http://openbao.inf-bao.svc.cluster.local:8200
             - name: HOME
               value: /work/home
           volumeMounts:
@@ -45,7 +44,7 @@ spec:
             - name: HOME
               value: /work/home
           command: ["/bin/bao"]
-          args: ["kv", "get", "kv/signalloom/fe-signalloom"]
+          args: ["read", "kv/data/signalloom/fe-signalloom"]
           volumeMounts:
             - name: work
               mountPath: /work
@@ -74,7 +73,7 @@ spec:
     spec:
       restartPolicy: Never
       serviceAccountName: fe-signalloom-negative
-      initContainers:
+      containers:
         - name: jwt-svid
           image: signalloom-spire-helper:local
           imagePullPolicy: Never
@@ -83,9 +82,6 @@ spec:
           volumeMounts:
             - name: spire-socket
               mountPath: /run/spire/sockets
-      containers:
-        - name: proof
-          image: registry.k8s.io/pause:3.10
       volumes:
         - name: spire-socket
           hostPath:

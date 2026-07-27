@@ -1,13 +1,74 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestExchangeJWTStoresOpenBaoToken(t *testing.T) {
+	var request struct {
+		Role string `json:"role"`
+		JWT  string `json:"jwt"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/jwt/login" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"bao-token"}}`))
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	jwtPath := filepath.Join(dir, "jwt")
+	if err := os.WriteFile(jwtPath, []byte("header.payload.signature"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tokenPath := filepath.Join(dir, "home", ".bao-token")
+	if err := exchangeJWT(server.Client(), server.URL, "signalloom-fe-signalloom", jwtPath, tokenPath); err != nil {
+		t.Fatal(err)
+	}
+	if request.Role != "signalloom-fe-signalloom" || request.JWT != "header.payload.signature" {
+		t.Fatalf("unexpected login request: %+v", request)
+	}
+	token, err := os.ReadFile(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(token) != "bao-token" {
+		t.Fatalf("unexpected OpenBao token: %q", token)
+	}
+}
+
+func TestExchangeJWTRejectsUnsuccessfulLogin(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "signature validation failed", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	jwtPath := filepath.Join(t.TempDir(), "jwt")
+	if err := os.WriteFile(jwtPath, []byte("jwt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := exchangeJWT(server.Client(), server.URL, "role", jwtPath, filepath.Join(t.TempDir(), ".bao-token")); err == nil {
+		t.Fatal("unsuccessful OpenBao login unexpectedly succeeded")
+	}
+}
+
+func TestOpenBaoClientHasBoundedTimeout(t *testing.T) {
+	if openBaoClient.Timeout != 30*time.Second {
+		t.Fatalf("unexpected OpenBao timeout: %s", openBaoClient.Timeout)
+	}
+}
 
 func TestWriteStoresSingleJWT(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "jwt")
@@ -69,13 +130,13 @@ func TestWriteRetriesUntilSPIREIsReady(t *testing.T) {
 	}
 }
 
-func TestExpectDeniedRequiresIdentityDenial(t *testing.T) {
+func TestExpectDeniedTreatsIdentityDenialAsSuccess(t *testing.T) {
 	var stdout strings.Builder
 	denied := func(string, ...string) ([]byte, error) {
 		return []byte("rpc error: code = PermissionDenied desc = no identity issued"), errors.New("exit status 1")
 	}
-	if code := run([]string{"expect-denied"}, &stdout, os.Stderr, denied); code == 0 {
-		t.Fatal("expected denial mode to fail the init container")
+	if code := run([]string{"expect-denied"}, &stdout, os.Stderr, denied); code != 0 {
+		t.Fatalf("expected denial mode to succeed, got %d", code)
 	}
 	if !strings.Contains(stdout.String(), "denied as expected") {
 		t.Fatalf("missing denial marker: %q", stdout.String())

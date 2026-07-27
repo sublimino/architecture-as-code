@@ -242,7 +242,7 @@ demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom 
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
 demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest integration gate.
-	./scripts/signalloom-test-1.sh
+	DEX_DEMO_PASSWORD="$${DEX_DEMO_PASSWORD:-demo-user}" ./scripts/signalloom-test-1.sh
 demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
 	./scripts/signalloom-down.sh
 	./scripts/signalloom-runtime-test.sh

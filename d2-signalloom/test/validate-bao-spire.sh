@@ -52,11 +52,15 @@ if grep -Eq 'command: \[("/bin/)?(ba)?sh"' "$proof"; then
   printf 'Bao/SPIRE proof assumes a shell executable\n' >&2
   exit 1
 fi
-[[ $(grep -Fc 'command: ["/usr/local/bin/signalloom-spire-proof"]' "$proof") -eq 2 ]]
+[[ $(grep -Fc 'command: ["/usr/local/bin/signalloom-spire-proof"]' "$proof") -eq 3 ]]
 grep -Fq 'name: bao-login' "$proof"
 grep -Fq 'command: ["/bin/bao"]' "$proof"
-grep -Fq 'args: ["login", "-no-print", "-method=jwt", "-path=jwt", "role=signalloom-fe-signalloom", "jwt=@/work/jwt"]' "$proof"
-grep -Fq 'args: ["kv", "get", "kv/signalloom/fe-signalloom"]' "$proof"
+grep -Fq 'args: ["exchange", "--address", "http://openbao.inf-bao.svc.cluster.local:8200", "--role", "signalloom-fe-signalloom", "--jwt", "/work/jwt", "--output", "/work/home/.vault-token"]' "$proof"
+if grep -Fq 'registry.k8s.io/pause' "$proof"; then
+  printf 'negative Bao/SPIRE proof cannot complete while using pause\n' >&2
+  exit 1
+fi
+grep -Fq 'args: ["read", "kv/data/signalloom/fe-signalloom"]' "$proof"
 grep -Fq 'value: /work/home' "$proof"
 grep -Fq 'bao.controlplane.io/consumer: fe-signalloom' "$proof"
 printf 'bounded Bao/SPIRE identity and proof configuration validates\n'

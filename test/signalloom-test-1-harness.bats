@@ -76,3 +76,53 @@ setup() {
   run grep -F '127.0.0.1:8675' "$root/test/acceptance/signalloom-test-1.spec.ts"
   [ "$status" -ne 0 ]
 }
+@test "TEST-1 acceptance preflight validates dashboard readiness semantics" {
+  acceptance="$root/scripts/acceptance-test.sh"
+  run grep -F '${DASHBOARD_URL}/readyz' "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F '[[ "$dashboard_ready" != "ready" ]]' "$acceptance"
+  [ "$status" -eq 0 ]
+}
+
+@test "TEST-1 discovers the shared Gateway data-plane Service dynamically" {
+  acceptance="$root/scripts/acceptance-test.sh"
+  run grep -F 'kubectl get service -A' "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F 'read -r gateway_namespace gateway_service' "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F 'gateway_node_port=' "$acceptance"
+  [ "$status" -eq 0 ]
+}
+
+@test "TEST-1 preserves the Gateway listener hostname through local access" {
+  acceptance="$root/scripts/acceptance-test.sh"
+  config="$root/test/acceptance/playwright.config.ts"
+  run grep -F 'dashboard.osramp.acme.local:${gateway_node_port}' "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F 'host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}' "$config"
+  [ "$status" -eq 0 ]
+}
+
+@test "TEST-1 defaults its documented local-only password while preserving overrides" {
+  spec="$root/test/acceptance/signalloom-test-1.spec.ts"
+  run make -n demo-signalloom-test-1
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'DEX_DEMO_PASSWORD="${DEX_DEMO_PASSWORD:-demo-user}"'* ]]
+  run grep -F 'process.env.DEX_DEMO_PASSWORD' "$spec"
+  [ "$status" -eq 0 ]
+  run grep -F '.fill("demo-user")' "$spec"
+  [ "$status" -ne 0 ]
+}
+
+@test "Dex local demo credential is documented and bcrypt protected" {
+  dex="$root/d2-signalloom/infra/inf-signalloom/base/dex.yaml"
+  design="$root/docs/signalloom/dex-oidc-design.md"
+  run grep -E 'hash: [$]2[ayb][$]10[$]' "$dex"
+  [ "$status" -eq 0 ]
+  run grep -F '| Password | `demo-user` |' "$design"
+  [ "$status" -eq 0 ]
+  run grep -F 'principal-approved on 2026-07-27' "$design"
+  [ "$status" -eq 0 ]
+  run grep -F 'self-contained local-only demo' "$design"
+  [ "$status" -eq 0 ]
+}

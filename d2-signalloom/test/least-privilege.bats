@@ -59,8 +59,10 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F 'denied as expected' "$repo_root/d2-signalloom/proof-helper/main.go"
   [ "$status" -eq 0 ]
-  run grep -F 'condition=failed' "$runner"
+  run grep -F 'wait "job/$negative" --for=condition=complete' "$runner"
   [ "$status" -eq 0 ]
+  run grep -F 'condition=failed' "$runner"
+  [ "$status" -ne 0 ]
   run grep -F 'logs "job/$negative" -c jwt-svid' "$runner"
   [ "$status" -eq 0 ]
 }

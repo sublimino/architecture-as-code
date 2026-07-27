@@ -33,7 +33,7 @@ through `Estate95.open(id)`.
 | `GET /api/runs/{id}/events` | action stream | exit failure or stream error |
 | `GET /api/cluster/overview` | Cluster State | cluster not ready (`503`) |
 | `GET /api/incidents` | ServiceNow | empty store or fetch failure |
-| `GET /api/incidents/{id}` | incident detail | missing incident |
+| `GET /api/incidents/{id}` | broker-supported detail route; dashboard currently renders list data locally | missing incident |
 | `GET /api/agent-card/{name}` | Agent Registry | card fetch failure |
 | `GET /api/agent-card/live/{name}` | live verification | unavailable or contract mismatch |
 | `GET /api/orbit/proposals` | Orbit | sentinel unavailable |
@@ -47,7 +47,7 @@ through `Estate95.open(id)`.
 | `GET /api/pipeline/events` | Pipeline SSE | stream failure |
 | `GET /api/pipeline/node/{id}` | Pipeline detail | node fetch failure |
 | `GET /proxy/adk/*`, `GET /proxy/grafana/*` | embedded ADK/Grafana | proxy refusal, blank frame, or Grafana login |
-| `GET /ws/term` | Scoped Terminal | cross-origin `403`, socket closure, or refused executable |
+| `WebSocket /ws/term` | Scoped Terminal | cross-origin `403`, socket closure, or refused executable |
 
 ## Authentication and error states
 

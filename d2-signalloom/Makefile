@@ -6,7 +6,7 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	./test/validate-topology.sh
 	bash ./test/validate-dependencies.sh
 	cd proof-helper && go test ./...
-	@if command -v bats >/dev/null 2>&1; then bats test/topology.bats test/portal-package.bats test/bootstrap.bats test/bao-spire.bats test/least-privilege.bats; fi
+	@if command -v bats >/dev/null 2>&1; then bats test/topology.bats test/portal-package.bats test/bootstrap.bats test/bao-spire.bats test/least-privilege.bats test/dex-auth.bats test/dex-runtime.bats; fi
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

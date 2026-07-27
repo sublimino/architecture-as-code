@@ -65,10 +65,22 @@ spec:
                   name: discovery-portal-database
                   key: API_JWT_SECRET
             - name: API_JWT_ISSUER
-              value: http://dex.dex.svc.cluster.local:5556/dex
+              value: http://dex.inf-signalloom.svc.cluster.local:5556/dex
             - name: API_JWT_AUDIENCE
               value: signalloom-api
             - name: API_SUBJECT_TENANTS
+              value: '{"demo-user":"tenant-demo"}'
+            - name: OIDC_PROVIDER
+              value: generic
+            - name: OIDC_ISSUER_URL
+              value: http://dex.inf-signalloom.svc.cluster.local:5556/dex
+            - name: OIDC_CLIENT_ID
+              value: signalloom-dashboard
+            - name: OIDC_REDIRECT_URI
+              value: http://localhost:5173/callback
+            - name: OIDC_SCOPES
+              value: openid profile email groups
+            - name: OIDC_TENANT_MAPPING
               value: '{"demo-user":"tenant-demo"}'
             - name: REDIS_URL
               value: redis://redis.inf-signalloom.svc.cluster.local:6379/0

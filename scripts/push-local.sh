@@ -41,26 +41,96 @@ push_and_sign() {
     --registry-referrers-mode=legacy \
     "${REGISTRY}/${repo}@${digest}"
   crane tag --insecure "${REGISTRY}/${repo}@${digest}" latest
+  # Fail loudly if the signature did not land on this exact digest. A racey
+  # re-push (or a signing error) otherwise leaves `latest` pointing at an
+  # unsigned digest that Flux silently refuses to verify — the failure mode
+  # that stalled every signalloom OCIRepository. Verify with flags proven to
+  # find the legacy referrer signature this push just created.
+  COSIGN_PASSWORD="" cosign verify \
+    --key "${COSIGN_KEY%.key}.pub" \
+    --insecure-ignore-tlog=true \
+    --allow-insecure-registry \
+    "${REGISTRY}/${repo}@${digest}" >/dev/null \
+    || { echo "FATAL: cosign signature verification failed for ${repo}@${digest}" >&2; exit 1; }
+}
+
+wait_for_parallel_push_slot() {
+  local -n pids_ref="$1"
+  local -n components_ref="$2"
+  local -n failures_ref="$3"
+  local pid="${pids_ref[0]}"
+  local component="${components_ref[0]}"
+
+  pids_ref=("${pids_ref[@]:1}")
+  components_ref=("${components_ref[@]:1}")
+
+  # Guard `wait` so errexit does not stop us before we can report every failed
+  # component in the batch.
+  if ! wait "$pid"; then
+    echo "FATAL: push failed for ${component}" >&2
+    failures_ref+=("$component")
+  fi
+}
+
+drain_parallel_pushes() {
+  local -n pids_ref="$1"
+  local -n components_ref="$2"
+  local -n failures_ref="$3"
+
+  while ((${#pids_ref[@]} > 0)); do
+    wait_for_parallel_push_slot pids_ref components_ref failures_ref
+  done
+}
+
+run_parallel_push() {
+  local group="$1"
+  shift
+
+  local max_parallel=4
+  local -a active_pids=()
+  local -a active_components=()
+  local -a failures=()
+  local entry repo path
+
+  for entry in "$@"; do
+    IFS='|' read -r repo path <<<"$entry"
+    push_and_sign "$repo" "$path" &
+    active_pids+=("$!")
+    active_components+=("$repo")
+
+    if ((${#active_pids[@]} >= max_parallel)); then
+      wait_for_parallel_push_slot active_pids active_components failures
+    fi
+  done
+
+  drain_parallel_pushes active_pids active_components failures
+
+  if ((${#failures[@]} > 0)); then
+    echo "FATAL: ${group} push failed for component(s): ${failures[*]}" >&2
+    return 1
+  fi
 }
 
 push_foundation() {
-  push_and_sign fleet d2-osramp-fleet
-  for component in cert-manager ingress monitoring trivy-system; do
-    push_and_sign "infra/${component}" "d2-infra/components/${component}"
-  done
+  run_parallel_push foundation \
+    "fleet|d2-osramp-fleet" \
+    "infra/cert-manager|d2-infra/components/cert-manager" \
+    "infra/ingress|d2-infra/components/ingress" \
+    "infra/monitoring|d2-infra/components/monitoring" \
+    "infra/trivy-system|d2-infra/components/trivy-system"
 }
 
 push_signalloom() {
-  for component in inf-bao inf-signalloom; do
-    push_and_sign "signalloom/infra/${component}" "d2-signalloom/infra/${component}"
-  done
-  push_and_sign "signalloom/apps/fe-signalloom" "d2-signalloom/apps/fe-signalloom"
+  run_parallel_push signalloom \
+    "signalloom/infra/inf-bao|d2-signalloom/infra/inf-bao" \
+    "signalloom/infra/inf-signalloom|d2-signalloom/infra/inf-signalloom" \
+    "signalloom/apps/fe-signalloom|d2-signalloom/apps/fe-signalloom"
 }
 
 push_osramp() {
-  for component in frontend backend; do
-    push_and_sign "apps/${component}" "d2-osramp-apps/components/${component}"
-  done
+  run_parallel_push osramp \
+    "apps/frontend|d2-osramp-apps/components/frontend" \
+    "apps/backend|d2-osramp-apps/components/backend"
 }
 
 push_olly() {

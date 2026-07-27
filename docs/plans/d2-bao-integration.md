@@ -276,3 +276,23 @@ This is partial integration evidence only; no Gates C/D/E or release approval
 is claimed. P2-8 must revalidate from the resulting clean integration HEAD.
 
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no -->
+
+## Proposal errata — SLDPB25-P1-1 dashboard browser baseline
+
+2026-07-27: the Estate 95 dashboard journey matrix now identifies the login,
+dashboard view, scan initiation, and results-display boundaries and maps each
+to browser coverage. Login remains a Dex contract because the local dashboard
+broker deliberately has no session middleware. The scan tests intercept the
+LLM Guard API response to verify dashboard request and rendering behavior
+without claiming live scanner availability.
+
+- Matrix and Playwright baseline commit:
+  `8c5e575a8575358db762b0362603395a0cfb2620`
+- Test command: `cd test/acceptance && bunx playwright test --config=playwright.config.ts dashboard-journey.spec.ts`
+- Result: `7 passed (3.2s)`, exit `0`.
+- Browser skill diagnostic session could not start locally; Playwright supplied
+  the actual browser evidence and retained failure diagnostics during selector
+  refinement.
+
+<!-- machine-tag: SLDPB25-P1-1-DASHBOARD-BASELINE-2026-07-27T12:26:00+01:00 -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no scope=dashboard-browser-baseline -->

@@ -42,7 +42,7 @@ setup() {
 }
 
 @test "TEST-1 includes persistence fakes Gateway probes and policy negatives" {
-  run grep -F 'src/tests' "$harness"
+  run grep -F 'API contracts and persistence' "$harness"
   [ "$status" -eq 0 ]
   run grep -F 'fake-integration-proxy/test' "$harness"
   [ "$status" -eq 0 ]
@@ -57,4 +57,22 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F 'if ((FAILURES > 0))' "$harness"
   [ "$status" -eq 0 ]
+}
+
+@test "TEST-1 acceptance uses only Signalloom and shared Gateway forwards" {
+  acceptance="$root/scripts/acceptance-test.sh"
+  run bash -c '
+    block="$(sed -n "/if \[\[ \" \\$\* \" == .*signalloom-test-1/,/^else$/p" "$1")"
+    grep -F "fe-signalloom" <<<"$block" >/dev/null
+    grep -F "inf-signalloom" <<<"$block" >/dev/null
+    grep -F "envoy-gateway-system" <<<"$block" >/dev/null
+    test "$(grep -c "start_port_forward" <<<"$block")" -eq 3
+    grep -F "DASHBOARD_URL" <<<"$block" >/dev/null
+    grep -F "SIGNALLOOM_API_URL" <<<"$block" >/dev/null
+    grep -F "SIGNALLOOM_DEX_URL" <<<"$block" >/dev/null
+    ! grep -E "olly-replica|osramp-archivista|namespace/(frontend|backend)" <<<"$block"
+  ' _ "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F '127.0.0.1:8675' "$root/test/acceptance/signalloom-test-1.spec.ts"
+  [ "$status" -ne 0 ]
 }

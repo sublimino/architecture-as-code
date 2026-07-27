@@ -4,15 +4,28 @@ set -euo pipefail
 
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 KIND_BIN="${KIND_BIN:-kind}"
+DOCKER_BIN="${DOCKER_BIN:-docker}"
 ZOT_CACHE_DIR="${ZOT_CACHE_DIR:-.cache/zot}"
 
 mkdir -p "$ZOT_CACHE_DIR"
-ZOT_CACHE_DIR="$(cd "$ZOT_CACHE_DIR" && pwd -P)"
-# This cache is deliberately local-only.  Make the hostPath writable by Zot's
-# fixed non-root UID; the pod has no privileged init container to chown it.
-chmod 0777 "$ZOT_CACHE_DIR"
+# Resolve to an absolute path via the PARENT dir, not by cd-ing into the cache
+# itself: after the first run prepare_zot_cache chowns the bind-mounted cache to
+# 65532:65532 mode 0750 (so Zot's nonroot user can write), which leaves the host
+# dir un-enterable by the invoking user. cd-ing into it here would fail on every
+# re-run. The parent is owned by the invoking user, so resolving via it is safe.
+ZOT_CACHE_DIR="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CACHE_DIR")"
+# This cache is deliberately local-only. Kind makes it available inside the
+# control-plane container; prepare ownership there before Zot is deployed.
+# The pod itself remains non-root and has no privileged init container.
+prepare_zot_cache() {
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    chown 65532:65532 /var/local/osramp-zot-cache
+  "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
+    chmod 0750 /var/local/osramp-zot-cache
+}
 
 if "$KIND_BIN" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+  prepare_zot_cache
   echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR"
   exit 0
 fi
@@ -42,3 +55,4 @@ EOF
 
 echo "Creating Kind cluster $CLUSTER_NAME with Zot cache $ZOT_CACHE_DIR"
 "$KIND_BIN" create cluster --name "$CLUSTER_NAME" --config "$kind_config"
+prepare_zot_cache

@@ -85,7 +85,7 @@ teardown-all: ## Tear down everything, including the tools setup.sh installed.
 
 .PHONY: zot-cache-reset
 zot-cache-reset: ## Remove persisted local Zot OCI data; the next `make up` repopulates it.
-	rm -rf "$(ZOT_CACHE_DIR)"
+	CLUSTER_NAME="$(CLUSTER_NAME)" ZOT_CACHE_DIR="$(ZOT_CACHE_DIR)" ./scripts/zot-cache-reset.sh
 
 .PHONY: registry
 registry: ## Deploy the in-cluster zot registry.
@@ -160,6 +160,7 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	done; \
 	curl -fsS http://localhost:5001/v2/ >/dev/null; \
 	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom; \
+	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
 	# dashboard image repository literal: signalloom/apps/dashboard-signalloom:latest \

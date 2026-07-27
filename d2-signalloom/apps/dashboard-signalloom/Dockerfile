@@ -1,8 +1,8 @@
 FROM node:22-alpine AS build
 
 WORKDIR /app
-COPY package.json ./
-RUN npm install --ignore-scripts
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
 COPY index.html ./
 COPY src ./src
 COPY public ./public

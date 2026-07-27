@@ -50,7 +50,6 @@ function AutoSignIn({ children }: Props) {
       !auth.error
     ) {
       triggered.current = true
-      // eslint-disable-next-line no-console
       auth.signinRedirect().catch((e) => console.error('[oidc-signin-error]', e))
     }
   }, [auth.isAuthenticated, auth.activeNavigator, auth.isLoading, auth.error, auth])
@@ -74,12 +73,19 @@ export function useAuth0() {
   // loop. Keep these referentially stable to preserve the original behaviour.
   const token = auth.user?.access_token ?? auth.user?.id_token ?? ''
   const getAccessTokenSilently = useCallback(async () => token, [token])
+  // Accept (and ignore) the Auth0-style options arg the call sites still pass.
   const loginWithRedirect = useCallback(
-    (_opts?: unknown) => signinRedirect(),
+    (opts?: unknown): void => {
+      void opts
+      signinRedirect()
+    },
     [signinRedirect],
   )
   const logout = useCallback(
-    (_opts?: unknown) => signoutRedirect(),
+    (opts?: unknown): void => {
+      void opts
+      signoutRedirect()
+    },
     [signoutRedirect],
   )
   const profile = auth.user?.profile

@@ -51,3 +51,22 @@ bunx --package=@playwright/test playwright test \
 Phase 2 implementation remains blocked pending named-ref reconciliation, a
 complete Dex/OIDC browser contract, canonical ResourceSet ownership, and
 installable focused API/browser test runners.
+
+## SLDPB25-P1-3 local Dex/OIDC design erratum
+
+<!-- machine-tag: SLDPB25-P1-3-DEX-OIDC-ERRATA-2026-07-27T12:20:00+01:00 -->
+<!-- scope: local-demo-design-and-deterministic-contracts-only -->
+
+`docs/signalloom/dex-oidc-design.md` now records the checked-in local Dex
+issuer, discovery/JWKS endpoints, dashboard client, callback, static demo
+subject, credential-verifier boundary, claims, and server-owned tenant mapping.
+This corrects the historical observation at lines 42-45: local client
+registration, redirect URI, discovery, and JWKS configuration now exist.
+
+The material limitation remains: the compatibility API validates a separate
+HS256 bearer-token contract and does not validate a Dex-issued token through
+JWKS. The design therefore explicitly separates dashboard OIDC metadata from
+API bearer acceptance and adds deterministic source/API tests for that boundary.
+It does not claim browser login, callback, logout, token exchange, production
+federation, external Auth0 connectivity, a deployed cluster, or a production
+tenant-isolation approval. The source proposal was not modified.

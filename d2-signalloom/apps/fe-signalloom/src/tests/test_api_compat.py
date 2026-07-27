@@ -33,6 +33,7 @@ def token_for(
     audience: str | list[str] = "signalloom-api",
     expires_at: int | None = None,
     header: dict | None = None,
+    extra_claims: dict | None = None,
 ) -> str:
     now = int(time.time())
     claims = {
@@ -44,6 +45,8 @@ def token_for(
     }
     if subject is not None:
         claims["sub"] = subject
+    if extra_claims:
+        claims.update(extra_claims)
     encoded_header = _segment(header or {"alg": "HS256", "typ": "JWT"})
     encoded_claims = _segment(claims)
     signing_input = f"{encoded_header}.{encoded_claims}"
@@ -131,6 +134,16 @@ def test_audience_list_and_known_subject_map_to_expected_tenant(client):
     response = client.get(
         "/api/agents",
         headers=bearer(token_for("alice", audience=["dashboard", "signalloom-api"])),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "tenant-a"
+
+
+def test_authenticated_tenant_is_derived_from_subject_not_token_tenant_claim(client):
+    response = client.get(
+        "/api/agents",
+        headers=bearer(token_for("alice", extra_claims={"tenant_id": "tenant-b"})),
     )
 
     assert response.status_code == 200

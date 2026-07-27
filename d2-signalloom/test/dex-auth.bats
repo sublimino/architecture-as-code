@@ -15,6 +15,19 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
+@test "Dex OIDC contract exposes only the documented local dashboard flow" {
+  run grep -F 'redirectURIs:' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'http://localhost:5173/callback' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'value: openid profile email groups' "$portal_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'name: OIDC_CLIENT_ID' "$portal_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'value: signalloom-dashboard' "$portal_manifest"
+  [ "$status" -eq 0 ]
+}
+
 @test "Dex declares the local dashboard client and tenant subject" {
   run grep -F 'id: signalloom-dashboard' "$dex_manifest"
   [ "$status" -eq 0 ]

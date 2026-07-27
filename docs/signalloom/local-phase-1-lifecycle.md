@@ -20,12 +20,13 @@ namespaces. It starts only the requested Signalloom slice; OSRAMP and olly remai
 inactive.
 
 Use `make demo-signalloom-test` for Flux-only readiness checks and
-`make demo-signalloom-runtime-test` for focused BATS/DETIK assertions against
-the running slice. The runtime test verifies Flux reconciliation and deployment
-presence only. It deliberately does **not** test portal behavior, persistent
-state, identity, or network-policy acceptance; those belong to later phases.
-The frontend Flux Kustomization therefore does not wait for workload health or
-the deliberately failing negative SPIRE proof Job during Phase 1 delivery.
+`make demo-signalloom-runtime-test` for the canonical local acceptance surface.
+The runtime test verifies reconciled tenant Kustomizations, available workloads
+without persistent pod errors, the Discovery Portal `/health` and `/readyz`
+paths, and bounded Bao/SPIRE positive and negative proof outcomes. The frontend
+Flux Kustomization does not wait for workload health or the deliberately
+failing negative SPIRE proof Job during reconciliation; the runtime acceptance
+command evaluates those conditions separately.
 
 For a fresh registry as well as a fresh cluster, run `make zot-cache-reset`
 before `make demo-signalloom-up`.

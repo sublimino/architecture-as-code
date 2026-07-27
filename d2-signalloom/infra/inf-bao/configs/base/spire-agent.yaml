@@ -13,6 +13,9 @@ spec:
       labels:
         app.kubernetes.io/name: spire-agent
     spec:
+      serviceAccountName: spire-agent
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       hostPID: true
       containers:
         - name: spire-agent

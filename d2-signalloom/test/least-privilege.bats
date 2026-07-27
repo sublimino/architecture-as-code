@@ -6,12 +6,19 @@ setup() {
   active="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 }
 
-@test "all Signalloom Flux tenants are namespace-bound and source-policy tenants" {
+@test "Signalloom tenants remain namespace-bound outside their exact SPIRE grant" {
   run cmp --silent "$canonical" "$active"
   [ "$status" -eq 0 ]
 
-  run grep -E 'kind: (ClusterRoleBinding)|name: cluster-admin' "$canonical"
+  run grep -F 'name: cluster-admin' "$canonical"
   [ "$status" -ne 0 ]
+
+  run grep -c 'kind: ClusterRoleBinding' "$canonical"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+
+  run grep -F 'resources: ["nodes/proxy"]' "$canonical"
+  [ "$status" -eq 0 ]
 
   run grep -c 'toolkit.fluxcd.io/role: tenant' "$canonical"
   [ "$status" -eq 0 ]

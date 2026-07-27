@@ -502,3 +502,30 @@ Signal Loom warnings; no clean error-free claim is made.
 No application source, unrelated tenant, cluster resource, reconciliation, or
 cleanup operation was changed by this pre-flight. This is qualified P7-PRE
 completion only, not release approval or a positive Bao/SPIRE gate.
+## P7-1 local operational acceptance qualified failure
+
+<!-- machine-completion-tag: SIGNALLOOM-P7-1-QUALIFIED-2026-07-27T08:30:00+01:00 -->
+<!-- integration-ref: integration/signalloom-d2-v2.0.0 -->
+<!-- status: qualified-failed validation=incomplete owner=p7-local-acceptance -->
+<!-- scope: local-kind-signalloom-only -->
+
+P7-1 added a dedicated `inf-bao/spire-agent` identity whose only cluster-wide
+permission is `get` on `nodes/proxy`; the binding is emitted by the dedicated
+Signal Loom fleet ResourceSet rather than by a tenant Flux identity. The agent
+uses Kind host networking and a principal-approved local-only kubelet TLS
+verification bypass. Repeated Bao reconciliation now regenerates its single-use
+SPIRE join token before restarting an existing agent.
+
+Static validation passed: `make -C d2-signalloom test` (21/21), `make
+test-demo-lifecycle` (5/5), `make test-bao-spire-proof-harness` (5/5), and
+`bats test/signalloom-flux-integration.bats` (4/4). `make push-local` completed
+after signing each resolved OCI manifest rather than Flux's artifact-layer
+digest.
+
+Live evidence remains incomplete. The SPIRE agent attested successfully after
+the narrow role was applied; the negative proof emitted `denied as expected`.
+However, the fresh local Flux `signalloom-apps` ResourceSet stalled before
+materialising the `fe-signalloom` application workload, reporting a missing
+`inputs.tenant` template value. Therefore no P7 positive Bao read, portal
+`/health`, portal `/readyz`, clean frontend runtime state, or operational
+acceptance is claimed. No board state or unrelated tenant manifest was edited.

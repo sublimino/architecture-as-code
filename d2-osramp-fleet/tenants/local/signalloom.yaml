@@ -4,6 +4,39 @@
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
+  name: signalloom-spire-rbac
+  namespace: flux-system
+spec:
+  resources:
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: spire-agent
+        namespace: inf-bao
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: signalloom-spire-agent-kubelet
+      rules:
+        - apiGroups: [""]
+          resources: ["nodes/proxy"]
+          verbs: ["get"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: signalloom-spire-agent-kubelet
+      subjects:
+        - kind: ServiceAccount
+          name: spire-agent
+          namespace: inf-bao
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: signalloom-spire-agent-kubelet
+---
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
   name: signalloom-infra
   namespace: flux-system
   annotations:

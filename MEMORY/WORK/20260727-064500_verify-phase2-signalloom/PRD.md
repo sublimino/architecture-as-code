@@ -2,11 +2,11 @@
 task: Verify Phase 2 integration and record evidence
 slug: 20260727-064500_verify-phase2-signalloom
 effort: extended
-phase: verify
+phase: complete
 progress: 15/16
 mode: interactive
 started: 2026-07-27T06:45:00+01:00
-updated: 2026-07-27T06:55:00+01:00
+updated: 2026-07-27T06:56:00+01:00
 ---
 
 ## Context
@@ -92,3 +92,15 @@ from static manifests or absent tooling.
 - `make signalloom-contract-check`: exit 0.
 - `make signalloom-check`: exit 0.
 - `code_review` could not run because `roborev` is unavailable locally.
+
+## Learning
+
+- The decisive verification was comparing declared Gateway infrastructure with
+  the frontend kustomization rather than treating green static tests as proof
+  of end-to-end integration.
+- A smarter workflow would locate the TEST-1 journey matrix and route objects
+  before selecting a pass-oriented test command.
+- FirstPrinciples, CodeReview, and Engineer review were invoked; roborev was
+  unavailable, so its evidence could not be obtained.
+- Future Governor cards should make static-contract versus live-runtime gates
+  explicit in their criteria before implementation begins.

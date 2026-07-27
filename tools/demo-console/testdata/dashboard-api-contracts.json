@@ -4,7 +4,7 @@
   {"method":"POST","path":"/api/runs","response":"{id}","owner":"persistence","location":"main.go:handleRuns; console.runs","gap":""},
   {"method":"GET","path":"/api/runs/{id}/events","response":"SSE line/exit","owner":"persistence","location":"main.go:handleEvents; console.runs","gap":""},
   {"method":"GET","path":"/api/cluster/overview","response":"{pods,flux,ready}","owner":"adapter","location":"main.go:handleClusterOverview; kubectl","gap":""},
-  {"method":"GET","path":"/api/incidents[/{id}]","response":"incident array/object","owner":"adapter","location":"main.go:handleIncidents; mapping-stub","gap":""},
+  {"method":"GET","path":"/api/incidents","response":"incident array","owner":"adapter","location":"main.go:handleIncidents; io-mapping-stub","gap":""},
   {"method":"GET","path":"/api/agent-card/{name}","response":"AgentCard JSON","owner":"persistence","location":"olly-replica/contracts/*.json","gap":""},
   {"method":"GET","path":"/api/agent-card/live/{name}","response":"AgentCard JSON","owner":"adapter","location":"main.go:handleAgentCardLive; sentinel","gap":""},
   {"method":"GET","path":"/api/orbit/proposals","response":"proposal array","owner":"adapter","location":"orbit.go:registerOrbit; sentinel","gap":""},

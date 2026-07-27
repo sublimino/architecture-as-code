@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,6 +15,34 @@ type dashboardContract struct {
 	Owner    string `json:"owner"`
 	Location string `json:"location"`
 	Gap      string `json:"gap"`
+}
+
+func TestDashboardAPIInventoryDocumentsFixtureEndpoints(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "dashboard-api-contracts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contracts []dashboardContract
+	if err := json.Unmarshal(raw, &contracts); err != nil {
+		t.Fatal(err)
+	}
+	document, err := os.ReadFile(filepath.Join("..", "..", "docs", "signalloom", "api-contract-inventory.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(document)
+	if !strings.Contains(content, "Estate95 plain-JavaScript client") {
+		t.Fatal("inventory must state the effective dashboard implementation")
+	}
+	for _, contract := range contracts {
+		if !strings.HasPrefix(contract.Path, "/api/") || strings.ContainsAny(contract.Path, "[") {
+			continue
+		}
+		rowPrefix := "| `" + contract.Method + "` | `" + contract.Path + "` |"
+		if !strings.Contains(content, rowPrefix) {
+			t.Fatalf("inventory missing fixture endpoint %s %s", contract.Method, contract.Path)
+		}
+	}
 }
 
 func TestDashboardAPIContractFixture(t *testing.T) {

@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { expect, test } from "./fixtures";
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://127.0.0.1:18443";
@@ -24,25 +23,6 @@ const windows = [
   ["Agentic SRE launcher", "Agentic SRE", "Agentic SRE"],
 ] as const;
 
-function jwt(subject: string, expiresAt: number): string {
-  const encode = (value: object) =>
-    Buffer.from(JSON.stringify(value)).toString("base64url");
-  const header = encode({ alg: "HS256", typ: "JWT" });
-  const claims = encode({
-    iss: "http://dex.inf-signalloom.svc.cluster.local:5556/dex",
-    aud: "signalloom-api",
-    sub: subject,
-    iat: expiresAt - 60,
-    nbf: expiresAt - 60,
-    exp: expiresAt,
-  });
-  const input = `${header}.${claims}`;
-  const signature = createHmac("sha256", "local-signalloom-demo-only-change-me")
-    .update(input)
-    .digest("base64url");
-  return `${input}.${signature}`;
-}
-
 test.describe("SignalLoom TEST-1 dashboard matrix", () => {
   for (const [journey, icon, title] of windows) {
     test(`${journey} opens through the integrated dashboard`, async ({ page }) => {
@@ -67,7 +47,10 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
     auth.searchParams.set("client_id", "signalloom-dashboard");
     auth.searchParams.set("redirect_uri", "http://localhost:5173/callback");
     auth.searchParams.set("response_type", "code");
-    auth.searchParams.set("scope", "openid profile email groups");
+    auth.searchParams.set(
+      "scope",
+      "openid profile email groups audience:server:client_id:signalloom-api",
+    );
     await page.goto(auth.toString());
     await page.locator('input[name="login"]').fill("demo-user@signalloom.local");
     await page.locator('input[name="password"]').fill("password");
@@ -86,9 +69,9 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
       },
     });
     expect(token.ok()).toBe(true);
-    const accessToken = (await token.json()).access_token as string;
+    const idToken = (await token.json()).id_token as string;
     const api = await request.get(`${API_URL}/api/agents`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: { Authorization: `Bearer ${idToken}` },
     });
     expect(api.status()).toBe(200);
     expect(await api.json()).toMatchObject({ tenant_id: "tenant-demo" });
@@ -102,11 +85,4 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
     expect(response.headers().location).toContain("/dex/");
   });
 
-  test("expired local token is rejected by integrated API", async ({ request }) => {
-    const response = await request.get(`${API_URL}/api/agents`, {
-      headers: { Authorization: `Bearer ${jwt("demo-user", 1)}` },
-    });
-    expect(response.status()).toBe(401);
-    expect(await response.json()).toMatchObject({ error: { code: "invalid_token" } });
-  });
 });

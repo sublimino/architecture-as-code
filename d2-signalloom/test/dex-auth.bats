@@ -15,12 +15,12 @@ setup() {
   [ "$status" -ne 0 ]
 }
 
-@test "Dex OIDC contract exposes only the documented local dashboard flow" {
+@test "Dex OIDC contract requests the documented compatibility API audience" {
   run grep -F 'redirectURIs:' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'http://localhost:5173/callback' "$dex_manifest"
   [ "$status" -eq 0 ]
-  run grep -F 'value: openid profile email groups' "$portal_manifest"
+  run grep -F 'value: openid profile email groups audience:server:client_id:signalloom-api' "$portal_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'name: OIDC_CLIENT_ID' "$portal_manifest"
   [ "$status" -eq 0 ]
@@ -28,8 +28,16 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "Dex declares the local dashboard client and tenant subject" {
+@test "Dex declares the compatibility API peer and tenant subject" {
   run grep -F 'id: signalloom-dashboard' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'id: signalloom-api' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'secret: signalloom-api-local-only' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'trustedPeers:' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F -- '- signalloom-dashboard' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'username: demo-user' "$dex_manifest"
   [ "$status" -eq 0 ]
@@ -80,5 +88,16 @@ setup() {
 
 @test "Dex password grant uses the local password connector" {
   run grep -F 'passwordConnector: local' "$dex_manifest"
+  [ "$status" -eq 0 ]
+}
+
+@test "portal validates Dex tokens through the configured JWKS endpoint" {
+  run grep -F 'name: API_JWKS_URL' "$portal_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'value: http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys' "$portal_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'name: API_JWT_AUTHORIZED_PARTY' "$portal_manifest"
+  [ "$status" -eq 0 ]
+  run grep -F 'value: signalloom-dashboard' "$portal_manifest"
   [ "$status" -eq 0 ]
 }

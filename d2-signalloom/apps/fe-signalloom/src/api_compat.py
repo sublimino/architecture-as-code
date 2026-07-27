@@ -3,14 +3,12 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
-import hmac
 import json
 import logging
-import math
-import time
+from functools import lru_cache
 from typing import Annotated, Any, Literal
 
+import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -148,63 +146,42 @@ def _decode_object(segment: str) -> dict[str, Any]:
     return value
 
 
-def _numeric_date(claims: dict[str, Any], name: str, *, required: bool) -> float | None:
-    value = claims.get(name)
-    if value is None and not required:
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise JWTValidationError(f"invalid {name} claim")
-    numeric = float(value)
-    if not math.isfinite(numeric):
-        raise JWTValidationError(f"invalid {name} claim")
-    return numeric
+@lru_cache(maxsize=8)
+def _jwk_client(jwks_url: str) -> jwt.PyJWKClient:
+    return jwt.PyJWKClient(jwks_url, cache_keys=True)
 
 
-def validate_jwt(token: str, *, now: float | None = None) -> dict[str, Any]:
-    """Validate one locally issued HS256 token without network discovery."""
-    parts = token.split(".")
-    if len(parts) != 3 or not all(parts):
-        raise JWTValidationError("malformed JWT")
-
-    header = _decode_object(parts[0])
-    claims = _decode_object(parts[1])
-    if header.get("alg") != "HS256" or header.get("typ") != "JWT":
-        raise JWTValidationError("unsupported JWT header")
-
-    secret = settings.api_jwt_secret.get_secret_value()
-    if not secret:
-        raise APIError(503, "authentication_unavailable", "Authentication is unavailable")
-
+def validate_jwt(token: str) -> dict[str, Any]:
+    """Validate a Dex RS256 ID token against the configured JWKS endpoint."""
     try:
-        signature = _decode_segment(parts[2])
-        signing_input = f"{parts[0]}.{parts[1]}".encode("ascii")
-    except UnicodeEncodeError as exc:
-        raise JWTValidationError("invalid JWT encoding") from exc
-    expected = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
-    if not hmac.compare_digest(expected, signature):
-        raise JWTValidationError("invalid JWT signature")
+        parts = token.split(".")
+        if len(parts) != 3 or not all(parts):
+            raise JWTValidationError("malformed JWT")
+        header = _decode_object(parts[0])
+        _decode_object(parts[1])
+        if header.get("alg") != "RS256" or header.get("typ") != "JWT":
+            raise JWTValidationError("unsupported JWT header")
+        if not isinstance(header.get("kid"), str) or not header["kid"]:
+            raise JWTValidationError("missing JWT key identifier")
+        if not settings.api_jwks_url:
+            raise APIError(503, "authentication_unavailable", "Authentication is unavailable")
+        signing_key = _jwk_client(settings.api_jwks_url).get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=settings.api_jwt_audience,
+            issuer=settings.api_jwt_issuer,
+            options={"require": ["exp", "iat", "sub"]},
+            leeway=5,
+        )
+    except APIError:
+        raise
+    except (jwt.PyJWTError, ValueError, TypeError) as exc:
+        raise JWTValidationError("invalid Dex JWT") from exc
 
-    current_time = time.time() if now is None else now
-    expires_at = _numeric_date(claims, "exp", required=True)
-    not_before = _numeric_date(claims, "nbf", required=False)
-    issued_at = _numeric_date(claims, "iat", required=False)
-    if expires_at is None or expires_at <= current_time:
-        raise JWTValidationError("expired JWT")
-    if not_before is not None and not_before > current_time + 5:
-        raise JWTValidationError("premature JWT")
-    if issued_at is not None and issued_at > current_time + 5:
-        raise JWTValidationError("future JWT")
-
-    if claims.get("iss") != settings.api_jwt_issuer:
-        raise JWTValidationError("unexpected JWT issuer")
-    audience = claims.get("aud")
-    audiences = [audience] if isinstance(audience, str) else audience
-    if (
-        not isinstance(audiences, list)
-        or not all(isinstance(item, str) for item in audiences)
-        or settings.api_jwt_audience not in audiences
-    ):
-        raise JWTValidationError("unexpected JWT audience")
+    if claims.get("azp") != settings.api_jwt_authorized_party:
+        raise JWTValidationError("unexpected JWT authorized party")
     if not isinstance(claims.get("sub"), str) or not claims["sub"].strip():
         raise JWTValidationError("missing JWT subject")
     return claims

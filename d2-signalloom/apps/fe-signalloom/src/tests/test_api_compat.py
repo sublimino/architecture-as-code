@@ -1,13 +1,13 @@
 import base64
-import hashlib
-import hmac
 import json
 import socket
 import time
+from types import SimpleNamespace
 
+import jwt
 import pytest
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 
 import api_compat
 from api_compat import settings
@@ -20,6 +20,18 @@ class ReadyPool:
         pass
 
 
+TEST_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+OTHER_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+
+class TestJWKClient:
+    def get_signing_key_from_jwt(self, token: str) -> SimpleNamespace:
+        header = jwt.get_unverified_header(token)
+        if header.get("kid") != "test-key":
+            raise jwt.PyJWKClientError("unknown test key")
+        return SimpleNamespace(key=TEST_SIGNING_KEY.public_key())
+
+
 def _segment(value: dict) -> str:
     raw = json.dumps(value, separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -28,11 +40,12 @@ def _segment(value: dict) -> str:
 def token_for(
     subject: str | None = "alice",
     *,
-    secret: str = "test-secret",
     issuer: str = "https://issuer.test/dex",
     audience: str | list[str] = "signalloom-api",
     expires_at: int | None = None,
-    header: dict | None = None,
+    authorized_party: str = "signalloom-dashboard",
+    key_id: str = "test-key",
+    signing_key=TEST_SIGNING_KEY,
     extra_claims: dict | None = None,
 ) -> str:
     now = int(time.time())
@@ -42,19 +55,41 @@ def token_for(
         "iat": now,
         "nbf": now,
         "exp": expires_at if expires_at is not None else now + 300,
+        "azp": authorized_party,
     }
     if subject is not None:
         claims["sub"] = subject
     if extra_claims:
         claims.update(extra_claims)
-    encoded_header = _segment(header or {"alg": "HS256", "typ": "JWT"})
-    encoded_claims = _segment(claims)
-    signing_input = f"{encoded_header}.{encoded_claims}"
-    signature = hmac.new(
-        secret.encode(), signing_input.encode(), hashlib.sha256
-    ).digest()
-    encoded_signature = base64.urlsafe_b64encode(signature).rstrip(b"=").decode()
-    return f"{signing_input}.{encoded_signature}"
+    return jwt.encode(
+        claims,
+        signing_key,
+        algorithm="RS256",
+        headers={"kid": key_id, "typ": "JWT"},
+    )
+
+
+def unsupported_algorithm_token() -> str:
+    now = int(time.time())
+    return f"{_segment({'alg': 'none', 'typ': 'JWT', 'kid': 'test-key'})}.{_segment({'iss': 'https://issuer.test/dex', 'aud': 'signalloom-api', 'azp': 'signalloom-dashboard', 'sub': 'alice', 'iat': now, 'exp': now + 300})}."
+
+
+def duplicate_header_token() -> str:
+    now = int(time.time())
+    header = base64.urlsafe_b64encode(
+        b'{"alg":"RS256","alg":"RS256","typ":"JWT","kid":"test-key"}'
+    ).rstrip(b"=").decode()
+    claims = _segment(
+        {
+            "iss": "https://issuer.test/dex",
+            "aud": "signalloom-api",
+            "azp": "signalloom-dashboard",
+            "sub": "alice",
+            "iat": now,
+            "exp": now + 300,
+        }
+    )
+    return f"{header}.{claims}.unused"
 
 
 def bearer(token: str) -> dict[str, str]:
@@ -63,14 +98,16 @@ def bearer(token: str) -> dict[str, str]:
 
 @pytest.fixture
 def client(monkeypatch):
-    monkeypatch.setattr(settings, "api_jwt_secret", SecretStr("test-secret"))
     monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
     monkeypatch.setattr(
         settings,
         "api_subject_tenants",
         {"alice": "tenant-a", "bob": "tenant-b"},
     )
+    monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: TestJWKClient())
 
     def reject_external_network(*_args, **_kwargs):
         raise AssertionError("external network access is forbidden in API tests")
@@ -99,12 +136,15 @@ def test_missing_and_malformed_bearer_tokens_return_typed_401(client):
 @pytest.mark.parametrize(
     "candidate",
     [
-        lambda: token_for(secret="wrong-secret"),
+        lambda: token_for(signing_key=OTHER_SIGNING_KEY),
         lambda: token_for(issuer="https://attacker.test/dex"),
         lambda: token_for(audience="another-api"),
-        lambda: token_for(expires_at=int(time.time()) - 1),
+        lambda: token_for(expires_at=int(time.time()) - 10),
         lambda: token_for(subject=None),
-        lambda: token_for(header={"alg": "none", "typ": "JWT"}),
+        lambda: token_for(authorized_party="attacker-dashboard"),
+        lambda: token_for(key_id="unknown-key"),
+        unsupported_algorithm_token,
+        duplicate_header_token,
         lambda: "not.a.jwt.with.extra.parts",
     ],
 )
@@ -140,7 +180,7 @@ def test_audience_list_and_known_subject_map_to_expected_tenant(client):
     assert response.json()["tenant_id"] == "tenant-a"
 
 
-def test_documented_demo_subject_maps_to_documented_demo_tenant(client, monkeypatch):
+def test_documented_dex_subject_maps_to_documented_demo_tenant(client, monkeypatch):
     issuer = "http://dex.inf-signalloom.svc.cluster.local:5556/dex"
     monkeypatch.setattr(settings, "api_jwt_issuer", issuer)
     monkeypatch.setattr(settings, "api_subject_tenants", {"demo-user": "tenant-demo"})
@@ -230,6 +270,15 @@ def test_unsupported_method_returns_stable_typed_error(client):
     }
 
 
+def test_unknown_compatibility_path_returns_stable_typed_error(client):
+    response = client.get("/api/not-a-contract", headers=bearer(token_for("alice")))
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "error": {"code": "not_found", "message": "Resource was not found"}
+    }
+
+
 def test_internal_exception_is_logged_but_never_disclosed(client, monkeypatch):
     secret_detail = "database password=do-not-disclose"
 
@@ -246,8 +295,8 @@ def test_internal_exception_is_logged_but_never_disclosed(client, monkeypatch):
     assert secret_detail not in response.text
 
 
-def test_missing_verification_secret_fails_closed(client, monkeypatch):
-    monkeypatch.setattr(settings, "api_jwt_secret", SecretStr(""))
+def test_missing_jwks_configuration_fails_closed(client, monkeypatch):
+    monkeypatch.setattr(settings, "api_jwks_url", "")
 
     response = client.get("/api/agents", headers=bearer(token_for("alice")))
 

@@ -24,7 +24,8 @@ only for a disposable local demo.
 | JWKS | `http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys` | Key set named by discovery `jwks_uri`; key rotation follows Dex's ephemeral lifecycle. |
 | Dashboard client ID | `signalloom-dashboard` | Public identifier used by the dashboard authorization-code flow. |
 | Redirect URI | `http://localhost:5173/callback` | Only registered local callback; no wildcard callback is allowed. |
-| Requested scopes | `openid profile email groups` | `openid` is required; presentation claims are not authorization inputs. |
+| API audience scope | `audience:server:client_id:signalloom-api` | Requests an ID token for the compatibility API. |
+| Requested scopes | `openid profile email groups audience:server:client_id:signalloom-api` | `openid` is required; presentation claims are not authorization inputs. |
 
 The dashboard client secret is the existing local fixture in `dex.yaml`. It is
 named `signalloom-dashboard-local-only`, must never be reused outside this
@@ -56,20 +57,17 @@ from the server mapping receives `tenant_forbidden`.
 
 ## Token and validation contract
 
-An OIDC ID token must contain `iss`, non-empty `sub`, `aud`, `iat`, and `exp`.
-The dashboard validates issuer equality, audience containing
-`signalloom-dashboard`, expiration, nonce for the initiating browser request,
-and the JWT signature against discovery's JWKS. `email`,
+An OIDC ID token must contain `iss`, non-empty `sub`, `aud`, `azp`, `iat`, and
+`exp`. The dashboard requests a token for `signalloom-api`; Dex issues it with
+audience `signalloom-api` and authorized party `signalloom-dashboard`. The API
+validates issuer equality, exact resource audience, authorized party,
+expiration, and the JWT signature against discovery's JWKS. `email`,
 `preferred_username`, and `groups` are optional presentation claims and do not
 grant a tenant.
 
-The current compatibility API has a separate local contract: it accepts a
-locally signed HS256 bearer JWT with `iss` equal to the local Dex issuer,
-audience containing `signalloom-api`, unexpired numeric time claims, and a
-mapped `sub`. It does **not** currently verify Dex-issued asymmetric JWTs via
-JWKS. Consequently, a successful dashboard OIDC login is not evidence that an
-API bearer token is accepted. Aligning API verification with Dex JWKS and
-resource audience is a later, explicitly scoped change.
+The compatibility API accepts only Dex-issued RS256 ID tokens retrieved from
+the configured JWKS endpoint. It maps only a validated `sub` through
+`API_SUBJECT_TENANTS`; client tenant, group, and custom claims are ignored.
 
 ## Auth test cases
 
@@ -78,7 +76,7 @@ resource audience is a later, explicitly scoped change.
 | OIDC-CONTRACT-001 | Unit | Manifest issuer, client, callback, and scopes match this document. | Pass. |
 | OIDC-CONTRACT-002 | Unit | Static user has a bcrypt verifier; no plaintext password field exists. | Pass. |
 | OIDC-CONTRACT-003 | Runtime | Discovery advertises the configured issuer and JWKS endpoint. | Pass when Docker is available. |
-| OIDC-API-001 | API | Valid local HS256 token for mapped `demo-user` returns `tenant-demo`. | 200. |
+| OIDC-API-001 | API | Valid Dex RS256 ID token for mapped `demo-user` returns `tenant-demo`. | 200. |
 | OIDC-API-002 | API | Token lacking `signalloom-api` audience is rejected. | 401 `invalid_token`. |
 | OIDC-API-003 | API | Unknown subject is denied without mapping disclosure. | 403 `tenant_forbidden`. |
 | OIDC-API-004 | API | Forged tenant claim cannot override server subject mapping. | 200 for mapped tenant only. |

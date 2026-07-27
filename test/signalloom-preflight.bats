@@ -78,3 +78,27 @@ setup() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"contract schema or branch policy is invalid"* ]]
 }
+
+@test "delivery contract rejects a detached integration history" {
+	repo="$tmp_root/osramp-demo"
+	mkdir -p "$repo"
+	git -C "$repo" init -q
+	git -C "$repo" config user.email test@example.invalid
+	git -C "$repo" config user.name test
+	printf 'base\n' >"$repo/README"
+	git -C "$repo" add README
+	git -C "$repo" commit -qm base
+	git -C "$repo" branch -M main
+	git -C "$repo" checkout -qb integration/signalloom-d2-v2.5.0
+	printf 'integration\n' >>"$repo/README"
+	git -C "$repo" commit -qam integration
+	git -C "$repo" checkout -q main
+	printf 'release\n' >>"$repo/README"
+	git -C "$repo" commit -qam release
+
+	cp "$BATS_TEST_DIRNAME/../scripts/signalloom-contract-check.sh" "$repo/check.sh"
+	cp "$BATS_TEST_DIRNAME/../docs/signalloom/delivery-contract.json" "$repo/contract.json"
+	run bash -c "cd '$repo' && ./check.sh contract.json integration/signalloom-d2-v2.5.0"
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"integration/signalloom-d2-v2.5.0 is not an ancestor of HEAD"* ]]
+}

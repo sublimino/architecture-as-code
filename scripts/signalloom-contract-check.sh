@@ -59,7 +59,7 @@ common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
 [[ "$(basename "$(dirname "$common_git_dir")")" == "$contract_repo" ]] || die "repository basename differs from contract: expected $contract_repo"
 git rev-parse --verify "refs/heads/$contract_branch" >/dev/null || die "missing local integration branch: $contract_branch"
 git rev-parse --verify "refs/heads/$contract_release" >/dev/null || die "missing local release branch: $contract_release"
-git merge-base --is-ancestor "$contract_release" "$contract_branch" || die "$contract_release is not an ancestor of $contract_branch"
+git merge-base --is-ancestor "$contract_branch" HEAD || die "$contract_branch is not an ancestor of HEAD"
 
 printf 'Signal Loom delivery contract passed: %s → %s → %s; supply-chain evidence guard is active.\n' \
 	"$contract_release" "$contract_branch" "$contract_repo"

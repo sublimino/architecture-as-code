@@ -2,11 +2,11 @@
 task: Implement Dex OIDC design contract tests errata
 slug: 20260727-121600_dex-oidc-design-contract-tests-errata
 effort: extended
-phase: verify
+phase: complete
 progress: 18/18
 mode: interactive
 started: 2026-07-27T12:16:00+01:00
-updated: 2026-07-27T12:24:00+01:00
+updated: 2026-07-27T12:27:00+01:00
 ---
 
 ## Context

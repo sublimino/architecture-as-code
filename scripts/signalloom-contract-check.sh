@@ -59,7 +59,14 @@ common_git_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
 [[ "$(basename "$(dirname "$common_git_dir")")" == "$contract_repo" ]] || die "repository basename differs from contract: expected $contract_repo"
 git rev-parse --verify "refs/heads/$contract_branch" >/dev/null || die "missing local integration branch: $contract_branch"
 git rev-parse --verify "refs/heads/$contract_release" >/dev/null || die "missing local release branch: $contract_release"
-git merge-base --is-ancestor "$contract_branch" HEAD || die "$contract_branch is not an ancestor of HEAD"
+# Drift-tolerant derivation check. The runtime worktree is created FROM the integration tip, but
+# integration advances under running cards, so requiring the current tip to be an ancestor of HEAD
+# produces false failures (post-merge drift). Require instead that HEAD was DERIVED FROM integration:
+# its fork point with integration must be integration-specific (not on the release branch), which
+# tolerates a worktree that is behind the live tip or carries its own commits on a valid base.
+contract_fork="$(git merge-base "$contract_branch" HEAD 2>/dev/null || true)"
+{ [[ -n "$contract_fork" ]] && ! git merge-base --is-ancestor "$contract_fork" "$contract_release" 2>/dev/null; } \
+	|| die "HEAD is not derived from $contract_branch (worktree is not an integration descendant)"
 
 printf 'Signal Loom delivery contract passed: %s → %s → %s; supply-chain evidence guard is active.\n' \
 	"$contract_release" "$contract_branch" "$contract_repo"

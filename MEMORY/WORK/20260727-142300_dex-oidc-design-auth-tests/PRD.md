@@ -2,11 +2,11 @@
 task: Define Dex OIDC design and auth test cases
 slug: 20260727-142300_dex-oidc-design-auth-tests
 effort: extended
-phase: verify
+phase: complete
 progress: 18/18
 mode: interactive
 started: 2026-07-27T14:23:51+01:00
-updated: 2026-07-27T14:38:00+01:00
+updated: 2026-07-27T14:40:00+01:00
 ---
 
 ## Context
@@ -63,3 +63,5 @@ tests/test_api_compat.py` passed 18 tests. `make test-docker` is not a declared
 target; the Docker-sensitive Dex runtime test is already included by
 `make test`. `git diff --check` passed. CodeReview was invoked, but roborev is
 not installed, so no automated review result is represented as a pass.
+Committed remediation SHA: `55a6e79ca2963373a7215cbf6d97ddb752c83f94`.
+Post-commit ancestry, diff check, `make test`, and API suite all passed.

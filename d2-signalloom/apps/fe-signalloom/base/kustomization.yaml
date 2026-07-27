@@ -7,3 +7,5 @@ resources:
   - secrets.yaml
   - deployment.yaml
   - service.yaml
+  - api-service.yaml
+  - gateway-route.yaml

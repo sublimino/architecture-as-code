@@ -302,3 +302,32 @@ dashboard journeys successfully: `7 passed (3.6s)`, exit `0`.
 
 <!-- machine-tag: SLDPB25-P1-1-DASHBOARD-BASELINE-2026-07-27T12:26:00+01:00 -->
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no scope=dashboard-browser-baseline -->
+
+## Proposal errata — SLDPB25-P1 Governor canonical contract lock
+
+2026-07-27: Governor inspection found the approved Phase 1 contract evidence
+already reachable from `integration/signalloom-d2-v2.5.0`; no redundant merge
+was manufactured. The canonical Phase 1 implementation contracts are:
+
+- Journey matrix: `docs/signalloom/dashboard-journey-matrix.md`, source commit
+  `8c5e575a8575358db762b0362603395a0cfb2620`, recorded by merge commit
+  `4def85209e851b03b534863b82529aea962dc7c3`.
+- API contract inventory: `docs/signalloom/api-contract-inventory.md`, source
+  commit `ba78f050a551d56de0fa6ab9db93cfadc60c0ab9`; its field-validation
+  evidence is commit `184636134470dd5ceef1e206bfeccb9ee1fb7178`.
+- Dex/OIDC design: `docs/signalloom/dex-oidc-design.md`, source commit
+  `55a6e79ca2963373a7215cbf6d97ddb752c83f94`; reconciled by merge commit
+  `f8265df71ac2cf3a1a7b2019b7f4978bb278c7ec`.
+
+Post-inspection validation passed on the Governor integration HEAD:
+
+- `cd tools/demo-console && go test -count=1 ./...` — exit `0`.
+- `make signalloom-contract-check` — exit `0`; release-pack and delivery
+  contract guards passed for `main → integration/signalloom-d2-v2.5.0 →
+  osramp-demo`.
+
+Existing unrelated `MEMORY/WORK/` modifications were deliberately excluded.
+No `board.json` modification, remote push, or pull request was performed.
+
+<!-- machine-tag: SLDPB25-P1-GOV-CANONICAL-CONTRACT-LOCK-2026-07-27T14:45:00+01:00 -->
+<!-- kanban-check: status=pass proceed=yes blocking_drift=no scope=phase-1-canonical-contract-lock -->

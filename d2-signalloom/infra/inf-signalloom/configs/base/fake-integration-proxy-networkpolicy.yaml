@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fake-integration-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fake-integration-proxy
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              bao.controlplane.io/consumer: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8080

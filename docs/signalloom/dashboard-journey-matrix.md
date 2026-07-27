@@ -58,6 +58,15 @@ ADK can reject framing. Orbit identity defaults to `estate95-operator` and the
 broker signs approvals. The terminal accepts same-origin WebSocket upgrades and
 rejects cross-origin ones.
 
+## Critical browser baseline
+
+| Critical flow | Current boundary | Browser coverage | Baseline scope |
+| --- | --- | --- | --- |
+| Login | Dex owns `/dex/auth`; the local broker has no session middleware. | `signalloom-test-1.spec.ts` — `Dex login token maps demo user to local tenant` | Live Dex and integrated API contract. |
+| Dashboard view | The broker serves `ui/index.html`; Estate95 opens windows client-side. | `dashboard-journey.spec.ts` — `renders the Security Sandbox launcher from the dashboard view` | Local broker. |
+| Scan initiation | Security Sandbox posts `{text, direction}` to `POST /api/security/scan`. | `dashboard-journey.spec.ts` — `posts selected security text to initiate a scan` | Intercepted scan API request. |
+| Results display | Scan response supplies `is_valid`, `scanners`, and optional `sanitized`. | `dashboard-journey.spec.ts` — `renders a flagged scan verdict and scanner result` | Intercepted scan API response. |
+
 ## Fake interactions
 
 - Estate desktop controls (Start menu, taskbar, drag, resize, minimize, theme)
@@ -75,3 +84,6 @@ rejects cross-origin ones.
 Grafana's independent login state, the Cluster `503` error state, and Orbit's
 record-only approval interaction. It intercepts API/proxy responses so the
 assertions do not require a live cluster, but still requires the local broker.
+The critical browser baseline adds a source-backed Security Sandbox scan path;
+the separate Dex contract remains the authoritative login test because the
+dashboard itself deliberately has no login form.

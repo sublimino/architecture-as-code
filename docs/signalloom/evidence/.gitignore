@@ -1,0 +1,5 @@
+# Generated per-build supply-chain evidence — regenerate with `make signalloom-dashboard-image`.
+# Bound to a candidate digest; not a durable repo artifact. README.md is tracked.
+dashboard-signalloom.sbom.spdx.json
+dashboard-signalloom.provenance.slsa.json
+dashboard-signalloom.digest.txt

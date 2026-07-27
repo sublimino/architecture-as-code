@@ -48,3 +48,23 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+---
+# Dex accepts OIDC traffic only from the local dashboard tenant.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dex-oidc
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dex
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 5556

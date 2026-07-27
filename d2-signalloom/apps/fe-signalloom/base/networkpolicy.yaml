@@ -9,7 +9,7 @@ spec:
     - Egress
 ---
 # The portal is not a general cluster client. It can reach only DNS and the
-# three declared backing services plus the bounded OpenBao proof endpoint.
+# four declared backing services plus the bounded OpenBao proof endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -44,6 +44,10 @@ spec:
           port: 6379
         - protocol: TCP
           port: 9000
+        - protocol: TCP
+          port: 5556
+        - protocol: TCP
+          port: 8080
     - to:
         - namespaceSelector:
             matchLabels:

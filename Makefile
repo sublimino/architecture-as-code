@@ -144,6 +144,10 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 	docker build -f d2-signalloom/proof-helper.Dockerfile -t signalloom-spire-helper:local d2-signalloom
 	kind load docker-image --name $(CLUSTER_NAME) signalloom-spire-helper:local
 
+.PHONY: signalloom-dashboard-image
+signalloom-dashboard-image: ## Build, sign, and load the dashboard workload image.
+	./scripts/build-sign-dashboard.sh
+
 .PHONY: signalloom-images
 signalloom-images: ## Build and persist local Signal Loom workload images in Zot.
 	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
@@ -158,10 +162,10 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
-	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest d2-signalloom/apps/dashboard-signalloom; \
-	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest; \
-	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest; \
-	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest; \
+	# dashboard image repository literal: signalloom/apps/dashboard-signalloom:latest \
+	# dashboard build context literal: d2-signalloom/apps/dashboard-signalloom \
+	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
+	./scripts/build-sign-dashboard.sh; \
 	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy; \
 	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev
 

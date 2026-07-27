@@ -21,21 +21,78 @@ Terminology (the names are historically confusing):
 
 Despite the `fe-` prefix, `fe-signalloom` is the API backend; the SPA is the front end.
 
-## Run it
+## Bootstrap from scratch
+
+Prerequisites are installed by `./scripts/setup.sh` (or `--tools-only`): docker,
+kind, kubectl, flux, helm, cosign, jq, bats, node/npm. Then, from the repo root:
 
 ```bash
-# 1. Port-forward the dashboard (local port MUST be 5173 — issuer + redirect are pinned to it)
-kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
+# 1. Shared cluster foundation (Kind + in-cluster Zot registry + local cosign key
+#    + Flux, verifying signatures against the local public key). Starts NO demo.
+make up
 
-# 2. Open the app; you are redirected to the Dex login page
-#    http://localhost:5173
-#    Email:    demo-user@signalloom.local
-#    Password: demo-user
+# 2. The Signal Loom demo slice. This signs+pushes the manifests, builds the
+#    workload images — including THIS dashboard UI via scripts/build-sign-dashboard.sh
+#    (npm ci → vite build → signed unprivileged-nginx image) — and reconciles Flux.
+make demo-signalloom-up
+
+# 3. Wait for the slice to be Ready
+kubectl -n inf-signalloom rollout status deploy/dex
+kubectl -n fe-signalloom  rollout status deploy/fe-signalloom
+kubectl -n fe-signalloom  rollout status deploy/dashboard-signalloom
 ```
 
-The automated equivalent is `test/acceptance/signalloom-login.spec.ts`
-(Playwright, real Chrome): it drives the full login and asserts the dashboard
-renders with authenticated `/api` data and no console/API errors.
+Everything reaches the cluster **signed** (nothing deploys unsigned, even locally).
+To rebuild only the dashboard after a UI change: `make signalloom-dashboard-image`
+then `kubectl -n fe-signalloom rollout restart deploy/dashboard-signalloom`.
+
+## Log in and see it
+
+```bash
+# Local port MUST be 5173 — the Dex issuer and OIDC redirect URI are pinned to it.
+kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
+# then open http://localhost:5173  →  Dex login page:
+#   Email:    demo-user@signalloom.local
+#   Password: demo-user
+```
+
+This single-origin port-forward is the simplest human path (nginx proxies `/dex`
+and `/api`). The gateway path (`https://127.0.0.1:18443` via the Envoy Gateway
+HTTPRoutes, Dex at `127.0.0.1:15556`) is exercised by the canonical TEST-1 gate
+below and by `scripts/acceptance-test.sh`.
+
+## Test
+
+```bash
+# Full TEST-1 integration gate: Playwright (browser login + journeys) + BATS + pytest.
+# DEX_DEMO_PASSWORD defaults to demo-user; the static bcrypt verifier in dex.yaml matches it.
+make demo-signalloom-test-1
+
+# Focused config/readiness checks (no browser):
+make demo-signalloom-test          # renders + validates config, verifies Flux readiness
+make demo-signalloom-runtime-test  # BATS/DETIK runtime assertions
+
+# Focused BATS suites for this workload:
+bats d2-signalloom/test/dashboard-package.bats      # Dockerfile / nginx / Deployment / Service shape
+bats d2-signalloom/test/dashboard-supplychain.bats  # signing/SBOM/provenance wiring
+bats d2-signalloom/test/dashboard-image.bats        # real container: build → run → /readyz + SPA fallback
+bats d2-signalloom/test/gateway-routing.bats        # Gateway routes / and /api to bound Services
+
+# This migration's focused single-origin login test (real Chrome, port 5173):
+kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080 &
+cd test/acceptance && npx playwright test signalloom-login.spec.ts
+
+# Static quality gate for the SPA:
+cd d2-signalloom/apps/dashboard-signalloom && npx tsc --noEmit && npx eslint src
+```
+
+## Teardown
+
+```bash
+make demo-signalloom-down   # remove the Signal Loom slice, keep the foundation
+make down                   # delete the Kind cluster (Zot cache persists in .cache/zot)
+make teardown               # full reset incl. local keys and build state
+```
 
 ## Architecture — single origin, no CORS
 

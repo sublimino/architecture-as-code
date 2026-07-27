@@ -88,3 +88,73 @@ the configured JWKS endpoint. It maps only a validated `sub` through
 endpoints; and `src/tests/test_api_compat.py` covers API bearer authorization.
 None issues a demo password, uses a production credential, or asserts a live
 Auth0/Dex-to-API trust chain.
+
+## Update — end-to-end local login enablement (2026-07-27)
+
+<!-- machine-tag: SLDPB25-P2-LOGIN-ENABLEMENT-2026-07-27 -->
+
+The sections above describe the *contract-level* design (P1-3 / P2-3), which was
+validated with unit and contract tests only. Enabling a real, browser-driven
+`demo-user` login against the migrated dashboard required the following bounded,
+local-demo-only changes. Each is a deliberate divergence with its rationale.
+
+### Issuer is now browser-reachable
+
+| Item | New local value |
+| --- | --- |
+| Issuer (`iss`) | `http://localhost:5173/dex` |
+| Discovery / auth / token / JWKS (browser) | `http://localhost:5173/dex/{.well-known/openid-configuration,auth,token,keys}` |
+| JWKS fetch (API, in-cluster) | `http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys` |
+
+The dashboard is served single-origin behind a port-forward at `localhost:5173`;
+its nginx proxies `/dex` → the in-cluster Dex service and `/api` → the
+compatibility API, so the browser reaches every OIDC endpoint at one origin
+(no CORS). Dex's issuer is therefore set to `http://localhost:5173/dex`.
+This creates an intentional **split-horizon**: the browser and the API both
+validate the `iss` string `http://localhost:5173/dex`, while the API *fetches*
+JWKS from the cluster-internal service URL (`API_JWKS_URL` is decoupled from
+`API_JWT_ISSUER`). The port `5173` is load-bearing — the redirect URI and issuer
+are pinned to it.
+
+### Dashboard is a public PKCE client
+
+`signalloom-dashboard` is now a **public client** (`public: true`, no secret).
+A single-page app cannot hold a confidential secret, so the authorization-code
+flow uses **PKCE (S256)** and no client secret is embedded in the image or repo.
+Cross-client audience for `signalloom-api` is unchanged (`trustedPeers`).
+
+### Demo password is a checked-in bcrypt hash
+
+For a self-verifying local demo the password is now `demo-user`, stored as a
+bcrypt hash in `dex.yaml` (`$2b$…`). This is a **local-demo-only** credential;
+it must never be reused and must be replaced by externally managed credentials
+before any hosted deployment. The dashboard requests it via the standard flow;
+no plaintext password appears in test output or image layers.
+
+### Subject mapping keys on the real Dex `sub`
+
+Dex emits `sub` as its connector-encoded identifier (a base64 protobuf of
+`userID` + connector), e.g. `CglkZW1vLXVzZXISBWxvY2Fs` for `demo-user`/`local` —
+**not** the raw `demo-user`. `API_SUBJECT_TENANTS` therefore maps the actual
+encoded `sub` → `tenant-demo` (the readable `demo-user` key is retained for
+clarity). The server still derives tenancy *only* from the validated `sub`.
+
+### JWT header `typ` is optional
+
+Dex ID tokens omit the `typ` header. The API validator previously required
+`typ == "JWT"` and so rejected every real Dex token (it had only been
+contract-tested against synthetic tokens). It now accepts an **absent** `typ`
+while still rejecting a present-but-wrong one; `alg == RS256` remains mandatory.
+
+### Browser login is now covered
+
+`OIDC-BROWSER-001` is no longer deferred: `test/acceptance/signalloom-login.spec.ts`
+drives the full port-forward → Dex login → `demo-user`/`demo-user` → dashboard
+flow in real Chrome and asserts the dashboard renders with authenticated `/api`
+data and no console/API errors.
+
+### Dex liveness probe
+
+With a path-based issuer (`…/dex`), Dex serves health under the issuer path, so
+the bare `/healthz` liveness probe 404s and crash-loops the pod. The liveness
+probe now targets a served path (`/dex/.well-known/openid-configuration`).

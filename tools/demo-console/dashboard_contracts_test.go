@@ -45,6 +45,47 @@ func TestDashboardAPIInventoryDocumentsFixtureEndpoints(t *testing.T) {
 	}
 }
 
+func TestDashboardAPIInventoryRowsDeclareRequiredContractFields(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "dashboard-api-contracts.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var contracts []dashboardContract
+	if err := json.Unmarshal(raw, &contracts); err != nil {
+		t.Fatal(err)
+	}
+	document, err := os.ReadFile(filepath.Join("..", "..", "docs", "signalloom", "api-contract-inventory.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, contract := range contracts {
+		if !strings.HasPrefix(contract.Path, "/api/") || strings.ContainsAny(contract.Path, "[") {
+			continue
+		}
+		rowPrefix := "| `" + contract.Method + "` | `" + contract.Path + "` |"
+		found := false
+		for _, line := range strings.Split(string(document), "\n") {
+			if !strings.HasPrefix(line, rowPrefix) {
+				continue
+			}
+			found = true
+			cells := strings.Split(line, "|")
+			if len(cells) != 10 {
+				t.Fatalf("inventory row has unexpected column count: %q", line)
+			}
+			for index, field := range cells[3:9] {
+				if strings.TrimSpace(field) == "" {
+					t.Fatalf("inventory row misses required contract field %d: %q", index+1, line)
+				}
+			}
+			break
+		}
+		if !found {
+			t.Fatalf("inventory missing fixture endpoint %s %s", contract.Method, contract.Path)
+		}
+	}
+}
+
 func TestDashboardAPIContractFixture(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "dashboard-api-contracts.json"))
 	if err != nil {

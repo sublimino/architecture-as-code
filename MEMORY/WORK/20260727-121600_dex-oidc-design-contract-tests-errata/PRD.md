@@ -57,5 +57,10 @@ federation, or introduce credentials outside the existing demo fixture.
 ## Verification
 
 Ancestry checked at `d51bfc61cde25c155274fabaaf9848b3fa6c5a9c`.
-`bats d2-signalloom/test/dex-auth.bats` passed 6/6. Hermetic `uv run`
-API suite passed 17 tests. `git diff --check` passed before review.
+Commit `6cadf651ab719612b74c05948d5206b42b91b5f0` contains exactly the five
+card files. Post-commit ancestry passed against
+`refs/heads/integration/signalloom-d2-v2.5.0`; focused BATS passed 6/6;
+hermetic `uv run` API tests passed 17/17; documentation contract and
+`git diff --check` passed. The selected CodeReview capability was invoked, but
+roborev is unavailable in this environment; its absence is recorded rather
+than represented as a review pass.

@@ -215,7 +215,7 @@ demo-bao-test: demo-bao-test-config ## Run bounded positive and negative Bao/SPI
 demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
 
-.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-down
+.PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-test-1 demo-signalloom-down
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
@@ -227,6 +227,8 @@ demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom 
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
+demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest integration gate.
+	./scripts/signalloom-test-1.sh
 demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.
 	./scripts/signalloom-down.sh
 

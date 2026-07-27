@@ -294,5 +294,11 @@ without claiming live scanner availability.
   the actual browser evidence and retained failure diagnostics during selector
   refinement.
 
+Follow-up source reconciliation corrected two non-functional matrix labels:
+`/ws/term` is a WebSocket upgrade rather than an HTTP GET, and the current
+ServiceNow window consumes the incident collection while rendering detail
+locally. A fresh baseline on the current integration HEAD reran the seven
+dashboard journeys successfully: `7 passed (3.6s)`, exit `0`.
+
 <!-- machine-tag: SLDPB25-P1-1-DASHBOARD-BASELINE-2026-07-27T12:26:00+01:00 -->
 <!-- kanban-check: status=pass proceed=yes blocking_drift=no scope=dashboard-browser-baseline -->

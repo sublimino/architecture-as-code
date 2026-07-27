@@ -54,7 +54,7 @@ installable focused API/browser test runners.
 
 ## SLDPB25-P1-3 local Dex/OIDC design erratum
 
-<!-- machine-tag: SLDPB25-P1-3-DEX-OIDC-ERRATA-2026-07-27T12:20:00+01:00 -->
+<!-- machine-tag: SLDPB25-P1-3-DEX-OIDC-ERRATA-2026-07-27T14:35:00+01:00 -->
 <!-- scope: local-demo-design-and-deterministic-contracts-only -->
 
 `docs/signalloom/dex-oidc-design.md` now records the checked-in local Dex
@@ -70,3 +70,25 @@ API bearer acceptance and adds deterministic source/API tests for that boundary.
 It does not claim browser login, callback, logout, token exchange, production
 federation, external Auth0 connectivity, a deployed cluster, or a production
 tenant-isolation approval. The source proposal was not modified.
+
+### Remediation attempt 2
+
+**Last Updated:** 2026-07-27T14:35:00+01:00
+
+The prior review identified traceability drift rather than a missing provider:
+the documented `demo-user -> tenant-demo` positive API flow was not exercised,
+and the design misclassified discovery/JWKS verification as a unit test even
+though it is a Docker runtime assertion. The recovery strategy was therefore
+source-to-contract reconciliation, not new federation configuration: add the
+single demo-subject API test and label the existing discovery/JWKS case as
+runtime coverage.
+
+Result: `make test` passed its topology, dependency, Go, and 29 BATS checks;
+the hermetic API command `PYTHONPATH=. uv run --with pytest
+--with-requirements requirements.txt pytest tests/test_api_compat.py` passed
+18 tests. `make test-docker` is not a declared target; the optional Docker Dex
+runtime case is already included by `make test`. These results validate only
+the local contracts described here, not a browser flow, live federation, or
+hosted authorization approval.
+
+<!-- kanban-check: status=pass proceed=no blocking_drift=yes scope=local-dex-oidc-contract remediation=attempt-2 -->

@@ -140,6 +140,20 @@ def test_audience_list_and_known_subject_map_to_expected_tenant(client):
     assert response.json()["tenant_id"] == "tenant-a"
 
 
+def test_documented_demo_subject_maps_to_documented_demo_tenant(client, monkeypatch):
+    issuer = "http://dex.inf-signalloom.svc.cluster.local:5556/dex"
+    monkeypatch.setattr(settings, "api_jwt_issuer", issuer)
+    monkeypatch.setattr(settings, "api_subject_tenants", {"demo-user": "tenant-demo"})
+
+    response = client.get(
+        "/api/agents",
+        headers=bearer(token_for("demo-user", issuer=issuer)),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["tenant_id"] == "tenant-demo"
+
+
 def test_authenticated_tenant_is_derived_from_subject_not_token_tenant_claim(client):
     response = client.get(
         "/api/agents",

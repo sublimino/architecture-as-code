@@ -77,7 +77,7 @@ resource audience is a later, explicitly scoped change.
 | --- | --- | --- | --- |
 | OIDC-CONTRACT-001 | Unit | Manifest issuer, client, callback, and scopes match this document. | Pass. |
 | OIDC-CONTRACT-002 | Unit | Static user has a bcrypt verifier; no plaintext password field exists. | Pass. |
-| OIDC-CONTRACT-003 | Unit | Discovery advertises the configured issuer and JWKS endpoint. | Pass. |
+| OIDC-CONTRACT-003 | Runtime | Discovery advertises the configured issuer and JWKS endpoint. | Pass when Docker is available. |
 | OIDC-API-001 | API | Valid local HS256 token for mapped `demo-user` returns `tenant-demo`. | 200. |
 | OIDC-API-002 | API | Token lacking `signalloom-api` audience is rejected. | 401 `invalid_token`. |
 | OIDC-API-003 | API | Unknown subject is denied without mapping disclosure. | 403 `tenant_forbidden`. |

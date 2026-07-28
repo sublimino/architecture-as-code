@@ -9,7 +9,7 @@ second control plane. `d2-osramp-fleet` remains the sole local fleet authority.
 | Path | Owner | Responsibility |
 | --- | --- | --- |
 | `infra/` | Infrastructure | `inf-bao` and `inf-signalloom` component roots. |
-| `apps/` | Application delivery | `fe-signalloom` component root and future vendored portal source. |
+| `apps/` | Application delivery | `fe-signalloom` API + discovery portal; `dashboard-signalloom` React SPA (Agents, Compliance, Audit Trail, Cryptography, Federated Services, Collusion & Access, Settings). |
 | `contracts/` | Cross-slice | Generated and reviewed delivery contracts. |
 | `test/` | Cross-slice | Static topology and render validation. |
 

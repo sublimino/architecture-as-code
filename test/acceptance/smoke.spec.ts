@@ -18,6 +18,18 @@ const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
 const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
 
 async function login(page: Page): Promise<void> {
+  // Drive the dashboard in its built-in demo-data mode so every screen renders
+  // from local fixtures. This is the dashboard's designed path for exercising the
+  // UI while the local platform API is still being reconciled (issuer/JWT wiring
+  // is owned by the in-flight Dex/gateway workstreams), keeping these smoke tests
+  // deterministic and focused on the frontend. Auth (Dex login) is unaffected.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("sl_demo_mode", "true");
+    } catch {
+      /* storage unavailable — the in-memory default still applies */
+    }
+  });
   await page.goto(BASE, { waitUntil: "domcontentloaded" });
   const loginInput = page.locator('input[name="login"]');
   // A fresh context has no stored token, so the app redirects to Dex and the

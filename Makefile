@@ -17,6 +17,7 @@ OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
 D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
+CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up
@@ -159,6 +160,36 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest
 
+.PHONY: cpai-images
+cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.
+	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	IMAGE_TAR=$$(mktemp); \
+	trap 'kill $$PORT_FORWARD_PID 2>/dev/null || true; rm -f "$$IMAGE_TAR"' EXIT; \
+	for _ in $$(seq 1 60); do \
+		curl -fsS http://localhost:5001/v2/ >/dev/null 2>&1 && break; \
+		sleep 0.5; \
+	done; \
+	curl -fsS http://localhost:5001/v2/ >/dev/null; \
+	docker build -f $(CPAI_CLI_ROOT)/Dockerfile.runtime \
+		-t zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest \
+		$(CPAI_CLI_ROOT); \
+	kind load docker-image --name $(CLUSTER_NAME) \
+		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
+	docker save -o "$$IMAGE_TAR" \
+		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
+	crane push --insecure "$$IMAGE_TAR" \
+		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest; \
+	DIGEST=$$(crane digest --insecure \
+		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest); \
+	COSIGN_PASSWORD="" cosign sign --yes \
+		--key $(KEYS_DIR)/cosign.key \
+		--use-signing-config=false \
+		--tlog-upload=false \
+		--allow-insecure-registry \
+		--registry-referrers-mode=legacy \
+		"localhost:5001/acme/images/cpai/apps/cpai-runtime@$${DIGEST}"
+
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.
 	@for i in $$(seq 1 60); do \
@@ -179,7 +210,7 @@ healthcheck: ## Verify the shared cluster foundation is ready for demos.
 
 .PHONY: demo-help
 demo-help: ## Show demos available after the shared cluster becomes healthy.
-	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n\n'
+	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n  make demo-cpai-up\n\n'
 
 .PHONY: olly-pdi-secret
 olly-pdi-secret: ## Create the ServiceNow PDI secret from .env (no-op without one).
@@ -255,6 +286,17 @@ demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
 	$(MAKE) olly-test
 demo-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
 	./scripts/olly-down.sh
+
+.PHONY: demo-cpai-up demo-cpai-test-config demo-cpai-test demo-cpai-down
+demo-cpai-up: healthcheck ## Build CPAI runtime image, push to Zot, and deploy to cpai namespace.
+	$(MAKE) cpai-images
+	./scripts/cpai-up.sh
+demo-cpai-test-config: ## Render and validate CPAI Kustomize overlays without a cluster.
+	$(MAKE) -C d2-cpai test
+demo-cpai-test: demo-cpai-test-config ## Run CPAI runtime smoke tests against the running cluster.
+	bats d2-cpai/test/cpai-runtime.bats
+demo-cpai-down: ## Remove the CPAI runtime demo namespace.
+	./scripts/cpai-down.sh
 
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.

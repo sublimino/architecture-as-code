@@ -247,6 +247,24 @@ demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet clea
 	./scripts/signalloom-down.sh
 	./scripts/signalloom-runtime-test.sh
 
+.PHONY: demo-signalloom-agents-up demo-signalloom-agents-down demo-signalloom-agents-list
+demo-signalloom-agents-up: ## Recreate the demo agent cohort (random Monty Python names; AGENTS=N, default 4).
+	N="$(AGENTS)"; ./scripts/signalloom-agents.sh up "$${N:-4}"
+demo-signalloom-agents-down: ## Delete the ephemeral demo agent cohort (keeps the Flux baseline agent).
+	./scripts/signalloom-agents.sh down
+demo-signalloom-agents-list: ## List agents currently in the fe-signalloom-agents namespace.
+	./scripts/signalloom-agents.sh list
+
+##@ Signal Loom data lifecycle (three UI states: demo-toggle / live-empty / mock-populated)
+
+.PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test
+demo-signalloom-data-reset: ## Reset data stores to empty defaults (live mode = empty UI). Optional: SERVICE=agents|audit|...
+	./scripts/signalloom-data.sh reset $(SERVICE)
+demo-signalloom-data-mock: ## Populate data stores with realistic demo data (mock mode = populated UI).
+	./scripts/signalloom-data.sh mock
+demo-signalloom-api-test: ## Run the consumer-driven contract + integration test suite.
+	./scripts/signalloom-api-test.sh $${TIER:-contract}
+
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh

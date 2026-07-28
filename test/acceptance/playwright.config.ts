@@ -38,6 +38,15 @@ export default defineConfig({
       },
       dependencies: ["setup"],
     },
+    {
+      name: "smoke",
+      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts/,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        video: "off",
+      },
+    },
   ],
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
 });

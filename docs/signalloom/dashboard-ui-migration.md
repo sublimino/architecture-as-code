@@ -12,6 +12,19 @@ with a username/password against the cluster's local **Dex**, and sees the same
 UI as the upstream platform — Sidebar, Agents, Compliance, Audit Trail, Settings —
 served from the signed container and backed by the local compatibility API.
 
+Beyond the migrated upstream pages (Agents, Compliance, Audit Trail, Settings),
+three new self-contained mock dashboard pages extend the UI:
+
+- **Cryptography** (`/cryptography`) — cluster root of trust, OpenBao bootstrap,
+  SPIFFE/SPIRE workload identity, PQC cipher discovery, OAuth2/MCP proxies.
+- **Federated Services** (`/federated-services`) — Cofide-Connect-inspired
+  cross-trust-zone workload connectivity via SPIFFE federation + Go SDK.
+- **Collusion & Access** (`/collusion-access`) — ControlPlane KubeSec-AFM (KTP)
+  formal-methods RBAC collusion analysis with a radial cluster graph background.
+
+These pages render enriched mock data in-module (no API dependency) and are
+covered by both vitest unit tests and the Playwright smoke suite.
+
 Terminology (the names are historically confusing):
 
 | Workload | Role | Tech | Port |
@@ -80,10 +93,17 @@ bats d2-signalloom/test/gateway-routing.bats        # Gateway routes / and /api 
 
 # This migration's focused single-origin login test (real Chrome, port 5173):
 kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080 &
-cd test/acceptance && npx playwright test signalloom-login.spec.ts
+cd test/acceptance && bunx playwright test signalloom-login.spec.ts
+
+# Smoke suite — 14 tests: auth gate, all 7 nav tabs, DemoToggle, HelpModal,
+# unknown-route redirect, API data-loading, KTP background asset.
+cd test/acceptance && bunx playwright test smoke.spec.ts
+
+# BATS runtime route check — SPA fallback for every route + static assets:
+bats d2-signalloom/test/dashboard-routes.bats
 
 # Static quality gate for the SPA:
-cd d2-signalloom/apps/dashboard-signalloom && npx tsc --noEmit && npx eslint src
+cd d2-signalloom/apps/dashboard-signalloom && bunx tsc --noEmit && bunx eslint src
 ```
 
 ## Teardown
@@ -102,8 +122,15 @@ make teardown               # full reset incl. local keys and build state
                     ┌──────────────┴───────────────┐
                     ▼                               ▼
         dashboard-signalloom (nginx :8080)
-        ├─ /                → SPA (React history fallback)
-        ├─ /readyz          → 200 "ready"
+        ├─ /                        → SPA (React history fallback)
+        ├─ /agents                  → Agents (API-backed)
+        ├─ /compliance              → Compliance (API-backed)
+        ├─ /audit                   → Audit Trail (API-backed)
+        ├─ /cryptography            → Cryptography (self-contained mock)
+        ├─ /federated-services      → Federated Services (self-contained mock)
+        ├─ /collusion-access        → Collusion & Access (self-contained mock)
+        ├─ /settings                → Settings (API-backed)
+        ├─ /readyz                  → 200 "ready"
         ├─ /dex/*  proxy →  dex.inf-signalloom:5556       (OIDC: discovery/auth/token/keys)
         └─ /api/*  proxy →  fe-signalloom-api:8000        (compatibility API, Dex-token authed)
 ```
@@ -148,9 +175,20 @@ cosign signature on the resolved digest. See `evidence/README.md`.
 ## Verification status
 
 - Typecheck (`tsc --noEmit`): clean.
+- Lint (`eslint src --max-warnings 0`): clean.
+- Vitest unit tests: 78/80 pass (2 pre-existing `ConsentModal.test.tsx` failures).
 - Live (real Chrome): Dex login → `demo-user` → dashboard renders with data;
   1 request per endpoint; zero console errors; zero `/api` 4xx/5xx.
-- Automated: `test/acceptance/signalloom-login.spec.ts`.
+- Automated login: `test/acceptance/signalloom-login.spec.ts`.
+- Playwright smoke suite: `test/acceptance/smoke.spec.ts` — 14 tests covering auth
+  gate, all 7 sidebar tabs, DemoToggle, HelpModal, route fallback, data-loading,
+  and KTP background asset. The suite runs in **demo mode** (`sl_demo_mode=true`
+  via `addInitScript`) so API-backed pages render from local fixtures while the
+  platform API JWT/issuer wiring is being reconciled by the Dex/gateway workstreams.
+  Auth (Dex login) is unaffected. Break/fix validated (a subtle nav-route typo was
+  caught by exactly the affected test; all others stayed green).
+- BATS runtime routes: `d2-signalloom/test/dashboard-routes.bats` — nginx SPA
+  fallback for every route, static assets, and bundle route references.
 
 ## Local-demo boundaries (not production)
 

@@ -78,6 +78,33 @@ rejects cross-origin ones.
 - Pipeline topology and Security Sandbox preset strings are fixed demo data;
   their event/detail and guard paths remain live where available.
 
+## Dashboard-signalloom SPA routes (React)
+
+The `dashboard-signalloom` workload is a separate React SPA (distinct from the
+Estate95 discovery portal above). It is served by nginx at `:8080` with a
+history-fallback (`try_files $uri $uri/ /index.html`) and authenticated via
+local Dex OIDC at `localhost:5173`.
+
+| Route | Page | Data source | Smoke test |
+| --- | --- | --- | --- |
+| `/agents` | Agents (default landing) | API `/api/agents` | `smoke.spec.ts` |
+| `/agents/:id` | Agent Detail | API `/api/agents/:id` | — |
+| `/compliance` | Compliance | API `/api/compliance/*` | `smoke.spec.ts` |
+| `/compliance/:fwId` | Framework Detail | API `/api/compliance/frameworks/:id` | — |
+| `/audit` | Audit Trail | API `/api/audit` | `smoke.spec.ts` |
+| `/cryptography` | Cryptography | Self-contained mock | `smoke.spec.ts` |
+| `/federated-services` | Federated Services | Self-contained mock | `smoke.spec.ts` |
+| `/collusion-access` | Collusion & Access | Self-contained mock | `smoke.spec.ts` |
+| `/settings` | Settings | API `/api/tenant/settings` | `smoke.spec.ts` |
+| `/onboarding` | Onboarding Wizard | API `/api/connectors` | — |
+| `/redeem-invite` | Redeem Invite | API `/api/invite` | — |
+| `*` | Redirect → `/agents` | — | `smoke.spec.ts` |
+
+Static assets: `/ktp-collusion-graph.png` (Collusion & Access background).
+
+BATS runtime coverage: `d2-signalloom/test/dashboard-routes.bats` — SPA
+fallback for every route, static assets served, and bundle route references.
+
 ## Baseline coverage
 
 `test/acceptance/dashboard-journey.spec.ts` covers client-side window opening,

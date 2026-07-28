@@ -46,26 +46,23 @@ teardown_file() {
 }
 
 @test "OpenAI hello-world: POST /v1/chat/completions returns a valid response" {
-  run curl -sS -w '\n%{http_code}' \
+  local model="${CPAI_TEST_MODEL:-google-vertex/gemini-2.5-flash}"
+  run curl -sS -w '\n%{http_code}' --max-time 60 \
     -X POST "http://localhost:${CPAI_PORT_FORWARD_PORT}/v1/chat/completions" \
     -H "Content-Type: application/json" \
-    -d '{
-      "model": "default",
-      "messages": [
-        {"role": "system", "content": "You are a test assistant. Reply with exactly: hello world"},
-        {"role": "user", "content": "Say hello world"}
+    -d "{
+      \"model\": \"${model}\",
+      \"messages\": [
+        {\"role\": \"system\", \"content\": \"Reply with exactly: hello world\"},
+        {\"role\": \"user\", \"content\": \"Say hello world\"}
       ],
-      "max_tokens": 20
-    }'
+      \"max_tokens\": 20
+    }"
   http_code="${lines[-1]}"
-  # 200 = model backend available and responded
-  # 502/503 = sidecar or model backend not yet configured (acceptable in local demo)
   if [ "$http_code" = "200" ]; then
     body=$(printf '%s\n' "${lines[@]:0:${#lines[@]}-1}" | tr -d '\n')
     echo "$body" | grep -qi "hello"
   else
-    # Document that model backend is needed for full flow
-    echo "# SKIP: /v1/chat/completions returned HTTP ${http_code} — model backend not configured"
-    skip "Model backend not configured (HTTP ${http_code})"
+    skip "Model backend returned HTTP ${http_code} — check cpai-gcp-adc secret and CPAI_TEST_MODEL"
   fi
 }

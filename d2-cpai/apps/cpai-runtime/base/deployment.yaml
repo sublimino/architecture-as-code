@@ -24,11 +24,25 @@ spec:
             - containerPort: 8080
               name: http
               protocol: TCP
+          envFrom:
+            - secretRef:
+                name: cpai-codex-auth
+                optional: true
           env:
             - name: PORT
               value: "8080"
             - name: CPAI_CONTEXT_ROOT
               value: /context
+            - name: CPAI_BIN
+              value: opencode
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/gcp/adc.json
+            - name: GOOGLE_CLOUD_PROJECT
+              value: cc-vertex-test
+          volumeMounts:
+            - name: gcp-adc
+              mountPath: /var/secrets/gcp
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /healthz
@@ -43,8 +57,13 @@ spec:
             periodSeconds: 5
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
+              cpu: 200m
               memory: 512Mi
+            limits:
+              memory: 2Gi
+      volumes:
+        - name: gcp-adc
+          secret:
+            secretName: cpai-gcp-adc
+            optional: true
       terminationGracePeriodSeconds: 30

@@ -295,6 +295,8 @@ demo-cpai-test-config: ## Render and validate CPAI Kustomize overlays without a 
 	$(MAKE) -C d2-cpai test
 demo-cpai-test: demo-cpai-test-config ## Run CPAI runtime smoke tests against the running cluster.
 	bats d2-cpai/test/cpai-runtime.bats
+demo-cpai-conversation: ## Run 3-turn aichat conversation e2e test against the CPAI runtime.
+	bats d2-cpai/test/conversation.bats
 demo-cpai-down: ## Remove the CPAI runtime demo namespace.
 	./scripts/cpai-down.sh
 

@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cpai
+  labels:
+    toolkit.fluxcd.io/role: tenant
+    app.kubernetes.io/part-of: demo-cpai

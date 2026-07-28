@@ -8,6 +8,9 @@ const NAV = [
   { to: '/agents', label: 'Agents' },
   { to: '/compliance', label: 'Compliance' },
   { to: '/audit', label: 'Audit Trail' },
+  { to: '/cryptography', label: 'Cryptography' },
+  { to: '/federated-services', label: 'Federated Services' },
+  { to: '/collusion-access', label: 'Collusion & Access' },
   { to: '/settings', label: 'Settings' },
 ]
 

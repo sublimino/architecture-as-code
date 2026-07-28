@@ -11,3 +11,8 @@ resources:
   - dashboard-deployment.yaml
   - dashboard-service.yaml
   - gateway-route.yaml
+  # Agent inventory: namespace + a Flux-managed baseline agent, and read-only
+  # RBAC letting the fake-integration-proxy discover agents for GET /api/agents.
+  - agents-namespace.yaml
+  - agents-rbac.yaml
+  - agents-baseline.yaml

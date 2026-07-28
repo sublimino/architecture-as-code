@@ -1,0 +1,62 @@
+# Least-privilege read access for the fake-integration-proxy (which runs under
+# the inf-signalloom `default` SA) to discover agents:
+#   - list pods in fe-signalloom-agents (the agent inventory), and
+#   - read the Flux Kustomization in fe-signalloom (for the managed_by/reconciled
+#     hint the /agents endpoint surfaces).
+# It gets read-only verbs only; it can never mutate agents or anything else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: agent-inventory-reader
+  namespace: fe-signalloom-agents
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fake-proxy-agent-inventory-reader
+  namespace: fe-signalloom-agents
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: agent-inventory-reader
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: inf-signalloom
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fe-signalloom-health-reader
+  namespace: fe-signalloom
+rules:
+  # Flux Kustomization status for the agent-discovery managed/reconciled hint.
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list"]
+  # bao-spire proof Jobs + their pods/logs, for the self-reporting crypto health
+  # surface (GET /api/health/crypto). Read-only.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fake-proxy-health-reader
+  namespace: fe-signalloom
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fe-signalloom-health-reader
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: inf-signalloom

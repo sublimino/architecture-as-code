@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - networkpolicy.yaml
   - fake-integration-proxy-networkpolicy.yaml
+  - fake-integration-proxy-egress-networkpolicy.yaml

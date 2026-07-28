@@ -6,29 +6,24 @@ const DEX_URL = process.env.SIGNALLOOM_DEX_URL ?? "http://127.0.0.1:15556";
 
 test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 
-const windows = [
-  ["Dashboard root", null, "Estate 95"],
-  ["OSRAMP Console", "OSRAMP Console", "OSRAMP Console"],
-  ["Control Plane", "Control Plane", "Control Plane"],
-  ["Agent Registry", "Agent Registry", "Agent Registry"],
-  ["Orbit approvals", "Orbit: Action Approvals", "Orbit: Action Approvals"],
-  ["ServiceNow", "ServiceNow", "ServiceNow"],
-  ["Cluster State", "Cluster State", "Cluster State"],
-  ["Scoped Terminal", "Scoped Terminal", "Scoped Terminal"],
-  ["Pipeline", "Pipeline Panopticon", "Pipeline Panopticon"],
-  ["ADK Studio", "ADK Studio", "ADK Studio"],
-  ["Eval Lab", "Eval Lab", "Eval Lab"],
-  ["Eye in the Sky", "Eye in the Sky", "Eye in the Sky"],
-  ["Security Sandbox", "Security Sandbox", "Security Sandbox"],
-  ["Agentic SRE launcher", "Agentic SRE", "Agentic SRE"],
+const pages = [
+  ["Dashboard root", null, "Agents"],
+  ["Agents", "Agents", "Governed"],
+  ["Compliance", "Compliance", "Compliance"],
+  ["Audit Trail", "Audit Trail", "Audit Trail"],
+  ["Cryptography", "Cryptography", "Cryptography"],
+  ["Federated Services", "Federated Services", "Federated Services"],
+  ["Collusion & Access", "Collusion & Access", "Collusion"],
+  ["Settings", "Settings", "Settings"],
 ] as const;
 
 test.describe("SignalLoom TEST-1 dashboard matrix", () => {
-  for (const [journey, icon, title] of windows) {
+  for (const [journey, nav, title] of pages) {
     test(`${journey} opens through the integrated dashboard`, async ({ page }) => {
       await page.goto(DASHBOARD_URL);
-      if (icon !== null) {
-        await page.locator(`.desk-icon[title="${icon}"]`).dblclick();
+      await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
+      if (nav !== null) {
+        await page.getByRole("link", { name: nav }).click();
       }
       await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
     });

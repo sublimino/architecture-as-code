@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
+
 export default defineConfig({
   testDir: ".",
   timeout: 30_000,
@@ -13,11 +15,28 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      name: "setup",
+      testMatch: "auth.setup.ts",
       use: {
         ...devices["Desktop Chrome"],
         channel: "chrome",
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+        },
       },
+    },
+    {
+      name: "chromium",
+      testMatch: "signalloom-test-1.spec.ts",
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        storageState: "test-results/.auth-state.json",
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+        },
+      },
+      dependencies: ["setup"],
     },
   ],
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],

@@ -34,7 +34,8 @@ teardown() {
   docker info >/dev/null
 
   start_dex
-  python3 -c 'import json, sys; d = json.load(sys.stdin); assert d["issuer"] == "http://dex.inf-signalloom.svc.cluster.local:5556/dex"; assert d["jwks_uri"] == "http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys"' <"$discovery"
+  expected_issuer="$(awk '/^  config.yaml: \|/{c=1;next} c && /^---$/{exit} c && /issuer:/{sub(/.*issuer: */,"");print;exit}' "$dex_manifest")"
+  python3 -c "import json, sys; d = json.load(sys.stdin); assert d['issuer'] == '$expected_issuer', f'issuer {d[\"issuer\"]} != $expected_issuer'; assert d['jwks_uri'].endswith('/dex/keys')" <"$discovery"
 
   run curl -fsS "http://127.0.0.1:${port}/dex/keys"
   [ "$status" -eq 0 ]

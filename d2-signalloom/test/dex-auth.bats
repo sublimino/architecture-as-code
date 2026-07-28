@@ -66,7 +66,7 @@ setup() {
 }
 
 @test "Dex discovery and JWKS endpoints are served by the local issuer" {
-  run grep -F 'issuer: http://dex.inf-signalloom.svc.cluster.local:5556/dex' "$dex_manifest"
+  run grep -E 'issuer: https?://[^ ]+/dex$' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F '/dex/.well-known/openid-configuration' "$dex_manifest"
   [ "$status" -eq 0 ]

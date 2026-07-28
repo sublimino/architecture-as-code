@@ -1,0 +1,12 @@
+# The agent inventory namespace. Inert podinfo "agents" live here; their pod
+# metadata (labels/annotations) is read by the fake-integration-proxy /agents
+# endpoint and surfaced in the dashboard via GET /api/agents. This is the local
+# stand-in for what was originally Azure Container Apps cross-environment agent
+# discovery — same API surface, a namespace query instead of an Azure call.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/purpose: agent-inventory

@@ -1,0 +1,33 @@
+# The namespace default-deny policy blocks all egress. The fake-integration-proxy
+# now performs read-only in-cluster API queries (agent discovery + bao-spire
+# crypto-proof self-health), so it needs a scoped egress allowance to the
+# kube-apiserver and cluster DNS. Nothing else is opened.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-fake-integration-proxy-egress
+  namespace: inf-signalloom
+  labels:
+    app.kubernetes.io/name: fake-integration-proxy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fake-integration-proxy
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # kube-apiserver. The ClusterIP 10.96.0.1:443 DNATs to the kind node's real
+    # apiserver on :6443; kindnet evaluates the policy on the post-DNAT target,
+    # so scope by PORT (any destination on 443/6443) rather than the ClusterIP —
+    # this is the read-only API access for agent + crypto-proof discovery.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

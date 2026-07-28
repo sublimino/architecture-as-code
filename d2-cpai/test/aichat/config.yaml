@@ -1,0 +1,13 @@
+model: cpai-test:google-vertex/gemini-2.5-flash
+stream: false
+save: false
+
+clients:
+- type: openai-compatible
+  name: cpai-test
+  api_base: http://127.0.0.1:18080/v1
+  api_key: unused
+  models:
+    - name: google-vertex/gemini-2.5-flash
+      max_input_tokens: 100000
+      max_output_tokens: 8192

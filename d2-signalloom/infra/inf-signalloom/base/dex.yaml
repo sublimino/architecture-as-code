@@ -8,7 +8,7 @@ metadata:
 type: Opaque
 stringData:
   config.yaml: |
-    issuer: http://localhost:5173/dex
+    issuer: https://dashboard.osramp.acme.local:30754/dex
     storage:
       type: memory
     web:
@@ -23,6 +23,8 @@ stringData:
         public: true
         redirectURIs:
           - http://localhost:5173/callback
+          - https://dashboard.osramp.acme.local:18443/callback
+          - https://dashboard.osramp.acme.local:30754/callback
       - id: signalloom-api
         name: Signalloom Compatibility API Local
         secret: signalloom-api-local-only

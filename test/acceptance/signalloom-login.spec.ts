@@ -7,7 +7,7 @@ import { expect, test } from "@playwright/test";
 // Preconditions (see docs): `kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080`.
 const BASE = process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173";
 const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
-const PASS = process.env.SIGNALLOOM_PASS ?? "password";
+const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
 
 test("user logs in with user/pass and sees the Signal Loom dashboard", async ({ page }) => {
   const apiErrors: string[] = [];

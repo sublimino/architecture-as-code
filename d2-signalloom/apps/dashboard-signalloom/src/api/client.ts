@@ -10,6 +10,7 @@ import type {
   ConsentAcceptRequest,
   ConsentAcceptResponse,
   ConsentStatusResponse,
+  CryptoHealthResponse,
   CookiePreferencesResponse,
   FrameworkResponse,
   InitialApiKeyResponse,
@@ -156,6 +157,11 @@ export const api = {
 
     reportJson: (token: string) =>
       req<unknown>('/nhi/report/json', token),
+  },
+
+  health: {
+    crypto: (token: string) =>
+      req<CryptoHealthResponse>('/health/crypto', token),
   },
 
   settings: (token: string) =>

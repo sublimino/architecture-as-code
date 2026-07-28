@@ -173,6 +173,23 @@ export interface EUAIActResponse {
   controls: EUAIActControlStatus[]
 }
 
+// ─── Crypto Health ───────────────────────────────────────────────────────────
+
+export interface CryptoProof {
+  name: string
+  kind: 'positive' | 'negative'
+  status: 'passed' | 'failed' | 'error' | 'pending'
+  title: string
+  description: string
+  expectation: string
+  evidence: string
+}
+
+export interface CryptoHealthResponse {
+  tenant_id: string
+  proofs: CryptoProof[]
+}
+
 // ─── NHI Discovery ───────────────────────────────────────────────────────────
 
 export interface NHIScan {

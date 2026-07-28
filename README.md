@@ -147,7 +147,8 @@ make test             # run the OSRAMP bats end-to-end suite
 make acceptance-test  # run the browser acceptance suite
 ```
 
-`./scripts/setup.sh --tools-only` installs without building; `make up` builds without installing.
+`./scripts/setup.sh --tools-only` installs without building; `make up` creates
+the shared foundation without installing tools or building demo images.
 
 Browser acceptance setup, diagnostics, and the latest observed baseline are documented in [TESTING.md](TESTING.md). Use [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) when a person needs to review the live browser experience and record evidence.
 

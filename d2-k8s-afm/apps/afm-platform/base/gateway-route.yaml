@@ -1,0 +1,27 @@
+# AFM gets its own hostname on the shared cluster gateway so it doesn't
+# collide with Signal Loom's path-based routes. The wildcard listener
+# (*.osramp.acme.local) covers this; access via port-forward or /etc/hosts.
+#
+# Dashboard: https://afm.osramp.acme.local/dashboard
+# API:       https://afm.osramp.acme.local/api/...
+# Health:    https://afm.osramp.acme.local/health
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: afm-platform
+  namespace: fe-k8s-afm
+spec:
+  parentRefs:
+    - name: cluster
+      namespace: ingress
+      sectionName: https
+  hostnames:
+    - afm.osramp.acme.local
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: afm-platform
+          port: 8000

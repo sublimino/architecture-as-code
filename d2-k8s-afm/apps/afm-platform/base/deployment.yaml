@@ -1,0 +1,68 @@
+# Single-process production topology: FastAPI control plane + Z3 BMC engine
+# + Next.js dashboard (static export served at /dashboard). Port 8000.
+# No database — uses SQLite for job storage + in-memory cluster store.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: afm-platform
+  namespace: fe-k8s-afm
+  labels:
+    app.kubernetes.io/name: afm-platform
+    app.kubernetes.io/part-of: k8s-afm
+    app.kubernetes.io/component: platform
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: afm-platform
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: afm-platform
+        app.kubernetes.io/part-of: k8s-afm
+        app.kubernetes.io/component: platform
+    spec:
+      containers:
+        - name: afm
+          image: kubesec-afm:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: KUBESEC_DATA_DIR
+              value: /app/data
+            - name: KUBESEC_SAMPLES_DIR
+              value: /app/backend/samples/clusters
+            - name: KUBESEC_FRONTEND_DIST
+              value: /app/frontend/out
+            - name: KUBESEC_MAX_WORKERS
+              value: "1"
+            # Open CORS for potential cross-D2 access from Signal Loom.
+            - name: KUBESEC_CORS_ALLOW_ORIGIN_REGEX
+              value: ".*"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          emptyDir: {}

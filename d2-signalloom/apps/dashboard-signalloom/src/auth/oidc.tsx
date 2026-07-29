@@ -21,7 +21,8 @@ const oidcConfig = {
     token_endpoint: `${AUTHORITY}/token`,
     jwks_uri: `${AUTHORITY}/keys`,
     userinfo_endpoint: `${AUTHORITY}/userinfo`,
-    end_session_endpoint: `${AUTHORITY}/auth`,
+    // Dex does not implement OIDC RP-Initiated Logout — omit end_session_endpoint
+    // so signoutRedirect() falls back to the client-side session clear below.
   },
   client_id: 'signalloom-dashboard',
   redirect_uri: `${window.location.origin}/callback`,
@@ -66,7 +67,7 @@ export function OidcProvider({ children }: Props) {
 
 export function useAuth0() {
   const auth = useAuth()
-  const { signinRedirect, signoutRedirect } = auth
+  const { signinRedirect } = auth
   // Stable across renders unless the token itself changes. The Auth0 SDK this
   // shim replaces returned stable callbacks; consumers put getAccessTokenSilently
   // in useCallback/useEffect deps, so an unstable ref causes an infinite refetch
@@ -81,12 +82,15 @@ export function useAuth0() {
     },
     [signinRedirect],
   )
+  const { removeUser } = auth
   const logout = useCallback(
     (opts?: unknown): void => {
       void opts
-      signoutRedirect()
+      removeUser().then(() => {
+        window.location.href = '/'
+      })
     },
-    [signoutRedirect],
+    [removeUser],
   )
   const profile = auth.user?.profile
 

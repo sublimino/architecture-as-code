@@ -1,0 +1,351 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dex-ui
+  labels:
+    app.kubernetes.io/name: dex
+    app.kubernetes.io/component: ui
+    app.kubernetes.io/part-of: signalloom-demo
+data:
+  header.html: |-
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
+      <title>Signal Loom — Sign in</title>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <link href="{{ url .ReqPath "static/main.css" }}" rel="stylesheet">
+      <link href="{{ url .ReqPath "theme/styles.css" }}" rel="stylesheet">
+      <link rel="icon" href="{{ url .ReqPath "theme/favicon.png" }}">
+    </head>
+    <body class="theme-body">
+      <div class="theme-navbar">
+        <div class="theme-navbar__logo-wrap">
+          <svg class="theme-navbar__logo" viewBox="0 0 180 28" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="14" cy="14" r="10" fill="#3B82F6" opacity="0.9"/>
+            <circle cx="14" cy="14" r="5" fill="#60A5FA"/>
+            <path d="M14 4 L14 24" stroke="#1D4ED8" stroke-width="1.5" opacity="0.6"/>
+            <path d="M4 14 L24 14" stroke="#1D4ED8" stroke-width="1.5" opacity="0.6"/>
+            <text x="32" y="20" fill="#E2E8F0" font-family="Inter,Segoe UI,system-ui,sans-serif" font-size="18" font-weight="600" letter-spacing="0.02em">Signal Loom</text>
+          </svg>
+        </div>
+      </div>
+      <div class="dex-container">
+  footer.html: |-
+    </div>
+    </body>
+    </html>
+  login.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Sign in to Signal Loom</h2>
+      <p class="sl-subtitle">Agent Security Platform</p>
+      <div>
+        {{ range $c := .Connectors }}
+        <div class="theme-form-row">
+          <a href="{{ $c.URL }}" target="_self">
+            <button class="dex-btn theme-btn-provider">
+              <span class="dex-btn-icon dex-btn-icon--{{ $c.Type }}"></span>
+              <span class="dex-btn-text">Sign in with {{ $c.Name }}</span>
+            </button>
+          </a>
+        </div>
+        {{ end }}
+      </div>
+    </div>
+    {{ template "footer.html" . }}
+  password.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Sign in</h2>
+      <form method="post" action="{{ .PostURL }}">
+        <div class="theme-form-row">
+          <div class="theme-form-label">
+            <label for="login">{{ .UsernamePrompt }}</label>
+          </div>
+          <input tabindex="1" required id="login" name="login" type="text"
+                 class="theme-form-input" placeholder="{{ .UsernamePrompt | lower }}"
+                 {{ if .Username }} value="{{ .Username }}" {{ else }} autofocus {{ end }}/>
+        </div>
+        <div class="theme-form-row">
+          <div class="theme-form-label">
+            <label for="password">Password</label>
+          </div>
+          <input tabindex="2" required id="password" name="password" type="password"
+                 class="theme-form-input" placeholder="password"
+                 {{ if .Invalid }} autofocus {{ end }}/>
+        </div>
+        {{ if .Invalid }}
+        <div id="login-error" class="dex-error-box">Invalid credentials. Please try again.</div>
+        {{ end }}
+        <button tabindex="3" id="submit-login" type="submit" class="dex-btn theme-btn--primary">
+          Sign in
+        </button>
+      </form>
+      {{ if .BackLink }}
+      <div class="theme-link-back">
+        <a class="dex-subtle-text" href="{{ .BackLink }}">Other sign-in options</a>
+      </div>
+      {{ end }}
+    </div>
+    <script>
+      document.querySelector('form').onsubmit = function() {
+        document.getElementById('submit-login').disabled = true;
+      };
+    </script>
+    {{ template "footer.html" . }}
+  approval.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Grant access</h2>
+      <p><strong>{{ .Client }}</strong> would like to:</p>
+      <ul class="sl-scope-list">
+        {{ range .Scopes }}<li>{{ . }}</li>{{ end }}
+      </ul>
+      <form method="post">
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
+        <input type="hidden" name="approval" value="approve"/>
+        <button type="submit" class="dex-btn theme-btn--success">Allow</button>
+      </form>
+      <form method="post">
+        <input type="hidden" name="req" value="{{ .AuthReqID }}"/>
+        <input type="hidden" name="approval" value="rejected"/>
+        <button type="submit" class="dex-btn theme-btn--primary" style="margin-top:8px;">Deny</button>
+      </form>
+    </div>
+    {{ template "footer.html" . }}
+  error.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Error</h2>
+      <div class="dex-error-box">{{ .Error }}</div>
+    </div>
+    {{ template "footer.html" . }}
+  oob.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Login successful</h2>
+      <p>Please copy this code to your device:</p>
+      <input class="theme-form-input" type="text" value="{{ .Code }}" readonly
+             onclick="this.select()" style="text-align:center;font-size:18px;letter-spacing:2px;"/>
+    </div>
+    {{ template "footer.html" . }}
+  device.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Device login</h2>
+      {{ if .Invalid }}<div class="dex-error-box">Invalid code.</div>{{ end }}
+      <form method="POST" action="{{ .PostURL }}">
+        <div class="theme-form-row">
+          <div class="theme-form-label"><label for="user_code">Enter code</label></div>
+          <input id="user_code" name="user_code" type="text" class="theme-form-input"
+                 placeholder="XXXX-XXXX" autofocus required/>
+        </div>
+        <button type="submit" class="dex-btn theme-btn--primary">Submit</button>
+      </form>
+    </div>
+    {{ template "footer.html" . }}
+  device_success.html: |-
+    {{ template "header.html" . }}
+    <div class="theme-panel">
+      <h2 class="theme-heading">Device authorised</h2>
+      <p>You may now close this window.</p>
+    </div>
+    {{ template "footer.html" . }}
+  styles.css: |-
+    .theme-body {
+      background-color: #0a0e1a;
+      color: #E2E8F0;
+      font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    }
+
+    .theme-navbar {
+      background-color: #0f1629;
+      border-bottom: 1px solid rgba(59, 130, 246, 0.2);
+      height: 52px;
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+    }
+
+    .theme-navbar__logo-wrap {
+      display: flex;
+      align-items: center;
+      height: 100%;
+    }
+
+    .theme-navbar__logo {
+      height: 28px;
+      width: auto;
+    }
+
+    .theme-heading {
+      font-size: 22px;
+      font-weight: 600;
+      margin-top: 0;
+      margin-bottom: 4px;
+      color: #F1F5F9;
+    }
+
+    .sl-subtitle {
+      font-size: 13px;
+      color: #64748B;
+      margin-top: 0;
+      margin-bottom: 24px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .theme-panel {
+      background-color: #111827;
+      border: 1px solid rgba(59, 130, 246, 0.15);
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(59, 130, 246, 0.05);
+      padding: 36px 32px;
+    }
+
+    .theme-btn-provider {
+      background-color: #1E293B;
+      color: #E2E8F0;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      min-width: 280px;
+      height: 44px;
+      font-size: 14px;
+      font-weight: 500;
+      transition: all 0.15s ease;
+    }
+
+    .theme-btn-provider:hover {
+      background-color: #263347;
+      border-color: #3B82F6;
+      color: #FFFFFF;
+      box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+    }
+
+    .theme-btn--primary {
+      background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);
+      border: none;
+      border-radius: 8px;
+      color: #FFFFFF;
+      min-width: 280px;
+      height: 44px;
+      padding: 8px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      transition: all 0.15s ease;
+      letter-spacing: 0.01em;
+    }
+
+    .theme-btn--primary:hover {
+      background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%);
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    }
+
+    .theme-btn--success {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      color: #FFFFFF;
+      border: none;
+      border-radius: 8px;
+      min-width: 280px;
+      height: 44px;
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .theme-btn--success:hover {
+      background: linear-gradient(135deg, #10B981 0%, #059669 100%);
+    }
+
+    .theme-form-row {
+      display: block;
+      margin: 16px auto;
+    }
+
+    .theme-form-input {
+      display: block;
+      height: 40px;
+      padding: 8px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      line-height: 1.5;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      color: #E2E8F0;
+      background-color: #0F172A;
+      width: 280px;
+      margin: auto;
+      transition: border-color 0.15s ease;
+    }
+
+    .theme-form-input:focus,
+    .theme-form-input:active {
+      outline: none;
+      border-color: #3B82F6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .theme-form-label {
+      width: 280px;
+      margin: 4px auto;
+      text-align: left;
+      font-size: 13px;
+      font-weight: 500;
+      color: #94A3B8;
+    }
+
+    .theme-link-back {
+      margin-top: 12px;
+    }
+
+    .dex-container {
+      color: #E2E8F0;
+      margin: 60px auto;
+      max-width: 440px;
+    }
+
+    .dex-error-box {
+      background-color: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 8px;
+      color: #FCA5A5;
+      padding: 10px 14px;
+      margin: 12px auto;
+      font-size: 13px;
+      max-width: 280px;
+    }
+
+    .dex-subtle-text {
+      color: #3B82F6;
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    .dex-subtle-text:hover {
+      color: #60A5FA;
+      text-decoration: underline;
+    }
+
+    .dex-btn-text {
+      line-height: 44px;
+      padding-right: 12px;
+    }
+
+    .dex-btn-icon {
+      height: 44px;
+      width: 44px;
+      border-radius: 8px 0 0 8px;
+    }
+
+    .sl-scope-list {
+      text-align: left;
+      margin: 16px auto;
+      max-width: 280px;
+      font-size: 14px;
+      color: #94A3B8;
+    }
+
+    .sl-scope-list li {
+      margin-bottom: 6px;
+    }

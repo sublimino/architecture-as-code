@@ -344,17 +344,22 @@ function AgentTableRow({ agent, onNavigate }: { agent: AgentResponse; onNavigate
   )
 }
 
-function GovernedTab({ agents, loading, error, onRetry, onReload }: {
+function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter }: {
   agents: AgentResponse[]
   loading: boolean
   error: string | null
   onRetry: () => void
   onReload: () => void
+  externalFilter?: string
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [lifecycleFilter, setLifecycleFilter] = useState('all')
   const [showRegister, setShowRegister] = useState(false)
+
+  useEffect(() => {
+    if (externalFilter) setLifecycleFilter(externalFilter)
+  }, [externalFilter])
 
   const filtered = useMemo(() => {
     let list = agents
@@ -736,7 +741,7 @@ function NHIAccountRow({ account, onAction }: {
   )
 }
 
-function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry, onAction }: {
+function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry, onAction, externalFilter }: {
   accounts: NHIAccount[]
   loading: boolean
   error: string | null
@@ -744,8 +749,13 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
   summary: { total_discovered: number; needs_triage: number; previously_dismissed: number } | null
   onRetry: () => void
   onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void
+  externalFilter?: string
 }) {
   const [nhiFilter, setNhiFilter] = useState<'all' | 'triage' | 'dismissed' | string>('all')
+
+  useEffect(() => {
+    if (externalFilter) setNhiFilter(externalFilter)
+  }, [externalFilter])
 
   const activeAccounts = useMemo(() => accounts.filter(a => a.status !== 'dismissed'), [accounts])
 
@@ -876,6 +886,7 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
 export default function AgentsPage() {
   const { getAccessTokenSilently } = useAuth0()
   const [tab, setTab] = useState<'governed' | 'discovered'>('governed')
+  const [alertFilter, setAlertFilter] = useState<string | undefined>()
 
   // Governed
   const [agents, setAgents] = useState<AgentResponse[]>([])
@@ -999,8 +1010,7 @@ export default function AgentsPage() {
         alerts={alerts}
         onAlert={(alertTab, filterKey) => {
           setTab(alertTab)
-          // filterKey is used by sub-tab state — handled within each tab
-          void filterKey
+          setAlertFilter(filterKey)
         }}
       />
 
@@ -1020,6 +1030,7 @@ export default function AgentsPage() {
           error={agentsError}
           onRetry={loadAgents}
           onReload={loadAgents}
+          externalFilter={tab === 'governed' ? alertFilter : undefined}
         />
       ) : (
         <DiscoveredTab
@@ -1030,6 +1041,7 @@ export default function AgentsPage() {
           summary={nhiSummary}
           onRetry={loadNhi}
           onAction={handleNhiAction}
+          externalFilter={tab === 'discovered' ? alertFilter : undefined}
         />
       )}
     </div>

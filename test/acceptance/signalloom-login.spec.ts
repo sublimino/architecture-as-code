@@ -9,6 +9,23 @@ const BASE = process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173";
 const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
 const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
 
+async function loginViaDex(page: import("@playwright/test").Page) {
+  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  const loginInput = page.locator('input[name="login"]');
+  await expect(loginInput).toBeVisible({ timeout: 15_000 });
+  expect(page.url()).toContain("/dex/auth");
+  await loginInput.fill(USER);
+  await page.locator('input[name="password"]').fill(PASS);
+  await Promise.all([
+    page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
+    page.getByRole("button", { name: /login|sign in|submit/i }).click(),
+  ]);
+  await page.waitForURL(/\/(agents|compliance|audit|settings)?$|\/agents/, { timeout: 20_000 });
+  await expect(
+    page.getByText(/agents|compliance|audit trail|settings/i).first(),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
 test("user logs in with user/pass and sees the Signal Loom dashboard", async ({ page }) => {
   const apiErrors: string[] = [];
   page.on("response", (r) => {
@@ -17,33 +34,44 @@ test("user logs in with user/pass and sees the Signal Loom dashboard", async ({ 
     }
   });
 
-  // 1. Open the app — unauthenticated, it should redirect to the Dex login.
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
+  await loginViaDex(page);
 
-  // 2. Dex login form (Dex renders input[name=login] / input[name=password]).
-  const login = page.locator('input[name="login"]');
-  await expect(login).toBeVisible({ timeout: 15_000 });
+  await page.screenshot({ path: "test-results/signalloom-login.png", fullPage: true });
+  expect(apiErrors, `authenticated /api errors: ${apiErrors.join(", ")}`).toEqual([]);
+});
+
+test("user can log out and is returned to the Dex login page", async ({ page }) => {
+  await loginViaDex(page);
+
+  // Click the sign-out button in the sidebar.
+  await page.getByTitle("Sign out").click();
+
+  // After logout the session is cleared and AutoSignIn redirects to Dex.
+  const loginInput = page.locator('input[name="login"]');
+  await expect(loginInput).toBeVisible({ timeout: 15_000 });
   expect(page.url()).toContain("/dex/auth");
 
-  // 3. Submit credentials.
-  await login.fill(USER);
-  await page.locator('input[name="password"]').fill(PASS);
-  await Promise.all([
-    page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
-    page.getByRole("button", { name: /login|sign in|submit/i }).click(),
-  ]);
+  await page.screenshot({ path: "test-results/signalloom-logout.png", fullPage: true });
+});
 
-  // 4. Back on the app, authenticated → lands on /agents.
-  await page.waitForURL(/\/(agents|compliance|audit|settings)?$|\/agents/, { timeout: 20_000 });
+test("full login → logout → re-login cycle works without errors", async ({ page }) => {
+  const apiErrors: string[] = [];
+  page.on("response", (r) => {
+    if (r.url().includes("/api/") && r.status() >= 400) {
+      apiErrors.push(`${r.status()} ${r.request().method()} ${r.url()}`);
+    }
+  });
 
-  // 5. The migrated dashboard renders: sidebar nav is visible.
-  await expect(
-    page.getByText(/agents|compliance|audit trail|settings/i).first(),
-  ).toBeVisible({ timeout: 15_000 });
+  // First login.
+  await loginViaDex(page);
 
-  // 6. Evidence screenshot.
-  await page.screenshot({ path: "test-results/signalloom-login.png", fullPage: true });
+  // Logout.
+  await page.getByTitle("Sign out").click();
+  await expect(page.locator('input[name="login"]')).toBeVisible({ timeout: 15_000 });
 
-  // 7. No authenticated /api call should be rejected.
-  expect(apiErrors, `authenticated /api errors: ${apiErrors.join(", ")}`).toEqual([]);
+  // Re-login — proves the session was fully cleared and a fresh login works.
+  await loginViaDex(page);
+
+  await page.screenshot({ path: "test-results/signalloom-relogin.png", fullPage: true });
+  expect(apiErrors, `re-login /api errors: ${apiErrors.join(", ")}`).toEqual([]);
 });

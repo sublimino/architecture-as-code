@@ -25,11 +25,11 @@ enhancements:
   -
 tags:
   - innovation-proposals
-  - proposal-2026-q3-controlplane-agent-security-platform
+  - proposal-2026-q3-signal-loom-agent-security-platform
 aliases:
-  - "#proposal-2026-q3-controlplane-agent-security-platform"
+  - "#proposal-2026-q3-signal-loom-agent-security-platform"
 ---
-# Proposal — ControlPlane Agent Security Platform (2026-Q3)
+# Proposal — Signal Loom Agent Security Platform (2026-Q3)
 
 |  |  |
 | :---: | :---- |
@@ -37,15 +37,18 @@ aliases:
 | Reviewer & Date: |  |
 | Approver & Date: |  |
 
-> **Working name.** "ControlPlane Agent Security Platform" (ASP) is a placeholder. The system is the
-> unification of four capabilities that already exist in the `osramp-demo` estate — **Signal Loom**
-> (agent governance), **Olly/Sentinel** (agentic runtime security + identity), **Eye-in-the-Sky**
-> (estate observability), and **OSRAMP** (software/model supply chain) — into a single control plane
-> for the AI-agent lifecycle. Assumptions are flagged inline as **[ASSUMPTION]**.
+> **Product & company name: Signal Loom.** Both the platform and the company building it are called
+> **Signal Loom**; **AJM is CTO and technical owner of the build**. Signal Loom is a ControlPlane
+> venture — ControlPlane is the incubating origin and supplies the OSRAMP supply-chain, GitOps, and
+> signed-attestation spine the platform is built on. The system unifies four capabilities that already
+> exist in the `osramp-demo` estate — **Signal Loom** (agent governance), **Olly/Sentinel** (agentic
+> runtime security + identity), **Eye-in-the-Sky** (estate observability), and **OSRAMP** (software/
+> model supply chain) — into a single control plane for the AI-agent lifecycle. Assumptions are flagged
+> inline as **[ASSUMPTION]**.
 
 ## Press Release
 
-**ControlPlane launches the first agent security control plane that can find, govern, prove, and
+**Signal Loom launches the first agent security control plane that can find, govern, prove, and
 kill any AI agent running in your estate — yours or anyone else's.**
 
 Enterprises are shipping AI agents faster than any security function can inventory them. Agents hold
@@ -55,7 +58,7 @@ colluding agent now has the blast radius of a compromised service account with a
 attached. Regulators (EU AI Act, DORA, NIS2) are turning "we govern our AI" from a slide into an
 auditable control with fines attached.
 
-The ControlPlane Agent Security Platform gives a CISO one pane of glass that **discovers** every
+The Signal Loom Agent Security Platform gives a CISO one pane of glass that **discovers** every
 agent across Kubernetes (k8s/Flux/Argo) and the cloud agent runtimes (Azure AI Foundry, AWS Bedrock
 Agents, GCP Vertex/ADK); **identifies** each one by its A2A card, non-human identity, and SPIFFE
 workload identity; **governs** its lifecycle and compliance posture against EU AI Act / NIST AI RMF;
@@ -115,7 +118,7 @@ as nice-to-haves and enhancement proposals.
 | Deliverable | Description | Acceptance Criteria (SMART) | Validation Method |
 | :---- | :---- | :---- | :---- |
 | Agent discovery + inventory (MVP spine) | Discover agents across k8s API, Flux, and Argo, plus one cloud runtime (Azure AI Foundry **[ASSUMPTION]**), and populate the Signal Loom Agent Registry with identity + A2A card. | Specific: enumerate agents from ≥3 k8s-native sources + 1 cloud API into one inventory.<br/>Measurable: ≥95% of seeded agents discovered with identity + card; false-negative list produced.<br/>Attainable: extends the existing Agent Registry + NHI discovery.<br/>Realistic: read-only APIs, no agent runtime changes.<br/>Time-Bound: MVP milestone M2. | Contract tests + a seeded-estate discovery run with a known agent set. |
-| Agentic killswitch + quarantine | One action that suspends an agent's lifecycle, revokes its token/credential, isolates it at the service mesh, and blocks readmission at admission control. | Specific: kill/quarantine an agent from the UI and API.<br/>Measurable: post-action, the agent cannot make MCP/A2A/tool calls (proven denied) within a bounded SLA (**[ASSUMPTION]** ≤30 s).<br/>Attainable: composes lifecycle-suspend + SPIFFE/OpenBao revocation + mesh NetworkPolicy/AuthorizationPolicy + kyverno.<br/>Realistic: mesh + admission already in-estate.<br/>Time-Bound: MVP milestone M4. | Red-team validation: attempt agent action pre/post kill; assert denial + attested evidence. |
+| Agentic killswitch + quarantine | Five composable response modes driven from the UI and API — **stun** (cgroup freeze), **eBPF network killswitch** (kernel L3–L7 deny, TTL-independent), **credential revocation** (SPIFFE SVID + x509 + all OpenBao-issued creds), **forensic mode** (mesh-sandboxed with mocked dependencies), and **kill/decommission** (compose + admission block). | Specific: invoke any of the five modes on an agent from the UI and API.<br/>Measurable: post-action, the agent cannot make MCP/A2A/tool calls (proven denied) within a bounded SLA (**[ASSUMPTION]** ≤30 s); eBPF network denial is sub-second and holds even while the agent's token/SVID is still within TTL.<br/>Attainable: composes lifecycle-suspend + SPIFFE/OpenBao revocation + eBPF/Cilium deny + cgroup freezer + mesh AuthorizationPolicy + kyverno.<br/>Realistic: mesh + admission + eBPF data plane already in-estate.<br/>Time-Bound: MVP milestone M4. | Red-team validation: attempt agent action pre/post each mode; assert denial (per-plane) + attested evidence. |
 | Attested forensic trail | Every governance/kill/authorization event is bound to an `authz_ctx_id` and a signed attestation, answerable as a single audit query. | Specific: "who authorized this action?" returns identity + policy + evidence in one lookup.<br/>Measurable: 100% of privileged actions carry an attested, tamper-evident record.<br/>Attainable: extends Jarvis (OTel→Splunk) + Witness/Archivista.<br/>Realistic: attestation spine exists in OSRAMP.<br/>Time-Bound: MVP milestone M5. | Tamper test (mutate a record → detected) + single-query audit demo. |
 | Governance + compliance mapping | Agent lifecycle + risk classification mapped to EU AI Act, NIST AI RMF, OWASP LLM Top 10, MITRE ATLAS, with exportable evidence. | Specific: each agent carries a risk class + control mapping + exportable evidence pack.<br/>Measurable: evidence export passes a mock regulator checklist.<br/>Attainable: extends Signal Loom compliance/frameworks.<br/>Realistic: frameworks modelled.<br/>Time-Bound: MVP milestone M3. | GRC review against a framework checklist; export contract test. |
 
@@ -134,7 +137,7 @@ as nice-to-haves and enhancement proposals.
 | Metric | Current Value | Target Value | Measurement |
 | :---- | :---- | :---- | :---- |
 | Agent inventory coverage of a seeded estate | ~0 (no unified inventory) | ≥95% discovered w/ identity + card | Seeded-estate discovery run |
-| Mean time to kill/quarantine a flagged agent | manual / undefined | ≤30 s to proven denial **[ASSUMPTION]** | Red-team pre/post assertion |
+| Mean time to kill/quarantine a flagged agent | manual / undefined | ≤30 s in-estate — eBPF network kill sub-second on the k8s data plane (TTL-independent); cloud-runtime denial is provider-API-bound (seconds-to-minutes, per provider SLA) **[ASSUMPTION]** | Red-team pre/post assertion, per-plane |
 | Privileged actions with attested "who authorized" answer | partial (Olly authz_ctx only) | 100% across governed agents | Audit-query + tamper test |
 | Regulatory evidence export accepted by mock auditor | none | pass EU AI Act + DORA checklist | GRC checklist review |
 | Design-partner-blocking findings closed pre-Beta | n/a | 0 open critical | Adversarial critique appendix (this proposal) |
@@ -160,8 +163,10 @@ as nice-to-haves and enhancement proposals.
 | Google A2A + Agent Cards | Agent identity, capability, and auth declaration; tamper detection (committed-vs-served) | Exists in Olly/Sentinel |
 | MCP (Model Context Protocol) gateway | Mandatory tool intermediary; scope-checked, capped, read-only-by-default | Exists in Olly (`elk-search-mcp`) |
 | COIN / PlainID (Rego PDP) / EEMS (PIP) | Identity chain: OBO tokens, policy at issuance, narrow-only AuthZ-CTX | Exists as `olly-authz` |
-| SPIFFE/SPIRE + Cofide (xDS) + OpenBao | Workload identity, federated trust zones, secrets/PKI, revocation | In-flight (Cryptography/Federated pages) |
-| Service mesh (Istio/Linkerd/Cilium) **[ASSUMPTION]** | Quarantine/isolation enforcement point (mTLS AuthorizationPolicy) | New integration surface |
+| SPIFFE/SPIRE + Cofide (xDS) + OpenBao | Workload identity, federated trust zones, secrets/PKI; killswitch revocation of SVIDs + x509 + all OpenBao-issued tokens/leases/dynamic secrets | In-flight (Cryptography/Federated pages) |
+| eBPF / Cilium (kernel network enforcement) | Node-level L3–L7 network killswitch: TTL-independent packet deny, cuts in-flight connections | New enforcement surface (k8s data plane) |
+| cgroup-v2 freezer / `SIGSTOP` | Reversible **stun** — halt agent process/pod in place, preserve memory for live forensics | Node/runtime primitive |
+| Service mesh (Istio/Linkerd/Cilium) **[ASSUMPTION]** | Quarantine/isolation enforcement point (mTLS AuthorizationPolicy); forensic-mode deception namespace | New integration surface |
 | Witness + Archivista + cosign + SLSA | Attestation, system-of-record, signing, provenance for agent/model artifacts | Core OSRAMP |
 | LLM Guard (Lakera-adjacent) | Prompt-injection/PII/jailbreak defence, data/instruction separation | Exists in Olly `llm-guard`; Checkpoint/Lakera partnership |
 | OTel → Splunk (Jarvis) + Grafana | Audit, telemetry, Eye-in-the-Sky estate observability | Exists |
@@ -187,7 +192,7 @@ as nice-to-haves and enhancement proposals.
 | Prompt injection via untrusted context (logs/tickets/tool output) steers an agent | Critical (LLM01 / ATLAS AML.T0051) | Data/instruction separation, structured extraction, injection eval suite in CI, LLM Guard |
 | Colluding subjects/agents jointly escalate privilege | High | KubeSec-AFM collusion model-checking; narrow-only AuthZ-CTX; deny impersonation paths |
 | Agent identity/card tampering or spoofing | High | A2A card committed-vs-served CI assertion; SPIFFE workload identity; signed cards |
-| Killswitch fails or is bypassed (agent keeps acting) | Critical | Defence-in-depth kill: lifecycle + token revocation + mesh isolation + admission block, purple-team proven |
+| Killswitch fails or is bypassed (agent keeps acting) | Critical | Defence-in-depth kill: **eBPF kernel network deny** (holds despite a still-valid token/SVID TTL) + lifecycle + credential revocation (SVID/x509/OpenBao) + mesh isolation + admission block; reversible **stun** and **forensic-mode** sandbox for graded response; per-plane denial matrix, purple-team proven |
 | Over-privileged MCP/tool access, credential replay | High | MCP gateway scope-check + caps; OBO tokens; least-privilege EEMS scopes; rotation |
 | Forensic record tampering / "who authorized?" unanswerable | High | `authz_ctx_id` anchoring + Witness attestation + tamper-evident audit |
 | Cross-tenant agent/data disclosure | Critical | Tenant binding + RLS-equivalent; default-deny; per-tenant SPIFFE trust domains |
@@ -228,12 +233,56 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
    card diff detects tampering. *Controls:* signed cards, CI-asserted card parity, SPIFFE SVIDs,
    OBO-only machine identity. *Standards:* A2A spec, SPIFFE, OAuth2 OBO.
 
-4. **Agentic Killswitch & Quarantine** — *new, composed.* One action isolates an agent: lifecycle
-   suspend + credential/token revocation (OpenBao/SPIFFE) + service-mesh isolation (mTLS
-   AuthorizationPolicy / NetworkPolicy) + admission block (kyverno) so it cannot be readmitted. Graded:
-   *observe → quarantine (mesh-isolated, read-only) → kill (identity revoked)*. *Controls:* defence-in-
-   depth, bounded-SLA proven denial, break-glass with dual control + attestation. *Standards:* MITRE
-   ATLAS response, NIST IR.
+4. **Agentic Killswitch & Quarantine** — *new, composed.* One graded control with **five composable
+   response modes**, each an independently-provable enforcement primitive — not a single cooperative
+   action. Ordered least-to-most severe / reversible-to-irreversible, subsuming the earlier
+   *observe → quarantine → kill* ladder:
+
+   1. **Stun (freeze)** — cgroup-v2 freezer (or `SIGSTOP`) halts the agent's process/pod in place:
+      execution stops instantly, memory state is preserved for live capture, fully reversible. Buys
+      decision time and enables forensic memory acquisition before any destructive step.
+   2. **Network killswitch (eBPF)** — kernel-level L3–L7 deny via Cilium/eBPF at the node: severs all
+      ingress/egress **including in-flight connections**, enforced in the data path regardless of
+      whether the agent's bearer JWT or SPIFFE SVID is still within its TTL. This is the primitive that
+      closes the "token stays valid until expiry" residual (appendix finding #4).
+   3. **Credential revocation** — revoke the agent's SPIFFE SVID and x509 identity **and every
+      credential OpenBao has issued it** (service tokens, leases, dynamic DB/cloud secrets, PKI certs),
+      propagating the revocation into SPIFFE federation bundles so cross-zone trust drops too.
+      Revocation is **scoped to the agent's own credentials** — shared/static secrets consumed by
+      healthy workloads are excluded from the revocation set to bound blast radius and avoid a
+      self-inflicted availability outage.
+   4. **Forensic mode (deception sandbox)** — relocate the agent into an isolated mesh namespace where
+      its tools, backends, and MCP servers are **mocked**; it keeps "running" against decoys so its
+      intent and TTPs are observed, recorded, and attested with **zero real blast radius**.
+      **[ASSUMPTION]** deception runs only on an **already-quarantined, non-customer-impacting**
+      workload, behind an explicit **legal-review gate** (chain-of-custody/admissibility, GLBA/PCI/SoD,
+      no entrapment of third-party workloads) — scoped to the customer's own estate. It is never
+      applied mid-transaction to a live customer-fund-handling agent.
+   5. **Kill / decommission** — the full compose: eBPF network deny + credential revocation + admission
+      block (kyverno, so it cannot be readmitted) + lifecycle decommission. Irreversible; break-glass
+      reinstatement is dual-controlled and attested.
+
+   **Per-plane denial matrix** — the enforcement primitive differs by where the agent runs; this is how
+   the platform answers the "no cloud-runtime enforcement primitive" critique:
+
+   | Plane | Stun | Network kill | Credential revoke | Admission block |
+   | :---- | :---- | :---- | :---- | :---- |
+   | k8s pod (in-estate) | cgroup-v2 freezer | eBPF/Cilium (kernel) | SVID + x509 + OpenBao | kyverno |
+   | Mesh sidecar / A2A hop | — | mesh AuthorizationPolicy | SVID revoke | — |
+   | Cloud runtime (Azure/AWS/GCP) **[ASSUMPTION]** | provider pause API | egress policy + provider network rule | OpenBao/provider identity revoke + **provider quarantine/disable API** | provider deployment gate |
+
+   **No plane-parity claim.** eBPF sub-second denial holds only where Signal Loom owns the kernel
+   (in-estate k8s). Cloud-runtime denial is provider-API-bound and eventually-consistent
+   (seconds-to-minutes, per provider SLA) — eBPF is the belt to credential-revocation's braces, not a
+   universal instant kill. The platform publishes guaranteed-vs-worst-case denial numbers per plane
+   rather than a single MTTK.
+
+   *Controls:* defence-in-depth, each mode has a purple-team proof-of-denial probe, bounded-SLA (eBPF
+   sub-second on the data plane; identity/lease revocation bounded by propagation), break-glass with
+   dual control + attestation; the kill trigger is itself dual-controlled and the killswitch control
+   plane is hardened against the very adversary it targets; irreversible decommission requires dual
+   control (stun and forensic mode are the reversible defaults). *Standards:* MITRE ATLAS
+   (response/impact), NIST SP 800-61 IR, eBPF/Cilium network policy, SPIFFE SVID revocation.
 
 5. **Runtime Guardrails / LLM Guard** — *Olly.* Prompt-injection, PII/secret redaction, jailbreak, and
    data/instruction separation at context assembly; injection eval suite runs in CI. *Controls:*
@@ -324,7 +373,7 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 | M1: Platform architecture + per-area threat models + MVP-spine scoping (areas 1–5) |  |  |  |  | #cap-architecture #cap-threat-modelling #cap-secure-ai-sdlc |
 | M2: Agent discovery + inventory across k8s/Flux/Argo + 1 cloud runtime (area 2) |  |  |  |  | #cap-kubernetes #cap-kubernetes-api-programming #cap-golang #cap-azure |
 | M3: Governance + identity + compliance mapping hardening (areas 1,3,14) |  |  |  |  | #cap-security #cap-grc #cap-policy-as-code #cap-python |
-| M4: Agentic killswitch + quarantine, purple-team proven (area 4) |  |  |  |  | #cap-security #cap-red-team #cap-networking #cap-secrets |
+| M4: Agentic killswitch + quarantine (5 modes: stun/eBPF/cred-revoke/forensic/kill), purple-team proven (area 4) |  |  |  |  | #cap-security #cap-red-team #cap-networking #cap-secrets #cap-ebpf #cap-service-mesh |
 | M5: Attested forensic trail + supply-chain evidence for agents (areas 9,11) |  |  |  |  | #cap-supply-chain-security #cap-build-provenance #cap-observability |
 | M6: Runtime guardrails + continuous eval integration (areas 5,15) |  |  |  |  | #cap-red-team #cap-secure-ai-sdlc #cap-python |
 | Mid-project review: demo of progress, evaluation of further milestones, raising of current and new risks | 0.25 | 2 | 0.5 |  | #cap-project-management |
@@ -338,17 +387,19 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 * The MVP spine (areas 1–5) runs against a seeded estate with the KPIs met and zero open critical
   findings from the adversarial critique.
 * Every privileged action is attested and answerable as a single "who authorized this?" query.
-* A kill/quarantine is purple-team-proven to deny all agent action paths within the SLA.
+* A kill/quarantine is purple-team-proven to deny all agent action paths — network (eBPF), identity
+  (SVID/x509/OpenBao), and admission (kyverno) — within the SLA, with the reversible stun and
+  forensic-mode sandbox demonstrated.
 * Each of the 20 areas has a threat model and a stated MVP-vs-enhancement disposition.
 
 ### Reviews & Collaboration (RACI)
 
 |  |  |
 | :---- | :---- |
-| Accountable | Head of Technical Solutions (Francesco Beltramini) / AI & Data Security practice lead |
+| Accountable | **AJM (CTO, Signal Loom)** — technical owner of the build; Head of Technical Solutions (Francesco Beltramini) for the delivery engagement |
 | Responsible | AI & Data Security + Cyber Resilience & Threat Assurance + GitOps practice teams |
 | Consulted | King's College London (KubeSec-AFM/collusion), Lakera (LLM Guard), Cofide (SPIFFE federation), Google (A2A/ADK) |
-| Informed | [Andrew Martin](mailto:andy@control-plane.io) [Elena Mikhalina](mailto:elena.mikhalina@control-plane.io) |
+| Informed | [Elena Mikhalina](mailto:elena.mikhalina@control-plane.io) |
 
 ## Finances
 
@@ -366,6 +417,8 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 | :---- | ----- | ----- | ----- | ----- |
 | 2026-07-28 | AJM | MVP spine = discover→identify→govern→guard→kill (areas 1–5) rather than breadth-first across 20 | Prove the killswitch + attestation value before widening | Focuses M1–M6; areas 6–20 sequenced as enhancements |
 | 2026-07-28 | AJM | Build on existing four pillars; do not greenfield | Speed + credibility + reuse of signed-attestation spine | Lower risk, faster Beta |
+| 2026-07-28 | AJM (CTO, Signal Loom) | Killswitch is **five composable, individually-provable enforcement modes**: stun (cgroup freeze), eBPF network kill, credential revocation (SVID+x509+OpenBao), forensic-mode deception sandbox, kill/decommission — governed by a per-plane denial matrix | Kernel-level eBPF deny is independent of token/SVID TTL and closes appendix finding #4's residual; forensic mode adds analysis without blast radius; cloud runtimes covered by credential-revocation + provider quarantine API | Strengthens area 4 from cooperative discipline to enforced control; directly answers the weakest-claim critique |
+| 2026-07-28 | AJM | Product **and** company are both Signal Loom; AJM is CTO/technical owner; ControlPlane is the incubating origin and supplies the OSRAMP/GitOps/attestation spine | Reflects the venture framing | Intro, press release, RACI updated; ControlPlane heritage retained |
 
 ## Appendix
 
@@ -378,7 +431,28 @@ Areas 1–5 form the MVP spine (discover → identify → govern → guard → k
 * `olly-replica/contracts/agent-card.*.v1.json` — A2A agent card contracts.
 * `README.md` — OSRAMP supply-chain spine (SBOM/VEX/Witness/Archivista/SLSA).
 
-### B. Adversarial Critique & Open-Question Appendices (to be populated)
+### B. Adversarial Critique & Open-Question Appendices
 
-*This section is filled by the adversarial-agent critique pass: per-capability-area open questions,
-challenges to assumptions, competitive threats, and de-risking actions. See appended B.1–B.20.*
+Populated by a **25-agent adversarial critique pass** (one Principal-level critic per capability area
++ five strategic lenses, each reading the proposal and the underlying code). Full appendix —
+cross-cutting synthesis (B.0), per-area open questions/kill-shots/de-risking (B.1–B.20), and the
+strategic-lens critique — is in the companion document:
+
+**→ `docs/signalloom/agent-security-platform-critique-appendix.md`**
+
+The ten highest-value findings (see B.0 for detail):
+
+1. Governance ≠ security — **registration is not provably mandatory**; make enrolment a precondition of action.
+2. **Discovery completeness is unprovable** (seeded-estate KPI) and structurally eroding (serverless/SaaS agents).
+3. Several flagship controls are **currently mocks/plaintext** (card `verifyLive` diff, Cryptography/Collusion pages, HITL `approved_by`) — demoing the code collapses confidence.
+4. The **killswitch is the weakest technical claim** — five eventually-consistent planes, bearer-token TTLs, and **no cloud-runtime enforcement primitive**. *(Now addressed in area 4: an **eBPF kernel network kill** is TTL-independent, cloud runtimes are covered by credential-revocation + provider quarantine API per the per-plane denial matrix, and **forensic mode** adds analysis-without-blast-radius; residual = eBPF assumes a Cilium-capable data plane.)*
+5. **Shared-secret HS256** collapses the authorization threat model; move to asymmetric per-workload signing bound to SVIDs.
+6. **"Regulatory Immunity" is legally indefensible** (non-transferable EU AI Act/DORA obligations) — kill the term.
+7. **Commercially non-fundable as written** — no buyer, price, or ROI; get a paid design-partner pilot first.
+8. **"First agent security control plane" is falsifiable** — CNAPP/hyperscalers already overlap; narrow to the attested "who-authorized + kill" wedge.
+9. The **control plane is the highest-value target** and under-defended per-area; apply the platform's own strongest controls to itself.
+10. **Standards churn** (A2A/MCP/ADK/OCSF) is a live rework risk; abstract runtime bindings, version owned schemas.
+
+**Disposition:** the defensible MVP is the attested authorization-and-kill spine (areas 1/3/4/6/9);
+areas that are mocks or commoditised (7, 8, parts of 11/14) are re-scoped to research, integrations,
+or honest observe-only tiers before any customer-facing claim.

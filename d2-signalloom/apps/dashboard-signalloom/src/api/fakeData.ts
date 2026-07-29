@@ -33,23 +33,29 @@ const NOW = '2026-07-27T12:00:00Z'
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
 
-function agent(id: string, name: string, state: string, risk: string): AgentResponse {
+function agent(
+  id: string,
+  name: string,
+  state: string,
+  risk: string,
+  overrides?: Partial<AgentResponse['compliance_summary']> & { type?: string; owner?: string },
+): AgentResponse {
   return {
     id: `${TENANT}:${id}`,
     name,
-    type: 'Signal Loom Built',
-    owner: 'demo-user',
+    type: overrides?.type ?? 'Signal Loom Built',
+    owner: overrides?.owner ?? 'demo-user',
     tenant_id: TENANT,
     lifecycle_state: state,
     last_transition_at: '2026-07-20T10:00:00Z',
     last_transition_by: 'demo-user',
     eu_ai_act_risk_class: risk,
     compliance_summary: {
-      total_controls: 12,
-      passing: 10,
-      failing: 1,
-      pending: 1,
-      posture_score: 0.83,
+      total_controls: overrides?.total_controls ?? 12,
+      passing: overrides?.passing ?? 10,
+      failing: overrides?.failing ?? 0,
+      pending: overrides?.pending ?? 2,
+      posture_score: overrides?.posture_score ?? 83,
     },
     model_name: 'gpt-4o',
     created_at: '2026-06-01T09:00:00Z',
@@ -58,8 +64,11 @@ function agent(id: string, name: string, state: string, risk: string): AgentResp
 
 const AGENTS: AgentResponse[] = [
   agent('agent-inventory', 'Inventory Agent', 'active', 'limited'),
-  agent('agent-triage', 'Triage Agent', 'active', 'high'),
-  agent('agent-sandbox', 'Sandbox Agent', 'draft', 'minimal'),
+  agent('agent-triage', 'Triage Agent', 'active', 'high', { failing: 2, passing: 8, posture_score: 68 }),
+  agent('agent-sandbox', 'Sandbox Agent', 'enrolled', 'minimal', { posture_score: null, passing: 0, pending: 12 }),
+  agent('agent-remediation', 'Remediation Agent', 'active', 'high', { failing: 0, passing: 12, posture_score: 95 }),
+  agent('agent-scanner', 'Vulnerability Scanner', 'suspended', 'limited', { failing: 3, passing: 7, posture_score: 42, type: 'COTS', owner: 'security-team' }),
+  agent('agent-reporter', 'Compliance Reporter', 'active', 'minimal', { failing: 1, passing: 9, posture_score: 78, type: 'Custom' }),
 ]
 
 const agentList: AgentListResponse = { agents: AGENTS, total: AGENTS.length }
@@ -112,19 +121,19 @@ const violations: ViolationListResponse = {
 // ─── Compliance ───────────────────────────────────────────────────────────────
 
 const complianceSummary: ComplianceSummaryResponse = {
-  total_agents: 3,
-  agents_assessed: 3,
+  total_agents: AGENTS.length,
+  agents_assessed: AGENTS.length,
   controls_passing: 28,
-  controls_failing: 3,
+  controls_failing: 6,
   controls_pending: 5,
-  posture_score: 0.82,
+  posture_score: 74,
 }
 
 const posture: PostureResponse = {
   agents: AGENTS.map((a) => ({
     agent_id: a.id,
     agent_name: a.name,
-    posture_score: 0.83,
+    posture_score: 83,
     results: [
       {
         agent_id: a.id,

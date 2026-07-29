@@ -1,0 +1,796 @@
+{
+  "_type": "https://in-toto.io/Statement/v0.1",
+  "predicateType": "https://slsa.dev/provenance/v0.2",
+  "subject": [
+    {
+      "name": "pkg:docker/zot.registry.svc.cluster.local%3A5000/acme/images/signalloom/apps/fe-signalloom@latest?platform=linux%2Famd64",
+      "digest": {
+        "sha256": "6db9e2c10f53e6b6dc9fbd9cd9e28f5e7dc1bdf5a2e116fe4ea4a9375191e3fe"
+      }
+    }
+  ],
+  "predicate": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/docker/buildkit-syft-scanner@stable-1",
+        "digest": {
+          "sha256": "79e7b013cbec16bbb436f312819a49a4a57752b2270c1a9332ae1a10fcc82a68"
+        }
+      },
+      {
+        "uri": "pkg:docker/python@3.12-slim?platform=linux%2Famd64",
+        "digest": {
+          "sha256": "57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ]
+      },
+      "environment": {
+        "platform": "linux/amd64"
+      }
+    },
+    "buildConfig": {
+      "llbDefinition": [
+        {
+          "id": "step0",
+          "op": {
+            "Op": {
+              "source": {
+                "identifier": "docker-image://docker.io/library/python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de"
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step1",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "apt-get update     && apt-get install -y --no-install-recommends wget     && rm -rf /var/lib/apt/lists/*"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "LANG=C.UTF-8",
+                    "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+                    "PYTHON_VERSION=3.12.13",
+                    "PYTHON_SHA256=c08bc65a81971c1dd5783182826503369466c7e67374d1646519adf05207b684"
+                  ],
+                  "cwd": "/",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step0:0"
+          ]
+        },
+        {
+          "id": "step2",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": -1,
+                    "output": 0,
+                    "Action": {
+                      "mkdir": {
+                        "path": "/app",
+                        "mode": 493,
+                        "makeParents": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step1:0"
+          ]
+        },
+        {
+          "id": "step3",
+          "op": {
+            "Op": {
+              "source": {
+                "identifier": "local://context",
+                "attrs": {
+                  "local.followpaths": "[\"src\",\"src/requirements.txt\"]",
+                  "local.sharedkeyhint": "context"
+                }
+              }
+            },
+            "constraints": {}
+          }
+        },
+        {
+          "id": "step4",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/src/requirements.txt",
+                        "dest": "/app/",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step2:0",
+            "step3:0"
+          ]
+        },
+        {
+          "id": "step5",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "pip install --no-cache-dir -r requirements.txt"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "LANG=C.UTF-8",
+                    "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+                    "PYTHON_VERSION=3.12.13",
+                    "PYTHON_SHA256=c08bc65a81971c1dd5783182826503369466c7e67374d1646519adf05207b684"
+                  ],
+                  "cwd": "/app",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step4:0"
+          ]
+        },
+        {
+          "id": "step6",
+          "op": {
+            "Op": {
+              "file": {
+                "actions": [
+                  {
+                    "input": 0,
+                    "secondaryInput": 1,
+                    "output": 0,
+                    "Action": {
+                      "copy": {
+                        "src": "/src",
+                        "dest": "/app/",
+                        "mode": -1,
+                        "followSymlink": true,
+                        "dirCopyContents": true,
+                        "createDestPath": true,
+                        "allowWildcard": true,
+                        "allowEmptyWildcard": true,
+                        "timestamp": -1
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step5:0",
+            "step3:0"
+          ]
+        },
+        {
+          "id": "step7",
+          "op": {
+            "Op": {
+              "exec": {
+                "meta": {
+                  "args": [
+                    "/bin/sh",
+                    "-c",
+                    "groupadd --system appgroup     && useradd --system --gid appgroup appuser     && chown -R appuser:appgroup /app"
+                  ],
+                  "env": [
+                    "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                    "LANG=C.UTF-8",
+                    "GPG_KEY=7169605F62C751356D054A26A821E680E5FA6305",
+                    "PYTHON_VERSION=3.12.13",
+                    "PYTHON_SHA256=c08bc65a81971c1dd5783182826503369466c7e67374d1646519adf05207b684"
+                  ],
+                  "cwd": "/app",
+                  "removeMountStubsRecursive": true
+                },
+                "mounts": [
+                  {
+                    "dest": "/"
+                  }
+                ]
+              }
+            },
+            "platform": {
+              "Architecture": "amd64",
+              "OS": "linux"
+            },
+            "constraints": {}
+          },
+          "inputs": [
+            "step6:0"
+          ]
+        },
+        {
+          "id": "step8",
+          "op": {
+            "Op": {}
+          },
+          "inputs": [
+            "step7:0"
+          ]
+        }
+      ],
+      "digestMapping": {
+        "sha256:4c81060432d517a8f0252d358f15d4c47379a5a47c6691896d87f8fdf3893a63": "step0",
+        "sha256:594b6ce6bb0e564cece31491632f18179dde92469d001b18fb5df38682b598f1": "step3",
+        "sha256:900e9f7bd487eda575f3fd234f89c3dc5e22f48358f448f2fccd07f9ed8668af": "step8",
+        "sha256:91ee8ed3b3cbbe3004154ad578228271c56653951c303196ba9fb05c92456f9a": "step7",
+        "sha256:96fa49b2d2e498c84806a4998dbba992604183f973cfcb209a149e0451f1ed68": "step2",
+        "sha256:d28d9d27d380ea2988e381c815a8fdafe6ca133b0ada62c23f9655ea151a0668": "step1",
+        "sha256:e6e51ead93e0c5a9c8dbef32899257d54ddf518ba7f21b5da4f7b1a977e855c6": "step5",
+        "sha256:ec7a47e9ba18a350684afb290316373e4034b02a3113886491f261dff43103ec": "step4",
+        "sha256:f3d481a9a7efc62025522537739e99888493bcb42a7a13ad9a108f973577dd91": "step6"
+      }
+    },
+    "metadata": {
+      "buildInvocationID": "3u280kum3ge9rd8sgs2ykhwm2",
+      "buildStartedOn": "2026-07-28T06:05:03.633773178Z",
+      "buildFinishedOn": "2026-07-28T06:05:28.375129133Z",
+      "completeness": {
+        "parameters": true,
+        "environment": true,
+        "materials": false
+      },
+      "reproducible": false,
+      "https://mobyproject.org/buildkit@v1#metadata": {
+        "vcs": {
+          "localdir:context": "d2-signalloom/apps/fe-signalloom",
+          "localdir:dockerfile": "d2-signalloom/apps/fe-signalloom",
+          "revision": "c347ec5df52b21cd01836c8321f1ceefc67943cd",
+          "source": "git@github.com:controlplaneio-in-toto/osramp-demo"
+        },
+        "source": {
+          "locations": {
+            "step0": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 1
+                      },
+                      "end": {
+                        "line": 1
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step1": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 3
+                      },
+                      "end": {
+                        "line": 3
+                      }
+                    },
+                    {
+                      "start": {
+                        "line": 4
+                      },
+                      "end": {
+                        "line": 4
+                      }
+                    },
+                    {
+                      "start": {
+                        "line": 5
+                      },
+                      "end": {
+                        "line": 5
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step2": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 7
+                      },
+                      "end": {
+                        "line": 7
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step3": {},
+            "step4": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 8
+                      },
+                      "end": {
+                        "line": 8
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step5": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 9
+                      },
+                      "end": {
+                        "line": 9
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step6": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 11
+                      },
+                      "end": {
+                        "line": 11
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            "step7": {
+              "locations": [
+                {
+                  "ranges": [
+                    {
+                      "start": {
+                        "line": 12
+                      },
+                      "end": {
+                        "line": 12
+                      }
+                    },
+                    {
+                      "start": {
+                        "line": 13
+                      },
+                      "end": {
+                        "line": 13
+                      }
+                    },
+                    {
+                      "start": {
+                        "line": 14
+                      },
+                      "end": {
+                        "line": 14
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          "infos": [
+            {
+              "filename": "Dockerfile",
+              "language": "Dockerfile",
+              "data": "RlJPTSBweXRob246My4xMi1zbGltCgpSVU4gYXB0LWdldCB1cGRhdGUgXAogICAgJiYgYXB0LWdldCBpbnN0YWxsIC15IC0tbm8taW5zdGFsbC1yZWNvbW1lbmRzIHdnZXQgXAogICAgJiYgcm0gLXJmIC92YXIvbGliL2FwdC9saXN0cy8qCgpXT1JLRElSIC9hcHAKQ09QWSBzcmMvcmVxdWlyZW1lbnRzLnR4dCAuClJVTiBwaXAgaW5zdGFsbCAtLW5vLWNhY2hlLWRpciAtciByZXF1aXJlbWVudHMudHh0CgpDT1BZIHNyYy8gLgpSVU4gZ3JvdXBhZGQgLS1zeXN0ZW0gYXBwZ3JvdXAgXAogICAgJiYgdXNlcmFkZCAtLXN5c3RlbSAtLWdpZCBhcHBncm91cCBhcHB1c2VyIFwKICAgICYmIGNob3duIC1SIGFwcHVzZXI6YXBwZ3JvdXAgL2FwcAoKVVNFUiBhcHB1c2VyCkVYUE9TRSA4MDAwCkhFQUxUSENIRUNLIC0taW50ZXJ2YWw9MzBzIC0tdGltZW91dD01cyAtLXJldHJpZXM9MyBDTUQgd2dldCAtLW5vLXZlcmJvc2UgLS10cmllcz0xIC0tc3BpZGVyIGh0dHA6Ly9sb2NhbGhvc3Q6ODAwMC9oZWFsdGggfHwgZXhpdCAxCkNNRCBbInV2aWNvcm4iLCAibWFpbjphcHAiLCAiLS1ob3N0IiwgIjAuMC4wLjAiLCAiLS1wb3J0IiwgIjgwMDAiLCAiLS13b3JrZXJzIiwgIjEiXQo=",
+              "llbDefinition": [
+                {
+                  "id": "step0",
+                  "op": {
+                    "Op": {
+                      "source": {
+                        "identifier": "local://dockerfile",
+                        "attrs": {
+                          "local.differ": "none",
+                          "local.followpaths": "[\"Dockerfile\",\"Dockerfile.dockerignore\",\"dockerfile\"]",
+                          "local.sharedkeyhint": "dockerfile"
+                        }
+                      }
+                    },
+                    "constraints": {}
+                  }
+                },
+                {
+                  "id": "step1",
+                  "op": {
+                    "Op": {}
+                  },
+                  "inputs": [
+                    "step0:0"
+                  ]
+                }
+              ],
+              "digestMapping": {
+                "sha256:18a5bff1d79e49232d782a2e31b457a649221997031bcd882f447fd449ce3f54": "step0",
+                "sha256:5c3fe2578200c0b911cf1fc8195f2b4416f0ce000e3ccabc940df356a890684d": "step1"
+              }
+            }
+          ]
+        },
+        "layers": {
+          "step0:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              }
+            ]
+          ],
+          "step1:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              }
+            ]
+          ],
+          "step2:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48c99da9f29f2724142a0c1ac8804091924845c5631b70fa168a5e78208ec5bf",
+                "size": 93
+              }
+            ]
+          ],
+          "step4:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48c99da9f29f2724142a0c1ac8804091924845c5631b70fa168a5e78208ec5bf",
+                "size": 93
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:c9d461a0e335afa911f5fbd39cc274bd0bf239b42a4d9cf5b18a70aba0b06141",
+                "size": 305
+              }
+            ]
+          ],
+          "step5:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48c99da9f29f2724142a0c1ac8804091924845c5631b70fa168a5e78208ec5bf",
+                "size": 93
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:c9d461a0e335afa911f5fbd39cc274bd0bf239b42a4d9cf5b18a70aba0b06141",
+                "size": 305
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1ada2e84d44a609fd12f0ce0be14f411efdd489678e27fb9aae3637f94988bb2",
+                "size": 43042184
+              }
+            ]
+          ],
+          "step6:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48c99da9f29f2724142a0c1ac8804091924845c5631b70fa168a5e78208ec5bf",
+                "size": 93
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:c9d461a0e335afa911f5fbd39cc274bd0bf239b42a4d9cf5b18a70aba0b06141",
+                "size": 305
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1ada2e84d44a609fd12f0ce0be14f411efdd489678e27fb9aae3637f94988bb2",
+                "size": 43042184
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:7228895553b96159e85c288e537a911be3eb600cb81f92524ddec9f09aaba574",
+                "size": 314130
+              }
+            ]
+          ],
+          "step7:0": [
+            [
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:062e450697faa5f02a3a74eba9864ee4d79bc9cfbd65769fc6cdff2c05c6a053",
+                "size": 29780905
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:98db2485a0d07a8914586b02387e3813aa7e9fed79ab252898d3e96e21c717ea",
+                "size": 1293301
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48347b15c85fd6dde9c5b0259f378fbaee3ce231b30a42f2f2bcc4ea0285cbc9",
+                "size": 12108405
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:fd079632edc0ab4e9d10c77ec348d5057a976e6fc508e93855548096dec2ae1e",
+                "size": 250
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:61e2fbb10ed427a1ef94aa90ed5b40991a1d6e67cae2e21dcbc50a960341c512",
+                "size": 2859444
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:48c99da9f29f2724142a0c1ac8804091924845c5631b70fa168a5e78208ec5bf",
+                "size": 93
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:c9d461a0e335afa911f5fbd39cc274bd0bf239b42a4d9cf5b18a70aba0b06141",
+                "size": 305
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:1ada2e84d44a609fd12f0ce0be14f411efdd489678e27fb9aae3637f94988bb2",
+                "size": 43042184
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:7228895553b96159e85c288e537a911be3eb600cb81f92524ddec9f09aaba574",
+                "size": 314130
+              },
+              {
+                "mediaType": "application/vnd.oci.image.layer.v1.tar+gzip",
+                "digest": "sha256:f12075a832970b3761d623b1ea4db3106fd96088d601d23361cbeda5ccb146be",
+                "size": 315468
+              }
+            ]
+          ]
+        }
+      }
+    }
+  }
+}

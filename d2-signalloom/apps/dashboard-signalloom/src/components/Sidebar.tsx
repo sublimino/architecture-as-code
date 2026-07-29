@@ -11,6 +11,7 @@ const NAV = [
   { to: '/cryptography', label: 'Cryptography' },
   { to: '/federated-services', label: 'Federated Services' },
   { to: '/collusion-access', label: 'Collusion & Access' },
+  { to: '/rbac-analysis', label: 'RBAC Analysis' },
   { to: '/settings', label: 'Settings' },
 ]
 

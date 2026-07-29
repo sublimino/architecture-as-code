@@ -75,3 +75,26 @@ test("full login → logout → re-login cycle works without errors", async ({ p
   await page.screenshot({ path: "test-results/signalloom-relogin.png", fullPage: true });
   expect(apiErrors, `re-login /api errors: ${apiErrors.join(", ")}`).toEqual([]);
 });
+
+test("RBAC Analysis page loads the KubeSec-AFM iframe", async ({ page }) => {
+  await loginViaDex(page);
+
+  // Navigate to RBAC Analysis via sidebar.
+  await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("KubeSec-AFM").first()).toBeVisible();
+
+  // The iframe should be present and load the AFM dashboard.
+  const iframe = page.locator('iframe[title="KubeSec-AFM Dashboard"]');
+  await expect(iframe).toBeVisible({ timeout: 10_000 });
+
+  // Wait for the iframe to finish loading (src should be /afm/dashboard/).
+  await iframe.waitFor({ state: "attached", timeout: 10_000 });
+  const src = await iframe.getAttribute("src");
+  expect(src).toContain("/afm/dashboard");
+
+  // "Open in new tab" link should be present.
+  await expect(page.getByText("Open in new tab")).toBeVisible();
+
+  await page.screenshot({ path: "test-results/signalloom-rbac-analysis.png", fullPage: true });
+});

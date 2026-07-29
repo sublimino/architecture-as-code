@@ -23,6 +23,7 @@ const AuditTrailPage = lazy(() => import('./pages/AuditTrailPage'))
 const CryptographyPage = lazy(() => import('./pages/CryptographyPage'))
 const FederatedServicesPage = lazy(() => import('./pages/FederatedServicesPage'))
 const CollusionAccessPage = lazy(() => import('./pages/CollusionAccessPage'))
+const RbacAnalysisPage = lazy(() => import('./pages/RbacAnalysisPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const RedeemInvitePage = lazy(() => import('./pages/RedeemInvite'))
 const OnboardingWizardPage = lazy(() => import('./pages/OnboardingWizard'))
@@ -169,6 +170,7 @@ export default function App() {
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
                 <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
+                <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizardPage /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />

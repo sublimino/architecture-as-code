@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
-import { isDemoMode, toggleDemoMode, subscribeDemoMode } from '../api/demoMode'
+import { isDemoMode, toggleDemoMode, subscribeDemoMode, showDemoToggle } from '../api/demoMode'
 
 // Corner widget that flips the api client between the live backend and local
-// demo fixtures. Lets the dashboard be shown end-to-end even while the API is
-// still in development — an early, visible proof that the UI renders.
+// demo fixtures. Hidden in ci/uat/prod environments (controlled by SL_ENV).
 export default function DemoToggle() {
+  if (!showDemoToggle) return null
   const [on, setOn] = useState(isDemoMode())
   useEffect(() => subscribeDemoMode(setOn), [])
 

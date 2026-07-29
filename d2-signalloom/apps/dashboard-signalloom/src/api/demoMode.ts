@@ -10,6 +10,13 @@
 
 const KEY = 'sl_demo_mode'
 
+// SL_ENV controls the estate-wide environment tier. In demo mode, the toggle
+// defaults ON so every screen renders immediately with fixture data. In
+// ci/uat/prod the toggle is hidden and demo mode is always off.
+const SL_ENV = ((import.meta.env.VITE_SL_ENV as string) ?? 'demo').toLowerCase()
+export const isProductionEnv = ['uat', 'prod'].includes(SL_ENV)
+export const showDemoToggle = ['demo', 'dev'].includes(SL_ENV)
+
 type Listener = (on: boolean) => void
 const listeners = new Set<Listener>()
 
@@ -18,10 +25,15 @@ const listeners = new Set<Listener>()
 // where localStorage is unavailable (SSR, some test runners) — localStorage is
 // only for persistence across a reload.
 function readPersisted(): boolean {
+  // In production environments, demo mode is always off regardless of localStorage.
+  if (isProductionEnv) return false
   try {
-    return localStorage.getItem(KEY) === 'true'
+    const stored = localStorage.getItem(KEY)
+    // If never toggled and SL_ENV is 'demo', default ON so the UI renders immediately.
+    if (stored === null) return SL_ENV === 'demo'
+    return stored === 'true'
   } catch {
-    return false
+    return SL_ENV === 'demo'
   }
 }
 

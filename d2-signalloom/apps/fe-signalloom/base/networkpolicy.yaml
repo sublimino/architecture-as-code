@@ -153,6 +153,13 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-k8s-afm
+      ports:
+        - protocol: TCP
+          port: 8000
 ---
 # Permit the dashboard's /api proxy to reach the compatibility API in-namespace.
 apiVersion: networking.k8s.io/v1

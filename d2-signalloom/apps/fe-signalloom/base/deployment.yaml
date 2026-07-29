@@ -54,6 +54,8 @@ spec:
             - name: http
               containerPort: 8000
           env:
+            - name: SL_ENV
+              value: demo
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:

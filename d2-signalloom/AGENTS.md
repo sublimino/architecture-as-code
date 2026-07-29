@@ -90,7 +90,7 @@ kubectl -n fe-signalloom rollout restart deploy/dashboard-signalloom
 
 ## Adding a New Dashboard Page
 
-See `DESIGN.md` at repo root for the visual guide. Summary:
+See `DESIGN.md` in this directory for the full visual guide. Summary:
 
 1. `src/pages/MyPage.tsx` — default-export component using DashKit
 2. Lazy-import in `App.tsx`

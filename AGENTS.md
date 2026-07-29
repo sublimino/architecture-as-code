@@ -89,7 +89,7 @@ make demo-<slice>-down      # Remove (keeps foundation)
 osramp-demo/
 ├── Makefile                 # 60+ targets — `make help`
 ├── AGENTS.md                # This file (shared foundation)
-├── DESIGN.md                # Visual design guide (dashboard SPA)
+├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
 ├── scripts/                 # Lifecycle, build, and test scripts
 ├── .keys/                   # cosign + witness keys (gitignored, generated)
 ├── .cache/zot/              # Persistent Zot OCI cache (gitignored)

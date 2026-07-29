@@ -2,4 +2,4 @@ module github.com/acme-co/osramp/apps/processor
 
 go 1.23.2
 
-require golang.org/x/text v0.3.7
+require golang.org/x/text v0.24.0

@@ -285,6 +285,18 @@ demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
 demo-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
 	./scripts/olly-down.sh
 
+##@ KubeSec-AFM (D2 — standalone RBAC analysis platform)
+
+.PHONY: demo-k8s-afm-up demo-k8s-afm-down demo-k8s-afm-test demo-k8s-afm-status
+demo-k8s-afm-up: ## Build + deploy KubeSec-AFM platform (RBAC analysis + Z3 + Next.js dashboard).
+	./scripts/k8s-afm.sh up
+demo-k8s-afm-down: ## Remove the KubeSec-AFM D2 slice.
+	./scripts/k8s-afm.sh down
+demo-k8s-afm-test: ## Run the AFM backend pytest suite from source.
+	./scripts/k8s-afm.sh test
+demo-k8s-afm-status: ## Show AFM pods + /health.
+	./scripts/k8s-afm.sh status
+
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
 demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.

@@ -1,0 +1,9 @@
+# KubeSec-AFM platform namespace. Runs in isolation from d2-signalloom.
+# The platform pod (FastAPI + Z3 engine + Next.js dashboard) lives here.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fe-k8s-afm
+  labels:
+    app.kubernetes.io/part-of: k8s-afm
+    toolkit.fluxcd.io/role: tenant

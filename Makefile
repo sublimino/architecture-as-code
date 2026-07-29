@@ -255,6 +255,13 @@ demo-signalloom-agents-down: ## Delete the ephemeral demo agent cohort (keeps th
 demo-signalloom-agents-list: ## List agents currently in the fe-signalloom-agents namespace.
 	./scripts/signalloom-agents.sh list
 
+##@ Live demo population (all agents + mock data in one shot)
+
+.PHONY: demo-signalloom-demo-up
+demo-signalloom-demo-up: ## Populate ALL demo data: every Monty Python agent + mock Postgres data.
+	./scripts/signalloom-agents.sh up all
+	./scripts/signalloom-data.sh mock
+
 ##@ Signal Loom data lifecycle (three UI states: demo-toggle / live-empty / mock-populated)
 
 .PHONY: demo-signalloom-data-reset demo-signalloom-data-mock demo-signalloom-api-test

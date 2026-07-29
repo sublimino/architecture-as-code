@@ -4,9 +4,16 @@
  * The page is self-contained (in-module mock data, no API/auth), so these tests
  * render it directly and assert the enriched dashboard surfaces every trust domain.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+
+// CryptographyPage now calls useAuth0() for the live crypto-proof section.
+const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({ getAccessTokenSilently }),
+}))
+
 import CryptographyPage from './CryptographyPage'
 
 function renderPage() {

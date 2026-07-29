@@ -55,15 +55,16 @@ describe('ConsentModal', () => {
 
   it('renders all three legal document tabs', () => {
     render(<ConsentModal onAccept={onAccept} />)
-    expect(screen.getByText(/Terms of Service/i)).toBeInTheDocument()
-    expect(screen.getByText(/Privacy Policy/i)).toBeInTheDocument()
-    expect(screen.getByText(/EULA/i)).toBeInTheDocument()
+    // Tab labels may appear alongside iframe content — use getAllByText.
+    expect(screen.getAllByText(/Terms of Service/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Privacy Policy/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/EULA/i).length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders cookie preferences panel with strictly necessary locked', () => {
     render(<ConsentModal onAccept={onAccept} />)
-    expect(screen.getByText(/Cookie preferences/i)).toBeInTheDocument()
-    expect(screen.getByText(/Strictly necessary/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Cookie preferences/i).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getAllByText(/Strictly necessary/i).length).toBeGreaterThanOrEqual(1)
 
     const locked = screen.getByLabelText(/Strictly necessary cookies — always on/i)
     expect(locked).toBeChecked()

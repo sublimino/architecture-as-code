@@ -13,20 +13,31 @@ stringData:
       type: memory
     web:
       http: 0.0.0.0:5556
+    frontend:
+      dir: /srv/dex/web
+      theme: dark
     oauth2:
       skipApprovalScreen: true
       passwordConnector: local
     enablePasswordDB: true
+
+    # Remote connectors (Entra ID, Google, GitHub, generic OIDC) are defined in
+    # the connectors overlay at overlays/connectors/. To enable them:
+    #   1. Create a Secret with your IdP credentials
+    #   2. Add the overlay to your kustomization
+    # The base config uses the local password DB only (enablePasswordDB above).
+    # See docs/signalloom/dex-connectors.md for the full connector reference.
+
     staticClients:
       - id: signalloom-dashboard
-        name: Signalloom Dashboard Local
+        name: Signal Loom Dashboard
         public: true
         redirectURIs:
           - http://localhost:5173/callback
           - https://dashboard.osramp.acme.local:18443/callback
           - https://dashboard.osramp.acme.local:30754/callback
       - id: signalloom-api
-        name: Signalloom Compatibility API Local
+        name: Signal Loom API
         secret: signalloom-api-local-only
         trustedPeers:
           - signalloom-dashboard
@@ -71,6 +82,46 @@ spec:
             - name: config
               mountPath: /etc/dex
               readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/header.html
+              subPath: header.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/footer.html
+              subPath: footer.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/login.html
+              subPath: login.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/password.html
+              subPath: password.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/approval.html
+              subPath: approval.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/error.html
+              subPath: error.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/oob.html
+              subPath: oob.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/device.html
+              subPath: device.html
+              readOnly: true
+            - name: ui-templates
+              mountPath: /srv/dex/web/templates/device_success.html
+              subPath: device_success.html
+              readOnly: true
+            - name: ui-theme
+              mountPath: /srv/dex/web/themes/dark/styles.css
+              subPath: styles.css
+              readOnly: true
             - name: tmp
               mountPath: /tmp
           readinessProbe:
@@ -97,6 +148,34 @@ spec:
         - name: config
           secret:
             secretName: dex-local-auth
+        - name: ui-templates
+          configMap:
+            name: dex-ui
+            items:
+              - key: header.html
+                path: header.html
+              - key: footer.html
+                path: footer.html
+              - key: login.html
+                path: login.html
+              - key: password.html
+                path: password.html
+              - key: approval.html
+                path: approval.html
+              - key: error.html
+                path: error.html
+              - key: oob.html
+                path: oob.html
+              - key: device.html
+                path: device.html
+              - key: device_success.html
+                path: device_success.html
+        - name: ui-theme
+          configMap:
+            name: dex-ui
+            items:
+              - key: styles.css
+                path: styles.css
         - name: tmp
           emptyDir: {}
 ---

@@ -24,8 +24,8 @@ describe('demo mode', () => {
   it('renders fixtures even though every HTTP call fails', async () => {
     setDemoMode(true)
     const agents = await api.agents.list('tok')
-    expect(agents.total).toBe(3)
-    expect(agents.agents).toHaveLength(3)
+    expect(agents.total).toBe(6)
+    expect(agents.agents).toHaveLength(6)
     expect(agents.agents[0].compliance_summary.passing).toBe(10)
 
     const summary = await api.compliance.summary('tok')

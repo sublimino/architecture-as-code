@@ -106,9 +106,15 @@ case "$cmd" in
     ensure_ns
     echo "==> Removing current ephemeral agent cohort in ${NS}..."
     delete_cohort
-    echo "==> Creating ${count} fresh agent(s)..."
-    # Random distinct selection from the roster.
-    mapfile -t picked < <(printf '%s\n' "${AGENTS[@]}" | shuf | head -n "${count}")
+    # "all" deploys the entire roster deterministically (for live demos).
+    if [[ "$count" == "all" ]]; then
+      count="${#AGENTS[@]}"
+      echo "==> Creating ALL ${count} agent(s) (deterministic, no shuffle)..."
+      mapfile -t picked < <(printf '%s\n' "${AGENTS[@]}")
+    else
+      echo "==> Creating ${count} fresh agent(s) (random selection)..."
+      mapfile -t picked < <(printf '%s\n' "${AGENTS[@]}" | shuf | head -n "${count}")
+    fi
     for entry in "${picked[@]}"; do
       IFS='|' read -r slug display atype framework model model_full desc <<<"$entry"
       create_agent "$slug" "$display" "$atype" "$framework" "$model" "$model_full" "$desc"

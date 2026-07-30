@@ -64,21 +64,21 @@ curl -fsSL https://bun.sh/install | bash
 cp /root/.bun/bin/bun /usr/local/bin/bun 2>/dev/null || true
 ln -sf /usr/local/bin/bun /usr/local/bin/bunx 2>/dev/null || true
 
-# ── Deploy key from Secret Manager ───────────────────────────────────
+# ── Deploy key from Secret Manager (non-fatal — code can be SCP'd) ───
 echo "==> Fetching deploy key..."
-secret_name="$(get_metadata secret-name)"
-project="$(get_metadata ci-project)"
+if secret_name="$(get_metadata secret-name 2>/dev/null)" && \
+   project="$(get_metadata ci-project 2>/dev/null)"; then
 
-mkdir -p "/home/${CI_USER}/.ssh"
+  mkdir -p "/home/${CI_USER}/.ssh"
 
-gcloud secrets versions access latest \
-  --secret="$secret_name" \
-  --project="$project" \
-  > "/home/${CI_USER}/.ssh/deploy_key"
+  if gcloud secrets versions access latest \
+    --secret="$secret_name" \
+    --project="$project" \
+    > "/home/${CI_USER}/.ssh/deploy_key" 2>/dev/null; then
 
-chmod 600 "/home/${CI_USER}/.ssh/deploy_key"
+    chmod 600 "/home/${CI_USER}/.ssh/deploy_key"
 
-cat > "/home/${CI_USER}/.ssh/config" <<'SSHEOF'
+    cat > "/home/${CI_USER}/.ssh/config" <<'SSHEOF'
 Host github.com
   HostName github.com
   User git
@@ -86,19 +86,38 @@ Host github.com
   StrictHostKeyChecking accept-new
 SSHEOF
 
-chmod 600 "/home/${CI_USER}/.ssh/config"
-chown -R "${CI_USER}:${CI_USER}" "/home/${CI_USER}/.ssh"
+    chmod 600 "/home/${CI_USER}/.ssh/config"
+    chown -R "${CI_USER}:${CI_USER}" "/home/${CI_USER}/.ssh"
+    echo "==> Deploy key fetched"
+  else
+    echo "WARNING: Could not fetch deploy key from Secret Manager — SCP code manually"
+  fi
+else
+  echo "WARNING: No secret-name/ci-project metadata — SCP code manually"
+fi
 
-# ── Clone repo ───────────────────────────────────────────────────────
-echo "==> Cloning osramp-demo..."
-sudo -u "$CI_USER" git clone \
-  git@github.com:controlplaneio/osramp-demo.git \
-  "/home/${CI_USER}/osramp-demo"
+# ── Clone repo (non-fatal — code can be SCP'd after boot) ────────────
+if [[ -f "/home/${CI_USER}/.ssh/deploy_key" ]]; then
+  echo "==> Cloning osramp-demo..."
+  sudo -u "$CI_USER" git clone \
+    git@github.com:controlplaneio/osramp-demo.git \
+    "/home/${CI_USER}/osramp-demo" 2>/dev/null || {
+      echo "WARNING: Clone failed — push code via SCP after boot"
+    }
+else
+  echo "==> Skipping clone (no deploy key) — push code via SCP after boot"
+fi
 
-# ── Install CI tools (kind, kubectl, flux, helm, cosign, bats, etc.) ─
-echo "==> Installing CI tools..."
-cd "/home/${CI_USER}/osramp-demo"
-sudo -u "$CI_USER" bash ./scripts/setup.sh --tools-only
+# ── Install CI tools if repo is present ──────────────────────────────
+if [[ -d "/home/${CI_USER}/osramp-demo/scripts" ]]; then
+  echo "==> Installing CI tools..."
+  cd "/home/${CI_USER}/osramp-demo"
+  sudo -u "$CI_USER" bash ./scripts/setup.sh --tools-only || {
+    echo "WARNING: Tools install failed — will retry on first pipeline run"
+  }
+else
+  echo "==> Skipping tools install (no repo yet)"
+fi
 
 # ── Mark provisioning complete ───────────────────────────────────────
 touch "/home/${CI_USER}/.provisioned"

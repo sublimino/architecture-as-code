@@ -9,7 +9,7 @@
 #   0 — all tests passed
 #   1 — one or more test stages failed
 
-set -euo pipefail
+set -o pipefail
 
 readonly WORK_DIR="/home/ci/osramp-demo"
 readonly REPORT_DIR="/home/ci/reports"
@@ -56,6 +56,11 @@ if git remote get-url origin &>/dev/null; then
     || echo "WARNING: git pull failed — using existing code on disk"
 else
   echo "==> Using SCP'd code (no git remote)"
+  # Kustomize uses .git/ as a security boundary for relative path traversal.
+  # Without it, refs like ../base/ are rejected. Init a bare repo.
+  if [[ ! -d .git ]]; then
+    git init -q && git add -A && git commit -q -m "ci snapshot" --allow-empty
+  fi
 fi
 
 # ── Ensure all tools are present (idempotent — only installs missing) ─

@@ -52,11 +52,9 @@ else
   echo "==> Using SCP'd code (no git remote)"
 fi
 
-# ── Install tools if not already present ─────────────────────────────
-if ! command -v kind &>/dev/null || ! command -v kubectl &>/dev/null; then
-  echo "==> Installing CI tools (kind, kubectl, flux, etc.)..."
-  bash ./scripts/setup.sh --tools-only
-fi
+# ── Ensure all tools are present (idempotent — only installs missing) ─
+echo "==> Ensuring CI tools..."
+bash ./scripts/setup.sh --tools-only
 
 # ── Tear down any existing cluster ───────────────────────────────────
 echo "==> [2/7] Cleaning previous cluster..."

@@ -59,8 +59,14 @@ else
 fi
 
 # ── Ensure all tools are present (idempotent — only installs missing) ─
+# setup.sh's BIN_DIR logic: if /usr/local/bin is writable → SUDO="" and
+# everything (including go install) writes there directly. If not writable
+# but sudo available → SUDO="sudo" but go install lines lack ${SUDO} prefix.
+# Fix: make /usr/local/bin writable so the first branch fires cleanly.
+sudo chmod a+w /usr/local/bin 2>/dev/null || true
 echo "==> Ensuring CI tools..."
 bash ./scripts/setup.sh --tools-only
+sudo chmod go-w /usr/local/bin 2>/dev/null || true
 
 # ── Tear down any existing cluster ───────────────────────────────────
 echo "==> [2/7] Cleaning previous cluster..."

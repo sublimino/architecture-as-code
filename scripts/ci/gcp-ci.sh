@@ -177,9 +177,6 @@ cmd_provision() {
   if [[ "$status" == "NOT_FOUND" ]]; then
     echo "==> Creating VM: ${VM_NAME}"
 
-    local startup_script
-    startup_script="$(cat "${SCRIPT_DIR}/vm-startup.sh")"
-
     gcloud compute instances create "$VM_NAME" \
       --project="$PROJECT" \
       --zone="$ZONE" \
@@ -191,7 +188,8 @@ cmd_provision() {
       --boot-disk-type=pd-ssd \
       --service-account="$SA_EMAIL" \
       --scopes="cloud-platform" \
-      --metadata="startup-script=${startup_script},secret-name=${SECRET_NAME},ci-project=${PROJECT}" \
+      --metadata-from-file="startup-script=${SCRIPT_DIR}/vm-startup.sh" \
+      --metadata="secret-name=${SECRET_NAME},ci-project=${PROJECT}" \
       --shielded-secure-boot \
       --shielded-vtpm \
       --shielded-integrity-monitoring \

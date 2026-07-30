@@ -45,9 +45,11 @@ apt-get install -yqq \
 
 systemctl enable --now docker
 
-# ── CI user ──────────────────────────────────────────────────────────
+# ── CI user (with passwordless sudo for tool installers) ─────────────
 useradd -m -s /bin/bash "$CI_USER" 2>/dev/null || true
 usermod -aG docker "$CI_USER"
+echo "${CI_USER} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${CI_USER}"
+chmod 440 "/etc/sudoers.d/${CI_USER}"
 
 # ── Node.js 22 ───────────────────────────────────────────────────────
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -

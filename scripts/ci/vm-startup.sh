@@ -5,12 +5,13 @@
 # key. After provisioning, touches /home/ci/.provisioned as a completion
 # marker. The actual test pipeline is vm-pipeline.sh, invoked via SSH.
 
-set -euo pipefail
+set -eo pipefail
 
 readonly CI_USER="ci"
 readonly METADATA_URL="http://metadata.google.internal/computeMetadata/v1"
 readonly METADATA_HEADER="Metadata-Flavor: Google"
 
+export HOME="${HOME:-/root}"
 exec > >(tee -a /var/log/ci-startup.log) 2>&1
 
 get_metadata() {

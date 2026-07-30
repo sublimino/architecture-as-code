@@ -215,6 +215,31 @@ spec:
         - kind: ServiceAccount
           name: flux
           namespace: << inputs.tenant >>
+    # Gateway API CRDs are not covered by the built-in admin ClusterRole.
+    # The fe-signalloom Kustomization manages HTTPRoutes for dashboard and
+    # API routing, so the flux SA needs explicit permission.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: flux-gateway-routes
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["gateway.networking.k8s.io"]
+          resources: ["httproutes"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: flux-gateway-routes
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: flux-gateway-routes
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: OCIRepository
       metadata:

@@ -61,25 +61,50 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: import
-              image: bitnami/kubectl:1.31
+              image: kubesec-afm:latest
+              imagePullPolicy: IfNotPresent
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -e
-                  echo "==> Exporting cluster RBAC..."
-                  kubectl get clusterroles,clusterrolebindings,roles,rolebindings \
-                    -A -o json > /tmp/rbac.json
-                  echo "==> Importing into AFM..."
-                  # Use wget (available in bitnami/kubectl) to POST the RBAC data
-                  wget -q -O- --post-file=/tmp/rbac.json \
-                    --header="Content-Type: application/json" \
-                    "http://afm-platform.fe-k8s-afm.svc.cluster.local:8000/clusters/import" \
-                    || echo "  (import returned non-200 — may need /clusters/upload for this format)"
+                  echo "==> Exporting cluster RBAC via k8s API..."
+                  # Use Python (available in the AFM image) with the SA token
+                  python3 -c "
+                  import json, urllib.request, ssl, os
+                  token = open('/var/run/secrets/kubernetes.io/serviceaccount/token').read()
+                  ca = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
+                  ctx = ssl.create_default_context(cafile=ca)
+                  host = os.environ['KUBERNETES_SERVICE_HOST']
+                  port = os.environ['KUBERNETES_SERVICE_PORT']
+                  base = f'https://{host}:{port}'
+                  headers = {'Authorization': f'Bearer {token}'}
+                  items = []
+                  for res in ['clusterroles', 'clusterrolebindings']:
+                      url = f'{base}/apis/rbac.authorization.k8s.io/v1/{res}'
+                      req = urllib.request.Request(url, headers=headers)
+                      data = json.load(urllib.request.urlopen(req, context=ctx))
+                      items.extend(data.get('items', []))
+                  for res in ['roles', 'rolebindings']:
+                      url = f'{base}/apis/rbac.authorization.k8s.io/v1/{res}'
+                      req = urllib.request.Request(url, headers=headers)
+                      data = json.load(urllib.request.urlopen(req, context=ctx))
+                      items.extend(data.get('items', []))
+                  rbac = json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': items}).encode()
+                  print(f'  Collected {len(items)} RBAC items')
+                  req2 = urllib.request.Request(
+                      'http://afm-platform.fe-k8s-afm.svc.cluster.local:8000/clusters/import',
+                      data=rbac, headers={'Content-Type': 'application/json'}, method='POST')
+                  try:
+                      resp = urllib.request.urlopen(req2, timeout=30)
+                      print(f'  Imported: {resp.status}')
+                  except Exception as e:
+                      print(f'  Import error: {e}')
+                  "
                   echo "==> Done."
               resources:
                 requests:
-                  cpu: 50m
-                  memory: 64Mi
+                  cpu: 25m
+                  memory: 32Mi
                 limits:
-                  cpu: 200m
-                  memory: 128Mi
+                  cpu: 100m
+                  memory: 64Mi

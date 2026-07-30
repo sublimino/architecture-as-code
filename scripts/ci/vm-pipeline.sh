@@ -73,8 +73,19 @@ echo "==> [2/7] Cleaning previous cluster..."
 make teardown 2>/dev/null || true
 
 # ── Create cluster + registry + Flux bootstrap ──────────────────────
+# Use individual targets instead of `make up` because the shared `wait`
+# target expects OSRAMP-demo ResourceSets (policies, infra) that the
+# signalloom-only path doesn't create until later. signalloom-local.sh
+# has its own dependency waits.
 echo "==> [3/7] Creating Kind cluster + Zot + Flux..."
-make up
+make cluster
+make registry
+make signing-keys
+make push-local-foundation
+make bootstrap-local
+echo "==> Waiting for Flux foundation (skipping demo-specific ResourceSets)..."
+kubectl -n flux-system wait kustomization/flux-system --for=condition=ready --timeout=10m
+kubectl -n flux-system wait kustomization/tenants --for=condition=ready --timeout=10m 2>/dev/null || true
 
 # ── Build and push containers ────────────────────────────────────────
 echo "==> [4/7] Building containers → local Zot..."

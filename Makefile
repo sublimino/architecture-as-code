@@ -404,3 +404,32 @@ signalloom-up: ## Restore Signal Loom frontend to the cluster.
 .PHONY: acceptance-test
 acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 	./scripts/acceptance-test.sh
+
+##@ CI
+
+.PHONY: ci-provision
+ci-provision: ## One-time: create the persistent GCP CI VM + networking.
+	./scripts/ci/gcp-ci.sh provision
+
+.PHONY: ci-gcp
+ci-gcp: ## Resume the CI VM, run Signalloom D2 e2e, suspend on pass.
+	./scripts/ci/gcp-ci.sh run
+
+.PHONY: ci-ssh
+ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).
+	./scripts/ci/gcp-ci.sh ssh
+
+.PHONY: ci-status
+ci-status: ## Show CI VM status (RUNNING / SUSPENDED / etc).
+	./scripts/ci/gcp-ci.sh status
+
+.PHONY: ci-report
+ci-report: ## View the last OpenReports report from a ci-gcp run.
+	@if [ -f ci-reports/summary.json ]; then \
+		jq . ci-reports/summary.json; \
+	else \
+		echo "No report found. Run 'make ci-gcp' first."; \
+	fi
+	@if [ -f ci-reports/signalloom-ci-report.yaml ]; then \
+		echo "OpenReports: ci-reports/signalloom-ci-report.yaml"; \
+	fi

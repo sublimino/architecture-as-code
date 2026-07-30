@@ -13,7 +13,7 @@ set -euo pipefail
 
 readonly WORK_DIR="/home/ci/osramp-demo"
 readonly REPORT_DIR="/home/ci/reports"
-readonly PIPELINE_LOG="/var/log/ci-pipeline.log"
+readonly PIPELINE_LOG="/home/ci/ci-pipeline.log"
 
 exec > >(tee -a "$PIPELINE_LOG") 2>&1
 
@@ -33,6 +33,12 @@ echo "════════════════════════�
 echo "  Signalloom D2 E2E CI — Pipeline"
 echo "  Started: $(date -Iseconds)"
 echo "════════════════════════════════════════════════════════════"
+
+# ── Environment for tool installers ──────────────────────────────────
+export GOPATH="${HOME}/go"
+export GOBIN="${HOME}/.local/bin"
+export PATH="${HOME}/.local/bin:${GOPATH}/bin:${PATH}"
+mkdir -p "$GOBIN" "$GOPATH"
 
 # ── Clean state ──────────────────────────────────────────────────────
 rm -rf "$REPORT_DIR"

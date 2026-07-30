@@ -71,6 +71,28 @@ iap_scp() {
     "$@"
 }
 
+# ── Push code via SCP (for local runs without deploy key) ────────────
+push_code() {
+  echo "==> Pushing repo to VM via SCP..."
+
+  local tarball="/tmp/osramp-demo-ci.tar.gz"
+  tar -C "$REPO_ROOT" \
+    --exclude='.git' \
+    --exclude='node_modules' \
+    --exclude='.cache' \
+    --exclude='ci-reports' \
+    -czf "$tarball" .
+
+  iap_scp "$tarball" "${VM_NAME}:/tmp/osramp-demo-ci.tar.gz"
+  iap_ssh "sudo mkdir -p ${REMOTE_WORK_DIR} && \
+    sudo tar -xzf /tmp/osramp-demo-ci.tar.gz -C ${REMOTE_WORK_DIR} && \
+    sudo chown -R ci:ci ${REMOTE_WORK_DIR} && \
+    rm /tmp/osramp-demo-ci.tar.gz"
+
+  rm -f "$tarball"
+  echo "==> Code pushed to ${REMOTE_WORK_DIR}"
+}
+
 # ── Provision (idempotent — safe to run multiple times) ──────────────
 cmd_provision() {
   echo "════════════════════════════════════════════════════════════"
@@ -251,6 +273,12 @@ cmd_run() {
       ;;
   esac
 
+  # ── Push code if repo doesn't exist on VM yet ──
+  if ! iap_ssh "test -d ${REMOTE_WORK_DIR}/scripts" 2>/dev/null; then
+    echo "==> No code on VM — pushing via SCP..."
+    push_code
+  fi
+
   # ── Run the pipeline via SSH ──
   echo "==> Running pipeline on VM..."
   local pipeline_exit=0
@@ -366,13 +394,14 @@ cmd_destroy() {
 
 # ── Main ─────────────────────────────────────────────────────────────
 case "${1:-run}" in
-  provision)  cmd_provision ;;
-  run)        cmd_run ;;
-  ssh)        cmd_ssh ;;
-  status)     cmd_status ;;
-  destroy)    cmd_destroy ;;
+  provision)   cmd_provision ;;
+  run)         cmd_run ;;
+  push-code)   push_code ;;
+  ssh)         cmd_ssh ;;
+  status)      cmd_status ;;
+  destroy)     cmd_destroy ;;
   *)
-    echo "Usage: $0 {provision|run|ssh|status|destroy}" >&2
+    echo "Usage: $0 {provision|run|push-code|ssh|status|destroy}" >&2
     exit 1
     ;;
 esac

@@ -38,12 +38,25 @@ echo "════════════════════════�
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"
 
-# ── Pull latest code ─────────────────────────────────────────────────
+# ── Pull latest code (or use SCP'd code) ─────────────────────────────
 echo "==> [1/7] Pulling latest code..."
+if [[ ! -d "$WORK_DIR" ]]; then
+  echo "ERROR: No code at ${WORK_DIR}. Clone via deploy key or SCP the repo." >&2
+  exit 2
+fi
 cd "$WORK_DIR"
-git fetch origin
-git reset --hard origin/main
-git clean -fdx
+if git remote get-url origin &>/dev/null; then
+  git fetch origin 2>/dev/null && git reset --hard origin/main && git clean -fdx \
+    || echo "WARNING: git pull failed — using existing code on disk"
+else
+  echo "==> Using SCP'd code (no git remote)"
+fi
+
+# ── Install tools if not already present ─────────────────────────────
+if ! command -v kind &>/dev/null || ! command -v kubectl &>/dev/null; then
+  echo "==> Installing CI tools (kind, kubectl, flux, etc.)..."
+  bash ./scripts/setup.sh --tools-only
+fi
 
 # ── Tear down any existing cluster ───────────────────────────────────
 echo "==> [2/7] Cleaning previous cluster..."

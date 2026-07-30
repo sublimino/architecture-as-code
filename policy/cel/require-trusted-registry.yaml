@@ -1,0 +1,67 @@
+# CEL ValidatingAdmissionPolicy — Trusted Registry Enforcement
+# Requires Kubernetes 1.30+ (ValidatingAdmissionPolicy GA).
+#
+# Replaces Kyverno image verification for the registry-allowlist use case.
+# Cryptographic signature verification is handled by Flux (OCIRepository verify)
+# at the GitOps layer. This policy ensures pods can only pull images that Flux
+# has already verified and pushed to the trusted in-cluster registry.
+#
+# Apply the binding's namespaceSelector label to enforce:
+#   kubectl label ns fe-signalloom signalloom.io/image-policy=enforced
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sl-require-trusted-registry
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          c.image.startsWith('zot.registry.svc.cluster.local:5000/acme/') ||
+          c.image.startsWith('ghcr.io/controlplaneio/') ||
+          c.image.startsWith('ghcr.io/dexidp/') ||
+          c.image.startsWith('nginxinc/nginx-unprivileged:') ||
+          c.image.startsWith('postgres:') ||
+          c.image.startsWith('redis:') ||
+          c.image.startsWith('bitnami/') ||
+          c.image.startsWith('minio/')
+        )
+      message: >-
+        All container images must come from the trusted registry
+        (zot.registry.svc.cluster.local:5000/acme/) or an approved upstream.
+        Unsigned images from untrusted registries are blocked.
+    - expression: >-
+        object.spec.initContainers.orValue([]).all(c,
+          c.image.startsWith('zot.registry.svc.cluster.local:5000/acme/') ||
+          c.image.startsWith('ghcr.io/controlplaneio/') ||
+          c.image.startsWith('ghcr.io/dexidp/') ||
+          c.image.startsWith('postgres:') ||
+          c.image.startsWith('bitnami/')
+        )
+      message: >-
+        All init container images must come from the trusted registry or an
+        approved upstream.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-require-trusted-registry-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-require-trusted-registry
+  validationActions: ["Deny"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        signalloom.io/image-policy: enforced

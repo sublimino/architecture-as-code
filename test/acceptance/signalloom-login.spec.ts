@@ -85,16 +85,13 @@ test("RBAC Analysis page loads the KubeSec-AFM iframe", async ({ page }) => {
   await expect(page.getByText("KubeSec-AFM").first()).toBeVisible();
 
   // The iframe should be present and load the AFM dashboard.
-  const iframe = page.locator('iframe[title="KubeSec-AFM Dashboard"]');
+  const iframe = page.locator('[data-testid="afm-iframe"]');
   await expect(iframe).toBeVisible({ timeout: 10_000 });
-
-  // Wait for the iframe to finish loading (src should be /afm/dashboard/).
-  await iframe.waitFor({ state: "attached", timeout: 10_000 });
   const src = await iframe.getAttribute("src");
-  expect(src).toContain("/afm/dashboard");
+  expect(src).toBe("/dashboard/");
 
-  // "Open in new tab" link should be present.
-  await expect(page.getByText("Open in new tab")).toBeVisible();
+  // "Open full" link should be present.
+  await expect(page.getByText("Open full ↗")).toBeVisible();
 
   await page.screenshot({ path: "test-results/signalloom-rbac-analysis.png", fullPage: true });
 });

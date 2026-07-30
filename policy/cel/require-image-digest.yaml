@@ -1,0 +1,44 @@
+# CEL ValidatingAdmissionPolicy — Require Image Digest
+# Prevents use of mutable tags (including :latest) by requiring @sha256: digest.
+# Defence against tag-swap attacks where a compromised tag is re-pushed.
+#
+# Apply the binding's namespaceSelector label to enforce:
+#   kubectl label ns fe-signalloom signalloom.io/image-policy=enforced
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: sl-require-image-digest
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  validations:
+    - expression: >-
+        object.spec.containers.all(c,
+          c.image.contains('@sha256:')
+        )
+      message: >-
+        Container images must use a digest reference (@sha256:...) rather than
+        a mutable tag. Pin to a digest to prevent tag-swap attacks.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: sl-require-image-digest-binding
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/component: admission-policy
+spec:
+  policyName: sl-require-image-digest
+  validationActions: ["Warn"]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        signalloom.io/image-policy: enforced

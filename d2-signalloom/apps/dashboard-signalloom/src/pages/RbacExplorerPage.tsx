@@ -9,9 +9,29 @@
  * views can be compared. In future, remote cluster connectors will plug into the
  * same cluster selector pattern used here.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
 import { colors } from '../styles/tokens'
+
+class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state: { error: Error | null } = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[rbac-explorer] render crash:', error, info.componentStack)
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: 'var(--error)' }} data-testid="rbac-error">
+          <h2>RBAC Explorer crashed</h2>
+          <pre style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{this.state.error.message}</pre>
+          <button className="btn btn-secondary" style={{ marginTop: 12 }} onClick={() => this.setState({ error: null })}>Retry</button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 interface ClusterMeta { id: string; name: string }
 interface Subject { name: string; kind: string; namespace?: string }
@@ -26,17 +46,28 @@ interface AnalysisResult {
   escalation_paths?: unknown[]
   group_escalations?: unknown[]
 }
-interface ConformanceIssue { issue: string; severity: string; role?: string; namespace?: string; details?: string }
+interface ConformanceIssue { issue?: string; reason?: string; severity?: string; role?: unknown; namespace?: unknown; details?: string; rule?: unknown }
 interface SharedRole { role: string; shared_by: number; reason?: string; risk?: string }
 
 const AFM = '/afm'
 
 async function fetchJson<T>(path: string): Promise<T | null> {
+  const url = `${AFM}${path}`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
   try {
-    const res = await fetch(`${AFM}${path}`)
-    if (!res.ok) return null
+    const res = await fetch(url, { signal: controller.signal })
+    clearTimeout(timeout)
+    if (!res.ok) {
+      console.warn(`[rbac-explorer] ${url} → ${res.status}`)
+      return null
+    }
     return await res.json() as T
-  } catch { return null }
+  } catch (e) {
+    clearTimeout(timeout)
+    console.error(`[rbac-explorer] ${url} failed:`, e)
+    return null
+  }
 }
 
 export default function RbacExplorerPage() {
@@ -64,18 +95,24 @@ export default function RbacExplorerPage() {
   const loadCluster = useCallback(async (id: string) => {
     if (!id) return
     setLoading(true)
-    const [r, a, c, s] = await Promise.all([
-      fetchJson<RBACData>(`/clusters/${encodeURIComponent(id)}/rbac`),
-      fetchJson<AnalysisResult>(`/clusters/${encodeURIComponent(id)}/analysis/latest`),
-      fetchJson<ConformanceIssue[]>(`/clusters/${encodeURIComponent(id)}/rbac/conformance`),
-      fetchJson<SharedRole[]>(`/clusters/${encodeURIComponent(id)}/analysis/shared_roles`),
-    ])
-    setRbac(r)
-    setAnalysis(a)
-    setConformance(c ?? [])
-    setSharedRoles(Array.isArray(s) ? s : [])
-    setLoading(false)
-    setNsFilter('all')
+    try {
+      const [r, a, c, s] = await Promise.all([
+        fetchJson<RBACData>(`/clusters/${encodeURIComponent(id)}/rbac`),
+        fetchJson<AnalysisResult>(`/clusters/${encodeURIComponent(id)}/analysis/latest`),
+        fetchJson<ConformanceIssue[]>(`/clusters/${encodeURIComponent(id)}/rbac/conformance`),
+        fetchJson<{ results?: SharedRole[] }>(`/clusters/${encodeURIComponent(id)}/analysis/shared_roles`),
+      ])
+      setRbac(r)
+      setAnalysis(a)
+      setConformance(Array.isArray(c) ? c : [])
+      const roles = s && 'results' in s ? s.results : (Array.isArray(s) ? s : [])
+      setSharedRoles(roles ?? [])
+    } catch (e) {
+      console.error('[rbac-explorer] loadCluster failed:', e)
+    } finally {
+      setLoading(false)
+      setNsFilter('all')
+    }
   }, [])
 
   useEffect(() => { if (clusterId) loadCluster(clusterId) }, [clusterId, loadCluster])
@@ -117,7 +154,10 @@ export default function RbacExplorerPage() {
 
   const filteredConformance = useMemo(() => {
     if (nsFilter === 'all') return conformance
-    return conformance.filter(c => !c.namespace || c.namespace === nsFilter)
+    return conformance.filter(c => {
+      const ns = typeof c.namespace === 'object' && c.namespace ? (c.namespace as { namespace?: string }).namespace : c.namespace
+      return !ns || ns === nsFilter
+    })
   }, [conformance, nsFilter])
 
   // Stats
@@ -137,6 +177,7 @@ export default function RbacExplorerPage() {
   }
 
   return (
+    <RbacErrorBoundary>
     <div>
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18, flexWrap: 'wrap', gap: 10 }}>
@@ -180,14 +221,22 @@ export default function RbacExplorerPage() {
         </div>
       </div>
 
-      {loading && <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>Loading…</div>}
+      {loading && <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }} data-testid="rbac-loading">Loading…</div>}
+
+      {!loading && !rbac && clusterId && (
+        <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }}>
+          <p>No RBAC data available for cluster <strong>{clusterId}</strong>.</p>
+          <p style={{ fontSize: 12 }}>Ensure the cluster is seeded: <code>scripts/rbac-to-afm.py</code></p>
+          <button className="btn btn-secondary" style={{ marginTop: 12 }} onClick={() => loadCluster(clusterId)}>Retry</button>
+        </div>
+      )}
 
       {!loading && rbac && (
         <>
           {/* Stats */}
-          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }}>
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 24 }} data-testid="rbac-stats">
             <StatCard label="Cluster" value={clusterName} sub={`${namespaces.length} namespaces`} accent="var(--cyan)" />
-            <StatCard label="Subjects" value={String(filteredSubjects.length)} sub={`${adminCount} admins · ${nonAdminCount} non-admin`} accent="var(--teal)" />
+            <StatCard label="Subjects" value={String(filteredSubjects.length)} sub={`${adminCount} admins, ${nonAdminCount} non-admin`} accent="var(--teal)" />
             <StatCard label="Roles" value={String(filteredRoles.length)} sub={`${filteredRoles.filter(r => r.scope === 'Cluster').length} cluster-scoped`} accent="var(--violet)" />
             <StatCard label="Escalation Paths" value={String(escalationCount)} sub={escalationCount === 0 ? 'No escalation detected' : 'Requires attention'} accent={escalationCount > 0 ? 'var(--error)' : 'var(--teal)'} />
           </div>
@@ -198,11 +247,11 @@ export default function RbacExplorerPage() {
               <Table headers={['Issue', 'Severity', 'Role', 'Namespace', 'Details']}>
                 {filteredConformance.slice(0, 20).map((c, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300 }}>{c.issue}</td>
-                    <td style={td}><Pill label={c.severity} /></td>
-                    <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{c.role ?? '—'}</code></td>
-                    <td style={{ ...td, color: 'var(--muted)' }}>{c.namespace ?? 'cluster'}</td>
-                    <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 250 }}>{c.details ?? '—'}</td>
+                    <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300 }}>{c.reason ?? c.issue ?? '—'}</td>
+                    <td style={td}><Pill label={c.severity ?? 'info'} /></td>
+                    <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{typeof c.role === 'object' && c.role ? (c.role as { name?: string }).name ?? '—' : String(c.role ?? '—')}</code></td>
+                    <td style={{ ...td, color: 'var(--muted)' }}>{typeof c.namespace === 'object' ? '—' : (c.namespace ?? 'cluster')}</td>
+                    <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 250 }}>{typeof c.details === 'string' ? c.details : '—'}</td>
                   </tr>
                 ))}
               </Table>
@@ -303,5 +352,6 @@ export default function RbacExplorerPage() {
         </>
       )}
     </div>
+    </RbacErrorBoundary>
   )
 }

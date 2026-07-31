@@ -241,6 +241,7 @@ demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom 
 	./scripts/signalloom-local.sh verify
 demo-signalloom-runtime-test: demo-signalloom-test ## Run focused BATS/DETIK assertions against the local Signal Loom slice.
 	bats d2-signalloom/test/runtime.bats
+	@if command -v netassert >/dev/null 2>&1; then $(MAKE) -C d2-signalloom test-netassert; else echo "netassert not installed — skipping NetworkPolicy tests"; fi
 demo-signalloom-test-1: ## Run the complete TEST-1 Playwright, BATS, and pytest integration gate.
 	DEX_DEMO_PASSWORD="$${DEX_DEMO_PASSWORD:-demo-user}" ./scripts/signalloom-test-1.sh
 demo-signalloom-down: ## Remove Signal Loom frontend via shared ResourceSet cleanup.

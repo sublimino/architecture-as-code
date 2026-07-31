@@ -38,7 +38,7 @@ if command -v kustomize >/dev/null 2>&1; then
     d2-signalloom/infra/inf-signalloom/controllers/local \
     d2-signalloom/infra/inf-signalloom/configs/local \
     d2-signalloom/apps/fe-signalloom/local; do
-    kustomize build "$root/$path" >/dev/null
+    kustomize build --load-restrictor=LoadRestrictionsNone "$root/$path" >/dev/null
   done
 fi
 

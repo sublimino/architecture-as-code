@@ -140,7 +140,7 @@ flux-test: ## Verify Flux readiness, including the Signalloom ResourceSets.
 	./scripts/demo-lifecycle.sh flux-test
 
 .PHONY: images
-images: ## Build the app and olly-replica images and load them into kind.
+images: ## Build the app and olly-replica images and persist them in Zot.
 	$(MAKE) -C d2-osramp-apps build
 	$(MAKE) -C olly-replica build
 

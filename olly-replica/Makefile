@@ -2,6 +2,10 @@ NAME ?= osramp
 
 CLUSTER_NAME := $(NAME)
 DOCKER_BUILD_NETWORK ?= host
+ZOT_IMAGE_BASE ?= zot.registry.svc.cluster.local:5000/acme/images/olly
+ZOT_PUSH_BASE ?= localhost:5001/acme/images/olly
+IMAGE_TAG ?= latest
+PUSH_LOCAL_IMAGE ?= ../scripts/push-local-image.sh
 
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
@@ -10,43 +14,43 @@ SHELL = /usr/bin/env bash -o pipefail
 # bake into each of them; the in-build unit tests make contract drift fail
 # the image build itself.
 .PHONY: build
-build: sentinel-build elk-mcp-build stubs-build tenant-app-build authz-build ## Build and load all replica images.
+build: sentinel-build elk-mcp-build stubs-build tenant-app-build authz-build llm-guard-build ## Build and persist all replica images in Zot.
 
 .PHONY: sentinel-build
-sentinel-build: ## Build and load the sentinel image (Google ADK + A2A).
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/sentinel/Dockerfile -t olly-sentinel:dev .
-	kind load docker-image olly-sentinel:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l app=olly-sentinel 2>/dev/null || true
+sentinel-build: ## Build and persist the sentinel image (Google ADK + A2A).
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/sentinel/Dockerfile -t $(ZOT_IMAGE_BASE)/sentinel:$(IMAGE_TAG) .
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/sentinel:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/sentinel:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l app=olly-sentinel --wait=false 2>/dev/null || true
 
 .PHONY: authz-build
-authz-build: ## Build and load the olly-authz image (COIN / PlainID / EEMS chain).
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/authz/Dockerfile -t olly-authz:dev apps/authz
-	kind load docker-image olly-authz:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l app=olly-authz 2>/dev/null || true
+authz-build: ## Build and persist the olly-authz image (COIN / PlainID / EEMS chain).
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/authz/Dockerfile -t $(ZOT_IMAGE_BASE)/authz:$(IMAGE_TAG) apps/authz
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/authz:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/authz:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l app=olly-authz --wait=false 2>/dev/null || true
 
 .PHONY: elk-mcp-build
-elk-mcp-build: ## Build and load the elk-search-mcp image.
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=elk-search-mcp -t olly-elk-mcp:dev .
-	kind load docker-image olly-elk-mcp:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l app=elk-search-mcp 2>/dev/null || true
+elk-mcp-build: ## Build and persist the elk-search-mcp image.
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=elk-search-mcp -t $(ZOT_IMAGE_BASE)/elk-mcp:$(IMAGE_TAG) .
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/elk-mcp:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/elk-mcp:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l app=elk-search-mcp --wait=false 2>/dev/null || true
 
 .PHONY: stubs-build
-stubs-build: ## Build and load the stubs image (mapping stub + replay producer).
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=mapping-stub -t olly-stubs:dev .
-	kind load docker-image olly-stubs:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l app=io-mapping-stub 2>/dev/null || true
+stubs-build: ## Build and persist the stubs image (mapping stub + replay producer).
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=mapping-stub -t $(ZOT_IMAGE_BASE)/stubs:$(IMAGE_TAG) .
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/stubs:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/stubs:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l app=io-mapping-stub --wait=false 2>/dev/null || true
 
 .PHONY: tenant-app-build
-tenant-app-build: ## Build and load the tenant-app image (the 3 managed apps).
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=tenant-app -t olly-tenant-app:dev .
-	kind load docker-image olly-tenant-app:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l osramp.acme.co/tenant-app=true 2>/dev/null || true
+tenant-app-build: ## Build and persist the tenant-app image (the 3 managed apps).
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/Dockerfile --build-arg APP=tenant-app -t $(ZOT_IMAGE_BASE)/tenant-app:$(IMAGE_TAG) .
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/tenant-app:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/tenant-app:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l osramp.acme.co/tenant-app=true --wait=false 2>/dev/null || true
 
 .PHONY: llm-guard-build
-llm-guard-build: ## Build and load the LLM Guard scanner image (Security Sandbox).
-	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/llm-guard/Dockerfile -t olly-llm-guard:dev apps/llm-guard
-	kind load docker-image olly-llm-guard:dev --name $(CLUSTER_NAME)
-	kubectl -n olly-replica delete po -l app=llm-guard 2>/dev/null || true
+llm-guard-build: ## Build and persist the LLM Guard scanner image (Security Sandbox).
+	docker build --network=$(DOCKER_BUILD_NETWORK) -f apps/llm-guard/Dockerfile -t $(ZOT_IMAGE_BASE)/llm-guard:$(IMAGE_TAG) apps/llm-guard
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/llm-guard:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/llm-guard:$(IMAGE_TAG)
+	kubectl -n olly-replica delete po -l app=llm-guard --wait=false 2>/dev/null || true
 
 .PHONY: security-sandbox-up
 security-sandbox-up: ## Start the promptfoo red-team UI (Security Sandbox) at http://localhost:3000.
@@ -67,7 +71,7 @@ authz-test: ## Run the olly-authz control-plane checks (COIN/PlainID/EEMS + narr
 .PHONY: replay
 replay: ## Emit one synthetic event through the pipeline (APP=inventory-service).
 	kubectl -n olly-replica run replay-$$(date +%s) --rm -i --restart=Never \
-		--image=olly-stubs:dev --image-pull-policy=Never \
+		--image=$(ZOT_IMAGE_BASE)/stubs:$(IMAGE_TAG) --image-pull-policy=IfNotPresent \
 		--env=KAFKA_BROKERS=redpanda.olly-replica.svc.cluster.local:9093 \
 		--command -- /replay-producer -app $${APP:-inventory-service}
 
@@ -78,7 +82,7 @@ a2a-demo: ## Fire one Olly -> Orbit A2A hand-off for the dashboard demo (APP=pay
 	@echo "  kubectl -n olly-replica exec redpanda-0 -c redpanda -- rpk topic consume olly.pipeline.decisions -o -20 -f '%v\\n' | grep orbit_a2a"
 	@echo "(The input-required step needs Orbit's A2A server, which needs a model: run 'make olly-llm-secret' first. Without one, identity + hand-off still light and the proposal still parks.)"
 	kubectl -n olly-replica run a2a-demo-$$(date +%s) --rm -i --restart=Never \
-		--image=olly-stubs:dev --image-pull-policy=Never \
+		--image=$(ZOT_IMAGE_BASE)/stubs:$(IMAGE_TAG) --image-pull-policy=IfNotPresent \
 		--env=KAFKA_BROKERS=redpanda.olly-replica.svc.cluster.local:9093 \
 		--command -- /replay-producer -app $${APP:-payments-api}
 

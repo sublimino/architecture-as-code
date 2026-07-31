@@ -2,6 +2,10 @@ NAME ?= osramp
 
 CLUSTER_NAME := $(NAME)
 DOCKER_BUILD_NETWORK ?= host
+ZOT_IMAGE_BASE ?= zot.registry.svc.cluster.local:5000/acme/images/osramp
+ZOT_PUSH_BASE ?= localhost:5001/acme/images/osramp
+IMAGE_TAG ?= latest
+PUSH_LOCAL_IMAGE ?= ../scripts/push-local-image.sh
 
 ARCH := $(shell uname -m | sed 's/x86_64/amd64/')
 OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
@@ -70,24 +74,24 @@ signing-key:
 ##@ Infra
 
 .PHONY: archiver-build
-archiver-build: ## Build and load the archiver container
-	docker build --network=$(DOCKER_BUILD_NETWORK) -t archiver:dev apps/archiver
-	kind load docker-image archiver:dev --name $(CLUSTER_NAME)
-	kubectl -n frontend delete po -l app=osramp-archiver
+archiver-build: ## Build and persist the archiver container in Zot
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t $(ZOT_IMAGE_BASE)/archiver:$(IMAGE_TAG) apps/archiver
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/archiver:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/archiver:$(IMAGE_TAG)
+	kubectl -n frontend delete po -l app=osramp-archiver --wait=false
 
 .PHONY: listener-build
-listener-build: ## Build and load the listener container
-	docker build --network=$(DOCKER_BUILD_NETWORK) -t listener:dev apps/listener
-	kind load docker-image listener:dev --name $(CLUSTER_NAME)
-	kubectl -n frontend delete po -l app=osramp-multipurpose
-	kubectl -n frontend delete po -l app=osramp-purl
+listener-build: ## Build and persist the listener container in Zot
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t $(ZOT_IMAGE_BASE)/listener:$(IMAGE_TAG) apps/listener
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/listener:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/listener:$(IMAGE_TAG)
+	kubectl -n frontend delete po -l app=osramp-multipurpose --wait=false
+	kubectl -n frontend delete po -l app=osramp-purl --wait=false
 
 .PHONY: processor-build
-processor-build: ## Build and load the processor container
-	docker build --network=$(DOCKER_BUILD_NETWORK) -t processor:dev apps/processor
-	kind load docker-image processor:dev --name $(CLUSTER_NAME)
-	kubectl -n frontend delete po -l app=osramp-multipurpose
-	kubectl -n frontend delete po -l app=osramp-purl
+processor-build: ## Build and persist the processor container in Zot
+	docker build --network=$(DOCKER_BUILD_NETWORK) -t $(ZOT_IMAGE_BASE)/processor:$(IMAGE_TAG) apps/processor
+	$(PUSH_LOCAL_IMAGE) $(ZOT_IMAGE_BASE)/processor:$(IMAGE_TAG) $(ZOT_PUSH_BASE)/processor:$(IMAGE_TAG)
+	kubectl -n frontend delete po -l app=osramp-multipurpose --wait=false
+	kubectl -n frontend delete po -l app=osramp-purl --wait=false
 
 .PHONY: postgres-shell
 postgres-shell: ## Connect to the backend postgres dynamically using in-cluster frontend settings

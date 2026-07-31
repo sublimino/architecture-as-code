@@ -22,7 +22,7 @@
   type: k8s
   protocol: tcp
   targetPort: 8000
-  timeoutSeconds: 10
+  timeoutSeconds: 30
   attempts: 3
   exitCode: 0
   src:
@@ -41,7 +41,7 @@
   type: k8s
   protocol: tcp
   targetPort: 5556
-  timeoutSeconds: 10
+  timeoutSeconds: 30
   attempts: 3
   exitCode: 0
   src:
@@ -60,7 +60,7 @@
   type: k8s
   protocol: tcp
   targetPort: 5432
-  timeoutSeconds: 10
+  timeoutSeconds: 30
   attempts: 3
   exitCode: 0
   src:
@@ -79,7 +79,7 @@
   type: k8s
   protocol: tcp
   targetPort: 6379
-  timeoutSeconds: 10
+  timeoutSeconds: 30
   attempts: 3
   exitCode: 0
   src:
@@ -98,7 +98,7 @@
   type: k8s
   protocol: tcp
   targetPort: 9000
-  timeoutSeconds: 10
+  timeoutSeconds: 30
   attempts: 3
   exitCode: 0
   src:
@@ -119,13 +119,13 @@
   type: k8s
   protocol: tcp
   targetPort: 8000
-  timeoutSeconds: 5
+  timeoutSeconds: 15
   attempts: 2
   exitCode: 1
   src:
     k8sResource:
       kind: pod
-      name: agent-sir-lancelot
+      name: agent-patsy
       namespace: fe-signalloom-agents
   dst:
     k8sResource:
@@ -138,13 +138,13 @@
   type: k8s
   protocol: tcp
   targetPort: 8080
-  timeoutSeconds: 5
+  timeoutSeconds: 15
   attempts: 2
   exitCode: 1
   src:
     k8sResource:
       kind: pod
-      name: agent-sir-lancelot
+      name: agent-patsy
       namespace: fe-signalloom-agents
   dst:
     k8sResource:
@@ -157,13 +157,13 @@
   type: k8s
   protocol: tcp
   targetPort: 5432
-  timeoutSeconds: 5
+  timeoutSeconds: 15
   attempts: 2
   exitCode: 1
   src:
     k8sResource:
       kind: pod
-      name: agent-sir-lancelot
+      name: agent-patsy
       namespace: fe-signalloom-agents
   dst:
     k8sResource:
@@ -176,7 +176,7 @@
   type: k8s
   protocol: tcp
   targetPort: 5432
-  timeoutSeconds: 5
+  timeoutSeconds: 15
   attempts: 2
   exitCode: 1
   src:
@@ -195,7 +195,7 @@
   type: k8s
   protocol: tcp
   targetPort: 6379
-  timeoutSeconds: 5
+  timeoutSeconds: 15
   attempts: 2
   exitCode: 1
   src:

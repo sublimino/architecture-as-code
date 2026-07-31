@@ -9,7 +9,7 @@ setup("authenticate via Dex", async ({ page }) => {
   await expect(loginField).toBeVisible({ timeout: 15_000 });
   await loginField.fill("demo-user@signalloom.local");
   await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
-  await page.getByRole("button", { name: /login/i }).click();
+  await page.getByRole("button", { name: /sign in|login/i }).click();
   await page.waitForURL(/\/agents/, { timeout: 15_000 });
   await page.waitForLoadState("networkidle");
   await page.context().storageState({ path: "test-results/.auth-state.json" });

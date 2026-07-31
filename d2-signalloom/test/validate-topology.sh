@@ -30,14 +30,14 @@ if grep -R --include='*.yaml' -Eq 'kind: (FluxInstance|HelmRelease).*' "$root/d2
 fi
 
 if command -v kustomize >/dev/null 2>&1; then
-  kustomize build "$root/d2-osramp-fleet/tenants/local" >/dev/null
+  kustomize build --load-restrictor=LoadRestrictionsNone "$root/d2-osramp-fleet/tenants/local" >/dev/null
   for path in \
     d2-signalloom/infra/inf-bao/controllers/local \
     d2-signalloom/infra/inf-bao/configs/local \
     d2-signalloom/infra/inf-signalloom/controllers/local \
     d2-signalloom/infra/inf-signalloom/configs/local \
     d2-signalloom/apps/fe-signalloom/local; do
-    kustomize build "$root/$path" >/dev/null
+    kustomize build --load-restrictor=LoadRestrictionsNone "$root/$path" >/dev/null
   done
 fi
 

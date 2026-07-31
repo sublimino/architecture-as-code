@@ -1,0 +1,189 @@
+# signalloom-ci.yaml — Signalloom D2 e2e tests on persistent GCP VM.
+#
+# Resumes the suspended signalloom-ci VM in europe-west2, SSHes in via
+# IAP, runs the full 8-stage pipeline, collects the OpenReports report,
+# and suspends the VM on success. On failure, the VM stays running for
+# debugging via `gcloud compute ssh --tunnel-through-iap`.
+#
+# Prerequisites:
+#   1. Run `./scripts/ci/gcp-ci.sh provision` once to create the VM
+#   2. GCP Workload Identity Federation configured for this repo
+#      (or a service account key stored as GCP_SA_KEY secret)
+#   3. The GHA runner's SA needs:
+#      - roles/compute.instanceAdmin.v1 (start/stop/suspend VM)
+#      - roles/iap.tunnelResourceAccessor (SSH via IAP)
+#      - roles/compute.osLogin (SSH key projection)
+
+name: Signalloom D2 E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      timeout_minutes:
+        description: "Pipeline timeout (minutes)"
+        default: "90"
+        type: string
+      debug_on_failure:
+        description: "Leave VM running on failure for debugging"
+        default: true
+        type: boolean
+  schedule:
+    # Nightly at 02:00 UTC (03:00 BST)
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: signalloom-ci
+  cancel-in-progress: false
+
+env:
+  GCP_PROJECT: cp-dev-ajm
+  GCP_ZONE: europe-west2-a
+  VM_NAME: signalloom-ci
+  TIMEOUT_MINUTES: ${{ inputs.timeout_minutes || '90' }}
+
+jobs:
+  e2e:
+    name: Signalloom D2 E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SA_EMAIL }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.GCP_PROJECT }}
+
+      - name: Check VM status
+        id: vm-status
+        run: |
+          status=$(gcloud compute instances describe "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT" \
+            --format='get(status)' 2>/dev/null || echo "NOT_FOUND")
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          echo "VM status: $status"
+
+      - name: Resume VM
+        if: steps.vm-status.outputs.status == 'SUSPENDED'
+        run: |
+          echo "==> Resuming suspended VM..."
+          gcloud compute instances resume "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT"
+
+          echo "==> Waiting for SSH..."
+          for i in $(seq 1 30); do
+            if gcloud compute ssh "$VM_NAME" \
+              --zone="$GCP_ZONE" --project="$GCP_PROJECT" \
+              --tunnel-through-iap \
+              --command="echo ready" 2>/dev/null; then
+              echo "==> VM ready"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Start VM
+        if: steps.vm-status.outputs.status == 'TERMINATED' || steps.vm-status.outputs.status == 'STOPPED'
+        run: |
+          echo "==> Starting stopped VM..."
+          gcloud compute instances start "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT"
+
+          echo "==> Waiting for SSH..."
+          for i in $(seq 1 30); do
+            if gcloud compute ssh "$VM_NAME" \
+              --zone="$GCP_ZONE" --project="$GCP_PROJECT" \
+              --tunnel-through-iap \
+              --command="echo ready" 2>/dev/null; then
+              echo "==> VM ready"
+              break
+            fi
+            sleep 5
+          done
+
+      - name: Fail if VM not found
+        if: steps.vm-status.outputs.status == 'NOT_FOUND'
+        run: |
+          echo "::error::VM '$VM_NAME' not found. Run './scripts/ci/gcp-ci.sh provision' first."
+          exit 1
+
+      - name: Run pipeline
+        id: pipeline
+        run: |
+          echo "==> Running pipeline on VM..."
+          gcloud compute ssh "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT" \
+            --tunnel-through-iap \
+            --command="sudo -u ci bash -l -c 'cd /home/ci/osramp-demo && bash scripts/ci/vm-pipeline.sh'" \
+            2>&1 | tee pipeline-output.txt
+
+      - name: Collect reports
+        if: always()
+        run: |
+          mkdir -p ci-reports
+          gcloud compute scp --tunnel-through-iap \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT" --recurse \
+            "${VM_NAME}:/home/ci/reports/*" \
+            ci-reports/ 2>/dev/null || echo "WARNING: Failed to collect some reports"
+
+      - name: Display summary
+        if: always()
+        run: |
+          if [ -f ci-reports/summary.json ]; then
+            echo "## Test Summary" >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            jq . ci-reports/summary.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+            overall=$(jq -r .overall ci-reports/summary.json)
+            passed=$(jq .passed ci-reports/summary.json)
+            failed=$(jq .failed ci-reports/summary.json)
+            echo "::notice::${overall}: ${passed} stages passed, ${failed} failed"
+          fi
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signalloom-ci-reports-${{ github.run_number }}
+          path: ci-reports/
+          retention-days: 30
+
+      - name: Suspend VM on success
+        if: success()
+        run: |
+          echo "==> Tests passed — suspending VM"
+          gcloud compute instances suspend "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT"
+
+      - name: Handle failure
+        if: failure() && (inputs.debug_on_failure == true || inputs.debug_on_failure == '')
+        run: |
+          echo "::warning::Tests failed — VM left running for debugging"
+          echo ""
+          echo "Debug via IAP tunnel:"
+          echo "  gcloud compute ssh --tunnel-through-iap $VM_NAME --zone=$GCP_ZONE --project=$GCP_PROJECT"
+          echo ""
+          echo "View logs:"
+          echo "  tail -f /var/log/ci-pipeline.log"
+          echo ""
+          echo "When done, suspend the VM:"
+          echo "  gcloud compute instances suspend $VM_NAME --zone=$GCP_ZONE --project=$GCP_PROJECT"
+
+      - name: Suspend VM on failure (if debug disabled)
+        if: failure() && inputs.debug_on_failure == false
+        run: |
+          echo "==> Debug disabled — suspending VM despite failure"
+          gcloud compute instances suspend "$VM_NAME" \
+            --zone="$GCP_ZONE" --project="$GCP_PROJECT"

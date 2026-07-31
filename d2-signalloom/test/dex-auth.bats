@@ -70,7 +70,7 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F '/dex/.well-known/openid-configuration' "$dex_manifest"
   [ "$status" -eq 0 ]
-  run grep -F 'path: /healthz' "$dex_manifest"
+  run grep -F 'path: /dex/.well-known/openid-configuration' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'args: ["dex", "serve", "/etc/dex/config.yaml"]' "$dex_manifest"
   [ "$status" -eq 0 ]

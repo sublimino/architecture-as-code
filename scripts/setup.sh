@@ -22,7 +22,7 @@ KUBECTL_VERSION="v1.33.2"
 KUSTOMIZE_VERSION="v5.6.0"
 FLUX_VERSION="2.6.4"
 HELM_VERSION="v3.18.4"
-COSIGN_VERSION="v2.5.3"
+COSIGN_VERSION="v3.0.6"
 SYFT_VERSION="v1.28.0"
 GRYPE_VERSION="v0.95.0"
 GO_VERSION="1.23.10"
@@ -93,6 +93,7 @@ install_tools() {
     fi
   fi
 
+  have yq || { echo "installing yq"; fetch_bin yq "https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_${OS}_${ARCH}"; }
   have govulncheck || { echo "installing govulncheck"; GOBIN="${BIN_DIR}" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
   have vexctl || { echo "installing vexctl"; GOBIN="${BIN_DIR}" go install "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }
   have crane || { echo "installing crane"; GOBIN="${BIN_DIR}" go install "github.com/google/go-containerregistry/cmd/crane@v0.20.3"; }
@@ -109,7 +110,7 @@ install_tools() {
 
   echo
   echo "tool versions:"
-  for tool in kind kubectl kustomize flux helm cosign jq syft grype witness govulncheck vexctl bats go; do
+  for tool in kind kubectl kustomize flux helm cosign jq yq syft grype witness govulncheck vexctl bats go; do
     printf '  %-12s %s\n' "${tool}" "$(command -v ${tool} >/dev/null && ${tool} version --short 2>/dev/null | head -1 || command -v ${tool} || echo MISSING)"
   done
 }

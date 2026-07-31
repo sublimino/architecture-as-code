@@ -1,0 +1,26 @@
+# Foundation base images pulled from upstream registries (i.e. not already baked
+# into the kindest/node image). `make preload-foundation-images` kind-loads any
+# of these already present in the host Docker cache — in parallel — so a fresh
+# cluster starts without re-pulling them. Images absent from host Docker are
+# skipped and served through the pull-through mirror (see registry-cache.sh)
+# instead. Refresh this list with: make preload-snapshot
+docker.io/envoyproxy/envoy:distroless-v1.38.3
+docker.io/envoyproxy/gateway:v1.8.2
+docker.io/grafana/grafana:13.1.0
+ghcr.io/controlplaneio-fluxcd/flux-operator:v0.57.0
+ghcr.io/fluxcd/helm-controller:v1.6.3
+ghcr.io/fluxcd/kustomize-controller:v1.9.4
+ghcr.io/fluxcd/notification-controller:v1.9.2
+ghcr.io/fluxcd/source-controller:v1.9.3
+ghcr.io/project-zot/zot-linux-amd64:v2.1.2
+mirror.gcr.io/aquasec/trivy-operator:0.32.0
+quay.io/jetstack/cert-manager-cainjector:v1.20.3
+quay.io/jetstack/cert-manager-controller:v1.20.3
+quay.io/jetstack/cert-manager-webhook:v1.20.3
+quay.io/kiwigrid/k8s-sidecar:2.8.1
+quay.io/prometheus/node-exporter:v1.11.1-distroless
+quay.io/prometheus-operator/prometheus-config-reloader:v0.92.1
+quay.io/prometheus-operator/prometheus-operator:v0.92.1
+quay.io/prometheus/prometheus:v3.13.0-distroless
+registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.19.1
+registry.k8s.io/metrics-server/metrics-server:v0.8.1

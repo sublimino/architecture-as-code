@@ -153,6 +153,23 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 signalloom-dashboard-image: ## Build, sign, and load the dashboard workload image.
 	./scripts/build-sign-dashboard.sh
 
+.PHONY: preload-foundation-images preload-snapshot
+preload-foundation-images: ## kind-load foundation base images already in host Docker (parallel); missing ones fall back to the pull-through mirror.
+	@echo "==> Preloading foundation base images present in host Docker (parallel)"
+	@images=$$(grep -vE '^[[:space:]]*#|^[[:space:]]*$$' scripts/foundation-images.txt); \
+	for img in $$images; do \
+		if docker image inspect "$$img" >/dev/null 2>&1; then \
+			( kind load docker-image --name $(CLUSTER_NAME) "$$img" >/dev/null 2>&1 \
+				&& echo "  loaded $$img" || echo "  FAILED $$img" ) & \
+		else \
+			echo "  skip (not in host docker, will use mirror) $$img"; \
+		fi; \
+	done; \
+	wait
+preload-snapshot: ## Print the cluster's current upstream base images (redirect into scripts/foundation-images.txt to refresh).
+	@kubectl get pods -A -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{range .spec.initContainers[*]}{.image}{"\n"}{end}{end}' \
+		| grep -vE 'zot.registry.svc.cluster.local|acme/images' | sed 's/@sha256:.*//' | sort -u
+
 .PHONY: signalloom-images
 signalloom-images: ## Build and persist local Signal Loom workload images in Zot.
 	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
@@ -164,7 +181,13 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 		sleep 0.5; \
 	done; \
 	curl -fsS http://localhost:5001/v2/ >/dev/null; \
-	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom; \
+	# Build the two plain workload images in parallel (the dominant cost). The \
+	# dashboard build+sign and all registry pushes stay sequential to avoid \
+	# racing on the single zot port-forward. \
+	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom & FE_PID=$$!; \
+	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy & FP_PID=$$!; \
+	BUILD_FAIL=0; wait $$FE_PID || BUILD_FAIL=1; wait $$FP_PID || BUILD_FAIL=1; \
+	[ $$BUILD_FAIL -eq 0 ] || { echo "signalloom parallel image build failed" >&2; exit 1; }; \
 	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
@@ -172,7 +195,6 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# dashboard build context literal: d2-signalloom/apps/dashboard-signalloom \
 	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
 	./scripts/build-sign-dashboard.sh; \
-	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy; \
 	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev
 
 .PHONY: cpai-images

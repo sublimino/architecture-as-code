@@ -39,13 +39,23 @@ echo "==> Setting up port-forwards..."
 if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
   start_port_forward fe-signalloom fe-signalloom 18000 8000
   start_port_forward inf-signalloom dex 15556 5556
-  gateway_service="$(kubectl -n envoy-gateway-system get service \
-    -l gateway.envoyproxy.io/owning-gateway-name=cluster \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+  # The Envoy data-plane service lives in whichever namespace the Gateway
+  # controller deploys it to (typically 'ingress' or 'envoy-gateway-system').
+  gateway_ns=""
+  gateway_service=""
+  for ns in ingress envoy-gateway-system; do
+    gateway_service="$(kubectl -n "$ns" get service \
+      -l gateway.envoyproxy.io/owning-gateway-name=cluster \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    if [[ -n "$gateway_service" ]]; then
+      gateway_ns="$ns"
+      break
+    fi
+  done
   if [[ -n "$gateway_service" ]]; then
-    start_port_forward envoy-gateway-system "$gateway_service" 18443 443
+    start_port_forward "$gateway_ns" "$gateway_service" 18443 443
   else
-    echo "    SKIP: ingress/cluster Envoy service (service not found)"
+    echo "    SKIP: cluster Envoy service (not found in ingress or envoy-gateway-system)"
   fi
   export DASHBOARD_URL="${DASHBOARD_URL:-https://127.0.0.1:18443}"
   export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-$DASHBOARD_URL}"
@@ -85,6 +95,11 @@ fi
 
 echo "==> Running Playwright tests..."
 cd "${TEST_DIR}"
+# Ensure node_modules are installed (bunx playwright requires @playwright/test)
+if [[ ! -d node_modules/@playwright ]]; then
+  echo "    Installing Playwright dependencies..."
+  bun install --frozen-lockfile 2>/dev/null || bun install
+fi
 set +e
 bunx playwright test --config=playwright.config.ts "$@"
 EXIT=$?

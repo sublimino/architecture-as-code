@@ -72,7 +72,7 @@ patches:
       name: signalloom-apps
     patch: |
       - op: replace
-        path: /spec/resources/5/spec/verify
+        path: /spec/resources/7/spec/verify
         value:
           provider: cosign
           secretRef:

@@ -34,7 +34,7 @@ spec:
               i=0
               until curl -fsS -u "elastic:$${ELASTIC_PASSWORD}" "$${ES_URL}/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null 2>&1; do
                 i=$$((i + 1)); [ "$${i}" -gt 120 ] && echo "elasticsearch never came up" && exit 1
-                echo "waiting for elasticsearch (${i}/120)"; sleep 5
+                echo "waiting for elasticsearch ($${i}/120)"; sleep 5
               done
               curl -fsS -u "elastic:$${ELASTIC_PASSWORD}" -X POST "$${ES_URL}/_security/api_key" \
                 -H 'Content-Type: application/json' \

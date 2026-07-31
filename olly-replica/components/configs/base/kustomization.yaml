@@ -28,6 +28,10 @@ configMapGenerator:
   - name: olly-dashboards
     options:
       disableNameSuffixHash: true
+      annotations:
+        # Dashboard JSON uses Grafana ${DS_...} / $__ template macros that must
+        # reach the sidecar verbatim, out of reach of Flux post-build substitution.
+        kustomize.toolkit.fluxcd.io/substitute: disabled
       labels:
         grafana_dashboard: "1"
     files:

@@ -100,5 +100,5 @@ setup() {
 	cp "$BATS_TEST_DIRNAME/../docs/signalloom/delivery-contract.json" "$repo/contract.json"
 	run bash -c "cd '$repo' && ./check.sh contract.json integration/signalloom-d2-v2.5.0"
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"integration/signalloom-d2-v2.5.0 is not an ancestor of HEAD"* ]]
+	[[ "$output" == *"is not derived from integration/signalloom-d2-v2.5.0"* ]]
 }

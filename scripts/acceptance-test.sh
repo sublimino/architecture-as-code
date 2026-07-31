@@ -57,7 +57,12 @@ if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
   else
     echo "    SKIP: cluster Envoy service (not found in ingress or envoy-gateway-system)"
   fi
-  export DASHBOARD_URL="${DASHBOARD_URL:-https://127.0.0.1:18443}"
+  # The Gateway listener requires SNI matching *.osramp.acme.local.
+  # Map the hostname to 127.0.0.1 so port-forward receives the correct SNI.
+  if ! grep -qF 'dashboard.osramp.acme.local' /etc/hosts 2>/dev/null; then
+    echo "127.0.0.1 dashboard.osramp.acme.local" | sudo tee -a /etc/hosts >/dev/null 2>&1 || true
+  fi
+  export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:18443}"
   export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-$DASHBOARD_URL}"
   export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
 else

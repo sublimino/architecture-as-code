@@ -65,7 +65,7 @@ const PAGES: PageCase[] = [
   { nav: "Federated Services", heading: "Federated Services", content: ["Trust Zones", "payments-api", "Cofide Go SDK"] },
   { nav: "Collusion & Access", heading: "Collusion & Access", content: ["Collusion Pairs", "Remediation Priorities"] },
   { nav: "RBAC Analysis", heading: "RBAC Analysis", content: ["KubeSec-AFM"] },
-  { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["namespace"] },
+  { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["KubeSec-AFM RBAC analysis"] },
   { nav: "Settings", heading: "Settings" },
 ];
 

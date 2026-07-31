@@ -13,10 +13,8 @@ OS := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 .EXPORT_ALL_VARIABLES:
 
 .PHONY: build
-build: \
-	archiver-build \
-	listener-build \
-	processor-build \
+build: ## Build the three app images and persist them in Zot (single shared port-forward).
+	../scripts/with-zot-portforward.sh $(MAKE) archiver-build listener-build processor-build
 
 ##@ Kind
 

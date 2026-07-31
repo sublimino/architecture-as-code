@@ -14,7 +14,8 @@ SHELL = /usr/bin/env bash -o pipefail
 # bake into each of them; the in-build unit tests make contract drift fail
 # the image build itself.
 .PHONY: build
-build: sentinel-build elk-mcp-build stubs-build tenant-app-build authz-build llm-guard-build ## Build and persist all replica images in Zot.
+build: ## Build and persist all replica images in Zot (single shared port-forward).
+	../scripts/with-zot-portforward.sh $(MAKE) sentinel-build elk-mcp-build stubs-build tenant-app-build authz-build llm-guard-build
 
 .PHONY: sentinel-build
 sentinel-build: ## Build and persist the sentinel image (Google ADK + A2A).

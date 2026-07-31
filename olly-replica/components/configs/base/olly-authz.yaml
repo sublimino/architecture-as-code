@@ -37,8 +37,8 @@ spec:
         runAsGroup: 65532
       containers:
         - name: authz
-          image: olly-authz:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/authz:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: AUTHZ_BIND_HOST
               value: "0.0.0.0"

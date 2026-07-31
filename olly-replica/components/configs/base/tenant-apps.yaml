@@ -34,8 +34,8 @@ spec:
         runAsGroup: 65532
       containers:
         - name: app
-          image: olly-tenant-app:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/tenant-app:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: APP_ID
               value: inventory-service
@@ -140,8 +140,8 @@ spec:
         runAsGroup: 65532
       containers:
         - name: app
-          image: olly-tenant-app:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/tenant-app:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: APP_ID
               value: payments-api
@@ -236,8 +236,8 @@ spec:
         runAsGroup: 65532
       containers:
         - name: app
-          image: olly-tenant-app:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/tenant-app:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: APP_ID
               value: customer-portal

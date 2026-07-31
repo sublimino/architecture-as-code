@@ -30,8 +30,8 @@ spec:
         runAsGroup: 65532
       containers:
         - name: sentinel
-          image: olly-sentinel:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/sentinel:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: KAFKA_BROKERS
               value: redpanda.olly-replica.svc.cluster.local:9093

@@ -45,8 +45,8 @@ spec:
         runAsGroup: 1000
       containers:
         - name: llm-guard
-          image: olly-llm-guard:dev
-          imagePullPolicy: Never
+          image: ${IMAGE_BASE}/olly/llm-guard:${ARTIFACT_TAG}
+          imagePullPolicy: IfNotPresent
           env:
             - name: APP_NAME
               value: Estate 95 LLM Guard

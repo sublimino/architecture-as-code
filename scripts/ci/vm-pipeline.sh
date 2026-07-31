@@ -37,7 +37,7 @@ echo "════════════════════════�
 # ── Environment for tool installers ──────────────────────────────────
 export GOPATH="${HOME}/go"
 export GOBIN="${HOME}/.local/bin"
-export PATH="${HOME}/.local/bin:${GOPATH}/bin:${PATH}"
+export PATH="${HOME}/.local/bin:${HOME}/.local/go/bin:/usr/local/go/bin:${GOPATH}/bin:${PATH}"
 mkdir -p "$GOBIN" "$GOPATH"
 
 # ── Clean state ──────────────────────────────────────────────────────

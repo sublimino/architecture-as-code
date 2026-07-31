@@ -1,0 +1,164 @@
+/**
+ * Shared test helpers for the Signal Loom acceptance test suite.
+ *
+ * Centralises the Dex login flow, environment config, AFM precondition checks,
+ * and polling utilities so every spec file uses one battle-tested implementation
+ * instead of copy-pasted variants.
+ *
+ * Usage:
+ *   import { login, config, afm, polling } from "./helpers";
+ */
+import { expect, type Page, type APIRequestContext } from "@playwright/test";
+
+// ── Configuration ───────────────────────────────────────────────────────────
+
+export const config = {
+  /** Signal Loom dashboard base URL. */
+  base: process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173",
+  /** Dex demo user email. */
+  user: process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local",
+  /** Dex demo user password. */
+  pass: process.env.SIGNALLOOM_PASS ?? "demo-user",
+} as const;
+
+// ── Dex Login ───────────────────────────────────────────────────────────────
+
+/**
+ * Authenticate through the local Dex login and wait for the dashboard sidebar.
+ *
+ * Handles both fresh sessions (Dex login form) and already-authenticated
+ * sessions (AutoSignIn skip). Sets `sl_demo_mode=true` in localStorage so
+ * the dashboard renders demo fixtures when the live API is unavailable.
+ *
+ * Waits for the sidebar "Agents" link as proof of successful auth + SPA render.
+ */
+export async function login(page: Page): Promise<void> {
+  // Pre-seed demo mode so every screen renders from fixtures
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("sl_demo_mode", "true");
+    } catch {
+      /* storage unavailable */
+    }
+  });
+
+  await page.goto(config.base, { waitUntil: "domcontentloaded" });
+
+  const loginInput = page.locator('input[name="login"]');
+  const needsLogin = await loginInput
+    .waitFor({ state: "visible", timeout: 15_000 })
+    .then(() => true)
+    .catch(() => false);
+
+  if (needsLogin) {
+    await loginInput.fill(config.user);
+    await page.locator('input[name="password"]').fill(config.pass);
+    await Promise.all([
+      page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
+      page.getByRole("button", { name: /login|sign in|submit/i }).click(),
+    ]);
+  }
+
+  // Sidebar mounted = app rendered post-auth
+  await expect(
+    page.getByRole("link", { name: "Agents", exact: true }),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+/**
+ * Login variant that always expects the Dex form (for login-specific tests
+ * that need to verify the login flow itself, not skip it).
+ */
+export async function loginExpectingDex(page: Page): Promise<void> {
+  await page.goto(config.base, { waitUntil: "domcontentloaded" });
+  const loginInput = page.locator('input[name="login"]');
+  await expect(loginInput).toBeVisible({ timeout: 15_000 });
+  expect(page.url()).toContain("/dex/auth");
+  await loginInput.fill(config.user);
+  await page.locator('input[name="password"]').fill(config.pass);
+  await Promise.all([
+    page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
+    page.getByRole("button", { name: /login|sign in|submit/i }).click(),
+  ]);
+  await page.waitForURL(/\/(agents|compliance|audit|settings)?$|\/agents/, {
+    timeout: 20_000,
+  });
+  await expect(
+    page.getByText(/agents|compliance|audit trail|settings/i).first(),
+  ).toBeVisible({ timeout: 15_000 });
+}
+
+// ── AFM Preconditions ───────────────────────────────────────────────────────
+
+export const afm = {
+  /**
+   * Assert AFM is reachable and has seeded clusters. Call in `beforeAll` to
+   * fail fast before running UI tests that depend on AFM data.
+   */
+  async assertHealthy(request: APIRequestContext): Promise<void> {
+    const health = await request.get(`${config.base}/afm/health`).catch(() => null);
+    expect(
+      health?.ok(),
+      "AFM must be reachable at /afm/health — run: make demo-k8s-afm-up",
+    ).toBeTruthy();
+
+    const clusters = await request.get(`${config.base}/afm/clusters`).catch(() => null);
+    expect(clusters?.ok(), "AFM /clusters endpoint must respond").toBeTruthy();
+    const data = await clusters!.json();
+    expect(
+      data.length,
+      "AFM must have ≥1 seeded cluster — run: scripts/rbac-to-afm.py",
+    ).toBeGreaterThanOrEqual(1);
+  },
+};
+
+// ── Polling Utilities ───────────────────────────────────────────────────────
+
+export const polling = {
+  /**
+   * Wait for RBAC Explorer data to load. Polls for one of three outcomes:
+   *   - "data"  → `data-testid="rbac-stats"` is visible (success)
+   *   - "error" → `data-testid="rbac-error"` is visible (React crash caught)
+   *   - "empty" → "No RBAC data" text visible or 30s timeout (fetch returned null)
+   *
+   * Fails fast on crash instead of waiting the full timeout.
+   */
+  async waitForRbacData(
+    page: Page,
+    timeoutMs = 30_000,
+  ): Promise<"data" | "error" | "empty"> {
+    const stats = page.locator('[data-testid="rbac-stats"]');
+    const error = page.locator('[data-testid="rbac-error"]');
+    const empty = page.getByText("No RBAC data");
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      if (await stats.isVisible().catch(() => false)) return "data";
+      if (await error.isVisible().catch(() => false)) return "error";
+      if (await empty.isVisible().catch(() => false)) return "empty";
+      await page.waitForTimeout(500);
+    }
+    // Final check
+    if (await stats.isVisible().catch(() => false)) return "data";
+    if (await error.isVisible().catch(() => false)) return "error";
+    return "empty";
+  },
+
+  /**
+   * Wait for a select element's options to populate. Uses Playwright's
+   * `expect().toPass()` for auto-retry instead of fixed waits.
+   */
+  async waitForOptions(
+    page: Page,
+    testId: string,
+    minCount: number,
+    timeoutMs = 10_000,
+  ): Promise<string[]> {
+    const selector = page.locator(`[data-testid="${testId}"]`);
+    await expect(async () => {
+      const options = await selector.locator("option").allTextContents();
+      expect(options.length).toBeGreaterThanOrEqual(minCount);
+    }).toPass({ timeout: timeoutMs });
+    return selector.locator("option").allTextContents();
+  },
+};

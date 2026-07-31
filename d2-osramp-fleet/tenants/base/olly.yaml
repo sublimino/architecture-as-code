@@ -125,6 +125,7 @@ spec:
           name: olly
         path: "./configs/<< inputs.environment >>"
         prune: true
-        # No postBuild substitution: olly manifests use no flux-runtime-info
-        # vars, and Flux's strict envsubst would otherwise choke on shell
-        # ${...} and Grafana $__env{...} literals in the manifests.
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info

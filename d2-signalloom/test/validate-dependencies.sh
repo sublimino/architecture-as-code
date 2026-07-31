@@ -20,7 +20,7 @@ if grep -Fq 'discovery-portal-bootstrap' "$config_kustomization"; then
 fi
 bash "$root/d2-signalloom/test/check-bootstrap-drift.sh"
 if command -v kustomize >/dev/null 2>&1; then
-  kustomize build "$root/d2-signalloom/infra/inf-signalloom/controllers/local" >/dev/null
-  kustomize build "$root/d2-signalloom/infra/inf-signalloom/configs/local" >/dev/null
+  kustomize build --load-restrictor=LoadRestrictionsNone "$root/d2-signalloom/infra/inf-signalloom/controllers/local" >/dev/null
+  kustomize build --load-restrictor=LoadRestrictionsNone "$root/d2-signalloom/infra/inf-signalloom/configs/local" >/dev/null
 fi
 printf 'Signalloom dependency validation passed.\n'

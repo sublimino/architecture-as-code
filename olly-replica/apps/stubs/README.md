@@ -1,7 +1,8 @@
 # Pipeline stubs (built: `apps/cmd/mapping-stub`, `apps/cmd/replay-producer`)
 
 Small services that carry the routing contract, not business logic. Both
-ship in the `olly-stubs:dev` image.
+ship in the `olly/stubs` image (persisted in the in-cluster Zot registry as
+`zot.registry.svc.cluster.local:5000/acme/images/olly/stubs:latest`).
 
 - **replay-producer** (`/replay-producer` in the image): emits one
   synthetic Netcool/BigPanda-style event onto `netcool.io.events` with

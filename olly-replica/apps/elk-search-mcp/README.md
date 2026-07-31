@@ -24,6 +24,7 @@ in-build unit tests:
 API: `POST /tools/elk_search_logs` with
 `{"index_pattern", "query", "size?", "time_range_minutes?"}`.
 
-Ships as `olly-elk-mcp:dev` via `make -C olly-replica build`; the image
-build runs the contracts round-trip tests, so contract drift fails the
-build.
+Ships as `olly/elk-mcp` (persisted in the in-cluster Zot registry as
+`zot.registry.svc.cluster.local:5000/acme/images/olly/elk-mcp:latest`) via
+`make -C olly-replica build`; the image build runs the contracts round-trip
+tests, so contract drift fails the build.

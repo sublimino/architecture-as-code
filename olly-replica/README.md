@@ -133,9 +133,13 @@ estate view. The full statements and their threat-model rows live in
 One Go module ([apps/](apps/)) builds several images from a single context so
 the contracts bake into each at `/contracts`. The in-build unit tests
 round-trip the Go payload shapes through the schemas, so an image with drifted
-contracts cannot build. These deploy via olly-configs:
+contracts cannot build. `make -C olly-replica build` persists each image in the
+in-cluster Zot registry as
+`zot.registry.svc.cluster.local:5000/acme/images/olly/<name>:latest` (pulled
+`IfNotPresent`), replacing the former `kind load … :dev` flow. These deploy via
+olly-configs:
 
-- **`olly-elk-mcp:dev`** (`apps/cmd/elk-search-mcp`): the read-only MCP gateway.
+- **`olly/elk-mcp`** (`apps/cmd/elk-search-mcp`): the read-only MCP gateway.
   It speaks the MCP protocol (JSON-RPC 2.0 `initialize` / `tools/list` /
   `tools/call`) at `/mcp` and exposes seven tools, each under its own EEMS
   scope: `elk_search_logs` (`elk.logs.read`), `grafana_query_metrics`
@@ -148,7 +152,7 @@ contracts cannot build. These deploy via olly-configs:
   API key scoped to the log and trace patterns, so the process holds no
   superuser credential. Every tool checks its scope, applies query caps, and
   writes an audit line; a pattern outside the ELK allowlist returns 403.
-- **`olly-stubs:dev`** (`apps/cmd/mapping-stub` and `apps/cmd/replay-producer`):
+- **`olly/stubs`** (`apps/cmd/mapping-stub` and `apps/cmd/replay-producer`):
   the IO Mapping Service stand-in. It runs the subscription gate, declines
   automation onto the IO-Declined topic, and owns the only ServiceNow write
   path. It validates every `event_response` payload against the contract
@@ -156,7 +160,7 @@ contracts cannot build. These deploy via olly-configs:
   ticket. Without a PDI it keeps an in-memory store on `:8080`; with one it
   upserts the real incident (see [ServiceNow](#servicenow-the-pdi-write-path)).
   The replay producer emits contract-validated synthetic events.
-- **`olly-sentinel:dev`** (`apps/sentinel`): the agent, on Google ADK (the
+- **`olly/sentinel`** (`apps/sentinel`): the agent, on Google ADK (the
   runtime ARC manages internally) with A2A as its agent-to-agent surface. An
   ADK `BaseAgent` pipeline consumes both topics with schema validation and
   event dedup, resolves the CI and topology from CMDB by correlation-ID,
@@ -211,7 +215,7 @@ mutation. Enable it with `ORBIT_ENABLED` and publish the public key with
 
 `inventory-service`, `payments-api`, and `customer-portal` are the apps Olly
 observes. They run as real Deployments in `olly-replica`, one per `app_id`,
-from the `olly-tenant-app:dev` image (`apps/cmd/tenant-app`). Each serves a
+from the `olly/tenant-app` image (`apps/cmd/tenant-app`). Each serves a
 request-rate, error-rate, and latency histogram at `/metrics`, driven by an
 internal traffic generator so the series stay live without external load. A
 single ServiceMonitor scrapes all three; `app_id` is a metric label, so the

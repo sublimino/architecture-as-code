@@ -46,7 +46,7 @@ make cluster-up      # kind cluster (skip if make up already created it)
 kubectl create ns frontend
 make signing-key     # ed25519 key the processor signs attestations with
 make local-dev       # apply backend + frontend manifests directly
-make build           # build the three images and load them into kind
+make build           # build the three images and persist them in the in-cluster Zot registry
 make test            # bats end-to-end suite
 ```
 

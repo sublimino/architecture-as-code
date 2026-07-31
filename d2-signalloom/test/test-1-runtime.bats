@@ -82,7 +82,7 @@ sys.exit(1)'
   image="$(kubectl -n fe-signalloom get deployment fe-signalloom \
     -o jsonpath='{.spec.template.spec.containers[0].image}')"
   run kubectl -n fe-signalloom run "${TEST_POD_PREFIX}-unauthorised" \
-    --restart=Never --image="$image" --command -- \
+    --restart=Never --image="$image" --image-pull-policy=IfNotPresent --command -- \
     python -c 'import socket,sys
 try:
     socket.create_connection(("postgresql.inf-signalloom.svc.cluster.local", 5432), 3)

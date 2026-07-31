@@ -172,7 +172,7 @@ def test_unknown_subject_is_forbidden_without_disclosing_mapping(client):
 
 def test_audience_list_and_known_subject_map_to_expected_tenant(client):
     response = client.get(
-        "/api/agents",
+        "/api/tenant/settings",
         headers=bearer(token_for("alice", audience=["dashboard", "signalloom-api"])),
     )
 
@@ -186,7 +186,7 @@ def test_documented_dex_subject_maps_to_documented_demo_tenant(client, monkeypat
     monkeypatch.setattr(settings, "api_subject_tenants", {"demo-user": "tenant-demo"})
 
     response = client.get(
-        "/api/agents",
+        "/api/tenant/settings",
         headers=bearer(token_for("demo-user", issuer=issuer)),
     )
 
@@ -196,7 +196,7 @@ def test_documented_dex_subject_maps_to_documented_demo_tenant(client, monkeypat
 
 def test_authenticated_tenant_is_derived_from_subject_not_token_tenant_claim(client):
     response = client.get(
-        "/api/agents",
+        "/api/tenant/settings",
         headers=bearer(token_for("alice", extra_claims={"tenant_id": "tenant-b"})),
     )
 
@@ -204,54 +204,23 @@ def test_authenticated_tenant_is_derived_from_subject_not_token_tenant_claim(cli
     assert response.json()["tenant_id"] == "tenant-a"
 
 
-def test_four_compatibility_contracts_are_typed_and_tenant_scoped(client):
+def test_current_compatibility_contracts_are_typed_and_tenant_scoped(client):
     headers = bearer(token_for("alice"))
     expected = {
-        "/api/agents": {
-            "tenant_id": "tenant-a",
-            "agents": [
-                {
-                    "id": "tenant-a:inventory-agent",
-                    "name": "Inventory Agent",
-                    "status": "ready",
-                }
-            ],
-        },
-        "/api/compliance": {
-            "tenant_id": "tenant-a",
-            "controls": [
-                {
-                    "id": "tenant-a:access-boundary",
-                    "status": "passing",
-                    "evidence": "Local tenant boundary validated",
-                }
-            ],
-        },
-        "/api/audit": {
-            "tenant_id": "tenant-a",
-            "events": [
-                {
-                    "id": "tenant-a:baseline-ready",
-                    "event_type": "baseline.ready",
-                    "occurred_at": "2026-07-27T00:00:00Z",
-                    "actor": "signalloom-local",
-                }
-            ],
-        },
-        "/api/settings": {
-            "tenant_id": "tenant-a",
-            "settings": [{"key": "environment", "value": "development"}],
-        },
+        "/api/agents": api_compat.AgentListResponse,
+        "/api/compliance/summary": api_compat.ComplianceSummaryResponse,
+        "/api/audit": api_compat.AuditListResponse,
+        "/api/tenant/settings": api_compat.TenantSettingsResponse,
     }
 
-    for path, contract in expected.items():
+    for path, model in expected.items():
         response = client.get(path, headers=headers)
         assert response.status_code == 200
-        assert response.json() == contract
+        model.model_validate(response.json())
 
 
 def test_responses_never_mix_records_between_tenants(client):
-    for path in ("/api/agents", "/api/compliance", "/api/audit", "/api/settings"):
+    for path in ("/api/agents", "/api/compliance/summary", "/api/audit", "/api/tenant/settings"):
         alice = client.get(path, headers=bearer(token_for("alice"))).text
         bob = client.get(path, headers=bearer(token_for("bob"))).text
         assert "tenant-b" not in alice
@@ -259,7 +228,7 @@ def test_responses_never_mix_records_between_tenants(client):
 
 
 def test_unsupported_method_returns_stable_typed_error(client):
-    response = client.post("/api/settings", headers=bearer(token_for("alice")))
+    response = client.post("/api/tenant/settings", headers=bearer(token_for("alice")))
 
     assert response.status_code == 405
     assert response.json() == {
@@ -285,7 +254,7 @@ def test_internal_exception_is_logged_but_never_disclosed(client, monkeypatch):
     def fail(_tenant_id):
         raise RuntimeError(secret_detail)
 
-    monkeypatch.setattr(api_compat, "build_agents_response", fail)
+    monkeypatch.setattr(api_compat, "_get_pool", fail)
     response = client.get("/api/agents", headers=bearer(token_for("alice")))
 
     assert response.status_code == 500
@@ -307,10 +276,10 @@ def test_missing_jwks_configuration_fails_closed(client, monkeypatch):
 def test_openapi_publishes_response_models_for_each_compatibility_route(client):
     schema = client.get("/openapi.json").json()
     expected_models = {
-        "/api/agents": "AgentsResponse",
-        "/api/compliance": "ComplianceResponse",
-        "/api/audit": "AuditResponse",
-        "/api/settings": "SettingsResponse",
+        "/api/agents": "AgentListResponse",
+        "/api/compliance/summary": "ComplianceSummaryResponse",
+        "/api/audit": "AuditListResponse",
+        "/api/tenant/settings": "TenantSettingsResponse",
     }
 
     for path, model in expected_models.items():

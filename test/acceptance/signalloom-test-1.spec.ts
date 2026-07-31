@@ -3,6 +3,7 @@ import { expect, test } from "./fixtures";
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://127.0.0.1:18443";
 const API_URL = process.env.SIGNALLOOM_API_URL ?? DASHBOARD_URL;
 const DEX_URL = process.env.SIGNALLOOM_DEX_URL ?? "http://127.0.0.1:15556";
+const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
 
 test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 
@@ -48,7 +49,7 @@ test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
     );
     await page.goto(auth.toString());
     await page.locator('input[name="login"]').fill("demo-user@signalloom.local");
-    await page.locator('input[name="password"]').fill("password");
+    await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
     await page.getByRole("button", { name: /login/i }).click();
     await expect(page.getByText("callback captured")).toBeVisible();
 

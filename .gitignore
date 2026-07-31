@@ -39,3 +39,6 @@ __pycache__/
 
 # .DS_Store
 .DS_Store
+
+# Playwright storage-state / auth artifacts (session material — never commit)
+test/acceptance/.auth/

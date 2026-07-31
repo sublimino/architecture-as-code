@@ -55,20 +55,18 @@ push_and_sign() {
 }
 
 wait_for_parallel_push_slot() {
-  local -n pids_ref="$1"
-  local -n components_ref="$2"
-  local -n failures_ref="$3"
-  local pid="${pids_ref[0]}"
-  local component="${components_ref[0]}"
+  local -n _wp_pids="$1"
+  local -n _wp_components="$2"
+  local -n _wp_failures="$3"
+  local pid="${_wp_pids[0]}"
+  local component="${_wp_components[0]}"
 
-  pids_ref=("${pids_ref[@]:1}")
-  components_ref=("${components_ref[@]:1}")
+  _wp_pids=("${_wp_pids[@]:1}")
+  _wp_components=("${_wp_components[@]:1}")
 
-  # Guard `wait` so errexit does not stop us before we can report every failed
-  # component in the batch.
   if ! wait "$pid"; then
     echo "FATAL: push failed for ${component}" >&2
-    failures_ref+=("$component")
+    _wp_failures+=("$component")
   fi
 }
 

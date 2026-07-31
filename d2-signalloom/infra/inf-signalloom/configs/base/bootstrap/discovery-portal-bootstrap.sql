@@ -112,9 +112,9 @@ BEGIN;
 -- ── Helper: updated_at trigger function ──────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION public.set_updated_at()
-RETURNS TRIGGER LANGUAGE plpgsql AS $$
+RETURNS TRIGGER LANGUAGE plpgsql AS $$$$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
-$$;
+$$$$;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 1. agent_registry
@@ -170,13 +170,13 @@ CREATE TABLE IF NOT EXISTS public.agent_registry (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_agent_registry_updated_at') THEN
     CREATE TRIGGER trg_agent_registry_updated_at
       BEFORE UPDATE ON public.agent_registry
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_registry_tenant_id
     ON public.agent_registry (tenant_id);
@@ -229,13 +229,13 @@ CREATE TABLE IF NOT EXISTS public.agent_violations (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_agent_violations_updated_at') THEN
     CREATE TRIGGER trg_agent_violations_updated_at
       BEFORE UPDATE ON public.agent_violations
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 CREATE INDEX IF NOT EXISTS idx_agent_violations_tenant
     ON public.agent_violations (tenant_id);
@@ -263,13 +263,13 @@ CREATE TABLE IF NOT EXISTS public.governance_frameworks (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_governance_frameworks_updated_at') THEN
     CREATE TRIGGER trg_governance_frameworks_updated_at
       BEFORE UPDATE ON public.governance_frameworks
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 5. governance_controls
@@ -287,13 +287,13 @@ CREATE TABLE IF NOT EXISTS public.governance_controls (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_governance_controls_updated_at') THEN
     CREATE TRIGGER trg_governance_controls_updated_at
       BEFORE UPDATE ON public.governance_controls
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 6. agent_compliance_results
@@ -317,13 +317,13 @@ CREATE TABLE IF NOT EXISTS public.agent_compliance_results (
     UNIQUE (agent_id, control_id)
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_agent_compliance_results_updated_at') THEN
     CREATE TRIGGER trg_agent_compliance_results_updated_at
       BEFORE UPDATE ON public.agent_compliance_results
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 CREATE INDEX IF NOT EXISTS idx_compliance_results_agent
     ON public.agent_compliance_results (tenant_id, agent_id);
@@ -389,13 +389,13 @@ CREATE TABLE IF NOT EXISTS public.tenant_settings (
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_tenant_settings_updated_at') THEN
     CREATE TRIGGER trg_tenant_settings_updated_at
       BEFORE UPDATE ON public.tenant_settings
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 9. tenant_api_keys
@@ -489,13 +489,13 @@ CREATE TABLE IF NOT EXISTS public.nhi_discovered_accounts (
     updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_nhi_discovered_accounts_updated_at') THEN
     CREATE TRIGGER trg_nhi_discovered_accounts_updated_at
       BEFORE UPDATE ON public.nhi_discovered_accounts
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 CREATE INDEX IF NOT EXISTS idx_nhi_accounts_scan
     ON public.nhi_discovered_accounts (tenant_id, scan_id);
@@ -549,13 +549,13 @@ CREATE TABLE IF NOT EXISTS public.support_requests (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-DO $$ BEGIN
+DO $$$$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_support_requests_updated_at') THEN
     CREATE TRIGGER trg_support_requests_updated_at
       BEFORE UPDATE ON public.support_requests
       FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
   END IF;
-END $$;
+END $$$$;
 
 COMMIT;
 -- END 004_agent_governance_schema.sql

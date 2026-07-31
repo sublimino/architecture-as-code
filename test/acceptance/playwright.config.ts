@@ -13,11 +13,16 @@ export default defineConfig({
   },
   projects: [
     {
+      name: "setup",
+      testMatch: "auth.setup.ts",
+    },
+    {
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        storageState: ".auth/state.json",
       },
+      dependencies: ["setup"],
     },
   ],
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],

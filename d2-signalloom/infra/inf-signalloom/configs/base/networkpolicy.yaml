@@ -68,6 +68,28 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: fe-signalloom
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+          podSelector:
+            matchLabels:
+              gateway.envoyproxy.io/owning-gateway-name: cluster
       ports:
         - protocol: TCP
           port: 5556
+---
+# Allow the fe-signalloom HTTPRoute to reference the Dex backend
+# service in this namespace via the Gateway.
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: allow-gateway-to-dex
+spec:
+  from:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      namespace: fe-signalloom
+  to:
+    - group: ""
+      kind: Service
+      name: dex

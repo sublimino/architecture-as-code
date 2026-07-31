@@ -340,7 +340,15 @@ demo-k8s-afm-test: ## Run the AFM backend pytest suite from source.
 demo-k8s-afm-status: ## Show AFM pods + /health.
 	./scripts/k8s-afm.sh status
 
-.PHONY: demo-cpai-up demo-cpai-test-config demo-cpai-test demo-cpai-down
+.PHONY: cpai-foundation cpai-only demo-cpai-up demo-cpai-test-config demo-cpai-test demo-cpai-down
+cpai-foundation: ## Minimal foundation for CPAI only: kind cluster + Zot + cosign keys (no Flux/cert-manager/ingress/monitoring/trivy).
+	$(MAKE) cluster
+	$(MAKE) registry
+	$(MAKE) signing-keys
+cpai-only: cpai-foundation ## Fast path: stand up ONLY the CPAI demo on a minimal foundation, skipping the full shared foundation.
+	$(MAKE) cpai-images
+	./scripts/cpai-up.sh
+	@printf '\nCPAI runtime is up (fast path). Test with:\n  make demo-cpai-test\n  make demo-cpai-conversation\n\n'
 demo-cpai-up: healthcheck ## Build CPAI runtime image, push to Zot, and deploy to cpai namespace.
 	$(MAKE) cpai-images
 	./scripts/cpai-up.sh

@@ -8,6 +8,23 @@ cd "$(dirname "$0")/.."
 echo "==> Applying CPAI runtime manifests to cpai namespace"
 kubectl apply -k d2-cpai/apps/cpai-runtime/local
 
+# The runtime calls Vertex AI, so it needs Application Default Credentials
+# mounted as the cpai-gcp-adc secret. Create/refresh it from the local ADC so a
+# clean `make up` -> `make demo-cpai-up` works hands-off. The deployment mounts
+# the secret as optional, so a missing ADC only degrades model calls (the pod
+# and /healthz still come up) — warn rather than fail.
+ADC_FILE="${GOOGLE_APPLICATION_CREDENTIALS:-$HOME/.config/gcloud/application_default_credentials.json}"
+if [[ -f "${ADC_FILE}" ]]; then
+  echo "==> Creating/refreshing cpai-gcp-adc secret from ${ADC_FILE}"
+  kubectl -n cpai create secret generic cpai-gcp-adc \
+    --from-file=adc.json="${ADC_FILE}" \
+    --dry-run=client -o yaml | kubectl apply -f -
+else
+  echo "!!  WARNING: no ADC at ${ADC_FILE} — model calls will fail." >&2
+  echo "!!  Run 'gcloud auth application-default login' then re-run, or set" >&2
+  echo "!!  GOOGLE_APPLICATION_CREDENTIALS to a service-account key file." >&2
+fi
+
 # The image tag is :latest with imagePullPolicy IfNotPresent, so a re-apply
 # after `make cpai-images` produces no manifest diff and would keep serving the
 # stale pod. Force a fresh pod so a freshly built+signed image is always picked

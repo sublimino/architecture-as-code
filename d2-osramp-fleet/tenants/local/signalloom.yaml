@@ -148,10 +148,6 @@ spec:
           name: << inputs.component >>
         path: ./configs/<< inputs.environment >>
         prune: true
-        postBuild:
-          substituteFrom:
-            - kind: ConfigMap
-              name: flux-runtime-info
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet

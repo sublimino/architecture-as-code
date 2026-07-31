@@ -11,45 +11,9 @@
  * svc/dashboard-signalloom 5173:8080).
  */
 import { test, expect } from "./fixtures";
-import type { Page } from "@playwright/test";
+import { login, config } from "./helpers";
 
-const BASE = process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173";
-const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
-const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
-
-async function login(page: Page): Promise<void> {
-  // Drive the dashboard in its built-in demo-data mode so every screen renders
-  // from local fixtures. This is the dashboard's designed path for exercising the
-  // UI while the local platform API is still being reconciled (issuer/JWT wiring
-  // is owned by the in-flight Dex/gateway workstreams), keeping these smoke tests
-  // deterministic and focused on the frontend. Auth (Dex login) is unaffected.
-  await page.addInitScript(() => {
-    try {
-      window.localStorage.setItem("sl_demo_mode", "true");
-    } catch {
-      /* storage unavailable — the in-memory default still applies */
-    }
-  });
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
-  const loginInput = page.locator('input[name="login"]');
-  // A fresh context has no stored token, so the app redirects to Dex and the
-  // login form appears. Wait for it explicitly (isVisible() does not wait); if it
-  // never shows, assume an already-authenticated session and fall through.
-  const needsLogin = await loginInput
-    .waitFor({ state: "visible", timeout: 15_000 })
-    .then(() => true)
-    .catch(() => false);
-  if (needsLogin) {
-    await loginInput.fill(USER);
-    await page.locator('input[name="password"]').fill(PASS);
-    await Promise.all([
-      page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
-      page.getByRole("button", { name: /login|sign in|submit/i }).click(),
-    ]);
-  }
-  // Authenticated: the sidebar is mounted.
-  await expect(page.getByRole("link", { name: "Agents", exact: true })).toBeVisible({ timeout: 15_000 });
-}
+const BASE = config.base;
 
 type PageCase = {
   nav: string;

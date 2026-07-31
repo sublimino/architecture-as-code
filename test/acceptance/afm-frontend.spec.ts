@@ -1,54 +1,26 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { login, config, afm } from "./helpers";
 
 /**
  * AFM Frontend Test Suite — runs against both standalone and iframe modes.
  *
  * MODE=standalone  → tests hit AFM directly at http://localhost:18000/dashboard/
  * MODE=iframe      → tests hit AFM through Signal Loom at http://localhost:5173/dashboard/
- *
- * Both modes exercise the same AFM frontend assertions. The iframe mode additionally
- * validates that assets load correctly through the nginx proxy.
- *
- * Preconditions:
- *   - AFM running: make demo-k8s-afm-up
- *   - Dashboard running: kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
- *   - (standalone only): kubectl -n fe-k8s-afm port-forward svc/afm-platform 18000:8000
- *   - At least one cluster seeded: scripts/rbac-to-afm.py
  */
 
 const MODE = (process.env.AFM_TEST_MODE ?? "iframe") as "standalone" | "iframe";
-
-// In iframe mode, the AFM frontend is served through the Signal Loom nginx proxy.
-// In standalone mode, it's served directly from the AFM pod.
 const AFM_BASE = MODE === "standalone"
   ? (process.env.AFM_URL ?? "http://localhost:18000")
-  : (process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173");
-
+  : config.base;
 const DASHBOARD_PATH = "/dashboard/";
-const SL_BASE = process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173";
-const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
-const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
-
-async function loginIfNeeded(page: Page) {
-  if (MODE !== "iframe") return;
-  // In iframe mode, navigating to the SL-proxied dashboard may trigger Dex login
-  // if there's no session. Navigate to SL first to authenticate.
-  await page.goto(SL_BASE, { waitUntil: "domcontentloaded" });
-  const loginInput = page.locator('input[name="login"]');
-  if (await loginInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await loginInput.fill(USER);
-    await page.locator('input[name="password"]').fill(PASS);
-    await Promise.all([
-      page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
-      page.getByRole("button", { name: /login|sign in|submit/i }).click(),
-    ]);
-    await page.waitForURL(/\/(agents|compliance)/, { timeout: 20_000 });
-  }
-}
 
 test.describe(`AFM Frontend (${MODE} mode)`, () => {
+  test.beforeAll(async ({ request }) => {
+    await afm.assertHealthy(request);
+  });
+
   test.beforeEach(async ({ page }) => {
-    await loginIfNeeded(page);
+    if (MODE === "iframe") await login(page);
   });
 
   test("dashboard page loads and renders the title", async ({ page }) => {
@@ -64,11 +36,11 @@ test.describe(`AFM Frontend (${MODE} mode)`, () => {
     expect(resp.ok()).toBeTruthy();
     const clusters = await resp.json();
     expect(clusters.length, "Expected at least one seeded cluster").toBeGreaterThanOrEqual(1);
-    // Wait for React to hydrate — look for any MUI/Next content rendered
-    await page.waitForTimeout(5_000);
-    // Verify the page isn't blank (the dashboard renders something)
-    const body = await page.textContent("body");
-    expect(body?.length, "Dashboard body should have content after hydration").toBeGreaterThan(50);
+    // Poll until the page has substantial content (React hydration complete)
+    await expect(async () => {
+      const body = await page.textContent("body");
+      expect(body?.length, "Dashboard should have content after hydration").toBeGreaterThan(50);
+    }).toPass({ timeout: 10_000 });
   });
 
   test("API health endpoint returns ok through the proxy", async ({ page }) => {

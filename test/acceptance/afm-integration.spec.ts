@@ -1,32 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { login, config, afm } from "./helpers";
 
-// AFM integration tests — prove the KubeSec-AFM dashboard is accessible
-// through Signal Loom's nginx proxy and renders inside the RBAC Analysis page.
-//
-// Preconditions:
-//   kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
-//   make demo-k8s-afm-up  (AFM must be running)
-const BASE = process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173";
-const USER = process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local";
-const PASS = process.env.SIGNALLOOM_PASS ?? "demo-user";
-
-async function login(page: import("@playwright/test").Page) {
-  await page.goto(BASE, { waitUntil: "domcontentloaded" });
-  const loginInput = page.locator('input[name="login"]');
-  await expect(loginInput).toBeVisible({ timeout: 15_000 });
-  await loginInput.fill(USER);
-  await page.locator('input[name="password"]').fill(PASS);
-  await Promise.all([
-    page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
-    page.getByRole("button", { name: /login|sign in|submit/i }).click(),
-  ]);
-  await page.waitForURL(/\/(agents|compliance|audit|settings)?$|\/agents/, { timeout: 20_000 });
-  await expect(
-    page.getByText(/agents|compliance|audit trail|settings/i).first(),
-  ).toBeVisible({ timeout: 15_000 });
-}
+const BASE = config.base;
 
 test.describe("AFM integration in Signal Loom", () => {
+  test.beforeAll(async ({ request }) => {
+    await afm.assertHealthy(request);
+  });
+
   test.beforeEach(async ({ page }) => {
     await login(page);
   });

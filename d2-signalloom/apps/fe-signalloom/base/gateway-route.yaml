@@ -19,6 +19,25 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
+  name: signalloom-dex
+spec:
+  parentRefs:
+    - name: cluster
+      namespace: ingress
+      sectionName: https
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /dex
+      backendRefs:
+        - name: dex
+          namespace: inf-signalloom
+          port: 5556
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
   name: signalloom-api
 spec:
   parentRefs:

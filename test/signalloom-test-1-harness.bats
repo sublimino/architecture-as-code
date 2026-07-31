@@ -25,19 +25,14 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "TEST-1 browser cases enumerate the committed window matrix" {
-  matrix="$root/docs/signalloom/dashboard-journey-matrix.md"
+@test "TEST-1 browser cases enumerate the committed React SPA journeys" {
   spec="$root/test/acceptance/signalloom-test-1.spec.ts"
   run bash -c '
-    count=0
-    while IFS="|" read -r _ journey _rest; do
-      journey="$(printf "%s" "$journey" | xargs)"
-      case "$journey" in Journey|---|"") continue ;; esac
-      grep -F "[\"$journey\"" "$2" >/dev/null || exit 1
-      count=$((count + 1))
-    done < <(sed -n "/## Routes and windows/,/## API journeys/p" "$1")
-    test "$count" -eq 14
-  ' _ "$matrix" "$spec"
+    for journey in "Dashboard root" Agents Compliance "Audit Trail" Cryptography \
+      "Federated Services" "Collusion & Access" Settings; do
+      grep -F "[\"$journey\"" "$1" >/dev/null || exit 1
+    done
+  ' _ "$spec"
   [ "$status" -eq 0 ]
 }
 

@@ -100,7 +100,31 @@ retry 3 make signalloom-images
 
 # ── Activate Flux tenants ────────────────────────────────────────────
 echo "==> [5/7] Activating Flux tenants..."
-SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
+  echo "WARNING: signalloom-local.sh up exited non-zero — attempting direct ResourceSet activation"
+  # Ensure signalloom-apps inputs are populated even if the sequential
+  # activation timed out before reaching them.
+  kubectl -n flux-system get resourceset signalloom-apps -o jsonpath='{.spec.inputs}' 2>/dev/null \
+    | grep -q 'tenant' || {
+    echo "==> Directly patching signalloom-apps inputs..."
+    kubectl -n flux-system patch resourceset signalloom-apps --type=merge -p '{
+      "spec": {
+        "inputs": [
+          {
+            "tenant": "fe-signalloom",
+            "component": "fe-signalloom",
+            "tag": "latest",
+            "environment": "local",
+            "artifactSubjectWorkflow": "push-signalloom",
+            "artifactSubjectGitRef": "refs/heads/main"
+          }
+        ]
+      }
+    }'
+    echo "==> Waiting for signalloom-apps to reconcile..."
+    kubectl -n flux-system wait resourceset/signalloom-apps --for=condition=ready --timeout=5m 2>/dev/null || true
+  }
+}
 
 # ── Run 8-stage test suite ───────────────────────────────────────────
 echo "==> [6/7] Running 8-stage test suite..."

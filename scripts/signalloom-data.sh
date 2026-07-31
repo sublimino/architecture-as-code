@@ -79,27 +79,47 @@ stop_port_forward() {
 trap stop_port_forward EXIT
 
 # ── psql wrapper ─────────────────────────────────────────────────────────────
+# Prefer local psql if installed; otherwise exec into the PostgreSQL pod.
 
-run_sql() {
-    local file="$1"
-    PGPASSWORD="${PG_PASSWORD}" psql \
-        -h "${PGHOST:-localhost}" \
-        -p "${PGPORT:-$LOCAL_PORT}" \
+_has_local_psql() { command -v psql >/dev/null 2>&1; }
+
+_psql_via_pod() {
+    kubectl -n "${PG_NAMESPACE}" exec -i "svc/${PG_SERVICE}" -- \
+        env PGPASSWORD="${PG_PASSWORD}" psql \
         -U "${PG_USER}" \
         -d "${PG_DATABASE}" \
         -v ON_ERROR_STOP=1 \
-        -f "${file}"
+        "$@"
+}
+
+run_sql() {
+    local file="$1"
+    if _has_local_psql; then
+        PGPASSWORD="${PG_PASSWORD}" psql \
+            -h "${PGHOST:-localhost}" \
+            -p "${PGPORT:-$LOCAL_PORT}" \
+            -U "${PG_USER}" \
+            -d "${PG_DATABASE}" \
+            -v ON_ERROR_STOP=1 \
+            -f "${file}"
+    else
+        _psql_via_pod < "${file}"
+    fi
 }
 
 run_sql_cmd() {
     local cmd="$1"
-    PGPASSWORD="${PG_PASSWORD}" psql \
-        -h "${PGHOST:-localhost}" \
-        -p "${PGPORT:-$LOCAL_PORT}" \
-        -U "${PG_USER}" \
-        -d "${PG_DATABASE}" \
-        -v ON_ERROR_STOP=1 \
-        -c "${cmd}"
+    if _has_local_psql; then
+        PGPASSWORD="${PG_PASSWORD}" psql \
+            -h "${PGHOST:-localhost}" \
+            -p "${PGPORT:-$LOCAL_PORT}" \
+            -U "${PG_USER}" \
+            -d "${PG_DATABASE}" \
+            -v ON_ERROR_STOP=1 \
+            -c "${cmd}"
+    else
+        _psql_via_pod -c "${cmd}"
+    fi
 }
 
 # ── Commands ─────────────────────────────────────────────────────────────────

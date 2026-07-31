@@ -26,6 +26,9 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
       ports:
         - protocol: TCP
           port: 5432

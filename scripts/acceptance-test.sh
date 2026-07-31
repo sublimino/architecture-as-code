@@ -101,6 +101,11 @@ fi
 
 echo "==> Running Playwright tests..."
 cd "${TEST_DIR}"
+# Ensure node_modules are installed (bunx playwright requires @playwright/test)
+if [[ ! -d node_modules/@playwright ]]; then
+  echo "    Installing Playwright dependencies..."
+  bun install --frozen-lockfile 2>/dev/null || bun install
+fi
 set +e
 bunx playwright test --config=playwright.config.ts "$@"
 EXIT=$?

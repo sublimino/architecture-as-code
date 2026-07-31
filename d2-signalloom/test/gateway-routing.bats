@@ -49,9 +49,14 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "Gateway exposes no internal Signalloom dependency" {
-  run grep -E 'name: (fake-integration-proxy|dex|postgres|redis|minio)' "$routes"
+@test "Gateway exposes only the external Dex dependency" {
+  run grep -E 'name: (fake-integration-proxy|postgres|redis|minio)' "$routes"
   [ "$status" -ne 0 ]
+
+  run grep -F 'name: dex' "$routes"
+  [ "$status" -eq 0 ]
+  run grep -F 'namespace: inf-signalloom' "$routes"
+  [ "$status" -eq 0 ]
 
   run kubectl kustomize "$repo_root/d2-signalloom/infra/inf-signalloom/configs/local"
   [ "$status" -eq 0 ]

@@ -71,6 +71,8 @@ patches:
       kind: ResourceSet
       name: signalloom-apps
     patch: |
+      # Index 7: OCIRepository (after Namespace, ConfigMap, Secret, SA,
+      # RoleBinding-admin, Role-gateway-routes, RoleBinding-gateway-routes)
       - op: replace
         path: /spec/resources/7/spec/verify
         value:

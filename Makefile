@@ -17,6 +17,7 @@ OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo
 D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
+CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
 
 .PHONY: up
@@ -174,6 +175,36 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy; \
 	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev
 
+.PHONY: cpai-images
+cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.
+	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
+	PORT_FORWARD_PID=$$!; \
+	IMAGE_TAR=$$(mktemp); \
+	trap 'kill $$PORT_FORWARD_PID 2>/dev/null || true; rm -f "$$IMAGE_TAR"' EXIT; \
+	for _ in $$(seq 1 60); do \
+		curl -fsS http://localhost:5001/v2/ >/dev/null 2>&1 && break; \
+		sleep 0.5; \
+	done; \
+	curl -fsS http://localhost:5001/v2/ >/dev/null; \
+	docker build -f $(CPAI_CLI_ROOT)/Dockerfile.runtime \
+		-t zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest \
+		$(CPAI_CLI_ROOT); \
+	kind load docker-image --name $(CLUSTER_NAME) \
+		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
+	docker save -o "$$IMAGE_TAR" \
+		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
+	crane push --insecure "$$IMAGE_TAR" \
+		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest; \
+	DIGEST=$$(crane digest --insecure \
+		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest); \
+	COSIGN_PASSWORD="" cosign sign --yes \
+		--key $(KEYS_DIR)/cosign.key \
+		--use-signing-config=false \
+		--tlog-upload=false \
+		--allow-insecure-registry \
+		--registry-referrers-mode=legacy \
+		"localhost:5001/acme/images/cpai/apps/cpai-runtime@$${DIGEST}"
+
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.
 	@for i in $$(seq 1 60); do \
@@ -194,7 +225,7 @@ healthcheck: ## Verify the shared cluster foundation is ready for demos.
 
 .PHONY: demo-help
 demo-help: ## Show demos available after the shared cluster becomes healthy.
-	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n\n'
+	@printf '\nCluster foundation is ready. No demos are running.\n\nNext: choose one demo to start:\n  make demo-signalloom-up\n  make demo-osramp-up\n  make demo-olly-up\n  make demo-bao-up\n  make demo-cpai-up\n\n'
 
 .PHONY: olly-pdi-secret
 olly-pdi-secret: ## Create the ServiceNow PDI secret from .env (no-op without one).
@@ -309,6 +340,19 @@ demo-k8s-afm-test: ## Run the AFM backend pytest suite from source.
 demo-k8s-afm-status: ## Show AFM pods + /health.
 	./scripts/k8s-afm.sh status
 
+.PHONY: demo-cpai-up demo-cpai-test-config demo-cpai-test demo-cpai-down
+demo-cpai-up: healthcheck ## Build CPAI runtime image, push to Zot, and deploy to cpai namespace.
+	$(MAKE) cpai-images
+	./scripts/cpai-up.sh
+demo-cpai-test-config: ## Render and validate CPAI Kustomize overlays without a cluster.
+	$(MAKE) -C d2-cpai test
+demo-cpai-test: demo-cpai-test-config ## Run CPAI runtime smoke tests against the running cluster.
+	bats d2-cpai/test/cpai-runtime.bats
+demo-cpai-conversation: ## Run 3-turn aichat conversation e2e test against the CPAI runtime.
+	bats d2-cpai/test/conversation.bats
+demo-cpai-down: ## Remove the CPAI runtime demo namespace.
+	./scripts/cpai-down.sh
+
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
 demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.
@@ -413,3 +457,32 @@ signalloom-up: ## Restore Signal Loom frontend to the cluster.
 .PHONY: acceptance-test
 acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 	./scripts/acceptance-test.sh
+
+##@ CI
+
+.PHONY: ci-provision
+ci-provision: ## One-time: create the persistent GCP CI VM + networking.
+	./scripts/ci/gcp-ci.sh provision
+
+.PHONY: ci-gcp
+ci-gcp: ## Resume the CI VM, run Signalloom D2 e2e, suspend on pass.
+	./scripts/ci/gcp-ci.sh run
+
+.PHONY: ci-ssh
+ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).
+	./scripts/ci/gcp-ci.sh ssh
+
+.PHONY: ci-status
+ci-status: ## Show CI VM status (RUNNING / SUSPENDED / etc).
+	./scripts/ci/gcp-ci.sh status
+
+.PHONY: ci-report
+ci-report: ## View the last OpenReports report from a ci-gcp run.
+	@if [ -f ci-reports/summary.json ]; then \
+		jq . ci-reports/summary.json; \
+	else \
+		echo "No report found. Run 'make ci-gcp' first."; \
+	fi
+	@if [ -f ci-reports/signalloom-ci-report.yaml ]; then \
+		echo "OpenReports: ci-reports/signalloom-ci-report.yaml"; \
+	fi

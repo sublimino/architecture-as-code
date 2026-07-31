@@ -1,7 +1,7 @@
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-.PHONY: test bootstrap-drift bao-test-config
+.PHONY: test test-netassert bootstrap-drift bao-test-config
 test: ## Validate the D2 topology, dependency components, and Discovery Portal package.
 	./test/validate-topology.sh
 	bash ./test/validate-dependencies.sh
@@ -12,6 +12,10 @@ bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh
 	kubectl kustomize infra/inf-bao/controllers/local >/dev/null
 	kubectl kustomize infra/inf-bao/configs/local >/dev/null
+
+test-netassert: ## Validate NetworkPolicy enforcement with netassert (needs running cluster).
+	@command -v netassert >/dev/null 2>&1 || { echo "netassert not installed — see https://github.com/controlplaneio/netassert"; exit 1; }
+	netassert run --config test/netassert-signalloom.yaml
 
 bootstrap-drift: ## Regenerate bootstrap SQL and compare it with the committed contract.
 	bash ./test/check-bootstrap-drift.sh

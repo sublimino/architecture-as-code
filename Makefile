@@ -75,6 +75,10 @@ down: ## Delete the kind cluster.
 .PHONY: cluster-down
 cluster-down: down ## Phase 2 alias: delete the shared Kind cluster.
 
+.PHONY: cluster-debug
+cluster-debug: ## Dump all cluster errors, unhealthy pods, Flux failures, and resource state.
+	./scripts/cluster-debug.sh
+
 .PHONY: teardown
 teardown: ## Tear down the environment: delete the cluster + local build state.
 	./scripts/teardown.sh

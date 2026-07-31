@@ -27,7 +27,25 @@ wait_for_resource() {
   name=$(echo "$resource" | cut -d/ -f3)
 
   echo "waiting for ${kind}/${name} in ${namespace}"
-  kubectl -n "$namespace" wait "$kind/$name" --for=condition=ready --timeout=10m
+
+  # Flux creates these objects (and their namespaces) asynchronously after the
+  # foundation is applied. `kubectl wait` errors immediately on a missing
+  # object/namespace, so on a cold cluster it loses a race against Flux and
+  # fails the gate even though reconciliation would converge (e.g. trivy-system
+  # depends on the ServiceMonitor CRD that the monitoring stack installs later).
+  # Poll for existence first, then wait for readiness, within one bounded budget.
+  local deadline=$(( SECONDS + 720 ))
+  until kubectl -n "$namespace" get "$kind/$name" >/dev/null 2>&1; do
+    if (( SECONDS >= deadline )); then
+      echo "FATAL: ${kind}/${name} in ${namespace} never appeared" >&2
+      return 1
+    fi
+    sleep 5
+  done
+
+  local remaining=$(( deadline - SECONDS ))
+  (( remaining < 30 )) && remaining=30
+  kubectl -n "$namespace" wait "$kind/$name" --for=condition=ready --timeout="${remaining}s"
 }
 
 resource_pids=()

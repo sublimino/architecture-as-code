@@ -7,5 +7,5 @@ spec:
     spec:
       containers:
       - name: archiver
-        image: archiver:dev
-        imagePullPolicy: Never
+        image: ${IMAGE_BASE}/osramp/archiver:${ARTIFACT_TAG}
+        imagePullPolicy: IfNotPresent

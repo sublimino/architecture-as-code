@@ -7,8 +7,8 @@ spec:
     spec:
       containers:
       - name: listener
-        image: listener:dev
-        imagePullPolicy: Never
+        image: ${IMAGE_BASE}/osramp/listener:${ARTIFACT_TAG}
+        imagePullPolicy: IfNotPresent
       - name: processor
-        image: processor:dev
-        imagePullPolicy: Never
+        image: ${IMAGE_BASE}/osramp/processor:${ARTIFACT_TAG}
+        imagePullPolicy: IfNotPresent

@@ -51,18 +51,28 @@ kubectl -n ingress port-forward svc/envoy-ingress-cluster-* 18443:443
 
 ## Dashboard SPA Routes
 
-| Route | Page | Data |
-|-------|------|------|
-| `/agents` | Agents (default) | API |
-| `/compliance` | Compliance | API |
-| `/audit` | Audit Trail | API |
-| `/cryptography` | Cryptography | Mock |
-| `/federated-services` | Federated Services | Mock |
-| `/collusion-access` | Collusion & Access | Mock |
-| `/rbac-analysis` | RBAC Analysis | Mock |
-| `/settings` | Settings | API |
+| Route | Page | Data | Superadmin-only |
+|-------|------|------|-----------------|
+| `/agents` | Agents (default) | API | |
+| `/compliance` | Compliance | API | |
+| `/audit` | Audit Trail | API | |
+| `/cryptography` | Cryptography | Mock | ✓ |
+| `/federated-services` | Federated Services | Mock | ✓ |
+| `/collusion-access` | Collusion & Access | Mock | ✓ |
+| `/rbac-analysis` | RBAC Analysis + importer | AFM | ✓ |
+| `/rbac-explorer` | RBAC Explorer | AFM | ✓ |
+| `/supercred` | SuperCred demo | fake-integration-proxy | |
+| `/settings` | Settings | API | |
 
-DemoToggle (bottom-right) switches live API ↔ local fixture data.
+Corner widgets, bottom-right: **ThemeToggle** (Dark / Light / Andy) then **DemoToggle** (live API ↔
+local fixture data).
+
+**Superadmin** is a sidebar toggle below Help & Support, rendered only for `demo-user`. It hides or
+shows the five marked nav entries. It is **visibility, not authorization** — every route stays
+registered and reachable by direct URL. The eligibility predicate in `src/auth/superadmin.ts` is a
+temporary stand-in for the user-authentication table; replace its body when RBAC lands.
+
+Full reference: [`docs/signalloom/dashboard-superadmin-themes-importer.md`](../docs/signalloom/dashboard-superadmin-themes-importer.md).
 
 ## Testing
 

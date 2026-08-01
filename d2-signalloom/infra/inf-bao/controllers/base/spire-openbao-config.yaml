@@ -13,7 +13,7 @@ metadata:
   name: spire-agent-config
 data:
   agent.conf: |
-    agent { data_dir = "/run/spire/data" socket_path = "/run/spire/sockets/agent.sock" trust_domain = "signalloom.demo" server_address = "spire-server.inf-bao.svc.cluster.local" server_port = "8081" insecure_bootstrap = true join_token = "$${JOIN_TOKEN}" }
+    agent { data_dir = "/run/spire/data" socket_path = "/run/spire/sockets/agent.sock" trust_domain = "signalloom.demo" server_address = "spire-server.inf-bao.svc.cluster.local" server_port = "8081" insecure_bootstrap = true join_token = "${JOIN_TOKEN}" }
     plugins { KeyManager "memory" { } NodeAttestor "join_token" { } WorkloadAttestor "k8s" { plugin_data { skip_kubelet_verification = true } } }
 ---
 apiVersion: v1

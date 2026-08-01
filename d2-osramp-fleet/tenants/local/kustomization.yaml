@@ -49,10 +49,11 @@ patches:
       kind: ResourceSet
       name: signalloom-infra
     patch: |
-      # Index 7: OCIRepository (after Namespace, ConfigMap, Secret, SA,
-      # RoleBinding-admin, Role-gateway-api, RoleBinding-gateway-api)
+      # Index 9: OCIRepository (after Namespace, ConfigMap, Secret, SA,
+      # RoleBinding-admin, Role-gateway-api, RoleBinding-gateway-api,
+      # ClusterRole-ns-patch, ClusterRoleBinding-ns-patch)
       - op: replace
-        path: /spec/resources/7/spec/verify
+        path: /spec/resources/9/spec/verify
         value:
           provider: cosign
           secretRef:
@@ -73,10 +74,11 @@ patches:
       kind: ResourceSet
       name: signalloom-apps
     patch: |
-      # Index 7: OCIRepository (after Namespace, ConfigMap, Secret, SA,
-      # RoleBinding-admin, Role-gateway-routes, RoleBinding-gateway-routes)
+      # Index 9: OCIRepository (after Namespace, ConfigMap, Secret, SA,
+      # RoleBinding, Role-gateway-routes, RoleBinding-gateway-routes,
+      # ClusterRole-ns-patch, ClusterRoleBinding-ns-patch)
       - op: replace
-        path: /spec/resources/7/spec/verify
+        path: /spec/resources/9/spec/verify
         value:
           provider: cosign
           secretRef:

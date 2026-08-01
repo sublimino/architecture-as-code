@@ -55,8 +55,16 @@ chmod 440 "/etc/sudoers.d/${CI_USER}"
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -yqq nodejs
 
-# ── Playwright Chromium deps ─────────────────────────────────────────
+# ── Playwright: install Chrome + Chromium + ffmpeg ───────────────────
+# The test config uses channel: "chrome" which needs Google Chrome.
+# Also install Chromium as fallback and ffmpeg for video recording.
+apt-get install -yqq google-chrome-stable 2>/dev/null || {
+  curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o /tmp/chrome.deb
+  apt-get install -yqq /tmp/chrome.deb || true
+  rm -f /tmp/chrome.deb
+}
 npx playwright install-deps chromium 2>/dev/null || true
+npx playwright install chromium ffmpeg 2>/dev/null || true
 
 # ── uv (Python package manager) ─────────────────────────────────────
 curl -LsSf https://astral.sh/uv/install.sh | sh

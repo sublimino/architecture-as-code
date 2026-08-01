@@ -2,9 +2,6 @@
 # healthcheck.sh — verify the shared cluster foundation before any demo starts.
 set -euo pipefail
 
-# shellcheck source=scripts/lib/wait.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
-
 timeout="${CLUSTER_HEALTHCHECK_TIMEOUT:-5m}"
 
 echo "checking Kubernetes API server"
@@ -31,7 +28,7 @@ for resource in "${resources[@]}"; do
   namespace="${remainder%%/*}"
   name="${remainder##*/}"
   echo "checking ${kind}/${name} in ${namespace}"
-  wait_flux_ready "$kind" "$name" -n "$namespace" 300
+  kubectl -n "$namespace" wait "${kind}/${name}" --for=condition=ready --timeout="$timeout"
 done
 
 echo "cluster foundation is healthy; no demos are running"

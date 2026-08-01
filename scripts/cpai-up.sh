@@ -4,8 +4,6 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-# shellcheck source=scripts/lib/wait.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 echo "==> Applying CPAI runtime manifests to cpai namespace"
 kubectl apply -k d2-cpai/apps/cpai-runtime/local
@@ -35,7 +33,7 @@ echo "==> Forcing rollout so a freshly built image is picked up"
 kubectl -n cpai rollout restart deployment/cpai-runtime
 
 echo "==> Waiting for cpai-runtime deployment to roll out"
-wait_rollout cpai-runtime -n cpai 120
+kubectl -n cpai rollout status deployment/cpai-runtime --timeout=120s
 
 echo "==> CPAI runtime is up in namespace 'cpai'"
 kubectl -n cpai get pods -l app.kubernetes.io/name=cpai-runtime

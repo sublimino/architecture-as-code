@@ -4,8 +4,6 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 readonly repo_root
-# shellcheck source=scripts/lib/wait.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 readonly timeout="${DEMO_WAIT_TIMEOUT:-10m}"
 
 usage() {
@@ -28,13 +26,13 @@ require_command() {
 wait_resourceset() {
   local name="$1"
   printf 'waiting for Flux ResourceSet/%s\n' "$name"
-  wait_flux_ready ResourceSet "$name" -n flux-system 600
+  kubectl -n flux-system wait "resourceset/$name" --for=condition=ready --timeout="$timeout"
 }
 
 wait_namespace() {
   local namespace="$1"
   printf 'waiting for tenant namespace/%s\n' "$namespace"
-  wait_k8s_exists namespace "$namespace" 120
+  kubectl get namespace "$namespace" >/dev/null
 }
 
 prepare() {
@@ -68,6 +66,9 @@ up() {
   wait_namespace inf-bao
   "$repo_root/scripts/demo-lifecycle.sh" bao-up
   wait_namespace inf-signalloom
+  # Pre-create the agent-inventory namespace so the apps kustomization's
+  # server-side dry-run doesn't reject cross-namespace RBAC resources.
+  kubectl create namespace fe-signalloom-agents --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
   activate_resourceset signalloom-apps '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"local","tag":"latest","tenant":"fe-signalloom"}]'
   "$repo_root/scripts/demo-lifecycle.sh" signalloom-up
   wait_resourceset signalloom-apps

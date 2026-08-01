@@ -40,7 +40,9 @@ preflight_cluster() {
     || fail "OpenBao not running — run make demo-signalloom-up first"
   wait_k8s_ready deployment spire-server -n "$NAMESPACE_BAO" 30 \
     || fail "SPIRE server not running — run make demo-signalloom-up first"
-  ok "cluster healthy, OpenBao + SPIRE running"
+  wait_pods_ready "app.kubernetes.io/name=spire-agent" -n "$NAMESPACE_BAO" 60 \
+    || fail "SPIRE agent not ready — the agent needs a valid join token. Check: kubectl -n inf-bao logs daemonset/spire-agent"
+  ok "cluster healthy, OpenBao + SPIRE + agent running"
 }
 
 preflight_step1_deployed() {

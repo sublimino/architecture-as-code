@@ -2,9 +2,6 @@
 # Composable, deliberately narrow lifecycle operations for the Signal Loom demo.
 set -euo pipefail
 
-# shellcheck source=scripts/lib/wait.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
-
 readonly BAO_NAMESPACE="${BAO_NAMESPACE:-inf-bao}"
 readonly BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
 readonly SIGNALLOOM_NAMESPACE="${SIGNALLOOM_NAMESPACE:-fe-signalloom}"
@@ -22,14 +19,14 @@ require_command() { command -v "$1" >/dev/null 2>&1 || { printf 'required comman
 wait_kustomization() {
   local namespace="$1" name="$2"
   flux reconcile kustomization "$name" -n "$namespace" --with-source
-  wait_flux_ready kustomization "$name" -n "$namespace" 600
+  kubectl -n "$namespace" wait "kustomization/$name" --for=condition=ready --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
 }
 
 reconcile_slice() {
   local namespace="$1"
   require_command kubectl
   require_command flux
-  wait_k8s_exists namespace "$namespace" 120
+  kubectl get namespace "$namespace" >/dev/null
   wait_kustomization "$namespace" infra-controllers
   wait_kustomization "$namespace" infra-configs
 }
@@ -118,17 +115,18 @@ configure_openbao_jwt_validation() {
 bao_up() {
   require_command kubectl
   require_command flux
-  wait_k8s_exists namespace "$BAO_NAMESPACE" 120
+  kubectl get namespace "$BAO_NAMESPACE" >/dev/null
   wait_kustomization "$BAO_NAMESPACE" infra-controllers
+  # SPIRE join tokens are single-use. Delete the agent pod FIRST so no
+  # CrashLoopBackOff pod can consume the token we're about to generate.
+  kubectl -n "$BAO_NAMESPACE" delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found --wait=true
   bootstrap_spire_agent_join_token
-  # SPIRE join tokens are single-use. Restart an existing agent after replacing
-  # the projected token so repeated local reconciliation cannot retain it.
-  kubectl -n "$BAO_NAMESPACE" delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found
+  # The DaemonSet recreates the agent pod, which reads the fresh token.
   # OpenBao uses ephemeral local storage in this demo. Re-run its idempotent
   # bootstrap after reconciliation so a restarted server regains JWT auth.
   kubectl -n "$BAO_NAMESPACE" delete job openbao-spire-bootstrap --ignore-not-found --wait=true
   wait_kustomization "$BAO_NAMESPACE" infra-configs
-  wait_k8s_ready job openbao-spire-bootstrap -n "$BAO_NAMESPACE" --for condition=complete 600
+  kubectl -n "$BAO_NAMESPACE" wait job/openbao-spire-bootstrap --for=condition=complete --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
   register_spire_proof_identity
   configure_openbao_jwt_validation
 }
@@ -142,7 +140,7 @@ signalloom_up() {
   # supported local up observes the just-reconciled configuration and images.
   kubectl -n inf-signalloom rollout restart deployment/dex
   sleep 2  # Avoid "restart already triggered within past second" race
-  wait_rollout dex -n inf-signalloom 600
+  kubectl -n inf-signalloom rollout status deployment/dex --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
   # Proof Jobs may have reached a terminal state before the SPIRE registration
   # created by bao_up became available. Recreate both exact proofs so this run
   # observes current identity state and scores expected denial as success.
@@ -150,11 +148,11 @@ signalloom_up() {
     bao-spire-positive-proof bao-spire-negative-proof \
     --ignore-not-found --wait=true
   flux reconcile kustomization apps -n "$SIGNALLOOM_NAMESPACE" --with-source
-  wait_flux_ready kustomization apps -n "$SIGNALLOOM_NAMESPACE" 600
+  kubectl -n "$SIGNALLOOM_NAMESPACE" wait kustomization/apps --for=condition=ready --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
   kubectl -n "$SIGNALLOOM_NAMESPACE" rollout restart \
     deployment/fe-signalloom deployment/dashboard-signalloom
-  wait_rollout fe-signalloom -n "$SIGNALLOOM_NAMESPACE" 600
-  wait_rollout dashboard-signalloom -n "$SIGNALLOOM_NAMESPACE" 600
+  kubectl -n "$SIGNALLOOM_NAMESPACE" rollout status deployment/fe-signalloom --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
+  kubectl -n "$SIGNALLOOM_NAMESPACE" rollout status deployment/dashboard-signalloom --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
 }
 signalloom_down() {
   require_command kubectl
@@ -168,7 +166,7 @@ flux_test() {
   kubectl get resourceset -n flux-system signalloom-infra signalloom-apps -o json >/dev/null
   for pair in "$BAO_NAMESPACE:infra-controllers" "$BAO_NAMESPACE:infra-configs" inf-signalloom:infra-controllers inf-signalloom:infra-configs "$SIGNALLOOM_NAMESPACE:apps"; do
     IFS=: read -r namespace name <<<"$pair"
-    wait_flux_ready kustomization "$name" -n "$namespace" 600
+    kubectl -n "$namespace" wait "kustomization/$name" --for=condition=ready --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
   done
 }
 

@@ -9,6 +9,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 ARTIFACT="vex/out/osramp.attested.openvex.json"
 POLICY="policy/out/promotion-policy.signed.json"
@@ -19,7 +21,7 @@ test -f "${POLICY}" || ./scripts/gen-witness-policy.sh
 kubectl -n backend port-forward svc/osramp-archivista 8082:8082 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
-sleep 2
+wait_reachable "http://localhost:8082/v1/health" 60
 
 gate() {
   local candidate="$1" label="$2"

@@ -143,6 +143,9 @@ runbooks, and CI investigations.
 - OSRAMP application suite: `make test`
 - SignalLoom topology validation: `d2-signalloom/test/validate-topology.sh`
 - SignalLoom topology BATS suite: `bats d2-signalloom/test/topology.bats`
+- Fleet patch-index check: `bats d2-signalloom/test/fleet-patch-indexes.bats`
+  (the local overlay patches ResourceSets by positional index; asserts each
+  patched index still points at an `OCIRepository`; needs `yq`, no cluster)
 - Dashboard route-collision check: `bats d2-signalloom/test/dashboard-route-collisions.bats`
   (no nginx proxy prefix may shadow a SPA route in `App.tsx` or sit under a
   gateway path routed away from the dashboard; needs `yq`, no cluster)

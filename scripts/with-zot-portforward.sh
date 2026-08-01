@@ -7,6 +7,10 @@
 # Usage: with-zot-portforward.sh COMMAND [ARG...]
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/wait.sh
+source "${SCRIPT_DIR}/lib/wait.sh"
+
 LOCAL_PORT="${ZOT_LOCAL_PORT:-5001}"
 NAMESPACE="${ZOT_NAMESPACE:-registry}"
 SERVICE="${ZOT_SERVICE:-svc/zot}"
@@ -26,10 +30,9 @@ kubectl -n "${NAMESPACE}" port-forward "${SERVICE}" "${LOCAL_PORT}:5000" >/dev/n
 PF_PID=$!
 trap 'kill "${PF_PID}" 2>/dev/null || true' EXIT
 
-for _ in $(seq 1 60); do
-  curl -fsS "${REGISTRY_URL}" >/dev/null 2>&1 && break
-  sleep 0.5
-done
-curl -fsS "${REGISTRY_URL}" >/dev/null
+# Deadline-driven, jittered readiness wait (replaces a fixed 30s poll loop).
+# Tolerant of cold image pulls and CPU/memory pressure; stretch every wait in
+# the suite with WAIT_DEADLINE_SCALE, or just this one with ZOT_WAIT_DEADLINE.
+wait_reachable "${REGISTRY_URL}" "${ZOT_WAIT_DEADLINE:-90}"
 
 "$@"

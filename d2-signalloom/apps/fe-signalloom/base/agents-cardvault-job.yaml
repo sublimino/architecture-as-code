@@ -1,0 +1,57 @@
+# SuperCred demo step 2: run the cardvault-agent's credential chain.
+#
+# This Job acquires a SPIFFE SVID, exchanges it for an OpenBao token,
+# reads the cardvault credentials from KV, and calls the cardvault API.
+# The output is structured with [step-N] prefixes for demo readability.
+#
+# Applied by `make demo-supercred-step2`; cleaned up by step1 (idempotent).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: supercred-agent-run
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: cardvault-agent
+    app.kubernetes.io/component: supercred-demo
+    signalloom.ai/supercred: "true"
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cardvault-agent
+        signalloom.ai/supercred: "true"
+        bao.controlplane.io/consumer: cardvault-agent
+    spec:
+      serviceAccountName: cardvault-agent
+      restartPolicy: OnFailure
+      containers:
+        - name: agent
+          image: cardvault-agent:local
+          imagePullPolicy: IfNotPresent
+          args: ["-mode", "run"]
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_ROLE
+              value: signalloom-cardvault-agent
+            - name: CARDVAULT_URL
+              value: http://cardvault.inf-signalloom.svc.cluster.local:8080
+          volumeMounts:
+            - name: spire-agent-socket
+              mountPath: /run/spire/sockets
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+      volumes:
+        - name: spire-agent-socket
+          hostPath:
+            path: /run/spire/sockets
+            type: DirectoryOrCreate

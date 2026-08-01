@@ -16,3 +16,8 @@ resources:
   - agents-namespace.yaml
   - agents-rbac.yaml
   - agents-baseline.yaml
+  # SuperCred demo: cardvault-agent SA, inert agent pod (deliberately non-compliant),
+  # and the Job template for the credential-chain run.
+  - agents-cardvault-sa.yaml
+  - agents-cardvault.yaml
+  - agents-cardvault-job.yaml

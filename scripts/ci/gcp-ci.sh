@@ -28,7 +28,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 readonly PROJECT="${GCP_CI_PROJECT:-cp-dev-ajm}"
 readonly REGION="europe-west2"
 readonly ZONE="europe-west2-a"
-readonly VM_NAME="signalloom-ci"
+readonly VM_NAME="${GCP_CI_VM_NAME:-signalloom-ci}"
 readonly VPC_NAME="signalloom-ci"
 readonly SUBNET_NAME="signalloom-ci-subnet"
 readonly ROUTER_NAME="${VPC_NAME}-router"
@@ -42,8 +42,11 @@ readonly IMAGE_PROJECT="ubuntu-os-cloud"
 readonly SECRET_NAME="signalloom-deploy-key"
 readonly TIMEOUT_MINUTES="${CI_TIMEOUT_MINUTES:-90}"
 readonly REPORT_DIR="${CI_REPORT_DIR:-${REPO_ROOT}/ci-reports}"
-readonly REMOTE_REPORT_DIR="/home/ci/reports"
-readonly REMOTE_WORK_DIR="/home/ci/osramp-demo"
+readonly REMOTE_REPORT_DIR="${CI_REMOTE_REPORT_DIR:-/home/ci/reports}"
+readonly REMOTE_WORK_DIR="${CI_REMOTE_WORK_DIR:-/home/ci/osramp-demo}"
+readonly REPORT_FILENAME="${CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
+readonly PIPELINE_LOG="${CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
+readonly INSTANCE_LABELS="${GCP_CI_LABELS:-purpose=signalloom-ci,persistent=true}"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 vm_status() {
@@ -75,7 +78,8 @@ iap_scp() {
 push_code() {
   echo "==> Pushing repo to VM via SCP..."
 
-  local tarball="/tmp/osramp-demo-ci.tar.gz"
+  local tarball
+  tarball="$(mktemp "/tmp/osramp-demo-${VM_NAME}.XXXXXX.tar.gz")"
   tar -C "$REPO_ROOT" \
     --exclude='.git' \
     --exclude='node_modules' \
@@ -194,7 +198,7 @@ cmd_provision() {
       --shielded-vtpm \
       --shielded-integrity-monitoring \
       --no-address \
-      --labels="purpose=signalloom-ci,persistent=true"
+       --labels="${INSTANCE_LABELS}"
 
     echo "==> Waiting for VM startup script to complete..."
     sleep 30
@@ -281,7 +285,9 @@ cmd_run() {
   echo "==> Running pipeline on VM..."
   local pipeline_exit=0
 
-  iap_ssh "sudo -u ci bash -l -c 'cd ${REMOTE_WORK_DIR} && bash scripts/ci/vm-pipeline.sh'" \
+  local pipeline_command
+  printf -v pipeline_command 'cd %q && bash scripts/ci/vm-pipeline.sh' "$REMOTE_WORK_DIR"
+  iap_ssh "sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") bash -l -c $(printf '%q' "$pipeline_command")" \
     || pipeline_exit=$?
 
   # ── Collect reports ──
@@ -298,8 +304,8 @@ cmd_run() {
     echo "──────────────────"
   fi
 
-  if [[ -f "${REPORT_DIR}/signalloom-ci-report.yaml" ]]; then
-    echo "OpenReports: ${REPORT_DIR}/signalloom-ci-report.yaml"
+  if [[ -f "${REPORT_DIR}/${REPORT_FILENAME}" ]]; then
+    echo "OpenReports: ${REPORT_DIR}/${REPORT_FILENAME}"
   fi
 
   # ── Suspend on success, leave running on failure for debugging ──
@@ -364,6 +370,13 @@ cmd_status() {
 
 # ── Destroy (decommission everything) ────────────────────────────────
 cmd_destroy() {
+  if [[ "$VM_NAME" != "signalloom-ci" ]]; then
+    echo "==> Destroying VM ${VM_NAME}; shared CI networking is retained."
+    gcloud compute instances delete "$VM_NAME" \
+      --zone="$ZONE" --project="$PROJECT" --quiet 2>/dev/null || true
+    return
+  fi
+
   echo "==> Destroying all signalloom-ci resources..."
 
   gcloud compute instances delete "$VM_NAME" \

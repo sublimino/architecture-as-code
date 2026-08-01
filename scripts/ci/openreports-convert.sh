@@ -5,19 +5,21 @@
 # 8-stage test suite output. Each test becomes a ReportResult entry with
 # policy, rule, result (pass/fail/error), severity, and category.
 #
-# Usage: ./openreports-convert.sh <report-dir>
+# Usage: ./openreports-convert.sh <report-dir> [report-filename]
 #
-# Output: <report-dir>/signalloom-ci-report.yaml
+# Output: <report-dir>/<report-filename>
 
 set -euo pipefail
 
 REPORT_DIR="${1:?Usage: openreports-convert.sh <report-dir>}"
+REPORT_FILENAME="${2:-signalloom-ci-report.yaml}"
 
-node - "$REPORT_DIR" <<'OPENREPORTS_SCRIPT'
+node - "$REPORT_DIR" "$REPORT_FILENAME" <<'OPENREPORTS_SCRIPT'
 const { readFileSync, writeFileSync } = require('fs');
 const { join } = require('path');
 
 const reportDir = process.argv[2];
+const reportFilename = process.argv[3];
 
 // ── Parsers ─────────────────────────────────────────────────────────
 
@@ -198,7 +200,7 @@ for (const r of allResults) {
 }
 
 const yaml = lines.join('\n') + '\n';
-const outPath = join(reportDir, 'signalloom-ci-report.yaml');
+const outPath = join(reportDir, reportFilename);
 writeFileSync(outPath, yaml);
 
 console.log(`OpenReports: ${outPath}`);

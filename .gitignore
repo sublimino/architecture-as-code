@@ -42,3 +42,7 @@ __pycache__/
 
 # Playwright storage-state / auth artifacts (session material — never commit)
 test/acceptance/.auth/
+
+# wait.sh is a vendored source lib, not a build artifact — override the global `lib` ignore
+!scripts/lib/
+!scripts/lib/**

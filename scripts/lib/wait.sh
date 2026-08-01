@@ -29,7 +29,11 @@
 #   WAIT_BACKOFF          exponential rate (default 1.5; 1 = fixed)
 #   WAIT_JITTER           jitter fraction 0..1 (default 0.2)
 #   WAIT_ATTEMPT_TIMEOUT  per-attempt timeout seconds (default 10)
-#   WAIT_QUIET            if set, suppress progress chatter (⏳/✅ lines)
+#   WAIT_QUIET            if set, suppress progress chatter (⏳/✅/heartbeat lines)
+#   WAIT_HEARTBEAT_START  seconds before the first "… still waiting" heartbeat
+#                         (default 5; set 0 to disable heartbeats entirely)
+#   WAIT_HEARTBEAT_FACTOR each heartbeat interval is multiplied by this
+#                         (default 2 → ~5s, 10s, 20s, 40s, 80s: quiet, exponential)
 #   WAIT_SOFT_RATIO       soft-threshold fraction of the deadline (default 0.6).
 #                         On crossing it, a wait emits a one-time ⚠ "slow"
 #                         warning naming the site + the retry command, then
@@ -88,6 +92,12 @@ _wait_retry() {
   local cmd="$*"
 
   local attempt=0 rc cur_sleep soft_warned=
+  # Progress heartbeat: first at WAIT_HEARTBEAT_START seconds, then spaced out by
+  # WAIT_HEARTBEAT_FACTOR each time (exponential) so a long wait shows it is alive
+  # without spamming — e.g. ~5s, 10s, 20s, 40s, 80s. Respects WAIT_QUIET; set
+  # WAIT_HEARTBEAT_START=0 to disable.
+  local hb_next="${WAIT_HEARTBEAT_START:-5}"
+  local hb_factor="${WAIT_HEARTBEAT_FACTOR:-2}"
   local have_timeout=; command -v timeout >/dev/null 2>&1 && have_timeout=1
 
   _wait_log "⏳ ${desc} (deadline ${dl_int}s, soft ${soft}s, backoff ${backoff}, jitter ${jitter})"
@@ -121,6 +131,11 @@ _wait_retry() {
       soft_warned=1
       printf '⚠ slow: %s still not ready after %ss of %ss — consider raising the budget. retry: %s\n' \
         "${desc}" "$(( SECONDS - start ))" "${dl_int}" "${cmd}" >&2
+    fi
+    # Occasional, exponentially-spaced heartbeat so a long wait shows life.
+    if [ "${hb_next%.*}" -gt 0 ] 2>/dev/null && [ "$(( SECONDS - start ))" -ge "${hb_next%.*}" ]; then
+      _wait_log "   … still waiting: ${desc} ($(( SECONDS - start ))s / ${dl_int}s)"
+      hb_next="$(_wait_calc "${hb_next} * ${hb_factor}")"
     fi
     # exponential backoff
     cur_sleep="$(_wait_calc "${sleep_s} * (${backoff} ^ ${attempt})")"

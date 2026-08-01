@@ -15,6 +15,13 @@ REVISION="local@sha1:$(git rev-parse HEAD 2>/dev/null || echo 000000000000000000
 
 test -f "${COSIGN_KEY}" || { echo "${COSIGN_KEY} not found; run 'make signing-keys' first"; exit 1; }
 
+# A no-transparency-log signing config replaces the deprecated --tlog-upload=false
+# flag (cosign v3). Empty rekor/tsa services => key-only signing, no tlog upload.
+SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
+[ -f "${SIGNING_CONFIG}" ] || cosign signing-config create \
+  --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+  --out "${SIGNING_CONFIG}" >/dev/null 2>&1
+
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
@@ -33,8 +40,7 @@ push_and_sign() {
     --output json | jq -r '.digest')
   COSIGN_PASSWORD="" cosign sign --yes \
     --key "${COSIGN_KEY}" \
-    --use-signing-config=false \
-    --tlog-upload=false \
+    --signing-config "${SIGNING_CONFIG}" \
     --allow-insecure-registry \
     --registry-referrers-mode=legacy \
     "${REGISTRY}/${repo}@${digest}"

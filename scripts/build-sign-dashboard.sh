@@ -105,10 +105,13 @@ printf '%s\n' "${DIGEST}" > "${DIGEST_FILE}"
 LOCAL_DIGEST_REF="${LOCAL_REF%:*}@${DIGEST}"
 
 echo "signing ${LOCAL_DIGEST_REF}"
+SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
+[ -f "${SIGNING_CONFIG}" ] || cosign signing-config create \
+  --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+  --out "${SIGNING_CONFIG}" >/dev/null 2>&1
 COSIGN_PASSWORD="" cosign sign --yes \
   --key "${COSIGN_KEY}" \
-  --use-signing-config=false \
-  --tlog-upload=false \
+  --signing-config "${SIGNING_CONFIG}" \
   --allow-insecure-registry \
   --registry-referrers-mode=legacy \
   "${LOCAL_DIGEST_REF}"

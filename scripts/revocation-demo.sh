@@ -48,8 +48,12 @@ digest=$(flux push artifact "oci://${REGISTRY}/apps/frontend:latest" \
   --path=d2-osramp-apps/components/frontend \
   --source=local --revision="restored@sha1:$(git rev-parse HEAD 2>/dev/null || echo 1111111111111111111111111111111111111111)" \
   --insecure-registry --output json | jq -r '.digest')
+SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
+[ -f "${SIGNING_CONFIG}" ] || cosign signing-config create \
+  --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+  --out "${SIGNING_CONFIG}" >/dev/null 2>&1
 COSIGN_PASSWORD="" cosign sign --yes --key "${COSIGN_KEY}" \
-  --use-signing-config=false --tlog-upload=false --allow-insecure-registry \
+  --signing-config "${SIGNING_CONFIG}" --allow-insecure-registry \
   "${REGISTRY}/apps/frontend@${digest}"
 echo "signed artifact pushed; asking Flux to reconcile"
 reconcile_frontend

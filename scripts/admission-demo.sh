@@ -35,8 +35,11 @@ LISTENER_TAR="vex/out/.push-listener.tar"
 docker save listener:dev -o "${LISTENER_TAR}"
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/listener:signed" >/dev/null
 SIGNED_DIGEST=$(crane digest --insecure "${REGISTRY_HOST}/acme/images/listener:signed")
+[ -f .keys/signing-config.json ] || cosign signing-config create \
+  --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+  --out .keys/signing-config.json >/dev/null 2>&1
 COSIGN_PASSWORD="" cosign sign --yes --key .keys/cosign.key \
-  --use-signing-config=false --tlog-upload=false --allow-insecure-registry \
+  --signing-config .keys/signing-config.json --allow-insecure-registry \
   "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"
 
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/unsigned:latest" >/dev/null

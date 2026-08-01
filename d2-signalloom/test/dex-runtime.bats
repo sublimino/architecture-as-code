@@ -50,8 +50,13 @@ teardown() {
 
   start_dex
   response="$workdir/token.json"
-  run curl -fsS --user 'signalloom-dashboard:signalloom-dashboard-local-only' \
+  # signalloom-dashboard is a public OIDC client (public: true in dex.yaml) — it
+  # has no secret, so the token request uses client_id as a form parameter, not
+  # HTTP Basic Auth. Using --user with a secret Dex doesn't expect causes a
+  # connection reset.
+  run curl -fsS \
     --data-urlencode 'grant_type=password' \
+    --data-urlencode 'client_id=signalloom-dashboard' \
     --data-urlencode 'username=demo-user@signalloom.local' \
     --data-urlencode "password=$DEX_DEMO_PASSWORD" \
     --data-urlencode 'scope=openid profile email groups' \

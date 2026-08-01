@@ -139,9 +139,7 @@ push_code() {
     --exclude='.git' \
     --exclude='node_modules' \
     --exclude='.cache' \
-    --exclude='ci-reports' \
-    --exclude='ci-reports-2' \
-    --exclude='ci-reports-2-baseline' \
+    --exclude='ci-reports*' \
     --exclude='test-results' \
     --exclude='playwright-report' \
     -czf "$tarball" .
@@ -354,6 +352,18 @@ cmd_run() {
 
   # ── Collect reports ──
   echo "==> Collecting reports..."
+  # Rotate the previous run out of the way BEFORE collecting. `tar -xzf`
+  # overwrites only the files present in the archive and leaves everything else
+  # untouched, so a run that aborted before writing reports used to inherit the
+  # previous run's summary.json wholesale — a run that executed zero tests
+  # printed a complete, plausible "5 passed, 3 failed" from stale data, with
+  # only the commit field and file mtimes betraying it. Keep one generation for
+  # comparison rather than deleting, but never let two runs share a directory.
+  if [[ -d "$REPORT_DIR" ]] && [[ -n "$(ls -A "$REPORT_DIR" 2>/dev/null)" ]]; then
+    rm -rf "${REPORT_DIR}.prev"
+    mv "$REPORT_DIR" "${REPORT_DIR}.prev"
+    echo "    previous run rotated to $(basename "${REPORT_DIR}").prev"
+  fi
   mkdir -p "$REPORT_DIR"
   # The report directory belongs to the restricted `ci` account, while IAP SCP
   # authenticates as the operator account. Package it via sudo first instead of
@@ -373,6 +383,22 @@ cmd_run() {
     echo "──── Summary ────"
     jq . "${REPORT_DIR}/summary.json"
     echo "──────────────────"
+  else
+    # Say so loudly. A missing summary means the pipeline died before the test
+    # stages ran — a categorically worse outcome than failing tests, and one
+    # that previously presented as silence next to a stale summary.
+    echo "" >&2
+    echo "ERROR: no summary.json was produced — the pipeline did not reach the" >&2
+    echo "       test stages. This is an aborted run, NOT a test failure." >&2
+    echo "       Pipeline log on the VM: ${PIPELINE_LOG}" >&2
+    if [[ -d "${REPORT_DIR}.prev" ]]; then
+      echo "       The previous run's reports are in $(basename "${REPORT_DIR}").prev" >&2
+      echo "       — they describe a DIFFERENT run. Do not read them as this one." >&2
+    fi
+    if ((pipeline_exit == 0)); then
+      echo "       Pipeline exited 0 without producing reports; treating as failure." >&2
+      pipeline_exit=2
+    fi
   fi
 
   if [[ -f "${REPORT_DIR}/${REPORT_FILENAME}" ]]; then

@@ -50,9 +50,15 @@ function isBlocked(agent: RuntimeAgent): boolean {
   return agent.phase != null && BLOCKED_PHASES.has(agent.phase)
 }
 
+// Distinct from this page's own `/supercred` route: `/supercred/*` used to serve
+// both the page and the API, and the API won. Not under `/api/` either — the
+// gateway routes /api to fe-signalloom-api and it never reaches the dashboard's
+// nginx. See the comment on this location block in nginx.conf.
+const SUPERCRED_API = '/supercred-api'
+
 /** Follow the agent to whichever namespace holds it, without requiring one. */
 function agentPath(agent: RuntimeAgent, suffix: string): string {
-  const base = `/supercred/agents/${agent.id}/${suffix}`
+  const base = `${SUPERCRED_API}/agents/${agent.id}/${suffix}`
   return agent.namespace ? `${base}?namespace=${encodeURIComponent(agent.namespace)}` : base
 }
 
@@ -75,7 +81,7 @@ export default function SuperCredPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/supercred/agents')
+      const res = await fetch(`${SUPERCRED_API}/agents`)
       const data = await res.json()
       const discovered: RuntimeAgent[] = data.agents ?? []
       setDiscoveredCount(discovered.length)

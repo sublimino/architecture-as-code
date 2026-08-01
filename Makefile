@@ -366,7 +366,7 @@ demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy 
 	./scripts/supercred-demo.sh 1
 
 .PHONY: demo-signalloom-supercred-2
-demo-signalloom-supercred-2: ## Step 2: Run SPIFFE → OpenBao → cardvault credential chain.
+demo-signalloom-supercred-2: demo-signalloom-supercred-images ## Step 2: Run SPIFFE → OpenBao → cardvault credential chain.
 	./scripts/supercred-demo.sh 2
 
 .PHONY: demo-signalloom-supercred-3
@@ -374,7 +374,7 @@ demo-signalloom-supercred-3: ## Step 3: Compliance scan — discovers missing se
 	./scripts/supercred-demo.sh 3
 
 .PHONY: demo-signalloom-supercred-4
-demo-signalloom-supercred-4: ## Step 4: Stun — revoke credentials, verify denial.
+demo-signalloom-supercred-4: demo-signalloom-supercred-images ## Step 4: Stun — revoke credentials, verify denial.
 	./scripts/supercred-demo.sh 4
 
 .PHONY: demo-signalloom-supercred-5
@@ -559,12 +559,12 @@ ci-provision-2: ## One-time: create the isolated second GCP CI VM.
 	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
 
 .PHONY: ci-gcp-2
-ci-gcp-2: ## Provision VM 2 if needed, then run its Signalloom D2 e2e suite.
+ci-gcp-2: ## Sync local tree to VM2, run Signalloom D2 e2e, suspend on pass.
 	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
 	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh run
 
 .PHONY: ci-ssh-2
-ci-ssh-2: ## SSH into the isolated second CI VM for debugging.
+ci-ssh-2: ## Resume and SSH into VM2 after a failed CI run.
 	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh ssh
 
 .PHONY: ci-status-2
@@ -572,7 +572,7 @@ ci-status-2: ## Show the isolated second CI VM state.
 	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh status
 
 .PHONY: ci-report-2
-ci-report-2: ## View the last OpenReports report from ci-gcp-2.
+ci-report-2: ## View VM2's last collected stage summary and report path.
 	@if [ -f ci-reports-2/summary.json ]; then \
 		jq . ci-reports-2/summary.json; \
 	else \

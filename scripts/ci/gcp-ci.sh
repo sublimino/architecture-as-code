@@ -41,11 +41,11 @@ readonly IMAGE_FAMILY="ubuntu-2404-lts-amd64"
 readonly IMAGE_PROJECT="ubuntu-os-cloud"
 readonly SECRET_NAME="signalloom-deploy-key"
 readonly TIMEOUT_MINUTES="${CI_TIMEOUT_MINUTES:-90}"
-readonly REPORT_DIR="${CI_REPORT_DIR:-${REPO_ROOT}/ci-reports}"
-readonly REMOTE_REPORT_DIR="${CI_REMOTE_REPORT_DIR:-/home/ci/reports}"
-readonly REMOTE_WORK_DIR="${CI_REMOTE_WORK_DIR:-/home/ci/osramp-demo}"
-readonly REPORT_FILENAME="${CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
-readonly PIPELINE_LOG="${CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
+readonly REPORT_DIR="${GCP_CI_REPORT_DIR:-${REPO_ROOT}/ci-reports}"
+readonly REMOTE_REPORT_DIR="${GCP_CI_REMOTE_REPORT_DIR:-/home/ci/reports}"
+readonly REMOTE_WORK_DIR="${GCP_CI_REMOTE_WORK_DIR:-/home/ci/osramp-demo}"
+readonly REPORT_FILENAME="${GCP_CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
+readonly PIPELINE_LOG="${GCP_CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
 readonly INSTANCE_LABELS="${GCP_CI_LABELS:-purpose=signalloom-ci,persistent=true}"
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -72,6 +72,22 @@ iap_scp() {
   gcloud compute scp --tunnel-through-iap \
     --zone="$ZONE" --project="$PROJECT" --recurse \
     "$@"
+}
+
+wait_for_provision() {
+  echo "==> Waiting for VM startup script to complete..."
+  local attempts=0
+  while ((attempts < 60)); do
+    if iap_ssh "sudo test -f /home/ci/.provisioned" 2>/dev/null; then
+      echo "==> VM provisioned successfully"
+      return 0
+    fi
+    ((attempts+=1))
+    sleep 10
+  done
+
+  echo "ERROR: Timed out waiting for VM startup provisioning" >&2
+  return 1
 }
 
 # ── Push code via SCP (for local runs without deploy key) ────────────
@@ -201,17 +217,7 @@ cmd_provision() {
       --no-address \
        --labels="${INSTANCE_LABELS}"
 
-    echo "==> Waiting for VM startup script to complete..."
-    sleep 30
-    local attempts=0
-    while ((attempts < 60)); do
-      if iap_ssh "test -f /home/ci/.provisioned" 2>/dev/null; then
-        echo "==> VM provisioned successfully"
-        break
-      fi
-      ((attempts++))
-      sleep 10
-    done
+    wait_for_provision
 
     # Suspend after initial provisioning
     echo "==> Suspending VM after initial provisioning"
@@ -219,6 +225,9 @@ cmd_provision() {
       --zone="$ZONE" --project="$PROJECT"
   else
     echo "==> VM ${VM_NAME} already exists (status: ${status})"
+    if [[ "$status" == "RUNNING" ]] && ! iap_ssh "sudo test -f /home/ci/.provisioned" 2>/dev/null; then
+      wait_for_provision
+    fi
   fi
 
   echo "==> Provisioning complete."
@@ -250,7 +259,7 @@ cmd_run() {
       local attempts=0
       while ((attempts < 30)); do
         if iap_ssh "echo ready" &>/dev/null; then break; fi
-        ((attempts++))
+        ((attempts+=1))
         sleep 5
       done
       ;;
@@ -262,7 +271,7 @@ cmd_run() {
       local attempts=0
       while ((attempts < 30)); do
         if iap_ssh "echo ready" &>/dev/null; then break; fi
-        ((attempts++))
+        ((attempts+=1))
         sleep 5
       done
       ;;
@@ -293,9 +302,18 @@ cmd_run() {
   # ── Collect reports ──
   echo "==> Collecting reports..."
   mkdir -p "$REPORT_DIR"
-  iap_scp "${VM_NAME}:${REMOTE_REPORT_DIR}/*" "$REPORT_DIR/" 2>/dev/null || {
+  # The report directory belongs to the restricted `ci` account, while IAP SCP
+  # authenticates as the operator account. Package it via sudo first instead of
+  # weakening /home/ci permissions just to collect CI artifacts.
+  local report_archive="/tmp/${VM_NAME}-reports.tar.gz"
+  if iap_ssh "sudo -u ci tar -C $(printf '%q' "$REMOTE_REPORT_DIR") -czf $(printf '%q' "$report_archive") ." \
+    && iap_scp "${VM_NAME}:${report_archive}" "$REPORT_DIR/" 2>/dev/null \
+    && tar -xzf "${REPORT_DIR}/$(basename "$report_archive")" -C "$REPORT_DIR"; then
+    rm -f "${REPORT_DIR}/$(basename "$report_archive")"
+    iap_ssh "rm -f $(printf '%q' "$report_archive")" >/dev/null 2>&1 || true
+  else
     echo "WARNING: Failed to collect report files"
-  }
+  fi
 
   if [[ -f "${REPORT_DIR}/summary.json" ]]; then
     echo ""
@@ -340,7 +358,7 @@ cmd_ssh() {
     local attempts=0
     while ((attempts < 30)); do
       if iap_ssh "echo ready" &>/dev/null; then break; fi
-      ((attempts++))
+      ((attempts+=1))
       sleep 5
     done
   elif [[ "$status" != "RUNNING" ]]; then

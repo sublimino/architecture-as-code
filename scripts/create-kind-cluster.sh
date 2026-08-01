@@ -17,7 +17,7 @@ source "$SCRIPT_DIR/registry-cache.sh"
 mkdir -p "$ZOT_CACHE_DIR"
 # Resolve to an absolute path via the PARENT dir, not by cd-ing into the cache
 # itself: after the first run prepare_zot_cache chowns the bind-mounted cache to
-# 65532:65532 mode 0750 (so Zot's nonroot user can write), which leaves the host
+# 65532:65532 mode 0750, which leaves the host
 # dir un-enterable by the invoking user. cd-ing into it here would fail on every
 # re-run. The parent is owned by the invoking user, so resolving via it is safe.
 ZOT_CACHE_DIR="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CACHE_DIR")"
@@ -25,8 +25,10 @@ ZOT_CACHE_DIR="$(cd "$(dirname "$ZOT_CACHE_DIR")" && pwd -P)/$(basename "$ZOT_CA
 # control-plane container; prepare ownership there before Zot is deployed.
 # The pod itself remains non-root and has no privileged init container.
 prepare_zot_cache() {
+  # Correct existing cache content too: it may have been created by an earlier
+  # image UID or a previously interrupted local run.
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
-    chown 65532:65532 /var/local/osramp-zot-cache
+    chown -R 65532:65532 /var/local/osramp-zot-cache
   "$DOCKER_BIN" exec "${CLUSTER_NAME}-control-plane" \
     chmod 0750 /var/local/osramp-zot-cache
 }

@@ -134,14 +134,24 @@ The run is intentionally stateful only inside VM2:
 - reports: `/home/ci/reports-signalloom-ci-2`, collected into `ci-reports-2/`.
 - pipeline log: `/home/ci/ci-pipeline-ci-2.log`.
 
-Debug in this order: read `summary.json` and failing `stage*.{tap,txt}` files;
-inspect Flux (`kubectl get kustomizations -A`) before workload pods; then inspect
-the exact controller or pod logs. Rerun `make ci-gcp-2` only after applying a
-minimal, evidence-backed local change; its SCP snapshot is the source under test.
-On a pass VM2 suspends automatically. Do not run `make teardown`, `make up`, or
-any destructive cleanup against a shared local cluster while another process uses
-it. Once VM2 passes, recreate or repair the local cluster as needed and run the
-same full suite locally.
+Each run replaces only VM2's remote checkout with a fresh archive of the local
+working tree before the pipeline starts. This includes uncommitted changes and
+removes stale remote paths; it does not modify VM1 or any local cluster.
+
+Each of the eight test stages is capped at 900 seconds by default. A timed-out
+stage exits `124`, appends `TIMEOUT` to its `stage*.{tap,txt}` artifact, and the
+remaining stages continue. Override only when diagnosing a known slow host:
+`CI_STAGE_TIMEOUT_SECONDS=1200 make ci-gcp-2`.
+
+Debug in this order: run `make ci-report-2`, read `summary.json` and failing
+`stage*.{tap,txt}` files; then use `make ci-ssh-2` to inspect
+`/home/ci/ci-pipeline-ci-2.log`; inspect Flux (`kubectl get kustomizations -A`)
+before workload pods; then inspect the exact controller or pod logs. Rerun
+`make ci-gcp-2` only after applying a minimal, evidence-backed local change;
+its SCP snapshot is the source under test. On a pass VM2 suspends automatically.
+Do not run `make teardown`, `make up`, or any destructive cleanup against a
+shared local cluster while another process uses it. Once VM2 passes, recreate
+or repair the local cluster as needed and run the same full suite locally.
 
 ## 7. Cosign local signing — no transparency log
 

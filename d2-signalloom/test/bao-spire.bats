@@ -30,11 +30,11 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
 
   run yq -e '
     select(.kind == "Job")
-    | (.spec.template.spec.initContainers + .spec.template.spec.containers)[]
+    | ((.spec.template.spec.initContainers // []) + .spec.template.spec.containers)[]
     | select(.name == "jwt-svid")
-    | ((.command | length) == 1
-      and .command[0] == "/usr/local/bin/signalloom-spire-proof"
-      and (.args[0] == "write" or .args[0] == "expect-denied"))
+     | (((.command | length) == 1)
+       and (.command[0] == "/usr/local/bin/signalloom-spire-proof")
+       and (.args[0] == "write" or .args[0] == "expect-denied"))
   ' "$manifest"
   [ "$status" -eq 0 ]
   [[ "$output" != *"false"* ]]
@@ -103,6 +103,6 @@ setup() { root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"; }
   [ "$status" -eq 0 ]
   run grep -F 'insecure_bootstrap = true' "$config"
   [ "$status" -eq 0 ]
-  run grep -F 'join_token = "$${JOIN_TOKEN}"' "$config"
+  run grep -F 'join_token = "${JOIN_TOKEN}"' "$config"
   [ "$status" -eq 0 ]
 }

@@ -253,11 +253,12 @@ else
 fi
 
 section "SUMMARY"
-if [[ -z "$unhealthy" ]]; then
+if [[ -z "$unhealthy" && -z "$not_ready" ]]; then
   printf '%b  ✓ Cluster healthy%b\n' "$GRN" "$RST"
 else
-  count=$(echo "$unhealthy" | wc -l)
-  printf '%b  ✗ %s unhealthy pod(s)%b\n' "$RED" "$count" "$RST"
+  pod_count=$(echo "$unhealthy" | sed '/^$/d' | wc -l)
+  flux_count=$(echo "$not_ready" | sed '/^$/d' | wc -l)
+  printf '%b  ✗ unhealthy pods=%s; non-ready Flux Kustomizations=%s%b\n' "$RED" "$pod_count" "$flux_count" "$RST"
 fi
 
 section "RECOMMENDED NEXT STEPS"

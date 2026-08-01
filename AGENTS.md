@@ -49,8 +49,8 @@ make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao/SPIRE only
 
 # 3. Health check
-make healthcheck            # foundation
-make doctor                 # all components
+make healthcheck            # foundation readiness
+make doctor                 # full configured-cluster state report
 ```
 
 ## Shared Lifecycle Commands
@@ -61,9 +61,19 @@ make doctor                 # all components
 | `make down` | Delete Kind cluster (Zot cache persists) |
 | `make teardown` | Full reset incl. keys and build state |
 | `make teardown-all` | Full reset incl. tools installed by setup.sh |
-| `make healthcheck` | Verify foundation is ready for demos |
-| `make doctor` | Full cluster health check |
+| `make healthcheck` | Verify foundation readiness for demos |
+| `make doctor` | Alias for the comprehensive cluster diagnostic report |
+| `make cluster-debug` | Comprehensive cluster diagnostic report (same as `make doctor`) |
 | `make help` | List all targets |
+
+## Shared Cluster Diagnostics
+
+Run `make doctor` before investigating a cluster problem. `make doctor` and
+`make cluster-debug` are equivalent, read-only entry points to the
+comprehensive diagnostic report. It inspects cluster connectivity, unhealthy
+pods, restart counts, warning events, Flux state, node metrics, and image-pull
+failures. The detailed command-by-command runbook is in
+[`TESTING.md`](TESTING.md#shared-cluster-diagnostics).
 
 ### Per-Slice Lifecycle Pattern
 

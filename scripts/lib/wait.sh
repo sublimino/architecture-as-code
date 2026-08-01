@@ -1,12 +1,12 @@
 # shellcheck shell=bash
+# wait.sh — VENDORED COPY, DO NOT EDIT HERE.
+# Source of truth: ~/.andy_sync/includes/wait.sh   Re-vendor: make wait-lib-sync
+#
 # wait.sh — self-contained, resilient waiting/polling primitives.
 #
-# ┌───────────────────────────────────────────────────────────────────────────┐
-# │ VENDORED COPY — DO NOT EDIT HERE.                                           │
-# │ Source of truth: ~/.andy_sync/includes/wait.sh                             │
-# │ Re-vendor with:  make wait-lib-sync                                         │
-# └───────────────────────────────────────────────────────────────────────────┘
-#
+# SOURCE OF TRUTH: ~/.andy_sync/includes/wait.sh. This file is vendored verbatim
+# into other repos (e.g. osramp-demo/scripts/lib/wait.sh) so the SAME robust
+# waits run in interactive shells, Makefiles, bats tests, and CI/containers.
 # It deliberately has NO dependency on the login shell libraries — everything it
 # needs is embedded, so it works anywhere bash + coreutils exist.
 #
@@ -29,7 +29,15 @@
 #   WAIT_BACKOFF          exponential rate (default 1.5; 1 = fixed)
 #   WAIT_JITTER           jitter fraction 0..1 (default 0.2)
 #   WAIT_ATTEMPT_TIMEOUT  per-attempt timeout seconds (default 10)
-#   WAIT_QUIET            if set, suppress progress chatter
+#   WAIT_QUIET            if set, suppress progress chatter (⏳/✅ lines)
+#   WAIT_SOFT_RATIO       soft-threshold fraction of the deadline (default 0.6).
+#                         On crossing it, a wait emits a one-time ⚠ "slow"
+#                         warning naming the site + the retry command, then
+#                         KEEPS WAITING to the hard deadline. No pause, no decay.
+#   WAIT_STAT_FILE        if set, every wait appends a structured completion line
+#                         (WAIT_STAT site=… elapsed=… deadline=… ratio=…). Sort
+#                         that file by ratio after a run for a deterministic,
+#                         ranked list of exactly which deadlines to raise.
 #
 # All verbs return 0 on success, 1 on deadline-exceeded.
 
@@ -39,6 +47,22 @@ _wait_calc() {
 }
 
 _wait_log() { [ -n "${WAIT_QUIET:-}" ] || printf '%s\n' "$*" >&2; }
+
+# --- internal: structured completion stat -----------------------------------
+# _wait_stat <desc> <start_seconds> <deadline_s> <result>
+# Emits one WAIT_STAT line to stderr (always — it is the signal, not chatter)
+# and appends to WAIT_STAT_FILE if set. ratio = how much of the budget was used.
+_wait_stat() {
+  local desc="$1" start="$2" deadline="$3" result="$4"
+  local elapsed; elapsed=$(( SECONDS - start ))
+  local ratio; ratio="$(_wait_calc "(${deadline} <= 0) ? 0 : (${elapsed} * 100.0 / ${deadline})")"
+  ratio="${ratio%%.*}"
+  local line; line="$(printf 'WAIT_STAT site="%s" elapsed=%ss deadline=%ss ratio=%s%% result=%s' \
+    "${desc}" "${elapsed}" "${deadline}" "${ratio}" "${result}")"
+  printf '%s\n' "${line}" >&2
+  [ -n "${WAIT_STAT_FILE:-}" ] && printf '%s\n' "${line}" >> "${WAIT_STAT_FILE}" 2>/dev/null
+  return 0
+}
 
 # --- core retry engine ------------------------------------------------------
 # _wait_retry <deadline_s> <description> <command...>
@@ -55,24 +79,48 @@ _wait_retry() {
   local attempt_timeout="${WAIT_ATTEMPT_TIMEOUT:-10}"
 
   deadline="$(_wait_calc "${deadline} * ${scale}")"
+  local dl_int="${deadline%%.*}"; [ -n "${dl_int}" ] || dl_int=0
   local start="${SECONDS}"
   local end; end="$(_wait_calc "${start} + ${deadline}")"; end="${end%%.*}"
+  # Soft threshold (default 60% of the hard deadline): compassionate warning,
+  # not a second timeout — we keep waiting to the hard deadline.
+  local soft; soft="$(_wait_calc "${dl_int} * ${WAIT_SOFT_RATIO:-0.6}")"; soft="${soft%%.*}"
+  local cmd="$*"
 
-  local attempt=0 rc cur_sleep
+  local attempt=0 rc cur_sleep soft_warned=
   local have_timeout=; command -v timeout >/dev/null 2>&1 && have_timeout=1
 
-  _wait_log "⏳ ${desc} (deadline ${deadline}s, backoff ${backoff}, jitter ${jitter})"
+  _wait_log "⏳ ${desc} (deadline ${dl_int}s, soft ${soft}s, backoff ${backoff}, jitter ${jitter})"
   while :; do
     if [ -n "${have_timeout}" ]; then
-      timeout "${attempt_timeout}" bash -c "$*"; rc=$?
+      if timeout "${attempt_timeout}" bash -c "${cmd}"; then
+        rc=0
+      else
+        rc=$?
+      fi
+    elif bash -c "${cmd}"; then
+      rc=0
     else
-      bash -c "$*"; rc=$?
+      rc=$?
     fi
-    [ "${rc}" -eq 0 ] && { _wait_log "✅ ${desc} — ready after $((attempt + 1)) attempt(s), $(( SECONDS - start ))s"; return 0; }
+    if [ "${rc}" -eq 0 ]; then
+      _wait_log "✅ ${desc} — ready after $((attempt + 1)) attempt(s), $(( SECONDS - start ))s"
+      _wait_stat "${desc}" "${start}" "${dl_int}" ok
+      return 0
+    fi
 
     if [ "${SECONDS}" -ge "${end}" ]; then
-      _wait_log "❌ ${desc} — deadline ${deadline}s exceeded after $((attempt + 1)) attempt(s)"
+      _wait_log "❌ ${desc} — deadline ${dl_int}s exceeded after $((attempt + 1)) attempt(s)"
+      _wait_stat "${desc}" "${start}" "${dl_int}" timeout
       return 1
+    fi
+    # Soft-deadline: warn ONCE past the soft threshold (bypasses WAIT_QUIET —
+    # this is signal, and only fires when something is genuinely slow), name the
+    # retry command, and KEEP WAITING. No pause, no backoff decay.
+    if [ -z "${soft_warned}" ] && [ "${soft}" -gt 0 ] && [ "$(( SECONDS - start ))" -ge "${soft}" ]; then
+      soft_warned=1
+      printf '⚠ slow: %s still not ready after %ss of %ss — consider raising the budget. retry: %s\n' \
+        "${desc}" "$(( SECONDS - start ))" "${dl_int}" "${cmd}" >&2
     fi
     # exponential backoff
     cur_sleep="$(_wait_calc "${sleep_s} * (${backoff} ^ ${attempt})")"
@@ -141,7 +189,12 @@ wait_k8s_ready() {
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   [ "${remaining}" -lt 15 ] && remaining=15
   _wait_log "⏳ ready ${kind}/${name} ${ns_args} (--for=${cond}, ${remaining}s left)"
-  kubectl ${ns_args} wait "${kind}/${name}" "--for=${cond}" "--timeout=${remaining}s"
+  if kubectl ${ns_args} wait "${kind}/${name}" "--for=${cond}" "--timeout=${remaining}s"; then
+    _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" ok
+  else
+    _wait_stat "ready ${kind}/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    return 1
+  fi
 }
 
 # wait_rollout <deploy> [-n ns] [deadline_s]  — existence then rollout status
@@ -161,7 +214,12 @@ wait_rollout() {
   local remaining; remaining="$(_wait_calc "${scaled} - (${SECONDS} - ${start})")"; remaining="${remaining%%.*}"
   [ "${remaining}" -lt 15 ] && remaining=15
   _wait_log "⏳ rollout deploy/${name} ${ns_args} (${remaining}s left)"
-  kubectl ${ns_args} rollout status "deploy/${name}" "--timeout=${remaining}s"
+  if kubectl ${ns_args} rollout status "deploy/${name}" "--timeout=${remaining}s"; then
+    _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" ok
+  else
+    _wait_stat "rollout deploy/${name} ${ns_args}" "${start}" "${scaled}" timeout
+    return 1
+  fi
 }
 
 # wait_flux_ready <kind> <name> [-n ns] [deadline_s]  — Flux Kustomization/

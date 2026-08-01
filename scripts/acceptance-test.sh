@@ -39,32 +39,34 @@ echo "==> Setting up port-forwards..."
 if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
   start_port_forward fe-signalloom fe-signalloom 18000 8000
   start_port_forward inf-signalloom dex 15556 5556
+  gateway_local_port=18443
   read -r gateway_namespace gateway_service < <(kubectl get service -A \
     -l gateway.envoyproxy.io/owning-gateway-name=cluster \
     -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null || true)
   if [[ -n "$gateway_service" && -n "$gateway_namespace" ]]; then
+    # Dex pins its local issuer and callback client to this stable port. Forward
+    # the dynamic NodePort here rather than exposing that ephemeral port to the
+    # browser, otherwise Dex rejects the OIDC redirect URI.
+    gateway_local_port=30754
     gateway_node_port="$(kubectl -n "$gateway_namespace" get service "$gateway_service" \
       -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}' 2>/dev/null || true)"
     gatewayAddress="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
-    start_port_forward "$gateway_namespace" "$gateway_service" "${gateway_node_port}" 443
-    echo "    gateway: ${gateway_namespace}/${gateway_service} nodePort=${gateway_node_port} address=${gatewayAddress}"
+    start_port_forward "$gateway_namespace" "$gateway_service" "${gateway_local_port}" 443
+    echo "    gateway: ${gateway_namespace}/${gateway_service} nodePort=${gateway_node_port} localPort=${gateway_local_port} address=${gatewayAddress}"
   else
     echo "    SKIP: ingress/cluster Envoy service (service not found)"
     gateway_node_port=""
     gatewayAddress=""
   fi
-  dashboard_ready="not-ready"
-  if [[ -n "$gateway_node_port" ]]; then
-    export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_node_port}}"
-    dashboard_ready="$(curl -kfsS --max-time 5 "${DASHBOARD_URL}/readyz" 2>/dev/null || echo not-ready)"
-  else
-    export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:18443}"
-  fi
+  # The Gateway requires SNI hostname *.osramp.acme.local — Chrome's
+  # --host-resolver-rules (in playwright.config.ts) resolves it to 127.0.0.1.
+  export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
+  dashboard_ready="$(curl -kfsS --max-time 5 --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" "${DASHBOARD_URL}/readyz" 2>/dev/null || echo not-ready)"
   if [[ "$dashboard_ready" != "ready" ]]; then
     echo "    WARNING: dashboard readiness check returned: ${dashboard_ready}"
   fi
-  export GATEWAY_ADDRESS="${gatewayAddress:-127.0.0.1}"
-  export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-$DASHBOARD_URL}"
+  export GATEWAY_ADDRESS="127.0.0.1"
+  export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-http://127.0.0.1:18000}"
   export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
 else
   start_port_forward monitoring kube-prometheus-stack-grafana 13000 80

@@ -51,6 +51,92 @@ spec:
         name: << inputs.tenant >>
         labels:
           toolkit.fluxcd.io/role: tenant
+    # Agent inventory belongs outside the apps Kustomization because that
+    # Kustomization deliberately targets only << inputs.tenant >>.
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: fe-signalloom-agents
+        labels:
+          app.kubernetes.io/part-of: signalloom
+          signalloom.ai/purpose: agent-inventory
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: agent-inventory-reader
+        namespace: fe-signalloom-agents
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: fake-proxy-agent-inventory-reader
+        namespace: fe-signalloom-agents
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: agent-inventory-reader
+      subjects:
+        - kind: ServiceAccount
+          name: default
+          namespace: inf-signalloom
+    - apiVersion: v1
+      kind: Pod
+      metadata:
+        name: agent-sir-lancelot
+        namespace: fe-signalloom-agents
+        labels:
+          app.kubernetes.io/name: signalloom-agent
+          app.kubernetes.io/component: agent
+          app.kubernetes.io/part-of: signalloom
+          app.kubernetes.io/managed-by: signalloom-governor
+          app.kubernetes.io/instance: sir-lancelot
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: sir-lancelot
+          signalloom.ai/agent-type: signal-loom-built
+          signalloom.ai/framework: kagent
+          signalloom.ai/model: claude-opus-4-8
+          signalloom.ai/state: idle
+        annotations:
+          signalloom.ai/agent-display-name: "Sir Lancelot"
+          signalloom.ai/model-full: "anthropic/claude-opus-4-8"
+          signalloom.ai/description: "Inert demo agent — brave, and prone to charging in."
+      spec:
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 65532
+          runAsGroup: 65532
+          seccompProfile:
+            type: RuntimeDefault
+        containers:
+          - name: agent
+            image: ghcr.io/stefanprodan/podinfo:6.7.1
+            ports:
+              - name: http
+                containerPort: 9898
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
+            volumeMounts:
+              - name: tmp
+                mountPath: /tmp
+              - name: data
+                mountPath: /data
+            resources:
+              requests:
+                cpu: 5m
+                memory: 16Mi
+              limits:
+                memory: 64Mi
+        volumes:
+          - name: tmp
+            emptyDir: {}
+          - name: data
+            emptyDir: {}
     - apiVersion: v1
       kind: ConfigMap
       metadata:
@@ -214,6 +300,24 @@ spec:
         name: << inputs.tenant >>
         labels:
           toolkit.fluxcd.io/role: tenant
+    # Flux dry-run validates RoleBindings before resources from its own
+    # Kustomization are persisted. The proxy health binding therefore needs its
+    # Role to exist as part of tenant provisioning.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: fe-signalloom-health-reader
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+          resources: ["kustomizations"]
+          verbs: ["get", "list"]
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list"]
+        - apiGroups: [""]
+          resources: ["pods", "pods/log"]
+          verbs: ["get", "list"]
     - apiVersion: v1
       kind: ConfigMap
       metadata:

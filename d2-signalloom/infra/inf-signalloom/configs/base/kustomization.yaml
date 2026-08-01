@@ -7,6 +7,5 @@ resources:
   - networkpolicy.yaml
   - fake-integration-proxy-networkpolicy.yaml
   - fake-integration-proxy-egress-networkpolicy.yaml
-  # Agent inventory namespace + cross-namespace RBAC. Deployed here (infra,
-  # runs first) so the namespace exists before the apps kustomization applies.
-  - agents-namespace-rbac.yaml
+  # NOTE: agent-inventory namespace, cross-namespace RBAC, and baseline agent
+  # are inline in the signalloom-infra ResourceSet (signalloom.yaml), NOT here.

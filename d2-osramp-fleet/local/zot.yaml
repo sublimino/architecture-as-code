@@ -46,8 +46,7 @@ spec:
         app: zot
     spec:
       # The root Makefile maps ZOT_CACHE_DIR into each Kind node at this path.
-      # create-kind-cluster.sh prepares this local-only cache as writable; the
-      # init container verifies access without requiring a privileged UID.
+      # Kind prepares the persistent cache for Zot's non-root image user.
       initContainers:
         - name: prepare-data
           image: busybox:1.36.1

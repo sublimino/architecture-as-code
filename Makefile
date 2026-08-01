@@ -96,6 +96,20 @@ zot-cache-reset: ## Remove persisted local Zot OCI data; the next `make up` repo
 registry: ## Deploy the in-cluster zot registry.
 	$(MAKE) -C d2-osramp-fleet zot-up
 
+.PHONY: wait-lib-sync
+WAIT_LIB_SOURCE ?= $(HOME)/.andy_sync/includes/wait.sh
+wait-lib-sync: ## Re-vendor scripts/lib/wait.sh from the ~/.andy_sync source of truth.
+	@test -f "$(WAIT_LIB_SOURCE)" || { echo "source of truth not found: $(WAIT_LIB_SOURCE)" >&2; exit 1; }
+	@{ \
+	  printf '%s\n' \
+	    '# shellcheck shell=bash' \
+	    '# wait.sh — VENDORED COPY, DO NOT EDIT HERE.' \
+	    '# Source of truth: ~/.andy_sync/includes/wait.sh   Re-vendor: make wait-lib-sync' \
+	    '#'; \
+	  tail -n +2 "$(WAIT_LIB_SOURCE)"; \
+	} > scripts/lib/wait.sh
+	@echo "re-vendored scripts/lib/wait.sh from $(WAIT_LIB_SOURCE)"
+
 ##@ Supply chain
 
 .PHONY: signing-keys

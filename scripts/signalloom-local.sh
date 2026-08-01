@@ -4,6 +4,8 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 readonly repo_root
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 readonly timeout="${DEMO_WAIT_TIMEOUT:-10m}"
 
 usage() {
@@ -26,13 +28,13 @@ require_command() {
 wait_resourceset() {
   local name="$1"
   printf 'waiting for Flux ResourceSet/%s\n' "$name"
-  kubectl -n flux-system wait "resourceset/$name" --for=condition=ready --timeout="$timeout"
+  wait_flux_ready ResourceSet "$name" -n flux-system 600
 }
 
 wait_namespace() {
   local namespace="$1"
   printf 'waiting for tenant namespace/%s\n' "$namespace"
-  kubectl get namespace "$namespace" >/dev/null
+  wait_k8s_exists namespace "$namespace" 120
 }
 
 prepare() {

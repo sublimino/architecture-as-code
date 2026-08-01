@@ -5,6 +5,7 @@ import { useSuperadmin } from './auth/superadmin'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './auth/ProtectedRoute'
 import DemoToggle from './components/DemoToggle'
+import ThemeToggle from './components/ThemeToggle'
 import { api } from './api/client'
 import type { CookiePreferences } from './types/api'
 
@@ -147,6 +148,9 @@ export default function App() {
     }}>
       {/* Demo-data toggle — corner widget; flips the api client to local fixtures */}
       <DemoToggle />
+
+      {/* Theme picker — corner widget, sits to the left of DemoToggle */}
+      <ThemeToggle />
 
       {/* Consent modal — fullscreen, gates entire dashboard (flag-gated) */}
       {CONSENT_ENABLED && ConsentModal && isAuthenticated && consentRequired === true && (

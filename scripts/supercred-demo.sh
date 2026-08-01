@@ -45,6 +45,28 @@ preflight_cluster() {
   ok "cluster healthy, OpenBao + SPIRE + agent running"
 }
 
+preflight_images() {
+  # kind-loaded :local images do NOT survive a `kind delete/create`, but the
+  # namespaces/Jobs referencing them can be re-applied — leaving a manifest
+  # pointing at an image that is no longer on the node. containerd then falls
+  # back to the pull-through mirror and fails with "unexpected media type
+  # text/html" (ImagePullBackOff). Verify the images are present before any step
+  # applies a workload that needs them.
+  log "preflight: verifying supercred images are loaded on the node"
+  local node="${CLUSTER_NAME:-osramp}-control-plane"
+  local img missing=()
+  for img in cardvault:local policy-engine:local cardvault-agent:local; do
+    docker exec "$node" ctr -n k8s.io images ls -q 2>/dev/null \
+      | grep -Fq "docker.io/library/${img}" || missing+=("$img")
+  done
+  if ((${#missing[@]} > 0)); then
+    fail "supercred images missing from the kind node: ${missing[*]}
+       (kind-loaded :local images do not survive a cluster recreate)
+       rebuild + reload them:  make demo-signalloom-supercred-images"
+  fi
+  ok "supercred images present on the node"
+}
+
 preflight_step1_deployed() {
   log "preflight: verifying step 1 resources"
   wait_k8s_exists deployment cardvault -n "$NAMESPACE_INFRA" 10 \
@@ -80,6 +102,7 @@ preflight_step3_completed() {
 
 demo_1() {
   preflight_cluster
+  preflight_images
   log "step 1: clean + deploy supercred services"
 
   # Ensure agents namespace exists (annotated to prevent Flux pruning)
@@ -162,6 +185,7 @@ POLICY
 
 demo_2() {
   preflight_step1_deployed
+  preflight_images
   log "step 2: running the agent's credential chain (SPIFFE → OpenBao → cardvault)"
 
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
@@ -229,6 +253,7 @@ print()
 
 demo_4() {
   preflight_step3_completed
+  preflight_images
   log "step 4: revoking credentials and restricting agent"
 
   kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \

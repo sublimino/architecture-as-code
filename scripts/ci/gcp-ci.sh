@@ -88,7 +88,8 @@ push_code() {
     -czf "$tarball" .
 
   iap_scp "$tarball" "${VM_NAME}:/tmp/osramp-demo-ci.tar.gz"
-  iap_ssh "sudo mkdir -p ${REMOTE_WORK_DIR} && \
+  iap_ssh "sudo rm -rf ${REMOTE_WORK_DIR} && \
+    sudo mkdir -p ${REMOTE_WORK_DIR} && \
     sudo tar -xzf /tmp/osramp-demo-ci.tar.gz -C ${REMOTE_WORK_DIR} && \
     sudo chown -R ci:ci ${REMOTE_WORK_DIR} && \
     rm /tmp/osramp-demo-ci.tar.gz"
@@ -275,11 +276,10 @@ cmd_run() {
       ;;
   esac
 
-  # ── Push code if repo doesn't exist on VM yet ──
-  if ! iap_ssh "test -d ${REMOTE_WORK_DIR}/scripts" 2>/dev/null; then
-    echo "==> No code on VM — pushing via SCP..."
-    push_code
-  fi
+  # ── Synchronize the local checkout before every test run ───────────
+  # The pipeline validates uncommitted local changes; reusing a previous
+  # checkout would silently test stale files and preserve deleted paths.
+  push_code
 
   # ── Run the pipeline via SSH ──
   echo "==> Running pipeline on VM..."

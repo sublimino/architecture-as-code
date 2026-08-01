@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, config, afm } from "./helpers";
+import { login, config, afm, guards } from "./helpers";
 
 /**
  * AFM Frontend Test Suite — runs against both standalone and iframe modes.
@@ -16,6 +16,7 @@ const DASHBOARD_PATH = "/dashboard/";
 
 test.describe(`AFM Frontend (${MODE} mode)`, () => {
   test.beforeAll(async ({ request }) => {
+    test.skip(!guards.afmDeployed(), "k8s-afm slice not deployed — run: make demo-k8s-afm-up");
     await afm.assertHealthy(request);
   });
 

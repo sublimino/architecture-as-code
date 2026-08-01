@@ -1,10 +1,11 @@
 import { expect, test } from "@playwright/test";
-import { login, config, afm } from "./helpers";
+import { login, config, afm, guards } from "./helpers";
 
 const BASE = config.base;
 
 test.describe("AFM integration in Signal Loom", () => {
   test.beforeAll(async ({ request }) => {
+    test.skip(!guards.afmDeployed(), "k8s-afm slice not deployed — run: make demo-k8s-afm-up");
     await afm.assertHealthy(request);
   });
 

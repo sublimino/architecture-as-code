@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures";
+import { guards } from "./helpers";
 
 /**
  * Simple browser-driven acceptance tests for the OSRAMP demo cluster.
@@ -20,6 +21,13 @@ const SIGNALLOOM_URL = "http://127.0.0.1:18000";
 const OLLY_PORTAL_URL = "http://127.0.0.1:18080";
 
 test.describe("Grafana", () => {
+  test.beforeAll(() => {
+    test.skip(
+      !guards.grafanaDeployed(),
+      "monitoring slice not deployed — run with ENABLE_OBSERVABILITY=true",
+    );
+  });
+
   test("dashboard loads and shows login page", async ({ page }) => {
     const response = await page.goto(GRAFANA_URL);
     expect(response?.status()).toBe(200);
@@ -37,6 +45,13 @@ test.describe("Grafana", () => {
 });
 
 test.describe("Archivista API", () => {
+  test.beforeAll(() => {
+    test.skip(
+      !guards.archivistaDeployed(),
+      "osramp-apps backend not deployed — run: make demo-osramp-up",
+    );
+  });
+
   test("root endpoint is reachable", async ({ request }) => {
     const response = await request.get(`${ARCHIVISTA_URL}/`);
     // Archivista may redirect or serve a page
@@ -69,6 +84,13 @@ test.describe("SignalLoom Frontend", () => {
 });
 
 test.describe("Olly Customer Portal", () => {
+  test.beforeAll(() => {
+    test.skip(
+      !guards.ollyDeployed(),
+      "olly-replica slice not deployed — run: make demo-olly-up",
+    );
+  });
+
   test("portal responds", async ({ page }) => {
     const response = await page.goto(OLLY_PORTAL_URL);
     // Portal may serve on root or redirect

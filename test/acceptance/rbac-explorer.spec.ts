@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { login, afm, polling } from "./helpers";
+import { login, afm, polling, guards } from "./helpers";
 
 /**
  * RBAC Explorer — robust tests for the native Signal Loom RBAC analysis view.
@@ -10,6 +10,7 @@ import { login, afm, polling } from "./helpers";
 
 test.describe("RBAC Explorer", () => {
   test.beforeAll(async ({ request }) => {
+    test.skip(!guards.afmDeployed(), "k8s-afm slice not deployed — run: make demo-k8s-afm-up");
     await afm.assertHealthy(request);
   });
 

@@ -6,6 +6,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
 COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
@@ -13,10 +15,7 @@ COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
-for _ in $(seq 1 60); do
-  curl -fsS "http://localhost:5001/v2/" >/dev/null 2>&1 && break
-  sleep 0.5
-done
+wait_reachable "http://localhost:5001/v2/" 90
 
 reconcile_frontend() {
   kubectl annotate --overwrite -n frontend ocirepository/apps \

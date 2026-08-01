@@ -4,6 +4,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 IMAGE_REF="${IMAGE_REF:-zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest}"
 LOCAL_REF="${LOCAL_REF:-localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest}"
@@ -52,11 +54,7 @@ else
   echo "started registry port-forward on localhost:5001"
 fi
 
-for _ in $(seq 1 60); do
-  curl -fsS "http://localhost:5001/v2/" >/dev/null 2>&1 && break
-  sleep 0.5
-done
-curl -fsS "http://localhost:5001/v2/" >/dev/null
+wait_reachable "http://localhost:5001/v2/" 90
 
 echo "building OCI evidence archive for ${IMAGE_REF}"
 docker buildx build \

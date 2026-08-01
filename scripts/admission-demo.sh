@@ -7,6 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 KYVERNO_VERSION="v1.13.4"
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 REGISTRY_HOST="${REGISTRY_HOST:-127.0.0.1:5001}"
 CLUSTER_IMAGE_BASE="zot.registry.svc.cluster.local:5000/acme/images"
 
@@ -21,10 +23,7 @@ echo "=== publishing a signed and an unsigned image"
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
-for _ in $(seq 1 60); do
-  curl -fsS "http://${REGISTRY_HOST}/v2/" >/dev/null 2>&1 && break
-  sleep 0.5
-done
+wait_reachable "http://${REGISTRY_HOST}/v2/" 90
 
 docker image inspect listener:dev >/dev/null 2>&1 || { echo "run 'make images' first"; exit 1; }
 

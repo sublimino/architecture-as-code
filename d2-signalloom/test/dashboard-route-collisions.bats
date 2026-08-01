@@ -15,6 +15,33 @@ setup() {
 	dashboard="$repo_root/d2-signalloom/apps/dashboard-signalloom"
 	nginx_conf="$dashboard/nginx.conf"
 	app_tsx="$dashboard/src/App.tsx"
+	netpol="$repo_root/d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml"
+}
+
+# Every upstream nginx proxies to, as namespace:port, one per line.
+nginx_upstreams() {
+	# NOTE: <<- strips leading TABS, so Python's own indentation must be SPACES.
+	python3 - "$nginx_conf" <<-'PY'
+	import re, sys
+	src = open(sys.argv[1]).read()
+	out = set()
+	pattern = r'set \$\w+ http://([\w-]+)\.([\w-]+)\.svc\.cluster\.local:(\d+)'
+	for host, namespace, port in re.findall(pattern, src):
+	    out.add(f"{namespace}:{port}")
+	print("\n".join(sorted(out)))
+	PY
+}
+
+# Every destination the dashboard may egress to, as namespace:port.
+# A rule with no namespaceSelector means "same namespace" — fe-signalloom.
+dashboard_egress() {
+	yq eval-all '
+		select(.metadata.name == "allow-dashboard-egress")
+		| .spec.egress[]
+		| (.to[] | (.namespaceSelector.matchLabels."kubernetes.io/metadata.name" // "fe-signalloom")) as $ns
+		| .ports[]
+		| $ns + ":" + (.port | tostring)' "$netpol" \
+		| grep -v '^---$' | sort -u
 }
 
 # First path segment of every SPA route, one per line.
@@ -197,6 +224,30 @@ proxy_segments() {
 	run yq eval-all '[.spec.ingress[]?.from[]?.podSelector.matchLabels."app.kubernetes.io/name"] | .[]' "$policy"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"dashboard-signalloom"* ]]
+}
+
+@test "every nginx upstream has a matching dashboard egress rule" {
+	# default-deny DROPS denied egress rather than rejecting it, so a missing
+	# rule produces a hang and a 499 in nginx's log — nothing in the upstream's
+	# logs, and no error naming the rule. Silence, not failure.
+	command -v yq >/dev/null || skip "yq is required to read the NetworkPolicy"
+	[ -f "$netpol" ] || skip "fe-signalloom networkpolicy.yaml not found"
+
+	local allowed upstream missing=()
+	allowed="$(dashboard_egress)"
+	while read -r upstream; do
+		[ -n "$upstream" ] || continue
+		if ! grep -Fqx "$upstream" <<<"$allowed"; then
+			missing+=("$upstream")
+		fi
+	done < <(nginx_upstreams)
+
+	[ "${#missing[@]}" -eq 0 ] || {
+		echo "nginx proxies to ${missing[*]} but allow-dashboard-egress permits no such rule"
+		echo "the fetch will hang and log 499; add the rule to $netpol"
+		echo "allowed: $(echo "$allowed" | tr '\n' ' ')"
+		return 1
+	}
 }
 
 @test "redirects stay relative so they cannot leave the gateway origin" {

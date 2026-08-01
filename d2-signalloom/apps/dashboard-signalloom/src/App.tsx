@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, lazy, Suspense } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth0 } from './auth/oidc'
+import { useSuperadmin } from './auth/superadmin'
 import Sidebar from './components/Sidebar'
 import ProtectedRoute from './auth/ProtectedRoute'
 import DemoToggle from './components/DemoToggle'
@@ -44,6 +45,11 @@ export interface AppCtx {
   setApiKeyReveal: (v: ApiKeyRevealData | null) => void
   cookieSettingsOpen: boolean
   setCookieSettingsOpen: (v: boolean) => void
+  // Superadmin is a VISIBILITY flag only — it decides which nav links the
+  // sidebar renders. It is NOT authorization: every route below stays
+  // registered and reachable by direct URL regardless of this value.
+  superadmin: boolean
+  setSuperadmin: (v: boolean) => void
 }
 
 export const AppContext = createContext<AppCtx>({
@@ -55,6 +61,8 @@ export const AppContext = createContext<AppCtx>({
   setApiKeyReveal: () => undefined,
   cookieSettingsOpen: false,
   setCookieSettingsOpen: () => undefined,
+  superadmin: false,
+  setSuperadmin: () => undefined,
 })
 
 export function useAppContext() {
@@ -76,6 +84,7 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [apiKeyReveal, setApiKeyReveal] = useState<ApiKeyRevealData | null>(null)
   const [cookieSettingsOpen, setCookieSettingsOpen] = useState(false)
+  const [superadmin, setSuperadmin] = useSuperadmin()
   // null = not yet checked, true = show modal, false = accepted or flag off
   const [consentRequired, setConsentRequired] = useState<boolean | null>(null)
 
@@ -134,6 +143,7 @@ export default function App() {
       helpOpen, setHelpOpen,
       apiKeyReveal, setApiKeyReveal,
       cookieSettingsOpen, setCookieSettingsOpen,
+      superadmin, setSuperadmin,
     }}>
       {/* Demo-data toggle — corner widget; flips the api client to local fixtures */}
       <DemoToggle />

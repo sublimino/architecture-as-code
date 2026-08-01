@@ -16,42 +16,65 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_SRC="${SCRIPT_DIR}/../apps/fe-signalloom/src"
+APP_SRC="${SCRIPT_DIR}/../d2-signalloom/apps/fe-signalloom/src"
 TIER="${1:-contract}"
 
 cd "${APP_SRC}"
 
 PYTEST_ARGS=(-v --tb=short --no-header)
 
+# Pin the interpreter and test dependencies exactly as the TEST-1 gate does
+# (scripts/signalloom-test-1.sh stage 2, "API contracts and persistence").
+#
+# A bare `python3 -m pytest` resolves to whatever is on PATH. On a host whose
+# system Python is 3.14 with a current pytest, this suite dies at collection
+# with "Marks cannot be applied to fixtures" -- while the same tests pass under
+# the pinned 3.12 environment. Two entrypoints running the same tests must not
+# disagree about which interpreter they mean.
+#
+# Override SIGNALLOOM_PYTEST_CMD to run against a preexisting venv instead.
+run_pytest() {
+  if [ -n "${SIGNALLOOM_PYTEST_CMD:-}" ]; then
+    ${SIGNALLOOM_PYTEST_CMD} "$@"
+    return
+  fi
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "uv is required to pin the test environment; install uv or set SIGNALLOOM_PYTEST_CMD" >&2
+    exit 1
+  fi
+  uv run --python 3.12 --with pytest --with pytest-asyncio \
+    --with-requirements requirements.txt python -m pytest "$@"
+}
+
 case "${TIER}" in
   contract)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
     ;;
 
   integration)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
 
     echo ""
     echo "=== Tier 2: Integration tests (live Postgres) ==="
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
     fi
     ;;
 
   e2e)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
 
     echo ""
     echo "=== Tier 2: Integration tests (live Postgres) ==="
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
     fi
 
     echo ""
@@ -59,7 +82,7 @@ case "${TIER}" in
     if [ -z "${SIGNALLOOM_API_BASE:-}" ]; then
       echo "SKIP: SIGNALLOOM_API_BASE not set — skipping Tier 3"
     else
-      python3 -m pytest "${PYTEST_ARGS[@]}" tests/test_e2e_tier3.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_e2e_tier3.py
     fi
     ;;
 

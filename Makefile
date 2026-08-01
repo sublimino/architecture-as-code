@@ -393,7 +393,18 @@ demo-signalloom-supercred-all: demo-signalloom-supercred-images ## Run full Supe
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh
 demo-osramp-test-config: ## Validate existing OSRAMP manifests without a running slice.
-	kubectl kustomize d2-osramp-apps/components >/dev/null
+	@# components/ holds no kustomization.yaml of its own -- the overlays live one
+	@# level down under backend/ and frontend/. Rendering the parent silently
+	@# validated nothing; it just errored. Render every overlay instead.
+	@# The empty-list guard is load-bearing: a for-loop over nothing exits 0, which
+	@# is how the previous broken path could have gone unnoticed indefinitely.
+	@set -e; dirs=$$(find d2-osramp-apps/components -name kustomization.yaml -printf '%h\n' | sort); \
+	[ -n "$$dirs" ] || { echo "no kustomization.yaml under d2-osramp-apps/components" >&2; exit 1; }; \
+	for d in $$dirs; do printf '  rendering %s\n' "$$d"; kubectl kustomize "$$d" >/dev/null; done
+	@# backend-config.bats adds real yq assertions (postgres grant, redis pin,
+	@# minio ports) that a bare render cannot make. It already existed and was
+	@# simply never called from here.
+	$(MAKE) -C d2-osramp-apps test-config
 demo-osramp-test: demo-osramp-test-config ## Run existing OSRAMP acceptance tests.
 	$(MAKE) test
 demo-osramp-down: ## Remove OSRAMP frontend+backend via shared ResourceSet cleanup.
@@ -403,7 +414,11 @@ demo-osramp-down: ## Remove OSRAMP frontend+backend via shared ResourceSet clean
 demo-olly-up: ## Restore Olly Sentinel replica (durable: restores ResourceSet inputs).
 	./scripts/olly-up.sh
 demo-olly-test-config: ## Render the Olly component configuration without a running slice.
-	kubectl kustomize olly-replica/components >/dev/null
+	@# Same shape as demo-osramp-test-config: the overlays live under configs/
+	@# and controllers/, not at components/ itself.
+	@set -e; dirs=$$(find olly-replica/components -name kustomization.yaml -printf '%h\n' | sort); \
+	[ -n "$$dirs" ] || { echo "no kustomization.yaml under olly-replica/components" >&2; exit 1; }; \
+	for d in $$dirs; do printf '  rendering %s\n' "$$d"; kubectl kustomize "$$d" >/dev/null; done
 demo-olly-test: demo-olly-test-config ## Run existing Olly acceptance tests.
 	$(MAKE) olly-test
 demo-olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.
@@ -434,7 +449,11 @@ demo-cpai-up: healthcheck ## Build CPAI runtime image, push to Zot, and deploy t
 	$(MAKE) cpai-images
 	./scripts/cpai-up.sh
 demo-cpai-test-config: ## Render and validate CPAI Kustomize overlays without a cluster.
-	$(MAKE) -C d2-cpai test
+	@# d2-cpai's `test` target runs kustomize-check AND bats test/cpai-runtime.bats,
+	@# so this "without a cluster" target was dragging in cluster runtime tests --
+	@# and demo-cpai-test then ran the same bats a second time. Point at the
+	@# genuinely config-only target; demo-cpai-test still owns the runtime pass.
+	$(MAKE) -C d2-cpai kustomize-check
 demo-cpai-test: demo-cpai-test-config ## Run CPAI runtime smoke tests against the running cluster.
 	bats d2-cpai/test/cpai-runtime.bats
 demo-cpai-conversation: ## Run 3-turn aichat conversation e2e test against the CPAI runtime.

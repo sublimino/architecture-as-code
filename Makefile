@@ -19,6 +19,9 @@ D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
+# Set false for a fast local foundation without monitoring or Trivy.
+ENABLE_OBSERVABILITY ?= true
+export ENABLE_OBSERVABILITY
 
 .PHONY: up
 up: ## Create the shared cluster foundation and advertise opt-in demos.
@@ -144,7 +147,7 @@ push-local: ## Push signed manifest artifacts to the in-cluster registry.
 
 .PHONY: push-local-foundation
 push-local-foundation: ## Push only the fleet and shared infrastructure artifacts.
-	./scripts/push-local.sh foundation
+	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/push-local.sh foundation
 
 .PHONY: push-local-signalloom
 push-local-signalloom: ## Push Signal Loom artifacts for the explicit demo lifecycle.
@@ -260,7 +263,7 @@ workload-key: ## Generate the ed25519 key the processor signs attestations with.
 
 .PHONY: wait
 wait: ## Wait for shared infrastructure reconciliation to converge.
-	./scripts/wait-reconciled.sh
+	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/wait-reconciled.sh
 
 .PHONY: healthcheck
 healthcheck: ## Verify the shared cluster foundation is ready for demos.

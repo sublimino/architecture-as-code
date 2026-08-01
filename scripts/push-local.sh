@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 mode="${1:-all}"
+ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-true}"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
 COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
@@ -24,7 +25,15 @@ SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
 
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
-trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
+TEMP_FLEET_DIR=""
+
+cleanup() {
+  kill "${PORT_FORWARD_PID}" 2>/dev/null || true
+  if [[ -n "${TEMP_FLEET_DIR}" ]]; then
+    rm -rf "${TEMP_FLEET_DIR}"
+  fi
+}
+trap cleanup EXIT
 
 wait_reachable "http://localhost:5001/v2/" 90
 
@@ -114,12 +123,33 @@ run_parallel_push() {
 }
 
 push_foundation() {
-  run_parallel_push foundation \
-    "fleet|d2-osramp-fleet" \
-    "infra/cert-manager|d2-infra/components/cert-manager" \
-    "infra/ingress|d2-infra/components/ingress" \
-    "infra/monitoring|d2-infra/components/monitoring" \
-    "infra/trivy-system|d2-infra/components/trivy-system"
+  local fleet_path="d2-osramp-fleet"
+  local -a artifacts=(
+    "infra/cert-manager|d2-infra/components/cert-manager"
+    "infra/ingress|d2-infra/components/ingress"
+  )
+
+  case "${ENABLE_OBSERVABILITY}" in
+    true)
+      artifacts+=(
+        "infra/monitoring|d2-infra/components/monitoring"
+        "infra/trivy-system|d2-infra/components/trivy-system"
+      )
+      ;;
+    false)
+      TEMP_FLEET_DIR="$(mktemp -d)"
+      cp -a d2-osramp-fleet/. "${TEMP_FLEET_DIR}"
+      fleet_path="${TEMP_FLEET_DIR}"
+      sed -i '/    - tenant: "monitoring"/,/      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"/d' "${fleet_path}/tenants/base/infra.yaml"
+      sed -i '/    - tenant: "trivy-system"/,/      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"/d' "${fleet_path}/tenants/base/infra.yaml"
+      ;;
+    *)
+      echo "ENABLE_OBSERVABILITY must be true or false" >&2
+      return 64
+      ;;
+  esac
+
+  run_parallel_push foundation "fleet|${fleet_path}" "${artifacts[@]}"
 }
 
 push_signalloom() {

@@ -12,11 +12,16 @@ resources=(
   Kustomization/cert-manager/infra-configs
   Kustomization/ingress/infra-controllers
   Kustomization/ingress/infra-configs
-  Kustomization/monitoring/infra-controllers
-  Kustomization/monitoring/infra-configs
-  Kustomization/trivy-system/infra-controllers
-  Kustomization/trivy-system/infra-configs
 )
+
+if [[ "${ENABLE_OBSERVABILITY:-true}" == "true" ]]; then
+  resources+=(
+    Kustomization/monitoring/infra-controllers
+    Kustomization/monitoring/infra-configs
+    Kustomization/trivy-system/infra-controllers
+    Kustomization/trivy-system/infra-configs
+  )
+fi
 
 wait_for_resource() {
   local resource="$1"

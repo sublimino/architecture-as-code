@@ -18,6 +18,10 @@ setup() {
 @test "Dex OIDC contract requests the documented compatibility API audience" {
   run grep -F 'redirectURIs:' "$dex_manifest"
   [ "$status" -eq 0 ]
+  # Gateway callback (primary path — all automated tests go through Envoy).
+  run grep -F 'https://dashboard.osramp.acme.local:30754/callback' "$dex_manifest"
+  [ "$status" -eq 0 ]
+  # Local vite dev callback (kept so `bun run dev` auth works without the Gateway).
   run grep -F 'http://localhost:5173/callback' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F 'value: openid profile email groups audience:server:client_id:signalloom-api' "$portal_manifest"

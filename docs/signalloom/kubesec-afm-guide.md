@@ -125,10 +125,15 @@ Sample clusters are in the source repo at
 
 To import the live osramp cluster's RBAC into AFM:
 
+`/clusters/import` expects the **converted** AFM import object
+(`{id, name, rbac: {subjects, roles, bindings}}`), not raw `kubectl -o json`
+output. Posting the raw `List` is rejected with HTTP 400, so pipe the export
+through `scripts/rbac-to-afm.py` first:
+
 ```bash
-# Export current cluster RBAC as JSON
+# Export current cluster RBAC and convert it to the AFM import shape
 kubectl get clusterroles,clusterrolebindings,roles,rolebindings \
-  -A -o json > /tmp/osramp-rbac.json
+  -A -o json | python3 scripts/rbac-to-afm.py > /tmp/osramp-rbac.json
 
 # Import into AFM
 curl -X POST http://localhost:18000/clusters/import \

@@ -63,43 +63,182 @@ spec:
             - name: import
               image: kubesec-afm:latest
               imagePullPolicy: IfNotPresent
+              env:
+                - name: AFM_CLUSTER_ID
+                  value: "local"
+                - name: AFM_CLUSTER_NAME
+                  value: "Local Cluster"
+                - name: AFM_IMPORT_URL
+                  value: "http://afm-platform.fe-k8s-afm.svc.cluster.local:8000/clusters/import"
               command: ["/bin/sh", "-c"]
               args:
                 - |
                   set -e
                   echo "==> Exporting cluster RBAC via k8s API..."
-                  # Use Python (available in the AFM image) with the SA token
-                  python3 -c "
-                  import json, urllib.request, ssl, os
-                  token = open('/var/run/secrets/kubernetes.io/serviceaccount/token').read()
-                  ca = '/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
-                  ctx = ssl.create_default_context(cafile=ca)
-                  host = os.environ['KUBERNETES_SERVICE_HOST']
-                  port = os.environ['KUBERNETES_SERVICE_PORT']
-                  base = f'https://{host}:{port}'
-                  headers = {'Authorization': f'Bearer {token}'}
-                  items = []
-                  for res in ['clusterroles', 'clusterrolebindings']:
-                      url = f'{base}/apis/rbac.authorization.k8s.io/v1/{res}'
-                      req = urllib.request.Request(url, headers=headers)
-                      data = json.load(urllib.request.urlopen(req, context=ctx))
-                      items.extend(data.get('items', []))
-                  for res in ['roles', 'rolebindings']:
-                      url = f'{base}/apis/rbac.authorization.k8s.io/v1/{res}'
-                      req = urllib.request.Request(url, headers=headers)
-                      data = json.load(urllib.request.urlopen(req, context=ctx))
-                      items.extend(data.get('items', []))
-                  rbac = json.dumps({'apiVersion': 'v1', 'kind': 'List', 'items': items}).encode()
-                  print(f'  Collected {len(items)} RBAC items')
-                  req2 = urllib.request.Request(
+                  # Python (available in the AFM image) with the SA token. Fed via a
+                  # quoted heredoc so the shell does not touch the Python source.
+                  python3 - <<'PY'
+                  import json
+                  import os
+                  import ssl
+                  import sys
+                  import urllib.error
+                  import urllib.request
+
+                  TIMEOUT = 30
+                  CLUSTER_ID = os.environ.get('AFM_CLUSTER_ID', 'local')
+                  CLUSTER_NAME = os.environ.get('AFM_CLUSTER_NAME', 'Local Cluster')
+                  IMPORT_URL = os.environ.get(
+                      'AFM_IMPORT_URL',
                       'http://afm-platform.fe-k8s-afm.svc.cluster.local:8000/clusters/import',
-                      data=rbac, headers={'Content-Type': 'application/json'}, method='POST')
-                  try:
-                      resp = urllib.request.urlopen(req2, timeout=30)
-                      print(f'  Imported: {resp.status}')
-                  except Exception as e:
-                      print(f'  Import error: {e}')
-                  "
+                  )
+
+                  # Kubernetes typed list endpoints (ClusterRoleList, RoleList, ...)
+                  # return items with an EMPTY per-item `kind`. kubectl populates it
+                  # when listing several resource types at once, which is why the
+                  # kubectl-oriented scripts/rbac-to-afm.py can switch on it directly.
+                  # Reading the raw API, we must tag each item with the kind we asked
+                  # for, or the converter classifies nothing and emits empty RBAC.
+                  RESOURCES = (
+                      ('clusterroles', 'ClusterRole'),
+                      ('clusterrolebindings', 'ClusterRoleBinding'),
+                      ('roles', 'Role'),
+                      ('rolebindings', 'RoleBinding'),
+                  )
+
+
+                  def collect(base, headers, ctx):
+                      items = []
+                      for resource, kind in RESOURCES:
+                          url = f'{base}/apis/rbac.authorization.k8s.io/v1/{resource}'
+                          req = urllib.request.Request(url, headers=headers)
+                          with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
+                              data = json.load(resp)
+                          for item in data.get('items') or []:
+                              item['kind'] = kind
+                              items.append(item)
+                      return items
+
+
+                  def convert(items, cluster_id, cluster_name):
+                      """Port of scripts/rbac-to-afm.py::convert.
+
+                      Produces the AFM cluster-import contract:
+                      {id, name, rbac: {subjects, roles, bindings}}.
+                      """
+                      subjects_seen = {}
+                      roles = []
+                      bindings = []
+
+                      for item in items:
+                          kind = item.get('kind', '')
+                          meta = item.get('metadata') or {}
+                          name = meta.get('name', '')
+                          namespace = meta.get('namespace', '')
+
+                          if kind in ('ClusterRole', 'Role'):
+                              scope = 'Cluster' if kind == 'ClusterRole' else 'Namespace'
+                              # Aggregated ClusterRoles (admin, edit, view,
+                              # system:aggregate-to-*) carry `rules: null`, so the
+                              # `or []` guards are load-bearing, not defensive noise.
+                              rules = [
+                                  {
+                                      'verbs': rule.get('verbs') or [],
+                                      'apiGroups': rule.get('apiGroups') or [''],
+                                      'resources': rule.get('resources') or [],
+                                  }
+                                  for rule in (item.get('rules') or [])
+                              ]
+                              role = {'name': name, 'scope': scope, 'rules': rules}
+                              if scope == 'Namespace':
+                                  role['namespace'] = namespace
+                              roles.append(role)
+
+                          elif kind in ('ClusterRoleBinding', 'RoleBinding'):
+                              scope = 'Cluster' if kind == 'ClusterRoleBinding' else 'Namespace'
+                              role_ref = item.get('roleRef') or {}
+                              binding_subjects = []
+                              for subject in (item.get('subjects') or []):
+                                  s_kind = subject.get('kind', 'User')
+                                  s_name = subject.get('name', '')
+                                  s_ns = subject.get('namespace', '')
+                                  key = f'{s_kind}/{s_ns}/{s_name}' if s_ns else f'{s_kind}/{s_name}'
+                                  if key not in subjects_seen:
+                                      seen = {'name': s_name, 'kind': s_kind}
+                                      if s_kind == 'ServiceAccount' and s_ns:
+                                          seen['namespace'] = s_ns
+                                      subjects_seen[key] = seen
+                                  entry = {'kind': s_kind, 'name': s_name}
+                                  if s_ns:
+                                      entry['namespace'] = s_ns
+                                  binding_subjects.append(entry)
+                              binding = {
+                                  'name': name,
+                                  'scope': scope,
+                                  'roleRef': role_ref.get('name', ''),
+                                  'subjects': binding_subjects,
+                              }
+                              if scope == 'Namespace':
+                                  binding['namespace'] = namespace
+                              bindings.append(binding)
+
+                      return {
+                          'id': cluster_id,
+                          'name': cluster_name,
+                          'rbac': {
+                              'subjects': list(subjects_seen.values()),
+                              'roles': roles,
+                              'bindings': bindings,
+                          },
+                      }
+
+
+                  def main():
+                      host = os.environ.get('KUBERNETES_SERVICE_HOST')
+                      port = os.environ.get('KUBERNETES_SERVICE_PORT')
+                      if not host or not port:
+                          print('  ERROR: KUBERNETES_SERVICE_HOST/PORT are not set', file=sys.stderr)
+                          return 1
+
+                      with open('/var/run/secrets/kubernetes.io/serviceaccount/token') as handle:
+                          token = handle.read()
+                      ctx = ssl.create_default_context(
+                          cafile='/var/run/secrets/kubernetes.io/serviceaccount/ca.crt')
+
+                      items = collect(f'https://{host}:{port}', {'Authorization': f'Bearer {token}'}, ctx)
+                      print(f'  Collected {len(items)} RBAC items')
+
+                      payload = convert(items, CLUSTER_ID, CLUSTER_NAME)
+                      rbac = payload['rbac']
+                      print(f'  Converted: {len(rbac["subjects"])} subjects, '
+                            f'{len(rbac["roles"])} roles, {len(rbac["bindings"])} bindings')
+
+                      if not rbac['roles'] and not rbac['bindings']:
+                          print('  ERROR: conversion produced no roles or bindings', file=sys.stderr)
+                          return 1
+
+                      request = urllib.request.Request(
+                          IMPORT_URL,
+                          data=json.dumps(payload).encode(),
+                          headers={'Content-Type': 'application/json'},
+                          method='POST',
+                      )
+                      try:
+                          with urllib.request.urlopen(request, timeout=TIMEOUT) as resp:
+                              print(f'  Imported cluster {CLUSTER_ID!r}: HTTP {resp.status}')
+                      except urllib.error.HTTPError as err:
+                          detail = err.read().decode('utf-8', 'replace')[:2000]
+                          print(f'  ERROR: import rejected with HTTP {err.code}: {detail}',
+                                file=sys.stderr)
+                          return 1
+                      except Exception as err:
+                          print(f'  ERROR: import failed: {err!r}', file=sys.stderr)
+                          return 1
+                      return 0
+
+
+                  sys.exit(main())
+                  PY
                   echo "==> Done."
               resources:
                 requests:

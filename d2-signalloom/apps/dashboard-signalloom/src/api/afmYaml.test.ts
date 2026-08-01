@@ -323,6 +323,61 @@ describe('convertRbacToAfmImport', () => {
   })
 })
 
+// ── AFM cluster-import contract ────────────────────────────────────────────
+
+/**
+ * There are THREE implementations of the AFM cluster-import contract in this
+ * repo, and they must agree:
+ *
+ *   1. `convertRbacToAfmImport` here (browser, read-only — generates YAML for
+ *      the operator to paste into KubeSec-AFM);
+ *   2. `scripts/rbac-to-afm.py::convert` (CLI, for `kubectl -o json` input);
+ *   3. the inline Python in `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml`
+ *      (the CronJob that POSTs to `/clusters/import` every 30 minutes).
+ *
+ * This block pins the contract from the TypeScript side so a drift in (1)
+ * fails here rather than as an HTTP 400 from AFM. It is deliberately about
+ * *shape*, since that is the part all three share.
+ */
+describe('AFM cluster-import contract', () => {
+  const result = convertRbacToAfmImport(rbacFixture, CLUSTER, 'all')
+
+  it('has exactly the top-level contract keys, in order', () => {
+    expect(Object.keys(result)).toEqual(['id', 'name', 'rbac'])
+    expect(Object.keys(result.rbac)).toEqual(['subjects', 'roles', 'bindings'])
+  })
+
+  it('emits roles with name, scope and rules, and namespace only when namespaced', () => {
+    for (const role of result.rbac.roles) {
+      expect(role.scope === 'Cluster' || role.scope === 'Namespace').toBe(true)
+      expect(Array.isArray(role.rules)).toBe(true)
+      expect('namespace' in role).toBe(role.scope === 'Namespace')
+      for (const rule of role.rules) {
+        expect(Object.keys(rule).sort()).toEqual(['apiGroups', 'resources', 'verbs'])
+      }
+    }
+  })
+
+  it('emits bindings with a roleRef flattened to the role name', () => {
+    for (const binding of result.rbac.bindings) {
+      expect(typeof binding.roleRef).toBe('string')
+      expect(binding.scope === 'Cluster' || binding.scope === 'Namespace').toBe(true)
+      expect('namespace' in binding).toBe(binding.scope === 'Namespace')
+      expect(Array.isArray(binding.subjects)).toBe(true)
+    }
+    expect(result.rbac.bindings.map(binding => binding.roleRef))
+      .toEqual(['secret-reader', 'system:masters'])
+  })
+
+  it('emits subjects carrying only name, kind and an optional namespace', () => {
+    for (const subject of [...result.rbac.subjects, ...result.rbac.bindings.flatMap(b => b.subjects)]) {
+      expect(typeof subject.name).toBe('string')
+      expect(typeof subject.kind).toBe('string')
+      expect(Object.keys(subject).every(key => ['name', 'kind', 'namespace'].includes(key))).toBe(true)
+    }
+  })
+})
+
 // ── Emitter round-trip ─────────────────────────────────────────────────────
 
 describe('emitYaml round-trip', () => {

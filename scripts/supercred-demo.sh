@@ -20,9 +20,35 @@ NAMESPACE_AGENTS="fe-signalloom-agents"
 SPIFFE_ID="spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent"
 PARENT_ID="spiffe://signalloom.demo/agent/kind"
 
+# agents-cardvault.yaml declares `namespace: fe-signalloom-agents`, but the Flux
+# Kustomization's targetNamespace can override that and land the pod in
+# fe-signalloom instead. NAMESPACE_AGENTS stays the default (and the namespace
+# this script creates and deletes Jobs in); AGENT_POD_NAMESPACE is resolved at
+# runtime so label/annotate/get calls follow the pod wherever Flux placed it.
+IFS=' ' read -r -a AGENT_NAMESPACE_CANDIDATES \
+  <<< "${AGENT_NAMESPACE_CANDIDATES:-fe-signalloom-agents fe-signalloom}"
+AGENT_POD_NAMESPACE="$NAMESPACE_AGENTS"
+
 log() { printf '\033[1;36m[supercred]\033[0m %s\n' "$*"; }
 ok()  { printf '\033[1;32m[supercred] ✓\033[0m %s\n' "$*"; }
 fail() { printf '\033[1;31m[supercred] FAILED:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Sets AGENT_POD_NAMESPACE to the namespace that actually holds agent-cardvault.
+# Falls back to NAMESPACE_AGENTS and returns non-zero when the pod is nowhere.
+resolve_agent_pod_namespace() {
+  local ns
+  for ns in "${AGENT_NAMESPACE_CANDIDATES[@]}"; do
+    if kubectl -n "$ns" get pod agent-cardvault >/dev/null 2>&1; then
+      AGENT_POD_NAMESPACE="$ns"
+      if [ "$ns" != "$NAMESPACE_AGENTS" ]; then
+        log "agent-cardvault resolved to namespace $ns (Flux relocated it from $NAMESPACE_AGENTS)"
+      fi
+      return 0
+    fi
+  done
+  AGENT_POD_NAMESPACE="$NAMESPACE_AGENTS"
+  return 1
+}
 
 spire_pod() {
   kubectl -n "$NAMESPACE_BAO" get pod -l app.kubernetes.io/name=spire-server \
@@ -73,15 +99,18 @@ preflight_step1_deployed() {
     || fail "cardvault not deployed — run step 1 first"
   wait_k8s_exists deployment policy-engine -n "$NAMESPACE_INFRA" 10 \
     || fail "policy-engine not deployed — run step 1 first"
-  wait_k8s_exists pod agent-cardvault -n "$NAMESPACE_AGENTS" 10 \
+  resolve_agent_pod_namespace \
+    || fail "agent-cardvault pod not found in ${AGENT_NAMESPACE_CANDIDATES[*]} — run step 1 first"
+  wait_k8s_exists pod agent-cardvault -n "$AGENT_POD_NAMESPACE" 10 \
     || fail "agent-cardvault pod not found — run step 1 first"
-  ok "step 1 resources present"
+  ok "step 1 resources present (agent pod in $AGENT_POD_NAMESPACE)"
 }
 
 preflight_step2_completed() {
   log "preflight: verifying credential chain ran"
+  resolve_agent_pod_namespace || fail "agent-cardvault pod not found — run step 1 first"
   local state
-  state=$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault \
+  state=$(kubectl -n "$AGENT_POD_NAMESPACE" get pod agent-cardvault \
     -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null)
   [ "$state" = "active" ] || [ "$state" = "non-compliant" ] \
     || fail "agent state is '$state' — run step 2 first (expected active or non-compliant)"
@@ -90,8 +119,9 @@ preflight_step2_completed() {
 
 preflight_step3_completed() {
   log "preflight: verifying compliance scan ran"
+  resolve_agent_pod_namespace || fail "agent-cardvault pod not found — run step 1 first"
   local state
-  state=$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault \
+  state=$(kubectl -n "$AGENT_POD_NAMESPACE" get pod agent-cardvault \
     -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null)
   [ "$state" = "non-compliant" ] \
     || fail "agent state is '$state' — run step 3 first (expected non-compliant)"
@@ -114,7 +144,8 @@ demo_1() {
   # Clean previous runs (idempotent)
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   kubectl delete job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" --ignore-not-found --wait=true >/dev/null 2>&1 || true
-  kubectl delete pod agent-cardvault -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
+  resolve_agent_pod_namespace || true
+  kubectl delete pod agent-cardvault -n "$AGENT_POD_NAMESPACE" --ignore-not-found --wait=true >/dev/null 2>&1 || true
 
   # Clean SPIRE entry from previous run
   local spire_pod
@@ -148,8 +179,9 @@ demo_1() {
   log "deploying cardvault agent"
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-sa.yaml
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault.yaml
-  wait_pods_ready "app.kubernetes.io/instance=cardvault" -n "$NAMESPACE_AGENTS" 60 \
-    || fail "agent pod failed to become ready"
+  resolve_agent_pod_namespace || true
+  wait_pods_ready "app.kubernetes.io/instance=cardvault" -n "$AGENT_POD_NAMESPACE" 60 \
+    || fail "agent pod failed to become ready in $AGENT_POD_NAMESPACE"
 
   # Re-seed OpenBao secrets (handles stun revocation from previous run)
   log "seeding OpenBao supercred secrets"
@@ -201,7 +233,7 @@ demo_2() {
   log "agent job output:"
   kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run
 
-  kubectl -n "$NAMESPACE_AGENTS" label pod agent-cardvault signalloom.ai/state=active --overwrite
+  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=active --overwrite
   ok "step 2 complete — credential chain verified, agent marked active"
 }
 
@@ -212,7 +244,7 @@ demo_3() {
   log "step 3: compliance scan against cardvault agent"
 
   local pod_spec
-  pod_spec=$(kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault -o json | \
+  pod_spec=$(kubectl -n "$AGENT_POD_NAMESPACE" get pod agent-cardvault -o json | \
     python3 -c 'import sys,json; d=json.load(sys.stdin)["spec"]; print(json.dumps({"containers":[{"name":c["name"],"securityContext":c.get("securityContext")} for c in d.get("containers",[])], "securityContext":d.get("securityContext")}))')
 
   kubectl -n "$NAMESPACE_INFRA" port-forward svc/policy-engine 18081:8081 >/dev/null 2>&1 &
@@ -224,7 +256,7 @@ demo_3() {
   local result
   result=$(curl -sS --fail -X POST http://localhost:18081/api/v1/evaluate \
     -H 'Content-Type: application/json' \
-    -d "{\"agent_id\":\"cardvault\",\"namespace\":\"$NAMESPACE_AGENTS\",\"pod_spec\":$pod_spec,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}") \
+    -d "{\"agent_id\":\"cardvault\",\"namespace\":\"$AGENT_POD_NAMESPACE\",\"pod_spec\":$pod_spec,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}") \
     || fail "policy-engine evaluate call failed"
   kill $pf_pid 2>/dev/null || true
 
@@ -242,7 +274,7 @@ print()
   local compliant
   compliant=$(python3 -c "import json; print(json.loads('''$result''')['compliant'])")
   if [ "$compliant" = "False" ] || [ "$compliant" = "false" ]; then
-    kubectl -n "$NAMESPACE_AGENTS" label pod agent-cardvault signalloom.ai/state=non-compliant --overwrite
+    kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=non-compliant --overwrite
     ok "step 3 complete — agent is OUT OF COMPLIANCE"
   else
     ok "step 3 complete — agent is compliant"
@@ -264,8 +296,8 @@ demo_4() {
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
     bao delete auth/jwt/role/signalloom-cardvault-agent 2>/dev/null || true
 
-  kubectl -n "$NAMESPACE_AGENTS" label pod agent-cardvault signalloom.ai/state=stunned --overwrite
-  kubectl -n "$NAMESPACE_AGENTS" annotate pod agent-cardvault \
+  kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=stunned --overwrite
+  kubectl -n "$AGENT_POD_NAMESPACE" annotate pod agent-cardvault \
     "signalloom.ai/stunned-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     "signalloom.ai/stun-reason=compliance-failure: securityContext not set" \
     --overwrite
@@ -290,7 +322,8 @@ demo_5() {
   log "step 5: tearing down supercred demo resources"
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true 2>/dev/null || true
   kubectl delete job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" --ignore-not-found --wait=true 2>/dev/null || true
-  kubectl delete pod agent-cardvault -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true 2>/dev/null || true
+  resolve_agent_pod_namespace || true
+  kubectl delete pod agent-cardvault -n "$AGENT_POD_NAMESPACE" --ignore-not-found --wait=true 2>/dev/null || true
   kubectl delete sa cardvault-agent -n "$NAMESPACE_AGENTS" --ignore-not-found 2>/dev/null || true
   kubectl delete -k d2-signalloom/apps/cardvault/base/ --ignore-not-found 2>/dev/null || true
   kubectl delete -k d2-signalloom/apps/policy-engine/base/ --ignore-not-found 2>/dev/null || true
@@ -312,7 +345,8 @@ demo_5() {
   log "verifying teardown..."
   kubectl -n "$NAMESPACE_INFRA" get deployment cardvault 2>/dev/null && fail "cardvault still exists after teardown"
   kubectl -n "$NAMESPACE_INFRA" get deployment policy-engine 2>/dev/null && fail "policy-engine still exists after teardown"
-  kubectl -n "$NAMESPACE_AGENTS" get pod agent-cardvault 2>/dev/null && fail "agent pod still exists after teardown"
+  resolve_agent_pod_namespace \
+    && fail "agent pod still exists in $AGENT_POD_NAMESPACE after teardown"
 
   ok "step 5 complete — teardown verified"
 }

@@ -33,9 +33,8 @@ stringData:
         name: Signal Loom Dashboard
         public: true
         redirectURIs:
-          - http://localhost:5173/callback
-          - https://dashboard.osramp.acme.local:18443/callback
           - https://dashboard.osramp.acme.local:30754/callback
+          - http://dashboard.osramp.acme.local:5173/callback
       - id: signalloom-api
         name: Signal Loom API
         secret: signalloom-api-local-only

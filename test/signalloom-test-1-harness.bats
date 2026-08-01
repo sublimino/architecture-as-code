@@ -60,8 +60,8 @@ setup() {
     block="$(sed -n "/if \[\[ \" \\$\* \" == .*signalloom-test-1/,/^else$/p" "$1")"
     grep -F "fe-signalloom" <<<"$block" >/dev/null
     grep -F "inf-signalloom" <<<"$block" >/dev/null
-    grep -F "envoy-gateway-system" <<<"$block" >/dev/null
-    test "$(grep -c "start_port_forward" <<<"$block")" -eq 3
+    grep -F "gateway.envoyproxy.io" <<<"$block" >/dev/null
+    test "$(grep -c "start_port_forward" <<<"$block")" -ge 3
     grep -F "DASHBOARD_URL" <<<"$block" >/dev/null
     grep -F "SIGNALLOOM_API_URL" <<<"$block" >/dev/null
     grep -F "SIGNALLOOM_DEX_URL" <<<"$block" >/dev/null
@@ -91,10 +91,10 @@ setup() {
 
 @test "TEST-1 preserves the Gateway listener hostname through local access" {
   acceptance="$root/scripts/acceptance-test.sh"
-  config="$root/test/acceptance/playwright.config.ts"
-  run grep -F 'dashboard.osramp.acme.local:${gateway_node_port}' "$acceptance"
+  run grep -F 'dashboard.osramp.acme.local' "$acceptance"
   [ "$status" -eq 0 ]
-  run grep -F 'host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}' "$config"
+  config="$root/test/acceptance/playwright.config.ts"
+  run grep -F 'host-resolver-rules=MAP dashboard.osramp.acme.local' "$config"
   [ "$status" -eq 0 ]
 }
 

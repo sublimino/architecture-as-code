@@ -1,5 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// The Gateway requires SNI hostname *.osramp.acme.local — we resolve
+// the hostname to 127.0.0.1 (port-forward) via Chrome's host-resolver.
 const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
 
 export default defineConfig({

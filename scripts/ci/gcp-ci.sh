@@ -53,6 +53,19 @@ readonly REPORT_FILENAME="${GCP_CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
 readonly PIPELINE_LOG="${GCP_CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
 readonly INSTANCE_LABELS="${GCP_CI_LABELS:-purpose=signalloom-ci,persistent=true}"
 
+# CI opts out of monitoring + trivy-system by default: neither is a dependency
+# of any demo slice, and together they add the kube-prometheus-stack install
+# plus four 720s Kustomization waits to every run.
+#
+# This deliberately does NOT read ENABLE_OBSERVABILITY. The Makefile declares
+# `ENABLE_OBSERVABILITY ?= true` and exports it, so by the time a recipe runs
+# the variable is always set — which makes `${ENABLE_OBSERVABILITY:-false}`
+# dead code in the make path (verified: it yields "true"), and leaves no way to
+# tell the repo-wide default apart from an explicit user request for it.
+# A separate CI-scoped variable keeps the two intentions distinguishable.
+# To run CI *with* observability: CI_ENABLE_OBSERVABILITY=true make ci-gcp
+readonly CI_ENABLE_OBSERVABILITY="${CI_ENABLE_OBSERVABILITY:-false}"
+
 # ── Helpers ──────────────────────────────────────────────────────────
 vm_status() {
   gcloud compute instances describe "$VM_NAME" \
@@ -270,7 +283,7 @@ cmd_run() {
   echo "════════════════════════════════════════════════════════════"
   echo "  Signalloom D2 E2E CI — Run"
   echo "  Project:  ${PROJECT}  |  VM: ${VM_NAME}"
-  echo "  Timeout:  ${TIMEOUT_MINUTES}m"
+  echo "  Timeout:  ${TIMEOUT_MINUTES}m  |  Observability: ${CI_ENABLE_OBSERVABILITY}"
   echo "════════════════════════════════════════════════════════════"
 
   # ── Resume VM if suspended ──
@@ -331,7 +344,7 @@ cmd_run() {
     gcloud compute ssh "$VM_NAME" \
       --zone="$ZONE" --project="$PROJECT" \
       --tunnel-through-iap \
-      --command="sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") CI_SOURCE_COMMIT=$(printf '%q' "$source_commit") CI_SOURCE_BRANCH=$(printf '%q' "$source_branch") ENABLE_OBSERVABILITY=$(printf '%q' "${ENABLE_OBSERVABILITY:-false}") bash -l -c $(printf '%q' "$pipeline_command")" \
+      --command="sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") CI_SOURCE_COMMIT=$(printf '%q' "$source_commit") CI_SOURCE_BRANCH=$(printf '%q' "$source_branch") ENABLE_OBSERVABILITY=$(printf '%q' "$CI_ENABLE_OBSERVABILITY") bash -l -c $(printf '%q' "$pipeline_command")" \
     || pipeline_exit=$?
 
   if ((pipeline_exit == 124)); then

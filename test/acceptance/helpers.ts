@@ -9,12 +9,77 @@
  *   import { login, config, afm, polling } from "./helpers";
  */
 import { expect, type Page, type APIRequestContext } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+
+// ── Deployment guards ───────────────────────────────────────────────────────
+
+/**
+ * Existence guards for D2 slices, mirroring the SKIP semantics of
+ * `scripts/acceptance-test.sh:start_port_forward` and the BATS gate in
+ * `d2-osramp-apps/test/_helper.bats`.
+ *
+ * A slice that was never deployed is a SKIP, not a failure, so the suite stays
+ * runnable against any subset of the estate. Guards name DECLARATIVE objects
+ * only (Namespace, Service, Deployment) because Flux keeps those reconciled
+ * whether or not the workload behind them is healthy — guarding a runtime Pod
+ * would skip exactly when a pod has crashed, which is the breakage these tests
+ * exist to catch. A deployed-but-unhealthy slice still runs its assertions and
+ * still fails.
+ */
+export const guards = {
+  /** True when the named cluster object exists. Never throws. */
+  exists(kind: string, name: string, namespace?: string): boolean {
+    // execFile with an argument array — never shell interpolation.
+    const args = ["--request-timeout=10s", "get", kind, name];
+    if (namespace) args.push("--namespace", namespace);
+    try {
+      execFileSync("kubectl", args, { stdio: "ignore" });
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  /** k8s-afm slice — `make demo-k8s-afm-up`. */
+  afmDeployed(): boolean {
+    return guards.exists("service", "afm-platform", "fe-k8s-afm");
+  },
+
+  /** olly-replica slice — `make demo-olly-up`. */
+  ollyDeployed(): boolean {
+    return guards.exists("service", "customer-portal", "olly-replica");
+  },
+
+  /** osramp-apps backend (Archivista) — `make demo-osramp-up`. */
+  archivistaDeployed(): boolean {
+    return guards.exists("service", "osramp-archivista", "backend");
+  },
+
+  /** kube-prometheus-stack Grafana — part of the observability profile. */
+  grafanaDeployed(): boolean {
+    return guards.exists("service", "kube-prometheus-stack-grafana", "monitoring");
+  },
+} as const;
 
 // ── Configuration ───────────────────────────────────────────────────────────
 
 export const config = {
-  /** Signal Loom dashboard base URL. */
-  base: process.env.SIGNALLOOM_UI_URL ?? "http://localhost:5173",
+  /**
+   * Signal Loom dashboard base URL.
+   *
+   * The dashboard is served through the Envoy Gateway, which requires the SNI
+   * hostname *.osramp.acme.local (playwright.config.ts resolves it to 127.0.0.1
+   * via --host-resolver-rules). DASHBOARD_URL is exported by
+   * scripts/acceptance-test.sh once it has established the gateway forward.
+   *
+   * The previous `http://localhost:5173` default predates that migration and no
+   * longer resolves, which failed every spec that reached the dashboard or the
+   * AFM proxy beneath it. SIGNALLOOM_UI_URL still wins for local vite work.
+   */
+  base:
+    process.env.SIGNALLOOM_UI_URL ??
+    process.env.DASHBOARD_URL ??
+    "https://dashboard.osramp.acme.local:30754",
   /** Dex demo user email. */
   user: process.env.SIGNALLOOM_USER ?? "demo-user@signalloom.local",
   /** Dex demo user password. */

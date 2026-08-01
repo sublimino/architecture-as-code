@@ -77,9 +77,10 @@ backoff + jitter, per-attempt `timeout` hang fence.
   `⚠ slow: <site> still not ready after Xs of Ys … retry: <cmd>` and keeps
   waiting. The `retry:` command is copy-pasteable for manual poking.
 - `WAIT_STAT_FILE=/tmp/waitstats` — every wait appends
-  `WAIT_STAT site=… elapsed=… deadline=… ratio=… result=…`. After a run:
+  `WAIT_STAT site=… elapsed=… deadline=… ratio=… result=…`. After a run,
+  export the same file and use `make doctor` to rank the five slowest waits:
   ```bash
-  sort -t= -k5 -rn /tmp/waitstats   # rank by ratio → exactly which deadlines to raise
+   WAIT_STAT_FILE=/tmp/waitstats make doctor
   ```
 
 ## 4. `make up` cold-start convergence
@@ -110,9 +111,71 @@ ResourceSets are never created → the entire foundation stalls.
 **Fix.** Use `op: add` instead of `op: replace` for the `verify` path (sets it
 whether or not it pre-exists), and confirm each index still points at the
 OCIRepository (the indices differ per ResourceSet, e.g. infra=5,
-signalloom-infra=13, signalloom-apps=9, and drift when resources are added).
+signalloom-infra=13, signalloom-apps=10, and drift when resources are added).
 
 ---
+
+## 6. Isolated remote Signal Loom CI (VM2)
+
+Use VM2 only for remote reproduction so VM1 and a developer's Kind cluster stay
+untouched. The CI targets namespace every VM2 artifact under `*-2`:
+
+```bash
+make ci-status-2                 # read-only VM state
+make ci-gcp-2                    # SCP snapshot, clean VM2 Kind cluster, run all stages
+make ci-ssh-2                     # interactive IAP diagnosis after a failed run
+make ci-report-2                 # inspect the collected OpenReports result
+```
+
+The run is intentionally stateful only inside VM2:
+
+- VM: `signalloom-ci-2` in `europe-west2-a`.
+- checkout: `/home/ci/osramp-demo-ci-2`.
+- reports: `/home/ci/reports-signalloom-ci-2`, collected into `ci-reports-2/`.
+- pipeline log: `/home/ci/ci-pipeline-ci-2.log`.
+
+Debug in this order: read `summary.json` and failing `stage*.{tap,txt}` files;
+inspect Flux (`kubectl get kustomizations -A`) before workload pods; then inspect
+the exact controller or pod logs. Rerun `make ci-gcp-2` only after applying a
+minimal, evidence-backed local change; its SCP snapshot is the source under test.
+On a pass VM2 suspends automatically. Do not run `make teardown`, `make up`, or
+any destructive cleanup against a shared local cluster while another process uses
+it. Once VM2 passes, recreate or repair the local cluster as needed and run the
+same full suite locally.
+
+## 7. Cosign local signing — no transparency log
+
+Local mode signs every OCI artifact and workload image with the key pair from
+`make signing-keys` and must **never** contact the public transparency log
+(Rekor) — it's an offline demo.
+
+**How it's enforced (cosign v3).** `make signing-keys` also generates a
+no-transparency-log SigningConfig at `.keys/signing-config.json`:
+```bash
+cosign signing-config create \
+  --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+  --out .keys/signing-config.json
+# => {"mediaType":"…signingconfig.v0.2+json","rekorTlogConfig":{},"tsaConfig":{}}
+```
+Every `cosign sign` call passes `--signing-config .keys/signing-config.json`
+(the Makefile `cpai-images` target and `scripts/{push-local,build-sign-dashboard,
+admission-demo,revocation-demo}.sh`, each with a create-if-missing fallback for
+standalone runs).
+
+**Why not `--tlog-upload=false`?** That flag is deprecated in cosign v3 and spams
+`Flag --tlog-upload has been deprecated…` on every sign. **Do not "fix" the
+warning by deleting the flag** — without it (or the no-tlog signing-config)
+cosign uploads to the public Rekor and prints `tlog entry created with index:
+…`. The empty-`rekorTlogConfig` signing-config is the non-deprecated replacement
+that keeps signing key-only and offline. The `dashboard-supplychain.bats` test
+guards this: it asserts `--signing-config` is present and `--tlog-upload` is
+absent.
+
+**Verify a signature (offline):**
+```bash
+cosign verify --key .keys/cosign.pub --insecure-ignore-tlog=true \
+  --allow-insecure-registry <ref>@<digest>
+```
 
 ## Recommendations for `make doctor` (`scripts/cluster-debug.sh`)
 

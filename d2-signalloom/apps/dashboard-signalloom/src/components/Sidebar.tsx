@@ -1,26 +1,42 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { useAppContext } from '../App'
+import { isSuperadminEligible } from '../auth/superadmin'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 
-const NAV = [
+// `superadminOnly` hides a link from the nav when superadmin mode is off. This
+// is VISIBILITY ONLY, not authorization — the routes stay registered in App.tsx
+// and remain reachable by direct URL.
+interface NavItem {
+  to: string
+  label: string
+  superadminOnly?: boolean
+}
+
+const NAV: NavItem[] = [
   { to: '/agents', label: 'Agents' },
   { to: '/compliance', label: 'Compliance' },
   { to: '/audit', label: 'Audit Trail' },
-  { to: '/cryptography', label: 'Cryptography' },
-  { to: '/federated-services', label: 'Federated Services' },
-  { to: '/collusion-access', label: 'Collusion & Access' },
-  { to: '/rbac-analysis', label: 'RBAC Analysis' },
-  { to: '/rbac-explorer', label: 'RBAC Explorer' },
+  { to: '/cryptography', label: 'Cryptography', superadminOnly: true },
+  { to: '/federated-services', label: 'Federated Services', superadminOnly: true },
+  { to: '/collusion-access', label: 'Collusion & Access', superadminOnly: true },
+  { to: '/rbac-analysis', label: 'RBAC Analysis', superadminOnly: true },
+  { to: '/rbac-explorer', label: 'RBAC Explorer', superadminOnly: true },
   { to: '/supercred', label: 'SuperCred' },
   { to: '/settings', label: 'Settings' },
 ]
 
 export default function Sidebar() {
   const { user, logout } = useAuth0()
-  const { failingControls, setHelpOpen } = useAppContext()
+  const { failingControls, setHelpOpen, superadmin, setSuperadmin } = useAppContext()
   const navigate = useNavigate()
+
+  // The identity gate wins over the stored preference: a stale
+  // signalloom.superadmin=true for a non-eligible user reveals nothing.
+  const canSuperadmin = isSuperadminEligible(user)
+  const showSuperadminNav = canSuperadmin && superadmin
+  const navItems = NAV.filter(({ superadminOnly }) => !superadminOnly || showSuperadminNav)
 
   return (
     <>
@@ -64,7 +80,7 @@ export default function Sidebar() {
 
         {/* Nav links */}
         <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {NAV.map(({ to, label }) => (
+          {navItems.map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -125,6 +141,50 @@ export default function Sidebar() {
           >
             Help & Support
           </button>
+
+          {/* Superadmin visibility toggle — demo user only, see auth/superadmin.ts */}
+          {canSuperadmin && (
+            <button
+              data-testid="superadmin-toggle"
+              onClick={() => setSuperadmin(!superadmin)}
+              aria-pressed={superadmin}
+              title="Show or hide the superadmin-only sections"
+              style={{
+                width: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '9px 14px',
+                borderRadius: 8,
+                background: 'none',
+                border: 'none',
+                color: 'var(--muted)',
+                fontSize: 14,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+                transition: 'color 0.12s',
+                marginBottom: 4,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text)')}
+              onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
+            >
+              Superadmin
+              <span style={{
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                borderRadius: 99,
+                padding: '1px 6px',
+                color: superadmin ? 'var(--cyan)' : 'var(--muted)',
+                background: superadmin ? 'rgba(6,182,212,0.10)' : 'transparent',
+                border: `1px solid ${superadmin ? 'var(--cyan)' : 'var(--border)'}`,
+              }}>
+                {superadmin ? 'On' : 'Off'}
+              </span>
+            </button>
+          )}
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px' }}>
             {user?.picture ? (

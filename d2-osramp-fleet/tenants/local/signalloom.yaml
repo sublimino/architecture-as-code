@@ -114,6 +114,28 @@ spec:
         - kind: ServiceAccount
           name: flux
           namespace: << inputs.tenant >>
+    # Cluster-scoped namespace patch — same rationale as signalloom-apps.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: flux-ns-patch-<< inputs.tenant >>
+      rules:
+        - apiGroups: [""]
+          resources: ["namespaces"]
+          resourceNames: ["<< inputs.tenant >>"]
+          verbs: ["get", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: flux-ns-patch-<< inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: flux-ns-patch-<< inputs.tenant >>
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: OCIRepository
       metadata:
@@ -253,6 +275,31 @@ spec:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
         name: flux-gateway-routes
+      subjects:
+        - kind: ServiceAccount
+          name: flux
+          namespace: << inputs.tenant >>
+    # The built-in admin ClusterRole bound via RoleBinding cannot grant
+    # access to cluster-scoped resources. Flux's Kustomization dry-run needs
+    # to patch the tenant Namespace (labels/annotations from overlays).
+    # Least-privilege: restricted to this specific tenant namespace.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: flux-ns-patch-<< inputs.tenant >>
+      rules:
+        - apiGroups: [""]
+          resources: ["namespaces"]
+          resourceNames: ["<< inputs.tenant >>"]
+          verbs: ["get", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: flux-ns-patch-<< inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: flux-ns-patch-<< inputs.tenant >>
       subjects:
         - kind: ServiceAccount
           name: flux

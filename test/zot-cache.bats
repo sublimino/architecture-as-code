@@ -34,7 +34,7 @@ SCRIPT
   grep -Fq "hostPath: $cache_dir" "$BATS_TEST_TMPDIR/kind.yaml"
   grep -Fq "containerPath: /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/kind.yaml"
   grep -Fq "create cluster --name zot-cache-test" "$log"
-  grep -Fq "exec zot-cache-test-control-plane chown 65532:65532 /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/docker.log"
+  grep -Fq "exec zot-cache-test-control-plane chown -R 65532:65532 /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/docker.log"
 }
 
 @test "Zot mounts the Kind-provided host cache with non-root ownership preparation" {
@@ -78,6 +78,6 @@ SCRIPT
     "$repo_root/scripts/create-kind-cluster.sh"
 
   [ "$status" -eq 0 ]
-  grep -Fq "exec zot-cache-existing-control-plane chown 65532:65532 /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/docker.log"
+  grep -Fq "exec zot-cache-existing-control-plane chown -R 65532:65532 /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/docker.log"
   grep -Fq "exec zot-cache-existing-control-plane chmod 0750 /var/local/osramp-zot-cache" "$BATS_TEST_TMPDIR/docker.log"
 }

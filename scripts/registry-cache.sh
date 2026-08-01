@@ -14,6 +14,10 @@ set -euo pipefail
 
 KIND_NETWORK="${KIND_NETWORK:-kind}"
 REGISTRY_CACHE_IMAGE="${REGISTRY_CACHE_IMAGE:-registry:2}"
+# Injectable so the BATS harness can substitute a fake docker. create-kind-cluster.sh
+# already honours this; calling bare `docker` here bypassed the fake and made the
+# test-injected boundary leak onto the real host daemon.
+DOCKER_BIN="${DOCKER_BIN:-docker}"
 
 # name | upstream remote URL | containerd certs.d host directory | server URL
 REGISTRY_CACHE_MAPPINGS=(
@@ -25,8 +29,8 @@ REGISTRY_CACHE_MAPPINGS=(
 )
 
 registry_cache_ensure_network() {
-  docker network inspect "$KIND_NETWORK" >/dev/null 2>&1 \
-    || docker network create "$KIND_NETWORK" >/dev/null
+  "$DOCKER_BIN" network inspect "$KIND_NETWORK" >/dev/null 2>&1 \
+    || "$DOCKER_BIN" network create "$KIND_NETWORK" >/dev/null
 }
 
 registry_cache_up() {
@@ -36,15 +40,15 @@ registry_cache_up() {
   for m in "${REGISTRY_CACHE_MAPPINGS[@]}"; do
     IFS='|' read -r name upstream _hostdir _server <<<"$m"
     cname="registry-cache-${name}"
-    if [ "$(docker inspect -f '{{.State.Running}}' "$cname" 2>/dev/null || true)" = "true" ]; then
+    if [ "$("$DOCKER_BIN" inspect -f '{{.State.Running}}' "$cname" 2>/dev/null || true)" = "true" ]; then
       # Ensure it is attached to the kind network (a fresh network after
       # `make down` re-creates it with a new id).
-      docker network connect "$KIND_NETWORK" "$cname" >/dev/null 2>&1 || true
+      "$DOCKER_BIN" network connect "$KIND_NETWORK" "$cname" >/dev/null 2>&1 || true
       echo "  ${cname} already running"
       continue
     fi
-    docker rm -f "$cname" >/dev/null 2>&1 || true
-    docker run -d --restart=always --name "$cname" \
+    "$DOCKER_BIN" rm -f "$cname" >/dev/null 2>&1 || true
+    "$DOCKER_BIN" run -d --restart=always --name "$cname" \
       --net "$KIND_NETWORK" \
       -v "registry-cache-${name}:/var/lib/registry" \
       -e "REGISTRY_PROXY_REMOTEURL=${upstream}" \
@@ -61,8 +65,8 @@ registry_cache_configure_node() {
   for m in "${REGISTRY_CACHE_MAPPINGS[@]}"; do
     IFS='|' read -r name _upstream hostdir server <<<"$m"
     cname="registry-cache-${name}"
-    docker exec "$node" mkdir -p "/etc/containerd/certs.d/${hostdir}"
-    docker exec -i "$node" bash -c "cat >/etc/containerd/certs.d/${hostdir}/hosts.toml" <<EOF
+    "$DOCKER_BIN" exec "$node" mkdir -p "/etc/containerd/certs.d/${hostdir}"
+    "$DOCKER_BIN" exec -i "$node" bash -c "cat >/etc/containerd/certs.d/${hostdir}/hosts.toml" <<EOF
 server = "${server}"
 
 [host."http://${cname}:5000"]
@@ -77,7 +81,7 @@ registry_cache_down() {
   for m in "${REGISTRY_CACHE_MAPPINGS[@]}"; do
     IFS='|' read -r name _ _ _ <<<"$m"
     cname="registry-cache-${name}"
-    docker rm -f "$cname" >/dev/null 2>&1 || true
+    "$DOCKER_BIN" rm -f "$cname" >/dev/null 2>&1 || true
   done
   echo "==> Removed pull-through registry caches (volumes preserved)"
 }

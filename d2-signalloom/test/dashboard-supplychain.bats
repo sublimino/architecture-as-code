@@ -27,7 +27,7 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F -- '--key "${COSIGN_KEY}"' "$script"
   [ "$status" -eq 0 ]
-  run grep -F -- '--use-signing-config=false' "$script"
+  run grep -F -- '--signing-config' "$script"
   [ "$status" -eq 0 ]
   run grep -F -- '--allow-insecure-registry' "$script"
   [ "$status" -eq 0 ]
@@ -36,9 +36,12 @@ setup() {
 }
 
 @test "Dashboard build-sign script keeps the transparency log disabled" {
-  run grep -F -- '--tlog-upload=false' "$script"
+  # No-tlog is enforced via a --signing-config with empty rekor services (the
+  # non-deprecated cosign v3 replacement for --tlog-upload=false).
+  run grep -F -- '--signing-config' "$script"
   [ "$status" -eq 0 ]
-  run grep -F -- '--tlog-upload=true' "$script"
+  # The deprecated flag must not return, and the tlog must never be enabled.
+  run grep -F -- '--tlog-upload' "$script"
   [ "$status" -ne 0 ]
 }
 

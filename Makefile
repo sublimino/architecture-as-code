@@ -118,6 +118,14 @@ signing-keys: ## Generate the local cosign and witness keys.
 	@if [ ! -f $(KEYS_DIR)/cosign.key ]; then \
 		cd $(KEYS_DIR) && COSIGN_PASSWORD="" cosign generate-key-pair; \
 	fi
+	@# No-transparency-log signing config (cosign v3) — the non-deprecated
+	@# replacement for --tlog-upload=false. Empty rekor/tsa services keep signing
+	@# key-only with no tlog upload, so no Rekor contact and no deprecation warning.
+	@if [ ! -f $(KEYS_DIR)/signing-config.json ]; then \
+		cosign signing-config create \
+			--no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
+			--out $(KEYS_DIR)/signing-config.json; \
+	fi
 	@if [ ! -f $(KEYS_DIR)/witness.pem ]; then \
 		openssl genpkey -algorithm ed25519 -out $(KEYS_DIR)/witness.pem; \
 		openssl pkey -in $(KEYS_DIR)/witness.pem -pubout -out $(KEYS_DIR)/witness-pub.pem; \
@@ -235,8 +243,7 @@ cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign 
 		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest); \
 	COSIGN_PASSWORD="" cosign sign --yes \
 		--key $(KEYS_DIR)/cosign.key \
-		--use-signing-config=false \
-		--tlog-upload=false \
+		--signing-config $(KEYS_DIR)/signing-config.json \
 		--allow-insecure-registry \
 		--registry-referrers-mode=legacy \
 		"localhost:5001/acme/images/cpai/apps/cpai-runtime@$${DIGEST}"

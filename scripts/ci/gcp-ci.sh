@@ -313,6 +313,13 @@ cmd_run() {
   echo "==> Running pipeline on VM..."
   local pipeline_exit=0
 
+  # Capture the real source identity here — the VM only ever sees an untracked
+  # tarball and git-inits a throwaway snapshot repo, whose SHA is meaningless.
+  local source_commit source_branch
+  source_commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  source_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "==> Source under test: ${source_branch}@${source_commit}"
+
   local pipeline_command
   printf -v pipeline_command 'cd %q && bash scripts/ci/vm-pipeline.sh' "$REMOTE_WORK_DIR"
   # TIMEOUT_MINUTES was previously defined and printed but never enforced, so a
@@ -324,7 +331,7 @@ cmd_run() {
     gcloud compute ssh "$VM_NAME" \
       --zone="$ZONE" --project="$PROJECT" \
       --tunnel-through-iap \
-      --command="sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") bash -l -c $(printf '%q' "$pipeline_command")" \
+      --command="sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") CI_SOURCE_COMMIT=$(printf '%q' "$source_commit") CI_SOURCE_BRANCH=$(printf '%q' "$source_branch") ENABLE_OBSERVABILITY=$(printf '%q' "${ENABLE_OBSERVABILITY:-false}") bash -l -c $(printf '%q' "$pipeline_command")" \
     || pipeline_exit=$?
 
   if ((pipeline_exit == 124)); then

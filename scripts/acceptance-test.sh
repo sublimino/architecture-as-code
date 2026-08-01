@@ -7,6 +7,8 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 TEST_DIR="${REPO_ROOT}/test/acceptance"
+# shellcheck source=scripts/lib/wait.sh
+source "${SCRIPT_DIR}/lib/wait.sh"
 PF_PIDS=()
 PREFLIGHT_FAILED=0
 
@@ -63,6 +65,13 @@ setup_gateway_forward() {
   # The Gateway requires SNI hostname *.osramp.acme.local — Chrome's
   # --host-resolver-rules (in playwright.config.ts) resolves it to 127.0.0.1.
   export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
+  # start_port_forward backgrounds kubectl and returns immediately, so without
+  # this the readiness probe below raced a port-forward that had had zero time to
+  # bind, and `|| echo not-ready` swallowed the race into a warning. The generic
+  # `sleep 4` further down fires ~20 lines too late to help here. TCP-level, so
+  # no --resolve is needed: the SNI name only matters once TLS starts.
+  wait_tcp 127.0.0.1 "${gateway_local_port}" 60 || \
+    echo "    WARNING: gateway port-forward never accepted on ${gateway_local_port}"
   dashboard_ready="$(curl -kfsS --max-time 5 --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" "${DASHBOARD_URL}/readyz" 2>/dev/null || echo not-ready)"
   if [[ "$dashboard_ready" != "ready" ]]; then
     echo "    WARNING: dashboard readiness check returned: ${dashboard_ready}"
@@ -96,7 +105,14 @@ if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
       PREFLIGHT_FAILED=1
     fi
   done
-  if ! curl -kfsS --max-time 3 "${DASHBOARD_URL}/livez" >/dev/null; then
+  # Same --resolve as the readiness probe above: dashboard.osramp.acme.local is
+  # an SNI-only name with no DNS record and no /etc/hosts entry (by design — the
+  # browser side resolves it via Chrome's --host-resolver-rules). Without it this
+  # curl fails with "(6) Could not resolve host" and wrongly reports the Gateway
+  # as unreachable, setting PREFLIGHT_FAILED on an otherwise healthy cluster.
+  if ! curl -kfsS --max-time 3 \
+    --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" \
+    "${DASHBOARD_URL}/livez" >/dev/null; then
     echo "    ERROR: TEST-1 shared Gateway is not reachable" >&2
     PREFLIGHT_FAILED=1
   fi

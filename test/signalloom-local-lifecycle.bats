@@ -58,10 +58,10 @@ line_number() {
   grep -Fq 'wait resourceset/signalloom-infra --for=condition=ready' "$log"
   grep -Fq 'wait resourceset/signalloom-apps --for=condition=ready' "$log"
 	 grep -Fq 'rollout restart deployment/dex' "$log"
-	 grep -Fq 'rollout status deployment/dex' "$log"
+	 grep -Fq 'rollout status deploy/dex' "$log"
 	 grep -Fq 'rollout restart deployment/fe-signalloom deployment/dashboard-signalloom' "$log"
-	 grep -Fq 'rollout status deployment/fe-signalloom' "$log"
-	 grep -Fq 'rollout status deployment/dashboard-signalloom' "$log"
+	 grep -Fq 'rollout status deploy/fe-signalloom' "$log"
+	 grep -Fq 'rollout status deploy/dashboard-signalloom' "$log"
 }
 
 @test "local lifecycle builds the SPIRE helper before loading the portal image" {

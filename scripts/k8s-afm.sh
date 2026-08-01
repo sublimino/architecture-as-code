@@ -9,6 +9,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 AFM_SOURCE="${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 NS="fe-k8s-afm"
@@ -26,10 +28,10 @@ case "$cmd" in
     echo "==> Deploying AFM platform to ${NS}..."
     kubectl apply -k "$REPO_ROOT/d2-k8s-afm/apps/afm-platform/local" 2>&1
     echo "==> Waiting for rollout..."
-    kubectl -n "$NS" rollout status deploy/afm-platform --timeout=120s 2>&1 | tail -1
+    wait_rollout afm-platform -n "$NS" 120 2>&1 | tail -1
     echo "==> Seeding demo cluster data..."
     kubectl -n "$NS" port-forward svc/afm-platform 18000:8000 >/dev/null 2>&1 &
-    PF=$!; sleep 3
+    PF=$!; wait_reachable "http://localhost:18000/health" 60
     for sample in "$AFM_SOURCE"/AFM/backend/samples/clusters/*.yaml "$AFM_SOURCE"/AFM/backend/samples/clusters/*.json; do
       [ -f "$sample" ] || continue
       name="$(basename "$sample")"
@@ -71,7 +73,7 @@ except Exception as e:
   seed)
     echo "==> Seeding sample clusters..."
     kubectl -n "$NS" port-forward svc/afm-platform 18000:8000 >/dev/null 2>&1 &
-    PF=$!; sleep 3
+    PF=$!; wait_reachable "http://localhost:18000/health" 60
     bash "$AFM_SOURCE/scripts/seed-demo.sh" 2>&1 || true
     kill "$PF" 2>/dev/null || true
     ;;
@@ -80,7 +82,7 @@ except Exception as e:
     kubectl -n "$NS" get pods 2>&1
     echo "==> Health:"
     kubectl -n "$NS" port-forward svc/afm-platform 18000:8000 >/dev/null 2>&1 &
-    PF=$!; sleep 2
+    PF=$!; wait_reachable "http://localhost:18000/health" 60
     python3 -c "import urllib.request,json; print(json.load(urllib.request.urlopen('http://localhost:18000/health',timeout=5)))" 2>&1 || echo "  (unreachable)"
     kill "$PF" 2>/dev/null || true
     ;;

@@ -14,7 +14,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import RbacAnalysisPage from './RbacAnalysisPage'
-import type { RBACData } from '../api/afmApi'
 
 // getAccessTokenSilently must keep a STABLE identity across renders, otherwise
 // the effects that depend on it are recreated every render and re-fire.
@@ -39,10 +38,19 @@ const clustersFixture = [
   { id: 'local', name: 'Local Cluster' },
 ]
 
-const rbacFixture: RBACData = {
+/**
+ * Deliberately typed `unknown` and shaped like AFM's actual wire format rather
+ * than like `RBACData`: cluster-scoped items carry `namespace: null` (not an
+ * omitted key), bindings carry an unmodelled `roleRefKind: null`, subjects
+ * carry `annotations`, and an aggregated ClusterRole carries `rules: null`.
+ * Writing this fixture to the interface instead of the wire is what let the
+ * importer ship unable to parse a single real payload.
+ */
+const rbacFixture: unknown = {
   subjects: [
-    { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' },
-    { name: 'kustomize-controller', kind: 'ServiceAccount', namespace: 'flux-system' },
+    { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps', annotations: {} },
+    { name: 'kustomize-controller', kind: 'ServiceAccount', namespace: 'flux-system', annotations: {} },
+    { name: 'alice', kind: 'User', namespace: null, annotations: {} },
   ],
   roles: [
     {
@@ -60,8 +68,10 @@ const rbacFixture: RBACData = {
     {
       name: 'system:masters',
       scope: 'Cluster',
+      namespace: null,
       rules: [{ verbs: ['*'], apiGroups: ['*'], resources: ['*'] }],
     },
+    { name: 'view', scope: 'Cluster', namespace: null, rules: null },
   ],
   bindings: [
     {
@@ -69,15 +79,19 @@ const rbacFixture: RBACData = {
       scope: 'Namespace',
       namespace: 'apps',
       roleRef: 'secret-reader',
+      roleRefKind: null,
       subjects: [{ name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' }],
     },
     {
       name: 'flux-global',
       scope: 'Cluster',
+      namespace: null,
       roleRef: 'system:masters',
+      roleRefKind: null,
       subjects: [{ name: 'kustomize-controller', kind: 'ServiceAccount', namespace: 'flux-system' }],
     },
   ],
+  namespaces: [],
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -365,8 +379,27 @@ describe('RbacAnalysisPage', () => {
 
       render(<RbacAnalysisPage />)
 
-      expect(await screen.findByTestId('importer-error')).toHaveTextContent(/invalid RBAC payload/i)
+      expect(await screen.findByTestId('importer-error')).toHaveTextContent(/"subjects" is not an array/i)
+      expect(await screen.findByTestId('importer-error')).toHaveTextContent(/\/clusters\/local\/rbac/)
       expect(screen.getByTestId('rbac-importer')).toBeInTheDocument()
+    })
+
+    it('accepts null namespaces from the real AFM payload and omits them from the YAML', async () => {
+      render(<RbacAnalysisPage />)
+
+      await waitForImporterReady()
+      expect(screen.queryByTestId('importer-error')).not.toBeInTheDocument()
+
+      await userEvent.click(screen.getByTestId('importer-fetch'))
+      await waitFor(() => {
+        expect(yamlTextarea().value).toContain('secret-reader')
+      })
+
+      const yaml = yamlTextarea().value
+      expect(yaml).not.toContain('null')
+      expect(yaml).toContain('system:masters')
+      expect(yaml).toContain('rules: []')       // the aggregated ClusterRole
+      expect(yaml).toContain('namespace: apps') // a real namespace still survives
     })
 
     it('never issues a non-GET request', async () => {

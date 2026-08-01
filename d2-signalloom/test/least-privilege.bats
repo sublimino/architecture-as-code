@@ -12,7 +12,11 @@ setup() {
 
   run grep -c 'kind: ClusterRoleBinding' "$canonical"
   [ "$status" -eq 0 ]
-  [ "$output" -eq 1 ]
+  [ "$output" -eq 3 ]
+
+  run grep -c 'name: flux-ns-patch-<< inputs.tenant >>' "$canonical"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 6 ]
 
   run grep -F 'resources: ["nodes/proxy"]' "$canonical"
   [ "$status" -eq 0 ]

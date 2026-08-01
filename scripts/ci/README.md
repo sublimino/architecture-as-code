@@ -113,6 +113,9 @@ make ci-gcp-2
 make ci-status-2
 make ci-report-2
 
+# Resume VM2 for evidence-led debugging after a failed run
+make ci-ssh-2
+
 # Destroy everything (decommission)
 ./scripts/ci/gcp-ci.sh destroy
 ```
@@ -175,6 +178,30 @@ gcloud compute instances suspend signalloom-ci \
 | `stage6-flux.tap` | TAP | Flux convergence results |
 | `stage7-runtime.tap` | TAP | BATS runtime negative results |
 | `stage8-browser.xml` | JUnit XML | Playwright browser journey results |
+
+## Resuming an isolated VM2 investigation
+
+`make ci-gcp-2` tests the current local working tree. Before every run it
+archives the tree, replaces only VM2's `/home/ci/osramp-demo-ci-2` checkout,
+and extracts the snapshot. This deliberately includes uncommitted changes and
+removes paths deleted locally, so a rerun cannot silently test stale code. It
+does not alter VM1 or a developer's local Kind cluster.
+
+After a failure, start from the collected summary rather than rerunning:
+
+```bash
+make ci-report-2
+make ci-ssh-2
+
+# On VM2: inspect the isolated pipeline log and stage artifacts
+tail -n 200 /home/ci/ci-pipeline-ci-2.log
+ls -lah /home/ci/reports-signalloom-ci-2
+```
+
+Read the failing `stage*.{tap,txt}` artifact first, inspect the corresponding
+workload or controller, apply one evidence-backed local fix, then rerun
+`make ci-gcp-2`. A successful run suspends VM2 automatically; a failure leaves
+it running for diagnosis.
 
 ## Exit codes
 

@@ -39,7 +39,11 @@ spec:
           configMap:
             name: spire-agent-config
         - name: data
-          emptyDir: {}
+          # Join tokens are one-use. Preserve the attested agent state across
+          # container restarts so a transient restart does not reuse its token.
+          hostPath:
+            path: /var/lib/spire-agent/data
+            type: DirectoryOrCreate
         - name: sockets
           hostPath:
             path: /run/spire/sockets

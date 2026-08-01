@@ -9,12 +9,13 @@
 #   0 — all tests passed
 #   1 — one or more test stages failed
 
-set -o pipefail
+set -euo pipefail
 
 readonly WORK_DIR="${CI_WORK_DIR:-/home/ci/osramp-demo}"
 readonly REPORT_DIR="${CI_REPORT_DIR:-/home/ci/reports}"
 readonly REPORT_FILENAME="${CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
 readonly PIPELINE_LOG="${CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
+readonly STAGE_TIMEOUT_SECONDS="${CI_STAGE_TIMEOUT_SECONDS:-900}"
 
 exec > >(tee -a "$PIPELINE_LOG") 2>&1
 
@@ -63,7 +64,10 @@ else
   # Kustomize uses .git/ as a security boundary for relative path traversal.
   # Without it, refs like ../base/ are rejected. Init a bare repo.
   if [[ ! -d .git ]]; then
-    git init -q && git add -A && git commit -q -m "ci snapshot" --allow-empty
+    git init -q
+    git add -A
+    git -c user.name="SignalLoom CI" -c user.email="ci@signalloom.local" \
+      commit -q -m "ci snapshot" --allow-empty
   fi
 fi
 
@@ -77,6 +81,14 @@ echo "==> Ensuring CI tools..."
 bash ./scripts/setup.sh --tools-only
 sudo chmod go-w /usr/local/bin 2>/dev/null || true
 
+if [[ ! -x /opt/google/chrome/chrome ]]; then
+  echo "==> Installing Google Chrome for Playwright..."
+  sudo npx playwright install chrome ffmpeg
+else
+  echo "==> Installing Playwright ffmpeg helper..."
+  npx playwright install ffmpeg
+fi
+
 # ── Tear down any existing cluster ───────────────────────────────────
 echo "==> [2/7] Cleaning previous cluster..."
 make teardown 2>/dev/null || true
@@ -88,12 +100,12 @@ make teardown 2>/dev/null || true
 # has its own dependency waits.
 echo "==> [3/7] Creating Kind cluster + Zot + Flux..."
 make cluster
-make registry
+retry 3 make registry
 make signing-keys
 make push-local-foundation
-make bootstrap-local
+retry 3 make bootstrap-local
 echo "==> Waiting for Flux foundation (skipping demo-specific ResourceSets)..."
-kubectl -n flux-system wait kustomization/flux-system --for=condition=ready --timeout=10m
+retry 3 kubectl -n flux-system wait kustomization/flux-system --for=condition=ready --timeout=10m
 kubectl -n flux-system wait kustomization/tenants --for=condition=ready --timeout=10m 2>/dev/null || true
 
 # ── Build and push containers ────────────────────────────────────────
@@ -140,15 +152,18 @@ run_stage() {
   local name="$1" output_file="$2"; shift 2
   local exit_code=0
 
-  echo "──── TEST: ${name} ────"
-  bash -c "$*" > "${REPORT_DIR}/${output_file}" 2>&1 || exit_code=$?
+  echo "──── TEST: ${name} (timeout ${STAGE_TIMEOUT_SECONDS}s) ────"
+  timeout -k 30s "${STAGE_TIMEOUT_SECONDS}s" bash -c "$*" > "${REPORT_DIR}/${output_file}" 2>&1 || exit_code=$?
+  if ((exit_code == 124)); then
+    printf '\nTIMEOUT: stage exceeded %ss and was terminated\n' "$STAGE_TIMEOUT_SECONDS" >> "${REPORT_DIR}/${output_file}"
+  fi
 
   local status="pass"
   if ((exit_code != 0)); then
     status="fail"
-    ((failures++))
+    ((failures+=1))
   fi
-  echo "  ${status^^}: ${name}$(( exit_code != 0 ? 1 : 0 )) (exit ${exit_code})"
+  echo "  ${status^^}: ${name} (exit ${exit_code})"
 
   stage_results+=("$(jq -nc \
     --arg n "$name" --arg s "$status" --argjson c "$exit_code" --arg f "$output_file" \

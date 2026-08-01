@@ -22,3 +22,24 @@ assert 'wait: true' not in apps.split('postBuild:', 1)[0]
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "agent inventory resources are fleet-owned outside apps target namespace" {
+  run python3 - "$repo_root" <<'PY'
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+apps = (root / 'd2-signalloom/apps/fe-signalloom/base/kustomization.yaml').read_text()
+fleet = (root / 'd2-osramp-fleet/tenants/local/signalloom.yaml').read_text()
+
+assert 'agents-namespace.yaml' not in apps
+assert 'agents-rbac.yaml' not in apps
+assert 'agents-baseline.yaml' not in apps
+assert 'name: fe-signalloom-agents' in fleet
+assert 'name: agent-inventory-reader' in fleet
+assert 'namespace: inf-signalloom' in fleet
+assert 'resources: ["pods"]' in fleet
+assert 'verbs: ["get", "list", "watch"]' in fleet
+PY
+  [ "$status" -eq 0 ]
+}

@@ -5,7 +5,8 @@ import { login, config, afm, guards } from "./helpers";
  * AFM Frontend Test Suite — runs against both standalone and iframe modes.
  *
  * MODE=standalone  → tests hit AFM directly at http://localhost:18000/dashboard/
- * MODE=iframe      → tests hit AFM through Signal Loom at http://localhost:5173/dashboard/
+ * MODE=iframe      → tests hit AFM through Signal Loom at config.base
+ *                    (https://dashboard.osramp.acme.local:30754/dashboard/)
  */
 
 const MODE = (process.env.AFM_TEST_MODE ?? "iframe") as "standalone" | "iframe";

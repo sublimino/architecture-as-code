@@ -6,9 +6,10 @@
  * content) with no uncaught page errors. Uses the diagnostics-capturing `test`
  * fixture so any console/network failure is attached to the report.
  *
- * Preconditions: the local stack is up and the dashboard is port-forwarded at
- * http://localhost:5173 (kubectl port-forward -n fe-signalloom
- * svc/dashboard-signalloom 5173:8080).
+ * Preconditions: the local stack is up and the Envoy Gateway is port-forwarded,
+ * which scripts/acceptance-test.sh does for every invocation. The dashboard is
+ * reached at https://dashboard.osramp.acme.local:30754 (see config.base in
+ * helpers.ts); playwright.config.ts resolves that hostname to 127.0.0.1.
  */
 import { test, expect } from "./fixtures";
 import { login, config } from "./helpers";

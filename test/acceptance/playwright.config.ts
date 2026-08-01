@@ -50,5 +50,20 @@ export default defineConfig({
       },
     },
   ],
-  reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
+  // The junit reporter is added only when CI asks for it by setting
+  // PLAYWRIGHT_JUNIT_OUTPUT_FILE, so local runs keep the list + html output
+  // unchanged. vm-pipeline.sh has always set that variable for stage 8, but no
+  // junit reporter was configured to consume it, so stage8-browser.xml was
+  // never written -- and openreports-convert.sh, which expects that file,
+  // silently contributed ZERO browser-journey results to the OpenReports
+  // artifact. The suite passed, the report just did not contain the most
+  // valuable stage. Same shape as the other silent-skip defects: a missing
+  // input degraded to nothing rather than to an error.
+  reporter: [
+    ["list"],
+    ["html", { outputFolder: "playwright-report", open: "never" }],
+    ...(process.env.PLAYWRIGHT_JUNIT_OUTPUT_FILE
+      ? [["junit", { outputFile: process.env.PLAYWRIGHT_JUNIT_OUTPUT_FILE }] as const]
+      : []),
+  ],
 });

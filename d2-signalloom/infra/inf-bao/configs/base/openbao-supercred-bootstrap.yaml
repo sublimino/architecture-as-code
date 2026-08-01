@@ -33,6 +33,13 @@ spec:
             - |
               until bao status >/dev/null 2>&1; do sleep 2; done
 
+              # Wait for the base bootstrap to enable the JWT auth backend
+              echo "waiting for JWT auth backend..."
+              until bao auth list 2>/dev/null | grep -q 'jwt/'; do sleep 2; done
+
+              # Wait for the KV-v2 engine
+              until bao secrets list 2>/dev/null | grep -q 'kv/'; do sleep 2; done
+
               # --- Policy: the cardvault-agent can read its own credential path only ---
               cat >/tmp/policy.hcl <<'POLICY'
               path "kv/data/signalloom/cardvault-agent" {

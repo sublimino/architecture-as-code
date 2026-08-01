@@ -4,8 +4,6 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-# shellcheck source=scripts/lib/wait.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 mode="${1:-all}"
 
@@ -26,7 +24,11 @@ kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
 
-wait_reachable "http://localhost:5001/v2/" 90
+for _ in $(seq 1 60); do
+  curl -fsS "http://localhost:5001/v2/" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+curl -fsS "http://localhost:5001/v2/" >/dev/null
 
 push_and_sign() {
   local repo="$1" path="$2"

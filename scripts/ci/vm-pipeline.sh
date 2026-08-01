@@ -41,6 +41,9 @@ export GOBIN="${HOME}/.local/bin"
 export PATH="${HOME}/.local/bin:${HOME}/.local/go/bin:/usr/local/go/bin:${GOPATH}/bin:${PATH}"
 mkdir -p "$GOBIN" "$GOPATH"
 
+# ── CI environment for Playwright / Dex ──────────────────────────────
+export DEX_DEMO_PASSWORD="${DEX_DEMO_PASSWORD:-password}"
+
 # ── Clean state ──────────────────────────────────────────────────────
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"

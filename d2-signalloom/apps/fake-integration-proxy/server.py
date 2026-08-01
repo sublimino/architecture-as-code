@@ -16,7 +16,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
 from urllib import error, request
-from urllib.parse import quote, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 
 ROUTE_PREFIXES = {
@@ -37,7 +37,20 @@ DEFAULT_FIXTURES = {
     "notification": {"default": {"ok": True, "message": "demo notification accepted"}},
     "outbound-reporting": {"default": {"id": "demo-report-001", "status": "queued"}},
 }
-AGENT_DISCOVERY_NAMESPACE = "fe-signalloom-agents"
+# Agent discovery is namespace-plural on purpose. `agents-cardvault.yaml` declares
+# `namespace: fe-signalloom-agents`, but the Flux Kustomization's `targetNamespace`
+# overrides that and lands the pod in `fe-signalloom` — so the namespace a manifest
+# claims is not the namespace the pod ends up in. Searching a configured list keeps
+# discovery correct regardless of where Flux places the pod, and makes a future
+# namespace move a config change rather than a code change.
+#
+# The deeper fix would be to stop Flux relocating the pod (drop `targetNamespace`
+# from the signalloom-infra ResourceSet so the manifest's own namespace wins).
+# Trade-off: that centralises namespace control back into each manifest and would
+# undo commit 141a757, which deliberately moved agent namespace + RBAC into the
+# ResourceSet so one place governs tenancy. Multi-namespace discovery is resilient
+# to either choice; it is deliberately NOT a workaround that blocks the cleanup.
+DEFAULT_AGENT_DISCOVERY_NAMESPACES = ("fe-signalloom-agents", "fe-signalloom")
 AGENT_DISCOVERY_SELECTOR = "signalloom.ai/agent=true"
 POLICY_ENGINE_URL = os.environ.get(
     "POLICY_ENGINE_URL", "http://policy-engine.inf-signalloom.svc.cluster.local:8081"
@@ -118,7 +131,97 @@ def _fetch_kubernetes_text(url: str, token: str, context: ssl.SSLContext) -> str
         return response.read().decode("utf-8", errors="replace")
 
 
-def _agent_from_pod(pod: object) -> dict[str, object] | None:
+def _patch_kubernetes_json(
+    url: str,
+    token: str,
+    context: ssl.SSLContext,
+    patch: dict[str, object],
+) -> None:
+    req = request.Request(
+        url,
+        data=json.dumps(patch).encode(),
+        method="PATCH",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/strategic-merge-patch+json",
+        },
+    )
+    request.urlopen(req, context=context, timeout=5.0)
+
+
+def _post_policy_evaluate(url: str, payload: dict[str, object]) -> object:
+    req = request.Request(
+        url,
+        data=json.dumps(payload).encode(),
+        headers={"Content-Type": "application/json"},
+    )
+    with request.urlopen(req, timeout=5.0) as response:
+        return json.load(response)
+
+
+def _agent_discovery_namespaces() -> list[str]:
+    """Namespaces searched for agent pods, in priority order.
+
+    Overridable via AGENT_DISCOVERY_NAMESPACES (comma-separated) so relocating
+    the agents is a config change. Duplicates are left in place deliberately —
+    `/agents` de-duplicates on (namespace, name), so a repeated entry costs one
+    redundant list call rather than producing duplicate agents.
+    """
+    raw = os.environ.get("AGENT_DISCOVERY_NAMESPACES", "")
+    namespaces = [candidate.strip() for candidate in raw.split(",") if candidate.strip()]
+    return namespaces or list(DEFAULT_AGENT_DISCOVERY_NAMESPACES)
+
+
+def _list_agent_pods(
+    base_url: str,
+    token: str,
+    context: ssl.SSLContext,
+    namespace: str,
+) -> list[object]:
+    pods_url = (
+        f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}/pods"
+        f"?labelSelector={quote(AGENT_DISCOVERY_SELECTOR, safe='')}"
+    )
+    payload = _fetch_kubernetes_json(pods_url, token, context)
+    if not isinstance(payload, dict):
+        raise TypeError("kubernetes pod list payload must be a JSON object")
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        raise TypeError("kubernetes pod list items must be a JSON array")
+    return items
+
+
+def _resolve_agent_namespace(
+    base_url: str,
+    token: str,
+    context: ssl.SSLContext,
+    agent_id: str,
+    requested: str | None = None,
+) -> tuple[str, dict[str, object]] | None:
+    """Find the namespace that actually holds `agent_id`, with its pod.
+
+    `requested` is only honoured when it is one of the configured discovery
+    namespaces — an unrecognised hint is ignored rather than trusted, so the
+    query parameter cannot be used to read pods outside the demo's own tenancy.
+    """
+    candidates = _agent_discovery_namespaces()
+    if requested and requested in candidates:
+        candidates = [requested] + [ns for ns in candidates if ns != requested]
+    for namespace in candidates:
+        pod_url = (
+            f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}"
+            f"/pods/{quote(agent_id, safe='')}"
+        )
+        try:
+            pod = _fetch_kubernetes_json(pod_url, token, context)
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError):
+            continue
+        if isinstance(pod, dict):
+            return namespace, pod
+    return None
+
+
+def _agent_from_pod(pod: object, namespace: str | None = None) -> dict[str, object] | None:
     if not isinstance(pod, dict):
         return None
     metadata = pod.get("metadata")
@@ -141,8 +244,13 @@ def _agent_from_pod(pod: object) -> dict[str, object] | None:
     model_full = annotations.get("signalloom.ai/model-full")
     model = labels.get("signalloom.ai/model")
 
+    pod_namespace = metadata.get("namespace") if isinstance(metadata, dict) else None
+
     agent = {
         "id": pod_name,
+        # The pod's own metadata is authoritative; the queried namespace is the
+        # fallback for fixtures that omit it.
+        "namespace": pod_namespace or namespace,
         "name": display_name or label_name or pod_name,
         "type": labels.get("signalloom.ai/agent-type"),
         "framework": labels.get("signalloom.ai/framework"),
@@ -484,37 +592,62 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return True
 
     def _handle_agents(self) -> None:
+        namespaces = _agent_discovery_namespaces()
+        # `namespace` is retained for backwards compatibility and reflects the
+        # whole configured list; `namespaces` is the structured form.
+        legacy_namespace = ",".join(namespaces)
         try:
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
-            pods_url = (
-                f"{base_url}/api/v1/namespaces/{AGENT_DISCOVERY_NAMESPACE}/pods"
-                f"?labelSelector={quote(AGENT_DISCOVERY_SELECTOR, safe='')}"
-            )
-            payload = _fetch_kubernetes_json(pods_url, token, context)
-            if not isinstance(payload, dict):
-                raise TypeError("kubernetes pod list payload must be a JSON object")
-            items = payload.get("items", [])
-            if not isinstance(items, list):
-                raise TypeError("kubernetes pod list items must be a JSON array")
-            agents = []
-            for pod in items:
-                agent = _agent_from_pod(pod)
-                if agent is not None:
-                    agents.append(agent)
-            response = {
-                "agents": agents,
-                "namespace": AGENT_DISCOVERY_NAMESPACE,
-            }
-            response.update(_flux_status(base_url, token, context))
-            self._json(HTTPStatus.OK, response)
-        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
             print(f"agent discovery failed: {exc}", file=sys.stderr, flush=True)
             self._json(
                 HTTPStatus.OK,
-                {"agents": [], "error": str(exc), "namespace": AGENT_DISCOVERY_NAMESPACE},
+                {
+                    "agents": [],
+                    "error": str(exc),
+                    "namespace": legacy_namespace,
+                    "namespaces": namespaces,
+                },
             )
+            return
+
+        agents: list[dict[str, object]] = []
+        seen: set[tuple[object, object]] = set()
+        namespace_errors: dict[str, str] = {}
+        for namespace in namespaces:
+            try:
+                items = _list_agent_pods(base_url, token, context, namespace)
+            except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+                # One missing or forbidden namespace must not empty the whole
+                # response — the agent may well live in one of the others.
+                namespace_errors[namespace] = str(exc)
+                print(f"agent discovery failed for {namespace}: {exc}", file=sys.stderr, flush=True)
+                continue
+            for pod in items:
+                agent = _agent_from_pod(pod, namespace)
+                if agent is None:
+                    continue
+                key = (agent.get("namespace"), agent.get("id"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                agents.append(agent)
+
+        response: dict[str, object] = {
+            "agents": agents,
+            "namespace": legacy_namespace,
+            "namespaces": namespaces,
+        }
+        if namespace_errors:
+            response["namespace_errors"] = namespace_errors
+        if namespace_errors and len(namespace_errors) == len(namespaces):
+            response["error"] = "; ".join(
+                f"{namespace}: {message}" for namespace, message in namespace_errors.items()
+            )
+        response.update(_flux_status(base_url, token, context))
+        self._json(HTTPStatus.OK, response)
 
     def _handle_crypto_proofs(self) -> None:
         try:
@@ -540,17 +673,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 {"proofs": [], "error": str(exc), "namespace": CRYPTO_PROOF_NAMESPACE},
             )
 
-    def _handle_agent_compliance(self, agent_id: str) -> None:
+    def _handle_agent_compliance(self, agent_id: str, requested_namespace: str | None = None) -> None:
         """GET /agents/<id>/compliance — evaluate an agent's pod spec against policy."""
         try:
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
-            pod_url = f"{base_url}/api/v1/namespaces/{AGENT_DISCOVERY_NAMESPACE}/pods/{agent_id}"
-            pod = _fetch_kubernetes_json(pod_url, token, context)
-            if not isinstance(pod, dict):
-                self._json(HTTPStatus.NOT_FOUND, {"error": f"agent {agent_id} not found"})
+            resolved = _resolve_agent_namespace(
+                base_url, token, context, agent_id, requested_namespace
+            )
+            if resolved is None:
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {
+                        "error": f"agent {agent_id} not found",
+                        "namespaces": _agent_discovery_namespaces(),
+                    },
+                )
                 return
+            namespace, pod = resolved
             spec = pod.get("spec", {})
             containers = []
             for c in spec.get("containers", []):
@@ -563,18 +704,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "securityContext": spec.get("securityContext"),
             }
             evaluate_url = f"{POLICY_ENGINE_URL}/api/v1/evaluate"
-            payload = json.dumps({
+            result = _post_policy_evaluate(evaluate_url, {
                 "agent_id": agent_id,
-                "namespace": AGENT_DISCOVERY_NAMESPACE,
+                "namespace": namespace,
                 "pod_spec": pod_spec,
                 "checks": SUPERCRED_CHECKS,
-            }).encode()
-            req = request.Request(
-                evaluate_url, data=payload,
-                headers={"Content-Type": "application/json"},
-            )
-            with request.urlopen(req, timeout=5.0) as resp:
-                result = json.load(resp)
+            })
             self._json(HTTPStatus.OK, result)
         except error.HTTPError as exc:
             if exc.code == 404:
@@ -585,15 +720,28 @@ class ProxyHandler(BaseHTTPRequestHandler):
             print(f"compliance check failed: {exc}", file=sys.stderr, flush=True)
             self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
 
-    def _handle_agent_stun(self, agent_id: str) -> None:
+    def _handle_agent_stun(self, agent_id: str, requested_namespace: str | None = None) -> None:
         """POST /agents/<id>/stun — revoke agent credentials and mark as stunned."""
         try:
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
+            resolved = _resolve_agent_namespace(
+                base_url, token, context, agent_id, requested_namespace
+            )
+            if resolved is None:
+                self._json(
+                    HTTPStatus.NOT_FOUND,
+                    {
+                        "error": f"agent {agent_id} not found",
+                        "namespaces": _agent_discovery_namespaces(),
+                    },
+                )
+                return
+            namespace, _pod = resolved
             # Label the pod as stunned
             now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-            patch = json.dumps({
+            patch = {
                 "metadata": {
                     "labels": {"signalloom.ai/state": "stunned"},
                     "annotations": {
@@ -601,18 +749,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         "signalloom.ai/stun-reason": "compliance-failure: securityContext not set",
                     },
                 }
-            }).encode()
-            patch_url = f"{base_url}/api/v1/namespaces/{AGENT_DISCOVERY_NAMESPACE}/pods/{agent_id}"
-            req = request.Request(
-                patch_url, data=patch, method="PATCH",
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/strategic-merge-patch+json",
-                },
+            }
+            patch_url = (
+                f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}"
+                f"/pods/{quote(agent_id, safe='')}"
             )
-            request.urlopen(req, context=context, timeout=5.0)
+            _patch_kubernetes_json(patch_url, token, context, patch)
             self._json(HTTPStatus.OK, {
                 "agent_id": agent_id,
+                "namespace": namespace,
                 "state": "stunned",
                 "stunned_at": now,
                 "message": f"Agent {agent_id} stunned: credentials revoked, state marked as stunned",
@@ -659,6 +804,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self._json(HTTPStatus.NOT_FOUND, {"error": "not found"})
         return True
 
+    def _requested_namespace(self) -> str | None:
+        """Optional ?namespace= disambiguation hint; never required."""
+        values = parse_qs(urlparse(self.path).query).get("namespace", [])
+        return values[0] if values and values[0] else None
+
     def _dispatch(self) -> None:
         path = urlparse(self.path).path
         if path == "/health" and self.command == "GET":
@@ -669,10 +819,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._handle_crypto_proofs()
         elif path.startswith("/agents/") and path.endswith("/compliance") and self.command == "GET":
             agent_id = path.split("/")[2]
-            self._handle_agent_compliance(agent_id)
+            self._handle_agent_compliance(agent_id, self._requested_namespace())
         elif path.startswith("/agents/") and path.endswith("/stun") and self.command == "POST":
             agent_id = path.split("/")[2]
-            self._handle_agent_stun(agent_id)
+            self._handle_agent_stun(agent_id, self._requested_namespace())
         elif self._handle_control() or self._handle_business():
             return
         else:

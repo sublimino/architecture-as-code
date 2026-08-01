@@ -7,6 +7,9 @@
 # (5001), ZOT_NAMESPACE (registry), ZOT_SERVICE (svc/zot).
 set -euo pipefail
 
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
+
 SOURCE_IMAGE="${1:?source image required}"
 DESTINATION="${2:?destination image required}"
 
@@ -24,11 +27,7 @@ else
   kubectl -n "${NAMESPACE}" port-forward "${SERVICE}" "${LOCAL_PORT}:5000" >/dev/null 2>&1 &
   PORT_FORWARD_PID=$!
   trap 'kill "${PORT_FORWARD_PID}" 2>/dev/null || true; rm -f "${IMAGE_TAR}"' EXIT
-  for _ in $(seq 1 60); do
-    curl -fsS "${REGISTRY_URL}" >/dev/null 2>&1 && break
-    sleep 0.5
-  done
-  curl -fsS "${REGISTRY_URL}" >/dev/null
+  wait_reachable "${REGISTRY_URL}" 90
 fi
 
 docker save -o "${IMAGE_TAR}" "${SOURCE_IMAGE}"

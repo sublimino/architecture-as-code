@@ -17,6 +17,8 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 OUT_DIR="vex/out"
 REGISTRY_HOST="${REGISTRY_HOST:-127.0.0.1:5001}"
@@ -36,10 +38,7 @@ step "publishing :dev images to ${REGISTRY_HOST}/${REGISTRY_PATH}"
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 trap 'kill ${PORT_FORWARD_PID} 2>/dev/null || true' EXIT
-for _ in $(seq 1 60); do
-  curl -fsS "http://${REGISTRY_HOST}/v2/" >/dev/null 2>&1 && break
-  sleep 0.5
-done
+wait_reachable "http://${REGISTRY_HOST}/v2/" 90
 
 # crane pushes from the host through the port-forward; the docker daemon
 # cannot reach host-local forwards on Docker Desktop

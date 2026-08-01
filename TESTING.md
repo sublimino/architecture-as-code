@@ -143,4 +143,10 @@ runbooks, and CI investigations.
 - OSRAMP application suite: `make test`
 - SignalLoom topology validation: `d2-signalloom/test/validate-topology.sh`
 - SignalLoom topology BATS suite: `bats d2-signalloom/test/topology.bats`
+- Agent-discovery RBAC drift check: `bats d2-signalloom/test/agent-discovery-rbac.bats`
+  (asserts every namespace in the proxy's `AGENT_DISCOVERY_NAMESPACES` has a
+  matching pod-reading grant; needs `yq`, no cluster)
+- SuperCred image build/load guard: `make demo-signalloom-supercred-images-test`
+  (fakes `docker`/`kind` via `DOCKER_BIN`/`KIND_BIN`; no cluster)
+- SuperCred proxy unit suite: `make -C d2-signalloom/apps/fake-integration-proxy test`
 - Browser acceptance suite: `make acceptance-test`

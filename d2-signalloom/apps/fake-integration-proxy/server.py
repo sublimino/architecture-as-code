@@ -203,6 +203,16 @@ def _resolve_agent_namespace(
     `requested` is only honoured when it is one of the configured discovery
     namespaces — an unrecognised hint is ignored rather than trusted, so the
     query parameter cannot be used to read pods outside the demo's own tenancy.
+
+    This allow-list is one of the two things keeping agent discovery from
+    becoming a cross-tenant pod reader. The other is RBAC: the proxy's
+    ServiceAccount (default/inf-signalloom) holds only a narrow per-namespace
+    `agent-inventory-reader` Role — pods, read-only — granted separately for
+    fe-signalloom-agents and for the tenant namespace in
+    d2-osramp-fleet/tenants/local/signalloom.yaml. Adding a namespace to
+    AGENT_DISCOVERY_NAMESPACES without adding its Role yields 403s and a short
+    agent list, not wider access; d2-signalloom/test/agent-discovery-rbac.bats
+    fails when the two drift apart.
     """
     candidates = _agent_discovery_namespaces()
     if requested and requested in candidates:

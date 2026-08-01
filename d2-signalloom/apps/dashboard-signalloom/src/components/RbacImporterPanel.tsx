@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   deriveNamespaces,
   fetchJsonOrThrow,
-  isClusterMetaArray,
-  isRbacData,
+  parseClusterList,
+  parseRbacData,
   type ClusterMeta,
   type RBACData,
 } from '../api/afmApi'
@@ -24,20 +24,18 @@ function toInlineErrorMessage(error: unknown, fallback: string): string {
 }
 
 async function readClusters(): Promise<ClusterMeta[]> {
-  const payload = await fetchJsonOrThrow('/clusters')
-  if (!isClusterMetaArray(payload)) {
-    throw new Error('AFM returned an invalid cluster list shape for /afm/clusters.')
-  }
-  return payload
+  return parseClusterList(await fetchJsonOrThrow('/clusters'))
 }
 
 async function readClusterRbac(clusterId: string): Promise<RBACData> {
   const path = `/clusters/${encodeURIComponent(clusterId)}/rbac`
-  const payload = await fetchJsonOrThrow(path)
-  if (!isRbacData(payload)) {
-    throw new Error(`AFM returned an invalid RBAC payload shape for ${path}.`)
+  try {
+    return parseRbacData(await fetchJsonOrThrow(path))
+  } catch (error) {
+    // Keep the failing path in the message — the parser only knows the shape.
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(`${detail} (from ${path})`)
   }
-  return payload
 }
 
 export default function RbacImporterPanel() {

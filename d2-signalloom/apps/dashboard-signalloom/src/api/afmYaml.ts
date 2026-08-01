@@ -236,6 +236,14 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
   const prefix = isSequenceEntry ? `${lineIndent}- ${key}:` : `${lineIndent}${key}:`
   const normalisedValue = value === undefined ? null : value
 
+  // A sequence entry's `- ` marker pushes its first key two columns right, so
+  // that key's nested block has to start two deeper again to stay clear of it.
+  // Without this, a nested block sequence merely looks inconsistent (legal, but
+  // it reads oddly next to sibling keys) and a nested MAP becomes genuinely
+  // ambiguous — its children would land in the same column as their own key
+  // and re-read as siblings.
+  const childDepth = isSequenceEntry ? depth + 2 : depth + 1
+
   if (isScalar(normalisedValue)) {
     return `${prefix} ${emitScalar(normalisedValue)}`
   }
@@ -244,14 +252,14 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
     if (normalisedValue.length === 0) {
       return `${prefix} []`
     }
-    return `${prefix}\n${emitArray(normalisedValue, depth + 1)}`
+    return `${prefix}\n${emitArray(normalisedValue, childDepth)}`
   }
 
   const entries = orderedEntries(normalisedValue)
   if (entries.length === 0) {
     return `${prefix} {}`
   }
-  return `${prefix}\n${emitObject(normalisedValue, depth + 1)}`
+  return `${prefix}\n${emitObject(normalisedValue, childDepth)}`
 }
 
 export function convertRbacToAfmImport(

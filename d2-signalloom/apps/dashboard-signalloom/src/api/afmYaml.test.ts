@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { RBACData } from './afmApi'
+import { deriveNamespaces, parseClusterList, parseRbacData } from './afmApi'
 import { convertRbacToAfmImport, emitYaml } from './afmYaml'
 
 // ── Minimal YAML parser (test-only) ────────────────────────────────────────
@@ -320,6 +321,236 @@ describe('convertRbacToAfmImport', () => {
     expect(names).toContain('kustomize-controller')
     // `lonely` is in another namespace and no retained binding references it.
     expect(names).not.toContain('lonely')
+  })
+})
+
+// ── Real AFM wire payload ──────────────────────────────────────────────────
+
+/**
+ * Captured verbatim from `GET /afm/clusters/prod/rbac` on the live cluster.
+ *
+ * This fixture exists because the first version of the validator was written
+ * against the TypeScript interface rather than the wire, and the interface was
+ * never checked against what AFM actually emits. AFM marks "absent" with an
+ * explicit `null` — `namespace: null` on every cluster-scoped item, plus
+ * `roleRefKind: null` and an `annotations` object we do not model — and the
+ * strict guards rejected the entire payload. Keep this fixture as raw
+ * `unknown` and run it through the parser; do not "tidy" it to match the
+ * interface, because the mismatch is the whole point.
+ */
+const wirePayload: unknown = {
+  subjects: [
+    { name: 'alice', kind: 'User', namespace: null, annotations: {} },
+    { name: 'argocd', kind: 'ServiceAccount', namespace: 'gitops', annotations: {} },
+    { name: 'deployer', kind: 'ServiceAccount', namespace: 'apps', annotations: {} },
+  ],
+  roles: [
+    { name: 'gitops-controller', scope: 'Cluster', namespace: null, rules: [
+      { verbs: ['*'], apiGroups: ['*'], resources: ['*'] },
+    ] },
+    { name: 'app-deployer', scope: 'Namespace', namespace: 'apps', rules: [
+      { verbs: ['get', 'list'], apiGroups: [''], resources: ['pods'] },
+    ] },
+    // Aggregated ClusterRoles arrive with `rules: null`.
+    { name: 'view', scope: 'Cluster', namespace: null, rules: null },
+  ],
+  bindings: [
+    {
+      name: 'argocd-controller', scope: 'Cluster', namespace: null,
+      roleRef: 'gitops-controller', roleRefKind: null,
+      subjects: [{ kind: 'ServiceAccount', name: 'argocd', namespace: 'gitops' }],
+    },
+    {
+      name: 'app-deploy', scope: 'Namespace', namespace: 'apps',
+      roleRef: 'app-deployer', roleRefKind: null,
+      subjects: [{ kind: 'ServiceAccount', name: 'deployer', namespace: 'apps' }],
+    },
+  ],
+  namespaces: [],
+}
+
+describe('parsing AFM’s real wire payload', () => {
+  it('accepts the live payload instead of rejecting it', () => {
+    expect(() => parseRbacData(wirePayload)).not.toThrow()
+
+    const rbac = parseRbacData(wirePayload)
+    expect(rbac.subjects).toHaveLength(3)
+    expect(rbac.roles).toHaveLength(3)
+    expect(rbac.bindings).toHaveLength(2)
+  })
+
+  it('treats an explicit null namespace as absent on subjects, roles and bindings', () => {
+    const rbac = parseRbacData(wirePayload)
+
+    expect(rbac.subjects[0]).not.toHaveProperty('namespace')
+    expect(rbac.roles[0]).not.toHaveProperty('namespace')
+    expect(rbac.bindings[0]).not.toHaveProperty('namespace')
+    // ...while a real namespace still survives.
+    expect(rbac.subjects[1].namespace).toBe('gitops')
+    expect(rbac.roles[1].namespace).toBe('apps')
+    expect(rbac.bindings[1].namespace).toBe('apps')
+  })
+
+  it('drops unmodelled keys such as roleRefKind and annotations', () => {
+    const rbac = parseRbacData(wirePayload)
+
+    expect(rbac.bindings[0]).not.toHaveProperty('roleRefKind')
+    expect(rbac.subjects[0]).not.toHaveProperty('annotations')
+    expect(Object.keys(rbac.subjects[0]).sort()).toEqual(['kind', 'name'])
+  })
+
+  it('reads a null rules list as an empty rules list', () => {
+    const rbac = parseRbacData(wirePayload)
+
+    expect(rbac.roles[2].name).toBe('view')
+    expect(rbac.roles[2].rules).toEqual([])
+  })
+
+  it('derives namespaces without emitting null, and skips the empty reported list', () => {
+    expect(deriveNamespaces(parseRbacData(wirePayload))).toEqual(['apps', 'gitops'])
+  })
+
+  it('prefers AFM’s own namespaces list when it is non-empty', () => {
+    const withReported = { ...(wirePayload as object), namespaces: ['zzz', 'aaa', 'aaa'] }
+
+    expect(deriveNamespaces(parseRbacData(withReported))).toEqual(['aaa', 'zzz'])
+  })
+
+  it('never leaks a null namespace into the emitted YAML', () => {
+    const rbac = parseRbacData(wirePayload)
+    const yaml = emitYaml(convertRbacToAfmImport(rbac, CLUSTER, 'all'))
+
+    expect(yaml).not.toContain('namespace: null')
+    expect(yaml).not.toContain('namespace: "null"')
+    expect(yaml).not.toContain('null')
+    // The cluster-scoped role emits with no namespace line at all; the
+    // namespaced one keeps its namespace.
+    expect(yaml).toContain('- name: gitops-controller\n      scope: Cluster\n      rules:')
+    expect(yaml).toContain('namespace: apps')
+  })
+
+  it('round-trips the live payload through convert and emit', () => {
+    const value = convertRbacToAfmImport(parseRbacData(wirePayload), CLUSTER, 'all')
+
+    expect(roundTrip(value)).toEqual(value)
+  })
+
+  it('filters the live payload by namespace, keeping cluster-scoped items', () => {
+    const value = convertRbacToAfmImport(parseRbacData(wirePayload), CLUSTER, 'apps')
+    const names = value.rbac.roles.map(role => role.name)
+
+    expect(names).toContain('gitops-controller')  // cluster-scoped, retained
+    expect(names).toContain('app-deployer')       // in the selected namespace
+    expect(names).toContain('view')               // cluster-scoped, retained
+  })
+
+  it('tolerates a cluster list whose entries have no name', () => {
+    expect(parseClusterList([{ id: 'prod' }, { id: 'demo', name: 'Demo' }]))
+      .toEqual([{ id: 'prod', name: 'prod' }, { id: 'demo', name: 'Demo' }])
+  })
+
+  it('still rejects a genuine contract break loudly', () => {
+    expect(() => parseRbacData({ subjects: [], roles: [{ name: 'x', scope: 'Wat' }], bindings: [] }))
+      .toThrow(/unusable role at index 0/)
+    expect(() => parseRbacData({ subjects: [], roles: 'nope', bindings: [] }))
+      .toThrow(/"roles" is not an array/)
+    expect(() => parseClusterList([{ name: 'no id here' }])).toThrow(/without an id/)
+  })
+})
+
+// ── AFM cluster-import contract ────────────────────────────────────────────
+
+/**
+ * There are THREE implementations of the AFM cluster-import contract in this
+ * repo, and they must agree:
+ *
+ *   1. `convertRbacToAfmImport` here (browser, read-only — generates YAML for
+ *      the operator to paste into KubeSec-AFM);
+ *   2. `scripts/rbac-to-afm.py::convert` (CLI, for `kubectl -o json` input);
+ *   3. the inline Python in `d2-k8s-afm/apps/afm-platform/base/cluster-import.yaml`
+ *      (the CronJob that POSTs to `/clusters/import` every 30 minutes).
+ *
+ * This block pins the contract from the TypeScript side so a drift in (1)
+ * fails here rather than as an HTTP 400 from AFM. It is deliberately about
+ * *shape*, since that is the part all three share.
+ *
+ * They are NOT the same function and should not be unified:
+ *
+ *   - (2) and (3) take raw Kubernetes objects; (1) takes AFM's own RBACData,
+ *     i.e. the output of (2)/(3) after AFM has stored it. Round-tripping the
+ *     real pipeline — raw k8s -> (2) -> AFM -> (1) — is the identity, key
+ *     order included.
+ *   - Only (1) filters by namespace; (2) and (3) always emit everything.
+ *   - (2)/(3) dedupe subjects on `kind/namespace/name` and keep `namespace`
+ *     on a deduped subject only for ServiceAccounts. (1) does neither: it
+ *     trusts AFM's stored list, so it preserves duplicates and keeps
+ *     `namespace` for any subject kind. Those divergences are unreachable on
+ *     the real pipeline, because (2)/(3) run first — they would only show on
+ *     AFM data from another source (e.g. the seeded sample clusters).
+ *
+ * The two tests at the end of this block pin that last behaviour so it stays
+ * a deliberate choice rather than an accident.
+ */
+describe('AFM cluster-import contract', () => {
+  const result = convertRbacToAfmImport(rbacFixture, CLUSTER, 'all')
+
+  it('has exactly the top-level contract keys, in order', () => {
+    expect(Object.keys(result)).toEqual(['id', 'name', 'rbac'])
+    expect(Object.keys(result.rbac)).toEqual(['subjects', 'roles', 'bindings'])
+  })
+
+  it('emits roles with name, scope and rules, and namespace only when namespaced', () => {
+    for (const role of result.rbac.roles) {
+      expect(role.scope === 'Cluster' || role.scope === 'Namespace').toBe(true)
+      expect(Array.isArray(role.rules)).toBe(true)
+      expect('namespace' in role).toBe(role.scope === 'Namespace')
+      for (const rule of role.rules) {
+        expect(Object.keys(rule).sort()).toEqual(['apiGroups', 'resources', 'verbs'])
+      }
+    }
+  })
+
+  it('emits bindings with a roleRef flattened to the role name', () => {
+    for (const binding of result.rbac.bindings) {
+      expect(typeof binding.roleRef).toBe('string')
+      expect(binding.scope === 'Cluster' || binding.scope === 'Namespace').toBe(true)
+      expect('namespace' in binding).toBe(binding.scope === 'Namespace')
+      expect(Array.isArray(binding.subjects)).toBe(true)
+    }
+    expect(result.rbac.bindings.map(binding => binding.roleRef))
+      .toEqual(['secret-reader', 'system:masters'])
+  })
+
+  it('emits subjects carrying only name, kind and an optional namespace', () => {
+    for (const subject of [...result.rbac.subjects, ...result.rbac.bindings.flatMap(b => b.subjects)]) {
+      expect(typeof subject.name).toBe('string')
+      expect(typeof subject.kind).toBe('string')
+      expect(Object.keys(subject).every(key => ['name', 'kind', 'namespace'].includes(key))).toBe(true)
+    }
+  })
+
+  // Documented divergences from the two Python implementations. Both are
+  // unreachable on the real pipeline; both are pinned so they stay deliberate.
+  const fromAnotherSource: RBACData = {
+    subjects: [
+      { name: 'alice', kind: 'User', namespace: 'apps' },
+      { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' },
+      { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' },
+    ],
+    roles: [],
+    bindings: [],
+  }
+
+  it('keeps namespace on a non-ServiceAccount subject, unlike rbac-to-afm.py', () => {
+    const converted = convertRbacToAfmImport(fromAnotherSource, CLUSTER, 'all')
+
+    expect(converted.rbac.subjects[0]).toEqual({ name: 'alice', kind: 'User', namespace: 'apps' })
+  })
+
+  it('does not dedupe subjects — AFM is the source of truth for that', () => {
+    const converted = convertRbacToAfmImport(fromAnotherSource, CLUSTER, 'all')
+
+    expect(converted.rbac.subjects).toHaveLength(3)
   })
 })
 

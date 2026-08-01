@@ -66,9 +66,9 @@ up() {
   wait_namespace inf-bao
   "$repo_root/scripts/demo-lifecycle.sh" bao-up
   wait_namespace inf-signalloom
-  # Pre-create the agent-inventory namespace so the apps kustomization's
-  # server-side dry-run doesn't reject cross-namespace RBAC resources.
-  kubectl create namespace fe-signalloom-agents --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+  # The agent-inventory namespace + cross-namespace RBAC are now in
+  # inf-signalloom/configs (deployed by signalloom-infra above), so the
+  # namespace and Roles exist before the apps kustomization applies.
   activate_resourceset signalloom-apps '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"local","tag":"latest","tenant":"fe-signalloom"}]'
   "$repo_root/scripts/demo-lifecycle.sh" signalloom-up
   wait_resourceset signalloom-apps

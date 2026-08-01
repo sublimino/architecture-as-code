@@ -1,6 +1,12 @@
+# FLUX ENVSUBST: NO — no postBuild on the Flux Kustomization that reconciles
+# this directory. Flux does NOT run envsubst here. Use ${VAR} directly for
+# shell/tool expansion (e.g. SPIRE -expandEnv). $$ will NOT be reduced.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - networkpolicy.yaml
   - fake-integration-proxy-networkpolicy.yaml
   - fake-integration-proxy-egress-networkpolicy.yaml
+  # Agent inventory namespace + cross-namespace RBAC. Deployed here (infra,
+  # runs first) so the namespace exists before the apps kustomization applies.
+  - agents-namespace-rbac.yaml

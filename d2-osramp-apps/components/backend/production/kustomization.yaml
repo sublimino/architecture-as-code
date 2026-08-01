@@ -1,3 +1,7 @@
+# FLUX ENVSUBST: YES — postBuild.substituteFrom is configured on the Flux
+# Kustomization that reconciles this directory. Flux runs envsubst over all
+# rendered manifests: use $${VAR} to pass a literal $ through to the container,
+# and ${VAR} for values Flux should substitute from flux-runtime-info.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

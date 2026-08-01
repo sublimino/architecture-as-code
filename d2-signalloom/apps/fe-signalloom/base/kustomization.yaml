@@ -1,3 +1,7 @@
+# FLUX ENVSUBST: YES — postBuild.substituteFrom is configured on the Flux
+# Kustomization that reconciles this directory. Flux runs envsubst over all
+# rendered manifests: use $${VAR} to pass a literal $ through to the container,
+# and ${VAR} for values Flux should substitute from flux-runtime-info.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -11,9 +15,9 @@ resources:
   - dashboard-deployment.yaml
   - dashboard-service.yaml
   - gateway-route.yaml
-  # Agent inventory: namespace + a Flux-managed baseline agent, and read-only
-  # RBAC letting the fake-integration-proxy discover agents for GET /api/agents.
-  - agents-namespace.yaml
+  # Agent inventory: health-reader RBAC (same-namespace only). The namespace
+  # and cross-namespace agent-discovery RBAC are in inf-signalloom/configs/base/
+  # (deployed by signalloom-infra, which runs before this apps kustomization).
   - agents-rbac.yaml
   - agents-baseline.yaml
   # SuperCred demo: cardvault-agent SA, inert agent pod (deliberately non-compliant),

@@ -1,3 +1,6 @@
+# FLUX ENVSUBST: NO — no postBuild on the Flux Kustomization that reconciles
+# this directory. Flux does NOT run envsubst here. Use ${VAR} directly for
+# shell/tool expansion (e.g. SPIRE -expandEnv). $$ will NOT be reduced.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

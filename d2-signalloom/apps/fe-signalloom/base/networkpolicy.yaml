@@ -111,8 +111,17 @@ spec:
         - protocol: TCP
           port: 8080
 ---
-# The dashboard nginx proxies /dex and /api (single-origin login), so it needs
-# egress to DNS, Dex (inf-signalloom), and the in-namespace compatibility API.
+# The dashboard nginx proxies /dex, /api, the AFM prefixes and /supercred-api/
+# on the browser's behalf, so it needs egress to DNS, Dex (inf-signalloom), the
+# in-namespace compatibility API, AFM (fe-k8s-afm), and the SuperCred
+# fake-integration-proxy (inf-signalloom:8080).
+#
+# Every upstream in dashboard-signalloom/nginx.conf must have a rule here.
+# default-deny above denies egress, and a denied packet is DROPPED, not
+# rejected: the fetch hangs until nginx gives up and logs a 499, with nothing at
+# all in the upstream's own logs. There is no error message anywhere that names
+# the missing rule, so the omission reads as "the page just spins".
+# Enforced by d2-signalloom/test/dashboard-route-collisions.bats.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -160,6 +169,25 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # SuperCred: nginx's /supercred-api/ block proxies here. This is the egress
+    # half of a pair — the ingress half is the dashboard-signalloom rule in
+    # allow-fake-integration-proxy (inf-signalloom configs). Both are required;
+    # removing either silently breaks the SuperCred page with no error anywhere
+    # except a 499 in the dashboard's nginx access log.
+    #
+    # Note allow-portal-dependencies above also opens 8080 into inf-signalloom,
+    # but its podSelector is bao.controlplane.io/consumer: fe-signalloom — the
+    # API pod, not the dashboard. It does not cover this path.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fake-integration-proxy
+      ports:
+        - protocol: TCP
+          port: 8080
 ---
 # Permit the dashboard's /api proxy to reach the compatibility API in-namespace.
 apiVersion: networking.k8s.io/v1

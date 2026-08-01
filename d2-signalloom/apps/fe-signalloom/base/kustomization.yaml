@@ -15,11 +15,10 @@ resources:
   - dashboard-deployment.yaml
   - dashboard-service.yaml
   - gateway-route.yaml
-  # Agent inventory: health-reader RBAC (same-namespace only). The namespace
-  # and cross-namespace agent-discovery RBAC are in inf-signalloom/configs/base/
-  # (deployed by signalloom-infra, which runs before this apps kustomization).
-  - agents-rbac.yaml
-  - agents-baseline.yaml
+  # Agent inventory: health-reader RBAC only (same namespace as targetNamespace).
+  # The namespace, cross-namespace RBAC, and baseline agent are inline in the
+  # signalloom-infra ResourceSet — they run first so Flux dry-run passes here.
+  - health-rbac.yaml
   # SuperCred demo: cardvault-agent SA, inert agent pod (deliberately non-compliant),
   # and the Job template for the credential-chain run.
   - agents-cardvault-sa.yaml

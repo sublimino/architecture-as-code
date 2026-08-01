@@ -323,3 +323,56 @@ kubectl -n ingress port-forward svc/envoy-ingress-cluster-<hash> 30754:443 --add
 
 The port must be 30754 — the Dex issuer and redirect URI are pinned to it. There is no host
 NodePort binding on this kind cluster; the port-forward is the access path.
+
+---
+
+## Delivery pipeline — read before changing manifests
+
+Two traps cost real debugging time here. Both fail silently.
+
+### The local overlay patches ResourceSets by positional index
+
+`d2-osramp-fleet/tenants/local/kustomization.yaml` swaps each OCIRepository's cosign `verify` block
+from GitHub keyless to the local `cosign-pub` key pair using JSON6902 patches that address
+`/spec/resources/N/spec/verify` — by **index**.
+
+Inserting a resource anywhere above the OCIRepository in a ResourceSet's `spec.resources` shifts
+that index and the patch silently lands on the wrong object. The OCIRepository then keeps GitHub
+keyless verification, every locally-pushed artifact fails with:
+
+```
+[Ready] False VerificationError: failed to verify the signature using provider 'cosign keyless':
+  no matching attestations: failed to verify log inclusion:
+  not enough verified log entries from transparency log: 0 < 1
+```
+
+and Flux stays pinned on the previous revision. `make push-local-signalloom` still exits 0. Nothing
+anywhere reports an error — manifest changes simply never arrive, and any change applied by hand in
+the meantime is reverted on the next reconcile.
+
+**Append new resources to the end of `spec.resources`.** `d2-signalloom/test/fleet-patch-indexes.bats`
+asserts every patched index still points at an OCIRepository.
+
+### Manifest changes need an artifact push, and the fleet is not in the signalloom push
+
+| Change | Reaches the cluster via |
+|--------|-------------------------|
+| `d2-signalloom/apps/fe-signalloom/**` | `make push-local-signalloom` → OCI artifact → Flux |
+| `d2-signalloom/infra/inf-signalloom/**` | `make push-local-signalloom` → OCI artifact → Flux |
+| `d2-osramp-fleet/tenants/**` (ResourceSets) | **foundation** push — *not* `push-local-signalloom` |
+| `d2-k8s-afm/**` | `make demo-k8s-afm-up` → plain `kubectl apply -k`, no signing gate |
+
+Editing a NetworkPolicy or a manifest under `apps/` and only running `kubectl apply` produces a
+change Flux will revert. Push the artifact and let Flux deliver it, then verify the Kustomization's
+`lastAppliedRevision` actually moved.
+
+**Never `kubectl apply -f d2-osramp-fleet/tenants/local/signalloom.yaml` directly.** That file is a
+template: it carries `${REGISTRY_BASE}` / `${REGISTRY_INSECURE}` needing envsubst, `inputs: []`
+which will wipe the live ResourceSet inputs, and it bypasses the kustomize overlay that installs
+local cosign verification. Render the overlay instead:
+
+```bash
+kustomize build --load-restrictor LoadRestrictionsNone d2-osramp-fleet/tenants/local \
+  | REGISTRY_BASE=... REGISTRY_INSECURE=true envsubst '${REGISTRY_BASE} ${REGISTRY_INSECURE}' \
+  | kubectl apply -f -
+```

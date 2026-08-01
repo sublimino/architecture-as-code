@@ -196,8 +196,9 @@ shows up as a failed Job.
 
 ## SuperCred agent discovery
 
-The SuperCred demo's **Refresh Agents** button appeared to do nothing. It was four separate defects
-stacked, each masking the next.
+The SuperCred demo's **Refresh Agents** button appeared to do nothing. It was five separate defects
+stacked, each masking the next. Three of them were a missing permission or a missing verification
+that failed *silently* — which is why the symptom was "nothing happens" rather than an error.
 
 ### 1. Discovery searched the wrong namespace
 
@@ -244,6 +245,39 @@ pinned platform, loads, **verifies via `crictl`**, recovers by rebuilding straig
 docker-archive and importing that, and fails loudly if any image is still missing. Covered by
 `test/supercred-images.bats`.
 
+### 4. `/supercred` redirected off-origin
+
+`GET /supercred` returned `301 Location: http://dashboard.osramp.acme.local:8080/supercred/` —
+nginx builds absolute redirects from its **own** listen scheme and port, which do not exist outside
+the cluster. A browser following it got `ERR_CONNECTION_REFUSED`. `absolute_redirect off` and
+`port_in_redirect off` make redirects relative, so they stay on whatever origin the client used.
+
+The redirect existed at all because the API proxy prefix `/supercred/` shadowed the `/supercred`
+SPA route: nginx matches proxy locations before `location /` reaches `try_files`, so the React page
+could never render. The proxy moved to `/supercred-api/`.
+
+**Not** `/api/supercred/`, despite reading better — the gateway's `signalloom-api` HTTPRoute matches
+`PathPrefix /api` and sends it to `fe-signalloom-api`, a longer prefix than the dashboard's `/`
+route, so anything under `/api` never reaches this nginx at all. A distinct root-level prefix is the
+only split that is unambiguous at both the gateway and nginx.
+
+**Invariant: no nginx proxy prefix may shadow a client-side route registered in `App.tsx`.**
+Enforced by `d2-signalloom/test/dashboard-route-collisions.bats`.
+
+### 5. The dashboard had no egress permission to reach the proxy
+
+With routing fixed, the page still hung on "Loading…". nginx logged `499` (client gave up while
+waiting upstream) and the proxy logs were empty — the connection never arrived.
+`NetworkPolicy/allow-dashboard-egress` permitted DNS, Dex on 5556, the API on 8000 and `fe-k8s-afm`
+on 8000, but **not** port 8080 to `fake-integration-proxy`, and `default-deny` covers egress.
+
+Easy to misread: `allow-portal-dependencies` does allow 8080 into `inf-signalloom`, but its
+podSelector is `bao.controlplane.io/consumer: fe-signalloom` — the API pod, not the dashboard.
+
+The egress rule on `allow-dashboard-egress` and the ingress rule on `allow-fake-integration-proxy`
+are two halves of one path. Changing either alone breaks the page with no error anywhere except a
+499 in an nginx access log.
+
 ### Running the demo
 
 ```bash
@@ -270,6 +304,8 @@ cd ../fake-integration-proxy
 PYTHONPATH=. python3 -m unittest discover -s test    # NOT pytest — the suite is unittest
 
 bats test/supercred-images.bats
+bats d2-signalloom/test/dashboard-route-collisions.bats
+bats d2-signalloom/test/agent-discovery-rbac.bats
 ```
 
 **The branch carries pre-existing lint and type errors** unrelated to this work: one `tsc` error in

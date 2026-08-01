@@ -103,6 +103,20 @@ check-sbom-listener-logs() {
 
 # ---
 
+# Runs once before any test in this file. The whole suite depends on a deployed
+# d2-osramp-apps slice, so an absent slice skips the file rather than failing
+# every test — matching the SKIP semantics of scripts/acceptance-test.sh.
+#
+# Existence is all that is checked. A slice that is present but unhealthy still
+# runs its assertions and still fails.
+setup_file() {
+	require-osramp-apps
+	require-k8s deployment osramp-multipurpose frontend
+	require-k8s deployment osramp-purl frontend
+	require-k8s deployment osramp-archiver frontend
+	require-k8s service postgres backend
+}
+
 # Improve readability of the debug file
 setup() {
 	debug ""

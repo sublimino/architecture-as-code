@@ -16,6 +16,21 @@ spec:
           podSelector:
             matchLabels:
               bao.controlplane.io/consumer: fe-signalloom
+        # The dashboard's nginx proxies /supercred-api/ to this service on the
+        # browser's behalf, so it is a first-class client. Without this the
+        # connection is dropped rather than refused, and every SuperCred fetch
+        # hangs until nginx times out — which reads as "the page does nothing".
+        #
+        # Selected on its own name rather than by adding
+        # bao.controlplane.io/consumer to the dashboard: it is not an OpenBao
+        # consumer, and borrowing that label would also hand it whatever else
+        # that label admits.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dashboard-signalloom
       ports:
         - protocol: TCP
           port: 8080

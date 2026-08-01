@@ -102,6 +102,11 @@ export async function login(page: Page): Promise<void> {
   await page.addInitScript(() => {
     try {
       window.localStorage.setItem("sl_demo_mode", "true");
+      // Superadmin is a visibility control that defaults off (see
+      // dashboard-signalloom/src/auth/superadmin.ts). Specs that assert on the
+      // superadmin-only sidebar links — RBAC Analysis, RBAC Explorer,
+      // Cryptography, Federated Services, Collusion & Access — need it on.
+      window.localStorage.setItem("signalloom.superadmin", "true");
     } catch {
       /* storage unavailable */
     }

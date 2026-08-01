@@ -65,7 +65,25 @@ mcp-query() { # index_pattern query -> SearchResponse JSON
 # rebuild the seed configMap from the working-tree scripts and run a throwaway
 # Job so the incidents are re-stamped to "now" and the enrichment assertions
 # below exercise real evidence. Idempotent: the data streams are append-only.
+# Existence guard, mirroring d2-osramp-apps/test/_helper.bats. Without it an
+# absent olly-replica slice fails in this very hook -- the reseed apply errors
+# with `namespaces "olly-replica" not found` and bats reports "Executed 1
+# instead of expected 15 tests", which reads as a broken suite rather than an
+# undeployed one. Guards name DECLARATIVE objects only, so a deployed-but-
+# unhealthy slice still runs its assertions and still fails loudly.
+require-k8s() {
+	local KIND="$1" NAME="$2" NAMESPACE="${3:-}"
+	local ARGS=(--request-timeout=10s get "${KIND}" "${NAME}")
+	if [ -n "${NAMESPACE}" ]; then
+		ARGS+=(--namespace "${NAMESPACE}")
+	fi
+	command kubectl "${ARGS[@]}" >/dev/null 2>&1 \
+		|| skip "${KIND}/${NAME}${NAMESPACE:+ in ${NAMESPACE}} not deployed — run: make demo-olly-up"
+}
+
 setup_file() {
+	require-k8s namespace "${NS}"
+
 	local SEED_DIR="${BATS_TEST_DIRNAME}/../components/configs/base/seed"
 	kubectl -n "${NS}" create configmap olly-reseed \
 		--from-file=seed-logs.sh="${SEED_DIR}/seed-logs.sh" \

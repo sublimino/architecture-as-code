@@ -6,7 +6,26 @@ DETIK_CLIENT_NAME="kubectl"
 DETIK_CLIENT_NAMESPACE="cpai"
 CPAI_PORT_FORWARD_PORT="${CPAI_PORT_FORWARD_PORT:-18080}"
 
+# Existence guard, mirroring d2-osramp-apps/test/_helper.bats. An absent cpai
+# slice is a SKIP, not 4 failures, so `make demo-cpai-test` stays runnable on a
+# cluster where cpai was never deployed. Guards name DECLARATIVE objects only --
+# Namespace, Service, Deployment -- never runtime Pods, so a deployed-but-
+# unhealthy slice still runs its assertions and still fails loudly.
+require-k8s() {
+  local KIND="$1" NAME="$2" NAMESPACE="${3:-}"
+  local ARGS=(--request-timeout=10s get "${KIND}" "${NAME}")
+  if [ -n "${NAMESPACE}" ]; then
+    ARGS+=(--namespace "${NAMESPACE}")
+  fi
+  command kubectl "${ARGS[@]}" >/dev/null 2>&1 \
+    || skip "${KIND}/${NAME}${NAMESPACE:+ in ${NAMESPACE}} not deployed — run: make demo-cpai-up"
+}
+
 setup_file() {
+  require-k8s namespace cpai
+  require-k8s service cpai-runtime cpai
+  require-k8s deployment cpai-runtime cpai
+
   # Port-forward to the cpai-runtime service for HTTP tests
   kubectl -n cpai port-forward svc/cpai-runtime "${CPAI_PORT_FORWARD_PORT}:8080" >/dev/null 2>&1 &
   export PORT_FORWARD_PID=$!

@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { isDemoMode } from '../api/demoMode'
+import RbacImporterPanel from '../components/RbacImporterPanel'
 
 const AFM_DASHBOARD = '/dashboard/'
 const AFM_HEALTH = '/afm/health'
@@ -109,6 +110,8 @@ export default function RbacAnalysisPage() {
           for real cluster RBAC analysis.
         </div>
       )}
+
+      <RbacImporterPanel />
 
       {/* Error state */}
       {!status.reachable && status.checkedAt && (

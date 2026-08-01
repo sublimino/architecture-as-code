@@ -1,0 +1,65 @@
+# Cardvault: mock credit card data service, authenticated via Basic Auth.
+# The username/password are seeded into OpenBao by openbao-supercred-bootstrap
+# and must match. The agent obtains them dynamically via SPIFFE→OpenBao exchange.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cardvault
+  labels:
+    app.kubernetes.io/name: cardvault
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cardvault
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cardvault
+        app.kubernetes.io/component: supercred-demo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cardvault
+          image: cardvault:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: CARDVAULT_USERNAME
+              value: cardvault-svc-account
+            - name: CARDVAULT_PASSWORD
+              value: supercred-demo-password-2026
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 10
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi

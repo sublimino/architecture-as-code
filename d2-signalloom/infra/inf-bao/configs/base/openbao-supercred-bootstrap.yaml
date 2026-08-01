@@ -1,0 +1,67 @@
+# SuperCred demo: seed OpenBao with the cardvault-agent's credentials and policy.
+#
+# The cardvault-agent authenticates to OpenBao using its SPIFFE JWT-SVID
+# (issued by the SPIRE server). OpenBao validates the JWT, binds it to the
+# signalloom-cardvault-agent role and policy, and returns a token the agent
+# uses to read the KV secret containing the cardvault service credentials.
+#
+# Prerequisites: openbao-spire-bootstrap must have already enabled the KV-v2
+# engine and the JWT auth backend. This Job is additive — it creates a new
+# role and secret without disturbing the existing fe-signalloom setup.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-supercred-bootstrap
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: quay.io/openbao/openbao:2.1.1
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_TOKEN
+              value: signalloom-demo-root-token
+          command:
+            - sh
+            - -ec
+            - |
+              until bao status >/dev/null 2>&1; do sleep 2; done
+
+              # --- Policy: the cardvault-agent can read its own credential path only ---
+              cat >/tmp/policy.hcl <<'POLICY'
+              path "kv/data/signalloom/cardvault-agent" {
+                capabilities = ["read"]
+              }
+              POLICY
+              bao policy write signalloom-cardvault-agent /tmp/policy.hcl
+
+              # --- JWT auth role: bound to the agent's SPIFFE identity ---
+              bao write auth/jwt/role/signalloom-cardvault-agent \
+                role_type=jwt \
+                bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent \
+                user_claim=sub \
+                policies=signalloom-cardvault-agent
+
+              # --- Seed the credential the agent will retrieve ---
+              bao kv put kv/signalloom/cardvault-agent \
+                username=cardvault-svc-account \
+                password=supercred-demo-password-2026
+
+              echo "supercred bootstrap complete"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,14 @@
+# ServiceAccount for the cardvault-agent. SPIRE issues an SVID scoped to
+# spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent,
+# which OpenBao's JWT role binds to for credential issuance.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cardvault-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: cardvault-agent
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+    bao.controlplane.io/consumer: cardvault-agent
+automountServiceAccountToken: false

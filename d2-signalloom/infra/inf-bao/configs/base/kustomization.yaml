@@ -4,3 +4,4 @@ resources:
   - networkpolicy.yaml
   - spire-agent.yaml
   - openbao-bootstrap.yaml
+  - openbao-supercred-bootstrap.yaml

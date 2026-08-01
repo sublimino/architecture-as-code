@@ -351,6 +351,40 @@ demo-signalloom-data-mock: ## Populate data stores with realistic demo data (moc
 demo-signalloom-api-test: ## Run the consumer-driven contract + integration test suite.
 	./scripts/signalloom-api-test.sh $${TIER:-contract}
 
+##@ SuperCred demo — agent identity chain, compliance scan, stun
+##  Each numbered step has a preflight check. Run in order: 1 → 2 → 3 → 4 → 5.
+
+.PHONY: demo-signalloom-supercred-images
+demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent images + load into kind.
+	docker build -t cardvault:local d2-signalloom/apps/cardvault
+	docker build -t policy-engine:local d2-signalloom/apps/policy-engine
+	docker build -t cardvault-agent:local d2-signalloom/apps/cardvault-agent
+	kind load docker-image --name $(CLUSTER_NAME) cardvault:local policy-engine:local cardvault-agent:local
+
+.PHONY: demo-signalloom-supercred-1
+demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy services, agent, OpenBao secrets, SPIRE entry.
+	./scripts/supercred-demo.sh 1
+
+.PHONY: demo-signalloom-supercred-2
+demo-signalloom-supercred-2: ## Step 2: Run SPIFFE → OpenBao → cardvault credential chain.
+	./scripts/supercred-demo.sh 2
+
+.PHONY: demo-signalloom-supercred-3
+demo-signalloom-supercred-3: ## Step 3: Compliance scan — discovers missing securityContext.
+	./scripts/supercred-demo.sh 3
+
+.PHONY: demo-signalloom-supercred-4
+demo-signalloom-supercred-4: ## Step 4: Stun — revoke credentials, verify denial.
+	./scripts/supercred-demo.sh 4
+
+.PHONY: demo-signalloom-supercred-5
+demo-signalloom-supercred-5: ## Step 5: Teardown + verify clean.
+	./scripts/supercred-demo.sh 5
+
+.PHONY: demo-signalloom-supercred-all
+demo-signalloom-supercred-all: demo-signalloom-supercred-images ## Run full SuperCred demo (steps 1→5).
+	./scripts/supercred-demo.sh all
+
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh

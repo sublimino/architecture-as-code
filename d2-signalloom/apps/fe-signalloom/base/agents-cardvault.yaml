@@ -1,0 +1,53 @@
+# SuperCred demo agent — DELIBERATELY non-compliant.
+#
+# This agent pod is intentionally deployed WITHOUT a pod-level securityContext,
+# without runAsNonRoot, and without capabilities drop. The compliance scan
+# (demo step 3) discovers these gaps and marks the agent out-of-policy.
+# The stun flow then revokes its OpenBao credentials and restricts it.
+#
+# Do NOT "fix" the missing securityContext — it is the demo's plot point.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-cardvault
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: signalloom-governor
+    app.kubernetes.io/instance: cardvault
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: cardvault
+    signalloom.ai/agent-type: supercred-demo
+    signalloom.ai/framework: custom
+    signalloom.ai/model: gpt-4o
+    signalloom.ai/state: idle
+    signalloom.ai/supercred: "true"
+  annotations:
+    signalloom.ai/agent-display-name: "Cardvault Agent"
+    signalloom.ai/model-full: "openai/gpt-4o"
+    signalloom.ai/description: "SuperCred demo — accesses credit card data via SPIFFE→OpenBao→BasicAuth chain."
+    signalloom.ai/supercred-target: "cardvault.inf-signalloom.svc.cluster.local:8080"
+spec:
+  # NOTE: pod-level securityContext is INTENTIONALLY ABSENT.
+  # The compliance scan checks for this and correctly flags it.
+  containers:
+    - name: agent
+      image: ghcr.io/stefanprodan/podinfo:6.7.1
+      ports:
+        - name: http
+          containerPort: 9898
+      # NOTE: container-level securityContext is INTENTIONALLY ABSENT.
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+  volumes:
+    - name: tmp
+      emptyDir: {}

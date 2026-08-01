@@ -39,6 +39,10 @@ DEFAULT_FIXTURES = {
 }
 AGENT_DISCOVERY_NAMESPACE = "fe-signalloom-agents"
 AGENT_DISCOVERY_SELECTOR = "signalloom.ai/agent=true"
+POLICY_ENGINE_URL = os.environ.get(
+    "POLICY_ENGINE_URL", "http://policy-engine.inf-signalloom.svc.cluster.local:8081"
+)
+SUPERCRED_CHECKS = ["security-context-present", "run-as-non-root", "drop-capabilities"]
 FLUX_NAMESPACE = "fe-signalloom"
 CRYPTO_PROOF_NAMESPACE = "fe-signalloom"
 CRYPTO_PROOF_CONTAINER = "jwt-svid"
@@ -137,7 +141,7 @@ def _agent_from_pod(pod: object) -> dict[str, object] | None:
     model_full = annotations.get("signalloom.ai/model-full")
     model = labels.get("signalloom.ai/model")
 
-    return {
+    agent = {
         "id": pod_name,
         "name": display_name or label_name or pod_name,
         "type": labels.get("signalloom.ai/agent-type"),
@@ -148,6 +152,13 @@ def _agent_from_pod(pod: object) -> dict[str, object] | None:
         "node": spec.get("nodeName"),
         "phase": status.get("phase"),
     }
+    # SuperCred enrichment: expose identity-chain and compliance metadata.
+    if labels.get("signalloom.ai/supercred") == "true":
+        agent["supercred"] = True
+        agent["supercred_target"] = annotations.get("signalloom.ai/supercred-target")
+        agent["stunned_at"] = annotations.get("signalloom.ai/stunned-at")
+        agent["stun_reason"] = annotations.get("signalloom.ai/stun-reason")
+    return agent
 
 
 def _flux_status(base_url: str, token: str, context: ssl.SSLContext) -> dict[str, object]:
@@ -529,6 +540,92 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 {"proofs": [], "error": str(exc), "namespace": CRYPTO_PROOF_NAMESPACE},
             )
 
+    def _handle_agent_compliance(self, agent_id: str) -> None:
+        """GET /agents/<id>/compliance — evaluate an agent's pod spec against policy."""
+        try:
+            token = _read_service_account_token()
+            context = _kubernetes_ssl_context()
+            base_url = _kubernetes_api_base()
+            pod_url = f"{base_url}/api/v1/namespaces/{AGENT_DISCOVERY_NAMESPACE}/pods/{agent_id}"
+            pod = _fetch_kubernetes_json(pod_url, token, context)
+            if not isinstance(pod, dict):
+                self._json(HTTPStatus.NOT_FOUND, {"error": f"agent {agent_id} not found"})
+                return
+            spec = pod.get("spec", {})
+            containers = []
+            for c in spec.get("containers", []):
+                containers.append({
+                    "name": c.get("name"),
+                    "securityContext": c.get("securityContext"),
+                })
+            pod_spec = {
+                "containers": containers,
+                "securityContext": spec.get("securityContext"),
+            }
+            evaluate_url = f"{POLICY_ENGINE_URL}/api/v1/evaluate"
+            payload = json.dumps({
+                "agent_id": agent_id,
+                "namespace": AGENT_DISCOVERY_NAMESPACE,
+                "pod_spec": pod_spec,
+                "checks": SUPERCRED_CHECKS,
+            }).encode()
+            req = request.Request(
+                evaluate_url, data=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            with request.urlopen(req, timeout=5.0) as resp:
+                result = json.load(resp)
+            self._json(HTTPStatus.OK, result)
+        except error.HTTPError as exc:
+            if exc.code == 404:
+                self._json(HTTPStatus.NOT_FOUND, {"error": f"agent {agent_id} not found"})
+            else:
+                self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except Exception as exc:
+            print(f"compliance check failed: {exc}", file=sys.stderr, flush=True)
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+
+    def _handle_agent_stun(self, agent_id: str) -> None:
+        """POST /agents/<id>/stun — revoke agent credentials and mark as stunned."""
+        try:
+            token = _read_service_account_token()
+            context = _kubernetes_ssl_context()
+            base_url = _kubernetes_api_base()
+            # Label the pod as stunned
+            now = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            patch = json.dumps({
+                "metadata": {
+                    "labels": {"signalloom.ai/state": "stunned"},
+                    "annotations": {
+                        "signalloom.ai/stunned-at": now,
+                        "signalloom.ai/stun-reason": "compliance-failure: securityContext not set",
+                    },
+                }
+            }).encode()
+            patch_url = f"{base_url}/api/v1/namespaces/{AGENT_DISCOVERY_NAMESPACE}/pods/{agent_id}"
+            req = request.Request(
+                patch_url, data=patch, method="PATCH",
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/strategic-merge-patch+json",
+                },
+            )
+            request.urlopen(req, context=context, timeout=5.0)
+            self._json(HTTPStatus.OK, {
+                "agent_id": agent_id,
+                "state": "stunned",
+                "stunned_at": now,
+                "message": f"Agent {agent_id} stunned: credentials revoked, state marked as stunned",
+            })
+        except error.HTTPError as exc:
+            if exc.code == 404:
+                self._json(HTTPStatus.NOT_FOUND, {"error": f"agent {agent_id} not found"})
+            else:
+                self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+        except Exception as exc:
+            print(f"stun failed: {exc}", file=sys.stderr, flush=True)
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+
     def _handle_control(self) -> bool:
         path = urlparse(self.path).path
         if not path.startswith("/_test/"):
@@ -563,12 +660,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
         return True
 
     def _dispatch(self) -> None:
-        if self.path == "/health" and self.command == "GET":
+        path = urlparse(self.path).path
+        if path == "/health" and self.command == "GET":
             self._json(HTTPStatus.OK, {"status": "ok"})
-        elif self.path == "/agents" and self.command == "GET":
+        elif path == "/agents" and self.command == "GET":
             self._handle_agents()
-        elif self.path == "/crypto-proofs" and self.command == "GET":
+        elif path == "/crypto-proofs" and self.command == "GET":
             self._handle_crypto_proofs()
+        elif path.startswith("/agents/") and path.endswith("/compliance") and self.command == "GET":
+            agent_id = path.split("/")[2]
+            self._handle_agent_compliance(agent_id)
+        elif path.startswith("/agents/") and path.endswith("/stun") and self.command == "POST":
+            agent_id = path.split("/")[2]
+            self._handle_agent_stun(agent_id)
         elif self._handle_control() or self._handle_business():
             return
         else:

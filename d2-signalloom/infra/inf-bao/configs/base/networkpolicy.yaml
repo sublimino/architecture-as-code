@@ -32,6 +32,18 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    # SuperCred: agents in the agent-inventory namespace need OpenBao access
+    # for the SPIFFE→JWT→KV credential chain.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom-agents
+          podSelector:
+            matchLabels:
+              bao.controlplane.io/consumer: cardvault-agent
+      ports:
+        - protocol: TCP
+          port: 8200
   egress:
     - to:
         - podSelector: {}

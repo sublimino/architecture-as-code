@@ -28,6 +28,7 @@ const RbacExplorerPage = lazy(() => import('./pages/RbacExplorerPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const RedeemInvitePage = lazy(() => import('./pages/RedeemInvite'))
 const OnboardingWizardPage = lazy(() => import('./pages/OnboardingWizard'))
+const SuperCredPage = lazy(() => import('./pages/SuperCredPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -175,6 +176,7 @@ export default function App() {
                 <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute><OnboardingWizardPage /></ProtectedRoute>} />
+                <Route path="/supercred" element={<ProtectedRoute><SuperCredPage /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

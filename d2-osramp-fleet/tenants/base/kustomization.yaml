@@ -1,3 +1,5 @@
+# FLUX ENVSUBST: FLEET — this is a fleet overlay, not a workload kustomization.
+# Flux processes this via the tenants Kustomization with postBuild.substituteFrom.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

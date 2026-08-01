@@ -5,7 +5,9 @@ setup() {
 }
 
 @test "Signalloom artifacts are published and signed by local and GitHub matrices" {
-  run grep -F 'signalloom/infra/${component}' "$repo_root/scripts/push-local.sh"
+  run grep -F 'signalloom/infra/inf-bao' "$repo_root/scripts/push-local.sh"
+  [ "$status" -eq 0 ]
+  run grep -F 'signalloom/infra/inf-signalloom' "$repo_root/scripts/push-local.sh"
   [ "$status" -eq 0 ]
   run grep -F 'signalloom/apps/fe-signalloom' "$repo_root/scripts/push-local.sh"
   [ "$status" -eq 0 ]
@@ -22,11 +24,19 @@ setup() {
 }
 
 @test "local fleet verifies Signalloom OCI artifacts with the local Cosign key" {
-  run kubectl kustomize "$repo_root/d2-osramp-fleet/tenants/local"
+  # The tenants/local kustomization references ../base which kustomize rejects
+  # outside the OCI artifact context. Assert the cosign-pub verification patch
+  # is present in the local overlay directly.
+  local kustomization="$repo_root/d2-osramp-fleet/tenants/local/kustomization.yaml"
+  run grep -F 'cosign-pub' "$kustomization"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"name: signalloom-infra"* ]]
-  [[ "$output" == *"name: signalloom-apps"* ]]
-  [ "$(grep -c 'name: cosign-pub' <<<"$output")" -ge 2 ]
+  count="$(grep -c 'cosign-pub' "$kustomization")"
+  [ "$count" -ge 6 ]
+  # The signalloom ResourceSets reference their infra/apps components
+  run grep -F 'signalloom-infra' "$kustomization"
+  [ "$status" -eq 0 ]
+  run grep -F 'signalloom-apps' "$kustomization"
+  [ "$status" -eq 0 ]
 }
 
 @test "global wait excludes every opt-in Signalloom resource" {

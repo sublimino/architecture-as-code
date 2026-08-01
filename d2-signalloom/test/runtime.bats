@@ -59,9 +59,12 @@ teardown() {
   fi
   [ "$status" -eq 0 ]
   [ "$output" = "200" ]
+  # Probe a real protected API path. /api/agents has Dex auth middleware
+  # active; /api/settings is a 404 that fires before auth (not a valid
+  # auth-challenge test target).
   run curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
     --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' \
-    https://dashboard.osramp.acme.local:18443/api/settings
+    https://dashboard.osramp.acme.local:18443/api/agents
   [ "$status" -eq 0 ]
   [[ "$output" =~ ^(401|403)$ ]]
 }

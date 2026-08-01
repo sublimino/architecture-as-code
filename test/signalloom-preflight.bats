@@ -85,6 +85,7 @@ setup() {
 	git -C "$repo" init -q
 	git -C "$repo" config user.email test@example.invalid
 	git -C "$repo" config user.name test
+	git -C "$repo" config commit.gpgsign false
 	printf 'base\n' >"$repo/README"
 	git -C "$repo" add README
 	git -C "$repo" commit -qm base

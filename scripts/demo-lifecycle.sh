@@ -138,6 +138,7 @@ signalloom_up() {
   # alter Deployment pod templates. Restart only these demo workloads so every
   # supported local up observes the just-reconciled configuration and images.
   kubectl -n inf-signalloom rollout restart deployment/dex
+  sleep 2  # Avoid "restart already triggered within past second" race
   kubectl -n inf-signalloom rollout status deployment/dex --timeout="${DEMO_WAIT_TIMEOUT:-10m}"
   # Proof Jobs may have reached a terminal state before the SPIRE registration
   # created by bao_up became available. Recreate both exact proofs so this run

@@ -136,6 +136,20 @@ function PostureBar({ score }: { score: number | null }) {
 
 interface PieEntry { name: string; label: string; value: number; color: string }
 
+// Donut colours resolve from the theme's CSS custom properties rather than the
+// tokens.ts literals, so the chart repaints with the selected theme. Under Dark
+// each variable holds exactly the literal it replaced, so Dark is unchanged;
+// under Light the centre count stops rendering white-on-white.
+export const DONUT_COLORS = {
+  active: 'var(--teal)',
+  enrolled: 'var(--cyan)',
+  suspended: 'var(--amber)',
+  revoked: 'var(--error)',
+  empty: 'var(--border-subtle)',
+  centreLabel: 'var(--text)',
+  caption: 'var(--muted)',
+} as const
+
 function LifecyclePieChart({ agents, activeFilter, onFilter }: {
   agents: AgentResponse[]
   activeFilter: string
@@ -151,14 +165,14 @@ function LifecyclePieChart({ agents, activeFilter, onFilter }: {
   }, [agents])
 
   const palette: PieEntry[] = [
-    { name: 'active',    label: 'Active',    value: counts.active    ?? 0, color: colors.tealLoom },
-    { name: 'enrolled',  label: 'Enrolled',  value: counts.enrolled  ?? 0, color: colors.cyanLoom },
-    { name: 'suspended', label: 'Suspended', value: counts.suspended ?? 0, color: colors.amber },
-    { name: 'revoked',   label: 'Revoked',   value: counts.revoked   ?? 0, color: colors.red },
+    { name: 'active',    label: 'Active',    value: counts.active    ?? 0, color: DONUT_COLORS.active },
+    { name: 'enrolled',  label: 'Enrolled',  value: counts.enrolled  ?? 0, color: DONUT_COLORS.enrolled },
+    { name: 'suspended', label: 'Suspended', value: counts.suspended ?? 0, color: DONUT_COLORS.suspended },
+    { name: 'revoked',   label: 'Revoked',   value: counts.revoked   ?? 0, color: DONUT_COLORS.revoked },
   ]
   const data = palette.filter(d => d.value > 0)
   const total = agents.length
-  const empty = [{ name: 'none', value: 1, color: '#334155', label: '' }]
+  const empty = [{ name: 'none', value: 1, color: DONUT_COLORS.empty, label: '' }]
 
   const renderCenter = ({ viewBox }: { viewBox?: unknown }) => {
     const vb = viewBox as { cx?: number; cy?: number } | undefined
@@ -166,9 +180,9 @@ function LifecyclePieChart({ agents, activeFilter, onFilter }: {
     const cy = vb?.cy ?? 90
     return (
       <g>
-        <text x={cx} y={cy - 6} textAnchor="middle" fill={colors.electricWhite}
+        <text x={cx} y={cy - 6} textAnchor="middle" fill={DONUT_COLORS.centreLabel}
           fontSize={22} fontWeight={700} fontFamily="Arial, sans-serif">{total}</text>
-        <text x={cx} y={cy + 13} textAnchor="middle" fill={colors.muted}
+        <text x={cx} y={cy + 13} textAnchor="middle" fill={DONUT_COLORS.caption}
           fontSize={11} fontFamily="Arial, sans-serif">agents</text>
       </g>
     )

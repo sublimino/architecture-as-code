@@ -457,8 +457,7 @@ readonly-kubeconfig: ## Create the scoped read-only kubeconfig the terminal uses
 	./scripts/olly-readonly-kubeconfig.sh
 
 .PHONY: doctor
-doctor: ## Run the cluster health check (all components).
-	./scripts/doctor.sh
+doctor: cluster-debug ## Alias for the comprehensive cluster diagnostic report.
 
 .PHONY: olly-down
 olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.

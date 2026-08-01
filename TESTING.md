@@ -75,6 +75,69 @@ On 2026-07-26 in the V2.5 integration worktree:
 
 These are environment/service-availability failures, not an assertion change. Run the cluster doctor output at the start of the command before interpreting the browser failures.
 
+## Shared cluster diagnostics
+
+Use these read-only commands from the repository root to establish cluster
+state before debugging a demo or an acceptance-test failure.
+
+### Start with the repository reports
+
+```bash
+make doctor  # equivalent to: make cluster-debug
+```
+
+`make doctor` and `make cluster-debug` run the same comprehensive, read-only
+diagnostic report. It shows cluster connectivity, unhealthy pods, restart
+counts, recent warning events, non-ready Flux objects, node metrics, and
+image-pull failures. It exits non-zero when it detects unhealthy pods.
+
+### Inspect unready Flux resources and recent reconciliations
+
+```bash
+# Any Flux resource that is not Ready.
+flux get all -A --status-selector ready=false
+
+# Recent Flux controller activity and errors.
+kubectl get events -n flux-system --sort-by='.lastTimestamp'
+kubectl -n flux-system logs deployment/kustomize-controller --tail=200
+kubectl -n flux-system logs deployment/source-controller --tail=200
+
+# Inspect the status and events for one reported Kustomization.
+kubectl describe kustomization <name> -n <namespace>
+```
+
+Flux does not expose a portable “currently reconciling” list. Use the resource
+state command plus the controller event stream and logs above to see the latest
+or in-progress reconciliation activity.
+
+### Inspect workloads and error events
+
+```bash
+# READY and current state across workloads.
+kubectl get pods -A -o wide
+kubectl get deployments,statefulsets,daemonsets -A
+
+# Warning events across every namespace, newest last.
+kubectl get events -A --field-selector type=Warning --sort-by='.lastTimestamp'
+
+# Logs for a failing application workload.
+kubectl -n <namespace> logs deployment/<deployment> --tail=200
+```
+
+### Inspect Kubernetes API-server logs
+
+The Kind control plane exposes the API server as a static pod. Confirm its pod
+name before reading its recent logs:
+
+```bash
+kubectl -n kube-system get pods -l component=kube-apiserver
+kubectl -n kube-system logs pod/kube-apiserver-osramp-control-plane --tail=200
+```
+
+Do not rely on personal shell aliases such as `kpo` or `klog`: this repository
+does not provide them. Use the portable commands above in agent instructions,
+runbooks, and CI investigations.
+
 ## Other test suites
 
 - OSRAMP application suite: `make test`

@@ -35,10 +35,12 @@ echo "==> Running cluster doctor..."
 "${SCRIPT_DIR}/doctor.sh" 2>&1 | grep -E '━━━|✓|⚠|✗|SUMMARY' | sed 's/\x1b\[[0-9;]*m//g' || true
 echo ""
 
-echo "==> Setting up port-forwards..."
-if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
-  start_port_forward fe-signalloom fe-signalloom 18000 8000
-  start_port_forward inf-signalloom dex 15556 5556
+# The Envoy Gateway forward is required by EVERY spec that authenticates through
+# Dex — auth.setup.ts navigates to DASHBOARD_URL regardless of which specs were
+# selected. Keeping this inside the TEST-1 branch meant a bare `make
+# acceptance-test` got ERR_CONNECTION_REFUSED on the auth setup project and
+# cascaded into every dependent spec, so it is hoisted into a shared function.
+setup_gateway_forward() {
   gateway_local_port=18443
   read -r gateway_namespace gateway_service < <(kubectl get service -A \
     -l gateway.envoyproxy.io/owning-gateway-name=cluster \
@@ -66,6 +68,13 @@ if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
     echo "    WARNING: dashboard readiness check returned: ${dashboard_ready}"
   fi
   export GATEWAY_ADDRESS="127.0.0.1"
+}
+
+echo "==> Setting up port-forwards..."
+if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
+  start_port_forward fe-signalloom fe-signalloom 18000 8000
+  start_port_forward inf-signalloom dex 15556 5556
+  setup_gateway_forward
   export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-http://127.0.0.1:18000}"
   export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
 else
@@ -73,6 +82,8 @@ else
   start_port_forward backend osramp-archivista 18082 8082
   start_port_forward fe-signalloom fe-signalloom 18000 8000
   start_port_forward olly-replica customer-portal 18080 8080
+  start_port_forward inf-signalloom dex 15556 5556
+  setup_gateway_forward
 fi
 
 echo "==> Waiting for port-forwards to establish..."

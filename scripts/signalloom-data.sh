@@ -14,6 +14,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/wait.sh
+source "${SCRIPT_DIR}/lib/wait.sh"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DB_DIR="${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/db"
 MIGRATIONS_DIR="${DB_DIR}/migrations"
@@ -47,6 +49,11 @@ start_port_forward() {
         log "Using direct connection to ${PGHOST}:${PGPORT:-$PG_PORT}"
         return
     fi
+
+    # A TCP-open port-forward is not the same as a Ready postgres pod; the
+    # `kubectl exec svc/postgresql` path fails if the pod is still starting.
+    # Wait for the deployment to be available before forwarding.
+    wait_k8s_ready deployment "${PG_SERVICE}" -n "${PG_NAMESPACE}" --for condition=available 300
 
     log "Starting port-forward to ${PG_NAMESPACE}/${PG_SERVICE}:${PG_PORT} on localhost:${LOCAL_PORT}..."
     kubectl port-forward -n "${PG_NAMESPACE}" "svc/${PG_SERVICE}" "${LOCAL_PORT}:${PG_PORT}" >/dev/null 2>&1 &

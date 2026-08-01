@@ -355,11 +355,12 @@ demo-signalloom-api-test: ## Run the consumer-driven contract + integration test
 ##  Each numbered step has a preflight check. Run in order: 1 → 2 → 3 → 4 → 5.
 
 .PHONY: demo-signalloom-supercred-images
-demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent images + load into kind.
-	docker build -t cardvault:local d2-signalloom/apps/cardvault
-	docker build -t policy-engine:local d2-signalloom/apps/policy-engine
-	docker build -t cardvault-agent:local d2-signalloom/apps/cardvault-agent
-	kind load docker-image --name $(CLUSTER_NAME) cardvault:local policy-engine:local cardvault-agent:local
+demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent images + load into kind (verified).
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/supercred-images.sh load
+
+.PHONY: demo-signalloom-supercred-images-test
+demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard (no cluster required).
+	bats test/supercred-images.bats
 
 .PHONY: demo-signalloom-supercred-1
 demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy services, agent, OpenBao secrets, SPIRE entry.

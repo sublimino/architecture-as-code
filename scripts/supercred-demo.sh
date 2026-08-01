@@ -78,18 +78,17 @@ preflight_images() {
   # back to the pull-through mirror and fails with "unexpected media type
   # text/html" (ImagePullBackOff). Verify the images are present before any step
   # applies a workload that needs them.
+  #
+  # This check used to grep `ctr -n k8s.io images ls`, which passes for an image
+  # whose manifest is in the content store but whose layers never transferred —
+  # precisely the state that produces the text/html unpack failure. Verification
+  # now lives in supercred-images.sh and uses `crictl images` (the CRI's view of
+  # what is actually runnable) so a half-loaded image is reported as missing.
   log "preflight: verifying supercred images are loaded on the node"
-  local node="${CLUSTER_NAME:-osramp}-control-plane"
-  local img missing=()
-  for img in cardvault:local policy-engine:local cardvault-agent:local; do
-    docker exec "$node" ctr -n k8s.io images ls -q 2>/dev/null \
-      | grep -Fq "docker.io/library/${img}" || missing+=("$img")
-  done
-  if ((${#missing[@]} > 0)); then
-    fail "supercred images missing from the kind node: ${missing[*]}
+  "${SCRIPT_DIR}/supercred-images.sh" verify \
+    || fail "supercred images missing or unusable on the kind node
        (kind-loaded :local images do not survive a cluster recreate)
        rebuild + reload them:  make demo-signalloom-supercred-images"
-  fi
   ok "supercred images present on the node"
 }
 

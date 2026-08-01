@@ -11,9 +11,10 @@
 
 set -o pipefail
 
-readonly WORK_DIR="/home/ci/osramp-demo"
-readonly REPORT_DIR="/home/ci/reports"
-readonly PIPELINE_LOG="/home/ci/ci-pipeline.log"
+readonly WORK_DIR="${CI_WORK_DIR:-/home/ci/osramp-demo}"
+readonly REPORT_DIR="${CI_REPORT_DIR:-/home/ci/reports}"
+readonly REPORT_FILENAME="${CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
+readonly PIPELINE_LOG="${CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
 
 exec > >(tee -a "$PIPELINE_LOG") 2>&1
 
@@ -215,7 +216,7 @@ printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"
 
 # ── Generate OpenReports + summary ───────────────────────────────────
 echo "==> [7/7] Generating OpenReports report..."
-bash "${WORK_DIR}/scripts/ci/openreports-convert.sh" "$REPORT_DIR"
+bash "${WORK_DIR}/scripts/ci/openreports-convert.sh" "$REPORT_DIR" "$REPORT_FILENAME"
 
 # Summary JSON
 node -e "

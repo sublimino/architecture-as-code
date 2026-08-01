@@ -106,6 +106,13 @@ CI_TIMEOUT_MINUTES=120 make ci-gcp
 # Custom machine type
 GCP_CI_MACHINE_TYPE=n2-standard-32 make ci-provision
 
+# Isolated second CI worker: provision if needed, then run all stages
+make ci-gcp-2
+
+# Inspect the second worker and its isolated report directory
+make ci-status-2
+make ci-report-2
+
 # Destroy everything (decommission)
 ./scripts/ci/gcp-ci.sh destroy
 ```

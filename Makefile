@@ -489,6 +489,8 @@ acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 
 ##@ CI
 
+CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=ci-reports-2 GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log
+
 .PHONY: ci-provision
 ci-provision: ## One-time: create the persistent GCP CI VM + networking.
 	./scripts/ci/gcp-ci.sh provision
@@ -496,6 +498,34 @@ ci-provision: ## One-time: create the persistent GCP CI VM + networking.
 .PHONY: ci-gcp
 ci-gcp: ## Resume the CI VM, run Signalloom D2 e2e, suspend on pass.
 	./scripts/ci/gcp-ci.sh run
+
+.PHONY: ci-provision-2
+ci-provision-2: ## One-time: create the isolated second GCP CI VM.
+	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
+
+.PHONY: ci-gcp-2
+ci-gcp-2: ## Provision VM 2 if needed, then run its Signalloom D2 e2e suite.
+	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh provision
+	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh run
+
+.PHONY: ci-ssh-2
+ci-ssh-2: ## SSH into the isolated second CI VM for debugging.
+	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh ssh
+
+.PHONY: ci-status-2
+ci-status-2: ## Show the isolated second CI VM state.
+	$(CI_2_ENV) ./scripts/ci/gcp-ci.sh status
+
+.PHONY: ci-report-2
+ci-report-2: ## View the last OpenReports report from ci-gcp-2.
+	@if [ -f ci-reports-2/summary.json ]; then \
+		jq . ci-reports-2/summary.json; \
+	else \
+		echo "No report found. Run 'make ci-gcp-2' first."; \
+	fi
+	@if [ -f ci-reports-2/signalloom-ci-2-report.yaml ]; then \
+		echo "OpenReports: ci-reports-2/signalloom-ci-2-report.yaml"; \
+	fi
 
 .PHONY: ci-ssh
 ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).

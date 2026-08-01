@@ -338,6 +338,23 @@ describe('convertRbacToAfmImport', () => {
  * This block pins the contract from the TypeScript side so a drift in (1)
  * fails here rather than as an HTTP 400 from AFM. It is deliberately about
  * *shape*, since that is the part all three share.
+ *
+ * They are NOT the same function and should not be unified:
+ *
+ *   - (2) and (3) take raw Kubernetes objects; (1) takes AFM's own RBACData,
+ *     i.e. the output of (2)/(3) after AFM has stored it. Round-tripping the
+ *     real pipeline — raw k8s -> (2) -> AFM -> (1) — is the identity, key
+ *     order included.
+ *   - Only (1) filters by namespace; (2) and (3) always emit everything.
+ *   - (2)/(3) dedupe subjects on `kind/namespace/name` and keep `namespace`
+ *     on a deduped subject only for ServiceAccounts. (1) does neither: it
+ *     trusts AFM's stored list, so it preserves duplicates and keeps
+ *     `namespace` for any subject kind. Those divergences are unreachable on
+ *     the real pipeline, because (2)/(3) run first — they would only show on
+ *     AFM data from another source (e.g. the seeded sample clusters).
+ *
+ * The two tests at the end of this block pin that last behaviour so it stays
+ * a deliberate choice rather than an accident.
  */
 describe('AFM cluster-import contract', () => {
   const result = convertRbacToAfmImport(rbacFixture, CLUSTER, 'all')
@@ -375,6 +392,30 @@ describe('AFM cluster-import contract', () => {
       expect(typeof subject.kind).toBe('string')
       expect(Object.keys(subject).every(key => ['name', 'kind', 'namespace'].includes(key))).toBe(true)
     }
+  })
+
+  // Documented divergences from the two Python implementations. Both are
+  // unreachable on the real pipeline; both are pinned so they stay deliberate.
+  const fromAnotherSource: RBACData = {
+    subjects: [
+      { name: 'alice', kind: 'User', namespace: 'apps' },
+      { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' },
+      { name: 'frontend', kind: 'ServiceAccount', namespace: 'apps' },
+    ],
+    roles: [],
+    bindings: [],
+  }
+
+  it('keeps namespace on a non-ServiceAccount subject, unlike rbac-to-afm.py', () => {
+    const converted = convertRbacToAfmImport(fromAnotherSource, CLUSTER, 'all')
+
+    expect(converted.rbac.subjects[0]).toEqual({ name: 'alice', kind: 'User', namespace: 'apps' })
+  })
+
+  it('does not dedupe subjects — AFM is the source of truth for that', () => {
+    const converted = convertRbacToAfmImport(fromAnotherSource, CLUSTER, 'all')
+
+    expect(converted.rbac.subjects).toHaveLength(3)
   })
 })
 

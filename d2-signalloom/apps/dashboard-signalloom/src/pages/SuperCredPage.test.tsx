@@ -150,7 +150,7 @@ describe('SuperCredPage', () => {
     await waitFor(() =>
       expect(
         calls.some(url =>
-          url === `/supercred/agents/agent-cardvault/compliance?namespace=${FLUX_NS}`,
+          url === `/supercred-api/agents/agent-cardvault/compliance?namespace=${FLUX_NS}`,
         ),
       ).toBe(true),
     )
@@ -164,7 +164,7 @@ describe('SuperCredPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
     await waitFor(() =>
       expect(
-        calls.some(url => url === `/supercred/agents/agent-cardvault/stun?namespace=${FLUX_NS}`),
+        calls.some(url => url === `/supercred-api/agents/agent-cardvault/stun?namespace=${FLUX_NS}`),
       ).toBe(true),
     )
     expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(/credentials revoked/)

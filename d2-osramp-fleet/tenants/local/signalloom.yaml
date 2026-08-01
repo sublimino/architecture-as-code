@@ -318,6 +318,50 @@ spec:
         - apiGroups: [""]
           resources: ["pods", "pods/log"]
           verbs: ["get", "list"]
+    # Agent discovery. agents-cardvault.yaml declares `namespace:
+    # fe-signalloom-agents`, but the apps Kustomization below carries
+    # `targetNamespace: << inputs.tenant >>`, which relocates the pod into the
+    # tenant namespace. The fake-integration-proxy therefore has to list pods
+    # here as well as in fe-signalloom-agents, or the SuperCred agent is
+    # invisible and /agents silently returns a short list.
+    #
+    # This mirrors `agent-inventory-reader` in fe-signalloom-agents (the
+    # signalloom-infra ResourceSet) and is the narrowest grant that works: pods,
+    # read-only, this namespace alone. No ClusterRole and no wildcard namespace —
+    # this tenant must not acquire a cluster-wide identity.
+    #
+    # Role and RoleBinding are declared together deliberately. The API server
+    # accepts a RoleBinding whose roleRef names a Role that does not exist and
+    # silently grants nothing, so splitting the pair across two reconcilers is a
+    # silent-failure shape worth avoiding.
+    #
+    # This pairs with the `?namespace=` allow-list in server.py
+    # (_resolve_agent_namespace): the proxy only ever consults namespaces listed
+    # in AGENT_DISCOVERY_NAMESPACES, and this Role is the only thing that makes
+    # one of them readable. Both must widen before discovery could read another
+    # tenant's pods; widening either alone changes nothing.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: agent-inventory-reader
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: fake-proxy-agent-inventory-reader
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: agent-inventory-reader
+      subjects:
+        - kind: ServiceAccount
+          name: default
+          namespace: inf-signalloom
     - apiVersion: v1
       kind: ConfigMap
       metadata:

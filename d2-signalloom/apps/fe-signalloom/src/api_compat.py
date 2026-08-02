@@ -1446,15 +1446,24 @@ async def create_agent(
     # typed string for ``display_name`` -- which is how ``data-mock.sql`` seeds
     # the pair -- would silently change what GET returns, so the request model
     # needs an explicit optional ``display_name`` first.  Noted, not smuggled in.
-    async with _write(pool) as conn:
-        row = await conn.fetchrow(
-            """INSERT INTO agent_registry (tenant_id, name, display_name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
-               VALUES ($1, $2, $3, $4, $5, 'registered', 'limited', 'gpt-5.4-mini')
-               RETURNING *""",
-            tenant_id, body.name, body.name, body.type, body.owner,
-        )
-        compliance = await _compliance_summary_for_agent(conn, row["id"])
-        await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
+    try:
+        async with _write(pool) as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO agent_registry (tenant_id, name, display_name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
+                   VALUES ($1, $2, $3, $4, $5, 'registered', 'limited', 'gpt-5.4-mini')
+                   RETURNING *""",
+                tenant_id, body.name, body.name, body.type, body.owner,
+            )
+            compliance = await _compliance_summary_for_agent(conn, row["id"])
+            await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
+    except asyncpg.exceptions.UniqueViolationError:
+        # agent_registry.name carries a UNIQUE constraint. Creating an agent with
+        # a name already in use is a caller error, not a server fault, and it
+        # leaked as a 500 with an opaque "Internal server error" body — the
+        # caller could not tell a duplicate name from a database outage. Surfaced
+        # by the e2e tier, which creates the same "E2E Agent" on every run and so
+        # succeeded once and 500'd forever after.
+        raise APIError(409, "agent_exists", f"An agent named {body.name!r} already exists") from None
     return _agent_response_from_row(row, compliance)
 
 

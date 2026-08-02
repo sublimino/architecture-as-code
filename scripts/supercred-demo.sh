@@ -62,9 +62,18 @@ preflight_cluster() {
   kubectl cluster-info >/dev/null 2>&1 || fail "cluster not reachable"
   kubectl get ns "$NAMESPACE_BAO" >/dev/null 2>&1 || fail "namespace $NAMESPACE_BAO not found — run make demo-signalloom-up first"
   kubectl get ns "$NAMESPACE_INFRA" >/dev/null 2>&1 || fail "namespace $NAMESPACE_INFRA not found — run make demo-signalloom-up first"
-  wait_k8s_ready deployment openbao -n "$NAMESPACE_BAO" 30 \
+  # wait_rollout, not wait_k8s_ready: the latter defaults to --for=condition=ready,
+  # and a Deployment has no Ready condition — only Available, Progressing and
+  # ReplicaFailure. `kubectl wait --for=condition=ready deployment/openbao` therefore
+  # times out even when the Deployment is perfectly healthy, so this preflight failed
+  # closed against a live, 1/1, Available=True OpenBao and told the operator to run
+  # `make demo-signalloom-up` on a cluster where it had already been run.
+  #
+  # wait_rollout uses `kubectl rollout status`, which is the correct readiness check
+  # for a Deployment and already existed in the shared helper.
+  wait_rollout openbao -n "$NAMESPACE_BAO" 30 \
     || fail "OpenBao not running — run make demo-signalloom-up first"
-  wait_k8s_ready deployment spire-server -n "$NAMESPACE_BAO" 30 \
+  wait_rollout spire-server -n "$NAMESPACE_BAO" 30 \
     || fail "SPIRE server not running — run make demo-signalloom-up first"
   wait_pods_ready "app.kubernetes.io/name=spire-agent" -n "$NAMESPACE_BAO" 60 \
     || fail "SPIRE agent not ready — the agent needs a valid join token. Check: kubectl -n inf-bao logs daemonset/spire-agent"

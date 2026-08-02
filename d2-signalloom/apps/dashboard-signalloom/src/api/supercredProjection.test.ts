@@ -39,6 +39,7 @@ function stateAt(phase: SuperCredPhase): SuperCredDemoState {
     },
     scan: null,
     observedAt: '2026-08-02T10:00:00Z',
+    enteredAt: {},
   }
 }
 

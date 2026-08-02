@@ -34,6 +34,8 @@ import type {
   TenantSettingsResponse,
 } from '../types/api'
 import type { ComplianceCheck, FrameworkSummary, PostureSummary } from '../types/compliance'
+import type { AuditListResponse } from '../types/api'
+import { projectAudit } from './supercredAudit'
 
 /** Response shape of POST /compliance/policy/scan. */
 export interface PolicyScanResponse {
@@ -283,6 +285,7 @@ const AGENT_DETAIL_RE = /^\/agents\/([^/]+)$/
 
 const PROJECTED_GETS = new Set([
   '/agents',
+  '/audit',
   '/compliance/summary',
   '/compliance/posture',
   '/compliance/policy/frameworks',
@@ -328,6 +331,7 @@ export function projectResponse(
   if (verb === 'GET') {
     switch (clean) {
       case '/agents': return projectAgentList(data as AgentListResponse, state)
+      case '/audit': return projectAudit(data as AuditListResponse, state)
       case '/compliance/summary': return projectComplianceSummary(data as ComplianceSummaryResponse, state)
       case '/compliance/posture': return projectPosture(data as PostureResponse, state)
       case '/compliance/policy/frameworks': return projectPolicyFrameworks(data as FrameworkSummary[], state)

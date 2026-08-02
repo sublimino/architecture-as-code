@@ -66,9 +66,19 @@ spec:
         name: agent-inventory-reader
         namespace: fe-signalloom-agents
       rules:
+        # `patch` is what the SuperCred stun flow needs: POST /agents/<id>/stun
+        # sets signalloom.ai/state=stunned plus the stun annotations on the pod.
+        # Without it the button returns 502 wrapping a 403 and nothing changes.
+        #
+        # Deliberately `patch` and nothing else — no create, update, delete or
+        # wildcard, and pods only. The proxy may relabel an existing agent; it
+        # may not conjure, replace or remove one. The Role name still says
+        # "reader" because it is the roleRef of a live RoleBinding and of
+        # agent-discovery-rbac.bats; the verb list is the authority on what it
+        # actually grants.
         - apiGroups: [""]
           resources: ["pods"]
-          verbs: ["get", "list", "watch"]
+          verbs: ["get", "list", "watch", "patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:
@@ -499,9 +509,14 @@ spec:
         name: agent-inventory-reader
         namespace: << inputs.tenant >>
       rules:
+        # Mirrors the fe-signalloom-agents grant, `patch` included — the
+        # SuperCred agent is relocated into this namespace by the apps
+        # Kustomization's targetNamespace, so the stun write has to exist here
+        # too or the button 502s on a 403. Same limit: pods only, no
+        # create/update/delete/wildcard.
         - apiGroups: [""]
           resources: ["pods"]
-          verbs: ["get", "list", "watch"]
+          verbs: ["get", "list", "watch", "patch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

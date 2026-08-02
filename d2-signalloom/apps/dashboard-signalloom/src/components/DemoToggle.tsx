@@ -39,10 +39,24 @@ export default function DemoToggle() {
         fontSize: 12,
         fontWeight: 700,
         letterSpacing: 0.3,
-        border: `1px solid ${on ? '#f59e0b' : 'var(--border, #333)'}`,
-        background: on ? '#f59e0b' : 'var(--card, #1a1a1a)',
-        color: on ? '#1a1a1a' : 'var(--text, #ddd)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.4)',
+        // Every colour resolves from the active theme's own custom properties.
+        //
+        // The previous revision read `var(--card, #1a1a1a)`. `--card` is declared by no theme and
+        // by no :root block — it was a dead token, the only reference to it in the codebase — so
+        // the fallback was ALWAYS used. Under Light that painted near-black #1a1a1a behind
+        // var(--text) #0F172A: 1.03:1, an invisible button.
+        //
+        // The active state hardcoded #f59e0b/#1a1a1a outright, so the one state users most need to
+        // notice ("you are looking at fixtures, not reality") ignored the theme entirely.
+        //
+        // Amber is used as the BORDER, not the fill. Filling with var(--amber) and labelling with
+        // var(--bg) measures 4.06:1 under the Andy theme, which fails AA for normal text; amber as
+        // a 2px boundary needs only 3:1 and clears it at 3.63:1 worst case.
+        // Contrast (worst across dark/light/andy): off 17.06:1, on 13.98:1, border 3.63:1.
+        border: on ? '2px solid var(--amber)' : '1px solid var(--border)',
+        background: on ? 'var(--surface2)' : 'var(--surface)',
+        color: 'var(--text)',
+        boxShadow: '0 2px 8px rgb(0 0 0 / 0.35)',
       }}
     >
       {on ? '● DEMO DATA' : '○ LIVE API'}

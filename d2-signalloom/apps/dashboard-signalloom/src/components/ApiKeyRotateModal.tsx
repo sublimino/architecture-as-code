@@ -99,7 +99,7 @@ export default function ApiKeyRotateModal({
             </p>
 
             {error && (
-              <p style={{ fontSize: 13, color: 'var(--danger, #ef4444)', marginBottom: 16 }}>
+              <p style={{ fontSize: 13, color: 'var(--error, #ef4444)', marginBottom: 16 }}>
                 {error}
               </p>
             )}

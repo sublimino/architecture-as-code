@@ -1017,6 +1017,7 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
           prefill={{
             name: claimingAccount.account_name,
             type: '',
+            description: `Claimed from discovery scan. Source: ${claimingAccount.directory_source}`,
             owner: claimingAccount.owner_email ?? '',
             nhiAccountId: claimingAccount.id,
           }}

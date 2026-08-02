@@ -97,6 +97,9 @@ export const api = {
     get: (token: string, id: string) =>
       req<AgentResponse>(`/agents/${id}`, token),
 
+    update: (token: string, id: string, body: Partial<AgentCreateRequest>) =>
+      req<AgentResponse>(`/agents/${id}`, token, { method: 'PUT', data: body }),
+
     transition: (token: string, id: string, body: TransitionRequest) =>
       req<TransitionResponse>(`/agents/${id}/transition`, token, { method: 'POST', data: body }),
 

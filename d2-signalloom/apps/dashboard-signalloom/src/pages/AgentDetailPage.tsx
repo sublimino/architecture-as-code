@@ -683,10 +683,26 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
 
 // ─── Agent Header ─────────────────────────────────────────────────────────────
 
-function AgentHeader({ agent, onRequestTransition, onIssueCredential }: {
+function fmtRelativeMinutes(iso: string | null) {
+  if (!iso) return null
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins === 1) return '1 minute ago'
+  if (mins < 60) return `${mins} minutes ago`
+  const hours = Math.floor(mins / 60)
+  if (hours === 1) return '1 hour ago'
+  if (hours < 24) return `${hours} hours ago`
+  return fmtDate(iso)
+}
+
+function AgentHeader({ agent, onRequestTransition, onIssueCredential, onScanCompliance, scanning, lastScanTimestamp }: {
   agent: AgentResponse
   onRequestTransition: () => void
   onIssueCredential: () => void
+  onScanCompliance: () => void
+  scanning: boolean
+  lastScanTimestamp: string | null
 }) {
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
   return (
@@ -746,6 +762,24 @@ function AgentHeader({ agent, onRequestTransition, onIssueCredential }: {
             </div>
           )}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {lastScanTimestamp && (
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                  Last scanned: {fmtRelativeMinutes(lastScanTimestamp)}
+                </span>
+              )}
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
+                disabled={scanning}
+                onClick={onScanCompliance}
+              >
+                {scanning ? 'Scanning...' : 'Scan Compliance'}
+              </button>
+            </div>
+            <span style={{ fontSize: 10, color: 'var(--muted)', opacity: 0.7 }}>
+              Auto-scan every 15 minutes
+            </span>
             {(agent.lifecycle_state === 'enrolled' || agent.lifecycle_state === 'active') && (
               <button
                 className="btn btn-secondary"
@@ -793,6 +827,8 @@ export default function AgentDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showTransition, setShowTransition] = useState(false)
   const [showIssueCredential, setShowIssueCredential] = useState(false)
+  const [scanning, setScanning] = useState(false)
+  const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -843,6 +879,24 @@ export default function AgentDetailPage() {
       prev.map(r => r.control_id === controlId ? { ...r, status: 'reassessment_requested' } : r)
     )
   }
+
+  const handleComplianceScan = useCallback(async () => {
+    setScanning(true)
+    try {
+      const token = await getAccessTokenSilently()
+      const result = await api.compliancePolicy.scan(token, {
+        namespace: 'default',
+        policyVersion: 'v2.0',
+        frameworks: ['eu-ai-act', 'nist-800-53'],
+      })
+      setLastScanTimestamp(result.summary.scanTimestamp)
+      await load()
+    } catch (e) {
+      console.error('Compliance scan failed:', e)
+    } finally {
+      setScanning(false)
+    }
+  }, [getAccessTokenSilently, load])
 
   // Merge audit events + violations into a single sorted timeline
   const timelineItems: TimelineItem[] = useMemo(() => {
@@ -904,6 +958,9 @@ export default function AgentDetailPage() {
         agent={agent}
         onRequestTransition={() => setShowTransition(true)}
         onIssueCredential={() => setShowIssueCredential(true)}
+        onScanCompliance={handleComplianceScan}
+        scanning={scanning}
+        lastScanTimestamp={lastScanTimestamp}
       />
 
       {/* 2. Activity Timeline */}

@@ -339,6 +339,10 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/agents$/), data: (_p, body) => ({
       ...agent('agent-new', (body as { name?: string })?.name ?? 'New Agent', 'draft', 'minimal'),
     }) },
+  { method: 'PUT', test: re(/^\/agents\/[^/]+$/), data: (_p, body) => ({
+      ...AGENTS[0],
+      ...(body as Partial<AgentResponse>),
+    }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials$/), data: () => issueCredential },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: () => transition },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
@@ -378,7 +382,7 @@ const ROUTES: Match[] = [
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  28 base + 3 compliance-policy = 31 */
+ *  29 base + 3 compliance-policy = 32 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

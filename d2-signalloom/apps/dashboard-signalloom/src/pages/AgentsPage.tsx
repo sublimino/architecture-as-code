@@ -4,6 +4,7 @@ import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell, Label } from 'recharts'
 import { api } from '../api/client'
 import type { AgentResponse, NHIAccount, NHIScan } from '../types/api'
+import type { PostureSummary } from '../types/compliance'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
@@ -13,12 +14,28 @@ const POLL_MS = 15 * 60 * 1000
 
 // ─── Register Modal ──────────────────────────────────────────────────────────
 
-function RegisterModal({ onClose, onCreated }: { onClose: () => void, onCreated: () => void }) {
+/** Prefill values for the registration form — used by Claim to pre-populate
+ *  from a discovered NHI account. */
+export interface AgentFormPrefill {
+  name?: string
+  type?: string
+  description?: string
+  owner?: string
+  /** The NHI account ID being claimed — drives the enroll call on submit. */
+  nhiAccountId?: string
+}
+
+function RegisterModal({ onClose, onCreated, prefill, mode = 'register' }: {
+  onClose: () => void
+  onCreated: () => void
+  prefill?: AgentFormPrefill
+  mode?: 'register' | 'claim'
+}) {
   const { getAccessTokenSilently } = useAuth0()
-  const [name, setName] = useState('')
-  const [type, setType] = useState('')
-  const [description, setDescription] = useState('')
-  const [owner, setOwner] = useState('')
+  const [name, setName] = useState(prefill?.name ?? '')
+  const [type, setType] = useState(prefill?.type ?? '')
+  const [description, setDescription] = useState(prefill?.description ?? '')
+  const [owner, setOwner] = useState(prefill?.owner ?? '')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -39,6 +56,10 @@ function RegisterModal({ onClose, onCreated }: { onClose: () => void, onCreated:
         description: description.trim() || null,
         owner: owner.trim() || null,
       })
+      // If claiming a discovered account, also enroll it
+      if (mode === 'claim' && prefill?.nhiAccountId) {
+        await api.nhi.enrollAccount(token, prefill.nhiAccountId)
+      }
       onCreated()
       onClose()
     } catch (err: unknown) {
@@ -51,13 +72,24 @@ function RegisterModal({ onClose, onCreated }: { onClose: () => void, onCreated:
     }
   }
 
+  const title = mode === 'claim' ? 'Claim Discovered Agent' : 'Register New Agent'
+  const submitLabel = mode === 'claim'
+    ? (submitting ? 'Claiming…' : 'Claim Agent')
+    : (submitting ? 'Registering…' : 'Register Agent')
+
   return (
     <div style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center'
     }} onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="card" style={{ width: 400, padding: 24, position: 'relative' }}>
-        <h3 style={{ marginBottom: 16 }}>Register New Agent</h3>
+        <h3 style={{ marginBottom: 16 }}>{title}</h3>
+        {mode === 'claim' && (
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            This account was found during a discovery scan. Review and adjust the details below,
+            then claim it to bring it under governance.
+          </p>
+        )}
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
             <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Name *</label>
@@ -84,7 +116,106 @@ function RegisterModal({ onClose, onCreated }: { onClose: () => void, onCreated:
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
             <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn btn-primary" disabled={submitting || !name.trim() || !type}>
-              {submitting ? 'Registering…' : 'Register Agent'}
+              {submitLabel}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// ─── Edit Agent Modal ────────────────────────────────────────────────────────
+
+function EditAgentModal({ agent, onClose, onSaved }: {
+  agent: AgentResponse
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const { getAccessTokenSilently } = useAuth0()
+  const [description, setDescription] = useState('')
+  const [owner, setOwner] = useState(agent.owner ?? '')
+  const [tags, setTags] = useState('')
+  const [policyVersion, setPolicyVersion] = useState('v2.0')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSubmitting(true)
+    setError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      await api.agents.update(token, agent.id, {
+        description: description.trim() || null,
+        owner: owner.trim() || null,
+      })
+      onSaved()
+      onClose()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Update failed.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center'
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="card" style={{ width: 440, padding: 24, position: 'relative' }}>
+        <h3 style={{ marginBottom: 6 }}>Edit Agent</h3>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
+          Update this agent's metadata. Name and type are read-only after registration.
+        </p>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>Name</label>
+            <input value={agent.name} disabled style={{ width: '100%', opacity: 0.6 }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>Type</label>
+            <input value={agent.type ?? ''} disabled style={{ width: '100%', opacity: 0.6 }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4, color: 'var(--muted)' }}>State</label>
+            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Owner (email or name)</label>
+            <input value={owner} onChange={e => setOwner(e.target.value)} style={{ width: '100%' }} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Description</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Update the agent description…"
+              rows={3}
+              style={{ width: '100%', resize: 'vertical' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Tags (comma separated)</label>
+            <input
+              value={tags}
+              onChange={e => setTags(e.target.value)}
+              placeholder="e.g. production, billing, eu-region"
+              style={{ width: '100%' }}
+            />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, marginBottom: 4 }}>Policy Version</label>
+            <select value={policyVersion} onChange={e => setPolicyVersion(e.target.value)} style={{ width: '100%' }}>
+              <option value="v2.0">v2.0 (current)</option>
+              <option value="v1.0">v1.0 (legacy)</option>
+            </select>
+          </div>
+          {error && <p style={{ color: 'var(--error)', fontSize: 12 }}>{error}</p>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            <button type="button" className="btn btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={submitting}>
+              {submitting ? 'Saving…' : 'Save Changes'}
             </button>
           </div>
         </form>
@@ -108,6 +239,19 @@ function fmtRelative(iso: string | null) {
   if (days === 1) return 'Yesterday'
   if (days < 30) return `${days}d ago`
   return fmtDate(iso)
+}
+
+function fmtRelativeMinutes(iso: string | null) {
+  if (!iso) return null
+  const diff = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins === 1) return '1 minute ago'
+  if (mins < 60) return `${mins} minutes ago`
+  const hours = Math.floor(mins / 60)
+  if (hours === 1) return '1 hour ago'
+  if (hours < 24) return `${hours} hours ago`
+  return fmtRelative(iso)
 }
 
 function agentComplianceStatus(a: AgentResponse): string {
@@ -305,7 +449,11 @@ function AttentionPanel({ alerts, onAlert }: {
 
 const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked']
 
-function AgentTableRow({ agent, onNavigate }: { agent: AgentResponse; onNavigate: (id: string) => void }) {
+function AgentTableRow({ agent, onNavigate, onEdit }: {
+  agent: AgentResponse
+  onNavigate: (id: string) => void
+  onEdit: (agent: AgentResponse) => void
+}) {
   const hasViolations = agent.compliance_summary.failing > 0
   const compStatus = agentComplianceStatus(agent)
 
@@ -354,6 +502,15 @@ function AgentTableRow({ agent, onNavigate }: { agent: AgentResponse; onNavigate
       <td style={{ padding: '11px 16px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
         {fmtRelative(agent.last_transition_at)}
       </td>
+      <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+        <button
+          className="btn btn-secondary"
+          style={{ fontSize: 11, padding: '4px 10px' }}
+          onClick={(e) => { e.stopPropagation(); onEdit(agent) }}
+        >
+          Edit
+        </button>
+      </td>
     </tr>
   )
 }
@@ -370,6 +527,7 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
   const [search, setSearch] = useState('')
   const [lifecycleFilter, setLifecycleFilter] = useState('all')
   const [showRegister, setShowRegister] = useState(false)
+  const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
 
   useEffect(() => {
     if (externalFilter) setLifecycleFilter(externalFilter)
@@ -402,6 +560,7 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
   return (
     <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
       {showRegister && <RegisterModal onClose={() => setShowRegister(false)} onCreated={onReload} />}
+      {editingAgent && <EditAgentModal agent={editingAgent} onClose={() => setEditingAgent(null)} onSaved={onReload} />}
 
       {/* Donut + legend */}
       <div className="card" style={{ width: 210, minWidth: 210, padding: '20px 16px', flexShrink: 0 }}>
@@ -472,11 +631,12 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
                   <th style={TH_STYLE}>Compliance</th>
                   <th style={TH_STYLE}>Posture</th>
                   <th style={TH_STYLE}>Last Activity</th>
+                  <th style={{ ...TH_STYLE, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((a) => (
-                  <AgentTableRow key={a.id} agent={a} onNavigate={(id) => navigate(`/agents/${id}`)} />
+                  <AgentTableRow key={a.id} agent={a} onNavigate={(id) => navigate(`/agents/${id}`)} onEdit={setEditingAgent} />
                 ))}
               </tbody>
             </table>
@@ -647,9 +807,10 @@ function TriageMenu({ accountId, onAction }: { accountId: string; onAction: (act
   )
 }
 
-function NHIAccountRow({ account, onAction }: {
+function NHIAccountRow({ account, onAction, onClaim }: {
   account: NHIAccount
   onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void
+  onClaim: (account: NHIAccount) => void
 }) {
   const isDismissed = account.status === 'dismissed'
   const rowStyle: React.CSSProperties = {
@@ -739,23 +900,34 @@ function NHIAccountRow({ account, onAction }: {
 
       {/* Actions */}
       <td style={{ ...td, textAlign: 'right' }}>
-        {isDismissed ? (
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 11, padding: '4px 10px' }}
-            onClick={() => onAction('enroll', account.id)}
-          >
-            Enroll
-          </button>
-        ) : (
-          <TriageMenu accountId={account.id} onAction={onAction} />
-        )}
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+          {!isDismissed && (
+            <button
+              className="btn btn-primary"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => onClaim(account)}
+            >
+              Claim
+            </button>
+          )}
+          {isDismissed ? (
+            <button
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: '4px 10px' }}
+              onClick={() => onAction('enroll', account.id)}
+            >
+              Enroll
+            </button>
+          ) : (
+            <TriageMenu accountId={account.id} onAction={onAction} />
+          )}
+        </div>
       </td>
     </tr>
   )
 }
 
-function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry, onAction, externalFilter }: {
+function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry, onAction, onClaimed, externalFilter }: {
   accounts: NHIAccount[]
   loading: boolean
   error: string | null
@@ -763,9 +935,11 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
   summary: { total_discovered: number; needs_triage: number; previously_dismissed: number } | null
   onRetry: () => void
   onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void
+  onClaimed: () => void
   externalFilter?: string
 }) {
   const [nhiFilter, setNhiFilter] = useState<'all' | 'triage' | 'dismissed' | string>('all')
+  const [claimingAccount, setClaimingAccount] = useState<NHIAccount | null>(null)
 
   useEffect(() => {
     if (externalFilter) setNhiFilter(externalFilter)
@@ -828,8 +1002,26 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
     fontSize: 12, fontWeight: active ? 600 : 400, cursor: 'pointer', fontFamily: 'inherit',
   })
 
+  function handleClaimDone() {
+    setClaimingAccount(null)
+    onClaimed()
+  }
+
   return (
     <div>
+      {claimingAccount && (
+        <RegisterModal
+          onClose={() => setClaimingAccount(null)}
+          onCreated={handleClaimDone}
+          mode="claim"
+          prefill={{
+            name: claimingAccount.account_name,
+            type: '',
+            owner: claimingAccount.owner_email ?? '',
+            nhiAccountId: claimingAccount.id,
+          }}
+        />
+      )}
       <ScanStatusCard scan={latestScan} />
       <FindingsSummary counts={findingCounts} onFilter={setNhiFilter} activeFilter={nhiFilter} />
 
@@ -885,7 +1077,7 @@ function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry,
             </thead>
             <tbody>
               {filtered.map((a) => (
-                <NHIAccountRow key={a.id} account={a} onAction={onAction} />
+                <NHIAccountRow key={a.id} account={a} onAction={onAction} onClaim={setClaimingAccount} />
               ))}
             </tbody>
           </table>
@@ -907,6 +1099,10 @@ export default function AgentsPage() {
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
 
+  // Compliance scan
+  const [scanning, setScanning] = useState(false)
+  const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
+
   // Discovered
   const [accounts, setAccounts] = useState<NHIAccount[]>([])
   const [nhiSummary, setNhiSummary] = useState<{ total_discovered: number; needs_triage: number; previously_dismissed: number } | null>(null)
@@ -926,6 +1122,24 @@ export default function AgentsPage() {
       setAgentsLoading(false)
     }
   }, [getAccessTokenSilently])
+
+  const handleComplianceScan = useCallback(async () => {
+    setScanning(true)
+    try {
+      const token = await getAccessTokenSilently()
+      const result = await api.compliancePolicy.scan(token, {
+        namespace: 'default',
+        policyVersion: 'v2.0',
+        frameworks: ['eu-ai-act', 'nist-800-53'],
+      })
+      setLastScanTimestamp(result.summary.scanTimestamp)
+      await loadAgents()
+    } catch (e) {
+      console.error('Compliance scan failed:', e)
+    } finally {
+      setScanning(false)
+    }
+  }, [getAccessTokenSilently, loadAgents])
 
   const loadNhi = useCallback(async () => {
     try {
@@ -1018,7 +1232,29 @@ export default function AgentsPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 18 }}>Agents</h1>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {lastScanTimestamp && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                Last scanned: {fmtRelativeMinutes(lastScanTimestamp)}
+              </span>
+            )}
+            <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }}>
+              Auto-scan every 15 minutes
+            </span>
+          </div>
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: 12, padding: '6px 14px' }}
+            disabled={scanning}
+            onClick={handleComplianceScan}
+          >
+            {scanning ? 'Scanning...' : 'Scan Compliance'}
+          </button>
+        </div>
+      </div>
 
       <AttentionPanel
         alerts={alerts}
@@ -1055,6 +1291,7 @@ export default function AgentsPage() {
           summary={nhiSummary}
           onRetry={loadNhi}
           onAction={handleNhiAction}
+          onClaimed={() => { loadAgents(); loadNhi() }}
           externalFilter={tab === 'discovered' ? alertFilter : undefined}
         />
       )}

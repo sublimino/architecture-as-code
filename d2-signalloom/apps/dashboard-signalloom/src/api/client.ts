@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { isDemoMode } from './demoMode'
-import { resolveFake } from './fakeData'
+import { hasFakeRoute, resolveFake } from './fakeData'
 import type {
   AgentCreateRequest,
   AgentListResponse,
@@ -50,6 +50,18 @@ const http = axios.create({ baseURL: BASE })
 // unaffected.
 const inflightGets = new Map<string, Promise<unknown>>()
 
+type ApiLikeError = Error & {
+  response?: { status?: number }
+  status?: number
+}
+
+function demoModeError(message: string, status: number): ApiLikeError {
+  const err = new Error(message) as ApiLikeError
+  err.status = status
+  err.response = { status }
+  return err
+}
+
 async function req<T>(
   path: string,
   token: string,
@@ -58,11 +70,20 @@ async function req<T>(
   const method = config?.method ?? 'GET'
   // Demo mode: short-circuit to local fixtures so every screen renders even
   // when the backend API is unavailable / in development. No call sites change.
+  // If a demo route cannot resolve, fail explicitly instead of escaping back to
+  // live HTTP and fabricating a "working" demo from partial coverage.
   if (isDemoMode()) {
     const fake = resolveFake(method, path, config?.data)
     if (fake !== undefined) {
       return new Promise<T>((resolve) => setTimeout(() => resolve(fake as T), 120))
     }
+    const status = hasFakeRoute(method, path) ? 404 : 501
+    throw demoModeError(
+      hasFakeRoute(method, path)
+        ? `Demo fixture not found for ${method.toUpperCase()} ${path}`
+        : `Demo fixture route not implemented for ${method.toUpperCase()} ${path}`,
+      status,
+    )
   }
   const url = path.startsWith('/api') ? path : `/api${path}`
   const send = () =>

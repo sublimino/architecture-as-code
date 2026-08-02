@@ -1,119 +1,24 @@
 /**
- * NetworkTestsPage — surfaces NetSerts (netassert) network policy test definitions
- * and CI pipeline results into the Signal Loom dashboard.
+ * NetworkTestsPage — surfaces NetSerts (netassert) network policy test
+ * results, CI pipeline results, and agent test infrastructure status.
  *
- * Three sections:
- * 1. NetSerts network policy assertions (from netassert-signalloom.yaml)
- * 2. CI pipeline results summary (from signalloom-ci-report.yaml run 5)
- * 3. Agent test infrastructure status (fe-signalloom-agents namespace)
+ * The NetSerts section is live: it reads the current state of the
+ * netassert-run Kubernetes Job (see d2-signalloom/apps/fake-integration-proxy
+ * /server.py) via GET /network-tests, and the "Scan Now" button triggers a
+ * real run of the committed d2-signalloom/test/netassert-signalloom.yaml
+ * suite via POST /network-tests/scan. In demo mode both calls are served from
+ * deterministic offline fixtures (src/api/fakeNetworkTestsData.ts) that
+ * simulate the same running -> complete transition.
  *
- * Self-contained demo data — renders without any API/auth dependency.
+ * CI Pipeline Results and Agent Test Infrastructure below are unrelated
+ * subsystems and remain self-contained demo data.
  */
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useAuth0 } from '../auth/oidc'
+import { api } from '../api/client'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
 import { colors } from '../styles/tokens'
-
-// ── NetSerts test definitions (from d2-signalloom/test/netassert-signalloom.yaml) ──
-
-interface NetAssertTest {
-  name: string
-  type: 'k8s'
-  protocol: string
-  targetPort: number
-  timeoutSeconds: number
-  attempts: number
-  expectedExit: number // 0 = allowed, 1 = denied
-  src: { kind: string; name: string; namespace: string }
-  dst: { kind: string; name: string; namespace: string }
-  description: string
-  lastResult?: 'pass' | 'fail' | 'pending'
-  lastRun?: string
-}
-
-const NETSERT_TESTS: NetAssertTest[] = [
-  // ── ALLOWED paths ──
-  {
-    name: 'dashboard-to-api-allowed',
-    type: 'k8s', protocol: 'tcp', targetPort: 8000, timeoutSeconds: 30, attempts: 3, expectedExit: 0,
-    src: { kind: 'deployment', name: 'dashboard-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'fe-signalloom', namespace: 'fe-signalloom' },
-    description: 'Dashboard to API backend (nginx /api proxy)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'dashboard-to-dex-allowed',
-    type: 'k8s', protocol: 'tcp', targetPort: 5556, timeoutSeconds: 30, attempts: 3, expectedExit: 0,
-    src: { kind: 'deployment', name: 'dashboard-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'dex', namespace: 'inf-signalloom' },
-    description: 'Dashboard to Dex (OIDC discovery/auth/token)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'api-to-postgresql-allowed',
-    type: 'k8s', protocol: 'tcp', targetPort: 5432, timeoutSeconds: 30, attempts: 3, expectedExit: 0,
-    src: { kind: 'deployment', name: 'fe-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'postgresql', namespace: 'inf-signalloom' },
-    description: 'API to PostgreSQL (persistence)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'api-to-redis-allowed',
-    type: 'k8s', protocol: 'tcp', targetPort: 6379, timeoutSeconds: 30, attempts: 3, expectedExit: 0,
-    src: { kind: 'deployment', name: 'fe-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'redis', namespace: 'inf-signalloom' },
-    description: 'API to Redis (cache)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'api-to-minio-allowed',
-    type: 'k8s', protocol: 'tcp', targetPort: 9000, timeoutSeconds: 30, attempts: 3, expectedExit: 0,
-    src: { kind: 'deployment', name: 'fe-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'minio', namespace: 'inf-signalloom' },
-    description: 'API to MinIO (report storage)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  // ── DENIED paths ──
-  {
-    name: 'agents-to-api-denied',
-    type: 'k8s', protocol: 'tcp', targetPort: 8000, timeoutSeconds: 15, attempts: 2, expectedExit: 1,
-    src: { kind: 'pod', name: 'agent-patsy', namespace: 'fe-signalloom-agents' },
-    dst: { kind: 'deployment', name: 'fe-signalloom', namespace: 'fe-signalloom' },
-    description: 'Agent pods MUST NOT reach the API backend directly',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'agents-to-dashboard-denied',
-    type: 'k8s', protocol: 'tcp', targetPort: 8080, timeoutSeconds: 15, attempts: 2, expectedExit: 1,
-    src: { kind: 'pod', name: 'agent-patsy', namespace: 'fe-signalloom-agents' },
-    dst: { kind: 'deployment', name: 'dashboard-signalloom', namespace: 'fe-signalloom' },
-    description: 'Agent pods MUST NOT reach the dashboard',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'agents-to-postgresql-denied',
-    type: 'k8s', protocol: 'tcp', targetPort: 5432, timeoutSeconds: 15, attempts: 2, expectedExit: 1,
-    src: { kind: 'pod', name: 'agent-patsy', namespace: 'fe-signalloom-agents' },
-    dst: { kind: 'deployment', name: 'postgresql', namespace: 'inf-signalloom' },
-    description: 'Agent pods MUST NOT reach PostgreSQL directly',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'dashboard-to-postgresql-denied',
-    type: 'k8s', protocol: 'tcp', targetPort: 5432, timeoutSeconds: 15, attempts: 2, expectedExit: 1,
-    src: { kind: 'deployment', name: 'dashboard-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'postgresql', namespace: 'inf-signalloom' },
-    description: 'Dashboard MUST NOT reach PostgreSQL directly (only via API)',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-  {
-    name: 'dashboard-to-redis-denied',
-    type: 'k8s', protocol: 'tcp', targetPort: 6379, timeoutSeconds: 15, attempts: 2, expectedExit: 1,
-    src: { kind: 'deployment', name: 'dashboard-signalloom', namespace: 'fe-signalloom' },
-    dst: { kind: 'deployment', name: 'redis', namespace: 'inf-signalloom' },
-    description: 'Dashboard MUST NOT reach Redis directly',
-    lastResult: 'pass', lastRun: '2026-08-01T10:20:52Z',
-  },
-]
+import type { NetworkTestListResponse } from '../types/api'
 
 // ── CI Pipeline results (from signalloom-ci-run-5/signalloom-ci-report.yaml) ──
 
@@ -158,20 +63,84 @@ const AGENT_TESTS: AgentTestEntry[] = [
 
 // ── helpers ──
 
-function fmtDate(iso: string) {
+function fmtDate(iso: string | null) {
+  if (!iso) return '—'
   return new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 type TestFilter = 'all' | 'allowed' | 'denied'
 
+// Poll while a scan is running so the board reflects completion without a
+// manual refresh. Bounded so a Job that never finishes (RBAC misconfigured,
+// image pull failure, etc.) doesn't poll forever — the last-known state and
+// the scanStatus pill both stay visible either way.
+const POLL_MS = 2500
+const MAX_POLLS = 40
+
 export default function NetworkTestsPage() {
+  const { getAccessTokenSilently } = useAuth0()
   const [filter, setFilter] = useState<TestFilter>('all')
+  const [data, setData] = useState<NetworkTestListResponse | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState<string | null>(null)
+  const pollCount = useRef(0)
 
-  const allowed = NETSERT_TESTS.filter((t) => t.expectedExit === 0)
-  const denied = NETSERT_TESTS.filter((t) => t.expectedExit === 1)
-  const displayed = filter === 'allowed' ? allowed : filter === 'denied' ? denied : NETSERT_TESTS
+  const load = useCallback(async () => {
+    try {
+      const token = await getAccessTokenSilently()
+      const res = await api.networkTests.list(token)
+      setData(res)
+      setLoadError(null)
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : 'Failed to load network test results')
+    }
+  }, [getAccessTokenSilently])
 
-  const allPass = NETSERT_TESTS.every((t) => t.lastResult === 'pass')
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Poll only while a scan is actually in progress.
+  useEffect(() => {
+    if (data?.scanStatus !== 'running') {
+      pollCount.current = 0
+      return
+    }
+    if (pollCount.current >= MAX_POLLS) return
+    const t = setTimeout(() => {
+      pollCount.current += 1
+      load()
+    }, POLL_MS)
+    return () => clearTimeout(t)
+  }, [data?.scanStatus, load])
+
+  async function handleScan() {
+    setScanning(true)
+    setScanError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      await api.networkTests.scan(token)
+      pollCount.current = 0
+      await load()
+    } catch (e) {
+      setScanError(e instanceof Error ? e.message : 'Scan failed to start')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const tests = data?.tests ?? []
+  const allowed = tests.filter((t) => t.expectedExit === 0)
+  const denied = tests.filter((t) => t.expectedExit === 1)
+  const displayed = filter === 'allowed' ? allowed : filter === 'denied' ? denied : tests
+
+  const passCount = tests.filter((t) => t.result === 'pass').length
+  const failCount = tests.filter((t) => t.result === 'fail' || t.result === 'error').length
+  const allPass = tests.length > 0 && tests.every((t) => t.result === 'pass')
+  const scanInProgress = scanning || data?.scanStatus === 'running'
+  const lastRun = tests.find((t) => t.lastRun)?.lastRun ?? null
+
   const totalAgentTests = AGENT_TESTS.reduce((s, a) => s + a.testsRun, 0)
   const totalAgentPassed = AGENT_TESTS.reduce((s, a) => s + a.testsPassed, 0)
 
@@ -187,19 +156,41 @@ export default function NetworkTestsPage() {
             NetSerts integration, CI pipeline results, and agent test infrastructure
           </div>
         </div>
-        <Pill label={allPass ? 'healthy' : 'degraded'} />
+        {data && tests.length > 0 && <Pill label={allPass ? 'healthy' : 'degraded'} />}
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={handleScan}
+          disabled={scanInProgress}
+          aria-busy={scanInProgress}
+          aria-label={scanInProgress ? 'Network test scan in progress' : 'Run network test scan now'}
+        >
+          {scanInProgress ? 'Scanning…' : 'Scan Now'}
+        </button>
       </div>
+
+      {loadError && (
+        <div className="card" role="alert" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
+          {loadError}
+        </div>
+      )}
+      {scanError && (
+        <div className="card" role="alert" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
+          Scan failed: {scanError}
+        </div>
+      )}
 
       {/* Summary stats */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
-        <StatCard label="NetSerts assertions" value={String(NETSERT_TESTS.length)} sub={`${allowed.length} allowed, ${denied.length} denied`} accent={colors.cyanLoom} />
+        <StatCard label="NetSerts assertions" value={String(tests.length)} sub={`${allowed.length} allowed, ${denied.length} denied`} accent={colors.cyanLoom} />
+        <StatCard label="Passing" value={String(passCount)} sub={`of ${tests.length} scored`} accent={colors.tealLoom} />
+        <StatCard label="Failing" value={String(failCount)} sub={data ? `scan: ${data.scanStatus}` : 'loading…'} accent={failCount > 0 ? colors.amber : colors.tealLoom} />
         <StatCard label="CI pass" value={String(CI_SUMMARY.pass)} sub={`of ${CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error} scored`} accent={colors.tealLoom} />
-        <StatCard label="CI fail" value={String(CI_SUMMARY.fail)} sub={`${CI_SUMMARY.error} error, ${CI_SUMMARY.skip} skipped`} accent={CI_SUMMARY.fail > 0 ? colors.amber : colors.tealLoom} />
         <StatCard label="Agent tests" value={`${totalAgentPassed}/${totalAgentTests}`} sub="across fe-signalloom-agents" accent={totalAgentPassed === totalAgentTests ? colors.tealLoom : colors.amber} />
       </div>
 
       {/* ── NetSerts ── */}
-      <Section title="NetSerts — Network Policy Assertions" hint="netassert-signalloom.yaml">
+      <Section title="NetSerts — Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {(['all', 'allowed', 'denied'] as TestFilter[]).map((f) => (
             <button
@@ -217,10 +208,20 @@ export default function NetworkTestsPage() {
                 textTransform: 'capitalize',
               }}
             >
-              {f} {f === 'all' ? `(${NETSERT_TESTS.length})` : f === 'allowed' ? `(${allowed.length})` : `(${denied.length})`}
+              {f} {f === 'all' ? `(${tests.length})` : f === 'allowed' ? `(${allowed.length})` : `(${denied.length})`}
             </button>
           ))}
         </div>
+        {data?.scanStatus === 'never-run' && (
+          <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+              No scan has been run yet
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              Click <strong>Scan Now</strong> to run the NetSerts suite against the live cluster.
+            </div>
+          </div>
+        )}
         <Table headers={['Test', 'Direction', 'Port', 'Expected', 'Result', 'Last Run']}>
           {displayed.map((t) => (
             <tr key={t.name} style={{ borderBottom: '1px solid var(--border)' }}>
@@ -232,15 +233,15 @@ export default function NetworkTestsPage() {
                 <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                   {t.src.namespace}/{t.src.name}
                 </code>
-                <span style={{ margin: '0 4px', color: 'var(--muted)' }}>{t.expectedExit === 0 ? '\u2192' : '\u2718'}</span>
+                <span style={{ margin: '0 4px', color: 'var(--muted)' }}>{t.expectedExit === 0 ? '→' : '✘'}</span>
                 <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                   {t.dst.namespace}/{t.dst.name}
                 </code>
               </td>
               <td style={td}>{t.targetPort}</td>
               <td style={td}><Pill label={t.expectedExit === 0 ? 'active' : 'blocked'} /></td>
-              <td style={td}><Pill label={t.lastResult ?? 'pending'} /></td>
-              <td style={{ ...td, fontSize: 11, color: 'var(--muted)' }}>{t.lastRun ? fmtDate(t.lastRun) : '\u2014'}</td>
+              <td style={td}><Pill label={t.result} /></td>
+              <td style={{ ...td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(t.lastRun)}</td>
             </tr>
           ))}
         </Table>

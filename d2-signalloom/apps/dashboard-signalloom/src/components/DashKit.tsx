@@ -16,9 +16,13 @@ const PILL: Record<string, string> = {
   federated: colors.tealLoom,
   enforced: colors.tealLoom,
   low: colors.tealLoom,
+  pass: colors.tealLoom,
+  complete: colors.tealLoom,
   pending: colors.cyanLoom,
   connecting: colors.cyanLoom,
   info: colors.cyanLoom,
+  running: colors.cyanLoom,
+  'never-run': colors.cyanLoom,
   medium: colors.amber,
   degraded: colors.amber,
   warning: colors.amber,
@@ -26,6 +30,10 @@ const PILL: Record<string, string> = {
   critical: colors.red,
   blocked: colors.red,
   revoked: colors.red,
+  fail: colors.red,
+  error: colors.red,
+  failed: colors.red,
+  unavailable: colors.red,
 }
 
 export function Pill({ label }: { label: string }) {

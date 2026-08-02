@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import Sidebar from './Sidebar'
@@ -6,11 +6,19 @@ import { AppContext } from '../App'
 import { api } from '../api/client'
 import type { TenantSettingsResponse } from '../types/api'
 
+// The superadmin block only renders for a superadmin-eligible identity (see
+// auth/superadmin.ts), so the mocked OIDC user has to be swappable. Hoisted so
+// the vi.mock factory can read it without hitting the TDZ.
+const DEFAULT_USER = { name: 'Test User', email: 'test@acme.com' }
+const authMock = vi.hoisted(() => ({
+  user: { name: 'Test User', email: 'test@acme.com' } as Record<string, unknown>,
+}))
+
 vi.mock('../auth/oidc', () => {
   const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
   return {
     useAuth0: () => ({
-      user: { name: 'Test User', email: 'test@acme.com' },
+      user: authMock.user,
       logout: vi.fn(),
       getAccessTokenSilently,
     }),
@@ -59,10 +67,10 @@ const appCtxValue = {
   setSuperadmin: () => undefined,
 }
 
-function renderSidebar() {
+function renderSidebar(ctx: Partial<typeof appCtxValue> = {}) {
   return render(
     <MemoryRouter>
-      <AppContext.Provider value={appCtxValue}>
+      <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
         <Sidebar />
       </AppContext.Provider>
     </MemoryRouter>
@@ -141,6 +149,48 @@ describe('Sidebar active-link precision', () => {
 
     const complianceLink = screen.getByRole('link', { name: /^Compliance$/ })
     expect(complianceLink).not.toHaveAttribute('aria-current', 'page')
+  })
+})
+
+describe('Sidebar superadmin-only nav', () => {
+  // Every admin surface behind the superadmin visibility flag. SuperCred is a
+  // demo surface and belongs here with the rest of them.
+  const SUPERADMIN_LINKS = [
+    'Cryptography',
+    'Federated Services',
+    'Collusion & Access',
+    'RBAC Analysis',
+    'RBAC Explorer',
+    'Network Tests',
+    'SuperCred',
+  ]
+
+  beforeEach(() => {
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+  })
+
+  afterEach(() => {
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it('renders every superadmin-only link, including SuperCred, when superadmin is on', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar({ superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    for (const label of SUPERADMIN_LINKS) {
+      expect(screen.getByRole('link', { name: label })).toBeInTheDocument()
+    }
+  })
+
+  it('hides every superadmin-only link, including SuperCred, when superadmin is off', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar({ superadmin: false })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    for (const label of SUPERADMIN_LINKS) {
+      expect(screen.queryByRole('link', { name: label })).not.toBeInTheDocument()
+    }
   })
 })
 

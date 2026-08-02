@@ -1,0 +1,521 @@
+framework:
+  id: eu-ai-act
+  name: EU AI Act
+  version: v2.1.0
+  description: "Strict tier — full manifest coverage for regulated high-risk AI systems"
+
+controlSets:
+  - id: art9-risk-mgmt
+    name: "Art. 9 — Risk Management System"
+    controls:
+      - id: art9-1-non-root
+        name: "AI containers run as non-root"
+        description: "High-risk AI systems must not run with root privileges"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: container-run-as-non-root
+            name: "Container runs as non-root"
+            cel: "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)"
+      - id: art9-2-no-privilege-escalation
+        name: "No privilege escalation"
+        description: "AI containers must not allow privilege escalation"
+        riskTriple:
+          min: 10000
+          mode: 60000
+          max: 250000
+        checks:
+          - id: no-privilege-escalation
+            name: "Privilege escalation disabled"
+            cel: "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)"
+      - id: art9-3-no-privileged
+        name: "No privileged containers"
+        description: "AI containers must not run in privileged mode"
+        riskTriple:
+          min: 15000
+          mode: 80000
+          max: 300000
+        checks:
+          - id: no-privileged-mode
+            name: "Privileged mode disabled"
+            cel: "object.spec.containers.all(c, !c.securityContext.privileged)"
+      - id: art9-4-read-only-rootfs
+        name: "Read-only root filesystem"
+        description: "Containers must use read-only root filesystem to limit attack surface"
+        riskTriple:
+          min: 5000
+          mode: 30000
+          max: 120000
+        checks:
+          - id: read-only-rootfs
+            name: "Read-only root filesystem"
+            cel: "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)"
+      - id: art9-5-drop-capabilities
+        name: "Drop all capabilities"
+        description: "Containers must drop all Linux capabilities"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 180000
+        checks:
+          - id: drop-all-capabilities
+            name: "All capabilities dropped"
+            cel: "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))"
+      - id: art9-6-liveness-probe
+        name: "Liveness probe configured"
+        description: "AI workloads must have liveness probes for fault detection"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 70000
+        checks:
+          - id: liveness-probe-present
+            name: "Liveness probe defined"
+            cel: "object.spec.containers.all(c, has(c.livenessProbe))"
+      - id: art9-7-startup-probe
+        name: "Startup probe configured"
+        description: "AI model loading workloads must have startup probes"
+        riskTriple:
+          min: 2000
+          mode: 10000
+          max: 45000
+        checks:
+          - id: startup-probe-present
+            name: "Startup probe defined"
+            cel: "object.spec.containers.all(c, has(c.startupProbe))"
+      - id: art9-8-security-context-set
+        name: "Pod-level security context"
+        description: "Pod must define a security context with runAsNonRoot"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: pod-security-context
+            name: "Pod security context present"
+            cel: "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true"
+      - id: art9-9-seccomp-profile
+        name: "Seccomp profile applied"
+        description: "Containers must use RuntimeDefault or Localhost seccomp profile"
+        riskTriple:
+          min: 4000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: seccomp-profile
+            name: "Seccomp profile set"
+            cel: "has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)"
+      - id: art9-10-risk-assessment-annotation
+        name: "Risk assessment documented"
+        description: "AI workloads must reference their risk assessment"
+        riskTriple:
+          min: 5000
+          mode: 30000
+          max: 130000
+        checks:
+          - id: risk-assessment-annotation
+            name: "Risk assessment reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/risk-assessment')"
+
+  - id: art10-data-governance
+    name: "Art. 10 — Data Governance"
+    controls:
+      - id: art10-1-data-classification
+        name: "Data classification label present"
+        description: "Workloads handling training data must declare classification"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: data-classification-label
+            name: "Data classification label exists"
+            cel: "has(object.metadata.labels.data_classification)"
+      - id: art10-2-pii-handling
+        name: "PII handling annotation"
+        description: "Workloads must declare whether they process PII"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: pii-handling-annotation
+            name: "PII handling declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/pii-handling')"
+      - id: art10-3-data-retention
+        name: "Data retention annotation"
+        description: "Workloads must declare data retention policy"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: data-retention-annotation
+            name: "Data retention policy declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/data-retention')"
+      - id: art10-4-data-lineage
+        name: "Data lineage annotation"
+        description: "AI training data must have lineage documentation"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: data-lineage-annotation
+            name: "Data lineage declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/data-lineage')"
+      - id: art10-5-data-quality
+        name: "Data quality annotation"
+        description: "Training data quality metrics must be documented"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 70000
+        checks:
+          - id: data-quality-annotation
+            name: "Data quality metrics declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/data-quality')"
+      - id: art10-6-bias-assessment
+        name: "Bias assessment annotation"
+        description: "AI workloads must reference bias assessment documentation"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 180000
+        checks:
+          - id: bias-assessment-annotation
+            name: "Bias assessment reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/bias-assessment')"
+      - id: art10-7-gdpr-basis
+        name: "GDPR legal basis annotation"
+        description: "AI workloads processing EU personal data must declare GDPR basis"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 250000
+        checks:
+          - id: gdpr-basis-annotation
+            name: "GDPR legal basis declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/gdpr-legal-basis')"
+      - id: art10-8-data-source
+        name: "Training data source annotation"
+        description: "AI workloads must declare training data sources"
+        riskTriple:
+          min: 4000
+          mode: 18000
+          max: 80000
+        checks:
+          - id: data-source-annotation
+            name: "Training data source declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/training-data-source')"
+
+  - id: art14-human-oversight
+    name: "Art. 14 — Human Oversight"
+    controls:
+      - id: art14-1-hitl-label
+        name: "Human-in-the-loop label present"
+        description: "AI workloads must declare their human oversight level"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: hitl-label
+            name: "HITL oversight label exists"
+            cel: "has(object.metadata.labels.ai_human_oversight)"
+      - id: art14-2-approval-gate
+        name: "Approval gate annotation"
+        description: "High-risk AI decisions must have an approval gate configured"
+        riskTriple:
+          min: 15000
+          mode: 70000
+          max: 280000
+        checks:
+          - id: approval-gate-annotation
+            name: "Approval gate annotation present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/approval-gate')"
+      - id: art14-3-override-contact
+        name: "Human override contact"
+        description: "Workloads must declare a human override contact"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: override-contact-annotation
+            name: "Override contact declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/override-contact')"
+      - id: art14-4-audit-trail
+        name: "Audit trail annotation"
+        description: "AI decision audit trail must be configured"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: audit-trail-annotation
+            name: "Audit trail configuration declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/audit-trail')"
+      - id: art14-5-oversight-frequency
+        name: "Oversight frequency annotation"
+        description: "Human review frequency must be declared for AI outputs"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: oversight-frequency-annotation
+            name: "Oversight review frequency declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/oversight-frequency')"
+      - id: art14-6-escalation-path
+        name: "Escalation path annotation"
+        description: "AI workloads must define an escalation path for anomalies"
+        riskTriple:
+          min: 5000
+          mode: 22000
+          max: 95000
+        checks:
+          - id: escalation-path-annotation
+            name: "Escalation path declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/escalation-path')"
+      - id: art14-7-risk-level-label
+        name: "AI risk level label"
+        description: "AI workloads must declare their EU AI Act risk classification"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 170000
+        checks:
+          - id: risk-level-label
+            name: "AI risk level declared"
+            cel: "has(object.metadata.labels.ai_risk_level)"
+      - id: art14-8-transparency-annotation
+        name: "Transparency disclosure annotation"
+        description: "AI systems must declare transparency information for end users"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 110000
+        checks:
+          - id: transparency-annotation
+            name: "Transparency disclosure present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/transparency-disclosure')"
+
+  - id: art15-accuracy-robustness
+    name: "Art. 15 — Accuracy, Robustness & Cybersecurity"
+    controls:
+      - id: art15-1-resource-limits
+        name: "Resource limits defined"
+        description: "AI workloads must have resource limits to prevent resource exhaustion"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: resource-limits-set
+            name: "CPU and memory limits defined"
+            cel: "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))"
+      - id: art15-2-resource-requests
+        name: "Resource requests defined"
+        description: "AI workloads must declare resource requests for scheduling"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 65000
+        checks:
+          - id: resource-requests-set
+            name: "CPU and memory requests defined"
+            cel: "object.spec.containers.all(c, has(c.resources) && has(c.resources.requests))"
+      - id: art15-3-readiness-probe
+        name: "Readiness probe configured"
+        description: "AI workloads must have readiness probes for availability"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 70000
+        checks:
+          - id: readiness-probe-present
+            name: "Readiness probe defined"
+            cel: "object.spec.containers.all(c, has(c.readinessProbe))"
+      - id: art15-4-replica-count
+        name: "Minimum replica count"
+        description: "High-risk AI workloads should have multiple replicas"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: min-replicas
+            name: "At least 2 replicas specified"
+            cel: "object.spec.replicas >= 2"
+      - id: art15-5-pod-disruption-budget
+        name: "PodDisruptionBudget reference"
+        description: "AI workloads must reference a PDB for availability guarantees"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 55000
+        checks:
+          - id: pdb-annotation
+            name: "PDB reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/pdb-name')"
+      - id: art15-6-topology-spread
+        name: "Topology spread constraints"
+        description: "AI workloads must spread across failure domains"
+        riskTriple:
+          min: 4000
+          mode: 18000
+          max: 80000
+        checks:
+          - id: topology-spread
+            name: "Topology spread constraints defined"
+            cel: "has(object.spec.topologySpreadConstraints) && size(object.spec.topologySpreadConstraints) > 0"
+      - id: art15-7-model-version
+        name: "AI model version label"
+        description: "AI workloads must declare the model version for traceability"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: model-version-label
+            name: "Model version label present"
+            cel: "has(object.metadata.labels.ai_model_version)"
+      - id: art15-8-performance-slo
+        name: "Performance SLO annotation"
+        description: "AI workloads must declare performance service level objectives"
+        riskTriple:
+          min: 5000
+          mode: 22000
+          max: 95000
+        checks:
+          - id: performance-slo-annotation
+            name: "Performance SLO declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/performance-slo')"
+      - id: art15-9-network-policy-label
+        name: "Network policy enforcement label"
+        description: "AI workloads must be subject to network policy enforcement"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 140000
+        checks:
+          - id: network-policy-label
+            name: "Network policy label present"
+            cel: "has(object.metadata.labels.network_policy)"
+
+  - id: art17-quality-mgmt
+    name: "Art. 17 — Quality Management System"
+    controls:
+      - id: art17-1-image-digest
+        name: "Image pinned by digest"
+        description: "Container images must use digest references for reproducibility"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 160000
+        checks:
+          - id: image-digest-required
+            name: "Image uses sha256 digest"
+            cel: "object.spec.containers.all(c, c.image.contains('@sha256:'))"
+      - id: art17-2-trusted-registry
+        name: "Trusted registry enforcement"
+        description: "Images must originate from approved registries"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: trusted-registry
+            name: "Image from trusted registry"
+            cel: "object.spec.containers.all(c, c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/'))"
+      - id: art17-3-version-label
+        name: "Policy version label"
+        description: "Workloads must declare the policy version they comply with"
+        riskTriple:
+          min: 2000
+          mode: 10000
+          max: 45000
+        checks:
+          - id: policy-version-label
+            name: "Policy version label present"
+            cel: "has(object.metadata.labels.policy_version)"
+      - id: art17-4-sbom-annotation
+        name: "SBOM annotation"
+        description: "Container workloads must reference their SBOM"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: sbom-annotation
+            name: "SBOM URL annotation present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/sbom-url')"
+      - id: art17-5-slsa-provenance
+        name: "SLSA provenance annotation"
+        description: "Container images must reference SLSA provenance attestation"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 170000
+        checks:
+          - id: slsa-provenance-annotation
+            name: "SLSA provenance reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/slsa-provenance')"
+      - id: art17-6-vuln-scan
+        name: "Vulnerability scan annotation"
+        description: "Container images must reference their latest vulnerability scan"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 110000
+        checks:
+          - id: vuln-scan-annotation
+            name: "Vulnerability scan reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/vuln-scan-url')"
+      - id: art17-7-image-signing
+        name: "Image signing annotation"
+        description: "Container images must reference their Sigstore signature"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: image-signing-annotation
+            name: "Image signing reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/image-signature')"
+      - id: art17-8-ci-pipeline
+        name: "CI pipeline annotation"
+        description: "Workloads must reference the CI pipeline that built them"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 65000
+        checks:
+          - id: ci-pipeline-annotation
+            name: "CI pipeline reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/ci-pipeline')"
+      - id: art17-9-init-container-digest
+        name: "Init container images pinned by digest"
+        description: "Init container images must also use digest references"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: init-container-digest
+            name: "Init container images use sha256 digest"
+            cel: "object.spec.initContainers.orValue([]).all(c, c.image.contains('@sha256:'))"
+      - id: art17-10-owner-label
+        name: "Owner label"
+        description: "All workloads must declare an owner team"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 35000
+        checks:
+          - id: owner-label
+            name: "Owner label present"
+            cel: "has(object.metadata.labels.owner)"

@@ -1,0 +1,565 @@
+framework:
+  id: nist-800-53
+  name: NIST 800-53
+  version: v2.1.0
+  description: "Strict tier — full manifest coverage for FedRAMP High and regulated industries"
+
+controlSets:
+  - id: ac-access-control
+    name: "AC — Access Control"
+    controls:
+      - id: ac-1-non-root
+        name: "Containers run as non-root"
+        description: "AC-6: Principle of least privilege — containers must not run as root"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: container-run-as-non-root
+            name: "Container runs as non-root"
+            cel: "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)"
+      - id: ac-2-no-privilege-escalation
+        name: "No privilege escalation"
+        description: "AC-6(1): Containers must not allow privilege escalation"
+        riskTriple:
+          min: 15000
+          mode: 70000
+          max: 280000
+        checks:
+          - id: no-privilege-escalation
+            name: "Privilege escalation disabled"
+            cel: "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)"
+      - id: ac-3-no-privileged
+        name: "No privileged containers"
+        description: "AC-6(2): Containers must not run in privileged mode"
+        riskTriple:
+          min: 20000
+          mode: 90000
+          max: 350000
+        checks:
+          - id: no-privileged-mode
+            name: "Privileged mode disabled"
+            cel: "object.spec.containers.all(c, !c.securityContext.privileged)"
+      - id: ac-4-service-account
+        name: "Service account token not auto-mounted"
+        description: "AC-3: Disable automatic service account token mounting"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: no-automount-sa-token
+            name: "Service account token auto-mount disabled"
+            cel: "object.spec.automountServiceAccountToken == false"
+      - id: ac-5-pod-security-context
+        name: "Pod-level security context"
+        description: "AC-6: Pod must define security context with runAsNonRoot"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 160000
+        checks:
+          - id: pod-security-context
+            name: "Pod security context present"
+            cel: "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true"
+      - id: ac-6-host-network-disabled
+        name: "Host network disabled"
+        description: "AC-4: Containers must not use host networking"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: no-host-network
+            name: "Host network disabled"
+            cel: "!has(object.spec.hostNetwork) || object.spec.hostNetwork == false"
+      - id: ac-7-host-pid-disabled
+        name: "Host PID namespace disabled"
+        description: "AC-4: Containers must not share host PID namespace"
+        riskTriple:
+          min: 10000
+          mode: 45000
+          max: 180000
+        checks:
+          - id: no-host-pid
+            name: "Host PID namespace disabled"
+            cel: "!has(object.spec.hostPID) || object.spec.hostPID == false"
+      - id: ac-8-host-ipc-disabled
+        name: "Host IPC namespace disabled"
+        description: "AC-4: Containers must not share host IPC namespace"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: no-host-ipc
+            name: "Host IPC namespace disabled"
+            cel: "!has(object.spec.hostIPC) || object.spec.hostIPC == false"
+      - id: ac-9-run-as-user
+        name: "Explicit run-as user ID"
+        description: "AC-6(9): Containers must specify a non-zero runAsUser"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: run-as-user-set
+            name: "RunAsUser explicitly set to non-zero"
+            cel: "object.spec.containers.all(c, has(c.securityContext.runAsUser) && c.securityContext.runAsUser > 0)"
+      - id: ac-10-rbac-label
+        name: "RBAC role label"
+        description: "AC-2: Workloads must declare their RBAC role binding"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 85000
+        checks:
+          - id: rbac-role-label
+            name: "RBAC role label present"
+            cel: "has(object.metadata.labels.rbac_role)"
+      - id: ac-11-service-account-name
+        name: "Explicit service account"
+        description: "AC-2(1): Workloads must use a named (non-default) service account"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: explicit-service-account
+            name: "Non-default service account specified"
+            cel: "has(object.spec.serviceAccountName) && object.spec.serviceAccountName != 'default'"
+
+  - id: cm-config-mgmt
+    name: "CM — Configuration Management"
+    controls:
+      - id: cm-1-app-label
+        name: "Application label present"
+        description: "CM-8: All workloads must be labelled for inventory"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: app-label
+            name: "Application label exists"
+            cel: "has(object.metadata.labels.app)"
+      - id: cm-2-version-label
+        name: "Version label present"
+        description: "CM-8(1): Workloads must declare their version"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: version-label
+            name: "Version label exists"
+            cel: "has(object.metadata.labels.version)"
+      - id: cm-3-resource-limits
+        name: "Resource limits defined"
+        description: "CM-6: Containers must have resource limits configured"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: resource-limits-set
+            name: "CPU and memory limits defined"
+            cel: "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))"
+      - id: cm-4-resource-requests
+        name: "Resource requests defined"
+        description: "CM-6: Containers must declare resource requests"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: resource-requests-set
+            name: "CPU and memory requests defined"
+            cel: "object.spec.containers.all(c, has(c.resources) && has(c.resources.requests))"
+      - id: cm-5-managed-by-label
+        name: "Managed-by label present"
+        description: "CM-3: Workloads must declare their management toolchain"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 35000
+        checks:
+          - id: managed-by-label
+            name: "Managed-by label exists"
+            cel: "has(object.metadata.labels.managed_by)"
+      - id: cm-6-env-label
+        name: "Environment label present"
+        description: "CM-3(1): Workloads must declare their target environment"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 30000
+        checks:
+          - id: env-label
+            name: "Environment label exists"
+            cel: "has(object.metadata.labels.environment)"
+      - id: cm-7-component-label
+        name: "Component label present"
+        description: "CM-8(2): Workloads must declare their component type"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 30000
+        checks:
+          - id: component-label
+            name: "Component label exists"
+            cel: "has(object.metadata.labels.component)"
+      - id: cm-8-config-hash
+        name: "Configuration hash annotation"
+        description: "CM-3(2): Workloads must reference their configuration hash for drift detection"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: config-hash-annotation
+            name: "Configuration hash present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/config-hash')"
+      - id: cm-9-gitops-source
+        name: "GitOps source annotation"
+        description: "CM-2: Workloads must reference their source-of-truth repository"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: gitops-source-annotation
+            name: "GitOps source declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/gitops-source')"
+      - id: cm-10-change-ticket
+        name: "Change ticket annotation"
+        description: "CM-3(6): Workloads must reference a change management ticket"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: change-ticket-annotation
+            name: "Change ticket reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/change-ticket')"
+
+  - id: sc-system-comms
+    name: "SC — System & Communications Protection"
+    controls:
+      - id: sc-1-drop-capabilities
+        name: "Drop all capabilities"
+        description: "SC-7: Containers must drop all Linux capabilities"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 160000
+        checks:
+          - id: drop-all-capabilities
+            name: "All capabilities dropped"
+            cel: "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))"
+      - id: sc-2-read-only-rootfs
+        name: "Read-only root filesystem"
+        description: "SC-28: Containers must use read-only root filesystem"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: read-only-rootfs
+            name: "Read-only root filesystem"
+            cel: "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)"
+      - id: sc-3-tls-annotation
+        name: "TLS configuration annotation"
+        description: "SC-8: Workloads must declare their TLS configuration"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 160000
+        checks:
+          - id: tls-annotation
+            name: "TLS configuration declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/tls-config')"
+      - id: sc-4-seccomp-profile
+        name: "Seccomp profile applied"
+        description: "SC-39: Containers must use a seccomp profile"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: seccomp-profile
+            name: "Seccomp profile set"
+            cel: "has(object.spec.securityContext) && has(object.spec.securityContext.seccompProfile)"
+      - id: sc-5-encryption-annotation
+        name: "Encryption at rest annotation"
+        description: "SC-28(1): Workloads must declare encryption-at-rest status"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: encryption-annotation
+            name: "Encryption at rest declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/encryption-at-rest')"
+      - id: sc-6-network-policy-label
+        name: "Network policy enforcement label"
+        description: "SC-7(5): Workloads must be subject to network policy"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 140000
+        checks:
+          - id: network-policy-label
+            name: "Network policy label present"
+            cel: "has(object.metadata.labels.network_policy)"
+      - id: sc-7-mtls-annotation
+        name: "mTLS annotation"
+        description: "SC-8(1): Workloads must declare mutual TLS configuration"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 170000
+        checks:
+          - id: mtls-annotation
+            name: "mTLS configuration declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/mtls-config')"
+      - id: sc-8-egress-policy
+        name: "Egress policy annotation"
+        description: "SC-7: Workloads must declare their egress network policy"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: egress-policy-annotation
+            name: "Egress policy declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/egress-policy')"
+      - id: sc-9-apparmor-profile
+        name: "AppArmor profile annotation"
+        description: "SC-39: Containers must use an AppArmor profile"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 90000
+        checks:
+          - id: apparmor-annotation
+            name: "AppArmor profile declared"
+            cel: "object.metadata.annotations.exists(k, k.startsWith('container.apparmor.security.beta.kubernetes.io/'))"
+
+  - id: si-system-integrity
+    name: "SI — System & Information Integrity"
+    controls:
+      - id: si-1-image-digest
+        name: "Image pinned by digest"
+        description: "SI-7: Container images must use digest references"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: image-digest-required
+            name: "Image uses sha256 digest"
+            cel: "object.spec.containers.all(c, c.image.contains('@sha256:'))"
+      - id: si-2-trusted-registry
+        name: "Trusted registry enforcement"
+        description: "SI-7(1): Images must originate from approved registries"
+        riskTriple:
+          min: 10000
+          mode: 50000
+          max: 200000
+        checks:
+          - id: trusted-registry
+            name: "Image from trusted registry"
+            cel: "object.spec.containers.all(c, c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/'))"
+      - id: si-3-vuln-scan
+        name: "Vulnerability scan annotation"
+        description: "SI-2: Container images must reference vulnerability scan results"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 140000
+        checks:
+          - id: vuln-scan-annotation
+            name: "Vulnerability scan reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/vuln-scan-url')"
+      - id: si-4-liveness-probe
+        name: "Liveness probe configured"
+        description: "SI-4: Workloads must have liveness probes for health monitoring"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: liveness-probe-present
+            name: "Liveness probe defined"
+            cel: "object.spec.containers.all(c, has(c.livenessProbe))"
+      - id: si-5-readiness-probe
+        name: "Readiness probe configured"
+        description: "SI-4: Workloads must have readiness probes for availability"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: readiness-probe-present
+            name: "Readiness probe defined"
+            cel: "object.spec.containers.all(c, has(c.readinessProbe))"
+      - id: si-6-sbom-annotation
+        name: "SBOM annotation"
+        description: "SI-7(15): Container workloads must reference their SBOM"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 150000
+        checks:
+          - id: sbom-annotation
+            name: "SBOM URL annotation present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/sbom-url')"
+      - id: si-7-slsa-provenance
+        name: "SLSA provenance annotation"
+        description: "SI-7(6): Container images must reference SLSA provenance"
+        riskTriple:
+          min: 8000
+          mode: 40000
+          max: 170000
+        checks:
+          - id: slsa-provenance-annotation
+            name: "SLSA provenance reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/slsa-provenance')"
+      - id: si-8-image-signing
+        name: "Image signing annotation"
+        description: "SI-7(1): Container images must reference their Sigstore signature"
+        riskTriple:
+          min: 10000
+          mode: 45000
+          max: 180000
+        checks:
+          - id: image-signing-annotation
+            name: "Image signing reference present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/image-signature')"
+      - id: si-9-init-container-digest
+        name: "Init container images pinned by digest"
+        description: "SI-7: Init container images must also use digest references"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: init-container-digest
+            name: "Init container images use sha256 digest"
+            cel: "object.spec.initContainers.orValue([]).all(c, c.image.contains('@sha256:'))"
+      - id: si-10-startup-probe
+        name: "Startup probe configured"
+        description: "SI-4: Workloads must have startup probes for slow-starting containers"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: startup-probe-present
+            name: "Startup probe defined"
+            cel: "object.spec.containers.all(c, has(c.startupProbe))"
+
+  - id: au-audit
+    name: "AU — Audit & Accountability"
+    controls:
+      - id: au-1-audit-label
+        name: "Audit logging label"
+        description: "AU-2: Workloads must declare audit logging configuration"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: audit-label
+            name: "Audit logging label present"
+            cel: "has(object.metadata.labels.audit_logging)"
+      - id: au-2-log-volume
+        name: "Log volume mount present"
+        description: "AU-3: Workloads must mount a log volume for audit collection"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: log-volume-mount
+            name: "Log volume mount exists"
+            cel: "object.spec.containers.all(c, c.volumeMounts.exists(v, v.mountPath.startsWith('/var/log')))"
+      - id: au-3-log-format
+        name: "Log format annotation"
+        description: "AU-3(1): Workloads must declare their log format"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: log-format-annotation
+            name: "Log format declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/log-format')"
+      - id: au-4-owner-label
+        name: "Owner label present"
+        description: "AU-6: Workloads must declare an owner for audit trail"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 45000
+        checks:
+          - id: owner-label
+            name: "Owner label exists"
+            cel: "has(object.metadata.labels.owner)"
+      - id: au-5-log-retention
+        name: "Log retention annotation"
+        description: "AU-11: Workloads must declare log retention period"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: log-retention-annotation
+            name: "Log retention period declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/log-retention')"
+      - id: au-6-audit-sink
+        name: "Audit sink annotation"
+        description: "AU-4: Workloads must declare their audit log destination"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: audit-sink-annotation
+            name: "Audit sink declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/audit-sink')"
+      - id: au-7-correlation-id
+        name: "Correlation ID label"
+        description: "AU-3(2): Workloads must carry a correlation ID for trace aggregation"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: correlation-id-label
+            name: "Correlation ID label present"
+            cel: "has(object.metadata.labels.correlation_id)"
+      - id: au-8-timestamp-annotation
+        name: "Deploy timestamp annotation"
+        description: "AU-8: Workloads must record deployment timestamp"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 35000
+        checks:
+          - id: deploy-timestamp-annotation
+            name: "Deploy timestamp present"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/deploy-timestamp')"
+      - id: au-9-siem-integration
+        name: "SIEM integration annotation"
+        description: "AU-6(1): Workloads must declare SIEM integration status"
+        riskTriple:
+          min: 8000
+          mode: 35000
+          max: 140000
+        checks:
+          - id: siem-integration-annotation
+            name: "SIEM integration declared"
+            cel: "object.metadata.annotations.exists(k, k == 'osramp.io/siem-integration')"

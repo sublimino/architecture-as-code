@@ -1,0 +1,147 @@
+framework:
+  id: nist-800-53
+  name: NIST 800-53
+  version: v1.0.0
+  description: "Lax tier — critical access control and configuration baselines"
+
+controlSets:
+  - id: ac-access-control
+    name: "AC — Access Control"
+    controls:
+      - id: ac-1-non-root
+        name: "Containers run as non-root"
+        description: "AC-6: Principle of least privilege — containers must not run as root"
+        riskTriple:
+          min: 3000
+          mode: 12000
+          max: 50000
+        checks:
+          - id: container-run-as-non-root
+            name: "Container runs as non-root"
+            cel: "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)"
+      - id: ac-2-no-privilege-escalation
+        name: "No privilege escalation"
+        description: "AC-6(1): Containers must not allow privilege escalation"
+        riskTriple:
+          min: 5000
+          mode: 20000
+          max: 80000
+        checks:
+          - id: no-privilege-escalation
+            name: "Privilege escalation disabled"
+            cel: "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)"
+      - id: ac-3-no-privileged
+        name: "No privileged containers"
+        description: "AC-6(2): Containers must not run in privileged mode"
+        riskTriple:
+          min: 5000
+          mode: 25000
+          max: 100000
+        checks:
+          - id: no-privileged-mode
+            name: "Privileged mode disabled"
+            cel: "object.spec.containers.all(c, !c.securityContext.privileged)"
+      - id: ac-4-service-account
+        name: "Service account token not auto-mounted"
+        description: "AC-3: Disable automatic service account token mounting"
+        riskTriple:
+          min: 2000
+          mode: 10000
+          max: 40000
+        checks:
+          - id: no-automount-sa-token
+            name: "Service account token auto-mount disabled"
+            cel: "object.spec.automountServiceAccountToken == false"
+
+  - id: cm-config-mgmt
+    name: "CM — Configuration Management"
+    controls:
+      - id: cm-1-app-label
+        name: "Application label present"
+        description: "CM-8: All workloads must be labelled for inventory"
+        riskTriple:
+          min: 1000
+          mode: 5000
+          max: 20000
+        checks:
+          - id: app-label
+            name: "Application label exists"
+            cel: "has(object.metadata.labels.app)"
+      - id: cm-2-version-label
+        name: "Version label present"
+        description: "CM-8(1): Workloads must declare their version"
+        riskTriple:
+          min: 1000
+          mode: 5000
+          max: 25000
+        checks:
+          - id: version-label
+            name: "Version label exists"
+            cel: "has(object.metadata.labels.version)"
+      - id: cm-3-resource-limits
+        name: "Resource limits defined"
+        description: "CM-6: Containers must have resource limits configured"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 35000
+        checks:
+          - id: resource-limits-set
+            name: "CPU and memory limits defined"
+            cel: "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))"
+
+  - id: sc-system-comms
+    name: "SC — System & Communications Protection"
+    controls:
+      - id: sc-1-drop-capabilities
+        name: "Drop all capabilities"
+        description: "SC-7: Containers must drop all Linux capabilities"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: drop-all-capabilities
+            name: "All capabilities dropped"
+            cel: "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))"
+      - id: sc-2-read-only-rootfs
+        name: "Read-only root filesystem"
+        description: "SC-28: Containers must use read-only root filesystem"
+        riskTriple:
+          min: 2000
+          mode: 10000
+          max: 45000
+        checks:
+          - id: read-only-rootfs
+            name: "Read-only root filesystem"
+            cel: "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)"
+
+  - id: si-system-integrity
+    name: "SI — System & Information Integrity"
+    controls:
+      - id: si-1-image-digest
+        name: "Image pinned by digest"
+        description: "SI-7: Container images must use digest references"
+        riskTriple:
+          min: 3000
+          mode: 15000
+          max: 60000
+        checks:
+          - id: image-digest-required
+            name: "Image uses sha256 digest"
+            cel: "object.spec.containers.all(c, c.image.contains('@sha256:'))"
+
+  - id: au-audit
+    name: "AU — Audit & Accountability"
+    controls:
+      - id: au-1-audit-label
+        name: "Audit logging label"
+        description: "AU-2: Workloads must declare audit logging configuration"
+        riskTriple:
+          min: 2000
+          mode: 8000
+          max: 35000
+        checks:
+          - id: audit-label
+            name: "Audit logging label present"
+            cel: "has(object.metadata.labels.audit_logging)"

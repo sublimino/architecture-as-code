@@ -29,6 +29,7 @@ REPO_MIGRATIONS = [
     "003_platform_backends.sql",
     "004_agent_governance_schema.sql",
     "005_tenant_scan_preferences.sql",
+    "006_onboarding.sql",
 ]
 
 

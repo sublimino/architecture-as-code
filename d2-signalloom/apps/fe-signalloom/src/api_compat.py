@@ -13,6 +13,7 @@ import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal
@@ -29,6 +30,15 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+# The API and the schema disagree about how a full-access API key scope is
+# spelled: clients receive ``tenant:read-write`` (asserted by the contract
+# tests) while ``tenant_api_keys.scope`` has a CHECK constraint permitting only
+# ``tenant_admin`` or ``read_only``.  Naming both ends makes the mapping
+# visible rather than leaving a literal in each INSERT that silently violates
+# the constraint.
+_API_KEY_SCOPE_WIRE = "tenant:read-write"
+_API_KEY_SCOPE_STORED = "tenant_admin"
 
 AGENT_DISCOVERY_URL = os.environ.get(
     "AGENT_DISCOVERY_URL",
@@ -589,9 +599,38 @@ def validate_jwt(token: str) -> dict[str, Any]:
     return claims
 
 
-def authenticated_tenant(
+@dataclass(frozen=True)
+class Principal:
+    """The authenticated caller, as far as the ID token actually tells us.
+
+    ``tenant`` is the authorisation decision.  ``subject`` and ``email`` are the
+    *identity*, needed by every column that records who did a thing --
+    ``tenant_api_keys.revealed_by_email``, ``support_requests.submitted_by``.
+    Those columns are ``NOT NULL`` because an unattributable key reveal or
+    support request is worthless as evidence, so the value has to come from the
+    token rather than from a literal in the handler.
+    """
+
+    tenant: str
+    subject: str
+    email: str | None
+
+    @property
+    def actor(self) -> str:
+        """The best available human-facing identifier for this caller.
+
+        Dex issues an ``email`` claim when the ``email`` scope is granted, and
+        that is what the ``*_by_email`` columns are named for.  When the claim
+        is absent the subject is the only identity the token carries; recording
+        it is honest, whereas substituting a fixed address would put a
+        fabricated name in an audit column.
+        """
+        return self.email or self.subject
+
+
+def authenticated_principal(
     authorization: Annotated[str | None, Header()] = None,
-) -> str:
+) -> Principal:
     if authorization is None:
         raise APIError(401, "authentication_required", "Bearer authentication is required")
     scheme, separator, token = authorization.partition(" ")
@@ -605,7 +644,23 @@ def authenticated_tenant(
     tenant = settings.api_subject_tenants.get(claims["sub"])
     if tenant is None:
         raise APIError(403, "tenant_forbidden", "Subject has no tenant access")
-    return tenant
+
+    email = claims.get("email")
+    if not isinstance(email, str) or not email.strip():
+        email = None
+    return Principal(tenant=tenant, subject=claims["sub"], email=email)
+
+
+def authenticated_tenant(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> str:
+    """The caller's tenant.
+
+    Kept as its own dependency so the thirty-odd handlers that only need the
+    tenant are untouched.  FastAPI caches ``authenticated_principal`` per
+    request, so a handler depending on both still validates the JWT once.
+    """
+    return principal.tenant
 
 
 # ---------------------------------------------------------------------------
@@ -1383,12 +1438,20 @@ async def create_agent(
             _AGENTS[tenant_id][agent_id] = agent
             return AgentResponse(**agent)
 
+    # ``display_name`` is NOT NULL and was omitted entirely, so every create
+    # against a real database failed.  ``AgentCreateRequest`` carries exactly one
+    # name, and the API already treats ``agent_registry.name`` as the value it
+    # echoes back as ``AgentResponse.name``; the same string is therefore the
+    # only honest display name.  Deriving a slug for ``name`` and reserving the
+    # typed string for ``display_name`` -- which is how ``data-mock.sql`` seeds
+    # the pair -- would silently change what GET returns, so the request model
+    # needs an explicit optional ``display_name`` first.  Noted, not smuggled in.
     async with _write(pool) as conn:
         row = await conn.fetchrow(
-            """INSERT INTO agent_registry (tenant_id, name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
-               VALUES ($1, $2, $3, $4, 'registered', 'limited', 'gpt-5.4-mini')
+            """INSERT INTO agent_registry (tenant_id, name, display_name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
+               VALUES ($1, $2, $3, $4, $5, 'registered', 'limited', 'gpt-5.4-mini')
                RETURNING *""",
-            tenant_id, body.name, body.type, body.owner,
+            tenant_id, body.name, body.name, body.type, body.owner,
         )
         compliance = await _compliance_summary_for_agent(conn, row["id"])
         await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
@@ -2164,11 +2227,15 @@ async def dismiss_nhi_account(
     if a_uuid is None:
         raise APIError(404, "not_found", "Account not found")
 
+    # changes_since_dismissal is JSONB, not BOOLEAN, so the bare `false` literal
+    # was a DatatypeMismatchError and every dismiss against a real database
+    # failed. The API models the field as `bool | None`, so a JSON `false` is the
+    # value; the cast makes the column's actual type explicit at the call site.
     async with _write(pool) as conn:
         await conn.execute(
             """UPDATE nhi_discovered_accounts
                SET status = 'dismissed', dismissed_at = now(), dismissed_by = 'demo-actor',
-                   changes_since_dismissal = false, previous_risk_flags = findings
+                   changes_since_dismissal = 'false'::jsonb, previous_risk_flags = findings
                WHERE id = $1 AND tenant_id = $2""",
             a_uuid, tenant_id,
         )
@@ -2341,8 +2408,9 @@ async def patch_tenant_preferences(
 @router.post("/support", response_model=SupportRequestResponse, responses=ERROR_RESPONSES)
 async def create_support_request(
     body: SupportRequestCreate,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> SupportRequestResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -2355,10 +2423,13 @@ async def create_support_request(
             clickup_task_id=None,
         )
 
+    # ``submitted_by`` is NOT NULL and was omitted.  A support request with no
+    # requester is unanswerable, so the caller's own identity is the value --
+    # taken from the token, not from a literal.
     row = await pool.fetchrow(
-        """INSERT INTO support_requests (tenant_id, subject, urgency, message)
-           VALUES ($1, $2, $3, $4) RETURNING *""",
-        tenant_id, body.subject, body.urgency, body.message,
+        """INSERT INTO support_requests (tenant_id, subject, urgency, message, submitted_by)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *""",
+        tenant_id, body.subject, body.urgency, body.message, principal.actor,
     )
     return SupportRequestResponse(
         id=str(row["id"]),
@@ -2372,8 +2443,9 @@ async def create_support_request(
 @router.post("/tenants/{tenant_id_path}/api-keys/initial", response_model=InitialApiKeyResponse, responses=ERROR_RESPONSES)
 async def create_initial_api_key(
     tenant_id_path: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> InitialApiKeyResponse:
+    tenant_id = principal.tenant
     key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
@@ -2382,11 +2454,43 @@ async def create_initial_api_key(
         _ensure_seeded(tenant_id)
     else:
         key_hash = hashlib.sha256(key.encode()).hexdigest()
+        # ``revealed_by_email`` is NOT NULL: the whole point of the column is that
+        # a live credential is attributable to whoever revealed it, so it takes
+        # the authenticated caller.
+        #
+        # ``scope`` also has to change.  The handler wrote the API-facing string
+        # ``tenant:read-write`` straight into a column whose CHECK constraint
+        # only permits ``tenant_admin`` or ``read_only``, so the insert would
+        # have failed on the constraint the moment the NOT NULL stopped firing
+        # first.  Store the storage value and keep returning the wire value.
+        #
+        # The insert also needs a guard. ``uq_tenant_api_keys_active`` permits one
+        # unrevoked key per tenant, so calling this on a tenant that already has
+        # one raised UniqueViolationError and returned 500. Issuing a *first* key
+        # to a tenant that already holds a live one is a conflict, and 409 is what
+        # it should say -- silently revoking the existing key here would make this
+        # endpoint a way to invalidate a tenant's production credential without
+        # asking for a rotation. Callers that want a new key call rotate.
+        #
+        # SELECT ... FOR UPDATE rather than catching the violation: the check and
+        # the insert are already inside one transaction, so the row lock closes
+        # the window between them.
         async with _write(pool) as conn:
+            existing = await conn.fetchrow(
+                """SELECT id FROM tenant_api_keys
+                   WHERE tenant_id = $1 AND revoked_at IS NULL FOR UPDATE""",
+                tenant_id,
+            )
+            if existing is not None:
+                raise APIError(
+                    409,
+                    "api_key_exists",
+                    "Tenant already has an active API key; rotate it instead",
+                )
             await conn.execute(
-                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
-                   VALUES ($1, $2, $3, 'tenant:read-write')""",
-                tenant_id, key_hash, key[:14],
+                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope, revealed_by_email)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                tenant_id, key_hash, key[:14], _API_KEY_SCOPE_STORED, principal.actor,
             )
             await _audit_log(conn, tenant_id, "api_key.created", None, None, "demo-actor", {"prefix_hint": key[:14]})
 
@@ -2400,8 +2504,9 @@ async def create_initial_api_key(
 @router.post("/tenants/{tenant_id_path}/api-keys/rotate", response_model=RotateApiKeyResponse, responses=ERROR_RESPONSES)
 async def rotate_api_key(
     tenant_id_path: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> RotateApiKeyResponse:
+    tenant_id = principal.tenant
     key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
@@ -2421,9 +2526,9 @@ async def rotate_api_key(
                 tenant_id,
             )
             await conn.execute(
-                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
-                   VALUES ($1, $2, $3, 'tenant:read-write')""",
-                tenant_id, key_hash, key[:14],
+                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope, revealed_by_email)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                tenant_id, key_hash, key[:14], _API_KEY_SCOPE_STORED, principal.actor,
             )
             await _audit_log(conn, tenant_id, "api_key.rotated", None, None, "demo-actor", {"prefix_hint": key[:14]})
 
@@ -2431,7 +2536,7 @@ async def rotate_api_key(
         key=key,
         prefix_hint=key[:14],
         revealed_at=now,
-        scope="tenant:read-write",
+        scope=_API_KEY_SCOPE_WIRE,
     )
 
 

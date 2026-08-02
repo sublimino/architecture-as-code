@@ -195,12 +195,15 @@ class FakePostgres:
                     key["revoked_at"] = "2026-08-02T00:00:00Z"
             return
         if "INSERT INTO tenant_api_keys" in query:
-            tenant_id, key_hash, prefix_hint = args
+            tenant_id, key_hash, prefix_hint, scope, revealed_by_email = args
+            assert revealed_by_email, "revealed_by_email is NOT NULL in tenant_api_keys"
             state.api_keys.append(
                 {
                     "tenant_id": tenant_id,
                     "key_hash": key_hash,
                     "prefix_hint": prefix_hint,
+                    "scope": scope,
+                    "revealed_by_email": revealed_by_email,
                     "revoked_at": None,
                 },
             )
@@ -209,7 +212,8 @@ class FakePostgres:
 
     def read_one(self, state: _State, query: str, *args: Any) -> dict[str, Any] | None:
         if "INSERT INTO agent_registry" in query:
-            tenant_id, name, origin, owner = args
+            tenant_id, name, display_name, origin, owner = args
+            assert display_name, "display_name is NOT NULL in agent_registry"
             row = {
                 "id": uuid.uuid4(),
                 "tenant_id": tenant_id,

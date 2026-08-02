@@ -82,12 +82,20 @@ export default function SuperCredPage() {
     setError(null)
     try {
       const res = await fetch(`${SUPERCRED_API}/agents`)
+      if (!res.ok) throw new Error(`Agent discovery failed: ${res.status}`)
       const data = await res.json()
       const discovered: RuntimeAgent[] = data.agents ?? []
       setDiscoveredCount(discovered.length)
       setNamespaces(data.namespaces ?? [])
       setAgents(discovered.filter(a => a.supercred === true))
+      // Surface both total failures and partial namespace failures so the
+      // operator knows discovery was incomplete rather than silently short.
       if (data.error) setError(String(data.error))
+      else if (data.namespace_errors) {
+        const msgs = Object.entries(data.namespace_errors as Record<string, string>)
+          .map(([ns, msg]) => `${ns}: ${msg}`)
+        setError(`Partial discovery failure — ${msgs.join('; ')}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents')
     } finally {
@@ -101,7 +109,11 @@ export default function SuperCredPage() {
     setError(null)
     try {
       const res = await fetch(agentPath(agent, 'compliance'))
-      if (!res.ok) throw new Error(`Compliance check failed: ${res.status}`)
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        const detail = body ? ` — ${body.slice(0, 200)}` : ''
+        throw new Error(`Compliance check failed: ${res.status}${detail}`)
+      }
       const data: ComplianceResponse = await res.json()
       setCompliance(data)
     } catch (err) {
@@ -117,7 +129,11 @@ export default function SuperCredPage() {
     setError(null)
     try {
       const res = await fetch(agentPath(agent, 'stun'), { method: 'POST' })
-      if (!res.ok) throw new Error(`Stun failed: ${res.status}`)
+      if (!res.ok) {
+        const body = await res.text().catch(() => '')
+        const detail = body ? ` — ${body.slice(0, 200)}` : ''
+        throw new Error(`Stun failed: ${res.status}${detail}`)
+      }
       const data: StunResponse = await res.json()
       setStunResult(data)
       // Reload agents to reflect new state

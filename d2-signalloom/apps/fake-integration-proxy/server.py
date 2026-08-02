@@ -10,8 +10,10 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import ssl
 import sys
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -85,6 +87,160 @@ CRYPTO_PROOF_DEFINITIONS = (
 )
 SERVICE_ACCOUNT_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICE_ACCOUNT_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
+# ── Network tests (netassert) ────────────────────────────────────────────────
+#
+# NETWORK_TEST_DEFINITIONS mirrors d2-signalloom/test/netassert-signalloom.yaml
+# 1:1 (kept in sync by hand — the same trade-off already accepted for
+# CRYPTO_PROOF_DEFINITIONS above; this process has no YAML dependency). It is
+# the catalogue GET /network-tests always returns; live per-test status is
+# layered on top from the most recent netassert-run Job's TAP output.
+#
+# The Job itself runs the real `netassert` CLI (github.com/controlplaneio/
+# netassert) via Kubernetes ephemeral containers injected into the ALREADY
+# RUNNING src pods, so traffic genuinely originates from those pods' real
+# network identity and is subject to the real, unmodified NetworkPolicies —
+# this is not a simulation and not a proxy-initiated probe.
+NETASSERT_JOB_NAME = "netassert-run"
+NETASSERT_JOB_NAMESPACE = "fe-signalloom"
+NETASSERT_RUNNER_SERVICE_ACCOUNT = "netassert-runner"
+NETASSERT_RUNNER_IMAGE = os.environ.get("NETASSERT_RUNNER_IMAGE", "netassert-runner:local")
+NETASSERT_CONFIGMAP_NAME = "netassert-signalloom-config"
+NETASSERT_TAP_MARKER = "----NETASSERT-TAP-RESULTS----"
+
+NETWORK_TEST_DEFINITIONS: tuple[dict[str, object], ...] = (
+    {"name": "dashboard-to-api-allowed", "expectedExit": 0, "targetPort": 8000,
+     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
+     "dst": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
+     "description": "Dashboard to API backend (nginx /api proxy)"},
+    {"name": "dashboard-to-dex-allowed", "expectedExit": 0, "targetPort": 5556,
+     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "dex"},
+     "description": "Dashboard to Dex (OIDC discovery/auth/token)"},
+    {"name": "api-to-postgresql-allowed", "expectedExit": 0, "targetPort": 5432,
+     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
+     "description": "API to PostgreSQL (persistence)"},
+    {"name": "api-to-redis-allowed", "expectedExit": 0, "targetPort": 6379,
+     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "redis"},
+     "description": "API to Redis (cache)"},
+    {"name": "api-to-minio-allowed", "expectedExit": 0, "targetPort": 9000,
+     "src": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "minio"},
+     "description": "API to MinIO (report storage)"},
+    {"name": "agents-to-api-denied", "expectedExit": 1, "targetPort": 8000,
+     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
+     "dst": {"namespace": "fe-signalloom", "name": "fe-signalloom"},
+     "description": "Agent pods MUST NOT reach the API backend directly"},
+    {"name": "agents-to-dashboard-denied", "expectedExit": 1, "targetPort": 8080,
+     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
+     "dst": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
+     "description": "Agent pods MUST NOT reach the dashboard"},
+    {"name": "agents-to-postgresql-denied", "expectedExit": 1, "targetPort": 5432,
+     "src": {"namespace": "fe-signalloom-agents", "name": "agent-patsy"},
+     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
+     "description": "Agent pods MUST NOT reach PostgreSQL directly"},
+    {"name": "dashboard-to-postgresql-denied", "expectedExit": 1, "targetPort": 5432,
+     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "postgresql"},
+     "description": "Dashboard MUST NOT reach PostgreSQL directly (only via API)"},
+    {"name": "dashboard-to-redis-denied", "expectedExit": 1, "targetPort": 6379,
+     "src": {"namespace": "fe-signalloom", "name": "dashboard-signalloom"},
+     "dst": {"namespace": "inf-signalloom", "name": "redis"},
+     "description": "Dashboard MUST NOT reach Redis directly"},
+)
+
+_TAP_LINE = re.compile(r"^(ok|not ok)\s+\d+\s*-\s*(.+?)\s*$")
+
+
+def _parse_tap_results(log_text: str) -> dict[str, str]:
+    """Map test name -> 'pass'/'fail' from netassert's TAP (-t) output.
+
+    The Job's container prints the TAP file to its own log after
+    NETASSERT_TAP_MARKER (see _netassert_job_manifest), so a plain pod-log
+    fetch is enough to read results — no artifact store needed. TAP lines look
+    like `ok 1 - dashboard-to-api-allowed` / `not ok 2 - some-test`.
+    """
+    results: dict[str, str] = {}
+    marker_seen = False
+    for line in log_text.splitlines():
+        if NETASSERT_TAP_MARKER in line:
+            marker_seen = True
+            continue
+        if not marker_seen:
+            continue
+        match = _TAP_LINE.match(line.strip())
+        if match is None:
+            continue
+        outcome, name = match.groups()
+        results[name] = "pass" if outcome == "ok" else "fail"
+    return results
+
+
+def _netassert_job_manifest() -> dict[str, object]:
+    """The single, fixed netassert-run Job spec.
+
+    Every field here is a constant. Nothing from the triggering HTTP request
+    (see _handle_network_tests_scan) reaches this manifest, so the scan
+    endpoint can never be turned into an arbitrary-target network probe — it
+    only ever runs the committed d2-signalloom/test/netassert-signalloom.yaml
+    config, mounted read-only from NETASSERT_CONFIGMAP_NAME.
+    """
+    shell = (
+        "/usr/local/bin/resolve-agent-pod.sh && "
+        "/usr/local/bin/netassert run -f /work/netassert-run.yaml -t /work/results.tap -P 3 || true; "
+        f"echo '{NETASSERT_TAP_MARKER}'; "
+        "cat /work/results.tap || echo 'no tap output produced'"
+    )
+    return {
+        "apiVersion": "batch/v1",
+        "kind": "Job",
+        "metadata": {
+            "name": NETASSERT_JOB_NAME,
+            "namespace": NETASSERT_JOB_NAMESPACE,
+            "labels": {
+                "app.kubernetes.io/part-of": "signalloom",
+                "signalloom.ai/purpose": "network-test-run",
+            },
+        },
+        "spec": {
+            "backoffLimit": 0,
+            "ttlSecondsAfterFinished": 600,
+            "template": {
+                "metadata": {"labels": {"signalloom.ai/purpose": "network-test-run"}},
+                "spec": {
+                    "restartPolicy": "Never",
+                    "serviceAccountName": NETASSERT_RUNNER_SERVICE_ACCOUNT,
+                    "securityContext": {
+                        "runAsNonRoot": True,
+                        "runAsUser": 65532,
+                        "runAsGroup": 65532,
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
+                    "containers": [{
+                        "name": "netassert",
+                        "image": NETASSERT_RUNNER_IMAGE,
+                        "imagePullPolicy": "Never",
+                        "command": ["/bin/sh", "-c", shell],
+                        "securityContext": {
+                            "allowPrivilegeEscalation": False,
+                            "readOnlyRootFilesystem": True,
+                            "capabilities": {"drop": ["ALL"]},
+                        },
+                        "volumeMounts": [
+                            {"name": "config", "mountPath": "/config"},
+                            {"name": "work", "mountPath": "/work"},
+                        ],
+                    }],
+                    "volumes": [
+                        {"name": "config", "configMap": {"name": NETASSERT_CONFIGMAP_NAME}},
+                        {"name": "work", "emptyDir": {}},
+                    ],
+                },
+            },
+        },
+    }
 
 
 def redact(value: object, key: str = "") -> object:
@@ -397,8 +553,8 @@ def _job_has_condition(status: dict[str, object], condition_type: str) -> bool:
     )
 
 
-def _list_namespace_jobs(base_url: str, token: str, context: ssl.SSLContext) -> dict[str, object]:
-    jobs_url = f"{base_url}/apis/batch/v1/namespaces/{CRYPTO_PROOF_NAMESPACE}/jobs"
+def _list_namespace_jobs(base_url: str, token: str, context: ssl.SSLContext, namespace: str) -> dict[str, object]:
+    jobs_url = f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs"
     payload = _fetch_kubernetes_json(jobs_url, token, context)
     if not isinstance(payload, dict):
         raise TypeError("kubernetes job list payload must be a JSON object")
@@ -420,10 +576,11 @@ def _list_job_pods(
     base_url: str,
     token: str,
     context: ssl.SSLContext,
+    namespace: str,
     job_name: str,
 ) -> list[object]:
     pods_url = (
-        f"{base_url}/api/v1/namespaces/{CRYPTO_PROOF_NAMESPACE}/pods"
+        f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}/pods"
         f"?labelSelector={quote(f'job-name={job_name}', safe='')}"
     )
     payload = _fetch_kubernetes_json(pods_url, token, context)
@@ -433,6 +590,49 @@ def _list_job_pods(
     if not isinstance(items, list):
         raise TypeError("kubernetes pod list items must be a JSON array")
     return items
+
+
+def _get_kubernetes_job(
+    base_url: str, token: str, context: ssl.SSLContext, namespace: str, name: str,
+) -> dict[str, object] | None:
+    url = f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs/{quote(name, safe='')}"
+    try:
+        job = _fetch_kubernetes_json(url, token, context)
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise
+    return job if isinstance(job, dict) else None
+
+
+def _create_kubernetes_job(
+    base_url: str, token: str, context: ssl.SSLContext, namespace: str, manifest: dict[str, object],
+) -> None:
+    url = f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs"
+    req = request.Request(
+        url,
+        data=json.dumps(manifest).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    with request.urlopen(req, context=context, timeout=10.0):
+        return
+
+
+def _delete_kubernetes_job(
+    base_url: str, token: str, context: ssl.SSLContext, namespace: str, name: str,
+) -> None:
+    url = (
+        f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs/{quote(name, safe='')}"
+        "?propagationPolicy=Background"
+    )
+    req = request.Request(url, method="DELETE", headers={"Authorization": f"Bearer {token}"})
+    try:
+        with request.urlopen(req, context=context, timeout=10.0):
+            return
+    except error.HTTPError as exc:
+        if exc.code != 404:
+            raise
 
 
 def _negative_proof_log_evidence(
@@ -664,11 +864,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             token = _read_service_account_token()
             context = _kubernetes_ssl_context()
             base_url = _kubernetes_api_base()
-            jobs = _list_namespace_jobs(base_url, token, context)
+            jobs = _list_namespace_jobs(base_url, token, context, CRYPTO_PROOF_NAMESPACE)
             proofs = []
             for definition in CRYPTO_PROOF_DEFINITIONS:
                 job_name = definition["name"]
-                pods = _list_job_pods(base_url, token, context, job_name)
+                pods = _list_job_pods(base_url, token, context, CRYPTO_PROOF_NAMESPACE, job_name)
                 proofs.append(
                     _derive_crypto_proof(definition, jobs.get(job_name), pods, base_url, token, context)
                 )
@@ -682,6 +882,156 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 HTTPStatus.OK,
                 {"proofs": [], "error": str(exc), "namespace": CRYPTO_PROOF_NAMESPACE},
             )
+
+    def _network_scan_status(self, job: object) -> str:
+        if not isinstance(job, dict):
+            return "never-run"
+        status = job.get("status")
+        if not isinstance(status, dict):
+            return "pending"
+        if _job_status_count(status, "active") >= 1:
+            return "running"
+        if _job_has_condition(status, "Complete"):
+            return "complete"
+        if _job_has_condition(status, "Failed"):
+            return "failed"
+        return "pending"
+
+    def _network_test_result(
+        self,
+        definition: dict[str, object],
+        job: object,
+        pods: list[object],
+        tap_results: dict[str, str],
+    ) -> tuple[str, str]:
+        name = definition["name"]
+        if name in tap_results:
+            outcome = tap_results[name]
+            tap_line = "ok" if outcome == "pass" else "not ok"
+            return outcome, f"netassert TAP: {tap_line} - {name}"
+        if not isinstance(job, dict):
+            return "pending", "no scan has been run yet"
+        pod_error = _pod_error_evidence(pods)
+        if pod_error is not None:
+            return "error", pod_error
+        status = job.get("status")
+        if isinstance(status, dict) and _job_status_count(status, "active") >= 1:
+            return "running", "scan in progress"
+        if isinstance(status, dict) and (
+            _job_has_condition(status, "Complete") or _job_has_condition(status, "Failed")
+        ):
+            return "error", "scan finished but produced no result for this test — check Job logs"
+        return "pending", _pod_phase_evidence(pods) if pods else "job not found in namespace"
+
+    def _handle_network_tests(self) -> None:
+        """GET /network-tests — live status derived from the most recent
+        netassert-run Job (see _netassert_job_manifest) rather than a
+        hardcoded fixture. Falls back to 'pending' for every test if no scan
+        has run yet, and to an explicit error state if the Kubernetes API is
+        unreachable — it never fabricates a pass/fail."""
+        try:
+            token = _read_service_account_token()
+            context = _kubernetes_ssl_context()
+            base_url = _kubernetes_api_base()
+        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
+            print(f"network tests failed: {exc}", file=sys.stderr, flush=True)
+            self._json(
+                HTTPStatus.OK,
+                {
+                    "tests": [
+                        {**definition, "result": "error", "evidence": str(exc), "lastRun": None}
+                        for definition in NETWORK_TEST_DEFINITIONS
+                    ],
+                    "scanStatus": "unavailable",
+                },
+            )
+            return
+
+        job = _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+        pods: list[object] = []
+        tap_results: dict[str, str] = {}
+        last_run: str | None = None
+        if job is not None:
+            pods = _list_job_pods(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+            for pod in pods:
+                pod_name = _pod_name(pod)
+                if pod_name is None:
+                    continue
+                log_url = (
+                    f"{base_url}/api/v1/namespaces/{quote(NETASSERT_JOB_NAMESPACE, safe='')}"
+                    f"/pods/{quote(pod_name, safe='')}/log?container=netassert"
+                )
+                try:
+                    log_text = _fetch_kubernetes_text(log_url, token, context)
+                except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError):
+                    continue
+                tap_results.update(_parse_tap_results(log_text))
+            status = job.get("status")
+            if isinstance(status, dict):
+                start_time = status.get("startTime")
+                if isinstance(start_time, str):
+                    last_run = start_time
+
+        tests = []
+        for definition in NETWORK_TEST_DEFINITIONS:
+            result, evidence = self._network_test_result(definition, job, pods, tap_results)
+            tests.append({**definition, "result": result, "evidence": evidence, "lastRun": last_run})
+
+        self._json(
+            HTTPStatus.OK,
+            {
+                "tests": tests,
+                "scanStatus": self._network_scan_status(job),
+                "job": {"name": NETASSERT_JOB_NAME} if job is not None else None,
+            },
+        )
+
+    def _handle_network_tests_scan(self) -> None:
+        """POST /network-tests/scan — (re)creates the fixed netassert-run Job.
+
+        The request body is deliberately never inspected: the Job spec is the
+        constant returned by _netassert_job_manifest, so this endpoint can
+        only ever run the one, committed netassert config — never an
+        arbitrary target supplied by a caller.
+        """
+        self._body()  # drain any body so the client isn't left hanging
+        try:
+            token = _read_service_account_token()
+            context = _kubernetes_ssl_context()
+            base_url = _kubernetes_api_base()
+        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
+            return
+
+        existing = _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+        if existing is not None:
+            status = existing.get("status")
+            if isinstance(status, dict) and _job_status_count(status, "active") >= 1:
+                self._json(HTTPStatus.CONFLICT, {"error": "a network test scan is already running"})
+                return
+            try:
+                _delete_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
+            except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+                self._json(HTTPStatus.BAD_GATEWAY, {"error": f"could not clear previous scan: {exc}"})
+                return
+            # Jobs delete asynchronously (propagationPolicy=Background); a
+            # same-name create can race the deletion and 409. netassert-run's
+            # name is fixed by design (see _handle_network_tests's GET-side
+            # contract), so a short bounded wait is simpler and safer here
+            # than minting per-scan unique names.
+            for _ in range(10):
+                if _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME) is None:
+                    break
+                time.sleep(0.3)
+
+        try:
+            _create_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, _netassert_job_manifest())
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            print(f"network test scan failed to start: {exc}", file=sys.stderr, flush=True)
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"failed to start scan: {exc}"})
+            return
+
+        self._json(HTTPStatus.ACCEPTED, {"job": NETASSERT_JOB_NAME, "status": "started"})
 
     def _handle_agent_compliance(self, agent_id: str, requested_namespace: str | None = None) -> None:
         """GET /agents/<id>/compliance — evaluate an agent's pod spec against policy."""
@@ -827,6 +1177,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._handle_agents()
         elif path == "/crypto-proofs" and self.command == "GET":
             self._handle_crypto_proofs()
+        elif path == "/network-tests" and self.command == "GET":
+            self._handle_network_tests()
+        elif path == "/network-tests/scan" and self.command == "POST":
+            self._handle_network_tests_scan()
         elif path.startswith("/agents/") and path.endswith("/compliance") and self.command == "GET":
             agent_id = path.split("/")[2]
             self._handle_agent_compliance(agent_id, self._requested_namespace())

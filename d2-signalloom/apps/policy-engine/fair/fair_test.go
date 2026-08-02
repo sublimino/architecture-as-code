@@ -15,6 +15,15 @@ func TestBetaPERT_Deterministic(t *testing.T) {
 	}
 }
 
+// TestSelfCheck_Ordering asserts the full ordering for a DENSE distribution only.
+//
+// Read the input before generalising from this test: frequency mode is 2.0 events/year, so
+// essentially every simulated year contains at least one loss and VaR95 >= ALE genuinely holds.
+//
+// It does NOT hold in general. For a low-frequency/high-severity risk (most years cost nothing)
+// the 95th percentile sits at or near zero while the mean stays positive, and VaR95 < ALE is the
+// correct answer — see TestSimulateDoesNotFabricateVaR95 in regression_test.go, and the note on
+// Simulate. Do not "fix" a failure of VaR95 >= ALE by clamping; that fabricates the number.
 func TestSelfCheck_Ordering(t *testing.T) {
 	loss := RiskTriple{Min: 10_000, Mode: 50_000, Max: 200_000}
 	freq := RiskTriple{Min: 0.5, Mode: 2.0, Max: 5.0}

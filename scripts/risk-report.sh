@@ -19,7 +19,7 @@ REPORT="${OUT_DIR}/baseline-report.md"
 
 if [[ ! -x "${RISKCTL}" ]]; then
   echo "risk-report: building riskctl" >&2
-  GOFLAGS=-mod=vendor GOPROXY=off go build -C tools/riskctl -o "${RISKCTL}" .
+  GOFLAGS=-mod=mod GOPROXY=off go build -C tools/riskctl -o "${RISKCTL}" .
 fi
 
 mkdir -p "${OUT_DIR}"

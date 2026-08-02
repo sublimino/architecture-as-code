@@ -639,7 +639,7 @@ RISK_AGENT   ?= agent-remediation
 RISK_PACK    ?= 2.0.0
 RISK_ORG     ?= acme
 RISK_WITH    ?= ludlow-health
-RISK_GOFLAGS := GOFLAGS=-mod=vendor GOPROXY=off
+RISK_GOFLAGS := GOFLAGS=-mod=mod GOPROXY=off
 
 .PHONY: riskctl
 riskctl: ## Build the riskctl binary (offline, vendored).

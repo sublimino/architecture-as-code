@@ -67,31 +67,31 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
 
-  ALE     (the average year)                £667,146
-  VaR95   (the bad year)                  £1,778,961
-  TVaR    (the tail beyond VaR95)         £2,247,109
-  carried (TVaR + 15% risk load)          £2,584,176   ← residual risk
+  ALE     (the average year)                £664,832
+  VaR95   (the bad year)                  £1,775,323
+  TVaR    (the tail beyond VaR95)         £2,238,356
+  carried (TVaR + 15% risk load)          £2,574,109   ← residual risk
 
   EXTERNAL ANCHOR — the market's own view of the same controls
   ──────────────────────────────────────────────────────────────────────────────────────────────
-    modelled ALE / annual cyber premium   13.90x
+    modelled ALE / annual cyber premium   13.85x
     The model is materially more pessimistic than the underwriter. Either our triples
     are hot, or we are carrying risk the policy does not cover. Both are worth knowing.
 
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
-    residual (risk you keep)              £2,584,176
+    residual (risk you keep)              £2,574,109
   + cost of controls (incl. the cage)        £28,800
   + enforcement friction (gating)            £28,000
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                  £2,688,976
+  = TCoR                                  £2,678,909
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
   CONTROL   TITLE                                               BUYS/yr     COST/yr      NET/yr
-  AGT-010   Agent output passes a guard before leaving …       £154,206      £4,500    £149,706 *
-  AGT-008   Prompt-injection corpus is evaluated before…        £96,913      £9,000     £87,913 *
+  AGT-010   Agent output passes a guard before leaving …       £149,232      £4,500    £144,732 *
+  AGT-008   Prompt-injection corpus is evaluated before…        £94,403      £9,000     £85,403 *
   AGT-007   Agent egress is restricted to declared endp…             £0      £2,500     -£2,500  
   AGT-009   Tool invocation is authorised per-tool                   £0      £5,000     -£5,000  
 
@@ -109,16 +109,16 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
   proves which input to argue about.
 
   SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
-  SECRET-EXFIL                 £405,327     £1,461,310     £1,055,983    42.6%
-  INJECTION-ACT                £435,318     £1,437,920     £1,002,601    40.5%
-  SUPPLY-TAMPER                £609,935       £870,442       £260,507    10.5%
-  TRUST-SUBVERT                £642,574       £747,509       £104,935     4.2%
-  UNAUTH-CHANGE                £653,287       £706,338        £53,051     2.1%
+  SECRET-EXFIL                 £403,444     £1,464,125     £1,060,681    42.7%
+  INJECTION-ACT                £433,856     £1,437,782     £1,003,927    40.4%
+  SUPPLY-TAMPER                £610,494       £871,732       £261,239    10.5%
+  TRUST-SUBVERT                £642,134       £748,563       £106,428     4.3%
+  UNAUTH-CHANGE                £655,117       £708,659        £53,542     2.2%
 
   PROPOSED ESCALATIONS  (proposed, never applied — these become a reviewed PR)
   ──────────────────────────────────────────────────────────────────────────────────────────────
-  → AGT-008: enforcing buys GBP 96913/yr against a tolerance band of GBP 25000 — promote audit -> deny
-  → AGT-010: enforcing buys GBP 154206/yr against a tolerance band of GBP 25000 — promote audit -> deny
+  → AGT-008: enforcing buys GBP 94403/yr against a tolerance band of GBP 25000 — promote audit -> deny
+  → AGT-010: enforcing buys GBP 149232/yr against a tolerance band of GBP 25000 — promote audit -> deny
 
 ```
 
@@ -177,7 +177,7 @@ AGENT COMPLIANCE BASELINE
        and the evidence bundle without a secret-redaction pass.
 
   ENFORCEMENT TIER: DENIED  (frequency multiplier 0.02, run cost £0/yr)
-  reason: 3 unmet gate control(s); residual ALE is 26.7x tolerance
+  reason: 3 unmet gate control(s); residual ALE is 26.6x tolerance
   Deny is the bottom rung, not the only rung — least trusted, most expensive to run.
 
 ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -185,10 +185,10 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
 
-  ALE     (the average year)                 £13,344
+  ALE     (the average year)                 £13,347
   VaR95   (the bad year)                          £0
-  TVaR    (the tail beyond VaR95)           £266,880
-  carried (TVaR + 15% risk load)            £306,912   ← residual risk
+  TVaR    (the tail beyond VaR95)           £266,939
+  carried (TVaR + 15% risk load)            £306,980   ← residual risk
 
   ⓘ TAIL-DOMINATED: VaR95 sits below ALE, so more than 95% of simulated years cost
     nothing at all and the whole expected loss lives in the tail. This is the regime
@@ -204,18 +204,18 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
 
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
-    residual (risk you keep)                £306,912
+    residual (risk you keep)                £306,980
   + cost of controls (incl. the cage)        £28,800
   + enforcement friction (gating)            £38,500
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                    £422,212
+  = TCoR                                    £422,280
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
   CONTROL   TITLE                                               BUYS/yr     COST/yr      NET/yr
-  AGT-010   Agent output passes a guard before leaving …         £3,018      £4,500     -£1,482  
-  AGT-008   Prompt-injection corpus is evaluated before…         £2,052      £9,000     -£6,948  
+  AGT-010   Agent output passes a guard before leaving …         £3,014      £4,500     -£1,486  
+  AGT-008   Prompt-injection corpus is evaluated before…         £2,017      £9,000     -£6,983  
   AGT-007   Agent egress is restricted to declared endp…             £0      £2,500     -£2,500  
   AGT-009   Tool invocation is authorised per-tool                   £0      £5,000     -£5,000  
 
@@ -233,11 +233,11 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
   proves which input to argue about.
 
   SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
-  SECRET-EXFIL                   £8,026        £28,663        £20,636    41.7%
-  INJECTION-ACT                  £8,471        £28,889        £20,418    41.3%
-  SUPPLY-TAMPER                 £12,028        £17,335         £5,307    10.7%
-  TRUST-SUBVERT                 £12,920        £14,899         £1,979     4.0%
-  UNAUTH-CHANGE                 £13,166        £14,309         £1,143     2.3%
+  SECRET-EXFIL                   £8,083        £28,951        £20,868    42.3%
+  INJECTION-ACT                  £8,848        £29,038        £20,191    40.9%
+  SUPPLY-TAMPER                 £12,247        £17,322         £5,075    10.3%
+  TRUST-SUBVERT                 £12,924        £15,058         £2,134     4.3%
+  UNAUTH-CHANGE                 £13,059        £14,104         £1,045     2.1%
 
 ```
 
@@ -290,30 +290,30 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
 
-  ALE     (the average year)                 £48,277
-  VaR95   (the bad year)                    £305,738
-  TVaR    (the tail beyond VaR95)           £665,258
-  carried (TVaR + 15% risk load)            £765,046   ← residual risk
+  ALE     (the average year)                 £48,996
+  VaR95   (the bad year)                    £308,559
+  TVaR    (the tail beyond VaR95)           £671,897
+  carried (TVaR + 15% risk load)            £772,682   ← residual risk
 
   EXTERNAL ANCHOR — the market's own view of the same controls
   ──────────────────────────────────────────────────────────────────────────────────────────────
-    modelled ALE / annual cyber premium   1.01x
+    modelled ALE / annual cyber premium   1.02x
     Within the same order as the priced market view — the model and the underwriter
     broadly agree. This is the only external calibration available for free.
 
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
-    residual (risk you keep)                £765,046
+    residual (risk you keep)                £772,682
   + cost of controls (incl. the cage)        £63,800
   + enforcement friction (gating)            £38,500
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                    £915,346
+  = TCoR                                    £922,982
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
   CONTROL   TITLE                                               BUYS/yr     COST/yr      NET/yr
-  AGT-003   Remediation requires explicit human approval         £3,971     £12,000     -£8,029  
+  AGT-003   Remediation requires explicit human approval         £3,910     £12,000     -£8,090  
 
   * exceeds the institution's tolerance band — the quantitative trigger for the gate
   NOT ADDITIVE: these deltas are marginal, each computed holding the others fixed.
@@ -329,11 +329,11 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
   proves which input to argue about.
 
   SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
-  SUPPLY-TAMPER                 £33,752        £98,607        £64,855    34.9%
-  INJECTION-ACT                 £36,891        £85,064        £48,173    25.9%
-  TRUST-SUBVERT                 £41,976        £68,709        £26,733    14.4%
-  UNAUTH-CHANGE                 £41,650        £68,026        £26,376    14.2%
-  SECRET-EXFIL                  £43,121        £62,696        £19,575    10.5%
+  SUPPLY-TAMPER                 £34,250        £99,069        £64,819    34.7%
+  INJECTION-ACT                 £37,273        £86,260        £48,987    26.2%
+  TRUST-SUBVERT                 £42,624        £69,551        £26,927    14.4%
+  UNAUTH-CHANGE                 £42,603        £68,567        £25,964    13.9%
+  SECRET-EXFIL                  £43,506        £63,476        £19,969    10.7%
 
 ```
 
@@ -350,19 +350,19 @@ SAME AGENT. SAME PACK. SAME CONTROLS. TWO INSTITUTIONS.
 
                                                    Acme Co.          Ludlow Health
   ────────────────────────────────────────────────────────────────────────────────
-  ALE (average year)                               £667,146             £4,669,032
-  VaR95 (bad year)                               £1,778,961            £12,407,677
-  TVaR (the tail)                                £2,247,109            £15,531,032
-  residual carried                               £2,584,176            £19,413,790
+  ALE (average year)                               £664,832             £4,654,905
+  VaR95 (bad year)                               £1,775,323            £12,414,671
+  TVaR (the tail)                                £2,238,356            £15,494,701
+  residual carried                               £2,574,109            £19,368,376
   tolerance band                                    £25,000                 £6,000
-  Total Cost of Risk                             £2,688,976            £19,680,590
+  Total Cost of Risk                             £2,678,909            £19,635,176
   enforcement tier                                  TRUSTED                TRUSTED
 
   THE SAME CONTROL, PRICED TWICE
   ────────────────────────────────────────────────────────────────────────────────
   CONTROL   TITLE                                    Acme Co.      Ludlow Health
-  AGT-010   Agent output passes a guard…     £154,206 DENY    £1,164,428 DENY   
-  AGT-008   Prompt-injection corpus is …      £96,913 DENY      £655,806 DENY   
+  AGT-010   Agent output passes a guard…     £149,232 DENY    £1,130,625 DENY   
+  AGT-008   Prompt-injection corpus is …      £94,403 DENY      £636,664 DENY   
   AGT-007   Agent egress is restricted …           £0 audit           £0 audit  
   AGT-009   Tool invocation is authoris…           £0 audit           £0 audit  
 
@@ -376,18 +376,18 @@ SAME AGENT. SAME PACK. SAME CONTROLS. TWO INSTITUTIONS.
 
                                                    Acme Co.          Ludlow Health
   ────────────────────────────────────────────────────────────────────────────────
-  ALE (average year)                                £48,277                £24,094
-  VaR95 (bad year)                                 £305,738                     £0
-  TVaR (the tail)                                  £665,258               £481,886
-  residual carried                                 £765,046               £602,357
+  ALE (average year)                                £48,996                £23,547
+  VaR95 (bad year)                                 £308,559                     £0
+  TVaR (the tail)                                  £671,897               £470,946
+  residual carried                                 £772,682               £588,682
   tolerance band                                    £25,000                 £6,000
-  Total Cost of Risk                               £915,346               £888,657
+  Total Cost of Risk                               £922,982               £874,982
   enforcement tier                                    CAGED                 DENIED
 
   THE SAME CONTROL, PRICED TWICE
   ────────────────────────────────────────────────────────────────────────────────
   CONTROL   TITLE                                    Acme Co.      Ludlow Health
-  AGT-003   Remediation requires explic…       £3,971 audit       £1,642 audit  
+  AGT-003   Remediation requires explic…       £3,910 audit       £1,081 audit  
 
   One identical rule. Opposite verdicts. Nobody had an opinion — the pounds decided.
 

@@ -17,6 +17,11 @@
 # node. Loading models on a full node OOMs the container runtime. To use the
 # Security Sandbox: give Docker Desktop >=14GB, then
 #   kubectl -n olly-replica scale deploy llm-guard --replicas=1
+# FLUX ENVSUBST: YES — this manifest is rendered by the Flux Kustomization
+# that reconciles this directory (postBuild.substituteFrom is configured;
+# see this directory's kustomization.yaml). Use ${VAR} for values Flux
+# should substitute from flux-runtime-info, and $${VAR} to pass a literal $
+# through untouched to the container.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

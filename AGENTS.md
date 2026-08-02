@@ -138,6 +138,63 @@ In-repo `worktrees/` directories bleed into bun/find/rg/test-runners.
 `.cache/zot/` survives `make down` (intentional — avoids re-pulling). Use
 `make zot-cache-reset` to clear it.
 
+### Flux variable substitution
+`postBuild.substituteFrom` on a Flux Kustomization runs envsubst over the
+**entire rendered manifest text**, not just specific fields — every string
+scalar is in scope, including a ResourceSet's `spec.inputs` as much as its
+`spec.resources`. Don't assume `${VAR}` "can't reach" some nested field; if
+it's in the path a Kustomization with `postBuild` reconciles, it's reached.
+
+The real risk is a **first-reconcile race**, not substitution scope.
+`clusters/<env>/tenants.yaml` and `clusters/<env>/flux-system/runtime-info.yaml`
+(the ConfigMap it substitutes from) are both applied by the same top-level
+`flux-system` Kustomization in one batch. Without an explicit `dependsOn`,
+`tenants`'s very first reconcile can fire before kustomize-controller's own
+client has observed the ConfigMap, find no value for e.g. `${ARTIFACT_TAG}`,
+and leave it as a literal string. Missing `substituteFrom` keys are a
+**silent no-op, not an error**, so Flux marks the apply `Ready=True` anyway —
+nothing then retries, and the bug sits there indefinitely (found live
+2026-08-02: cert-manager/ingress/monitoring/trivy-system all failed with a
+literal `${ARTIFACT_TAG}` in their OCIRepository tag, hours after bootstrap).
+Fix: `clusters/<env>/tenants.yaml` carries `dependsOn: [{name: flux-system}]`
+so it can't attempt substitution until the Kustomization that creates
+`flux-runtime-info` is confirmed `Ready=True`. Any new Kustomization that
+reads `postBuild.substituteFrom` on a ConfigMap/Secret it doesn't itself own
+needs the same `dependsOn` guard if it's applied in the same batch as its
+source.
+
+If you hit this class of bug live (literal `${VAR}` in a resolved manifest,
+or `flux get all -A --status-selector ready=false` showing `MANIFEST_UNKNOWN`
+/ `kustomization path not found` with a URL-encoded `${...}` in the message):
+it's almost always stale, not broken — `flux reconcile kustomization tenants
+-n flux-system --with-source` forces a fresh render against the *current*
+ConfigMap and resolves it immediately, no source change required. That's a
+live-cluster workaround, not a fix — still land the `dependsOn` (or
+equivalent ordering) so it can't recur on the next bootstrap.
+
+ResourceSets activated via `kubectl patch resourceset <name> --type merge`
+(`apps`, `olly`, `signalloom-infra`, `signalloom-apps`, via the
+`demo-<slice>-up` scripts) are immune: their `spec.inputs` in
+`tenants/base/*.yaml` ships as a literal `[]`, and the activation script
+injects concrete values directly — that path never goes through envsubst.
+Only inputs declared inline with `${VAR}` in a base ResourceSet (currently
+just `tenants/base/infra.yaml`) are exposed to this race.
+
+**Annotation convention** — every `kustomization.yaml` and any other Flux
+resource YAML containing `${VAR}` carries a `# FLUX ENVSUBST:` header stating
+whether Flux substitutes it, using one of:
+- `YES` — a Flux Kustomization with `postBuild.substituteFrom` reaches this
+  file/manifest.
+- `NO` — the Flux Kustomization reconciling this directory has no
+  `postBuild`; any `${VAR}` here is the workload's own runtime expansion
+  (e.g. SPIRE's `-expandEnv`), not Flux's.
+- `N/A` — applied outside Flux (`kubectl apply`/`kubectl patch`) entirely.
+- `FLEET` — a fleet overlay (`tenants/*/kustomization.yaml`) processed by the
+  `tenants` Kustomization itself, not a workload kustomization.
+Get this right and accurate, not just present — the annotation exists
+because a field templated where substitution doesn't reach (or is assumed
+reached and isn't) is exactly how this incident happened.
+
 ## Conventions
 
 - **Commits**: conventional commits with slice scope — `feat(signalloom):`, `fix(osramp):`, `test(k8s-afm):`

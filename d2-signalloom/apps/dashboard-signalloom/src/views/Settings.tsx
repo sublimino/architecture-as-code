@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
@@ -8,6 +9,7 @@ import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import ErrorState from '../components/ErrorState'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
 import ConfirmDialog from '../components/ConfirmDialog'
+import ProviderLogo from '../components/onboarding/ProviderLogo'
 import { useAppContext } from '../App'
 
 const POLL_MS = 15 * 60 * 1000
@@ -85,6 +87,7 @@ function ApiKeyStatus({ status }: { status: string | null | undefined }) {
 
 export default function Settings() {
   const { getAccessTokenSilently, user } = useAuth0()
+  const navigate = useNavigate()
   const { apiKeyReveal, setApiKeyReveal, refreshOnboardingState } = useAppContext()
   const [settings, setSettings] = useState<TenantSettingsResponse | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkResponse[]>([])
@@ -296,37 +299,45 @@ export default function Settings() {
         )}
       </SectionCard>
 
-      {/* Connected Providers */}
-      <SectionCard title="Connected Providers">
-        {connectors.filter((c) => c.status === 'connected').length === 0 ? (
-          <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-            No providers connected yet.{' '}
-            <a href="/onboarding" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Connect one →</a>
-          </p>
+      {/* Service Connectors */}
+      <SectionCard title="Service Connectors">
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          Enable or disable third-party identity providers and AI service connectors.
+          Disabling a connected provider stops future scans but preserves discovered records.
+        </p>
+        {providers.length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>No providers available.</p>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {connectors.filter((c) => c.status === 'connected').map((c) => {
-              const provider = providers.find((p) => p.provider_id === c.provider_id)
+            {providers.map((p) => {
+              const connector = connectors.find((c) => c.provider_id === p.provider_id && c.status === 'connected')
+              const isConnected = !!connector
               return (
                 <div
-                  key={c.connector_id}
+                  key={p.provider_id}
                   style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
                 >
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                      {c.display_name || provider?.display_name || c.provider_id}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {c.last_tested_at ? `Last tested ${fmtTs(c.last_tested_at)}` : 'Not yet tested'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <ProviderLogo providerId={p.provider_id} displayName={p.display_name} size={32} />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{p.display_name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {isConnected
+                          ? connector.last_tested_at ? `Connected · Last tested ${fmtTs(connector.last_tested_at)}` : 'Connected'
+                          : 'Not configured'}
+                      </div>
                     </div>
                   </div>
-                  <button
-                    className="btn btn-secondary"
-                    style={{ fontSize: 12, padding: '5px 12px' }}
-                    onClick={() => setDisconnectTarget(c)}
-                  >
-                    Disconnect
-                  </button>
+                  <FrameworkToggle
+                    active={isConnected}
+                    onToggle={() => {
+                      if (isConnected) {
+                        setDisconnectTarget(connector)
+                      } else {
+                        navigate('/onboarding')
+                      }
+                    }}
+                  />
                 </div>
               )
             })}

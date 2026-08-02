@@ -90,6 +90,44 @@ all_three() {
 	[[ "$output" == *"cardvault-agent:local present"* ]]
 }
 
+@test "verify passes on a node carrying a realistically long image listing" {
+	# REGRESSION (SIGPIPE x pipefail). image_on_node() used to end in
+	# `awk ... | grep -Fqx`. `grep -q` exits at the first match, closing the
+	# pipe and killing the upstream docker/awk with SIGPIPE (141); `set -o
+	# pipefail` then made 141 the pipeline's status, so a PRESENT image was
+	# reported MISSING. preflight_images consequently failed closed on a
+	# healthy cluster and blocked supercred steps 1, 2, 4 and `all`.
+	#
+	# It is a race between grep exiting and the producer finishing its write,
+	# so it only bites once the listing is long enough for the producer still
+	# to be writing -- which every other test in this file avoids by emitting
+	# exactly three lines. That is precisely why the defect shipped green.
+	# A real node carries ~100 images; reproduce that.
+	all_three >"$CRICTL_STATE"
+	for i in $(seq 1 400); do
+		printf 'docker.io/library/filler-%s:v1\n' "$i" >>"$CRICTL_STATE"
+	done
+
+	run "$script" verify
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"cardvault:local present"* ]]
+	[[ "$output" == *"policy-engine:local present"* ]]
+	[[ "$output" == *"cardvault-agent:local present"* ]]
+}
+
+@test "verify still detects a missing image within a long listing" {
+	# The mirror of the test above: proves the long-listing fix did not turn
+	# image_on_node into a function that simply always succeeds.
+	printf '%s\n' cardvault:local policy-engine:local >"$CRICTL_STATE"
+	for i in $(seq 1 400); do
+		printf 'docker.io/library/filler-%s:v1\n' "$i" >>"$CRICTL_STATE"
+	done
+
+	run "$script" verify
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"missing from osramp-control-plane: cardvault-agent:local"* ]]
+}
+
 @test "verify fails loudly when an image is missing from the node" {
 	printf '%s\n' cardvault:local policy-engine:local >"$CRICTL_STATE"
 

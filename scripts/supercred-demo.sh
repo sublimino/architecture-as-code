@@ -328,11 +328,35 @@ demo_4() {
 
 demo_5() {
   log "step 5: tearing down supercred demo resources"
-  kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true 2>/dev/null || true
   kubectl delete job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" --ignore-not-found --wait=true 2>/dev/null || true
-  resolve_agent_pod_namespace || true
-  kubectl delete pod agent-cardvault -n "$AGENT_POD_NAMESPACE" --ignore-not-found --wait=true 2>/dev/null || true
-  kubectl delete sa cardvault-agent -n "$NAMESPACE_AGENTS" --ignore-not-found 2>/dev/null || true
+
+  # Delete from EVERY candidate namespace, not just the first one that matches.
+  #
+  # resolve_agent_pod_namespace returns the FIRST namespace holding the pod and
+  # stops. But the pod can exist in BOTH: this script applies
+  # agents-cardvault.yaml directly (landing it in fe-signalloom-agents, the
+  # namespace the manifest declares) while Flux applies the same manifest
+  # through a Kustomization whose targetNamespace puts it in fe-signalloom.
+  # Teardown then deleted the fe-signalloom-agents copy, and the verification
+  # below re-resolved, found the fe-signalloom copy, and failed with "agent pod
+  # still exists" — a teardown that deleted a pod and then correctly reported
+  # the demo was not clean. Sweeping every candidate is the fix; it is
+  # idempotent, and --ignore-not-found makes the empty cases free.
+  local ns
+  for ns in "${AGENT_NAMESPACE_CANDIDATES[@]}"; do
+    kubectl delete job supercred-agent-run -n "$ns" --ignore-not-found --wait=true 2>/dev/null || true
+    kubectl delete pod agent-cardvault -n "$ns" --ignore-not-found --wait=true 2>/dev/null || true
+    kubectl delete sa cardvault-agent -n "$ns" --ignore-not-found 2>/dev/null || true
+  done
+  # -n "$NAMESPACE_INFRA" is load-bearing and must MIRROR the apply in demo_1.
+  # Neither kustomization sets a `namespace:`, so the namespace comes entirely
+  # from the command line. demo_1 applies with `-n "$NAMESPACE_INFRA"`, which
+  # lands the objects in inf-signalloom; this delete used to omit it, so it
+  # targeted the kubeconfig's default namespace, matched nothing there, and
+  # --ignore-not-found turned that into a silent exit 0. The cardvault and
+  # policy-engine Deployments, Services and NetworkPolicy were therefore NEVER
+  # torn down, which made `make demo-signalloom-supercred-all` unable to
+  # complete: the verification below correctly failed on every single run.
   kubectl delete -k d2-signalloom/apps/cardvault/base/ -n "$NAMESPACE_INFRA" --ignore-not-found 2>/dev/null || true
   kubectl delete -k d2-signalloom/apps/policy-engine/base/ -n "$NAMESPACE_INFRA" --ignore-not-found 2>/dev/null || true
 
@@ -349,6 +373,31 @@ demo_5() {
     fi
   fi
 
+  # Remove the credential material step 1 seeded.
+  #
+  # Teardown used to leave all three of these behind, because only step 4 ever
+  # deleted any of them. Two consequences, both bad:
+  #
+  #   1. Aborting the demo anywhere before step 4 — which is what an operator
+  #      does when something goes wrong on stage — left a LIVE, readable
+  #      credential in the vault, on a demo whose entire subject is credential
+  #      revocation.
+  #   2. `bao kv delete` is a SOFT delete: it leaves the version history and
+  #      `bao kv undelete` brings the secret straight back. Even after a
+  #      complete 1→5 run the credential was recoverable. `kv metadata delete`
+  #      is what actually removes it.
+  #
+  # The policy was never deleted by anything at all, at any point.
+  log "removing OpenBao credential material"
+  bao_exec() {
+    kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token "$@" \
+      >/dev/null 2>&1
+  }
+  bao_exec bao kv metadata delete kv/signalloom/cardvault-agent || true
+  bao_exec bao delete auth/jwt/role/signalloom-cardvault-agent || true
+  bao_exec bao policy delete signalloom-cardvault-agent || true
+
   # Verify clean
   log "verifying teardown..."
   kubectl -n "$NAMESPACE_INFRA" get deployment cardvault 2>/dev/null && fail "cardvault still exists after teardown"
@@ -356,7 +405,18 @@ demo_5() {
   resolve_agent_pod_namespace \
     && fail "agent pod still exists in $AGENT_POD_NAMESPACE after teardown"
 
-  ok "step 5 complete — teardown verified"
+  # Verify the credential material too — this is a credential demo, and a
+  # teardown that only checks Deployments is not verifying the thing that
+  # matters. `bao kv get` is deliberately NOT used here: it exits 0 against a
+  # soft-deleted secret, so it cannot tell "removed" from "recoverable".
+  bao_exec bao kv metadata get kv/signalloom/cardvault-agent \
+    && fail "OpenBao secret kv/signalloom/cardvault-agent still exists after teardown"
+  bao_exec bao read auth/jwt/role/signalloom-cardvault-agent \
+    && fail "OpenBao JWT role signalloom-cardvault-agent still exists after teardown"
+  bao_exec bao policy read signalloom-cardvault-agent \
+    && fail "OpenBao policy signalloom-cardvault-agent still exists after teardown"
+
+  ok "step 5 complete — teardown verified (workloads and credential material)"
 }
 
 # ─── Dispatch ────────────────────────────────────────────────────────────────

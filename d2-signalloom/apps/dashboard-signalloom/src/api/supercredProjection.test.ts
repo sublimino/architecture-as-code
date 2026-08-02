@@ -39,7 +39,6 @@ function stateAt(phase: SuperCredPhase): SuperCredDemoState {
     },
     scan: null,
     observedAt: '2026-08-02T10:00:00Z',
-    enteredAt: {},
   }
 }
 
@@ -117,6 +116,18 @@ describe('projectAgentList — the Agents page', () => {
     expect(lifecycleAt('credentialed')).toBe('active')
     expect(lifecycleAt('non-compliant')).toBe('active')
     expect(lifecycleAt('stunned')).toBe('suspended')
+  })
+
+  it('maps the stunned pod label onto the registry vocabulary, not the pod vocabulary', () => {
+    // Two systems, two vocabularies, deliberately. The pod label written by
+    // supercred-demo.sh and the proxy is `stunned`; agent_registry has no such
+    // value — migration 009 fixes its lifecycle vocabulary and the stun endpoint
+    // writes `suspended`. The governance record this projection builds is a
+    // registry record, so it must speak registry. Do not "fix" this to 'stunned'.
+    const agent = projectAgentList(baseAgentList, stateAt('stunned')).agents
+      .find((a) => a.id === SUPERCRED_AGENT_ID)!
+    expect(agent.lifecycle_state).toBe('suspended')
+    expect(stateAt('stunned').agent!.state).toBe('stunned')
   })
 
   it('surfaces the failing controls that drive the Agents attention panel at step 3', () => {

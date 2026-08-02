@@ -66,15 +66,6 @@ export interface SuperCredDemoState {
   scan: SuperCredScanObservation | null
   /** ISO timestamp of the last successful observation, or null if never observed. */
   observedAt: string | null
-  /**
-   * When each phase was first observed, keyed by phase.
-   *
-   * This is the time the dashboard SAW the transition, not the cluster's own
-   * event time — the proxy reports current pod state, not a history. A phase
-   * reached before the dashboard was open (or skipped past on a reload) will be
-   * missing, which consumers must handle rather than invent a time for.
-   */
-  enteredAt: Partial<Record<SuperCredPhase, string>>
 }
 
 export const EMPTY_SUPERCRED_STATE: SuperCredDemoState = {
@@ -82,5 +73,4 @@ export const EMPTY_SUPERCRED_STATE: SuperCredDemoState = {
   agent: null,
   scan: null,
   observedAt: null,
-  enteredAt: {},
 }

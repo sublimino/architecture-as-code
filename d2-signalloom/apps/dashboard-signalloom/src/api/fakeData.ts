@@ -28,6 +28,8 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
+import { COMPLIANCE_POLICY_ROUTES, COMPLIANCE_POLICY_ROUTE_COUNT } from './fakeComplianceData'
+
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
 
@@ -342,9 +344,12 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/consent\/accept$/), data: () => consentAccept },
   { method: 'GET', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
   { method: 'PATCH', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
+  // compliance-policy routes (policy-as-versioned-code)
+  ...COMPLIANCE_POLICY_ROUTES,
 ]
 
-/** Number of distinct demo routes — asserted by the vitest to match the client surface. */
+/** Number of distinct demo routes — asserted by the vitest to match the client surface.
+ *  27 base + 3 compliance-policy = 30 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

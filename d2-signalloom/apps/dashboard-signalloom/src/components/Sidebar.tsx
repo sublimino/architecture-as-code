@@ -17,6 +17,9 @@ interface NavItem {
 const NAV: NavItem[] = [
   { to: '/agents', label: 'Agents' },
   { to: '/compliance', label: 'Compliance' },
+  { to: '/compliance/policies', label: 'Policy Compliance' },
+  { to: '/compliance/posture', label: 'Agent Posture' },
+  { to: '/compliance/risk', label: 'Risk Exposure' },
   { to: '/audit', label: 'Audit Trail' },
   { to: '/cryptography', label: 'Cryptography', superadminOnly: true },
   { to: '/federated-services', label: 'Federated Services', superadminOnly: true },

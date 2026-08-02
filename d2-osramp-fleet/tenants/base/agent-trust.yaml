@@ -1,0 +1,181 @@
+# FLUX ENVSUBST: YES — registry settings are substituted by the tenants
+# Kustomization. Inputs are deliberately empty until the explicit lifecycle
+# patches concrete values, avoiding the first-reconcile substitution race.
+#
+# The dedicated agent-trust-flux identity is intentionally separate from
+# inf-bao's Flux identity. Namespace creation cannot be constrained with
+# resourceNames: Kubernetes RBAC does not apply resourceNames to create, so its
+# ClusterRole permits namespace discovery/create globally because Kubernetes
+# cannot resourceName-limit create. Mutation and deletion are restricted to the
+# six names owned by this slice.
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: agent-trust
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  dependsOn:
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: ResourceSet
+      name: signalloom-infra
+      namespace: flux-system
+      ready: true
+      readyExpr: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: inf-bao
+      ready: true
+      readyExpr: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
+  inputs: []
+  resources:
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-platform}
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-tenant-acme-control}
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-tenant-northstar-control}
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-acme-payments}
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-acme-risk}
+    - apiVersion: v1
+      kind: Namespace
+      metadata: {name: agent-trust-northstar-investigations}
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata: {name: agent-trust-flux, namespace: agent-trust-platform}
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-trust-flux-namespaces}
+      rules:
+        - apiGroups: [""]
+          resources: [namespaces]
+          verbs: [get, list, watch, create]
+        - apiGroups: [""]
+          resources: [namespaces]
+          resourceNames:
+            - agent-trust-platform
+            - agent-trust-tenant-acme-control
+            - agent-trust-tenant-northstar-control
+            - agent-trust-acme-payments
+            - agent-trust-acme-risk
+            - agent-trust-northstar-investigations
+          verbs: [get, update, patch, delete]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata: {name: agent-trust-flux-namespaces}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-namespaces}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-trust-flux-workloads}
+      rules:
+        - apiGroups: [""]
+          resources: [configmaps, secrets, serviceaccounts, services]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [apps]
+          resources: [deployments, replicasets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [networking.k8s.io]
+          resources: [networkpolicies]
+          verbs: [get, list, watch, create, update, patch, delete]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-platform}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-tenant-acme-control}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-tenant-northstar-control}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-acme-payments}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-acme-risk}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-trust-flux, namespace: agent-trust-northstar-investigations}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata: {name: agent-trust, namespace: agent-trust-platform}
+      spec:
+        interval: 5m
+        serviceAccountName: agent-trust-flux
+        url: "oci://${REGISTRY_BASE}/signalloom/agent-trust"
+        insecure: ${REGISTRY_INSECURE}
+        ref: {tag: << inputs.tag >>}
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: ^https://token\.actions\.githubusercontent\.com$
+              subject: ^https://github\.com/acme-co/osramp/\.github/workflows/<< inputs.artifactSubjectWorkflow >>\.yaml@<< inputs.artifactSubjectGitRef >>$
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata: {name: agent-trust, namespace: agent-trust-platform}
+      spec:
+        serviceAccountName: agent-trust-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-trust}
+        path: ./
+        prune: true
+    # This is ResourceSet-owned so teardown removes it with Agent Trust. It is
+    # additive to inf-bao's policy and selects only the OpenBao destination;
+    # existing same-namespace rules are untouched.
+    - apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: allow-agent-trust-openbao
+        namespace: inf-bao
+      spec:
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: openbao
+        policyTypes: [Ingress]
+        ingress:
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    agent-trust.signalloom.io/tenant: acme
+                    agent-trust.signalloom.io/project: payments
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: agent-trust-planner
+            ports:
+              - protocol: TCP
+                port: 8200
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    agent-trust.signalloom.io/tenant: acme
+                    agent-trust.signalloom.io/project: payments
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: agent-trust-triage
+            ports:
+              - protocol: TCP
+                port: 8200

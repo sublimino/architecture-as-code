@@ -1,0 +1,9 @@
+{
+  "contractVersion": "1.0.0",
+  "state": "modeled",
+  "workloads": [
+    {"platform": "AWS Lambda", "assertion": "AWS role identity document", "stableBinding": "account+region+function ARN", "keyCustody": "KMS-backed attestor key", "rotationReload": "short-lived exchange per invocation", "trustBundle": "SPIFFE bundle endpoint pin", "deEnrollment": "disable role binding and revoke registration", "assuranceLevel": "target: workload-attested", "productionGap": "no AWS account, OIDC provider, or credentials supplied"},
+    {"platform": "Google Cloud Run", "assertion": "Google service-account identity token", "stableBinding": "project number+service account+service", "keyCustody": "Google-managed service-account signer", "rotationReload": "metadata token refresh before expiry", "trustBundle": "pinned bundle distribution", "deEnrollment": "remove IAM principal and registration", "assuranceLevel": "target: workload-attested", "productionGap": "no GCP project or Workload Identity configuration supplied"},
+    {"platform": "Azure Container Apps", "assertion": "managed identity token", "stableBinding": "tenant ID+principal ID+resource ID", "keyCustody": "Azure managed identity", "rotationReload": "managed identity refresh and bundle reload", "trustBundle": "pinned bundle distribution", "deEnrollment": "remove managed identity assignment and registration", "assuranceLevel": "target: workload-attested", "productionGap": "no Azure tenant, managed identity, or federation supplied"}
+  ]
+}

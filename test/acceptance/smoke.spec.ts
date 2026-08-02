@@ -39,6 +39,7 @@ const PAGES: PageCase[] = [
   { nav: "Collusion & Access", heading: "Collusion & Access", content: ["Remediation Priorities"] },
   { nav: "RBAC Analysis", heading: "RBAC Analysis", content: ["KubeSec-AFM"] },
   { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["KubeSec-AFM RBAC analysis"] },
+  { nav: "Agent Trust Topology", heading: "Agent Trust Topology", content: ["Trust relationship plane"] },
   { nav: "Settings", heading: "Settings" },
 ];
 
@@ -102,6 +103,15 @@ test.describe("authenticated dashboard", () => {
     await expect(toggle).toBeVisible({ timeout: 10_000 });
     // Initial state matches either label.
     await expect(toggle).toHaveText(/LIVE API|DEMO DATA/);
+  });
+
+  test("Agent Trust Topology exposes denied authorization evidence", async ({ page }) => {
+    await page.getByRole("link", { name: "Agent Trust Topology", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Agent Trust Topology" })).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: "Authorization plane", exact: true }).click();
+    await page.getByRole("button", { name: /cross-project application denial/i }).click();
+    await expect(page.getByText("Modeled application authorization rejection")).toBeVisible();
+    await expect(page.getByText("Trust contract model", { exact: true })).toBeVisible();
   });
 
   test("Help & Support modal opens and closes", async ({ page }) => {

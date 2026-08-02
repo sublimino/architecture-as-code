@@ -149,7 +149,16 @@ push_foundation() {
       ;;
   esac
 
-  run_parallel_push foundation "fleet|${fleet_path}" "${artifacts[@]}"
+  push_fleet "$fleet_path"
+  run_parallel_push foundation "${artifacts[@]}"
+}
+
+push_fleet() {
+  push_and_sign "fleet" "${1:-d2-osramp-fleet}"
+}
+
+push_agent_trust() {
+  push_and_sign "signalloom/agent-trust" "d2-agent-trust/manifests"
 }
 
 push_signalloom() {
@@ -170,16 +179,19 @@ push_olly() {
 }
 
 case "${mode}" in
+  fleet) push_fleet ;;
+  agent-trust) push_agent_trust ;;
   foundation) push_foundation ;;
   signalloom) push_signalloom ;;
   all)
     push_foundation
     push_signalloom
+    push_agent_trust
     push_osramp
     push_olly
     ;;
   *)
-    echo "usage: $0 [all|foundation|signalloom]" >&2
+    echo "usage: $0 [all|foundation|fleet|signalloom|agent-trust]" >&2
     exit 64
     ;;
 esac

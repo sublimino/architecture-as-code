@@ -153,6 +153,12 @@ push-local-foundation: ## Push only the fleet and shared infrastructure artifact
 push-local-signalloom: ## Push Signal Loom artifacts for the explicit demo lifecycle.
 	./scripts/push-local.sh signalloom
 
+.PHONY: push-local-fleet push-local-agent-trust
+push-local-fleet: ## Push only the signed fleet artifact to the local registry.
+	./scripts/push-local.sh fleet
+push-local-agent-trust: ## Push only signed Agent Trust manifests to the local registry.
+	./scripts/push-local.sh agent-trust
+
 .PHONY: bootstrap-local
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
 	$(MAKE) -C d2-osramp-fleet bootstrap-local COSIGN_PUB=../$(KEYS_DIR)/cosign.pub
@@ -345,6 +351,24 @@ demo-bao-test: demo-bao-test-config ## Run bounded positive and negative Bao/SPI
 	./scripts/demo-lifecycle.sh bao-test
 demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 	./scripts/demo-lifecycle.sh bao-down
+
+.PHONY: demo-agent-trust-up demo-agent-trust-test-config demo-agent-trust-test demo-agent-trust-network-test demo-agent-trust-down demo-agent-trust-render
+demo-agent-trust-up: healthcheck ## Publish fleet and Agent Trust artifacts then reconcile after inf-bao readiness.
+	$(MAKE) signalloom-spire-helper
+	$(MAKE) push-local-fleet
+	$(MAKE) push-local-agent-trust
+	./scripts/agent-trust-local.sh up
+demo-agent-trust-test-config: ## Render and statically validate Agent Trust lifecycle wiring.
+	$(MAKE) -C d2-agent-trust test
+	bats test/agent-trust-lifecycle.bats
+demo-agent-trust-test: demo-agent-trust-test-config ## Verify Agent Trust readiness then prove enforced network boundaries.
+	./scripts/agent-trust-local.sh test
+demo-agent-trust-network-test: ## Prove Agent Trust NetworkPolicy boundaries; requires enforcing CNI.
+	./scripts/agent-trust-local.sh network-test
+demo-agent-trust-down: ## Prune only Agent Trust; inf-bao is never deleted.
+	./scripts/agent-trust-local.sh down
+demo-agent-trust-render: ## Render Agent Trust Kubernetes manifests.
+	$(MAKE) -C d2-agent-trust render
 
 .PHONY: demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-runtime-test demo-signalloom-test-1 demo-signalloom-down
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.

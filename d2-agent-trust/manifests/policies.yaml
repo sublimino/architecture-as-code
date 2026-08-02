@@ -1,0 +1,105 @@
+# NetworkPolicy is reachability only; identity comes from SPIFFE and A2A authorization is receiver-owned.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-platform}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-tenant-acme-control}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-tenant-northstar-control}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-acme-payments}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-acme-risk}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: default-deny, namespace: agent-trust-northstar-investigations}
+spec: {podSelector: {}, policyTypes: [Ingress, Egress]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-acme-payments}
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}]
+      ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-platform}
+spec: {podSelector: {}, policyTypes: [Egress], egress: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}], ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]}]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-tenant-acme-control}
+spec: {podSelector: {}, policyTypes: [Egress], egress: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}], ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]}]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-tenant-northstar-control}
+spec: {podSelector: {}, policyTypes: [Egress], egress: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}], ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]}]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-acme-risk}
+spec: {podSelector: {}, policyTypes: [Egress], egress: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}], ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]}]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-dns, namespace: agent-trust-northstar-investigations}
+spec: {podSelector: {}, policyTypes: [Egress], egress: [{to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}, podSelector: {matchLabels: {k8s-app: kube-dns}}}], ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]}]}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-planner-to-triage, namespace: agent-trust-acme-payments}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-triage}}
+  policyTypes: [Ingress]
+  ingress:
+    - from: [{podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-planner}}}]
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-planner-to-triage-egress, namespace: agent-trust-acme-payments}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-planner}}
+  policyTypes: [Egress]
+  egress:
+    - to: [{podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-triage}}}]
+      ports: [{protocol: TCP, port: 8080}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-planner-openbao-egress, namespace: agent-trust-acme-payments, annotations: {agent-trust.signalloom.io/openbao-ingress-intent: "inf-bao/openbao TCP/8200; destination policy remains baseline gap"}}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-planner}}
+  policyTypes: [Egress]
+  egress:
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: inf-bao}}, podSelector: {matchLabels: {app.kubernetes.io/name: openbao}}}]
+      ports: [{protocol: TCP, port: 8200}]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: allow-triage-openbao-egress, namespace: agent-trust-acme-payments, annotations: {agent-trust.signalloom.io/openbao-ingress-intent: "inf-bao/openbao TCP/8200; destination policy remains baseline gap"}}
+spec:
+  podSelector: {matchLabels: {app.kubernetes.io/name: agent-trust-triage}}
+  policyTypes: [Egress]
+  egress:
+    - to: [{namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: inf-bao}}, podSelector: {matchLabels: {app.kubernetes.io/name: openbao}}}]
+      ports: [{protocol: TCP, port: 8200}]

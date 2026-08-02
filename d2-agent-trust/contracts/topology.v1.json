@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "contractVersion": "1.0.0",
+  "spiffeIdGrammar": "spiffe://signalloom.demo/platform/signalloom/tenant/<tenant>/project/<project>/agent/<agent>",
+  "evidenceStates": ["observed", "modeled", "fixture", "stale"],
+  "platform": {"name": "signalloom", "namespace": "agent-trust-platform"},
+  "tenants": [
+    {"name": "acme", "controlNamespace": "agent-trust-tenant-acme-control", "projects": [
+      {"name": "payments", "namespace": "agent-trust-acme-payments", "agents": [
+        {"name": "planner", "serviceAccount": "agent-trust-planner", "placement": "in-cluster", "evidence": "fixture"},
+        {"name": "triage", "serviceAccount": "agent-trust-triage", "placement": "in-cluster", "evidence": "fixture"}
+      ]},
+      {"name": "risk", "namespace": "agent-trust-acme-risk", "agents": [{"name": "risk-reader", "serviceAccount": "agent-trust-risk-reader", "placement": "in-cluster", "evidence": "modeled"}]}
+    ]},
+    {"name": "northstar", "controlNamespace": "agent-trust-tenant-northstar-control", "projects": [
+      {"name": "investigations", "namespace": "agent-trust-northstar-investigations", "agents": [{"name": "investigator", "serviceAccount": "agent-trust-investigator", "placement": "in-cluster", "evidence": "modeled"}]}
+    ]}
+  ],
+  "edges": [
+    {"from": "platform/signalloom", "to": "tenant/acme", "relation": "governs", "evidence": "modeled"},
+    {"from": "tenant/acme", "to": "project/payments", "relation": "owns", "evidence": "modeled"},
+    {"from": "agent/planner", "to": "agent/triage", "relation": "a2a:triage.analyze", "evidence": "fixture"},
+    {"from": "agent/planner", "to": "openbao", "relation": "jwt-login", "evidence": "modeled"}
+  ]
+}

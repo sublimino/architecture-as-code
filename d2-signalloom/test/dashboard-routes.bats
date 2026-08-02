@@ -39,6 +39,46 @@ setup() {
   [[ "$output" == *'id="root"'* ]]
 }
 
+# /supercred, /rbac-analysis and /rbac-explorer were absent from this suite even
+# though its header claims to cover every client-side route. That gap let a real
+# bug ship: nginx's `location /supercred/` API proxy shadowed the `/supercred`
+# SPA route, so the page 301'd into the proxy and never rendered. These three
+# tests are the regression guard.
+
+@test "SPA fallback: /supercred returns index.html" {
+  run curl -fsS "$base/supercred"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'id="root"'* ]]
+}
+
+@test "SPA fallback: /rbac-analysis returns index.html" {
+  run curl -fsS "$base/rbac-analysis"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'id="root"'* ]]
+}
+
+@test "SPA fallback: /rbac-explorer returns index.html" {
+  run curl -fsS "$base/rbac-explorer"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'id="root"'* ]]
+}
+
+# A SPA route must be served directly, never redirected. nginx builds absolute
+# redirects from its own listen scheme and port (http://…:8080), which do not
+# exist outside the cluster, so any 3xx here becomes ERR_CONNECTION_REFUSED in a
+# browser reaching the dashboard through the gateway.
+@test "SPA routes are served directly, never redirected" {
+  for route in /agents /compliance /audit /cryptography /federated-services \
+               /collusion-access /rbac-analysis /rbac-explorer /supercred /settings; do
+    run curl -s -o /dev/null -w '%{http_code}' "$base$route"
+    [ "$status" -eq 0 ]
+    [ "$output" = "200" ] || {
+      echo "route $route returned HTTP $output, expected 200 (a 3xx means a proxy prefix is shadowing the SPA route)" >&2
+      return 1
+    }
+  done
+}
+
 @test "SPA fallback: /federated-services returns index.html" {
   run curl -fsS "$base/federated-services"
   [ "$status" -eq 0 ]

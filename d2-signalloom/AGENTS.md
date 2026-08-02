@@ -64,6 +64,8 @@ kubectl -n ingress port-forward svc/envoy-ingress-cluster-* 18443:443
 | `/supercred` | SuperCred demo | fake-integration-proxy | |
 | `/settings` | Settings | API | |
 
+Utility routes (not sidebar-navigable): `/onboarding` (wizard), `/redeem-invite` (signup).
+
 Corner widgets, bottom-right: **ThemeToggle** (Dark / Light / Andy) then **DemoToggle** (live API ↔
 local fixture data).
 

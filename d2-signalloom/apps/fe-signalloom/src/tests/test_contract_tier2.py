@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import socket
+from urllib.parse import urlparse
 import subprocess
 import time
 from pathlib import Path
@@ -163,7 +164,8 @@ class _FakeAsyncClient:
 # Database setup / teardown
 # ---------------------------------------------------------------------------
 
-_MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
+_DB_DIR = Path(__file__).resolve().parent.parent / "db"
+_MIGRATIONS_DIR = _DB_DIR / "migrations"
 
 
 def _run_sql(sql_file: Path) -> None:
@@ -180,22 +182,27 @@ def _run_sql(sql_file: Path) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def _apply_migrations() -> None:
-    """Apply schema + seed data before the test session."""
-    schema = _MIGRATIONS_DIR / "004_agent_governance_schema.sql"
-    seed = _MIGRATIONS_DIR / "data-mock.sql"
-    if schema.exists():
-        _run_sql(schema)
-    if seed.exists():
-        _run_sql(seed)
+    """Apply schema + seed data before the test session.
+
+    The seed and reset scripts live in ``db/``, not ``db/migrations/`` — the
+    module docstring's claim that they sit alongside the migrations was wrong.
+    Because the previous code guarded each file with ``if …exists()``, the
+    mismatch meant seeding was skipped in silence and every test that expected
+    fixture rows failed on its own assertion instead of reporting the real cause.
+    A missing file is now an error.
+    """
+    for sql_file in (_MIGRATIONS_DIR / "004_agent_governance_schema.sql", _DB_DIR / "data-mock.sql"):
+        assert sql_file.exists(), f"required SQL file is missing: {sql_file}"
+        _run_sql(sql_file)
 
 
 @pytest.fixture(autouse=True)
 def _reset_after_mutation() -> None:
     """Reset mutable data after each test to keep tests idempotent."""
     yield
-    reset = _MIGRATIONS_DIR / "data-reset.sql"
-    if reset.exists():
-        _run_sql(reset)
+    reset = _DB_DIR / "data-reset.sql"
+    assert reset.exists(), f"required SQL file is missing: {reset}"
+    _run_sql(reset)
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +223,40 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _TestJWKClient())
     monkeypatch.setattr(api_compat.httpx, "AsyncClient", _FakeAsyncClient)
 
-    def reject_external_network(*_args: Any, **_kwargs: Any) -> None:
-        raise AssertionError("external network access is forbidden in integration tests")
+    # Force a fresh pool per test.
+    #
+    # api_compat._pool is a module-level global built lazily on first request and
+    # never closed. TestClient runs each test on its own event loop, so a pool
+    # created by test N is bound to a loop that is already closed by test N+1 —
+    # producing ConnectionDoesNotExistError, "Event loop is closed", and
+    # "another operation is in progress" rather than any real assertion failure.
+    # Clearing the globals makes each test build its own pool on its own loop.
+    monkeypatch.setattr(api_compat, "_pool", None)
+    monkeypatch.setattr(api_compat, "_pool_init_attempted", False)
+
+    # Block external network, but NOT the database this tier exists to exercise.
+    #
+    # This guard was copied from tier 1, where blocking every connect() is right
+    # because tier 1 talks to nothing. Tier 2 must reach Postgres, so the blanket
+    # ban made the whole tier error out in setup — which is why it had never run.
+    #
+    # "External" means anything that is not the configured database. Loopback is
+    # allowed because the DSN commonly points at a port-forward or a local
+    # container; a real outbound call still fails and names the address it tried.
+    real_connect = socket.socket.connect
+    allowed_hosts = {"127.0.0.1", "::1", "localhost"}
+    dsn_host = urlparse(settings.database_url).hostname if settings.database_url else None
+    if dsn_host:
+        allowed_hosts.add(dsn_host)
+
+    def reject_external_network(self: socket.socket, address: Any, *args: Any, **kwargs: Any) -> None:
+        host = address[0] if isinstance(address, tuple) and address else address
+        if host in allowed_hosts:
+            return real_connect(self, address, *args, **kwargs)
+        raise AssertionError(
+            f"external network access is forbidden in integration tests (tried {host!r}); "
+            f"only the database and loopback are permitted"
+        )
 
     monkeypatch.setattr(socket.socket, "connect", reject_external_network)
 

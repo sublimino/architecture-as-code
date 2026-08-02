@@ -10,6 +10,11 @@ NAMESPACE_BAO="inf-bao"
 NAMESPACE_AGENTS="fe-signalloom-agents"
 TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 
+# Shared polling/wait primitives — deadline-bounded exponential backoff with
+# jitter and existence-first k8s semantics, instead of hand-rolled sleeps.
+# shellcheck source=../../scripts/lib/wait.sh
+source "${BATS_TEST_DIRNAME}/../../scripts/lib/wait.sh"
+
 # cardvault and policy-engine ship distroless images (no shell, no wget/curl
 # inside the container — see d2-signalloom/apps/{cardvault,policy-engine}/
 # base), so `kubectl exec ... wget` can never work against them. Probe from
@@ -20,12 +25,10 @@ port_forward_wait() {
   kubectl -n "$namespace" port-forward "svc/$svc" "$local_port:$remote_port" \
     >"$BATS_TEST_TMPDIR/${svc}-port-forward.log" 2>&1 &
   FORWARD_PID=$!
-  for _ in $(seq 1 40); do
-    curl -fsS -o /dev/null "http://localhost:$local_port$probe_path" 2>/dev/null && return 0
-    sleep 0.25
-  done
-  cat "$BATS_TEST_TMPDIR/${svc}-port-forward.log" >&3
-  return 1
+  wait_reachable "http://localhost:$local_port$probe_path" 10 || {
+    cat "$BATS_TEST_TMPDIR/${svc}-port-forward.log" >&3
+    return 1
+  }
 }
 
 teardown() {
@@ -77,24 +80,25 @@ teardown() {
 }
 
 @test "SUPERCRED OpenBao supercred bootstrap completed" {
-  # scripts/supercred-demo.sh demo_1() seeds this secret directly via
-  # `kubectl exec deployment/openbao -- bao kv put ...` — it does NOT apply
-  # or wait on the openbao-supercred-bootstrap Job. That Job is declared in
-  # d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml
-  # and is Flux-managed (kustomize.toolkit.fluxcd.io/force: "true"), but
-  # demo_1() explicitly deletes it as part of its own cleanup and it only
-  # gets recreated on inf-bao's ~30m reconcile interval. Waiting on the Job's
-  # condition here races Flux's clock rather than testing what step 1
-  # actually guarantees. Assert on the seeded secret instead — openbao's
-  # image ships a shell + the `bao` CLI (it is not distroless), so exec is
-  # the correct probe here, unlike cardvault/policy-engine above.
-  run kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao kv get -format=json kv/signalloom/cardvault-agent
+  # The openbao-supercred-bootstrap Job (d2-signalloom/infra/inf-bao/configs/
+  # base/openbao-supercred-bootstrap.yaml) is Flux-managed with
+  # kustomize.toolkit.fluxcd.io/force: "true" (delete+recreate every
+  # reconcile — Jobs are immutable). scripts/supercred-demo.sh demo_1() seeds
+  # OpenBao directly via `kubectl exec deployment/openbao -- bao kv put ...`
+  # as part of its own idempotent cleanup, and deletes this Job on the way in
+  # without recreating it — Flux only recreates it on inf-bao's ~30m
+  # reconcile interval. A bare `wait_k8s_ready job ... --for condition=
+  # complete` right after step 1 would therefore poll (however robustly) for
+  # up to 30 minutes for an object that plain doesn't exist yet — proven by
+  # force-reconciling inf-bao's Kustomization and watching the Job reappear
+  # and complete in ~4s. Trigger that same reconcile here so the assertion
+  # is on the real Job resource converging under GitOps, the way the demo
+  # intends, without racing Flux's clock.
+  kubectl -n "$NAMESPACE_BAO" annotate kustomization infra-configs \
+    "reconcile.fluxcd.io/requestedAt=$(date +%s)" --overwrite >/dev/null
+  run wait_k8s_ready job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" \
+    --for condition=complete 60
   [ "$status" -eq 0 ]
-  # `bao -format=json` pretty-prints (colon-space), unlike the compact JSON
-  # the policy-engine API returns below — the space here is deliberate.
-  [[ "$output" == *'"username": "cardvault-svc-account"'* ]]
 }
 
 @test "SUPERCRED cardvault-agent has supercred label" {

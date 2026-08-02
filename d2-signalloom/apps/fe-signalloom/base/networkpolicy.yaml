@@ -9,7 +9,7 @@ spec:
     - Egress
 ---
 # The portal is not a general cluster client. It can reach only DNS and the
-# four declared backing services plus the bounded OpenBao proof endpoint.
+# five declared backing services plus the bounded OpenBao proof endpoint.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -58,6 +58,17 @@ spec:
       ports:
         - protocol: TCP
           port: 8200
+    # rbac_correlation.py calls AFM_BASE_URL (afm-platform.fe-k8s-afm) server-side
+    # to build /api/rbac/clusters/{id}/correlated. This is the API pod's egress
+    # half; afm-platform itself has no ingress NetworkPolicy of its own (see
+    # d2-k8s-afm/apps/afm-platform/base) so no matching ingress rule is needed there.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-k8s-afm
+      ports:
+        - protocol: TCP
+          port: 8000
 ---
 # Public exposure is permitted only through the selected gateway namespace;
 # direct cross-namespace access to the portal is denied by default.

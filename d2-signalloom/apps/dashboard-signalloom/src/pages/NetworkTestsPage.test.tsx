@@ -79,9 +79,9 @@ describe('NetworkTestsPage', () => {
     await waitFor(() => expect(listMock).toHaveBeenCalled())
   })
 
-  it('renders the NetSerts section', async () => {
+  it('renders the NetAssert section', async () => {
     renderPage()
-    expect(screen.getByText('NetSerts — Network Policy Assertions')).toBeTruthy()
+    expect(screen.getByText('NetAssert — Network Policy Assertions')).toBeTruthy()
     await waitFor(() => expect(listMock).toHaveBeenCalled())
   })
 

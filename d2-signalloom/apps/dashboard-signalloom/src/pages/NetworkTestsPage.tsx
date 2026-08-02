@@ -1,8 +1,8 @@
 /**
- * NetworkTestsPage — surfaces NetSerts (netassert) network policy test
+ * NetworkTestsPage — surfaces NetAssert network policy test
  * results, CI pipeline results, and agent test infrastructure status.
  *
- * The NetSerts section is live: it reads the current state of the
+ * The NetAssert section is live: it reads the current state of the
  * netassert-run Kubernetes Job (see d2-signalloom/apps/fake-integration-proxy
  * /server.py) via GET /network-tests, and the "Scan Now" button triggers a
  * real run of the committed d2-signalloom/test/netassert-signalloom.yaml
@@ -153,7 +153,7 @@ export default function NetworkTestsPage() {
             Network Tests
           </h1>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            NetSerts integration, CI pipeline results, and agent test infrastructure
+            NetAssert integration, CI pipeline results, and agent test infrastructure
           </div>
         </div>
         {data && tests.length > 0 && <Pill label={allPass ? 'healthy' : 'degraded'} />}
@@ -182,15 +182,15 @@ export default function NetworkTestsPage() {
 
       {/* Summary stats */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
-        <StatCard label="NetSerts assertions" value={String(tests.length)} sub={`${allowed.length} allowed, ${denied.length} denied`} accent={colors.cyanLoom} />
+        <StatCard label="NetAssert assertions" value={String(tests.length)} sub={`${allowed.length} allowed, ${denied.length} denied`} accent={colors.cyanLoom} />
         <StatCard label="Passing" value={String(passCount)} sub={`of ${tests.length} scored`} accent={colors.tealLoom} />
         <StatCard label="Failing" value={String(failCount)} sub={data ? `scan: ${data.scanStatus}` : 'loading…'} accent={failCount > 0 ? colors.amber : colors.tealLoom} />
         <StatCard label="CI pass" value={String(CI_SUMMARY.pass)} sub={`of ${CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error} scored`} accent={colors.tealLoom} />
         <StatCard label="Agent tests" value={`${totalAgentPassed}/${totalAgentTests}`} sub="across fe-signalloom-agents" accent={totalAgentPassed === totalAgentTests ? colors.tealLoom : colors.amber} />
       </div>
 
-      {/* ── NetSerts ── */}
-      <Section title="NetSerts — Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
+      {/* ── NetAssert ── */}
+      <Section title="NetAssert — Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {(['all', 'allowed', 'denied'] as TestFilter[]).map((f) => (
             <button
@@ -218,7 +218,7 @@ export default function NetworkTestsPage() {
               No scan has been run yet
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
-              Click <strong>Scan Now</strong> to run the NetSerts suite against the live cluster.
+              Click <strong>Scan Now</strong> to run the NetAssert suite against the live cluster.
             </div>
           </div>
         )}

@@ -49,6 +49,61 @@ setup() {
   [[ "$output" == *"name: allow-dependency-traffic"* ]]
 }
 
+@test "netassert runner reaches only the Kubernetes API transport" {
+  policy="$repo_root/d2-signalloom/apps/fe-signalloom/base/networkpolicy.yaml"
+
+  run yq eval-all '
+    select(.metadata.name == "allow-netassert-runner-egress")
+    | [
+        .spec.podSelector.matchLabels."signalloom.ai/purpose",
+        .spec.policyTypes[],
+        .spec.egress[].ports[] | .protocol + ":" + (.port | tostring)
+      ] | .[]
+  ' "$policy"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'network-test-run\nEgress\nTCP:443\nTCP:6443' ]
+}
+
+@test "netassert resolver accepts Kubernetes pretty and compact JSON" {
+  resolver="$repo_root/d2-signalloom/netassert-runner/resolve-agent-pod.sh"
+  parser='s/.*"name"[[:space:]]*:[[:space:]]*"\(agent-[^"]*\)".*/\1/p'
+
+  run grep -F "$parser" "$resolver"
+  [ "$status" -eq 0 ]
+
+  for response in \
+    $'{\n  "metadata": {\n    "name": "agent-pretty"\n  }\n}' \
+    '{"metadata":{"name":"agent-compact"}}'; do
+    run sed -n "$parser" <<<"$response"
+    [ "$status" -eq 0 ]
+    [[ "$output" == agent-* ]]
+  done
+}
+
+@test "netassert agent Role patches ephemeral containers but destination Role stays readonly" {
+  fleet="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+
+  run yq ea -r '
+    select(.metadata.name == "signalloom-infra")
+    | .spec.resources[]
+    | select(.kind == "Role" and .metadata.name == "netassert-runner" and .metadata.namespace == "fe-signalloom-agents")
+    | .rules[]
+    | [.resources[], .verbs[]] | .[]
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+  [ "$output" = $'pods\npods/ephemeralcontainers\nget\nlist\nwatch\npatch' ]
+
+  run yq ea -r '
+    select(.metadata.name == "signalloom-infra")
+    | .spec.resources[]
+    | select(.kind == "Role" and .metadata.name == "netassert-runner-readonly")
+    | [.rules[].resources[], .rules[].verbs[]] | .[]
+  ' "$fleet"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"pods/ephemeralcontainers"* ]]
+  [[ "$output" != *"patch"* ]]
+}
+
 @test "positive and negative Bao proofs are distinct service-account outcomes" {
   proof="$repo_root/d2-signalloom/apps/fe-signalloom/base/bao-spire-proof.yaml"
   runner="$repo_root/scripts/bao-spire-proof.sh"

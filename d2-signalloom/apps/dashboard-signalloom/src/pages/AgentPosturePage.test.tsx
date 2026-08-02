@@ -74,6 +74,17 @@ describe('AgentPosturePage', () => {
     expect(await screen.findByText('2/3')).toBeInTheDocument()
   })
 
+  it('renders the fresh scan response instead of a pre-scan summary', async () => {
+    const { api } = await import('../api/client')
+    renderPage()
+
+    expect(await screen.findByText('2/3')).toBeInTheDocument()
+    expect(api.compliancePolicy.scan).toHaveBeenCalledWith('test-token', {
+      namespace: 'default', policyVersion: 'v2.0', frameworks: [],
+    })
+    expect(api.compliancePolicy.summary).not.toHaveBeenCalled()
+  })
+
   it('renders control sets as expandable sections', async () => {
     renderPage()
     expect(await screen.findByText(/Transparency/)).toBeInTheDocument()

@@ -54,6 +54,51 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "Dashboard delivery uses one Buildx solve for the runnable OCI archive" {
+  run bash -c "grep -Ec '^[[:space:]]*docker buildx build' '$script'"
+  [ "$status" -eq 0 ]
+  [ "$output" = "1" ]
+  run grep -F -- '--output "type=oci,dest=${OCI_TAR}"' "$script"
+  [ "$status" -eq 0 ]
+}
+
+@test "Dashboard delivery fingerprints sources before application cache layers" {
+  run grep -F 'SOURCE_ID="$(tar ' "$script"
+  [ "$status" -eq 0 ]
+  run grep -F -- '--build-arg "SOURCE_ID=${SOURCE_ID}"' "$script"
+  [ "$status" -eq 0 ]
+  run grep -F 'ARG SOURCE_ID' "$root/d2-signalloom/apps/dashboard-signalloom/Dockerfile"
+  [ "$status" -eq 0 ]
+  run awk '/ARG SOURCE_ID/{source_arg=NR} /^COPY \. \./{source_copy=NR} END {exit !(source_arg && source_arg < source_copy)}' "$root/d2-signalloom/apps/dashboard-signalloom/Dockerfile"
+  [ "$status" -eq 0 ]
+}
+
+@test "Dashboard source fingerprint changes when build-context content changes" {
+  tmp_dir="$(mktemp -d)"
+  cp -a "$root/d2-signalloom/apps/dashboard-signalloom/." "$tmp_dir/"
+
+  fingerprint() {
+    tar --sort=name --mtime='UTC 1970-01-01' --owner=0 --group=0 --numeric-owner \
+      --exclude-vcs --exclude='./node_modules' --exclude='./dist' --exclude='./coverage' \
+      -cf - -C "$1" . | sha256sum | awk '{print $1}'
+  }
+
+  before="$(fingerprint "$tmp_dir")"
+  printf '\nsource-fingerprint-regression-probe\n' >> "$tmp_dir/index.html"
+  after="$(fingerprint "$tmp_dir")"
+  [ "$before" != "$after" ]
+  rm -rf "$tmp_dir"
+}
+
+@test "Dashboard delivery loads and pushes the single OCI archive" {
+  run grep -F '"oci-archive:${OCI_TAR}"' "$script"
+  [ "$status" -eq 0 ]
+  run grep -F '"docker-daemon:${IMAGE_REF}"' "$script"
+  [ "$status" -eq 0 ]
+  run grep -F '"docker://${LOCAL_REF}"' "$script"
+  [ "$status" -eq 0 ]
+}
+
 @test "Makefile exposes the signed dashboard image target" {
   run grep -F '.PHONY: signalloom-dashboard-image' "$makefile"
   [ "$status" -eq 0 ]

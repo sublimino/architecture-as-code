@@ -47,11 +47,10 @@ export default function AgentPosturePage() {
   const load = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
-      const [sum, scanResult] = await Promise.all([
-        api.compliancePolicy.summary(token),
-        api.compliancePolicy.scan(token, { namespace: 'default', policyVersion: 'v2.0', frameworks: [] }),
-      ])
-      setSummary(sum)
+      const scanResult = await api.compliancePolicy.scan(token, {
+        namespace: 'default', policyVersion: 'v2.0', frameworks: [],
+      })
+      setSummary(scanResult.summary)
       setChecks(scanResult.checks)
       setError(null)
     } catch (err) {

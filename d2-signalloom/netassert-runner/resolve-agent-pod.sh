@@ -13,7 +13,7 @@ API="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT}"
 
 AGENT_POD=$(curl -fsS --cacert "$CACERT" -H "Authorization: Bearer ${TOKEN}" \
   "${API}/api/v1/namespaces/fe-signalloom-agents/pods?labelSelector=signalloom.ai%2Fagent%3Dtrue" \
-  | sed -n 's/.*"name":"\(agent-[^"]*\)".*/\1/p' | head -n1)
+  | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\(agent-[^"]*\)".*/\1/p' | head -n1)
 
 if [ -z "${AGENT_POD:-}" ]; then
   echo "resolve-agent-pod: no agent pod found in fe-signalloom-agents (label signalloom.ai/agent=true)" >&2

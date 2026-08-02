@@ -124,7 +124,13 @@ def test_network_tests_proxies_the_proxy_payload(monkeypatch):
 
         async def get(self, url: str) -> FakeJsonResponse:
             requested_urls.append(url)
-            return FakeJsonResponse({"tests": [ONE_TEST], "scanStatus": "complete"})
+            return FakeJsonResponse(
+                {
+                    "tests": [ONE_TEST],
+                    "scanStatus": "complete",
+                    "job": {"name": "netassert-run"},
+                }
+            )
 
     with client_for(monkeypatch, FakeAsyncClient) as client:
         response = client.get("/api/network-tests", headers=bearer(token_for()))
@@ -133,6 +139,7 @@ def test_network_tests_proxies_the_proxy_payload(monkeypatch):
     assert response.status_code == 200
     body = response.json()
     assert body["scanStatus"] == "complete"
+    assert body["job"] == {"name": "netassert-run"}
     assert body["tests"][0]["name"] == "dashboard-to-api-allowed"
     assert body["tests"][0]["result"] == "pass"
 

@@ -8,6 +8,28 @@ spec:
     - Ingress
     - Egress
 ---
+# The disposable netassert-run Job resolves its dynamic agent-pod name through
+# kube-apiserver before it starts the real probe. The default-deny policy
+# otherwise drops that request and the Job emits no TAP records. kindnet
+# evaluates service traffic after DNAT, so the ClusterIP's :443 can reach the
+# node's :6443; permit only these API transport ports for Job-labelled pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netassert-runner-egress
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/purpose: network-test-run
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+---
 # The portal is not a general cluster client. It can reach only DNS and the
 # five declared backing services plus the bounded OpenBao proof endpoint.
 apiVersion: networking.k8s.io/v1

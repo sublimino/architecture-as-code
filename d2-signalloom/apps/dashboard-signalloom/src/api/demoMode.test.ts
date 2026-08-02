@@ -102,6 +102,22 @@ describe('demo mode', () => {
     await expect(api.agents.list('tok')).rejects.toThrow('API down')
   })
 
+  it('requests tenant users from the authenticated live API path', async () => {
+    setDemoMode(false)
+    requestMock.mockResolvedValueOnce({ data: { users: [], total: 0 } })
+
+    await expect(api.users('users-token')).resolves.toEqual({ users: [], total: 0 })
+    expect(requestMock).toHaveBeenCalledWith({
+      url: '/api/tenant/users',
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer users-token',
+      },
+      data: undefined,
+    })
+  })
+
   it('matches the revoke fixture for POST /agents/{id}/credentials/revoke', () => {
     const response = resolveFake('POST', `/agents/${INVENTORY_AGENT_ID}/credentials/revoke`)
 
@@ -306,5 +322,20 @@ describe('demo mode', () => {
     }))
     expect(result).toBe(payload)
     expect(result).not.toHaveProperty('simulated')
+  })
+
+  it('posts policy scans to the authenticated live API path', async () => {
+    setDemoMode(false)
+    const body = { namespace: 'default', policyVersion: 'v2.0', frameworks: [] }
+    const payload = { checks: [], summary: { totalChecks: 0 } }
+    requestMock.mockResolvedValueOnce({ data: payload })
+
+    await expect(api.compliancePolicy.scan('live-token', body)).resolves.toBe(payload)
+    expect(requestMock).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/compliance/policy/scan',
+      method: 'POST',
+      data: body,
+      headers: expect.objectContaining({ Authorization: 'Bearer live-token' }),
+    }))
   })
 })

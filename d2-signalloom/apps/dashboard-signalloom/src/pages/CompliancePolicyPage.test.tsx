@@ -44,11 +44,29 @@ vi.mock('../api/client', () => ({
           failedControls: 2,
           totalExposureGbp: 45500,
         },
+        {
+          id: 'finos-aigf',
+          name: 'FINOS AIGF',
+          versions: ['v1.0', 'v2.0', 'v2.1'],
+          totalControls: 11,
+          passedControls: 8,
+          failedControls: 3,
+          totalExposureGbp: 50500,
+        },
+        {
+          id: 'gemara',
+          name: 'Gemara',
+          versions: ['v1.0', 'v2.0', 'v2.1'],
+          totalControls: 10,
+          passedControls: 7,
+          failedControls: 3,
+          totalExposureGbp: 61900,
+        },
       ]),
       summary: vi.fn().mockResolvedValue({
-        totalChecks: 20,
-        passed: 15,
-        failed: 5,
+        totalChecks: 41,
+        passed: 30,
+        failed: 11,
         totalAle: 195500,
         totalVar95: 858000,
         totalTvar: 1332000,
@@ -59,9 +77,9 @@ vi.mock('../api/client', () => ({
       scan: vi.fn().mockResolvedValue({
         checks: [],
         summary: {
-          totalChecks: 20,
-          passed: 18,
-          failed: 2,
+          totalChecks: 41,
+          passed: 35,
+          failed: 6,
           totalAle: 195500,
           totalVar95: 858000,
           totalTvar: 1332000,
@@ -96,12 +114,16 @@ describe('CompliancePolicyPage', () => {
     expect(euMatches.length).toBeGreaterThanOrEqual(1)
     const nistMatches = await screen.findAllByText('NIST 800-53')
     expect(nistMatches.length).toBeGreaterThanOrEqual(1)
+    const finosMatches = await screen.findAllByText('FINOS AIGF')
+    expect(finosMatches.length).toBeGreaterThanOrEqual(1)
+    const gemaraMatches = await screen.findAllByText('Gemara')
+    expect(gemaraMatches.length).toBeGreaterThanOrEqual(1)
   })
 
   it('renders stat cards with check totals', async () => {
     renderPage()
     expect(await screen.findByText('Total Checks')).toBeInTheDocument()
-    expect(await screen.findByText('20')).toBeInTheDocument()
+    expect(await screen.findByText('41')).toBeInTheDocument()
     const passedMatches = screen.getAllByText('Passed')
     expect(passedMatches.length).toBeGreaterThanOrEqual(1)
     const failedMatches = screen.getAllByText('Failed')

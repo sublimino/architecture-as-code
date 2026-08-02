@@ -34,4 +34,10 @@ for resource in "${resources[@]}"; do
   wait_flux_ready "$kind" "$name" -n "$namespace" 300
 done
 
+# Ready=True is necessary but NOT sufficient. Flux leaves an unsubstituted
+# ${VAR} as a literal and still reports the object healthy, so every check above
+# can pass against an estate that cannot actually reconcile. Assert that no
+# tokens survived before declaring the foundation healthy.
+"$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-flux-substitution.sh"
+
 echo "cluster foundation is healthy; no demos are running"

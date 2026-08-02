@@ -265,12 +265,12 @@ export default function CryptographyPage() {
         ) : proofs.length === 0 ? (
           <div className="card" style={{ padding: '18px 16px' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-              Proofs unavailable — API in development
+              {proofError ? 'Workload-identity proof service unreachable' : 'No workload-identity proofs reported'}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 720 }}>
               {proofError
-                ? 'The dashboard could not load workload-identity proofs from the backend, so this section is showing the development fallback state.'
-                : 'The backend returned no workload-identity proofs yet, so this section is showing the development fallback state.'}
+                ? 'The dashboard could not reach the crypto-proof service (fe-signalloom → fake-integration-proxy → Kubernetes Job status for bao-spire-positive-proof / bao-spire-negative-proof). Check connectivity or backend health and retry.'
+                : 'The crypto-proof service responded with zero proofs — the bao-spire-positive-proof / bao-spire-negative-proof Jobs may not have run yet in this namespace.'}
             </div>
           </div>
         ) : (

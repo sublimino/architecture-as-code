@@ -2,6 +2,10 @@
 
 setup() {
   root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+  # Shared polling/wait primitives — deadline-bounded exponential backoff
+  # with jitter, instead of a hand-rolled sleep loop.
+  # shellcheck source=../../scripts/lib/wait.sh
+  source "$root/scripts/lib/wait.sh"
   dex_manifest="$root/d2-signalloom/infra/inf-signalloom/base/dex.yaml"
   workdir="$(mktemp -d)"
   container="signalloom-dex-auth-test-$$"
@@ -17,10 +21,8 @@ start_dex() {
   port="$(docker port "$container" 5556/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')"
   [ -n "$port" ]
 
-  for _ in {1..30}; do
-    curl -fsS "http://127.0.0.1:${port}/dex/.well-known/openid-configuration" >"$discovery" && break
-    sleep 1
-  done
+  wait_reachable "http://127.0.0.1:${port}/dex/.well-known/openid-configuration" 30
+  curl -fsS "http://127.0.0.1:${port}/dex/.well-known/openid-configuration" >"$discovery"
   test -s "$discovery"
 }
 

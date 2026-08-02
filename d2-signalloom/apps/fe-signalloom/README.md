@@ -20,12 +20,17 @@ Dashboard (nginx SPA :8080)
     |                |              /agents  --> k8s API (fe-signalloom-agents ns)
     |                |              /crypto-proofs --> k8s API (bao-spire Jobs)
     |                |
+    |                +-- httpx --> afm-platform (fe-k8s-afm :8000)
+    |                |              RBAC + Z3 escalation/conformance/shared-role
+    |                |              correlation — see rbac_correlation.py and
+    |                |              docs/signalloom/rbac-live-wiring.md
+    |                |
     |                +-- fixture fallback (when database_url is empty)
     |
     +-- /dex/* --> Dex OIDC (inf-signalloom, single-origin proxy)
 ```
 
-## Endpoints (28 total)
+## Endpoints (30 total)
 
 | Group | Method | Path | Source |
 |-------|--------|------|--------|
@@ -57,6 +62,8 @@ Dashboard (nginx SPA :8080)
 | **Cookies** | GET | `/api/cookie-preferences` | Postgres |
 | | PATCH | `/api/cookie-preferences` | Postgres |
 | **Health** | GET | `/api/health/crypto` | k8s (bao-spire Jobs) |
+| **RBAC** | GET | `/api/rbac/clusters` | KubeSec-AFM (fe-k8s-afm) |
+| | GET | `/api/rbac/clusters/{id}/correlated` | KubeSec-AFM, correlated server-side |
 
 `GET /api/agents` merges two sources: Postgres-registered agents AND k8s-discovered
 agents (podinfo pods in `fe-signalloom-agents` with label `signalloom.ai/agent=true`).
@@ -124,6 +131,23 @@ make demo-signalloom-agents-list           # List current agents
 `GET /api/health/crypto` surfaces the bao-spire workload identity proofs:
 - **Positive proof** (bao-spire-positive-proof Job): correct SPIFFE identity -> OpenBao
 - **Negative proof** (bao-spire-negative-proof Job): wrong identity -> denied (fail-closed)
+
+## RBAC correlation (KubeSec-AFM intermediate API)
+
+`GET /api/rbac/clusters` and `GET /api/rbac/clusters/{id}/correlated`
+(`rbac_correlation.py`) back the dashboard's RBAC Explorer. They call the
+KubeSec-AFM platform (`afm-platform.fe-k8s-afm.svc.cluster.local:8000`)
+server-side and join its four separate endpoints (RBAC, escalation analysis,
+conformance, shared-role findings) into one response, instead of the
+frontend fetching all four and stitching them together in the browser.
+
+**Fails closed, not open**: unlike `/api/health/crypto`, an unreachable or
+malformed AFM response here returns `503`, not an empty-but-200 payload — a
+security-posture endpoint that silently reports "nothing found" because its
+upstream was unreachable is worse than one that errors visibly. See
+`docs/signalloom/rbac-live-wiring.md` for the endpoint contract, the exact
+AFM wire-shape bugs this correlation layer fixes, and how to verify it
+against a local cluster.
 
 ## Testing
 

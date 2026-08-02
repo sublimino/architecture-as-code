@@ -10,6 +10,31 @@ NAMESPACE_BAO="inf-bao"
 NAMESPACE_AGENTS="fe-signalloom-agents"
 TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 
+# cardvault and policy-engine ship distroless images (no shell, no wget/curl
+# inside the container — see d2-signalloom/apps/{cardvault,policy-engine}/
+# base), so `kubectl exec ... wget` can never work against them. Probe from
+# outside the pod via a short-lived port-forward + curl instead, following
+# the pattern d2-signalloom/test/runtime.bats already uses for the Gateway.
+port_forward_wait() {
+  local svc="$1" namespace="$2" local_port="$3" remote_port="$4" probe_path="${5:-/healthz}"
+  kubectl -n "$namespace" port-forward "svc/$svc" "$local_port:$remote_port" \
+    >"$BATS_TEST_TMPDIR/${svc}-port-forward.log" 2>&1 &
+  FORWARD_PID=$!
+  for _ in $(seq 1 40); do
+    curl -fsS -o /dev/null "http://localhost:$local_port$probe_path" 2>/dev/null && return 0
+    sleep 0.25
+  done
+  cat "$BATS_TEST_TMPDIR/${svc}-port-forward.log" >&3
+  return 1
+}
+
+teardown() {
+  if [ -n "${FORWARD_PID:-}" ]; then
+    kill "$FORWARD_PID" >/dev/null 2>&1 || true
+    unset FORWARD_PID
+  fi
+}
+
 # ─── Step 1 validation ───────────────────────────────────────────────────────
 
 @test "SUPERCRED cardvault deployment is available" {
@@ -25,15 +50,17 @@ TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 }
 
 @test "SUPERCRED cardvault healthz returns 200" {
-  run kubectl -n "$NAMESPACE_INFRA" exec deployment/cardvault -- \
-    wget -qO- http://localhost:8080/healthz
+  port_forward_wait cardvault "$NAMESPACE_INFRA" 18080 8080
+  run curl -fsS http://localhost:18080/healthz
   [ "$status" -eq 0 ]
   [[ "$output" == *'"status":"ok"'* ]]
 }
 
 @test "SUPERCRED policy-engine healthz returns 200" {
-  run kubectl -n "$NAMESPACE_INFRA" exec deployment/policy-engine -- \
-    wget -qO- http://localhost:8081/healthz
+  # policy-engine listens on 8081, not 8080 — matches the containerPort and
+  # Service port in d2-signalloom/apps/policy-engine/base.
+  port_forward_wait policy-engine "$NAMESPACE_INFRA" 18081 8081
+  run curl -fsS http://localhost:18081/healthz
   [ "$status" -eq 0 ]
   [[ "$output" == *'"status":"ok"'* ]]
 }
@@ -50,9 +77,24 @@ TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 }
 
 @test "SUPERCRED OpenBao supercred bootstrap completed" {
-  run kubectl -n "$NAMESPACE_BAO" wait job/openbao-supercred-bootstrap \
-    --for=condition=complete --timeout=30s
+  # scripts/supercred-demo.sh demo_1() seeds this secret directly via
+  # `kubectl exec deployment/openbao -- bao kv put ...` — it does NOT apply
+  # or wait on the openbao-supercred-bootstrap Job. That Job is declared in
+  # d2-signalloom/infra/inf-bao/configs/base/openbao-supercred-bootstrap.yaml
+  # and is Flux-managed (kustomize.toolkit.fluxcd.io/force: "true"), but
+  # demo_1() explicitly deletes it as part of its own cleanup and it only
+  # gets recreated on inf-bao's ~30m reconcile interval. Waiting on the Job's
+  # condition here races Flux's clock rather than testing what step 1
+  # actually guarantees. Assert on the seeded secret instead — openbao's
+  # image ships a shell + the `bao` CLI (it is not distroless), so exec is
+  # the correct probe here, unlike cardvault/policy-engine above.
+  run kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    bao kv get -format=json kv/signalloom/cardvault-agent
   [ "$status" -eq 0 ]
+  # `bao -format=json` pretty-prints (colon-space), unlike the compact JSON
+  # the policy-engine API returns below — the space here is deliberate.
+  [[ "$output" == *'"username": "cardvault-svc-account"'* ]]
 }
 
 @test "SUPERCRED cardvault-agent has supercred label" {
@@ -79,11 +121,12 @@ TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 # ─── Step 3 validation (compliance scan) ─────────────────────────────────────
 
 @test "SUPERCRED policy-engine correctly evaluates non-compliant agent" {
+  port_forward_wait policy-engine "$NAMESPACE_INFRA" 18081 8081
   POD_SPEC='{"containers":[{"name":"agent","securityContext":null}],"securityContext":null}'
-  RESULT=$(kubectl -n "$NAMESPACE_INFRA" exec deployment/policy-engine -- \
-    wget -qO- --post-data="{\"agent_id\":\"cardvault\",\"namespace\":\"$NAMESPACE_AGENTS\",\"pod_spec\":$POD_SPEC,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}" \
+  RESULT=$(curl -fsS -X POST http://localhost:18081/api/v1/evaluate \
     --header='Content-Type: application/json' \
-    http://localhost:8081/api/v1/evaluate 2>/dev/null)
+    --data "{\"agent_id\":\"cardvault\",\"namespace\":\"$NAMESPACE_AGENTS\",\"pod_spec\":$POD_SPEC,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}" \
+    2>/dev/null)
   echo "$RESULT"
   # Must report non-compliant
   [[ "$RESULT" == *'"compliant":false'* ]]
@@ -92,11 +135,12 @@ TIMEOUT="${DEMO_WAIT_TIMEOUT:-5m}"
 }
 
 @test "SUPERCRED policy-engine correctly evaluates compliant pod spec" {
+  port_forward_wait policy-engine "$NAMESPACE_INFRA" 18081 8081
   POD_SPEC='{"containers":[{"name":"c","securityContext":{"capabilities":{"drop":["ALL"]}}}],"securityContext":{"runAsNonRoot":true}}'
-  RESULT=$(kubectl -n "$NAMESPACE_INFRA" exec deployment/policy-engine -- \
-    wget -qO- --post-data="{\"agent_id\":\"test\",\"namespace\":\"default\",\"pod_spec\":$POD_SPEC,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}" \
+  RESULT=$(curl -fsS -X POST http://localhost:18081/api/v1/evaluate \
     --header='Content-Type: application/json' \
-    http://localhost:8081/api/v1/evaluate 2>/dev/null)
+    --data "{\"agent_id\":\"test\",\"namespace\":\"default\",\"pod_spec\":$POD_SPEC,\"checks\":[\"security-context-present\",\"run-as-non-root\",\"drop-capabilities\"]}" \
+    2>/dev/null)
   echo "$RESULT"
   [[ "$RESULT" == *'"compliant":true'* ]]
 }

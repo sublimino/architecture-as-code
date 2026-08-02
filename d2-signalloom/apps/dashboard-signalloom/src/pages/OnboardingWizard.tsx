@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { getTenantIdFromToken } from '../auth/tenant'
 import { api } from '../api/client'
@@ -52,10 +52,18 @@ function Spinner() {
   )
 }
 
+/** localStorage key for the 30-minute skip TTL (client-side only). */
+const SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
+
 export default function OnboardingWizard() {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
+  const location = useLocation()
   const { refreshOnboardingState, setHelpOpen } = useAppContext()
+
+  // Where to go after skip/finish — ProtectedRoute passes the page the user
+  // was on before the onboarding gate redirected them here.
+  const returnTo = (location.state as { returnTo?: string } | null)?.returnTo || '/agents'
 
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [providers, setProviders] = useState<ConnectorProvider[]>([])
@@ -279,10 +287,18 @@ export default function OnboardingWizard() {
     // on render. Navigating first would show it the stale value and bounce
     // back to /onboarding (see refreshOnboardingState's doc comment in App.tsx).
     await refreshOnboardingState()
-    navigate('/discovery')
+    navigate(returnTo)
   }
 
   async function handleSkip() {
+    // Client-side TTL — suppress the onboarding gate for ~30 minutes so the
+    // user isn't immediately bounced back after skipping.
+    try {
+      localStorage.setItem(SKIP_STORAGE_KEY, JSON.stringify({ skippedAt: Date.now() }))
+    } catch {
+      // localStorage may be unavailable (private browsing, quota) — non-fatal.
+    }
+
     // Server-side skip (cross-device auto-trigger gate) alongside the
     // existing client-side progress persistence — see
     // outputs/engineering-logs/2026-07-30-us-enhc-011-closeout-plan.md §2.
@@ -294,7 +310,7 @@ export default function OnboardingWizard() {
       // worst case they see it again next login, which is the safe default.
     }
     await refreshOnboardingState()
-    navigate('/discovery')
+    navigate(returnTo)
   }
 
   if (loading) {

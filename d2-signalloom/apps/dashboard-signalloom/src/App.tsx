@@ -14,6 +14,10 @@ import type { CookiePreferences } from './types/api'
 
 const CONSENT_ENABLED = import.meta.env.VITE_CONSENT_MODAL_ENABLED === 'true'
 
+/** localStorage key shared with OnboardingWizard — skip TTL (30 min). */
+const ONBOARDING_SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
+const ONBOARDING_SKIP_TTL_MS = 30 * 60 * 1000
+
 const ConsentModal    = CONSENT_ENABLED ? lazy(() => import('./components/ConsentModal'))    : null
 const CookieSettingsModal = lazy(() => import('./components/CookieSettingsModal'))
 
@@ -109,6 +113,25 @@ export default function App() {
       setNeedsOnboarding(null)
       return
     }
+
+    // Client-side TTL — if the user recently skipped, suppress the gate
+    // for ~30 minutes without hitting the server. The localStorage entry
+    // is written by OnboardingWizard.handleSkip().
+    try {
+      const raw = localStorage.getItem(ONBOARDING_SKIP_STORAGE_KEY)
+      if (raw) {
+        const { skippedAt } = JSON.parse(raw) as { skippedAt: number }
+        if (Date.now() - skippedAt < ONBOARDING_SKIP_TTL_MS) {
+          setNeedsOnboarding(false)
+          return
+        }
+        // Expired — clean up
+        localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY)
+      }
+    } catch {
+      // Corrupt or unavailable localStorage — fall through to server check.
+    }
+
     try {
       const token = await getAccessTokenSilently()
       const [providers, connectors, onboardingStatus] = await Promise.all([

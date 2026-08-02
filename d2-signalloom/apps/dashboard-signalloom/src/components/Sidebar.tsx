@@ -183,35 +183,40 @@ export default function Sidebar() {
                 )}
               </span>
               {label === 'Compliance' && failingControls > 0 && (
-                <span style={{
-                  background: 'var(--error)',
-                  color: 'var(--on-accent)',
-                  borderRadius: 99,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: '1px 6px',
-                  minWidth: 18,
-                  textAlign: 'center',
-                }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    background: 'var(--error)',
+                    color: 'var(--on-accent)',
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    minWidth: 18,
+                    textAlign: 'center',
+                  }}>
                   {failingControls > 99 ? '99+' : failingControls}
                 </span>
               )}
               {label === 'Agents' && tenant && tenant.agent_count > 0 && (
-                <span style={{
-                  background: 'var(--border)',
-                  color: 'var(--muted)',
-                  borderRadius: 99,
-                  fontSize: 10,
-                  fontWeight: 700,
-                  padding: '1px 6px',
-                  minWidth: 18,
-                  textAlign: 'center',
-                }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    background: 'var(--border)',
+                    color: 'var(--muted)',
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    minWidth: 18,
+                    textAlign: 'center',
+                  }}>
                   {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
                 </span>
               )}
               {label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
                 <span
+                  aria-hidden="true"
                   title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
                   style={{
                     background: 'var(--error)',

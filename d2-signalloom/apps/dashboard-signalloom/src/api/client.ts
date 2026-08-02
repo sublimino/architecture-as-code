@@ -18,6 +18,7 @@ import type {
   NHIAccountDetail,
   NHIDiscoveredResponse,
   NHIScanListResponse,
+  PlatformUsersResponse,
   PostureResponse,
   PreferencesUpdateRequest,
   ReassessmentResponse,
@@ -252,6 +253,9 @@ export const api = {
     accept: (token: string, body: ConsentAcceptRequest) =>
       req<ConsentAcceptResponse>('/consent/accept', token, { method: 'POST', data: body }),
   },
+
+  users: (token: string) =>
+    req<PlatformUsersResponse>('/tenant/users', token),
 
   cookiePreferences: {
     get: (token: string) =>

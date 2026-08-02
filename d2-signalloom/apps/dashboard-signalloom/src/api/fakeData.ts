@@ -20,6 +20,7 @@ import type {
   IssueCredentialResponse,
   NHIDiscoveredResponse,
   NHIScanListResponse,
+  PlatformUsersResponse,
   PostureResponse,
   ReassessmentResponse,
   RotateApiKeyResponse,
@@ -326,6 +327,23 @@ const cryptoHealth: CryptoHealthResponse = {
   ],
 }
 
+// ─── Platform Users ─────────────────────────────────────────────────────────
+
+const platformUsers: PlatformUsersResponse = {
+  users: [
+    { id: 'u0000000-0000-0000-0000-000000000001', email: 'admin@acme.co', display_name: 'Alice Admin', role: 'admin', status: 'active', department: 'Platform Engineering', title: 'Platform Lead', last_login_at: '2026-07-31T09:15:00Z', created_at: '2026-06-15T10:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000002', email: 'wendy@acme.co', display_name: 'Wendy Watkins', role: 'admin', status: 'active', department: 'Security', title: 'Security Engineer', last_login_at: '2026-07-30T14:22:00Z', created_at: '2026-06-15T10:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000003', email: 'lancelot@acme.co', display_name: 'Lance Overture', role: 'editor', status: 'active', department: 'Platform Engineering', title: 'AI Engineer', last_login_at: '2026-07-29T11:00:00Z', created_at: '2026-06-20T09:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000004', email: 'dennis@acme.co', display_name: 'Dennis Moore', role: 'editor', status: 'active', department: 'Platform Engineering', title: 'ML Engineer', last_login_at: '2026-07-28T16:45:00Z', created_at: '2026-06-22T09:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000005', email: 'patsy@acme.co', display_name: 'Pat Gallahad', role: 'viewer', status: 'active', department: 'Product', title: 'Product Manager', last_login_at: '2026-07-25T10:30:00Z', created_at: '2026-07-01T09:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000006', email: 'robin@acme.co', display_name: 'Robin Banks', role: 'editor', status: 'active', department: 'Platform Engineering', title: 'DevOps Engineer', last_login_at: '2026-07-27T08:00:00Z', created_at: '2026-06-25T09:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000007', email: 'ciso@acme.co', display_name: 'Chris Isobel', role: 'admin', status: 'active', department: 'Security', title: 'CISO', last_login_at: '2026-07-31T17:00:00Z', created_at: '2026-06-15T10:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000008', email: 'devops@acme.co', display_name: 'Devon Ops', role: 'editor', status: 'active', department: 'Infrastructure', title: 'Infrastructure Engineer', last_login_at: '2026-07-26T13:15:00Z', created_at: '2026-06-18T09:00:00Z' },
+    { id: 'u0000000-0000-0000-0000-000000000009', email: 'ops@acme.co', display_name: 'Olivia Parsons', role: 'viewer', status: 'active', department: 'Infrastructure', title: 'Operations Analyst', last_login_at: '2026-07-20T09:00:00Z', created_at: '2026-07-05T09:00:00Z' },
+  ],
+  total: 9,
+}
+
 // ─── Resolver ──────────────────────────────────────────────────────────────────
 
 type Match = {
@@ -367,7 +385,8 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/enroll$/), data: (p) => ({ account_id: p.split('/')[3], status: 'enrollment_requested' }) },
   { method: 'POST', test: re(/^\/nhi\/discovered\/[^/]+\/dismiss$/), data: (p) => ({ account_id: p.split('/')[3], status: 'dismissed' }) },
   { method: 'GET', test: re(/^\/nhi\/report\/json$/), data: () => nhiReport },
-  // tenant / support
+  // tenant / support / users
+  { method: 'GET', test: re(/^\/tenant\/users$/), data: () => platformUsers },
   { method: 'GET', test: re(/^\/tenant\/settings$/), data: () => tenantSettings() },
   { method: 'PATCH', test: re(/^\/tenant\/settings\/frameworks$/), data: (_p, body) =>
       tenantSettings((body as { selected_frameworks?: string[] })?.selected_frameworks ?? ['eu-ai-act']) },
@@ -387,7 +406,7 @@ const ROUTES: Match[] = [
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  29 base + 3 compliance-policy = 32 */
+ *  30 base + 3 compliance-policy = 33 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

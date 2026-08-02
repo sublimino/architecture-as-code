@@ -6,7 +6,7 @@
 --   psql $CONN -f data-reset.sql                       # reset all tables
 --   psql $CONN -v focus=agents -f data-reset.sql       # reset agent tables only
 --
--- Focus values: agents, compliance, audit, nhi, settings, all (default)
+-- Focus values: agents, compliance, audit, nhi, settings, users, all (default)
 
 BEGIN;
 
@@ -21,6 +21,13 @@ BEGIN
         TRUNCATE public.agent_violations CASCADE;
         TRUNCATE public.agent_registry CASCADE;
         RAISE NOTICE 'reset: agent tables truncated';
+    END IF;
+
+    -- ── Users + roles (after agents — agent_registry.owner_id FK) ───────────
+    IF v_focus IN ('all', 'users') THEN
+        TRUNCATE public.user_roles CASCADE;
+        TRUNCATE public.platform_users CASCADE;
+        RAISE NOTICE 'reset: user tables truncated';
     END IF;
 
     -- ── Compliance / Frameworks ──────────────────────────────────────────────

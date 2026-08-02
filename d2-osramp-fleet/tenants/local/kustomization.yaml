@@ -75,10 +75,11 @@ patches:
       kind: ResourceSet
       name: signalloom-apps
     patch: |
-      # Index 10: OCIRepository follows the tenant namespace, the pre-created
-      # proxy-health Role, and the standard tenant RBAC resources.
+      # Index 12: OCIRepository follows the tenant namespace, the pre-created
+      # proxy-health Role, the agent-inventory reader Role and RoleBinding, the
+      # standard tenant RBAC resources, and the namespace-patch grants.
       - op: add
-        path: /spec/resources/10/spec/verify
+        path: /spec/resources/12/spec/verify
         value:
           provider: cosign
           secretRef:

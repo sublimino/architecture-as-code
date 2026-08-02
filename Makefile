@@ -481,6 +481,10 @@ test-demo-lifecycle: ## Validate composable lifecycle aliases and fail-closed pu
 test-bao-spire-proof-harness: ## Verify positive and negative Bao/SPIRE runtime-proof assertions with a local fake kubectl.
 	bats test/bao-spire-proof.bats
 
+.PHONY: test-revocation-demo-safety
+test-revocation-demo-safety: ## Verify revocation-demo never strands an unsigned artifact (local fake flux/cosign/kubectl).
+	bats test/revocation-demo.bats
+
 .PHONY: attested-test
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.
 	./scripts/attested-test.sh

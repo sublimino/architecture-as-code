@@ -68,6 +68,16 @@ describe('RiskExposurePage', () => {
     expect(await screen.findByText('Carried Risk')).toBeInTheDocument()
   })
 
+  it('renders risk values from the latest policy scan response', async () => {
+    const { api } = await import('../api/client')
+    renderPage()
+
+    expect((await screen.findAllByText('£195,500')).length).toBeGreaterThan(0)
+    expect(api.compliancePolicy.scan).toHaveBeenCalledWith('test-token', {
+      namespace: 'default', policyVersion: 'v2.0', frameworks: [],
+    })
+  })
+
   it('renders calibration source tags', async () => {
     renderPage()
     const tags = await screen.findAllByText('industry-indicative')

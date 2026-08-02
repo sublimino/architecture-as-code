@@ -2,6 +2,8 @@ import base64
 import json
 import socket
 import time
+import uuid
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import jwt
@@ -217,6 +219,253 @@ def test_current_compatibility_contracts_are_typed_and_tenant_scoped(client):
         response = client.get(path, headers=headers)
         assert response.status_code == 200
         model.model_validate(response.json())
+
+
+def test_policy_compliance_compatibility_routes_match_dashboard_contract(client):
+    headers = bearer(token_for("alice"))
+
+    frameworks = client.get("/api/compliance/policy/frameworks", headers=headers)
+    summary = client.get("/api/compliance/policy/summary", headers=headers)
+
+    assert frameworks.status_code == 200
+    assert summary.status_code == 200
+    assert frameworks.json()
+    assert set(frameworks.json()[0]) == {
+        "id", "name", "versions", "totalControls", "passedControls",
+        "failedControls", "totalExposureGbp",
+    }
+    assert set(summary.json()) == {
+        "totalChecks", "passed", "failed", "totalAle", "totalVar95",
+        "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
+    }
+    assert summary.json()["frameworks"] == frameworks.json()
+
+
+def test_discovery_detail_reads_persisted_tenant_account(client, monkeypatch):
+    account_id = uuid.UUID("e0000000-0000-0000-0000-000000000005")
+
+    class DiscoveryPool:
+        def __init__(self):
+            self.args = ()
+
+        async def fetchrow(self, _query, *args):
+            self.args = args
+            return {
+                "id": account_id,
+                "scan_id": uuid.UUID("d0000000-0000-0000-0000-000000000001"),
+                "account_name": "svc-billing-sync",
+                "directory_source": "ad_entra",
+                "owner_email": "platform@example.test",
+                "last_rotated": datetime(2026, 7, 1, tzinfo=timezone.utc),
+                "privilege_level": "elevated",
+                "findings": ["rotation_stale"],
+                "status": "discovered",
+                "first_discovered_at": datetime(2026, 6, 1, tzinfo=timezone.utc),
+                "last_seen_at": datetime(2026, 8, 1, tzinfo=timezone.utc),
+                "dismissed_at": None,
+                "dismissed_by": None,
+                "dismiss_reason": None,
+                "scan_count": 3,
+            }
+
+    pool = DiscoveryPool()
+
+    async def get_pool():
+        return pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    response = client.get(
+        f"/api/nhi/discovered/{account_id}",
+        headers=bearer(token_for("alice")),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["account_name"] == "svc-billing-sync"
+    assert response.json()["last_rotated"] == "2026-07-01T00:00:00Z"
+    assert pool.args == (account_id, "tenant-a")
+
+
+def test_discovery_detail_fails_closed_without_database(client, monkeypatch):
+    async def get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    response = client.get(
+        "/api/nhi/discovered/e0000000-0000-0000-0000-000000000005",
+        headers=bearer(token_for("alice")),
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "database_unavailable"
+
+
+def test_tenant_users_reads_only_authenticated_tenant_records(client, monkeypatch):
+    class TenantUsersPool:
+        def __init__(self):
+            self.query = ""
+            self.args = ()
+
+        async def fetch(self, query, *args):
+            self.query = query
+            self.args = args
+            return [{
+                "id": uuid.UUID("a0000000-0000-0000-0000-000000000001"),
+                "email": "alice@example.test",
+                "display_name": "Alice Example",
+                "role": "admin",
+                "status": "active",
+                "department": "Security",
+                "title": "Security Engineer",
+                "last_login_at": datetime(2026, 8, 1, 10, 0, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc),
+            }]
+
+    pool = TenantUsersPool()
+
+    async def get_pool():
+        return pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    response = client.get("/api/tenant/users", headers=bearer(token_for("alice")))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["total"] == 1
+    assert response.json()["users"][0]["email"] == "alice@example.test"
+    assert pool.args == ("tenant-a",)
+    assert "FROM platform_users" in pool.query
+    assert "tenant_id = $1" in pool.query
+
+
+def test_tenant_users_fails_closed_without_database(client, monkeypatch):
+    async def get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    response = client.get("/api/tenant/users", headers=bearer(token_for("alice")))
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "database_unavailable"
+
+
+def test_policy_scan_updates_persisted_rows_and_returns_existing_summary_model(client, monkeypatch):
+    assessed_at = datetime(2026, 8, 2, 22, 30, tzinfo=timezone.utc)
+
+    class Transaction:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Connection:
+        def __init__(self):
+            self.executions = []
+            self.fetch_args = ()
+
+        def transaction(self):
+            return Transaction()
+
+        async def execute(self, query, *args):
+            self.executions.append((query, args))
+            return "UPDATE 4" if "UPDATE agent_compliance_results" in query else "INSERT 0 1"
+
+        async def fetch(self, _query, *args):
+            self.fetch_args = args
+            return [
+                {
+                    "framework_id": uuid.UUID("f0000000-0000-0000-0000-000000000001"),
+                    "framework_name": "EU AI Act",
+                    "control_id": uuid.UUID("c0000000-0000-0000-0000-000000000001"),
+                    "control_name": "Traceability",
+                    "passed": True,
+                    "assessed_at": assessed_at,
+                },
+                {
+                    "framework_id": uuid.UUID("f0000000-0000-0000-0000-000000000001"),
+                    "framework_name": "EU AI Act",
+                    "control_id": uuid.UUID("c0000000-0000-0000-0000-000000000002"),
+                    "control_name": "Human oversight",
+                    "passed": False,
+                    "assessed_at": assessed_at,
+                },
+            ]
+
+    class Acquire:
+        def __init__(self, connection):
+            self.connection = connection
+
+        async def __aenter__(self):
+            return self.connection
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class PolicyPool:
+        def __init__(self):
+            self.connection = Connection()
+
+        def acquire(self):
+            return Acquire(self.connection)
+
+    pool = PolicyPool()
+
+    async def get_pool():
+        return pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    body = {
+        "namespace": "default",
+        "policyVersion": "v2.1",
+        "frameworks": ["f0000000-0000-0000-0000-000000000001"],
+    }
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json=body,
+        headers=bearer(token_for("alice")),
+    )
+
+    assert response.status_code == 200, response.text
+    scan = api_compat.PolicyScanResponse.model_validate(response.json())
+    assert len(scan.checks) == 2
+    assert scan.summary.totalChecks == 2
+    assert scan.summary.passed == 1
+    assert scan.summary.failed == 1
+    assert scan.summary.scanTimestamp == "2026-08-02T22:30:00Z"
+    assert pool.connection.fetch_args == ("tenant-a", body["frameworks"])
+    assert any("UPDATE agent_compliance_results" in query for query, _ in pool.connection.executions)
+
+
+def test_policy_scan_fails_closed_without_database(client, monkeypatch):
+    async def get_pool():
+        return None
+
+    monkeypatch.setattr(api_compat, "_get_pool", get_pool)
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "default", "policyVersion": "v2.0", "frameworks": []},
+        headers=bearer(token_for("alice")),
+    )
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "database_unavailable"
+
+
+def test_policy_scan_requires_authentication(client):
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "default", "policyVersion": "v2.0", "frameworks": []},
+    )
+    assert response.status_code == 401
+
+
+def test_policy_scan_rejects_empty_namespace(client):
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "", "policyVersion": "v2.0", "frameworks": []},
+        headers=bearer(token_for("alice")),
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "invalid_request"
 
 
 def test_responses_never_mix_records_between_tenants(client):

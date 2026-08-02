@@ -2,6 +2,8 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+ARG SOURCE_ID
+RUN test -n "$SOURCE_ID"
 COPY . .
 RUN npx vite build
 

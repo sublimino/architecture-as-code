@@ -246,6 +246,7 @@ export interface NetworkTestResult {
 export interface NetworkTestListResponse {
   tests: NetworkTestResult[]
   scanStatus: 'never-run' | 'pending' | 'running' | 'complete' | 'failed' | 'unavailable'
+  job?: { name: string } | null
 }
 
 export interface NetworkTestScanResponse {

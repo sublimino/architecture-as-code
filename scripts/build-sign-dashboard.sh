@@ -25,7 +25,7 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || { echo "$1 not installed"; exit 1; }
 }
 
-for tool in curl cosign crane docker find jq kind kubectl tar; do
+for tool in curl cosign crane docker find jq kind kubectl sha256sum skopeo tar; do
   require_command "${tool}"
 done
 
@@ -35,8 +35,23 @@ rm -f "${SBOM_FILE}" "${PROVENANCE_FILE}" "${DIGEST_FILE}"
 TMP_DIR="$(mktemp -d)"
 OCI_TAR="${TMP_DIR}/dashboard-signalloom.oci.tar"
 OCI_DIR="${TMP_DIR}/dashboard-signalloom.oci"
-IMAGE_TAR="${TMP_DIR}/dashboard-signalloom.image.tar"
 PORT_FORWARD_PID=""
+
+# Keep the source identity aligned with .dockerignore. Its use immediately
+# before COPY . . prevents BuildKit from reusing application layers for a
+# different source tree while retaining the package-install cache.
+SOURCE_ID="$(tar \
+  --sort=name \
+  --mtime='UTC 1970-01-01' \
+  --owner=0 \
+  --group=0 \
+  --numeric-owner \
+  --exclude-vcs \
+  --exclude='./node_modules' \
+  --exclude='./dist' \
+  --exclude='./coverage' \
+  -cf - -C "${CONTEXT}" . | sha256sum | awk '{print $1}')"
+test -n "${SOURCE_ID}" || { echo "dashboard source fingerprint is empty"; exit 1; }
 
 cleanup() {
   if [ -n "${PORT_FORWARD_PID}" ]; then
@@ -56,10 +71,11 @@ fi
 
 wait_reachable "http://localhost:5001/v2/" 90
 
-echo "building OCI evidence archive for ${IMAGE_REF}"
+echo "building OCI evidence and runnable image archive for ${IMAGE_REF}"
 docker buildx build \
   --sbom=true \
   --provenance=mode=max \
+  --build-arg "SOURCE_ID=${SOURCE_ID}" \
   -t "${IMAGE_REF}" \
   --output "type=oci,dest=${OCI_TAR}" \
   "${CONTEXT}"
@@ -91,12 +107,20 @@ jq -e '(.predicateType // "") | startswith("https://slsa.dev/provenance/")' "${P
 PROV_PREDICATE_TYPE="$(jq -r '.predicateType' "${PROVENANCE_FILE}")"
 echo "provenance predicateType: ${PROV_PREDICATE_TYPE} (BuildKit local build; delivery-contract targets .../v1 — see evidence README)"
 
-echo "building runnable image into the local Docker image store"
-docker buildx build -t "${IMAGE_REF}" --load "${CONTEXT}"
+echo "loading the runnable image from the OCI evidence archive"
+skopeo copy --insecure-policy \
+  --override-os linux \
+  --override-arch amd64 \
+  "oci-archive:${OCI_TAR}" \
+  "docker-daemon:${IMAGE_REF}"
 
 echo "pushing ${IMAGE_REF} to ${LOCAL_REF}"
-docker save -o "${IMAGE_TAR}" "${IMAGE_REF}"
-crane push --insecure "${IMAGE_TAR}" "${LOCAL_REF}"
+skopeo copy --insecure-policy \
+  --dest-tls-verify=false \
+  --override-os linux \
+  --override-arch amd64 \
+  "oci-archive:${OCI_TAR}" \
+  "docker://${LOCAL_REF}"
 
 DIGEST="$(crane digest --insecure "${LOCAL_REF}")"
 printf '%s\n' "${DIGEST}" > "${DIGEST_FILE}"

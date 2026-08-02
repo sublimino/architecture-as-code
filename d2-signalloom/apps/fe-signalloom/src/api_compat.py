@@ -118,6 +118,27 @@ class AgentListResponse(BaseModel):
     total: int
 
 
+class PlatformUserResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    email: str
+    display_name: str
+    role: Literal["admin", "editor", "viewer"]
+    status: Literal["active", "invited", "suspended", "deactivated"]
+    department: str | None
+    title: str | None
+    last_login_at: str | None
+    created_at: str
+
+
+class PlatformUsersResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    users: list[PlatformUserResponse]
+    total: int
+
+
 class CryptoProof(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -163,6 +184,7 @@ class NetworkTestListResponse(BaseModel):
 
     tests: list[NetworkTestResult]
     scanStatus: Literal["never-run", "pending", "running", "complete", "failed", "unavailable"]
+    job: dict[str, str] | None = None
 
 
 class NetworkTestScanResponse(BaseModel):
@@ -304,6 +326,64 @@ class ComplianceSummaryResponse(BaseModel):
     posture_score: float | None
 
 
+class PolicyFrameworkSummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    versions: list[str]
+    totalControls: int
+    passedControls: int
+    failedControls: int
+    totalExposureGbp: int
+
+
+class PolicySummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    totalChecks: int
+    passed: int
+    failed: int
+    totalAle: int
+    totalVar95: int
+    totalTvar: int
+    totalCarriedGbp: int
+    scanTimestamp: str
+    frameworks: list[PolicyFrameworkSummaryResponse]
+
+
+class PolicyScanRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    namespace: str = Field(min_length=1, max_length=253)
+    policyVersion: str = Field(min_length=1, max_length=64)
+    frameworks: list[str] = Field(default_factory=list)
+
+
+class PolicyComplianceCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    framework: str
+    controlSet: str
+    control: str
+    check: str
+    passed: bool
+    policyVersion: str
+    ale: int
+    var95: int
+    tvar: int
+    carriedGbp: int
+    scanTimestamp: str
+    calibrationSource: str
+
+
+class PolicyScanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    checks: list[PolicyComplianceCheck]
+    summary: PolicySummaryResponse
+
+
 class ControlResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -391,6 +471,26 @@ class NHIAccount(BaseModel):
     previous_risk_flags: list[str] | None
     first_discovered_at: str | None
     last_seen_at: str | None
+
+
+class NHIAccountDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    scan_id: str | None
+    account_name: str
+    directory_source: str
+    owner_email: str | None
+    last_rotated: str | None
+    privilege_level: str
+    findings: list[str]
+    status: str
+    first_discovered_at: str | None
+    last_seen_at: str | None
+    dismissed_at: str | None
+    dismissed_by: str | None
+    dismiss_reason: str | None
+    scan_count: int
 
 
 class NHIDiscoveredSummary(BaseModel):
@@ -854,9 +954,9 @@ async def _compliance_summary_for_agent(
     pending = 0
     for row in rows:
         total += row["cnt"]
-        if row["status"] == "passing":
+        if row["status"] == "pass":
             passing += row["cnt"]
-        elif row["status"] == "failing":
+        elif row["status"] == "fail":
             failing += row["cnt"]
         else:
             pending += row["cnt"]
@@ -2044,13 +2144,13 @@ async def compliance_summary(
                (SELECT COUNT(*)::int FROM agent_registry WHERE tenant_id = $1) AS total_agents,
                COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
-                         WHERE r.tenant_id = $1 AND r.status = 'passing'), 0) AS controls_passing,
+                          WHERE r.tenant_id = $1 AND r.status = 'pass'), 0) AS controls_passing,
                COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
-                         WHERE r.tenant_id = $1 AND r.status = 'failing'), 0) AS controls_failing,
+                          WHERE r.tenant_id = $1 AND r.status = 'fail'), 0) AS controls_failing,
                COALESCE((SELECT COUNT(*)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
-                         WHERE r.tenant_id = $1 AND r.status NOT IN ('passing', 'failing')), 0) AS controls_pending,
+                          WHERE r.tenant_id = $1 AND r.status NOT IN ('pass', 'fail')), 0) AS controls_pending,
                COALESCE((SELECT COUNT(DISTINCT r.agent_id)::int FROM agent_compliance_results r
                          JOIN agent_registry a ON r.agent_id = a.id
                          WHERE r.tenant_id = $1), 0) AS agents_assessed
@@ -2156,7 +2256,7 @@ async def compliance_posture(
             )
             for rr in result_rows
         ]
-        passing = sum(1 for r in results if r.status == "passing")
+        passing = sum(1 for r in results if r.status == "pass")
         total = len(results)
         posture_score = round(passing / total, 2) if total > 0 else None
         postures.append(
@@ -2246,6 +2346,194 @@ async def compliance_frameworks(
             )
         )
     return result
+
+
+async def _policy_framework_summaries(
+    tenant_id: str,
+) -> list[PolicyFrameworkSummaryResponse]:
+    frameworks = await compliance_frameworks(tenant_id)
+    posture = await compliance_posture(tenant_id)
+    results_by_framework: dict[str, dict[str, list[str]]] = {}
+    for agent in posture.agents:
+        for result in agent.results:
+            controls = results_by_framework.setdefault(result.framework_name, {})
+            controls.setdefault(result.control_id, []).append(result.status)
+
+    summaries = []
+    for framework in frameworks:
+        controls = results_by_framework.get(framework.name, {})
+        summaries.append(
+            PolicyFrameworkSummaryResponse(
+                id=framework.id,
+                name=framework.name,
+                versions=[framework.version] if framework.version is not None else [],
+                totalControls=framework.control_count,
+                passedControls=sum(
+                    bool(statuses) and all(status in {"pass", "passing"} for status in statuses)
+                    for statuses in controls.values()
+                ),
+                failedControls=sum(
+                    any(status in {"fail", "failing"} for status in statuses)
+                    for statuses in controls.values()
+                ),
+                # The governance API has no risk-calculation data plane. Zero states
+                # that no exposure value is available; it does not fabricate fixture risk.
+                totalExposureGbp=0,
+            )
+        )
+    return summaries
+
+
+def _policy_scan_summary(
+    checks: list[PolicyComplianceCheck],
+    policy_version: str,
+) -> PolicySummaryResponse:
+    checks_by_framework: dict[tuple[str, str], list[PolicyComplianceCheck]] = {}
+    for check in checks:
+        checks_by_framework.setdefault((check.controlSet, check.framework), []).append(check)
+
+    frameworks = [
+        PolicyFrameworkSummaryResponse(
+            id=framework_id,
+            name=framework_name,
+            versions=[policy_version],
+            totalControls=len(framework_checks),
+            passedControls=sum(check.passed for check in framework_checks),
+            failedControls=sum(not check.passed for check in framework_checks),
+            totalExposureGbp=0,
+        )
+        for (framework_id, framework_name), framework_checks in checks_by_framework.items()
+    ]
+    return PolicySummaryResponse(
+        totalChecks=len(checks),
+        passed=sum(check.passed for check in checks),
+        failed=sum(not check.passed for check in checks),
+        totalAle=0,
+        totalVar95=0,
+        totalTvar=0,
+        totalCarriedGbp=0,
+        scanTimestamp=max((check.scanTimestamp for check in checks), default=_now_iso()),
+        frameworks=frameworks,
+    )
+
+
+async def _db_policy_scan(
+    pool: asyncpg.Pool,
+    tenant_id: str,
+    request: PolicyScanRequest,
+) -> PolicyScanResponse:
+    """Refresh and project persisted tenant compliance assessments."""
+    async with _write(pool) as conn:
+        await conn.execute(
+            """UPDATE agent_compliance_results r
+               SET assessed_at = now()
+               FROM governance_controls c, governance_frameworks f
+               WHERE r.control_id = c.id
+                 AND c.framework_id = f.id
+                 AND r.tenant_id = $1
+                 AND c.tenant_id = $1
+                 AND f.tenant_id = $1
+                 AND (cardinality($2::text[]) = 0 OR f.id::text = ANY($2::text[]))""",
+            tenant_id,
+            request.frameworks,
+        )
+        rows = await conn.fetch(
+            """SELECT f.id AS framework_id, f.name AS framework_name,
+                      c.id AS control_id, c.name AS control_name,
+                      bool_and(r.status = 'pass') AS passed,
+                      max(r.assessed_at) AS assessed_at
+               FROM agent_compliance_results r
+               JOIN governance_controls c ON r.control_id = c.id
+               JOIN governance_frameworks f ON c.framework_id = f.id
+               WHERE r.tenant_id = $1
+                 AND c.tenant_id = $1
+                 AND f.tenant_id = $1
+                 AND (cardinality($2::text[]) = 0 OR f.id::text = ANY($2::text[]))
+               GROUP BY f.id, f.name, c.id, c.name, c.control_order
+               ORDER BY f.name, c.control_order""",
+            tenant_id,
+            request.frameworks,
+        )
+        checks = [
+            PolicyComplianceCheck(
+                framework=row["framework_name"],
+                controlSet=str(row["framework_id"]),
+                control=str(row["control_id"]),
+                check=row["control_name"],
+                passed=bool(row["passed"]),
+                policyVersion=request.policyVersion,
+                ale=0,
+                var95=0,
+                tvar=0,
+                carriedGbp=0,
+                scanTimestamp=_ts(row["assessed_at"]) or _now_iso(),
+                calibrationSource="not-calculated",
+            )
+            for row in rows
+        ]
+    return PolicyScanResponse(
+        checks=checks,
+        summary=_policy_scan_summary(checks, request.policyVersion),
+    )
+
+
+@router.post(
+    "/compliance/policy/scan",
+    response_model=PolicyScanResponse,
+    responses=ERROR_RESPONSES,
+)
+async def policy_compliance_scan(
+    request: PolicyScanRequest,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> PolicyScanResponse:
+    pool = await _get_pool()
+    if pool is None:
+        raise APIError(
+            503,
+            "database_unavailable",
+            "Policy scanning requires the compliance database",
+        )
+    return await _db_policy_scan(pool, tenant_id, request)
+
+
+@router.get(
+    "/compliance/policy/frameworks",
+    response_model=list[PolicyFrameworkSummaryResponse],
+    responses=ERROR_RESPONSES,
+)
+async def policy_compliance_frameworks(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> list[PolicyFrameworkSummaryResponse]:
+    return await _policy_framework_summaries(tenant_id)
+
+
+@router.get(
+    "/compliance/policy/summary",
+    response_model=PolicySummaryResponse,
+    responses=ERROR_RESPONSES,
+)
+async def policy_compliance_summary(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> PolicySummaryResponse:
+    summary = await compliance_summary(tenant_id)
+    posture = await compliance_posture(tenant_id)
+    assessed_at = [
+        result.assessed_at
+        for agent in posture.agents
+        for result in agent.results
+        if result.assessed_at is not None
+    ]
+    return PolicySummaryResponse(
+        totalChecks=summary.controls_passing + summary.controls_failing + summary.controls_pending,
+        passed=summary.controls_passing,
+        failed=summary.controls_failing,
+        totalAle=0,
+        totalVar95=0,
+        totalTvar=0,
+        totalCarriedGbp=0,
+        scanTimestamp=max(assessed_at, default=_now_iso()),
+        frameworks=await _policy_framework_summaries(tenant_id),
+    )
 
 
 @router.get("/compliance/export", responses=ERROR_RESPONSES)
@@ -2644,6 +2932,49 @@ async def nhi_report_json(
     }
 
 
+@router.get("/nhi/discovered/{account_id}", response_model=NHIAccountDetail, responses=ERROR_RESPONSES)
+async def nhi_discovered_detail(
+    account_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> NHIAccountDetail:
+    """Return one persisted account from the caller's tenant inventory."""
+    pool = await _get_pool()
+    if pool is None:
+        raise APIError(
+            503,
+            "database_unavailable",
+            "Discovery account details require the inventory database",
+        )
+
+    account_uuid = _try_uuid(account_id)
+    if account_uuid is None:
+        raise APIError(404, "not_found", "Account not found")
+    row = await pool.fetchrow(
+        "SELECT * FROM nhi_discovered_accounts WHERE id = $1 AND tenant_id = $2",
+        account_uuid,
+        tenant_id,
+    )
+    if row is None:
+        raise APIError(404, "not_found", "Account not found")
+    return NHIAccountDetail(
+        id=str(row["id"]),
+        scan_id=str(row["scan_id"]) if row["scan_id"] is not None else None,
+        account_name=row["account_name"],
+        directory_source=row["directory_source"],
+        owner_email=row["owner_email"],
+        last_rotated=_ts(row["last_rotated"]),
+        privilege_level=row["privilege_level"],
+        findings=list(row["findings"]) if row["findings"] else [],
+        status=row["status"],
+        first_discovered_at=_ts(row["first_discovered_at"]),
+        last_seen_at=_ts(row["last_seen_at"]),
+        dismissed_at=_ts(row["dismissed_at"]),
+        dismissed_by=row["dismissed_by"],
+        dismiss_reason=row["dismiss_reason"],
+        scan_count=row["scan_count"],
+    )
+
+
 @router.get("/tenant/settings", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
 async def tenant_settings(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
@@ -2706,6 +3037,44 @@ async def tenant_settings(
         alert_email=prefs["alert_email"],
         alert_threshold=prefs["alert_threshold"],
     )
+
+
+@router.get("/tenant/users", response_model=PlatformUsersResponse, responses=ERROR_RESPONSES)
+async def tenant_users(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> PlatformUsersResponse:
+    """List persisted directory users belonging to the authenticated tenant."""
+    pool = await _get_pool()
+    if pool is None:
+        raise APIError(
+            503,
+            "database_unavailable",
+            "Tenant users require the identity database",
+        )
+
+    rows = await pool.fetch(
+        """SELECT id, email, display_name, role, status, department, title,
+                  last_login_at, created_at
+             FROM platform_users
+            WHERE tenant_id = $1
+            ORDER BY created_at ASC, id ASC""",
+        tenant_id,
+    )
+    users = [
+        PlatformUserResponse(
+            id=str(row["id"]),
+            email=row["email"],
+            display_name=row["display_name"],
+            role=row["role"],
+            status=row["status"],
+            department=row["department"],
+            title=row["title"],
+            last_login_at=_ts(row["last_login_at"]),
+            created_at=_ts(row["created_at"]),
+        )
+        for row in rows
+    ]
+    return PlatformUsersResponse(users=users, total=len(users))
 
 
 @router.patch("/tenant/settings/frameworks", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)

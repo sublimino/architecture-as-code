@@ -76,7 +76,25 @@ type TestFilter = 'all' | 'allowed' | 'denied'
 // image pull failure, etc.) doesn't poll forever — the last-known state and
 // the scanStatus pill both stay visible either way.
 const POLL_MS = 2500
-const MAX_POLLS = 40
+// A live NetAssert Job took 39 seconds; 48 polls retain 2.5-second
+// responsiveness while allowing 120 seconds of bounded recovery headroom.
+const MAX_POLLS = 48
+
+export function isPollExhausted(pollCount: number): boolean {
+  return pollCount >= MAX_POLLS
+}
+
+export function isScanActive(status: NetworkTestListResponse['scanStatus'] | undefined): boolean {
+  return status === 'pending' || status === 'running'
+}
+
+function latestLastRun(tests: NetworkTestResult[]): string | null {
+  return tests.reduce<string | null>((latest, test) => {
+    if (!test.lastRun || Number.isNaN(Date.parse(test.lastRun))) return latest
+    if (!latest || Date.parse(test.lastRun) > Date.parse(latest)) return test.lastRun
+    return latest
+  }, null)
+}
 
 export default function NetworkTestsPage() {
   const { getAccessTokenSilently } = useAuth0()
@@ -85,6 +103,7 @@ export default function NetworkTestsPage() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [pollExhausted, setPollExhausted] = useState(false)
   const pollCount = useRef(0)
 
   const load = useCallback(async () => {
@@ -102,23 +121,28 @@ export default function NetworkTestsPage() {
     load()
   }, [load])
 
-  // Poll only while a scan is actually in progress.
+  // Poll while the server has accepted a scan, including its pending phase.
   useEffect(() => {
-    if (data?.scanStatus !== 'running') {
+    if (!isScanActive(data?.scanStatus)) {
       pollCount.current = 0
+      setPollExhausted(false)
       return
     }
-    if (pollCount.current >= MAX_POLLS) return
+    if (isPollExhausted(pollCount.current)) {
+      setPollExhausted(true)
+      return
+    }
     const t = setTimeout(() => {
       pollCount.current += 1
       load()
     }, POLL_MS)
     return () => clearTimeout(t)
-  }, [data?.scanStatus, load])
+  }, [data, load])
 
   async function handleScan() {
     setScanning(true)
     setScanError(null)
+    setPollExhausted(false)
     try {
       const token = await getAccessTokenSilently()
       await api.networkTests.scan(token)
@@ -131,6 +155,12 @@ export default function NetworkTestsPage() {
     }
   }
 
+  async function handleRefresh() {
+    pollCount.current = 0
+    setPollExhausted(false)
+    await load()
+  }
+
   const tests = data?.tests ?? []
   const allowed = tests.filter((t) => t.expectedExit === 0)
   const denied = tests.filter((t) => t.expectedExit === 1)
@@ -139,8 +169,8 @@ export default function NetworkTestsPage() {
   const passCount = tests.filter((t) => t.result === 'pass').length
   const failCount = tests.filter((t) => t.result === 'fail' || t.result === 'error').length
   const allPass = tests.length > 0 && tests.every((t) => t.result === 'pass')
-  const scanInProgress = scanning || data?.scanStatus === 'running'
-  const lastRun = tests.find((t) => t.lastRun)?.lastRun ?? null
+  const scanInProgress = scanning || (isScanActive(data?.scanStatus) && !pollExhausted)
+  const lastRun = latestLastRun(tests)
 
   const totalAgentTests = AGENT_TESTS.reduce((s, a) => s + a.testsRun, 0)
   const totalAgentPassed = AGENT_TESTS.reduce((s, a) => s + a.testsPassed, 0)
@@ -161,12 +191,12 @@ export default function NetworkTestsPage() {
         <button
           type="button"
           className="btn btn-primary"
-          onClick={handleScan}
+          onClick={pollExhausted ? handleRefresh : handleScan}
           disabled={scanInProgress}
           aria-busy={scanInProgress}
-          aria-label={scanInProgress ? 'Network test scan in progress' : 'Run network test scan now'}
+          aria-label={scanInProgress ? 'Network test scan in progress' : pollExhausted ? 'Refresh network test results' : 'Run network test scan now'}
         >
-          {scanInProgress ? 'Scanning…' : 'Scan Now'}
+          {scanInProgress ? 'Scanning…' : pollExhausted ? 'Refresh Results' : 'Scan Now'}
         </button>
       </div>
 
@@ -180,12 +210,17 @@ export default function NetworkTestsPage() {
           Scan failed: {scanError}
         </div>
       )}
+      {!data && !loadError && (
+        <div className="card" role="status" style={{ padding: 16, marginBottom: 16 }}>
+          Loading network test results…
+        </div>
+      )}
 
       {/* Summary stats */}
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 28 }}>
         <StatCard label="NetAssert assertions" value={String(tests.length)} sub={`${allowed.length} allowed, ${denied.length} denied`} accent={colors.cyanLoom} />
         <StatCard label="Passing" value={String(passCount)} sub={`of ${tests.length} scored`} accent={colors.tealLoom} />
-        <StatCard label="Failing" value={String(failCount)} sub={data ? `scan: ${data.scanStatus}` : 'loading…'} accent={failCount > 0 ? colors.amber : colors.tealLoom} />
+        <StatCard label="Failing" value={String(failCount)} sub={data ? `scan: ${data.scanStatus}` : loadError ? 'unavailable' : 'loading…'} accent={failCount > 0 ? colors.amber : colors.tealLoom} />
         <StatCard label="CI pass" value={String(CI_SUMMARY.pass)} sub={`of ${CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error} scored`} accent={colors.tealLoom} />
         <StatCard label="Agent tests" value={`${totalAgentPassed}/${totalAgentTests}`} sub="across fe-signalloom-agents" accent={totalAgentPassed === totalAgentTests ? colors.tealLoom : colors.amber} />
       </div>
@@ -221,6 +256,11 @@ export default function NetworkTestsPage() {
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>
               Click <strong>Scan Now</strong> to run the NetAssert suite against the live cluster.
             </div>
+          </div>
+        )}
+        {pollExhausted && (
+          <div className="card" role="status" style={{ padding: 16, marginBottom: 12 }}>
+            Automatic refresh stopped after 120 seconds. Refresh results to check the scan status.
           </div>
         )}
         <DataTable<NetworkTestResult>

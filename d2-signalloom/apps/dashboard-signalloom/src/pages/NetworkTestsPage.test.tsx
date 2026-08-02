@@ -24,7 +24,7 @@ vi.mock('../api/client', () => ({
   },
 }))
 
-import NetworkTestsPage from './NetworkTestsPage'
+import NetworkTestsPage, { isPollExhausted, isScanActive } from './NetworkTestsPage'
 
 function renderPage() {
   return render(
@@ -122,6 +122,14 @@ describe('NetworkTestsPage', () => {
     listMock.mockRejectedValue(new Error('backend unreachable'))
     renderPage()
     expect(await screen.findByText('backend unreachable')).toBeTruthy()
+    expect(screen.getByText('unavailable')).toBeTruthy()
+    expect(screen.queryByText('loading…')).toBeNull()
+  })
+
+  it('shows an explicit loading status while the initial results request is pending', () => {
+    listMock.mockImplementation(() => new Promise(() => {}))
+    renderPage()
+    expect(screen.getByRole('status').textContent).toMatch(/Loading network test results/)
   })
 
   it('renders an accessible, real Scan Now button', async () => {
@@ -194,35 +202,27 @@ describe('NetworkTestsPage', () => {
     expect(await screen.findByText(/a network test scan is already running/)).toBeTruthy()
   })
 
-  it('polls while the backend reports the scan as running, and stops once complete', async () => {
+  it('polls through pending and running responses, then stops after completion', async () => {
     vi.useFakeTimers()
     try {
+      const pending = { tests: LIVE_TESTS.tests.map((t) => ({ ...t, result: 'pending' as const })), scanStatus: 'pending' as const }
       const running = { tests: LIVE_TESTS.tests.map((t) => ({ ...t, result: 'running' as const })), scanStatus: 'running' as const }
-      // Enough 'running' responses to cover mount plus a couple of poll ticks,
-      // however many renders the environment triggers along the way — the
-      // behavior under test is "stops polling once status flips to complete",
-      // not an exact call count.
-      listMock.mockResolvedValueOnce(running).mockResolvedValueOnce(running).mockResolvedValue(running)
+      listMock
+        .mockResolvedValueOnce({ ...pending, tests: [...pending.tests] })
+        .mockResolvedValueOnce({ ...pending, tests: [...pending.tests] })
+        .mockResolvedValueOnce({ ...running, tests: [...running.tests] })
+        .mockResolvedValueOnce(LIVE_TESTS)
 
       renderPage()
-      await act(async () => {
-        await Promise.resolve()
-        await Promise.resolve()
-      })
-      const callsWhileRunning = listMock.mock.calls.length
-      expect(callsWhileRunning).toBeGreaterThanOrEqual(1)
-
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2500)
-      })
-      // Still running (mock keeps returning 'running'), so polling continued.
-      expect(listMock.mock.calls.length).toBeGreaterThan(callsWhileRunning)
-
-      // Now let the backend report completion and confirm polling stops.
-      listMock.mockResolvedValue(LIVE_TESTS)
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2500)
-      })
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(listMock).toHaveBeenCalledTimes(1)
+      for (let poll = 0; poll < 3; poll += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2500)
+        })
+      }
+      expect(listMock.mock.calls.length).toBeGreaterThanOrEqual(4)
       const callsOnceComplete = listMock.mock.calls.length
 
       await act(async () => {
@@ -232,5 +232,26 @@ describe('NetworkTestsPage', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('exhausts automatic polling after forty-eight attempts', () => {
+    expect(isPollExhausted(47)).toBe(false)
+    expect(isPollExhausted(48)).toBe(true)
+    expect(isScanActive('pending')).toBe(true)
+    expect(isScanActive('running')).toBe(true)
+    expect(isScanActive('complete')).toBe(false)
+  })
+
+  it('shows the newest valid last-run timestamp in the NetAssert section hint', async () => {
+    listMock.mockResolvedValue({
+      tests: [
+        test_({ lastRun: null }),
+        test_({ name: 'newest-test', lastRun: '2026-08-02T10:20:52Z' }),
+        test_({ name: 'invalid-date', lastRun: 'not-a-date' }),
+      ],
+      scanStatus: 'complete',
+    })
+    renderPage()
+    expect(await screen.findByText(/last run 02 Aug 2026/)).toBeTruthy()
   })
 })

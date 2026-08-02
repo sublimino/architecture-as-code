@@ -72,7 +72,13 @@ def _mint_dex_token() -> str:
             "grant_type": "password",
             "username": DEX_EMAIL,
             "password": DEX_PASSWORD,
-            "scope": "openid email profile",
+            # The trailing cross-client scope is what makes Dex mint a token
+            # audienced to signalloom-api. Without it the token carries
+            # aud=signalloom-dashboard, the API's audience check rejects it, and
+            # every endpoint answers 401 — which is what this tier did on the
+            # first run that ever reached the cluster. It matches the scope the
+            # dashboard itself requests in src/auth/oidc.tsx.
+            "scope": "openid profile email groups audience:server:client_id:signalloom-api",
             "client_id": "signalloom-dashboard",
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},

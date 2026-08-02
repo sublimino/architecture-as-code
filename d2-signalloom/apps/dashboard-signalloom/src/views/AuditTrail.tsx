@@ -9,13 +9,33 @@ import ErrorState from '../components/ErrorState'
 const POLL_MS = 15 * 60 * 1000
 const LIMIT = 50
 
+// The undotted values are the legacy vocabulary retained by migration 007; the
+// dotted ones are what api_compat._audit_log() actually writes today. Only
+// 'agent.stunned' is listed from the dotted set so far — filtering for an
+// enforcement action is the one the operator reaches for first. Closing the
+// rest of the drift is a separate change.
+//
+// Adding a type here has a non-obvious test consequence, which two of us have
+// now paid for independently: every entry also renders as an <option> in the
+// filter <select> below, so screen.findByText('agent.stunned') matches the
+// dropdown option rather than the table cell, and assertions silently target
+// the wrong node. Scope audit-table queries to the tbody. See
+// pages/stunReachesTimeline.test.tsx.
+//
+// A new type must be added to BOTH lists — one missing from EVENT_COLORS
+// renders grey, one missing from EVENT_TYPES cannot be filtered at all. And a
+// type the backend emits also needs a migration widening the audit_events
+// CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
+  'agent.stunned',
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused', 'tenant_created', 'user_provisioned',
   'directory_connected', 'discovery_enroll_requested',
 ]
 
 const EVENT_COLORS: Record<string, string> = {
+  // Isolating an agent is the most severe action the platform takes on its own.
+  'agent.stunned': 'var(--error)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

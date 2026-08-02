@@ -1,6 +1,9 @@
 import { useState, useCallback } from 'react'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import { useAuth0 } from '../auth/oidc'
+import { api } from '../api/client'
+import type { AuditEventResponse } from '../types/api'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +201,7 @@ const STEP_STATUS_COLORS: Record<string, { bg: string; border: string; dot: stri
 // ─── SuperCred Demo Page ────────────────────────────────────────────────────
 
 export default function SuperCredPage() {
+  const { getAccessTokenSilently } = useAuth0()
   const [agents, setAgents] = useState<RuntimeAgent[]>([])
   // null until a fetch completes, so "never loaded" is distinguishable from
   // "loaded and genuinely empty" — the two used to render identically.
@@ -208,6 +212,8 @@ export default function SuperCredPage() {
   const [scanLoading, setScanLoading] = useState(false)
   const [stunResult, setStunResult] = useState<StunResponse | null>(null)
   const [stunLoading, setStunLoading] = useState(false)
+  const [stunEvent, setStunEvent] = useState<AuditEventResponse | null>(null)
+  const [stunEventError, setStunEventError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadAgents = useCallback(async () => {
@@ -259,6 +265,8 @@ export default function SuperCredPage() {
   const stunAgent = useCallback(async (agent: RuntimeAgent) => {
     setStunLoading(true)
     setStunResult(null)
+    setStunEvent(null)
+    setStunEventError(null)
     setError(null)
     try {
       const res = await fetch(agentPath(agent, 'stun'), { method: 'POST' })
@@ -269,6 +277,36 @@ export default function SuperCredPage() {
       }
       const data: StunResponse = await res.json()
       setStunResult(data)
+
+      // Record the action on the audit trail. The proxy above owns the cluster
+      // side-effect (pod relabel, lease revocation); it has no database, so the
+      // durable record is written here by fe-signalloom, which commits the
+      // lifecycle change and its audit_events row in one transaction. In demo
+      // mode this resolves to a fixture that appends to the demo activity log,
+      // so the same event reaches the same Audit Trail page either way.
+      //
+      // A failed record does NOT fail the stun: the agent is already isolated
+      // in the cluster and reporting failure would invite the operator to press
+      // Stun again. It is surfaced separately and loudly instead — an
+      // enforcement action nobody can account for is exactly what this page
+      // exists to rule out.
+      try {
+        const token = await getAccessTokenSilently()
+        const recorded = await api.agents.stun(token, agent.id, {
+          agent_name: agent.name,
+          namespace: agent.namespace ?? null,
+          reason: data.message ?? 'operator-initiated stun',
+          outcome: data.state ?? 'stunned',
+        })
+        setStunEvent(recorded.event ?? null)
+      } catch (recordErr) {
+        setStunEventError(
+          recordErr instanceof Error
+            ? `Agent was stunned, but the audit event could not be recorded: ${recordErr.message}`
+            : 'Agent was stunned, but the audit event could not be recorded.',
+        )
+      }
+
       // Reload agents to reflect new state
       await loadAgents()
     } catch (err) {
@@ -276,7 +314,7 @@ export default function SuperCredPage() {
     } finally {
       setStunLoading(false)
     }
-  }, [loadAgents])
+  }, [loadAgents, getAccessTokenSilently])
 
   const blockedAgents = agents.filter(isBlocked)
   const code = { background: 'var(--surface)', padding: '2px 6px', borderRadius: 3, fontSize: 12 }
@@ -618,6 +656,34 @@ export default function SuperCredPage() {
               <li>Incident logged to audit trail</li>
             </ul>
           </div>
+
+          {stunEvent && (
+            <div data-testid="supercred-stun-event" style={{
+              marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)',
+              fontSize: 12, color: 'var(--muted)', lineHeight: 1.6,
+            }}>
+              <strong>Audit event recorded</strong> — visible on the{' '}
+              <a href="/audit" style={{ color: 'var(--cyan)' }}>Audit Trail</a>.
+              <div style={{ fontFamily: 'monospace', fontSize: 11, marginTop: 4 }}>
+                <span data-testid="stun-event-type">{stunEvent.event_type}</span>
+                {' · '}
+                <span data-testid="stun-event-timestamp">{stunEvent.timestamp}</span>
+                {' · agent '}
+                <span data-testid="stun-event-agent">{stunEvent.agent_name ?? stunEvent.agent_id ?? '—'}</span>
+                {' · actor '}
+                <span data-testid="stun-event-actor">{stunEvent.actor}</span>
+              </div>
+            </div>
+          )}
+
+          {stunEventError && (
+            <div data-testid="supercred-stun-event-error" style={{
+              marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)',
+              fontSize: 12, color: colors.amber, lineHeight: 1.6,
+            }}>
+              {stunEventError}
+            </div>
+          )}
         </div>
       )}
 

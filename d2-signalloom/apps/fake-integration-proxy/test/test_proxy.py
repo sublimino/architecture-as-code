@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 from urllib import error
 from urllib.parse import urlparse
@@ -352,6 +353,163 @@ class AgentActionNamespaceTest(AgentNamespaceTestCase):
         self.assertEqual(200, status)
         self.assertEqual(FLUX_NAMESPACE, fake.evaluations[0]["namespace"])
         self.assertNotIn("kube-system", json.dumps(body))
+
+
+# ─── Network tests (netassert) ────────────────────────────────────────────────
+
+
+class NetworkTestsTestCase(ProxyServerTestCase):
+    """Network-tests handlers call the Kubernetes Job/pod-log helpers directly
+    (there is no per-pod fake to route through, unlike agent discovery), so
+    tests patch those helpers the same way AgentActionNamespaceTest patches
+    _post_policy_evaluate."""
+
+    def install(self, *, job=None, pod_logs=None, get_job_calls=None, created=None, deleted=None):
+        pod_logs = pod_logs or {}
+        get_job_calls = get_job_calls if get_job_calls is not None else []
+        created = created if created is not None else []
+        deleted = deleted if deleted is not None else []
+
+        def fake_get_job(base_url, token, context, namespace, name):
+            get_job_calls.append((namespace, name))
+            return job
+
+        def fake_list_job_pods(base_url, token, context, namespace, job_name):
+            return [{"metadata": {"name": pod_name, "namespace": namespace}} for pod_name in pod_logs]
+
+        def fake_fetch_text(url, token, context):
+            for pod_name, log_text in pod_logs.items():
+                if f"/pods/{pod_name}/log" in url:
+                    return log_text
+            raise not_found(url, "log not found")
+
+        def fake_create_job(base_url, token, context, namespace, manifest):
+            created.append((namespace, manifest))
+
+        def fake_delete_job(base_url, token, context, namespace, name):
+            deleted.append((namespace, name))
+
+        patches = [
+            mock.patch.object(server, "_read_service_account_token", lambda *a, **k: "fake-token"),
+            mock.patch.object(server, "_kubernetes_ssl_context", lambda *a, **k: None),
+            mock.patch.object(server, "_kubernetes_api_base", lambda: FAKE_API_BASE),
+            mock.patch.object(server, "_get_kubernetes_job", fake_get_job),
+            mock.patch.object(server, "_list_job_pods", fake_list_job_pods),
+            mock.patch.object(server, "_fetch_kubernetes_text", fake_fetch_text),
+            mock.patch.object(server, "_create_kubernetes_job", fake_create_job),
+            mock.patch.object(server, "_delete_kubernetes_job", fake_delete_job),
+            mock.patch.object(server, "time", mock.Mock(sleep=lambda *_: None)),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        return SimpleNamespace(get_job_calls=get_job_calls, created=created, deleted=deleted)
+
+    def test_get_returns_every_definition_as_pending_when_no_scan_has_run(self):
+        self.install(job=None)
+        status, body = self.request("GET", "/network-tests")
+        self.assertEqual(200, status)
+        self.assertEqual("never-run", body["scanStatus"])
+        self.assertEqual(len(server.NETWORK_TEST_DEFINITIONS), len(body["tests"]))
+        self.assertTrue(all(t["result"] == "pending" for t in body["tests"]))
+        names = {t["name"] for t in body["tests"]}
+        self.assertIn("dashboard-to-api-allowed", names)
+        self.assertIn("agents-to-postgresql-denied", names)
+
+    def test_get_maps_tap_output_to_pass_and_fail_per_test(self):
+        tap = (
+            "TAP version 13\n"
+            "1..2\n"
+            "ok 1 - dashboard-to-api-allowed\n"
+            "not ok 2 - dashboard-to-postgresql-denied\n"
+        )
+        log = f"some netassert log noise\n{server.NETASSERT_TAP_MARKER}\n{tap}"
+        job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
+        self.install(job=job, pod_logs={"netassert-run-abcde": log})
+
+        status, body = self.request("GET", "/network-tests")
+        self.assertEqual(200, status)
+        self.assertEqual("complete", body["scanStatus"])
+        by_name = {t["name"]: t for t in body["tests"]}
+        self.assertEqual("pass", by_name["dashboard-to-api-allowed"]["result"])
+        self.assertEqual("fail", by_name["dashboard-to-postgresql-denied"]["result"])
+        # Tests absent from the TAP output but with a finished job read as
+        # errors rather than silently staying "pending" forever.
+        self.assertEqual("error", by_name["api-to-redis-allowed"]["result"])
+
+    def test_get_reports_running_while_the_job_is_still_active(self):
+        job = {"status": {"active": 1}}
+        self.install(job=job, pod_logs={"netassert-run-abcde": "no results yet"})
+        status, body = self.request("GET", "/network-tests")
+        self.assertEqual(200, status)
+        self.assertEqual("running", body["scanStatus"])
+        self.assertTrue(all(t["result"] == "running" for t in body["tests"]))
+
+    def test_get_reports_an_explicit_error_state_when_the_api_is_unreachable(self):
+        patches = [
+            mock.patch.object(server, "_read_service_account_token", mock.Mock(side_effect=OSError("no token"))),
+        ]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        status, body = self.request("GET", "/network-tests")
+        self.assertEqual(200, status)
+        self.assertEqual("unavailable", body["scanStatus"])
+        self.assertTrue(all(t["result"] == "error" for t in body["tests"]))
+
+    def test_scan_creates_the_fixed_job_when_none_exists(self):
+        state = self.install(job=None)
+        status, body = self.request("POST", "/network-tests/scan")
+        self.assertEqual(202, status)
+        self.assertEqual("started", body["status"])
+        self.assertEqual(1, len(state.created))
+        namespace, manifest = state.created[0]
+        self.assertEqual(server.NETASSERT_JOB_NAMESPACE, namespace)
+        self.assertEqual(server.NETASSERT_JOB_NAME, manifest["metadata"]["name"])
+        self.assertEqual(0, len(state.deleted))
+
+    def test_scan_ignores_the_request_body_entirely(self):
+        """The Job spec must be identical regardless of what a caller sends —
+        this is what stops the endpoint becoming an arbitrary-target probe."""
+        state = self.install(job=None)
+        self.request("POST", "/network-tests/scan", {"target": "10.0.0.1", "namespace": "kube-system"})
+        manifest_with_body = state.created[0][1]
+        state.created.clear()
+        self.request("POST", "/network-tests/scan")
+        manifest_without_body = state.created[0][1]
+        self.assertEqual(manifest_with_body, manifest_without_body)
+        self.assertEqual(server.NETASSERT_JOB_NAME, manifest_with_body["metadata"]["name"])
+        self.assertNotIn("10.0.0.1", json.dumps(manifest_with_body))
+
+    def test_scan_rejects_a_second_run_while_one_is_active(self):
+        job = {"status": {"active": 1}}
+        state = self.install(job=job)
+        status, body = self.request("POST", "/network-tests/scan")
+        self.assertEqual(409, status)
+        self.assertIn("already running", body["error"])
+        self.assertEqual(0, len(state.created))
+        self.assertEqual(0, len(state.deleted))
+
+    def test_scan_deletes_a_finished_job_before_recreating_it(self):
+        job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
+        calls = []
+
+        def fake_get_job(base_url, token, context, namespace, name):
+            calls.append(1)
+            # First call (inside the handler's own existence check) sees the
+            # finished job; the polling loop after delete sees it gone.
+            return job if len(calls) == 1 else None
+
+        state = self.install(job=None)
+        override = mock.patch.object(server, "_get_kubernetes_job", fake_get_job)
+        override.start()
+        self.addCleanup(override.stop)
+
+        status, _ = self.request("POST", "/network-tests/scan")
+        self.assertEqual(202, status)
+        self.assertEqual(1, len(state.deleted))
+        self.assertEqual((server.NETASSERT_JOB_NAMESPACE, server.NETASSERT_JOB_NAME), state.deleted[0])
+        self.assertEqual(1, len(state.created))
 
 
 if __name__ == "__main__":

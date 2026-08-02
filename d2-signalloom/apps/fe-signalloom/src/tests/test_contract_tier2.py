@@ -191,18 +191,37 @@ def _apply_migrations() -> None:
     fixture rows failed on its own assertion instead of reporting the real cause.
     A missing file is now an error.
     """
-    for sql_file in (_MIGRATIONS_DIR / "004_agent_governance_schema.sql", _DB_DIR / "data-mock.sql"):
+    required = (
+        _MIGRATIONS_DIR / "004_agent_governance_schema.sql",
+        # 009 widens agent_registry's lifecycle_state CHECK to the vocabulary the
+        # API writes. Without it, POST /api/agents and every transition to a
+        # state outside 004's four values raise CheckViolationError.
+        _MIGRATIONS_DIR / "009_agent_lifecycle_states.sql",
+        _DB_DIR / "data-mock.sql",
+    )
+    for sql_file in required:
         assert sql_file.exists(), f"required SQL file is missing: {sql_file}"
         _run_sql(sql_file)
 
 
 @pytest.fixture(autouse=True)
 def _reset_after_mutation() -> None:
-    """Reset mutable data after each test to keep tests idempotent."""
+    """Restore the seed after each test to keep tests independent.
+
+    ``data-reset.sql`` TRUNCATEs every governance table -- the seed rows
+    included, which its own header acknowledges by instructing callers to run
+    ``data-mock.sql`` afterwards. Running only the reset therefore emptied the
+    database after the *first* test and left every later test looking at nothing:
+    read endpoints still returned a valid empty shape and passed, while anything
+    addressing a seeded row got a 404 that looked like an API defect.
+
+    Reset and re-seed are one operation. Splitting them is what made the tier
+    order-dependent.
+    """
     yield
-    reset = _DB_DIR / "data-reset.sql"
-    assert reset.exists(), f"required SQL file is missing: {reset}"
-    _run_sql(reset)
+    for sql_file in (_DB_DIR / "data-reset.sql", _DB_DIR / "data-mock.sql"):
+        assert sql_file.exists(), f"required SQL file is missing: {sql_file}"
+        _run_sql(sql_file)
 
 
 # ---------------------------------------------------------------------------
@@ -215,10 +234,17 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
+    # alice maps to the tenant the seed actually populates.
+    #
+    # Tier 1 can invent tenant names because its fixture store seeds whatever
+    # tenant it is asked about. Tier 2 reads a real database, and every row in
+    # data-mock.sql is tenant-demo; mapping alice to "tenant-a" meant every
+    # tenant-scoped query filtered the seed out and the tier silently tested
+    # empty result sets.
     monkeypatch.setattr(
         settings,
         "api_subject_tenants",
-        {"alice": "tenant-a", "bob": "tenant-b"},
+        {"alice": SEEDED_TENANT, "bob": "tenant-b"},
     )
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _TestJWKClient())
     monkeypatch.setattr(api_compat.httpx, "AsyncClient", _FakeAsyncClient)
@@ -270,9 +296,22 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 # Endpoint table (mirrors tier 1)
 # ---------------------------------------------------------------------------
 
-_SEEDED_AGENT_ID = "tenant-a:agent-1"
-_SEEDED_VIOLATION_ID = "tenant-a:violation-1"
-_SEEDED_NHI_ACCOUNT_ID = "tenant-a:nhi-1"
+# Identifiers of rows data-mock.sql actually inserts.
+#
+# These were previously "tenant-a:agent-1", "tenant-a:violation-1" and
+# "tenant-a:nhi-1" -- the composite ids api_compat manufactures in its in-memory
+# fixture store. No such id can exist in Postgres, where every primary key is a
+# UUID, so the handlers correctly rejected them: enroll and dismiss returned the
+# 404 their non-UUID guard is there to produce.
+#
+# The masking is worth naming. get_agent and transition_agent do not 404 on an
+# unknown id, they synthesise a plausible agent, so "GET agent" passed against a
+# row that did not exist and the transition round-trip failed only at the final
+# assertion. See the report: that fallback is a product concern, not a test one.
+SEEDED_TENANT = "tenant-demo"
+_SEEDED_AGENT_ID = "a0000000-0000-0000-0000-000000000001"      # sir-lancelot
+_SEEDED_VIOLATION_ID = "b0000000-0000-0000-0000-000000000001"  # no_identity, new
+_SEEDED_NHI_ACCOUNT_ID = "e0000000-0000-0000-0000-000000000001"  # svc-salesforce-sync
 
 ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | None, str]] = [
     ("GET", "/api/agents", None, AgentListResponse, "list agents"),
@@ -297,8 +336,10 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("PATCH", "/api/tenant/settings/frameworks", {"selected_frameworks": ["eu-ai-act"]}, TenantSettingsResponse, "patch frameworks"),
     ("PATCH", "/api/tenant/settings/preferences", {"preferred_scan_cadence_hours": 12, "alert_email": "ops@signalloom.local", "alert_threshold": 3}, TenantSettingsResponse, "patch preferences"),
     ("POST", "/api/support", {"subject": "Tier2 Test", "urgency": "high", "message": "Integration"}, SupportRequestResponse, "support request"),
-    ("POST", "/api/tenants/tenant-a/api-keys/initial", None, InitialApiKeyResponse, "initial API key"),
-    ("POST", "/api/tenants/tenant-a/api-keys/rotate", None, RotateApiKeyResponse, "rotate API key"),
+    # "initial API key" is not in this table: against the seeded tenant it is a
+    # 409, not a 200, because data-mock.sql already gives tenant-demo an active
+    # key. Both branches are covered by test_initial_api_key_conflicts_when_one_exists.
+    ("POST", f"/api/tenants/{SEEDED_TENANT}/api-keys/rotate", None, RotateApiKeyResponse, "rotate API key"),
     ("GET", "/api/consent/status", None, ConsentStatusResponse, "consent status"),
     ("POST", "/api/consent/accept", {"document_versions": {"tos": "2026-01", "privacy": "2026-01"}, "cookie_preferences": {"strictly_necessary": True, "analytics": False}, "b2b_warranty_accepted": True}, ConsentAcceptResponse, "accept consent"),
     ("GET", "/api/cookie-preferences", None, CookiePreferencesResponse, "cookie preferences"),
@@ -418,6 +459,28 @@ def test_enroll_then_dismiss_nhi_round_trip(client: TestClient) -> None:
     dismiss_resp = client.post(f"/api/nhi/discovered/{acct}/dismiss", headers=headers)
     assert dismiss_resp.status_code == 200
     assert dismiss_resp.json()["status"] == "dismissed"
+
+
+def test_initial_api_key_conflicts_when_one_exists(client: TestClient) -> None:
+    """The first key is issued; a second 'initial' call is a 409, not a 500.
+
+    ``uq_tenant_api_keys_active`` allows one unrevoked key per tenant. bob's
+    tenant-b has no seeded key, so the issue path runs and its shape is checked.
+    alice's tenant-demo does, so the same call must be refused -- and refused
+    with a conflict rather than the UniqueViolationError-driven 500 it used to
+    return.
+    """
+    issued = client.post(
+        "/api/tenants/tenant-b/api-keys/initial", headers=_bearer(_token_for("bob")),
+    )
+    assert issued.status_code == 200, issued.text
+    InitialApiKeyResponse.model_validate(issued.json())
+
+    conflict = client.post(
+        f"/api/tenants/{SEEDED_TENANT}/api-keys/initial", headers=_bearer(_token_for("alice")),
+    )
+    assert conflict.status_code == 409, conflict.text
+    assert conflict.json()["error"]["code"] == "api_key_exists"
 
 
 def test_compliance_frameworks_list_validates(client: TestClient) -> None:

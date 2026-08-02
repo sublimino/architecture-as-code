@@ -31,6 +31,9 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const RedeemInvitePage = lazy(() => import('./pages/RedeemInvite'))
 const OnboardingWizardPage = lazy(() => import('./pages/OnboardingWizard'))
 const SuperCredPage = lazy(() => import('./pages/SuperCredPage'))
+const CompliancePolicyPage = lazy(() => import('./pages/CompliancePolicyPage'))
+const AgentPosturePage = lazy(() => import('./pages/AgentPosturePage'))
+const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -181,6 +184,9 @@ export default function App() {
                 <Route path="/agents" element={<ProtectedRoute><AgentsPage /></ProtectedRoute>} />
                 <Route path="/agents/:id" element={<ProtectedRoute><AgentDetailPage /></ProtectedRoute>} />
                 <Route path="/compliance" element={<ProtectedRoute><CompliancePage /></ProtectedRoute>} />
+                <Route path="/compliance/policies" element={<ProtectedRoute><CompliancePolicyPage /></ProtectedRoute>} />
+                <Route path="/compliance/posture" element={<ProtectedRoute><AgentPosturePage /></ProtectedRoute>} />
+                <Route path="/compliance/risk" element={<ProtectedRoute><RiskExposurePage /></ProtectedRoute>} />
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FrameworkDetailPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />

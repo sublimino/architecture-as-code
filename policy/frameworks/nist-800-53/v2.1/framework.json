@@ -1,0 +1,121 @@
+{
+  "id": "nist-800-53",
+  "name": "NIST SP 800-53 Rev. 5",
+  "version": "v2.1.0",
+  "controlSets": [
+    {
+      "id": "ac-access-control",
+      "name": "AC - Access Control",
+      "controls": [
+        {
+          "id": "AC-6",
+          "name": "AC-6 Least Privilege",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "Container runs as non-root",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
+              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 6.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            },
+            {
+              "id": "no-privilege-escalation",
+              "name": "Privilege escalation disabled",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "riskTriple": {"min": 15000, "mode": 70000, "max": 280000},
+              "freqTriple": {"min": 0.3, "mode": 1.5, "max": 4.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            },
+            {
+              "id": "no-privileged-mode",
+              "name": "Privileged mode disabled",
+              "celExpression": "object.spec.containers.all(c, !c.securityContext.privileged)",
+              "riskTriple": {"min": 20000, "mode": 90000, "max": 350000},
+              "freqTriple": {"min": 0.2, "mode": 1.0, "max": 3.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            }
+          ]
+        },
+        {
+          "id": "AC-3",
+          "name": "AC-3 Access Enforcement",
+          "checks": [
+            {
+              "id": "no-automount-sa-token",
+              "name": "Service account token auto-mount disabled",
+              "celExpression": "object.spec.automountServiceAccountToken == false",
+              "riskTriple": {"min": 5000, "mode": 25000, "max": 100000},
+              "freqTriple": {"min": 0.5, "mode": 1.5, "max": 4.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            },
+            {
+              "id": "pod-security-context",
+              "name": "Pod security context present",
+              "celExpression": "has(object.spec.securityContext) && object.spec.securityContext.runAsNonRoot == true",
+              "riskTriple": {"min": 8000, "mode": 40000, "max": 160000},
+              "freqTriple": {"min": 1.0, "mode": 3.0, "max": 7.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sc-system-comms",
+      "name": "SC - System and Communications Protection",
+      "controls": [
+        {
+          "id": "SC-7",
+          "name": "SC-7 Boundary Protection",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "All capabilities dropped",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "riskTriple": {"min": 8000, "mode": 40000, "max": 160000},
+              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 5.0},
+              "policyVersions": ["v2.0.0", "v2.1.0"]
+            },
+            {
+              "id": "read-only-rootfs",
+              "name": "Read-only root filesystem",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.readOnlyRootFilesystem == true)",
+              "riskTriple": {"min": 5000, "mode": 25000, "max": 100000},
+              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
+              "policyVersions": ["v2.1.0"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "si-system-integrity",
+      "name": "SI - System and Information Integrity",
+      "controls": [
+        {
+          "id": "SI-7",
+          "name": "SI-7 Software, Firmware, and Information Integrity",
+          "checks": [
+            {
+              "id": "image-digest-required",
+              "name": "Image uses sha256 digest",
+              "celExpression": "object.spec.containers.all(c, c.image.contains('@sha256:'))",
+              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
+              "freqTriple": {"min": 0.5, "mode": 2.0, "max": 5.0},
+              "policyVersions": ["v2.1.0"]
+            },
+            {
+              "id": "trusted-registry",
+              "name": "Image from trusted registry",
+              "celExpression": "object.spec.containers.all(c, c.image.startsWith('ghcr.io/') || c.image.startsWith('registry.internal/'))",
+              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
+              "freqTriple": {"min": 0.2, "mode": 1.0, "max": 3.0},
+              "policyVersions": ["v2.1.0"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "id": "eu-ai-act",
+  "name": "EU AI Act - High-Risk AI System Requirements",
+  "version": "v2.1.0",
+  "controlSets": [
+    {
+      "id": "art9-risk-mgmt",
+      "name": "ART-9 Risk Management System",
+      "controls": [
+        {
+          "id": "ART-9-2",
+          "name": "ART-9(2) Risk Identification and Analysis",
+          "checks": [
+            {
+              "id": "container-run-as-non-root",
+              "name": "AI system container runs as non-root",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.runAsNonRoot == true)",
+              "riskTriple": {"min": 10000, "mode": 50000, "max": 200000},
+              "freqTriple": {"min": 0.5, "mode": 1.5, "max": 4.0},
+              "policyVersions": ["v1.0.0", "v2.1.0"]
+            },
+            {
+              "id": "no-privilege-escalation",
+              "name": "No privilege escalation in AI workloads",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.allowPrivilegeEscalation == false)",
+              "riskTriple": {"min": 10000, "mode": 60000, "max": 250000},
+              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
+              "policyVersions": ["v1.0.0", "v2.1.0"]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "art15-cybersecurity",
+      "name": "ART-15 Accuracy, Robustness and Cybersecurity",
+      "controls": [
+        {
+          "id": "ART-15-4",
+          "name": "ART-15(4) Cybersecurity Measures",
+          "checks": [
+            {
+              "id": "drop-all-capabilities",
+              "name": "Drop all capabilities for AI workloads",
+              "celExpression": "object.spec.containers.all(c, c.securityContext.capabilities.drop.exists(d, d == 'ALL'))",
+              "riskTriple": {"min": 15000, "mode": 70000, "max": 280000},
+              "freqTriple": {"min": 0.3, "mode": 1.0, "max": 3.0},
+              "policyVersions": ["v1.0.0", "v2.1.0"]
+            },
+            {
+              "id": "resource-limits-set",
+              "name": "AI system has resource limits set",
+              "celExpression": "object.spec.containers.all(c, has(c.resources) && has(c.resources.limits))",
+              "riskTriple": {"min": 10000, "mode": 40000, "max": 150000},
+              "freqTriple": {"min": 1.0, "mode": 3.0, "max": 7.0},
+              "policyVersions": ["v1.0.0", "v2.1.0"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

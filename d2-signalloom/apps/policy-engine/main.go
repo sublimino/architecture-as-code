@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -205,6 +206,26 @@ func main() {
 	mux.HandleFunc("/readyz", handleReadyz)
 	mux.HandleFunc("/api/v1/evaluate", handleEvaluate)
 
+	// Compliance scanner: FAIR risk engine + framework hierarchy + CEL evaluation.
+	policyRoot := os.Getenv("POLICY_ROOT")
+	if policyRoot == "" {
+		// Walk up from the binary's working directory to find the policy/ dir.
+		policyRoot = findPolicyRoot()
+	}
+	if policyRoot != "" {
+		ch, err := newComplianceHandler(policyRoot)
+		if err != nil {
+			slog.Warn("compliance handler disabled", "error", err)
+		} else {
+			mux.HandleFunc("/api/v1/compliance/scan", ch.handleScan)
+			mux.HandleFunc("/api/v1/compliance/frameworks", ch.handleFrameworks)
+			mux.HandleFunc("/api/v1/compliance/summary", ch.handleSummary)
+			slog.Info("compliance scanner enabled", "policyRoot", policyRoot)
+		}
+	} else {
+		slog.Warn("compliance scanner disabled: policy/ directory not found (set POLICY_ROOT)")
+	}
+
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      mux,
@@ -236,4 +257,24 @@ func main() {
 	}
 
 	slog.Info("stopped")
+}
+
+// findPolicyRoot walks up from the working directory to find a policy/ directory
+// containing a frameworks/ subdirectory.
+func findPolicyRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		candidate := filepath.Join(dir, "policy")
+		if info, err := os.Stat(filepath.Join(candidate, "frameworks")); err == nil && info.IsDir() {
+			return candidate
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
 }

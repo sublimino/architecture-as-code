@@ -27,6 +27,12 @@ import type {
   TransitionResponse,
   ViolationListResponse,
 } from '../types/api'
+import type {
+  ComplianceCheck,
+  ComplianceScanRequest,
+  FrameworkSummary,
+  PostureSummary,
+} from '../types/compliance'
 
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 
@@ -182,6 +188,21 @@ export const api = {
 
     rotate: (token: string, tenantId: string) =>
       req<RotateApiKeyResponse>(`/tenants/${tenantId}/api-keys/rotate`, token, { method: 'POST' }),
+  },
+
+  compliancePolicy: {
+    frameworks: (token: string) =>
+      req<FrameworkSummary[]>('/compliance/policy/frameworks', token),
+
+    summary: (token: string) =>
+      req<PostureSummary>('/compliance/policy/summary', token),
+
+    scan: (token: string, body: ComplianceScanRequest) =>
+      req<{ checks: ComplianceCheck[]; summary: PostureSummary }>(
+        '/compliance/policy/scan',
+        token,
+        { method: 'POST', data: body },
+      ),
   },
 
   consent: {

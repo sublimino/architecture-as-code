@@ -288,6 +288,28 @@ describe('SuperCredPage', () => {
   })
 
   it('shows the recorded event and points at the Audit Trail', async () => {
+    // Stub the record explicitly rather than letting the real client fall
+    // through to demo-mode fixtures. This test is about what the page renders
+    // once an event comes back, so it must not also depend on which mode the
+    // file happens to run in — SL_ENV defaults to 'demo' under test today, but
+    // a sibling change declaring live mode would otherwise silently reroute
+    // this through axios and turn a render assertion into a network failure.
+    vi.spyOn(api.agents, 'stun').mockResolvedValue({
+      agent_id: 'agent-cardvault',
+      from_state: 'active',
+      to_state: 'suspended',
+      actor: 'demo-operator',
+      stunned_at: '2026-08-02T10:00:00Z',
+      event: {
+        id: 'demo-activity-1',
+        timestamp: '2026-08-02T10:00:00Z',
+        event_type: 'agent.stunned',
+        agent_id: 'agent-cardvault',
+        agent_name: 'Cardvault Agent',
+        actor: 'demo-operator',
+        detail: { outcome: 'stunned' },
+      },
+    })
     await stunOnce()
 
     const recorded = await screen.findByTestId('supercred-stun-event')

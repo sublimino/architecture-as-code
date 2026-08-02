@@ -18,7 +18,11 @@ test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 // name to "Compliance 7" / "Agents 12" whenever those counts are non-zero.
 const pages = [
   ["Dashboard root", null, "Agents"],
-  ["Agents", "/agents", "Governed"],
+  // "Governed" was a tab label on AgentsPage; GovernedTab is now rendered
+  // unconditionally with no visible tab UI, so the literal text never
+  // appears — "Register Agent" is the stable content marker smoke.spec.ts
+  // already relies on for this page.
+  ["Agents", "/agents", "Register Agent"],
   ["Compliance", "/compliance", "Compliance"],
   ["Audit Trail", "/audit", "Audit Trail"],
   ["Cryptography", "/cryptography", "Cryptography"],
@@ -33,6 +37,14 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
       await page.goto(DASHBOARD_URL);
       await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
       if (href !== null) {
+        // Locate by href, NOT by accessible name with exact:true.
+        //
+        // Both approaches disambiguate "Compliance" from the newer "Policy
+        // Compliance" sidebar link today, but exact:true is a trap: the
+        // Compliance and Agents links render failing-control and agent-count
+        // badges inside them, so the accessible name becomes "Compliance 7" /
+        // "Agents 12" the moment those counts are non-zero — and an exact
+        // match then silently stops matching. Href is stable against both.
         await page.locator(`nav a[href="${href}"]`).click();
       }
       await expect(page.getByText(title, { exact: false }).first()).toBeVisible();

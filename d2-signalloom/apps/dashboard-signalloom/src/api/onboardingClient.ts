@@ -1,9 +1,16 @@
 import axios from 'axios'
 import type { OnboardingStatus, OnboardingWizardState } from '../types/connectors'
 
-// Same mock/live toggle as connectorsClient.ts (VITE_CONNECTORS_API_MODE) —
-// this is part of the same connector-framework surface, not a separate
-// feature flag.
+// This used to share connectorsClient.ts's VITE_CONNECTORS_API_MODE mock/live
+// toggle, on the assumption both APIs land together (same connector-framework
+// surface). In practice the onboarding backend (006_onboarding.sql,
+// onboarding.py) shipped and has been live for a while, but the connectors
+// backend (GET /connectors, GET /connectors/providers) never has — no router
+// for it exists in fe-signalloom. Flipping the shared flag to 'live' would
+// fix onboarding but 404 every connectors call, so onboarding gets its own
+// switch: always live now that its backend exists. connectorsClient.ts keeps
+// the VITE_CONNECTORS_API_MODE gate (still mock-only) until that backend is
+// actually built.
 const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 const http = axios.create({ baseURL: BASE })
 
@@ -46,33 +53,4 @@ const liveOnboardingApi: OnboardingApi = {
   putState: (token, state) => reqWithBody<OnboardingWizardState>('/onboarding/state', token, 'PUT', state),
 }
 
-// ─── Mock implementation ──────────────────────────────────────────────────
-// Module-level, in-memory only — resets on reload, same as mockConnectorsApi.
-
-let mockSkippedAt: string | null = null
-let mockWizardState: OnboardingWizardState = {
-  selected_provider_ids: [],
-  step_index: 0,
-  provider_run_state: {},
-}
-
-function delay<T>(value: T, ms = 150): Promise<T> {
-  return new Promise((resolve) => setTimeout(() => resolve(value), ms))
-}
-
-const mockOnboardingApi: OnboardingApi = {
-  getStatus: () => delay({ skipped_at: mockSkippedAt }),
-  skip: () => {
-    mockSkippedAt = new Date().toISOString()
-    return delay({ skipped_at: mockSkippedAt })
-  },
-  getState: () => delay(mockWizardState),
-  putState: (_token, state) => {
-    mockWizardState = state
-    return delay(mockWizardState)
-  },
-}
-
-const MOCK_MODE = (import.meta.env.VITE_CONNECTORS_API_MODE as string | undefined) !== 'live'
-
-export const onboardingApi: OnboardingApi = MOCK_MODE ? mockOnboardingApi : liveOnboardingApi
+export const onboardingApi: OnboardingApi = liveOnboardingApi

@@ -11,6 +11,7 @@
 --   12 audit events
 --   3 violations
 --   1 tenant settings row
+--   1 tenant onboarding row (skipped)
 --   1 API key
 --   2 NHI scans + 5 discovered accounts
 --   1 consent event
@@ -435,6 +436,29 @@ INSERT INTO public.tenant_settings (
     org_name = EXCLUDED.org_name,
     plan_tier = EXCLUDED.plan_tier,
     selected_frameworks = EXCLUDED.selected_frameworks;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Tenant Onboarding (1)
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Every other row in this file seeds tenant-demo as an org already using the
+-- product (agents enrolled, compliance results scored, consent accepted,
+-- API key issued) — but tenant_onboarding (006_onboarding.sql) has no row
+-- for tenant-demo until one is lazily created on first status check, and
+-- that lazy row defaults to status='pending'. dashboard-signalloom's
+-- ProtectedRoute gates EVERY protected route behind
+-- `needsOnboarding = connectedCount === 0 && !skipped_at`, so a tenant with
+-- zero connectors and no skipped_at is bounced to the full-screen /onboarding
+-- wizard on every navigation — contradicting the "already onboarded" story
+-- the rest of this seed tells. Marking it skipped (not completed — no
+-- connector was actually walked through the wizard) matches how a real demo
+-- org would reach this state: dismissed via "Skip for now".
+INSERT INTO public.tenant_onboarding (
+    tenant_id, status, skipped_at
+) VALUES (
+    'tenant-demo', 'skipped', '2026-07-01 08:05:00+00'
+) ON CONFLICT (tenant_id) DO UPDATE SET
+    status = EXCLUDED.status,
+    skipped_at = EXCLUDED.skipped_at;
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- API Key (1)

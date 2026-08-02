@@ -1,6 +1,8 @@
 import axios from 'axios'
 import { isDemoMode } from './demoMode'
 import { resolveFake } from './fakeData'
+import { affectsDemo, projectResponse } from './supercredProjection'
+import { ensureSuperCredState, isSuperCredEnabled } from './supercredSource'
 import type {
   AgentCreateRequest,
   AgentListResponse,
@@ -50,6 +52,33 @@ const http = axios.create({ baseURL: BASE })
 // unaffected.
 const inflightGets = new Map<string, Promise<unknown>>()
 
+/**
+ * Overlay the running SuperCred demo onto a response.
+ *
+ * The SuperCred demo lives on a different data plane (the cluster, via
+ * /supercred-api) from the governance API, so its effects are federated in
+ * here rather than being baked into any page. This is the single interception
+ * point: every main page keeps rendering exactly what the data layer reports,
+ * and none of them know the demo exists.
+ *
+ * Applies to both demo-data fixtures and live API responses, because the
+ * observation driving it — the agent's `signalloom.ai/state` pod label — reads
+ * the same either way. Hard-gated off in uat/prod by isSuperCredEnabled().
+ */
+async function applyDemoProjection<T>(method: string, path: string, data: T): Promise<T> {
+  // Deliberately total: every branch, including the enablement checks, is
+  // inside the catch. This overlay is decoration on top of the real response,
+  // so no failure in it — an unreachable proxy, a partially-mocked module, a
+  // malformed payload — may ever surface as a page error.
+  try {
+    if (!isSuperCredEnabled() || !affectsDemo(method, path)) return data
+    const state = await ensureSuperCredState()
+    return projectResponse(method, path, data, state) as T
+  } catch {
+    return data
+  }
+}
+
 async function req<T>(
   path: string,
   token: string,
@@ -61,7 +90,8 @@ async function req<T>(
   if (isDemoMode()) {
     const fake = resolveFake(method, path, config?.data)
     if (fake !== undefined) {
-      return new Promise<T>((resolve) => setTimeout(() => resolve(fake as T), 120))
+      const settled = await new Promise<T>((resolve) => setTimeout(() => resolve(fake as T), 120))
+      return applyDemoProjection(method, path, settled)
     }
   }
   const url = path.startsWith('/api') ? path : `/api${path}`
@@ -78,13 +108,17 @@ async function req<T>(
       })
       .then((res) => res.data)
 
-  if (method.toUpperCase() !== 'GET') return send()
+  if (method.toUpperCase() !== 'GET') {
+    return applyDemoProjection(method, path, await send())
+  }
 
+  // Coalesce on the raw response so concurrent callers share one HTTP request,
+  // then project per-caller — the projection is pure and cheap.
   const existing = inflightGets.get(url) as Promise<T> | undefined
-  if (existing) return existing
+  if (existing) return applyDemoProjection(method, path, await existing)
   const promise = send().finally(() => inflightGets.delete(url))
   inflightGets.set(url, promise)
-  return promise
+  return applyDemoProjection(method, path, await promise)
 }
 
 export const api = {

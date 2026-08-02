@@ -12,6 +12,7 @@
  * online and offline.
  */
 import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import DataTable from '../components/DataTable'
 import { PieChart, Pie, Cell } from 'recharts'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -419,8 +420,18 @@ export default function CryptographyPage() {
             </div>
           </div>
           <div style={{ flex: 1, minWidth: 320 }}>
-            <Table headers={['Endpoint', 'TLS', 'Key exchange', 'PQC', 'End of life']}>
-              {CIPHERS.map((c) => {
+            <DataTable<CipherEndpoint>
+              columns={[
+                { key: 'endpoint', label: 'Endpoint', sortable: true },
+                { key: 'tls', label: 'TLS', sortable: true },
+                { key: 'kex', label: 'Key exchange', sortable: true },
+                { key: 'pqc', label: 'PQC', sortable: true },
+                { key: 'endpoint', label: 'End of life' },
+              ]}
+              data={CIPHERS}
+              pageSize={25}
+              testIdPrefix="cipher-discovery"
+              renderRow={(c) => {
                 const targetAlgorithm = KEX_TO_ALGORITHM_INVENTORY[c.kex]
                 const lifecycle = cryptoLifecycle(c.kex)
                 return (
@@ -473,16 +484,27 @@ export default function CryptographyPage() {
                     </td>
                   </tr>
                 )
-              })}
-            </Table>
+              }}
+            />
           </div>
         </div>
       </Section>
 
       {/* Algorithm Inventory — PQC migration readiness */}
       <Section title="Algorithm Inventory" hint="NIST post-quantum migration tracking">
-        <Table headers={['Algorithm', 'Standard', 'Type', 'NIST Status', 'End of life', 'Quantum-safe']}>
-          {ALGORITHM_INVENTORY.map((a) => {
+        <DataTable<AlgorithmEntry>
+          columns={[
+            { key: 'algorithm', label: 'Algorithm', sortable: true },
+            { key: 'standard', label: 'Standard', sortable: true },
+            { key: 'type', label: 'Type', sortable: true },
+            { key: 'nistStatus', label: 'NIST Status' },
+            { key: 'algorithm', label: 'End of life' },
+            { key: 'quantumSafe', label: 'Quantum-safe', sortable: true },
+          ]}
+          data={ALGORITHM_INVENTORY}
+          pageSize={25}
+          testIdPrefix="algo-inventory"
+          renderRow={(a) => {
             const lifecycle = cryptoLifecycle(a.algorithm)
             return (
               <tr
@@ -515,8 +537,8 @@ export default function CryptographyPage() {
                 <td style={td}><Pill label={a.quantumSafe ? 'ready' : 'classical'} /></td>
               </tr>
             )
-          })}
-        </Table>
+          }}
+        />
       </Section>
 
       {/* OAuth2 / MCP Proxies */}

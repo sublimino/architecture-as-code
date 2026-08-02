@@ -154,8 +154,5 @@ export const COMPLIANCE_POLICY_ROUTES: Match[] = [
   },
 ]
 
-/** Number of compliance-policy demo routes — used for the FAKE_ROUTE_COUNT assertion. */
-export const COMPLIANCE_POLICY_ROUTE_COUNT = COMPLIANCE_POLICY_ROUTES.length
-
 // Re-export raw data for tests and other consumers
 export { ALL_CHECKS, OLLY_CHECKS_V2, OLLY_CHECKS_V1, POSTURE_SUMMARY, FRAMEWORK_LIST, checksForVersion }

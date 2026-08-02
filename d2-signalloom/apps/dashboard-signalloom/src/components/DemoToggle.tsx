@@ -4,7 +4,6 @@ import { isDemoMode, toggleDemoMode, subscribeDemoMode, showDemoToggle } from '.
 // Corner widget that flips the api client between the live backend and local
 // demo fixtures. Hidden in ci/uat/prod environments (controlled by SL_ENV).
 export default function DemoToggle() {
-  if (!showDemoToggle) return null
   const [on, setOn] = useState(isDemoMode())
   useEffect(() => subscribeDemoMode(setOn), [])
 
@@ -13,6 +12,11 @@ export default function DemoToggle() {
     // Reload so every on-mount query re-runs against the newly selected source.
     window.location.reload()
   }
+
+  // Guard sits below the hooks so they run in the same order on every render —
+  // an early return above them violates the rules of hooks (ThemeToggle, the
+  // sibling corner widget, has no early return for the same reason).
+  if (!showDemoToggle) return null
 
   return (
     <button

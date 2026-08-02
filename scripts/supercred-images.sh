@@ -58,11 +58,23 @@ PLATFORM="${SUPERCRED_PLATFORM:-$(host_platform)}"
 # ─── Verification ───────────────────────────────────────────────────────────
 
 # True when the CRI can actually run the image. Deliberately NOT `ctr images ls`.
+#
+# The match is done inside a single awk that reads the listing to EOF, rather
+# than piping awk into `grep -Fqx`. `grep -q` exits the instant it matches,
+# which closes the pipe and kills the upstream `docker exec`/`awk` with SIGPIPE
+# (141). Under this script's `set -o pipefail` that 141 becomes the exit status
+# of the whole pipeline -- so image_on_node returned FAILURE for an image that
+# was present, and returned it *more reliably the more images the node had*,
+# because a longer listing loses the race every time. That inverted the entire
+# preflight: preflight_images failed closed on a healthy cluster and blocked
+# steps 1, 2, 4 and `all` with "images missing", while `crictl images` plainly
+# listed all three. awk as the final stage has no early exit, so there is no
+# SIGPIPE and its own status is the pipeline's status.
 image_on_node() {
   local image="$1"
+  local want="docker.io/library/${image%%:*}:${image##*:}"
   "$DOCKER_BIN" exec "$NODE" crictl images 2>/dev/null \
-    | awk '{print $1":"$2}' \
-    | grep -Fx "docker.io/library/${image%%:*}:${image##*:}" >/dev/null
+    | awk -v want="$want" '$1":"$2 == want { found = 1 } END { exit !found }'
 }
 
 verify_images() {

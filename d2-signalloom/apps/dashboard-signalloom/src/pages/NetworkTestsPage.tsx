@@ -16,9 +16,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
+import { StatCard, Section, Pill } from '../components/DashKit'
+import DataTable from '../components/DataTable'
 import { colors } from '../styles/tokens'
-import type { NetworkTestListResponse } from '../types/api'
+import type { NetworkTestListResponse, NetworkTestResult } from '../types/api'
 
 // ── CI Pipeline results (from signalloom-ci-run-5/signalloom-ci-report.yaml) ──
 
@@ -222,14 +223,25 @@ export default function NetworkTestsPage() {
             </div>
           </div>
         )}
-        <Table headers={['Test', 'Direction', 'Port', 'Expected', 'Result', 'Last Run']}>
-          {displayed.map((t) => (
+        <DataTable<NetworkTestResult>
+          columns={[
+            { key: 'name', label: 'Test', sortable: true },
+            { key: 'description', label: 'Direction' },
+            { key: 'targetPort', label: 'Port', sortable: true },
+            { key: 'expectedExit', label: 'Expected' },
+            { key: 'result', label: 'Result', sortable: true },
+            { key: 'lastRun', label: 'Last Run', sortable: true },
+          ]}
+          data={displayed}
+          pageSize={25}
+          testIdPrefix="netserts"
+          renderRow={(t) => (
             <tr key={t.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...td, fontWeight: 500 }}>
+              <td style={{ ...DataTable.td, fontWeight: 500 }}>
                 <div>{t.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{t.description}</div>
               </td>
-              <td style={td}>
+              <td style={DataTable.td}>
                 <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
                   {t.src.namespace}/{t.src.name}
                 </code>
@@ -238,13 +250,13 @@ export default function NetworkTestsPage() {
                   {t.dst.namespace}/{t.dst.name}
                 </code>
               </td>
-              <td style={td}>{t.targetPort}</td>
-              <td style={td}><Pill label={t.expectedExit === 0 ? 'active' : 'blocked'} /></td>
-              <td style={td}><Pill label={t.result} /></td>
-              <td style={{ ...td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(t.lastRun)}</td>
+              <td style={DataTable.td}>{t.targetPort}</td>
+              <td style={DataTable.td}><Pill label={t.expectedExit === 0 ? 'active' : 'blocked'} /></td>
+              <td style={DataTable.td}><Pill label={t.result} /></td>
+              <td style={{ ...DataTable.td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(t.lastRun)}</td>
             </tr>
-          ))}
-        </Table>
+          )}
+        />
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
           Run: <code style={{ color: 'var(--cyan)' }}>netassert run --config d2-signalloom/test/netassert-signalloom.yaml</code>
         </div>
@@ -252,16 +264,25 @@ export default function NetworkTestsPage() {
 
       {/* ── CI Pipeline Results ── */}
       <Section title="CI Pipeline Results" hint="signalloom-ci-run-5 | 2026-08-01">
-        <Table headers={['Source', 'Rule', 'Category', 'Result']}>
-          {CI_RESULTS.map((r, i) => (
+        <DataTable<CIResult>
+          columns={[
+            { key: 'source', label: 'Source', sortable: true },
+            { key: 'rule', label: 'Rule', sortable: true },
+            { key: 'category', label: 'Category', sortable: true },
+            { key: 'result', label: 'Result', sortable: true },
+          ]}
+          data={CI_RESULTS}
+          pageSize={25}
+          testIdPrefix="ci-results"
+          renderRow={(r, i) => (
             <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...td, fontWeight: 500 }}>{r.source}</td>
-              <td style={{ ...td, maxWidth: 420, whiteSpace: 'normal', lineHeight: 1.4 }}>{r.rule}</td>
-              <td style={td}><Pill label={r.category === 'topology' ? 'info' : r.category} /></td>
-              <td style={td}><Pill label={r.result} /></td>
+              <td style={{ ...DataTable.td, fontWeight: 500 }}>{r.source}</td>
+              <td style={{ ...DataTable.td, maxWidth: 420, whiteSpace: 'normal', lineHeight: 1.4 }}>{r.rule}</td>
+              <td style={DataTable.td}><Pill label={r.category === 'topology' ? 'info' : r.category} /></td>
+              <td style={DataTable.td}><Pill label={r.result} /></td>
             </tr>
-          ))}
-        </Table>
+          )}
+        />
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
           Showing {CI_RESULTS.length} of {CI_SUMMARY.pass + CI_SUMMARY.fail + CI_SUMMARY.error + CI_SUMMARY.skip} total results from signalloom-ci-pipeline
         </div>
@@ -269,23 +290,34 @@ export default function NetworkTestsPage() {
 
       {/* ── Agent Test Infrastructure ── */}
       <Section title="Agent Test Infrastructure" hint="fe-signalloom-agents namespace">
-        <Table headers={['Agent', 'Namespace', 'Type', 'Status', 'Tests', 'Last Run']}>
-          {AGENT_TESTS.map((a) => (
+        <DataTable<AgentTestEntry>
+          columns={[
+            { key: 'name', label: 'Agent', sortable: true },
+            { key: 'namespace', label: 'Namespace' },
+            { key: 'type', label: 'Type', sortable: true },
+            { key: 'status', label: 'Status', sortable: true },
+            { key: 'testsRun', label: 'Tests', sortable: true },
+            { key: 'lastRun', label: 'Last Run', sortable: true },
+          ]}
+          data={AGENT_TESTS}
+          pageSize={25}
+          testIdPrefix="agent-tests"
+          renderRow={(a) => (
             <tr key={a.name} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...td, fontWeight: 500 }}>{a.name}</td>
-              <td style={td}><code style={{ fontSize: 11, color: 'var(--cyan)' }}>{a.namespace}</code></td>
-              <td style={td}>{a.type}</td>
-              <td style={td}><Pill label={a.status} /></td>
-              <td style={td}>
+              <td style={{ ...DataTable.td, fontWeight: 500 }}>{a.name}</td>
+              <td style={DataTable.td}><code style={{ fontSize: 11, color: 'var(--cyan)' }}>{a.namespace}</code></td>
+              <td style={DataTable.td}>{a.type}</td>
+              <td style={DataTable.td}><Pill label={a.status} /></td>
+              <td style={DataTable.td}>
                 <span style={{ color: a.testsPassed === a.testsRun ? colors.tealLoom : colors.amber, fontWeight: 600 }}>
                   {a.testsPassed}
                 </span>
                 <span style={{ color: 'var(--muted)' }}>/{a.testsRun}</span>
               </td>
-              <td style={{ ...td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(a.lastRun)}</td>
+              <td style={{ ...DataTable.td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(a.lastRun)}</td>
             </tr>
-          ))}
-        </Table>
+          )}
+        />
       </Section>
     </div>
   )

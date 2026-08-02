@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { AuditEventResponse } from '../types/api'
+import DataTable from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 
@@ -226,49 +227,48 @@ export default function AuditTrail() {
         <EmptyState kicker="No events found" body="Try adjusting your filters or wait for governance actions to be recorded." />
       ) : (
         <>
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                  {['Timestamp', 'Event Type', 'Agent', 'Actor', 'Detail'].map(h => (
-                    <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {events.map((ev, i) => (
-                  <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
-                    <td style={{ padding: '10px 16px', color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>{fmtTs(ev.timestamp)}</td>
-                    <td style={{ padding: '10px 16px' }}>
-                      <EventTag
-                        type={ev.event_type}
-                        active={eventType === ev.event_type}
-                        onClick={() => toggleTypeFilter(ev.event_type)}
-                      />
-                    </td>
-                    <td style={{ padding: '10px 16px', maxWidth: 160 }}>
-                      {ev.agent_name ? (
-                        <div>
-                          <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
-                          {ev.agent_id && <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>}
-                        </div>
-                      ) : <span style={{ color: 'var(--muted)' }}>—</span>}
-                    </td>
-                    <td style={{ padding: '10px 16px', color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.actor || '—'}</td>
-                    <td style={{ padding: '10px 16px', maxWidth: 300 }}>
-                      <code style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {Object.keys(ev.detail).length > 0 ? JSON.stringify(ev.detail) : '{}'}
-                      </code>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable<AuditEventResponse>
+            columns={[
+              { key: 'timestamp', label: 'Timestamp', sortable: true },
+              { key: 'event_type', label: 'Event Type', sortable: true },
+              { key: 'agent_name', label: 'Agent', sortable: true },
+              { key: 'actor', label: 'Actor', sortable: true },
+              { key: 'event_type', label: 'Detail' },
+            ]}
+            data={events}
+            pageSize={25}
+            testIdPrefix="audit"
+            renderRow={(ev, i) => (
+              <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                <td style={{ ...DataTable.td, color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>{fmtTs(ev.timestamp)}</td>
+                <td style={DataTable.td}>
+                  <EventTag
+                    type={ev.event_type}
+                    active={eventType === ev.event_type}
+                    onClick={() => toggleTypeFilter(ev.event_type)}
+                  />
+                </td>
+                <td style={{ ...DataTable.td, maxWidth: 160 }}>
+                  {ev.agent_name ? (
+                    <div>
+                      <div style={{ fontWeight: 500 }}>{ev.agent_name}</div>
+                      {ev.agent_id && <div style={{ color: 'var(--muted)', fontSize: 10, fontFamily: 'monospace' }}>{ev.agent_id.slice(0, 8)}…</div>}
+                    </div>
+                  ) : <span style={{ color: 'var(--muted)' }}>—</span>}
+                </td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.actor || '—'}</td>
+                <td style={{ ...DataTable.td, maxWidth: 300 }}>
+                  <code style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface2)', padding: '2px 6px', borderRadius: 3, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {Object.keys(ev.detail).length > 0 ? JSON.stringify(ev.detail) : '{}'}
+                  </code>
+                </td>
+              </tr>
+            )}
+          />
 
-          {/* Load More */}
+          {/* Load More (server-side — complements the client-side DataTable pagination) */}
           <div style={{ marginTop: 14, display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13, color: 'var(--muted)' }}>
-            <span>Showing {events.length} of {total.toLocaleString()} events</span>
+            <span>Loaded {events.length} of {total.toLocaleString()} events from server</span>
             {hasMore && (
               <button
                 className="btn btn-secondary"

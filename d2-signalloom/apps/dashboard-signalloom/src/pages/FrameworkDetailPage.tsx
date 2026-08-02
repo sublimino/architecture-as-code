@@ -34,6 +34,8 @@ const CELL_ICON: Record<string, string> = {
   pending: '○',
 }
 
+// TODO: migrate to DataTable once DataTable supports dynamic column generation
+// (this page renders an agent x controls matrix with variable column count)
 export default function FrameworkDetailPage() {
   const { frameworkId } = useParams<{ frameworkId: string }>()
   const navigate = useNavigate()

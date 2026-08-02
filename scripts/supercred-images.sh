@@ -62,7 +62,7 @@ image_on_node() {
   local image="$1"
   "$DOCKER_BIN" exec "$NODE" crictl images 2>/dev/null \
     | awk '{print $1":"$2}' \
-    | grep -Fqx "docker.io/library/${image%%:*}:${image##*:}"
+    | grep -Fx "docker.io/library/${image%%:*}:${image##*:}" >/dev/null
 }
 
 verify_images() {

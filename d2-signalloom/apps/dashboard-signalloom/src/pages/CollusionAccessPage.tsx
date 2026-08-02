@@ -51,7 +51,7 @@ export default function CollusionAccessPage() {
         data-bg={BG}
         style={{
           position: 'absolute', inset: '-28px -32px 0',
-          backgroundImage: `linear-gradient(180deg, rgba(2,6,23,0.72), rgba(2,6,23,0.93)), url(${BG})`,
+          backgroundImage: `linear-gradient(180deg, color-mix(in srgb, var(--bg) 72%, transparent), color-mix(in srgb, var(--bg) 93%, transparent)), url(${BG})`,
           backgroundSize: 'cover', backgroundPosition: 'top center', backgroundRepeat: 'no-repeat',
           pointerEvents: 'none', zIndex: 0,
         }}

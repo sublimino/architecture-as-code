@@ -106,3 +106,21 @@ export interface ConnectorTestResult {
   credential_expires_at: string | null
   needs_rotation: boolean
 }
+
+// GET /onboarding/status, POST /onboarding/skip response
+// (routers/onboarding.py, US-ENHC-011 closeout). `skipped_at` is the
+// server-side "explicit skip" flag — cross-device, same as the wizard's
+// in-progress step state below (Slice 1a, 86cajpvar QA item g).
+export interface OnboardingStatus {
+  skipped_at: string | null
+}
+
+// GET/PUT /onboarding/state (routers/onboarding.py, Slice 1a). Server-side
+// mirror of the wizard's in-progress navigation state — replaces the
+// localStorage-only persistence from US-ENHC-011 so a customer who starts
+// the wizard on one device resumes at the same step on another.
+export interface OnboardingWizardState {
+  selected_provider_ids: string[]
+  step_index: number
+  provider_run_state: Record<string, { status: 'idle' | 'submitting' | 'connected' | 'error'; error?: string }>
+}

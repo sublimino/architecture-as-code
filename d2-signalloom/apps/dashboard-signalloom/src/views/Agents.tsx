@@ -144,7 +144,7 @@ export default function Agents() {
         ) : govError ? (
           <ErrorState message={govError} onRetry={loadGoverned} />
         ) : governed.length === 0 ? (
-          <EmptyState icon="🤖" title="No governed agents" body="Agents appear here after enrollment via the registry API." />
+          <EmptyState kicker="No governed agents" body="Agents appear here after enrollment via the registry API." />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {governed.map((a) => <AgentCard key={a.agent_id} agent={a} />)}
@@ -159,7 +159,7 @@ export default function Agents() {
         ) : disError ? (
           <ErrorState message={disError} onRetry={loadDiscovered} />
         ) : discovered.length === 0 ? (
-          <EmptyState icon="🔍" title="No discovered accounts" body="Trigger an NHI scan to discover service accounts in your directory." />
+          <EmptyState kicker="No discovered accounts" body="Trigger an NHI scan to discover service accounts in your directory." />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {discovered.map((a) => <NHICard key={a.id} account={a} />)}

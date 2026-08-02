@@ -34,14 +34,20 @@ function fmtTs(iso: string) {
   })
 }
 
-function EventTag({ type }: { type: string }) {
+function EventTag({ type, active, onClick }: { type: string; active?: boolean; onClick?: () => void }) {
   const color = EVENT_COLORS[type] ?? '#9CA3AF'
   return (
-    <span style={{
-      display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-      fontSize: 11, fontWeight: 600, fontFamily: 'monospace',
-      background: color + '22', color,
-    }}>
+    <span
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      style={{
+        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+        fontSize: 11, fontWeight: 600, fontFamily: 'monospace',
+        background: color + '22', color,
+        cursor: onClick ? 'pointer' : 'default',
+        outline: active ? `1px solid ${color}` : 'none',
+      }}
+    >
       {type}
     </span>
   )
@@ -61,6 +67,8 @@ export default function AuditTrail() {
   const [toDate, setToDate] = useState('')
   const [agentId, setAgentId] = useState('')
   const [eventType, setEventType] = useState('')
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
 
   // Track active filters so polling uses same params
   const filtersRef = useRef({ fromDate, toDate, agentId, eventType })
@@ -118,14 +126,61 @@ export default function AuditTrail() {
     fetchPage(1, true)
   }
 
+  function toggleTypeFilter(type: string) {
+    const next = eventType === type ? '' : type
+    setEventType(next)
+    filtersRef.current = { ...filtersRef.current, eventType: next }
+    setEvents([])
+    fetchPage(1, true)
+  }
+
+  async function exportCsv() {
+    setExporting(true)
+    setExportError(null)
+    try {
+      const token = await getAccessTokenSilently()
+      const f = filtersRef.current
+      const csv = await api.auditExportCsv(token, {
+        from: f.fromDate || undefined,
+        to: f.toDate || undefined,
+        agent: f.agentId || undefined,
+        type: f.eventType || undefined,
+      })
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `audit-events-${new Date().toISOString().slice(0, 10)}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportError('Export failed. Please try again.')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const hasMore = events.length < total
 
   return (
     <div style={{ paddingBottom: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700 }}>Audit Trail</h1>
-        <span style={{ color: 'var(--muted)', fontSize: 13 }}>{total.toLocaleString()} events</span>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+          <span style={{ color: 'var(--muted)', fontSize: 13 }}>{total.toLocaleString()} events</span>
+          <button
+            className="btn btn-secondary"
+            onClick={exportCsv}
+            disabled={exporting}
+            style={{ padding: '6px 14px', fontSize: 12 }}
+          >
+            {exporting ? 'Exporting…' : 'Export CSV'}
+          </button>
+        </div>
       </div>
+      {exportError && (
+        <div style={{ color: '#DC2626', fontSize: 12, marginBottom: 12 }}>{exportError}</div>
+      )}
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: 20, padding: '14px 20px' }}>
@@ -168,7 +223,7 @@ export default function AuditTrail() {
       ) : error ? (
         <ErrorState message={error} onRetry={() => fetchPage(1, true)} />
       ) : events.length === 0 ? (
-        <EmptyState icon="📋" title="No events found" body="Try adjusting your filters or wait for governance actions to be recorded." />
+        <EmptyState kicker="No events found" body="Try adjusting your filters or wait for governance actions to be recorded." />
       ) : (
         <>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -184,7 +239,13 @@ export default function AuditTrail() {
                 {events.map((ev, i) => (
                   <tr key={ev.id} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
                     <td style={{ padding: '10px 16px', color: 'var(--muted)', fontFamily: 'monospace', fontSize: 11, whiteSpace: 'nowrap' }}>{fmtTs(ev.timestamp)}</td>
-                    <td style={{ padding: '10px 16px' }}><EventTag type={ev.event_type} /></td>
+                    <td style={{ padding: '10px 16px' }}>
+                      <EventTag
+                        type={ev.event_type}
+                        active={eventType === ev.event_type}
+                        onClick={() => toggleTypeFilter(ev.event_type)}
+                      />
+                    </td>
                     <td style={{ padding: '10px 16px', maxWidth: 160 }}>
                       {ev.agent_name ? (
                         <div>

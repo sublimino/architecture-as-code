@@ -101,7 +101,10 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
         { name: 'client_secret', label: 'Client secret', type: 'password', required: true },
       ],
       permissions: ['Directory.Read.All', 'User.Read.All'],
-      docs_link: 'https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app',
+      // In-app help route (see /help/connectors/entra) rather than an external
+      // URL — mock-mode only; live mode's docs_link still comes from the
+      // backend connector framework until that's repointed separately.
+      docs_link: '/help/connectors/entra',
       help_text: 'Create an app registration with Directory.Read.All (application permission, admin consented) and use its credentials here.',
     },
   },
@@ -114,8 +117,23 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
         { name: 'api_token', label: 'API token', type: 'password', required: true },
       ],
       permissions: ['okta.users.read', 'okta.apps.read'],
-      docs_link: 'https://developer.okta.com/docs/guides/create-an-api-token/main/',
+      // In-app help route (see /help/connectors/okta) — matches the real
+      // backend plugin's docs_link (okta.py); mock-mode was stale/external.
+      docs_link: '/help/connectors/okta',
       help_text: 'Generate a read-only API token from an Okta service account with the scopes above.',
+    },
+  },
+  {
+    provider_id: 'openai',
+    display_name: 'OpenAI',
+    wizard_config: {
+      fields: [
+        { name: 'admin_api_key', label: 'OpenAI Admin API Key', type: 'password', required: true, placeholder: 'sk-admin-...' },
+        { name: 'openai_org_id', label: 'Organization ID (optional)', type: 'text', required: false, placeholder: 'org-xxxxxxxx' },
+      ],
+      permissions: ['api.management.read'],
+      docs_link: '/help/connectors/openai',
+      help_text: 'Create an Admin API key (Organization → API keys → Admin keys) and use it here — a regular project API key will not work.',
     },
   },
   {
@@ -165,6 +183,11 @@ const MOCK_PROVIDERS: ConnectorProvider[] = [
 // tenant_connectors table until PR #19 merges and dev is wired to it.
 let mockConnectors: TenantConnector[] = []
 let mockIdSeq = 1
+// Dev-only convenience so the wizard's "test failed" path is exercisable in
+// mock mode: any credential field literally containing "invalid" fails the
+// mock test call. Never a real validation rule — the real backend actually
+// calls plugin.validate_credentials().
+const mockInvalidCredentials = new Map<string, boolean>()
 
 function delay<T>(value: T, ms = 220): Promise<T> {
   return new Promise((resolve) => setTimeout(() => resolve(value), ms))
@@ -194,6 +217,10 @@ const mockConnectorsApi: ConnectorsApi = {
       created_at: new Date().toISOString(),
     }
     mockConnectors = [...mockConnectors.filter((c) => c.provider_id !== body.provider_id), connector]
+    mockInvalidCredentials.set(
+      connector.connector_id,
+      Object.values(body.credentials).some((v) => v.toLowerCase().includes('invalid')),
+    )
     return delay(connector, 400)
   },
 
@@ -205,17 +232,23 @@ const mockConnectorsApi: ConnectorsApi = {
   },
 
   testConnector: async (_token, id) => {
-    const expiresAt = futureIso(90)
+    const invalid = mockInvalidCredentials.get(id) ?? false
+    const expiresAt = invalid ? null : futureIso(90)
     mockConnectors = mockConnectors.map((c) =>
       c.connector_id === id
-        ? { ...c, last_tested_at: new Date().toISOString(), credential_expires_at: expiresAt, status: 'connected' as const }
+        ? {
+            ...c,
+            last_tested_at: new Date().toISOString(),
+            credential_expires_at: expiresAt,
+            status: invalid ? ('error' as const) : ('connected' as const),
+          }
         : c,
     )
     const result: ConnectorTestResult = {
       connector_id: id,
-      valid: true,
-      scopes_ok: true,
-      error_msg: null,
+      valid: !invalid,
+      scopes_ok: !invalid,
+      error_msg: invalid ? 'Invalid credentials (mock).' : null,
       credential_expires_at: expiresAt,
       needs_rotation: false,
     }

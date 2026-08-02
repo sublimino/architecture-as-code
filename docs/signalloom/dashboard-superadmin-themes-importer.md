@@ -100,12 +100,35 @@ the full variable map to `THEMES`. No component code changes.
 Dark reproduces the shipped palette byte-for-byte. `themes.test.ts` asserts its map against the
 literal values in `global.css`, so changing one without the other fails the suite.
 
-### Known limit
+### Known limits
 
-The theme reaches anything driven by the CSS variables. Components that take colours from literals
-in `src/styles/tokens.ts` do not follow it. The agent donut and the status pills were fixed to read
-from variables because they were illegible under Light; the remaining literals are still literal. A
-full token-to-variable migration is deliberately out of scope.
+Two gaps, both worth knowing before relying on a theme to restyle the whole app.
+
+**1. The themed set is a subset of the stylesheet, and the gap has grown.** `themes.ts` covers the
+fourteen variables listed above. `global.css`'s `:root` now declares **43**, because the platform
+work added a derived-token layer — `--cyan-glow`, `--red-bg`, `--amber-border`, `--violet-focus`,
+`--teal-border` and friends, plus `--dim`. **29 are not themed**, so under Light and Andy they keep
+their dark-theme values. The effect is subtle rather than broken (glows, focus rings and tinted
+backgrounds stay dark-flavoured) but it means a theme no longer restyles the whole sheet.
+
+Four of the 29 are motion and geometry tokens — `--radius`, `--radius-sm`, `--motion-fast/med/slow`,
+`--ease-signature` — which do not belong in a colour theme and should stay outside it. The other
+~25 are colour tokens and should eventually join the theme map. That is real design work (three
+values each, chosen against a light and a red-on-black background), not a mechanical extension, so
+it is deliberately not done here.
+
+To check the current gap:
+
+```bash
+# themed vs declared
+grep -oE "'--[a-z0-9-]+'" src/styles/themes.ts | sort -u | wc -l
+sed -n '/:root/,/^}/p' src/styles/global.css | grep -oE '\-\-[a-z0-9-]+\s*:' | sort -u | wc -l
+```
+
+**2. Literal colours bypass themes entirely.** Components taking colours from literals in
+`src/styles/tokens.ts` do not follow the theme at all. The agent donut and the status pills were
+moved onto variables because they were illegible under Light; the remaining literals are still
+literal. A full token-to-variable migration is out of scope.
 
 | File | Role |
 |------|------|

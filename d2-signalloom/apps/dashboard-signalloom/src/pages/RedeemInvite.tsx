@@ -22,7 +22,7 @@ interface ApiError {
 const inputStyle: CSSProperties = {
   width: '100%',
   padding: '10px 12px',
-  background: 'var(--bg-secondary, #1a1a2e)',
+  background: 'var(--surface2, #1a1a2e)',
   border: '1px solid var(--border, #2a2a4a)',
   borderRadius: 6,
   color: 'var(--text, #e0e0e0)',
@@ -33,7 +33,7 @@ const inputStyle: CSSProperties = {
 const labelStyle: CSSProperties = {
   display: 'block',
   fontSize: 13,
-  color: 'var(--text-muted, #888)',
+  color: 'var(--muted, #888)',
   marginBottom: 6,
   fontWeight: 500,
 }
@@ -130,7 +130,7 @@ export default function RedeemInvite() {
         <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
           Invite link required
         </h1>
-        <p style={{ color: 'var(--text-muted, #888)', lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
           No invite code was found. Please use the invite link provided by your operator.
         </p>
       </div>
@@ -143,7 +143,7 @@ export default function RedeemInvite() {
         <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
           Invalid invite code
         </h1>
-        <p style={{ color: 'var(--text-muted, #888)', lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
           The code "{rawCode}" is not a valid Signal Loom invite code. Check the invite link sent by your operator.
         </p>
       </div>
@@ -157,7 +157,7 @@ export default function RedeemInvite() {
         <h1 style={{ fontSize: 24, marginBottom: 12, color: 'var(--text, #e0e0e0)' }}>
           Check your email
         </h1>
-        <p style={{ color: 'var(--text-muted, #888)', lineHeight: 1.6 }}>
+        <p style={{ color: 'var(--muted, #888)', lineHeight: 1.6 }}>
           We've sent a password setup link to <strong>{form.admin_email}</strong>.
           Follow the link to set your password and sign in to your new workspace.
         </p>
@@ -171,7 +171,7 @@ export default function RedeemInvite() {
         <h1 style={{ fontSize: 28, fontWeight: 700, color: 'var(--text, #e0e0e0)', marginBottom: 8 }}>
           Create your workspace
         </h1>
-        <p style={{ color: 'var(--text-muted, #888)', fontSize: 14 }}>
+        <p style={{ color: 'var(--muted, #888)', fontSize: 14 }}>
           Invite code:{' '}
           <code style={{ color: 'var(--cyan, #00d4ff)', fontFamily: 'monospace' }}>{rawCode}</code>
         </p>
@@ -284,7 +284,7 @@ export default function RedeemInvite() {
             background: submitting ? 'var(--border, #2a2a4a)' : 'var(--cyan, #00d4ff)',
             border: 'none',
             borderRadius: 6,
-            color: submitting ? 'var(--text-muted, #888)' : '#000',
+            color: submitting ? 'var(--muted, #888)' : '#000',
             fontSize: 15,
             fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer',
@@ -295,7 +295,7 @@ export default function RedeemInvite() {
         </button>
       </form>
 
-      <p style={{ marginTop: 24, textAlign: 'center', fontSize: 13, color: 'var(--text-muted, #888)' }}>
+      <p style={{ marginTop: 24, textAlign: 'center', fontSize: 13, color: 'var(--muted, #888)' }}>
         Already have an account?{' '}
         <a href="/" style={{ color: 'var(--cyan, #00d4ff)', textDecoration: 'none' }}>Sign in</a>
       </p>

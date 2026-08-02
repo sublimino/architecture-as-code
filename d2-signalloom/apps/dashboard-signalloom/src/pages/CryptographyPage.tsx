@@ -12,6 +12,7 @@
  * online and offline.
  */
 import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import { Link } from 'react-router-dom'
 import DataTable from '../components/DataTable'
 import { PieChart, Pie, Cell } from 'recharts'
 import { useAuth0 } from '../auth/oidc'
@@ -381,6 +382,11 @@ export default function CryptographyPage() {
           <StatCard label="Agents attested" value={`${SPIRE.agents.attested}/${SPIRE.agents.total}`} sub={`via ${SPIRE.agents.method}`} accent="var(--teal)" />
           <StatCard label="Node attestor" value="k8s_psat" sub={`key manager: ${SPIRE.server.keyManager}`} accent="var(--violet)" />
         </div>
+        <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
+          Bootstrap posture only. The live, per-workload credential state — SVID, OpenBao lease and
+          service token, with issuance and expiry — is on{' '}
+          <Link to="/credential-inventory" style={{ color: 'var(--cyan)' }}>Credential Inventory</Link>.
+        </p>
         <Table headers={['SPIFFE ID', 'Workload', 'Selector', 'TTL', 'Status']}>
           {SPIRE.svids.map((s) => (
             <tr key={s.spiffeId} style={{ borderBottom: '1px solid var(--border)' }}>

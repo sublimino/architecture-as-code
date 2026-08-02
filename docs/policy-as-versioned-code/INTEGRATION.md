@@ -208,7 +208,58 @@ good looks like.
 
 ---
 
-## 6. Upstream contribution path
+## 6. CONVERGENCE REQUIRED — a parallel implementation landed on this branch
+
+**Discovered 2026-08-02, after this design was committed.** Three commits from a concurrent effort
+landed on `feat/signal-loop-and-bootstrap-refactor` while `risk/` was being built:
+
+| Commit | What it added |
+| --- | --- |
+| `bb25470` | Policy posture & risk window module |
+| `b1bcae5` | `policy/frameworks/{eu-ai-act,nist-800-53}/{v1.0,v2.0,v2.1}` — versioned regulatory framework packs at three strictness tiers |
+| `2b30460` | `d2-signalloom/apps/policy-engine/` (incl. a second `fair/fair.go`) plus dashboard pages `AgentPosturePage`, `RiskExposurePage`, `CompliancePolicyPage` |
+
+**There are now two FAIR engines in this repository.** That is precisely the divergence §1 argues
+against for the upstream relationship, occurring internally instead. It must be resolved before
+either is shown to a client, because two engines will eventually disagree and the first person to
+notice will be in the audience.
+
+### What each side has
+
+| | `tools/riskctl` (this work) | `d2-signalloom/apps/policy-engine` |
+| --- | --- | --- |
+| Engine | 273 LOC; scenario-level weakest-link aggregation, graded cage tiers, per-control marginal deltas, one-way sensitivity tornado, external premium anchor, enforcement friction in TCoR, tail-dominated detection | 159 LOC; single loss×frequency pair → ALE/VaR₉₅/TVaR/carried. 10k iterations, `math/rand/v2` PCG, 10% fixed risk load |
+| Data | **Real** — agent posture asserted against repo artefacts, org magnitudes with mandatory provenance | **`fakeComplianceData.ts`** |
+| Regulatory frameworks | None | **EU AI Act + NIST 800-53, versioned at three strictness tiers** |
+| Surface | CLI + JSON + committed report | **Dashboard pages, already wired into the Signal Loom UI** |
+
+### Recommended convergence
+
+They are complementary rather than competing, and each holds the piece the other lacks. The other
+effort built the *consumer surface and the regulatory content*; this one built the *engine and the
+evidence model*. §3.4 of this document predicted the dashboard as the integration seam before
+knowing it already existed.
+
+1. **One engine.** Promote `tools/riskctl/internal/fair` to the shared implementation and retire
+   `d2-signalloom/apps/policy-engine/fair`. It is the more complete of the two on every axis that
+   survived adversarial review — the weakest-link aggregation, the friction term, the sensitivity
+   analysis and the premium anchor all exist because a reviewer attacked the model, and re-deriving
+   them in a second engine is pure waste. Keep the other engine's `math/rand/v2` PCG seeding if
+   preferred; that choice is orthogonal.
+2. **Keep both content sets.** `policy/frameworks/{eu-ai-act,nist-800-53}` and
+   `risk/packs/agent-policy` answer different questions — regulatory control catalogues versus
+   agent-specific operational controls. Map agent controls to framework controls rather than
+   merging the files.
+3. **Replace `fakeComplianceData.ts` with `riskctl … --json`.** The dashboard pages are the exact
+   surface this design named; pointing them at real, evidence-backed output turns three fake pages
+   into a live demo, and is the cheapest high-value move available.
+4. **One risk-load figure.** The two engines currently disagree (10% vs the org file's 15%/25%).
+   The load belongs in the org risk posture, not in the engine.
+
+Until this converges, treat `risk/out/baseline-report.md` as the authoritative number and the
+dashboard as illustrative.
+
+## 7. Upstream contribution path
 
 The agent-as-posture-carrier extension is a natural upstream contribution to
 `policy-as-versioned-flux`:

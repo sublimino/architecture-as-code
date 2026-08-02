@@ -15,7 +15,14 @@ test.describe("RBAC Explorer", () => {
   });
 
   test.beforeEach(async ({ page }) => {
-    await login(page);
+    // login()'s default seeds sl_demo_mode=true (see helpers.ts) so most
+    // specs can render without depending on the live backend. RBAC
+    // Explorer's assertions below are about the actual cluster (a "local"
+    // cluster id, real namespaces like fe-signalloom/inf-signalloom/
+    // inf-bao) — that data only exists behind the live /api/rbac/*
+    // endpoints (rbac_correlation.py), not the page's FAKE_CLUSTERS
+    // fixture, so this spec opts out of demo mode from the start.
+    await login(page, { demoMode: false });
     await page.getByRole("link", { name: "RBAC Explorer", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "RBAC Explorer" })).toBeVisible({ timeout: 15_000 });
   });

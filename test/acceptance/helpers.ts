@@ -92,16 +92,25 @@ export const config = {
  * Authenticate through the local Dex login and wait for the dashboard sidebar.
  *
  * Handles both fresh sessions (Dex login form) and already-authenticated
- * sessions (AutoSignIn skip). Sets `sl_demo_mode=true` in localStorage so
- * the dashboard renders demo fixtures when the live API is unavailable.
+ * sessions (AutoSignIn skip). By default sets `sl_demo_mode=true` in
+ * localStorage so the dashboard renders demo fixtures when the live API is
+ * unavailable — pass `{ demoMode: false }` for specs that assert on real
+ * cluster data (e.g. rbac-explorer.spec.ts expects the actual "local"
+ * cluster and real namespaces, which only exist behind the live API; demo
+ * mode serves a single fake "Demo Cluster" fixture instead). Toggling this
+ * via the DemoToggle UI control after login doesn't work here — its
+ * click-then-reload flow re-triggers this same addInitScript, which always
+ * re-forces demo mode back on before the app boots.
  *
  * Waits for the sidebar "Agents" link as proof of successful auth + SPA render.
  */
-export async function login(page: Page): Promise<void> {
-  // Pre-seed demo mode so every screen renders from fixtures
-  await page.addInitScript(() => {
+export async function login(page: Page, opts?: { demoMode?: boolean }): Promise<void> {
+  const demoMode = opts?.demoMode ?? true;
+  // Pre-seed demo mode so every screen renders from fixtures (unless the
+  // spec opted out via { demoMode: false })
+  await page.addInitScript((demo: boolean) => {
     try {
-      window.localStorage.setItem("sl_demo_mode", "true");
+      window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
       // Superadmin is a visibility control that defaults off (see
       // dashboard-signalloom/src/auth/superadmin.ts). Specs that assert on the
       // superadmin-only sidebar links — RBAC Analysis, RBAC Explorer,
@@ -110,7 +119,7 @@ export async function login(page: Page): Promise<void> {
     } catch {
       /* storage unavailable */
     }
-  });
+  }, demoMode);
 
   await page.goto(config.base, { waitUntil: "domcontentloaded" });
 

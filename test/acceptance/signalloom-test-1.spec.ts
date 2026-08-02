@@ -12,7 +12,11 @@ test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 
 const pages = [
   ["Dashboard root", null, "Agents"],
-  ["Agents", "Agents", "Governed"],
+  // "Governed" was a tab label on AgentsPage; GovernedTab is now rendered
+  // unconditionally with no visible tab UI, so the literal text never
+  // appears — "Register Agent" is the stable content marker smoke.spec.ts
+  // already relies on for this page.
+  ["Agents", "Agents", "Register Agent"],
   ["Compliance", "Compliance", "Compliance"],
   ["Audit Trail", "Audit Trail", "Audit Trail"],
   ["Cryptography", "Cryptography", "Cryptography"],
@@ -27,7 +31,11 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
       await page.goto(DASHBOARD_URL);
       await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
       if (nav !== null) {
-        await page.getByRole("link", { name: nav }).click();
+        // exact:true — the sidebar now also has a "Policy Compliance" link
+        // (docs/policy-as-versioned-code), whose accessible name contains
+        // "Compliance" as a substring and made the default non-exact match
+        // ambiguous (strict-mode violation) for nav === "Compliance".
+        await page.getByRole("link", { name: nav, exact: true }).click();
       }
       await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
     });

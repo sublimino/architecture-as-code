@@ -30,7 +30,7 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
-import { COMPLIANCE_POLICY_ROUTES, COMPLIANCE_POLICY_ROUTE_COUNT } from './fakeComplianceData'
+import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 
 const TENANT = 'tenant-demo'

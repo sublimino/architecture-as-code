@@ -359,7 +359,6 @@ export default function RbacExplorerPage() {
             <StatCard label="Subjects" value={String(filteredSubjects.length)} sub={`${adminCount} admins, ${nonAdminCount} non-admin`} accent="var(--teal)" />
             <StatCard label="Roles" value={String(filteredRoles.length)} sub={`${filteredRoles.filter(r => r.scope === 'Cluster').length} cluster-scoped`} accent="var(--violet)" />
             <StatCard label="Escalation Paths" value={String(escalationCount)} sub={escalationCount === 0 ? 'No escalation detected' : 'Requires attention'} accent={escalationCount > 0 ? 'var(--error)' : 'var(--teal)'} />
-            <StatCard label="Conformance Issues" value={String(conformanceIssueCount)} sub={conformanceIssueCount === 0 ? 'No conformance issues' : 'Across all namespaces'} accent={conformanceIssueCount > 0 ? 'var(--amber)' : 'var(--teal)'} />
           </div>
 
           {/* Escalation findings — correlated server-side from AFM's Z3 engine */}

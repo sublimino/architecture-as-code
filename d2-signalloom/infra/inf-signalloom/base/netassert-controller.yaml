@@ -1,0 +1,70 @@
+# netassert-controller: the sole holder of jobs:create/delete for the
+# netassert-run Job (see apps/netassert-controller/server.py for the full
+# rationale). fake-integration-proxy calls it over HTTP instead of the
+# Kubernetes API directly, so a compromise of the proxy — which parses far
+# more attacker-reachable input than this controller ever will — cannot mint
+# an arbitrary Job manifest. RBAC for netassert-scan-manager lives in
+# d2-osramp-fleet/tenants/local/signalloom.yaml (namespace-scoped Role in the
+# fe-signalloom tenant, bound to this ServiceAccount).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netassert-scan-manager
+  labels:
+    app.kubernetes.io/name: netassert-controller
+    app.kubernetes.io/part-of: signalloom-demo
+automountServiceAccountToken: true
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netassert-controller
+  labels:
+    app.kubernetes.io/name: netassert-controller
+    app.kubernetes.io/part-of: signalloom-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: netassert-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: netassert-controller
+        app.kubernetes.io/part-of: signalloom-demo
+    spec:
+      serviceAccountName: netassert-scan-manager
+      containers:
+        - name: netassert-controller
+          image: netassert-controller:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netassert-controller
+  labels:
+    app.kubernetes.io/name: netassert-controller
+spec:
+  selector:
+    app.kubernetes.io/name: netassert-controller
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

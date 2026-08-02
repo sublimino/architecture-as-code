@@ -7,3 +7,4 @@ resources:
   - dex.yaml
   - dex-ui.yaml
   - fake-integration-proxy.yaml
+  - netassert-controller.yaml

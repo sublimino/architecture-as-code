@@ -7,5 +7,7 @@ resources:
   - networkpolicy.yaml
   - fake-integration-proxy-networkpolicy.yaml
   - fake-integration-proxy-egress-networkpolicy.yaml
+  - netassert-controller-networkpolicy.yaml
+  - netassert-controller-egress-networkpolicy.yaml
   # NOTE: agent-inventory namespace, cross-namespace RBAC, and baseline agent
   # are inline in the signalloom-infra ResourceSet (signalloom.yaml), NOT here.

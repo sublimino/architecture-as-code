@@ -200,11 +200,126 @@ export function invalidateSuperCredState(): void {
 
 // ─── Demo actions ────────────────────────────────────────────────────────────
 
-interface ComplianceScanResponse {
+export interface ComplianceScanResponse {
   agent_id: string
   compliant: boolean
   results: { check: string; pass: boolean; reason: string }[]
   evaluated_at: string
+}
+
+export interface StunResponse {
+  agent_id: string
+  state: string
+  stunned_at: string
+  message: string
+}
+
+export interface DiscoveryResult {
+  agents: SuperCredAgentObservation[]
+  namespaces: string[]
+  /** Set when discovery failed outright or came back partial. */
+  error?: string
+}
+
+/**
+ * Flatten the proxy's per-namespace failure map into one message.
+ *
+ * A partial discovery is worse than a total one — it looks like a complete
+ * answer that is silently short — so it has to reach the operator.
+ */
+function discoveryError(data: Record<string, unknown>): string | undefined {
+  if (data.error) return String(data.error)
+  const perNamespace = data.namespace_errors
+  if (perNamespace && typeof perNamespace === 'object') {
+    const msgs = Object.entries(perNamespace as Record<string, string>).map(([ns, msg]) => `${ns}: ${msg}`)
+    if (msgs.length > 0) return `Partial discovery failure — ${msgs.join('; ')}`
+  }
+  return undefined
+}
+
+/**
+ * The findings the policy engine reports for a pod with no securityContext.
+ *
+ * Mirrors the three checks scripts/supercred-demo.sh asks for in its
+ * /api/v1/evaluate call, and the reasons the engine returns for them.
+ */
+const SIM_SCAN_RESULTS: ComplianceScanResponse['results'] = [
+  { check: 'security-context-present', pass: false, reason: 'pod spec defines no securityContext' },
+  { check: 'run-as-non-root', pass: false, reason: 'runAsNonRoot is not set — container may run as uid 0' },
+  { check: 'drop-capabilities', pass: false, reason: 'capabilities.drop is not set — container retains default capabilities' },
+]
+
+/**
+ * Discover SuperCred agents, honouring demo-data mode.
+ *
+ * SuperCredPage used to fetch the proxy directly, which meant it showed nothing
+ * at all in demo-data mode. Routing it through here gives both modes the same
+ * shape and keeps the observation store fed from a single place.
+ */
+export async function discoverSuperCredAgents(): Promise<DiscoveryResult> {
+  if (isDemoMode()) {
+    const agent = simulate(readSimPhase())
+    recordObservation(agent)
+    lastObservedAt = Date.now()
+    return { agents: agent ? [agent] : [], namespaces: ['fe-signalloom-agents', 'fe-signalloom-services'] }
+  }
+
+  const res = await fetch(`${SUPERCRED_API}/agents`)
+  if (!res.ok) throw new Error(`Agent discovery failed: ${res.status}`)
+  const data = await res.json()
+  const agents: SuperCredAgentObservation[] = Array.isArray(data.agents) ? data.agents : []
+  recordObservation(agents.find((a) => a?.supercred === true) ?? null)
+  lastObservedAt = Date.now()
+  return {
+    agents,
+    namespaces: Array.isArray(data.namespaces) ? data.namespaces : [],
+    error: discoveryError(data),
+  }
+}
+
+/** Run a compliance scan and record the finding so step 3 moves the main pages. */
+export async function scanSuperCredAgent(url: string, agentId: string): Promise<ComplianceScanResponse> {
+  let result: ComplianceScanResponse
+  if (isDemoMode()) {
+    result = {
+      agent_id: agentId,
+      compliant: false,
+      results: SIM_SCAN_RESULTS,
+      evaluated_at: new Date().toISOString(),
+    }
+  } else {
+    const res = await fetch(url)
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Compliance check failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`)
+    }
+    result = (await res.json()) as ComplianceScanResponse
+  }
+  recordScanResult(result)
+  return result
+}
+
+/** Stun the agent and force the main pages to re-observe. */
+export async function stunSuperCredAgent(url: string, agentId: string): Promise<StunResponse> {
+  let result: StunResponse
+  if (isDemoMode()) {
+    setSimulatedPhase('stunned')
+    result = {
+      agent_id: agentId,
+      state: 'stunned',
+      stunned_at: new Date().toISOString(),
+      message: `Agent ${agentId} stunned: credentials revoked, state marked as stunned`,
+    }
+  } else {
+    const res = await fetch(url, { method: 'POST' })
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Stun failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`)
+    }
+    result = (await res.json()) as StunResponse
+  }
+  invalidateSuperCredState()
+  return result
 }
 
 /**

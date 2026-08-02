@@ -9,13 +9,16 @@ vi.mock('./demoMode', () => ({
 }))
 
 import {
+  discoverSuperCredAgents,
   ensureSuperCredState,
   getSimulatedPhase,
   invalidateSuperCredState,
   isSuperCredEnabled,
   recordScanResult,
   resetSuperCredSource,
+  scanSuperCredAgent,
   setSimulatedPhase,
+  stunSuperCredAgent,
 } from './supercredSource'
 import { getSuperCredState, resetSuperCredState } from './supercredState'
 import { installMemoryStorage } from '../test-utils/memoryStorage'
@@ -259,5 +262,138 @@ describe('recordScanResult — the UI-driven step 3', () => {
         results: undefined as never,
       }),
     ).not.toThrow()
+  })
+})
+
+// ─── Demo actions, in both modes ─────────────────────────────────────────────
+
+describe('discoverSuperCredAgents', () => {
+  it('serves the simulated cluster in demo-data mode, with no network call', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+    setSimulatedPhase('credentialed')
+
+    const result = await discoverSuperCredAgents()
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(result.agents).toHaveLength(1)
+    expect(result.agents[0].state).toBe('active')
+    expect(getSuperCredState().phase).toBe('credentialed')
+  })
+
+  it('returns nothing at all before step 1 in demo-data mode', async () => {
+    const result = await discoverSuperCredAgents()
+    expect(result.agents).toHaveLength(0)
+  })
+
+  it('queries the proxy in live mode and records the observation', async () => {
+    demoModeMock.on = false
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agents: [
+          { id: 'other', supercred: false },
+          { id: 'agent-cardvault', name: 'Cardvault Agent', supercred: true, state: 'stunned' },
+        ],
+        namespaces: ['fe-signalloom-agents'],
+      }),
+    } as Response)
+
+    const result = await discoverSuperCredAgents()
+    // The page shows every discovered agent; only the labelled one drives state.
+    expect(result.agents).toHaveLength(2)
+    expect(result.namespaces).toEqual(['fe-signalloom-agents'])
+    expect(getSuperCredState().phase).toBe('stunned')
+  })
+
+  it('surfaces a partial discovery rather than silently reporting short', async () => {
+    demoModeMock.on = false
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({ agents: [], namespaces: [], namespace_errors: { 'fe-signalloom': 'forbidden' } }),
+    } as Response)
+
+    const result = await discoverSuperCredAgents()
+    expect(result.error).toBe('Partial discovery failure — fe-signalloom: forbidden')
+  })
+
+  it('throws in live mode when the proxy is unreachable, so the page can show it', async () => {
+    demoModeMock.on = false
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({ ok: false, status: 503 } as Response)
+    await expect(discoverSuperCredAgents()).rejects.toThrow(/503/)
+  })
+})
+
+describe('scanSuperCredAgent', () => {
+  it('reports the three real policy-engine findings in demo-data mode', async () => {
+    setSimulatedPhase('credentialed')
+    await discoverSuperCredAgents()
+
+    const result = await scanSuperCredAgent('/unused', 'agent-cardvault')
+    expect(result.compliant).toBe(false)
+    expect(result.results.map((r) => r.check)).toEqual([
+      'security-context-present', 'run-as-non-root', 'drop-capabilities',
+    ])
+    // The finding must reach the main pages, not just this page.
+    expect(getSuperCredState().phase).toBe('non-compliant')
+  })
+
+  it('records a live scan result so step 3 moves the main pages', async () => {
+    demoModeMock.on = false
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agents: [{ id: 'agent-cardvault', name: 'Cardvault Agent', supercred: true, state: 'active' }],
+        namespaces: [],
+      }),
+    } as Response)
+    await discoverSuperCredAgents()
+    expect(getSuperCredState().phase).toBe('credentialed')
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: 'agent-cardvault',
+        compliant: false,
+        evaluated_at: '2026-08-02T10:00:00Z',
+        results: [{ check: 'security-context-present', pass: false, reason: 'not set' }],
+      }),
+    } as Response)
+
+    await scanSuperCredAgent('/supercred-api/agents/agent-cardvault/compliance', 'agent-cardvault')
+    expect(getSuperCredState().phase).toBe('non-compliant')
+  })
+})
+
+describe('stunSuperCredAgent', () => {
+  it('advances the simulated cluster to stunned in demo-data mode', async () => {
+    setSimulatedPhase('non-compliant')
+    await discoverSuperCredAgents()
+
+    const result = await stunSuperCredAgent('/unused', 'agent-cardvault')
+    expect(result.state).toBe('stunned')
+    expect(getSuperCredState().phase).toBe('stunned')
+    expect(getSimulatedPhase()).toBe('stunned')
+  })
+
+  it('posts to the proxy in live mode and forces a re-observation', async () => {
+    demoModeMock.on = false
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: 'agent-cardvault', state: 'stunned',
+        stunned_at: '2026-08-02T10:05:00Z', message: 'stunned',
+      }),
+    } as Response)
+
+    const result = await stunSuperCredAgent('/supercred-api/agents/agent-cardvault/stun', 'agent-cardvault')
+    expect(fetchSpy).toHaveBeenCalledWith('/supercred-api/agents/agent-cardvault/stun', { method: 'POST' })
+    expect(result.stunned_at).toBe('2026-08-02T10:05:00Z')
+  })
+
+  it('surfaces a failed stun rather than pretending it worked', async () => {
+    demoModeMock.on = false
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: false, status: 500, text: async () => 'openbao unreachable',
+    } as Response)
+    await expect(stunSuperCredAgent('/x', 'agent-cardvault')).rejects.toThrow(/500/)
   })
 })

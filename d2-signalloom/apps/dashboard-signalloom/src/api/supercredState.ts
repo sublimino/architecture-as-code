@@ -56,6 +56,22 @@ function commit(next: SuperCredDemoState): void {
   if (phaseChanged) listeners.forEach((l) => l(current))
 }
 
+/**
+ * Stamp the first time a phase was observed, preserving earlier stamps.
+ *
+ * Teardown clears the record entirely so a re-run of the demo does not inherit
+ * the previous run's transition times.
+ */
+function withEntryStamp(
+  previous: Partial<Record<SuperCredPhase, string>>,
+  phase: SuperCredPhase,
+  at: string,
+): Partial<Record<SuperCredPhase, string>> {
+  if (phase === 'absent') return {}
+  if (previous[phase]) return previous
+  return { ...previous, [phase]: at }
+}
+
 export function getSuperCredState(): SuperCredDemoState {
   return current
 }
@@ -69,21 +85,27 @@ export function getSuperCredState(): SuperCredDemoState {
  */
 export function recordObservation(agent: SuperCredAgentObservation | null): void {
   const scan = agent ? current.scan : null
+  const phase = derivePhase(agent, scan)
+  const now = new Date().toISOString()
   commit({
-    phase: derivePhase(agent, scan),
+    phase,
     agent,
     scan,
-    observedAt: new Date().toISOString(),
+    observedAt: now,
+    enteredAt: withEntryStamp(current.enteredAt, phase, now),
   })
 }
 
 /** Record the result of a compliance scan driven from the UI. */
 export function recordScan(scan: SuperCredScanObservation): void {
+  const phase = derivePhase(current.agent, scan)
+  const now = new Date().toISOString()
   commit({
     ...current,
-    phase: derivePhase(current.agent, scan),
+    phase,
     scan,
-    observedAt: new Date().toISOString(),
+    observedAt: now,
+    enteredAt: withEntryStamp(current.enteredAt, phase, now),
   })
 }
 

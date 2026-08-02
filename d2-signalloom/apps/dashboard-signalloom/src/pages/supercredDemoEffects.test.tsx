@@ -76,6 +76,7 @@ import Compliance from '../views/Compliance'
 import CompliancePolicyPage from './CompliancePolicyPage'
 import AgentPosturePage from './AgentPosturePage'
 import RiskExposurePage from './RiskExposurePage'
+import AuditTrail from '../views/AuditTrail'
 
 // ── The demo state each step produces ───────────────────────────────────────
 
@@ -106,6 +107,7 @@ function stateAt(phase: SuperCredPhase): SuperCredDemoState {
     },
     scan: null,
     observedAt: '2026-08-02T10:00:00Z',
+    enteredAt: {},
   }
 }
 
@@ -129,6 +131,7 @@ function wireApiFor(phase: SuperCredPhase) {
   vi.mocked(api.compliancePolicy.scan).mockResolvedValue(
     projected('POST', '/compliance/policy/scan', phase, scanBody) as never,
   )
+  vi.mocked(api.audit).mockResolvedValue(projected('GET', '/audit', phase) as never)
 }
 
 function renderPage(ui: ReactNode) {
@@ -471,6 +474,84 @@ describe('/compliance/risk reflects each demo step', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 6. /audit — Audit Trail
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('/audit reflects each demo step', () => {
+  /**
+   * The Audit Trail's event table, once loaded.
+   *
+   * Queries must be scoped to it: the page's Event Type filter is a <select>
+   * whose <option>s carry the very same type names, so an unscoped getByText
+   * matches the filter rather than the event.
+   */
+  async function auditTable() {
+    await screen.findByRole('heading', { level: 1, name: 'Audit Trail' })
+    await screen.findByText(/Loaded \d+ of/)
+    return screen.getByRole('table')
+  }
+
+  it('step 0: shows only the baseline trail', async () => {
+    wireApiFor('absent')
+    renderPage(<AuditTrail />)
+    expect(within(await auditTable()).queryByText('enrollment')).not.toBeInTheDocument()
+  })
+
+  it('step 1 deploy: an enrollment entry lands', async () => {
+    wireApiFor('deployed')
+    renderPage(<AuditTrail />)
+    const table = within(await auditTable())
+    expect(table.getByText('enrollment')).toBeInTheDocument()
+    expect(table.getAllByText(AGENT_NAME).length).toBeGreaterThan(0)
+  })
+
+  it('step 2 credential chain: a token_issued entry lands', async () => {
+    wireApiFor('credentialed')
+    renderPage(<AuditTrail />)
+    expect(within(await auditTable()).getByText('token_issued')).toBeInTheDocument()
+  })
+
+  it('step 3 scan: a compliance_check entry lands naming the finding', async () => {
+    wireApiFor('non-compliant')
+    renderPage(<AuditTrail />)
+    const table = within(await auditTable())
+    expect(table.getByText('compliance_check')).toBeInTheDocument()
+    expect(table.getByText(/securityContext not set/)).toBeInTheDocument()
+  })
+
+  it('step 4 stun: the violation, the state change and the credential denial are all recorded', async () => {
+    wireApiFor('stunned')
+    renderPage(<AuditTrail />)
+    const table = within(await auditTable())
+    expect(table.getByText('violation_detected')).toBeInTheDocument()
+    expect(table.getByText('state_transition')).toBeInTheDocument()
+    expect(table.getByText('token_refused')).toBeInTheDocument()
+  })
+
+  it('grows the event count at every step', async () => {
+    const counts: number[] = []
+    for (const phase of ['absent', 'deployed', 'credentialed', 'non-compliant', 'stunned'] as SuperCredPhase[]) {
+      wireApiFor(phase)
+      const { unmount } = renderPage(<AuditTrail />)
+      const label = await screen.findByText(/Loaded \d+ of/)
+      counts.push(Number(label.textContent!.match(/Loaded (\d+)/)![1]))
+      unmount()
+    }
+    // Baseline 2, then +1 per step and +3 for the stun.
+    expect(counts).toEqual([2, 3, 4, 5, 8])
+  })
+
+  it('step 5 teardown: the demo entries clear with the agent', async () => {
+    wireApiFor('absent')
+    renderPage(<AuditTrail />)
+    const table = within(await auditTable())
+    for (const type of ['enrollment', 'token_issued', 'compliance_check', 'violation_detected', 'token_refused']) {
+      expect(table.queryByText(type)).not.toBeInTheDocument()
+    }
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Cross-cutting: no page special-cases the demo
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -484,6 +565,7 @@ describe('the pages stay demo-agnostic', () => {
       agent: { id: 'agent-other', name: 'Totally Different Agent', namespace: 'elsewhere', supercred: true, state: 'stunned' },
       scan: null,
       observedAt: '2026-08-02T10:00:00Z',
+      enteredAt: {},
     }
     vi.mocked(api.agents.list).mockResolvedValue(
       projectResponse('GET', '/agents', resolveFake('GET', '/agents'), odd) as never,

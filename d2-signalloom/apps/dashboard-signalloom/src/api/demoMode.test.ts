@@ -16,7 +16,8 @@ vi.mock('axios', () => ({
 
 import { api } from './client'
 import { setDemoMode } from './demoMode'
-import { FAKE_ROUTE_COUNT, resolveFake } from './fakeData'
+import { FAKE_ROUTE_COUNT, resetFakeData, resolveFake } from './fakeData'
+import type { IssueCredentialResponse, RevokeCredentialResponse } from '../types/api'
 
 const INVENTORY_AGENT_ID = 'tenant-demo:agent-inventory'
 const TRIAGE_AGENT_ID = 'tenant-demo:agent-triage'
@@ -32,6 +33,41 @@ describe('demo mode', () => {
 
   it('covers the full 36-route client fixture surface', () => {
     expect(FAKE_ROUTE_COUNT).toBe(36)
+  })
+
+  // Merge note: this assertion came from feat/supercred-inventory-live, where the
+  // revoke fixture was a static constant and could be compared with an exact
+  // toEqual. feat/supercred-agents-unify replaced those constants with a stateful
+  // demo store, so the response now carries `simulated: true` and a
+  // `tokens_revoked` derived from the agent's live credential count rather than a
+  // hardcoded 3. The exact-value form would fail against the surviving
+  // implementation. The test's actual purpose survives intact: proving the two
+  // adjacent credential routes resolve to DIFFERENT handlers, which is the thing
+  // that silently breaks if the `$`-anchored route ordering is ever disturbed.
+  it('serves a shape-valid revoke fixture and keeps adjacent credential routes distinct', () => {
+    resetFakeData()
+
+    const issued = resolveFake('POST', `/agents/${INVENTORY_AGENT_ID}/credentials`) as
+      | IssueCredentialResponse
+      | undefined
+    const revoked = resolveFake('POST', `/agents/${INVENTORY_AGENT_ID}/credentials/revoke`) as
+      | RevokeCredentialResponse
+      | undefined
+
+    expect(issued).toBeDefined()
+    expect(issued).toHaveProperty('identity_token')
+    expect(issued).toHaveProperty('token_expires_at')
+
+    expect(revoked).toBeDefined()
+    expect(revoked).toMatchObject({
+      agent_id: INVENTORY_AGENT_ID,
+      name: 'Inventory Agent',
+      simulated: true,
+    })
+    expect(typeof revoked?.tokens_revoked).toBe('number')
+
+    // The distinctness guarantee: issue and revoke must not collapse onto one handler.
+    expect(issued).not.toEqual(revoked)
   })
 
   it('renders fixtures even though every HTTP call fails', async () => {

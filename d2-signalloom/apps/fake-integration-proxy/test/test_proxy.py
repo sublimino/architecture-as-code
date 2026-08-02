@@ -114,7 +114,8 @@ class ProxyTest(ProxyServerTestCase):
 # ─── Agent discovery ─────────────────────────────────────────────────────────
 
 
-def agent_pod(name, namespace, supercred=False, phase="Running", state="idle"):
+def agent_pod(name, namespace, supercred=False, phase="Running", state="idle",
+              service_account="cardvault-agent"):
     """Build a pod document shaped like the ones the demo's agents produce."""
     labels = {
         "signalloom.ai/agent": "true",
@@ -136,7 +137,11 @@ def agent_pod(name, namespace, supercred=False, phase="Running", state="idle"):
             "annotations": annotations,
             "creationTimestamp": "2026-01-01T00:00:00Z",
         },
-        "spec": {"nodeName": "osramp-control-plane", "containers": [{"name": "agent"}]},
+        "spec": {
+            "nodeName": "osramp-control-plane",
+            "serviceAccountName": service_account,
+            "containers": [{"name": "agent"}],
+        },
         "status": {"phase": phase},
     }
 
@@ -253,6 +258,27 @@ class AgentDiscoveryTest(AgentNamespaceTestCase):
             agent["supercred_target"],
         )
         self.assertEqual("Running", agent["phase"])
+
+    def test_agents_expose_the_pod_service_account(self):
+        """The dashboard's Credential Inventory derives the SPIFFE ID from
+        namespace + service account. SPIRE's k8s workload registrar issues
+        spiffe://<trust-domain>/ns/<ns>/sa/<sa>, so without this field the
+        second half of every identity would have to be guessed."""
+        self.install({FLUX_NAMESPACE: [
+            agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True,
+                      service_account="cardvault-agent"),
+        ]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertEqual("cardvault-agent", agent["service_account"])
+
+    def test_agents_report_no_service_account_when_the_pod_omits_one(self):
+        """None, not "default" — a fabricated service account renders a SPIFFE
+        ID that does not exist. The dashboard drops such agents deliberately."""
+        pod = agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)
+        del pod["spec"]["serviceAccountName"]
+        self.install({FLUX_NAMESPACE: [pod]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertIsNone(agent["service_account"])
 
     def test_agents_deduplicate_when_a_namespace_is_configured_twice(self):
         self.install(

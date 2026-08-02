@@ -373,6 +373,12 @@ def _agent_from_pod(pod: object, namespace: str | None = None) -> dict[str, obje
         "created_at": metadata.get("creationTimestamp") if isinstance(metadata, dict) else None,
         "node": spec.get("nodeName"),
         "phase": status.get("phase"),
+        # Second half of the workload's SPIFFE ID. SPIRE's k8s workload
+        # registrar issues spiffe://<trust-domain>/ns/<ns>/sa/<sa>, so the
+        # dashboard's Credential Inventory needs this to name the identity
+        # rather than guess it. Absent stays None — defaulting to "default"
+        # would render a SPIFFE ID that was never registered.
+        "service_account": spec.get("serviceAccountName"),
     }
     # SuperCred enrichment: expose identity-chain and compliance metadata.
     if labels.get("signalloom.ai/supercred") == "true":

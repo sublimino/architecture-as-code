@@ -24,6 +24,7 @@ const NAV: NavItem[] = [
   { to: '/compliance/risk', label: 'Risk Exposure' },
   { to: '/audit', label: 'Audit Trail' },
   { to: '/cryptography', label: 'Cryptography', superadminOnly: true },
+  { to: '/credential-inventory', label: 'Credential Inventory', superadminOnly: true },
   { to: '/federated-services', label: 'Federated Services', superadminOnly: true },
   { to: '/collusion-access', label: 'Collusion & Access', superadminOnly: true },
   { to: '/rbac-analysis', label: 'RBAC Analysis', superadminOnly: true },

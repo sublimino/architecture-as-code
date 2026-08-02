@@ -62,4 +62,8 @@ ci-reports*/
 d2-signalloom/results.tap
 test/gcp-results/
 test/gcp-5x-results.md
+# supercred-e2e.sh writes one .state snapshot and .log per assertion point here
+# (31 files for a 5-iteration run), and Playwright drops traces here too. The
+# block above claimed to cover "test results" and did not.
+test-results/
 test/local-5x-results.md

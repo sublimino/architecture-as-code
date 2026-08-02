@@ -316,6 +316,26 @@ class NHIAccount(BaseModel):
     last_seen_at: str | None
 
 
+class NHIAccountDetail(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    scan_id: str | None
+    account_name: str
+    directory_source: str
+    owner_email: str | None
+    last_rotated: str | None
+    privilege_level: str
+    findings: list[str]
+    status: str
+    first_discovered_at: str | None
+    last_seen_at: str | None
+    dismissed_at: str | None
+    dismissed_by: str | None
+    dismiss_reason: str | None
+    scan_count: int
+
+
 class NHIDiscoveredSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -11,13 +11,14 @@ import ApiKeyRevealModal from './ApiKeyRevealModal'
 interface NavItem {
   to: string
   label: string
+  end?: boolean
   superadminOnly?: boolean
 }
 
 const NAV: NavItem[] = [
   { to: '/discovery', label: 'Discovery' },
   { to: '/agents', label: 'Agents' },
-  { to: '/compliance', label: 'Compliance' },
+  { to: '/compliance', label: 'Compliance', end: true },
   { to: '/compliance/policies', label: 'Policy Compliance' },
   { to: '/compliance/posture', label: 'Agent Posture' },
   { to: '/compliance/risk', label: 'Risk Exposure' },
@@ -140,10 +141,11 @@ export default function Sidebar() {
 
         {/* Nav links */}
         <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
-          {navItems.map(({ to, label }, i) => (
+          {navItems.map(({ to, label, end }, i) => (
             <NavLink
               key={to}
               to={to}
+              end={end}
               onMouseEnter={() => setHoveredNav(i)}
               onMouseLeave={() => setHoveredNav(null)}
               style={({ isActive }) => ({

@@ -125,6 +125,25 @@ describe('Sidebar Discovery nav item', () => {
   })
 })
 
+describe('Sidebar active-link precision', () => {
+  it('does not highlight Compliance when a child route like /compliance/policies is active', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    render(
+      <MemoryRouter initialEntries={['/compliance/policies']}>
+        <AppContext.Provider value={appCtxValue}>
+          <Sidebar />
+        </AppContext.Provider>
+      </MemoryRouter>
+    )
+
+    const policyLink = await screen.findByRole('link', { name: /Policy Compliance/ })
+    expect(policyLink).toHaveAttribute('aria-current', 'page')
+
+    const complianceLink = screen.getByRole('link', { name: /^Compliance$/ })
+    expect(complianceLink).not.toHaveAttribute('aria-current', 'page')
+  })
+})
+
 describe('Sidebar keyboard shortcuts', () => {
   it('navigates to the nth nav item when its digit key is pressed', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())

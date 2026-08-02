@@ -140,6 +140,18 @@ export async function login(page: Page): Promise<void> {
  * that need to verify the login flow itself, not skip it).
  */
 export async function loginExpectingDex(page: Page): Promise<void> {
+  // Same pre-seeding as login() — superadmin-only sidebar links (RBAC Analysis,
+  // RBAC Explorer, etc.) are invisible without this, and demo mode ensures
+  // fixture-backed rendering when the live API is unavailable.
+  await page.addInitScript(() => {
+    try {
+      window.localStorage.setItem("sl_demo_mode", "true");
+      window.localStorage.setItem("signalloom.superadmin", "true");
+    } catch {
+      /* storage unavailable */
+    }
+  });
+
   await page.goto(config.base, { waitUntil: "domcontentloaded" });
   const loginInput = page.locator('input[name="login"]');
   await expect(loginInput).toBeVisible({ timeout: 15_000 });

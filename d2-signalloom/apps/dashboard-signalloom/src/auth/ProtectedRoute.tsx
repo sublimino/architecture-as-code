@@ -1,5 +1,5 @@
 import { useAuth0 } from './oidc'
-import { Navigate } from 'react-router-dom'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAppContext } from '../App'
 
 interface Props {
@@ -13,6 +13,7 @@ interface Props {
 export default function ProtectedRoute({ children, exemptFromOnboardingGate }: Props) {
   const { isAuthenticated, isLoading, loginWithRedirect } = useAuth0()
   const { needsOnboarding } = useAppContext()
+  const location = useLocation()
 
   if (isLoading) return null
 
@@ -25,7 +26,7 @@ export default function ProtectedRoute({ children, exemptFromOnboardingGate }: P
   // that first render, or every protected page would flash through
   // /onboarding before the check resolves.
   if (needsOnboarding === true && !exemptFromOnboardingGate) {
-    return <Navigate to="/onboarding" replace />
+    return <Navigate to="/onboarding" state={{ returnTo: location.pathname }} replace />
   }
 
   return <>{children}</>

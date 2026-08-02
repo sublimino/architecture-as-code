@@ -7,6 +7,10 @@
 
 setup() {
   root="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  # Shared polling/wait primitives — deadline-bounded exponential backoff
+  # with jitter, instead of a hand-rolled sleep loop.
+  # shellcheck source=../../scripts/lib/wait.sh
+  source "$root/scripts/lib/wait.sh"
   context="$root/d2-signalloom/apps/dashboard-signalloom"
   script="$root/scripts/build-sign-dashboard.sh"
   cosign_pub="$root/.keys/cosign.pub"
@@ -46,10 +50,7 @@ teardown() {
   run docker run --detach --name "$container" -p "127.0.0.1:${host_port}:8080" "$image"
   [ "$status" -eq 0 ]
 
-  for _ in $(seq 1 40); do
-    curl -fsS "http://127.0.0.1:${host_port}/readyz" >/dev/null 2>&1 && break
-    sleep 0.25
-  done
+  wait_reachable "http://127.0.0.1:${host_port}/readyz" 10
 
   run curl -fsS "http://127.0.0.1:${host_port}/readyz"
   [ "$status" -eq 0 ]

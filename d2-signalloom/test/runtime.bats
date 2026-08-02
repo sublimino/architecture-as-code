@@ -5,6 +5,11 @@
 # acceptance intentionally remain outside Phase 1.
 load '../../d2-osramp-apps/test/lib/detik'
 
+# Shared polling/wait primitives — deadline-bounded exponential backoff with
+# jitter, instead of hand-rolled sleep loops.
+# shellcheck source=../../scripts/lib/wait.sh
+source "${BATS_TEST_DIRNAME}/../../scripts/lib/wait.sh"
+
 DETIK_CLIENT_NAME="kubectl"
 DETIK_CLIENT_NAMESPACE="fe-signalloom"
 
@@ -46,11 +51,12 @@ teardown() {
   kubectl -n ingress port-forward "service/$gateway_service" 18443:443 \
     >"$BATS_TEST_TMPDIR/gateway-port-forward.log" 2>&1 &
   GATEWAY_FORWARD_PID=$!
-  for _ in $(seq 1 20); do
-    curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
-      --insecure --silent --output /dev/null https://dashboard.osramp.acme.local:18443/ && break
-    sleep 0.25
-  done
+  # --resolve/--insecure host-override flags aren't expressible via
+  # wait_reachable's fixed curl invocation, so this uses the generic
+  # backoff primitive directly.
+  _wait_retry 10 "gateway https readiness" \
+    "curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 --insecure --silent --output /dev/null https://dashboard.osramp.acme.local:18443/" \
+    || cat "$BATS_TEST_TMPDIR/gateway-port-forward.log" >&3
   run curl --noproxy '*' --resolve dashboard.osramp.acme.local:18443:127.0.0.1 \
     --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' \
     https://dashboard.osramp.acme.local:18443/

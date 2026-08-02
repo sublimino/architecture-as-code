@@ -27,6 +27,7 @@ const GATED_PATHS = [
   '/collusion-access',
   '/rbac-analysis',
   '/rbac-explorer',
+  '/network-tests',
 ]
 const UNGATED_PATHS = ['/agents', '/compliance', '/audit', '/supercred', '/settings']
 

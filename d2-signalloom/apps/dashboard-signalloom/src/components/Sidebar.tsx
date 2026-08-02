@@ -26,6 +26,7 @@ const NAV: NavItem[] = [
   { to: '/collusion-access', label: 'Collusion & Access', superadminOnly: true },
   { to: '/rbac-analysis', label: 'RBAC Analysis', superadminOnly: true },
   { to: '/rbac-explorer', label: 'RBAC Explorer', superadminOnly: true },
+  { to: '/network-tests', label: 'Network Tests', superadminOnly: true },
   { to: '/supercred', label: 'SuperCred' },
   { to: '/settings', label: 'Settings' },
 ]

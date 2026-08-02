@@ -31,8 +31,12 @@ describe('demo mode', () => {
     requestMock.mockRejectedValue(new Error('API down'))
   })
 
-  it('covers the full 36-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(36)
+  // 37 since the merge: feat/supercred-stun-timeline adds POST /agents/{id}/stun
+  // to the fixture surface. This count is deliberately exact rather than a
+  // lower bound — it is the guard that notices a route silently disappearing in
+  // a merge, which is precisely what nearly happened to the stun route here.
+  it('covers the full 37-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(37)
   })
 
   // Merge note: this assertion came from feat/supercred-inventory-live, where the

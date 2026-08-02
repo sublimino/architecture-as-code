@@ -3,10 +3,10 @@
 -- Run AFTER data-reset.sql (or use scripts/signalloom-data.sh mock).
 --
 -- Data scope:
---   5 agents (Monty Python theme)
+--   5 agents (Monty Python theme — matches cluster pods)
 --   2 frameworks (EU AI Act, SOC 2) with 6 controls total
 --   30 agent compliance results (5 agents x 6 controls)
---   10 audit events
+--   12 audit events
 --   3 violations
 --   1 tenant settings row
 --   1 API key
@@ -15,6 +15,9 @@
 --   1 support request
 --
 -- All timestamps are July 2026. tenant_id = 'tenant-demo' throughout.
+-- Agent names/models MUST match the Kubernetes pod labels in
+-- d2-osramp-fleet/tenants/local/signalloom.yaml — the live API enriches
+-- discovered pods with governance data from this table via the name column.
 
 BEGIN;
 
@@ -30,14 +33,14 @@ INSERT INTO public.agent_registry (
     lifecycle_state, last_transition_at, eu_ai_act_risk_class,
     created_at, updated_at
 ) VALUES
--- 1. Sir Lancelot — active, high-risk, well-governed
+-- 1. Sir Lancelot — active, high-risk, well-governed (kagent, claude-opus-4-8)
 (
     'a0000000-0000-0000-0000-000000000001', 'tenant-demo',
     'sir-lancelot', 'Sir Lancelot', 'Customer onboarding agent handling KYC verification and identity checks for new account applications.',
     '2.1.0', 'active',
     ARRAY['document_processing', 'kyc_verification', 'identity_check'],
     'lancelot@acme.co', 'Platform Engineering', 'Signal Loom Built', true,
-    'Anthropic', 'claude-sonnet-4-6', true,
+    'Anthropic', 'claude-opus-4-8', true,
     '[{"name": "Salesforce", "direction": "read_write", "data_classification": "confidential"}]'::jsonb,
     '[{"id": "pol-1", "name": "Identity & Access Control", "applied_at": "2026-01-15"}]'::jsonb,
     '{"EU AI Act": ["Art. 9", "Art. 14"], "SOC2": ["CC6.1", "CC6.2"]}'::jsonb,
@@ -45,14 +48,14 @@ INSERT INTO public.agent_registry (
     'active', '2026-07-05 09:30:00+00', 'high',
     '2026-03-15 10:00:00+00', '2026-07-20 14:00:00+00'
 ),
--- 2. Brian — active, minimal risk, Signal Loom Built
+-- 2. Dennis — active, minimal risk, Signal Loom Built (kagent, claude-haiku-4-5)
 (
     'a0000000-0000-0000-0000-000000000002', 'tenant-demo',
-    'brian', 'Brian', 'Internal documentation assistant that summarises meeting notes and generates action items.',
+    'dennis', 'Dennis', 'Internal documentation assistant that summarises meeting notes and generates action items for constitutional peasants.',
     '1.4.2', 'active',
-    ARRAY['summarisation', 'note_taking'],
-    'brian@acme.co', 'Knowledge Management', 'Signal Loom Built', true,
-    'OpenAI', 'gpt-4o', true,
+    ARRAY['summarisation', 'note_taking', 'anarcho_syndicalism'],
+    'dennis@acme.co', 'Knowledge Management', 'Signal Loom Built', true,
+    'Anthropic', 'claude-haiku-4-5', true,
     '[]'::jsonb,
     '[{"id": "pol-1", "name": "Identity & Access Control", "applied_at": "2026-02-10"}]'::jsonb,
     '{"SOC2": ["CC6.1"]}'::jsonb,
@@ -60,14 +63,14 @@ INSERT INTO public.agent_registry (
     'active', '2026-07-01 11:00:00+00', 'minimal',
     '2026-04-20 08:30:00+00', '2026-07-18 16:45:00+00'
 ),
--- 3. The Black Knight — suspended, has violations, COTS
+-- 3. The Black Knight — suspended, has violations, COTS (no framework, llama-3-70b)
 (
     'a0000000-0000-0000-0000-000000000003', 'tenant-demo',
     'black-knight', 'The Black Knight', 'Legacy invoice processor from third-party vendor. Flagged for missing identity owner and excessive permissions.',
     '0.9.1', 'violation',
     ARRAY['invoice_processing', 'payment_routing'],
     NULL, 'Finance', 'COTS', false,
-    NULL, NULL, NULL,
+    'Meta', 'llama-3-70b', NULL,
     '[{"name": "SAP", "direction": "read_write", "data_classification": "restricted"}]'::jsonb,
     '[]'::jsonb,
     '{}'::jsonb,
@@ -76,14 +79,14 @@ INSERT INTO public.agent_registry (
     'suspended', '2026-07-12 15:20:00+00', 'high',
     '2026-01-10 14:00:00+00', '2026-07-22 10:30:00+00'
 ),
--- 4. Sir Galahad — draft/enrolled, not yet active
+-- 4. Patsy — enrolled, not yet active, COTS (no framework, gpt-4o-mini)
 (
     'a0000000-0000-0000-0000-000000000004', 'tenant-demo',
-    'sir-galahad', 'Sir Galahad', 'Candidate agent for automated compliance report generation. Pending governance review before activation.',
+    'patsy', 'Patsy', 'Faithful logistics coordinator handling supply chain tracking and inventory reconciliation. Pending governance review before activation.',
     '0.1.0', 'inactive',
-    ARRAY['report_generation', 'compliance_analysis'],
-    'galahad@acme.co', 'GRC', 'Signal Loom Built', true,
-    'Anthropic', 'claude-sonnet-4-6', NULL,
+    ARRAY['logistics', 'inventory_tracking', 'supply_chain'],
+    'patsy@acme.co', 'Operations', 'COTS', false,
+    'OpenAI', 'gpt-4o-mini', NULL,
     '[]'::jsonb,
     '[]'::jsonb,
     '{}'::jsonb,
@@ -91,14 +94,14 @@ INSERT INTO public.agent_registry (
     'enrolled', NULL, 'limited',
     '2026-07-15 09:00:00+00', '2026-07-15 09:00:00+00'
 ),
--- 5. Sir Robin — active, Custom-built, moderate governance
+-- 5. Sir Robin — active, COTS, moderate governance (no framework, mistral-large)
 (
     'a0000000-0000-0000-0000-000000000005', 'tenant-demo',
-    'sir-robin', 'Sir Robin', 'Threat intelligence aggregator that monitors external feeds and correlates with internal asset inventory.',
+    'sir-robin', 'Sir Robin', 'Threat intelligence aggregator that monitors external feeds and correlates with internal asset inventory. Bravely runs away from false positives.',
     '1.2.0', 'active',
     ARRAY['threat_intel', 'feed_aggregation', 'correlation'],
-    'robin@acme.co', 'Security Operations', 'Custom', false,
-    'OpenAI', 'gpt-4o-mini', true,
+    'robin@acme.co', 'Security Operations', 'COTS', false,
+    'Mistral', 'mistral-large', true,
     '[{"name": "Splunk", "direction": "write", "data_classification": "internal"}, {"name": "VirusTotal", "direction": "read", "data_classification": "public"}]'::jsonb,
     '[{"id": "pol-2", "name": "Data Classification", "applied_at": "2026-03-01"}]'::jsonb,
     '{"SOC2": ["CC7.2"]}'::jsonb,
@@ -200,13 +203,13 @@ INSERT INTO public.agent_compliance_results (
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000005', 'pass', '2026-07-20 10:00:00+00', 'opa://assessments/lancelot/cc6.2/2026-07-20'),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000001', 'c0000000-0000-0000-0000-000000000006', 'pass', '2026-07-20 10:00:00+00', 'opa://assessments/lancelot/cc7.2/2026-07-20'),
 
--- Brian: 4 pass, 1 pending, 1 pass
-('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/brian/traceability/2026-07-18'),
-('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/brian/human-oversight/2026-07-18'),
+-- Dennis: 4 pass, 1 pending, 1 pass
+('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000001', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/dennis/traceability/2026-07-18'),
+('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000002', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/dennis/human-oversight/2026-07-18'),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000003', 'pending', NULL, NULL),
-('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/brian/cc6.1/2026-07-18'),
-('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000005', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/brian/cc6.2/2026-07-18'),
-('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000006', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/brian/cc7.2/2026-07-18'),
+('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000004', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/dennis/cc6.1/2026-07-18'),
+('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000005', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/dennis/cc6.2/2026-07-18'),
+('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'c0000000-0000-0000-0000-000000000006', 'pass', '2026-07-18 14:00:00+00', 'opa://assessments/dennis/cc7.2/2026-07-18'),
 
 -- The Black Knight: 2 fail, 2 fail, 2 pending (worst governance)
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000001', 'fail', '2026-07-22 09:00:00+00', 'opa://assessments/black-knight/traceability/2026-07-22'),
@@ -216,7 +219,7 @@ INSERT INTO public.agent_compliance_results (
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000005', 'pending', NULL, NULL),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000003', 'c0000000-0000-0000-0000-000000000006', 'pending', NULL, NULL),
 
--- Sir Galahad: all pending (newly enrolled, not yet assessed)
+-- Patsy: all pending (newly enrolled, not yet assessed)
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000001', 'pending', NULL, NULL),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000002', 'pending', NULL, NULL),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000004', 'c0000000-0000-0000-0000-000000000003', 'pending', NULL, NULL),
@@ -245,7 +248,8 @@ INSERT INTO public.lifecycle_transitions (tenant_id, agent_id, from_state, to_st
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000002', 'enrolled', 'active', 'admin@acme.co', 'Documentation assistant approved for internal use.', '2026-07-01 11:00:00+00'),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000003', 'enrolled', 'active', 'admin@acme.co', 'Legacy system onboarded from vendor contract.', '2026-02-10 14:00:00+00'),
 ('tenant-demo', 'a0000000-0000-0000-0000-000000000003', 'active', 'suspended', 'wendy@acme.co', 'Critical violation: no identity owner assigned. Suspended pending remediation.', '2026-07-12 15:20:00+00'),
-('tenant-demo', 'a0000000-0000-0000-0000-000000000005', 'enrolled', 'active', 'robin@acme.co', 'Custom threat intel agent activated after security review.', '2026-07-08 13:00:00+00');
+('tenant-demo', 'a0000000-0000-0000-0000-000000000004', 'draft', 'enrolled', 'patsy@acme.co', 'Logistics coordinator submitted for governance review.', '2026-07-15 09:00:00+00'),
+('tenant-demo', 'a0000000-0000-0000-0000-000000000005', 'enrolled', 'active', 'robin@acme.co', 'Threat intel agent activated after security review.', '2026-07-08 13:00:00+00');
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Violations (3)
@@ -295,21 +299,21 @@ INSERT INTO public.agent_violations (
 INSERT INTO public.audit_events (tenant_id, timestamp, event_type, agent_id, agent_name, actor, detail) VALUES
 -- Enrollments
 ('tenant-demo', '2026-07-01 10:00:00+00', 'enrollment',
- 'a0000000-0000-0000-0000-000000000002', 'Brian',
+ 'a0000000-0000-0000-0000-000000000002', 'Dennis',
  'admin@acme.co', '{"action": "agent_enrolled", "source": "foundry", "version": "1.4.2"}'::jsonb),
 ('tenant-demo', '2026-07-05 09:00:00+00', 'enrollment',
  'a0000000-0000-0000-0000-000000000001', 'Sir Lancelot',
  'admin@acme.co', '{"action": "agent_enrolled", "source": "foundry", "version": "2.1.0"}'::jsonb),
 ('tenant-demo', '2026-07-15 09:00:00+00', 'enrollment',
- 'a0000000-0000-0000-0000-000000000004', 'Sir Galahad',
- 'galahad@acme.co', '{"action": "agent_enrolled", "source": "foundry", "version": "0.1.0"}'::jsonb),
+ 'a0000000-0000-0000-0000-000000000004', 'Patsy',
+ 'patsy@acme.co', '{"action": "agent_enrolled", "source": "vendor", "version": "0.1.0"}'::jsonb),
 
 -- State transitions
 ('tenant-demo', '2026-07-05 09:30:00+00', 'state_transition',
  'a0000000-0000-0000-0000-000000000001', 'Sir Lancelot',
  'admin@acme.co', '{"from_state": "enrolled", "to_state": "active", "reason": "Passed governance checks"}'::jsonb),
 ('tenant-demo', '2026-07-01 11:00:00+00', 'state_transition',
- 'a0000000-0000-0000-0000-000000000002', 'Brian',
+ 'a0000000-0000-0000-0000-000000000002', 'Dennis',
  'admin@acme.co', '{"from_state": "enrolled", "to_state": "active", "reason": "Approved for internal use"}'::jsonb),
 ('tenant-demo', '2026-07-12 15:20:00+00', 'state_transition',
  'a0000000-0000-0000-0000-000000000003', 'The Black Knight',
@@ -319,6 +323,9 @@ INSERT INTO public.audit_events (tenant_id, timestamp, event_type, agent_id, age
 ('tenant-demo', '2026-07-20 10:00:00+00', 'compliance_check',
  'a0000000-0000-0000-0000-000000000001', 'Sir Lancelot',
  'opa-engine', '{"framework": "EU AI Act", "controls_passed": 3, "controls_failed": 0, "controls_pending": 0}'::jsonb),
+('tenant-demo', '2026-07-18 14:00:00+00', 'compliance_check',
+ 'a0000000-0000-0000-0000-000000000002', 'Dennis',
+ 'opa-engine', '{"framework": "SOC 2 Type II", "controls_passed": 2, "controls_failed": 0, "controls_pending": 1}'::jsonb),
 ('tenant-demo', '2026-07-22 09:00:00+00', 'compliance_check',
  'a0000000-0000-0000-0000-000000000003', 'The Black Knight',
  'opa-engine', '{"framework": "EU AI Act", "controls_passed": 0, "controls_failed": 3, "controls_pending": 0}'::jsonb),

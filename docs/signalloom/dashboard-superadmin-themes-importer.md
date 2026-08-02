@@ -285,6 +285,7 @@ make demo-signalloom-supercred-images        # build + load + verify (safe to re
 make demo-signalloom-supercred-1             # deploy services, agent, OpenBao secrets, SPIRE entry
 make demo-signalloom-supercred-2             # SPIFFE → OpenBao → cardvault credential chain
 #   then in the UI: Refresh Agents → Compliance Scan → Stun Agent
+#   (or scriptable: make demo-signalloom-supercred-3 / demo-signalloom-supercred-4)
 make demo-signalloom-supercred-5             # teardown
 make demo-signalloom-supercred-all           # steps 1→5
 make demo-signalloom-supercred-images-test   # bats guard, no cluster required

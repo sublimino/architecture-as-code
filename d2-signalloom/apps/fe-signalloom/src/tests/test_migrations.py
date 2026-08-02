@@ -8,6 +8,7 @@ same behaviour against a real server.
 """
 from __future__ import annotations
 
+import re
 import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -285,9 +286,23 @@ async def test_every_repo_migration_is_idempotent_by_construction() -> None:
             line.split("--", 1)[0] for line in text.upper().splitlines()
         )
 
+    def strip_guarded_blocks(text: str) -> str:
+        """Remove `DO $...$ ... END $...$;` blocks before counting bare DDL.
+
+        The inline `IF NOT EXISTS` suffix is only one way to be idempotent. A
+        `DO` block that tests `information_schema` (or `pg_constraint`) and skips
+        the DDL is equally safe, and it is the only option for DDL that has no
+        `IF NOT EXISTS` form — 006 and 007 both use it to recreate a CHECK
+        constraint, and 008 uses it to add a column with a foreign-key reference.
+
+        Counting a guarded `ADD COLUMN` as unguarded is a false positive, and a
+        test that cries wolf gets suppressed rather than heeded.
+        """
+        return re.sub(r"DO\s+\$[A-Z]*\$.*?END\s+\$[A-Z]*\$\s*;", "", text, flags=re.S)
+
     unguarded: list[str] = []
     for migration in discover_migrations():
-        sql = statements_only(migration.read_sql())
+        sql = strip_guarded_blocks(statements_only(migration.read_sql()))
         for verb, guard in (
             ("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS"),
             ("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS"),

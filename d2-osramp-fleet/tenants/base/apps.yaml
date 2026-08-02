@@ -20,7 +20,7 @@ spec:
       name: infra-configs
       namespace: monitoring
       ready: true
-      readyExpr: status.observedGeneration >= 0
+      readyExpr: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
   # The OSRAMP demo starts only through `make demo-osramp-up`.
   inputs: []
   resources:

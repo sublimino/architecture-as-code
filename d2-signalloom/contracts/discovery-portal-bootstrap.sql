@@ -606,3 +606,347 @@ END $body$;
 
 COMMIT;
 -- END 005_tenant_scan_preferences.sql
+
+-- BEGIN 006_onboarding.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 005 — onboarding state
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Backs GET/POST /api/onboarding/{status,skip,complete} and GET/PUT
+-- /api/onboarding/state. Until this existed the dashboard ran its onboarding
+-- client in MOCK_MODE, where "Skip for now" wrote a module-level variable that
+-- died on reload — so the wizard could never be dismissed and every protected
+-- route bounced back to /onboarding.
+--
+-- Shape: one row per tenant, holding a terminal status with its date plus the
+-- wizard's resumable in-progress state.
+--
+-- Why a dedicated table rather than columns on tenant_settings (which already
+-- carries consent_accepted_at, the closest precedent):
+--
+--   1. wizard_state churns on every step change. On tenant_settings each write
+--      would fire trg_tenant_settings_updated_at and bump the updated_at of a
+--      row that holds stable org configuration.
+--   2. tenant_settings is 1:1 with tenant by UNIQUE constraint. If onboarding
+--      later needs to be per-user, this table takes a user_email column and a
+--      composite unique; tenant_settings could not without a redesign.
+--   3. The onboarding state machine is legible in one place instead of being
+--      inferred from three nullable columns on a grab-bag row.
+--
+-- History is NOT kept here. Completion and skip both append to audit_events, so
+-- "skipped in March, completed in June" is answerable without this table
+-- carrying an event log it would otherwise duplicate.
+--
+-- Multi-tenancy note: tenant_id is NOT NULL with NO DEFAULT, deliberately
+-- diverging from the `DEFAULT 'tenant-demo'` used by the 004 tables. A default
+-- means an INSERT that forgets the tenant silently lands in the demo tenant
+-- instead of failing; on a shared-schema multi-tenant database that is a
+-- cross-tenant write, not a convenience. The FK to tenant_settings gives this
+-- table the referential integrity and tenant-deletion semantics the rest of the
+-- schema currently lacks.
+
+CREATE TABLE IF NOT EXISTS public.tenant_onboarding (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       TEXT        NOT NULL UNIQUE
+                                REFERENCES public.tenant_settings(tenant_id)
+                                ON DELETE CASCADE,
+    status          TEXT        NOT NULL DEFAULT 'pending'
+                                CHECK (status IN ('pending', 'completed', 'skipped')),
+    completed_at    TIMESTAMPTZ,
+    skipped_at      TIMESTAMPTZ,
+    wizard_state    JSONB       NOT NULL DEFAULT '{}'::jsonb
+                                CHECK (jsonb_typeof(wizard_state) = 'object'),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    -- A terminal status must carry its date, and a date must not appear without
+    -- the status that explains it. Without these the table can express
+    -- "completed, but we don't know when", which is exactly the ambiguity the
+    -- status column was added to remove.
+    CONSTRAINT tenant_onboarding_completed_has_date
+        CHECK (status <> 'completed' OR completed_at IS NOT NULL),
+    CONSTRAINT tenant_onboarding_skipped_has_date
+        CHECK (status <> 'skipped'   OR skipped_at   IS NOT NULL),
+    CONSTRAINT tenant_onboarding_pending_has_no_date
+        CHECK (status <> 'pending'   OR (completed_at IS NULL AND skipped_at IS NULL))
+);
+
+CREATE INDEX IF NOT EXISTS idx_tenant_onboarding_status
+    ON public.tenant_onboarding (status);
+
+DO $body$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'trg_tenant_onboarding_updated_at') THEN
+    CREATE TRIGGER trg_tenant_onboarding_updated_at
+      BEFORE UPDATE ON public.tenant_onboarding
+      FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+  END IF;
+END $body$;
+
+-- ──────────────────────────────────────────────────────────────────────────────
+-- audit_events: admit the two onboarding transitions
+-- ──────────────────────────────────────────────────────────────────────────────
+-- audit_events.event_type is a CHECK constraint, not an enum, so widening it
+-- means dropping and recreating the constraint. Done as a guarded block so the
+-- migration stays idempotent and so a database that already has the wider
+-- constraint is left alone.
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+   WHERE nsp.nspname = 'public'
+     AND rel.relname = 'audit_events'
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+             JOIN pg_class rel ON rel.oid = con.conrelid
+            WHERE rel.relname = 'audit_events' AND con.conname = constraint_name
+         )) NOT LIKE '%onboarding_completed%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+     WHERE rel.relname = 'audit_events'
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%onboarding_completed%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        'enrollment', 'state_transition', 'violation_detected',
+        'compliance_check', 'token_issued', 'token_refused',
+        'tenant_created', 'user_provisioned', 'directory_connected',
+        'discovery_enroll_requested',
+        'onboarding_completed', 'onboarding_skipped'
+      ));
+  END IF;
+END $body$;
+-- END 006_onboarding.sql
+
+-- BEGIN 007_audit_event_types.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 007 — admit the event types the application actually writes
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Every call site of _audit_log() in api_compat.py writes a dotted event type
+-- ('agent.created', 'tenant.frameworks_updated', ...). The CHECK constraint on
+-- audit_events.event_type allowed only an undotted vocabulary
+-- ('enrollment', 'state_transition', ...) that no call site uses. The two sets
+-- were completely disjoint, so EVERY audit insert raised
+--
+--     CheckViolationError: new row for relation "audit_events"
+--     violates check constraint "audit_events_event_type_check"
+--
+-- The mutation and its audit insert are separate autocommit statements, so the
+-- business write landed and the request then returned 500. Symptoms included
+-- PATCH /api/tenant/settings/preferences and PATCH /api/tenant/settings/frameworks
+-- both failing while persisting their changes. audit_events held zero rows on a
+-- cluster that had been running for days: the audit trail had never recorded a
+-- single event.
+--
+-- 004 created the constraint and 006 widened it by two values, but both used the
+-- undotted vocabulary, so neither closed the gap.
+--
+-- The dotted form is the application's convention — all thirteen call sites use
+-- it — so the constraint moves to the code rather than the code to the
+-- constraint. The undotted values are retained: they cost nothing, other
+-- environments may hold rows that use them, and 006 is still expected to be
+-- idempotent against a database that has already seen it.
+--
+-- tests/test_audit_event_types.py parses every event_type literal out of
+-- api_compat.py and fails if one is absent here, so the two cannot drift again.
+--
+-- Same guarded-DO-block shape as 006: event_type is a CHECK constraint rather
+-- than an enum, so widening means dropping and recreating, and the guard keys on
+-- a value unique to this migration so re-running is a no-op.
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+   WHERE nsp.nspname = 'public'
+     AND rel.relname = 'audit_events'
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  -- Already widened by this migration? Leave it alone.
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+             JOIN pg_class rel ON rel.oid = con.conrelid
+            WHERE rel.relname = 'audit_events' AND con.conname = constraint_name
+         )) NOT LIKE '%tenant.preferences_updated%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+     WHERE rel.relname = 'audit_events'
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%tenant.preferences_updated%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        -- Written by _audit_log() in api_compat.py. Keep in step with
+        -- tests/test_audit_event_types.py, which derives its expectations from
+        -- the source rather than from this list.
+        'agent.created',
+        'agent.credential_issued',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        'violation.acknowledged',
+        -- Retained from 004 and 006. No call site emits these, but dropping
+        -- them would break any environment holding rows that use them.
+        'enrollment',
+        'state_transition',
+        'violation_detected',
+        'compliance_check',
+        'token_issued',
+        'token_refused',
+        'tenant_created',
+        'user_provisioned',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'onboarding_completed',
+        'onboarding_skipped'
+      ));
+  END IF;
+END $body$;
+-- END 007_audit_event_types.sql
+
+-- BEGIN 008_platform_users.sql
+-- Migration: 008_platform_users
+-- Adds platform user management tables and links agent ownership.
+--
+-- Tables created (2):
+--   1. platform_users  — tenant-scoped user directory
+--   2. user_roles      — future RBAC expansion (roles × scopes)
+--
+-- Columns added (1):
+--   agent_registry.owner_id — FK to platform_users for ownership reconciliation
+--
+-- Design notes:
+--   - "platform_users" avoids collision with pg_catalog.pg_user
+--   - role column uses a simple CHECK constraint (admin/editor/viewer)
+--   - user_roles table is schema-only foundation for row-level access;
+--     no RLS policies are created here (single-tenant demo)
+--   - agent_registry.owner (TEXT) is preserved for display; owner_id is
+--     the relational link for permission checks
+--   - Library-agnostic: works with PostgreSQL RLS, CASL, Casbin, or Cerbos
+
+BEGIN;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 1. platform_users
+-- ══════════════════════════════════════════════════════════════════════════════
+
+CREATE TABLE IF NOT EXISTS public.platform_users (
+    id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id       TEXT        NOT NULL DEFAULT 'tenant-demo',
+    email           TEXT        NOT NULL,
+    display_name    TEXT        NOT NULL,
+    role            TEXT        NOT NULL DEFAULT 'viewer'
+                                CHECK (role IN ('admin', 'editor', 'viewer')),
+    status          TEXT        NOT NULL DEFAULT 'active'
+                                CHECK (status IN ('active', 'invited', 'suspended', 'deactivated')),
+    avatar_url      TEXT,
+    department      TEXT,
+    title           TEXT,
+    last_login_at   TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_platform_users_tenant_email UNIQUE (tenant_id, email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_platform_users_tenant
+    ON public.platform_users (tenant_id);
+
+CREATE INDEX IF NOT EXISTS idx_platform_users_email
+    ON public.platform_users (email);
+
+CREATE TRIGGER set_platform_users_updated_at
+    BEFORE UPDATE ON public.platform_users
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 2. user_roles (RBAC foundation — not enforced in demo)
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Designed for future row-level access control:
+--   scope = 'tenant' → tenant-wide role
+--   scope = 'team'   → team-scoped role (scope_id = team name)
+--   scope = 'agent'  → per-agent permission (scope_id = agent UUID)
+--
+-- No RLS policies reference this table yet. When enforcement lands:
+--   SET app.current_user_id = '<uuid>';
+--   RLS policy: WHERE agent_registry.owner_id = current_setting('app.current_user_id')::uuid
+--               OR EXISTS (SELECT 1 FROM user_roles WHERE ...)
+
+CREATE TABLE IF NOT EXISTS public.user_roles (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id     UUID        NOT NULL REFERENCES public.platform_users(id) ON DELETE CASCADE,
+    tenant_id   TEXT        NOT NULL DEFAULT 'tenant-demo',
+    role        TEXT        NOT NULL CHECK (role IN ('admin', 'editor', 'viewer')),
+    scope       TEXT        NOT NULL DEFAULT 'tenant'
+                            CHECK (scope IN ('tenant', 'team', 'agent')),
+    scope_id    TEXT,
+    granted_by  UUID        REFERENCES public.platform_users(id),
+    granted_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_user_roles_assignment UNIQUE (user_id, tenant_id, role, scope, scope_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_roles_user
+    ON public.user_roles (user_id);
+
+CREATE INDEX IF NOT EXISTS idx_user_roles_scope
+    ON public.user_roles (tenant_id, scope, scope_id);
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 3. Add owner_id FK to agent_registry
+-- ══════════════════════════════════════════════════════════════════════════════
+
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'agent_registry'
+          AND column_name = 'owner_id'
+    ) THEN
+        ALTER TABLE public.agent_registry
+            ADD COLUMN owner_id UUID REFERENCES public.platform_users(id);
+    END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_agent_registry_owner_id
+    ON public.agent_registry (owner_id);
+
+COMMIT;
+-- END 008_platform_users.sql

@@ -39,7 +39,8 @@ export default function Sidebar() {
   // signalloom.superadmin=true for a non-eligible user reveals nothing.
   const canSuperadmin = isSuperadminEligible(user)
   const showSuperadminNav = canSuperadmin && superadmin
-  const navItems = NAV.filter(({ superadminOnly }) => !superadminOnly || showSuperadminNav)
+  const regularItems = NAV.filter(({ superadminOnly }) => !superadminOnly)
+  const superadminItems = NAV.filter(({ superadminOnly }) => superadminOnly)
 
   return (
     <>
@@ -82,8 +83,8 @@ export default function Sidebar() {
         </div>
 
         {/* Nav links */}
-        <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {navItems.map(({ to, label }) => (
+        <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+          {regularItems.map(({ to, label }) => (
             <NavLink
               key={to}
               to={to}
@@ -118,6 +119,37 @@ export default function Sidebar() {
               )}
             </NavLink>
           ))}
+
+          {/* Superadmin-only nav block */}
+          {showSuperadminNav && (
+            <>
+              <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: '8px 14px' }} />
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', padding: '4px 14px 2px' }}>
+                Superadmin
+              </div>
+              {superadminItems.map(({ to, label }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  style={({ isActive }) => ({
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '9px 14px',
+                    borderRadius: 8,
+                    fontSize: 14,
+                    fontWeight: isActive ? 600 : 400,
+                    color: isActive ? 'var(--cyan)' : 'var(--muted)',
+                    background: isActive ? 'rgba(6,182,212,0.10)' : 'transparent',
+                    transition: 'color 0.12s, background 0.12s',
+                    textDecoration: 'none',
+                  })}
+                >
+                  {label}
+                </NavLink>
+              ))}
+            </>
+          )}
         </div>
 
         {/* Bottom: help + user */}

@@ -12,6 +12,7 @@
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
 import { colors } from '../styles/tokens'
+import { isDemoMode } from '../api/demoMode'
 
 class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -49,6 +50,81 @@ interface AnalysisResult {
 interface ConformanceIssue { issue?: string; reason?: string; severity?: string; role?: unknown; namespace?: unknown; details?: string; rule?: unknown }
 interface SharedRole { role: string; shared_by: number; reason?: string; risk?: string }
 
+// ─── Demo-mode fallback fixtures ─────────────────────────────────────────────
+// When the AFM proxy is down (no KiND cluster, CI, pure-frontend demos), demo
+// mode provides shape-valid fake data so the page renders meaningfully.
+
+function makeFakeSubjects(): Subject[] {
+  const kinds = ['ServiceAccount', 'User', 'Group']
+  const namespaces = ['kube-system', 'default', 'apps', 'flux-system', 'monitoring', 'cert-manager', 'ingress-nginx']
+  const subjects: Subject[] = []
+  for (let i = 0; i < 92; i++) {
+    const kind = kinds[i % kinds.length]
+    const ns = kind === 'ServiceAccount' ? namespaces[i % namespaces.length] : undefined
+    subjects.push({ name: `${kind.toLowerCase()}-${i}`, kind, namespace: ns })
+  }
+  return subjects
+}
+
+function makeFakeRoles(): Role[] {
+  const namespaces = ['kube-system', 'default', 'apps', 'flux-system', 'monitoring']
+  const roles: Role[] = [
+    { name: 'cluster-admin', scope: 'Cluster', rules: [{ verbs: ['*'], apiGroups: ['*'], resources: ['*'] }] },
+    { name: 'view', scope: 'Cluster', rules: [{ verbs: ['get', 'list', 'watch'], apiGroups: [''], resources: ['pods', 'services', 'configmaps'] }] },
+    { name: 'edit', scope: 'Cluster', rules: [{ verbs: ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete'], apiGroups: [''], resources: ['pods', 'services', 'configmaps', 'secrets'] }] },
+  ]
+  for (let i = 0; i < 15; i++) {
+    roles.push({
+      name: `ns-role-${i}`,
+      scope: 'Namespace',
+      namespace: namespaces[i % namespaces.length],
+      rules: [{ verbs: ['get', 'list'], apiGroups: [''], resources: ['pods'] }],
+    })
+  }
+  return roles
+}
+
+function makeFakeBindings(subjects: Subject[], roles: Role[]): Binding[] {
+  return roles.slice(0, 10).map((r, i) => ({
+    name: `binding-${r.name}`,
+    scope: r.scope,
+    namespace: r.namespace,
+    roleRef: r.name,
+    subjects: subjects.slice(i * 3, i * 3 + 3),
+  }))
+}
+
+const FAKE_CLUSTERS: ClusterMeta[] = [{ id: 'demo', name: 'Demo Cluster' }]
+
+function buildFakeRbac(): { rbac: RBACData; analysis: AnalysisResult; conformance: ConformanceIssue[]; sharedRoles: SharedRole[] } {
+  const subjects = makeFakeSubjects()
+  const roles = makeFakeRoles()
+  const bindings = makeFakeBindings(subjects, roles)
+  return {
+    rbac: { subjects, roles, bindings },
+    analysis: {
+      metadata: {
+        admins: ['serviceaccount-0'],
+        full_admins: ['user-1'],
+        non_admins: subjects.slice(2).map(s => s.name),
+        namespaces: ['kube-system', 'default', 'apps', 'flux-system', 'monitoring', 'cert-manager', 'ingress-nginx'],
+      },
+      escalation_paths: [{ from: 'serviceaccount-3', to: 'cluster-admin', via: 'edit' }],
+    },
+    conformance: [
+      { issue: 'Wildcard verb usage', severity: 'high', role: { name: 'cluster-admin' }, namespace: 'cluster', details: 'Role uses * verb on all resources' },
+      { issue: 'Secrets access without audit', severity: 'medium', role: { name: 'edit' }, namespace: 'apps', details: 'Role grants secret access without audit trail' },
+      { issue: 'Default namespace binding', severity: 'low', role: { name: 'ns-role-1' }, namespace: 'default', details: 'Binding in default namespace is discouraged' },
+    ],
+    sharedRoles: [
+      { role: 'view', shared_by: 12, reason: 'Common read-only role', risk: 'low' },
+      { role: 'edit', shared_by: 5, reason: 'Write access shared across teams', risk: 'medium' },
+    ],
+  }
+}
+
+// ─── Fetch helper ────────────────────────────────────────────────────────────
+
 const AFM = '/afm'
 
 async function fetchJson<T>(path: string): Promise<T | null> {
@@ -80,18 +156,25 @@ export default function RbacExplorerPage() {
   const [loading, setLoading] = useState(true)
   const [nsFilter, setNsFilter] = useState<string>('all')
 
-  // Load clusters on mount
+  // Subjects pagination
+  const [subjectsPage, setSubjectsPage] = useState(1)
+  const [subjectsPageSize, setSubjectsPageSize] = useState(30)
+
+  // Load clusters on mount — falls back to demo fixtures when AFM is down
   useEffect(() => {
     fetchJson<ClusterMeta[]>('/clusters').then(d => {
       if (d && d.length > 0) {
         setClusters(d)
         setClusterId(d.find(c => c.id === 'local')?.id ?? d[0].id)
+      } else if (isDemoMode()) {
+        setClusters(FAKE_CLUSTERS)
+        setClusterId(FAKE_CLUSTERS[0].id)
       }
       setLoading(false)
     })
   }, [])
 
-  // Load cluster data when cluster changes
+  // Load cluster data when cluster changes — demo fallback when AFM unreachable
   const loadCluster = useCallback(async (id: string) => {
     if (!id) return
     setLoading(true)
@@ -102,16 +185,33 @@ export default function RbacExplorerPage() {
         fetchJson<ConformanceIssue[]>(`/clusters/${encodeURIComponent(id)}/rbac/conformance`),
         fetchJson<{ results?: SharedRole[] }>(`/clusters/${encodeURIComponent(id)}/analysis/shared_roles`),
       ])
-      setRbac(r)
-      setAnalysis(a)
-      setConformance(Array.isArray(c) ? c : [])
-      const roles = s && 'results' in s ? s.results : (Array.isArray(s) ? s : [])
-      setSharedRoles(roles ?? [])
+      if (r) {
+        setRbac(r)
+        setAnalysis(a)
+        setConformance(Array.isArray(c) ? c : [])
+        const roles = s && 'results' in s ? s.results : (Array.isArray(s) ? s : [])
+        setSharedRoles(roles ?? [])
+      } else if (isDemoMode()) {
+        // AFM returned nothing — fall back to demo fixtures
+        const fake = buildFakeRbac()
+        setRbac(fake.rbac)
+        setAnalysis(fake.analysis)
+        setConformance(fake.conformance)
+        setSharedRoles(fake.sharedRoles)
+      }
     } catch (e) {
       console.error('[rbac-explorer] loadCluster failed:', e)
+      if (isDemoMode()) {
+        const fake = buildFakeRbac()
+        setRbac(fake.rbac)
+        setAnalysis(fake.analysis)
+        setConformance(fake.conformance)
+        setSharedRoles(fake.sharedRoles)
+      }
     } finally {
       setLoading(false)
       setNsFilter('all')
+      setSubjectsPage(1)
     }
   }, [])
 
@@ -202,7 +302,7 @@ export default function RbacExplorerPage() {
           {/* Namespace selector */}
           <select
             value={nsFilter}
-            onChange={e => setNsFilter(e.target.value)}
+            onChange={e => { setNsFilter(e.target.value); setSubjectsPage(1) }}
             style={{ width: 180 }}
             data-testid="namespace-selector"
           >
@@ -319,10 +419,10 @@ export default function RbacExplorerPage() {
             )}
           </Section>
 
-          {/* Subjects table */}
+          {/* Subjects table with pagination */}
           <Section title="Subjects" hint={`${filteredSubjects.length} subjects`}>
             <Table headers={['Name', 'Kind', 'Namespace', 'Bound Roles']}>
-              {filteredSubjects.slice(0, 30).map((s, i) => {
+              {filteredSubjects.slice((subjectsPage - 1) * subjectsPageSize, subjectsPage * subjectsPageSize).map((s, i) => {
                 const boundRoles = filteredBindings
                   .filter(b => b.subjects.some(bs => bs.name === s.name && bs.kind === s.kind))
                   .map(b => b.roleRef)
@@ -343,11 +443,47 @@ export default function RbacExplorerPage() {
                 )
               })}
             </Table>
-            {filteredSubjects.length > 30 && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
-                Showing 30 of {filteredSubjects.length} subjects
+            {/* Pagination controls */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, fontSize: 12, color: 'var(--muted)', flexWrap: 'wrap', gap: 8 }} data-testid="subjects-pagination">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>
+                  Showing {Math.min((subjectsPage - 1) * subjectsPageSize + 1, filteredSubjects.length)}–{Math.min(subjectsPage * subjectsPageSize, filteredSubjects.length)} of {filteredSubjects.length} subjects
+                </span>
+                <select
+                  value={subjectsPageSize}
+                  onChange={e => { setSubjectsPageSize(Number(e.target.value)); setSubjectsPage(1) }}
+                  style={{ fontSize: 12, padding: '2px 6px' }}
+                  data-testid="subjects-page-size"
+                >
+                  {[10, 30, 50, 100].map(n => (
+                    <option key={n} value={n}>{n} per page</option>
+                  ))}
+                </select>
               </div>
-            )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 11, padding: '3px 10px' }}
+                  disabled={subjectsPage <= 1}
+                  onClick={() => setSubjectsPage(p => Math.max(1, p - 1))}
+                  data-testid="subjects-prev"
+                >
+                  Prev
+                </button>
+                <span data-testid="subjects-page-indicator">
+                  Page {subjectsPage} of {Math.max(1, Math.ceil(filteredSubjects.length / subjectsPageSize))}
+                </span>
+                <button
+                  className="btn btn-secondary"
+                  style={{ fontSize: 11, padding: '3px 10px' }}
+                  disabled={subjectsPage >= Math.ceil(filteredSubjects.length / subjectsPageSize)}
+                  onClick={() => setSubjectsPage(p => p + 1)}
+                  data-testid="subjects-next"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
           </Section>
         </>
       )}

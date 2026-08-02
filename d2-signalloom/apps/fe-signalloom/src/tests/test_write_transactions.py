@@ -30,6 +30,7 @@ values rather than raising.
 from __future__ import annotations
 
 import ast
+import re
 import copy
 import socket
 import time
@@ -73,6 +74,7 @@ class _State:
     """Every table these handlers touch. Deep-copied to stage a transaction."""
 
     agent_registry: list[dict[str, Any]] = field(default_factory=list)
+    agent_credentials: list[dict[str, Any]] = field(default_factory=list)
     audit_events: list[dict[str, Any]] = field(default_factory=list)
     api_keys: list[dict[str, Any]] = field(default_factory=list)
     tenant_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -166,6 +168,19 @@ class FakePostgres:
                 },
             )
             return
+        if "INSERT INTO public.agent_credentials" in query:
+            tenant_id, agent_id, token_sha256, expires_at = args
+            state.agent_credentials.append(
+                {
+                    "tenant_id": tenant_id,
+                    "agent_id": agent_id,
+                    "token_sha256": token_sha256,
+                    "expires_at": expires_at,
+                    "revoked_at": None,
+                    "revoked_by": None,
+                },
+            )
+            return
         if query.startswith("INSERT INTO tenant_settings"):
             tenant_id, org_name = args
             state.tenant_settings.setdefault(tenant_id, _fresh_tenant_settings(tenant_id, org_name))
@@ -228,6 +243,25 @@ class FakePostgres:
             }
             state.agent_registry.append(row)
             return row
+        if query.startswith("SELECT id, name FROM agent_registry"):
+            agent_id, tenant_id = args
+            for row in state.agent_registry:
+                if row["id"] == agent_id and row["tenant_id"] == tenant_id:
+                    return {"id": row["id"], "name": row["name"]}
+            return None
+        if "WITH revoked AS (" in query and "UPDATE public.agent_credentials" in query:
+            tenant_id, agent_id, revoked_by = args
+            tokens_revoked = 0
+            for credential in state.agent_credentials:
+                if (
+                    credential["tenant_id"] == tenant_id
+                    and credential["agent_id"] == agent_id
+                    and credential["revoked_at"] is None
+                ):
+                    credential["revoked_at"] = "2026-08-02T00:00:00Z"
+                    credential["revoked_by"] = revoked_by
+                    tokens_revoked += 1
+            return {"tokens_revoked": tokens_revoked}
         if "FROM tenant_settings" in query:
             return state.tenant_settings.get(args[0])
         if "COUNT(*)" in query and "FROM agent_registry" in query:
@@ -478,6 +512,31 @@ def _seed_live_key(pool: FakePostgres, prefix_hint: str = "sl_live_old") -> None
     )
 
 
+def _seed_registry_agent(
+    pool: FakePostgres,
+    *,
+    tenant_id: str = "tenant-tx-pooled",
+    name: str = "Credential Agent",
+) -> str:
+    agent_id = str(uuid.uuid4())
+    pool.committed.agent_registry.append(
+        {
+            "id": uuid.UUID(agent_id),
+            "tenant_id": tenant_id,
+            "name": name,
+            "display_name": name,
+            "origin": "service",
+            "owner": "ops@signalloom.local",
+            "lifecycle_state": "active",
+            "last_transition_at": None,
+            "eu_ai_act_risk_class": "limited",
+            "model_name": "gpt-5.4-mini",
+            "created_at": None,
+        },
+    )
+    return agent_id
+
+
 def test_rotating_a_key_revokes_and_issues_in_one_transaction(
     client: TestClient, healthy: FakePostgres,
 ) -> None:
@@ -518,6 +577,89 @@ def test_a_rejected_audit_event_leaves_the_previous_key_live(
     assert keys[0]["revoked_at"] is None, "the tenant was locked out by a failed rotation"
     assert audit_rejects.committed.audit_events == []
     assert audit_rejects.rollbacks == 1
+
+
+def test_issuing_a_credential_commits_the_row_and_its_audit_event_together(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    agent_id = _seed_registry_agent(healthy)
+
+    response = client.post(
+        f"/api/agents/{agent_id}/credentials", headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    credentials = healthy.committed.agent_credentials
+    assert len(credentials) == 1
+    assert credentials[0]["agent_id"] == uuid.UUID(agent_id)
+    assert credentials[0]["revoked_at"] is None
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.credential_issued"]
+    assert healthy.commits == 1
+
+
+def test_a_rejected_audit_event_rolls_back_credential_issue(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    agent_id = _seed_registry_agent(audit_rejects)
+
+    response = client.post(
+        f"/api/agents/{agent_id}/credentials", headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.agent_credentials == []
+    assert audit_rejects.committed.audit_events == []
+    assert audit_rejects.rollbacks == 1
+
+
+def test_revoking_credentials_updates_rows_and_audits_in_one_transaction(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    agent_id = _seed_registry_agent(healthy)
+    issued = client.post(
+        f"/api/agents/{agent_id}/credentials", headers=_bearer("tx-pooled"),
+    )
+    assert issued.status_code == 200, issued.text
+    healthy.committed.audit_events.clear()
+    healthy.commits = 0
+
+    response = client.post(
+        f"/api/agents/{agent_id}/credentials/revoke", headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["tokens_revoked"] == 1
+    assert healthy.committed.agent_credentials[0]["revoked_at"] is not None
+    assert healthy.committed.agent_credentials[0]["revoked_by"] == "demo-actor"
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.credential_revoked"]
+    assert healthy.commits == 1
+
+
+def test_a_rejected_audit_event_rolls_back_credential_revocation(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    agent_id = _seed_registry_agent(audit_rejects)
+    issued = client.post(
+        f"/api/agents/{agent_id}/credentials", headers=_bearer("tx-pooled"),
+    )
+    assert issued.status_code == 500, issued.text
+    audit_rejects.fail_audit = False
+    issued = client.post(
+        f"/api/agents/{agent_id}/credentials", headers=_bearer("tx-pooled"),
+    )
+    assert issued.status_code == 200, issued.text
+    audit_rejects.committed.audit_events.clear()
+    audit_rejects.fail_audit = True
+
+    response = client.post(
+        f"/api/agents/{agent_id}/credentials/revoke", headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.agent_credentials[0]["revoked_at"] is None
+    assert audit_rejects.committed.agent_credentials[0]["revoked_by"] is None
+    assert audit_rejects.committed.audit_events == []
+    assert audit_rejects.rollbacks >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -639,6 +781,29 @@ def test_the_in_memory_path_still_rotates_keys_without_a_pool(client: TestClient
 
 _MUTATIONS = ("INSERT", "UPDATE", "DELETE")
 
+# A write does not have to be the first keyword in the statement. The revoke
+# handler needs the affected-row count in the same round trip, so its UPDATE
+# lives inside a CTE:
+#
+#     WITH revoked AS (UPDATE ... RETURNING 1) SELECT COUNT(*) FROM revoked
+#
+# A prefix test alone reads that as a plain SELECT and the handler drops out of
+# the enumeration entirely -- which is the failure mode this guard exists to
+# prevent, arriving through the guard's own blind spot. Matching the keyword
+# anywhere in a WITH-prefixed statement closes it. The word boundary keeps a
+# column or table merely *named* "update" from registering as one.
+_MUTATION_IN_CTE = re.compile(r"\b(INSERT|UPDATE|DELETE)\b", re.IGNORECASE)
+
+
+def _sql_writes(sql: str) -> bool:
+    """True if ``sql`` mutates, whether directly or from inside a CTE."""
+    statement = sql.lstrip()
+    if statement.upper().startswith(_MUTATIONS):
+        return True
+    if not statement.upper().startswith("WITH"):
+        return False
+    return _MUTATION_IN_CTE.search(statement) is not None
+
 
 def _is_mutating_call(node: ast.Call) -> str | None:
     """Return the receiver name if ``node`` issues a write, else None."""
@@ -651,8 +816,7 @@ def _is_mutating_call(node: ast.Call) -> str | None:
         return None
     if not node.args or not isinstance(node.args[0], ast.Constant):
         return None
-    sql = str(node.args[0].value).lstrip()
-    if not sql.upper().startswith(_MUTATIONS):
+    if not _sql_writes(str(node.args[0].value)):
         return None
     return func.value.id if isinstance(func.value, ast.Name) else "?"
 
@@ -677,7 +841,9 @@ def test_the_enumeration_still_finds_the_handlers_it_was_written_against() -> No
     """If this shrinks to nothing the guard below is vacuous, so say so."""
     assert set(_handlers_with_multiple_writes()) >= {
         "create_agent",
+        "issue_agent_credential",
         "transition_agent",
+        "revoke_agent_credential",
         "acknowledge_violation",
         "enroll_nhi_account",
         "dismiss_nhi_account",

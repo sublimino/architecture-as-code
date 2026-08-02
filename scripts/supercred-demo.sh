@@ -333,8 +333,8 @@ demo_5() {
   resolve_agent_pod_namespace || true
   kubectl delete pod agent-cardvault -n "$AGENT_POD_NAMESPACE" --ignore-not-found --wait=true 2>/dev/null || true
   kubectl delete sa cardvault-agent -n "$NAMESPACE_AGENTS" --ignore-not-found 2>/dev/null || true
-  kubectl delete -k d2-signalloom/apps/cardvault/base/ --ignore-not-found 2>/dev/null || true
-  kubectl delete -k d2-signalloom/apps/policy-engine/base/ --ignore-not-found 2>/dev/null || true
+  kubectl delete -k d2-signalloom/apps/cardvault/base/ -n "$NAMESPACE_INFRA" --ignore-not-found 2>/dev/null || true
+  kubectl delete -k d2-signalloom/apps/policy-engine/base/ -n "$NAMESPACE_INFRA" --ignore-not-found 2>/dev/null || true
 
   local spire_pod
   spire_pod=$(spire_pod)

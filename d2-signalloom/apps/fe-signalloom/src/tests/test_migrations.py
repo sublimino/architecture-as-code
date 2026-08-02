@@ -23,14 +23,11 @@ from db.migrate import (
     discover_migrations,
 )
 
-REPO_MIGRATIONS = [
-    "001_discovery_tables.sql",
-    "002_add_report_url_to_sessions.sql",
-    "003_platform_backends.sql",
-    "004_agent_governance_schema.sql",
-    "005_tenant_scan_preferences.sql",
-    "006_onboarding.sql",
-]
+# Derived from the migrations directory, never hand-listed. A literal here has
+# to be updated by every future migration, and when it is not, these tests fail
+# for a reason that has nothing to do with the runner they are testing —
+# which is exactly what happened when 006 landed.
+REPO_MIGRATIONS = [migration.filename for migration in discover_migrations(MIGRATIONS_DIR)]
 
 
 # ---------------------------------------------------------------------------
@@ -163,11 +160,8 @@ async def test_the_ledger_records_version_and_filename() -> None:
     await apply_migrations(server)
 
     assert server.ledger == [
-        ("1", "001_discovery_tables.sql"),
-        ("2", "002_add_report_url_to_sessions.sql"),
-        ("3", "003_platform_backends.sql"),
-        ("4", "004_agent_governance_schema.sql"),
-        ("5", "005_tenant_scan_preferences.sql"),
+        (migration.version, migration.filename)
+        for migration in discover_migrations(MIGRATIONS_DIR)
     ]
 
 
@@ -186,13 +180,13 @@ async def test_a_second_startup_applies_nothing() -> None:
 
 @pytest.mark.asyncio
 async def test_only_the_missing_migrations_are_applied(tmp_path: Path) -> None:
-    """The exact shape of this cluster: 001-004 present, 005 missing."""
+    """The shape of an existing cluster: every migration but the newest present."""
     server = FakePostgres()
-    await apply_migrations(server, _migration_dir(tmp_path, REPO_MIGRATIONS[:4]))
+    await apply_migrations(server, _migration_dir(tmp_path, REPO_MIGRATIONS[:-1]))
 
     applied = await apply_migrations(server)
 
-    assert applied == ["005_tenant_scan_preferences.sql"]
+    assert applied == REPO_MIGRATIONS[-1:]
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@
  * We mock demoMode to ensure fake data resolves, and mock auth for the token.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 // CryptographyPage calls useAuth0() to get a token for api.health.crypto().
@@ -19,7 +19,26 @@ vi.mock('../api/demoMode', () => ({
   isDemoMode: () => true,
 }))
 
+// api.health.crypto is spied — its default implementation is the real
+// function (still routed through demoMode/fakeData, so existing demo-mode
+// tests are unaffected), but individual tests can override a single call
+// with mockResolvedValueOnce/mockRejectedValueOnce to simulate the live
+// backend returning zero proofs or being unreachable.
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      health: { crypto: vi.fn(actual.api.health.crypto) },
+    },
+  }
+})
+
+import { api } from '../api/client'
 import CryptographyPage from './CryptographyPage'
+
+const cryptoSpy = vi.mocked(api.health.crypto)
 
 function renderPage() {
   return render(
@@ -86,5 +105,48 @@ describe('CryptographyPage', () => {
       expect(screen.getByText('Dashboard workload exchanged SPIFFE identity for OpenBao access')).toBeInTheDocument()
     })
     expect(screen.getByText('Forged service-account replay was rejected')).toBeInTheDocument()
+  })
+
+  it('shows an accurate "unreachable" message when the proof service call fails', async () => {
+    cryptoSpy.mockRejectedValueOnce(new Error('network error'))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Workload-identity proof service unreachable')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/API in development/)).not.toBeInTheDocument()
+  })
+
+  it('shows an accurate "no proofs reported" message when the API succeeds with zero proofs', async () => {
+    cryptoSpy.mockResolvedValueOnce({ tenant_id: 'demo-tenant', proofs: [] })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('No workload-identity proofs reported')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/API in development/)).not.toBeInTheDocument()
+  })
+
+  it('adds an End of Life column to the Cipher Discovery table, sourced per cipher', () => {
+    renderPage()
+    expect(screen.getByRole('columnheader', { name: 'End of life' })).toBeInTheDocument()
+    // Classical key exchange (ECDHE P-256, used by postgres and redis) is flagged with a sourced EOL date.
+    const eolBadges = screen.getAllByText('EOL 2030')
+    expect(eolBadges.length).toBe(2)
+    for (const badge of eolBadges) {
+      expect(badge).toHaveAttribute('title', expect.stringContaining('NIST SP 800-131A'))
+    }
+    // PQC-ready/hybrid ciphers have no EOL.
+    expect(screen.getAllByText('None').length).toBeGreaterThan(0)
+  })
+
+  it('makes the Key exchange column click through to the matching Algorithm Inventory row', () => {
+    renderPage()
+    const links = screen.getAllByRole('button', { name: /View ECDHE P-256 in Algorithm Inventory/ })
+    const targetRow = screen.getByText('ECDH P-256').closest('tr')
+    expect(targetRow).not.toBeNull()
+    expect(targetRow).toHaveAttribute('data-highlighted', 'false')
+
+    fireEvent.click(links[0])
+
+    expect(targetRow).toHaveAttribute('data-highlighted', 'true')
   })
 })

@@ -17,6 +17,7 @@ import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import { colors } from '../styles/tokens'
+import { cipherLifecycle } from '../data/cryptoLifecycle'
 import type { CryptoProof } from '../types/api'
 
 // ── Mock data ────────────────────────────────────────────────────────────────
@@ -99,8 +100,22 @@ const ALGORITHM_INVENTORY: AlgorithmEntry[] = [
   { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
   { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
   { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Approved', eolDate: '2030', quantumSafe: false },
+  { algorithm: 'ECDH P-256', standard: 'NIST SP 800-56A Rev. 3', type: 'Key exchange', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
   { algorithm: 'AES-256', standard: 'FIPS 197', type: 'Symmetric', nistStatus: 'Approved', eolDate: null, quantumSafe: true },
 ]
+
+// Cipher Discovery's `kex` values name TLS cipher groups, not the Algorithm
+// Inventory's canonical algorithm names — this maps one onto the other so the
+// "Key exchange" column can click through to a real, matching inventory row.
+const KEX_TO_ALGORITHM_INVENTORY: Record<string, string> = {
+  X25519MLKEM768: 'ML-KEM (Kyber)',
+  'X25519 + ML-KEM-768': 'ML-KEM (Kyber)',
+  'ECDHE P-256': 'ECDH P-256',
+}
+
+function algorithmRowId(algorithm: string): string {
+  return `algo-inventory-${algorithm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`
+}
 
 interface CipherEndpoint {
   endpoint: string
@@ -234,6 +249,7 @@ export default function CryptographyPage() {
   const { getAccessTokenSilently } = useAuth0()
   const [proofs, setProofs] = useState<CryptoProof[] | null>(null)
   const [proofError, setProofError] = useState(false)
+  const [highlightedAlgo, setHighlightedAlgo] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -250,6 +266,17 @@ export default function CryptographyPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  // Scrolls the Algorithm Inventory table to the row matching a Cipher
+  // Discovery key-exchange entry and highlights it briefly. scrollIntoView is
+  // optional-chained because jsdom (test env) doesn't implement it.
+  const scrollToAlgorithm = useCallback((algorithm: string) => {
+    document.getElementById(algorithmRowId(algorithm))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    setHighlightedAlgo(algorithm)
+    window.setTimeout(() => {
+      setHighlightedAlgo((current) => (current === algorithm ? null : current))
+    }, 2400)
+  }, [])
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -389,15 +416,61 @@ export default function CryptographyPage() {
             </div>
           </div>
           <div style={{ flex: 1, minWidth: 320 }}>
-            <Table headers={['Endpoint', 'TLS', 'Key exchange', 'PQC']}>
-              {CIPHERS.map((c) => (
-                <tr key={c.endpoint} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ ...td, color: 'var(--text)' }}>{c.endpoint}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{c.tls}</td>
-                  <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{c.kex}</code></td>
-                  <td style={td}><Pill label={c.pqc} /></td>
-                </tr>
-              ))}
+            <Table headers={['Endpoint', 'TLS', 'Key exchange', 'PQC', 'End of life']}>
+              {CIPHERS.map((c) => {
+                const targetAlgorithm = KEX_TO_ALGORITHM_INVENTORY[c.kex]
+                const lifecycle = cipherLifecycle(c.kex)
+                return (
+                  <tr key={c.endpoint} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ ...td, color: 'var(--text)' }}>{c.endpoint}</td>
+                    <td style={{ ...td, color: 'var(--muted)' }}>{c.tls}</td>
+                    <td style={td}>
+                      {targetAlgorithm ? (
+                        <button
+                          type="button"
+                          onClick={() => scrollToAlgorithm(targetAlgorithm)}
+                          aria-label={`View ${c.kex} in Algorithm Inventory (${targetAlgorithm})`}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            margin: 0,
+                            font: 'inherit',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <code
+                            style={{
+                              color: 'var(--cyan)',
+                              fontSize: 12,
+                              textDecoration: 'underline',
+                              textUnderlineOffset: 3,
+                            }}
+                          >
+                            {c.kex}
+                          </code>
+                        </button>
+                      ) : (
+                        <code style={{ color: 'var(--cyan)', fontSize: 12 }}>{c.kex}</code>
+                      )}
+                    </td>
+                    <td style={td}><Pill label={c.pqc} /></td>
+                    <td style={td}>
+                      {lifecycle?.eolDate ? (
+                        <span
+                          className="tag"
+                          title={lifecycle.source}
+                          style={{ background: hex(colors.red, 0.12), color: colors.red }}
+                        >
+                          EOL {lifecycle.eolDate}
+                        </span>
+                      ) : (
+                        <span style={{ color: colors.tealLoom }}>None</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </Table>
           </div>
         </div>
@@ -407,7 +480,16 @@ export default function CryptographyPage() {
       <Section title="Algorithm Inventory" hint="NIST post-quantum migration tracking">
         <Table headers={['Algorithm', 'Standard', 'Type', 'NIST Status', 'EOL Date', 'Quantum-safe']}>
           {ALGORITHM_INVENTORY.map((a) => (
-            <tr key={a.algorithm} style={{ borderBottom: '1px solid var(--border)' }}>
+            <tr
+              key={a.algorithm}
+              id={algorithmRowId(a.algorithm)}
+              data-highlighted={a.algorithm === highlightedAlgo}
+              style={{
+                borderBottom: '1px solid var(--border)',
+                background: a.algorithm === highlightedAlgo ? hex(colors.cyanLoom, 0.16) : undefined,
+                transition: 'background 200ms ease',
+              }}
+            >
               <td style={{ ...td, color: 'var(--text)', fontWeight: 500 }}>{a.algorithm}</td>
               <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{a.standard}</code></td>
               <td style={{ ...td, color: 'var(--muted)' }}>{a.type}</td>

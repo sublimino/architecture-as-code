@@ -338,6 +338,17 @@ class TenantSettingsResponse(BaseModel):
     selected_frameworks: list[str]
     consent_required: bool
     cookie_preferences: CookiePreferences | None
+    preferred_scan_cadence_hours: int
+    alert_email: str | None
+    alert_threshold: int
+
+
+class PreferencesUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preferred_scan_cadence_hours: int
+    alert_email: str | None
+    alert_threshold: int
 
 
 # ---- API Keys --------------------------------------------------------------

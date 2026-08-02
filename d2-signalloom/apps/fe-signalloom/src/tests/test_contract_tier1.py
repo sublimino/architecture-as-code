@@ -223,6 +223,7 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("GET", "/api/nhi/report/json", None, None, "NHI report JSON"),
     ("GET", "/api/tenant/settings", None, TenantSettingsResponse, "tenant settings"),
     ("PATCH", "/api/tenant/settings/frameworks", {"selected_frameworks": ["eu-ai-act", "nist-ai-rmf"]}, TenantSettingsResponse, "patch tenant frameworks"),
+    ("PATCH", "/api/tenant/settings/preferences", {"preferred_scan_cadence_hours": 12, "alert_email": "ops@signalloom.local", "alert_threshold": 3}, TenantSettingsResponse, "patch tenant preferences"),
     ("POST", "/api/support", {"subject": "Test", "urgency": "normal", "message": "Help"}, SupportRequestResponse, "create support request"),
     ("POST", "/api/tenants/tenant-a/api-keys/initial", None, InitialApiKeyResponse, "create initial API key"),
     ("POST", "/api/tenants/tenant-a/api-keys/rotate", None, RotateApiKeyResponse, "rotate API key"),
@@ -350,11 +351,11 @@ def test_nhi_report_json_response_shape(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Coverage assertion: ensure the table covers all 28 endpoints
+# Coverage assertion: ensure the table covers all 29 endpoints
 # ---------------------------------------------------------------------------
 
-def test_endpoint_table_covers_all_28_routes() -> None:
-    """Sanity check: the parametrized table has exactly 28 entries."""
-    assert len(ENDPOINT_TABLE) == 28, (
-        f"expected 28 endpoints in the table, got {len(ENDPOINT_TABLE)}"
+def test_endpoint_table_covers_all_29_routes() -> None:
+    """Sanity check: the parametrized table has exactly 29 entries."""
+    assert len(ENDPOINT_TABLE) == 29, (
+        f"expected 29 endpoints in the table, got {len(ENDPOINT_TABLE)}"
     )

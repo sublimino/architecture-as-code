@@ -40,7 +40,7 @@ import urllib.request, json, sys, pathlib
 data = pathlib.Path('$sample').read_text()
 ct = 'application/x-yaml' if '$sample'.endswith('.yaml') else 'application/json'
 try:
-    r = urllib.request.urlopen(urllib.request.Request('http://localhost:18000/api/clusters', data=data.encode(), headers={'Content-Type': ct}), timeout=10)
+    r = urllib.request.urlopen(urllib.request.Request('http://localhost:18000/clusters/upload', data=data.encode(), headers={'Content-Type': ct}), timeout=10)
     print(f'  seeded: $name ({r.status})')
 except Exception as e:
     print(f'  skip: $name ({e})')

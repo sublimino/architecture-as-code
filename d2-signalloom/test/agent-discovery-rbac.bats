@@ -114,11 +114,24 @@ pod_reader_count() {
 	[ "$found" -eq 0 ]
 }
 
-@test "the tenant grant stays namespace-scoped and read-only" {
-	local authored
-	authored="$(as_authored "$(tenant_namespace)")"
+# Resources, then verbs, granted by the named Role in the named namespace.
+role_resources() {
+	yq eval-all "
+		[ .spec.resources[]?
+		  | select(.kind == \"Role\" and .metadata.namespace == \"$1\"
+		      and .metadata.name == \"agent-inventory-reader\")
+		  | .rules[]? | .resources[]? ] | .[]" "$canonical"
+}
 
-	# No cluster-scoped identity for this tenant's pod reader.
+role_verbs() {
+	yq eval-all "
+		[ .spec.resources[]?
+		  | select(.kind == \"Role\" and .metadata.namespace == \"$1\"
+		      and .metadata.name == \"agent-inventory-reader\")
+		  | .rules[]? | .verbs[]? ] | .[]" "$canonical"
+}
+
+@test "no discovery grant gives the proxy a cluster-scoped identity" {
 	run bash -c "yq eval-all '
 		[ .spec.resources[]?
 		  | select(.kind == \"ClusterRoleBinding\")
@@ -127,27 +140,43 @@ pod_reader_count() {
 		| awk '{t += \$1} END {print t + 0}'"
 	[ "$status" -eq 0 ]
 	[ "$output" -eq 0 ]
+}
 
-	# The Role grants pods only, and no mutating verb.
-	run yq eval-all "
-		[ .spec.resources[]?
-		  | select(.kind == \"Role\" and .metadata.namespace == \"$authored\"
-		      and .metadata.name == \"agent-inventory-reader\")
-		  | .rules[]? | .resources[]? ] | .[]" "$canonical"
-	[ "$status" -eq 0 ]
-	[[ "$output" == *"pods"* ]]
-	[[ "$output" != *"secrets"* ]]
+@test "every discovery grant is pods-only, read plus patch and nothing more" {
+	# Checks EVERY discovery namespace, not just the tenant. The
+	# fe-signalloom-agents Role was previously unguarded, so a mutating verb
+	# could have been added there without any test objecting.
+	local ns authored resources verbs forbidden
+	while read -r ns; do
+		[ -n "$ns" ] || continue
+		authored="$(as_authored "$ns")"
 
-	run yq eval-all "
-		[ .spec.resources[]?
-		  | select(.kind == \"Role\" and .metadata.namespace == \"$authored\"
-		      and .metadata.name == \"agent-inventory-reader\")
-		  | .rules[]? | .verbs[]? ] | .[]" "$canonical"
-	[ "$status" -eq 0 ]
-	[[ "$output" != *"create"* ]]
-	[[ "$output" != *"delete"* ]]
-	[[ "$output" != *"patch"* ]]
-	[[ "$output" != *"*"* ]]
+		resources="$(role_resources "$authored")"
+		[ -n "$resources" ] || { echo "no agent-inventory-reader Role in '$authored'"; return 1; }
+		printf '%s\n' "$resources" | grep -Fxq 'pods' || {
+			echo "'$authored' Role does not grant pods"; return 1; }
+
+		# Anything beyond pods is out of scope for agent discovery.
+		forbidden="$(printf '%s\n' "$resources" | grep -Fxv 'pods' || true)"
+		[ -z "$forbidden" ] || { echo "'$authored' Role grants extra resources: $forbidden"; return 1; }
+
+		verbs="$(role_verbs "$authored")"
+		# `patch` is required: POST /agents/<id>/stun relabels the pod, and
+		# without it the button 502s on a 403.
+		printf '%s\n' "$verbs" | grep -Fxq 'patch' || {
+			echo "'$authored' Role lacks patch — the stun flow will 403"; return 1; }
+
+		# Every other mutating verb stays denied: the proxy may relabel an
+		# existing agent, never create, replace or remove one.
+		#
+		# Collected into a variable and tested with [ -z ], NOT as `! grep ...`.
+		# A `!`-negated command is exempt from errexit, so the previous
+		# `! grep -Fxq delete` form could never fail this test — it passed with
+		# `delete` and even with `*` injected into the Role.
+		forbidden="$(printf '%s\n' "$verbs" | grep -Fx -e create -e update -e delete -e deletecollection -e '*' || true)"
+		[ -z "$forbidden" ] || {
+			echo "'$authored' Role grants forbidden verbs: $forbidden"; return 1; }
+	done < <(discovery_namespaces)
 }
 
 @test "the RoleBinding ships alongside the Role it references" {

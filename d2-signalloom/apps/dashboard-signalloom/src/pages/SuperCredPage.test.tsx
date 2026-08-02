@@ -3,6 +3,18 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 
+// This file exercises the LIVE proxy path — every test drives a mocked fetch
+// against /supercred-api — so demo-data mode must be off. SL_ENV defaults to
+// 'demo' under test, which makes the mode ambient rather than declared, and a
+// test file that silently changes behaviour with an env default is a trap.
+// Taken verbatim from feat/supercred-main-pages, where routing discovery
+// through supercredSource makes it load-bearing rather than merely correct.
+vi.mock('../api/demoMode', () => ({
+  isDemoMode: () => false,
+  isProductionEnv: false,
+  showDemoToggle: false,
+}))
+
 // The page records its stun on the audit trail through the authenticated api
 // client, so it needs a token. Same shim AuditTrail.test.tsx uses.
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')

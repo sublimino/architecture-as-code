@@ -30,8 +30,10 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
+import type { StunAgentRequest, StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
+import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -196,6 +198,51 @@ const audit: AuditListResponse = {
   total: 2,
   page: 1,
   limit: 25,
+}
+
+/** Fixture history plus anything this demo session recorded, newest first.
+ *
+ *  Actions taken during the demo have to appear on the same trail as the
+ *  seeded history — a demo where the audience presses a button and the audit
+ *  page still shows only two week-old rows demonstrates the opposite of what
+ *  the product claims.
+ *
+ *  Unpaginated, like the fixture it replaces: resolveFake() strips the query
+ *  string before dispatch, so page/limit never reach a fixture. Returning the
+ *  whole set with a matching total keeps AuditTrail's `hasMore` correctly
+ *  false rather than offering a Load More that would fetch the same rows. */
+function auditWithRecordedActivity(): AuditListResponse {
+  const events = [...demoActivityEvents(), ...audit.events]
+  return { events, total: events.length, page: 1, limit: events.length }
+}
+
+const DEMO_ACTOR = 'demo-operator'
+
+/** POST /agents/{id}/stun — record the event, then answer as the API would. */
+function stunFixture(path: string, body?: unknown): StunAgentResponse {
+  const agentId = path.split('/')[2]
+  const req = (body ?? {}) as StunAgentRequest
+  const event = recordDemoActivity({
+    event_type: 'agent.stunned',
+    agent_id: agentId,
+    agent_name: req.agent_name ?? agentId,
+    actor: DEMO_ACTOR,
+    detail: {
+      outcome: req.outcome ?? 'stunned',
+      reason: req.reason ?? 'operator-initiated stun',
+      namespace: req.namespace ?? null,
+      from_state: 'active',
+      to_state: 'suspended',
+    },
+  })
+  return {
+    agent_id: agentId,
+    from_state: 'active',
+    to_state: 'suspended',
+    actor: DEMO_ACTOR,
+    stunned_at: event.timestamp,
+    event,
+  }
 }
 
 // ─── NHI ─────────────────────────────────────────────────────────────────────
@@ -369,6 +416,7 @@ const ROUTES: Match[] = [
     }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials$/), data: () => issueCredential },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: () => transition },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p, body) => stunFixture(p, body) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },
@@ -379,7 +427,7 @@ const ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/compliance\/frameworks$/), data: () => frameworks },
   { method: 'GET', test: re(/^\/compliance\/export$/), data: () => complianceExport },
   // audit
-  { method: 'GET', test: re(/^\/audit$/), data: () => audit },
+  { method: 'GET', test: re(/^\/audit$/), data: () => auditWithRecordedActivity() },
   // nhi
   { method: 'GET', test: re(/^\/nhi\/scans$/), data: () => nhiScans },
   { method: 'GET', test: re(/^\/nhi\/discovered$/), data: () => nhiDiscovered },

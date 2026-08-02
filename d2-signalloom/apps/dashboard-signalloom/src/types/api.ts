@@ -56,6 +56,30 @@ export interface RevokeCredentialResponse {
   tokens_revoked: number
 }
 
+// Stun — the operator isolates a non-compliant agent. The k8s side-effect
+// (pod relabel, credential revocation) belongs to the SuperCred proxy; this
+// endpoint owns the RECORD of it: the agent's lifecycle state and the audit
+// event, written in one transaction. The response echoes the audit row so the
+// caller can show the trace it just created without a second round trip.
+export interface StunAgentRequest {
+  agent_name?: string | null
+  namespace?: string | null
+  reason?: string | null
+  /** What actually happened — 'stunned' on success. Recorded in the event detail. */
+  outcome?: string | null
+}
+
+export interface StunAgentResponse {
+  agent_id: string
+  from_state: string
+  /** Lifecycle vocabulary, not UI wording: a stun lands the agent in
+   *  'suspended' (migration 009). Mirrors TransitionResponse's naming. */
+  to_state: string
+  actor: string
+  stunned_at: string
+  event: AuditEventResponse
+}
+
 export interface TransitionRequest {
   to_state: string
   reason: string

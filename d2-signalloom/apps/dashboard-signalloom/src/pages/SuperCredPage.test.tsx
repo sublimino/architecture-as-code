@@ -2,7 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+
+// The page records its stun on the audit trail through the authenticated api
+// client, so it needs a token. Same shim AuditTrail.test.tsx uses.
+const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+vi.mock('../auth/oidc', () => ({
+  useAuth0: () => ({ getAccessTokenSilently }),
+}))
+
 import SuperCredPage from './SuperCredPage'
+import { api } from '../api/client'
 
 const AGENTS_NS = 'fe-signalloom-agents'
 const FLUX_NS = 'fe-signalloom'
@@ -118,6 +127,9 @@ async function refresh() {
 describe('SuperCredPage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
+    // restoreAllMocks clears the module-level auth shim's implementation too,
+    // so re-arm it here rather than only at declaration.
+    getAccessTokenSilently.mockResolvedValue('test-token')
   })
 
   afterEach(() => {
@@ -244,6 +256,83 @@ describe('SuperCredPage', () => {
     await refresh()
     await screen.findAllByText('Cardvault Agent')
     expect(screen.queryByRole('button', { name: /Stun Agent/ })).not.toBeInTheDocument()
+  })
+
+  // ─── Stun leaves an audit trace ──────────────────────────────────────────
+  //
+  // The proxy call above is the cluster-side action; it writes nothing durable.
+  // These pin down that pressing Stun also records the event that the Audit
+  // Trail reads, and that a recording failure is surfaced rather than swallowed.
+
+  async function stunOnce() {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+  }
+
+  it('records an audit event carrying agent, action, actor and outcome', async () => {
+    const spy = vi.spyOn(api.agents, 'stun')
+    await stunOnce()
+
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
+    expect(spy).toHaveBeenCalledWith(
+      'test-token',
+      'agent-cardvault',
+      expect.objectContaining({
+        agent_name: 'Cardvault Agent',
+        namespace: FLUX_NS,
+        outcome: 'stunned',
+      }),
+    )
+  })
+
+  it('shows the recorded event and points at the Audit Trail', async () => {
+    await stunOnce()
+
+    const recorded = await screen.findByTestId('supercred-stun-event')
+    expect(recorded).toHaveTextContent(/Audit event recorded/)
+    expect(within(recorded).getByTestId('stun-event-type')).toHaveTextContent('agent.stunned')
+    expect(within(recorded).getByTestId('stun-event-agent')).toHaveTextContent('Cardvault Agent')
+    expect(within(recorded).getByTestId('stun-event-actor')).toHaveTextContent(/\S/)
+    expect(
+      Number.isNaN(Date.parse(within(recorded).getByTestId('stun-event-timestamp').textContent ?? '')),
+    ).toBe(false)
+    expect(within(recorded).getByRole('link', { name: /Audit Trail/ })).toHaveAttribute('href', '/audit')
+  })
+
+  it('still reports the stun when the audit record fails, and says the record failed', async () => {
+    vi.spyOn(api.agents, 'stun').mockRejectedValue(new Error('audit insert rejected'))
+    await stunOnce()
+
+    // The cluster action succeeded, so the stun result must still stand — telling
+    // the operator the stun failed would invite them to fire it a second time.
+    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(/credentials revoked/)
+    expect(await screen.findByTestId('supercred-stun-event-error')).toHaveTextContent(
+      /audit event could not be recorded/i,
+    )
+    expect(screen.queryByTestId('supercred-stun-event')).not.toBeInTheDocument()
+  })
+
+  it('does not record anything when the stun itself fails', async () => {
+    const spy = vi.spyOn(api.agents, 'stun')
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/stun')) {
+        return { ok: false, status: 502, text: async () => 'proxy unreachable' } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ({ agents: [cardvault()], namespaces: [FLUX_NS] }),
+      } as Response
+    })
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+
+    expect(await screen.findByTestId('supercred-error')).toHaveTextContent(/Stun failed: 502/)
+    expect(spy).not.toHaveBeenCalled()
   })
 
   // ─── Phase warnings ─────────────────────────────────────────────────────

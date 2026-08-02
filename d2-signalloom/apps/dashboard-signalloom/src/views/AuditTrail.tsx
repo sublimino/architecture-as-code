@@ -9,13 +9,21 @@ import ErrorState from '../components/ErrorState'
 const POLL_MS = 15 * 60 * 1000
 const LIMIT = 50
 
+// The undotted values are the legacy vocabulary retained by migration 007; the
+// dotted ones are what api_compat._audit_log() actually writes today. Only
+// 'agent.stunned' is listed from the dotted set so far — filtering for an
+// enforcement action is the one the operator reaches for first. Closing the
+// rest of the drift is a separate change.
 const EVENT_TYPES = [
+  'agent.stunned',
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused', 'tenant_created', 'user_provisioned',
   'directory_connected', 'discovery_enroll_requested',
 ]
 
 const EVENT_COLORS: Record<string, string> = {
+  // Isolating an agent is the most severe action the platform takes on its own.
+  'agent.stunned': 'var(--error)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

@@ -255,6 +255,36 @@ class AuditListResponse(BaseModel):
     limit: int
 
 
+# Defined after AuditEventResponse: StunAgentResponse embeds one, and the point
+# of embedding it is that the caller sees the exact row that was written rather
+# than a paraphrase of it.
+class StunAgentRequest(BaseModel):
+    """Context the dashboard supplies when it records a stun.
+
+    Every field is optional. The SuperCred proxy performs the cluster-side
+    action and this endpoint records it; if the caller can tell us nothing about
+    what it just did, an event with no context still beats no event at all.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_name: str | None = None
+    namespace: str | None = None
+    reason: str | None = None
+    outcome: str | None = None
+
+
+class StunAgentResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    from_state: str
+    to_state: str
+    actor: str
+    stunned_at: str
+    event: AuditEventResponse
+
+
 class ComplianceSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -889,7 +919,55 @@ _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
 _TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
 _COOKIE_PREFS: dict[str, dict[str, bool]] = {}
 _CONSENT: dict[str, dict[str, Any]] = {}
+# Events recorded by mutating handlers while running without a database, oldest
+# first. The pooled path writes audit_events; this is its fixture counterpart,
+# so an action taken with no database configured still shows on GET /api/audit
+# rather than vanishing. Capped -- a long-lived demo pod must not grow forever.
+_AUDIT_EVENTS: dict[str, list[dict[str, Any]]] = {}
+_MEMORY_AUDIT_LIMIT = 500
 _AGENT_SEQ = itertools.count(1)
+_AUDIT_SEQ = itertools.count(1)
+
+
+def _record_memory_audit(
+    tenant_id: str,
+    event_type: str,
+    agent_id: str | None,
+    agent_name: str | None,
+    actor: str,
+    detail: dict[str, Any],
+) -> dict[str, Any]:
+    """Fixture-path twin of ``_audit_log``. Returns the recorded event."""
+    event = {
+        "id": f"{tenant_id}:audit-mem-{next(_AUDIT_SEQ)}",
+        "timestamp": _now_iso(),
+        "event_type": event_type,
+        "agent_id": agent_id,
+        "agent_name": agent_name,
+        "actor": actor,
+        "detail": detail,
+    }
+    with _STORE_LOCK:
+        events = _AUDIT_EVENTS.setdefault(tenant_id, [])
+        events.append(event)
+        if len(events) > _MEMORY_AUDIT_LIMIT:
+            del events[: len(events) - _MEMORY_AUDIT_LIMIT]
+    return event
+
+
+def reset_tenant_state(tenant_id: str) -> None:
+    """Drop every in-memory fixture for one tenant.
+
+    The stores are module-level and outlive a single test, so a test that wants
+    to assert on counts needs a way back to a known state. Nothing in the
+    running application calls this.
+    """
+    with _STORE_LOCK:
+        for store in (
+            _AGENTS, _VIOLATIONS, _NHI_ACCOUNTS, _TENANT_FRAMEWORKS,
+            _TENANT_PREFERENCES, _COOKIE_PREFS, _CONSENT, _AUDIT_EVENTS,
+        ):
+            store.pop(tenant_id, None)
 
 
 def _now_iso() -> str:
@@ -1588,6 +1666,119 @@ async def transition_agent(
     )
 
 
+STUNNED_LIFECYCLE_STATE = "suspended"
+
+
+@router.post("/agents/{agent_id}/stun", response_model=StunAgentResponse, responses=ERROR_RESPONSES)
+async def stun_agent(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    body: StunAgentRequest | None = None,
+) -> StunAgentResponse:
+    """Record an operator isolating an agent.
+
+    The cluster-side action belongs to the SuperCred proxy -- it relabels the
+    pod and revokes the OpenBao lease -- and that proxy has no database. So the
+    durable half lives here: the lifecycle change and its ``audit_events`` row,
+    written inside one ``_write`` transaction, exactly as ``transition_agent``
+    and ``rotate_api_key`` do. An enforcement action that persisted with no
+    matching audit row is the failure mode migration 007 and ``_write`` exist to
+    rule out, and it is worse for a stun than for anything else: the agent is
+    cut off and nobody can say who did it.
+
+    ``agent_id`` is deliberately not required to resolve to a registry row.
+    SuperCred agent ids are Kubernetes pod names, so the interesting case --
+    isolating a workload the registry has never seen -- is precisely the one a
+    UUID lookup would drop. When the id does resolve, the state change and the
+    event commit together; when it does not, the event is still written, with
+    the raw id preserved in ``detail.agent_ref``.
+    """
+    req = body or StunAgentRequest()
+    reason = req.reason or "operator-initiated stun"
+    outcome = req.outcome or "stunned"
+    now = _now_iso()
+    pool = await _get_pool()
+
+    def _detail(from_state: str) -> dict[str, Any]:
+        return {
+            "outcome": outcome,
+            "reason": reason,
+            "namespace": req.namespace,
+            "from_state": from_state,
+            "to_state": STUNNED_LIFECYCLE_STATE,
+            "agent_ref": agent_id,
+        }
+
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            agent = _AGENTS[tenant_id].get(agent_id)
+            from_state = "active" if agent is None else str(agent["lifecycle_state"])
+            agent_name = req.agent_name or (None if agent is None else str(agent["name"]))
+            if agent is not None:
+                agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
+                agent["last_transition_at"] = now
+                agent["last_transition_by"] = "demo-actor"
+        event = _record_memory_audit(
+            tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor", _detail(from_state),
+        )
+        return StunAgentResponse(
+            agent_id=agent_id,
+            from_state=from_state,
+            to_state=STUNNED_LIFECYCLE_STATE,
+            actor="demo-actor",
+            stunned_at=now,
+            event=AuditEventResponse(**event),
+        )
+
+    agent_uuid = _try_uuid(agent_id)
+
+    # The read, the update and the audit insert share one transaction, so the
+    # from_state recorded is the state the update actually moved away from --
+    # and a rejected audit row takes the state change down with it.
+    async with _write(pool) as conn:
+        row = None
+        if agent_uuid is not None:
+            row = await conn.fetchrow(
+                "SELECT lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+                agent_uuid, tenant_id,
+            )
+        from_state = "active" if row is None else str(row["lifecycle_state"])
+        agent_name = req.agent_name or (None if row is None else row["name"])
+
+        if row is not None:
+            await conn.execute(
+                """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
+                   WHERE id = $2 AND tenant_id = $3""",
+                STUNNED_LIFECYCLE_STATE, agent_uuid, tenant_id,
+            )
+
+        await _audit_log(
+            conn, tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor",
+            _detail(from_state),
+        )
+
+    return StunAgentResponse(
+        agent_id=agent_id,
+        from_state=from_state,
+        to_state=STUNNED_LIFECYCLE_STATE,
+        actor="demo-actor",
+        stunned_at=now,
+        # audit_events.id is generated server-side and the insert does not
+        # return it; the row the caller sees is otherwise the row that was
+        # written. Naming it "pending" is honest about which field is a stand-in.
+        event=AuditEventResponse(
+            id=f"{tenant_id}:audit-pending",
+            timestamp=now,
+            event_type="agent.stunned",
+            agent_id=agent_id,
+            agent_name=agent_name,
+            actor="demo-actor",
+            detail=_detail(from_state),
+        ),
+    )
+
+
 @router.get("/agents/{agent_id}/violations", response_model=ViolationListResponse, responses=ERROR_RESPONSES)
 async def get_agent_violations(
     agent_id: str,
@@ -1956,11 +2147,16 @@ async def audit(
             AuditEventResponse(
                 id=f"{tenant_id}:audit-2",
                 timestamp="2026-07-27T01:10:00Z",
-                event_type=type or "agent.transitioned",
-                agent_id=agent or f"{tenant_id}:agent-2",
+                # These three used to echo the caller's `type` and `agent` back
+                # into the fixture, so a filter for anything always "matched".
+                # That is not a filter, and it made a real recorded event
+                # indistinguishable from a fabricated one. Fixed values now, and
+                # the filters below are applied for real.
+                event_type="agent.transitioned",
+                agent_id=f"{tenant_id}:agent-2",
                 agent_name="Triage Agent",
                 actor="demo-actor",
-                detail={"to_state": "active", "filter_agent": agent},
+                detail={"to_state": "active"},
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-3",
@@ -1969,12 +2165,36 @@ async def audit(
                 agent_id=f"{tenant_id}:agent-1",
                 agent_name="Inventory Agent",
                 actor="demo-actor",
-                detail={"control_id": "eu-ai-act:art-9", "query_type": type},
+                detail={"control_id": "eu-ai-act:art-9"},
             ),
         ]
+        # Anything this process recorded, newest first, ahead of the seeded
+        # history -- so an action taken a moment ago is at the top of the trail
+        # rather than lost behind week-old fixtures.
+        with _STORE_LOCK:
+            recorded = [
+                AuditEventResponse(**event)
+                for event in reversed(_AUDIT_EVENTS.get(tenant_id, []))
+            ]
+        events = recorded + base_events
+
+        if from_ is not None:
+            events = [e for e in events if e.timestamp >= from_]
+        if to is not None:
+            events = [e for e in events if e.timestamp <= to]
+        if agent is not None:
+            events = [
+                e for e in events
+                if e.agent_id == agent or (e.agent_name or "").lower().find(agent.lower()) >= 0
+            ]
+        if type is not None:
+            events = [e for e in events if e.event_type == type]
+
         start = max(page - 1, 0) * limit
         end = start + limit
-        return AuditListResponse(events=base_events[start:end], total=3, page=page, limit=limit)
+        return AuditListResponse(
+            events=events[start:end], total=len(events), page=page, limit=limit,
+        )
 
     # Build dynamic WHERE clause
     conditions = ["tenant_id = $1"]

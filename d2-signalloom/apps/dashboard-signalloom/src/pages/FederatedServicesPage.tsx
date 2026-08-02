@@ -9,6 +9,8 @@
  * across them, and the attestation policies that gate who may federate.
  *
  * Self-contained mock data — renders without any API/auth dependency.
+ *
+ * TODO: migrate tables to DataTable (6 small tables, 3-5 rows each — low pagination value, sorting useful)
  */
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
 

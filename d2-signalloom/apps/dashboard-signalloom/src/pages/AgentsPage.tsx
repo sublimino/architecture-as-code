@@ -1,3 +1,4 @@
+// TODO: migrate table to DataTable (1 table with search/lifecycle filtering)
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'

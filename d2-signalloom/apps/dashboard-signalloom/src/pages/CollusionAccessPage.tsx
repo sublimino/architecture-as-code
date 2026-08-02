@@ -17,6 +17,9 @@
  * never falls back to demo data — when the backend is unreachable.
  *
  * The radial cluster graph is used as a page background placeholder.
+ *
+ * TODO: migrate tables to DataTable for client-side pagination and sorting
+ * (4 tables: Escalation Paths, Collusion Pairs, Shared-Role Pivots, Remediation)
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'

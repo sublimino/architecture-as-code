@@ -1,3 +1,4 @@
+// TODO: migrate table to DataTable (already has server-side pagination — complement with client-side sorting)
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'

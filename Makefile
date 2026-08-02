@@ -164,10 +164,39 @@ flux-bootstrap: bootstrap-local ## Phase 2 alias: bootstrap the sole Flux contro
 flux-test: ## Verify Flux readiness, including the Signalloom ResourceSets.
 	./scripts/demo-lifecycle.sh flux-test
 
+# ─── Image builds ────────────────────────────────────────────────────────────
+#
+# `make images` builds EVERYTHING. Each slice also has its own `images-<slice>`
+# target so a single area can be rebuilt without paying for the rest — which is
+# the common case when iterating on one component.
+#
+# Keep this list complete: an image target that exists but is not reachable from
+# `images` is how a cluster ends up running stale code while every test passes.
+
 .PHONY: images
-images: ## Build the app and olly-replica images and persist them in Zot.
+images: images-osramp images-olly images-signalloom images-afm images-supercred ## Build ALL images across every slice.
+	@echo "images: all slices built (osramp, olly, signalloom, afm, supercred)"
+
+.PHONY: images-osramp
+images-osramp: ## Build the d2-osramp-apps workload images and persist them in Zot.
 	$(MAKE) -C d2-osramp-apps build
+
+.PHONY: images-olly
+images-olly: ## Build the olly-replica images and persist them in Zot.
 	$(MAKE) -C olly-replica build
+
+.PHONY: images-signalloom
+images-signalloom: signalloom-images ## Build the Signal Loom workload images (portal, dashboard, proxy, netassert-controller).
+
+.PHONY: images-afm
+images-afm: ## Build the KubeSec-AFM platform image (RBAC analysis + Z3 + dashboard).
+	./scripts/k8s-afm.sh build
+
+.PHONY: images-supercred
+images-supercred: demo-signalloom-supercred-images ## Build the SuperCred demo images (cardvault, policy-engine, cardvault-agent).
+
+.PHONY: images-helpers
+images-helpers: signalloom-spire-helper netassert-runner-image ## Build the disposable helper images (SPIRE proof, netassert runner).
 
 .PHONY: signalloom-spire-helper
 signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper into Kind.

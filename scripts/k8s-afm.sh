@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Lifecycle script for the KubeSec-AFM D2 demo slice.
 #
+#   k8s-afm.sh build    Build the image and kind-load it. No deploy, no cluster writes.
 #   k8s-afm.sh up       Build image, kind-load, deploy, wait.
 #   k8s-afm.sh down     Remove the AFM platform namespace + resources.
 #   k8s-afm.sh test     Run the backend pytest suite inside the source repo.
@@ -19,6 +20,17 @@ IMAGE="kubesec-afm:latest"
 cmd="${1:-up}"
 
 case "$cmd" in
+  build)
+    # Image build only — no kubectl apply, no rollout, no seeding. This is what
+    # `make images-afm` calls, so the AFM slice can be rebuilt alongside every
+    # other slice without deploying to (or otherwise touching) a live cluster.
+    echo "==> Building kubesec-afm image (multi-stage: Next.js + FastAPI + Z3)..."
+    docker build -q -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" \
+      -t "$IMAGE" "$AFM_SOURCE/AFM" 2>&1 | tail -2
+    echo "==> Loading into kind cluster ${CLUSTER_NAME}..."
+    kind load docker-image --name "$CLUSTER_NAME" "$IMAGE" 2>&1 | tail -1
+    echo "kubesec-afm image built and loaded: $IMAGE"
+    ;;
   up)
     echo "==> Building kubesec-afm image (multi-stage: Next.js + FastAPI + Z3)..."
     docker build -q -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" \

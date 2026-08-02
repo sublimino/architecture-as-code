@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 import asyncpg
 import httpx
 import jwt
-from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -35,6 +35,14 @@ AGENT_DISCOVERY_URL = os.environ.get(
 CRYPTO_HEALTH_URL = os.environ.get(
     "CRYPTO_HEALTH_URL",
     "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/crypto-proofs",
+)
+NETWORK_TESTS_URL = os.environ.get(
+    "NETWORK_TESTS_URL",
+    "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/network-tests",
+)
+NETWORK_TESTS_SCAN_URL = os.environ.get(
+    "NETWORK_TESTS_SCAN_URL",
+    "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/network-tests/scan",
 )
 
 # ---------------------------------------------------------------------------
@@ -115,6 +123,41 @@ class CryptoHealthResponse(BaseModel):
 
     tenant_id: str
     proofs: list[CryptoProof]
+
+
+class NetworkTestEndpoint(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    namespace: str
+    name: str
+
+
+class NetworkTestResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    expectedExit: int
+    targetPort: int
+    src: NetworkTestEndpoint
+    dst: NetworkTestEndpoint
+    description: str
+    result: Literal["pass", "fail", "pending", "running", "error"]
+    evidence: str
+    lastRun: str | None = None
+
+
+class NetworkTestListResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tests: list[NetworkTestResult]
+    scanStatus: Literal["never-run", "pending", "running", "complete", "failed", "unavailable"]
+
+
+class NetworkTestScanResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    job: str
+    status: str
 
 
 class IssueCredentialResponse(BaseModel):
@@ -1220,6 +1263,48 @@ async def crypto_health(
         return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs)
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return CryptoHealthResponse(tenant_id=tenant_id, proofs=[])
+
+
+@router.get("/network-tests", response_model=NetworkTestListResponse, responses=ERROR_RESPONSES)
+async def network_tests(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> NetworkTestListResponse:
+    del tenant_id  # network policy test results are cluster-scoped, not per-tenant
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(NETWORK_TESTS_URL)
+            response.raise_for_status()
+            payload = response.json()
+        if not isinstance(payload, dict):
+            raise TypeError("network test results payload must be an object")
+        return NetworkTestListResponse.model_validate(payload)
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        # Unlike crypto_health above, this deliberately does NOT swallow the
+        # failure into an empty-but-200 response. A live network-test board
+        # that goes silent needs to read as "unreachable", not as "zero
+        # tests configured" — the dashboard's Scan Now button depends on
+        # telling those two states apart.
+        logger.warning("network tests: fake-integration-proxy unreachable", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"network test results unavailable: {exc}") from exc
+
+
+@router.post("/network-tests/scan", response_model=NetworkTestScanResponse, responses=ERROR_RESPONSES)
+async def network_tests_scan(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> JSONResponse:
+    del tenant_id
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(NETWORK_TESTS_SCAN_URL)
+            payload = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("network test scan: fake-integration-proxy unreachable", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"could not reach the network test runner: {exc}") from exc
+    # The proxy is the source of truth for the status code — 202 started,
+    # 409 already running, 502 the proxy's own upstream failed. Forwarding it
+    # unchanged means the "already running" guard against double-submits
+    # lives in exactly one place.
+    return JSONResponse(status_code=response.status_code, content=payload)
 
 
 @router.post("/agents", response_model=AgentResponse, responses=ERROR_RESPONSES)

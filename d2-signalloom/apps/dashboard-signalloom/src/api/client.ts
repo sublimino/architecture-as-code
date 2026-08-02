@@ -15,6 +15,8 @@ import type {
   FrameworkResponse,
   InitialApiKeyResponse,
   IssueCredentialResponse,
+  NetworkTestListResponse,
+  NetworkTestScanResponse,
   NHIAccountDetail,
   NHIDiscoveredResponse,
   NHIScanListResponse,
@@ -203,6 +205,17 @@ export const api = {
   health: {
     crypto: (token: string) =>
       req<CryptoHealthResponse>('/health/crypto', token),
+  },
+
+  networkTests: {
+    list: (token: string) =>
+      req<NetworkTestListResponse>('/network-tests', token),
+
+    // POST with no body — the scan target set is fixed server-side (see
+    // fake-integration-proxy/server.py's _netassert_job_manifest); there is
+    // nothing for a caller to parameterise.
+    scan: (token: string) =>
+      req<NetworkTestScanResponse>('/network-tests/scan', token, { method: 'POST' }),
   },
 
   settings: (token: string) =>

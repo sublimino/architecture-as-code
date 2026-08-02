@@ -174,6 +174,11 @@ signalloom-spire-helper: ## Build and load the disposable SPIRE proof helper int
 	docker build -f d2-signalloom/proof-helper.Dockerfile -t signalloom-spire-helper:local d2-signalloom
 	kind load docker-image --name $(CLUSTER_NAME) signalloom-spire-helper:local
 
+.PHONY: netassert-runner-image
+netassert-runner-image: ## Build and load the pinned netassert v2.1.5 runner used by the Scan Now button.
+	docker build -f d2-signalloom/netassert-runner.Dockerfile -t netassert-runner:local d2-signalloom
+	kind load docker-image --name $(CLUSTER_NAME) netassert-runner:local
+
 .PHONY: signalloom-dashboard-image
 signalloom-dashboard-image: ## Build, sign, and load the dashboard workload image.
 	./scripts/build-sign-dashboard.sh
@@ -314,6 +319,7 @@ demo-bao-down: ## Prune only the Bao slice; keep the shared Kind cluster.
 demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle.
 	$(MAKE) push-local-signalloom
 	$(MAKE) signalloom-spire-helper
+	$(MAKE) netassert-runner-image
 	$(MAKE) signalloom-images
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.

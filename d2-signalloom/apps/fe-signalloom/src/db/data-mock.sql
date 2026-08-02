@@ -323,7 +323,13 @@ INSERT INTO public.lifecycle_transitions (tenant_id, agent_id, from_state, to_st
 -- Violations (3)
 -- ══════════════════════════════════════════════════════════════════════════════
 
+-- Ids are explicit rather than gen_random_uuid(): agents (a…) and scans (d…)
+-- already use fixed ids so that fixtures and tests can address a known row, and
+-- these could not be addressed at all. The integration tier needs a violation it
+-- can acknowledge by id.
+
 INSERT INTO public.agent_violations (
+    id,
     tenant_id, agent_id, violation_type, severity, analysis,
     recommended_action, framework, control, status,
     acknowledged_by, acknowledged_at, resolved_at,
@@ -331,6 +337,7 @@ INSERT INTO public.agent_violations (
 ) VALUES
 -- 1. Critical, new — The Black Knight missing identity owner
 (
+    'b0000000-0000-0000-0000-000000000001',
     'tenant-demo', 'a0000000-0000-0000-0000-000000000003',
     'no_identity', 'critical',
     'Agent has no Identity Owner assigned. This COTS agent was onboarded without governance review. No human principal is accountable for its actions.',
@@ -341,6 +348,7 @@ INSERT INTO public.agent_violations (
 ),
 -- 2. High, acknowledged — The Black Knight excessive permissions
 (
+    'b0000000-0000-0000-0000-000000000002',
     'tenant-demo', 'a0000000-0000-0000-0000-000000000003',
     'excessive_permissions', 'high',
     'Agent has read_write access to SAP financial data with no credential scoping. Token TTL exceeds 60-minute SLA.',
@@ -351,6 +359,7 @@ INSERT INTO public.agent_violations (
 ),
 -- 3. Medium, resolved — Sir Robin stale credentials
 (
+    'b0000000-0000-0000-0000-000000000003',
     'tenant-demo', 'a0000000-0000-0000-0000-000000000005',
     'stale_credentials', 'medium',
     'VirusTotal API token has not been rotated in 92 days. Rotation SLA is 90 days.',
@@ -458,42 +467,52 @@ INSERT INTO public.nhi_scans (
  'entra_id', '2026-07-20 02:00:00+00', '2026-07-20 02:08:45+00',
  1312, 41, 4, 41, 'admin@acme.co', 'completed');
 
+-- Ids are explicit for the same reason as agent_violations above: the enroll and
+-- dismiss endpoints address an account by id, and gen_random_uuid() left no id
+-- for a test or fixture to name.
+
 INSERT INTO public.nhi_discovered_accounts (
+    id,
     tenant_id, scan_id, account_name, directory_source,
     owner_email, last_rotated, privilege_level, findings, status,
     scan_count, first_discovered_at, last_seen_at,
     rotation_status, expires_at
 ) VALUES
 -- 1. svc-salesforce-sync — elevated, stale rotation
-('tenant-demo', 'd0000000-0000-0000-0000-000000000002',
+('e0000000-0000-0000-0000-000000000001',
+ 'tenant-demo', 'd0000000-0000-0000-0000-000000000002',
  'svc-salesforce-sync', 'entra_id',
  'lancelot@acme.co', '2026-04-01 00:00:00+00', 'elevated',
  '[{"type": "stale_rotation", "detail": "Last rotated 111 days ago"}]'::jsonb,
  'under_review', 2, '2026-07-10 02:05:00+00', '2026-07-20 02:03:00+00',
  'stale', '2027-04-01 00:00:00+00'),
 -- 2. svc-ci-pipeline — standard, current
-('tenant-demo', 'd0000000-0000-0000-0000-000000000002',
+('e0000000-0000-0000-0000-000000000002',
+ 'tenant-demo', 'd0000000-0000-0000-0000-000000000002',
  'svc-ci-pipeline', 'entra_id',
  'devops@acme.co', '2026-07-15 00:00:00+00', 'standard',
  '[]'::jsonb,
  'enrolled', 2, '2026-07-10 02:06:00+00', '2026-07-20 02:04:00+00',
  'current', '2027-07-15 00:00:00+00'),
 -- 3. svc-backup-agent — domain_admin, expiring soon
-('tenant-demo', 'd0000000-0000-0000-0000-000000000002',
+('e0000000-0000-0000-0000-000000000003',
+ 'tenant-demo', 'd0000000-0000-0000-0000-000000000002',
  'svc-backup-agent', 'entra_id',
  NULL, '2026-06-01 00:00:00+00', 'domain_admin',
  '[{"type": "excessive_privilege", "detail": "Domain admin for backup service"}, {"type": "expiring_soon", "detail": "Credential expires in 14 days"}]'::jsonb,
  'discovered', 2, '2026-07-10 02:07:00+00', '2026-07-20 02:05:00+00',
  'expiring_soon', '2026-08-10 00:00:00+00'),
 -- 4. svc-monitoring — standard, dismissed
-('tenant-demo', 'd0000000-0000-0000-0000-000000000001',
+('e0000000-0000-0000-0000-000000000004',
+ 'tenant-demo', 'd0000000-0000-0000-0000-000000000001',
  'svc-monitoring', 'entra_id',
  'ops@acme.co', '2026-07-01 00:00:00+00', 'standard',
  '[]'::jsonb,
  'dismissed', 1, '2026-07-10 02:08:00+00', '2026-07-10 02:08:00+00',
  'current', '2027-07-01 00:00:00+00'),
 -- 5. svc-legacy-erp — elevated, expired credential
-('tenant-demo', 'd0000000-0000-0000-0000-000000000002',
+('e0000000-0000-0000-0000-000000000005',
+ 'tenant-demo', 'd0000000-0000-0000-0000-000000000002',
  'svc-legacy-erp', 'entra_id',
  NULL, '2025-12-01 00:00:00+00', 'elevated',
  '[{"type": "expired_credential", "detail": "Credential expired 2026-06-01"}, {"type": "no_owner", "detail": "No owner email assigned"}]'::jsonb,

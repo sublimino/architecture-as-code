@@ -278,6 +278,30 @@ The egress rule on `allow-dashboard-egress` and the ingress rule on `allow-fake-
 are two halves of one path. Changing either alone breaks the page with no error anywhere except a
 499 in an nginx access log.
 
+### Known gap: the Stun Agent button cannot write
+
+`POST /agents/{id}/stun` patches the pod's `signalloom.ai/state` label. The proxy runs as
+`default/inf-signalloom`, whose `agent-inventory-reader` Role grants `pods: get, list, watch` — **no
+`patch`**. The button therefore returns `502` wrapping `HTTP Error 403: Forbidden`, and the pod label
+is unchanged:
+
+```
+$ curl -X POST http://fake-integration-proxy.inf-signalloom:8080/agents/agent-cardvault/stun
+{"error":"HTTP Error 403: Forbidden"}
+HTTP 502
+$ kubectl get pod -n fe-signalloom agent-cardvault -o jsonpath='{.metadata.labels.signalloom\.ai/state}'
+idle
+```
+
+This predates the discovery work — the Role never carried `patch`. The scripted path
+(`make demo-signalloom-supercred-4`, and `supercred-demo.sh` generally) does the labelling with the
+**operator's** kubeconfig, so the demo works when driven from the CLI; only the UI button is
+affected.
+
+Closing it means granting `pods: patch` to the proxy's ServiceAccount in both discovery namespaces.
+That is a deliberate widening of a read-only inventory identity into a write identity, so it is left
+as a decision rather than assumed — take it if the button is meant to be part of the live demo.
+
 ### Running the demo
 
 ```bash

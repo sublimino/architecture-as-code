@@ -61,10 +61,14 @@ function makeSettings(overrides: Partial<TenantSettingsResponse> = {}): TenantSe
   }
 }
 
-const MOCK_PROVIDERS = [
-  { provider_id: 'ad_entra', display_name: 'Microsoft Entra ID', description: 'Azure AD / Entra ID', category: 'identity', auth_type: 'oauth2' as const },
-  { provider_id: 'okta', display_name: 'Okta', description: 'Okta IAM', category: 'identity', auth_type: 'oauth2' as const },
-  { provider_id: 'openai', display_name: 'OpenAI', description: 'OpenAI platform', category: 'ai', auth_type: 'api_key' as const },
+import type { ConnectorProvider } from '../types/connectors'
+
+const STUB_WIZARD = { fields: [], permissions: [], docs_link: '', help_text: '' }
+
+const MOCK_PROVIDERS: ConnectorProvider[] = [
+  { provider_id: 'ad_entra', display_name: 'Microsoft Entra ID', wizard_config: STUB_WIZARD },
+  { provider_id: 'okta', display_name: 'Okta', wizard_config: STUB_WIZARD },
+  { provider_id: 'openai', display_name: 'OpenAI', wizard_config: STUB_WIZARD },
 ]
 
 const appCtxValue = {
@@ -118,7 +122,7 @@ describe('Settings — Service Connectors', () => {
 
   it('shows "Connected" for providers with an active connector', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      { connector_id: 'conn-1', provider_id: 'okta', tenant_id: 'tenant-1', display_name: 'Okta', status: 'connected', created_at: '2026-01-01', last_tested_at: null },
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     renderSettings()
     expect(await screen.findByText('Connected')).toBeInTheDocument()
@@ -128,7 +132,7 @@ describe('Settings — Service Connectors', () => {
 
   it('shows toggle ON for connected providers and OFF for unconfigured', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      { connector_id: 'conn-1', provider_id: 'okta', tenant_id: 'tenant-1', display_name: 'Okta', status: 'connected', created_at: '2026-01-01', last_tested_at: null },
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     renderSettings()
     await screen.findByText('Service Connectors')
@@ -152,7 +156,7 @@ describe('Settings — Service Connectors', () => {
 
   it('shows disconnect confirmation when toggling OFF a connected provider', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      { connector_id: 'conn-1', provider_id: 'okta', tenant_id: 'tenant-1', display_name: 'Okta', status: 'connected', created_at: '2026-01-01', last_tested_at: null },
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     renderSettings()
     await screen.findByText('Connected')
@@ -164,7 +168,7 @@ describe('Settings — Service Connectors', () => {
 
   it('calls deleteConnector and refreshes onboarding state on disconnect confirm', async () => {
     vi.mocked(connectorsApi.listConnectors).mockResolvedValue([
-      { connector_id: 'conn-1', provider_id: 'okta', tenant_id: 'tenant-1', display_name: 'Okta', status: 'connected', created_at: '2026-01-01', last_tested_at: null },
+      { connector_id: 'conn-1', provider_id: 'okta', display_name: 'Okta', status: 'connected', credential_expires_at: null, last_tested_at: null, last_scan_at: null, metadata: {}, created_at: '2026-01-01' },
     ])
     vi.mocked(connectorsApi.deleteConnector).mockResolvedValue(undefined)
     renderSettings()

@@ -1,0 +1,94 @@
+# AGT-C01 — Conditional autonomy. The replacement for the exemption.
+#
+# "We kill the ugliest word in governance: exemption. No carve-outs, no favours. Instead: you may do
+# this IF you meet these conditions. Uniform, versioned, priced. Every allowance carries its own
+# honest line of accepted risk."
+#
+# What makes this NOT an exemption:
+#   * It names no agent, no team, no ticket number. Any agent meeting the conditions is admitted.
+#   * It is versioned with the pack, distributed and adopted by the same reviewed-PR path.
+#   * It contains no date, no expiry, no wall-clock condition (ADR-0006). Time-bounding is expressed
+#     as a bounded scope (non-production, non-PII), not as a countdown the engine evaluates.
+#   * Its residual frequency (`lef_residual` in pack.yaml) is priced by `riskctl` and carried into
+#     the balance-sheet number. Choosing this branch visibly raises the £.
+#
+# The corresponding ledger entry — which renders a Kyverno PolicyException with a Flux prune and a
+# cleanup.kyverno.io/ttl backstop — is the generator of this branch's OSCAL risk object.
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: agt-c01-conditional-autonomy-2-0-0
+  annotations:
+    osramp.controlplane.io/control-id: AGT-C01
+    osramp.controlplane.io/relaxes: AGT-003
+    osramp.controlplane.io/pack: agent-policy
+    osramp.controlplane.io/pack-version: 2.0.0
+    osramp.controlplane.io/kind: conditional
+    osramp.controlplane.io/rationale: >-
+      Blanket per-change human approval on low-consequence, non-PII, non-production changes spends
+      the scarcest control in the system (reviewer attention) where it buys least. This branch
+      redirects that attention to changes that can actually hurt, and prices what it costs to do so.
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["", "batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "jobs"]
+    objectSelector:
+      matchLabels:
+        osramp.controlplane.io/policy-version: "2.0.0"
+        osramp.controlplane.io/autonomy: conditional
+  variables:
+    - name: meta
+      expression: >-
+        has(object.metadata) && has(object.metadata.annotations)
+          ? object.metadata.annotations
+          : {}
+    - name: lbl
+      expression: >-
+        has(object.metadata) && has(object.metadata.labels)
+          ? object.metadata.labels
+          : {}
+    - name: attested
+      expression: >-
+        'osramp.controlplane.io/pack-attestation' in variables.meta
+          ? variables.meta['osramp.controlplane.io/pack-attestation']
+          : ''
+    - name: dataClass
+      expression: >-
+        'osramp.controlplane.io/data-class' in variables.lbl
+          ? variables.lbl['osramp.controlplane.io/data-class']
+          : 'unknown'
+    - name: changeShape
+      expression: >-
+        'osramp.controlplane.io/change-shape' in variables.meta
+          ? variables.meta['osramp.controlplane.io/change-shape']
+          : ''
+    - name: env
+      expression: >-
+        'osramp.controlplane.io/environment' in variables.lbl
+          ? variables.lbl['osramp.controlplane.io/environment']
+          : 'unknown'
+  validations:
+    # allow if  attestation ∧ change-shape ∈ closed-set ∧ data-class ≠ PII ∧ env ≠ production
+    - expression: variables.attested.startsWith('sha256:') && size(variables.attested) == 71
+      message: >-
+        AGT-C01: conditional autonomy requires a valid pack attestation digest in
+        osramp.controlplane.io/pack-attestation. Without it the agent cannot prove which policy
+        version it satisfies, and posture-as-identity does not hold.
+    - expression: variables.changeShape in ['go-get-pinned', 'vexctl-create']
+      message: >-
+        AGT-C01: conditional autonomy is limited to the closed change vocabulary
+        (go-get-pinned, vexctl-create) enumerated by AGT-004. Any other shape requires human
+        approval under AGT-003.
+    - expression: variables.dataClass != 'pii'
+      message: >-
+        AGT-C01: conditional autonomy is not available where data-class=pii. PII changes return to
+        the AGT-003 gate regardless of every other condition.
+    - expression: variables.env != 'production'
+      message: >-
+        AGT-C01: conditional autonomy is not available in production. Production changes return to
+        the AGT-003 gate.

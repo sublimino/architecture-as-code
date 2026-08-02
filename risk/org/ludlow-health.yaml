@@ -1,0 +1,83 @@
+# Organisational risk posture — Ludlow (comparison institution).
+#
+# THE MONEY SHOT, MADE ARITHMETIC.
+#
+# This file is identical in shape to acme.yaml and differs ONLY in loss magnitude and appetite. Run
+# `riskctl compare` and the same agent, the same policy pack, the same controls produce AUDIT for
+# Acme and DENY for Ludlow — because a health breach costs far more, so the model prices it far
+# higher. Nobody had an opinion. The pounds decided.
+#
+# Named after the health institution in the upstream reference estate
+# (policy-as-versioned-ludlow) so the comparison is continuous with the talk.
+#
+# HONESTY NOTE: as with acme.yaml, every triple is a CALIBRATED ESTIMATE against the named anchor
+# class, not a published figure used verbatim. Re-calibrate against real incident history before any
+# external use.
+apiVersion: osramp.controlplane.io/v1alpha1
+kind: OrgRiskPosture
+metadata:
+  name: ludlow-health
+  displayName: Ludlow Health
+  sector: healthcare-provider
+  jurisdiction: US
+  description: >-
+    Comparison institution. US healthcare provider handling protected health information, running
+    the same platform and adopting the same agent policy pack as Acme Co.
+
+regimes:
+  - id: HIPAA
+    authority: HHS-OCR
+    note: >-
+      Civil monetary penalties tiered by culpability with annual caps per violation category, plus
+      mandatory breach notification. Anchor class for PHI loss scenarios.
+  - id: US-STATE-BREACH
+    authority: state-AGs
+    note: >-
+      State breach-notification statutes and multi-state AG settlements. Anchor class for the tail.
+
+appetite:
+  tolerance_gbp: 6000
+  note: >-
+    Ludlow's tolerance is roughly a quarter of Acme's. A narrower band means enforcement escalation
+    is justified by a much smaller loss reduction — which is why the same control gates here and
+    merely audits at Acme.
+
+risk_load: 0.25
+
+transfer:
+  annual_premium_gbp: 210000
+  retention_gbp: 500000
+  limit_gbp: 20000000
+  note: >-
+    Cyber and medical-professional cover. The premium differential against Acme is itself external
+    validation of the magnitude differential below — an underwriter prices the same controls.
+
+magnitude:
+  SCN-UNAUTH-CHANGE:
+    triple: { min: 60000, mode: 320000, max: 2200000 }
+    provenance: >-
+      Calibrated against the clinical-systems-disruption class. Floor is far above Acme's because
+      an unplanned change to a care-delivery system carries patient-safety review and regulatory
+      notification obligations that a retail rollback does not.
+  SCN-SECRET-EXFIL:
+    triple: { min: 250000, mode: 1400000, max: 9000000 }
+    provenance: >-
+      Calibrated against the PHI-credential-compromise class: HIPAA breach notification to affected
+      individuals and HHS, OCR investigation, credit/identity monitoring provision, and the
+      multi-state AG settlement tail.
+  SCN-INJECTION-ACT:
+    triple: { min: 140000, mode: 780000, max: 6000000 }
+    provenance: >-
+      Calibrated against the adversarial-actuation class in a clinical context, where an induced
+      agent action can reach records subject to HIPAA and to state privacy statutes simultaneously.
+  SCN-SUPPLY-TAMPER:
+    triple: { min: 300000, mode: 1600000, max: 14000000 }
+    provenance: >-
+      Calibrated against the compromise-of-clinical-software-supply class, including device and
+      care-system re-validation obligations absent in retail.
+  SCN-TRUST-SUBVERT:
+    triple: { min: 600000, mode: 3200000, max: 26000000 }
+    provenance: >-
+      Calibrated against the trust-anchor-compromise class. Retroactive invalidation of the evidence
+      chain in a regulated clinical estate additionally triggers re-validation of every attested
+      clinical artefact.

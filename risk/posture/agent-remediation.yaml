@@ -1,0 +1,118 @@
+# Posture assertion for the Phase-4 agentic remediation agent.
+#
+# "The policy version you satisfy becomes your identity."
+#
+# Every assertion below cites the artefact in this repository that evidences it. An assertion
+# without an `evidence` path is not an assertion — it is a hope, and `riskctl` rejects it.
+#
+# This agent deliberately claims 2.0.0 while 2.1.0 is current: it is the laggard in the estate, and
+# the whole point of the baseline is that its staleness has a price rather than a red dot.
+apiVersion: osramp.controlplane.io/v1alpha1
+kind: AgentPosture
+metadata:
+  name: agent-remediation
+  displayName: Phase-4 agentic remediation agent
+  owner: security+platform
+  description: >-
+    Human-in-the-loop agent that analyses a CVE, proposes a remediation, opens a PR on approval, and
+    produces Witness-attested outputs at every step. Runs under nono/Landlock. Level "Agentic
+    remediation PoC" of the OSRAMP maturity model.
+
+# The pin. This is simultaneously the Renovate pin, the admission selector, and the identity.
+claims:
+  pack: agent-policy
+  version: 2.0.0
+
+# Current cage tier. Set by the platform, not by the agent.
+tier: trusted
+
+satisfies:
+  - control: AGT-001
+    met: true
+    evidence: agent/
+    note: >-
+      Harness refuses to run the agent unsandboxed; nono applies Landlock filesystem and network
+      restrictions, blocking SSH keys, cloud credentials and shell configs by default.
+
+  - control: AGT-002
+    met: true
+    evidence: agent/
+    note: >-
+      Model API key injected at the sandbox boundary by nono's credential proxy. Never exported into
+      the harness environment, never written to disk, absent from the evidence bundle and audit trail.
+
+  - control: AGT-003
+    met: true
+    evidence: agent/
+    note: >-
+      Default mode stops after the recommendation. Executing a remediation requires an explicit
+      --approve from a human who has read it. There is no auto-approve path.
+
+  - control: AGT-004
+    met: true
+    evidence: agent/
+    note: >-
+      Only two change shapes are applied — `go get <module>@<version>` inside
+      d2-osramp-apps/apps/<service>, or a `vexctl create` proposal. Anything else in the
+      recommendation is ignored and logged.
+
+  - control: AGT-005
+    met: true
+    evidence: agent/
+    note: >-
+      Results land on a remediation/<cve> branch as a pull request. The agent has no path to main.
+
+  - control: AGT-006
+    met: true
+    evidence: agent/
+    note: >-
+      Analysis and remediation each execute under `witness run` (steps agent-analysis and
+      agent-remediation), signed and uploaded to Archivista.
+
+  - control: AGT-007
+    met: false
+    evidence: agent/
+    note: >-
+      The prohibited-actions list forbids contacting systems other than the model API, but this is
+      procedural. There is no mechanically enforced network-layer allowlist asserted for this agent,
+      so the control is not claimed as met. Residual is priced, not waived.
+
+  - control: AGT-008
+    met: false
+    evidence: olly-replica/apps/eval-harness
+    note: >-
+      The injection corpus and safety suite exist in the estate but are exercised against the Olly
+      Sentinel pipeline, not against this agent's ingestion path. This agent reads CVE and scan data
+      that a supplier or an advisory feed can influence. Largest single unmet control.
+
+  - control: AGT-009
+    met: false
+    evidence: olly-replica/apps/authz
+    note: >-
+      Per-tool authorisation is implemented for the Olly pipeline. This agent's tool grant is bounded
+      by the closed change vocabulary (AGT-004) rather than by an explicit authz mediator.
+
+  - control: AGT-010
+    met: false
+    evidence: olly-replica/apps/llm-guard
+    note: >-
+      No output guard on this agent's recommendation path. Recommendations flow into a PR body and
+      the evidence bundle without a secret-redaction pass.
+
+  - control: AGT-011
+    met: true
+    evidence: agent/
+    note: >-
+      Prohibited-actions list forbids creating or modifying signing keys and trust anchors; a
+      recommendation requiring it is rejected at the gate.
+
+  - control: AGT-012
+    met: true
+    evidence: agent/
+    note: >-
+      Prohibited-actions list forbids changing policy documents, admission rules, the harness, and
+      the guardrails document itself. Scope widening follows the VEX-exception rule: higher approval
+      tier, recorded by PR, reviewed by security.
+
+# Conditional branches this agent has elected. Each raises the priced residual.
+conditional_elected: []

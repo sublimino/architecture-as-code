@@ -1,0 +1,119 @@
+start	end	text
+0	2080	What does a breach actually cost you?
+2080	4800	Not a red, amber, green dot on a dashboard,
+4800	6480	a number in pounds.
+6480	10240	Most governance ignores that, compliant or not,
+10240	12740	a green tick that price nothing and move nothing,
+12740	13920	a binary lie.
+13920	16700	But here's the idea, governance is not a checkbox.
+16700	20080	It is a proportionate, continuously retuned response
+20080	23020	to quantified risk, and it is all one thing,
+23020	26480	the policy, how your organization actually operates,
+26480	27920	written down as code.
+27920	30200	Start where your engineers already live.
+30200	32840	Policy is just a dependency, a lint pack.
+32840	35900	You pin it, you sign it, you adopt it by pull request.
+35900	38440	Governance becomes something a developer already knows
+38440	39840	how to consume and trust.
+39840	43220	Now, the moment that makes it land, two institutions,
+43220	45400	a retailer and a hospital.
+45400	49000	Same platform, same engine, one identical rule,
+49000	50760	encrypt data at rest.
+50760	52880	Watch what proportionality actually does
+52880	54240	to that single control.
+54240	56040	In the retailer, it merely audits.
+56040	58480	In the hospital, the very same rule blocks.
+58480	59320	Why?
+59320	61580	Because a health breach costs far more,
+61580	63720	so the model prices it far higher.
+63720	67720	Same control, opposite verdict, because the pounds say so.
+67720	70960	But real governance is never just yes or no.
+70960	74320	Fall behind on patching and your workload still runs
+74320	78160	but caged, throttled, sandboxed, watched more closely,
+78160	81060	least trusted, most expensive to run.
+81060	83780	A spectrum of consequence, not a cliff edge,
+83820	88140	and that cage costs money while still leaving risk behind.
+88140	92100	So staying current becomes provably the cheaper path.
+92100	94100	Add it up, the risk you keep
+94100	96100	plus the cost of every control.
+96100	98860	That is your true total cost of risk.
+98860	101180	These pounds are real, not guessed.
+101180	104540	Calibrated estimates, a Monte Carlo simulation,
+104540	106900	and the tail your board actually fears
+106900	109260	the insurance industry's own maths.
+109260	111600	Tighten the control, the number falls.
+111600	113740	Accept a risk, it rises.
+113740	115580	Live on screen.
+115580	118580	So we kill the ugliest word in governance.
+118580	121620	Exemption, no carve outs, no favors.
+121620	124940	Instead, you may do this if you meet these conditions.
+124940	127300	Uniform version priced.
+127300	129840	Every allowance carries its own honest line
+129840	131020	of accepted risk.
+131020	132120	Here's the leap.
+132120	135260	The policy version you satisfy becomes your identity.
+135260	137460	Every workload, every person,
+137460	139960	every device carries it cryptographically.
+139960	142580	A sensitive service simply refuses anyone
+142580	143940	who has fallen out of date.
+143940	146100	Zero trust, finally made real.
+146100	147180	Failures move left.
+147180	150580	The cluster advertises which policy versions it accepts.
+150580	152380	Your pipeline runs the exact check
+152380	154860	the cluster will offline before you merge.
+154860	157680	A deploy time surprise becomes practically unheard of.
+157680	160020	The compliant path becomes the easy path.
+160020	163340	Then it comes alive, the estate war games itself.
+163340	166020	Threat feeds, new vulnerabilities,
+166020	168580	regulator fines, all pour in.
+168580	170460	An agent stress tests your controls
+170460	173720	and asks one question, is this still proportionate
+173720	175500	or has the world quietly moved?
+175500	178560	When it drifts, the agent does exactly one thing.
+178560	179980	It opens a pull request.
+179980	182900	It proposes, it never disposes.
+182900	185380	A human reviews, the gate checks,
+185380	187220	and only then does it ship.
+187220	190340	A powerful machine safe on your existing rails.
+190340	194420	And every actor, human or machine, signs their work.
+194420	197020	Cryptographically signed, publicly logged,
+197020	198980	verifiable end to end.
+198980	201700	You can prove which actor changed what, when,
+201700	204940	and from what evidence for an AI-enabled business.
+204940	206260	That is how you trust it.
+206260	208500	So what does your funding build?
+208500	213020	Six real organizations brought to life a shared platform.
+213020	216380	Three institutions, two regulators publishing controls
+216380	217620	and fines as code.
+217620	219860	A cluster each where every core claim
+219860	221820	is demonstrated, not slideware.
+221820	223540	And here's why this is ours to build.
+223540	225420	Flux is not a logo on a slide.
+225460	228420	It is load-bearing, doing six real jobs,
+228420	231980	distribution, provenance, pruning, healing, ordering,
+231980	233100	alerts.
+233100	236300	This puts Flux at the very center of the risk story,
+236300	238380	which lets us close where no security
+238380	240980	talk ever closes, the balance sheet.
+240980	243660	Residual risk becomes economic capital.
+243660	246880	The very same controls an underwriter would price.
+246880	250180	Technological risk, finally, a line your board can read,
+250180	251540	defend and act on.
+251540	254620	For the spend, you get three things that compound.
+254620	257180	A flagship talk that tours every conference,
+257180	260420	a demo estate our teams put in front of any prospect,
+260420	263940	and ownership of a story no competitor in this market
+263940	265100	is telling yet.
+265100	266980	And the timing is the whole point.
+266980	269860	Every board is asking how to trust AI
+269860	271120	inside their business.
+271120	274500	We answer it provably, on stage, in pounds.
+274500	276860	Whoever tells this story first owns it,
+276860	278780	and that window is open right now.
+278780	279940	So here's the ask.
+279940	282060	Fund the full build every step
+282060	283640	through to the flagship talk.
+283680	284900	Give me that runway.
+284900	286760	And I'll hand you the estate that proves governance
+286760	289680	can finally be proportionate, honest, and alive.
+289680	291520	Let's put risk on the balance sheet.

@@ -46,3 +46,6 @@ test/acceptance/.auth/
 # wait.sh is a vendored source lib, not a build artifact — override the global `lib` ignore
 !scripts/lib/
 !scripts/lib/**
+
+# riskctl build output (regenerate with `make riskctl`)
+tools/riskctl/riskctl

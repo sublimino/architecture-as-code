@@ -1,0 +1,68 @@
+# AGT-003 — Remediation requires explicit human approval.
+#
+# Kyverno CEL ValidatingPolicy (hub ADR-0003). `validationActions` is the enforcement-action axis:
+# Audit = lane-keeping, Deny = gate. This axis is INDEPENDENT of adoption cadence (the pin).
+#
+# The policy name carries the pack version as a suffix and the policy self-selects on the workload's
+# declared `osramp.controlplane.io/policy-version` label. That single string is simultaneously the
+# Renovate pin, the admission selector, and the agent's claimed identity — multi-version coexistence
+# on one cluster falls out of it (hub ADR-0005).
+#
+# Determinism: no date, no expiry, no wall-clock condition anywhere in this body (hub ADR-0006).
+apiVersion: policies.kyverno.io/v1alpha1
+kind: ValidatingPolicy
+metadata:
+  name: agt-003-human-approval-2-0-0
+  annotations:
+    osramp.controlplane.io/control-id: AGT-003
+    osramp.controlplane.io/pack: agent-policy
+    osramp.controlplane.io/pack-version: 2.0.0
+    osramp.controlplane.io/scenario: SCN-UNAUTH-CHANGE
+    # Advisory metadata. Read by humans and by `riskctl`. NEVER consumed by the engine (ADR-0007).
+    osramp.controlplane.io/rationale: >-
+      Propose, never dispose. The agent's blast radius must be bounded by human review capacity,
+      not by model confidence. An agent workload that can act without a recorded approver is
+      indistinguishable from an unreviewed operator.
+    osramp.controlplane.io/rationale-file: rationale/AGT-003.md
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: ["", "batch"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods", "jobs"]
+    # Self-selector: this policy version only governs workloads pinned to this pack version.
+    objectSelector:
+      matchLabels:
+        osramp.controlplane.io/policy-version: "2.0.0"
+    namespaceSelector:
+      matchLabels:
+        osramp.controlplane.io/subject: agent
+  variables:
+    - name: meta
+      expression: >-
+        has(object.metadata) && has(object.metadata.annotations)
+          ? object.metadata.annotations
+          : {}
+    - name: approvalMode
+      expression: >-
+        'osramp.controlplane.io/approval-mode' in variables.meta
+          ? variables.meta['osramp.controlplane.io/approval-mode']
+          : ''
+    - name: approver
+      expression: >-
+        'osramp.controlplane.io/approver' in variables.meta
+          ? variables.meta['osramp.controlplane.io/approver']
+          : ''
+  validations:
+    - expression: variables.approvalMode == 'human-required'
+      message: >-
+        AGT-003: agent workloads must declare
+        osramp.controlplane.io/approval-mode=human-required. There is no auto-approve path;
+        execution of a remediation requires an explicit human --approve.
+    - expression: size(variables.approver) > 0
+      message: >-
+        AGT-003: agent workloads must record the identity of the human approver in
+        osramp.controlplane.io/approver. An unattributed approval is not an approval.

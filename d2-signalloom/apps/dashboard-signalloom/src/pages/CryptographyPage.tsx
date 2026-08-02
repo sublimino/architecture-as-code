@@ -17,6 +17,7 @@ import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
 import { colors } from '../styles/tokens'
+import { cryptoLifecycle } from '../data/cryptoLifecycle'
 import type { CryptoProof } from '../types/api'
 
 // ── Mock data ────────────────────────────────────────────────────────────────
@@ -87,20 +88,37 @@ interface AlgorithmEntry {
   standard: string
   type: 'KEM' | 'Signature' | 'Signature (hash-based)' | 'Key exchange' | 'Signature (classical)' | 'Symmetric'
   nistStatus: string
-  eolDate: string | null
   quantumSafe: boolean
 }
 
+// EOL dates are deliberately NOT inline here — they're derived at render time
+// from cryptoLifecycle.ts (CRYPTO_LIFECYCLE), the single sourced/cited data
+// file also used by the Cipher Discovery table, so the two tables can never
+// disagree about the same underlying algorithm.
 const ALGORITHM_INVENTORY: AlgorithmEntry[] = [
-  { algorithm: 'ML-KEM (Kyber)', standard: 'FIPS 203', type: 'KEM', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
-  { algorithm: 'ML-DSA (Dilithium)', standard: 'FIPS 204', type: 'Signature', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
-  { algorithm: 'SLH-DSA (SPHINCS+)', standard: 'FIPS 205', type: 'Signature (hash-based)', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
-  { algorithm: 'RSA-2048', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
-  { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
-  { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
-  { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Approved', eolDate: '2030', quantumSafe: false },
-  { algorithm: 'AES-256', standard: 'FIPS 197', type: 'Symmetric', nistStatus: 'Approved', eolDate: null, quantumSafe: true },
+  { algorithm: 'ML-KEM (Kyber)', standard: 'FIPS 203', type: 'KEM', nistStatus: 'Standardised 2024', quantumSafe: true },
+  { algorithm: 'ML-DSA (Dilithium)', standard: 'FIPS 204', type: 'Signature', nistStatus: 'Standardised 2024', quantumSafe: true },
+  { algorithm: 'SLH-DSA (SPHINCS+)', standard: 'FIPS 205', type: 'Signature (hash-based)', nistStatus: 'Standardised 2024', quantumSafe: true },
+  { algorithm: 'RSA-2048', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'ECDH P-256', standard: 'NIST SP 800-56A Rev. 3', type: 'Key exchange', nistStatus: 'Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)', quantumSafe: false },
+  { algorithm: 'AES-256', standard: 'FIPS 197', type: 'Symmetric', nistStatus: 'Approved', quantumSafe: true },
 ]
+
+// Cipher Discovery's `kex` values name TLS cipher groups, not the Algorithm
+// Inventory's canonical algorithm names — this maps one onto the other so the
+// "Key exchange" column can click through to a real, matching inventory row.
+const KEX_TO_ALGORITHM_INVENTORY: Record<string, string> = {
+  X25519MLKEM768: 'ML-KEM (Kyber)',
+  'X25519 + ML-KEM-768': 'ML-KEM (Kyber)',
+  'ECDHE P-256': 'ECDH P-256',
+}
+
+function algorithmRowId(algorithm: string): string {
+  return `algo-inventory-${algorithm.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`
+}
 
 interface CipherEndpoint {
   endpoint: string
@@ -234,6 +252,7 @@ export default function CryptographyPage() {
   const { getAccessTokenSilently } = useAuth0()
   const [proofs, setProofs] = useState<CryptoProof[] | null>(null)
   const [proofError, setProofError] = useState(false)
+  const [highlightedAlgo, setHighlightedAlgo] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -251,6 +270,17 @@ export default function CryptographyPage() {
     load()
   }, [load])
 
+  // Scrolls the Algorithm Inventory table to the row matching a Cipher
+  // Discovery key-exchange entry and highlights it briefly. scrollIntoView is
+  // optional-chained because jsdom (test env) doesn't implement it.
+  const scrollToAlgorithm = useCallback((algorithm: string) => {
+    document.getElementById(algorithmRowId(algorithm))?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+    setHighlightedAlgo(algorithm)
+    window.setTimeout(() => {
+      setHighlightedAlgo((current) => (current === algorithm ? null : current))
+    }, 2400)
+  }, [])
+
   return (
     <div style={{ paddingBottom: 40 }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Cryptography</h1>
@@ -265,12 +295,12 @@ export default function CryptographyPage() {
         ) : proofs.length === 0 ? (
           <div className="card" style={{ padding: '18px 16px' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-              Proofs unavailable — API in development
+              {proofError ? 'Workload-identity proof service unreachable' : 'No workload-identity proofs reported'}
             </div>
             <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 720 }}>
               {proofError
-                ? 'The dashboard could not load workload-identity proofs from the backend, so this section is showing the development fallback state.'
-                : 'The backend returned no workload-identity proofs yet, so this section is showing the development fallback state.'}
+                ? 'The dashboard could not reach the crypto-proof service (fe-signalloom → fake-integration-proxy → Kubernetes Job status for bao-spire-positive-proof / bao-spire-negative-proof). Check connectivity or backend health and retry.'
+                : 'The crypto-proof service responded with zero proofs — the bao-spire-positive-proof / bao-spire-negative-proof Jobs may not have run yet in this namespace.'}
             </div>
           </div>
         ) : (
@@ -389,15 +419,61 @@ export default function CryptographyPage() {
             </div>
           </div>
           <div style={{ flex: 1, minWidth: 320 }}>
-            <Table headers={['Endpoint', 'TLS', 'Key exchange', 'PQC']}>
-              {CIPHERS.map((c) => (
-                <tr key={c.endpoint} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ ...td, color: 'var(--text)' }}>{c.endpoint}</td>
-                  <td style={{ ...td, color: 'var(--muted)' }}>{c.tls}</td>
-                  <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{c.kex}</code></td>
-                  <td style={td}><Pill label={c.pqc} /></td>
-                </tr>
-              ))}
+            <Table headers={['Endpoint', 'TLS', 'Key exchange', 'PQC', 'End of life']}>
+              {CIPHERS.map((c) => {
+                const targetAlgorithm = KEX_TO_ALGORITHM_INVENTORY[c.kex]
+                const lifecycle = cryptoLifecycle(c.kex)
+                return (
+                  <tr key={c.endpoint} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ ...td, color: 'var(--text)' }}>{c.endpoint}</td>
+                    <td style={{ ...td, color: 'var(--muted)' }}>{c.tls}</td>
+                    <td style={td}>
+                      {targetAlgorithm ? (
+                        <button
+                          type="button"
+                          onClick={() => scrollToAlgorithm(targetAlgorithm)}
+                          aria-label={`View ${c.kex} in Algorithm Inventory (${targetAlgorithm})`}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            margin: 0,
+                            font: 'inherit',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          <code
+                            style={{
+                              color: 'var(--cyan)',
+                              fontSize: 12,
+                              textDecoration: 'underline',
+                              textUnderlineOffset: 3,
+                            }}
+                          >
+                            {c.kex}
+                          </code>
+                        </button>
+                      ) : (
+                        <code style={{ color: 'var(--cyan)', fontSize: 12 }}>{c.kex}</code>
+                      )}
+                    </td>
+                    <td style={td}><Pill label={c.pqc} /></td>
+                    <td style={td}>
+                      {lifecycle?.eolDate ? (
+                        <span
+                          className="tag"
+                          title={lifecycle.source}
+                          style={{ background: hex(colors.red, 0.12), color: colors.red }}
+                        >
+                          EOL {lifecycle.eolDate}
+                        </span>
+                      ) : (
+                        <span style={{ color: colors.tealLoom }}>None</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
             </Table>
           </div>
         </div>
@@ -405,21 +481,41 @@ export default function CryptographyPage() {
 
       {/* Algorithm Inventory — PQC migration readiness */}
       <Section title="Algorithm Inventory" hint="NIST post-quantum migration tracking">
-        <Table headers={['Algorithm', 'Standard', 'Type', 'NIST Status', 'EOL Date', 'Quantum-safe']}>
-          {ALGORITHM_INVENTORY.map((a) => (
-            <tr key={a.algorithm} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={{ ...td, color: 'var(--text)', fontWeight: 500 }}>{a.algorithm}</td>
-              <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{a.standard}</code></td>
-              <td style={{ ...td, color: 'var(--muted)' }}>{a.type}</td>
-              <td style={{ ...td, color: 'var(--muted)' }}>{a.nistStatus}</td>
-              <td style={td}>
-                {a.eolDate
-                  ? <span style={{ color: colors.amber, fontWeight: 600 }}>{a.eolDate}</span>
-                  : <span style={{ color: colors.tealLoom }}>None</span>}
-              </td>
-              <td style={td}><Pill label={a.quantumSafe ? 'ready' : 'classical'} /></td>
-            </tr>
-          ))}
+        <Table headers={['Algorithm', 'Standard', 'Type', 'NIST Status', 'End of life', 'Quantum-safe']}>
+          {ALGORITHM_INVENTORY.map((a) => {
+            const lifecycle = cryptoLifecycle(a.algorithm)
+            return (
+              <tr
+                key={a.algorithm}
+                id={algorithmRowId(a.algorithm)}
+                data-highlighted={a.algorithm === highlightedAlgo}
+                style={{
+                  borderBottom: '1px solid var(--border)',
+                  background: a.algorithm === highlightedAlgo ? hex(colors.cyanLoom, 0.16) : undefined,
+                  transition: 'background 200ms ease',
+                }}
+              >
+                <td style={{ ...td, color: 'var(--text)', fontWeight: 500 }}>{a.algorithm}</td>
+                <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{a.standard}</code></td>
+                <td style={{ ...td, color: 'var(--muted)' }}>{a.type}</td>
+                <td style={{ ...td, color: 'var(--muted)' }}>{a.nistStatus}</td>
+                <td style={td}>
+                  {lifecycle?.eolDate ? (
+                    <span
+                      className="tag"
+                      title={lifecycle.source}
+                      style={{ background: hex(colors.red, 0.12), color: colors.red }}
+                    >
+                      EOL {lifecycle.eolDate}
+                    </span>
+                  ) : (
+                    <span style={{ color: colors.tealLoom }}>None</span>
+                  )}
+                </td>
+                <td style={td}><Pill label={a.quantumSafe ? 'ready' : 'classical'} /></td>
+              </tr>
+            )
+          })}
         </Table>
       </Section>
 

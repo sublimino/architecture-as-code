@@ -47,6 +47,7 @@ export interface IssueCredentialResponse {
   identity_token: string   // raw JWT — shown once, then gone
   token_expires_at: string
   token_note: string
+  simulated?: boolean
 }
 
 // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
@@ -54,6 +55,7 @@ export interface RevokeCredentialResponse {
   agent_id: string
   name: string
   tokens_revoked: number
+  simulated?: boolean
 }
 
 export interface TransitionRequest {
@@ -68,6 +70,7 @@ export interface TransitionResponse {
   actor: string
   reason: string
   timestamp: string
+  simulated?: boolean
 }
 
 export interface ReassessmentResponse {

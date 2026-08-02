@@ -130,6 +130,7 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("GET", "/api/nhi/report/json", None, None, "NHI report"),
     ("GET", "/api/tenant/settings", None, TenantSettingsResponse, "tenant settings"),
     ("PATCH", "/api/tenant/settings/frameworks", {"selected_frameworks": ["eu-ai-act"]}, TenantSettingsResponse, "patch frameworks"),
+    ("PATCH", "/api/tenant/settings/preferences", {"preferred_scan_cadence_hours": 12, "alert_email": "ops@signalloom.local", "alert_threshold": 3}, TenantSettingsResponse, "patch preferences"),
     ("POST", "/api/support", {"subject": "E2E Test", "urgency": "low", "message": "Automated"}, SupportRequestResponse, "support request"),
     ("POST", "/api/tenants/tenant-demo/api-keys/initial", None, InitialApiKeyResponse, "initial API key"),
     ("POST", "/api/tenants/tenant-demo/api-keys/rotate", None, RotateApiKeyResponse, "rotate API key"),
@@ -229,5 +230,5 @@ def test_e2e_nhi_report(
 
 
 def test_e2e_endpoint_count() -> None:
-    """Sanity: 28 endpoints in the E2E table."""
-    assert len(ENDPOINT_TABLE) == 28
+    """Sanity: 29 endpoints in the E2E table."""
+    assert len(ENDPOINT_TABLE) == 29

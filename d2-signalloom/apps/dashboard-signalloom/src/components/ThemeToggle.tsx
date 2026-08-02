@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import {
   DEFAULT_THEME,
   THEME_LABELS,
@@ -21,7 +21,7 @@ const RIGHT_OFFSET = 140
 export default function ThemeToggle() {
   const [theme, setTheme] = useState<ThemeName>(() => readStoredTheme())
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     applyTheme(theme)
   }, [theme])
 

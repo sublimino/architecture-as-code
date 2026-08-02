@@ -5,6 +5,24 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Signal Loom — Agent Governance</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // Apply stored theme before first paint to prevent flash-of-dark-theme.
+      // Must stay in sync with themes.ts THEMES and THEME_STORAGE_KEY.
+      ;(function() {
+        var t = 'dark'
+        try { t = localStorage.getItem('signalloom.theme') || 'dark' } catch(e) {}
+        if (t !== 'dark' && t !== 'light' && t !== 'andy') t = 'dark'
+        if (t === 'dark') return // :root already has dark values
+        var s = document.documentElement.style
+        document.documentElement.setAttribute('data-theme', t)
+        var themes = {
+          light: {'--bg':'#FFFFFF','--surface':'#F8FAFC','--surface2':'#F1F5F9','--border':'#D9E2EC','--border-subtle':'#B6C2CF','--cyan':'#0E7490','--violet':'#6D28D9','--teal':'#047857','--amber':'#B45309','--error':'#B91C1C','--text':'#0F172A','--muted':'#475569','--slate-gray':'#64748B','--warning':'#B45309'},
+          andy: {'--bg':'#000000','--surface':'#0A0A0A','--surface2':'#161010','--border':'#2B0F0F','--border-subtle':'#5A1A1A','--cyan':'#E10600','--violet':'#FF4D6D','--teal':'#FF7A7A','--amber':'#C2410C','--error':'#FF1E1E','--text':'#F5F5F5','--muted':'#B09292','--slate-gray':'#6B5252','--warning':'#C2410C'}
+        }
+        var v = themes[t]
+        if (v) for (var k in v) s.setProperty(k, v[k])
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

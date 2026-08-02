@@ -1,10 +1,11 @@
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
-.PHONY: test test-netassert bootstrap-drift bao-test-config
+.PHONY: test test-netassert bootstrap-drift bao-test-config netassert-config-drift
 test: ## Validate the D2 topology, dependency components, and Discovery Portal package.
 	./test/validate-topology.sh
 	bash ./test/validate-dependencies.sh
+	bash ./test/check-netassert-config-drift.sh
 	cd proof-helper && go test ./...
 	cd apps/cardvault && go test ./...
 	cd apps/policy-engine && go test ./...
@@ -25,3 +26,6 @@ test-netassert: ## Validate NetworkPolicy enforcement with netassert (needs runn
 
 bootstrap-drift: ## Regenerate bootstrap SQL and compare it with the committed contract.
 	bash ./test/check-bootstrap-drift.sh
+
+netassert-config-drift: ## Compare the committed netassert config against its ConfigMap-generator copy.
+	bash ./test/check-netassert-config-drift.sh

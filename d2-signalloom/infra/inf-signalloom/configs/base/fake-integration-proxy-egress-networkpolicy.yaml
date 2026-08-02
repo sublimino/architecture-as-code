@@ -1,7 +1,9 @@
 # The namespace default-deny policy blocks all egress. The fake-integration-proxy
 # now performs read-only in-cluster API queries (agent discovery + bao-spire
-# crypto-proof self-health), so it needs a scoped egress allowance to the
-# kube-apiserver and cluster DNS. Nothing else is opened.
+# crypto-proof self-health, plus reading the netassert-run Job/pods/logs for
+# GET /network-tests), so it needs a scoped egress allowance to the
+# kube-apiserver and cluster DNS, plus a pod-scoped allowance to
+# netassert-controller for POST /network-tests/scan. Nothing else is opened.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -25,9 +27,21 @@ spec:
     # kube-apiserver. The ClusterIP 10.96.0.1:443 DNATs to the kind node's real
     # apiserver on :6443; kindnet evaluates the policy on the post-DNAT target,
     # so scope by PORT (any destination on 443/6443) rather than the ClusterIP —
-    # this is the read-only API access for agent + crypto-proof discovery.
+    # this is the read-only API access for agent + crypto-proof discovery and
+    # for reading netassert-run Job/pod/log status.
     - ports:
         - protocol: TCP
           port: 443
         - protocol: TCP
           port: 6443
+    # netassert-controller — the ONLY holder of jobs:create/delete for
+    # netassert-run. Scoped to the controller pod specifically (not a
+    # blanket port rule), same namespace, so this grant can never be widened
+    # by accident into "any pod on 8080".
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: netassert-controller
+      ports:
+        - protocol: TCP
+          port: 8080

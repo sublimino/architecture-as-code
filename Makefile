@@ -216,7 +216,8 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# racing on the single zot port-forward. \
 	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom & FE_PID=$$!; \
 	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy & FP_PID=$$!; \
-	BUILD_FAIL=0; wait $$FE_PID || BUILD_FAIL=1; wait $$FP_PID || BUILD_FAIL=1; \
+	docker build -t netassert-controller:dev d2-signalloom/apps/netassert-controller & NC_PID=$$!; \
+	BUILD_FAIL=0; wait $$FE_PID || BUILD_FAIL=1; wait $$FP_PID || BUILD_FAIL=1; wait $$NC_PID || BUILD_FAIL=1; \
 	[ $$BUILD_FAIL -eq 0 ] || { echo "signalloom parallel image build failed" >&2; exit 1; }; \
 	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
@@ -225,7 +226,8 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# dashboard build context literal: d2-signalloom/apps/dashboard-signalloom \
 	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
 	./scripts/build-sign-dashboard.sh; \
-	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev
+	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev; \
+	kind load docker-image --name $(CLUSTER_NAME) netassert-controller:dev
 
 .PHONY: cpai-images
 cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.

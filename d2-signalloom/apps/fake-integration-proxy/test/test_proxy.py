@@ -359,16 +359,18 @@ class AgentActionNamespaceTest(AgentNamespaceTestCase):
 
 
 class NetworkTestsTestCase(ProxyServerTestCase):
-    """Network-tests handlers call the Kubernetes Job/pod-log helpers directly
+    """GET /network-tests reads the Kubernetes Job/pod-log helpers directly
     (there is no per-pod fake to route through, unlike agent discovery), so
     tests patch those helpers the same way AgentActionNamespaceTest patches
-    _post_policy_evaluate."""
+    _post_policy_evaluate. POST /network-tests/scan no longer touches the
+    Kubernetes Job API at all — job creation/deletion moved to
+    netassert-controller (apps/netassert-controller/), a separate process
+    with its own dedicated ServiceAccount, so this process no longer holds
+    jobs:create/delete. See ScanTestCase below."""
 
-    def install(self, *, job=None, pod_logs=None, get_job_calls=None, created=None, deleted=None):
+    def install(self, *, job=None, pod_logs=None, get_job_calls=None):
         pod_logs = pod_logs or {}
         get_job_calls = get_job_calls if get_job_calls is not None else []
-        created = created if created is not None else []
-        deleted = deleted if deleted is not None else []
 
         def fake_get_job(base_url, token, context, namespace, name):
             get_job_calls.append((namespace, name))
@@ -383,12 +385,6 @@ class NetworkTestsTestCase(ProxyServerTestCase):
                     return log_text
             raise not_found(url, "log not found")
 
-        def fake_create_job(base_url, token, context, namespace, manifest):
-            created.append((namespace, manifest))
-
-        def fake_delete_job(base_url, token, context, namespace, name):
-            deleted.append((namespace, name))
-
         patches = [
             mock.patch.object(server, "_read_service_account_token", lambda *a, **k: "fake-token"),
             mock.patch.object(server, "_kubernetes_ssl_context", lambda *a, **k: None),
@@ -396,14 +392,11 @@ class NetworkTestsTestCase(ProxyServerTestCase):
             mock.patch.object(server, "_get_kubernetes_job", fake_get_job),
             mock.patch.object(server, "_list_job_pods", fake_list_job_pods),
             mock.patch.object(server, "_fetch_kubernetes_text", fake_fetch_text),
-            mock.patch.object(server, "_create_kubernetes_job", fake_create_job),
-            mock.patch.object(server, "_delete_kubernetes_job", fake_delete_job),
-            mock.patch.object(server, "time", mock.Mock(sleep=lambda *_: None)),
         ]
         for patch in patches:
             patch.start()
             self.addCleanup(patch.stop)
-        return SimpleNamespace(get_job_calls=get_job_calls, created=created, deleted=deleted)
+        return SimpleNamespace(get_job_calls=get_job_calls)
 
     def test_get_returns_every_definition_as_pending_when_no_scan_has_run(self):
         self.install(job=None)
@@ -457,59 +450,59 @@ class NetworkTestsTestCase(ProxyServerTestCase):
         self.assertEqual("unavailable", body["scanStatus"])
         self.assertTrue(all(t["result"] == "error" for t in body["tests"]))
 
-    def test_scan_creates_the_fixed_job_when_none_exists(self):
-        state = self.install(job=None)
-        status, body = self.request("POST", "/network-tests/scan")
-        self.assertEqual(202, status)
-        self.assertEqual("started", body["status"])
-        self.assertEqual(1, len(state.created))
-        namespace, manifest = state.created[0]
-        self.assertEqual(server.NETASSERT_JOB_NAMESPACE, namespace)
-        self.assertEqual(server.NETASSERT_JOB_NAME, manifest["metadata"]["name"])
-        self.assertEqual(0, len(state.deleted))
 
-    def test_scan_ignores_the_request_body_entirely(self):
-        """The Job spec must be identical regardless of what a caller sends —
-        this is what stops the endpoint becoming an arbitrary-target probe."""
-        state = self.install(job=None)
-        self.request("POST", "/network-tests/scan", {"target": "10.0.0.1", "namespace": "kube-system"})
-        manifest_with_body = state.created[0][1]
-        state.created.clear()
-        self.request("POST", "/network-tests/scan")
-        manifest_without_body = state.created[0][1]
-        self.assertEqual(manifest_with_body, manifest_without_body)
-        self.assertEqual(server.NETASSERT_JOB_NAME, manifest_with_body["metadata"]["name"])
-        self.assertNotIn("10.0.0.1", json.dumps(manifest_with_body))
+class ScanTestCase(ProxyServerTestCase):
+    """POST /network-tests/scan is now a thin forward to netassert-controller
+    (see _trigger_netassert_scan) — the create/delete/conflict logic itself
+    is tested against the controller directly in
+    apps/netassert-controller/test/test_controller.py. These tests only
+    cover the proxy's half of the contract: it must call the controller and
+    relay its response verbatim, and it must never forward the caller's body."""
 
-    def test_scan_rejects_a_second_run_while_one_is_active(self):
-        job = {"status": {"active": 1}}
-        state = self.install(job=job)
-        status, body = self.request("POST", "/network-tests/scan")
-        self.assertEqual(409, status)
-        self.assertIn("already running", body["error"])
-        self.assertEqual(0, len(state.created))
-        self.assertEqual(0, len(state.deleted))
-
-    def test_scan_deletes_a_finished_job_before_recreating_it(self):
-        job = {"status": {"succeeded": 1, "conditions": [{"type": "Complete", "status": "True"}]}}
+    def test_scan_forwards_to_the_controller_and_relays_its_response(self):
         calls = []
 
-        def fake_get_job(base_url, token, context, namespace, name):
+        def fake_trigger():
             calls.append(1)
-            # First call (inside the handler's own existence check) sees the
-            # finished job; the polling loop after delete sees it gone.
-            return job if len(calls) == 1 else None
+            return 202, {"job": "netassert-run", "status": "started"}
 
-        state = self.install(job=None)
-        override = mock.patch.object(server, "_get_kubernetes_job", fake_get_job)
-        override.start()
-        self.addCleanup(override.stop)
-
-        status, _ = self.request("POST", "/network-tests/scan")
+        with mock.patch.object(server, "_trigger_netassert_scan", fake_trigger):
+            status, body = self.request("POST", "/network-tests/scan")
         self.assertEqual(202, status)
-        self.assertEqual(1, len(state.deleted))
-        self.assertEqual((server.NETASSERT_JOB_NAMESPACE, server.NETASSERT_JOB_NAME), state.deleted[0])
-        self.assertEqual(1, len(state.created))
+        self.assertEqual({"job": "netassert-run", "status": "started"}, body)
+        self.assertEqual(1, len(calls))
+
+    def test_scan_relays_a_conflict_from_the_controller(self):
+        with mock.patch.object(
+            server, "_trigger_netassert_scan",
+            lambda: (409, {"error": "a network test scan is already running"}),
+        ):
+            status, body = self.request("POST", "/network-tests/scan")
+        self.assertEqual(409, status)
+        self.assertIn("already running", body["error"])
+
+    def test_scan_relays_bad_gateway_when_the_controller_is_unreachable(self):
+        with mock.patch.object(
+            server, "_trigger_netassert_scan",
+            lambda: (502, {"error": "netassert-controller unreachable: [Errno 111] Connection refused"}),
+        ):
+            status, body = self.request("POST", "/network-tests/scan")
+        self.assertEqual(502, status)
+        self.assertIn("unreachable", body["error"])
+
+    def test_scan_never_forwards_the_caller_body_to_the_controller(self):
+        """The proxy must not become an indirect arbitrary-target probe: the
+        controller call takes no arguments at all, so nothing the caller
+        sends can reach it."""
+        received_args = []
+
+        def fake_trigger(*args, **kwargs):
+            received_args.append((args, kwargs))
+            return 202, {"job": "netassert-run", "status": "started"}
+
+        with mock.patch.object(server, "_trigger_netassert_scan", fake_trigger):
+            self.request("POST", "/network-tests/scan", {"target": "10.0.0.1", "namespace": "kube-system"})
+        self.assertEqual([((), {})], received_args)
 
 
 if __name__ == "__main__":

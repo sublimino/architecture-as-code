@@ -1,0 +1,33 @@
+# The namespace default-deny policy blocks all egress. netassert-controller
+# needs to reach kube-apiserver (to create/delete/get the netassert-run Job)
+# and cluster DNS. Nothing else — it makes no other outbound call.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netassert-controller-egress
+  namespace: inf-signalloom
+  labels:
+    app.kubernetes.io/name: netassert-controller
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: netassert-controller
+  policyTypes:
+    - Egress
+  egress:
+    # Cluster DNS.
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # kube-apiserver. The ClusterIP 10.96.0.1:443 DNATs to the kind node's
+    # real apiserver on :6443; kindnet evaluates the policy on the
+    # post-DNAT target, so scope by PORT (any destination on 443/6443)
+    # rather than the ClusterIP — mirrors
+    # allow-fake-integration-proxy-egress's identical rationale.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

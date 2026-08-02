@@ -80,8 +80,13 @@ Full reference: [`docs/signalloom/dashboard-superadmin-themes-importer.md`](../d
 
 | Command | Tests | Time |
 |---------|-------|------|
-| `make -C d2-signalloom test` | Static topology + BATS (29) | ~10s |
-| `bats test/dashboard-routes.bats` | nginx SPA fallback (11, needs :5173) | ~3s |
+| `make -C d2-signalloom test` | Static topology + BATS (38) | ~10s |
+| `bats test/dashboard-routes.bats` | nginx SPA fallback + no-redirect guard (15, needs :5173) | ~3s |
+| `bats test/dashboard-route-collisions.bats` | no nginx proxy prefix shadows a SPA route (8) | ~2s |
+| `bats test/agent-discovery-rbac.bats` | every discovery namespace has a matching grant (5) | ~2s |
+| `bats test/fleet-patch-indexes.bats` | overlay verify-patch indexes still hit an OCIRepository (3) | ~2s |
+| `bats ../test/supercred-images.bats` | image build/load guard, no cluster needed (9) | ~3s |
+| `cd apps/fake-integration-proxy && PYTHONPATH=. python3 -m unittest discover -s test` | proxy discovery (21) — **unittest, not pytest** | ~2s |
 | `bats test/gateway-dashboard.bats` | Envoy Gateway routes (9, needs :18443) | ~3s |
 | `bats test/dex-auth.bats test/dex-runtime.bats` | Dex OIDC contract (6) | ~5s |
 | `bats test/dashboard-image.bats` | Container build + readyz + SPA fallback | ~30s |
@@ -118,7 +123,18 @@ See `DESIGN.md` in this directory for the full visual guide. Summary:
 - **`public/` file perms**: must be 644+ (nginx uid 101 → 403 otherwise)
 - **ConsentModal.test.tsx**: 2 pre-existing failures (duplicate text matches) — not a regression
 - **Port-forward drops on rollout**: always restart after `rollout restart`
-- **nginx proxies**: `/dex/*` → dex:5556, `/api/*` → fe-signalloom-api:8000 (single-origin, no CORS)
+- **nginx proxies**: `/dex/*` → dex:5556, `/api/*` → fe-signalloom-api:8000 (single-origin, no CORS),
+  `/supercred-api/*` → fake-integration-proxy:8080
+- **No proxy prefix may shadow a SPA route.** nginx matches proxy locations before `location /`
+  reaches `try_files`, so a prefix sharing a name with a client-side route means that page can never
+  render. This is why the SuperCred proxy is `/supercred-api/` and not `/supercred/`. Guarded by
+  `test/dashboard-route-collisions.bats`.
+- **BATS `skip` reports as `ok`.** A suite whose precondition is missing (port-forward down, cluster
+  absent) prints all-green while testing nothing. Check for `# skip` before trusting a pass —
+  `dashboard-routes.bats` and `gateway-dashboard.bats` both skip silently without their port-forward.
+- **Manifest edits need an artifact push, not `kubectl apply`.** Flux reverts hand-applied changes on
+  its next reconcile. See the delivery-pipeline section in
+  `docs/signalloom/dashboard-superadmin-themes-importer.md`.
 
 ## Supply Chain
 

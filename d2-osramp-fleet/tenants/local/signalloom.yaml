@@ -609,40 +609,53 @@ spec:
         - kind: ServiceAccount
           name: default
           namespace: inf-signalloom
-    # Network Tests (netassert) — Scan Now button. Two identities, two Roles:
+    # Network Tests (netassert) — Scan Now button. Three identities now, not
+    # two — see the fix/netassert-dedicated-sa branch for the full history:
     #
-    # netassert-run-manager grants fake-integration-proxy's own SA
-    # (default/inf-signalloom) the ability to create/delete the netassert-run
-    # Job on demand and read its pods/logs for results. This is materially
-    # more privileged than anything else that SA holds elsewhere in this file
-    # — `jobs: create` is equivalent to arbitrary code execution as this
-    # namespace's default identity if the proxy is ever compromised. Two
-    # things keep it bounded: it is scoped to this one namespace only (no
-    # ClusterRole, no wildcard), and the Job spec the proxy submits is a
-    # hardcoded constant in server.py (_netassert_job_manifest) that never
-    # reads from the triggering HTTP request — so this grant lets the proxy
-    # run exactly one fixed Job, not an arbitrary one.
+    # netassert-status-reader (below) grants fake-integration-proxy's own SA
+    # (default/inf-signalloom) READ-ONLY access to the netassert-run Job and
+    # its pods/logs, for GET /network-tests. This SA does NOT hold
+    # jobs:create or jobs:delete any more — it used to (as
+    # netassert-run-manager), and that was a real privilege-escalation risk:
+    # `jobs: create` lets a caller submit ANY Job manifest, not just the
+    # fixed netassert-run one, so a stolen or SSRF'd token with that verb
+    # would have been a skeleton key for this namespace. The proxy parses
+    # far more attacker-reachable input (arbitrary JSON bodies, headers,
+    # route params across a dozen endpoints) than the alternative below, so
+    # it is the wrong process to trust with that verb.
+    #
+    # netassert-scan-manager (further below, appended at the end of this
+    # ResourceSet to preserve the positional cosign-verify patch — see
+    # d2-signalloom/test/fleet-patch-indexes.bats) is the ONLY identity that
+    # can create/delete the netassert-run Job. It is bound to a dedicated
+    # ServiceAccount held by netassert-controller
+    # (d2-signalloom/apps/netassert-controller/), a separate, minimal
+    # process whose entire HTTP surface is "(re)run the one fixed scan" —
+    # see that app's server.py docstring for the full rationale. The proxy
+    # reaches it over HTTP (POST /scan) instead of calling the Kubernetes
+    # API itself, so compromising the proxy no longer yields a credential
+    # capable of minting arbitrary Jobs.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
       metadata:
-        name: netassert-run-manager
+        name: netassert-status-reader
         namespace: << inputs.tenant >>
       rules:
         - apiGroups: ["batch"]
           resources: ["jobs"]
-          verbs: ["get", "list", "create", "delete"]
+          verbs: ["get", "list"]
         - apiGroups: [""]
           resources: ["pods", "pods/log"]
           verbs: ["get", "list"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:
-        name: netassert-run-manager
+        name: netassert-status-reader
         namespace: << inputs.tenant >>
       roleRef:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
-        name: netassert-run-manager
+        name: netassert-status-reader
       subjects:
         - kind: ServiceAccount
           name: default
@@ -681,3 +694,33 @@ spec:
         - kind: ServiceAccount
           name: netassert-runner
           namespace: << inputs.tenant >>
+    # netassert-scan-manager — the only identity in the system that can
+    # create or delete the netassert-run Job. Bound to netassert-controller's
+    # own ServiceAccount (inf-signalloom), never to fake-integration-proxy's.
+    # get is needed for the existence/active check and the post-delete
+    # polling loop before recreating; no list/watch is needed since the
+    # controller only ever addresses this one fixed Job by name. Appended
+    # here (end of the resources list) rather than inserted near the other
+    # netassert grants above — see fleet-patch-indexes.bats.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: netassert-scan-manager
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "create", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: netassert-scan-manager
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: netassert-scan-manager
+      subjects:
+        - kind: ServiceAccount
+          name: netassert-scan-manager
+          namespace: inf-signalloom

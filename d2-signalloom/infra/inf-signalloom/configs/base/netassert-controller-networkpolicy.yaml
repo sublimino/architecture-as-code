@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-netassert-controller
+  namespace: inf-signalloom
+  labels:
+    app.kubernetes.io/name: netassert-controller
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: netassert-controller
+  policyTypes:
+    - Ingress
+  ingress:
+    # Only fake-integration-proxy may trigger a scan. No other caller, in or
+    # out of namespace, gets a route to this pod.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fake-integration-proxy
+      ports:
+        - protocol: TCP
+          port: 8080

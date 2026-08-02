@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import json
 import socket
 import time
 import uuid
@@ -181,6 +182,14 @@ class FakePostgres:
             frameworks, tenant_id = args
             state.tenant_settings[tenant_id]["selected_frameworks"] = frameworks
             return
+        if "UPDATE agent_registry" in query and "lifecycle_state" in query:
+            lifecycle_state, agent_uuid, tenant_id = args
+            for agent in state.agent_registry:
+                if agent["id"] == agent_uuid and agent["tenant_id"] == tenant_id:
+                    agent["lifecycle_state"] = lifecycle_state
+                    agent["last_transition_at"] = "2026-08-02T00:00:00Z"
+                    return
+            return
         if "UPDATE nhi_discovered_accounts" in query and "'dismissed'" in query:
             account_uuid, tenant_id = args
             account = state.nhi_accounts[str(account_uuid)]
@@ -228,6 +237,12 @@ class FakePostgres:
             }
             state.agent_registry.append(row)
             return row
+        if "FROM agent_registry" in query and "FOR UPDATE" in query:
+            agent_uuid, tenant_id = args
+            for agent in state.agent_registry:
+                if agent["id"] == agent_uuid and agent["tenant_id"] == tenant_id:
+                    return agent
+            return None
         if "FROM tenant_settings" in query:
             return state.tenant_settings.get(args[0])
         if "COUNT(*)" in query and "FROM agent_registry" in query:
@@ -461,6 +476,95 @@ def test_a_rejected_audit_event_rolls_back_a_dismissal(
     assert account["dismissed_by"] is None
     assert audit_rejects.committed.audit_events == []
     assert audit_rejects.rollbacks == 1
+
+
+# ---------------------------------------------------------------------------
+# stun_agent: the isolation and its record are one write
+# ---------------------------------------------------------------------------
+
+def _seed_registry_agent(pool: FakePostgres, lifecycle_state: str = "active") -> uuid.UUID:
+    agent_uuid = uuid.uuid4()
+    pool.committed.agent_registry.append(
+        {
+            "id": agent_uuid,
+            "tenant_id": "tenant-tx-pooled",
+            "name": "Cardvault Agent",
+            "lifecycle_state": lifecycle_state,
+            "last_transition_at": None,
+        },
+    )
+    return agent_uuid
+
+
+def test_stunning_an_agent_commits_the_state_and_its_audit_event_together(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    agent_uuid = _seed_registry_agent(healthy)
+
+    response = client.post(
+        f"/api/agents/{agent_uuid}/stun",
+        json={"reason": "compliance-failure: securityContext not set"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert healthy.committed.agent_registry[0]["lifecycle_state"] == "suspended"
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.stunned"]
+    assert healthy.commits == 1
+    assert healthy.rollbacks == 0
+
+
+def test_the_recorded_from_state_is_read_inside_the_transaction(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """A from_state read outside the write could name a state already gone."""
+    agent_uuid = _seed_registry_agent(healthy, lifecycle_state="registered")
+
+    client.post(f"/api/agents/{agent_uuid}/stun", headers=_bearer("tx-pooled"))
+
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["from_state"] == "registered"
+    assert detail["to_state"] == "suspended"
+
+
+def test_a_rejected_audit_event_leaves_the_agent_unstunned(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    """An agent cut off with no record of who cut it off is the worst outcome.
+
+    Worse than the stun not happening: the operator sees a 500, presses again,
+    and the cluster state and the evidence disagree either way. So the isolation
+    must not survive a failed audit insert.
+    """
+    agent_uuid = _seed_registry_agent(audit_rejects)
+
+    response = client.post(f"/api/agents/{agent_uuid}/stun", headers=_bearer("tx-pooled"))
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.agent_registry[0]["lifecycle_state"] == "active", (
+        "the stun survived a failed audit insert"
+    )
+    assert audit_rejects.committed.audit_events == []
+    assert audit_rejects.commits == 0
+    assert audit_rejects.rollbacks == 1
+
+
+def test_stunning_a_pod_with_no_registry_row_still_records_the_event(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """SuperCred agent ids are pod names. The event must not depend on a UUID."""
+    response = client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.stunned"]
+    assert healthy.committed.audit_events[0]["agent_name"] == "Cardvault Agent"
+    # No registry row to update, so the audit insert is the whole write -- and
+    # it still goes through a transaction rather than an autocommit statement.
+    assert healthy.commits == 1
 
 
 # ---------------------------------------------------------------------------

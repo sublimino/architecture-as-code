@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell } from 'recharts'
 import { api } from '../api/client'
 import type { AgentResponse, FrameworkResponse, PostureResponse, AgentPosture } from '../types/api'
 import { useAppContext } from '../App'
+import { donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
@@ -178,7 +179,9 @@ export default function Compliance() {
                 cx={80} cy={80}
                 innerRadius={52} outerRadius={72}
                 dataKey="value"
-                paddingAngle={2}
+                paddingAngle={donutDefaults.paddingAngle}
+                cornerRadius={donutDefaults.cornerRadius}
+                stroke={donutDefaults.stroke}
                 onClick={(_: unknown, index: number) => {
                   if (!hasData) return
                   const visible = donutData.filter(d => d.value > 0)
@@ -197,8 +200,8 @@ export default function Compliance() {
               </Pie>
             </PieChart>
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
-              <span style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', lineHeight: 1 }}>{agents.length}</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>agents</span>
+              <span style={{ fontSize: 43, fontWeight: 500, color: 'var(--text)', lineHeight: 1 }}>{agents.length}</span>
+              <span style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--dim)', marginTop: 6 }}>agents</span>
             </div>
           </div>
 
@@ -227,7 +230,7 @@ export default function Compliance() {
         <div style={{ flex: 1 }}>
           <h2 style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Active Frameworks</h2>
           {frameworks.length === 0 ? (
-            <EmptyState icon="📋" title="No frameworks activated" body="Governance frameworks appear after seeding via the migration script." />
+            <EmptyState kicker="No frameworks activated" body="Governance frameworks appear after seeding via the migration script." />
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 10 }}>
               {frameworks.map(fw => {
@@ -324,8 +327,7 @@ export default function Compliance() {
       {/* Agent posture table */}
       {filteredAgents.length === 0 ? (
         <EmptyState
-          icon="🛡️"
-          title={filterSegment ? `No agents in ${CAT_LABEL[filterSegment]}` : 'No compliance data yet'}
+          kicker={filterSegment ? `No agents in ${CAT_LABEL[filterSegment]}` : 'No compliance data yet'}
           body={filterSegment ? 'Try a different filter or run an assessment.' : 'Run an assessment to populate agent posture.'}
         />
       ) : (

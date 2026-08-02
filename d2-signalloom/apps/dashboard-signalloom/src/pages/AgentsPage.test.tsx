@@ -207,3 +207,46 @@ describe('AgentsPage — Live Data Wiring', () => {
     expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
   })
 })
+
+// ── Carried from feat/signalloom-platform-carry-20260802 ────────────────────
+// Both branches created this file independently (add/add), so this block is the
+// union: these three cases exist only on the platform-carry side. They set
+// eu_ai_act_risk_class explicitly rather than leaning on makeAgent's default,
+// which differs between the two branches ('limited' here vs 'limited_risk').
+describe('AgentsPage — lifecycle tooltip + EU AI Act column', () => {
+  it('shows an EU AI Act column with the risk class badge', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [makeAgent({ eu_ai_act_risk_class: 'limited_risk' })],
+      total: 1,
+    })
+    renderPage()
+
+    expect(await screen.findByText('EU AI Act')).toBeInTheDocument()
+    expect(await screen.findByText('limited risk')).toBeInTheDocument()
+  })
+
+  it('renders a placeholder when eu_ai_act_risk_class is null', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [makeAgent({ eu_ai_act_risk_class: null })],
+      total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Invoice Bot')
+    expect(screen.getAllByText('—').length).toBeGreaterThan(0)
+  })
+
+  it('shows a descriptive tooltip on the lifecycle-state badge', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [makeAgent({ lifecycle_state: 'suspended' })],
+      total: 1,
+    })
+    renderPage()
+
+    const badge = await screen.findByText('suspended')
+    await waitFor(() => expect(badge.closest('[title]')).toHaveAttribute(
+      'title',
+      expect.stringContaining('reversible')
+    ))
+  })
+})

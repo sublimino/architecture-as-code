@@ -1,4 +1,6 @@
 import type { TenantConnector } from '../../types/connectors'
+import StepIcon from './StepIcon'
+import ProviderLogo from './ProviderLogo'
 
 interface Props {
   connectors: TenantConnector[]
@@ -26,9 +28,12 @@ export default function SummaryStep({ connectors, disconnectingId, onDisconnect,
 
   return (
     <div style={{ maxWidth: 640 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-        Review your connections
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+        <StepIcon kind="summary" />
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>
+          Review your connections
+        </h1>
+      </div>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 24 }}>
         You can disconnect a provider at any time. Disconnecting stops future scans but
         keeps historical NHI findings from that provider — nothing is deleted.
@@ -44,6 +49,7 @@ export default function SummaryStep({ connectors, disconnectingId, onDisconnect,
             const expiry = expiryLabel(c.credential_expires_at)
             return (
               <div key={c.connector_id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <ProviderLogo providerId={c.provider_id} displayName={c.display_name ?? c.provider_id} size={36} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>
                     {c.display_name ?? c.provider_id}

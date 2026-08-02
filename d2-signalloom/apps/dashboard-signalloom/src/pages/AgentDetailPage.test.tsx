@@ -4,7 +4,7 @@
  * Transitions are operator-mediated: the direct POST /agents/{id}/transition is
  * Entra-only and the api-gateway proxy 403s dashboard users. The dashboard must
  * therefore submit a *request* via the /support channel — these tests assert
- * that behaviour (and that no direct transition call is made).
+ * that behavior (and that no direct transition call is made).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
@@ -120,7 +120,7 @@ describe('AgentDetailPage — Request Transition', () => {
     renderPage()
     await userEvent.click(await screen.findByRole('button', { name: /request transition/i }))
 
-    await userEvent.type(screen.getByLabelText(/reason/i), 'Investigating anomalous behaviour')
+    await userEvent.type(screen.getByLabelText(/reason/i), 'Investigating anomalous behavior')
     await userEvent.click(screen.getByRole('button', { name: /submit request/i }))
 
     await waitFor(() => expect(api.support).toHaveBeenCalledTimes(1))
@@ -129,7 +129,7 @@ describe('AgentDetailPage — Request Transition', () => {
     expect(body.subject).toContain('Invoice Bot')
     expect(body.subject).toContain('suspended') // default first option for active
     expect(body.message).toContain('agent-abc-123')
-    expect(body.message).toContain('Investigating anomalous behaviour')
+    expect(body.message).toContain('Investigating anomalous behavior')
 
     // The dashboard must never invoke the operator-only transition endpoint.
     expect((api.agents as Record<string, unknown>).transition).toBeUndefined()

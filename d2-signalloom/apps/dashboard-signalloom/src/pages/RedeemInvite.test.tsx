@@ -18,7 +18,7 @@ function renderWith(code?: string) {
 }
 
 async function fillAndSubmit(orgName = 'Acme Corp', name = 'Jane Smith', email = 'jane@acme.com') {
-  await userEvent.type(screen.getByLabelText(/organisation name/i), orgName)
+  await userEvent.type(screen.getByLabelText(/organization name/i), orgName)
   await userEvent.type(screen.getByLabelText(/your name/i), name)
   await userEvent.type(screen.getByLabelText(/work email/i), email)
   await userEvent.click(screen.getByRole('button', { name: /create workspace/i }))
@@ -59,7 +59,7 @@ describe('RedeemInvite page', () => {
 
   it('renders all form fields when code is valid', () => {
     renderWith(VALID_CODE)
-    expect(screen.getByLabelText(/organisation name/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/organization name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/your name/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/work email/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /create workspace/i })).toBeInTheDocument()
@@ -88,14 +88,14 @@ describe('RedeemInvite page', () => {
 
   it('shows error when admin name is empty', async () => {
     renderWith(VALID_CODE)
-    await userEvent.type(screen.getByLabelText(/organisation name/i), 'Acme Corp')
+    await userEvent.type(screen.getByLabelText(/organization name/i), 'Acme Corp')
     await userEvent.click(screen.getByRole('button', { name: /create workspace/i }))
     expect(await screen.findByText(/your name is required/i)).toBeInTheDocument()
   })
 
   it('shows error when email is invalid', async () => {
     renderWith(VALID_CODE)
-    await userEvent.type(screen.getByLabelText(/organisation name/i), 'Acme Corp')
+    await userEvent.type(screen.getByLabelText(/organization name/i), 'Acme Corp')
     await userEvent.type(screen.getByLabelText(/your name/i), 'Jane')
     await userEvent.type(screen.getByLabelText(/work email/i), 'not-an-email')
     await userEvent.click(screen.getByRole('button', { name: /create workspace/i }))

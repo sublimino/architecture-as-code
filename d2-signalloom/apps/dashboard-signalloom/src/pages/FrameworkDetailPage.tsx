@@ -88,7 +88,7 @@ export default function FrameworkDetailPage() {
 
   if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
   if (error) return <ErrorState message={error} onRetry={load} />
-  if (!framework) return <EmptyState title="Framework not found" body="The requested framework does not exist." />
+  if (!framework) return <EmptyState kicker="Framework not found" body="The requested framework does not exist." tone="amber" />
 
   const agents = posture?.agents ?? []
   const controls = [...framework.controls].sort((a, b) => a.control_order - b.control_order)
@@ -148,7 +148,7 @@ export default function FrameworkDetailPage() {
 
       {/* Matrix */}
       {agents.length === 0 ? (
-        <EmptyState icon="📊" title="No assessment data" body="Run an assessment to populate the agent × controls matrix." />
+        <EmptyState kicker="No assessment data" body="Run an assessment to populate the agent × controls matrix." />
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -239,10 +239,10 @@ export default function FrameworkDetailPage() {
       {/* Reassessment modal */}
       {reassessTarget && (
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
           onClick={e => { if (e.target === e.currentTarget) setReassessTarget(null) }}
         >
-          <div className="card" style={{ maxWidth: 420, width: '100%', margin: 24, padding: 28 }}>
+          <div className="card slide-up" style={{ maxWidth: 420, width: '100%', margin: 24, padding: 28 }}>
             <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 12 }}>Request Reassessment</h2>
             <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 8 }}>
               Submit a reassessment request for{' '}

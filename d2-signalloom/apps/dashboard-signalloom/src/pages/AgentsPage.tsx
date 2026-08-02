@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell, Label } from 'recharts'
 import { api } from '../api/client'
-import type { AgentResponse, NHIAccount, NHIScan } from '../types/api'
-import type { PostureSummary } from '../types/compliance'
-import { colors } from '../styles/tokens'
+import type { AgentResponse } from '../types/api'
+import { colors, donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
@@ -79,10 +78,10 @@ function RegisterModal({ onClose, onCreated, prefill, mode = 'register' }: {
 
   return (
     <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center'
     }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="card" style={{ width: 400, padding: 24, position: 'relative' }}>
+      <div className="card slide-up" style={{ width: 400, padding: 24, position: 'relative' }}>
         <h3 style={{ marginBottom: 16 }}>{title}</h3>
         {mode === 'claim' && (
           <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
@@ -280,10 +279,6 @@ function PostureBar({ score }: { score: number | null }) {
 
 interface PieEntry { name: string; label: string; value: number; color: string }
 
-// Donut colours resolve from the theme's CSS custom properties rather than the
-// tokens.ts literals, so the chart repaints with the selected theme. Under Dark
-// each variable holds exactly the literal it replaced, so Dark is unchanged;
-// under Light the centre count stops rendering white-on-white.
 export const DONUT_COLORS = {
   active: 'var(--teal)',
   enrolled: 'var(--cyan)',
@@ -340,7 +335,9 @@ function LifecyclePieChart({ agents, activeFilter, onFilter }: {
           cx={90} cy={90}
           innerRadius={54} outerRadius={78}
           dataKey="value"
-          stroke="none"
+          paddingAngle={donutDefaults.paddingAngle}
+          cornerRadius={donutDefaults.cornerRadius}
+          stroke={donutDefaults.stroke}
           onClick={data.length > 0 ? (entry: unknown) => {
             const e = entry as PieEntry
             onFilter(activeFilter === e.name ? 'all' : e.name)
@@ -388,13 +385,12 @@ interface AlertItem {
   label: string
   count: number
   severity: 'warning' | 'critical'
-  tab: 'governed' | 'discovered'
   filterKey?: string
 }
 
 function AttentionPanel({ alerts, onAlert }: {
   alerts: AlertItem[]
-  onAlert: (tab: 'governed' | 'discovered', filterKey?: string) => void
+  onAlert: (filterKey?: string) => void
 }) {
   if (alerts.length === 0) return null
   return (
@@ -419,7 +415,7 @@ function AttentionPanel({ alerts, onAlert }: {
         {alerts.map((a) => (
           <button
             key={a.id}
-            onClick={() => onAlert(a.tab, a.filterKey)}
+            onClick={() => onAlert(a.filterKey)}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               background: a.severity === 'critical'
@@ -448,6 +444,13 @@ function AttentionPanel({ alerts, onAlert }: {
 // ─── Governed Tab ────────────────────────────────────────────────────────────
 
 const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked']
+
+const LIFECYCLE_TOOLTIP: Record<string, string> = {
+  enrolled: 'Registered but not yet activated — cannot authenticate until transitioned to active.',
+  active: 'Active and authorized to operate.',
+  suspended: 'Temporarily suspended — reversible; credentials refused until reinstated.',
+  revoked: 'Permanently revoked — terminal state; credentials refused.',
+}
 
 function AgentTableRow({ agent, onNavigate, onEdit }: {
   agent: AgentResponse
@@ -491,7 +494,16 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
         {agent.owner ?? '—'}
       </td>
       <td style={{ padding: '11px 16px' }}>
-        <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+        <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
+          <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+        </span>
+      </td>
+      <td style={{ padding: '11px 16px' }}>
+        {agent.eu_ai_act_risk_class ? (
+          <StatusBadge status={agent.eu_ai_act_risk_class} variant="risk" />
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>
+        )}
       </td>
       <td style={{ padding: '11px 16px' }}>
         <StatusBadge status={compStatus} variant="compliance" />
@@ -515,23 +527,18 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
   )
 }
 
-function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter }: {
+function GovernedTab({ agents, loading, error, onRetry, onReload }: {
   agents: AgentResponse[]
   loading: boolean
   error: string | null
   onRetry: () => void
   onReload: () => void
-  externalFilter?: string
 }) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [lifecycleFilter, setLifecycleFilter] = useState('all')
   const [showRegister, setShowRegister] = useState(false)
   const [editingAgent, setEditingAgent] = useState<AgentResponse | null>(null)
-
-  useEffect(() => {
-    if (externalFilter) setLifecycleFilter(externalFilter)
-  }, [externalFilter])
 
   const filtered = useMemo(() => {
     let list = agents
@@ -611,13 +618,13 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
           agents.length === 0 ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: 40 }}>
               <EmptyState
-                title="No governed agents"
+                kicker="No governed agents"
                 body="Agents appear here after enrollment via the registry API."
               />
               <button className="btn btn-primary" onClick={() => setShowRegister(true)}>Register Agent</button>
             </div>
           ) : (
-            <EmptyState title="No agents match your filter" body="Try clearing the search or changing the state filter." />
+            <EmptyState kicker="No agents match your filter" body="Try clearing the search or changing the state filter." />
           )
         ) : (
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -628,6 +635,7 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
                   <th style={TH_STYLE}>Type</th>
                   <th style={TH_STYLE}>Owner</th>
                   <th style={TH_STYLE}>State</th>
+                  <th style={TH_STYLE}>EU AI Act</th>
                   <th style={TH_STYLE}>Compliance</th>
                   <th style={TH_STYLE}>Posture</th>
                   <th style={TH_STYLE}>Last Activity</th>
@@ -653,463 +661,17 @@ function GovernedTab({ agents, loading, error, onRetry, onReload, externalFilter
   )
 }
 
-// ─── Discovered Tab ──────────────────────────────────────────────────────────
-
-function ScanStatusCard({ scan }: { scan: NHIScan | null }) {
-  if (!scan) {
-    return (
-      <div className="card" style={{ marginBottom: 14, padding: '14px 20px' }}>
-        <span style={{ color: 'var(--muted)', fontSize: 13 }}>No scans have been run yet. Scans are triggered by your Signal Loom operator.</span>
-      </div>
-    )
-  }
-
-  const duration = scan.completed_at && scan.started_at
-    ? Math.round((new Date(scan.completed_at).getTime() - new Date(scan.started_at).getTime()) / 1000)
-    : null
-
-  return (
-    <div className="card" style={{ marginBottom: 14, padding: '14px 20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Last Scan</div>
-          <div style={{ fontSize: 13, fontWeight: 500 }}>{fmtRelative(scan.started_at)}</div>
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Source</div>
-          <div style={{ fontSize: 13 }}>{scan.scan_source === 'ad_entra' ? 'Entra ID / AD' : scan.scan_source}</div>
-        </div>
-        {duration !== null && (
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Duration</div>
-            <div style={{ fontSize: 13 }}>{duration}s</div>
-          </div>
-        )}
-        {scan.service_accounts_found !== null && (
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 3 }}>Accounts Found</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: colors.cyanLoom }}>{scan.service_accounts_found}</div>
-          </div>
-        )}
-        <StatusBadge status={scan.status} />
-      </div>
-    </div>
-  )
-}
-
-interface FindingCounts {
-  unowned: number
-  noRotation: number
-  stale: number
-  excessivePrivilege: number
-}
-
-function FindingsSummary({ counts, onFilter, activeFilter }: {
-  counts: FindingCounts
-  onFilter: (key: string) => void
-  activeFilter: string
-}) {
-  const chips = [
-    { key: 'unowned', label: 'Ownership Gaps', count: counts.unowned, color: colors.red },
-    { key: 'no_rotation', label: 'No Rotation', count: counts.noRotation, color: colors.amber },
-    { key: 'stale', label: 'Stale Account', count: counts.stale, color: colors.amber },
-    { key: 'excessive_privilege', label: 'Excessive Privilege', count: counts.excessivePrivilege, color: colors.irisViolet },
-  ].filter(c => c.count > 0)
-
-  if (chips.length === 0) return null
-
-  return (
-    <div className="card" style={{ marginBottom: 14, padding: '12px 18px' }}>
-      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-        Discovery Findings
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {chips.map(c => (
-          <button
-            key={c.key}
-            onClick={() => onFilter(activeFilter === c.key ? 'all' : c.key)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 7,
-              background: activeFilter === c.key ? `${c.color}22` : 'var(--surface2)',
-              border: `1px solid ${activeFilter === c.key ? c.color + '55' : 'var(--border-subtle)'}`,
-              borderRadius: 6, padding: '5px 12px',
-              color: activeFilter === c.key ? c.color : 'var(--text)',
-              fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
-            }}
-          >
-            <span style={{ background: c.color, color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '0 5px' }}>{c.count}</span>
-            {c.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function TriageMenu({ accountId, onAction }: { accountId: string; onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function handle(e: MouseEvent) {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handle)
-    return () => document.removeEventListener('mousedown', handle)
-  }, [open])
-
-  const item: React.CSSProperties = {
-    display: 'block', width: '100%', padding: '8px 14px',
-    background: 'none', border: 'none', textAlign: 'left',
-    fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
-    color: 'var(--text)', transition: 'background 0.1s',
-  }
-
-  return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
-      <button
-        className="btn btn-secondary"
-        style={{ fontSize: 11, padding: '4px 10px', gap: 4 }}
-        onClick={() => setOpen(!open)}
-      >
-        Actions ▾
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', right: 0, top: '100%', marginTop: 4,
-          background: 'var(--surface)', border: '1px solid var(--border-subtle)',
-          borderRadius: 8, zIndex: 100, minWidth: 170,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-          overflow: 'hidden',
-        }}>
-          <button style={item} onClick={() => { onAction('review', accountId); setOpen(false) }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-            Mark as Reviewed
-          </button>
-          <button style={item} onClick={() => { onAction('enroll', accountId); setOpen(false) }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
-            Request Enrollment
-          </button>
-          <button
-            style={{ ...item, color: colors.amber, borderTop: '1px solid var(--border)' }}
-            onClick={() => { onAction('dismiss', accountId); setOpen(false) }}
-            onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface2)')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function NHIAccountRow({ account, onAction, onClaim }: {
-  account: NHIAccount
-  onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void
-  onClaim: (account: NHIAccount) => void
-}) {
-  const isDismissed = account.status === 'dismissed'
-  const rowStyle: React.CSSProperties = {
-    borderBottom: '1px solid var(--border)',
-    opacity: isDismissed ? 0.65 : 1,
-  }
-  const td: React.CSSProperties = { padding: '10px 14px', fontSize: 13 }
-
-  const findings = Array.isArray(account.findings) ? account.findings : []
-
-  return (
-    <tr style={rowStyle}>
-      {/* Account name */}
-      <td style={td}>
-        <div style={{ fontWeight: 500 }}>{account.account_name}</div>
-        {isDismissed && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3, flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 3,
-              background: 'var(--border-subtle)', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}>Dismissed</span>
-            {account.dismissed_at && (
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{fmtDate(account.dismissed_at)}</span>
-            )}
-            {account.dismissed_by && (
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>by {account.dismissed_by}</span>
-            )}
-            {account.changes_since_dismissal && (
-              <span style={{ fontSize: 11, color: colors.amber, fontWeight: 600 }}>Changed since dismissal</span>
-            )}
-          </div>
-        )}
-        {account.scan_count !== null && account.scan_count > 1 && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-            Seen in {account.scan_count} scans
-          </div>
-        )}
-      </td>
-
-      {/* Directory source */}
-      <td style={td}>
-        <StatusBadge status={account.directory_source.replace(/[_\s]+/g, '_').toLowerCase()} variant="nhi" />
-      </td>
-
-      {/* Owner */}
-      <td style={td}>
-        {account.owner_email ? (
-          <span style={{ fontSize: 12 }}>{account.owner_email}</span>
-        ) : (
-          <span style={{ color: colors.red, fontSize: 12, fontWeight: 600 }}>Unowned</span>
-        )}
-      </td>
-
-      {/* Last rotation */}
-      <td style={td}>
-        {account.last_credential_rotation ? (
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(account.last_credential_rotation)}</span>
-        ) : (
-          <span style={{ color: colors.amber, fontSize: 12, fontWeight: 600 }}>Never</span>
-        )}
-      </td>
-
-      {/* Privilege */}
-      <td style={td}>
-        <StatusBadge status={account.privilege_level || 'standard'} variant="privilege" />
-      </td>
-
-      {/* Findings badges */}
-      <td style={td}>
-        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-          {findings.length === 0 ? (
-            <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>
-          ) : (
-            findings.slice(0, 3).map((f, i) => (
-              <span key={i} style={{
-                fontSize: 10, padding: '2px 7px', borderRadius: 4,
-                background: 'rgba(139,92,246,0.15)', color: colors.irisViolet,
-                fontWeight: 600,
-              }}>{String(f)}</span>
-            ))
-          )}
-          {findings.length > 3 && (
-            <span style={{ fontSize: 11, color: 'var(--muted)' }}>+{findings.length - 3}</span>
-          )}
-        </div>
-      </td>
-
-      {/* Actions */}
-      <td style={{ ...td, textAlign: 'right' }}>
-        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-          {!isDismissed && (
-            <button
-              className="btn btn-primary"
-              style={{ fontSize: 11, padding: '4px 10px' }}
-              onClick={() => onClaim(account)}
-            >
-              Claim
-            </button>
-          )}
-          {isDismissed ? (
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 11, padding: '4px 10px' }}
-              onClick={() => onAction('enroll', account.id)}
-            >
-              Enroll
-            </button>
-          ) : (
-            <TriageMenu accountId={account.id} onAction={onAction} />
-          )}
-        </div>
-      </td>
-    </tr>
-  )
-}
-
-function DiscoveredTab({ accounts, loading, error, latestScan, summary, onRetry, onAction, onClaimed, externalFilter }: {
-  accounts: NHIAccount[]
-  loading: boolean
-  error: string | null
-  latestScan: NHIScan | null
-  summary: { total_discovered: number; needs_triage: number; previously_dismissed: number } | null
-  onRetry: () => void
-  onAction: (action: 'enroll' | 'dismiss' | 'review', id: string) => void
-  onClaimed: () => void
-  externalFilter?: string
-}) {
-  const [nhiFilter, setNhiFilter] = useState<'all' | 'triage' | 'dismissed' | string>('all')
-  const [claimingAccount, setClaimingAccount] = useState<NHIAccount | null>(null)
-
-  useEffect(() => {
-    if (externalFilter) setNhiFilter(externalFilter)
-  }, [externalFilter])
-
-  const activeAccounts = useMemo(() => accounts.filter(a => a.status !== 'dismissed'), [accounts])
-
-  const findingCounts: FindingCounts = useMemo(() => ({
-    unowned: activeAccounts.filter(a => !a.owner_email).length,
-    noRotation: activeAccounts.filter(a => !a.last_credential_rotation).length,
-    stale: activeAccounts.filter(a => {
-      if (!a.last_credential_rotation) return false
-      const days = (Date.now() - new Date(a.last_credential_rotation).getTime()) / 86400000
-      return days > 90
-    }).length,
-    excessivePrivilege: activeAccounts.filter(a =>
-      ['elevated', 'domain_admin', 'enterprise_admin'].includes(a.privilege_level)
-    ).length,
-  }), [activeAccounts])
-
-  const filtered = useMemo(() => {
-    if (nhiFilter === 'all') return accounts
-    if (nhiFilter === 'triage') return accounts.filter(a => a.status !== 'dismissed')
-    if (nhiFilter === 'dismissed') return accounts.filter(a => a.status === 'dismissed')
-    // findings filter
-    if (nhiFilter === 'unowned') return accounts.filter(a => a.status !== 'dismissed' && !a.owner_email)
-    if (nhiFilter === 'no_rotation') return accounts.filter(a => a.status !== 'dismissed' && !a.last_credential_rotation)
-    if (nhiFilter === 'stale') return accounts.filter(a => {
-      if (a.status === 'dismissed' || !a.last_credential_rotation) return false
-      return (Date.now() - new Date(a.last_credential_rotation).getTime()) / 86400000 > 90
-    })
-    if (nhiFilter === 'excessive_privilege') return accounts.filter(a =>
-      a.status !== 'dismissed' && ['elevated', 'domain_admin', 'enterprise_admin'].includes(a.privilege_level)
-    )
-    return accounts
-  }, [accounts, nhiFilter])
-
-  function exportJson() {
-    const blob = new Blob([JSON.stringify({ accounts, exported_at: new Date().toISOString() }, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `nhi-discovered-${new Date().toISOString().split('T')[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
-  if (error) return <ErrorState message={error} onRetry={onRetry} />
-
-  const TH: React.CSSProperties = {
-    padding: '9px 14px', textAlign: 'left', color: 'var(--muted)',
-    fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em',
-  }
-  const tabBtn = (active: boolean): React.CSSProperties => ({
-    padding: '6px 14px', borderRadius: 6, border: '1px solid',
-    borderColor: active ? 'var(--border-subtle)' : 'transparent',
-    background: active ? 'var(--surface2)' : 'transparent',
-    color: active ? 'var(--text)' : 'var(--muted)',
-    fontSize: 12, fontWeight: active ? 600 : 400, cursor: 'pointer', fontFamily: 'inherit',
-  })
-
-  function handleClaimDone() {
-    setClaimingAccount(null)
-    onClaimed()
-  }
-
-  return (
-    <div>
-      {claimingAccount && (
-        <RegisterModal
-          onClose={() => setClaimingAccount(null)}
-          onCreated={handleClaimDone}
-          mode="claim"
-          prefill={{
-            name: claimingAccount.account_name,
-            type: '',
-            description: `Claimed from discovery scan. Source: ${claimingAccount.directory_source}`,
-            owner: claimingAccount.owner_email ?? '',
-            nhiAccountId: claimingAccount.id,
-          }}
-        />
-      )}
-      <ScanStatusCard scan={latestScan} />
-      <FindingsSummary counts={findingCounts} onFilter={setNhiFilter} activeFilter={nhiFilter} />
-
-      {/* Filter bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 10 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button style={tabBtn(nhiFilter === 'all')} onClick={() => setNhiFilter('all')}>All</button>
-          <button style={tabBtn(nhiFilter === 'triage')} onClick={() => setNhiFilter('triage')}>Needs Triage</button>
-          <button style={tabBtn(nhiFilter === 'dismissed')} onClick={() => setNhiFilter('dismissed')}>Dismissed</button>
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '5px 12px' }}
-            onClick={() => alert('PDF export is available in the Enterprise tier.')}
-          >
-            Export PDF
-          </button>
-          <button
-            className="btn btn-secondary"
-            style={{ fontSize: 12, padding: '5px 12px' }}
-            onClick={exportJson}
-          >
-            Export JSON
-          </button>
-        </div>
-      </div>
-
-      {/* Summary bar */}
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-        <span style={{ color: 'var(--text)', fontWeight: 500 }}>{summary?.total_discovered ?? accounts.length}</span> discovered
-        {' · '}
-        <span style={{ color: colors.amber, fontWeight: 500 }}>{summary?.needs_triage ?? activeAccounts.length}</span> need triage
-        {' · '}
-        <span style={{ fontWeight: 500 }}>{summary?.previously_dismissed ?? accounts.filter(a => a.status === 'dismissed').length}</span> previously dismissed
-      </div>
-
-      {filtered.length === 0 ? (
-        <EmptyState title="No accounts found" body="Trigger a discovery scan from your operator to populate this list." />
-      ) : (
-        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                <th style={TH}>Account</th>
-                <th style={TH}>Source</th>
-                <th style={TH}>Owner</th>
-                <th style={TH}>Last Rotation</th>
-                <th style={TH}>Privilege</th>
-                <th style={TH}>Findings</th>
-                <th style={{ ...TH, textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((a) => (
-                <NHIAccountRow key={a.id} account={a} onAction={onAction} onClaim={setClaimingAccount} />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  )
-}
-
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export default function AgentsPage() {
   const { getAccessTokenSilently } = useAuth0()
-  const [tab, setTab] = useState<'governed' | 'discovered'>('governed')
-  const [alertFilter, setAlertFilter] = useState<string | undefined>()
 
-  // Governed
   const [agents, setAgents] = useState<AgentResponse[]>([])
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [agentsError, setAgentsError] = useState<string | null>(null)
 
-  // Compliance scan
   const [scanning, setScanning] = useState(false)
   const [lastScanTimestamp, setLastScanTimestamp] = useState<string | null>(null)
-
-  // Discovered
-  const [accounts, setAccounts] = useState<NHIAccount[]>([])
-  const [nhiSummary, setNhiSummary] = useState<{ total_discovered: number; needs_triage: number; previously_dismissed: number } | null>(null)
-  const [latestScan, setLatestScan] = useState<NHIScan | null>(null)
-  const [nhiLoading, setNhiLoading] = useState(true)
-  const [nhiError, setNhiError] = useState<string | null>(null)
 
   const loadAgents = useCallback(async () => {
     try {
@@ -1142,94 +704,33 @@ export default function AgentsPage() {
     }
   }, [getAccessTokenSilently, loadAgents])
 
-  const loadNhi = useCallback(async () => {
-    try {
-      const token = await getAccessTokenSilently()
-      const [discovered, scansData] = await Promise.all([
-        api.nhi.discovered(token),
-        api.nhi.scans(token).catch(() => ({ scans: [] as NHIScan[] })),
-      ])
-      setAccounts(discovered.accounts)
-      setNhiSummary(discovered.summary)
-      const scans = scansData.scans
-      setLatestScan(scans.length > 0 ? scans[0] : null)
-      setNhiError(null)
-    } catch (e) {
-      setNhiError(e instanceof Error ? e.message : 'Failed to load discovery data')
-    } finally {
-      setNhiLoading(false)
-    }
-  }, [getAccessTokenSilently])
-
   useEffect(() => {
     loadAgents()
-    loadNhi()
-    const t1 = setInterval(loadAgents, POLL_MS)
-    const t2 = setInterval(loadNhi, POLL_MS)
-    return () => { clearInterval(t1); clearInterval(t2) }
-  }, [loadAgents, loadNhi])
+    const t = setInterval(loadAgents, POLL_MS)
+    return () => clearInterval(t)
+  }, [loadAgents])
 
-  // Attention Required alerts
   const alerts: AlertItem[] = useMemo(() => {
     const items: AlertItem[] = []
-    const nonDismissed = accounts.filter(a => a.status !== 'dismissed')
 
     const enrolledInactive = agents.filter(a => a.lifecycle_state === 'enrolled')
     if (enrolledInactive.length > 0)
-      items.push({ id: 'enrolled', label: 'enrolled agents not activated', count: enrolledInactive.length, severity: 'warning', tab: 'governed', filterKey: 'enrolled' })
+      items.push({ id: 'enrolled', label: 'enrolled agents not activated', count: enrolledInactive.length, severity: 'warning', filterKey: 'enrolled' })
 
     const withViolations = agents.filter(a => a.compliance_summary.failing > 0)
     if (withViolations.length > 0)
-      items.push({ id: 'violations', label: 'agents with new violations', count: withViolations.length, severity: 'critical', tab: 'governed' })
+      items.push({ id: 'violations', label: 'agents with new violations', count: withViolations.length, severity: 'critical' })
 
     const suspended = agents.filter(a => a.lifecycle_state === 'suspended')
     if (suspended.length > 0)
-      items.push({ id: 'suspended', label: 'suspended agents', count: suspended.length, severity: 'warning', tab: 'governed', filterKey: 'suspended' })
+      items.push({ id: 'suspended', label: 'suspended agents', count: suspended.length, severity: 'warning', filterKey: 'suspended' })
 
     const critical = agents.filter(a => a.compliance_summary.posture_score !== null && a.compliance_summary.posture_score < 50)
     if (critical.length > 0)
-      items.push({ id: 'critical', label: 'agents with critical posture', count: critical.length, severity: 'critical', tab: 'governed' })
-
-    const unowned = nonDismissed.filter(a => !a.owner_email)
-    if (unowned.length > 0)
-      items.push({ id: 'unowned', label: 'unowned accounts', count: unowned.length, severity: 'critical', tab: 'discovered', filterKey: 'unowned' })
-
-    const noRotation = nonDismissed.filter(a => !a.last_credential_rotation)
-    if (noRotation.length > 0)
-      items.push({ id: 'no_rotation', label: 'accounts with no rotation', count: noRotation.length, severity: 'warning', tab: 'discovered', filterKey: 'no_rotation' })
-
-    const excessivePriv = nonDismissed.filter(a =>
-      ['elevated', 'domain_admin', 'enterprise_admin'].includes(a.privilege_level)
-    )
-    if (excessivePriv.length > 0)
-      items.push({ id: 'excessive_priv', label: 'accounts with excessive privilege', count: excessivePriv.length, severity: 'warning', tab: 'discovered', filterKey: 'excessive_privilege' })
+      items.push({ id: 'critical', label: 'agents with critical posture', count: critical.length, severity: 'critical' })
 
     return items
-  }, [agents, accounts])
-
-  async function handleNhiAction(action: 'enroll' | 'dismiss' | 'review', accountId: string) {
-    try {
-      const token = await getAccessTokenSilently()
-      if (action === 'enroll') await api.nhi.enrollAccount(token, accountId)
-      else if (action === 'dismiss') await api.nhi.dismissAccount(token, accountId)
-      await loadNhi()
-    } catch (e) {
-      alert(`Action failed: ${e instanceof Error ? e.message : String(e)}`)
-    }
-  }
-
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    padding: '8px 18px',
-    background: active ? 'var(--surface2)' : 'transparent',
-    border: '1px solid',
-    borderColor: active ? 'var(--border-subtle)' : 'transparent',
-    borderRadius: 6,
-    color: active ? 'var(--text)' : 'var(--muted)',
-    fontSize: 13,
-    fontWeight: active ? 600 : 400,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-  })
+  }, [agents])
 
   return (
     <div>
@@ -1257,45 +758,15 @@ export default function AgentsPage() {
         </div>
       </div>
 
-      <AttentionPanel
-        alerts={alerts}
-        onAlert={(alertTab, filterKey) => {
-          setTab(alertTab)
-          setAlertFilter(filterKey)
-        }}
+      <AttentionPanel alerts={alerts} onAlert={() => undefined} />
+
+      <GovernedTab
+        agents={agents}
+        loading={agentsLoading}
+        error={agentsError}
+        onRetry={loadAgents}
+        onReload={loadAgents}
       />
-
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
-        <button style={tabStyle(tab === 'governed')} onClick={() => setTab('governed')}>
-          Governed{agents.length > 0 ? ` (${agents.length})` : ''}
-        </button>
-        <button style={tabStyle(tab === 'discovered')} onClick={() => setTab('discovered')}>
-          Discovered{accounts.length > 0 ? ` (${accounts.length})` : ''}
-        </button>
-      </div>
-
-      {tab === 'governed' ? (
-        <GovernedTab
-          agents={agents}
-          loading={agentsLoading}
-          error={agentsError}
-          onRetry={loadAgents}
-          onReload={loadAgents}
-          externalFilter={tab === 'governed' ? alertFilter : undefined}
-        />
-      ) : (
-        <DiscoveredTab
-          accounts={accounts}
-          loading={nhiLoading}
-          error={nhiError}
-          latestScan={latestScan}
-          summary={nhiSummary}
-          onRetry={loadNhi}
-          onAction={handleNhiAction}
-          onClaimed={() => { loadAgents(); loadNhi() }}
-          externalFilter={tab === 'discovered' ? alertFilter : undefined}
-        />
-      )}
     </div>
   )
 }

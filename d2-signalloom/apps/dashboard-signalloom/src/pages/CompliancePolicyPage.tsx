@@ -1,3 +1,4 @@
+// TODO: migrate table to DataTable (1 small framework breakdown table)
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'

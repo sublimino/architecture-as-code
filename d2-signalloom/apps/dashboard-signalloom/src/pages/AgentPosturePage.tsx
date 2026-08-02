@@ -1,3 +1,4 @@
+// TODO: migrate tables to DataTable (expandable accordion tables — may need DataTable extension for nested rows)
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'

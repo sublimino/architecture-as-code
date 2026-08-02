@@ -50,3 +50,12 @@ test/acceptance/.auth/
 
 # riskctl build output (regenerate with `make riskctl`)
 tools/riskctl/riskctl
+
+# Session artifacts (PAI work memory, plans, CI reports, test results)
+MEMORY/
+Plans/
+ci-reports*/
+d2-signalloom/results.tap
+test/gcp-results/
+test/gcp-5x-results.md
+test/local-5x-results.md

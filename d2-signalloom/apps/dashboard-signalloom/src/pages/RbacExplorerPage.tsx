@@ -13,6 +13,8 @@
  * Runs in parallel with the iframe'd AFM dashboard (RBAC Analysis page) so both
  * views can be compared. In future, remote cluster connectors will plug into the
  * same cluster selector pattern used here.
+ *
+ * TODO: migrate tables to DataTable (5 tables, already has manual pagination for subjects — 92 items)
  */
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'

@@ -30,7 +30,8 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
-import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
+import { COMPLIANCE_POLICY_ROUTES, COMPLIANCE_POLICY_ROUTE_COUNT } from './fakeComplianceData'
+import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -401,12 +402,15 @@ const ROUTES: Match[] = [
   { method: 'PATCH', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
   // health
   { method: 'GET', test: re(/^\/health\/crypto$/), data: () => cryptoHealth },
+  // network tests (netassert)
+  { method: 'GET', test: re(/^\/network-tests$/), data: () => networkTestsFixture() },
+  { method: 'POST', test: re(/^\/network-tests\/scan$/), data: () => networkTestsScanFixture() },
   // compliance-policy routes (policy-as-versioned-code)
   ...COMPLIANCE_POLICY_ROUTES,
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  30 base + 3 compliance-policy = 33 */
+ *  30 base + 2 network-tests + 3 compliance-policy = 35 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

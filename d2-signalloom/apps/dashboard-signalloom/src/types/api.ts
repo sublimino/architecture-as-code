@@ -197,6 +197,35 @@ export interface CryptoHealthResponse {
   proofs: CryptoProof[]
 }
 
+// ─── Network Tests (netassert) ─────────────────────────────────────────────────
+
+export interface NetworkTestEndpoint {
+  namespace: string
+  name: string
+}
+
+export interface NetworkTestResult {
+  name: string
+  expectedExit: number
+  targetPort: number
+  src: NetworkTestEndpoint
+  dst: NetworkTestEndpoint
+  description: string
+  result: 'pass' | 'fail' | 'pending' | 'running' | 'error'
+  evidence: string
+  lastRun: string | null
+}
+
+export interface NetworkTestListResponse {
+  tests: NetworkTestResult[]
+  scanStatus: 'never-run' | 'pending' | 'running' | 'complete' | 'failed' | 'unavailable'
+}
+
+export interface NetworkTestScanResponse {
+  job: string
+  status: string
+}
+
 // ─── NHI Discovery ───────────────────────────────────────────────────────────
 
 export interface NHIScan {

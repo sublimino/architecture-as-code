@@ -24,3 +24,28 @@ resources:
   - agents-cardvault-sa.yaml
   - agents-cardvault.yaml
   - agents-cardvault-job.yaml
+  # Network Tests: ServiceAccount for the netassert-run Job. The Job itself is
+  # NOT a static manifest here — fake-integration-proxy creates/deletes it on
+  # demand (POST /network-tests/scan) so "Scan Now" triggers a run right now,
+  # not on the next GitOps reconcile. Only the fixed inputs it needs (identity
+  # + test config) are GitOps-managed.
+  - netassert-runner-sa.yaml
+
+configMapGenerator:
+  # netassert-signalloom.yaml here is a committed copy of
+  # d2-signalloom/test/netassert-signalloom.yaml — kustomize's load
+  # restrictor refuses configMapGenerator files: sources outside the
+  # kustomization root, so the source-of-truth file can't be referenced
+  # directly. d2-signalloom/test/check-netassert-config-drift.sh (wired into
+  # the netassert-config-drift Makefile target) keeps the two from silently
+  # diverging, the same trade-off check-bootstrap-drift.sh already accepts
+  # for the generated bootstrap SQL contract.
+  #
+  # disableNameSuffixHash keeps the ConfigMap name stable — the dynamically
+  # created Job (not part of this kustomization) references it by fixed name
+  # (NETASSERT_CONFIGMAP_NAME in fake-integration-proxy/server.py).
+  - name: netassert-signalloom-config
+    files:
+      - netassert-signalloom.yaml
+    options:
+      disableNameSuffixHash: true

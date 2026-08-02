@@ -100,4 +100,35 @@ describe('CSS custom property usage', () => {
     expect(files.some((f) => f.includes('/components/'))).toBe(true)
     expect(files.some((f) => f.includes('/pages/'))).toBe(true)
   })
+
+  it('no bare hex colours in inline styles — use var(--token) instead', () => {
+    const files = collectFiles(SRC_DIR)
+    // Files with legitimate hardcoded hex (SVG brand marks, hex+alpha concatenation)
+    const EXEMPT = new Set(['TopNav.tsx', 'TourPreviews.tsx', 'ProviderLogo.tsx'])
+    const bareHex: string[] = []
+
+    for (const file of files) {
+      const basename = file.split('/').pop() ?? ''
+      if (EXEMPT.has(basename)) continue
+      const content = stripComments(readFileSync(file, 'utf8'))
+      // Match hex colours in style objects: color: '#xxx', background: '#xxx'
+      // but skip those inside var() fallbacks which are fine
+      for (const m of content.matchAll(/(?:color|background|border(?:Color)?)\s*[:=]\s*['"]#([0-9a-fA-F]{3,8})\b/g)) {
+        const line = content.slice(0, m.index).split('\n').length
+        bareHex.push(`  ${file}:${line} — #${m[1]}`)
+      }
+    }
+
+    if (bareHex.length > 0) {
+      throw new Error(
+        `Found bare hex colour(s) in inline styles. Use var(--token) instead ` +
+          `(see themes.ts CSS_VAR_NAMES for available tokens). ` +
+          `If the hex is genuinely theme-invariant (SVG brand marks, alpha ` +
+          `concatenation), add the file to the EXEMPT set in this test.\n` +
+          bareHex.join('\n'),
+      )
+    }
+
+    expect(bareHex).toEqual([])
+  })
 })

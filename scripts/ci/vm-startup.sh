@@ -110,8 +110,12 @@ fi
 # ── Clone repo (non-fatal — code can be SCP'd after boot) ────────────
 if [[ -f "/home/${CI_USER}/.ssh/deploy_key" ]]; then
   echo "==> Cloning osramp-demo..."
+  # Org was `controlplaneio`; the repo actually lives under
+  # `controlplaneio-in-toto`. The clone therefore failed even when a valid
+  # deploy key was present, which is why fixing Secret Manager access alone
+  # would never have made this path work.
   sudo -u "$CI_USER" git clone \
-    git@github.com:controlplaneio/osramp-demo.git \
+    git@github.com:controlplaneio-in-toto/osramp-demo.git \
     "/home/${CI_USER}/osramp-demo" 2>/dev/null || {
       echo "WARNING: Clone failed — push code via SCP after boot"
     }
@@ -120,19 +124,40 @@ else
 fi
 
 # ── Install CI tools if repo is present ──────────────────────────────
+tools_state="not-attempted"
 if [[ -d "/home/${CI_USER}/osramp-demo/scripts" ]]; then
   echo "==> Installing CI tools..."
   cd "/home/${CI_USER}/osramp-demo"
-  sudo -u "$CI_USER" bash ./scripts/setup.sh --tools-only || {
+  if sudo -u "$CI_USER" bash ./scripts/setup.sh --tools-only; then
+    tools_state="installed"
+  else
+    tools_state="failed"
     echo "WARNING: Tools install failed — will retry on first pipeline run"
-  }
+  fi
 else
+  tools_state="skipped-no-repo"
   echo "==> Skipping tools install (no repo yet)"
 fi
 
 # ── Mark provisioning complete ───────────────────────────────────────
+# `.provisioned` means "this startup script ran to completion" and nothing
+# more. It is deliberately still written when the tools install was skipped or
+# failed, because gcp-ci.sh's wait_for_provision() polls for exactly this file
+# and would otherwise hang for its full 600s budget on every fresh VM.
+#
+# It previously implied more than it delivered: the clone targeted the wrong
+# org (fixed above), so the tools block never ran on a fresh VM, yet this
+# marker still appeared and gcp-ci.sh printed "VM provisioned successfully"
+# for a VM carrying no CI tooling at all. Harmless in practice only because
+# vm-pipeline.sh reinstalls tools unconditionally on every run.
+#
+# Record what actually happened alongside it so the claim is checkable rather
+# than assumed. Nothing reads .tools-state yet — it exists so the next person
+# to debug a fresh VM does not have to re-derive this.
 touch "/home/${CI_USER}/.provisioned"
-chown "${CI_USER}:${CI_USER}" "/home/${CI_USER}/.provisioned"
+printf '%s\n' "$tools_state" > "/home/${CI_USER}/.tools-state"
+chown "${CI_USER}:${CI_USER}" "/home/${CI_USER}/.provisioned" "/home/${CI_USER}/.tools-state"
 
+echo "==> Tools install: ${tools_state}"
 echo "==> Provisioning complete: $(date -Iseconds)"
 echo "==> Docker $(docker --version), Node $(node --version), bun $(bun --version 2>/dev/null || echo n/a)"

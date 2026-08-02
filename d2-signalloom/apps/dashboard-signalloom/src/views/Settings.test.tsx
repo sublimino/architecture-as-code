@@ -30,6 +30,7 @@ vi.mock('../api/client', () => ({
     patchFrameworks: vi.fn(),
     patchPreferences: vi.fn(),
     apiKeys: { revealInitial: vi.fn(), rotate: vi.fn() },
+    users: vi.fn().mockResolvedValue({ users: [], total: 0 }),
   },
 }))
 

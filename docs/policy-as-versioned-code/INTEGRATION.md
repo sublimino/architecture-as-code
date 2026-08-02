@@ -208,7 +208,39 @@ good looks like.
 
 ---
 
-## 6. CONVERGENCE REQUIRED — a parallel implementation landed on this branch
+## 6. CONVERGENCE — DONE (2026-08-02)
+
+**Resolved.** The two FAIR engines described below have been merged into one shared package at
+`d2-signalloom/apps/policy-engine/fair`. `tools/riskctl` now depends on it by module `replace`
+rather than carrying its own copy; `tools/riskctl/internal/fair` is deleted and its tests moved
+into the shared package so no coverage was lost.
+
+Two defects were found in the absorbed engine, reproduced before being fixed, and are now covered
+by regression tests:
+
+1. **Symmetric risk triples hung the process.** `samplePERT` derived alpha from
+   `((mu-min)*(2*mode-min-max)) / ((mode-mu)*(max-min))`. For *any* symmetric triple the PERT mean
+   `mu` equals the mode exactly, so the denominator is zero and alpha is `NaN`. The `alpha <= 0`
+   guard does not catch `NaN`, and inside `gammaVariate` the `v > 0` rejection test is also false
+   for `NaN` — so the loop never terminates. A triple like `(0.1, 0.5, 0.9)` is entirely ordinary to
+   write by hand, and this package is reachable over HTTP at `/api/v1/compliance/scan`. That made it
+   an unauthenticated denial of service reachable from a framework YAML. Fixed with the direct
+   parameterisation `alpha = 1 + 4*(mode-min)/span` (algebraically equivalent, never divides by
+   zero) plus non-finite guards.
+2. **`Simulate` silently rewrote its own output.** It ended by clamping `var95` up to `ale` to
+   satisfy `VaR95 >= ALE` — which, as §2 of this document already noted, is not a property of loss
+   distributions. The clamp reported a "bad year" equal to the average year, with no error and no
+   flag, in exactly the well-governed case a client most wants to see. Replaced by the
+   `TailDominated` signal.
+
+Report figures moved 0.3–1.5% on the merge — RNG stream noise from adopting `math/rand/v2` PCG, not
+a behaviour change.
+
+**Still outstanding from the convergence plan:** `fakeComplianceData.ts` in the dashboard has not
+yet been replaced by `riskctl … --json`, and the risk load still appears in two places. Both are
+tracked as follow-ups.
+
+### Historical record — the overlap as discovered
 
 **Discovered 2026-08-02, after this design was committed.** Three commits from a concurrent effort
 landed on `feat/signal-loop-and-bootstrap-refactor` while `risk/` was being built:

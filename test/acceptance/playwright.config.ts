@@ -42,7 +42,7 @@ export default defineConfig({
     },
     {
       name: "smoke",
-      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-explorer\.spec\.ts/,
+      testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         channel: "chrome",

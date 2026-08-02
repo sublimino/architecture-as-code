@@ -70,6 +70,24 @@ test.describe("RBAC Explorer", () => {
     expect(refreshOutcome).toBe("data");
   });
 
+  test("namespace selector contains infrastructure namespaces", async ({ page }) => {
+    const outcome = await polling.waitForRbacData(page);
+    expect(outcome).toBe("data");
+    const options = await polling.waitForOptions(page, "namespace-selector", 2);
+    expect(options.some(o => o.includes("inf-signalloom")), "Expected inf-signalloom").toBeTruthy();
+    expect(options.some(o => o.includes("inf-bao")), "Expected inf-bao").toBeTruthy();
+  });
+
+  test("fe-signalloom filter shows role data", async ({ page }) => {
+    const outcome = await polling.waitForRbacData(page);
+    expect(outcome).toBe("data");
+    await page.locator('[data-testid="namespace-selector"]').selectOption("fe-signalloom");
+    await expect(async () => {
+      const rows = await page.locator("table").first().locator("tbody tr").count();
+      expect(rows).toBeGreaterThan(0);
+    }).toPass({ timeout: 10_000 });
+  });
+
   test("switching clusters reloads data", async ({ page }) => {
     const outcome = await polling.waitForRbacData(page);
     expect(outcome).toBe("data");

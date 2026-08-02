@@ -25,6 +25,16 @@ vi.mock('../auth/oidc', () => ({
 import SuperCredPage from './SuperCredPage'
 import { api } from '../api/client'
 
+// This file exercises the LIVE proxy path — every test drives a mocked fetch
+// against /supercred-api. Demo-data mode must therefore be off, or discovery is
+// served by the simulated cluster in supercredSource instead. (SL_ENV defaults
+// to 'demo' under test, so this has to be explicit.)
+vi.mock('../api/demoMode', () => ({
+  isDemoMode: () => false,
+  isProductionEnv: false,
+  showDemoToggle: false,
+}))
+
 const AGENTS_NS = 'fe-signalloom-agents'
 const FLUX_NS = 'fe-signalloom'
 

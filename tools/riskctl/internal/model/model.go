@@ -94,6 +94,17 @@ type Scenario struct {
 	Title string `yaml:"title"`
 }
 
+// EnforcementFriction is the operational cost of gating, as opposed to the cost of running a
+// control. Blocked deploys, false positives, and the engineer-hours spent getting unblocked.
+//
+// Without this term the model can only ever recommend tightening, which makes it a sales prop
+// rather than a decision instrument. With it, the tool is able to say "do not bother — this control
+// costs more than it buys", which is the output that earns it credibility.
+type EnforcementFriction struct {
+	PerDenyControlGBP float64 `yaml:"per_deny_control_gbp"`
+	Note              string  `yaml:"note"`
+}
+
 // Pack is a complete versioned policy pack — what a semver git tag resolves to.
 type Pack struct {
 	APIVersion string `yaml:"apiVersion"`
@@ -105,10 +116,11 @@ type Pack struct {
 		Description string   `yaml:"description"`
 		Changes     []string `yaml:"changes"`
 	} `yaml:"metadata"`
-	Scenarios   []Scenario      `yaml:"scenarios"`
-	Controls    []Control       `yaml:"controls"`
-	Conditional []Conditional   `yaml:"conditional"`
-	Cages       map[string]Cage `yaml:"cages"`
+	Scenarios   []Scenario          `yaml:"scenarios"`
+	Controls    []Control           `yaml:"controls"`
+	Conditional []Conditional       `yaml:"conditional"`
+	Cages       map[string]Cage     `yaml:"cages"`
+	Friction    EnforcementFriction `yaml:"enforcement_friction"`
 }
 
 // Control returns the control with the given ID.

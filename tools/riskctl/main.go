@@ -262,9 +262,26 @@ func printRisk(r *baseline.Report) {
 		fmt.Printf("    prices, which is what putting risk on the balance sheet actually means.\n")
 	}
 
+	if r.PremiumRatio > 0 {
+		fmt.Printf("\n  EXTERNAL ANCHOR — the market's own view of the same controls\n  %s\n", rule(94))
+		fmt.Printf("    modelled ALE / annual cyber premium   %.2fx\n", r.PremiumRatio)
+		switch {
+		case r.PremiumRatio > 3:
+			fmt.Printf("    The model is materially more pessimistic than the underwriter. Either our triples\n")
+			fmt.Printf("    are hot, or we are carrying risk the policy does not cover. Both are worth knowing.\n")
+		case r.PremiumRatio < 0.33:
+			fmt.Printf("    The model is materially more optimistic than the underwriter, who prices\n")
+			fmt.Printf("    substantially these same controls. Treat our triples as suspect until reconciled.\n")
+		default:
+			fmt.Printf("    Within the same order as the priced market view — the model and the underwriter\n")
+			fmt.Printf("    broadly agree. This is the only external calibration available for free.\n")
+		}
+	}
+
 	fmt.Printf("\n  TOTAL COST OF RISK\n  %s\n", rule(94))
 	fmt.Printf("    residual (risk you keep)          %14s\n", gbp(r.Risk.Carried))
 	fmt.Printf("  + cost of controls (incl. the cage) %14s\n", gbp(r.ControlSpend))
+	fmt.Printf("  + enforcement friction (gating)     %14s\n", gbp(r.FrictionSpend))
 	fmt.Printf("  + risk transferred (insurance)      %14s\n", gbp(r.TransferSpend))
 	fmt.Printf("  %s\n", rule(50))
 	fmt.Printf("  = TCoR                              %14s\n", gbp(r.TCoR))
@@ -286,6 +303,24 @@ func printRisk(r *baseline.Report) {
 				d.ControlID, title, gbp(d.BuysGBP), gbp(d.CostGBP), gbp(d.NetGBP), flag)
 		}
 		fmt.Printf("\n  * exceeds the institution's tolerance band — the quantitative trigger for the gate\n")
+		fmt.Printf("  NOT ADDITIVE: these deltas are marginal, each computed holding the others fixed.\n")
+		fmt.Printf("  They defend overlapping loss events, so summing the column overstates the benefit.\n")
+		fmt.Printf("  A £0 entry means the control is not the weakest link in its scenario — fixing it\n")
+		fmt.Printf("  buys nothing until the dominant control above it is fixed first.\n")
+		fmt.Printf("  A negative NET means DO NOT TIGHTEN: the control costs more than the risk it removes.\n")
+	}
+
+	if len(r.Tornado) > 0 {
+		fmt.Printf("\n  SENSITIVITY — which assumption the answer actually rests on\n  %s\n", rule(94))
+		fmt.Printf("  Each scenario's loss magnitude driven to the floor and ceiling of its calibrated\n")
+		fmt.Printf("  range, everything else held still. Determinism proves the code reproduces; this\n")
+		fmt.Printf("  proves which input to argue about.\n\n")
+		fmt.Printf("  %-22s %14s %14s %14s %8s\n", "SCENARIO", "ALE @ floor", "ALE @ ceiling", "SWING", "SHARE")
+		for _, s := range r.Tornado {
+			fmt.Printf("  %-22s %14s %14s %14s %7.1f%%\n",
+				strings.TrimPrefix(s.Scenario, "SCN-"),
+				gbp(s.LowALE), gbp(s.HighALE), gbp(s.SwingGBP), s.SharePct)
+		}
 	}
 
 	if len(r.Escalations) > 0 {

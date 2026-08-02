@@ -72,13 +72,20 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
   TVaR    (the tail beyond VaR95)         £2,247,109
   carried (TVaR + 15% risk load)          £2,584,176   ← residual risk
 
+  EXTERNAL ANCHOR — the market's own view of the same controls
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+    modelled ALE / annual cyber premium   13.90x
+    The model is materially more pessimistic than the underwriter. Either our triples
+    are hot, or we are carrying risk the policy does not cover. Both are worth knowing.
+
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
     residual (risk you keep)              £2,584,176
   + cost of controls (incl. the cage)        £28,800
+  + enforcement friction (gating)            £28,000
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                  £2,660,976
+  = TCoR                                  £2,688,976
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -89,6 +96,24 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
   AGT-009   Tool invocation is authorised per-tool                   £0      £5,000     -£5,000  
 
   * exceeds the institution's tolerance band — the quantitative trigger for the gate
+  NOT ADDITIVE: these deltas are marginal, each computed holding the others fixed.
+  They defend overlapping loss events, so summing the column overstates the benefit.
+  A £0 entry means the control is not the weakest link in its scenario — fixing it
+  buys nothing until the dominant control above it is fixed first.
+  A negative NET means DO NOT TIGHTEN: the control costs more than the risk it removes.
+
+  SENSITIVITY — which assumption the answer actually rests on
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  Each scenario's loss magnitude driven to the floor and ceiling of its calibrated
+  range, everything else held still. Determinism proves the code reproduces; this
+  proves which input to argue about.
+
+  SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
+  SECRET-EXFIL                 £405,327     £1,461,310     £1,055,983    42.6%
+  INJECTION-ACT                £435,318     £1,437,920     £1,002,601    40.5%
+  SUPPLY-TAMPER                £609,935       £870,442       £260,507    10.5%
+  TRUST-SUBVERT                £642,574       £747,509       £104,935     4.2%
+  UNAUTH-CHANGE                £653,287       £706,338        £53,051     2.1%
 
   PROPOSED ESCALATIONS  (proposed, never applied — these become a reviewed PR)
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -171,13 +196,20 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
     longer buying down a frequency anyone can feel. It is the shape an underwriter
     prices, which is what putting risk on the balance sheet actually means.
 
+  EXTERNAL ANCHOR — the market's own view of the same controls
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+    modelled ALE / annual cyber premium   0.28x
+    The model is materially more optimistic than the underwriter, who prices
+    substantially these same controls. Treat our triples as suspect until reconciled.
+
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
     residual (risk you keep)                £306,912
   + cost of controls (incl. the cage)        £28,800
+  + enforcement friction (gating)            £38,500
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                    £383,712
+  = TCoR                                    £422,212
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -188,6 +220,24 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
   AGT-009   Tool invocation is authorised per-tool                   £0      £5,000     -£5,000  
 
   * exceeds the institution's tolerance band — the quantitative trigger for the gate
+  NOT ADDITIVE: these deltas are marginal, each computed holding the others fixed.
+  They defend overlapping loss events, so summing the column overstates the benefit.
+  A £0 entry means the control is not the weakest link in its scenario — fixing it
+  buys nothing until the dominant control above it is fixed first.
+  A negative NET means DO NOT TIGHTEN: the control costs more than the risk it removes.
+
+  SENSITIVITY — which assumption the answer actually rests on
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  Each scenario's loss magnitude driven to the floor and ceiling of its calibrated
+  range, everything else held still. Determinism proves the code reproduces; this
+  proves which input to argue about.
+
+  SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
+  SECRET-EXFIL                   £8,026        £28,663        £20,636    41.7%
+  INJECTION-ACT                  £8,471        £28,889        £20,418    41.3%
+  SUPPLY-TAMPER                 £12,028        £17,335         £5,307    10.7%
+  TRUST-SUBVERT                 £12,920        £14,899         £1,979     4.0%
+  UNAUTH-CHANGE                 £13,166        £14,309         £1,143     2.3%
 
 ```
 
@@ -245,13 +295,20 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
   TVaR    (the tail beyond VaR95)           £665,258
   carried (TVaR + 15% risk load)            £765,046   ← residual risk
 
+  EXTERNAL ANCHOR — the market's own view of the same controls
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+    modelled ALE / annual cyber premium   1.01x
+    Within the same order as the priced market view — the model and the underwriter
+    broadly agree. This is the only external calibration available for free.
+
   TOTAL COST OF RISK
   ──────────────────────────────────────────────────────────────────────────────────────────────
     residual (risk you keep)                £765,046
   + cost of controls (incl. the cage)        £63,800
+  + enforcement friction (gating)            £38,500
   + risk transferred (insurance)             £48,000
   ──────────────────────────────────────────────────
-  = TCoR                                    £876,846
+  = TCoR                                    £915,346
 
   WHAT TIGHTENING EACH UNMET CONTROL BUYS  (tolerance band £25,000/yr)
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -259,6 +316,24 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
   AGT-003   Remediation requires explicit human approval         £3,971     £12,000     -£8,029  
 
   * exceeds the institution's tolerance band — the quantitative trigger for the gate
+  NOT ADDITIVE: these deltas are marginal, each computed holding the others fixed.
+  They defend overlapping loss events, so summing the column overstates the benefit.
+  A £0 entry means the control is not the weakest link in its scenario — fixing it
+  buys nothing until the dominant control above it is fixed first.
+  A negative NET means DO NOT TIGHTEN: the control costs more than the risk it removes.
+
+  SENSITIVITY — which assumption the answer actually rests on
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  Each scenario's loss magnitude driven to the floor and ceiling of its calibrated
+  range, everything else held still. Determinism proves the code reproduces; this
+  proves which input to argue about.
+
+  SCENARIO                  ALE @ floor  ALE @ ceiling          SWING    SHARE
+  SUPPLY-TAMPER                 £33,752        £98,607        £64,855    34.9%
+  INJECTION-ACT                 £36,891        £85,064        £48,173    25.9%
+  TRUST-SUBVERT                 £41,976        £68,709        £26,733    14.4%
+  UNAUTH-CHANGE                 £41,650        £68,026        £26,376    14.2%
+  SECRET-EXFIL                  £43,121        £62,696        £19,575    10.5%
 
 ```
 
@@ -280,7 +355,7 @@ SAME AGENT. SAME PACK. SAME CONTROLS. TWO INSTITUTIONS.
   TVaR (the tail)                                £2,247,109            £15,531,032
   residual carried                               £2,584,176            £19,413,790
   tolerance band                                    £25,000                 £6,000
-  Total Cost of Risk                             £2,660,976            £19,652,590
+  Total Cost of Risk                             £2,688,976            £19,680,590
   enforcement tier                                  TRUSTED                TRUSTED
 
   THE SAME CONTROL, PRICED TWICE
@@ -306,7 +381,7 @@ SAME AGENT. SAME PACK. SAME CONTROLS. TWO INSTITUTIONS.
   TVaR (the tail)                                  £665,258               £481,886
   residual carried                                 £765,046               £602,357
   tolerance band                                    £25,000                 £6,000
-  Total Cost of Risk                               £876,846               £850,157
+  Total Cost of Risk                               £915,346               £888,657
   enforcement tier                                    CAGED                 DENIED
 
   THE SAME CONTROL, PRICED TWICE

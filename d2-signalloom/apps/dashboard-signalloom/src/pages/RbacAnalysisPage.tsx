@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { isDemoMode } from '../api/demoMode'
 import RbacImporterPanel from '../components/RbacImporterPanel'
+import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
 
 const AFM_DASHBOARD = '/dashboard/'
 const AFM_HEALTH = '/afm/health'
@@ -26,6 +27,8 @@ export default function RbacAnalysisPage() {
   const [iframeLoaded, setIframeLoaded] = useState(false)
   const [status, setStatus] = useState<AfmStatus>({ reachable: false, clusterCount: null, checkedAt: null })
   const [iframeKey, setIframeKey] = useState(0)
+  const [showAddCluster, setShowAddCluster] = useState(false)
+  const [localClusters, setLocalClusters] = useState<NewClusterEntry[]>([])
 
   const checkHealth = useCallback(async () => {
     try {
@@ -49,6 +52,18 @@ export default function RbacAnalysisPage() {
 
   const demo = isDemoMode()
 
+  const handleAddCluster = (entry: NewClusterEntry) => {
+    setLocalClusters(prev => [...prev, entry])
+  }
+
+  // In live mode, show "Host Cluster" + any locally-added clusters.
+  // In demo mode, show all AFM clusters as-is.
+  const effectiveClusterCount = demo
+    ? status.clusterCount
+    : status.clusterCount !== null
+      ? 1 + localClusters.length
+      : null
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px - 28px)', minHeight: 500 }}>
       {/* Header bar */}
@@ -71,10 +86,27 @@ export default function RbacAnalysisPage() {
               }} />
               AFM {status.reachable ? 'connected' : 'unreachable'}
             </span>
-            {status.clusterCount !== null && (
-              <span>{status.clusterCount} cluster{status.clusterCount !== 1 ? 's' : ''}</span>
+            {effectiveClusterCount !== null && (
+              <span data-testid="cluster-count">
+                {!demo && effectiveClusterCount >= 1
+                  ? <>Host Cluster{localClusters.length > 0 ? ` + ${localClusters.length} remote` : ''}</>
+                  : <>{effectiveClusterCount} cluster{effectiveClusterCount !== 1 ? 's' : ''}</>
+                }
+              </span>
             )}
           </div>
+          <button
+            data-testid="add-cluster-btn"
+            onClick={() => setShowAddCluster(true)}
+            className="btn btn-secondary"
+            style={{
+              fontSize: 12, padding: '5px 12px',
+              border: '1px solid var(--cyan)',
+              color: 'var(--cyan)',
+            }}
+          >
+            + Add Cluster
+          </button>
           <button
             onClick={() => { setIframeLoaded(false); setIframeKey(k => k + 1); checkHealth() }}
             className="btn btn-secondary"
@@ -111,7 +143,25 @@ export default function RbacAnalysisPage() {
         </div>
       )}
 
+      {/* Live mode host cluster indicator */}
+      {!demo && status.reachable && (
+        <div data-testid="host-cluster-indicator" style={{
+          background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)',
+          borderRadius: 6, padding: '8px 14px', marginBottom: 10,
+          fontSize: 12, color: 'var(--cyan)',
+        }}>
+          Live mode — analysing Host Cluster via Flux. Add remote clusters to extend analysis.
+        </div>
+      )}
+
       <RbacImporterPanel />
+
+      {showAddCluster && (
+        <AddClusterModal
+          onAdd={handleAddCluster}
+          onClose={() => setShowAddCluster(false)}
+        />
+      )}
 
       {/* Error state */}
       {!status.reachable && status.checkedAt && (

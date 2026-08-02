@@ -169,11 +169,21 @@ describe('RbacAnalysisPage', () => {
       render(<RbacAnalysisPage />)
 
       expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
-      expect(screen.getByText('2 clusters')).toBeInTheDocument()
+      // In live mode (default), the cluster count shows "Host Cluster" instead of "2 clusters"
+      expect(screen.getByTestId('cluster-count')).toHaveTextContent(/host cluster/i)
       expect(screen.getByTestId('afm-iframe')).toHaveAttribute('src', '/dashboard/')
 
       expect(requestedUrls()).toContain('/afm/health')
       expect(requestedUrls()).toContain('/afm/clusters')
+    })
+
+    it('shows cluster count in demo mode', async () => {
+      isDemoMode.mockReturnValue(true)
+
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      expect(screen.getByTestId('cluster-count')).toHaveTextContent('2 clusters')
     })
 
     it('renders the heading controls in a stable DOM order', async () => {
@@ -236,8 +246,24 @@ describe('RbacAnalysisPage', () => {
 
       await waitForImporterReady()
 
-      expect(screen.getByTestId('importer-cluster-select')).toHaveValue('local')
+      // In live mode (default), the importer shows a single "Host Cluster" entry
+      // as a static div (not a select), so we check text content rather than value.
+      const clusterEl = screen.getByTestId('importer-cluster-select')
+      expect(clusterEl).toHaveTextContent(/host cluster/i)
+      expect(clusterEl).toHaveTextContent(/local/)
       expect(requestedUrls()).toContain('/afm/clusters/local/rbac')
+    })
+
+    it('shows multiple clusters as a dropdown in demo mode', async () => {
+      isDemoMode.mockReturnValue(true)
+
+      render(<RbacAnalysisPage />)
+
+      await waitForImporterReady()
+
+      const clusterSelect = screen.getByTestId('importer-cluster-select')
+      expect(clusterSelect.tagName).toBe('SELECT')
+      expect(clusterSelect).toHaveValue('local')
     })
 
     it('populates the namespace select from the RBAC response', async () => {
@@ -278,7 +304,8 @@ describe('RbacAnalysisPage', () => {
       })
       const yaml = yamlTextarea().value
       expect(yaml).toContain('id: local')
-      expect(yaml).toContain('name: Local Cluster')
+      // In live mode (default), the importer relabels the cluster as "Host Cluster"
+      expect(yaml).toContain('name: Host Cluster')
       expect(yaml).toContain('system:masters')
       expect(yaml).toContain('flux-applier')
     })
@@ -417,6 +444,58 @@ describe('RbacAnalysisPage', () => {
         const method = (init as RequestInit | undefined)?.method
         return method === undefined || method === 'GET'
       })).toBe(true)
+    })
+  })
+
+  describe('host cluster and Add Cluster', () => {
+    it('shows the host cluster indicator in live mode', async () => {
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      expect(screen.getByTestId('host-cluster-indicator')).toHaveTextContent(/live mode/i)
+      expect(screen.getByTestId('host-cluster-indicator')).toHaveTextContent(/host cluster/i)
+    })
+
+    it('hides the host cluster indicator in demo mode', async () => {
+      isDemoMode.mockReturnValue(true)
+
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      expect(screen.queryByTestId('host-cluster-indicator')).not.toBeInTheDocument()
+    })
+
+    it('renders an Add Cluster button', async () => {
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      expect(screen.getByTestId('add-cluster-btn')).toBeInTheDocument()
+      expect(screen.getByTestId('add-cluster-btn')).toHaveTextContent(/add cluster/i)
+    })
+
+    it('opens the Add Cluster modal when the button is clicked', async () => {
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      await userEvent.click(screen.getByTestId('add-cluster-btn'))
+
+      expect(screen.getByTestId('add-cluster-modal')).toBeInTheDocument()
+      expect(screen.getByTestId('add-cluster-name')).toBeInTheDocument()
+      expect(screen.getByTestId('add-cluster-method')).toBeInTheDocument()
+      expect(screen.getByTestId('add-cluster-value')).toBeInTheDocument()
+    })
+
+    it('shows success after submitting the Add Cluster form', async () => {
+      render(<RbacAnalysisPage />)
+
+      expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
+      await userEvent.click(screen.getByTestId('add-cluster-btn'))
+
+      await userEvent.type(screen.getByTestId('add-cluster-name'), 'staging-eu')
+      await userEvent.type(screen.getByTestId('add-cluster-value'), '/home/user/.kube/staging')
+      await userEvent.click(screen.getByTestId('add-cluster-submit'))
+
+      expect(await screen.findByTestId('add-cluster-success')).toHaveTextContent(/staging-eu/i)
     })
   })
 })

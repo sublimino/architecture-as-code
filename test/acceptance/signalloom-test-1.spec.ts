@@ -10,24 +10,30 @@ const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
 
 test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 
+// Nav links are located by route href, not by link label. The sidebar renders
+// both "Compliance" (/compliance) and "Policy Compliance" (/compliance/policies),
+// so a label lookup is ambiguous under Playwright's substring name matching.
+// Href is also stable against the failing-control and agent-count badges that
+// render inside the Compliance and Agents links, which change the accessible
+// name to "Compliance 7" / "Agents 12" whenever those counts are non-zero.
 const pages = [
   ["Dashboard root", null, "Agents"],
-  ["Agents", "Agents", "Governed"],
-  ["Compliance", "Compliance", "Compliance"],
-  ["Audit Trail", "Audit Trail", "Audit Trail"],
-  ["Cryptography", "Cryptography", "Cryptography"],
-  ["Federated Services", "Federated Services", "Federated Services"],
-  ["Collusion & Access", "Collusion & Access", "Collusion"],
-  ["Settings", "Settings", "Settings"],
+  ["Agents", "/agents", "Governed"],
+  ["Compliance", "/compliance", "Compliance"],
+  ["Audit Trail", "/audit", "Audit Trail"],
+  ["Cryptography", "/cryptography", "Cryptography"],
+  ["Federated Services", "/federated-services", "Federated Services"],
+  ["Collusion & Access", "/collusion-access", "Collusion"],
+  ["Settings", "/settings", "Settings"],
 ] as const;
 
 test.describe("SignalLoom TEST-1 dashboard matrix", () => {
-  for (const [journey, nav, title] of pages) {
+  for (const [journey, href, title] of pages) {
     test(`${journey} opens through the integrated dashboard`, async ({ page }) => {
       await page.goto(DASHBOARD_URL);
       await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
-      if (nav !== null) {
-        await page.getByRole("link", { name: nav }).click();
+      if (href !== null) {
+        await page.locator(`nav a[href="${href}"]`).click();
       }
       await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
     });

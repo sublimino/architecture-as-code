@@ -8,6 +8,7 @@ interface ComplianceResult {
   check: string
   pass: boolean
   reason: string
+  severity?: 'critical' | 'high' | 'medium' | 'low'
 }
 
 interface ComplianceResponse {
@@ -40,6 +41,30 @@ interface RuntimeAgent {
   stun_reason?: string
 }
 
+// ─── Credential Lifecycle Types ─────────────────────────────────────────────
+
+type CredentialStatus = 'pending' | 'issued' | 'active' | 'rotated' | 'revoked' | 'expired'
+
+interface CredentialRecord {
+  id: string
+  agent_id: string
+  status: CredentialStatus
+  issued_at: string | null
+  expires_at: string | null
+  revoked_at: string | null
+  issuer: string
+  scope: string
+  rotation_count: number
+}
+
+interface LifecycleStep {
+  step: number
+  label: string
+  description: string
+  status: 'completed' | 'active' | 'pending' | 'failed'
+  timestamp: string | null
+}
+
 // A pod whose image never loaded reports phase `Pending` — `ImagePullBackOff` is
 // a container waiting reason, not a phase — so `Pending` has to count as blocked.
 // The proxy exposes `status.phase` verbatim, so accept the waiting reasons too in
@@ -60,6 +85,114 @@ const SUPERCRED_API = '/supercred-api'
 function agentPath(agent: RuntimeAgent, suffix: string): string {
   const base = `${SUPERCRED_API}/agents/${agent.id}/${suffix}`
   return agent.namespace ? `${base}?namespace=${encodeURIComponent(agent.namespace)}` : base
+}
+
+// ─── Fake lifecycle data for demo enrichment ────────────────────────────────
+
+function buildLifecycleSteps(agent: RuntimeAgent): LifecycleStep[] {
+  const isStunned = agent.state === 'stunned'
+  const hasAgent = !!agent.id
+  return [
+    {
+      step: 1,
+      label: 'Agent Deployment',
+      description: 'demo-cc-agent deployed via Flux into cluster namespace',
+      status: hasAgent ? 'completed' : 'pending',
+      timestamp: hasAgent ? '2026-01-01T00:00:01Z' : null,
+    },
+    {
+      step: 2,
+      label: 'SPIFFE Identity',
+      description: 'Workload identity issued via SPIRE — SVID bound to pod service account',
+      status: hasAgent ? 'completed' : 'pending',
+      timestamp: hasAgent ? '2026-01-01T00:00:02Z' : null,
+    },
+    {
+      step: 3,
+      label: 'OpenBao Exchange',
+      description: 'SVID exchanged for OpenBao dynamic secret — short-lived credential minted',
+      status: hasAgent ? 'completed' : 'pending',
+      timestamp: hasAgent ? '2026-01-01T00:00:03Z' : null,
+    },
+    {
+      step: 4,
+      label: 'Service Access',
+      description: 'Agent calls fake credit-card service using minted credential',
+      status: hasAgent ? 'completed' : 'pending',
+      timestamp: hasAgent ? '2026-01-01T00:00:04Z' : null,
+    },
+    {
+      step: 5,
+      label: 'Compliance Scan',
+      description: 'Platform scans agent pod for securityContext, resource limits, and network policy',
+      status: hasAgent ? 'active' : 'pending',
+      timestamp: hasAgent ? '2026-01-01T00:00:05Z' : null,
+    },
+    {
+      step: 6,
+      label: 'Platform Response',
+      description: isStunned
+        ? 'Credential revoked and agent isolated — OpenBao lease terminated'
+        : 'Awaiting operator action — stun available if non-compliant',
+      status: isStunned ? 'failed' : 'pending',
+      timestamp: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
+    },
+  ]
+}
+
+function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
+  const isStunned = agent.state === 'stunned'
+  return [
+    {
+      id: `cred-${agent.id}-spiffe`,
+      agent_id: agent.id,
+      status: isStunned ? 'revoked' : 'active',
+      issued_at: '2026-01-01T00:00:02Z',
+      expires_at: '2026-01-01T01:00:02Z',
+      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
+      issuer: 'spire-server.spire-system',
+      scope: 'spiffe://signalloom.ai/agent/cardvault',
+      rotation_count: 0,
+    },
+    {
+      id: `cred-${agent.id}-openbao`,
+      agent_id: agent.id,
+      status: isStunned ? 'revoked' : 'active',
+      issued_at: '2026-01-01T00:00:03Z',
+      expires_at: '2026-01-01T00:05:03Z',
+      revoked_at: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
+      issuer: 'openbao.openbao-system',
+      scope: 'database/creds/cardvault-readonly',
+      rotation_count: 2,
+    },
+    {
+      id: `cred-${agent.id}-service`,
+      agent_id: agent.id,
+      status: isStunned ? 'expired' : 'active',
+      issued_at: '2026-01-01T00:00:04Z',
+      expires_at: '2026-01-01T00:10:04Z',
+      revoked_at: null,
+      issuer: 'cardvault-service',
+      scope: 'api/v1/transactions:read',
+      rotation_count: 0,
+    },
+  ]
+}
+
+const CRED_STATUS_COLORS: Record<CredentialStatus, { bg: string; fg: string }> = {
+  pending:  { bg: 'rgba(71,85,105,0.15)', fg: 'var(--muted)' },
+  issued:   { bg: 'rgba(6,182,212,0.12)', fg: 'var(--cyan)' },
+  active:   { bg: 'rgba(16,185,129,0.12)', fg: 'var(--teal)' },
+  rotated:  { bg: 'rgba(139,92,246,0.12)', fg: 'var(--violet)' },
+  revoked:  { bg: 'rgba(220,38,38,0.12)', fg: 'var(--error)' },
+  expired:  { bg: 'rgba(217,119,6,0.12)', fg: 'var(--amber)' },
+}
+
+const STEP_STATUS_COLORS: Record<string, { bg: string; border: string; dot: string }> = {
+  completed: { bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', dot: colors.tealLoom },
+  active:    { bg: 'rgba(6,182,212,0.08)', border: 'rgba(6,182,212,0.3)', dot: colors.cyanLoom },
+  pending:   { bg: 'rgba(71,85,105,0.08)', border: 'rgba(71,85,105,0.2)', dot: colors.slateGray },
+  failed:    { bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.3)', dot: colors.red },
 }
 
 // ─── SuperCred Demo Page ────────────────────────────────────────────────────
@@ -148,13 +281,64 @@ export default function SuperCredPage() {
   const blockedAgents = agents.filter(isBlocked)
   const code = { background: 'var(--surface)', padding: '2px 6px', borderRadius: 3, fontSize: 12 }
 
+  // Derive lifecycle and credential data from the first supercred agent
+  const activeAgent = agents[0] ?? null
+  const lifecycleSteps = activeAgent ? buildLifecycleSteps(activeAgent) : []
+  const credentialRecords = activeAgent ? buildCredentialRecords(activeAgent) : []
+
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>SuperCred Demo</h1>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
         Agent identity chain: SPIFFE workload identity → OpenBao secret exchange → credential-based service access.
         Run <code style={code}>make demo-signalloom-supercred-1</code> first.
       </p>
+
+      {/* Architecture overview */}
+      <div data-testid="supercred-architecture" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Architecture Overview</h2>
+        <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
+          SuperCred demonstrates a zero-trust credential lifecycle for AI agents operating
+          within a Kubernetes cluster. Each agent receives a cryptographic workload identity
+          (SPIFFE SVID) that it exchanges with OpenBao for short-lived, scoped credentials.
+          The platform continuously monitors compliance posture and can revoke credentials
+          and isolate agents in real time.
+        </p>
+        <div data-testid="supercred-flow-diagram" style={{
+          display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 4,
+          fontSize: 11, textAlign: 'center',
+        }}>
+          {[
+            { label: 'Agent Deploy', icon: '1' },
+            { label: 'SPIFFE SVID', icon: '2' },
+            { label: 'OpenBao Exchange', icon: '3' },
+            { label: 'Service Call', icon: '4' },
+            { label: 'Compliance Scan', icon: '5' },
+            { label: 'Enforce/Revoke', icon: '6' },
+          ].map((s, i) => (
+            <div key={s.label} style={{
+              padding: '10px 4px', borderRadius: 6,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              position: 'relative',
+            }}>
+              <div style={{
+                width: 20, height: 20, borderRadius: '50%', margin: '0 auto 6px',
+                background: colors.cyanLoom, color: '#fff', fontSize: 11,
+                fontWeight: 700, lineHeight: '20px',
+              }}>
+                {s.icon}
+              </div>
+              <div style={{ fontWeight: 600, lineHeight: 1.3 }}>{s.label}</div>
+              {i < 5 && (
+                <div style={{
+                  position: 'absolute', right: -8, top: '50%', transform: 'translateY(-50%)',
+                  color: 'var(--muted)', fontSize: 14, zIndex: 1,
+                }}>→</div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {error && (
         <div data-testid="supercred-error" style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: colors.red, fontSize: 13 }}>
@@ -181,7 +365,7 @@ export default function SuperCredPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
           <button className="btn btn-primary" onClick={loadAgents} disabled={loading} style={{ fontSize: 12, padding: '6px 14px' }}>
-            {loading ? 'Loading…' : 'Refresh Agents'}
+            {loading ? 'Loading...' : 'Refresh Agents'}
           </button>
         </div>
         {agents.length > 0 && (
@@ -203,8 +387,10 @@ export default function SuperCredPage() {
                     )}
                     {agent.phase && <span>Phase: {agent.phase} · </span>}
                     {agent.model && <span>Model: {agent.model} · </span>}
+                    {agent.framework && <span>Framework: {agent.framework} · </span>}
                     {agent.supercred_target && <span>Target: {agent.supercred_target}</span>}
                     {agent.stunned_at && <span style={{ color: colors.red }}> · Stunned: {agent.stunned_at}</span>}
+                    {agent.stun_reason && <span style={{ color: colors.red }}> ({agent.stun_reason})</span>}
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -214,7 +400,7 @@ export default function SuperCredPage() {
                     onClick={() => runComplianceScan(agent)}
                     disabled={scanLoading}
                   >
-                    {scanLoading ? 'Scanning…' : '🔍 Compliance Scan'}
+                    {scanLoading ? 'Scanning...' : 'Compliance Scan'}
                   </button>
                   {agent.state !== 'stunned' && (
                     <button
@@ -223,7 +409,7 @@ export default function SuperCredPage() {
                       onClick={() => stunAgent(agent)}
                       disabled={stunLoading}
                     >
-                      {stunLoading ? 'Stunning…' : '⚡ Stun Agent'}
+                      {stunLoading ? 'Stunning...' : 'Stun Agent'}
                     </button>
                   )}
                 </div>
@@ -256,21 +442,129 @@ export default function SuperCredPage() {
         )}
       </div>
 
+      {/* Credential Lifecycle Timeline */}
+      {activeAgent && (
+        <div data-testid="supercred-lifecycle" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Credential Lifecycle</h2>
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            Each step in the SuperCred chain for <strong>{activeAgent.name}</strong>.
+            The platform enforces policy at every transition.
+          </p>
+          <div data-testid="supercred-lifecycle-steps" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {lifecycleSteps.map((step) => {
+              const sc = STEP_STATUS_COLORS[step.status] ?? STEP_STATUS_COLORS.pending
+              return (
+                <div key={step.step} data-testid={`lifecycle-step-${step.step}`} style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 12,
+                  padding: '10px 14px', borderRadius: 6,
+                  background: sc.bg, border: `1px solid ${sc.border}`,
+                }}>
+                  <div style={{
+                    width: 10, height: 10, borderRadius: '50%',
+                    background: sc.dot, marginTop: 4, flexShrink: 0,
+                  }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13 }}>
+                        Step {step.step}: {step.label}
+                      </span>
+                      <span data-testid={`lifecycle-status-${step.step}`} style={{
+                        fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                        padding: '1px 6px', borderRadius: 3,
+                        background: sc.border, color: sc.dot,
+                      }}>
+                        {step.status}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+                      {step.description}
+                    </div>
+                    {step.timestamp && (
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                        {step.timestamp}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Credential Status Table */}
+      {activeAgent && (
+        <div data-testid="supercred-credentials" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Credential Inventory</h2>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Credential ID</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Issuer</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Scope</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Status</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Issued</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Expires</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Rotations</th>
+              </tr>
+            </thead>
+            <tbody>
+              {credentialRecords.map(cred => {
+                const sc = CRED_STATUS_COLORS[cred.status]
+                return (
+                  <tr key={cred.id} data-testid={`credential-row-${cred.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11 }}>{cred.id}</td>
+                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11 }}>{cred.issuer}</td>
+                    <td style={{ padding: '8px 10px', fontSize: 11 }}>{cred.scope}</td>
+                    <td style={{ padding: '8px 10px' }}>
+                      <span data-testid={`credential-status-${cred.id}`} style={{
+                        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
+                        fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                        background: sc.bg, color: sc.fg,
+                      }}>
+                        {cred.status}
+                      </span>
+                    </td>
+                    <td style={{ padding: '8px 10px', fontSize: 10, color: 'var(--muted)' }}>{cred.issued_at ?? '-'}</td>
+                    <td style={{ padding: '8px 10px', fontSize: 10, color: 'var(--muted)' }}>{cred.expires_at ?? '-'}</td>
+                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cred.rotation_count}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {/* Compliance results */}
       {compliance && (
-        <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+        <div data-testid="supercred-compliance" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Compliance Scan Results</h2>
             <StatusBadge status={compliance.compliant ? 'compliant' : 'non-compliant'} variant="compliance" />
           </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
             Agent: {compliance.agent_id} · Evaluated: {compliance.evaluated_at}
+          </div>
+          <div data-testid="supercred-compliance-summary" style={{
+            display: 'flex', gap: 16, marginBottom: 12, fontSize: 12,
+          }}>
+            <span style={{ color: colors.tealLoom }}>
+              {compliance.results.filter(r => r.pass).length} passed
+            </span>
+            <span style={{ color: colors.red }}>
+              {compliance.results.filter(r => !r.pass).length} failed
+            </span>
+            <span style={{ color: 'var(--muted)' }}>
+              {compliance.results.length} total checks
+            </span>
           </div>
           <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Check</th>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Result</th>
+                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Severity</th>
                 <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Reason</th>
               </tr>
             </thead>
@@ -286,6 +580,16 @@ export default function SuperCredPage() {
                       color: r.pass ? colors.tealLoom : colors.red,
                     }}>
                       {r.pass ? 'PASS' : 'FAIL'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 12px' }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                      color: r.severity === 'critical' ? colors.red
+                        : r.severity === 'high' ? colors.amber
+                        : 'var(--muted)',
+                    }}>
+                      {r.severity ?? 'medium'}
                     </span>
                   </td>
                   <td style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted)' }}>{r.reason}</td>
@@ -304,7 +608,46 @@ export default function SuperCredPage() {
         }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: colors.red }}>Agent Stunned</h2>
           <p style={{ fontSize: 13, marginBottom: 4 }}>{stunResult.message}</p>
-          <p style={{ fontSize: 11, color: 'var(--muted)' }}>Stunned at: {stunResult.stunned_at}</p>
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Stunned at: {stunResult.stunned_at}</p>
+          <div data-testid="supercred-stun-actions" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            <strong>Automated actions taken:</strong>
+            <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+              <li>OpenBao dynamic lease revoked</li>
+              <li>SPIFFE SVID rotation blocked</li>
+              <li>Agent network policy set to deny-all egress</li>
+              <li>Incident logged to audit trail</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* Agent Discovery Summary */}
+      {discoveredCount !== null && (
+        <div data-testid="supercred-discovery-summary" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Discovery Summary</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
+              <div data-testid="discovery-total" style={{ fontSize: 24, fontWeight: 700, color: colors.cyanLoom }}>{discoveredCount}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Total Agents</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
+              <div data-testid="discovery-supercred" style={{ fontSize: 24, fontWeight: 700, color: colors.tealLoom }}>{agents.length}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>SuperCred</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
+              <div data-testid="discovery-namespaces" style={{ fontSize: 24, fontWeight: 700, color: colors.irisViolet }}>{namespaces.length}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Namespaces</div>
+            </div>
+            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
+              <div data-testid="discovery-blocked" style={{ fontSize: 24, fontWeight: 700, color: blockedAgents.length > 0 ? colors.red : colors.tealLoom }}>{blockedAgents.length}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Blocked</div>
+            </div>
+          </div>
+          {namespaces.length > 0 && (
+            <div data-testid="discovery-namespace-list" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+              Searched: {namespaces.join(', ')}
+            </div>
+          )}
         </div>
       )}
 

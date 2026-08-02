@@ -624,6 +624,23 @@ def _try_uuid(value: str) -> uuid.UUID | None:
         return None
 
 
+def _jsonb_str_list(value: Any) -> list[str]:
+    """Read a ``jsonb`` array of strings back as a list.
+
+    asyncpg does not decode ``jsonb`` unless a type codec is registered, so a
+    column can arrive as either the decoded list or the raw JSON text depending
+    on how it was written. ``list()`` on the raw text explodes it into single
+    characters -- ``'["SOC2"]'`` becomes ``['[', '"', 'S', ...]`` -- which is
+    silent and wrong rather than an error. Handle both shapes explicitly.
+    """
+    if not value:
+        return []
+    if isinstance(value, str):
+        decoded = json.loads(value)
+        return [str(item) for item in decoded] if isinstance(decoded, list) else []
+    return [str(item) for item in value]
+
+
 async def _audit_log(
     pool: asyncpg.Pool,
     tenant_id: str,
@@ -2102,7 +2119,7 @@ async def tenant_settings(
         agent_count=agent_count_row["cnt"],
         billing_tier=ts_row["plan_tier"],
         api_key_status=ts_row["api_key_status"],
-        selected_frameworks=list(ts_row["selected_frameworks"]) if ts_row["selected_frameworks"] else [],
+        selected_frameworks=_jsonb_str_list(ts_row["selected_frameworks"]),
         consent_required=consent_required,
         cookie_preferences=cookie_prefs,
         preferred_scan_cadence_hours=prefs["preferred_scan_cadence_hours"],
@@ -2126,7 +2143,7 @@ async def patch_tenant_frameworks(
     await _ensure_tenant_settings(pool, tenant_id)
     await pool.execute(
         "UPDATE tenant_settings SET selected_frameworks = $1 WHERE tenant_id = $2",
-        body.selected_frameworks, tenant_id,
+        json.dumps(list(body.selected_frameworks)), tenant_id,
     )
     await _audit_log(
         pool, tenant_id, "tenant.frameworks_updated", None, None, "demo-actor",

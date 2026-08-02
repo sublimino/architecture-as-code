@@ -100,11 +100,35 @@ run_step() {
 # would actually experience it, reconciler included.
 PIN_FLUX="${SUPERCRED_E2E_PIN_FLUX:-1}"
 PINNED=()
+PINNED_SETS=()
+
+# The Kustomizations are not the top of the ownership chain. They are generated
+# by flux-operator ResourceSets (label
+# resourceset.fluxcd.controlplane.io/name), and signalloom-infra carries
+# `fluxcd.controlplane.io/reconcileEvery: 5m`. So `spec.suspend=true` on
+# inf-bao/infra-configs is reverted within five minutes by the ResourceSet, even
+# with the parent flux-system Kustomization suspended — which is exactly how a
+# run could report "suspended (verified)" at preflight and still be re-seeded by
+# iteration 3. Disabling reconciliation at the ResourceSet is the only pin that
+# actually holds.
+RESOURCESETS=(flux-system/signalloom-infra flux-system/signalloom-apps)
+RECONCILE_ANNOTATION="fluxcd.controlplane.io/reconcile"
 
 flux_set_suspend() {
   local ns="$1" name="$2" value="$3"
   kubectl -n "$ns" patch kustomization "$name" --type=merge \
     -p "{\"spec\":{\"suspend\":${value}}}" >/dev/null 2>&1
+}
+
+resourceset_set_reconcile() {
+  local ns="$1" name="$2" value="$3"
+  if [ "$value" = "enabled" ]; then
+    kubectl -n "$ns" annotate resourceset "$name" "${RECONCILE_ANNOTATION}-" \
+      --overwrite >/dev/null 2>&1
+  else
+    kubectl -n "$ns" annotate resourceset "$name" "${RECONCILE_ANNOTATION}=disabled" \
+      --overwrite >/dev/null 2>&1
+  fi
 }
 
 restore_flux() {
@@ -118,7 +142,16 @@ restore_flux() {
       bad "FAILED to restore Flux reconciliation for ${ns}/${name} — run: kubectl -n ${ns} patch kustomization ${name} --type=merge -p '{\"spec\":{\"suspend\":false}}'"
     fi
   done
-  PINNED=()
+  for entry in "${PINNED_SETS[@]:-}"; do
+    [ -n "$entry" ] || continue
+    ns="${entry%%/*}"; name="${entry##*/}"
+    if resourceset_set_reconcile "$ns" "$name" enabled; then
+      log "restored ResourceSet reconciliation for ${ns}/${name}"
+    else
+      bad "FAILED to restore ResourceSet ${ns}/${name} — run: kubectl -n ${ns} annotate resourceset ${name} ${RECONCILE_ANNOTATION}-"
+    fi
+  done
+  PINNED=(); PINNED_SETS=()
 }
 # Restore on ANY exit, including Ctrl-C. Leaving a shared cluster's reconciler
 # suspended because a test run was interrupted is a worse outcome than the
@@ -144,6 +177,17 @@ pin_flux() {
   # This is also the operational answer for anyone stabilising the demo by hand:
   # suspending the leaf Kustomization is not enough, because the thing that
   # manages the leaf will put it back.
+  # ResourceSets first — they are what would undo the Kustomization pin.
+  for entry in "${RESOURCESETS[@]}"; do
+    ns="${entry%%/*}"; name="${entry##*/}"
+    if resourceset_set_reconcile "$ns" "$name" disabled; then
+      PINNED_SETS+=("$entry")
+      log "disabled ResourceSet reconciliation for ${ns}/${name} (restored on exit)"
+    else
+      bad "could not disable ResourceSet ${ns}/${name} — the Kustomization pin will be reverted"
+    fi
+  done
+
   for entry in flux-system/flux-system inf-bao/infra-configs fe-signalloom/apps; do
     ns="${entry%%/*}"; name="${entry##*/}"
     flux_set_suspend "$ns" "$name" true || true

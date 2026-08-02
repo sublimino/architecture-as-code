@@ -43,7 +43,27 @@ export PATH="${HOME}/.local/bin:${HOME}/.local/go/bin:/usr/local/go/bin:${GOPATH
 mkdir -p "$GOBIN" "$GOPATH"
 
 # ── CI environment for Playwright / Dex ──────────────────────────────
-export DEX_DEMO_PASSWORD="${DEX_DEMO_PASSWORD:-password}"
+# Must match the bcrypt hash in d2-signalloom/infra/inf-signalloom/base/dex.yaml,
+# which is bcrypt("demo-user") — and the `:-demo-user` default already used by
+# the Makefile, auth.setup.ts, and signalloom-test-1.spec.ts. Exporting
+# "password" here silently overrode all three, so every Dex password grant in CI
+# authenticated with the wrong secret. Latent until now: the public-client 401
+# (fixed upstream in 34852b6) failed first and masked it.
+export DEX_DEMO_PASSWORD="${DEX_DEMO_PASSWORD:-demo-user}"
+
+# monitoring (kube-prometheus-stack) + trivy-system are not dependencies of any
+# demo slice and dominate cluster build time. Opt out via the repo's own toggle
+# rather than editing manifests: push-local.sh strips the two tenants from a
+# temp copy of the fleet dir, and wait-reconciled.sh drops their four
+# Kustomization waits (each carrying a 720s existence budget).
+export ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"
+
+# wait.sh emits a WAIT_STAT line per wait (site, elapsed, deadline, ratio) but
+# only appends to a file when WAIT_STAT_FILE is set — which nothing in CI did,
+# so the ranked "which deadline is running hot" signal the library exists to
+# produce was discarded on every run. Collect it into the report dir; sorting by
+# ratio turns "raise some timeout" into a deterministic ordered list.
+export WAIT_STAT_FILE="${WAIT_STAT_FILE:-${REPORT_DIR}/wait-stats.txt}"
 
 # ── Clean state ──────────────────────────────────────────────────────
 rm -rf "$REPORT_DIR"
@@ -60,7 +80,12 @@ if git remote get-url origin &>/dev/null; then
   git fetch origin 2>/dev/null && git reset --hard origin/main && git clean -fdx \
     || echo "WARNING: git pull failed — using existing code on disk"
 else
-  echo "==> Using SCP'd code (no git remote)"
+  # CI_SOURCE_COMMIT / CI_SOURCE_BRANCH are passed by gcp-ci.sh from the machine
+  # that owns the real checkout. Without them the summary records the SHA of the
+  # throwaway `ci snapshot` commit created below, which is unrelated to the
+  # branch under test — two runs of byte-identical code produced two different
+  # SHAs (75d0435 and 48b2a62), so no report could be traced to its source.
+  echo "==> Using SCP'd code (source: ${CI_SOURCE_BRANCH:-unknown}@${CI_SOURCE_COMMIT:-unknown})"
   # Kustomize uses .git/ as a security boundary for relative path traversal.
   # Without it, refs like ../base/ are rejected. Init a bare repo.
   if [[ ! -d .git ]]; then
@@ -83,11 +108,25 @@ sudo chmod go-w /usr/local/bin 2>/dev/null || true
 
 if [[ ! -x /opt/google/chrome/chrome ]]; then
   echo "==> Installing Google Chrome for Playwright..."
-  sudo npx playwright install chrome ffmpeg
-else
-  echo "==> Installing Playwright ffmpeg helper..."
-  npx playwright install ffmpeg
+  sudo npx playwright install chrome
 fi
+
+# ffmpeg must be installed by the SAME Playwright version the runner uses.
+# acceptance-test.sh runs `bunx playwright test` from test/acceptance against the
+# pinned @playwright/test, which looks for one specific revision directory (e.g.
+# ~/.cache/ms-playwright/ffmpeg-1011). An unpinned `npx playwright install` from
+# the repo root resolves the LATEST release and writes a different revision, and
+# `sudo npx` additionally writes into root's cache rather than the ci user's.
+# Both produce: "Executable doesn't exist at .../ffmpeg-linux" — which failed
+# stage 8 in 89ms on VM1, before the browser ever reached the login page.
+echo "==> Installing Playwright ffmpeg helper (pinned to test/acceptance)..."
+(
+  cd "${WORK_DIR}/test/acceptance"
+  [[ -d node_modules/@playwright ]] \
+    || bun install --frozen-lockfile 2>/dev/null \
+    || bun install
+  bunx playwright install ffmpeg
+)
 
 # ── Tear down any existing cluster ───────────────────────────────────
 echo "==> [2/7] Cleaning previous cluster..."
@@ -242,8 +281,8 @@ node -e "
   const stages = JSON.parse(fs.readFileSync('${REPORT_DIR}/stages.json', 'utf-8'));
   const summary = {
     timestamp: new Date().toISOString(),
-    commit: '$(git -C ${WORK_DIR} rev-parse --short HEAD)',
-    branch: '$(git -C ${WORK_DIR} rev-parse --abbrev-ref HEAD)',
+    commit: '${CI_SOURCE_COMMIT:-$(git -C ${WORK_DIR} rev-parse --short HEAD)}',
+    branch: '${CI_SOURCE_BRANCH:-$(git -C ${WORK_DIR} rev-parse --abbrev-ref HEAD)}',
     overall: stages.every(s => s.status === 'pass') ? 'PASS' : 'FAIL',
     total_stages: stages.length,
     passed: stages.filter(s => s.status === 'pass').length,

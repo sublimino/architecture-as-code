@@ -40,13 +40,31 @@ readonly BOOT_DISK_SIZE="200GB"
 readonly IMAGE_FAMILY="ubuntu-2404-lts-amd64"
 readonly IMAGE_PROJECT="ubuntu-os-cloud"
 readonly SECRET_NAME="signalloom-deploy-key"
-readonly TIMEOUT_MINUTES="${CI_TIMEOUT_MINUTES:-90}"
+# Outer fence on the whole remote pipeline. vm-pipeline.sh bounds each of its 8
+# stages at CI_STAGE_TIMEOUT_SECONDS (default 900s), so the stages alone can
+# legitimately reach 120m before setup, cluster build, and image pushes. A 90m
+# fence would have killed healthy runs; the value is the ceiling for a WEDGED
+# run, not a target. Enforced on the iap_ssh invocation below via timeout(1).
+readonly TIMEOUT_MINUTES="${CI_TIMEOUT_MINUTES:-180}"
 readonly REPORT_DIR="${GCP_CI_REPORT_DIR:-${REPO_ROOT}/ci-reports}"
 readonly REMOTE_REPORT_DIR="${GCP_CI_REMOTE_REPORT_DIR:-/home/ci/reports}"
 readonly REMOTE_WORK_DIR="${GCP_CI_REMOTE_WORK_DIR:-/home/ci/osramp-demo}"
 readonly REPORT_FILENAME="${GCP_CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
 readonly PIPELINE_LOG="${GCP_CI_PIPELINE_LOG:-/home/ci/ci-pipeline.log}"
 readonly INSTANCE_LABELS="${GCP_CI_LABELS:-purpose=signalloom-ci,persistent=true}"
+
+# CI opts out of monitoring + trivy-system by default: neither is a dependency
+# of any demo slice, and together they add the kube-prometheus-stack install
+# plus four 720s Kustomization waits to every run.
+#
+# This deliberately does NOT read ENABLE_OBSERVABILITY. The Makefile declares
+# `ENABLE_OBSERVABILITY ?= true` and exports it, so by the time a recipe runs
+# the variable is always set — which makes `${ENABLE_OBSERVABILITY:-false}`
+# dead code in the make path (verified: it yields "true"), and leaves no way to
+# tell the repo-wide default apart from an explicit user request for it.
+# A separate CI-scoped variable keeps the two intentions distinguishable.
+# To run CI *with* observability: CI_ENABLE_OBSERVABILITY=true make ci-gcp
+readonly CI_ENABLE_OBSERVABILITY="${CI_ENABLE_OBSERVABILITY:-false}"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 vm_status() {
@@ -60,6 +78,27 @@ iap_ssh() {
     --zone="$ZONE" --project="$PROJECT" \
     --tunnel-through-iap \
     --command="$1"
+}
+
+# Poll iap_ssh until the VM answers, or fail loudly. The previous inline loops
+# `break`-ed on success but fell through silently on exhaustion, so a VM that
+# never came back produced a confusing downstream SCP error instead of naming
+# the real fault. Fixed 5s interval is deliberate: this is a gcloud API call,
+# and tighter polling buys nothing but quota pressure.
+wait_for_ssh() {
+  local max_attempts="${1:-30}" interval="${2:-5}"
+  local attempts=0
+  while ((attempts < max_attempts)); do
+    if iap_ssh "echo ready" &>/dev/null; then
+      echo "==> SSH is available"
+      return 0
+    fi
+    ((attempts += 1))
+    sleep "$interval"
+  done
+
+  echo "ERROR: VM ${VM_NAME} did not accept SSH within $((max_attempts * interval))s" >&2
+  return 2
 }
 
 iap_ssh_interactive() {
@@ -100,7 +139,9 @@ push_code() {
     --exclude='.git' \
     --exclude='node_modules' \
     --exclude='.cache' \
-    --exclude='ci-reports' \
+    --exclude='ci-reports*' \
+    --exclude='test-results' \
+    --exclude='playwright-report' \
     -czf "$tarball" .
 
   iap_scp "$tarball" "${VM_NAME}:/tmp/osramp-demo-ci.tar.gz"
@@ -240,7 +281,7 @@ cmd_run() {
   echo "════════════════════════════════════════════════════════════"
   echo "  Signalloom D2 E2E CI — Run"
   echo "  Project:  ${PROJECT}  |  VM: ${VM_NAME}"
-  echo "  Timeout:  ${TIMEOUT_MINUTES}m"
+  echo "  Timeout:  ${TIMEOUT_MINUTES}m  |  Observability: ${CI_ENABLE_OBSERVABILITY}"
   echo "════════════════════════════════════════════════════════════"
 
   # ── Resume VM if suspended ──
@@ -256,24 +297,13 @@ cmd_run() {
       gcloud compute instances resume "$VM_NAME" \
         --zone="$ZONE" --project="$PROJECT"
       echo "==> Waiting for SSH to become available..."
-      local attempts=0
-      while ((attempts < 30)); do
-        if iap_ssh "echo ready" &>/dev/null; then break; fi
-        ((attempts+=1))
-        sleep 5
-      done
+      wait_for_ssh 30 5 || exit 2
       ;;
     TERMINATED|STOPPED)
       echo "==> Starting stopped VM..."
       gcloud compute instances start "$VM_NAME" \
         --zone="$ZONE" --project="$PROJECT"
-      sleep 15
-      local attempts=0
-      while ((attempts < 30)); do
-        if iap_ssh "echo ready" &>/dev/null; then break; fi
-        ((attempts+=1))
-        sleep 5
-      done
+      wait_for_ssh 33 5 || exit 2
       ;;
     NOT_FOUND)
       echo "ERROR: VM not found. Run './scripts/ci/gcp-ci.sh provision' first." >&2
@@ -294,13 +324,46 @@ cmd_run() {
   echo "==> Running pipeline on VM..."
   local pipeline_exit=0
 
+  # Capture the real source identity here — the VM only ever sees an untracked
+  # tarball and git-inits a throwaway snapshot repo, whose SHA is meaningless.
+  local source_commit source_branch
+  source_commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  source_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  echo "==> Source under test: ${source_branch}@${source_commit}"
+
   local pipeline_command
   printf -v pipeline_command 'cd %q && bash scripts/ci/vm-pipeline.sh' "$REMOTE_WORK_DIR"
-  iap_ssh "sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") bash -l -c $(printf '%q' "$pipeline_command")" \
+  # TIMEOUT_MINUTES was previously defined and printed but never enforced, so a
+  # wedged SSH session blocked the run forever and `CI_TIMEOUT_MINUTES=…` (as
+  # documented in scripts/ci/README.md) silently did nothing. Fence it here.
+  # SIGTERM first, SIGKILL 60s later, so the remote pipeline gets a chance to
+  # flush its report files before the tunnel is torn down.
+  timeout -k 60s "${TIMEOUT_MINUTES}m" \
+    gcloud compute ssh "$VM_NAME" \
+      --zone="$ZONE" --project="$PROJECT" \
+      --tunnel-through-iap \
+      --command="sudo -u ci env CI_WORK_DIR=$(printf '%q' "$REMOTE_WORK_DIR") CI_REPORT_DIR=$(printf '%q' "$REMOTE_REPORT_DIR") CI_REPORT_FILENAME=$(printf '%q' "$REPORT_FILENAME") CI_PIPELINE_LOG=$(printf '%q' "$PIPELINE_LOG") CI_SOURCE_COMMIT=$(printf '%q' "$source_commit") CI_SOURCE_BRANCH=$(printf '%q' "$source_branch") ENABLE_OBSERVABILITY=$(printf '%q' "$CI_ENABLE_OBSERVABILITY") bash -l -c $(printf '%q' "$pipeline_command")" \
     || pipeline_exit=$?
+
+  if ((pipeline_exit == 124)); then
+    echo "ERROR: pipeline exceeded the ${TIMEOUT_MINUTES}m fence and was terminated" >&2
+    echo "       Raise it with: CI_TIMEOUT_MINUTES=<n> $0 run" >&2
+  fi
 
   # ── Collect reports ──
   echo "==> Collecting reports..."
+  # Rotate the previous run out of the way BEFORE collecting. `tar -xzf`
+  # overwrites only the files present in the archive and leaves everything else
+  # untouched, so a run that aborted before writing reports used to inherit the
+  # previous run's summary.json wholesale — a run that executed zero tests
+  # printed a complete, plausible "5 passed, 3 failed" from stale data, with
+  # only the commit field and file mtimes betraying it. Keep one generation for
+  # comparison rather than deleting, but never let two runs share a directory.
+  if [[ -d "$REPORT_DIR" ]] && [[ -n "$(ls -A "$REPORT_DIR" 2>/dev/null)" ]]; then
+    rm -rf "${REPORT_DIR}.prev"
+    mv "$REPORT_DIR" "${REPORT_DIR}.prev"
+    echo "    previous run rotated to $(basename "${REPORT_DIR}").prev"
+  fi
   mkdir -p "$REPORT_DIR"
   # The report directory belongs to the restricted `ci` account, while IAP SCP
   # authenticates as the operator account. Package it via sudo first instead of
@@ -320,6 +383,22 @@ cmd_run() {
     echo "──── Summary ────"
     jq . "${REPORT_DIR}/summary.json"
     echo "──────────────────"
+  else
+    # Say so loudly. A missing summary means the pipeline died before the test
+    # stages ran — a categorically worse outcome than failing tests, and one
+    # that previously presented as silence next to a stale summary.
+    echo "" >&2
+    echo "ERROR: no summary.json was produced — the pipeline did not reach the" >&2
+    echo "       test stages. This is an aborted run, NOT a test failure." >&2
+    echo "       Pipeline log on the VM: ${PIPELINE_LOG}" >&2
+    if [[ -d "${REPORT_DIR}.prev" ]]; then
+      echo "       The previous run's reports are in $(basename "${REPORT_DIR}").prev" >&2
+      echo "       — they describe a DIFFERENT run. Do not read them as this one." >&2
+    fi
+    if ((pipeline_exit == 0)); then
+      echo "       Pipeline exited 0 without producing reports; treating as failure." >&2
+      pipeline_exit=2
+    fi
   fi
 
   if [[ -f "${REPORT_DIR}/${REPORT_FILENAME}" ]]; then
@@ -354,13 +433,7 @@ cmd_ssh() {
     echo "==> Resuming suspended VM for debugging..."
     gcloud compute instances resume "$VM_NAME" \
       --zone="$ZONE" --project="$PROJECT"
-    sleep 10
-    local attempts=0
-    while ((attempts < 30)); do
-      if iap_ssh "echo ready" &>/dev/null; then break; fi
-      ((attempts+=1))
-      sleep 5
-    done
+    wait_for_ssh 32 5 || exit 2
   elif [[ "$status" != "RUNNING" ]]; then
     echo "ERROR: VM is ${status}. Run './scripts/ci/gcp-ci.sh provision' first." >&2
     exit 2

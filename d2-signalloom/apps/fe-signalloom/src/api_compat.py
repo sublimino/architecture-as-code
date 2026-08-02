@@ -744,6 +744,66 @@ def _default_scan_preferences() -> dict[str, Any]:
     }
 
 
+_MISSING = object()
+
+
+def _scan_preferences_from(source: Any, origin: str) -> dict[str, Any]:
+    """Read the three scan-preference values, substituting documented defaults.
+
+    Degradation policy -- chosen deliberately, of three options:
+
+      1. both endpoints degrade (PATCH silently tolerates missing columns)
+      2. both endpoints fail (GET raises when the columns are absent)
+      3. keep serving defaults on read, but announce the substitution
+
+    This is (3).  Inventing a value and saying nothing is the failure mode that
+    matters: a user could save preferences, see PATCH fail, reload, and be shown
+    plausible numbers that are stored nowhere.  So the read still succeeds --
+    a settings page and a sidebar should not 500 over a cadence -- but every
+    substitution logs a WARNING naming the columns, and PATCH continues to fail
+    loudly rather than pretending to persist.  The pair is then consistent in
+    kind: the read says "these are defaults, not your data", the write says
+    "I could not store this".
+
+    ``source`` is anything with ``.get`` -- an ``asyncpg.Record`` from
+    ``tenant_settings`` or the in-memory fixture dict -- so both storage paths
+    behave identically under the same condition.
+
+    This should now be unreachable in the deployed app: ``init_db_pool`` applies
+    ``db/migrations`` before the process serves anything, so a WARNING here means
+    something is wrong with that assumption and is worth reading.
+    """
+    defaults = _default_scan_preferences()
+    values: dict[str, Any] = {}
+    missing: list[str] = []
+    for column, default in defaults.items():
+        value = source.get(column, _MISSING)
+        if value is _MISSING:
+            missing.append(column)
+            values[column] = default
+        elif value is None and default is not None:
+            # Column present but NULL where a value is required. A NULL
+            # alert_email is legitimate and is left alone.
+            missing.append(column)
+            values[column] = default
+        else:
+            values[column] = value
+
+    if missing:
+        logger.warning(
+            "scan preferences unavailable for %s: %s -- serving documented "
+            "defaults (cadence=%s, threshold=%s), NOT stored values. Schema is "
+            "behind: startup migrations (db/migrate.py) should have applied "
+            "005_tenant_scan_preferences; scripts/signalloom-data.sh migrate "
+            "applies it by hand.",
+            origin,
+            ", ".join(missing),
+            DEFAULT_SCAN_CADENCE_HOURS,
+            DEFAULT_ALERT_THRESHOLD,
+        )
+    return values
+
+
 def _default_compliance_summary() -> dict[str, Any]:
     return {
         "total_controls": 6,
@@ -988,7 +1048,10 @@ def _cookie_preferences_for_tenant(tenant_id: str) -> CookiePreferences:
 
 
 def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
-    prefs = _TENANT_PREFERENCES.get(tenant_id) or _default_scan_preferences()
+    prefs = _scan_preferences_from(
+        _TENANT_PREFERENCES.get(tenant_id, {}),
+        f"tenant {tenant_id} (in-memory fixture store)",
+    )
     return TenantSettingsResponse(
         tenant_id=tenant_id,
         org_name=f"{tenant_id} Org",
@@ -2029,6 +2092,9 @@ async def tenant_settings(
             cookie_prefs = CookiePreferences(strictly_necessary=True, analytics=False)
     # consent_required is derived: consent_accepted_at IS NULL
     consent_required = ts_row["consent_accepted_at"] is None
+    prefs = _scan_preferences_from(
+        ts_row, f"tenant {tenant_id} (tenant_settings row)",
+    )
     return TenantSettingsResponse(
         tenant_id=ts_row["tenant_id"],
         org_name=ts_row["org_name"],
@@ -2039,11 +2105,9 @@ async def tenant_settings(
         selected_frameworks=list(ts_row["selected_frameworks"]) if ts_row["selected_frameworks"] else [],
         consent_required=consent_required,
         cookie_preferences=cookie_prefs,
-        # `.get` rather than `[...]`: a database that predates migration 005
-        # still answers with the documented defaults instead of a 500.
-        preferred_scan_cadence_hours=ts_row.get("preferred_scan_cadence_hours") or DEFAULT_SCAN_CADENCE_HOURS,
-        alert_email=ts_row.get("alert_email"),
-        alert_threshold=ts_row.get("alert_threshold") or DEFAULT_ALERT_THRESHOLD,
+        preferred_scan_cadence_hours=prefs["preferred_scan_cadence_hours"],
+        alert_email=prefs["alert_email"],
+        alert_threshold=prefs["alert_threshold"],
     )
 
 

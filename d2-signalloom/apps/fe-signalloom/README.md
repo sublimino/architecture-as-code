@@ -80,6 +80,15 @@ Demo user: `demo-user@signalloom.local` / `demo-user` via Dex password grant.
 `nhi_scans`, `nhi_discovered_accounts`, `tenant_settings`, `tenant_api_keys`,
 `consent_events`, `support_requests`, `lifecycle_transitions`.
 
+**Migrations run at startup.** `db/migrate.py` applies every `db/migrations/*.sql`
+in version order before the pool is handed out, recording each in
+`schema_migrations` so it runs once, and serialising concurrent replicas behind a
+`pg_advisory_lock`. A failing migration aborts startup rather than serving against
+a half-migrated schema. The generated bootstrap SQL still seeds fresh clusters via
+`/docker-entrypoint-initdb.d` — but that path only fires on an empty data
+directory, so the runner is what keeps an *existing* database current. Every
+migration must therefore stay idempotent; `tests/test_migrations.py` enforces it.
+
 **Graceful fallback:** if `database_url` is empty, all endpoints return in-memory
 fixtures. The demo-toggle (client-side) uses these fixtures independently.
 
@@ -140,8 +149,11 @@ docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/
 kind load docker-image --name osramp zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest
 kubectl -n fe-signalloom rollout restart deploy/fe-signalloom
 
-# Apply schema migration to live Postgres
-cat src/db/migrations/004_agent_governance_schema.sql | kubectl -n inf-signalloom exec -i deploy/postgresql -- psql -U signalloom -d signalloom
+# Schema migrations apply themselves on API startup (src/db/migrate.py).
+# To force them without a redeploy, or to inspect what has run:
+../../../scripts/signalloom-data.sh migrate
+kubectl -n inf-signalloom exec -i deploy/postgresql -- psql -U signalloom -d signalloom \
+  -c 'SELECT version, filename, applied_at FROM schema_migrations ORDER BY version'
 
 # Populate mock data
 cat src/db/data-mock.sql | kubectl -n inf-signalloom exec -i deploy/postgresql -- psql -U signalloom -d signalloom
@@ -155,6 +167,8 @@ cat src/db/data-mock.sql | kubectl -n inf-signalloom exec -i deploy/postgresql -
 | `src/config.py` | Pydantic Settings (database_url, redis_url, JWT config) |
 | `src/main.py` | FastAPI app + routes |
 | `src/db/migrations/004_*.sql` | Schema (13 tables) |
+| `src/db/migrations/005_*.sql` | Tenant scan-preference columns |
+| `src/db/migrate.py` | Startup migration runner (`schema_migrations` ledger) |
 | `src/db/data-reset.sql` | Truncate all tables |
 | `src/db/data-mock.sql` | 72 rows of realistic demo data |
 | `src/tests/contract.py` | 36 consumer contract models |

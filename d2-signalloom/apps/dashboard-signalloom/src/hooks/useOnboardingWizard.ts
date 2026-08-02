@@ -9,55 +9,41 @@ export interface ProviderRunState {
 }
 
 export type WizardStep =
+  | { kind: 'welcome' }
   | { kind: 'select-providers' }
   | { kind: 'configure'; providerId: string }
+  | { kind: 'preferences' }
+  | { kind: 'api-key' }
   | { kind: 'summary' }
 
-interface PersistedState {
+export interface WizardPersistedState {
   selectedProviderIds: string[]
   stepIndex: number
   providerRunState: Record<string, ProviderRunState>
 }
 
-function storageKey(tenantId: string | null): string {
-  return `sl_onboarding_wizard_v1:${tenantId ?? 'anonymous'}`
-}
-
-function loadPersisted(tenantId: string | null): PersistedState | null {
-  try {
-    const raw = window.localStorage.getItem(storageKey(tenantId))
-    if (!raw) return null
-    return JSON.parse(raw) as PersistedState
-  } catch {
-    return null
-  }
-}
-
-function savePersisted(tenantId: string | null, state: PersistedState): void {
-  try {
-    window.localStorage.setItem(storageKey(tenantId), JSON.stringify(state))
-  } catch {
-    // Storage unavailable (private mode / quota) — resume just won't work; non-fatal.
-  }
-}
-
-// Resumable wizard progress. Persists to localStorage (namespaced by tenant)
-// so a user can skip and come back — real cross-device persistence would
-// need a backend endpoint, which is out of scope for this ticket (dashboard/**
-// only); noted in the PR for Stream A.
-export function useOnboardingWizard(tenantId: string | null, alreadyConnected: TenantConnector[]) {
-  const persisted = useMemo(() => loadPersisted(tenantId), [tenantId])
-
+// Resumable wizard progress. Server-side (Slice 1a, 86cajpvar QA item g) —
+// `initialState` is fetched by the caller (OnboardingWizard.tsx, via
+// GET /onboarding/state) before this hook mounts, so a user who starts the
+// wizard on one device resumes at the same step on another. State updates
+// are instant/optimistic (plain useState); the caller is responsible for
+// debouncing writes back to PUT /onboarding/state — this hook only owns the
+// in-memory state machine, not persistence.
+export function useOnboardingWizard(
+  tenantId: string | null,
+  alreadyConnected: TenantConnector[],
+  initialState: WizardPersistedState | null,
+) {
   const [selectedProviderIds, setSelectedProviderIds] = useState<string[]>(
-    persisted?.selectedProviderIds ?? [],
+    initialState?.selectedProviderIds ?? [],
   )
-  const [stepIndex, setStepIndex] = useState<number>(persisted?.stepIndex ?? 0)
+  const [stepIndex, setStepIndex] = useState<number>(initialState?.stepIndex ?? 0)
   const [providerRunState, setProviderRunState] = useState<Record<string, ProviderRunState>>(
-    persisted?.providerRunState ?? {},
+    initialState?.providerRunState ?? {},
   )
 
   // Reconcile with connectors that already exist server-side (prior session,
-  // or another tab). Runs whenever the loaded connector list changes.
+  // or another tab/device). Runs whenever the loaded connector list changes.
   useEffect(() => {
     if (alreadyConnected.length === 0) return
 
@@ -86,16 +72,15 @@ export function useOnboardingWizard(tenantId: string | null, alreadyConnected: T
     })
   }, [alreadyConnected])
 
-  useEffect(() => {
-    savePersisted(tenantId, { selectedProviderIds, stepIndex, providerRunState })
-  }, [tenantId, selectedProviderIds, stepIndex, providerRunState])
-
   const steps: WizardStep[] = useMemo(
     () => [
+      { kind: 'welcome' },
       { kind: 'select-providers' },
       ...selectedProviderIds
         .filter((id) => providerRunState[id]?.status !== 'connected')
         .map((id): WizardStep => ({ kind: 'configure', providerId: id })),
+      { kind: 'preferences' },
+      { kind: 'api-key' },
       { kind: 'summary' },
     ],
     [selectedProviderIds, providerRunState],
@@ -133,12 +118,7 @@ export function useOnboardingWizard(tenantId: string | null, alreadyConnected: T
     setSelectedProviderIds([])
     setStepIndex(0)
     setProviderRunState({})
-    try {
-      window.localStorage.removeItem(storageKey(tenantId))
-    } catch {
-      // ignore
-    }
-  }, [tenantId])
+  }, [])
 
   return {
     steps,

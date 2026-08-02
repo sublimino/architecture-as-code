@@ -69,7 +69,7 @@ export default function RedeemInvite() {
   function validate(): boolean {
     const next: typeof errors = {}
     if (!form.org_name.trim() || form.org_name.trim().length < 2)
-      next.org_name = 'Organisation name must be at least 2 characters.'
+      next.org_name = 'Organization name must be at least 2 characters.'
     if (!form.admin_name.trim())
       next.admin_name = 'Your name is required.'
     if (!form.admin_email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.admin_email))
@@ -193,7 +193,7 @@ export default function RedeemInvite() {
 
       <form onSubmit={handleSubmit} noValidate>
         <div style={fieldStyle}>
-          <label htmlFor="org_name" style={labelStyle}>Organisation name *</label>
+          <label htmlFor="org_name" style={labelStyle}>Organization name *</label>
           <input
             id="org_name"
             type="text"

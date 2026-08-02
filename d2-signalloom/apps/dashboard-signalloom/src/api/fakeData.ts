@@ -232,6 +232,8 @@ const nhiDiscovered: NHIDiscoveredResponse = {
       previous_risk_flags: null,
       first_discovered_at: '2026-06-01T00:00:00Z',
       last_seen_at: NOW,
+      source_removed: false,
+      source_removed_at: null,
     },
   ],
   total: 1,
@@ -255,6 +257,9 @@ function tenantSettings(selected: string[] = ['eu-ai-act']): TenantSettingsRespo
     selected_frameworks: selected,
     consent_required: false,
     cookie_preferences: COOKIE_PREFS,
+    preferred_scan_cadence_hours: 24,
+    alert_email: null,
+    alert_threshold: 1,
   }
 }
 

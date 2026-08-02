@@ -2,9 +2,12 @@ import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { connectorsApi } from '../api/connectorsClient'
 import type { TenantSettingsResponse, FrameworkResponse, NHIScan } from '../types/api'
+import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import ErrorState from '../components/ErrorState'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { useAppContext } from '../App'
 
 const POLL_MS = 15 * 60 * 1000
@@ -82,7 +85,7 @@ function ApiKeyStatus({ status }: { status: string | null | undefined }) {
 
 export default function Settings() {
   const { getAccessTokenSilently, user } = useAuth0()
-  const { apiKeyReveal } = useAppContext()
+  const { apiKeyReveal, setApiKeyReveal, refreshOnboardingState } = useAppContext()
   const [settings, setSettings] = useState<TenantSettingsResponse | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkResponse[]>([])
   const [lastScan, setLastScan] = useState<NHIScan | null>(null)
@@ -91,18 +94,35 @@ export default function Settings() {
   const [selectedFrameworks, setSelectedFrameworks] = useState<string[]>([])
   const [toastError, setToastError] = useState<string | null>(null)
   const [rotateModalOpen, setRotateModalOpen] = useState(false)
+  const [revealAlreadyUsed, setRevealAlreadyUsed] = useState(false)
+  const [revealing, setRevealing] = useState(false)
+  const [providers, setProviders] = useState<ConnectorProvider[]>([])
+  const [connectors, setConnectors] = useState<TenantConnector[]>([])
+  const [disconnectTarget, setDisconnectTarget] = useState<TenantConnector | null>(null)
+  const [disconnecting, setDisconnecting] = useState(false)
+  const [cadenceHours, setCadenceHours] = useState(24)
+  const [alertEmail, setAlertEmail] = useState('')
+  const [alertThreshold, setAlertThreshold] = useState(1)
+  const [preferencesSaving, setPreferencesSaving] = useState(false)
+  const [preferencesSaved, setPreferencesSaved] = useState(false)
+  const [preferencesError, setPreferencesError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
-      const [settingsRes, frameworksRes, scansRes] = await Promise.allSettled([
+      const [settingsRes, frameworksRes, scansRes, providersRes, connectorsRes] = await Promise.allSettled([
         api.settings(token),
         api.compliance.frameworks(token),
         api.nhi.scans(token),
+        connectorsApi.listProviders(token),
+        connectorsApi.listConnectors(token),
       ])
       if (settingsRes.status === 'fulfilled') {
         setSettings(settingsRes.value)
         setSelectedFrameworks(settingsRes.value.selected_frameworks ?? [])
+        setCadenceHours(settingsRes.value.preferred_scan_cadence_hours)
+        setAlertEmail(settingsRes.value.alert_email ?? '')
+        setAlertThreshold(settingsRes.value.alert_threshold)
       }
       if (frameworksRes.status === 'fulfilled') setFrameworks(frameworksRes.value)
       if (scansRes.status === 'fulfilled') {
@@ -114,6 +134,8 @@ export default function Settings() {
           setLastScan(sorted[0])
         }
       }
+      if (providersRes.status === 'fulfilled') setProviders(providersRes.value)
+      if (connectorsRes.status === 'fulfilled') setConnectors(connectorsRes.value)
       if (settingsRes.status === 'rejected') {
         const msg = settingsRes.reason instanceof Error ? settingsRes.reason.message : ''
         if (msg.includes('401') || msg.includes('403')) setError('Your session has expired. Please sign in again.')
@@ -125,6 +147,70 @@ export default function Settings() {
       setLoading(false)
     }
   }, [getAccessTokenSilently])
+
+  async function handleRevealApiKey() {
+    if (!settings) return
+    setRevealing(true)
+    try {
+      const token = await getAccessTokenSilently()
+      const result = await api.apiKeys.revealInitial(token, settings.tenant_id)
+      setApiKeyReveal({ key: result.key, prefix_hint: result.prefix_hint })
+      setRevealAlreadyUsed(false)
+    } catch (e: unknown) {
+      const status = (e as { response?: { status?: number } })?.response?.status
+      if (status === 410) {
+        // Already revealed once — the plaintext key can never be shown
+        // again, so the only way to see a working key now is to rotate.
+        setRevealAlreadyUsed(true)
+        setRotateModalOpen(true)
+      } else {
+        setToastError('Failed to reveal API key. Please try again.')
+      }
+    } finally {
+      setRevealing(false)
+    }
+  }
+
+  async function handleSavePreferences() {
+    setPreferencesSaving(true)
+    setPreferencesError(null)
+    setPreferencesSaved(false)
+    try {
+      const token = await getAccessTokenSilently()
+      const updated = await api.patchPreferences(token, {
+        preferred_scan_cadence_hours: cadenceHours,
+        alert_email: alertEmail.trim() || null,
+        alert_threshold: alertThreshold,
+      })
+      setCadenceHours(updated.preferred_scan_cadence_hours)
+      setAlertEmail(updated.alert_email ?? '')
+      setAlertThreshold(updated.alert_threshold)
+      setPreferencesSaved(true)
+      setTimeout(() => setPreferencesSaved(false), 3000)
+    } catch {
+      setPreferencesError('Could not save preferences. Please try again.')
+    } finally {
+      setPreferencesSaving(false)
+    }
+  }
+
+  async function handleConfirmDisconnect() {
+    if (!disconnectTarget) return
+    setDisconnecting(true)
+    try {
+      const token = await getAccessTokenSilently()
+      await connectorsApi.deleteConnector(token, disconnectTarget.connector_id)
+      setConnectors((prev) =>
+        prev.map((c) =>
+          c.connector_id === disconnectTarget.connector_id ? { ...c, status: 'disconnected' as const } : c,
+        ),
+      )
+      refreshOnboardingState() // a connector just dropped — re-check the auto-trigger gate/banner
+    } finally {
+      setDisconnecting(false)
+      setDisconnectTarget(null)
+    }
+  }
 
   useEffect(() => {
     load()
@@ -149,9 +235,9 @@ export default function Settings() {
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 24 }}>Settings</h1>
 
       {/* Organization */}
-      <SectionCard title="Organisation">
+      <SectionCard title="Organization">
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-          <Field label="Organisation Name" value={settings?.org_name || 'Unnamed'} />
+          <Field label="Organization Name" value={settings?.org_name || 'Unnamed'} />
           <Field label="Tenant ID" value={settings?.tenant_id} mono />
           <Field label="Plan Tier" value={settings?.plan_tier} />
           <Field label="Billing Tier" value={settings?.billing_tier} />
@@ -167,16 +253,36 @@ export default function Settings() {
             <ApiKeyStatus status={settings?.api_key_status} />
           </div>
         </div>
-        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
           API keys grant programmatic access to the Signal Loom agent registry. Keys are scoped to your tenant.
         </p>
-        <button
-          className="btn btn-secondary"
-          style={{ fontSize: 12, padding: '6px 14px' }}
-          onClick={() => setRotateModalOpen(true)}
-        >
-          Rotate API Key
-        </button>
+        <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          We never store your key in plaintext, so it can only be shown once. If you haven't seen it yet,
+          reveal it below; if you have, revealing it again requires rotating — your old key is revoked
+          immediately and a new one takes its place.
+        </p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            className="btn btn-primary"
+            style={{ fontSize: 12, padding: '6px 14px' }}
+            onClick={handleRevealApiKey}
+            disabled={revealing}
+          >
+            {revealing ? 'Revealing…' : 'Reveal my API key'}
+          </button>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 14px' }}
+            onClick={() => { setRevealAlreadyUsed(false); setRotateModalOpen(true) }}
+          >
+            Rotate API Key
+          </button>
+        </div>
+        {revealAlreadyUsed && (
+          <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+            Your key was already revealed once and can't be shown again — rotate to get a new one.
+          </p>
+        )}
         {rotateModalOpen && settings && (
           <ApiKeyRotateModal
             currentPrefixHint={apiKeyReveal?.prefix_hint ?? 'sl_live_'}
@@ -184,7 +290,56 @@ export default function Settings() {
               const token = await getAccessTokenSilently()
               return api.apiKeys.rotate(token, settings.tenant_id)
             }}
+            onRotated={(result) => setApiKeyReveal({ key: result.key, prefix_hint: result.prefix_hint })}
             onClose={() => setRotateModalOpen(false)}
+          />
+        )}
+      </SectionCard>
+
+      {/* Connected Providers */}
+      <SectionCard title="Connected Providers">
+        {connectors.filter((c) => c.status === 'connected').length === 0 ? (
+          <p style={{ fontSize: 13, color: 'var(--muted)' }}>
+            No providers connected yet.{' '}
+            <a href="/onboarding" style={{ color: 'var(--cyan)', textDecoration: 'none' }}>Connect one →</a>
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {connectors.filter((c) => c.status === 'connected').map((c) => {
+              const provider = providers.find((p) => p.provider_id === c.provider_id)
+              return (
+                <div
+                  key={c.connector_id}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: 'var(--surface2)', borderRadius: 6, border: '1px solid var(--border)' }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                      {c.display_name || provider?.display_name || c.provider_id}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {c.last_tested_at ? `Last tested ${fmtTs(c.last_tested_at)}` : 'Not yet tested'}
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                    onClick={() => setDisconnectTarget(c)}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {disconnectTarget && (
+          <ConfirmDialog
+            title="Disconnect provider?"
+            body={`This stops future scans from ${disconnectTarget.display_name || disconnectTarget.provider_id}. Previously discovered NHI records stay in your history, marked as source-disconnected — nothing is deleted.`}
+            confirmLabel="Disconnect"
+            loading={disconnecting}
+            onConfirm={handleConfirmDisconnect}
+            onCancel={() => setDisconnectTarget(null)}
           />
         )}
       </SectionCard>
@@ -238,6 +393,74 @@ export default function Settings() {
             })}
           </div>
         )}
+      </SectionCard>
+
+      {/* Scan Preferences (Slice 1b, 86cajpvar QA item 4) */}
+      <SectionCard title="Scan Preferences">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Scan Cadence
+            </div>
+            <select
+              value={cadenceHours}
+              onChange={(e) => setCadenceHours(Number(e.target.value))}
+              style={{ width: '100%' }}
+            >
+              <option value={24}>Daily</option>
+              <option value={168}>Weekly</option>
+            </select>
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Applies to providers you connect from here on.
+            </p>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Alert Email
+            </div>
+            <input
+              type="email"
+              value={alertEmail}
+              onChange={(e) => setAlertEmail(e.target.value)}
+              placeholder="you@company.com"
+              style={{ width: '100%' }}
+            />
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              Leave blank to use your account's contact email.
+            </p>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Alert Threshold
+            </div>
+            <input
+              type="number"
+              min={1}
+              value={alertThreshold}
+              onChange={(e) => setAlertThreshold(Math.max(1, Number(e.target.value) || 1))}
+              style={{ width: '100%' }}
+            />
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+              At-risk accounts found in a scan before we email you.
+            </p>
+          </div>
+        </div>
+        {preferencesError && (
+          <p style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{preferencesError}</p>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: 12, padding: '6px 14px' }}
+            onClick={handleSavePreferences}
+            disabled={preferencesSaving}
+          >
+            {preferencesSaving ? 'Saving…' : 'Save Preferences'}
+          </button>
+          {preferencesSaved && (
+            <span style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>Saved</span>
+          )}
+        </div>
       </SectionCard>
 
       {/* NHI Discovery */}

@@ -15,10 +15,13 @@ import type {
   FrameworkResponse,
   InitialApiKeyResponse,
   IssueCredentialResponse,
+  NHIAccountDetail,
   NHIDiscoveredResponse,
   NHIScanListResponse,
   PostureResponse,
+  PreferencesUpdateRequest,
   ReassessmentResponse,
+  RevokeCredentialResponse,
   RotateApiKeyResponse,
   SupportRequestCreate,
   SupportRequestResponse,
@@ -94,6 +97,10 @@ export const api = {
     issueCredential: (token: string, id: string) =>
       req<IssueCredentialResponse>(`/agents/${id}/credentials`, token, { method: 'POST' }),
 
+    // Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
+    revokeCredential: (token: string, id: string) =>
+      req<RevokeCredentialResponse>(`/agents/${id}/credentials/revoke`, token, { method: 'POST' }),
+
     get: (token: string, id: string) =>
       req<AgentResponse>(`/agents/${id}`, token),
 
@@ -145,15 +152,39 @@ export const api = {
     return req<AuditListResponse>(`/audit?${q.toString()}`, token)
   },
 
+  auditExportCsv: async (
+    token: string,
+    params: { from?: string; to?: string; agent?: string; type?: string },
+  ): Promise<string> => {
+    const q = new URLSearchParams()
+    if (params.from) q.set('from', params.from)
+    if (params.to) q.set('to', params.to)
+    if (params.agent) q.set('agent', params.agent)
+    if (params.type) q.set('type', params.type)
+    const path = `/audit/events.csv?${q.toString()}`
+    const url = path.startsWith('/api') ? path : `/api${path}`
+    const res = await http.request<string>({
+      url,
+      method: 'GET',
+      responseType: 'text',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    return res.data
+  },
+
   nhi: {
     scans: (token: string) =>
       req<NHIScanListResponse>('/nhi/scans', token),
 
-    discovered: (token: string, page = 1, limit = 50, status?: string) => {
+    discovered: (token: string, page = 1, limit = 50, status?: string, includeDisconnected = false) => {
       const q = new URLSearchParams({ page: String(page), limit: String(limit) })
       if (status) q.set('status', status)
+      if (includeDisconnected) q.set('include_disconnected', 'true')
       return req<NHIDiscoveredResponse>(`/nhi/discovered?${q.toString()}`, token)
     },
+
+    getAccount: (token: string, accountId: string) =>
+      req<NHIAccountDetail>(`/nhi/discovered/${accountId}`, token),
 
     enrollAccount: (token: string, accountId: string) =>
       req<{ account_id: string; status: string }>(`/nhi/discovered/${accountId}/enroll`, token, { method: 'POST' }),
@@ -177,6 +208,12 @@ export const api = {
     req<TenantSettingsResponse>('/tenant/settings/frameworks', token, {
       method: 'PATCH',
       data: { selected_frameworks: selectedFrameworks },
+    }),
+
+  patchPreferences: (token: string, body: PreferencesUpdateRequest) =>
+    req<TenantSettingsResponse>('/tenant/settings/preferences', token, {
+      method: 'PATCH',
+      data: body,
     }),
 
   support: (token: string, body: SupportRequestCreate) =>

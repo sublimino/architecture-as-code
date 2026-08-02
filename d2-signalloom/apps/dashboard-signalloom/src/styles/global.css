@@ -13,26 +13,46 @@
   --error: #DC2626;
   --text: #F8FAFC;
   --muted: #94A3B8;
+  --dim: #64748B;
   --slate-gray: #475569;
   --radius: 8px;
   --radius-sm: 4px;
   /* legacy aliases kept for existing components */
   --warning: #D97706;
+
+  --motion-fast: .15s;
+  --motion-med: .45s;
+  --motion-slow: .5s;
+  --ease-signature: cubic-bezier(.2,.7,.3,1);
+
+  /* Accent alpha ramp — 5 accents x 5 roles (base/bg/border/glow/focus), per demo v5.
+     bg=20%, border=33%, glow=44%, focus=10% opacity, applied as hex alpha suffixes. */
+  --cyan-bg: #06B6D433;     --cyan-border: #06B6D454;     --cyan-glow: #06B6D470;     --cyan-focus: #06B6D41A;
+  --violet-bg: #8B5CF633;   --violet-border: #8B5CF654;   --violet-glow: #8B5CF670;   --violet-focus: #8B5CF61A;
+  --teal-bg: #10B98133;     --teal-border: #10B98154;     --teal-glow: #10B98170;     --teal-focus: #10B9811A;
+  --amber-base: #F59E0B;    --amber-bg: #F59E0B33;        --amber-border: #F59E0B54;  --amber-glow: #F59E0B70;   --amber-focus: #F59E0B1A;
+  --red-base: #EF4444;      --red-bg: #EF444433;          --red-border: #EF444454;    --red-glow: #EF444470;     --red-focus: #EF44441A;
 }
 
 html, body, #root {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.5;
+  font-feature-settings: "ss01", "cv11";
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 a { color: var(--cyan); text-decoration: none; }
 a:hover { text-decoration: underline; }
-button { cursor: pointer; font-family: inherit; }
+
+button { cursor: pointer; font-family: inherit; transition: all var(--motion-fast) var(--ease-signature); }
+button:hover:not(:disabled) { transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(0); }
+button:disabled { cursor: not-allowed; opacity: .5; }
 
 input, select, textarea {
   font-family: inherit;
@@ -44,13 +64,36 @@ input, select, textarea {
   font-size: 13px;
   outline: none;
 }
-input:focus, select:focus, textarea:focus { border-color: var(--cyan); }
+input:focus, select:focus, textarea:focus {
+  border-color: #06B6D466;
+  box-shadow: 0 0 0 3px #06B6D41A;
+}
 select option { background: var(--surface); }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+::selection { background: #06B6D433; color: var(--text); }
+
+.display { font-family: 'Inter Tight', ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.02em; }
+.number {
+  font-family: 'Inter Tight', ui-sans-serif, system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum", "ss01";
+  letter-spacing: -0.01em;
+}
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-feature-settings: "ss01", "ss02"; }
+.kicker { font-family: 'Inter Tight', ui-sans-serif, system-ui, sans-serif; font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase; font-weight: 600; }
+.label { font-family: 'Inter Tight', ui-sans-serif, system-ui, sans-serif; font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 600; }
+
+.hairline { height: 1px; background: linear-gradient(90deg, transparent, var(--border), transparent); }
+
+@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fadeIn var(--motion-med) var(--ease-signature); }
+.slide-up { animation: slideUp var(--motion-slow) var(--ease-signature); }
 
 .card {
   background: var(--surface);
@@ -80,7 +123,8 @@ select option { background: var(--surface); }
   display: inline-flex;
   align-items: center;
   padding: 2px 8px;
-  border-radius: 99px;
+  border-radius: 3px;
+  border: 1px solid transparent;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;

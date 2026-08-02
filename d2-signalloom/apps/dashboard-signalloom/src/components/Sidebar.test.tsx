@@ -1,195 +1,195 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { installMemoryStorage } from '../test-utils/memoryStorage'
-
-// The sidebar only reads `user` and `logout` off the auth shim.
-const auth: { user: Record<string, unknown> | undefined } = { user: undefined }
-vi.mock('../auth/oidc', () => ({
-  useAuth0: () => ({
-    user: auth.user,
-    logout: vi.fn(),
-    getAccessTokenSilently: vi.fn().mockResolvedValue('test-token'),
-  }),
-}))
-
 import Sidebar from './Sidebar'
 import { AppContext } from '../App'
-import { SUPERADMIN_STORAGE_KEY, useSuperadmin } from '../auth/superadmin'
+import { api } from '../api/client'
+import type { TenantSettingsResponse } from '../types/api'
 
-const DEMO_USER = { email: 'demo-user@signalloom.local' }
-const GATED_PATHS = [
-  '/cryptography',
-  '/federated-services',
-  '/collusion-access',
-  '/rbac-analysis',
-  '/rbac-explorer',
-]
-const UNGATED_PATHS = ['/agents', '/compliance', '/audit', '/supercred', '/settings']
+vi.mock('../auth/oidc', () => {
+  const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
+  return {
+    useAuth0: () => ({
+      user: { name: 'Test User', email: 'test@acme.com' },
+      logout: vi.fn(),
+      getAccessTokenSilently,
+    }),
+  }
+})
 
-// Mirrors the provider in App.tsx so the sidebar exercises the real
-// superadmin state hook (including its localStorage persistence).
-function Harness() {
-  const [superadmin, setSuperadmin] = useSuperadmin()
-  return (
-    <AppContext.Provider
-      value={{
-        failingControls: 0,
-        setFailingControls: () => undefined,
-        helpOpen: false,
-        setHelpOpen: () => undefined,
-        apiKeyReveal: null,
-        setApiKeyReveal: () => undefined,
-        cookieSettingsOpen: false,
-        setCookieSettingsOpen: () => undefined,
-        superadmin,
-        setSuperadmin,
-      }}
-    >
-      <Sidebar />
-    </AppContext.Provider>
-  )
+vi.mock('../api/client', () => ({
+  api: {
+    settings: vi.fn(),
+    nhi: { discovered: vi.fn().mockResolvedValue({ accounts: [], total: 0, summary: { total_discovered: 0, needs_triage: 0, previously_dismissed: 0 } }) },
+  },
+}))
+
+function makeSettings(overrides: Partial<TenantSettingsResponse> = {}): TenantSettingsResponse {
+  return {
+    tenant_id: 'tenant-1',
+    org_name: 'Acme Insurance',
+    plan_tier: 'growth',
+    agent_count: 12,
+    billing_tier: null,
+    api_key_status: 'active',
+    selected_frameworks: [],
+    consent_required: false,
+    cookie_preferences: null,
+    preferred_scan_cadence_hours: 24,
+    alert_email: null,
+    alert_threshold: 1,
+    ...overrides,
+  }
+}
+
+const appCtxValue = {
+  failingControls: 0,
+  setFailingControls: () => undefined,
+  helpOpen: false,
+  setHelpOpen: () => undefined,
+  apiKeyReveal: null,
+  setApiKeyReveal: () => undefined,
+  cookieSettingsOpen: false,
+  setCookieSettingsOpen: () => undefined,
+  connectedProviderCount: 0,
+  totalProviderCount: 0,
+  needsOnboarding: null,
+  refreshOnboardingState: () => Promise.resolve(),
+  superadmin: false,
+  setSuperadmin: () => undefined,
 }
 
 function renderSidebar() {
   return render(
     <MemoryRouter>
-      <Harness />
-    </MemoryRouter>,
+      <AppContext.Provider value={appCtxValue}>
+        <Sidebar />
+      </AppContext.Provider>
+    </MemoryRouter>
   )
 }
 
-function navPaths(): string[] {
-  return screen
-    .getAllByRole('link')
-    .map((a) => a.getAttribute('href') ?? '')
-}
-
-// Fresh, empty localStorage per test — see test-utils/memoryStorage.ts for why
-// the jsdom default is not usable here.
-beforeEach(() => {
-  installMemoryStorage()
-  auth.user = undefined
-})
-
-describe('Sidebar superadmin toggle visibility', () => {
-  it('is absent for a non-demo user', () => {
-    auth.user = { email: 'auditor@bank.example', name: 'Auditor' }
+describe('Sidebar tenant identity card', () => {
+  it('renders the org name only once settings load', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
-    expect(screen.queryByTestId('superadmin-toggle')).not.toBeInTheDocument()
+
+    await waitFor(() => expect(screen.getByText('Acme Insurance')).toBeInTheDocument())
+    expect(screen.queryByText('growth')).not.toBeInTheDocument()
+    expect(screen.queryByText('12 agents')).not.toBeInTheDocument()
   })
 
-  it('is absent when there is no profile at all', () => {
+  it('shows a live agent count badge next to the Agents nav item', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings({ agent_count: 7 }))
     renderSidebar()
-    expect(screen.queryByTestId('superadmin-toggle')).not.toBeInTheDocument()
+
+    const agentsLink = await screen.findByRole('link', { name: /Agents/ })
+    await waitFor(() => expect(agentsLink).toHaveTextContent('7'))
   })
 
-  it.each([
-    ['email', { email: 'demo-user@signalloom.local' }],
-    ['preferred_username', { preferred_username: 'demo-user' }],
-    ['name', { name: 'demo-user' }],
-  ])('is present for the demo user identified by %s', (_claim, user) => {
-    auth.user = user
+  it('fails open — renders nav with no tenant card when settings fetch errors', async () => {
+    vi.mocked(api.settings).mockRejectedValue(new Error('network error'))
     renderSidebar()
-    expect(screen.getByTestId('superadmin-toggle')).toBeInTheDocument()
-  })
 
-  it('sits next to the Help & Support control in the sidebar footer', () => {
-    auth.user = DEMO_USER
-    renderSidebar()
-    const help = screen.getByRole('button', { name: 'Help & Support' })
-    const toggle = screen.getByTestId('superadmin-toggle')
-    expect(help.parentElement).toBe(toggle.parentElement)
+    expect(await screen.findByRole('link', { name: 'Agents' })).toBeInTheDocument()
+    expect(screen.queryByText(/\d+ agents?/i)).not.toBeInTheDocument()
   })
 })
 
-describe('Sidebar nav gating', () => {
-  it('hides the five gated links by default and always shows the rest', () => {
-    auth.user = DEMO_USER
+describe('Sidebar Discovery nav item', () => {
+  it('is present as a top-level nav item', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
-    const paths = navPaths()
-    for (const p of GATED_PATHS) expect(paths).not.toContain(p)
-    for (const p of UNGATED_PATHS) expect(paths).toContain(p)
+    expect(await screen.findByRole('link', { name: /Discovery/ })).toBeInTheDocument()
   })
 
-  it('shows the ungated links to a non-demo user and hides the gated ones', () => {
-    auth.user = { email: 'auditor@bank.example' }
+  it('shows a needs-triage badge next to Discovery when accounts need triage', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    vi.mocked(api.nhi.discovered).mockResolvedValue({
+      accounts: [], total: 0, summary: { total_discovered: 5, needs_triage: 3, previously_dismissed: 2 },
+    })
     renderSidebar()
 
-    const paths = navPaths()
-    for (const p of GATED_PATHS) expect(paths).not.toContain(p)
-    for (const p of UNGATED_PATHS) expect(paths).toContain(p)
+    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
+    await waitFor(() => expect(discoveryLink).toHaveTextContent('3'))
   })
 
-  it('reveals all five gated links when the toggle is switched on', async () => {
-    auth.user = DEMO_USER
+  it('fails open — renders nav with no badge when the discovery-count fetch errors', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    vi.mocked(api.nhi.discovered).mockRejectedValue(new Error('network error'))
     renderSidebar()
 
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-
-    const paths = navPaths()
-    for (const p of GATED_PATHS) expect(paths).toContain(p)
-    for (const p of UNGATED_PATHS) expect(paths).toContain(p)
-  })
-
-  it('hides them again when the toggle is switched back off', async () => {
-    auth.user = DEMO_USER
-    renderSidebar()
-
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-
-    const paths = navPaths()
-    for (const p of GATED_PATHS) expect(paths).not.toContain(p)
+    const discoveryLink = await screen.findByRole('link', { name: /Discovery/ })
+    expect(discoveryLink).toBeInTheDocument()
   })
 })
 
-describe('Sidebar superadmin persistence', () => {
-  it('writes the namespaced localStorage key when toggled', async () => {
-    auth.user = DEMO_USER
+describe('Sidebar keyboard shortcuts', () => {
+  it('navigates to the nth nav item when its digit key is pressed', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
 
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-    expect(localStorage.getItem(SUPERADMIN_STORAGE_KEY)).toBe('true')
+    fireEvent.keyDown(window, { key: '3' })
 
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-    expect(localStorage.getItem(SUPERADMIN_STORAGE_KEY)).toBe('false')
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('aria-current', 'page')
+    )
   })
 
-  it('restores the on state on remount', async () => {
-    auth.user = DEMO_USER
-    const first = renderSidebar()
-    await userEvent.click(screen.getByTestId('superadmin-toggle'))
-    expect(navPaths()).toContain('/rbac-explorer')
-    first.unmount()
-
+  it('navigates to Discovery (nav item 1) when "1" is pressed', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
-    expect(navPaths()).toContain('/rbac-explorer')
+    await screen.findByRole('link', { name: /Agents/ })
+
+    fireEvent.keyDown(window, { key: '1' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Discovery/ })).toHaveAttribute('aria-current', 'page')
+    )
   })
 
-  it('keeps the gated links hidden for a non-demo user even when stored on', () => {
-    // The identity gate wins over the stored preference.
-    localStorage.setItem(SUPERADMIN_STORAGE_KEY, 'true')
-    auth.user = { email: 'auditor@bank.example' }
+  it('navigates to Agents (nav item 2) when "2" is pressed', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
 
-    expect(screen.queryByTestId('superadmin-toggle')).not.toBeInTheDocument()
-    const paths = navPaths()
-    for (const p of GATED_PATHS) expect(paths).not.toContain(p)
+    fireEvent.keyDown(window, { key: '2' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
+    )
   })
-})
 
-describe('route registration is untouched', () => {
-  it('still registers every gated path in App.tsx — this is visibility, not authorization', () => {
-    // import.meta.url is an http:// URL under vite-node, so resolve from the
-    // vitest root (the dashboard package directory) instead.
-    const appSource = readFileSync(resolve(process.cwd(), 'src/App.tsx'), 'utf-8')
-    for (const p of GATED_PATHS) {
-      expect(appSource).toContain(`path="${p}"`)
-    }
+  it('ignores digit presses when focus is inside an input', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+
+    fireEvent.keyDown(input, { key: '2' })
+
+    expect(screen.queryByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+    document.body.removeChild(input)
+  })
+
+  it('ignores digit presses out of nav range', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+    await screen.findByRole('link', { name: /Agents/ })
+
+    fireEvent.keyDown(window, { key: '2' })
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
+    )
+
+    fireEvent.keyDown(window, { key: '0' })
+
+    expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
   })
 })

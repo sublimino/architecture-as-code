@@ -1,12 +1,23 @@
 import { useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { useAppContext } from '../App'
 
 type Tab = 'faq' | 'support'
 
-const FAQ_SECTIONS = [
+interface FaqItem {
+  q: string
+  a: ReactNode
+}
+
+interface FaqSection {
+  title: string
+  items: FaqItem[]
+}
+
+const FAQ_SECTIONS: FaqSection[] = [
   {
     title: 'Getting started',
     items: [
@@ -73,6 +84,14 @@ const FAQ_SECTIONS = [
         q: 'What does "Dismiss" do?',
         a: 'Dismissing marks the account as reviewed and not requiring enrollment — for example, a known system account. If the account changes after dismissal, it reappears for triage.',
       },
+      {
+        q: 'How do I connect my Entra directory?',
+        a: (
+          <ConnectorHelpLink to="/help/connectors/entra">
+            Follow the Entra/Azure AD connector setup guide
+          </ConnectorHelpLink>
+        ),
+      },
     ],
   },
   {
@@ -111,7 +130,18 @@ const FAQ_SECTIONS = [
   },
 ]
 
-function FAQSection({ section }: { section: (typeof FAQ_SECTIONS)[number] }) {
+// The modal is a fixed-position overlay — closing it on navigate keeps it
+// from sitting on top of the help page it just linked to.
+function ConnectorHelpLink({ to, children }: { to: string; children: ReactNode }) {
+  const { setHelpOpen } = useAppContext()
+  return (
+    <Link to={to} onClick={() => setHelpOpen(false)}>
+      {children}
+    </Link>
+  )
+}
+
+function FAQSection({ section }: { section: FaqSection }) {
   const [openIdx, setOpenIdx] = useState<number | null>(null)
   return (
     <div style={{ marginBottom: 20 }}>
@@ -185,11 +215,11 @@ export default function HelpModal() {
 
   return (
     <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
       onClick={e => { if (e.target === e.currentTarget) close() }}
     >
       <div
-        className="card"
+        className="card slide-up"
         style={{ width: 560, maxWidth: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column', position: 'relative', padding: 0, overflow: 'hidden' }}
       >
         {/* Modal header */}

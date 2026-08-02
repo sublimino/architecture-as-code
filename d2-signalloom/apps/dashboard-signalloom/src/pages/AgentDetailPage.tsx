@@ -12,6 +12,7 @@ import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
+import CredentialActionsMenu from '../components/CredentialActionsMenu'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -109,7 +110,7 @@ function Timeline({ items, onAcknowledge }: {
       </div>
 
       {filtered.length === 0 ? (
-        <EmptyState title="No events recorded" body="Governance actions for this agent will appear here." />
+        <EmptyState kicker="No events recorded" body="Governance actions for this agent will appear here." />
       ) : (
         <div style={{ maxHeight: 480, overflowY: 'auto', paddingRight: 4 }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
@@ -294,7 +295,7 @@ function FrameworkControlsSection({ results, onReassess }: {
     return (
       <section>
         <h2 style={{ fontSize: 15, fontWeight: 700, marginBottom: 14 }}>Framework Controls</h2>
-        <EmptyState title="No assessment results" body="Compliance controls will appear here after the first assessment run." />
+        <EmptyState kicker="No assessment results" body="Compliance controls will appear here after the first assessment run." />
       </section>
     )
   }
@@ -468,12 +469,12 @@ function RequestTransitionModal({ agent, onClose }: { agent: AgentResponse; onCl
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 1000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
       onClick={e => e.target === e.currentTarget && !submitting && onClose()}
     >
-      <div className="card" style={{ width: 440, maxWidth: '95vw', padding: 24, position: 'relative' }}>
+      <div className="card slide-up" style={{ width: 440, maxWidth: '95vw', padding: 24, position: 'relative' }}>
         {success ? (
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div style={{ fontSize: 44, marginBottom: 14 }}>✅</div>
@@ -614,13 +615,13 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 2000,
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)', zIndex: 2000,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}
       onClick={e => e.target === e.currentTarget && phase === 'confirm' && dismiss()}
     >
       <div
-        className="card"
+        className="card slide-up"
         style={{ width: 520, maxWidth: '95vw', padding: 28, position: 'relative' }}
         role="dialog"
         aria-modal="true"
@@ -681,12 +682,98 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
   )
 }
 
+// ─── Revoke Credential Modal ──────────────────────────────────────────────────
+// Self-serve counterpart to Issue Credential (ClickUp 86cak75u7): revokes ALL
+// active tokens for the agent. There is nothing narrower to target — issuance
+// is show-once, so the dashboard never has individual token IDs to revoke by.
+
+function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClose: (revoked?: boolean) => void }) {
+  const { getAccessTokenSilently } = useAuth0()
+  const [phase, setPhase] = useState<'confirm' | 'revoking' | 'done'>('confirm')
+  const [revokedCount, setRevokedCount] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleRevoke() {
+    setPhase('revoking')
+    setError(null)
+    try {
+      const accessToken = await getAccessTokenSilently()
+      const res = await api.agents.revokeCredential(accessToken, agent.id)
+      setRevokedCount(res.tokens_revoked)
+      setPhase('done')
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to revoke credentials.')
+      setPhase('confirm')
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)', zIndex: 2000,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      onClick={e => e.target === e.currentTarget && phase === 'confirm' && onClose()}
+    >
+      <div
+        className="card"
+        style={{ width: 480, maxWidth: '95vw', padding: 28, position: 'relative' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="revoke-cred-title"
+      >
+        {phase === 'done' ? (
+          <>
+            <h2 id="revoke-cred-title" style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>
+              Credentials revoked
+            </h2>
+            <p style={{ fontSize: 13, color: 'var(--text)', marginBottom: 20, lineHeight: 1.5 }}>
+              {revokedCount === 0 ? (
+                <>No active credentials for <strong>{agent.name}</strong> — nothing to revoke.</>
+              ) : (
+                <>
+                  {revokedCount} credential{revokedCount === 1 ? '' : 's'} for <strong>{agent.name}</strong>{' '}
+                  {revokedCount === 1 ? 'has' : 'have'} been revoked. {agent.name} will no longer be able to
+                  authenticate with any previously-issued token.
+                </>
+              )}
+            </p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-secondary" onClick={() => onClose(true)}>Close</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 id="revoke-cred-title" style={{ marginBottom: 6 }}>Revoke Identity Credentials</h3>
+            <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
+              This immediately revokes <strong>every</strong> active identity token issued for{' '}
+              <strong>{agent.name}</strong>. Any system currently using one of those tokens will lose access
+              right away. This cannot be undone — a new credential must be issued afterward if{' '}
+              {agent.name} needs to authenticate again.
+            </p>
+            {error && <p style={{ color: 'var(--error)', fontSize: 12, marginBottom: 12 }}>{error}</p>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" className="btn btn-secondary" onClick={() => onClose()} disabled={phase === 'revoking'}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-danger" onClick={handleRevoke} disabled={phase === 'revoking'}>
+                {phase === 'revoking' ? 'Revoking…' : 'Revoke all credentials'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Agent Header ─────────────────────────────────────────────────────────────
 
-function AgentHeader({ agent, onRequestTransition, onIssueCredential }: {
+function AgentHeader({ agent, onRequestTransition, onIssueCredential, onRevokeCredential }: {
   agent: AgentResponse
   onRequestTransition: () => void
   onIssueCredential: () => void
+  onRevokeCredential: () => void
 }) {
   const canTransition = (VALID_NEXT_STATES[agent.lifecycle_state] ?? []).length > 0
   return (
@@ -747,13 +834,7 @@ function AgentHeader({ agent, onRequestTransition, onIssueCredential }: {
           )}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
             {(agent.lifecycle_state === 'enrolled' || agent.lifecycle_state === 'active') && (
-              <button
-                className="btn btn-secondary"
-                style={{ fontSize: 12, padding: '6px 14px', whiteSpace: 'nowrap' }}
-                onClick={onIssueCredential}
-              >
-                Issue Credential
-              </button>
+              <CredentialActionsMenu onIssue={onIssueCredential} onRevoke={onRevokeCredential} />
             )}
             {canTransition ? (
               <button
@@ -793,6 +874,7 @@ export default function AgentDetailPage() {
   const [error, setError] = useState<string | null>(null)
   const [showTransition, setShowTransition] = useState(false)
   const [showIssueCredential, setShowIssueCredential] = useState(false)
+  const [showRevokeCredential, setShowRevokeCredential] = useState(false)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -899,11 +981,22 @@ export default function AgentDetailPage() {
         <IssueCredentialModal agent={agent} onClose={() => setShowIssueCredential(false)} />
       )}
 
+      {showRevokeCredential && (
+        <RevokeCredentialModal
+          agent={agent}
+          onClose={(revoked) => {
+            setShowRevokeCredential(false)
+            if (revoked) load()
+          }}
+        />
+      )}
+
       {/* 1. Header */}
       <AgentHeader
         agent={agent}
         onRequestTransition={() => setShowTransition(true)}
         onIssueCredential={() => setShowIssueCredential(true)}
+        onRevokeCredential={() => setShowRevokeCredential(true)}
       />
 
       {/* 2. Activity Timeline */}

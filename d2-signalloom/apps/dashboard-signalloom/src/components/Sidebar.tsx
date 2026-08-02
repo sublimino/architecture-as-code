@@ -1,13 +1,13 @@
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { useAppContext } from '../App'
 import { isSuperadminEligible } from '../auth/superadmin'
+import { api } from '../api/client'
+import type { TenantSettingsResponse } from '../types/api'
 import HelpModal from './HelpModal'
 import ApiKeyRevealModal from './ApiKeyRevealModal'
 
-// `superadminOnly` hides a link from the nav when superadmin mode is off. This
-// is VISIBILITY ONLY, not authorization — the routes stay registered in App.tsx
-// and remain reachable by direct URL.
 interface NavItem {
   to: string
   label: string
@@ -15,6 +15,7 @@ interface NavItem {
 }
 
 const NAV: NavItem[] = [
+  { to: '/discovery', label: 'Discovery' },
   { to: '/agents', label: 'Agents' },
   { to: '/compliance', label: 'Compliance' },
   { to: '/compliance/policies', label: 'Policy Compliance' },
@@ -31,15 +32,60 @@ const NAV: NavItem[] = [
 ]
 
 export default function Sidebar() {
-  const { user, logout } = useAuth0()
+  const { user, logout, getAccessTokenSilently } = useAuth0()
   const { failingControls, setHelpOpen, superadmin, setSuperadmin } = useAppContext()
   const navigate = useNavigate()
+  const [tenant, setTenant] = useState<TenantSettingsResponse | null>(null)
+  const [needsTriage, setNeedsTriage] = useState<number | null>(null)
+  const [hoveredNav, setHoveredNav] = useState<number | null>(null)
 
-  // The identity gate wins over the stored preference: a stale
-  // signalloom.superadmin=true for a non-eligible user reveals nothing.
   const canSuperadmin = isSuperadminEligible(user)
   const showSuperadminNav = canSuperadmin && superadmin
   const navItems = NAV.filter(({ superadminOnly }) => !superadminOnly || showSuperadminNav)
+
+  useEffect(() => {
+    let canceled = false
+    ;(async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const result = await api.settings(token)
+        if (!canceled) setTenant(result)
+      } catch {
+        // Fail open — a broken tenant-card fetch must not block the nav.
+      }
+    })()
+    return () => { canceled = true }
+  }, [getAccessTokenSilently])
+
+  useEffect(() => {
+    let canceled = false
+    ;(async () => {
+      try {
+        const token = await getAccessTokenSilently()
+        const result = await api.nhi.discovered(token)
+        if (!canceled) setNeedsTriage(result.summary.needs_triage)
+      } catch {
+        // Fail open — a broken discovery-count fetch must not block the nav.
+      }
+    })()
+    return () => { canceled = true }
+  }, [getAccessTokenSilently])
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      const tag = target?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable) return
+
+      const idx = Number(e.key) - 1
+      if (Number.isInteger(idx) && idx >= 0 && idx < navItems.length) {
+        navigate(navItems[idx].to)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [navigate, navItems])
 
   return (
     <>
@@ -81,12 +127,23 @@ export default function Sidebar() {
           </button>
         </div>
 
+        {/* Tenant identity card */}
+        {tenant && (
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {tenant.org_name || 'Unnamed Organization'}
+            </div>
+          </div>
+        )}
+
         {/* Nav links */}
-        <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {navItems.map(({ to, label }) => (
+        <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
+          {navItems.map(({ to, label }, i) => (
             <NavLink
               key={to}
               to={to}
+              onMouseEnter={() => setHoveredNav(i)}
+              onMouseLeave={() => setHoveredNav(null)}
               style={({ isActive }) => ({
                 display: 'flex',
                 alignItems: 'center',
@@ -101,7 +158,26 @@ export default function Sidebar() {
                 textDecoration: 'none',
               })}
             >
-              {label}
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {label}
+                {hoveredNav === i && i < 9 && (
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 600,
+                      color: 'var(--muted)',
+                      background: 'var(--border)',
+                      borderRadius: 4,
+                      padding: '1px 5px',
+                      fontFamily: 'monospace',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                )}
+              </span>
               {label === 'Compliance' && failingControls > 0 && (
                 <span style={{
                   background: 'var(--error)',
@@ -116,11 +192,41 @@ export default function Sidebar() {
                   {failingControls > 99 ? '99+' : failingControls}
                 </span>
               )}
+              {label === 'Agents' && tenant && tenant.agent_count > 0 && (
+                <span style={{
+                  background: 'var(--border)',
+                  color: 'var(--muted)',
+                  borderRadius: 99,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  padding: '1px 6px',
+                  minWidth: 18,
+                  textAlign: 'center',
+                }}>
+                  {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
+                </span>
+              )}
+              {label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
+                <span
+                  title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
+                  style={{
+                    background: 'var(--error)',
+                    color: '#fff',
+                    borderRadius: 99,
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: '1px 6px',
+                    minWidth: 18,
+                    textAlign: 'center',
+                  }}>
+                  {needsTriage > 99 ? '99+' : needsTriage}
+                </span>
+              )}
             </NavLink>
           ))}
         </div>
 
-        {/* Bottom: help + user */}
+        {/* Bottom: help + superadmin + user */}
         <div style={{ padding: '8px 8px 16px', borderTop: '1px solid var(--border)' }}>
           <button
             onClick={() => setHelpOpen(true)}
@@ -145,7 +251,6 @@ export default function Sidebar() {
             Help & Support
           </button>
 
-          {/* Superadmin visibility toggle — demo user only, see auth/superadmin.ts */}
           {canSuperadmin && (
             <button
               data-testid="superadmin-toggle"

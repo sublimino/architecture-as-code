@@ -33,7 +33,7 @@ function setup(overrides: Partial<ComponentProps<typeof WizardFieldRenderer>> = 
 }
 
 describe('WizardFieldRenderer', () => {
-  it('renders one input per field, labelled', () => {
+  it('renders one input per field, labeled', () => {
     setup()
     expect(screen.getByLabelText(/directory \(tenant\) id/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/client secret/i)).toBeInTheDocument()

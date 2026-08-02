@@ -250,7 +250,7 @@ export default function RbacExplorerPage() {
                     <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300 }}>{c.reason ?? c.issue ?? '—'}</td>
                     <td style={td}><Pill label={c.severity ?? 'info'} /></td>
                     <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{typeof c.role === 'object' && c.role ? (c.role as { name?: string }).name ?? '—' : String(c.role ?? '—')}</code></td>
-                    <td style={{ ...td, color: 'var(--muted)' }}>{typeof c.namespace === 'object' ? '—' : (c.namespace ?? 'cluster')}</td>
+                    <td style={{ ...td, color: 'var(--muted)' }}>{typeof c.namespace === 'object' ? '—' : String(c.namespace ?? 'cluster')}</td>
                     <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 250 }}>{typeof c.details === 'string' ? c.details : '—'}</td>
                   </tr>
                 ))}

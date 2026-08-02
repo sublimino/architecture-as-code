@@ -20,12 +20,12 @@ export default function ApiKeyRevealModal() {
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.8)',
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000,
       }}
     >
       <div
-        className="card"
+        className="card slide-up"
         style={{ width: 520, maxWidth: '95vw', padding: 28 }}
         role="dialog"
         aria-modal="true"

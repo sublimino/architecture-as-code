@@ -5,7 +5,7 @@
  * We mock demoMode to ensure fake data resolves, and mock auth for the token.
  */
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 
 // CryptographyPage calls useAuth0() to get a token for api.health.crypto().
@@ -19,7 +19,26 @@ vi.mock('../api/demoMode', () => ({
   isDemoMode: () => true,
 }))
 
+// api.health.crypto is spied — its default implementation is the real
+// function (still routed through demoMode/fakeData, so existing demo-mode
+// tests are unaffected), but individual tests can override a single call
+// with mockResolvedValueOnce/mockRejectedValueOnce to simulate the live
+// backend returning zero proofs or being unreachable.
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>()
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      health: { crypto: vi.fn(actual.api.health.crypto) },
+    },
+  }
+})
+
+import { api } from '../api/client'
 import CryptographyPage from './CryptographyPage'
+
+const cryptoSpy = vi.mocked(api.health.crypto)
 
 function renderPage() {
   return render(
@@ -27,6 +46,16 @@ function renderPage() {
       <CryptographyPage />
     </MemoryRouter>,
   )
+}
+
+/** Scopes queries to the <section> containing a given heading, since the
+ *  Cipher Discovery and Algorithm Inventory tables share column names
+ *  ('End of life') and, for P-256, share EOL badge text too. */
+function sectionFor(headingName: string) {
+  const heading = screen.getByRole('heading', { name: headingName })
+  const section = heading.closest('section')
+  if (!section) throw new Error(`no <section> ancestor for heading "${headingName}"`)
+  return within(section)
 }
 
 describe('CryptographyPage', () => {
@@ -64,20 +93,39 @@ describe('CryptographyPage', () => {
     expect(screen.getByText('Workload identities')).toBeInTheDocument()
   })
 
-  it('renders the Algorithm Inventory with PQC algorithms and EOL dates', () => {
+  it('renders the Algorithm Inventory with PQC algorithms and sourced EOL dates', () => {
     renderPage()
+    const table = sectionFor('Algorithm Inventory')
     // PQC algorithms — standardised, no EOL
-    expect(screen.getByText('ML-KEM (Kyber)')).toBeInTheDocument()
-    expect(screen.getByText('ML-DSA (Dilithium)')).toBeInTheDocument()
-    expect(screen.getByText('SLH-DSA (SPHINCS+)')).toBeInTheDocument()
-    expect(screen.getByText('FIPS 203')).toBeInTheDocument()
-    expect(screen.getByText('FIPS 204')).toBeInTheDocument()
-    expect(screen.getByText('FIPS 205')).toBeInTheDocument()
-    // Classical algorithms with EOL
-    expect(screen.getByText('RSA-2048')).toBeInTheDocument()
-    expect(screen.getAllByText('2030').length).toBeGreaterThanOrEqual(3)
-    // Quantum-resistant symmetric
-    expect(screen.getByText('AES-256')).toBeInTheDocument()
+    expect(table.getByText('ML-KEM (Kyber)')).toBeInTheDocument()
+    expect(table.getByText('ML-DSA (Dilithium)')).toBeInTheDocument()
+    expect(table.getByText('SLH-DSA (SPHINCS+)')).toBeInTheDocument()
+    expect(table.getByText('FIPS 203')).toBeInTheDocument()
+    expect(table.getByText('FIPS 204')).toBeInTheDocument()
+    expect(table.getByText('FIPS 205')).toBeInTheDocument()
+    // Classical/quantum-vulnerable algorithms carry a sourced EOL badge, not a bare literal.
+    expect(table.getByText('RSA-2048')).toBeInTheDocument()
+    expect(table.getByText('ECDH P-256')).toBeInTheDocument() // added so the Key exchange click-through has a real, correctly-typed target
+    const eolBadges = table.getAllByText('EOL 2035')
+    expect(eolBadges.length).toBe(5) // RSA-2048, ECDSA P-256, ECDSA P-384, X25519, ECDH P-256
+    for (const badge of eolBadges) {
+      expect(badge).toHaveAttribute('title', expect.stringContaining('NIST IR 8547'))
+    }
+    expect(table.getAllByText('Quantum-vulnerable — disallowed after 2035 (NIST IR 8547 IPD)').length).toBe(5)
+    // Quantum-resistant symmetric — no EOL
+    expect(table.getByText('AES-256')).toBeInTheDocument()
+    expect(table.getAllByText('None').length).toBeGreaterThanOrEqual(4) // 3 PQC algorithms + AES-256
+  })
+
+  it('agrees between Cipher Discovery and Algorithm Inventory on the P-256 EOL date and citation', () => {
+    renderPage()
+    const cipherBadge = sectionFor('Cipher Discovery (PQC)').getAllByText('EOL 2035')[0]
+    const inventoryBadge = sectionFor('Algorithm Inventory').getAllByText('EOL 2035').find(
+      (el) => el.closest('tr')?.textContent?.includes('ECDH P-256'),
+    )
+    expect(inventoryBadge).toBeDefined()
+    // Same underlying data-file entry backs both tables, so the citation must be identical, not just the date.
+    expect(cipherBadge.getAttribute('title')).toBe(inventoryBadge!.getAttribute('title'))
   })
 
   it('loads workload-identity proofs from the API in demo mode', async () => {
@@ -86,5 +134,49 @@ describe('CryptographyPage', () => {
       expect(screen.getByText('Dashboard workload exchanged SPIFFE identity for OpenBao access')).toBeInTheDocument()
     })
     expect(screen.getByText('Forged service-account replay was rejected')).toBeInTheDocument()
+  })
+
+  it('shows an accurate "unreachable" message when the proof service call fails', async () => {
+    cryptoSpy.mockRejectedValueOnce(new Error('network error'))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Workload-identity proof service unreachable')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/API in development/)).not.toBeInTheDocument()
+  })
+
+  it('shows an accurate "no proofs reported" message when the API succeeds with zero proofs', async () => {
+    cryptoSpy.mockResolvedValueOnce({ tenant_id: 'demo-tenant', proofs: [] })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('No workload-identity proofs reported')).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/API in development/)).not.toBeInTheDocument()
+  })
+
+  it('adds an End of Life column to the Cipher Discovery table, sourced per cipher', () => {
+    renderPage()
+    const table = sectionFor('Cipher Discovery (PQC)')
+    expect(table.getByRole('columnheader', { name: 'End of life' })).toBeInTheDocument()
+    // Classical key exchange (ECDHE P-256, used by postgres and redis) is flagged with a sourced EOL date.
+    const eolBadges = table.getAllByText('EOL 2035')
+    expect(eolBadges.length).toBe(2)
+    for (const badge of eolBadges) {
+      expect(badge).toHaveAttribute('title', expect.stringContaining('NIST IR 8547'))
+    }
+    // PQC-ready/hybrid ciphers have no EOL.
+    expect(table.getAllByText('None').length).toBeGreaterThan(0)
+  })
+
+  it('makes the Key exchange column click through to the matching Algorithm Inventory row', () => {
+    renderPage()
+    const links = screen.getAllByRole('button', { name: /View ECDHE P-256 in Algorithm Inventory/ })
+    const targetRow = screen.getByText('ECDH P-256').closest('tr')
+    expect(targetRow).not.toBeNull()
+    expect(targetRow).toHaveAttribute('data-highlighted', 'false')
+
+    fireEvent.click(links[0])
+
+    expect(targetRow).toHaveAttribute('data-highlighted', 'true')
   })
 })

@@ -8,10 +8,13 @@ pool, so the assertions stay hermetic).
 """
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import socket
 import time
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -247,6 +250,35 @@ def test_unknown_preference_fields_are_rejected(client: TestClient) -> None:
 # Pooled path, driven through a recording fake pool
 # ---------------------------------------------------------------------------
 
+class _FakeConnection:
+    """The connection ``api_compat._write()`` yields.
+
+    Statement handling is the pool's; what a connection adds is a transaction
+    whose rollback actually undoes the writes staged inside it.
+    """
+
+    def __init__(self, pool: "_FakePool") -> None:
+        self._pool = pool
+
+    async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
+        return await self._pool.fetchrow(query, *args)
+
+    async def fetch(self, query: str, *args: Any) -> list[dict[str, Any]]:
+        return await self._pool.fetch(query, *args)
+
+    async def execute(self, query: str, *args: Any) -> None:
+        await self._pool.execute(query, *args)
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator[None]:
+        snapshot = self._pool.snapshot()
+        try:
+            yield
+        except BaseException:
+            self._pool.restore(snapshot)
+            raise
+
+
 class _FakePool:
     """Minimal asyncpg.Pool stand-in for the tenant_settings read/write path.
 
@@ -257,6 +289,16 @@ class _FakePool:
     def __init__(self) -> None:
         self.tenant_settings: dict[str, dict[str, Any]] = {}
         self.audit_events: list[dict[str, Any]] = []
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncIterator[_FakeConnection]:
+        yield _FakeConnection(self)
+
+    def snapshot(self) -> tuple[Any, Any]:
+        return copy.deepcopy(self.tenant_settings), copy.deepcopy(self.audit_events)
+
+    def restore(self, snapshot: tuple[Any, Any]) -> None:
+        self.tenant_settings, self.audit_events = snapshot
 
     async def fetchrow(self, query: str, *args: Any) -> dict[str, Any] | None:
         if "FROM tenant_settings" in query:

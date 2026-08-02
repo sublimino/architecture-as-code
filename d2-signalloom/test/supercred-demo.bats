@@ -87,18 +87,24 @@ teardown() {
   # OpenBao directly via `kubectl exec deployment/openbao -- bao kv put ...`
   # as part of its own idempotent cleanup, and deletes this Job on the way in
   # without recreating it — Flux only recreates it on inf-bao's ~30m
-  # reconcile interval. A bare `wait_k8s_ready job ... --for condition=
-  # complete` right after step 1 would therefore poll (however robustly) for
-  # up to 30 minutes for an object that plain doesn't exist yet — proven by
+  # reconcile interval. So after step 1 the Job's *absence* is the correct
+  # state; the seeded secret is the durable postcondition step 1 actually
+  # guarantees, and that's what "bootstrap completed" should assert — not
+  # the Job object, which the script deliberately removes. (Proven by
   # force-reconciling inf-bao's Kustomization and watching the Job reappear
-  # and complete in ~4s. Trigger that same reconcile here so the assertion
-  # is on the real Job resource converging under GitOps, the way the demo
-  # intends, without racing Flux's clock.
-  kubectl -n "$NAMESPACE_BAO" annotate kustomization infra-configs \
-    "reconcile.fluxcd.io/requestedAt=$(date +%s)" --overwrite >/dev/null
-  run wait_k8s_ready job openbao-supercred-bootstrap -n "$NAMESPACE_BAO" \
-    --for condition=complete 60
+  # and complete in ~4s — but that only proves Flux can run a Job, which
+  # isn't what this test is named for, and mutating shared Flux state isn't
+  # something a healthz-style test should do on a cluster other sessions are
+  # using.) openbao's image ships a shell + the `bao` CLI (it is NOT
+  # distroless), so `kubectl exec` is the correct probe here — unlike
+  # cardvault/policy-engine above, which are.
+  run kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    bao kv get -format=json kv/signalloom/cardvault-agent
   [ "$status" -eq 0 ]
+  # `bao -format=json` pretty-prints (colon-space), unlike the compact JSON
+  # the policy-engine API returns below — the space here is deliberate.
+  [[ "$output" == *'"username": "cardvault-svc-account"'* ]]
 }
 
 @test "SUPERCRED cardvault-agent has supercred label" {

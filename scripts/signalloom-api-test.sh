@@ -49,32 +49,32 @@ run_pytest() {
 case "${TIER}" in
   contract)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py tests/test_migrations.py
     ;;
 
   integration)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py tests/test_migrations.py
 
     echo ""
     echo "=== Tier 2: Integration tests (live Postgres) ==="
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py
     fi
     ;;
 
   e2e)
     echo "=== Tier 1: Contract tests (hermetic) ==="
-    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py
+    run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier1.py tests/test_migrations.py
 
     echo ""
     echo "=== Tier 2: Integration tests (live Postgres) ==="
     if [ -z "${DATABASE_URL:-}" ]; then
       echo "SKIP: DATABASE_URL not set — skipping Tier 2"
     else
-      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py
+      run_pytest "${PYTEST_ARGS[@]}" tests/test_contract_tier2.py tests/test_migrations_integration.py
     fi
 
     echo ""

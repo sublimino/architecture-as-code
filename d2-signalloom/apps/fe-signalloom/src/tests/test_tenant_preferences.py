@@ -9,11 +9,13 @@ pool, so the assertions stay hermetic).
 from __future__ import annotations
 
 import json
+import logging
 import socket
 import time
 from types import SimpleNamespace
 from typing import Any
 
+import asyncpg
 import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
@@ -290,6 +292,12 @@ class _FakePool:
         if "UPDATE tenant_settings" in query and "preferred_scan_cadence_hours" in query:
             cadence, alert_email, threshold, tenant_id = args
             row = self.tenant_settings[tenant_id]
+            if "preferred_scan_cadence_hours" not in row:
+                # What a real pre-migration database does.
+                raise asyncpg.UndefinedColumnError(
+                    'column "preferred_scan_cadence_hours" of relation '
+                    '"tenant_settings" does not exist',
+                )
             row["preferred_scan_cadence_hours"] = cadence
             row["alert_email"] = alert_email
             row["alert_threshold"] = threshold
@@ -398,20 +406,33 @@ def test_pooled_path_rejects_nonsense_before_touching_the_database(
     assert pool.tenant_settings == {}
 
 
+# ---------------------------------------------------------------------------
+# Degradation policy: serve defaults on read, but announce the substitution.
+#
+# Of the three options -- both endpoints degrade, both endpoints fail, or
+# degrade-but-say-so -- this is the third. GET keeps working so a settings page
+# does not 500 over a cadence, PATCH keeps failing loudly rather than pretending
+# to persist, and every substituted value is named in a WARNING so the condition
+# is visible instead of being a plausible-looking invented number.
+# ---------------------------------------------------------------------------
+
+_PRE_005_ROW = {
+    "tenant_id": "tenant-prefs-pooled",
+    "org_name": "Legacy Org",
+    "plan_tier": "enterprise",
+    "api_key_status": "active",
+    "selected_frameworks": ["eu-ai-act"],
+    "consent_accepted_at": None,
+    "cookie_preferences": None,
+}
+
+
 def test_pooled_get_tolerates_a_database_that_predates_migration_005(
     pooled_client: tuple[TestClient, _FakePool],
 ) -> None:
     """A not-yet-migrated tenant_settings row must not turn a 404 into a 500."""
     http, pool = pooled_client
-    pool.tenant_settings["tenant-prefs-pooled"] = {
-        "tenant_id": "tenant-prefs-pooled",
-        "org_name": "Legacy Org",
-        "plan_tier": "enterprise",
-        "api_key_status": "active",
-        "selected_frameworks": ["eu-ai-act"],
-        "consent_accepted_at": None,
-        "cookie_preferences": None,
-    }
+    pool.tenant_settings["tenant-prefs-pooled"] = dict(_PRE_005_ROW)
 
     response = http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
 
@@ -420,3 +441,114 @@ def test_pooled_get_tolerates_a_database_that_predates_migration_005(
     assert body["preferred_scan_cadence_hours"] == 24
     assert body["alert_email"] is None
     assert body["alert_threshold"] == 1
+
+
+def test_pooled_get_announces_that_it_is_serving_defaults(
+    pooled_client: tuple[TestClient, _FakePool],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Substituting a default is fine; substituting it silently is not."""
+    http, pool = pooled_client
+    pool.tenant_settings["tenant-prefs-pooled"] = dict(_PRE_005_ROW)
+
+    with caplog.at_level(logging.WARNING, logger="api_compat"):
+        http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings, "a degraded read must be visible in the logs"
+    message = warnings[0].getMessage()
+    assert "tenant-prefs-pooled" in message
+    assert "preferred_scan_cadence_hours" in message
+    assert "alert_email" in message
+    assert "alert_threshold" in message
+    assert "NOT stored values" in message
+    assert "005_tenant_scan_preferences" in message
+
+
+def test_a_healthy_read_logs_no_warning(
+    pooled_client: tuple[TestClient, _FakePool],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The warning must mean something, so a migrated database must be silent."""
+    http, _pool = pooled_client
+
+    with caplog.at_level(logging.WARNING, logger="api_compat"):
+        response = http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
+
+    assert response.status_code == 200, response.text
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+def test_a_stored_null_alert_email_is_not_reported_as_missing(
+    pooled_client: tuple[TestClient, _FakePool],
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """NULL is a legitimate alert_email, unlike a column that is not there."""
+    http, pool = pooled_client
+    row = dict(_PRE_005_ROW)
+    row.update(
+        preferred_scan_cadence_hours=6, alert_email=None, alert_threshold=2,
+    )
+    pool.tenant_settings["tenant-prefs-pooled"] = row
+
+    with caplog.at_level(logging.WARNING, logger="api_compat"):
+        response = http.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
+
+    assert response.json()["alert_email"] is None
+    assert [r for r in caplog.records if r.levelno == logging.WARNING] == []
+
+
+def test_both_storage_paths_degrade_identically(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The in-memory path and the pooled path must not disagree under the same fault."""
+    # In-memory store with the preferences entry absent.
+    client.get("/api/tenant/settings", headers=_bearer("prefs-fresh"))
+    monkeypatch.delitem(api_compat._TENANT_PREFERENCES, "tenant-prefs-fresh")
+    with caplog.at_level(logging.WARNING, logger="api_compat"):
+        in_memory = client.get("/api/tenant/settings", headers=_bearer("prefs-fresh"))
+    in_memory_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+    # Pooled path with the columns absent.
+    pool = _FakePool()
+    pool.tenant_settings["tenant-prefs-pooled"] = dict(_PRE_005_ROW)
+
+    async def _fake_get_pool() -> _FakePool:
+        return pool
+
+    monkeypatch.setattr(api_compat, "_get_pool", _fake_get_pool)
+    caplog.clear()
+    with caplog.at_level(logging.WARNING, logger="api_compat"):
+        pooled = client.get("/api/tenant/settings", headers=_bearer("prefs-pooled"))
+    pooled_warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+
+    assert in_memory.status_code == pooled.status_code == 200
+    for field in ("preferred_scan_cadence_hours", "alert_email", "alert_threshold"):
+        assert in_memory.json()[field] == pooled.json()[field]
+    assert len(in_memory_warnings) == len(pooled_warnings) == 1
+    for column in ("preferred_scan_cadence_hours", "alert_email", "alert_threshold"):
+        assert column in in_memory_warnings[0]
+        assert column in pooled_warnings[0]
+
+
+def test_patch_still_fails_loudly_when_the_columns_are_absent(
+    pooled_client: tuple[TestClient, _FakePool],
+) -> None:
+    """Read degrades; write does not pretend. The pair is honest either way."""
+    http, pool = pooled_client
+    pool.tenant_settings["tenant-prefs-pooled"] = dict(_PRE_005_ROW)
+
+    response = http.patch(
+        "/api/tenant/settings/preferences",
+        json={
+            "preferred_scan_cadence_hours": 6,
+            "alert_email": "nope@signalloom.local",
+            "alert_threshold": 2,
+        },
+        headers=_bearer("prefs-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert response.json()["error"]["code"] == "internal_error"
+    stored = pool.tenant_settings["tenant-prefs-pooled"]
+    assert "preferred_scan_cadence_hours" not in stored

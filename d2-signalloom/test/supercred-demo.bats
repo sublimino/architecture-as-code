@@ -113,9 +113,20 @@ teardown() {
 # ─── Step 2 validation (credential chain) ────────────────────────────────────
 
 @test "SUPERCRED cardvault rejects unauthenticated requests" {
-  run kubectl -n "$NAMESPACE_INFRA" exec deployment/cardvault -- \
-    wget -qO- http://localhost:8080/api/v1/cards 2>&1
-  [ "$status" -ne 0 ]
+  # This asserted only `status -ne 0` on a `kubectl exec ... wget`. cardvault is
+  # distroless, so that exec always failed with "wget: executable file not found"
+  # — a nonzero exit that satisfied the assertion regardless of what cardvault
+  # actually did. The test passed identically whether the endpoint required auth
+  # or served card data to anyone who asked. A security assertion that cannot
+  # fail is worse than no assertion, because it reads as coverage.
+  #
+  # Now probed from outside the container and asserted on the real HTTP status.
+  port_forward_wait cardvault "$NAMESPACE_INFRA" 18080 8080
+
+  # -f is deliberately omitted: curl must report the status, not exit early on it.
+  run curl -s -o /dev/null -w '%{http_code}' http://localhost:18080/api/v1/cards
+  [ "$status" -eq 0 ]
+  [[ "$output" == "401" || "$output" == "403" ]]
 }
 
 # ─── Step 3 validation (compliance scan) ─────────────────────────────────────

@@ -606,6 +606,28 @@ signalloom-up: ## Restore Signal Loom frontend to the cluster.
 acceptance-test: ## Run browser-driven acceptance tests (Playwright).
 	./scripts/acceptance-test.sh
 
+##@ Public tunnel (ngrok)
+
+.PHONY: public
+public: ## Expose SignalLoom publicly via ngrok tunnel (cookie-gated).
+	./scripts/public-tunnel.sh up
+
+.PHONY: public-down
+public-down: ## Tear down the public tunnel and restore Dex config.
+	./scripts/public-tunnel.sh down
+
+.PHONY: public-status
+public-status: ## Show public tunnel status and URL.
+	./scripts/public-tunnel.sh status
+
+.PHONY: public-test
+public-test: ## Run acceptance tests against the public ngrok URL.
+	@url=$$(./scripts/public-tunnel.sh url) || { echo "No tunnel running; run 'make public' first"; exit 1; }; \
+	DASHBOARD_URL="$$url" \
+	SIGNALLOOM_API_URL="$$url" \
+	SIGNALLOOM_DEX_URL="$$url" \
+	./scripts/acceptance-test.sh signalloom-test-1.spec.ts
+
 ##@ CI
 
 CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=ci-reports-2 GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log

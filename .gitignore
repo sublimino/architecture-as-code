@@ -51,6 +51,10 @@ test/acceptance/.auth/
 # riskctl build output (regenerate with `make riskctl`)
 tools/riskctl/riskctl
 
+# Public tunnel state (make public / make public-down)
+.tunnel/
+tunnel-policy.yaml
+
 # Session artifacts (PAI work memory, plans, CI reports, test results)
 MEMORY/
 Plans/

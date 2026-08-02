@@ -28,7 +28,15 @@ const PAGES: PageCase[] = [
   { nav: "Audit Trail", heading: "Audit Trail" },
   { nav: "Cryptography", heading: "Cryptography", content: ["Cluster Root of Trust", "SPIFFE / SPIRE Bootstrap", "Cipher Discovery (PQC)"] },
   { nav: "Federated Services", heading: "Federated Services", content: ["Trust Zones", "payments-api", "Cofide Go SDK"] },
-  { nav: "Collusion & Access", heading: "Collusion & Access", content: ["Collusion Pairs", "Remediation Priorities"] },
+  // "Collusion Pairs" is deliberately NOT in this content list: the page's
+  // demo-mode Run selector has options labelled e.g. "Prod GitOps Cluster
+  // (EU) · 2026-07-28 09:12 · 2 collusion pairs" (CollusionAccessPage.tsx's
+  // demoOptions()), and getByText() is case-insensitive-substring by
+  // default, so it matches that hidden <option> before the real "Collusion
+  // Pairs" <h2> further down the page and times out waiting for it to
+  // become visible. The dedicated "uses the radial cluster graph background"
+  // test below asserts the Collusion Pairs heading via role scoping instead.
+  { nav: "Collusion & Access", heading: "Collusion & Access", content: ["Remediation Priorities"] },
   { nav: "RBAC Analysis", heading: "RBAC Analysis", content: ["KubeSec-AFM"] },
   { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["KubeSec-AFM RBAC analysis"] },
   { nav: "Settings", heading: "Settings" },
@@ -78,6 +86,10 @@ test.describe("authenticated dashboard", () => {
   test("Collusion & Access uses the radial cluster graph background", async ({ page }) => {
     await page.getByRole("link", { name: "Collusion & Access", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Collusion & Access" })).toBeVisible({ timeout: 20_000 });
+    // Role-scoped (not getByText) so this can't match the Run selector's
+    // hidden demo option that also contains the substring "collusion pairs"
+    // — see the comment on PAGES above.
+    await expect(page.getByRole("heading", { level: 2, name: "Collusion Pairs" })).toBeVisible({ timeout: 15_000 });
     const bg = page.getByTestId("ktp-graph-bg");
     await expect(bg).toHaveAttribute("data-bg", "/ktp-collusion-graph.png");
     // The background asset is actually served (not 404/403).

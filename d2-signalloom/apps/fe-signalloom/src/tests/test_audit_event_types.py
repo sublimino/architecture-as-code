@@ -28,7 +28,7 @@ MIGRATIONS_DIR = SRC_DIR / "db" / "migrations"
 
 # The migration that owns the constraint today. When a later migration widens it
 # again, point this at that file — the test will then track the newer list.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "007_audit_event_types.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "010_agent_credentials.sql"
 
 
 def _emitted_event_types() -> set[str]:

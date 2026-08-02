@@ -42,6 +42,7 @@ from tests.contract import (
     NHIScanListResponse,
     PostureResponse,
     ReassessmentResponse,
+    RevokeCredentialResponse,
     RotateApiKeyResponse,
     SupportRequestResponse,
     TenantSettingsResponse,
@@ -225,6 +226,7 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("POST", "/api/agents", {"name": "Test Agent", "type": "Custom"}, AgentResponse, "create agent"),
     ("GET", f"/api/agents/{_SEEDED_AGENT_ID}", None, AgentResponse, "get single agent"),
     ("POST", f"/api/agents/{_SEEDED_AGENT_ID}/credentials", None, IssueCredentialResponse, "issue credential"),
+    ("POST", f"/api/agents/{_SEEDED_AGENT_ID}/credentials/revoke", None, RevokeCredentialResponse, "revoke credentials"),
     ("POST", f"/api/agents/{_SEEDED_AGENT_ID}/transition", {"to_state": "active", "reason": "test"}, TransitionResponse, "transition agent"),
     ("GET", f"/api/agents/{_SEEDED_AGENT_ID}/violations", None, ViolationListResponse, "list agent violations"),
     ("POST", f"/api/agents/violations/{_SEEDED_VIOLATION_ID}/acknowledge", None, None, "acknowledge violation"),
@@ -369,11 +371,11 @@ def test_nhi_report_json_response_shape(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Coverage assertion: ensure the table covers all 29 endpoints
+# Coverage assertion: ensure the table covers all 30 endpoints
 # ---------------------------------------------------------------------------
 
-def test_endpoint_table_covers_all_29_routes() -> None:
-    """Sanity check: the parametrized table has exactly 29 entries."""
-    assert len(ENDPOINT_TABLE) == 29, (
-        f"expected 29 endpoints in the table, got {len(ENDPOINT_TABLE)}"
+def test_endpoint_table_covers_all_30_routes() -> None:
+    """Sanity check: the parametrized table has exactly 30 entries."""
+    assert len(ENDPOINT_TABLE) == 30, (
+        f"expected 30 endpoints in the table, got {len(ENDPOINT_TABLE)}"
     )

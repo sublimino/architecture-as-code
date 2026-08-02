@@ -12,13 +12,32 @@ vi.mock('axios', () => ({
 
 import { api } from './client'
 import { setDemoMode } from './demoMode'
-import { FAKE_ROUTE_COUNT } from './fakeData'
+import { FAKE_ROUTE_COUNT, resolveFake } from './fakeData'
+import type { IssueCredentialResponse, RevokeCredentialResponse } from '../types/api'
 
 describe('demo mode', () => {
   beforeEach(() => setDemoMode(false))
 
-  it('covers at least the 27 client endpoints', () => {
-    expect(FAKE_ROUTE_COUNT).toBeGreaterThanOrEqual(27)
+  it('covers at least the current client endpoint surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(36)
+  })
+
+  it('serves a shape-valid revoke fixture and keeps adjacent credential routes distinct', () => {
+    const issued = resolveFake('POST', '/agents/tenant-demo:agent-inventory/credentials') as
+      | IssueCredentialResponse
+      | undefined
+    const revoked = resolveFake('POST', '/agents/tenant-demo:agent-inventory/credentials/revoke') as
+      | RevokeCredentialResponse
+      | undefined
+
+    expect(issued).toBeDefined()
+    expect(issued).toHaveProperty('identity_token')
+    expect(issued).toHaveProperty('token_expires_at')
+    expect(revoked).toEqual({
+      agent_id: 'tenant-demo:agent-inventory',
+      name: 'Inventory Agent',
+      tokens_revoked: 3,
+    })
   })
 
   it('renders fixtures even though every HTTP call fails', async () => {

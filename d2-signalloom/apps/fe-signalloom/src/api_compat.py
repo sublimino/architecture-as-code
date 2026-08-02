@@ -14,7 +14,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal
 
@@ -180,6 +180,14 @@ class IssueCredentialResponse(BaseModel):
     identity_token: str
     token_expires_at: str
     token_note: str
+
+
+class RevokeCredentialResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    name: str
+    tokens_revoked: int
 
 
 class TransitionRequest(BaseModel):
@@ -883,6 +891,7 @@ async def _ensure_tenant_settings(executor: Any, tenant_id: str) -> asyncpg.Reco
 
 _STORE_LOCK = threading.Lock()
 _AGENTS: dict[str, dict[str, dict[str, Any]]] = {}
+_AGENT_CREDENTIALS: dict[str, dict[str, list[dict[str, Any]]]] = {}
 _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
@@ -978,6 +987,61 @@ def _default_compliance_summary() -> dict[str, Any]:
         "pending": 1,
         "posture_score": 0.82,
     }
+
+
+def _credential_expiry() -> tuple[datetime, str]:
+    """Return the stored expiry timestamp and the exact wire value.
+
+    The old credential-issue path returned a hard-coded expiry while storing
+    nothing. Once revoke counts depend on persisted rows, the database value and
+    the API value must be the same timestamp, computed once, or the product
+    starts lying about when a credential actually dies.
+    """
+    expires_at = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(days=30)
+    expires_at_iso = _ts(expires_at)
+    if expires_at_iso is None:
+        raise APIError(500, "internal_error", "Failed to compute credential expiry")
+    return expires_at, expires_at_iso
+
+
+def _fixture_agent_for_credentials(tenant_id: str, agent_id: str) -> dict[str, Any]:
+    """Resolve a fixture-store agent strictly for credential issuance/revocation.
+
+    ``get_agent()`` synthesizes unknown and non-UUID ids so the dashboard can
+    still render inventory rows without a database. Credentials are different:
+    revoke counts are only truthful if issue and revoke both target a concrete
+    stored agent. So the credential endpoints do *not* synthesize. Unknown ids
+    fail closed with the same typed 404 in fixture mode and database mode.
+
+    Caller is responsible for seeding and, when mutating shared fixture state,
+    holding ``_STORE_LOCK``.
+    """
+    agent = _AGENTS[tenant_id].get(agent_id)
+    if agent is None:
+        raise APIError(404, "not_found", "Agent not found")
+    return agent
+
+
+async def _db_agent_for_credentials(conn: Any, tenant_id: str, agent_id: str) -> tuple[uuid.UUID, str]:
+    """Resolve the credential subject against ``agent_registry`` or fail closed.
+
+    ``agent_credentials.agent_id`` is a foreign key to the registry UUID. A
+    k8s-style synthetic id cannot be stored there, and pretending otherwise
+    would make ``tokens_revoked`` untrustworthy. The database-backed path
+    therefore requires a real registry row and surfaces a typed 404 when it
+    does not exist.
+    """
+    agent_uuid = _try_uuid(agent_id)
+    if agent_uuid is None:
+        raise APIError(404, "not_found", "Agent not found")
+
+    row = await conn.fetchrow(
+        "SELECT id, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+        agent_uuid, tenant_id,
+    )
+    if row is None:
+        raise APIError(404, "not_found", "Agent not found")
+    return agent_uuid, str(row["name"])
 
 
 def _make_agent(
@@ -1108,6 +1172,7 @@ def _seed_unknown_account(tenant_id: str, account_id: str) -> dict[str, Any]:
 def _ensure_seeded(tenant_id: str) -> None:
     with _STORE_LOCK:
         if tenant_id in _AGENTS:
+            _AGENT_CREDENTIALS.setdefault(tenant_id, {})
             return
 
         created_at = "2026-07-27T00:00:00Z"
@@ -1189,6 +1254,7 @@ def _ensure_seeded(tenant_id: str) -> None:
         }
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_at"] = "2026-07-27T01:30:00Z"
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_by"] = "demo-actor"
+        _AGENT_CREDENTIALS[tenant_id] = {}
         _TENANT_FRAMEWORKS[tenant_id] = ["eu-ai-act"]
         _TENANT_PREFERENCES[tenant_id] = _default_scan_preferences()
         _COOKIE_PREFS[tenant_id] = {"strictly_necessary": True, "analytics": False}
@@ -1472,19 +1538,93 @@ async def issue_agent_credential(
     agent_id: str,
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> IssueCredentialResponse:
-    now = _now_iso()
     token = f"demo.{secrets.token_urlsafe(18)}"
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    issued_at = _now_iso()
+    expires_at, expires_at_iso = _credential_expiry()
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            agent = _fixture_agent_for_credentials(tenant_id, agent_id)
+            _AGENT_CREDENTIALS[tenant_id].setdefault(agent_id, []).append(
+                {
+                    "token_sha256": token_hash,
+                    "issued_at": issued_at,
+                    "expires_at": expires_at_iso,
+                    "revoked_at": None,
+                    "revoked_by": None,
+                },
+            )
+            name = str(agent["name"])
     else:
-        await _audit_log(pool, tenant_id, "agent.credential_issued", agent_id, None, "demo-actor", {"agent_id": agent_id})
+        # Credential issuance now has a business write as well as an audit row.
+        # Both must use the same connection inside one transaction or a failing
+        # audit insert recreates the original defect: a live credential that the
+        # caller was told failed to mint.
+        async with _write(pool) as conn:
+            agent_uuid, name = await _db_agent_for_credentials(conn, tenant_id, agent_id)
+            await conn.execute(
+                """INSERT INTO public.agent_credentials (tenant_id, agent_id, token_sha256, expires_at)
+                   VALUES ($1, $2, $3, $4)""",
+                tenant_id, agent_uuid, token_hash, expires_at,
+            )
+            await _audit_log(
+                conn, tenant_id, "agent.credential_issued", agent_id, name, "demo-actor",
+                {"expires_at": expires_at_iso},
+            )
     return IssueCredentialResponse(
         agent_id=agent_id,
-        name=f"{agent_id.split(':')[-1]} credential",
+        name=name,
         identity_token=token,
-        token_expires_at="2026-08-26T00:00:00Z",
-        token_note=f"Issued for tenant {tenant_id} at {now}",
+        token_expires_at=expires_at_iso,
+        token_note=f"Issued for tenant {tenant_id} at {issued_at}",
+    )
+
+
+@router.post("/agents/{agent_id}/credentials/revoke", response_model=RevokeCredentialResponse, responses=ERROR_RESPONSES)
+async def revoke_agent_credential(
+    agent_id: str,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> RevokeCredentialResponse:
+    pool = await _get_pool()
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            agent = _fixture_agent_for_credentials(tenant_id, agent_id)
+            tokens_revoked = 0
+            for credential in _AGENT_CREDENTIALS[tenant_id].get(agent_id, []):
+                if credential["revoked_at"] is None:
+                    credential["revoked_at"] = _now_iso()
+                    credential["revoked_by"] = "demo-actor"
+                    tokens_revoked += 1
+        return RevokeCredentialResponse(
+            agent_id=agent_id,
+            name=str(agent["name"]),
+            tokens_revoked=tokens_revoked,
+        )
+
+    async with _write(pool) as conn:
+        agent_uuid, agent_name = await _db_agent_for_credentials(conn, tenant_id, agent_id)
+        row = await conn.fetchrow(
+            """WITH revoked AS (
+                   UPDATE public.agent_credentials
+                      SET revoked_at = now(), revoked_by = $3
+                    WHERE tenant_id = $1 AND agent_id = $2 AND revoked_at IS NULL
+                    RETURNING 1
+               )
+               SELECT COUNT(*)::int AS tokens_revoked FROM revoked""",
+            tenant_id, agent_uuid, "demo-actor",
+        )
+        tokens_revoked = 0 if row is None else int(row["tokens_revoked"])
+        await _audit_log(
+            conn, tenant_id, "agent.credential_revoked", agent_id, agent_name, "demo-actor",
+            {"tokens_revoked": tokens_revoked},
+        )
+    return RevokeCredentialResponse(
+        agent_id=agent_id,
+        name=agent_name,
+        tokens_revoked=tokens_revoked,
     )
 
 

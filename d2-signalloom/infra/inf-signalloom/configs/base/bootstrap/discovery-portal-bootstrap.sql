@@ -892,6 +892,7 @@ CREATE INDEX IF NOT EXISTS idx_platform_users_tenant
 CREATE INDEX IF NOT EXISTS idx_platform_users_email
     ON public.platform_users (email);
 
+DROP TRIGGER IF EXISTS set_platform_users_updated_at ON public.platform_users;
 CREATE TRIGGER set_platform_users_updated_at
     BEFORE UPDATE ON public.platform_users
     FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();

@@ -14,6 +14,18 @@ const LIMIT = 50
 // 'agent.stunned' is listed from the dotted set so far — filtering for an
 // enforcement action is the one the operator reaches for first. Closing the
 // rest of the drift is a separate change.
+//
+// Adding a type here has a non-obvious test consequence, which two of us have
+// now paid for independently: every entry also renders as an <option> in the
+// filter <select> below, so screen.findByText('agent.stunned') matches the
+// dropdown option rather than the table cell, and assertions silently target
+// the wrong node. Scope audit-table queries to the tbody. See
+// pages/stunReachesTimeline.test.tsx.
+//
+// A new type must be added to BOTH lists — one missing from EVENT_COLORS
+// renders grey, one missing from EVENT_TYPES cannot be filtered at all. And a
+// type the backend emits also needs a migration widening the audit_events
+// CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
   'agent.stunned',
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',

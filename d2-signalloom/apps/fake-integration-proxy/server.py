@@ -13,7 +13,6 @@ import os
 import re
 import ssl
 import sys
-import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -101,12 +100,26 @@ SERVICE_ACCOUNT_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 # RUNNING src pods, so traffic genuinely originates from those pods' real
 # network identity and is subject to the real, unmodified NetworkPolicies —
 # this is not a simulation and not a proxy-initiated probe.
+#
+# This process only ever READS the Job/pods/logs below (jobs:get,list +
+# pods,pods/log:get,list — see netassert-status-reader in
+# d2-osramp-fleet/tenants/local/signalloom.yaml). It does NOT hold jobs:create
+# or jobs:delete: minting the Job is delegated to netassert-controller, a
+# separate process with its own dedicated ServiceAccount and a single-purpose
+# HTTP surface (see _trigger_netassert_scan and
+# apps/netassert-controller/server.py for the full rationale). That split is
+# the fix for a real privilege-escalation risk this feature introduced: this
+# process parses arbitrary attacker-reachable JSON bodies and headers, so a
+# token here capable of jobs:create would be a skeleton key for the namespace
+# if this process were ever compromised — not just a theoretical concern,
+# since jobs:create lets you submit ANY Job manifest, not only the fixed one.
 NETASSERT_JOB_NAME = "netassert-run"
 NETASSERT_JOB_NAMESPACE = "fe-signalloom"
-NETASSERT_RUNNER_SERVICE_ACCOUNT = "netassert-runner"
-NETASSERT_RUNNER_IMAGE = os.environ.get("NETASSERT_RUNNER_IMAGE", "netassert-runner:local")
-NETASSERT_CONFIGMAP_NAME = "netassert-signalloom-config"
 NETASSERT_TAP_MARKER = "----NETASSERT-TAP-RESULTS----"
+NETASSERT_CONTROLLER_URL = os.environ.get(
+    "NETASSERT_CONTROLLER_URL",
+    "http://netassert-controller.inf-signalloom.svc.cluster.local:8080/scan",
+)
 
 NETWORK_TEST_DEFINITIONS: tuple[dict[str, object], ...] = (
     {"name": "dashboard-to-api-allowed", "expectedExit": 0, "targetPort": 8000,
@@ -176,71 +189,6 @@ def _parse_tap_results(log_text: str) -> dict[str, str]:
         outcome, name = match.groups()
         results[name] = "pass" if outcome == "ok" else "fail"
     return results
-
-
-def _netassert_job_manifest() -> dict[str, object]:
-    """The single, fixed netassert-run Job spec.
-
-    Every field here is a constant. Nothing from the triggering HTTP request
-    (see _handle_network_tests_scan) reaches this manifest, so the scan
-    endpoint can never be turned into an arbitrary-target network probe — it
-    only ever runs the committed d2-signalloom/test/netassert-signalloom.yaml
-    config, mounted read-only from NETASSERT_CONFIGMAP_NAME.
-    """
-    shell = (
-        "/usr/local/bin/resolve-agent-pod.sh && "
-        "/usr/local/bin/netassert run -f /work/netassert-run.yaml -t /work/results.tap -P 3 || true; "
-        f"echo '{NETASSERT_TAP_MARKER}'; "
-        "cat /work/results.tap || echo 'no tap output produced'"
-    )
-    return {
-        "apiVersion": "batch/v1",
-        "kind": "Job",
-        "metadata": {
-            "name": NETASSERT_JOB_NAME,
-            "namespace": NETASSERT_JOB_NAMESPACE,
-            "labels": {
-                "app.kubernetes.io/part-of": "signalloom",
-                "signalloom.ai/purpose": "network-test-run",
-            },
-        },
-        "spec": {
-            "backoffLimit": 0,
-            "ttlSecondsAfterFinished": 600,
-            "template": {
-                "metadata": {"labels": {"signalloom.ai/purpose": "network-test-run"}},
-                "spec": {
-                    "restartPolicy": "Never",
-                    "serviceAccountName": NETASSERT_RUNNER_SERVICE_ACCOUNT,
-                    "securityContext": {
-                        "runAsNonRoot": True,
-                        "runAsUser": 65532,
-                        "runAsGroup": 65532,
-                        "seccompProfile": {"type": "RuntimeDefault"},
-                    },
-                    "containers": [{
-                        "name": "netassert",
-                        "image": NETASSERT_RUNNER_IMAGE,
-                        "imagePullPolicy": "Never",
-                        "command": ["/bin/sh", "-c", shell],
-                        "securityContext": {
-                            "allowPrivilegeEscalation": False,
-                            "readOnlyRootFilesystem": True,
-                            "capabilities": {"drop": ["ALL"]},
-                        },
-                        "volumeMounts": [
-                            {"name": "config", "mountPath": "/config"},
-                            {"name": "work", "mountPath": "/work"},
-                        ],
-                    }],
-                    "volumes": [
-                        {"name": "config", "configMap": {"name": NETASSERT_CONFIGMAP_NAME}},
-                        {"name": "work", "emptyDir": {}},
-                    ],
-                },
-            },
-        },
-    }
 
 
 def redact(value: object, key: str = "") -> object:
@@ -605,34 +553,26 @@ def _get_kubernetes_job(
     return job if isinstance(job, dict) else None
 
 
-def _create_kubernetes_job(
-    base_url: str, token: str, context: ssl.SSLContext, namespace: str, manifest: dict[str, object],
-) -> None:
-    url = f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs"
-    req = request.Request(
-        url,
-        data=json.dumps(manifest).encode(),
-        method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    )
-    with request.urlopen(req, context=context, timeout=10.0):
-        return
+def _trigger_netassert_scan() -> tuple[int, dict[str, object]]:
+    """POST to netassert-controller's /scan and relay its (status, body).
 
-
-def _delete_kubernetes_job(
-    base_url: str, token: str, context: ssl.SSLContext, namespace: str, name: str,
-) -> None:
-    url = (
-        f"{base_url}/apis/batch/v1/namespaces/{quote(namespace, safe='')}/jobs/{quote(name, safe='')}"
-        "?propagationPolicy=Background"
-    )
-    req = request.Request(url, method="DELETE", headers={"Authorization": f"Bearer {token}"})
+    This process holds no jobs:create/delete verb at all any more — that
+    privilege lives solely with netassert-controller's dedicated
+    ServiceAccount (see the module-level comment above NETASSERT_JOB_NAME).
+    A connection failure here means "the controller is unreachable", which is
+    reported as 502 the same way an unreachable kube-apiserver used to be.
+    """
+    req = request.Request(NETASSERT_CONTROLLER_URL, method="POST")
     try:
-        with request.urlopen(req, context=context, timeout=10.0):
-            return
+        with request.urlopen(req, timeout=10.0) as response:
+            return response.status, json.load(response)
     except error.HTTPError as exc:
-        if exc.code != 404:
-            raise
+        try:
+            return exc.code, json.load(exc)
+        except (ValueError, json.JSONDecodeError):
+            return exc.code, {"error": str(exc)}
+    except (OSError, ValueError, error.URLError) as exc:
+        return HTTPStatus.BAD_GATEWAY, {"error": f"netassert-controller unreachable: {exc}"}
 
 
 def _negative_proof_log_evidence(
@@ -987,51 +927,18 @@ class ProxyHandler(BaseHTTPRequestHandler):
         )
 
     def _handle_network_tests_scan(self) -> None:
-        """POST /network-tests/scan — (re)creates the fixed netassert-run Job.
+        """POST /network-tests/scan — asks netassert-controller to
+        (re)create the fixed netassert-run Job.
 
-        The request body is deliberately never inspected: the Job spec is the
-        constant returned by _netassert_job_manifest, so this endpoint can
-        only ever run the one, committed netassert config — never an
-        arbitrary target supplied by a caller.
+        This process no longer touches the Kubernetes Job API itself (see
+        _trigger_netassert_scan): the request body is drained and discarded
+        without being forwarded, so even the controller's fixed manifest can
+        never be influenced by a caller — the same never-an-arbitrary-probe
+        guarantee as before, now enforced at the identity boundary too.
         """
         self._body()  # drain any body so the client isn't left hanging
-        try:
-            token = _read_service_account_token()
-            context = _kubernetes_ssl_context()
-            base_url = _kubernetes_api_base()
-        except (OSError, ValueError, TypeError, ssl.SSLError) as exc:
-            self._json(HTTPStatus.BAD_GATEWAY, {"error": str(exc)})
-            return
-
-        existing = _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
-        if existing is not None:
-            status = existing.get("status")
-            if isinstance(status, dict) and _job_status_count(status, "active") >= 1:
-                self._json(HTTPStatus.CONFLICT, {"error": "a network test scan is already running"})
-                return
-            try:
-                _delete_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME)
-            except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
-                self._json(HTTPStatus.BAD_GATEWAY, {"error": f"could not clear previous scan: {exc}"})
-                return
-            # Jobs delete asynchronously (propagationPolicy=Background); a
-            # same-name create can race the deletion and 409. netassert-run's
-            # name is fixed by design (see _handle_network_tests's GET-side
-            # contract), so a short bounded wait is simpler and safer here
-            # than minting per-scan unique names.
-            for _ in range(10):
-                if _get_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, NETASSERT_JOB_NAME) is None:
-                    break
-                time.sleep(0.3)
-
-        try:
-            _create_kubernetes_job(base_url, token, context, NETASSERT_JOB_NAMESPACE, _netassert_job_manifest())
-        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
-            print(f"network test scan failed to start: {exc}", file=sys.stderr, flush=True)
-            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"failed to start scan: {exc}"})
-            return
-
-        self._json(HTTPStatus.ACCEPTED, {"job": NETASSERT_JOB_NAME, "status": "started"})
+        status, body = _trigger_netassert_scan()
+        self._json(status, body)
 
     def _handle_agent_compliance(self, agent_id: str, requested_namespace: str | None = None) -> None:
         """GET /agents/<id>/compliance — evaluate an agent's pod spec against policy."""

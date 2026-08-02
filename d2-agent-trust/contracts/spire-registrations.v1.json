@@ -1,0 +1,10 @@
+{
+  "contractVersion": "1.0.0",
+  "trustDomain": "signalloom.demo",
+  "registrations": [
+    {"spiffeID": "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner", "selectors": ["k8s:ns:agent-trust-acme-payments", "k8s:sa:agent-trust-planner"]},
+    {"spiffeID": "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage", "selectors": ["k8s:ns:agent-trust-acme-payments", "k8s:sa:agent-trust-triage"]},
+    {"spiffeID": "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/risk/agent/risk-reader", "selectors": ["k8s:ns:agent-trust-acme-risk", "k8s:sa:agent-trust-risk-reader"]},
+    {"spiffeID": "spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator", "selectors": ["k8s:ns:agent-trust-northstar-investigations", "k8s:sa:agent-trust-investigator"]}
+  ]
+}

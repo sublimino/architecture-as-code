@@ -20,6 +20,10 @@ DIGEST_FILE="${EVIDENCE_DIR}/dashboard-signalloom.digest.txt"
 
 test -f "${COSIGN_KEY}" || { echo "${COSIGN_KEY} not found; run 'make signing-keys' first"; exit 1; }
 test -d "${CONTEXT}" || { echo "dashboard build context not found: ${CONTEXT}"; exit 1; }
+BUILD_FLAGS=()
+if [ "${DASHBOARD_NO_CACHE:-0}" = "1" ]; then
+  BUILD_FLAGS+=(--no-cache)
+fi
 
 require_command() {
   command -v "$1" >/dev/null 2>&1 || { echo "$1 not installed"; exit 1; }
@@ -73,6 +77,7 @@ wait_reachable "http://localhost:5001/v2/" 90
 
 echo "building OCI evidence and runnable image archive for ${IMAGE_REF}"
 docker buildx build \
+  "${BUILD_FLAGS[@]}" \
   --sbom=true \
   --provenance=mode=max \
   --build-arg "SOURCE_ID=${SOURCE_ID}" \

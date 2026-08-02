@@ -1,0 +1,11 @@
+{
+  "name": "triage",
+  "description": "Acme payments triage receiver with receiver-owned authorization.",
+  "version": "1.0.0",
+  "spiffeId": "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage",
+  "url": "http://agent-trust-triage:8080/a2a",
+  "capabilities": {"streaming": false, "pushNotifications": false},
+  "skills": [{"id": "triage.analyze", "name": "Analyze payment case", "tags": ["payments", "triage"]}],
+  "securitySchemes": {"spiffe": {"type": "http", "description": "SPIFFE JWT-SVID validated through an exact OpenBao role plus separate platform-signed authorization context"}},
+  "security": [{"spiffe": []}]
+}

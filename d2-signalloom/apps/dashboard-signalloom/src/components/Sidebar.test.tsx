@@ -152,6 +152,16 @@ describe('Sidebar active-link precision', () => {
   })
 })
 
+describe('Sidebar Agent Trust Topology navigation', () => {
+  it('places Agent Trust Topology immediately before Settings', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    const labels = (await screen.findAllByRole('link')).map(link => link.textContent?.replace(/\d+/g, '').trim())
+    expect(labels.indexOf('Agent Trust Topology')).toBe(labels.indexOf('Settings') - 1)
+  })
+})
+
 describe('Sidebar superadmin-only nav', () => {
   // Every admin surface behind the superadmin visibility flag. SuperCred is a
   // demo surface and belongs here with the rest of them.

@@ -1,16 +1,38 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
+
+func fixtureJWT(subject string) string {
+	payload, _ := json.Marshal(map[string]any{"sub": subject, "exp": time.Now().Add(time.Minute).Unix()})
+	return "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
+}
+
+func signedA2ARequest(privateKey ed25519.PrivateKey, jwt, nonce string) *http.Request {
+	body := []byte(`{"Action":"triage.analyze","Resource":"case/runtime-proof"}`)
+	timestamp := time.Now().Unix()
+	request := httptest.NewRequest(http.MethodPost, "/a2a", strings.NewReader(string(body)))
+	request.Header.Set("X-SPIFFE-JWT-SVID", jwt)
+	request.Header.Set("X-Agent-Trust-Timestamp", strconv.FormatInt(timestamp, 10))
+	request.Header.Set("X-Agent-Trust-Nonce", nonce)
+	request.Header.Set("X-Agent-Trust-Signature", base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, authorizationMessage(jwt, timestamp, nonce, body))))
+	return request
+}
 
 func TestExchangeJWTStoresOpenBaoToken(t *testing.T) {
 	var request struct {
@@ -67,6 +89,54 @@ func TestExchangeJWTRejectsUnsuccessfulLogin(t *testing.T) {
 func TestOpenBaoClientHasBoundedTimeout(t *testing.T) {
 	if openBaoClient.Timeout != 30*time.Second {
 		t.Fatalf("unexpected OpenBao timeout: %s", openBaoClient.Timeout)
+	}
+}
+
+func TestA2AReceiverRequiresOpenBaoValidatedExactSPIFFEIdentity(t *testing.T) {
+	const planner = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
+	bao := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/auth/jwt/login" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"ephemeral"}}`))
+	}))
+	defer bao.Close()
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receiver := newA2AHandler(bao.Client(), bao.URL, "agent-trust-planner", planner, publicKey)
+
+	request := signedA2ARequest(privateKey, fixtureJWT(planner), "first")
+	response := httptest.NewRecorder()
+	receiver.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"decision":"allow"`) {
+		t.Fatalf("unexpected allow response: %d %s", response.Code, response.Body.String())
+	}
+	replayed := request.Clone(request.Context())
+	replayed.Body = io.NopCloser(strings.NewReader(`{"Action":"triage.analyze","Resource":"case/runtime-proof"}`))
+	replayResult := httptest.NewRecorder()
+	receiver.ServeHTTP(replayResult, replayed)
+	if replayResult.Code != http.StatusForbidden {
+		t.Fatalf("expected replay denial, got %d", replayResult.Code)
+	}
+	liveReceiver := httptest.NewServer(receiver)
+	defer liveReceiver.Close()
+	if err := callA2A(liveReceiver.Client(), liveReceiver.URL+"/a2a", request.Header.Get("X-SPIFFE-JWT-SVID"), privateKey); err != nil {
+		t.Fatalf("signed network request failed: %v", err)
+	}
+
+	index := 0
+	for name, token := range map[string]string{"missing": "", "wrong-subject": fixtureJWT("spiffe://signalloom.demo/other")} {
+		t.Run(name, func(t *testing.T) {
+			index++
+			denied := signedA2ARequest(privateKey, token, fmt.Sprintf("denied-%d", index))
+			result := httptest.NewRecorder()
+			receiver.ServeHTTP(result, denied)
+			if result.Code != http.StatusForbidden {
+				t.Fatalf("expected denial, got %d", result.Code)
+			}
+		})
 	}
 }
 

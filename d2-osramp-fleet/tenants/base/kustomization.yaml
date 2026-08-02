@@ -7,3 +7,4 @@ resources:
   - infra.yaml
   - apps.yaml
   - olly.yaml
+  - agent-trust.yaml

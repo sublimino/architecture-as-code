@@ -30,6 +30,8 @@ jobs:
             path: ./d2-osramp-apps/components/backend
           - repository: signalloom/apps/fe-signalloom
             path: ./d2-signalloom/apps/fe-signalloom
+          - repository: signalloom/agent-trust
+            path: ./d2-agent-trust/manifests
           - repository: olly/olly-replica
             path: ./olly-replica/components
     runs-on: ubuntu-latest

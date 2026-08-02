@@ -9,6 +9,15 @@
 # The service account gets cluster-admin like the infra tenants because its
 # controllers layer installs operators (ECK) that carry CRDs; the workloads
 # themselves stay namespaced.
+#
+# FLUX ENVSUBST: YES — ${REGISTRY_BASE}/${REGISTRY_INSECURE} in spec.resources
+# below are reached by the tenants Kustomization's postBuild.substituteFrom
+# (clusters/<env>/tenants.yaml -> flux-runtime-info ConfigMap). spec.inputs is
+# deliberately empty ([]) here: `make demo-olly-up` (scripts/olly-up.sh)
+# activates this ResourceSet with `kubectl patch resourceset/olly --type
+# merge`, injecting concrete literal values — that path never goes through
+# envsubst, so it is not subject to the postBuild race documented on
+# tenants/base/infra.yaml and in AGENTS.md "Flux variable substitution".
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:

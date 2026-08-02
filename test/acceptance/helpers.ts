@@ -207,12 +207,17 @@ export const afm = {
 
 export const polling = {
   /**
-   * Wait for RBAC Explorer data to load. Polls for one of three outcomes:
+   * Wait for RBAC Explorer data to load — one of three outcomes:
    *   - "data"  → `data-testid="rbac-stats"` is visible (success)
    *   - "error" → `data-testid="rbac-error"` is visible (React crash caught)
-   *   - "empty" → "No RBAC data" text visible or 30s timeout (fetch returned null)
+   *   - "empty" → "No RBAC data" text visible, or nothing showed up in time
+   *     (fetch returned null)
    *
-   * Fails fast on crash instead of waiting the full timeout.
+   * Uses a single locator built from `.or()` so Playwright's own auto-wait
+   * drives this event-driven, rather than a hand-rolled poll loop on a fixed
+   * `waitForTimeout` interval — whichever of the three appears first resolves
+   * the wait immediately instead of waiting out the next 500ms tick. Fails
+   * fast on crash instead of waiting the full timeout.
    */
   async waitForRbacData(
     page: Page,
@@ -221,15 +226,11 @@ export const polling = {
     const stats = page.locator('[data-testid="rbac-stats"]');
     const error = page.locator('[data-testid="rbac-error"]');
     const empty = page.getByText("No RBAC data");
-    const deadline = Date.now() + timeoutMs;
 
-    while (Date.now() < deadline) {
-      if (await stats.isVisible().catch(() => false)) return "data";
-      if (await error.isVisible().catch(() => false)) return "error";
-      if (await empty.isVisible().catch(() => false)) return "empty";
-      await page.waitForTimeout(500);
-    }
-    // Final check
+    await stats.or(error).or(empty).first().waitFor({ state: "visible", timeout: timeoutMs }).catch(() => {
+      /* none appeared within timeoutMs — fall through to the empty default below */
+    });
+
     if (await stats.isVisible().catch(() => false)) return "data";
     if (await error.isVisible().catch(() => false)) return "error";
     return "empty";

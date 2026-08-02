@@ -1,0 +1,90 @@
+# Organisational risk posture — Acme Co.
+#
+# THE SPLIT THAT MAKES PROPORTIONALITY ARITHMETIC:
+#   * The policy pack owns loss event FREQUENCY  — a property of the control environment.
+#   * This file owns loss MAGNITUDE              — a property of the institution.
+#
+# Run one identical control against two of these files and the enforcement verdict diverges without
+# anyone having an opinion. That is slide 04/05 of the talk, reduced to multiplication.
+#
+# HONESTY NOTE (required — see the honesty layer, hub build/25):
+# Every triple below is a CALIBRATED ESTIMATE, not a measurement. The anchor classes named in
+# `provenance` are the reference classes the estimate was calibrated against; they are named so the
+# estimate can be argued with, and they are NOT a claim that a specific published figure was used
+# verbatim. These numbers are review-bait by design: disagreement is resolved by a pull request to
+# this file, which re-versions the £ alongside the policy. Before any external or board use, each
+# triple must be re-calibrated against Acme's own incident history and signed off by risk.
+apiVersion: osramp.controlplane.io/v1alpha1
+kind: OrgRiskPosture
+metadata:
+  name: acme
+  displayName: Acme Co.
+  sector: retail-ecommerce
+  jurisdiction: UK
+  description: >-
+    The fictional institution this demo estate serves. UK e-commerce retailer running a shared
+    platform with Security, Platform and Application teams under a shared-responsibility model.
+
+regimes:
+  - id: UK-GDPR
+    authority: ICO
+    note: >-
+      Administrative fines up to the statutory maximum of the greater of GBP 17.5m or 4% of global
+      annual turnover. Anchor class for personal-data loss scenarios.
+  - id: PCI-DSS
+    authority: card-schemes
+    note: >-
+      Contractual scheme fines, forensic investigation costs, and card-reissuance costs. Anchor
+      class for cardholder-data loss scenarios.
+
+# Risk appetite. The tolerance band is what turns a number into a verdict: a control whose
+# enforcement buys more than `tolerance_gbp` of annualised loss reduction should be at the gate.
+appetite:
+  tolerance_gbp: 25000
+  note: >-
+    Acme accepts up to GBP 25k of annualised expected loss per control before enforcement escalation
+    is justified by the number rather than by a timer or an opinion.
+
+# Risk load — never charge the mean. The carried figure is TVaR plus this load.
+risk_load: 0.15
+
+# Insurance / risk transfer. One of the four risk-financing moves (avoid, reduce, transfer, retain),
+# so the model can weigh buying cover against buying a control.
+transfer:
+  annual_premium_gbp: 48000
+  retention_gbp: 100000
+  limit_gbp: 5000000
+  note: Cyber policy. Underwriter prices substantially the same controls this pack enforces.
+
+# Loss magnitude per scenario, in GBP per event.
+magnitude:
+  SCN-UNAUTH-CHANGE:
+    triple: { min: 15000, mode: 60000, max: 400000 }
+    provenance: >-
+      Calibrated against the unplanned-outage and rollback cost class: incident response hours,
+      lost trading time on an e-commerce estate, and remediation. No regulatory component assumed
+      unless personal data is implicated.
+  SCN-SECRET-EXFIL:
+    triple: { min: 40000, mode: 180000, max: 1200000 }
+    provenance: >-
+      Calibrated against the credential-compromise class: forced rotation across the estate,
+      forensic investigation, and the UK-GDPR personal-data exposure tail where the leaked
+      credential reaches customer records.
+  SCN-INJECTION-ACT:
+    triple: { min: 25000, mode: 110000, max: 900000 }
+    provenance: >-
+      Calibrated against the adversarial-actuation class: an agent induced to take an action on
+      attacker instruction. Magnitude spans a wasted-triage-cycle floor to an unauthorised
+      data-access ceiling under UK-GDPR.
+  SCN-SUPPLY-TAMPER:
+    triple: { min: 60000, mode: 250000, max: 2500000 }
+    provenance: >-
+      Calibrated against the supply-chain-compromise class: tampered artefact reaching production,
+      estate-wide rebuild and re-attestation, customer notification, and PCI-DSS forensic
+      obligations where cardholder systems are in scope.
+  SCN-TRUST-SUBVERT:
+    triple: { min: 120000, mode: 500000, max: 4000000 }
+    provenance: >-
+      Calibrated against the trust-anchor-compromise class. The most expensive scenario because it
+      invalidates the evidence chain retroactively: every attestation since the compromise must be
+      treated as unproven, and the estate re-keyed.

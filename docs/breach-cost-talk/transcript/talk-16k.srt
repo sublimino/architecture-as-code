@@ -1,0 +1,472 @@
+1
+00:00:00,000 --> 00:00:02,080
+What does a breach actually cost you?
+
+2
+00:00:02,080 --> 00:00:04,800
+Not a red, amber, green dot on a dashboard,
+
+3
+00:00:04,800 --> 00:00:06,480
+a number in pounds.
+
+4
+00:00:06,480 --> 00:00:10,240
+Most governance ignores that, compliant or not,
+
+5
+00:00:10,240 --> 00:00:12,740
+a green tick that price nothing and move nothing,
+
+6
+00:00:12,740 --> 00:00:13,920
+a binary lie.
+
+7
+00:00:13,920 --> 00:00:16,700
+But here's the idea, governance is not a checkbox.
+
+8
+00:00:16,700 --> 00:00:20,080
+It is a proportionate, continuously retuned response
+
+9
+00:00:20,080 --> 00:00:23,020
+to quantified risk, and it is all one thing,
+
+10
+00:00:23,020 --> 00:00:26,480
+the policy, how your organization actually operates,
+
+11
+00:00:26,480 --> 00:00:27,920
+written down as code.
+
+12
+00:00:27,920 --> 00:00:30,200
+Start where your engineers already live.
+
+13
+00:00:30,200 --> 00:00:32,840
+Policy is just a dependency, a lint pack.
+
+14
+00:00:32,840 --> 00:00:35,900
+You pin it, you sign it, you adopt it by pull request.
+
+15
+00:00:35,900 --> 00:00:38,440
+Governance becomes something a developer already knows
+
+16
+00:00:38,440 --> 00:00:39,840
+how to consume and trust.
+
+17
+00:00:39,840 --> 00:00:43,220
+Now, the moment that makes it land, two institutions,
+
+18
+00:00:43,220 --> 00:00:45,400
+a retailer and a hospital.
+
+19
+00:00:45,400 --> 00:00:49,000
+Same platform, same engine, one identical rule,
+
+20
+00:00:49,000 --> 00:00:50,760
+encrypt data at rest.
+
+21
+00:00:50,760 --> 00:00:52,880
+Watch what proportionality actually does
+
+22
+00:00:52,880 --> 00:00:54,240
+to that single control.
+
+23
+00:00:54,240 --> 00:00:56,040
+In the retailer, it merely audits.
+
+24
+00:00:56,040 --> 00:00:58,480
+In the hospital, the very same rule blocks.
+
+25
+00:00:58,480 --> 00:00:59,320
+Why?
+
+26
+00:00:59,320 --> 00:01:01,580
+Because a health breach costs far more,
+
+27
+00:01:01,580 --> 00:01:03,720
+so the model prices it far higher.
+
+28
+00:01:03,720 --> 00:01:07,720
+Same control, opposite verdict, because the pounds say so.
+
+29
+00:01:07,720 --> 00:01:10,960
+But real governance is never just yes or no.
+
+30
+00:01:10,960 --> 00:01:14,320
+Fall behind on patching and your workload still runs
+
+31
+00:01:14,320 --> 00:01:18,160
+but caged, throttled, sandboxed, watched more closely,
+
+32
+00:01:18,160 --> 00:01:21,060
+least trusted, most expensive to run.
+
+33
+00:01:21,060 --> 00:01:23,780
+A spectrum of consequence, not a cliff edge,
+
+34
+00:01:23,820 --> 00:01:28,140
+and that cage costs money while still leaving risk behind.
+
+35
+00:01:28,140 --> 00:01:32,100
+So staying current becomes provably the cheaper path.
+
+36
+00:01:32,100 --> 00:01:34,100
+Add it up, the risk you keep
+
+37
+00:01:34,100 --> 00:01:36,100
+plus the cost of every control.
+
+38
+00:01:36,100 --> 00:01:38,860
+That is your true total cost of risk.
+
+39
+00:01:38,860 --> 00:01:41,180
+These pounds are real, not guessed.
+
+40
+00:01:41,180 --> 00:01:44,540
+Calibrated estimates, a Monte Carlo simulation,
+
+41
+00:01:44,540 --> 00:01:46,900
+and the tail your board actually fears
+
+42
+00:01:46,900 --> 00:01:49,260
+the insurance industry's own maths.
+
+43
+00:01:49,260 --> 00:01:51,600
+Tighten the control, the number falls.
+
+44
+00:01:51,600 --> 00:01:53,740
+Accept a risk, it rises.
+
+45
+00:01:53,740 --> 00:01:55,580
+Live on screen.
+
+46
+00:01:55,580 --> 00:01:58,580
+So we kill the ugliest word in governance.
+
+47
+00:01:58,580 --> 00:02:01,620
+Exemption, no carve outs, no favors.
+
+48
+00:02:01,620 --> 00:02:04,940
+Instead, you may do this if you meet these conditions.
+
+49
+00:02:04,940 --> 00:02:07,300
+Uniform version priced.
+
+50
+00:02:07,300 --> 00:02:09,840
+Every allowance carries its own honest line
+
+51
+00:02:09,840 --> 00:02:11,020
+of accepted risk.
+
+52
+00:02:11,020 --> 00:02:12,120
+Here's the leap.
+
+53
+00:02:12,120 --> 00:02:15,260
+The policy version you satisfy becomes your identity.
+
+54
+00:02:15,260 --> 00:02:17,460
+Every workload, every person,
+
+55
+00:02:17,460 --> 00:02:19,960
+every device carries it cryptographically.
+
+56
+00:02:19,960 --> 00:02:22,580
+A sensitive service simply refuses anyone
+
+57
+00:02:22,580 --> 00:02:23,940
+who has fallen out of date.
+
+58
+00:02:23,940 --> 00:02:26,100
+Zero trust, finally made real.
+
+59
+00:02:26,100 --> 00:02:27,180
+Failures move left.
+
+60
+00:02:27,180 --> 00:02:30,580
+The cluster advertises which policy versions it accepts.
+
+61
+00:02:30,580 --> 00:02:32,380
+Your pipeline runs the exact check
+
+62
+00:02:32,380 --> 00:02:34,860
+the cluster will offline before you merge.
+
+63
+00:02:34,860 --> 00:02:37,680
+A deploy time surprise becomes practically unheard of.
+
+64
+00:02:37,680 --> 00:02:40,020
+The compliant path becomes the easy path.
+
+65
+00:02:40,020 --> 00:02:43,340
+Then it comes alive, the estate war games itself.
+
+66
+00:02:43,340 --> 00:02:46,020
+Threat feeds, new vulnerabilities,
+
+67
+00:02:46,020 --> 00:02:48,580
+regulator fines, all pour in.
+
+68
+00:02:48,580 --> 00:02:50,460
+An agent stress tests your controls
+
+69
+00:02:50,460 --> 00:02:53,720
+and asks one question, is this still proportionate
+
+70
+00:02:53,720 --> 00:02:55,500
+or has the world quietly moved?
+
+71
+00:02:55,500 --> 00:02:58,560
+When it drifts, the agent does exactly one thing.
+
+72
+00:02:58,560 --> 00:02:59,980
+It opens a pull request.
+
+73
+00:02:59,980 --> 00:03:02,900
+It proposes, it never disposes.
+
+74
+00:03:02,900 --> 00:03:05,380
+A human reviews, the gate checks,
+
+75
+00:03:05,380 --> 00:03:07,220
+and only then does it ship.
+
+76
+00:03:07,220 --> 00:03:10,340
+A powerful machine safe on your existing rails.
+
+77
+00:03:10,340 --> 00:03:14,420
+And every actor, human or machine, signs their work.
+
+78
+00:03:14,420 --> 00:03:17,020
+Cryptographically signed, publicly logged,
+
+79
+00:03:17,020 --> 00:03:18,980
+verifiable end to end.
+
+80
+00:03:18,980 --> 00:03:21,700
+You can prove which actor changed what, when,
+
+81
+00:03:21,700 --> 00:03:24,940
+and from what evidence for an AI-enabled business.
+
+82
+00:03:24,940 --> 00:03:26,260
+That is how you trust it.
+
+83
+00:03:26,260 --> 00:03:28,500
+So what does your funding build?
+
+84
+00:03:28,500 --> 00:03:33,020
+Six real organizations brought to life a shared platform.
+
+85
+00:03:33,020 --> 00:03:36,380
+Three institutions, two regulators publishing controls
+
+86
+00:03:36,380 --> 00:03:37,620
+and fines as code.
+
+87
+00:03:37,620 --> 00:03:39,860
+A cluster each where every core claim
+
+88
+00:03:39,860 --> 00:03:41,820
+is demonstrated, not slideware.
+
+89
+00:03:41,820 --> 00:03:43,540
+And here's why this is ours to build.
+
+90
+00:03:43,540 --> 00:03:45,420
+Flux is not a logo on a slide.
+
+91
+00:03:45,460 --> 00:03:48,420
+It is load-bearing, doing six real jobs,
+
+92
+00:03:48,420 --> 00:03:51,980
+distribution, provenance, pruning, healing, ordering,
+
+93
+00:03:51,980 --> 00:03:53,100
+alerts.
+
+94
+00:03:53,100 --> 00:03:56,300
+This puts Flux at the very center of the risk story,
+
+95
+00:03:56,300 --> 00:03:58,380
+which lets us close where no security
+
+96
+00:03:58,380 --> 00:04:00,980
+talk ever closes, the balance sheet.
+
+97
+00:04:00,980 --> 00:04:03,660
+Residual risk becomes economic capital.
+
+98
+00:04:03,660 --> 00:04:06,880
+The very same controls an underwriter would price.
+
+99
+00:04:06,880 --> 00:04:10,180
+Technological risk, finally, a line your board can read,
+
+100
+00:04:10,180 --> 00:04:11,540
+defend and act on.
+
+101
+00:04:11,540 --> 00:04:14,620
+For the spend, you get three things that compound.
+
+102
+00:04:14,620 --> 00:04:17,180
+A flagship talk that tours every conference,
+
+103
+00:04:17,180 --> 00:04:20,420
+a demo estate our teams put in front of any prospect,
+
+104
+00:04:20,420 --> 00:04:23,940
+and ownership of a story no competitor in this market
+
+105
+00:04:23,940 --> 00:04:25,100
+is telling yet.
+
+106
+00:04:25,100 --> 00:04:26,980
+And the timing is the whole point.
+
+107
+00:04:26,980 --> 00:04:29,860
+Every board is asking how to trust AI
+
+108
+00:04:29,860 --> 00:04:31,120
+inside their business.
+
+109
+00:04:31,120 --> 00:04:34,500
+We answer it provably, on stage, in pounds.
+
+110
+00:04:34,500 --> 00:04:36,860
+Whoever tells this story first owns it,
+
+111
+00:04:36,860 --> 00:04:38,780
+and that window is open right now.
+
+112
+00:04:38,780 --> 00:04:39,940
+So here's the ask.
+
+113
+00:04:39,940 --> 00:04:42,060
+Fund the full build every step
+
+114
+00:04:42,060 --> 00:04:43,640
+through to the flagship talk.
+
+115
+00:04:43,680 --> 00:04:44,900
+Give me that runway.
+
+116
+00:04:44,900 --> 00:04:46,760
+And I'll hand you the estate that proves governance
+
+117
+00:04:46,760 --> 00:04:49,680
+can finally be proportionate, honest, and alive.
+
+118
+00:04:49,680 --> 00:04:51,520
+Let's put risk on the balance sheet.
+

@@ -1,0 +1,113 @@
+# Posture assertion for the Olly Sentinel agentic SRE.
+#
+# The mirror image of agent-remediation: current on the pack, strong on the model-safety controls
+# (guard, authz, sandbox, evals), weaker on the change-control controls — because it operates on a
+# read-heavy observability surface rather than a write path into the supply chain.
+#
+# Two agents, one identical pack. The £ they each carry differs because their posture differs, and
+# the enforcement they each receive differs because the £ differs. That is proportionality applied
+# to agents.
+apiVersion: osramp.controlplane.io/v1alpha1
+kind: AgentPosture
+metadata:
+  name: agent-olly-sentinel
+  displayName: Olly Sentinel agentic SRE
+  owner: platform
+  description: >-
+    Python/ADK agentic SRE replicating the Olly Sentinel platform. Reads ELK/Redpanda telemetry via
+    an MCP server, triages incidents across three fault domains, and is exercised by an eval harness
+    against a planted prompt-injection corpus and fake-secret suite.
+
+claims:
+  pack: agent-policy
+  version: 2.1.0
+
+tier: trusted
+
+satisfies:
+  - control: AGT-001
+    met: true
+    evidence: olly-replica/apps/security-sandbox
+    note: >-
+      Dedicated security-sandbox component constrains the agent's execution environment.
+
+  - control: AGT-002
+    met: true
+    evidence: scripts/olly-llm-secret.sh
+    note: >-
+      Model credentials are provisioned as a Kubernetes secret by a dedicated script and mounted at
+      runtime rather than baked into the image or the agent environment.
+
+  - control: AGT-003
+    met: false
+    evidence: olly-replica/
+    note: >-
+      Sentinel triages and proposes autonomously across the incident surface. There is no per-action
+      human approval gate on its analysis path — by design, since it is an SRE triage assistant
+      rather than a change agent. The residual is carried and priced.
+
+  - control: AGT-004
+    met: true
+    evidence: olly-replica/apps/authz
+    note: >-
+      The agent's action surface is bounded to the MCP tool set it is granted; it has no general
+      change-application capability.
+
+  - control: AGT-005
+    met: true
+    evidence: olly-replica/
+    note: >-
+      The agent holds no git credential and no write path to any protected branch.
+
+  - control: AGT-006
+    met: true
+    evidence: olly-replica/README.md
+    note: >-
+      Each Olly component flows through the OSRAMP image pipeline — build, SBOM, scan, VEX,
+      sign/attest, admission — so every artefact it runs from is attested.
+
+  - control: AGT-007
+    met: true
+    evidence: scripts/olly-readonly-kubeconfig.sh
+    note: >-
+      The agent's cluster reach is a read-only kubeconfig; its data-plane endpoints (Elasticsearch,
+      Redpanda) are namespace-scoped services rather than arbitrary egress.
+
+  - control: AGT-008
+    met: true
+    evidence: olly-replica/apps/eval-harness
+    note: >-
+      The seed job loads the injection payload corpus and planted fake secrets; the safety suite is
+      run against them by the eval harness. This is the control this agent exists to demonstrate.
+
+  - control: AGT-009
+    met: true
+    evidence: olly-replica/apps/authz
+    note: >-
+      Dedicated authz component mediates per-tool access, so a successful injection cannot reach a
+      tool the agent was never granted.
+
+  - control: AGT-010
+    met: true
+    evidence: olly-replica/apps/llm-guard
+    note: >-
+      llm-guard sits on the response path, screening agent output before it leaves the trust
+      boundary.
+
+  - control: AGT-011
+    met: true
+    evidence: olly-replica/
+    note: >-
+      The agent holds no signing key material and no capability to alter trust anchors.
+
+  - control: AGT-012
+    met: true
+    evidence: olly-replica/components/
+    note: >-
+      Policy and admission configuration reconcile from a signed Flux artefact; the agent has no
+      write access to the manifest source.
+
+# Sentinel elects the conditional-autonomy branch: it acts without per-change approval, but only
+# inside the branch's conditions. The residual of that election is priced into its balance sheet.
+conditional_elected:
+  - AGT-C01

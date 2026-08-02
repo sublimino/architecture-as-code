@@ -1,0 +1,245 @@
+# Agent policy pack — the versioned dependency an agent adopts.
+#
+# This file is the authoring plane. The version string below is simultaneously the Renovate pin,
+# the admission-time selector, and the identity an agent claims (see docs/policy-as-versioned-code).
+#
+# Distribution: semver git tag, gitsign-keyless signed, consumed by exact pin. Never a live range.
+# Determinism: no control body contains a date, expiry, or wall-clock condition (hub ADR-0006).
+# Advisory metadata (rationale, risk, cost) is read by humans and `riskctl` ONLY — never by the
+# admission engine (hub ADR-0007).
+apiVersion: osramp.controlplane.io/v1alpha1
+kind: PolicyPack
+metadata:
+  name: agent-policy
+  version: 2.0.0
+  subject: agent
+  description: >-
+    Controls governing an autonomous or semi-autonomous AI agent operating inside the Acme Co.
+    platform. The agent is treated as a first-class posture carrier alongside workloads, humans and
+    devices: it satisfies a policy version, and that version is its identity.
+  upstream:
+    thesis: https://github.com/policy-as-versioned-flux/policy-as-versioned-flux
+    ancestor: https://github.com/example-policy-org
+    engine: kyverno-validatingpolicy-cel  # hub ADR-0003
+
+# Loss scenarios this pack's controls act upon. Frequency lives here (a property of the control
+# environment); magnitude lives in risk/org/*.yaml (a property of the institution). That split is
+# what makes "same control, two institutions, opposite verdict" fall out arithmetically.
+scenarios:
+  - id: SCN-UNAUTH-CHANGE
+    title: Agent lands an unreviewed change in production
+  - id: SCN-SECRET-EXFIL
+    title: Agent leaks a credential or secret into logs, evidence, or an outbound call
+  - id: SCN-INJECTION-ACT
+    title: Injected instruction in ingested data causes the agent to act adversarially
+  - id: SCN-SUPPLY-TAMPER
+    title: Agent introduces an unverified or tampered artefact into the supply chain
+  - id: SCN-TRUST-SUBVERT
+    title: Agent alters the trust anchors or the policy that governs it
+
+controls:
+  - id: AGT-001
+    title: Agent process runs kernel-sandboxed
+    scenario: SCN-SECRET-EXFIL
+    action: deny
+    rationale: >-
+      An unsandboxed agent process can read SSH keys, cloud credentials and shell configuration
+      regardless of how well-behaved its prompt is. Landlock-scoped filesystem and network access is
+      the only control here that does not depend on model behaviour.
+    evidence:
+      artifact: agent/
+      assertion: harness refuses to run the agent unsandboxed (nono run --profile)
+    cel: cel/agt-001-sandboxed.yaml
+    # Loss event frequency (events/year) with the control at Audit vs at Deny.
+    lef_audit:    { min: 0.30, mode: 0.90, max: 2.50 }
+    lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
+    annual_cost_gbp: 4000
+
+  - id: AGT-002
+    title: Model credentials never enter the harness environment or disk
+    scenario: SCN-SECRET-EXFIL
+    action: deny
+    rationale: >-
+      A key exported into the harness environment reaches the evidence bundle, the audit trail, and
+      every subprocess. Injection at the sandbox boundary by a credential proxy keeps it out of all
+      three.
+    evidence:
+      artifact: agent/
+      assertion: API key injected at sandbox boundary; absent from evidence bundle and audit trail
+    lef_audit:    { min: 0.20, mode: 0.70, max: 2.00 }
+    lef_enforced: { min: 0.01, mode: 0.04, max: 0.15 }
+    annual_cost_gbp: 1500
+
+  - id: AGT-003
+    title: Remediation requires explicit human approval
+    scenario: SCN-UNAUTH-CHANGE
+    action: deny
+    rationale: >-
+      Propose, never dispose. The default mode stops after the recommendation; execution requires an
+      explicit --approve from a human who has read it. There is no auto-approve path, so the agent's
+      blast radius is bounded by review capacity, not by model confidence.
+    evidence:
+      artifact: agent/
+      assertion: default mode halts at recommendation; --approve required; no auto-approve path
+    cel: cel/agt-003-human-approval.yaml
+    lef_audit:    { min: 0.80, mode: 2.20, max: 6.00 }
+    lef_enforced: { min: 0.02, mode: 0.10, max: 0.40 }
+    annual_cost_gbp: 12000
+
+  - id: AGT-004
+    title: Applied change shapes are enumerated and closed
+    scenario: SCN-UNAUTH-CHANGE
+    action: deny
+    rationale: >-
+      On approval the harness applies only two shapes — a pinned `go get` inside a known service
+      directory, or a `vexctl create` proposal. Anything else in the recommendation is ignored and
+      logged. A closed change vocabulary means a persuasive but wrong recommendation still cannot
+      express a dangerous edit.
+    evidence:
+      artifact: agent/
+      assertion: only `go get <module>@<version>` and `vexctl create` are applied; rest ignored+logged
+    lef_audit:    { min: 0.40, mode: 1.30, max: 4.00 }
+    lef_enforced: { min: 0.01, mode: 0.06, max: 0.25 }
+    annual_cost_gbp: 3000
+
+  - id: AGT-005
+    title: Agent has no write path to a protected branch
+    scenario: SCN-UNAUTH-CHANGE
+    action: deny
+    rationale: >-
+      Results land on a `remediation/<cve>` branch as a pull request. The agent holds no credential
+      that can reach `main`. This is the rail the whole propose-never-dispose posture rides on.
+    evidence:
+      artifact: agent/
+      assertion: output lands on remediation/<cve> branch as PR; no agent path to main
+    lef_audit:    { min: 0.50, mode: 1.60, max: 5.00 }
+    lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
+    annual_cost_gbp: 500
+
+  - id: AGT-006
+    title: Every agent step is Witness-attested
+    scenario: SCN-SUPPLY-TAMPER
+    action: deny
+    rationale: >-
+      Analysis and remediation each execute under `witness run`, signed and uploaded to Archivista.
+      Without this there is no provable answer to "which actor changed what, when, from which
+      evidence" — the question that makes an AI-enabled business auditable at all.
+    evidence:
+      artifact: agent/
+      assertion: steps `agent-analysis` and `agent-remediation` run under witness, uploaded to Archivista
+    lef_audit:    { min: 0.30, mode: 1.00, max: 3.00 }
+    lef_enforced: { min: 0.02, mode: 0.08, max: 0.30 }
+    annual_cost_gbp: 6000
+
+  - id: AGT-007
+    title: Agent egress is restricted to declared endpoints
+    scenario: SCN-SECRET-EXFIL
+    action: audit
+    rationale: >-
+      The guardrails prohibit contacting systems other than the model API, but at pack 2.0.0 this is
+      procedural rather than mechanically enforced at the network layer for every agent in the
+      estate. Carried at Audit with the residual priced, not waved through.
+    evidence:
+      artifact: agent/
+      assertion: prohibited-actions list forbids contacting systems other than the Anthropic API
+    lef_audit:    { min: 0.10, mode: 0.35, max: 1.20 }
+    lef_enforced: { min: 0.01, mode: 0.04, max: 0.15 }
+    annual_cost_gbp: 2500
+
+  - id: AGT-008
+    title: Prompt-injection corpus is evaluated before release
+    scenario: SCN-INJECTION-ACT
+    action: audit
+    rationale: >-
+      An agent that reads untrusted telemetry is reachable by anyone who can write a log line. The
+      eval harness runs the planted injection corpus and the fake-secret suite. At 2.0.0 the result
+      is reported but does not gate — the single largest priced residual in this pack.
+    evidence:
+      artifact: olly-replica/apps/eval-harness
+      assertion: seed job loads injection payloads and planted fake secrets the safety suite tests against
+    lef_audit:    { min: 0.30, mode: 0.90, max: 3.00 }
+    lef_enforced: { min: 0.02, mode: 0.08, max: 0.35 }
+    annual_cost_gbp: 9000
+
+  - id: AGT-009
+    title: Tool invocation is authorised per-tool
+    scenario: SCN-INJECTION-ACT
+    action: audit
+    rationale: >-
+      Reasoning quality is not an access-control mechanism. An explicit per-tool authorisation layer
+      means a successful injection still cannot reach a tool the agent was never granted.
+    evidence:
+      artifact: olly-replica/apps/authz
+      assertion: dedicated authz component mediates tool access
+    cel: cel/agt-009-tool-authz.yaml
+    lef_audit:    { min: 0.15, mode: 0.55, max: 2.00 }
+    lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
+    annual_cost_gbp: 5000
+
+  - id: AGT-010
+    title: Agent output passes a guard before leaving the trust boundary
+    scenario: SCN-SECRET-EXFIL
+    action: audit
+    rationale: >-
+      Agents summarising logs will eventually summarise a secret. An output guard is the last place
+      to catch it before it reaches a ticket, a chat channel, or an evidence bundle.
+    evidence:
+      artifact: olly-replica/apps/llm-guard
+      assertion: llm-guard component sits on the response path
+    lef_audit:    { min: 0.20, mode: 0.70, max: 2.50 }
+    lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
+    annual_cost_gbp: 4500
+
+  - id: AGT-011
+    title: Agent cannot create or modify signing keys or trust anchors
+    scenario: SCN-TRUST-SUBVERT
+    action: deny
+    rationale: >-
+      An agent that can mint a trust anchor can retroactively legitimise anything it does. This is
+      the catastrophic-minority boundary — a locked door, not lane-keeping.
+    evidence:
+      artifact: agent/
+      assertion: prohibited-actions list forbids creating or modifying signing keys and trust anchors
+    lef_audit:    { min: 0.10, mode: 0.40, max: 1.50 }
+    lef_enforced: { min: 0.005, mode: 0.02, max: 0.08 }
+    annual_cost_gbp: 1000
+
+  - id: AGT-012
+    title: Agent cannot modify the policy or guardrails that govern it
+    scenario: SCN-TRUST-SUBVERT
+    action: deny
+    rationale: >-
+      Self-modification of the governing policy dissolves every other control in this pack. The
+      harness and the guardrails document are outside the agent's writable scope; widening scope is
+      itself a reviewed pull request at a higher approval tier.
+    evidence:
+      artifact: agent/
+      assertion: prohibited-actions list forbids changing policy documents, admission rules, the harness, or the guardrails
+    lef_audit:    { min: 0.10, mode: 0.35, max: 1.20 }
+    lef_enforced: { min: 0.005, mode: 0.02, max: 0.07 }
+    annual_cost_gbp: 800
+
+# Conditional policy — the replacement for exemptions. Applies uniformly to ANY agent meeting the
+# conditions; there is no named carve-out and no expiry date in the body. The residual risk of the
+# permissive branch is priced and carried, not hidden.
+conditional:
+  - id: AGT-C01
+    title: An agent may act without per-change human approval if it meets all conditions
+    relaxes: AGT-003
+    cel: cel/agt-c01-conditional-autonomy.yaml
+    conditions:
+      - agent carries a valid attestation for the current pack version
+      - the change shape is in the closed enumeration (AGT-004 satisfied)
+      - the target data class is not PII
+      - the target namespace is not production
+      - all deny-action controls in this pack are satisfied
+    # Residual frequency for the permissive branch — the honest line of accepted risk.
+    lef_residual: { min: 0.05, mode: 0.20, max: 0.80 }
+
+# Graded enforcement envelope (hub build/10). Deny is the bottom rung, not the only rung. The £
+# selects the tier; the cage's run-cost is accounted for in TCoR.
+cages:
+  trusted:     { multiplier: 1.00, annual_cost_gbp: 0,     description: full capability }
+  constrained: { multiplier: 0.55, annual_cost_gbp: 8000,  description: throttled, reduced tool grant, tighter rate limits }
+  caged:       { multiplier: 0.25, annual_cost_gbp: 26000, description: sandboxed, read-only tools, heavier guard, eviction priority }
+  denied:      { multiplier: 0.02, annual_cost_gbp: 0,     description: blocked from admission }

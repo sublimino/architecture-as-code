@@ -1,0 +1,118 @@
+What does a breach actually cost you?
+Not a red, amber, green dot on a dashboard,
+a number in pounds.
+Most governance ignores that, compliant or not,
+a green tick that price nothing and move nothing,
+a binary lie.
+But here's the idea, governance is not a checkbox.
+It is a proportionate, continuously retuned response
+to quantified risk, and it is all one thing,
+the policy, how your organization actually operates,
+written down as code.
+Start where your engineers already live.
+Policy is just a dependency, a lint pack.
+You pin it, you sign it, you adopt it by pull request.
+Governance becomes something a developer already knows
+how to consume and trust.
+Now, the moment that makes it land, two institutions,
+a retailer and a hospital.
+Same platform, same engine, one identical rule,
+encrypt data at rest.
+Watch what proportionality actually does
+to that single control.
+In the retailer, it merely audits.
+In the hospital, the very same rule blocks.
+Why?
+Because a health breach costs far more,
+so the model prices it far higher.
+Same control, opposite verdict, because the pounds say so.
+But real governance is never just yes or no.
+Fall behind on patching and your workload still runs
+but caged, throttled, sandboxed, watched more closely,
+least trusted, most expensive to run.
+A spectrum of consequence, not a cliff edge,
+and that cage costs money while still leaving risk behind.
+So staying current becomes provably the cheaper path.
+Add it up, the risk you keep
+plus the cost of every control.
+That is your true total cost of risk.
+These pounds are real, not guessed.
+Calibrated estimates, a Monte Carlo simulation,
+and the tail your board actually fears
+the insurance industry's own maths.
+Tighten the control, the number falls.
+Accept a risk, it rises.
+Live on screen.
+So we kill the ugliest word in governance.
+Exemption, no carve outs, no favors.
+Instead, you may do this if you meet these conditions.
+Uniform version priced.
+Every allowance carries its own honest line
+of accepted risk.
+Here's the leap.
+The policy version you satisfy becomes your identity.
+Every workload, every person,
+every device carries it cryptographically.
+A sensitive service simply refuses anyone
+who has fallen out of date.
+Zero trust, finally made real.
+Failures move left.
+The cluster advertises which policy versions it accepts.
+Your pipeline runs the exact check
+the cluster will offline before you merge.
+A deploy time surprise becomes practically unheard of.
+The compliant path becomes the easy path.
+Then it comes alive, the estate war games itself.
+Threat feeds, new vulnerabilities,
+regulator fines, all pour in.
+An agent stress tests your controls
+and asks one question, is this still proportionate
+or has the world quietly moved?
+When it drifts, the agent does exactly one thing.
+It opens a pull request.
+It proposes, it never disposes.
+A human reviews, the gate checks,
+and only then does it ship.
+A powerful machine safe on your existing rails.
+And every actor, human or machine, signs their work.
+Cryptographically signed, publicly logged,
+verifiable end to end.
+You can prove which actor changed what, when,
+and from what evidence for an AI-enabled business.
+That is how you trust it.
+So what does your funding build?
+Six real organizations brought to life a shared platform.
+Three institutions, two regulators publishing controls
+and fines as code.
+A cluster each where every core claim
+is demonstrated, not slideware.
+And here's why this is ours to build.
+Flux is not a logo on a slide.
+It is load-bearing, doing six real jobs,
+distribution, provenance, pruning, healing, ordering,
+alerts.
+This puts Flux at the very center of the risk story,
+which lets us close where no security
+talk ever closes, the balance sheet.
+Residual risk becomes economic capital.
+The very same controls an underwriter would price.
+Technological risk, finally, a line your board can read,
+defend and act on.
+For the spend, you get three things that compound.
+A flagship talk that tours every conference,
+a demo estate our teams put in front of any prospect,
+and ownership of a story no competitor in this market
+is telling yet.
+And the timing is the whole point.
+Every board is asking how to trust AI
+inside their business.
+We answer it provably, on stage, in pounds.
+Whoever tells this story first owns it,
+and that window is open right now.
+So here's the ask.
+Fund the full build every step
+through to the flagship talk.
+Give me that runway.
+And I'll hand you the estate that proves governance
+can finally be proportionate, honest, and alive.
+Let's put risk on the balance sheet.

@@ -623,3 +623,46 @@ ci-report: ## View the last OpenReports report from a ci-gcp run.
 	@if [ -f ci-reports/signalloom-ci-report.yaml ]; then \
 		echo "OpenReports: ci-reports/signalloom-ci-report.yaml"; \
 	fi
+
+# ---------------------------------------------------------------------------
+# Risk — policy as versioned code, priced in pounds.
+# See risk/README.md and docs/policy-as-versioned-code/INTEGRATION.md.
+# All targets run fully offline: no cluster, no network, no API key.
+# ---------------------------------------------------------------------------
+
+RISKCTL      := tools/riskctl/riskctl
+RISK_AGENT   ?= agent-remediation
+RISK_PACK    ?= 2.0.0
+RISK_ORG     ?= acme
+RISK_WITH    ?= ludlow-health
+RISK_GOFLAGS := GOFLAGS=-mod=vendor GOPROXY=off
+
+.PHONY: riskctl
+riskctl: ## Build the riskctl binary (offline, vendored).
+	@$(RISK_GOFLAGS) go build -C tools/riskctl -o "$(CURDIR)/$(RISKCTL)" .
+	@echo "built $(RISKCTL)"
+
+.PHONY: risk-baseline
+risk-baseline: riskctl ## Baseline an agent's compliance posture against the versioned policy pack.
+	@./$(RISKCTL) baseline --agent $(RISK_AGENT) --pack $(RISK_PACK) --org $(RISK_ORG)
+
+.PHONY: risk
+risk: riskctl ## Cash value of an agent's risk exposure: ALE / VaR95 / TVaR / TCoR.
+	@./$(RISKCTL) risk --agent $(RISK_AGENT) --pack $(RISK_PACK) --org $(RISK_ORG)
+
+.PHONY: risk-compare
+risk-compare: riskctl ## Same agent, same pack, two institutions — the proportionality demo.
+	@./$(RISKCTL) compare --agent $(RISK_AGENT) --pack $(RISK_PACK) --org $(RISK_ORG) --with $(RISK_WITH)
+
+.PHONY: risk-report
+risk-report: riskctl ## Regenerate the committed report under risk/out/.
+	@./scripts/risk-report.sh
+
+.PHONY: risk-check
+risk-check: ## CI gate: artefacts validate, engine self-checks, results are reproducible.
+	@$(RISK_GOFLAGS) go vet -C tools/riskctl ./...
+	@$(RISK_GOFLAGS) go test -C tools/riskctl ./...
+	@$(MAKE) --no-print-directory risk-report
+	@git diff --quiet -- risk/out/ \
+		|| { echo "risk/out/ is stale — commit the regenerated report"; git diff --stat -- risk/out/; exit 1; }
+	@echo "risk-check: artefacts valid, engine self-checked, report reproducible"

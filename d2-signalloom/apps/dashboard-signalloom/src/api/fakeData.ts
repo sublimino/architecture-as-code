@@ -1,7 +1,7 @@
 // Fake-data fixtures for demo mode.
 //
 // resolveFake(method, path, body) returns a shape-valid fixture for any of the
-// 27 client endpoints when demo mode is on, or `undefined` if no route matches
+// client endpoints when demo mode is on, or `undefined` if no route matches
 // (in which case client.ts falls through to a real HTTP call). Every fixture is
 // typed against ../types/api so the compiler enforces contract fidelity — the
 // same guarantee the backend Pydantic models give server-side.
@@ -23,6 +23,7 @@ import type {
   PlatformUsersResponse,
   PostureResponse,
   ReassessmentResponse,
+  RevokeCredentialResponse,
   RotateApiKeyResponse,
   SupportRequestResponse,
   TenantSettingsResponse,
@@ -84,6 +85,12 @@ const issueCredential: IssueCredentialResponse = {
   identity_token: 'demo.jwt.token-shown-once',
   token_expires_at: '2026-08-27T12:00:00Z',
   token_note: 'Demo credential — not a real secret.',
+}
+
+const revokeCredential: RevokeCredentialResponse = {
+  agent_id: `${TENANT}:agent-inventory`,
+  name: 'Inventory Agent',
+  tokens_revoked: 3,
 }
 
 const transition: TransitionResponse = {
@@ -368,6 +375,7 @@ const ROUTES: Match[] = [
       ...(body as Partial<AgentResponse>),
     }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials$/), data: () => issueCredential },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials\/revoke$/), data: () => revokeCredential },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: () => transition },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
@@ -410,7 +418,7 @@ const ROUTES: Match[] = [
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  30 base + 2 network-tests + 3 compliance-policy = 35 */
+ *  31 base + 2 network-tests + 3 compliance-policy = 36 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

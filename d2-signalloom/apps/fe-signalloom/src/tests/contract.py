@@ -84,6 +84,14 @@ class IssueCredentialResponse(BaseModel):
     token_note: str
 
 
+class RevokeCredentialResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    name: str
+    tokens_revoked: int
+
+
 # ---- Transitions -----------------------------------------------------------
 
 class TransitionRequest(BaseModel):

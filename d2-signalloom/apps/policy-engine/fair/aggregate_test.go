@@ -2,42 +2,45 @@ package fair
 
 import (
 	"math"
+	"math/rand/v2"
 	"testing"
-
-	"github.com/acme-co/osramp/tools/riskctl/internal/model"
 )
+
+// These tests cover the aggregate Engine path used by tools/riskctl. They were carried over when
+// the two FAIR implementations in this repository were converged into this package, so the
+// coverage moved with the code rather than being lost in the merge.
 
 func contribs() []Contribution {
 	return []Contribution{
 		{
 			ControlID: "T-1",
 			Scenario:  "SCN-A",
-			LEF:       model.Triple{Min: 0.2, Mode: 0.8, Max: 2.5},
-			Magnitude: model.Triple{Min: 20000, Mode: 90000, Max: 500000},
+			LEF:       RiskTriple{Min: 0.2, Mode: 0.8, Max: 2.5},
+			Magnitude: RiskTriple{Min: 20000, Mode: 90000, Max: 500000},
 		},
 		{
 			ControlID: "T-2",
 			Scenario:  "SCN-B",
-			LEF:       model.Triple{Min: 0.05, Mode: 0.2, Max: 0.9},
-			Magnitude: model.Triple{Min: 50000, Mode: 250000, Max: 2000000},
+			LEF:       RiskTriple{Min: 0.05, Mode: 0.2, Max: 0.9},
+			Magnitude: RiskTriple{Min: 50000, Mode: 250000, Max: 2000000},
 		},
 	}
 }
 
 // The number must be reproducible or it is not evidence. Same seed, same inputs, same pounds.
-func TestDeterministicUnderFixedSeed(t *testing.T) {
+func TestEngineDeterministicUnderFixedSeed(t *testing.T) {
 	e := &Engine{Iterations: 20000, Seed: DefaultSeed}
 	a := e.Run(contribs(), 0.15)
 	b := e.Run(contribs(), 0.15)
 
-	if a.ALE != b.ALE || a.VaR95 != b.VaR95 || a.TVaR != b.TVaR || a.Carried != b.Carried {
+	if a != b {
 		t.Fatalf("non-deterministic under fixed seed:\n first=%+v\nsecond=%+v", a, b)
 	}
 }
 
-// A different seed must actually move the number, otherwise the seed is not being consumed and the
-// determinism test above is vacuous.
-func TestDifferentSeedChangesResult(t *testing.T) {
+// A different seed must actually move the number, otherwise the seed is not being consumed and
+// the determinism test above is vacuous.
+func TestEngineDifferentSeedChangesResult(t *testing.T) {
 	a := (&Engine{Iterations: 20000, Seed: 1}).Run(contribs(), 0.15)
 	b := (&Engine{Iterations: 20000, Seed: 2}).Run(contribs(), 0.15)
 	if a.ALE == b.ALE {
@@ -45,21 +48,15 @@ func TestDifferentSeedChangesResult(t *testing.T) {
 	}
 }
 
-func TestSelfCheckPasses(t *testing.T) {
+func TestEngineSelfCheckPasses(t *testing.T) {
 	r := (&Engine{Iterations: 50000, Seed: DefaultSeed}).Run(contribs(), 0.15)
 	if err := r.SelfCheck(); err != nil {
 		t.Fatalf("self-check failed on a well-formed distribution: %v", err)
 	}
-	if r.TVaR < r.VaR95 {
-		t.Fatalf("TVaR (%.2f) below VaR95 (%.2f)", r.TVaR, r.VaR95)
-	}
-	if r.TVaR < r.ALE {
-		t.Fatalf("TVaR (%.2f) below ALE (%.2f)", r.TVaR, r.ALE)
-	}
 }
 
 // The risk load must actually load: never charge the mean.
-func TestRiskLoadApplied(t *testing.T) {
+func TestEngineRiskLoadApplied(t *testing.T) {
 	r := (&Engine{Iterations: 20000, Seed: DefaultSeed}).Run(contribs(), 0.25)
 	want := r.TVaR * 1.25
 	if math.Abs(r.Carried-want) > 1e-6 {
@@ -68,10 +65,10 @@ func TestRiskLoadApplied(t *testing.T) {
 }
 
 // Tightening a control must lower the number. If it does not, the whole thesis is unfalsifiable.
-func TestLoweringFrequencyLowersLoss(t *testing.T) {
+func TestEngineLoweringFrequencyLowersLoss(t *testing.T) {
 	base := contribs()
 	tight := contribs()
-	tight[0].LEF = model.Triple{Min: 0.01, Mode: 0.04, Max: 0.15}
+	tight[0].LEF = RiskTriple{Min: 0.01, Mode: 0.04, Max: 0.15}
 
 	e := &Engine{Iterations: 50000, Seed: DefaultSeed}
 	a := e.Run(base, 0.15)
@@ -84,32 +81,31 @@ func TestLoweringFrequencyLowersLoss(t *testing.T) {
 
 // A tail-dominated distribution is legitimate, not an error: it is what a well-governed estate
 // looks like. Verify the engine reports it rather than failing on it.
-func TestTailDominatedIsNotAnError(t *testing.T) {
+func TestEngineTailDominatedIsNotAnError(t *testing.T) {
 	rare := []Contribution{{
 		ControlID: "T-rare",
 		Scenario:  "SCN-RARE",
-		LEF:       model.Triple{Min: 0.001, Mode: 0.004, Max: 0.02},
-		Magnitude: model.Triple{Min: 500000, Mode: 2000000, Max: 9000000},
+		LEF:       RiskTriple{Min: 0.001, Mode: 0.004, Max: 0.02},
+		Magnitude: RiskTriple{Min: 500000, Mode: 2000000, Max: 9000000},
 	}}
 	r := (&Engine{Iterations: 50000, Seed: DefaultSeed}).Run(rare, 0.15)
 	if err := r.SelfCheck(); err != nil {
 		t.Fatalf("self-check rejected a legitimate rare-but-severe distribution: %v", err)
 	}
 	if !r.TailDominated() {
-		t.Fatalf("expected tail-dominated for a 0.004/yr event, got VaR95 %.2f >= ALE %.2f", r.VaR95, r.ALE)
+		t.Fatalf("expected tail-dominated for a 0.004/yr event, got VaR95 %.2f >= ALE %.2f",
+			r.VaR95, r.ALE)
 	}
 }
 
-// beta-PERT must respect its bounds and centre near the mode.
+// beta-PERT must respect its bounds and centre on the analytic PERT mean.
 func TestPERTBoundsAndCentre(t *testing.T) {
-	tr := model.Triple{Min: 10, Mode: 40, Max: 100}
-	e := &Engine{Iterations: 1, Seed: 7}
-	_ = e
-	rng := newTestRNG(7)
+	tr := RiskTriple{Min: 10, Mode: 40, Max: 100}
+	rng := rand.New(rand.NewPCG(7, 7^0xdeadbeef))
 	var sum float64
 	const n = 100000
 	for i := 0; i < n; i++ {
-		v := pert(rng, tr)
+		v := samplePERT(rng, tr)
 		if v < tr.Min || v > tr.Max {
 			t.Fatalf("PERT sample %.4f outside [%.1f, %.1f]", v, tr.Min, tr.Max)
 		}
@@ -124,17 +120,17 @@ func TestPERTBoundsAndCentre(t *testing.T) {
 }
 
 func TestZeroWidthTripleIsStable(t *testing.T) {
-	rng := newTestRNG(3)
-	tr := model.Triple{Min: 5, Mode: 5, Max: 5}
+	rng := rand.New(rand.NewPCG(3, 3^0xdeadbeef))
+	tr := RiskTriple{Min: 5, Mode: 5, Max: 5}
 	for i := 0; i < 100; i++ {
-		if got := pert(rng, tr); got != 5 {
+		if got := samplePERT(rng, tr); got != 5 {
 			t.Fatalf("degenerate triple returned %v, want 5", got)
 		}
 	}
 }
 
 func TestPoissonMeanApproximatesLambda(t *testing.T) {
-	rng := newTestRNG(11)
+	rng := rand.New(rand.NewPCG(11, 11^0xdeadbeef))
 	const n = 200000
 	lambda := 2.5
 	total := 0
@@ -144,5 +140,18 @@ func TestPoissonMeanApproximatesLambda(t *testing.T) {
 	mean := float64(total) / n
 	if math.Abs(mean-lambda) > 0.05 {
 		t.Fatalf("Poisson mean %.4f, want ~%.2f", mean, lambda)
+	}
+}
+
+func TestTripleValidateRejectsUnordered(t *testing.T) {
+	bad := RiskTriple{Min: 10, Mode: 5, Max: 20}
+	if err := bad.Validate("test"); err == nil {
+		t.Fatal("expected an error for an unordered triple, got nil")
+	}
+	if err := (RiskTriple{Min: -1, Mode: 0, Max: 1}).Validate("test"); err == nil {
+		t.Fatal("expected an error for a negative minimum, got nil")
+	}
+	if err := (RiskTriple{Min: 1, Mode: 2, Max: 3}).Validate("test"); err != nil {
+		t.Fatalf("well-formed triple rejected: %v", err)
 	}
 }

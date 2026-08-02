@@ -16,7 +16,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/acme-co/osramp/tools/riskctl/internal/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"github.com/acme-co/osramp/tools/riskctl/internal/model"
 )
 

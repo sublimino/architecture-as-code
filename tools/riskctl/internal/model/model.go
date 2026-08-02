@@ -15,29 +15,18 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"gopkg.in/yaml.v3"
 )
 
 // Triple is a calibrated three-point estimate used as the input to a beta-PERT distribution.
 // Ordering min <= mode <= max is validated on load; an unordered triple is a data error, not a
 // judgement call.
-type Triple struct {
-	Min  float64 `yaml:"min"`
-	Mode float64 `yaml:"mode"`
-	Max  float64 `yaml:"max"`
-}
-
-// Validate enforces the ordering invariant and non-negativity.
-func (t Triple) Validate(context string) error {
-	if t.Min < 0 {
-		return fmt.Errorf("%s: min must be >= 0, got %g", context, t.Min)
-	}
-	if !(t.Min <= t.Mode && t.Mode <= t.Max) {
-		return fmt.Errorf("%s: triple must satisfy min <= mode <= max, got (%g, %g, %g)",
-			context, t.Min, t.Mode, t.Max)
-	}
-	return nil
-}
+//
+// This is an alias for the shared engine's RiskTriple, not a copy. The policy-engine service and
+// this CLI read the same triples through the same sampler, so the two surfaces cannot drift apart
+// on what a number means.
+type Triple = fair.RiskTriple
 
 // Evidence cites the artefact in the repository that substantiates a control or an assertion.
 // A control without evidence is a hope; the loader rejects it.

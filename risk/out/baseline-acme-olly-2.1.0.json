@@ -21,14 +21,14 @@
         },
         "CEL": "cel/agt-001-sandboxed.yaml",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 0.9,
-          "Max": 2.5
+          "min": 0.3,
+          "mode": 0.9,
+          "max": 2.5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 4000
       },
@@ -37,9 +37,9 @@
       "Evidence": "olly-replica/apps/security-sandbox",
       "Note": "Dedicated security-sandbox component constrains the agent's execution environment.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.05,
-        "Max": 0.2
+        "min": 0.01,
+        "mode": 0.05,
+        "max": 0.2
       }
     },
     {
@@ -55,14 +55,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.2,
-          "Mode": 0.7,
-          "Max": 2
+          "min": 0.2,
+          "mode": 0.7,
+          "max": 2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.04,
-          "Max": 0.15
+          "min": 0.01,
+          "mode": 0.04,
+          "max": 0.15
         },
         "AnnualCost": 1500
       },
@@ -71,9 +71,9 @@
       "Evidence": "scripts/olly-llm-secret.sh",
       "Note": "Model credentials are provisioned as a Kubernetes secret by a dedicated script and mounted at runtime rather than baked into the image or the agent environment.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.04,
-        "Max": 0.15
+        "min": 0.01,
+        "mode": 0.04,
+        "max": 0.15
       }
     },
     {
@@ -89,14 +89,14 @@
         },
         "CEL": "cel/agt-003-human-approval.yaml",
         "LEFAudit": {
-          "Min": 0.8,
-          "Mode": 2.2,
-          "Max": 6
+          "min": 0.8,
+          "mode": 2.2,
+          "max": 6
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.1,
-          "Max": 0.4
+          "min": 0.02,
+          "mode": 0.1,
+          "max": 0.4
         },
         "AnnualCost": 12000
       },
@@ -105,9 +105,9 @@
       "Evidence": "olly-replica/",
       "Note": "Sentinel triages and proposes autonomously across the incident surface. There is no per-action human approval gate on its analysis path — by design, since it is an SRE triage assistant rather than a change agent. The residual is carried and priced. [conditional AGT-C01 elected: An agent may act without per-change human approval if it meets all conditions]",
       "EffectiveLEF": {
-        "Min": 0.05,
-        "Mode": 0.2,
-        "Max": 0.8
+        "min": 0.05,
+        "mode": 0.2,
+        "max": 0.8
       }
     },
     {
@@ -123,14 +123,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.4,
-          "Mode": 1.3,
-          "Max": 4
+          "min": 0.4,
+          "mode": 1.3,
+          "max": 4
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.06,
-          "Max": 0.25
+          "min": 0.01,
+          "mode": 0.06,
+          "max": 0.25
         },
         "AnnualCost": 3000
       },
@@ -139,9 +139,9 @@
       "Evidence": "olly-replica/apps/authz",
       "Note": "The agent's action surface is bounded to the MCP tool set it is granted; it has no general change-application capability.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.06,
-        "Max": 0.25
+        "min": 0.01,
+        "mode": 0.06,
+        "max": 0.25
       }
     },
     {
@@ -157,14 +157,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.5,
-          "Mode": 1.6,
-          "Max": 5
+          "min": 0.5,
+          "mode": 1.6,
+          "max": 5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 500
       },
@@ -173,9 +173,9 @@
       "Evidence": "olly-replica/",
       "Note": "The agent holds no git credential and no write path to any protected branch.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.05,
-        "Max": 0.2
+        "min": 0.01,
+        "mode": 0.05,
+        "max": 0.2
       }
     },
     {
@@ -191,14 +191,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 1,
-          "Max": 3
+          "min": 0.3,
+          "mode": 1,
+          "max": 3
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.08,
-          "Max": 0.3
+          "min": 0.02,
+          "mode": 0.08,
+          "max": 0.3
         },
         "AnnualCost": 6000
       },
@@ -207,9 +207,9 @@
       "Evidence": "olly-replica/README.md",
       "Note": "Each Olly component flows through the OSRAMP image pipeline — build, SBOM, scan, VEX, sign/attest, admission — so every artefact it runs from is attested.",
       "EffectiveLEF": {
-        "Min": 0.02,
-        "Mode": 0.08,
-        "Max": 0.3
+        "min": 0.02,
+        "mode": 0.08,
+        "max": 0.3
       }
     },
     {
@@ -225,14 +225,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.35,
-          "Max": 1.2
+          "min": 0.1,
+          "mode": 0.35,
+          "max": 1.2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.04,
-          "Max": 0.15
+          "min": 0.01,
+          "mode": 0.04,
+          "max": 0.15
         },
         "AnnualCost": 2500
       },
@@ -241,9 +241,9 @@
       "Evidence": "scripts/olly-readonly-kubeconfig.sh",
       "Note": "The agent's cluster reach is a read-only kubeconfig; its data-plane endpoints (Elasticsearch, Redpanda) are namespace-scoped services rather than arbitrary egress.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.04,
-        "Max": 0.15
+        "min": 0.01,
+        "mode": 0.04,
+        "max": 0.15
       }
     },
     {
@@ -259,14 +259,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 0.9,
-          "Max": 3
+          "min": 0.3,
+          "mode": 0.9,
+          "max": 3
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.08,
-          "Max": 0.35
+          "min": 0.02,
+          "mode": 0.08,
+          "max": 0.35
         },
         "AnnualCost": 9000
       },
@@ -275,9 +275,9 @@
       "Evidence": "olly-replica/apps/eval-harness",
       "Note": "The seed job loads the injection payload corpus and planted fake secrets; the safety suite is run against them by the eval harness. This is the control this agent exists to demonstrate.",
       "EffectiveLEF": {
-        "Min": 0.02,
-        "Mode": 0.08,
-        "Max": 0.35
+        "min": 0.02,
+        "mode": 0.08,
+        "max": 0.35
       }
     },
     {
@@ -293,14 +293,14 @@
         },
         "CEL": "cel/agt-009-tool-authz.yaml",
         "LEFAudit": {
-          "Min": 0.15,
-          "Mode": 0.55,
-          "Max": 2
+          "min": 0.15,
+          "mode": 0.55,
+          "max": 2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 5000
       },
@@ -309,9 +309,9 @@
       "Evidence": "olly-replica/apps/authz",
       "Note": "Dedicated authz component mediates per-tool access, so a successful injection cannot reach a tool the agent was never granted.",
       "EffectiveLEF": {
-        "Min": 0.038729833462074176,
-        "Mode": 0.16583123951776998,
-        "Max": 0.6324555320336759
+        "min": 0.038729833462074176,
+        "mode": 0.16583123951776998,
+        "max": 0.6324555320336759
       }
     },
     {
@@ -327,14 +327,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.2,
-          "Mode": 0.7,
-          "Max": 2.5
+          "min": 0.2,
+          "mode": 0.7,
+          "max": 2.5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 4500
       },
@@ -343,9 +343,9 @@
       "Evidence": "olly-replica/apps/llm-guard",
       "Note": "llm-guard sits on the response path, screening agent output before it leaves the trust boundary.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.05,
-        "Max": 0.2
+        "min": 0.01,
+        "mode": 0.05,
+        "max": 0.2
       }
     },
     {
@@ -361,14 +361,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.4,
-          "Max": 1.5
+          "min": 0.1,
+          "mode": 0.4,
+          "max": 1.5
         },
         "LEFEnforced": {
-          "Min": 0.005,
-          "Mode": 0.02,
-          "Max": 0.08
+          "min": 0.005,
+          "mode": 0.02,
+          "max": 0.08
         },
         "AnnualCost": 1000
       },
@@ -377,9 +377,9 @@
       "Evidence": "olly-replica/",
       "Note": "The agent holds no signing key material and no capability to alter trust anchors.",
       "EffectiveLEF": {
-        "Min": 0.005,
-        "Mode": 0.02,
-        "Max": 0.08
+        "min": 0.005,
+        "mode": 0.02,
+        "max": 0.08
       }
     },
     {
@@ -395,14 +395,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.35,
-          "Max": 1.2
+          "min": 0.1,
+          "mode": 0.35,
+          "max": 1.2
         },
         "LEFEnforced": {
-          "Min": 0.005,
-          "Mode": 0.02,
-          "Max": 0.07
+          "min": 0.005,
+          "mode": 0.02,
+          "max": 0.07
         },
         "AnnualCost": 800
       },
@@ -411,9 +411,9 @@
       "Evidence": "olly-replica/components/",
       "Note": "Policy and admission configuration reconcile from a signed Flux artefact; the agent has no write access to the manifest source.",
       "EffectiveLEF": {
-        "Min": 0.005,
-        "Mode": 0.02,
-        "Max": 0.07
+        "min": 0.005,
+        "mode": 0.02,
+        "max": 0.07
       }
     }
   ],
@@ -424,62 +424,62 @@
   "Risk": {
     "Iterations": 200000,
     "Seed": 20260801,
-    "ALE": 48276.77170497572,
-    "VaR95": 305738.2460712419,
-    "TVaR": 665257.6675606832,
-    "Carried": 765046.3176947857,
+    "ALE": 48995.82694396423,
+    "VaR95": 308558.93199856416,
+    "TVaR": 671897.2824562666,
+    "Carried": 772681.8748247065,
     "RiskLoad": 0.15
   },
   "ControlSpend": 63800,
   "FrictionSpend": 38500,
   "TransferSpend": 48000,
-  "TCoR": 915346.3176947857,
-  "PremiumRatio": 1.005766077186994,
+  "TCoR": 922981.8748247065,
+  "PremiumRatio": 1.0207463946659214,
   "Deltas": [
     {
       "ControlID": "AGT-003",
       "Title": "Remediation requires explicit human approval",
-      "BuysGBP": 3970.590391160833,
+      "BuysGBP": 3909.912361850773,
       "CostGBP": 12000,
-      "NetGBP": -8029.409608839167,
+      "NetGBP": -8090.087638149227,
       "AboveTolerance": false
     }
   ],
   "Tornado": [
     {
       "Scenario": "SCN-SUPPLY-TAMPER",
-      "LowALE": 33752.2104775867,
-      "HighALE": 98607.4104775867,
-      "SwingGBP": 64855.200000000004,
-      "SharePct": 34.92229604436427
+      "LowALE": 34250.265824341186,
+      "HighALE": 99068.8658243413,
+      "SwingGBP": 64818.60000000011,
+      "SharePct": 34.72428565440045
     },
     {
       "Scenario": "SCN-INJECTION-ACT",
-      "LowALE": 36890.78386805714,
-      "HighALE": 85063.90886805698,
-      "SwingGBP": 48173.12499999985,
-      "SharePct": 25.93957204097991
+      "LowALE": 37272.89093416764,
+      "HighALE": 86259.7659341677,
+      "SwingGBP": 48986.875000000065,
+      "SharePct": 26.242995695933068
     },
     {
       "Scenario": "SCN-TRUST-SUBVERT",
-      "LowALE": 41975.81465590748,
-      "HighALE": 68709.01465590745,
-      "SwingGBP": 26733.199999999968,
-      "SharePct": 14.394909345946012
+      "LowALE": 42624.105774570715,
+      "HighALE": 69551.30577457072,
+      "SwingGBP": 26927.200000000004,
+      "SharePct": 14.425300525978196
     },
     {
       "Scenario": "SCN-UNAUTH-CHANGE",
-      "LowALE": 41649.640282995366,
-      "HighALE": 68025.99028299518,
-      "SwingGBP": 26376.34999999981,
-      "SharePct": 14.202757886333877
+      "LowALE": 42602.790329181385,
+      "HighALE": 68567.19032918147,
+      "SwingGBP": 25964.40000000008,
+      "SharePct": 13.909514282090578
     },
     {
       "Scenario": "SCN-SECRET-EXFIL",
-      "LowALE": 43120.891385816605,
-      "HighALE": 62695.891385816496,
-      "SwingGBP": 19574.99999999989,
-      "SharePct": 10.54046468237592
+      "LowALE": 43506.2784060067,
+      "HighALE": 63475.678406006766,
+      "SwingGBP": 19969.400000000067,
+      "SharePct": 10.697903841597713
     }
   ],
   "ToleranceGBP": 25000,

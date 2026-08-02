@@ -21,14 +21,14 @@
         },
         "CEL": "cel/agt-001-sandboxed.yaml",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 0.9,
-          "Max": 2.5
+          "min": 0.3,
+          "mode": 0.9,
+          "max": 2.5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 4000
       },
@@ -37,9 +37,9 @@
       "Evidence": "agent/",
       "Note": "Harness refuses to run the agent unsandboxed; nono applies Landlock filesystem and network restrictions, blocking SSH keys, cloud credentials and shell configs by default.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.05,
-        "Max": 0.2
+        "min": 0.01,
+        "mode": 0.05,
+        "max": 0.2
       }
     },
     {
@@ -55,14 +55,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.2,
-          "Mode": 0.7,
-          "Max": 2
+          "min": 0.2,
+          "mode": 0.7,
+          "max": 2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.04,
-          "Max": 0.15
+          "min": 0.01,
+          "mode": 0.04,
+          "max": 0.15
         },
         "AnnualCost": 1500
       },
@@ -71,9 +71,9 @@
       "Evidence": "agent/",
       "Note": "Model API key injected at the sandbox boundary by nono's credential proxy. Never exported into the harness environment, never written to disk, absent from the evidence bundle and audit trail.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.04,
-        "Max": 0.15
+        "min": 0.01,
+        "mode": 0.04,
+        "max": 0.15
       }
     },
     {
@@ -89,14 +89,14 @@
         },
         "CEL": "cel/agt-003-human-approval.yaml",
         "LEFAudit": {
-          "Min": 0.8,
-          "Mode": 2.2,
-          "Max": 6
+          "min": 0.8,
+          "mode": 2.2,
+          "max": 6
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.1,
-          "Max": 0.4
+          "min": 0.02,
+          "mode": 0.1,
+          "max": 0.4
         },
         "AnnualCost": 12000
       },
@@ -105,9 +105,9 @@
       "Evidence": "agent/",
       "Note": "Default mode stops after the recommendation. Executing a remediation requires an explicit --approve from a human who has read it. There is no auto-approve path.",
       "EffectiveLEF": {
-        "Min": 0.02,
-        "Mode": 0.1,
-        "Max": 0.4
+        "min": 0.02,
+        "mode": 0.1,
+        "max": 0.4
       }
     },
     {
@@ -123,14 +123,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.4,
-          "Mode": 1.3,
-          "Max": 4
+          "min": 0.4,
+          "mode": 1.3,
+          "max": 4
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.06,
-          "Max": 0.25
+          "min": 0.01,
+          "mode": 0.06,
+          "max": 0.25
         },
         "AnnualCost": 3000
       },
@@ -139,9 +139,9 @@
       "Evidence": "agent/",
       "Note": "Only two change shapes are applied — `go get \u003cmodule\u003e@\u003cversion\u003e` inside d2-osramp-apps/apps/\u003cservice\u003e, or a `vexctl create` proposal. Anything else in the recommendation is ignored and logged.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.06,
-        "Max": 0.25
+        "min": 0.01,
+        "mode": 0.06,
+        "max": 0.25
       }
     },
     {
@@ -157,14 +157,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.5,
-          "Mode": 1.6,
-          "Max": 5
+          "min": 0.5,
+          "mode": 1.6,
+          "max": 5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 500
       },
@@ -173,9 +173,9 @@
       "Evidence": "agent/",
       "Note": "Results land on a remediation/\u003ccve\u003e branch as a pull request. The agent has no path to main.",
       "EffectiveLEF": {
-        "Min": 0.01,
-        "Mode": 0.05,
-        "Max": 0.2
+        "min": 0.01,
+        "mode": 0.05,
+        "max": 0.2
       }
     },
     {
@@ -191,14 +191,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 1,
-          "Max": 3
+          "min": 0.3,
+          "mode": 1,
+          "max": 3
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.08,
-          "Max": 0.3
+          "min": 0.02,
+          "mode": 0.08,
+          "max": 0.3
         },
         "AnnualCost": 6000
       },
@@ -207,9 +207,9 @@
       "Evidence": "agent/",
       "Note": "Analysis and remediation each execute under `witness run` (steps agent-analysis and agent-remediation), signed and uploaded to Archivista.",
       "EffectiveLEF": {
-        "Min": 0.02,
-        "Mode": 0.08,
-        "Max": 0.3
+        "min": 0.02,
+        "mode": 0.08,
+        "max": 0.3
       }
     },
     {
@@ -225,14 +225,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.35,
-          "Max": 1.2
+          "min": 0.1,
+          "mode": 0.35,
+          "max": 1.2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.04,
-          "Max": 0.15
+          "min": 0.01,
+          "mode": 0.04,
+          "max": 0.15
         },
         "AnnualCost": 2500
       },
@@ -241,9 +241,9 @@
       "Evidence": "agent/",
       "Note": "The prohibited-actions list forbids contacting systems other than the model API, but this is procedural. There is no mechanically enforced network-layer allowlist asserted for this agent, so the control is not claimed as met. Residual is priced, not waived.",
       "EffectiveLEF": {
-        "Min": 0.1,
-        "Mode": 0.35,
-        "Max": 1.2
+        "min": 0.1,
+        "mode": 0.35,
+        "max": 1.2
       }
     },
     {
@@ -259,14 +259,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.3,
-          "Mode": 0.9,
-          "Max": 3
+          "min": 0.3,
+          "mode": 0.9,
+          "max": 3
         },
         "LEFEnforced": {
-          "Min": 0.02,
-          "Mode": 0.08,
-          "Max": 0.35
+          "min": 0.02,
+          "mode": 0.08,
+          "max": 0.35
         },
         "AnnualCost": 9000
       },
@@ -275,9 +275,9 @@
       "Evidence": "olly-replica/apps/eval-harness",
       "Note": "The injection corpus and safety suite exist in the estate but are exercised against the Olly Sentinel pipeline, not against this agent's ingestion path. This agent reads CVE and scan data that a supplier or an advisory feed can influence. Largest single unmet control.",
       "EffectiveLEF": {
-        "Min": 0.3,
-        "Mode": 0.9,
-        "Max": 3
+        "min": 0.3,
+        "mode": 0.9,
+        "max": 3
       }
     },
     {
@@ -293,14 +293,14 @@
         },
         "CEL": "cel/agt-009-tool-authz.yaml",
         "LEFAudit": {
-          "Min": 0.15,
-          "Mode": 0.55,
-          "Max": 2
+          "min": 0.15,
+          "mode": 0.55,
+          "max": 2
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 5000
       },
@@ -309,9 +309,9 @@
       "Evidence": "olly-replica/apps/authz",
       "Note": "Per-tool authorisation is implemented for the Olly pipeline. This agent's tool grant is bounded by the closed change vocabulary (AGT-004) rather than by an explicit authz mediator.",
       "EffectiveLEF": {
-        "Min": 0.15,
-        "Mode": 0.55,
-        "Max": 2
+        "min": 0.15,
+        "mode": 0.55,
+        "max": 2
       }
     },
     {
@@ -327,14 +327,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.2,
-          "Mode": 0.7,
-          "Max": 2.5
+          "min": 0.2,
+          "mode": 0.7,
+          "max": 2.5
         },
         "LEFEnforced": {
-          "Min": 0.01,
-          "Mode": 0.05,
-          "Max": 0.2
+          "min": 0.01,
+          "mode": 0.05,
+          "max": 0.2
         },
         "AnnualCost": 4500
       },
@@ -343,9 +343,9 @@
       "Evidence": "olly-replica/apps/llm-guard",
       "Note": "No output guard on this agent's recommendation path. Recommendations flow into a PR body and the evidence bundle without a secret-redaction pass.",
       "EffectiveLEF": {
-        "Min": 0.2,
-        "Mode": 0.7,
-        "Max": 2.5
+        "min": 0.2,
+        "mode": 0.7,
+        "max": 2.5
       }
     },
     {
@@ -361,14 +361,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.4,
-          "Max": 1.5
+          "min": 0.1,
+          "mode": 0.4,
+          "max": 1.5
         },
         "LEFEnforced": {
-          "Min": 0.005,
-          "Mode": 0.02,
-          "Max": 0.08
+          "min": 0.005,
+          "mode": 0.02,
+          "max": 0.08
         },
         "AnnualCost": 1000
       },
@@ -377,9 +377,9 @@
       "Evidence": "agent/",
       "Note": "Prohibited-actions list forbids creating or modifying signing keys and trust anchors; a recommendation requiring it is rejected at the gate.",
       "EffectiveLEF": {
-        "Min": 0.005,
-        "Mode": 0.02,
-        "Max": 0.08
+        "min": 0.005,
+        "mode": 0.02,
+        "max": 0.08
       }
     },
     {
@@ -395,14 +395,14 @@
         },
         "CEL": "",
         "LEFAudit": {
-          "Min": 0.1,
-          "Mode": 0.35,
-          "Max": 1.2
+          "min": 0.1,
+          "mode": 0.35,
+          "max": 1.2
         },
         "LEFEnforced": {
-          "Min": 0.005,
-          "Mode": 0.02,
-          "Max": 0.07
+          "min": 0.005,
+          "mode": 0.02,
+          "max": 0.07
         },
         "AnnualCost": 800
       },
@@ -411,9 +411,9 @@
       "Evidence": "agent/",
       "Note": "Prohibited-actions list forbids changing policy documents, admission rules, the harness, and the guardrails document itself. Scope widening follows the VEX-exception rule: higher approval tier, recorded by PR, reviewed by security.",
       "EffectiveLEF": {
-        "Min": 0.005,
-        "Mode": 0.02,
-        "Max": 0.07
+        "min": 0.005,
+        "mode": 0.02,
+        "max": 0.07
       }
     }
   ],
@@ -424,32 +424,32 @@
   "Risk": {
     "Iterations": 200000,
     "Seed": 20260801,
-    "ALE": 667145.9604167514,
-    "VaR95": 1778960.8735760245,
-    "TVaR": 2247109.2875657347,
-    "Carried": 2584175.6807005946,
+    "ALE": 664831.6065735241,
+    "VaR95": 1775322.9017877148,
+    "TVaR": 2238355.5869303416,
+    "Carried": 2574108.9249698925,
     "RiskLoad": 0.15
   },
   "ControlSpend": 28800,
   "FrictionSpend": 28000,
   "TransferSpend": 48000,
-  "TCoR": 2688975.6807005946,
-  "PremiumRatio": 13.898874175348988,
+  "TCoR": 2678908.9249698925,
+  "PremiumRatio": 13.850658470281752,
   "Deltas": [
     {
       "ControlID": "AGT-010",
       "Title": "Agent output passes a guard before leaving the trust boundary",
-      "BuysGBP": 154205.86033986002,
+      "BuysGBP": 149231.67688058864,
       "CostGBP": 4500,
-      "NetGBP": 149705.86033986002,
+      "NetGBP": 144731.67688058864,
       "AboveTolerance": true
     },
     {
       "ControlID": "AGT-008",
       "Title": "Prompt-injection corpus is evaluated before release",
-      "BuysGBP": 96912.74023034377,
+      "BuysGBP": 94403.40783613373,
       "CostGBP": 9000,
-      "NetGBP": 87912.74023034377,
+      "NetGBP": 85403.40783613373,
       "AboveTolerance": true
     },
     {
@@ -472,43 +472,43 @@
   "Tornado": [
     {
       "Scenario": "SCN-SECRET-EXFIL",
-      "LowALE": 405327.16846479627,
-      "HighALE": 1461309.968464813,
-      "SwingGBP": 1055982.8000000166,
-      "SharePct": 42.63020841717565
+      "LowALE": 403443.95204140025,
+      "HighALE": 1464124.7520413937,
+      "SwingGBP": 1060680.7999999933,
+      "SharePct": 42.66930992948827
     },
     {
       "Scenario": "SCN-INJECTION-ACT",
-      "LowALE": 435318.29454943555,
-      "HighALE": 1437919.5445494265,
-      "SwingGBP": 1002601.2499999909,
-      "SharePct": 40.47518600380591
+      "LowALE": 433855.6171305313,
+      "HighALE": 1437782.4921305259,
+      "SwingGBP": 1003926.8749999946,
+      "SharePct": 40.38620004804242
     },
     {
       "Scenario": "SCN-SUPPLY-TAMPER",
-      "LowALE": 609935.3190262349,
-      "HighALE": 870441.9190262365,
-      "SwingGBP": 260506.6000000016,
-      "SharePct": 10.516696533361817
+      "LowALE": 610493.7728758574,
+      "HighALE": 871732.3728758501,
+      "SwingGBP": 261238.59999999264,
+      "SharePct": 10.509166177935313
     },
     {
       "Scenario": "SCN-TRUST-SUBVERT",
-      "LowALE": 642574.0178805544,
-      "HighALE": 747508.6178805562,
-      "SwingGBP": 104934.60000000172,
-      "SharePct": 4.236227965240498
+      "LowALE": 642134.2769722546,
+      "HighALE": 748562.6769722616,
+      "SwingGBP": 106428.40000000701,
+      "SharePct": 4.281426028358275
     },
     {
       "Scenario": "SCN-UNAUTH-CHANGE",
-      "LowALE": 653287.0179128863,
-      "HighALE": 706338.0929128791,
-      "SwingGBP": 53051.074999992736,
-      "SharePct": 2.1416810804161504
+      "LowALE": 655117.2289619653,
+      "HighALE": 708659.1789619732,
+      "SwingGBP": 53541.95000000787,
+      "SharePct": 2.153897816175719
     }
   ],
   "ToleranceGBP": 25000,
   "Escalations": [
-    "AGT-008: enforcing buys GBP 96913/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny",
-    "AGT-010: enforcing buys GBP 154206/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny"
+    "AGT-008: enforcing buys GBP 94403/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny",
+    "AGT-010: enforcing buys GBP 149232/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny"
   ]
 }

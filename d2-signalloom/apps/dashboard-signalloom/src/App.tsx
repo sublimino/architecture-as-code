@@ -29,6 +29,7 @@ const CompliancePage = lazy(() => import('./pages/CompliancePage'))
 const FrameworkDetailPage = lazy(() => import('./pages/FrameworkDetailPage'))
 const AuditTrailPage = lazy(() => import('./pages/AuditTrailPage'))
 const CryptographyPage = lazy(() => import('./pages/CryptographyPage'))
+const CredentialInventoryPage = lazy(() => import('./pages/CredentialInventoryPage'))
 const FederatedServicesPage = lazy(() => import('./pages/FederatedServicesPage'))
 const CollusionAccessPage = lazy(() => import('./pages/CollusionAccessPage'))
 const RbacAnalysisPage = lazy(() => import('./pages/RbacAnalysisPage'))
@@ -235,6 +236,7 @@ export default function App() {
                 <Route path="/compliance/:frameworkId" element={<ProtectedRoute><FrameworkDetailPage /></ProtectedRoute>} />
                 <Route path="/audit" element={<ProtectedRoute><AuditTrailPage /></ProtectedRoute>} />
                 <Route path="/cryptography" element={<ProtectedRoute><CryptographyPage /></ProtectedRoute>} />
+                <Route path="/credential-inventory" element={<ProtectedRoute><CredentialInventoryPage /></ProtectedRoute>} />
                 <Route path="/federated-services" element={<ProtectedRoute><FederatedServicesPage /></ProtectedRoute>} />
                 <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />

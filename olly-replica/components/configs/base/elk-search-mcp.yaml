@@ -3,6 +3,11 @@
 # exactly the three index patterns (7d expiry, re-minted on every pod start)
 # and hands it over on a shared in-memory volume. The server process never
 # sees the superuser credential — it holds the scoped key and nothing else.
+# FLUX ENVSUBST: YES — this manifest is rendered by the Flux Kustomization
+# that reconciles this directory (postBuild.substituteFrom is configured;
+# see this directory's kustomization.yaml). Use ${VAR} for values Flux
+# should substitute from flux-runtime-info, and $${VAR} to pass a literal $
+# through untouched to the container.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

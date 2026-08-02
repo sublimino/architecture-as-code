@@ -8,6 +8,11 @@
 # credential, no write scope anywhere in this pod. Set LLM_URL to an
 # OpenAI-compatible gateway (Ollama locally) to swap the deterministic RCA
 # narrative for a model-generated one; Gemini/Vertex runs natively via ADK.
+# FLUX ENVSUBST: YES — this manifest is rendered by the Flux Kustomization
+# that reconciles this directory (postBuild.substituteFrom is configured;
+# see this directory's kustomization.yaml). Use ${VAR} for values Flux
+# should substitute from flux-runtime-info, and $${VAR} to pass a literal $
+# through untouched to the container.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

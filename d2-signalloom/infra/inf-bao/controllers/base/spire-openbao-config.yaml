@@ -1,3 +1,7 @@
+# FLUX ENVSUBST: NO — the Flux Kustomization that reconciles this directory
+# has no postBuild (see this directory's kustomization.yaml). Flux does NOT
+# run envsubst here; ${VAR} below is SPIRE's own -expandEnv shell-style
+# substitution at container startup, not Flux's.
 apiVersion: v1
 kind: ConfigMap
 metadata:

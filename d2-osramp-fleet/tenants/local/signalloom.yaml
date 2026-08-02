@@ -1,6 +1,17 @@
 # Canonical Signalloom ResourceSet source. The active fleet carries an identical
 # copy at d2-osramp-fleet/tenants/local/signalloom.yaml because Flux consumes
 # only the fleet OCI artifact.
+#
+# FLUX ENVSUBST: YES for signalloom-infra/signalloom-apps' spec.resources —
+# ${REGISTRY_BASE}/${REGISTRY_INSECURE} there are reached by the tenants
+# Kustomization's postBuild.substituteFrom (clusters/local/tenants.yaml ->
+# flux-runtime-info ConfigMap). spec.inputs on both is deliberately empty
+# ([]): `make demo-signalloom-up` (scripts/signalloom-local.sh, see
+# `activate_resourceset`) activates them with `kubectl patch resourceset
+# --type merge`, injecting concrete literal values — that path never goes through
+# envsubst, so it is not subject to the postBuild race documented on
+# tenants/base/infra.yaml and in AGENTS.md "Flux variable substitution".
+# signalloom-spire-rbac has no inputs and no ${VAR} tokens at all.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:

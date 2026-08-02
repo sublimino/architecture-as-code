@@ -28,7 +28,21 @@ describe('FederatedServicesPage', () => {
 
   it('renders concrete mock data — a federated service and the Go SDK import', () => {
     renderPage()
-    expect(screen.getByText('payments-api')).toBeInTheDocument()
+    expect(screen.getAllByText('payments-api').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/cofide-sdk-go\/cofide/)).toBeInTheDocument()
+  })
+
+  it('renders the SPIFFE Identities section with real trust domain URIs', () => {
+    renderPage()
+    expect(screen.getByRole('heading', { name: 'SPIFFE Identities' })).toBeInTheDocument()
+    expect(screen.getByText(/spiffe:\/\/signalloom\.demo\/ns\/fe-signalloom\/sa\/fe-signalloom/)).toBeInTheDocument()
+    expect(screen.getByText(/spiffe:\/\/acme\.partner\.example\/ns\/kyc\/sa\/kyc-lookup/)).toBeInTheDocument()
+  })
+
+  it('renders the Federation Events section with activity log', () => {
+    renderPage()
+    expect(screen.getByRole('heading', { name: 'Federation Events' })).toBeInTheDocument()
+    expect(screen.getByText(/Bundle refreshed/)).toBeInTheDocument()
+    expect(screen.getByText(/Awaiting signalloom-us bundle acceptance/)).toBeInTheDocument()
   })
 })

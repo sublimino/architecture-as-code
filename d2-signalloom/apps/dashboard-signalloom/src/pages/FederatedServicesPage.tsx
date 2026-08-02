@@ -37,6 +37,22 @@ const POLICIES = [
   { name: 'ap-node-tpm', selector: 'tpm:ek_sha256:9f3c…', zones: 'eu, us' },
 ]
 
+const SPIFFE_IDS = [
+  { uri: 'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom', workload: 'dashboard', ns: 'fe-signalloom', sa: 'fe-signalloom', svid: 'X.509', expiry: '2026-08-02T18:00:00Z' },
+  { uri: 'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent', workload: 'agent', ns: 'fe-signalloom-agents', sa: 'cardvault-agent', svid: 'JWT', expiry: '2026-08-02T14:30:00Z' },
+  { uri: 'spiffe://signalloom.demo/ns/payments/sa/payments-api', workload: 'service', ns: 'payments', sa: 'payments-api', svid: 'X.509', expiry: '2026-08-03T06:00:00Z' },
+  { uri: 'spiffe://signalloom.demo/ns/payments/sa/ledger-grpc', workload: 'service', ns: 'payments', sa: 'ledger-grpc', svid: 'X.509', expiry: '2026-08-03T06:00:00Z' },
+  { uri: 'spiffe://acme.partner.example/ns/kyc/sa/kyc-lookup', workload: 'service', ns: 'kyc', sa: 'kyc-lookup', svid: 'X.509', expiry: '2026-08-02T22:00:00Z' },
+]
+
+const FEDERATION_EVENTS = [
+  { ts: '2026-08-02T09:14:22Z', zone: 'signalloom-eu', event: 'Bundle refreshed', detail: 'Trust bundle rotated (SHA-256: 9f3c…a1b2)', severity: 'info' },
+  { ts: '2026-08-02T09:12:05Z', zone: 'signalloom-us', event: 'Federation established', detail: 'Bidirectional bundle exchange with signalloom-eu complete', severity: 'info' },
+  { ts: '2026-08-02T08:58:33Z', zone: 'partner-acme', event: 'Bundle exchange pending', detail: 'Awaiting signalloom-us bundle acceptance', severity: 'pending' },
+  { ts: '2026-08-02T08:45:01Z', zone: 'signalloom-eu', event: 'SVID issued', detail: 'payments-api X.509 SVID renewed (TTL 24h)', severity: 'info' },
+  { ts: '2026-08-02T08:30:00Z', zone: 'signalloom-eu', event: 'Attestation passed', detail: 'cardvault-agent k8s workload attestation (SA match)', severity: 'info' },
+]
+
 const SDK_SNIPPET = `import "github.com/cofide/cofide-sdk-go/cofide"
 
 // No static secrets: the SDK fetches this workload's SVID from the
@@ -115,6 +131,33 @@ export default function FederatedServicesPage() {
               <td style={td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{p.name}</code></td>
               <td style={{ ...td, color: 'var(--muted)' }}>{p.selector}</td>
               <td style={{ ...td, color: 'var(--muted)' }}>{p.zones}</td>
+            </tr>
+          ))}
+        </Table>
+      </Section>
+
+      <Section title="SPIFFE Identities" hint="SVIDs issued by the trust fabric">
+        <Table headers={['SPIFFE ID', 'Workload', 'Namespace', 'Service account', 'SVID type']}>
+          {SPIFFE_IDS.map((s) => (
+            <tr key={s.uri} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 11.5, wordBreak: 'break-all', whiteSpace: 'normal' }}>{s.uri}</code></td>
+              <td style={td}><Pill label={s.workload} /></td>
+              <td style={{ ...td, color: 'var(--muted)' }}>{s.ns}</td>
+              <td style={{ ...td, color: 'var(--muted)' }}>{s.sa}</td>
+              <td style={td}><Pill label={s.svid} /></td>
+            </tr>
+          ))}
+        </Table>
+      </Section>
+
+      <Section title="Federation Events" hint="recent trust fabric activity">
+        <Table headers={['Timestamp', 'Zone', 'Event', 'Detail']}>
+          {FEDERATION_EVENTS.map((e, i) => (
+            <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={{ ...td, fontFamily: 'monospace', fontSize: 11.5, color: 'var(--muted)' }}>{e.ts.replace('T', ' ').replace('Z', '')}</td>
+              <td style={{ ...td, fontWeight: 500 }}>{e.zone}</td>
+              <td style={{ ...td, fontWeight: 500 }}>{e.event}</td>
+              <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal' }}>{e.detail}</td>
             </tr>
           ))}
         </Table>

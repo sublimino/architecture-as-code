@@ -11,6 +11,8 @@ import os
 import secrets
 import threading
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal
@@ -641,8 +643,42 @@ def _jsonb_str_list(value: Any) -> list[str]:
     return [str(item) for item in value]
 
 
+@asynccontextmanager
+async def _write(pool: Any) -> AsyncIterator[Any]:
+    """Yield one connection inside a transaction, for a mutation *and* its audit row.
+
+    Every statement issued against a ``asyncpg.Pool`` is its own autocommit
+    transaction.  A handler that did its business write and then its audit
+    insert as two pool calls therefore had no atomicity at all: when the audit
+    insert failed the business write had already committed, the exception
+    propagated, and the caller got a 500 for a change that persisted.  That is
+    not hypothetical -- the ``audit_events`` CHECK constraint rejected every
+    event type the code emitted until migration 007, so
+    ``PATCH /tenant/settings/preferences`` saved the user's preferences and
+    then reported failure.  For a product whose output is regulatory evidence,
+    a business write with no matching audit record is worse than no write.
+
+    Take one connection and one transaction, and both statements commit or
+    neither does.
+
+    Two rules for call sites:
+
+    * Every statement in the unit of work must use the yielded ``conn``.  A
+      statement issued against the pool inside the ``async with`` body runs on
+      a *different* connection and is not part of the transaction.
+    * Any read that must observe the committed result -- the
+      ``return await tenant_settings(...)`` re-read several handlers end with,
+      which acquires its own connection -- belongs **outside** the block.
+      Inside, it cannot see the uncommitted rows, and the endpoint quietly
+      returns stale values instead of raising.
+    """
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            yield conn
+
+
 async def _audit_log(
-    pool: asyncpg.Pool,
+    executor: Any,
     tenant_id: str,
     event_type: str,
     agent_id: str | None,
@@ -650,9 +686,14 @@ async def _audit_log(
     actor: str,
     detail: dict[str, Any],
 ) -> None:
-    """Insert an audit event row."""
+    """Insert an audit event row.
+
+    ``executor`` is anything with ``.execute`` -- an ``asyncpg.Pool`` for the
+    handlers that write nothing else, or the connection yielded by ``_write``
+    so the audit row joins the caller's transaction.
+    """
     agent_uuid = _try_uuid(agent_id) if agent_id else None
-    await pool.execute(
+    await executor.execute(
         """INSERT INTO audit_events (tenant_id, event_type, agent_id, agent_name, actor, detail)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
         tenant_id, event_type, agent_uuid, agent_name, actor, json.dumps(detail),
@@ -660,10 +701,14 @@ async def _audit_log(
 
 
 async def _compliance_summary_for_agent(
-    pool: asyncpg.Pool, agent_id: uuid.UUID,
+    executor: Any, agent_id: uuid.UUID,
 ) -> ComplianceSummaryInline:
-    """Build a ComplianceSummaryInline from agent_compliance_results."""
-    rows = await pool.fetch(
+    """Build a ComplianceSummaryInline from agent_compliance_results.
+
+    ``executor`` is a pool or a ``_write`` connection -- the latter so a
+    just-inserted agent's summary is read inside the same transaction.
+    """
+    rows = await executor.fetch(
         "SELECT status, COUNT(*)::int AS cnt FROM agent_compliance_results WHERE agent_id = $1 GROUP BY status",
         agent_id,
     )
@@ -707,20 +752,26 @@ def _agent_response_from_row(row: asyncpg.Record, compliance: ComplianceSummaryI
     )
 
 
-async def _ensure_tenant_settings(pool: asyncpg.Pool, tenant_id: str) -> asyncpg.Record:
-    """Ensure a tenant_settings row exists; return it."""
-    row = await pool.fetchrow(
+async def _ensure_tenant_settings(executor: Any, tenant_id: str) -> asyncpg.Record:
+    """Ensure a tenant_settings row exists; return it.
+
+    ``executor`` is a pool or a ``_write`` connection.  The read-then-insert is
+    not a lost-update race: the insert is ``ON CONFLICT DO NOTHING`` and the
+    re-read follows it, so a row another request created in between is returned
+    rather than clobbered.
+    """
+    row = await executor.fetchrow(
         "SELECT * FROM tenant_settings WHERE tenant_id = $1", tenant_id,
     )
     if row is not None:
         return row
-    await pool.execute(
+    await executor.execute(
         """INSERT INTO tenant_settings (tenant_id, org_name)
            VALUES ($1, $2)
            ON CONFLICT (tenant_id) DO NOTHING""",
         tenant_id, f"{tenant_id} Org",
     )
-    row = await pool.fetchrow(
+    row = await executor.fetchrow(
         "SELECT * FROM tenant_settings WHERE tenant_id = $1", tenant_id,
     )
     if row is None:
@@ -1247,14 +1298,15 @@ async def create_agent(
             _AGENTS[tenant_id][agent_id] = agent
             return AgentResponse(**agent)
 
-    row = await pool.fetchrow(
-        """INSERT INTO agent_registry (tenant_id, name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
-           VALUES ($1, $2, $3, $4, 'registered', 'limited', 'gpt-5.4-mini')
-           RETURNING *""",
-        tenant_id, body.name, body.type, body.owner,
-    )
-    compliance = await _compliance_summary_for_agent(pool, row["id"])
-    await _audit_log(pool, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
+    async with _write(pool) as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO agent_registry (tenant_id, name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
+               VALUES ($1, $2, $3, $4, 'registered', 'limited', 'gpt-5.4-mini')
+               RETURNING *""",
+            tenant_id, body.name, body.type, body.owner,
+        )
+        compliance = await _compliance_summary_for_agent(conn, row["id"])
+        await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
     return _agent_response_from_row(row, compliance)
 
 
@@ -1347,24 +1399,28 @@ async def transition_agent(
             timestamp=now,
         )
 
-    row = await pool.fetchrow(
-        "SELECT lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2",
-        agent_uuid, tenant_id,
-    )
-    from_state = "registered" if row is None else row["lifecycle_state"]
-    agent_name = None if row is None else row["name"]
-
-    if row is not None:
-        await pool.execute(
-            """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
-               WHERE id = $2 AND tenant_id = $3""",
-            body.to_state, agent_uuid, tenant_id,
+    # The read is inside the transaction with the update and the audit row, so
+    # the from_state the audit trail records is the state the update actually
+    # moved away from.
+    async with _write(pool) as conn:
+        row = await conn.fetchrow(
+            "SELECT lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            agent_uuid, tenant_id,
         )
+        from_state = "registered" if row is None else row["lifecycle_state"]
+        agent_name = None if row is None else row["name"]
 
-    await _audit_log(
-        pool, tenant_id, "agent.transitioned", agent_id, agent_name, "demo-actor",
-        {"from_state": from_state, "to_state": body.to_state, "reason": body.reason},
-    )
+        if row is not None:
+            await conn.execute(
+                """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
+                   WHERE id = $2 AND tenant_id = $3""",
+                body.to_state, agent_uuid, tenant_id,
+            )
+
+        await _audit_log(
+            conn, tenant_id, "agent.transitioned", agent_id, agent_name, "demo-actor",
+            {"from_state": from_state, "to_state": body.to_state, "reason": body.reason},
+        )
     return TransitionResponse(
         agent_id=agent_id,
         from_state=from_state,
@@ -1439,15 +1495,16 @@ async def acknowledge_violation(
     if v_uuid is None:
         raise APIError(404, "not_found", "Violation not found")
 
-    await pool.execute(
-        """UPDATE agent_violations SET status = 'acknowledged', acknowledged_by = 'demo-actor', acknowledged_at = now()
-           WHERE id = $1 AND tenant_id = $2""",
-        v_uuid, tenant_id,
-    )
-    await _audit_log(
-        pool, tenant_id, "violation.acknowledged", None, None, "demo-actor",
-        {"violation_id": violation_id},
-    )
+    async with _write(pool) as conn:
+        await conn.execute(
+            """UPDATE agent_violations SET status = 'acknowledged', acknowledged_by = 'demo-actor', acknowledged_at = now()
+               WHERE id = $1 AND tenant_id = $2""",
+            v_uuid, tenant_id,
+        )
+        await _audit_log(
+            conn, tenant_id, "violation.acknowledged", None, None, "demo-actor",
+            {"violation_id": violation_id},
+        )
     return {"status": "acknowledged"}
 
 
@@ -1988,12 +2045,13 @@ async def enroll_nhi_account(
     if a_uuid is None:
         raise APIError(404, "not_found", "Account not found")
 
-    await pool.execute(
-        """UPDATE nhi_discovered_accounts SET status = 'enrollment_requested', dismissed_at = NULL, dismissed_by = NULL
-           WHERE id = $1 AND tenant_id = $2""",
-        a_uuid, tenant_id,
-    )
-    await _audit_log(pool, tenant_id, "nhi.enrolled", None, None, "demo-actor", {"account_id": account_id})
+    async with _write(pool) as conn:
+        await conn.execute(
+            """UPDATE nhi_discovered_accounts SET status = 'enrollment_requested', dismissed_at = NULL, dismissed_by = NULL
+               WHERE id = $1 AND tenant_id = $2""",
+            a_uuid, tenant_id,
+        )
+        await _audit_log(conn, tenant_id, "nhi.enrolled", None, None, "demo-actor", {"account_id": account_id})
     return {"account_id": account_id, "status": "enrollment_requested"}
 
 
@@ -2021,14 +2079,15 @@ async def dismiss_nhi_account(
     if a_uuid is None:
         raise APIError(404, "not_found", "Account not found")
 
-    await pool.execute(
-        """UPDATE nhi_discovered_accounts
-           SET status = 'dismissed', dismissed_at = now(), dismissed_by = 'demo-actor',
-               changes_since_dismissal = false, previous_risk_flags = findings
-           WHERE id = $1 AND tenant_id = $2""",
-        a_uuid, tenant_id,
-    )
-    await _audit_log(pool, tenant_id, "nhi.dismissed", None, None, "demo-actor", {"account_id": account_id})
+    async with _write(pool) as conn:
+        await conn.execute(
+            """UPDATE nhi_discovered_accounts
+               SET status = 'dismissed', dismissed_at = now(), dismissed_by = 'demo-actor',
+                   changes_since_dismissal = false, previous_risk_flags = findings
+               WHERE id = $1 AND tenant_id = $2""",
+            a_uuid, tenant_id,
+        )
+        await _audit_log(conn, tenant_id, "nhi.dismissed", None, None, "demo-actor", {"account_id": account_id})
     return {"account_id": account_id, "status": "dismissed"}
 
 
@@ -2140,16 +2199,18 @@ async def patch_tenant_frameworks(
             _TENANT_FRAMEWORKS[tenant_id] = list(body.selected_frameworks)
             return _tenant_settings_response(tenant_id)
 
-    await _ensure_tenant_settings(pool, tenant_id)
-    await pool.execute(
-        "UPDATE tenant_settings SET selected_frameworks = $1 WHERE tenant_id = $2",
-        json.dumps(list(body.selected_frameworks)), tenant_id,
-    )
-    await _audit_log(
-        pool, tenant_id, "tenant.frameworks_updated", None, None, "demo-actor",
-        {"selected_frameworks": body.selected_frameworks},
-    )
-    # Re-fetch and return via the GET handler logic
+    async with _write(pool) as conn:
+        await _ensure_tenant_settings(conn, tenant_id)
+        await conn.execute(
+            "UPDATE tenant_settings SET selected_frameworks = $1 WHERE tenant_id = $2",
+            json.dumps(list(body.selected_frameworks)), tenant_id,
+        )
+        await _audit_log(
+            conn, tenant_id, "tenant.frameworks_updated", None, None, "demo-actor",
+            {"selected_frameworks": body.selected_frameworks},
+        )
+    # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
+    # connection and so must run after the commit to observe the new values.
     return await tenant_settings(tenant_id)
 
 
@@ -2169,24 +2230,26 @@ async def patch_tenant_preferences(
             }
             return _tenant_settings_response(tenant_id)
 
-    await _ensure_tenant_settings(pool, tenant_id)
-    await pool.execute(
-        """UPDATE tenant_settings
-              SET preferred_scan_cadence_hours = $1,
-                  alert_email = $2,
-                  alert_threshold = $3
-            WHERE tenant_id = $4""",
-        body.preferred_scan_cadence_hours, body.alert_email, body.alert_threshold, tenant_id,
-    )
-    await _audit_log(
-        pool, tenant_id, "tenant.preferences_updated", None, None, "demo-actor",
-        {
-            "preferred_scan_cadence_hours": body.preferred_scan_cadence_hours,
-            "alert_email": body.alert_email,
-            "alert_threshold": body.alert_threshold,
-        },
-    )
-    # Re-fetch and return via the GET handler logic
+    async with _write(pool) as conn:
+        await _ensure_tenant_settings(conn, tenant_id)
+        await conn.execute(
+            """UPDATE tenant_settings
+                  SET preferred_scan_cadence_hours = $1,
+                      alert_email = $2,
+                      alert_threshold = $3
+                WHERE tenant_id = $4""",
+            body.preferred_scan_cadence_hours, body.alert_email, body.alert_threshold, tenant_id,
+        )
+        await _audit_log(
+            conn, tenant_id, "tenant.preferences_updated", None, None, "demo-actor",
+            {
+                "preferred_scan_cadence_hours": body.preferred_scan_cadence_hours,
+                "alert_email": body.alert_email,
+                "alert_threshold": body.alert_threshold,
+            },
+        )
+    # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
+    # connection and so must run after the commit to observe the new values.
     return await tenant_settings(tenant_id)
 
 
@@ -2234,12 +2297,13 @@ async def create_initial_api_key(
         _ensure_seeded(tenant_id)
     else:
         key_hash = hashlib.sha256(key.encode()).hexdigest()
-        await pool.execute(
-            """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
-               VALUES ($1, $2, $3, 'tenant:read-write')""",
-            tenant_id, key_hash, key[:14],
-        )
-        await _audit_log(pool, tenant_id, "api_key.created", None, None, "demo-actor", {"prefix_hint": key[:14]})
+        async with _write(pool) as conn:
+            await conn.execute(
+                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
+                   VALUES ($1, $2, $3, 'tenant:read-write')""",
+                tenant_id, key_hash, key[:14],
+            )
+            await _audit_log(conn, tenant_id, "api_key.created", None, None, "demo-actor", {"prefix_hint": key[:14]})
 
     return InitialApiKeyResponse(
         key=key,
@@ -2261,17 +2325,22 @@ async def rotate_api_key(
         _ensure_seeded(tenant_id)
     else:
         key_hash = hashlib.sha256(key.encode()).hexdigest()
-        # Mark existing keys as revoked
-        await pool.execute(
-            "UPDATE tenant_api_keys SET revoked_at = now() WHERE tenant_id = $1 AND revoked_at IS NULL",
-            tenant_id,
-        )
-        await pool.execute(
-            """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
-               VALUES ($1, $2, $3, 'tenant:read-write')""",
-            tenant_id, key_hash, key[:14],
-        )
-        await _audit_log(pool, tenant_id, "api_key.rotated", None, None, "demo-actor", {"prefix_hint": key[:14]})
+        # Revoke-then-issue is a security-relevant pair, not just two writes.
+        # Committed separately, a failure between them leaves the tenant with
+        # every key revoked and no replacement -- a self-inflicted outage -- or,
+        # if the audit insert is what fails, a live new key with no record of
+        # who minted it. One transaction, or neither.
+        async with _write(pool) as conn:
+            await conn.execute(
+                "UPDATE tenant_api_keys SET revoked_at = now() WHERE tenant_id = $1 AND revoked_at IS NULL",
+                tenant_id,
+            )
+            await conn.execute(
+                """INSERT INTO tenant_api_keys (tenant_id, key_hash, prefix_hint, scope)
+                   VALUES ($1, $2, $3, 'tenant:read-write')""",
+                tenant_id, key_hash, key[:14],
+            )
+            await _audit_log(conn, tenant_id, "api_key.rotated", None, None, "demo-actor", {"prefix_hint": key[:14]})
 
     return RotateApiKeyResponse(
         key=key,
@@ -2371,16 +2440,17 @@ async def accept_consent(
             cookie_preferences=body.cookie_preferences,
         )
 
-    await pool.execute(
-        """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
-                                        cookie_preferences, b2b_warranty_accepted)
-           VALUES ($1, 'demo@signalloom.local', now(), $2::jsonb, $3::jsonb, $4)""",
-        tenant_id,
-        json.dumps(dict(body.document_versions)),
-        json.dumps(body.cookie_preferences.model_dump()),
-        body.b2b_warranty_accepted,
-    )
-    await _audit_log(pool, tenant_id, "consent.accepted", None, None, "demo-actor", {"document_versions": dict(body.document_versions)})
+    async with _write(pool) as conn:
+        await conn.execute(
+            """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
+                                            cookie_preferences, b2b_warranty_accepted)
+               VALUES ($1, 'demo@signalloom.local', now(), $2::jsonb, $3::jsonb, $4)""",
+            tenant_id,
+            json.dumps(dict(body.document_versions)),
+            json.dumps(body.cookie_preferences.model_dump()),
+            body.b2b_warranty_accepted,
+        )
+        await _audit_log(conn, tenant_id, "consent.accepted", None, None, "demo-actor", {"document_versions": dict(body.document_versions)})
     return ConsentAcceptResponse(
         accepted=True,
         accepted_at=now,
@@ -2435,15 +2505,16 @@ async def patch_cookie_preferences(
             prefs = _cookie_preferences_for_tenant(tenant_id)
         return CookiePreferencesResponse(cookie_preferences=prefs)
 
-    await pool.execute(
-        """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
-                                        cookie_preferences, b2b_warranty_accepted)
-           VALUES ($1, 'demo@signalloom.local', now(), '{"tos":"2026-01","privacy":"2026-01"}'::jsonb,
-                   $2::jsonb, false)""",
-        tenant_id,
-        json.dumps({"strictly_necessary": True, "analytics": body.analytics}),
-    )
-    await _audit_log(pool, tenant_id, "cookie.preferences_updated", None, None, "demo-actor", {"analytics": body.analytics})
+    async with _write(pool) as conn:
+        await conn.execute(
+            """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
+                                            cookie_preferences, b2b_warranty_accepted)
+               VALUES ($1, 'demo@signalloom.local', now(), '{"tos":"2026-01","privacy":"2026-01"}'::jsonb,
+                       $2::jsonb, false)""",
+            tenant_id,
+            json.dumps({"strictly_necessary": True, "analytics": body.analytics}),
+        )
+        await _audit_log(conn, tenant_id, "cookie.preferences_updated", None, None, "demo-actor", {"analytics": body.analytics})
     return CookiePreferencesResponse(
         cookie_preferences=CookiePreferences(strictly_necessary=True, analytics=body.analytics),
     )

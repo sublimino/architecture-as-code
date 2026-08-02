@@ -26,6 +26,7 @@ import SuperCredPage from './SuperCredPage'
 import AuditTrail from '../views/AuditTrail'
 import { setDemoMode } from '../api/demoMode'
 import { clearDemoActivity } from '../api/demoActivity'
+import { setSimulatedPhase } from '../api/supercredSource'
 
 const FLUX_NS = 'fe-signalloom'
 
@@ -65,6 +66,19 @@ beforeEach(() => {
   getAccessTokenSilently.mockResolvedValue('test-token')
   setDemoMode(true)
   mockProxy()
+  // Required since feat/supercred-main-pages merged. This test was written when
+  // the page discovered agents by calling the proxy directly, which mockProxy()
+  // above intercepts. The page now goes through discoverSuperCredAgents(), and
+  // in demo mode that function never touches fetch — it returns
+  // simulate(readSimPhase()), so the proxy mock is bypassed entirely.
+  //
+  // The simulated phase persists in localStorage and defaults to 'absent',
+  // for which simulate() returns null: no agent, no agent card, and therefore
+  // no Stun Agent button to click. 'non-compliant' is the phase the demo is in
+  // immediately before step 4 — an agent present and not yet stunned, which is
+  // exactly the precondition this test needs. Setting 'stunned' would hide the
+  // button too, since the page renders it only while state !== 'stunned'.
+  setSimulatedPhase('non-compliant')
 })
 
 afterEach(() => {

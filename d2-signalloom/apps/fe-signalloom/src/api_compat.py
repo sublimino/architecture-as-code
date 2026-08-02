@@ -21,7 +21,7 @@ import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
@@ -335,6 +335,9 @@ class TenantSettingsResponse(BaseModel):
     selected_frameworks: list[str]
     consent_required: bool
     cookie_preferences: CookiePreferences | None
+    preferred_scan_cadence_hours: int
+    alert_email: str | None
+    alert_threshold: int
 
 
 class InitialApiKeyResponse(BaseModel):
@@ -409,6 +412,23 @@ class FrameworksPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     selected_frameworks: list[str]
+
+
+class PreferencesPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    preferred_scan_cadence_hours: int = Field(ge=1)
+    alert_email: str | None = Field(default=None, max_length=320)
+    alert_threshold: int = Field(ge=1)
+
+    @field_validator("alert_email")
+    @classmethod
+    def _blank_email_is_unset(cls, value: str | None) -> str | None:
+        """Treat an empty/whitespace-only address the same as no address."""
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
 
 
 class CookiePrefsPatchRequest(BaseModel):
@@ -700,6 +720,7 @@ _AGENTS: dict[str, dict[str, dict[str, Any]]] = {}
 _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
+_TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
 _COOKIE_PREFS: dict[str, dict[str, bool]] = {}
 _CONSENT: dict[str, dict[str, Any]] = {}
 _AGENT_SEQ = itertools.count(1)
@@ -707,6 +728,20 @@ _AGENT_SEQ = itertools.count(1)
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+# Must stay in step with the DEFAULTs in migration 005_tenant_scan_preferences
+# and DEFAULT_PREFERENCES in dashboard-signalloom/src/pages/OnboardingWizard.tsx.
+DEFAULT_SCAN_CADENCE_HOURS = 24
+DEFAULT_ALERT_THRESHOLD = 1
+
+
+def _default_scan_preferences() -> dict[str, Any]:
+    return {
+        "preferred_scan_cadence_hours": DEFAULT_SCAN_CADENCE_HOURS,
+        "alert_email": None,
+        "alert_threshold": DEFAULT_ALERT_THRESHOLD,
+    }
 
 
 def _default_compliance_summary() -> dict[str, Any]:
@@ -929,6 +964,7 @@ def _ensure_seeded(tenant_id: str) -> None:
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_at"] = "2026-07-27T01:30:00Z"
         _NHI_ACCOUNTS[tenant_id][f"{tenant_id}:nhi-2"]["dismissed_by"] = "demo-actor"
         _TENANT_FRAMEWORKS[tenant_id] = ["eu-ai-act"]
+        _TENANT_PREFERENCES[tenant_id] = _default_scan_preferences()
         _COOKIE_PREFS[tenant_id] = {"strictly_necessary": True, "analytics": False}
 
 
@@ -952,6 +988,7 @@ def _cookie_preferences_for_tenant(tenant_id: str) -> CookiePreferences:
 
 
 def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
+    prefs = _TENANT_PREFERENCES.get(tenant_id) or _default_scan_preferences()
     return TenantSettingsResponse(
         tenant_id=tenant_id,
         org_name=f"{tenant_id} Org",
@@ -962,6 +999,9 @@ def _tenant_settings_response(tenant_id: str) -> TenantSettingsResponse:
         selected_frameworks=list(_TENANT_FRAMEWORKS[tenant_id]),
         consent_required=True,
         cookie_preferences=_cookie_preferences_for_tenant(tenant_id),
+        preferred_scan_cadence_hours=prefs["preferred_scan_cadence_hours"],
+        alert_email=prefs["alert_email"],
+        alert_threshold=prefs["alert_threshold"],
     )
 
 
@@ -1999,6 +2039,11 @@ async def tenant_settings(
         selected_frameworks=list(ts_row["selected_frameworks"]) if ts_row["selected_frameworks"] else [],
         consent_required=consent_required,
         cookie_preferences=cookie_prefs,
+        # `.get` rather than `[...]`: a database that predates migration 005
+        # still answers with the documented defaults instead of a 500.
+        preferred_scan_cadence_hours=ts_row.get("preferred_scan_cadence_hours") or DEFAULT_SCAN_CADENCE_HOURS,
+        alert_email=ts_row.get("alert_email"),
+        alert_threshold=ts_row.get("alert_threshold") or DEFAULT_ALERT_THRESHOLD,
     )
 
 
@@ -2022,6 +2067,43 @@ async def patch_tenant_frameworks(
     await _audit_log(
         pool, tenant_id, "tenant.frameworks_updated", None, None, "demo-actor",
         {"selected_frameworks": body.selected_frameworks},
+    )
+    # Re-fetch and return via the GET handler logic
+    return await tenant_settings(tenant_id)
+
+
+@router.patch("/tenant/settings/preferences", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
+async def patch_tenant_preferences(
+    body: PreferencesPatchRequest,
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> TenantSettingsResponse:
+    pool = await _get_pool()
+    if pool is None:
+        _ensure_seeded(tenant_id)
+        with _STORE_LOCK:
+            _TENANT_PREFERENCES[tenant_id] = {
+                "preferred_scan_cadence_hours": body.preferred_scan_cadence_hours,
+                "alert_email": body.alert_email,
+                "alert_threshold": body.alert_threshold,
+            }
+            return _tenant_settings_response(tenant_id)
+
+    await _ensure_tenant_settings(pool, tenant_id)
+    await pool.execute(
+        """UPDATE tenant_settings
+              SET preferred_scan_cadence_hours = $1,
+                  alert_email = $2,
+                  alert_threshold = $3
+            WHERE tenant_id = $4""",
+        body.preferred_scan_cadence_hours, body.alert_email, body.alert_threshold, tenant_id,
+    )
+    await _audit_log(
+        pool, tenant_id, "tenant.preferences_updated", None, None, "demo-actor",
+        {
+            "preferred_scan_cadence_hours": body.preferred_scan_cadence_hours,
+            "alert_email": body.alert_email,
+            "alert_threshold": body.alert_threshold,
+        },
     )
     # Re-fetch and return via the GET handler logic
     return await tenant_settings(tenant_id)

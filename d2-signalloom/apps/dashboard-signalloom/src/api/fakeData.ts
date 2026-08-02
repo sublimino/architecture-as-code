@@ -1,12 +1,13 @@
 // Fake-data fixtures for demo mode.
 //
 // resolveFake(method, path, body) returns a shape-valid fixture for any of the
-// 27 client endpoints when demo mode is on, or `undefined` if no route matches
-// (in which case client.ts falls through to a real HTTP call). Every fixture is
+// client endpoints when demo mode is on, or `undefined` if a matched demo route
+// cannot resolve a resource (for example, GET /agents/{missing-id}). Every fixture is
 // typed against ../types/api so the compiler enforces contract fidelity — the
 // same guarantee the backend Pydantic models give server-side.
 
 import type {
+  AgentCreateRequest,
   AgentListResponse,
   AgentResponse,
   AuditListResponse,
@@ -23,6 +24,7 @@ import type {
   PlatformUsersResponse,
   PostureResponse,
   ReassessmentResponse,
+  RevokeCredentialResponse,
   RotateApiKeyResponse,
   SupportRequestResponse,
   TenantSettingsResponse,
@@ -35,6 +37,11 @@ import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTests
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
+
+interface DemoAgentRecord {
+  agent: AgentResponse
+  activeCredentialCount: number
+}
 
 // ─── Agents ──────────────────────────────────────────────────────────────────
 
@@ -67,32 +74,205 @@ function agent(
   }
 }
 
-const AGENTS: AgentResponse[] = [
-  agent('agent-inventory', 'Inventory Agent', 'active', 'limited'),
-  agent('agent-triage', 'Triage Agent', 'active', 'high', { failing: 2, passing: 8, posture_score: 68 }),
-  agent('agent-sandbox', 'Sandbox Agent', 'enrolled', 'minimal', { posture_score: null, passing: 0, pending: 12 }),
-  agent('agent-remediation', 'Remediation Agent', 'active', 'high', { failing: 0, passing: 12, posture_score: 95 }),
-  agent('agent-scanner', 'Vulnerability Scanner', 'suspended', 'limited', { failing: 3, passing: 7, posture_score: 42, type: 'COTS', owner: 'security-team' }),
-  agent('agent-reporter', 'Compliance Reporter', 'active', 'minimal', { failing: 1, passing: 9, posture_score: 78, type: 'Custom' }),
-]
-
-const agentList: AgentListResponse = { agents: AGENTS, total: AGENTS.length }
-
-const issueCredential: IssueCredentialResponse = {
-  agent_id: `${TENANT}:agent-inventory`,
-  name: 'Inventory Agent',
-  identity_token: 'demo.jwt.token-shown-once',
-  token_expires_at: '2026-08-27T12:00:00Z',
-  token_note: 'Demo credential — not a real secret.',
+function buildInitialAgents(): DemoAgentRecord[] {
+  return [
+    { agent: agent('agent-inventory', 'Inventory Agent', 'active', 'limited'), activeCredentialCount: 1 },
+    { agent: agent('agent-triage', 'Triage Agent', 'active', 'high', { failing: 2, passing: 8, posture_score: 68 }), activeCredentialCount: 2 },
+    { agent: agent('agent-sandbox', 'Sandbox Agent', 'enrolled', 'minimal', { posture_score: null, passing: 0, pending: 12 }), activeCredentialCount: 0 },
+    { agent: agent('agent-remediation', 'Remediation Agent', 'active', 'high', { failing: 0, passing: 12, posture_score: 95 }), activeCredentialCount: 1 },
+    { agent: agent('agent-scanner', 'Vulnerability Scanner', 'suspended', 'limited', { failing: 3, passing: 7, posture_score: 42, type: 'COTS', owner: 'security-team' }), activeCredentialCount: 0 },
+    { agent: agent('agent-reporter', 'Compliance Reporter', 'active', 'minimal', { failing: 1, passing: 9, posture_score: 78, type: 'Custom' }), activeCredentialCount: 1 },
+  ]
 }
 
-const transition: TransitionResponse = {
-  agent_id: `${TENANT}:agent-inventory`,
-  from_state: 'draft',
-  to_state: 'active',
-  actor: 'demo-user',
-  reason: 'Promoted in demo mode',
-  timestamp: NOW,
+let demoAgents = buildInitialAgents()
+
+function cloneAgent(agentResponse: AgentResponse): AgentResponse {
+  return {
+    ...agentResponse,
+    compliance_summary: { ...agentResponse.compliance_summary },
+  }
+}
+
+function readAgentId(path: string): string {
+  const [, , rawId = ''] = path.split('/')
+  return decodeURIComponent(rawId)
+}
+
+function nowIso(): string {
+  return new Date().toISOString()
+}
+
+function findDemoAgent(id: string): DemoAgentRecord | undefined {
+  return demoAgents.find((record) => record.agent.id === id)
+}
+
+function listAgents(): AgentListResponse {
+  const agents = demoAgents.map((record) => cloneAgent(record.agent))
+  return { agents, total: agents.length }
+}
+
+function readAgent(path: string): AgentResponse | undefined {
+  const record = findDemoAgent(readAgentId(path))
+  return record ? cloneAgent(record.agent) : undefined
+}
+
+function readAgentUpdate(body: unknown): Partial<AgentResponse> {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Demo agent update requires an object body.')
+  }
+  return body as Partial<AgentResponse>
+}
+
+function updateAgent(path: string, body: unknown): AgentResponse | undefined {
+  const record = findDemoAgent(readAgentId(path))
+  if (!record) return undefined
+  const update = readAgentUpdate(body)
+  record.agent = {
+    ...record.agent,
+    ...update,
+    compliance_summary: update.compliance_summary
+      ? { ...record.agent.compliance_summary, ...update.compliance_summary }
+      : record.agent.compliance_summary,
+  }
+  return cloneAgent(record.agent)
+}
+
+function readAgentCreate(body: unknown): AgentCreateRequest {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Demo agent register requires an object body.')
+  }
+  const { name, type, owner, description } = body as Partial<AgentCreateRequest>
+  if (typeof name !== 'string' || !name.trim()) {
+    throw new Error('Demo agent register requires a non-empty name.')
+  }
+  if (typeof type !== 'string' || !type.trim()) {
+    throw new Error('Demo agent register requires a non-empty type.')
+  }
+  if (owner !== undefined && owner !== null && typeof owner !== 'string') {
+    throw new Error('Demo agent register requires owner to be a string when provided.')
+  }
+  return {
+    name: name.trim(),
+    type: type.trim(),
+    description: typeof description === 'string' ? description : null,
+    owner: typeof owner === 'string' ? owner.trim() || null : null,
+  }
+}
+
+function buildAgentSlug(name: string): string {
+  const normalized = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return normalized || 'agent'
+}
+
+function nextRegisteredAgentId(name: string): string {
+  const baseLocalId = `agent-${buildAgentSlug(name)}`
+  let candidate = `${TENANT}:${baseLocalId}`
+  let suffix = 2
+  while (findDemoAgent(candidate)) {
+    candidate = `${TENANT}:${baseLocalId}-${suffix}`
+    suffix += 1
+  }
+  return candidate
+}
+
+function registerAgent(body: unknown): AgentResponse {
+  const input = readAgentCreate(body)
+  const createdAt = nowIso()
+  const registered: AgentResponse = {
+    id: nextRegisteredAgentId(input.name),
+    name: input.name,
+    type: input.type,
+    owner: input.owner,
+    tenant_id: TENANT,
+    lifecycle_state: 'draft',
+    last_transition_at: createdAt,
+    last_transition_by: 'demo-user',
+    eu_ai_act_risk_class: 'minimal',
+    compliance_summary: {
+      total_controls: 12,
+      passing: 0,
+      failing: 0,
+      pending: 12,
+      posture_score: null,
+    },
+    model_name: 'gpt-4o',
+    created_at: createdAt,
+  }
+  demoAgents.push({ agent: registered, activeCredentialCount: 0 })
+  return cloneAgent(registered)
+}
+
+function issueCredentialForAgent(path: string): IssueCredentialResponse | undefined {
+  const record = findDemoAgent(readAgentId(path))
+  if (!record) return undefined
+  record.activeCredentialCount += 1
+  return {
+    agent_id: record.agent.id,
+    name: record.agent.name,
+    identity_token: `demo.jwt.${record.agent.id}.issue-${record.activeCredentialCount}`,
+    token_expires_at: '2026-08-27T12:00:00Z',
+    token_note: 'Simulated demo credential — not a real SPIFFE SVID or secret.',
+    simulated: true,
+  }
+}
+
+function revokeCredentialsForAgent(path: string): RevokeCredentialResponse | undefined {
+  const record = findDemoAgent(readAgentId(path))
+  if (!record) return undefined
+  const tokensRevoked = record.activeCredentialCount
+  record.activeCredentialCount = 0
+  return {
+    agent_id: record.agent.id,
+    name: record.agent.name,
+    tokens_revoked: tokensRevoked,
+    simulated: true,
+  }
+}
+
+function readTransitionBody(body: unknown): { to_state: string; reason: string } {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    throw new Error('Demo transition requires an object body.')
+  }
+  const toState = 'to_state' in body ? body.to_state : undefined
+  const reason = 'reason' in body ? body.reason : undefined
+  if (typeof toState !== 'string' || !toState.trim()) {
+    throw new Error('Demo transition requires a non-empty to_state.')
+  }
+  if (typeof reason !== 'string' || !reason.trim()) {
+    throw new Error('Demo transition requires a non-empty reason.')
+  }
+  return { to_state: toState, reason }
+}
+
+function transitionAgent(path: string, body: unknown): TransitionResponse | undefined {
+  const record = findDemoAgent(readAgentId(path))
+  if (!record) return undefined
+  const { to_state, reason } = readTransitionBody(body)
+  const timestamp = nowIso()
+  const fromState = record.agent.lifecycle_state
+  record.agent = {
+    ...record.agent,
+    lifecycle_state: to_state,
+    last_transition_at: timestamp,
+    last_transition_by: 'demo-user',
+  }
+  return {
+    agent_id: record.agent.id,
+    from_state: fromState,
+    to_state,
+    actor: 'demo-user',
+    reason,
+    timestamp,
+    simulated: true,
+  }
+}
+
+export function resetFakeData(): void {
+  demoAgents = buildInitialAgents()
 }
 
 const reassessment: ReassessmentResponse = {
@@ -126,8 +306,8 @@ const violations: ViolationListResponse = {
 // ─── Compliance ───────────────────────────────────────────────────────────────
 
 const complianceSummary: ComplianceSummaryResponse = {
-  total_agents: AGENTS.length,
-  agents_assessed: AGENTS.length,
+  total_agents: demoAgents.length,
+  agents_assessed: demoAgents.length,
   controls_passing: 28,
   controls_failing: 6,
   controls_pending: 5,
@@ -135,7 +315,7 @@ const complianceSummary: ComplianceSummaryResponse = {
 }
 
 const posture: PostureResponse = {
-  agents: AGENTS.map((a) => ({
+  agents: buildInitialAgents().map(({ agent: a }) => ({
     agent_id: a.id,
     agent_name: a.name,
     posture_score: 83,
@@ -254,7 +434,7 @@ function tenantSettings(selected: string[] = ['eu-ai-act']): TenantSettingsRespo
     tenant_id: TENANT,
     org_name: 'Acme Co. (demo)',
     plan_tier: 'enterprise',
-    agent_count: AGENTS.length,
+    agent_count: demoAgents.length,
     billing_tier: 'enterprise',
     api_key_status: 'active',
     selected_frameworks: selected,
@@ -359,20 +539,16 @@ const re = (r: RegExp) => (path: string) => r.test(path)
 // client.ts (query string stripped before matching).
 const ROUTES: Match[] = [
   // agents
-  { method: 'GET', test: re(/^\/agents$/), data: () => agentList },
-  { method: 'POST', test: re(/^\/agents$/), data: (_p, body) => ({
-      ...agent('agent-new', (body as { name?: string })?.name ?? 'New Agent', 'draft', 'minimal'),
-    }) },
-  { method: 'PUT', test: re(/^\/agents\/[^/]+$/), data: (_p, body) => ({
-      ...AGENTS[0],
-      ...(body as Partial<AgentResponse>),
-    }) },
-  { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials$/), data: () => issueCredential },
-  { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: () => transition },
+  { method: 'GET', test: re(/^\/agents$/), data: () => listAgents() },
+  { method: 'POST', test: re(/^\/agents$/), data: (_p, body) => registerAgent(body) },
+  { method: 'PUT', test: re(/^\/agents\/[^/]+$/), data: (path, body) => updateAgent(path, body) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials\/revoke$/), data: (path) => revokeCredentialsForAgent(path) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/credentials$/), data: (path) => issueCredentialForAgent(path) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/transition$/), data: (path, body) => transitionAgent(path, body) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },
-  { method: 'GET', test: re(/^\/agents\/[^/]+$/), data: () => AGENTS[0] },
+  { method: 'GET', test: re(/^\/agents\/[^/]+$/), data: (path) => readAgent(path) },
   // compliance
   { method: 'GET', test: re(/^\/compliance\/summary$/), data: () => complianceSummary },
   { method: 'GET', test: re(/^\/compliance\/posture$/), data: () => posture },
@@ -410,15 +586,25 @@ const ROUTES: Match[] = [
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  30 base + 2 network-tests + 3 compliance-policy = 35 */
+ *  31 base + 2 network-tests + 3 compliance-policy = 36 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
+function cleanPath(path: string): string {
+  return path.replace(/^\/api/, '').split('?')[0]
+}
+
+export function hasFakeRoute(method: string, path: string): boolean {
+  const clean = cleanPath(path)
+  return ROUTES.some((route) => route.method === method.toUpperCase() && route.test(clean))
+}
+
 /**
- * Resolve a fixture for a client request, or undefined if no demo route matches.
+ * Resolve a fixture for a client request, or undefined if a matched demo route
+ * cannot resolve a specific resource (for example, an unknown agent ID).
  * `path` is the raw path passed to req() (e.g. '/agents/123', '/audit?page=1').
  */
 export function resolveFake(method: string, path: string, body?: unknown): unknown | undefined {
-  const clean = path.replace(/^\/api/, '').split('?')[0]
-  const m = ROUTES.find((r) => r.method === method.toUpperCase() && r.test(clean))
-  return m ? m.data(clean, body) : undefined
+  const clean = cleanPath(path)
+  const route = ROUTES.find((r) => r.method === method.toUpperCase() && r.test(clean))
+  return route ? route.data(clean, body) : undefined
 }

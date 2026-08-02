@@ -566,6 +566,7 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
   const [phase, setPhase] = useState<'confirm' | 'issuing' | 'done'>('confirm')
   const [token, setToken] = useState<string | null>(null)
   const [expiresAt, setExpiresAt] = useState<string | null>(null)
+  const [simulated, setSimulated] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -577,6 +578,7 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
       const res = await api.agents.issueCredential(accessToken, agent.id)
       setToken(res.identity_token)
       setExpiresAt(res.token_expires_at)
+      setSimulated(Boolean(res.simulated))
       setPhase('done')
     } catch (err: unknown) {
       const status = err && typeof err === 'object' && 'response' in err
@@ -609,6 +611,7 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
   function dismiss() {
     // Drop the token from memory as the dialog closes — it is never persisted.
     setToken(null)
+    setSimulated(false)
     onClose()
   }
 
@@ -636,6 +639,26 @@ function IssueCredentialModal({ agent, onClose }: { agent: AgentResponse; onClos
               This is the only time this token will be shown — store it securely now.
               It cannot be retrieved again after you dismiss this dialog.
             </p>
+            {simulated && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '12px 14px',
+                  borderRadius: 6,
+                  border: '1px solid var(--amber)',
+                  background: 'var(--surface)',
+                  color: 'var(--text)',
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
+                  Simulated demo credential
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  This token is fixture data from runtime demo mode. It is not a real SPIFFE SVID and cannot
+                  authenticate any live workload.
+                </div>
+              </div>
+            )}
             <div style={{
               background: 'var(--surface2)', border: '1px solid var(--border)',
               borderRadius: 6, padding: '12px 14px',
@@ -691,6 +714,7 @@ function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClo
   const { getAccessTokenSilently } = useAuth0()
   const [phase, setPhase] = useState<'confirm' | 'revoking' | 'done'>('confirm')
   const [revokedCount, setRevokedCount] = useState<number | null>(null)
+  const [simulated, setSimulated] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleRevoke() {
@@ -700,6 +724,7 @@ function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClo
       const accessToken = await getAccessTokenSilently()
       const res = await api.agents.revokeCredential(accessToken, agent.id)
       setRevokedCount(res.tokens_revoked)
+      setSimulated(Boolean(res.simulated))
       setPhase('done')
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to revoke credentials.')
@@ -738,6 +763,26 @@ function RevokeCredentialModal({ agent, onClose }: { agent: AgentResponse; onClo
                 </>
               )}
             </p>
+            {simulated && (
+              <div
+                style={{
+                  marginBottom: 20,
+                  padding: '12px 14px',
+                  borderRadius: 6,
+                  border: '1px solid var(--amber)',
+                  background: 'var(--surface)',
+                  color: 'var(--text)',
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--amber)', marginBottom: 4 }}>
+                  Simulated demo revoke
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
+                  This revoke result comes from the in-memory demo store. It does not revoke any live
+                  credentials outside runtime demo mode.
+                </div>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button className="btn btn-secondary" onClick={() => onClose(true)}>Close</button>
             </div>

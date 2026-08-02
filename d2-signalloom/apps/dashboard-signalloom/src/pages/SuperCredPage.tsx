@@ -4,6 +4,15 @@ import StatusBadge from '../components/StatusBadge'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { AuditEventResponse } from '../types/api'
+import { isDemoMode } from '../api/demoMode'
+import {
+  discoverSuperCredAgents,
+  getSimulatedPhase,
+  scanSuperCredAgent,
+  setSimulatedPhase,
+  stunSuperCredAgent,
+} from '../api/supercredSource'
+import type { SuperCredPhase } from '../api/supercredTypes'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -198,6 +207,71 @@ const STEP_STATUS_COLORS: Record<string, { bg: string; border: string; dot: stri
   failed:    { bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.3)', dot: colors.red },
 }
 
+
+// ─── Demo-data mode step controls ───────────────────────────────────────────
+
+/**
+ * Step driver for demo-data mode.
+ *
+ * In live mode the cluster is the source of truth: `make demo-signalloom-
+ * supercred-N` stamps the agent pod and every page follows. Demo-data mode has
+ * no cluster, so steps 1, 2 and 5 — the ones with no button on this page — need
+ * a way to advance the simulated one. Rendered only when demo mode is on; in
+ * live mode this returns null and the cluster stays authoritative.
+ */
+const DEMO_STEPS: { phase: SuperCredPhase; label: string; hint: string }[] = [
+  { phase: 'deployed', label: '1 · Deploy', hint: 'Agent + SPIRE entry + OpenBao secrets' },
+  { phase: 'credentialed', label: '2 · Credential chain', hint: 'SPIFFE SVID → OpenBao → cardvault' },
+  { phase: 'non-compliant', label: '3 · Compliance scan', hint: 'Finds the missing securityContext' },
+  { phase: 'stunned', label: '4 · Stun', hint: 'Revoke credentials, isolate the agent' },
+  { phase: 'absent', label: '5 · Teardown', hint: 'Remove the agent, return to a clean estate' },
+]
+
+function DemoStepControls({ onAdvance }: { onAdvance: () => void }) {
+  const [phase, setPhase] = useState<SuperCredPhase>(() => getSimulatedPhase())
+  if (!isDemoMode()) return null
+
+  function advance(next: SuperCredPhase) {
+    setSimulatedPhase(next)
+    setPhase(next)
+    onAdvance()
+  }
+
+  return (
+    <div data-testid="supercred-demo-steps-control" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+      <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>Demo Mode — Step Control</h2>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
+        No cluster is attached. Advance the simulated demo and watch the effects land on{' '}
+        <strong>Agents</strong>, <strong>Compliance</strong>, <strong>Policy Compliance</strong>,{' '}
+        <strong>Agent Posture</strong>, <strong>Risk Exposure</strong> and <strong>Audit Trail</strong>.
+      </p>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {DEMO_STEPS.map((step) => (
+          <button
+            key={step.phase}
+            className="btn btn-secondary"
+            data-testid={`demo-step-${step.phase}`}
+            title={step.hint}
+            aria-pressed={phase === step.phase}
+            onClick={() => advance(step.phase)}
+            style={{
+              fontSize: 12,
+              padding: '6px 12px',
+              borderColor: phase === step.phase ? 'var(--cyan)' : undefined,
+              color: phase === step.phase ? 'var(--cyan)' : undefined,
+            }}
+          >
+            {step.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 10 }}>
+        Current simulated state: <strong data-testid="demo-current-phase">{phase}</strong>
+      </div>
+    </div>
+  )
+}
+
 // ─── SuperCred Demo Page ────────────────────────────────────────────────────
 
 export default function SuperCredPage() {
@@ -220,21 +294,16 @@ export default function SuperCredPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${SUPERCRED_API}/agents`)
-      if (!res.ok) throw new Error(`Agent discovery failed: ${res.status}`)
-      const data = await res.json()
-      const discovered: RuntimeAgent[] = data.agents ?? []
+      // Routed through supercredSource so discovery also works in demo-data
+      // mode (no cluster) and so every main page observes the same state.
+      const data = await discoverSuperCredAgents()
+      const discovered = data.agents as RuntimeAgent[]
       setDiscoveredCount(discovered.length)
-      setNamespaces(data.namespaces ?? [])
+      setNamespaces(data.namespaces)
       setAgents(discovered.filter(a => a.supercred === true))
       // Surface both total failures and partial namespace failures so the
       // operator knows discovery was incomplete rather than silently short.
-      if (data.error) setError(String(data.error))
-      else if (data.namespace_errors) {
-        const msgs = Object.entries(data.namespace_errors as Record<string, string>)
-          .map(([ns, msg]) => `${ns}: ${msg}`)
-        setError(`Partial discovery failure — ${msgs.join('; ')}`)
-      }
+      if (data.error) setError(data.error)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents')
     } finally {
@@ -247,14 +316,11 @@ export default function SuperCredPage() {
     setCompliance(null)
     setError(null)
     try {
-      const res = await fetch(agentPath(agent, 'compliance'))
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        const detail = body ? ` — ${body.slice(0, 200)}` : ''
-        throw new Error(`Compliance check failed: ${res.status}${detail}`)
-      }
-      const data: ComplianceResponse = await res.json()
-      setCompliance(data)
+      // The scan result is recorded in the observation store so the finding
+      // reaches Compliance, Policy Compliance, Agent Posture and Risk Exposure
+      // — the proxy evaluates the pod but does not relabel it.
+      const data = await scanSuperCredAgent(agentPath(agent, 'compliance'), agent.id)
+      setCompliance(data as ComplianceResponse)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Compliance scan failed')
     } finally {
@@ -269,13 +335,7 @@ export default function SuperCredPage() {
     setStunEventError(null)
     setError(null)
     try {
-      const res = await fetch(agentPath(agent, 'stun'), { method: 'POST' })
-      if (!res.ok) {
-        const body = await res.text().catch(() => '')
-        const detail = body ? ` — ${body.slice(0, 200)}` : ''
-        throw new Error(`Stun failed: ${res.status}${detail}`)
-      }
-      const data: StunResponse = await res.json()
+      const data = await stunSuperCredAgent(agentPath(agent, 'stun'), agent.id)
       setStunResult(data)
 
       // Record the action on the audit trail. The proxy above owns the cluster
@@ -397,6 +457,8 @@ export default function SuperCredPage() {
           </div>
         </div>
       )}
+
+      <DemoStepControls onAdvance={loadAgents} />
 
       {/* Load agents */}
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>

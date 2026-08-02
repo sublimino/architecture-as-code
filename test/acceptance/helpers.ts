@@ -136,6 +136,14 @@ export async function login(page: Page, opts?: { demoMode?: boolean }): Promise<
       page.waitForURL((u) => !u.toString().includes("/dex/"), { timeout: 20_000 }),
       page.getByRole("button", { name: /login|sign in|submit/i }).click(),
     ]);
+
+    // After Dex redirects back, react-oidc-context exchanges the auth code
+    // for tokens (POST /dex/token). During this exchange isLoading=true and
+    // the App renders <Spinner /> — no Sidebar exists yet. waitForURL
+    // resolves as soon as the browser URL leaves /dex/, but the token
+    // exchange can take several seconds on a cold Dex. Wait for the network
+    // round-trip to settle before timing the Sidebar assertion.
+    await page.waitForLoadState("networkidle", { timeout: 20_000 });
   }
 
   // Sidebar mounted = app rendered post-auth

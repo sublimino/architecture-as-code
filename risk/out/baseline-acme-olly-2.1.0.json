@@ -431,8 +431,10 @@
     "RiskLoad": 0.15
   },
   "ControlSpend": 63800,
+  "FrictionSpend": 38500,
   "TransferSpend": 48000,
-  "TCoR": 876846.3176947857,
+  "TCoR": 915346.3176947857,
+  "PremiumRatio": 1.005766077186994,
   "Deltas": [
     {
       "ControlID": "AGT-003",
@@ -441,6 +443,43 @@
       "CostGBP": 12000,
       "NetGBP": -8029.409608839167,
       "AboveTolerance": false
+    }
+  ],
+  "Tornado": [
+    {
+      "Scenario": "SCN-SUPPLY-TAMPER",
+      "LowALE": 33752.2104775867,
+      "HighALE": 98607.4104775867,
+      "SwingGBP": 64855.200000000004,
+      "SharePct": 34.92229604436427
+    },
+    {
+      "Scenario": "SCN-INJECTION-ACT",
+      "LowALE": 36890.78386805714,
+      "HighALE": 85063.90886805698,
+      "SwingGBP": 48173.12499999985,
+      "SharePct": 25.93957204097991
+    },
+    {
+      "Scenario": "SCN-TRUST-SUBVERT",
+      "LowALE": 41975.81465590748,
+      "HighALE": 68709.01465590745,
+      "SwingGBP": 26733.199999999968,
+      "SharePct": 14.394909345946012
+    },
+    {
+      "Scenario": "SCN-UNAUTH-CHANGE",
+      "LowALE": 41649.640282995366,
+      "HighALE": 68025.99028299518,
+      "SwingGBP": 26376.34999999981,
+      "SharePct": 14.202757886333877
+    },
+    {
+      "Scenario": "SCN-SECRET-EXFIL",
+      "LowALE": 43120.891385816605,
+      "HighALE": 62695.891385816496,
+      "SwingGBP": 19574.99999999989,
+      "SharePct": 10.54046468237592
     }
   ],
   "ToleranceGBP": 25000,

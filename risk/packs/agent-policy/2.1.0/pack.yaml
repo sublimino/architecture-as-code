@@ -233,6 +233,15 @@ conditional:
       - all deny-action controls in this pack are satisfied
     lef_residual: { min: 0.05, mode: 0.20, max: 0.80 }
 
+# The operational cost of gating, as distinct from the cost of running a control: blocked deploys,
+# false positives, and the engineer-hours spent getting unblocked. A model that omits this term can
+# only ever recommend tightening, which makes it a sales prop rather than a decision instrument.
+enforcement_friction:
+  per_deny_control_gbp: 3500
+  note: >-
+    Stipulated from the platform team's unblocking load. Should be replaced with measured
+    engineer-hours per gate from the existing CI telemetry before this figure is used externally.
+
 cages:
   trusted:     { multiplier: 1.00, annual_cost_gbp: 0,     description: full capability }
   constrained: { multiplier: 0.55, annual_cost_gbp: 8000,  description: throttled, reduced tool grant, tighter rate limits }

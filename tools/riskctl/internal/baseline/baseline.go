@@ -72,13 +72,40 @@ type Report struct {
 	Risk fair.Result
 
 	ControlSpend  float64 // annual cost of the controls actually in place, plus the cage
+	FrictionSpend float64 // operational cost of gating: blocked deploys, false positives, unblocking
 	TransferSpend float64 // insurance premium
-	TCoR          float64 // residual (carried) + control spend + transfer
+	TCoR          float64 // residual (carried) + control spend + friction + transfer
 
-	Deltas []Delta
+	// PremiumRatio is modelled ALE divided by the annual cyber premium. The premium is a third
+	// party's priced view of substantially the same controls, so this is the one genuinely
+	// EXTERNAL calibration anchor available for free. A ratio near 1 means the model agrees with
+	// the market; far from 1 means one of the two is wrong, and saying which is the interesting
+	// conversation.
+	PremiumRatio float64
+
+	Deltas   []Delta
+	Tornado  []Sensitivity
 
 	ToleranceGBP float64
 	Escalations  []string
+}
+
+// Sensitivity is one row of a one-way tornado analysis: how far the headline number swings when a
+// single scenario's loss magnitude is driven to the bottom and top of its calibrated range, with
+// everything else held still.
+//
+// This matters more than the fixed seed. Determinism proves the implementation is reproducible; it
+// says nothing about whether the inputs are right. A seeded generator returns the same wrong number
+// every time. The tornado converts "trust my triples" into "the answer is dominated by this one
+// assumption — argue with that one", which is a far better defence of the number and a far more
+// honest invitation to disagree.
+type Sensitivity struct {
+	Scenario string
+	LowALE   float64
+	HighALE  float64
+	SwingGBP float64
+	// SharePct is this scenario's share of the total swing across all scenarios.
+	SharePct float64
 }
 
 // Delta answers "what would tightening this control buy?", in pounds per year.
@@ -292,15 +319,24 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		return nil, err
 	}
 
-	// 5. Total Cost of Risk = residual you keep + what the controls cost + what you transferred.
+	// 5. Total Cost of Risk = residual you keep + what the controls cost + what gating costs
+	//    operationally + what you transferred.
 	for _, r := range rep.Results {
 		if r.Met {
 			rep.ControlSpend += r.Control.AnnualCost
 		}
+		// Friction is incurred by every control that GATES, whether or not the agent passes it:
+		// the deploy is blocked, someone investigates, someone unblocks it.
+		if r.Control.Action == model.ActionDeny {
+			rep.FrictionSpend += pack.Friction.PerDenyControlGBP
+		}
 	}
 	rep.ControlSpend += cage.AnnualCost
 	rep.TransferSpend = org.Transfer.AnnualPremiumGBP
-	rep.TCoR = rep.Risk.Carried + rep.ControlSpend + rep.TransferSpend
+	rep.TCoR = rep.Risk.Carried + rep.ControlSpend + rep.FrictionSpend + rep.TransferSpend
+	if org.Transfer.AnnualPremiumGBP > 0 {
+		rep.PremiumRatio = rep.Risk.ALE / org.Transfer.AnnualPremiumGBP
+	}
 
 	// 6. Per-control deltas: what would tightening each unmet control buy?
 	for _, r := range rep.Results {
@@ -332,6 +368,54 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		}
 	}
 	sort.SliceStable(rep.Deltas, func(i, j int) bool { return rep.Deltas[i].BuysGBP > rep.Deltas[j].BuysGBP })
+
+	// 7. One-way sensitivity. For each scenario, drive its loss magnitude to the bottom and the top
+	//    of the calibrated range while holding every other input still, and record the swing.
+	//    Whichever scenario swings the number most is the assumption the whole answer rests on.
+	var scenarios []string
+	seenScn := map[string]bool{}
+	for _, r := range rep.Results {
+		if !seenScn[r.Control.Scenario] {
+			seenScn[r.Control.Scenario] = true
+			scenarios = append(scenarios, r.Control.Scenario)
+		}
+	}
+	buildWithMagnitude := func(sc string, pick func(model.Triple) model.Triple) ([]fair.Contribution, error) {
+		base, err := build(cage.Multiplier, nil)
+		if err != nil {
+			return nil, err
+		}
+		for i := range base {
+			if base[i].Scenario == sc {
+				base[i].Magnitude = pick(org.Magnitude[sc].Triple)
+			}
+		}
+		return base, nil
+	}
+	flat := func(v float64) model.Triple { return model.Triple{Min: v, Mode: v, Max: v} }
+
+	var totalSwing float64
+	for _, sc := range scenarios {
+		lo, err := buildWithMagnitude(sc, func(t model.Triple) model.Triple { return flat(t.Min) })
+		if err != nil {
+			return nil, err
+		}
+		hi, err := buildWithMagnitude(sc, func(t model.Triple) model.Triple { return flat(t.Max) })
+		if err != nil {
+			return nil, err
+		}
+		l := eng.Run(lo, org.RiskLoad)
+		h := eng.Run(hi, org.RiskLoad)
+		s := Sensitivity{Scenario: sc, LowALE: l.ALE, HighALE: h.ALE, SwingGBP: h.ALE - l.ALE}
+		totalSwing += s.SwingGBP
+		rep.Tornado = append(rep.Tornado, s)
+	}
+	for i := range rep.Tornado {
+		if totalSwing > 0 {
+			rep.Tornado[i].SharePct = 100 * rep.Tornado[i].SwingGBP / totalSwing
+		}
+	}
+	sort.SliceStable(rep.Tornado, func(i, j int) bool { return rep.Tornado[i].SwingGBP > rep.Tornado[j].SwingGBP })
 
 	return rep, nil
 }

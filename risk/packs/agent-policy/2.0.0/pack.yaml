@@ -238,6 +238,15 @@ conditional:
 
 # Graded enforcement envelope (hub build/10). Deny is the bottom rung, not the only rung. The £
 # selects the tier; the cage's run-cost is accounted for in TCoR.
+# The operational cost of gating, as distinct from the cost of running a control: blocked deploys,
+# false positives, and the engineer-hours spent getting unblocked. A model that omits this term can
+# only ever recommend tightening, which makes it a sales prop rather than a decision instrument.
+enforcement_friction:
+  per_deny_control_gbp: 3500
+  note: >-
+    Stipulated from the platform team's unblocking load. Should be replaced with measured
+    engineer-hours per gate from the existing CI telemetry before this figure is used externally.
+
 cages:
   trusted:     { multiplier: 1.00, annual_cost_gbp: 0,     description: full capability }
   constrained: { multiplier: 0.55, annual_cost_gbp: 8000,  description: throttled, reduced tool grant, tighter rate limits }

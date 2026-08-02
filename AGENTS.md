@@ -123,6 +123,50 @@ osramp-demo/
 Every `kubectl rollout restart` kills active port-forwards. Restart them after
 any image rebuild + deploy cycle.
 
+### Wait and readiness semantics — use the shared helpers, never `sleep`
+
+`scripts/lib/wait.sh` is the canonical polling library and every script and
+bats suite should use it. It gives existence-first semantics, exponential
+backoff with jitter, and `WAIT_STAT` telemetry — all of which a bare
+`sleep 5` throws away. It also avoids the cold-cluster race where
+`kubectl wait` errors instantly against an object that doesn't exist yet.
+
+Source it, then pick the helper that matches what you are actually waiting for:
+
+| Helper | Use for |
+|---|---|
+| `wait_rollout <deploy> [-n ns] [deadline]` | **Deployments.** Wraps `kubectl rollout status`. |
+| `wait_pods_ready <selector> [-n ns] [deadline]` | Pods by label. Requires ≥1 match AND none not-ready. |
+| `wait_k8s_ready <kind> <name> [-n ns] [--for cond] [deadline]` | Pods, Jobs, Flux objects. Existence-first, then `kubectl wait`. |
+| `wait_flux_ready <kind> <name> [-n ns] [deadline]` | Flux `Kustomization` / `ResourceSet` Ready. |
+| `wait_reachable <url> [deadline]` | An HTTP endpoint answering. |
+| `wait_tcp <host> <port> [deadline]` | A port accepting connections. |
+| `_wait_retry <deadline> <label> <cmd>` | Generic backoff when nothing above fits. |
+
+**The trap: `wait_k8s_ready` defaults to `--for=condition=ready`, and a
+Deployment has no `Ready` condition.** Deployments expose only `Available`,
+`Progressing` and `ReplicaFailure`, so `kubectl wait --for=condition=ready
+deployment/x` times out *even against a perfectly healthy Deployment*. Use
+`wait_rollout` for Deployments. This shipped in `scripts/supercred-demo.sh`
+and failed the SuperCred preflight closed against a 1/1, `Available=True`
+OpenBao that had been running 17 hours, telling the operator to run
+`make demo-signalloom-up` on a cluster where it had already been run — which
+in turn left six SUPERCRED bats tests permanently red for want of a
+deployment that could never be created (found 2026-08-02, fixed in `10f1713`).
+
+Corollary, and the reason this sits in Pitfalls: **a wait that can never
+succeed and a gate that always passes are the same bug wearing different
+hats.** Both look like a check and neither is one. The same day produced
+`readyExpr: status.observedGeneration >= 0` (trivially true the instant an
+object exists, so it gated nothing) and a `substituteFrom` whose missing keys
+are a silent no-op. When you write a wait or a gate, prove it fails when it
+should — inject the bad state and watch it go red.
+
+For **Playwright**, the equivalent rule is: use web-first assertions
+(`await expect(locator).toBeVisible()`), `waitForResponse` and
+`waitForLoadState`. Never use `page.waitForTimeout(n)` as a readiness
+mechanism — it passes on a fast box and fails under load.
+
 ### Mutable `:latest` tag with `imagePullPolicy: IfNotPresent`
 After `kind load docker-image`, verify the pod picked up the new image:
 ```bash

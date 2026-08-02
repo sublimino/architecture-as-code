@@ -109,14 +109,26 @@ spec:
 
                   def collect(base, headers, ctx):
                       items = []
+                      errors = []
                       for resource, kind in RESOURCES:
                           url = f'{base}/apis/rbac.authorization.k8s.io/v1/{resource}'
                           req = urllib.request.Request(url, headers=headers)
-                          with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
-                              data = json.load(resp)
-                          for item in data.get('items') or []:
-                              item['kind'] = kind
-                              items.append(item)
+                          try:
+                              with urllib.request.urlopen(req, context=ctx, timeout=TIMEOUT) as resp:
+                                  data = json.load(resp)
+                              for item in data.get('items') or []:
+                                  item['kind'] = kind
+                                  items.append(item)
+                          except Exception as exc:
+                              errors.append(f'{resource}: {exc}')
+                              print(f'  WARNING: failed to list {resource}: {exc}')
+                      if errors and not items:
+                          raise RuntimeError(
+                              f'All resource types failed: {"; ".join(errors)}'
+                          )
+                      if errors:
+                          print(f'  WARNING: partial collection ({len(errors)} failures, '
+                                f'{len(items)} items from remaining types)')
                       return items
 
 

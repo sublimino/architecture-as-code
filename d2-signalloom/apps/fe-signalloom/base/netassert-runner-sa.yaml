@@ -1,0 +1,15 @@
+# ServiceAccount the netassert-run Job runs as. fake-integration-proxy creates
+# that Job on demand (POST /network-tests/scan) referencing this SA by name —
+# see d2-osramp-fleet/tenants/local/signalloom.yaml for the RBAC granted to it
+# (get/list/watch on pods + deployments/statefulsets/daemonsets/replicasets,
+# and patch on pods/ephemeralcontainers only where the NetSerts suite actually
+# needs to inject a scanner: fe-signalloom and fe-signalloom-agents, never
+# inf-signalloom, which is destination-only in every test).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: netassert-runner
+  labels:
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/purpose: network-test-run
+automountServiceAccountToken: true

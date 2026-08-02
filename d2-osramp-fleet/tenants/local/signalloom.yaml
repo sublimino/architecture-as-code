@@ -285,6 +285,74 @@ spec:
           name: << inputs.component >>
         path: ./configs/<< inputs.environment >>
         prune: true
+    # ─────────────────────────────────────────────────────────────────────────
+    # APPENDED DELIBERATELY — see the identical warning below in signalloom-apps
+    # (fleet-patch-indexes.bats guards both ResourceSets by name).
+    #
+    # Network Tests (netassert) — RBAC for the netassert-run Job's own identity
+    # (netassert-runner ServiceAccount, created by apps/fe-signalloom/base/
+    # netassert-runner-sa.yaml in the fe-signalloom tenant). The Job runs the
+    # real netassert CLI (github.com/controlplaneio/netassert), which injects
+    # an ephemeral scanner container into the already-running SRC pod for each
+    # NetSerts test — these two Roles mirror netassert's own upstream
+    # ClusterRole (rbac/cluster-role.yaml), re-scoped to namespaced Roles per
+    # the netassert README's own suggestion, split by what each namespace
+    # actually needs:
+    #
+    #   fe-signalloom-agents hosts only a SRC (agent-patsy, the denied-path
+    #   tests) — patch on pods/ephemeralcontainers is required.
+    #
+    #   inf-signalloom hosts only DESTINATIONS across the whole suite (dex,
+    #   postgresql, redis, minio) — read-only, no ephemeralcontainers patch.
+    #   (fe-signalloom itself hosts both SRC and DST pods; that grant lives in
+    #   signalloom-apps below, alongside the ServiceAccount's own tenant.)
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: netassert-runner
+        namespace: fe-signalloom-agents
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: netassert-runner
+        namespace: fe-signalloom-agents
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: netassert-runner
+      subjects:
+        - kind: ServiceAccount
+          name: netassert-runner
+          namespace: fe-signalloom
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: netassert-runner-readonly
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["", "apps"]
+          resources: ["deployments", "statefulsets", "daemonsets", "pods"]
+          verbs: ["get"]
+        - apiGroups: ["", "apps"]
+          resources: ["replicasets", "pods"]
+          verbs: ["list"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: netassert-runner-readonly
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: netassert-runner-readonly
+      subjects:
+        - kind: ServiceAccount
+          name: netassert-runner
+          namespace: fe-signalloom
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
@@ -530,3 +598,75 @@ spec:
         - kind: ServiceAccount
           name: default
           namespace: inf-signalloom
+    # Network Tests (netassert) — Scan Now button. Two identities, two Roles:
+    #
+    # netassert-run-manager grants fake-integration-proxy's own SA
+    # (default/inf-signalloom) the ability to create/delete the netassert-run
+    # Job on demand and read its pods/logs for results. This is materially
+    # more privileged than anything else that SA holds elsewhere in this file
+    # — `jobs: create` is equivalent to arbitrary code execution as this
+    # namespace's default identity if the proxy is ever compromised. Two
+    # things keep it bounded: it is scoped to this one namespace only (no
+    # ClusterRole, no wildcard), and the Job spec the proxy submits is a
+    # hardcoded constant in server.py (_netassert_job_manifest) that never
+    # reads from the triggering HTTP request — so this grant lets the proxy
+    # run exactly one fixed Job, not an arbitrary one.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: netassert-run-manager
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list", "create", "delete"]
+        - apiGroups: [""]
+          resources: ["pods", "pods/log"]
+          verbs: ["get", "list"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: netassert-run-manager
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: netassert-run-manager
+      subjects:
+        - kind: ServiceAccount
+          name: default
+          namespace: inf-signalloom
+    # netassert-runner is the Job's own identity (see
+    # apps/fe-signalloom/base/netassert-runner-sa.yaml). fe-signalloom hosts
+    # both SRC and DST pods across the NetSerts suite, so it needs the full
+    # read set plus ephemeralcontainers patch — see the matching comment in
+    # signalloom-infra above for the fe-signalloom-agents (SRC-only) and
+    # inf-signalloom (DST-only, read-only) halves of this same grant.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: netassert-runner
+        namespace: << inputs.tenant >>
+      rules:
+        - apiGroups: ["", "apps"]
+          resources: ["deployments", "statefulsets", "daemonsets", "pods"]
+          verbs: ["get"]
+        - apiGroups: ["", "apps"]
+          resources: ["replicasets", "pods"]
+          verbs: ["list"]
+        - apiGroups: [""]
+          resources: ["pods", "pods/ephemeralcontainers"]
+          verbs: ["watch", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: netassert-runner
+        namespace: << inputs.tenant >>
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: netassert-runner
+      subjects:
+        - kind: ServiceAccount
+          name: netassert-runner
+          namespace: << inputs.tenant >>

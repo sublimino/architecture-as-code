@@ -278,29 +278,41 @@ The egress rule on `allow-dashboard-egress` and the ingress rule on `allow-fake-
 are two halves of one path. Changing either alone breaks the page with no error anywhere except a
 499 in an nginx access log.
 
-### Known gap: the Stun Agent button cannot write
+### The Stun Agent button needs `pods: patch`
 
-`POST /agents/{id}/stun` patches the pod's `signalloom.ai/state` label. The proxy runs as
-`default/inf-signalloom`, whose `agent-inventory-reader` Role grants `pods: get, list, watch` — **no
-`patch`**. The button therefore returns `502` wrapping `HTTP Error 403: Forbidden`, and the pod label
-is unchanged:
+`POST /agents/{id}/stun` patches the pod's `signalloom.ai/state` label and its stun annotations. The
+proxy runs as `default/inf-signalloom`, and its `agent-inventory-reader` Role originally granted
+`pods: get, list, watch` only — so the button returned `502` wrapping `HTTP Error 403: Forbidden`
+and the pod was never touched.
+
+The Role now carries `patch` in **both** discovery namespaces:
+
+```yaml
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch", "patch"]
+```
+
+Deliberately `patch` and nothing else — no `create`, `update`, `delete` or wildcard, and `pods`
+only. The proxy may relabel an existing agent; it may not conjure, replace or remove one. Verified:
 
 ```
-$ curl -X POST http://fake-integration-proxy.inf-signalloom:8080/agents/agent-cardvault/stun
-{"error":"HTTP Error 403: Forbidden"}
-HTTP 502
+$ kubectl auth can-i patch  pods -n fe-signalloom --as=system:serviceaccount:inf-signalloom:default
+yes
+$ kubectl auth can-i update pods -n fe-signalloom --as=system:serviceaccount:inf-signalloom:default
+no
+$ curl -X POST .../agents/agent-cardvault/stun
+{"agent_id":"agent-cardvault","state":"stunned","namespace":"fe-signalloom",...}   HTTP 200
 $ kubectl get pod -n fe-signalloom agent-cardvault -o jsonpath='{.metadata.labels.signalloom\.ai/state}'
-idle
+stunned
 ```
 
-This predates the discovery work — the Role never carried `patch`. The scripted path
-(`make demo-signalloom-supercred-4`, and `supercred-demo.sh` generally) does the labelling with the
-**operator's** kubeconfig, so the demo works when driven from the CLI; only the UI button is
-affected.
+The Role's name still says "reader" — it is the `roleRef` of a live RoleBinding and of
+`agent-discovery-rbac.bats`, so renaming it is churn for no behavioural gain. The verb list is the
+authority on what it grants.
 
-Closing it means granting `pods: patch` to the proxy's ServiceAccount in both discovery namespaces.
-That is a deliberate widening of a read-only inventory identity into a write identity, so it is left
-as a decision rather than assumed — take it if the button is meant to be part of the live demo.
+`agent-discovery-rbac.bats` pins the boundary for **every** discovery namespace: `patch` must be
+present, `create`/`update`/`delete`/`*` must not, and `pods` must be the only resource.
 
 ### Running the demo
 

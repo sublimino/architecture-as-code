@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import type { ConnectorProvider } from '../../types/connectors'
 import WizardFieldRenderer from './WizardFieldRenderer'
+import ProviderLogo from './ProviderLogo'
 
 interface Props {
   provider: ConnectorProvider
@@ -33,14 +35,21 @@ export default function ProviderConfigureStep({
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-        Set up {provider.display_name}
-      </h1>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6 }}>
+        <ProviderLogo providerId={provider.provider_id} displayName={provider.display_name} size={44} />
+        <h1 style={{ fontSize: 24, fontWeight: 700, color: 'var(--text)' }}>
+          Set up {provider.display_name}
+        </h1>
+      </div>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 20 }}>
         {provider.wizard_config.help_text}{' '}
-        <a href={provider.wizard_config.docs_link} target="_blank" rel="noreferrer">
-          View setup docs
-        </a>
+        {provider.wizard_config.docs_link.startsWith('/') ? (
+          <Link to={provider.wizard_config.docs_link}>View setup docs</Link>
+        ) : (
+          <a href={provider.wizard_config.docs_link} target="_blank" rel="noreferrer">
+            View setup docs
+          </a>
+        )}
       </p>
 
       {provider.wizard_config.permissions.length > 0 && (

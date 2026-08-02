@@ -49,6 +49,13 @@ export interface IssueCredentialResponse {
   token_note: string
 }
 
+// Self-serve revoke — revokes ALL active credentials for the agent (ClickUp 86cak75u7).
+export interface RevokeCredentialResponse {
+  agent_id: string
+  name: string
+  tokens_revoked: number
+}
+
 export interface TransitionRequest {
   to_state: string
   reason: string
@@ -225,6 +232,8 @@ export interface NHIAccount {
   previous_risk_flags: string[] | null
   first_discovered_at: string | null
   last_seen_at: string | null
+  source_removed: boolean
+  source_removed_at: string | null
 }
 
 export interface NHIDiscoveredSummary {
@@ -239,6 +248,27 @@ export interface NHIDiscoveredResponse {
   summary: NHIDiscoveredSummary
 }
 
+// Response shape of GET /nhi/discovered/{id} — richer than the list endpoint
+// (adds dismiss_reason, scan_id, last_seen_at) and uses last_rotated (not
+// last_credential_rotation) to match the backend's field name exactly.
+export interface NHIAccountDetail {
+  id: string
+  scan_id: string | null
+  account_name: string
+  directory_source: string
+  owner_email: string | null
+  last_rotated: string | null
+  privilege_level: string
+  findings: string[]
+  status: string
+  first_discovered_at: string | null
+  last_seen_at: string | null
+  dismissed_at: string | null
+  dismissed_by: string | null
+  dismiss_reason: string | null
+  scan_count: number
+}
+
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 export interface TenantSettingsResponse {
@@ -251,6 +281,16 @@ export interface TenantSettingsResponse {
   selected_frameworks: string[]
   consent_required: boolean
   cookie_preferences: CookiePreferences | null
+  preferred_scan_cadence_hours: number
+  alert_email: string | null
+  alert_threshold: number
+}
+
+// PATCH /tenant/settings/preferences request body (Slice 1b, 86cajpvar QA item 4)
+export interface PreferencesUpdateRequest {
+  preferred_scan_cadence_hours: number
+  alert_email: string | null
+  alert_threshold: number
 }
 
 // ─── API Key Delivery & Rotation (Q6 / Q6 follow-on) ───────────────────────

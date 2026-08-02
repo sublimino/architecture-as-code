@@ -60,7 +60,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
   return (
     <div
       style={{
-        position: 'fixed', inset: 0, background: 'rgba(2, 6, 23, 0.80)',
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.53)', backdropFilter: 'blur(6px)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 8000,
       }}
       onClick={onClose}
@@ -69,6 +69,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
       aria-labelledby="cookie-settings-title"
     >
       <div
+        className="slide-up"
         style={{
           background: 'var(--surface, #1E293B)',
           border: '1px solid var(--border, #334155)',

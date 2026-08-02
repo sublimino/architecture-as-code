@@ -9,7 +9,17 @@ export const colors = {
   red: '#DC2626',
   electricWhite: '#F8FAFC',
   muted: '#94A3B8',
+  dim: '#64748B',
   slateGray: '#475569',
+}
+
+// Matches demo v5's donut rendering (measured live, 2026-07-30): sharp segment
+// edges with no visible border, ~3deg gap between segments — Recharts' own
+// defaults (a 1px white stroke, 0 paddingAngle) are what made ours read chunky.
+export const donutDefaults = {
+  paddingAngle: 3,
+  cornerRadius: 0,
+  stroke: 'none',
 }
 
 export const statusColors = {

@@ -8,6 +8,7 @@ import {
   type RBACData,
 } from '../api/afmApi'
 import { convertRbacToAfmImport, emitYaml } from '../api/afmYaml'
+import { isDemoMode } from '../api/demoMode'
 
 type CopyFeedback =
   | { tone: 'success'; message: string }
@@ -53,8 +54,18 @@ export default function RbacImporterPanel() {
   const requestSequenceRef = useRef(0)
   const copyResetTimeoutRef = useRef<number | null>(null)
 
-  const selectedCluster = clusters.find(cluster => cluster.id === selectedClusterId) ?? null
-  const hasClusters = clusters.length > 0
+  const demo = isDemoMode()
+
+  // In live mode, show only the host cluster (relabel the local/first cluster).
+  // In demo mode, show all AFM clusters as-is.
+  const displayClusters = demo
+    ? clusters
+    : clusters.length > 0
+      ? [{ id: (clusters.find(c => c.id === 'local') ?? clusters[0]).id, name: 'Host Cluster' }]
+      : []
+
+  const selectedCluster = displayClusters.find(cluster => cluster.id === selectedClusterId) ?? null
+  const hasClusters = displayClusters.length > 0
   const fetchDisabled = isLoadingClusters || isLoadingRbac || selectedCluster === null
 
   const clearCopyResetTimeout = useCallback(() => {
@@ -281,7 +292,7 @@ export default function RbacImporterPanel() {
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 10 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
           <label style={{ fontSize: 12, color: 'var(--muted)' }}>Cluster</label>
-          {clusters.length > 1 && (
+          {displayClusters.length > 1 && (
             <select
               value={selectedClusterId}
               onChange={event => void handleClusterChange(event.target.value)}
@@ -289,15 +300,16 @@ export default function RbacImporterPanel() {
               disabled={isLoadingClusters || isLoadingRbac}
               style={{ width: 220 }}
             >
-              {clusters.map(cluster => (
+              {displayClusters.map(cluster => (
                 <option key={cluster.id} value={cluster.id}>
                   {cluster.name} ({cluster.id})
                 </option>
               ))}
             </select>
           )}
-          {clusters.length === 1 && (
+          {displayClusters.length === 1 && (
             <div
+              data-testid="importer-cluster-select"
               style={{
                 minWidth: 220,
                 padding: '6px 10px',
@@ -307,10 +319,10 @@ export default function RbacImporterPanel() {
                 fontSize: 13,
               }}
             >
-              {clusters[0].name} ({clusters[0].id})
+              {displayClusters[0].name} ({displayClusters[0].id})
             </div>
           )}
-          {clusters.length === 0 && (
+          {displayClusters.length === 0 && (
             <div style={{ minWidth: 220, fontSize: 12, color: 'var(--muted)' }}>
               {isLoadingClusters ? 'Loading AFM clusters…' : 'No AFM clusters available yet.'}
             </div>

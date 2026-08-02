@@ -28,6 +28,7 @@ import {
   type RbacRole,
   type RbacSubject,
 } from '../api/rbacCorrelationApi'
+import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
 
 class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -156,12 +157,29 @@ export default function RbacExplorerPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [nsFilter, setNsFilter] = useState<string>('all')
+  const [showAddCluster, setShowAddCluster] = useState(false)
+  const [localClusters, setLocalClusters] = useState<ClusterMeta[]>([])
+
+  const demo = isDemoMode()
+
+  const handleAddCluster = (entry: NewClusterEntry) => {
+    const id = entry.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    setLocalClusters(prev => [...prev, { id, name: entry.name }])
+  }
+
+  // In live mode, show only the host cluster (first/local) + locally-added.
+  // In demo mode, show all AFM clusters.
+  const displayClusters = useMemo(() => {
+    if (demo) return clusters
+    if (clusters.length === 0) return localClusters
+    const host = clusters.find(c => c.id === 'local') ?? clusters[0]
+    const hostEntry: ClusterMeta = { id: host.id, name: 'Host Cluster' }
+    return [hostEntry, ...localClusters]
+  }, [clusters, demo, localClusters])
 
   // Subjects pagination
   const [subjectsPage, setSubjectsPage] = useState(1)
   const [subjectsPageSize, setSubjectsPageSize] = useState(30)
-
-  const demo = isDemoMode()
 
   // Load clusters on mount. Demo mode never touches the network.
   useEffect(() => {
@@ -302,7 +320,7 @@ export default function RbacExplorerPage() {
             style={{ width: 200 }}
             data-testid="cluster-selector"
           >
-            {clusters.map(c => (
+            {displayClusters.map(c => (
               <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
             ))}
           </select>
@@ -324,6 +342,18 @@ export default function RbacExplorerPage() {
             onClick={() => void loadCluster(clusterId)}
           >
             Refresh
+          </button>
+          <button
+            data-testid="add-cluster-btn"
+            className="btn btn-secondary"
+            style={{
+              fontSize: 12, padding: '5px 12px',
+              border: '1px solid var(--cyan)',
+              color: 'var(--cyan)',
+            }}
+            onClick={() => setShowAddCluster(true)}
+          >
+            + Add Cluster
           </button>
         </div>
       </div>
@@ -532,6 +562,12 @@ export default function RbacExplorerPage() {
             </div>
           </Section>
         </>
+      )}
+      {showAddCluster && (
+        <AddClusterModal
+          onAdd={handleAddCluster}
+          onClose={() => setShowAddCluster(false)}
+        />
       )}
     </div>
     </RbacErrorBoundary>

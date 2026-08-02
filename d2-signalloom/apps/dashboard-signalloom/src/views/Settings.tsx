@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
-import type { TenantSettingsResponse, FrameworkResponse, NHIScan } from '../types/api'
+import type { TenantSettingsResponse, FrameworkResponse, NHIScan, PlatformUser } from '../types/api'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import ErrorState from '../components/ErrorState'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
@@ -109,16 +109,18 @@ export default function Settings() {
   const [preferencesSaving, setPreferencesSaving] = useState(false)
   const [preferencesSaved, setPreferencesSaved] = useState(false)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
+  const [teamMembers, setTeamMembers] = useState<PlatformUser[]>([])
 
   const load = useCallback(async () => {
     try {
       const token = await getAccessTokenSilently()
-      const [settingsRes, frameworksRes, scansRes, providersRes, connectorsRes] = await Promise.allSettled([
+      const [settingsRes, frameworksRes, scansRes, providersRes, connectorsRes, usersRes] = await Promise.allSettled([
         api.settings(token),
         api.compliance.frameworks(token),
         api.nhi.scans(token),
         connectorsApi.listProviders(token),
         connectorsApi.listConnectors(token),
+        api.users(token),
       ])
       if (settingsRes.status === 'fulfilled') {
         setSettings(settingsRes.value)
@@ -139,6 +141,7 @@ export default function Settings() {
       }
       if (providersRes.status === 'fulfilled') setProviders(providersRes.value)
       if (connectorsRes.status === 'fulfilled') setConnectors(connectorsRes.value)
+      if (usersRes.status === 'fulfilled') setTeamMembers(usersRes.value.users)
       if (settingsRes.status === 'rejected') {
         const msg = settingsRes.reason instanceof Error ? settingsRes.reason.message : ''
         if (msg.includes('401') || msg.includes('403')) setError('Your session has expired. Please sign in again.')
@@ -511,6 +514,57 @@ export default function Settings() {
           </a>
         </div>
       </SectionCard>
+
+      {/* Team */}
+      {teamMembers.length > 0 && (
+        <SectionCard title="Team">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+            {teamMembers.map((m) => (
+              <div
+                key={m.id}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: '28px 1fr auto',
+                  alignItems: 'center',
+                  gap: 12,
+                  padding: '10px 0',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              >
+                <div style={{
+                  width: 28, height: 28, borderRadius: '50%',
+                  background: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0,
+                }}>
+                  {m.display_name.charAt(0).toUpperCase()}
+                </div>
+                <div style={{ overflow: 'hidden', minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {m.display_name}
+                    {m.title && <span style={{ color: 'var(--muted)', fontWeight: 400 }}> — {m.title}</span>}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                    {m.email}{m.department ? ` · ${m.department}` : ''}
+                  </div>
+                </div>
+                <span style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.06em',
+                  padding: '2px 8px',
+                  borderRadius: 99,
+                  color: m.role === 'admin' ? '#A78BFA' : m.role === 'editor' ? '#06B6D4' : 'var(--muted)',
+                  background: m.role === 'admin' ? 'rgba(167,139,250,0.12)' : m.role === 'editor' ? 'rgba(6,182,212,0.10)' : 'rgba(148,163,184,0.10)',
+                }}>
+                  {m.role}
+                </span>
+              </div>
+            ))}
+          </div>
+        </SectionCard>
+      )}
 
       {/* Account */}
       <SectionCard title="Account">

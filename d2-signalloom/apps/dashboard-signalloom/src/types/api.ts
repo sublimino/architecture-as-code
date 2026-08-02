@@ -355,3 +355,22 @@ export interface ConsentAcceptResponse {
 export interface CookiePreferencesResponse {
   cookie_preferences: CookiePreferences
 }
+
+// ─── Platform Users ─────────────────────────────────────────────────────────
+
+export interface PlatformUser {
+  id: string
+  email: string
+  display_name: string
+  role: 'admin' | 'editor' | 'viewer'
+  status: 'active' | 'invited' | 'suspended' | 'deactivated'
+  department: string | null
+  title: string | null
+  last_login_at: string | null
+  created_at: string
+}
+
+export interface PlatformUsersResponse {
+  users: PlatformUser[]
+  total: number
+}

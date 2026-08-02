@@ -3,7 +3,9 @@
 -- Run AFTER data-reset.sql (or use scripts/signalloom-data.sh mock).
 --
 -- Data scope:
---   5 agents (Monty Python theme — matches cluster pods)
+--   9 platform users (admin, engineers, CISO, ops — matching audit actors)
+--   5 user_roles (tenant-scoped role assignments)
+--   5 agents (Monty Python theme — matches cluster pods, owner_id linked)
 --   2 frameworks (EU AI Act, SOC 2) with 6 controls total
 --   30 agent compliance results (5 agents x 6 controls)
 --   12 audit events
@@ -20,6 +22,72 @@
 -- discovered pods with governance data from this table via the name column.
 
 BEGIN;
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Platform Users (9)
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Every actor that appears in audit_events, lifecycle_transitions, or
+-- agent_registry.owner has a corresponding user row. Stable UUIDs
+-- (u0000000-...) allow owner_id FK wiring below.
+
+INSERT INTO public.platform_users (
+    id, tenant_id, email, display_name, role, status,
+    department, title, last_login_at, created_at
+) VALUES
+('u0000000-0000-0000-0000-000000000001', 'tenant-demo',
+ 'admin@acme.co', 'Alice Admin', 'admin', 'active',
+ 'Platform Engineering', 'Platform Lead',
+ '2026-07-31 09:15:00+00', '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000002', 'tenant-demo',
+ 'wendy@acme.co', 'Wendy Watkins', 'admin', 'active',
+ 'Security', 'Security Engineer',
+ '2026-07-30 14:22:00+00', '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000003', 'tenant-demo',
+ 'lancelot@acme.co', 'Lance Overture', 'editor', 'active',
+ 'Platform Engineering', 'AI Engineer',
+ '2026-07-29 11:00:00+00', '2026-06-20 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000004', 'tenant-demo',
+ 'dennis@acme.co', 'Dennis Moore', 'editor', 'active',
+ 'Platform Engineering', 'ML Engineer',
+ '2026-07-28 16:45:00+00', '2026-06-22 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000005', 'tenant-demo',
+ 'patsy@acme.co', 'Pat Gallahad', 'viewer', 'active',
+ 'Product', 'Product Manager',
+ '2026-07-25 10:30:00+00', '2026-07-01 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000006', 'tenant-demo',
+ 'robin@acme.co', 'Robin Banks', 'editor', 'active',
+ 'Platform Engineering', 'DevOps Engineer',
+ '2026-07-27 08:00:00+00', '2026-06-25 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000007', 'tenant-demo',
+ 'ciso@acme.co', 'Chris Isobel', 'admin', 'active',
+ 'Security', 'Chief Information Security Officer',
+ '2026-07-31 17:00:00+00', '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000008', 'tenant-demo',
+ 'devops@acme.co', 'Devon Ops', 'editor', 'active',
+ 'Infrastructure', 'Infrastructure Engineer',
+ '2026-07-26 13:15:00+00', '2026-06-18 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000009', 'tenant-demo',
+ 'ops@acme.co', 'Olivia Parsons', 'viewer', 'active',
+ 'Infrastructure', 'Operations Analyst',
+ '2026-07-20 09:00:00+00', '2026-07-05 09:00:00+00');
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- User Roles (tenant-scoped assignments)
+-- ══════════════════════════════════════════════════════════════════════════════
+
+INSERT INTO public.user_roles (
+    user_id, tenant_id, role, scope, scope_id, granted_by, granted_at
+) VALUES
+('u0000000-0000-0000-0000-000000000001', 'tenant-demo', 'admin', 'tenant', NULL,
+ NULL, '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000002', 'tenant-demo', 'admin', 'tenant', NULL,
+ 'u0000000-0000-0000-0000-000000000001', '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000007', 'tenant-demo', 'admin', 'tenant', NULL,
+ 'u0000000-0000-0000-0000-000000000001', '2026-06-15 10:00:00+00'),
+('u0000000-0000-0000-0000-000000000003', 'tenant-demo', 'editor', 'team', 'Platform Engineering',
+ 'u0000000-0000-0000-0000-000000000001', '2026-06-20 09:00:00+00'),
+('u0000000-0000-0000-0000-000000000006', 'tenant-demo', 'editor', 'team', 'Platform Engineering',
+ 'u0000000-0000-0000-0000-000000000001', '2026-06-25 09:00:00+00');
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Agents (5)
@@ -461,5 +529,17 @@ INSERT INTO public.support_requests (
     'When I try to assign an Identity Owner to the Black Knight agent via the Governance tab, the save button remains greyed out. The agent is currently suspended. Browser: Chrome 126 on macOS. Tried clearing cache and different browser.',
     'ciso@acme.co'
 );
+
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Link agent owners to platform_users (owner_id FK)
+-- ══════════════════════════════════════════════════════════════════════════════
+-- Reconciles agent_registry.owner (email TEXT) with platform_users.id.
+-- Black Knight has no owner (NULL) — this is intentional and triggers
+-- the no_identity violation.
+
+UPDATE public.agent_registry SET owner_id = pu.id
+FROM public.platform_users pu
+WHERE agent_registry.owner = pu.email
+  AND agent_registry.tenant_id = pu.tenant_id;
 
 COMMIT;

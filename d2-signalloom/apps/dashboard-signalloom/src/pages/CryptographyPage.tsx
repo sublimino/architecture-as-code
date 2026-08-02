@@ -15,7 +15,6 @@ import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } 
 import { PieChart, Pie, Cell } from 'recharts'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import { isDemoMode } from '../api/demoMode'
 import StatusBadge from '../components/StatusBadge'
 import { colors } from '../styles/tokens'
 import type { CryptoProof } from '../types/api'
@@ -82,6 +81,26 @@ const SPIRE = {
     { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/inf-signalloom/sa/legacy-batch`, workload: 'legacy-batch-runner', selector: 'k8s:sa:legacy-batch', ttl: '15m', status: 'revoked' },
   ] as Svid[],
 }
+
+interface AlgorithmEntry {
+  algorithm: string
+  standard: string
+  type: 'KEM' | 'Signature' | 'Signature (hash-based)' | 'Key exchange' | 'Signature (classical)' | 'Symmetric'
+  nistStatus: string
+  eolDate: string | null
+  quantumSafe: boolean
+}
+
+const ALGORITHM_INVENTORY: AlgorithmEntry[] = [
+  { algorithm: 'ML-KEM (Kyber)', standard: 'FIPS 203', type: 'KEM', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
+  { algorithm: 'ML-DSA (Dilithium)', standard: 'FIPS 204', type: 'Signature', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
+  { algorithm: 'SLH-DSA (SPHINCS+)', standard: 'FIPS 205', type: 'Signature (hash-based)', nistStatus: 'Standardised 2024', eolDate: null, quantumSafe: true },
+  { algorithm: 'RSA-2048', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
+  { algorithm: 'ECDSA P-256', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
+  { algorithm: 'ECDSA P-384', standard: 'FIPS 186-5', type: 'Signature (classical)', nistStatus: 'Approved (disallow after 2030)', eolDate: '2030', quantumSafe: false },
+  { algorithm: 'X25519', standard: 'RFC 7748', type: 'Key exchange', nistStatus: 'Approved', eolDate: '2030', quantumSafe: false },
+  { algorithm: 'AES-256', standard: 'FIPS 197', type: 'Symmetric', nistStatus: 'Approved', eolDate: null, quantumSafe: true },
+]
 
 interface CipherEndpoint {
   endpoint: string
@@ -218,31 +237,6 @@ export default function CryptographyPage() {
 
   const load = useCallback(async () => {
     try {
-      if (isDemoMode()) {
-        setProofs([
-          {
-            name: 'dashboard-spiffe-jwt-exchange',
-            kind: 'positive',
-            status: 'passed',
-            title: 'Dashboard workload exchanged SPIFFE identity for OpenBao access',
-            description: 'The dashboard service authenticated as its workload identity without using a static secret.',
-            expectation: 'A valid SPIFFE-backed identity should mint a short-lived OpenBao token for the dashboard path.',
-            evidence: 'spiffe://signalloom.svc.cluster.local/ns/fe-signalloom/sa/dashboard -> openbao role dashboard-readonly -> lease ttl=300s',
-          },
-          {
-            name: 'forged-sa-token-denied',
-            kind: 'negative',
-            status: 'passed',
-            title: 'Forged service-account replay was rejected',
-            description: 'A simulated identity replay using the wrong service account was denied before any secret was issued.',
-            expectation: 'A non-matching workload identity must be blocked from the OpenBao role bound to dashboard.',
-            evidence: 'subject mismatch for spiffe://signalloom.svc.cluster.local/ns/inf-signalloom/sa/legacy-batch -> permission denied',
-          },
-        ])
-        setProofError(false)
-        return
-      }
-
       const token = await getAccessTokenSilently()
       const res = await api.health.crypto(token)
       setProofs(res.proofs)
@@ -407,6 +401,26 @@ export default function CryptographyPage() {
             </Table>
           </div>
         </div>
+      </Section>
+
+      {/* Algorithm Inventory — PQC migration readiness */}
+      <Section title="Algorithm Inventory" hint="NIST post-quantum migration tracking">
+        <Table headers={['Algorithm', 'Standard', 'Type', 'NIST Status', 'EOL Date', 'Quantum-safe']}>
+          {ALGORITHM_INVENTORY.map((a) => (
+            <tr key={a.algorithm} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={{ ...td, color: 'var(--text)', fontWeight: 500 }}>{a.algorithm}</td>
+              <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{a.standard}</code></td>
+              <td style={{ ...td, color: 'var(--muted)' }}>{a.type}</td>
+              <td style={{ ...td, color: 'var(--muted)' }}>{a.nistStatus}</td>
+              <td style={td}>
+                {a.eolDate
+                  ? <span style={{ color: colors.amber, fontWeight: 600 }}>{a.eolDate}</span>
+                  : <span style={{ color: colors.tealLoom }}>None</span>}
+              </td>
+              <td style={td}><Pill label={a.quantumSafe ? 'ready' : 'classical'} /></td>
+            </tr>
+          ))}
+        </Table>
       </Section>
 
       {/* OAuth2 / MCP Proxies */}

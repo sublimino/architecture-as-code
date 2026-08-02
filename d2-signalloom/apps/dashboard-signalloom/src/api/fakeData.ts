@@ -14,6 +14,7 @@ import type {
   ConsentAcceptResponse,
   ConsentStatusResponse,
   CookiePreferencesResponse,
+  CryptoHealthResponse,
   FrameworkResponse,
   InitialApiKeyResponse,
   IssueCredentialResponse,
@@ -294,6 +295,32 @@ const consentAccept: ConsentAcceptResponse = {
 }
 const cookiePrefs: CookiePreferencesResponse = { cookie_preferences: COOKIE_PREFS }
 
+// ─── Crypto Health ──────────────────────────────────────────────────────────────
+
+const cryptoHealth: CryptoHealthResponse = {
+  tenant_id: TENANT,
+  proofs: [
+    {
+      name: 'dashboard-spiffe-jwt-exchange',
+      kind: 'positive',
+      status: 'passed',
+      title: 'Dashboard workload exchanged SPIFFE identity for OpenBao access',
+      description: 'The dashboard service authenticated as its workload identity without using a static secret.',
+      expectation: 'A valid SPIFFE-backed identity should mint a short-lived OpenBao token for the dashboard path.',
+      evidence: 'spiffe://signalloom.svc.cluster.local/ns/fe-signalloom/sa/dashboard -> openbao role dashboard-readonly -> lease ttl=300s',
+    },
+    {
+      name: 'forged-sa-token-denied',
+      kind: 'negative',
+      status: 'passed',
+      title: 'Forged service-account replay was rejected',
+      description: 'A simulated identity replay using the wrong service account was denied before any secret was issued.',
+      expectation: 'A non-matching workload identity must be blocked from the OpenBao role bound to dashboard.',
+      evidence: 'subject mismatch for spiffe://signalloom.svc.cluster.local/ns/inf-signalloom/sa/legacy-batch -> permission denied',
+    },
+  ],
+}
+
 // ─── Resolver ──────────────────────────────────────────────────────────────────
 
 type Match = {
@@ -344,12 +371,14 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/consent\/accept$/), data: () => consentAccept },
   { method: 'GET', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
   { method: 'PATCH', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
+  // health
+  { method: 'GET', test: re(/^\/health\/crypto$/), data: () => cryptoHealth },
   // compliance-policy routes (policy-as-versioned-code)
   ...COMPLIANCE_POLICY_ROUTES,
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  27 base + 3 compliance-policy = 30 */
+ *  28 base + 3 compliance-policy = 31 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 /**

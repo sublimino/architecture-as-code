@@ -38,8 +38,29 @@ assert 'agents-baseline.yaml' not in apps
 assert 'name: fe-signalloom-agents' in fleet
 assert 'name: agent-inventory-reader' in fleet
 assert 'namespace: inf-signalloom' in fleet
-assert 'resources: ["pods"]' in fleet
-assert 'verbs: ["get", "list", "watch"]' in fleet
+
+# Pin agent-inventory-reader's grant exactly, rather than substring-matching a
+# verb list that any other Role in this file could satisfy.
+#
+# This previously asserted `verbs: ["get", "list", "watch"]` appeared somewhere
+# in the file. That broke when the Role legitimately gained `patch` (the
+# SuperCred stun flow needs to relabel a pod), and it would equally have been
+# satisfied by an unrelated Role elsewhere in the file — so it was both brittle
+# and weak. Scope the assertion to this Role's own rules block and state the
+# full expected verb set, so a genuine widening still fails the test.
+reader = fleet[fleet.index('name: agent-inventory-reader'):]
+rules = reader[reader.index('rules:'):reader.index('kind: RoleBinding')]
+
+assert 'resources: ["pods"]' in rules, 'agent-inventory-reader must be pods-scoped'
+assert 'verbs: ["get", "list", "watch", "patch"]' in rules, (
+    'agent-inventory-reader verbs changed; confirm the widening is intended '
+    'before updating this assertion'
+)
+# patch is the ceiling: the proxy may relabel an existing agent, never create,
+# replace or remove one.
+for forbidden in ('create', 'update', 'delete', 'deletecollection', '*'):
+    assert f'"{forbidden}"' not in rules, f'agent-inventory-reader must not grant {forbidden}'
+assert 'apiGroups: [""]' in rules, 'agent-inventory-reader must stay in the core API group'
 PY
   [ "$status" -eq 0 ]
 }

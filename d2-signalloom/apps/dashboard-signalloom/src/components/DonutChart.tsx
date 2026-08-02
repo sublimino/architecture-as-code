@@ -36,7 +36,7 @@ export default function DonutChart({ segments, label, sublabel, size = 140 }: Pr
         <circle
           cx={cx} cy={cy} r={R}
           fill="none"
-          stroke="#1f2937"
+          stroke="var(--surface2)"
           strokeWidth={sw}
         />
         {total === 0 ? null : arcs.map((arc, i) =>
@@ -58,7 +58,7 @@ export default function DonutChart({ segments, label, sublabel, size = 140 }: Pr
           <text
             x={cx} y={cy - (sublabel ? 6 : 0)}
             textAnchor="middle" dominantBaseline="middle"
-            fill="#f9fafb"
+            fill="var(--text)"
             fontSize={size * 0.16}
             fontWeight="700"
             fontFamily="Arial, sans-serif"
@@ -70,7 +70,7 @@ export default function DonutChart({ segments, label, sublabel, size = 140 }: Pr
           <text
             x={cx} y={cy + size * 0.12}
             textAnchor="middle" dominantBaseline="middle"
-            fill="#9ca3af"
+            fill="var(--muted)"
             fontSize={size * 0.09}
             fontFamily="Arial, sans-serif"
           >

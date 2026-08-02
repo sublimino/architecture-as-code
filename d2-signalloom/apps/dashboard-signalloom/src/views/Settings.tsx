@@ -39,7 +39,7 @@ function FrameworkToggle({ active, onToggle }: { active: boolean; onToggle: () =
         padding: 0,
         border: 'none',
         cursor: 'pointer',
-        background: active ? '#06B6D4' : '#475569',
+        background: active ? 'var(--cyan)' : 'var(--slate-gray)',
         transition: 'background 0.2s ease',
         position: 'relative',
       }}
@@ -72,11 +72,11 @@ function SectionCard({ title, children }: { title: string; children: ReactNode }
 
 function ApiKeyStatus({ status }: { status: string | null | undefined }) {
   const statusMap: Record<string, { color: string; label: string }> = {
-    active: { color: '#10B981', label: 'Active' },
-    revoked: { color: '#DC2626', label: 'Revoked' },
-    expired: { color: '#D97706', label: 'Expired' },
+    active: { color: 'var(--teal)', label: 'Active' },
+    revoked: { color: 'var(--error)', label: 'Revoked' },
+    expired: { color: 'var(--amber)', label: 'Expired' },
   }
-  const info = status ? (statusMap[status] ?? { color: '#94A3B8', label: status }) : { color: '#94A3B8', label: '—' }
+  const info = status ? (statusMap[status] ?? { color: 'var(--muted)', label: status }) : { color: 'var(--muted)', label: '—' }
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: info.color }} />
@@ -233,7 +233,7 @@ export default function Settings() {
   }
 
   const scanStatusColor: Record<string, string> = {
-    completed: '#10B981', running: '#06B6D4', failed: '#DC2626',
+    completed: 'var(--teal)', running: 'var(--cyan)', failed: 'var(--error)',
   }
 
   return (
@@ -361,9 +361,9 @@ export default function Settings() {
       {/* Compliance Frameworks */}
       <SectionCard title="Compliance Frameworks">
         {toastError && (
-          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 6, fontSize: 12, color: '#DC2626', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.25)', borderRadius: 6, fontSize: 12, color: 'var(--error)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             {toastError}
-            <button onClick={() => setToastError(null)} style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', marginLeft: 8, fontSize: 14, lineHeight: 1 }}>✕</button>
+            <button onClick={() => setToastError(null)} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', marginLeft: 8, fontSize: 14, lineHeight: 1 }}>✕</button>
           </div>
         )}
         {frameworks.length === 0 ? (
@@ -460,7 +460,7 @@ export default function Settings() {
           </div>
         </div>
         {preferencesError && (
-          <p style={{ fontSize: 12, color: '#DC2626', marginBottom: 12 }}>{preferencesError}</p>
+          <p style={{ fontSize: 12, color: 'var(--error)', marginBottom: 12 }}>{preferencesError}</p>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
@@ -472,7 +472,7 @@ export default function Settings() {
             {preferencesSaving ? 'Saving…' : 'Save Preferences'}
           </button>
           {preferencesSaved && (
-            <span style={{ fontSize: 12, color: '#10B981', fontWeight: 600 }}>Saved</span>
+            <span style={{ fontSize: 12, color: 'var(--teal)', fontWeight: 600 }}>Saved</span>
           )}
         </div>
       </SectionCard>
@@ -484,8 +484,8 @@ export default function Settings() {
             <div>
               <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Last Scan</div>
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: scanStatusColor[lastScan.status] ?? '#94A3B8' }} />
-                <span style={{ color: scanStatusColor[lastScan.status] ?? '#94A3B8', fontWeight: 600, textTransform: 'capitalize' }}>{lastScan.status}</span>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: scanStatusColor[lastScan.status] ?? 'var(--muted)' }} />
+                <span style={{ color: scanStatusColor[lastScan.status] ?? 'var(--muted)', fontWeight: 600, textTransform: 'capitalize' }}>{lastScan.status}</span>
               </span>
             </div>
             <Field label="Scan Source" value={lastScan.scan_source} />
@@ -496,7 +496,7 @@ export default function Settings() {
             {lastScan.total_at_risk != null && (
               <div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>At Risk</div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: lastScan.total_at_risk > 0 ? '#DC2626' : '#10B981' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: lastScan.total_at_risk > 0 ? 'var(--error)' : 'var(--teal)' }}>
                   {lastScan.total_at_risk}
                 </span>
               </div>
@@ -535,7 +535,7 @@ export default function Settings() {
                   width: 28, height: 28, borderRadius: '50%',
                   background: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--border)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0,
+                  fontSize: 12, fontWeight: 700, color: 'var(--on-accent)', flexShrink: 0,
                 }}>
                   {m.display_name.charAt(0).toUpperCase()}
                 </div>
@@ -555,7 +555,7 @@ export default function Settings() {
                   letterSpacing: '0.06em',
                   padding: '2px 8px',
                   borderRadius: 99,
-                  color: m.role === 'admin' ? '#A78BFA' : m.role === 'editor' ? '#06B6D4' : 'var(--muted)',
+                  color: m.role === 'admin' ? 'var(--violet)' : m.role === 'editor' ? 'var(--cyan)' : 'var(--muted)',
                   background: m.role === 'admin' ? 'rgba(167,139,250,0.12)' : m.role === 'editor' ? 'rgba(6,182,212,0.10)' : 'rgba(148,163,184,0.10)',
                 }}>
                   {m.role}

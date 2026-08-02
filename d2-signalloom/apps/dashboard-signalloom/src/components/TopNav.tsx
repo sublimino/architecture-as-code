@@ -69,7 +69,7 @@ export default function TopNav() {
               {label === 'Compliance' && failingControls > 0 && (
                 <span style={{
                   background: 'var(--error)',
-                  color: '#fff',
+                  color: 'var(--on-accent)',
                   borderRadius: 99,
                   fontSize: 10,
                   fontWeight: 700,
@@ -101,7 +101,7 @@ export default function TopNav() {
                 style={{ width: 30, height: 30, borderRadius: '50%', border: '2px solid var(--border)' }}
               />
             ) : (
-              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--violet)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--violet)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, color: 'var(--on-accent)' }}>
                 {(user?.name ?? user?.email ?? 'U').charAt(0).toUpperCase()}
               </div>
             )}

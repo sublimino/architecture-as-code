@@ -55,7 +55,7 @@ function AttentionPanel({ alerts, onAlert }: { alerts: AlertItem[]; onAlert: (fi
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: colors.red }}>Attention Required</span>
         <span style={{
-          background: colors.red, color: '#fff', borderRadius: 99,
+          background: colors.red, color: 'var(--on-accent)', borderRadius: 99,
           fontSize: 10, fontWeight: 700, padding: '1px 7px',
         }}>{alerts.length}</span>
       </div>
@@ -78,7 +78,7 @@ function AttentionPanel({ alerts, onAlert }: { alerts: AlertItem[]; onAlert: (fi
           >
             <span style={{
               background: a.severity === 'critical' ? colors.red : colors.amber,
-              color: '#fff', borderRadius: 99, fontSize: 10,
+              color: 'var(--on-accent)', borderRadius: 99, fontSize: 10,
               fontWeight: 700, padding: '0px 6px', minWidth: 20, textAlign: 'center',
             }}>{a.count}</span>
             {a.label}
@@ -197,7 +197,7 @@ function FindingsSummary({ counts, onFilter, activeFilter }: {
               fontSize: 12, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
-            <span style={{ background: c.color, color: '#fff', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '0 5px' }}>{c.count}</span>
+            <span style={{ background: c.color, color: 'var(--on-accent)', borderRadius: 99, fontSize: 10, fontWeight: 700, padding: '0 5px' }}>{c.count}</span>
             {c.label}
           </button>
         ))}

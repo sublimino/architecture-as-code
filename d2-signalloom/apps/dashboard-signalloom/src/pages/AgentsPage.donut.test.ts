@@ -58,25 +58,21 @@ describe('lifecycle donut colour sourcing', () => {
   })
 })
 
-describe('Dark theme is unchanged by the donut indirection', () => {
-  it('maps each replaced literal onto an identical Dark variable value', () => {
-    expect(THEMES.dark['--teal']).toBe(colors.tealLoom)
-    expect(THEMES.dark['--cyan']).toBe(colors.cyanLoom)
-    expect(THEMES.dark['--amber']).toBe(colors.amber)
-    expect(THEMES.dark['--error']).toBe(colors.red)
-    // The centre count was electricWhite and the caption was muted.
-    expect(THEMES.dark['--text']).toBe(colors.electricWhite)
-    expect(THEMES.dark['--muted']).toBe(colors.muted)
-    // The empty-state ring literal.
-    expect(THEMES.dark['--border-subtle']).toBe('#334155')
+describe('tokens.ts now references theme variables directly', () => {
+  it('each token resolves to its corresponding CSS variable', () => {
+    expect(colors.tealLoom).toBe('var(--teal)')
+    expect(colors.cyanLoom).toBe('var(--cyan)')
+    expect(colors.amber).toBe('var(--amber)')
+    expect(colors.red).toBe('var(--error)')
+    expect(colors.electricWhite).toBe('var(--text)')
+    expect(colors.muted).toBe('var(--muted)')
   })
 })
 
 describe('Andy theme donut', () => {
   it('no longer inherits the dark palette teal/cyan/amber', () => {
-    // Same variables, different values — the donut repaints with the theme.
-    expect(THEMES.andy['--teal']).not.toBe(colors.tealLoom)
-    expect(THEMES.andy['--cyan']).not.toBe(colors.cyanLoom)
-    expect(THEMES.andy['--amber']).not.toBe(colors.amber)
+    expect(THEMES.andy['--teal']).not.toBe(THEMES.dark['--teal'])
+    expect(THEMES.andy['--cyan']).not.toBe(THEMES.dark['--cyan'])
+    expect(THEMES.andy['--amber']).not.toBe(THEMES.dark['--amber'])
   })
 })

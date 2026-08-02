@@ -22,10 +22,10 @@ function categorize(score: number | null): PostureCategory {
 }
 
 const CAT_COLOR: Record<PostureCategory, string> = {
-  good: '#10B981',
-  warning: '#D97706',
-  critical: '#DC2626',
-  pending: '#475569',
+  good: 'var(--teal)',
+  warning: 'var(--amber)',
+  critical: 'var(--error)',
+  pending: 'var(--slate-gray)',
 }
 
 const CAT_LABEL: Record<PostureCategory, string> = {
@@ -175,7 +175,7 @@ export default function Compliance() {
           <div style={{ position: 'relative', width: 160, height: 160 }}>
             <PieChart width={160} height={160}>
               <Pie
-                data={hasData ? donutData.filter(d => d.value > 0) : [{ name: 'No data', value: 1, key: 'pending', color: '#334155' }]}
+                data={hasData ? donutData.filter(d => d.value > 0) : [{ name: 'No data', value: 1, key: 'pending', color: 'var(--border-subtle)' }]}
                 cx={80} cy={80}
                 innerRadius={52} outerRadius={72}
                 dataKey="value"
@@ -190,7 +190,7 @@ export default function Compliance() {
                 }}
                 style={{ cursor: hasData ? 'pointer' : 'default' }}
               >
-                {(hasData ? donutData.filter(d => d.value > 0) : [{ color: '#334155' }]).map((entry, i) => (
+                {(hasData ? donutData.filter(d => d.value > 0) : [{ color: 'var(--border-subtle)' }]).map((entry, i) => (
                   <Cell
                     key={i}
                     fill={entry.color}
@@ -256,7 +256,7 @@ export default function Compliance() {
                       </div>
                     )}
                     <div style={{ fontSize: 12 }}>
-                      <span style={{ color: '#10B981', fontWeight: 600 }}>{passing}</span>
+                      <span style={{ color: 'var(--teal)', fontWeight: 600 }}>{passing}</span>
                       <span style={{ color: 'var(--muted)' }}> / {total} passing</span>
                     </div>
                     {fw.compliance_deadline && (

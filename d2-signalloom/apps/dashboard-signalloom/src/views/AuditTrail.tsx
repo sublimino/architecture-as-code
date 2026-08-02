@@ -15,16 +15,16 @@ const EVENT_TYPES = [
 ]
 
 const EVENT_COLORS: Record<string, string> = {
-  enrollment: '#10B981',
-  state_transition: '#8B5CF6',
-  violation_detected: '#DC2626',
-  compliance_check: '#3B82F6',
-  token_issued: '#06B6D4',
-  token_refused: '#F97316',
-  tenant_created: '#06D6A0',
-  user_provisioned: '#84CC16',
-  directory_connected: '#A78BFA',
-  discovery_enroll_requested: '#F59E0B',
+  enrollment: 'var(--teal)',
+  state_transition: 'var(--violet)',
+  violation_detected: 'var(--error)',
+  compliance_check: 'var(--cyan)',
+  token_issued: 'var(--cyan)',
+  token_refused: 'var(--amber)',
+  tenant_created: 'var(--teal)',
+  user_provisioned: 'var(--teal)',
+  directory_connected: 'var(--violet)',
+  discovery_enroll_requested: 'var(--amber)',
 }
 
 function fmtTs(iso: string) {
@@ -35,7 +35,7 @@ function fmtTs(iso: string) {
 }
 
 function EventTag({ type, active, onClick }: { type: string; active?: boolean; onClick?: () => void }) {
-  const color = EVENT_COLORS[type] ?? '#9CA3AF'
+  const color = EVENT_COLORS[type] ?? 'var(--muted)'
   return (
     <span
       onClick={onClick}
@@ -43,7 +43,7 @@ function EventTag({ type, active, onClick }: { type: string; active?: boolean; o
       style={{
         display: 'inline-block', padding: '2px 8px', borderRadius: 4,
         fontSize: 11, fontWeight: 600, fontFamily: 'monospace',
-        background: color + '22', color,
+        background: `color-mix(in srgb, ${color} 13%, transparent)`, color,
         cursor: onClick ? 'pointer' : 'default',
         outline: active ? `1px solid ${color}` : 'none',
       }}
@@ -179,7 +179,7 @@ export default function AuditTrail() {
         </div>
       </div>
       {exportError && (
-        <div style={{ color: '#DC2626', fontSize: 12, marginBottom: 12 }}>{exportError}</div>
+        <div style={{ color: 'var(--error)', fontSize: 12, marginBottom: 12 }}>{exportError}</div>
       )}
 
       {/* Filters */}

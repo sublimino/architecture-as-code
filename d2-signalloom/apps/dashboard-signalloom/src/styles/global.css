@@ -15,6 +15,7 @@
   --muted: #94A3B8;
   --dim: #64748B;
   --slate-gray: #475569;
+  --on-accent: #FFFFFF;
   --radius: 8px;
   --radius-sm: 4px;
   /* legacy aliases kept for existing components */
@@ -126,9 +127,9 @@ select option { background: var(--surface); }
 }
 .btn:hover { opacity: 0.85; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary { background: var(--cyan); color: #020617; }
+.btn-primary { background: var(--cyan); color: var(--bg); }
 .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border-subtle); }
-.btn-danger { background: var(--error); color: #fff; }
+.btn-danger { background: var(--error); color: var(--on-accent); }
 
 .tag {
   display: inline-flex;

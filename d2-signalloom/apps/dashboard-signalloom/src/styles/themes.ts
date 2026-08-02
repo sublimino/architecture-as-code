@@ -19,8 +19,10 @@ export const CSS_VAR_NAMES = [
   '--error',
   '--text',
   '--muted',
+  '--dim',
   '--slate-gray',
   '--warning',
+  '--on-accent',
 ] as const
 
 export type CssVarName = (typeof CSS_VAR_NAMES)[number]
@@ -56,8 +58,10 @@ export const THEMES: Record<ThemeName, Record<CssVarName, string>> = {
     '--error': '#DC2626',
     '--text': '#F8FAFC',
     '--muted': '#94A3B8',
+    '--dim': '#64748B',
     '--slate-gray': '#475569',
     '--warning': '#D97706',
+    '--on-accent': '#FFFFFF',
   },
   // Near-white surfaces with darkened accents so links, tags and chart series
   // stay legible against white.
@@ -74,8 +78,10 @@ export const THEMES: Record<ThemeName, Record<CssVarName, string>> = {
     '--error': '#B91C1C',
     '--text': '#0F172A',
     '--muted': '#475569',
+    '--dim': '#64748B',
     '--slate-gray': '#64748B',
     '--warning': '#B45309',
+    '--on-accent': '#FFFFFF',
   },
   // Red on black. Red takes over cyan's primary-accent role; the remaining
   // accents stay inside the warm band so the palette reads as one family.
@@ -92,8 +98,10 @@ export const THEMES: Record<ThemeName, Record<CssVarName, string>> = {
     '--error': '#FF1E1E',
     '--text': '#F5F5F5',
     '--muted': '#B09292',
+    '--dim': '#8B6B6B',
     '--slate-gray': '#6B5252',
     '--warning': '#C2410C',
+    '--on-accent': '#FFFFFF',
   },
 }
 

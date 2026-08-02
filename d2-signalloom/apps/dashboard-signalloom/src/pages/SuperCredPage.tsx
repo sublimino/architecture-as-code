@@ -323,7 +323,7 @@ export default function SuperCredPage() {
             }}>
               <div style={{
                 width: 20, height: 20, borderRadius: '50%', margin: '0 auto 6px',
-                background: colors.cyanLoom, color: '#fff', fontSize: 11,
+                background: colors.cyanLoom, color: 'var(--on-accent)', fontSize: 11,
                 fontWeight: 700, lineHeight: '20px',
               }}>
                 {s.icon}

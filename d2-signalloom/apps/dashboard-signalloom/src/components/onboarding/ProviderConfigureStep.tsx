@@ -83,7 +83,7 @@ export default function ProviderConfigureStep({
               background: 'rgba(220,38,38,0.1)',
               border: '1px solid rgba(220,38,38,0.4)',
               borderRadius: 6,
-              color: '#ff6b6b',
+              color: 'var(--error)',
               fontSize: 13,
             }}
           >

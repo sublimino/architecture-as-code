@@ -184,7 +184,7 @@ export default function RedeemInvite() {
           borderRadius: 6,
           padding: '12px 16px',
           marginBottom: 20,
-          color: '#ff6b6b',
+          color: 'var(--error)',
           fontSize: 14,
         }}>
           {errors._global}
@@ -200,11 +200,11 @@ export default function RedeemInvite() {
             value={form.org_name}
             onChange={e => field('org_name')(e.target.value)}
             placeholder="Acme Corp"
-            style={{ ...inputStyle, borderColor: errors.org_name ? '#ff6b6b' : undefined }}
+            style={{ ...inputStyle, borderColor: errors.org_name ? 'var(--error)' : undefined }}
             disabled={submitting}
           />
           {errors.org_name && (
-            <span style={{ color: '#ff6b6b', fontSize: 12, marginTop: 4, display: 'block' }}>
+            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
               {errors.org_name}
             </span>
           )}
@@ -218,11 +218,11 @@ export default function RedeemInvite() {
             value={form.admin_name}
             onChange={e => field('admin_name')(e.target.value)}
             placeholder="Jane Smith"
-            style={{ ...inputStyle, borderColor: errors.admin_name ? '#ff6b6b' : undefined }}
+            style={{ ...inputStyle, borderColor: errors.admin_name ? 'var(--error)' : undefined }}
             disabled={submitting}
           />
           {errors.admin_name && (
-            <span style={{ color: '#ff6b6b', fontSize: 12, marginTop: 4, display: 'block' }}>
+            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
               {errors.admin_name}
             </span>
           )}
@@ -236,11 +236,11 @@ export default function RedeemInvite() {
             value={form.admin_email}
             onChange={e => field('admin_email')(e.target.value)}
             placeholder="jane@acme.com"
-            style={{ ...inputStyle, borderColor: errors.admin_email ? '#ff6b6b' : undefined }}
+            style={{ ...inputStyle, borderColor: errors.admin_email ? 'var(--error)' : undefined }}
             disabled={submitting}
           />
           {errors.admin_email && (
-            <span style={{ color: '#ff6b6b', fontSize: 12, marginTop: 4, display: 'block' }}>
+            <span style={{ color: 'var(--error)', fontSize: 12, marginTop: 4, display: 'block' }}>
               {errors.admin_email}
             </span>
           )}
@@ -284,7 +284,7 @@ export default function RedeemInvite() {
             background: submitting ? 'var(--border, #2a2a4a)' : 'var(--cyan, #00d4ff)',
             border: 'none',
             borderRadius: 6,
-            color: submitting ? 'var(--muted, #888)' : '#000',
+            color: submitting ? 'var(--muted, #888)' : 'var(--bg)',
             fontSize: 15,
             fontWeight: 600,
             cursor: submitting ? 'not-allowed' : 'pointer',

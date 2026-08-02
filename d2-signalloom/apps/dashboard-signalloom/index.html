@@ -16,8 +16,8 @@
         var s = document.documentElement.style
         document.documentElement.setAttribute('data-theme', t)
         var themes = {
-          light: {'--bg':'#FFFFFF','--surface':'#F8FAFC','--surface2':'#F1F5F9','--border':'#D9E2EC','--border-subtle':'#B6C2CF','--cyan':'#0E7490','--violet':'#6D28D9','--teal':'#047857','--amber':'#B45309','--error':'#B91C1C','--text':'#0F172A','--muted':'#475569','--slate-gray':'#64748B','--warning':'#B45309'},
-          andy: {'--bg':'#000000','--surface':'#0A0A0A','--surface2':'#161010','--border':'#2B0F0F','--border-subtle':'#5A1A1A','--cyan':'#E10600','--violet':'#FF4D6D','--teal':'#FF7A7A','--amber':'#C2410C','--error':'#FF1E1E','--text':'#F5F5F5','--muted':'#B09292','--slate-gray':'#6B5252','--warning':'#C2410C'}
+          light: {'--bg':'#FFFFFF','--surface':'#F8FAFC','--surface2':'#F1F5F9','--border':'#D9E2EC','--border-subtle':'#B6C2CF','--cyan':'#0E7490','--violet':'#6D28D9','--teal':'#047857','--amber':'#B45309','--error':'#B91C1C','--text':'#0F172A','--muted':'#475569','--dim':'#64748B','--slate-gray':'#64748B','--warning':'#B45309','--on-accent':'#FFFFFF'},
+          andy: {'--bg':'#000000','--surface':'#0A0A0A','--surface2':'#161010','--border':'#2B0F0F','--border-subtle':'#5A1A1A','--cyan':'#E10600','--violet':'#FF4D6D','--teal':'#FF7A7A','--amber':'#C2410C','--error':'#FF1E1E','--text':'#F5F5F5','--muted':'#B09292','--dim':'#8B6B6B','--slate-gray':'#6B5252','--warning':'#C2410C','--on-accent':'#FFFFFF'}
         }
         var v = themes[t]
         if (v) for (var k in v) s.setProperty(k, v[k])

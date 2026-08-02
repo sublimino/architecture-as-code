@@ -38,7 +38,7 @@ const RISK: ColorMap = {
 const PRIVILEGE: ColorMap = {
   standard:         { bg: tint(VAR.slateGray, 0.15), border: 'transparent',         color: VAR.muted },
   elevated:         { bg: tint(VAR.amber, 0.12),     border: tint(VAR.amber, 0.25), color: VAR.amber },
-  domain_admin:     { bg: tint(VAR.amber, 0.18),     border: tint(VAR.amber, 0.30), color: '#f97316' },
+  domain_admin:     { bg: tint(VAR.amber, 0.18),     border: tint(VAR.amber, 0.30), color: 'var(--amber)' },
   enterprise_admin: { bg: tint(VAR.error, 0.12),     border: tint(VAR.error, 0.25), color: VAR.error },
 }
 

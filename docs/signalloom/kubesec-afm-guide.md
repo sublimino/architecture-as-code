@@ -180,21 +180,22 @@ $KUBESEC_AFM_ROOT    # default: /home/andy/src/cp/kubesec-afm
 | Frontend dashboard | Accessible at `/dashboard/` |
 | Sample clusters seeded | 5 clusters (prod, demo, sample1, usage_sample, user) |
 | Z3 analysis | Functional (tested on sample1) |
-| Signal Loom bridge | Not yet — Collusion & Access page shows mock data |
+| Live cluster import | **Done** — `afm-cluster-import` CronJob (`*/30 * * * *`) imports the live cluster's own RBAC as cluster `local`; see `apps/afm-platform/base/cluster-import.yaml` |
+| Signal Loom bridge — RBAC Explorer / Importer | **Done** — see `docs/signalloom/rbac-live-wiring.md` |
+| Signal Loom bridge — Collusion & Access page | Not yet — still shows mock data (separate from the RBAC Explorer bridge above) |
 | Persistent storage | SQLite in-pod (ephemeral — data lost on pod restart) |
 
 ## Next steps
 
-1. **Bridge AFM API → Signal Loom**: Replace the mock `COLLUSION_PAIRS` /
-   `PIVOTS` / `REMEDIATIONS` in `CollusionAccessPage.tsx` with live data from
-   AFM's `/clusters/{id}/analysis/latest` and `/clusters/{id}/analysis/shared_roles`.
+1. **Bridge Collusion & Access page**: Replace the mock `COLLUSION_PAIRS` /
+   `PIVOTS` / `REMEDIATIONS` in `CollusionAccessPage.tsx` with live data —
+   the RBAC Explorer bridge (`docs/signalloom/rbac-live-wiring.md`) is a
+   working reference for the same pattern (server-side correlation behind
+   `/api/*`, not client-side stitching).
 
 2. **Persistent storage**: Connect AFM to the shared PostgreSQL in `inf-signalloom`
    so cluster data and analysis results survive pod restarts.
 
-3. **Live cluster import**: Add a CronJob or webhook that periodically exports
-   the live cluster's RBAC and imports it into AFM for continuous analysis.
-
-4. **Guard generation**: AFM can generate OPA/Gatekeeper policies from its
+3. **Guard generation**: AFM can generate OPA/Gatekeeper policies from its
    findings (`/clusters/{id}/analysis/guards`). Integrate these into the kyverno
    admission pipeline.

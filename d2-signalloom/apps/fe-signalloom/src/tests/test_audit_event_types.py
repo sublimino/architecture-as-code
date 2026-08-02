@@ -28,7 +28,17 @@ MIGRATIONS_DIR = SRC_DIR / "db" / "migrations"
 
 # The migration that owns the constraint today. When a later migration widens it
 # again, point this at that file — the test will then track the newer list.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "010_agent_credentials.sql"
+# Must name the LAST migration that recreates audit_events_event_type_check,
+# because that is the one whose vocabulary survives. 010_agent_credentials.sql
+# and 011_agent_stunned_event_type.sql both drop-and-recreate that constraint;
+# 011 runs second and carries the union of both event sets, so it is the file
+# that describes the runtime constraint.
+#
+# Repointing this line is exactly the wrong instinct when this test goes red
+# after a merge: it turns the test green while leaving the database constraint
+# missing an event type. Point it at whichever migration runs LAST, and make
+# that migration enumerate every type.
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "011_agent_stunned_event_type.sql"
 
 
 def _emitted_event_types() -> set[str]:

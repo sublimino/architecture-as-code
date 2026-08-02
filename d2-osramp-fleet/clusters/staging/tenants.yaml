@@ -1,9 +1,29 @@
+# FLUX ENVSUBST: YES — this Kustomization CR itself is applied verbatim (the
+# top-level "flux-system" Kustomization that applies it has no postBuild), but
+# it CONFIGURES postBuild.substituteFrom for everything under ./tenants/ghcr,
+# using the flux-runtime-info ConfigMap. ${VAR} tokens in tenants/base/*.yaml
+# (e.g. infra.yaml's spec.inputs) are resolved from that ConfigMap here.
+#
+# dependsOn is load-bearing, not decorative. flux-runtime-info (in
+# clusters/staging/flux-system/runtime-info.yaml) and this Kustomization are
+# both applied by the same top-level "flux-system" Kustomization in a single
+# batch. Without an explicit dependsOn, this Kustomization's first-ever
+# reconcile can race kustomize-controller's own informer cache for that
+# ConfigMap: postBuild.substituteFrom finds no value, leaves the ${VAR}
+# tokens in tenants/base/infra.yaml's spec.inputs untouched, and — because
+# missing substituteFrom keys are a silent no-op, not an error — Flux marks
+# the apply Ready=True anyway. Nothing then triggers a retry, so the bug
+# persists until something forces a re-reconcile (`flux reconcile
+# kustomization tenants --with-source`). Root-caused 2026-08-02 on the local
+# cluster: see AGENTS.md "Flux variable substitution" for the full writeup.
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata:
   name: tenants
   namespace: flux-system
 spec:
+  dependsOn:
+    - name: flux-system
   serviceAccountName: flux-operator
   interval: 12h
   retryInterval: 3m

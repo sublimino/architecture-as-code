@@ -39,12 +39,12 @@ const EVENT_TYPE_COLORS: Record<string, string> = {
   enrollment:                  colors.cyanLoom,
   state_transition:            colors.irisViolet,
   violation_detected:          colors.red,
-  compliance_check:            '#3b82f6',
+  compliance_check:            'var(--cyan)',
   token_issued:                colors.tealLoom,
   token_refused:               colors.amber,
   tenant_created:              colors.cyanLoom,
-  user_provisioned:            '#84cc16',
-  directory_connected:         '#a78bfa',
+  user_provisioned:            'var(--teal)',
+  directory_connected:         'var(--violet)',
   discovery_enroll_requested:  colors.amber,
 }
 
@@ -169,7 +169,7 @@ function Timeline({ items, onAcknowledge }: {
               }
 
               const ev = item.event
-              const lineColor = EVENT_TYPE_COLORS[ev.event_type] ?? '#334155'
+              const lineColor = EVENT_TYPE_COLORS[ev.event_type] ?? 'var(--border-subtle)'
               return (
                 <div key={`e-${ev.id}`} style={{
                   display: 'flex', gap: 14, padding: '10px 0',

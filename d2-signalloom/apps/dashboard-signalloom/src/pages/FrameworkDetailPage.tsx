@@ -21,10 +21,10 @@ const CELL_BG: Record<string, string> = {
 }
 
 const CELL_COLOR: Record<string, string> = {
-  pass: '#10B981',
-  fail: '#DC2626',
-  reassessment_requested: '#D97706',
-  pending: '#94A3B8',
+  pass: 'var(--teal)',
+  fail: 'var(--error)',
+  reassessment_requested: 'var(--amber)',
+  pending: 'var(--muted)',
 }
 
 const CELL_ICON: Record<string, string> = {

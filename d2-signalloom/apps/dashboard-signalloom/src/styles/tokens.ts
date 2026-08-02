@@ -1,16 +1,16 @@
 export const colors = {
-  deepMidnight: '#020617',
-  slateDark: '#0F172A',
-  elevatedSlate: '#1E293B',
-  cyanLoom: '#06B6D4',
-  irisViolet: '#8B5CF6',
-  tealLoom: '#10B981',
-  amber: '#D97706',
-  red: '#DC2626',
-  electricWhite: '#F8FAFC',
-  muted: '#94A3B8',
-  dim: '#64748B',
-  slateGray: '#475569',
+  deepMidnight: 'var(--bg)',
+  slateDark: 'var(--surface)',
+  elevatedSlate: 'var(--surface2)',
+  cyanLoom: 'var(--cyan)',
+  irisViolet: 'var(--violet)',
+  tealLoom: 'var(--teal)',
+  amber: 'var(--amber)',
+  red: 'var(--error)',
+  electricWhite: 'var(--text)',
+  muted: 'var(--muted)',
+  dim: 'var(--dim)',
+  slateGray: 'var(--slate-gray)',
 }
 
 // Matches demo v5's donut rendering (measured live, 2026-07-30): sharp segment

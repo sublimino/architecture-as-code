@@ -100,7 +100,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
             {/* Strictly necessary */}
             <div style={{ marginBottom: 20 }}>
               <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text, #F8FAFC)', marginBottom: 6 }}>
-                Strictly necessary cookies <span style={{ fontWeight: 400, color: '#475569', fontSize: 12 }}>(always on)</span>
+                Strictly necessary cookies <span style={{ fontWeight: 400, color: 'var(--slate-gray)', fontSize: 12 }}>(always on)</span>
               </p>
               <p style={{ fontSize: 12, color: 'var(--muted, #94A3B8)', lineHeight: 1.5 }}>
                 Authentication, session state, security. Required for the service to function.
@@ -130,8 +130,8 @@ export default function CookieSettingsModal({ onClose }: Props) {
               </label>
             </div>
 
-            {error && <p style={{ fontSize: 12, color: '#ef4444', marginBottom: 12 }}>{error}</p>}
-            {saved && <p style={{ fontSize: 12, color: '#22c55e', marginBottom: 12 }}>Preferences saved.</p>}
+            {error && <p style={{ fontSize: 12, color: 'var(--error)', marginBottom: 12 }}>{error}</p>}
+            {saved && <p style={{ fontSize: 12, color: 'var(--teal)', marginBottom: 12 }}>Preferences saved.</p>}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button
@@ -149,7 +149,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
                 disabled={saving}
                 style={{
                   padding: '8px 20px', fontSize: 13, fontWeight: 700, borderRadius: 6,
-                  background: 'var(--cyan, #06B6D4)', color: '#020617',
+                  background: 'var(--cyan, #06B6D4)', color: 'var(--bg)',
                   border: 'none', cursor: saving ? 'not-allowed' : 'pointer',
                   opacity: saving ? 0.6 : 1,
                 }}

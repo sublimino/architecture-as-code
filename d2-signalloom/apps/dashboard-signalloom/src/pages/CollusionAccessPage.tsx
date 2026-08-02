@@ -323,7 +323,7 @@ export default function CollusionAccessPage() {
         {demo && (
           <div style={{
             background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
-            borderRadius: 6, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: '#F59E0B',
+            borderRadius: 6, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: 'var(--amber)',
           }}>
             Demo mode — fixed, offline collusion/escalation data across two sample runs. Switch to live mode
             for the real KubeSec-AFM analysis.
@@ -356,7 +356,7 @@ export default function CollusionAccessPage() {
             border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)',
             borderRadius: 8, padding: '16px 20px', marginBottom: 20, fontSize: 13, color: 'var(--text)',
           }}>
-            <div style={{ fontWeight: 600, marginBottom: 6, color: '#EF4444' }}>KubeSec-AFM is not reachable</div>
+            <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--error)' }}>KubeSec-AFM is not reachable</div>
             <div style={{ color: 'var(--muted)', marginBottom: 10 }}>{fatalError}</div>
             <button type="button" className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px' }} onClick={() => void loadLiveRunList()}>
               Retry connection
@@ -366,7 +366,7 @@ export default function CollusionAccessPage() {
 
         {runError && (
           <div data-testid="collusion-run-error" style={{
-            fontSize: 12, color: '#EF4444', marginBottom: 16,
+            fontSize: 12, color: 'var(--error)', marginBottom: 16,
           }}>
             {runError}
           </div>

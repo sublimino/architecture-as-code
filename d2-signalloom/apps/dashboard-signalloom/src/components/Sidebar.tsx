@@ -114,10 +114,10 @@ export default function Sidebar() {
             style={{ background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: 12, padding: 0, width: '100%', cursor: 'pointer' }}
           >
             <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="#06B6D4" fillOpacity="0.12" />
-              <path d="M7 16 L16 7 L25 16 L16 25 Z" stroke="#06B6D4" strokeWidth="1.75" fill="none" strokeLinejoin="round" />
-              <circle cx="16" cy="16" r="3.5" fill="#06B6D4" fillOpacity="0.35" />
-              <circle cx="16" cy="16" r="1.75" fill="#06B6D4" />
+              <rect width="32" height="32" rx="8" fill="var(--cyan)" fillOpacity="0.12" />
+              <path d="M7 16 L16 7 L25 16 L16 25 Z" stroke="var(--cyan)" strokeWidth="1.75" fill="none" strokeLinejoin="round" />
+              <circle cx="16" cy="16" r="3.5" fill="var(--cyan)" fillOpacity="0.35" />
+              <circle cx="16" cy="16" r="1.75" fill="var(--cyan)" />
             </svg>
             <div style={{ textAlign: 'left' }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.08em', textTransform: 'uppercase', lineHeight: 1.2 }}>
@@ -185,7 +185,7 @@ export default function Sidebar() {
               {label === 'Compliance' && failingControls > 0 && (
                 <span style={{
                   background: 'var(--error)',
-                  color: '#fff',
+                  color: 'var(--on-accent)',
                   borderRadius: 99,
                   fontSize: 10,
                   fontWeight: 700,
@@ -215,7 +215,7 @@ export default function Sidebar() {
                   title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
                   style={{
                     background: 'var(--error)',
-                    color: '#fff',
+                    color: 'var(--on-accent)',
                     borderRadius: 99,
                     fontSize: 10,
                     fontWeight: 700,
@@ -341,7 +341,7 @@ export default function Sidebar() {
                 width: 28, height: 28, borderRadius: '50%',
                 background: 'var(--violet)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, fontWeight: 700, color: '#fff', flexShrink: 0,
+                fontSize: 12, fontWeight: 700, color: 'var(--on-accent)', flexShrink: 0,
               }}>
                 {(user?.name ?? user?.email ?? 'U').charAt(0).toUpperCase()}
               </div>

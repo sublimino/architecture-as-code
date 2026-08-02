@@ -99,7 +99,7 @@ export default function ConsentModal({ onAccept }: Props) {
     : !warrantyChecked
       ? 'Check the box below to confirm before accepting.'
       : 'You\'re all set — click Accept & Continue.'
-  const hintColor = !allScrolled ? 'var(--muted, #94A3B8)' : !warrantyChecked ? '#f59e0b' : '#22c55e'
+  const hintColor = !allScrolled ? 'var(--muted, #94A3B8)' : !warrantyChecked ? 'var(--amber)' : 'var(--teal)'
 
   return (
     <div
@@ -156,7 +156,7 @@ export default function ConsentModal({ onAccept }: Props) {
                     style={{
                       display: 'inline-block', width: 14, height: 14, borderRadius: '50%',
                       background: isDone ? 'var(--cyan, #06B6D4)' : 'var(--border, #334155)',
-                      color: isDone ? '#020617' : 'transparent',
+                      color: isDone ? 'var(--bg)' : 'transparent',
                       fontSize: 9, lineHeight: '14px', textAlign: 'center',
                     }}
                     aria-hidden="true"
@@ -181,7 +181,7 @@ export default function ConsentModal({ onAccept }: Props) {
                   src={loadedSrcs[doc.key]}
                   title={doc.label}
                   data-doc-version={DOC_VERSIONS[doc.key]}
-                  style={{ width: '100%', height: '100%', border: 'none', background: '#020617' }}
+                  style={{ width: '100%', height: '100%', border: 'none', background: 'var(--bg)' }}
                 />
               ) : null}
             </div>
@@ -218,7 +218,7 @@ export default function ConsentModal({ onAccept }: Props) {
               style={{ accentColor: 'var(--cyan, #06B6D4)', width: 14, height: 14 }}
             />
             <span style={{ fontSize: 12, color: 'var(--muted, #94A3B8)' }}>
-              Strictly necessary <span style={{ fontSize: 11, color: '#475569' }}>(always on)</span>
+              Strictly necessary <span style={{ fontSize: 11, color: 'var(--slate-gray)' }}>(always on)</span>
             </span>
           </label>
 
@@ -238,7 +238,7 @@ export default function ConsentModal({ onAccept }: Props) {
               Allow non-essential analytics cookies to help us improve the product
             </span>
           </label>
-          <p style={{ fontSize: 11, color: '#475569', marginTop: 8 }}>
+          <p style={{ fontSize: 11, color: 'var(--slate-gray)', marginTop: 8 }}>
             You can change these at any time from Account Settings → Cookie Settings.
           </p>
         </div>
@@ -276,7 +276,7 @@ export default function ConsentModal({ onAccept }: Props) {
           </div>
 
           {error && (
-            <div style={{ fontSize: 12, color: '#ef4444', flexBasis: '100%' }}>{error}</div>
+            <div style={{ fontSize: 12, color: 'var(--error)', flexBasis: '100%' }}>{error}</div>
           )}
 
           <button
@@ -285,7 +285,7 @@ export default function ConsentModal({ onAccept }: Props) {
             style={{
               padding: '10px 24px', fontSize: 14, fontWeight: 700, borderRadius: 6,
               background: canAccept ? 'var(--cyan, #06B6D4)' : undefined,
-              color: canAccept ? '#020617' : undefined,
+              color: canAccept ? 'var(--bg)' : undefined,
               opacity: canAccept ? 1 : 0.35, border: 'none',
               cursor: canAccept ? 'pointer' : 'not-allowed',
               whiteSpace: 'nowrap', transition: 'opacity 0.2s',

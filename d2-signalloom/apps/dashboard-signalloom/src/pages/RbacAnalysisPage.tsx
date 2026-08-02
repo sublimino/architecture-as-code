@@ -67,7 +67,7 @@ export default function RbacAnalysisPage() {
             <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{
                 width: 8, height: 8, borderRadius: '50%',
-                background: status.reachable ? '#10B981' : '#EF4444',
+                background: status.reachable ? 'var(--teal)' : 'var(--error)',
               }} />
               AFM {status.reachable ? 'connected' : 'unreachable'}
             </span>
@@ -104,7 +104,7 @@ export default function RbacAnalysisPage() {
         <div style={{
           background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
           borderRadius: 6, padding: '8px 14px', marginBottom: 10,
-          fontSize: 12, color: '#F59E0B',
+          fontSize: 12, color: 'var(--amber)',
         }}>
           Demo mode — AFM is running with seeded sample clusters. Switch to live mode
           for real cluster RBAC analysis.
@@ -166,7 +166,7 @@ export default function RbacAnalysisPage() {
             width: '100%',
             border: '1px solid var(--border-subtle)',
             borderRadius: 8,
-            background: '#0a0e1a',
+            background: 'var(--bg)',
           }}
           onLoad={() => setIframeLoaded(true)}
         />

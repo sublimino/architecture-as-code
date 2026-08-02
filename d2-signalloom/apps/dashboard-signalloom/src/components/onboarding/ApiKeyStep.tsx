@@ -75,7 +75,7 @@ export default function ApiKeyStep({ revealed, revealing, error, onReveal, onCon
             store it securely before continuing.
           </p>
           {error && (
-            <p style={{ fontSize: 13, color: '#ff6b6b', marginBottom: 12 }}>{error}</p>
+            <p style={{ fontSize: 13, color: 'var(--error)', marginBottom: 12 }}>{error}</p>
           )}
           <div style={{ display: 'flex', gap: 10 }}>
             <button className="btn btn-secondary" onClick={() => setConfirming(false)} disabled={revealing}>

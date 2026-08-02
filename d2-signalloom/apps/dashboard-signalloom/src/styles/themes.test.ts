@@ -29,8 +29,10 @@ const GLOBAL_CSS_ROOT: Record<CssVarName, string> = {
   '--error': '#DC2626',
   '--text': '#F8FAFC',
   '--muted': '#94A3B8',
+  '--dim': '#64748B',
   '--slate-gray': '#475569',
   '--warning': '#D97706',
+  '--on-accent': '#FFFFFF',
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -114,8 +116,8 @@ describe('themes data structure', () => {
     expect(THEMES.dark).toEqual(GLOBAL_CSS_ROOT)
   })
 
-  it('declares all fourteen variables in every theme', () => {
-    expect(CSS_VAR_NAMES).toHaveLength(14)
+  it('declares all sixteen variables in every theme', () => {
+    expect(CSS_VAR_NAMES).toHaveLength(16)
     for (const name of THEME_NAMES) {
       const vars = THEMES[name]
       expect(Object.keys(vars).sort()).toEqual([...CSS_VAR_NAMES].sort())

@@ -9,9 +9,11 @@
 // call site (WelcomeStep.tsx) just takes an image src, so no structural
 // change would be needed.
 
-const BG = '#0F172A'
-const SURFACE = '#1E293B'
-const BORDER = '#334155'
+const BG = 'var(--surface)'
+const SURFACE = 'var(--surface2)'
+const BORDER = 'var(--border-subtle)'
+// CYAN/TEAL stay literal: both are string-concatenated with hex alpha
+// suffixes below (`${CYAN}22`, `${c.color}33`), which var() cannot express.
 const CYAN = '#06B6D4'
 const VIOLET = '#8B5CF6'
 const TEAL = '#10B981'
@@ -136,7 +138,7 @@ export function SettingsPreview() {
           <rect x="42" y="12" width={row.label} height="8" rx="2" fill={TEXT} />
           <rect x="42" y="24" width={row.label * 0.6} height="6" rx="2" fill={MUTED} />
           <rect x="240" y="12" width="32" height="18" rx="9" fill={row.on ? CYAN : BORDER} />
-          <circle cx={row.on ? 262 : 250} cy="21" r="7" fill="#fff" />
+          <circle cx={row.on ? 262 : 250} cy="21" r="7" fill="var(--on-accent)" />
         </g>
       ))}
     </svg>

@@ -22,29 +22,35 @@ metadata:
     signalloom.ai/agent-type: supercred-demo
     signalloom.ai/framework: custom
     signalloom.ai/model: gpt-4o
-    # signalloom.ai/state is DELIBERATELY NOT DECLARED HERE.
+    # signalloom.ai/state and the two stun annotations are runtime state,
+    # written by the stun path and read by the dashboard.
     #
-    # It is runtime state, written by the stun path (supercred-demo.sh step 4
-    # and the proxy's stun handler) and read by the dashboard
-    # (fake-integration-proxy/server.py -> api/supercredState.ts). Declaring it
-    # as a literal put it inside Flux's desired state, so an imperative change
-    # to `stunned` was drift and the next reconcile of fe-signalloom/apps
-    # reverted it to `idle` — measured, not theorised.
+    # They MUST be declared here AND ignored by the Kustomization
+    # (d2-osramp-fleet/tenants/base/apps.yaml .spec.ignore). Declared-and-
+    # ignored is the mechanism; deleting the declaration DEFEATS it.
     #
-    # The consequence was split-brain: credential revocation lives outside the
-    # reconciled set and persisted, while the EVIDENCE of it was reverted, so
-    # the dashboard reported a still-revoked agent as healthy. Mid-demo, with
-    # an audience watching a second window, the agent flips back to idle while
-    # the presenter explains it has been contained.
+    # Measured with a matched control (_research-flux-ignore.md TEST G/H):
+    #   declared + ignore rule  -> label and BOTH annotations survive reconciles
+    #   declared, ignore removed -> all three reverted           (control)
+    #   NOT declared + ignore rule -> annotations WIPED, label DELETED
     #
-    # kustomize-controller v1.9.4 exposes no per-field drift ignore
-    # (.spec.driftDetection is absent from the CRD; .spec.ignore is source
-    # paths, not fields), so the only correct fix is to not declare a
-    # runtime-owned field in desired state at all.
+    # The last case is strictly worse than the original bug: the label is
+    # removed outright rather than reverted, so the dashboard cannot even show
+    # a stale value. `.spec.ignore` works by substituting the LIVE value at each
+    # ignored path into the desired object before apply — a path the manifest
+    # never declares has nothing to substitute into and is dropped.
     #
-    # test/flux-dynamic-labels.bats enforces this. Do not re-add it.
+    # An earlier revision of this file deleted these declarations on the
+    # reasoning that runtime state does not belong in desired state. That
+    # reasoning is sound in general and wrong for this mechanism.
+    signalloom.ai/state: idle
     signalloom.ai/supercred: "true"
   annotations:
+    # Placeholders, load-bearing: the ignore rule can only preserve a path
+    # that exists in the desired object. Without these two lines the stun
+    # annotations are wiped on every reconcile even WITH the ignore rule.
+    signalloom.ai/stunned-at: ""
+    signalloom.ai/stun-reason: ""
     signalloom.ai/agent-display-name: "Cardvault Agent"
     signalloom.ai/model-full: "openai/gpt-4o"
     signalloom.ai/description: "SuperCred demo — accesses credit card data via SPIFFE→OpenBao→BasicAuth chain."

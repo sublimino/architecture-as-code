@@ -409,13 +409,20 @@ spec:
           signalloom.ai/agent-type: signal-loom-built
           signalloom.ai/framework: kagent
           signalloom.ai/model: claude-opus-4-8
-          # signalloom.ai/state is runtime state and is deliberately NOT
-          # declared here — see the long note in
-          # d2-signalloom/apps/fe-signalloom/base/agents-cardvault.yaml.
-          # Declaring it put it in Flux's desired state, so the stun's
-          # `stunned` value was drift and got reverted to `idle` on the next
-          # reconcile, silently erasing the evidence of a still-live
-          # revocation. test/flux-dynamic-labels.bats enforces this.
+          # signalloom.ai/state is NOT declared here, and that is a KNOWN GAP
+          # rather than the fix — see stun-under-flux.md Q7.
+          #
+          # For Kustomization-managed pods the correct configuration is
+          # declared-AND-ignored (agents-cardvault.yaml carries the full note).
+          # `.spec.ignore` is a Kustomization field and has no flux-operator
+          # ResourceSet equivalent, so there is nowhere to hang the ignore rule
+          # for this cohort. Declaring the literal here without one would
+          # reproduce the original bug: the stun's `stunned` value would be
+          # reverted to `idle` on the next reconcile.
+          #
+          # These are the inert demo agents (Monty Python cohort); nothing in
+          # the demo stuns them, so the gap is currently unreachable. It stops
+          # being unreachable the moment anyone stuns one.
         annotations:
           signalloom.ai/agent-display-name: "Sir Lancelot"
           signalloom.ai/model-full: "anthropic/claude-opus-4-8"

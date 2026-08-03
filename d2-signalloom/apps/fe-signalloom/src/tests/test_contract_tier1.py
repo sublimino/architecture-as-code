@@ -38,7 +38,6 @@ from tests.contract import (
     FrameworkResponse,
     InitialApiKeyResponse,
     IssueCredentialResponse,
-    NHIAccountDetail,
     NHIDiscoveredResponse,
     NHIScanListResponse,
     PostureResponse,
@@ -239,7 +238,6 @@ ENDPOINT_TABLE: list[tuple[str, str, dict[str, Any] | None, type[BaseModel] | No
     ("GET", "/api/audit", None, AuditListResponse, "audit events"),
     ("GET", "/api/nhi/scans", None, NHIScanListResponse, "NHI scans"),
     ("GET", "/api/nhi/discovered", None, NHIDiscoveredResponse, "NHI discovered accounts"),
-    ("GET", f"/api/nhi/discovered/{_SEEDED_NHI_ACCOUNT_ID}", None, NHIAccountDetail, "NHI discovered account detail"),
     ("POST", f"/api/nhi/discovered/{_SEEDED_NHI_ACCOUNT_ID}/enroll", None, None, "enroll NHI account"),
     ("POST", f"/api/nhi/discovered/{_SEEDED_NHI_ACCOUNT_ID}/dismiss", None, None, "dismiss NHI account"),
     ("GET", "/api/nhi/report/json", None, None, "NHI report JSON"),
@@ -338,23 +336,16 @@ def test_dismiss_nhi_account_response_shape(client: TestClient) -> None:
     assert data["status"] == "dismissed"
 
 
-def test_nhi_detail_uses_listed_account_and_is_tenant_scoped(client: TestClient) -> None:
-    """A listed account resolves only for the tenant that listed it."""
+def test_nhi_detail_rejects_fixture_accounts_without_database(client: TestClient) -> None:
+    """A fixture list entry never becomes a synthetic detail response."""
     alice_headers = _bearer(_token_for("alice"))
     listed = client.get("/api/nhi/discovered", headers=alice_headers)
     assert listed.status_code == 200
     account_id = listed.json()["accounts"][0]["id"]
 
     detail = client.get(f"/api/nhi/discovered/{account_id}", headers=alice_headers)
-    assert detail.status_code == 200
-    assert detail.json()["id"] == account_id
-    assert "last_rotated" in detail.json()
-    assert "dismiss_reason" in detail.json()
-
-    cross_tenant = client.get(
-        f"/api/nhi/discovered/{account_id}", headers=_bearer(_token_for("bob")),
-    )
-    assert cross_tenant.status_code == 404
+    assert detail.status_code == 404
+    assert detail.json()["error"]["code"] == "not_found"
 
 
 def test_nhi_detail_returns_not_found_without_creating_account(client: TestClient) -> None:
@@ -404,11 +395,11 @@ def test_nhi_report_json_response_shape(client: TestClient) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Coverage assertion: ensure the table covers all 30 endpoints
+# Coverage assertion: ensure the fixture-compatible table stays exact
 # ---------------------------------------------------------------------------
 
-def test_endpoint_table_covers_all_31_routes() -> None:
-    """Sanity check: the parametrized table has exactly 31 entries."""
-    assert len(ENDPOINT_TABLE) == 31, (
+def test_endpoint_table_covers_all_30_fixture_compatible_routes() -> None:
+    """Sanity check: the fixture-compatible table has exactly 30 entries."""
+    assert len(ENDPOINT_TABLE) == 30, (
         f"expected 30 endpoints in the table, got {len(ENDPOINT_TABLE)}"
     )

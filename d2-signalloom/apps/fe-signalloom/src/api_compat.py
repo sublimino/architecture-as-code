@@ -2938,6 +2938,10 @@ async def nhi_discovered_detail(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> NHIAccountDetail:
     """Return one persisted account from the caller's tenant inventory."""
+    account_uuid = _try_uuid(account_id)
+    if account_uuid is None:
+        raise APIError(404, "not_found", "Account not found")
+
     pool = await _get_pool()
     if pool is None:
         raise APIError(
@@ -2946,9 +2950,6 @@ async def nhi_discovered_detail(
             "Discovery account details require the inventory database",
         )
 
-    account_uuid = _try_uuid(account_id)
-    if account_uuid is None:
-        raise APIError(404, "not_found", "Account not found")
     row = await pool.fetchrow(
         "SELECT * FROM nhi_discovered_accounts WHERE id = $1 AND tenant_id = $2",
         account_uuid,

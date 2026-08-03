@@ -75,8 +75,13 @@ if ! kustomize version 2>/dev/null | grep -q "${KUSTOMIZE_VERSION}"; then
   ${SUDO} chmod +x "${BIN}/kustomize"
 fi
 
-# ── helm 3.17.3 ──────────────────────────────────────────────────────
-HELM_VERSION="3.17.3"
+# ── helm 3.18.4 (must match setup.sh's HELM_VERSION) ─────────────────
+# Wiring this installer in makes its pins live for the first time, and this one
+# was the only pin that moved BACKWARDS: setup.sh installs 3.18.4, so a 3.17.3
+# pin here would silently downgrade helm on every existing CI VM. The other
+# disagreements are forward (go 1.23.10→1.24.5, kustomize 5.6.0→5.8.1, bats
+# 1.11.0→1.14.0) and are the intended newer pins.
+HELM_VERSION="3.18.4"
 if ! helm version 2>/dev/null | grep -q "v${HELM_VERSION}"; then
   log "installing helm ${HELM_VERSION}"
   ${SUDO} rm -f "${BIN}/helm"

@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from "node:fs";
 import { test as base, expect } from "@playwright/test";
 
 type Diagnostic = {
@@ -5,7 +6,37 @@ type Diagnostic = {
   message: string;
 };
 
+// Where auth.setup.ts dumps sessionStorage after logging in.
+const SESSION_FILE = "test-results/.auth-session.json";
+
 export const test = base.extend({
+  // Restore the OIDC session into every new context.
+  //
+  // The dashboard keeps its token in sessionStorage, not localStorage, so a
+  // shared demo link cannot hand the next visitor the previous person's session
+  // (dashboard-signalloom/src/auth/oidc.tsx). Playwright's storageState covers
+  // cookies and localStorage; sessionStorage is per-tab and is NOT in it. So
+  // the setup project's login stopped carrying over and every journey test
+  // landed back on the Dex login page — 11 passing became 10 failing in one
+  // change.
+  //
+  // addInitScript runs before any page script in every new document, which is
+  // the part that matters: the app reads its token during boot, so restoring
+  // after load would be too late and it would already have redirected to Dex.
+  context: async ({ context }, use) => {
+    if (existsSync(SESSION_FILE)) {
+      await context.addInitScript((json: string) => {
+        try {
+          for (const [key, value] of Object.entries(JSON.parse(json) as Record<string, string>)) {
+            window.sessionStorage.setItem(key, value);
+          }
+        } catch {
+          /* a malformed dump must not mask the real assertion failure */
+        }
+      }, readFileSync(SESSION_FILE, "utf8"));
+    }
+    await use(context);
+  },
   page: async ({ page }, use, testInfo) => {
     const diagnostics: Diagnostic[] = [];
 

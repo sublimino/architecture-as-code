@@ -114,6 +114,31 @@ spec:
     # Roles into the tenant namespace, applying cleanly and reporting Ready
     # while the runner got Forbidden on every call that mattered.
     #
+    # ── Why every namespace below is a LITERAL and not << inputs.tenant >> ──
+    #
+    # This block lives in the signalloom-INFRA ResourceSet, whose inputs are
+    # inf-bao and inf-signalloom. The runner's ServiceAccount lives in
+    # fe-signalloom, the APPS tenant, which is never one of those inputs. So
+    # `namespace: << inputs.tenant >>` on a subject did not name the runner's
+    # SA — it named a ServiceAccount that does not exist, twice, and because
+    # these objects have fixed names the second render simply overwrote the
+    # first. Every binding ended up pointing at
+    # system:serviceaccount:inf-bao:supercred-demo-runner.
+    #
+    # The failure was invisible from every direction that gets checked. Flux
+    # reported the ResourceSet Ready (the objects are valid; a subject need not
+    # resolve). The pod started, passed both probes, and answered /status with
+    # script_available: true. The RBAC objects were all present, with correct
+    # verbs, under the right names. Only the SUBJECT was wrong, so the runner
+    # had no permissions at all and the first thing it ran failed in 92ms with
+    # "agent-cardvault pod not found — run step 1 first" — the script's
+    # not-found path, because `kubectl get pod` exits non-zero on Forbidden
+    # exactly as it does on absent, and the script cannot tell them apart.
+    #
+    # fe-signalloom is therefore written out. It is the apps ResourceSet's
+    # tenant and the namespace apps/supercred-demo-runner/base/ lands in; the
+    # file already hardcodes fe-signalloom-agents for the same reason.
+    #
     # Every verb below is derived from a specific kubectl invocation in
     # scripts/supercred-demo.sh; line numbers refer to that file. No wildcards.
     #
@@ -157,7 +182,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: fe-signalloom
     # kube-system: `kubectl cluster-info` (L62) lists Services in kube-system
     # by label selector. Without this it exits non-zero and preflight_cluster
     # fails closed with "cluster not reachable" against a healthy cluster --
@@ -184,7 +209,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: fe-signalloom
     # inf-signalloom: where the demo deploys cardvault and policy-engine.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
@@ -233,7 +258,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: fe-signalloom
     # inf-bao: OpenBao and SPIRE. Everything here is reached by kubectl exec.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
@@ -286,7 +311,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: fe-signalloom
     # fe-signalloom-agents: declared home of the agent pod, its ServiceAccount
     # and the credential-chain Job. The matching Role for the OTHER candidate
     # namespace (the tenant namespace itself) follows immediately below.
@@ -331,8 +356,8 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
-    # << inputs.tenant >>: the OTHER candidate namespace. agents-cardvault.yaml
+          namespace: fe-signalloom
+    # fe-signalloom: the OTHER candidate namespace. agents-cardvault.yaml
     # declares `namespace: fe-signalloom-agents` while targetNamespace can land
     # the pod in the tenant namespace instead, so supercred-demo.sh sweeps both
     # candidates (L28-30) and teardown deletes from every one of them
@@ -358,7 +383,7 @@ spec:
       kind: Role
       metadata:
         name: supercred-demo-runner-agents
-        namespace: << inputs.tenant >>
+        namespace: fe-signalloom
         labels:
           app.kubernetes.io/name: supercred-demo-runner
           app.kubernetes.io/component: supercred-demo
@@ -380,7 +405,7 @@ spec:
       kind: RoleBinding
       metadata:
         name: supercred-demo-runner-agents
-        namespace: << inputs.tenant >>
+        namespace: fe-signalloom
         labels:
           app.kubernetes.io/name: supercred-demo-runner
           app.kubernetes.io/component: supercred-demo
@@ -392,7 +417,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: fe-signalloom
     - apiVersion: v1
       kind: Pod
       metadata:

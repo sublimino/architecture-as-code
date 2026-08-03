@@ -23,6 +23,17 @@ export type EvidenceVisual = {
   label: string
   /** SVG stroke-dasharray. 'none' renders solid. */
   dash: string
+  /**
+   * CSS border-style for node boxes — the DOM equivalent of `dash`.
+   *
+   * These must stay in step with each other AND with the legend wording,
+   * because colour cannot be relied on to carry evidence state. The "andy"
+   * theme maps --teal, --violet, --cyan and --amber onto four near-identical
+   * reds, so in that theme the ONLY thing distinguishing a modeled node from a
+   * fixture-tested one is dashed-vs-dotted. The same is true for any viewer
+   * with a colour vision deficiency, in every theme.
+   */
+  borderStyle: 'solid' | 'dashed' | 'dotted'
   color: string
   /** Themed low-alpha fill for node backgrounds and boundary tints. */
   tint: string
@@ -40,6 +51,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
   observed: {
     label: 'Runtime-observed / solid',
     dash: 'none',
+    borderStyle: 'solid',
     color: 'var(--teal)',
     tint: 'var(--teal-bg)',
     flowSeconds: 2.2,
@@ -50,6 +62,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
   modeled: {
     label: 'Modeled / dashed',
     dash: '9 5',
+    borderStyle: 'dashed',
     color: 'var(--violet)',
     tint: 'var(--violet-bg)',
     flowSeconds: 6,
@@ -60,6 +73,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
   fixture: {
     label: 'Fixture-tested / dotted',
     dash: '2 5',
+    borderStyle: 'dotted',
     color: 'var(--cyan)',
     tint: 'var(--cyan-bg)',
     flowSeconds: 3.4,
@@ -70,6 +84,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
   stale: {
     label: 'Stale / dotted warning',
     dash: '2 5',
+    borderStyle: 'dotted',
     color: 'var(--amber)',
     tint: 'var(--amber-bg)',
     flowSeconds: 4.5,
@@ -104,12 +119,6 @@ export function accentFor(tenant: string): string {
 }
 
 /**
- * Denials are not one thing, and the page goes out of its way to say so.
- * A network block never reaches the target; an authorization rejection does
- * reach it and is turned away. The diagram animates those two differently, so
- * this returns which treatment an edge gets.
- */
-/**
  * The on-canvas label for a relationship.
  *
  * Every verb in the contract is prefixed with its own evidence state --
@@ -126,6 +135,12 @@ export function shortVerb(verb: string): string {
   return verb.replace(/^(modeled|fixture-tested|runtime-observed|stale)\s+/i, '')
 }
 
+/**
+ * Denials are not one thing, and the page goes out of its way to say so.
+ * A network block never reaches the target; an authorization rejection does
+ * reach it and is turned away. The diagram animates those two differently, so
+ * this returns which treatment an edge gets.
+ */
 export type DenialTreatment = 'wall' | 'rebound' | 'none'
 
 export function denialTreatment(

@@ -26,6 +26,7 @@ import {
 import type { SuperCredControl } from './supercredControls'
 import type { SuperCredDemoState } from './supercredTypes'
 import type {
+  AgentCredentialState,
   AgentListResponse,
   AgentPosture,
   AgentResponse,
@@ -86,6 +87,35 @@ function lifecycleState(state: SuperCredDemoState): string {
   }
 }
 
+/**
+ * Default wording when the cluster reports a stun with no reason attached.
+ *
+ * The proxy passes `stun_reason` through verbatim from the pod annotation, and
+ * a hand-run `kubectl label` will not set one. "Credentials revoked" with no
+ * cause is still true and still useful; inventing a cause would not be.
+ */
+const STUN_REASON_FALLBACK = 'revoked by the platform kill switch'
+
+/**
+ * What the platform did to this agent's credentials, and why.
+ *
+ * Derived from the same pod observation everything else reads: the stun is
+ * `signalloom.ai/state=stunned`, and the timestamp and reason ride along on
+ * the record the proxy returns. Nothing here is fabricated — if the cluster
+ * did not report a stun, the agent's credentials are reported as active.
+ */
+function credentialState(state: SuperCredDemoState): AgentCredentialState {
+  const observed = state.agent!
+  if (state.phase !== 'stunned') return { status: 'active' }
+
+  return {
+    status: 'revoked',
+    reason: observed.stun_reason || STUN_REASON_FALLBACK,
+    revoked_at: observed.stunned_at ?? state.observedAt,
+    revoked_by: 'signal-loom-platform',
+  }
+}
+
 /** Build the governance record for the cluster-observed SuperCred agent. */
 export function buildSuperCredAgent(state: SuperCredDemoState): AgentResponse | null {
   if (!isActive(state)) return null
@@ -93,6 +123,7 @@ export function buildSuperCredAgent(state: SuperCredDemoState): AgentResponse | 
   const tally = complianceTally(state.phase)
 
   return {
+    credential_state: credentialState(state),
     id: SUPERCRED_AGENT_ID,
     name: observed.name || 'Cardvault Agent',
     type: observed.type || 'Signal Loom Built',

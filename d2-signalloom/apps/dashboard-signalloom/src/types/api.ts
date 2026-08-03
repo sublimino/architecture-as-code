@@ -17,6 +17,35 @@ export interface AgentCreateRequest {
   owner?: string | null
 }
 
+/**
+ * The state of an agent's platform credentials, and why.
+ *
+ * `lifecycle_state` already says what the governance record thinks of the
+ * agent ('suspended'), but a lifecycle word does not tell a reader whether the
+ * agent can still authenticate, when that changed, or what caused it. Those
+ * are three separate questions and an operator answering an auditor needs all
+ * three, so they are carried explicitly rather than inferred from a status
+ * word.
+ *
+ * Optional throughout: the field is absent for agents whose credentials have
+ * never been touched, and every consumer treats absence as "nothing to say".
+ */
+export interface AgentCredentialState {
+  /** Whether the agent can currently authenticate to the platform. */
+  status: 'active' | 'revoked'
+  /**
+   * Why the credentials are in this state, in plain language.
+   *
+   * e.g. 'compliance-failure: securityContext not set'. Shown verbatim to the
+   * user, so it must read as a sentence fragment, not a status enum.
+   */
+  reason?: string | null
+  /** When the revocation took effect. */
+  revoked_at?: string | null
+  /** What performed the revocation — a platform component or an operator. */
+  revoked_by?: string | null
+}
+
 export interface AgentResponse {
   id: string
   name: string
@@ -30,6 +59,7 @@ export interface AgentResponse {
   compliance_summary: ComplianceSummaryInline
   model_name?: string | null
   created_at: string | null
+  credential_state?: AgentCredentialState | null
 }
 
 export interface AgentListResponse {

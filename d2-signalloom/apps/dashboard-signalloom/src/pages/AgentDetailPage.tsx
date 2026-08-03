@@ -10,6 +10,7 @@ import type {
 } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
@@ -1089,6 +1090,13 @@ export default function AgentDetailPage() {
           }}
         />
       )}
+
+      {/* 0. What happened to this agent's credentials, and when */}
+      <CredentialStateNotice
+        credentialState={agent.credential_state}
+        agentName={agent.name}
+        variant="panel"
+      />
 
       {/* 1. Header */}
       <AgentHeader

@@ -17,10 +17,17 @@
 // `--muted` over a 12% error tint, and `--error` appears only as a 2px border
 // (a non-text UI boundary, which AA scores at 3:1).
 //
-// Measured worst case across Dark / Light / Andy:
+// Analytic worst case across Dark / Light / Andy, over the least favourable
+// host surface (--surface2):
 //   --text  on the tint ............... 13.16:1  (AA needs 4.5)
 //   --muted on the tint ................ 5.37:1  (AA needs 4.5)
 //   --error 2px border vs host surface .. 3.03:1  (AA-UI needs 3.0)
+//
+// Verified empirically rather than only calculated: rendered in headless
+// Chrome under all three themes and measured with getComputedStyle, resolving
+// the color-mix() fill and compositing it against its real ancestors. 42 text
+// nodes, zero AA failures, worst text 6.95:1, borders 3.70 / 6.18 / 5.14.
+//
 // Amber is deliberately not used as a fill anywhere: black-on-amber is 4.06:1
 // in the Andy theme and fails AA.
 

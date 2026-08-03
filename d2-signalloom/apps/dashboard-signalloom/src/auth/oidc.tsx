@@ -29,7 +29,24 @@ const oidcConfig = {
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: 'code',
   scope: 'openid profile email groups audience:server:client_id:signalloom-api',
-  userStore: new WebStorageStateStore({ store: window.localStorage }),
+  // sessionStorage, NOT localStorage.
+  //
+  // This surface gets shared as a public demo link. With the token in
+  // localStorage the session outlived the browser: close the tab, close the
+  // browser, come back tomorrow, and you landed straight on /agents with no
+  // credential prompt. Measured directly against the public tunnel — a
+  // "REVISIT" after login went to /agents without ever showing Dex.
+  //
+  // sessionStorage is scoped to the tab and cleared when it closes, so the
+  // credential prompt comes back for every new session. It also means one
+  // person's login cannot be inherited by whoever next opens that browser.
+  userStore: new WebStorageStateStore({ store: window.sessionStorage }),
+  stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
+  // Force Dex to re-authenticate rather than silently reusing its own server
+  // side session cookie. Without this, clearing the client store still bounced
+  // straight back through /dex/auth with a fresh token and no prompt, because
+  // Dex remembered the browser independently of the SPA.
+  extraQueryParams: { prompt: 'login' },
   automaticSilentRenew: false,
   onSigninCallback: () => window.history.replaceState({}, document.title, '/agents'),
 }

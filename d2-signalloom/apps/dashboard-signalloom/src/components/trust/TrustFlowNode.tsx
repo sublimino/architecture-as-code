@@ -1,5 +1,5 @@
 import { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { type NodeProps } from '@xyflow/react'
 import type { TrustNode } from './trustTypes'
 import { rankOf, visual } from './trustVisuals'
 
@@ -16,10 +16,13 @@ export type TrustFlowNodeData = {
  * A topology node.
  *
  * Rendered as real DOM rather than SVG so it inherits the product's theme
- * tokens, wraps and ellipsises like the rest of the UI, and -- the part that
- * matters most -- stays reachable to assistive technology and to
- * testing-library queries. The SVG-only version this replaces was invisible to
- * both, which is why the page needed a parallel button list to be usable at all.
+ * tokens, wraps like the rest of the UI, and is queryable by testing-library.
+ *
+ * It is NOT the accessible surface: the canvas is aria-hidden and the button
+ * list under it is the equivalent. Announcing both meant hearing every node
+ * twice, and React Flow's own focus handling put fifteen dead tab stops in
+ * front of the list that works. There are no <Handle>s here either -- edges are
+ * drawn in a portal, so nothing binds to them.
  */
 function TrustFlowNodeImpl({ data }: NodeProps) {
   const { node, selected, hot, dim } = data as unknown as TrustFlowNodeData
@@ -62,12 +65,6 @@ function TrustFlowNodeImpl({ data }: NodeProps) {
         animationDelay: `${(rankOf[node.kind] ?? 3) * 70}ms`,
       }}
     >
-      {/* Hidden connection points. Edges are floating -- they compute their own
-          attachment on the node's border -- but React Flow still requires a
-          handle to exist for an edge to bind to. */}
-      <Handle type="target" position={Position.Top} style={{ opacity: 0, pointerEvents: 'none' }} />
-      <Handle type="source" position={Position.Bottom} style={{ opacity: 0, pointerEvents: 'none' }} />
-
       <div className="trust-node__label" title={node.label}>{node.label}</div>
       <div className="trust-node__meta">
         {isExternal ? 'EXTERNAL · LOWER ASSURANCE' : node.evidence.toUpperCase()}

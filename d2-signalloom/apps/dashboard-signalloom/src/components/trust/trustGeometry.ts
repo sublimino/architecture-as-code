@@ -21,10 +21,16 @@ export function borderPoint(from: Point, to: Point, gap = 6): Point {
   if (dx === 0 && dy === 0) return { ...from }
   const halfW = NODE_W / 2 + gap
   const halfH = NODE_H / 2 + gap
-  // Scale the direction vector until it first touches a side of the box.
+  // Scale the direction vector until it first touches a side of the box, but
+  // never PAST the target: clamping at 1 keeps the attachment point between the
+  // two nodes. Unclamped, a target closer than half a box width scaled the
+  // vector beyond it and the edge came out drawn backwards. Not reachable at
+  // the current spacing, but the layout is hand-tuned numbers and one nudge
+  // would have reached it.
   const scale = Math.min(
     dx === 0 ? Infinity : halfW / Math.abs(dx),
     dy === 0 ? Infinity : halfH / Math.abs(dy),
+    1,
   )
   return { x: from.x + dx * scale, y: from.y + dy * scale }
 }
@@ -35,8 +41,6 @@ export type EdgeGeometry = {
   control: Point
   /** SVG path data for the quadratic curve. */
   d: string
-  /** Curve length, approximated by the control polygon. Drives dash timing. */
-  length: number
   mid: Point
 }
 
@@ -65,16 +69,26 @@ export function edgeGeometry(source: Point, target: Point, bow = 0): EdgeGeometr
   // and meets each box along its actual tangent instead of kinking at the border.
   const start = borderPoint(source, control)
   const end = borderPoint(target, control)
-  const length = Math.hypot(control.x - start.x, control.y - start.y)
-    + Math.hypot(end.x - control.x, end.y - control.y)
   return {
     start,
     end,
     control,
     d: `M ${start.x} ${start.y} Q ${control.x} ${control.y} ${end.x} ${end.y}`,
-    length,
     mid: pointAt(start, control, end, 0.5),
   }
+}
+
+/**
+ * How hard an edge should arc, given where its endpoints sit.
+ *
+ * Exported so the canvas and the tests cannot disagree about it. They did: a
+ * test hardcoded 0.35 for an edge the canvas draws at -1, which put the two
+ * control points 94.5px apart. The suite's most important geometric assertion
+ * was being made about a curve the application never draws.
+ */
+export function bowFor(from: Point, to: Point): number {
+  // Same-row edges arc upward to clear whatever sits between them.
+  return Math.abs(from.y - to.y) < NODE_H ? -1 : 0.35
 }
 
 /** Quadratic Bezier evaluation. */
@@ -127,14 +141,31 @@ export function wallFraction(geom: EdgeGeometry, boundaries: Boundary[], sourceI
   const enclosing = boundaries.filter(b => b.kind === 'tenant' && b.memberIds.includes(sourceId))
   if (enclosing.length === 0) return 0.5
 
-  // March along the curve and take the first sample that has left every
-  // boundary the source sits inside.
+  const isOutside = (t: number) => {
+    const p = pointAt(geom.start, geom.control, geom.end, t)
+    return enclosing.every(b => p.x < b.x || p.x > b.x + b.width || p.y < b.y || p.y > b.y + b.height)
+  }
+
+  // Coarse march to bracket the crossing, then bisect to land on it.
+  //
+  // Taking the first outside sample alone made the answer a function of STEPS
+  // rather than of geometry: the wall was drawn 7.5px BEYOND the boundary it
+  // represents, so the packet that "gets as far as the wall and no further"
+  // visibly got past it. Bisection pins the crossing to well under a pixel.
   const STEPS = 60
+  let lo = 0
+  let hi = -1
   for (let i = 1; i <= STEPS; i += 1) {
     const t = i / STEPS
-    const p = pointAt(geom.start, geom.control, geom.end, t)
-    const outside = enclosing.every(b => p.x < b.x || p.x > b.x + b.width || p.y < b.y || p.y > b.y + b.height)
-    if (outside) return t
+    if (isOutside(t)) { hi = t; break }
+    lo = t
   }
-  return 0.5
+  if (hi < 0) return 0.5
+
+  for (let i = 0; i < 24; i += 1) {
+    const mid = (lo + hi) / 2
+    if (isOutside(mid)) hi = mid
+    else lo = mid
+  }
+  return hi
 }

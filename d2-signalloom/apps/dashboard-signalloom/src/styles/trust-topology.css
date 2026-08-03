@@ -41,11 +41,6 @@
 }
 .trust-canvas .react-flow__controls-button:hover { background: var(--border-subtle); fill: var(--text); }
 
-.trust-canvas .react-flow__minimap {
-  background: color-mix(in srgb, var(--bg) 82%, transparent);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-}
 
 /* ------------------------------------------------------------ boundaries -- */
 
@@ -269,7 +264,9 @@
 @media (prefers-reduced-motion: reduce) {
   .trust-canvas *,
   .trust-canvas *::before,
-  .trust-canvas *::after {
+  .trust-canvas *::after,
+  .trust-inspector *,
+  .trust-assurance__fill {
     animation: none !important;
     transition-duration: 0.01ms !important;
   }

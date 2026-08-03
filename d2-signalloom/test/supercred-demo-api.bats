@@ -220,21 +220,33 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
   # The generalised form of the defect: a binding whose subject resolves to
   # nothing is silently inert. This catches it for any future binding, in any
   # namespace, without enumerating verbs.
-  run bash -c "kubectl get rolebinding,clusterrolebinding -A -o json | python3 -c '
-import json, subprocess, sys
-missing = []
-for item in json.load(sys.stdin)[\"items\"]:
-    for subject in item.get(\"subjects\") or []:
-        if subject.get(\"name\") != \"supercred-demo-runner\":
-            continue
-        ns = subject.get(\"namespace\", \"\")
-        rc = subprocess.run([\"kubectl\", \"get\", \"sa\", \"supercred-demo-runner\", \"-n\", ns],
-                            capture_output=True).returncode
-        if rc != 0:
-            missing.append(f\"{item[\\\"kind\\\"]}/{item[\\\"metadata\\\"][\\\"name\\\"]} -> serviceaccount {ns}/supercred-demo-runner\")
-print(\"\n\".join(missing))'"
-  [ "$status" -eq 0 ]
-  [ -z "$output" ]
+  # Plain bash and jq. An earlier version embedded Python inside `run bash -c
+  # "..."`, where bats' own quoting, the shell's, and Python's string literals
+  # all had to survive four levels of escaping — it reported a failure that a
+  # hand-run of the same logic could not reproduce. The test harness must not
+  # be harder to read than the thing it tests.
+  local bindings failures=()
+  bindings="$(kubectl get rolebinding,clusterrolebinding -A -o json \
+    | jq -r '.items[]
+             | . as $b
+             | (.subjects // [])[]
+             | select(.name == "supercred-demo-runner")
+             | "\($b.kind)/\($b.metadata.namespace // "-")/\($b.metadata.name)\t\(.namespace // "")"')"
+
+  local line ref subject_ns
+  while IFS=$'\t' read -r ref subject_ns; do
+    [ -n "$ref" ] || continue
+    kubectl get serviceaccount supercred-demo-runner -n "$subject_ns" >/dev/null 2>&1 \
+      || failures+=("$ref -> serviceaccount ${subject_ns}/supercred-demo-runner does not exist")
+  done <<< "$bindings"
+
+  # A binding with no subjects at all is the same defect wearing a different
+  # hat, so an empty result is a failure too, not a pass.
+  [ -n "$bindings" ]
+  [ "${#failures[@]}" -eq 0 ] || {
+    printf 'inert binding: %s\n' "${failures[@]}" >&2
+    return 1
+  }
 }
 
 # ─── ISC-16/17/18: /status by token class ────────────────────────────────────

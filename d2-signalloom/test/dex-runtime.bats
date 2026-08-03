@@ -15,7 +15,16 @@ setup() {
 }
 
 start_dex() {
-  awk '/^  config.yaml: \|/{capture=1; next} capture && /^---$/{exit} capture {sub(/^    /, ""); print}' "$dex_manifest" >"$config"
+  # Resolve ${VAR:=default} to its default, which is exactly what Flux's
+  # envsubst does when the key is absent from flux-runtime-info.
+  #
+  # This container gets the raw manifest, so without it Dex is handed a literal
+  # '${PUBLIC_ORIGIN:=https://...}' as its issuer, refuses to start, and the
+  # failure surfaces four steps later as the deeply unhelpful
+  # "no public port '5556/tcp' published for <container>" — the port is missing
+  # because the container is already dead.
+  awk '/^  config.yaml: \|/{capture=1; next} capture && /^---$/{exit} capture {sub(/^    /, ""); print}' "$dex_manifest" \
+    | sed -E 's/\$\{[A-Za-z_][A-Za-z0-9_]*:=([^}]*)\}/\1/g' >"$config"
   run docker run --rm -d --name "$container" -p "127.0.0.1::5556" -v "$config:/etc/dex/config.yaml:ro" ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/config.yaml
   [ "$status" -eq 0 ]
   port="$(docker port "$container" 5556/tcp | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p')"
@@ -36,7 +45,10 @@ teardown() {
   docker info >/dev/null
 
   start_dex
-  expected_issuer="$(awk '/^  config.yaml: \|/{c=1;next} c && /^---$/{exit} c && /issuer:/{sub(/.*issuer: */,"");print;exit}' "$dex_manifest")"
+  # Same ${VAR:=default} resolution as the config the container was given, or
+  # the expectation carries an unresolved token the server can never return.
+  expected_issuer="$(awk '/^  config.yaml: \|/{c=1;next} c && /^---$/{exit} c && /issuer:/{sub(/.*issuer: */,"");print;exit}' "$dex_manifest" \
+    | sed -E 's/\$\{[A-Za-z_][A-Za-z0-9_]*:=([^}]*)\}/\1/g')"
   python3 -c "import json, sys; d = json.load(sys.stdin); assert d['issuer'] == '$expected_issuer', f'issuer {d[\"issuer\"]} != $expected_issuer'; assert d['jwks_uri'].endswith('/dex/keys')" <"$discovery"
 
   run curl -fsS "http://127.0.0.1:${port}/dex/keys"

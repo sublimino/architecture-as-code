@@ -622,11 +622,25 @@ verify_public_url() {
   esac
 
   # The authorize endpoint, with the redirect_uri the dashboard really sends.
-  local auth_code
-  auth_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
-    -c "$jar" -b "$jar" -H 'ngrok-skip-browser-warning: 1' \
-    "${url}/dex/auth?client_id=signalloom-dashboard&redirect_uri=${url}/callback&response_type=code&scope=openid+profile+email" \
-    2>/dev/null || echo 000)"
+  # Retry, because publishing the origin restarts Dex and this runs straight
+  # afterwards -- a single shot raced the rollout and reported 000 against a
+  # tunnel that was about to be fine.
+  #
+  # No `|| echo 000` fallback: curl already prints 000 in %{http_code} when it
+  # fails, so the fallback CONCATENATED a second one and produced the
+  # uninterpretable "HTTP 000000".
+  local auth_code="" attempt=0
+  while ((attempt < 10)); do
+    auth_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+      -c "$jar" -b "$jar" -H 'ngrok-skip-browser-warning: 1' \
+      "${url}/dex/auth?client_id=signalloom-dashboard&redirect_uri=${url}/callback&response_type=code&scope=openid+profile+email" \
+      2>/dev/null)"
+    case "$auth_code" in
+      200|302|303|400) break ;;
+    esac
+    sleep 3
+    ((++attempt))
+  done
 
   # Allow-list, not a deny-list. Rejecting only "400" let everything else
   # through, including curl's own 000 (connection failed) -- which printed the

@@ -289,8 +289,7 @@ spec:
           namespace: << inputs.tenant >>
     # fe-signalloom-agents: declared home of the agent pod, its ServiceAccount
     # and the credential-chain Job. The matching Role for the OTHER candidate
-    # namespace ships in apps/supercred-demo-runner/base/rbac.yaml, because
-    # that one IS the tenant namespace.
+    # namespace (the tenant namespace itself) follows immediately below.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
       metadata:
@@ -329,6 +328,67 @@ spec:
         apiGroup: rbac.authorization.k8s.io
         kind: Role
         name: supercred-demo-runner
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
+    # << inputs.tenant >>: the OTHER candidate namespace. agents-cardvault.yaml
+    # declares `namespace: fe-signalloom-agents` while targetNamespace can land
+    # the pod in the tenant namespace instead, so supercred-demo.sh sweeps both
+    # candidates (L28-30) and teardown deletes from every one of them
+    # (L346-350). Verb derivation is identical to the fe-signalloom-agents Role
+    # directly above -- see there for the line-by-line justification.
+    #
+    # This pair has to live HERE rather than in the apps Kustomization, and the
+    # reason is not stylistic. signalloom-apps reconciles as the namespace-
+    # scoped `flux` ServiceAccount, which holds ClusterRole/admin but NOT
+    # `escalate` on roles. Creating a RoleBinding therefore makes the API
+    # server resolve its roleRef to run the privilege-escalation check, and
+    # kustomize-controller server-dry-runs the ENTIRE object set to build its
+    # change set BEFORE it applies any of it. A dry run never persists the
+    # Role, so the RoleBinding failed the lookup with
+    #   RoleBinding/fe-signalloom/supercred-demo-runner-agents not found
+    # which aborted the whole set -- so the Role was never applied for real,
+    # and every later reconcile failed identically. That deadlock left
+    # fe-signalloom empty for six consecutive reconciles over twenty minutes
+    # and took the dashboard, the API and stages 6-8 down with it. Applied
+    # from here, the cluster-admin flux-system ServiceAccount binds it with no
+    # escalation check, in any order.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: supercred-demo-runner-agents
+        namespace: << inputs.tenant >>
+        labels:
+          app.kubernetes.io/name: supercred-demo-runner
+          app.kubernetes.io/component: supercred-demo
+          app.kubernetes.io/part-of: signalloom
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch", "create", "delete", "patch"]
+        - apiGroups: [""]
+          resources: ["pods/log"]
+          verbs: ["get"]
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        - apiGroups: [""]
+          resources: ["serviceaccounts"]
+          verbs: ["get", "create", "update", "patch", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: supercred-demo-runner-agents
+        namespace: << inputs.tenant >>
+        labels:
+          app.kubernetes.io/name: supercred-demo-runner
+          app.kubernetes.io/component: supercred-demo
+          app.kubernetes.io/part-of: signalloom
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: supercred-demo-runner-agents
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner

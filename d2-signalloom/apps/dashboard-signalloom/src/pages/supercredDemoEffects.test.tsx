@@ -150,6 +150,24 @@ function statCardValue(label: string): number {
 
 const AGENT_NAME = 'Cardvault Agent'
 
+/**
+ * The agent's row in the posture table.
+ *
+ * Scoped to a `<tr>` deliberately. Once a finding is open, AGENT_NAME appears
+ * twice on /compliance — the open-findings panel names the agent each finding
+ * belongs to, which is the point of that panel — so an unscoped
+ * `findByText(AGENT_NAME)` is ambiguous. These tests are about the posture
+ * table, so they ask for the table.
+ */
+async function findAgentRow(): Promise<HTMLElement> {
+  const matches = await screen.findAllByText(AGENT_NAME)
+  const row = matches
+    .map((el) => el.closest('tr'))
+    .find((r): r is HTMLTableRowElement => r !== null)
+  if (!row) throw new Error(`"${AGENT_NAME}" is on the page but not in any table row`)
+  return row
+}
+
 /** Total inherent ALE across the 20 baseline policy checks in fakeComplianceData. */
 const BASELINE_ALE = 227100
 /** Total carried risk across the 5 failing baseline checks. */
@@ -264,7 +282,7 @@ describe('/compliance reflects each demo step', () => {
 
     wireApiFor('non-compliant')
     renderPage(<Compliance />)
-    await screen.findByText(AGENT_NAME)
+    await findAgentRow()
     const afterCalls = vi.mocked(setFailingControls).mock.calls
     const after = afterCalls[afterCalls.length - 1][0]
 
@@ -275,7 +293,7 @@ describe('/compliance reflects each demo step', () => {
   it('step 3 scan: the agent drops into the critical posture band', async () => {
     wireApiFor('non-compliant')
     renderPage(<Compliance />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const row = await findAgentRow()
     const score = Number(within(row).getByText(/%$/).textContent!.replace('%', ''))
     expect(score).toBeLessThan(50)
   })
@@ -289,14 +307,14 @@ describe('/compliance reflects each demo step', () => {
     // additionally surface a failing framework column.
     wireApiFor('non-compliant')
     renderPage(<Compliance />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const row = await findAgentRow()
     expect(within(row).queryByText('fail')).not.toBeInTheDocument()
   })
 
   it('step 4 stun: the agent is shown as suspended', async () => {
     wireApiFor('stunned')
     renderPage(<Compliance />)
-    const row = (await screen.findByText(AGENT_NAME)).closest('tr') as HTMLElement
+    const row = await findAgentRow()
     expect(within(row).getByText('suspended')).toBeInTheDocument()
   })
 

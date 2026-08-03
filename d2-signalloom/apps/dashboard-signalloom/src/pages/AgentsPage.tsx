@@ -4,13 +4,16 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell, Label } from 'recharts'
 import { api } from '../api/client'
+import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AgentResponse } from '../types/api'
 import { colors, donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 
-const POLL_MS = 15 * 60 * 1000
+// Watched by the demo audience in a second window — see api/pollInterval.ts.
+const POLL_MS = LIVE_POLL_MS
 
 // ─── Register Modal ──────────────────────────────────────────────────────────
 
@@ -500,6 +503,14 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
         </span>
       </td>
       <td style={{ padding: '11px 16px' }}>
+        {/* "suspended" is a governance verdict; this says what it means. */}
+        <CredentialStateNotice
+          credentialState={agent.credential_state}
+          agentName={agent.name}
+          variant="inline"
+        />
+      </td>
+      <td style={{ padding: '11px 16px' }}>
         {agent.eu_ai_act_risk_class ? (
           <StatusBadge status={agent.eu_ai_act_risk_class} variant="risk" />
         ) : (
@@ -636,6 +647,7 @@ function GovernedTab({ agents, loading, error, onRetry, onReload }: {
                   <th style={TH_STYLE}>Type</th>
                   <th style={TH_STYLE}>Owner</th>
                   <th style={TH_STYLE}>State</th>
+                  <th style={TH_STYLE}>Credentials</th>
                   <th style={TH_STYLE}>EU AI Act</th>
                   <th style={TH_STYLE}>Compliance</th>
                   <th style={TH_STYLE}>Posture</th>

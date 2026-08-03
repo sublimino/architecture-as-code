@@ -3,14 +3,18 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { PieChart, Pie, Cell } from 'recharts'
 import { api } from '../api/client'
+import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AgentResponse, FrameworkResponse, PostureResponse, AgentPosture } from '../types/api'
 import { useAppContext } from '../App'
 import { donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import CredentialStateNotice from '../components/CredentialStateNotice'
+import OpenFindingsPanel from '../components/OpenFindingsPanel'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 
-const POLL_MS = 15 * 60 * 1000
+// Watched by the demo audience in a second window — see api/pollInterval.ts.
+const POLL_MS = LIVE_POLL_MS
 
 type PostureCategory = 'good' | 'warning' | 'critical' | 'pending'
 
@@ -273,6 +277,9 @@ export default function Compliance() {
         </div>
       </div>
 
+      {/* Open findings — named, so the page states its own bad news */}
+      <OpenFindingsPanel agents={agents} />
+
       {/* Table toolbar */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -360,6 +367,15 @@ export default function Compliance() {
                       {agent
                         ? <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
                         : <span style={{ color: 'var(--muted)' }}>—</span>}
+                      {agent?.credential_state?.status === 'revoked' && (
+                        <div style={{ marginTop: 6 }}>
+                          <CredentialStateNotice
+                            credentialState={agent.credential_state}
+                            agentName={agent.name}
+                            variant="inline"
+                          />
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '10px 16px' }}>
                       <PostureBar score={a.posture_score} />

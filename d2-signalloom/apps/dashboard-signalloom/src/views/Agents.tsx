@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AgentPosture, NHIAccount } from '../types/api'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 
-const POLL_MS = 15 * 60 * 1000
+// NOTE: this view is not currently routed — /agents renders pages/AgentsPage.
+// It stays on the demo cadence so it cannot drift back if it is ever wired up.
+const POLL_MS = LIVE_POLL_MS
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—'

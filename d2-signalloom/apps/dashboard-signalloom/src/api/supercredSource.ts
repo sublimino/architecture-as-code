@@ -12,6 +12,7 @@
 // every page above them are mode-agnostic.
 
 import { isDemoMode, isProductionEnv } from './demoMode'
+import { observationStaleAfter } from './pollInterval'
 import { getSuperCredState, recordObservation, recordScan } from './supercredState'
 import type {
   SuperCredAgentObservation,
@@ -22,15 +23,6 @@ import type {
 
 /** Matches SUPERCRED_API in SuperCredPage.tsx — see the nginx.conf comment there. */
 const SUPERCRED_API = '/supercred-api'
-
-/**
- * How long an observation stays fresh.
- *
- * Short enough that clicking from Agents to Compliance mid-demo shows the new
- * state, long enough that a page rendering six panels does not fan out into
- * six proxy calls.
- */
-const TTL_MS = 4000
 
 const SIM_KEY = 'sl_supercred_demo_phase'
 
@@ -135,16 +127,6 @@ let inflight: Promise<void> | null = null
 let consecutiveFailures = 0
 
 /**
- * Consecutive failures after which the proxy is assumed simply not to be there.
- *
- * Outside a demo cluster /supercred-api does not exist, and a dashboard left
- * open all day should not keep probing it every few seconds. After this many
- * failures the retry interval stretches to BACKOFF_MS; one success resets it.
- */
-const FAILURE_THRESHOLD = 3
-const BACKOFF_MS = 60_000
-
-/**
  * True when the demo overlay is permitted at all.
  *
  * Hard-gated off in uat/prod: a demo narrative must never appear on a
@@ -171,8 +153,15 @@ async function refresh(): Promise<void> {
   }
 }
 
+/**
+ * How long the current observation stays fresh.
+ *
+ * Delegated to pollInterval.ts, which owns the TTL, the failure threshold and
+ * the backoff curve together — they only make sense relative to each other and
+ * to the poll interval the pages run at.
+ */
 function staleAfter(): number {
-  return consecutiveFailures >= FAILURE_THRESHOLD ? BACKOFF_MS : TTL_MS
+  return observationStaleAfter(consecutiveFailures)
 }
 
 /**

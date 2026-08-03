@@ -425,6 +425,14 @@ demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-a
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.
 
+.PHONY: check-flux-dynamic-labels
+check-flux-dynamic-labels: ## Fail if a runtime-owned field is declared in Flux desired state.
+	./scripts/check-flux-dynamic-labels.sh
+
+.PHONY: check-flux-dynamic-labels-test
+check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster required).
+	bats test/flux-dynamic-labels.bats
+
 .PHONY: demo-signalloom-supercred-images-test
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
 	bats test/supercred-images.bats test/supercred-crictl-shim.bats

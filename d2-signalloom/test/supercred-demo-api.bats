@@ -180,25 +180,34 @@ print(\" \".join(hits))'"
 RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
 
 @test "DEMOAPI the runner ServiceAccount can actually do what the demo script does" {
-  # namespace|verb|resource — each derived from a kubectl call in
+  # namespace|verb|resource|subresource — each derived from a kubectl call in
   # scripts/supercred-demo.sh, the same derivation the Roles document.
+  #
+  # Subresources go in the fourth field, NOT as "pods/exec" in the third.
+  # `kubectl auth can-i create pods/exec` answers "no" against a Role that
+  # plainly grants create on pods/exec, because the slash form is not how the
+  # SelfSubjectAccessReview is built — it needs --subresource. Written the
+  # obvious way this test reports a permissions gap that does not exist, which
+  # is worse than not having it.
   local checks=(
-    "fe-signalloom-agents|get|pods"
-    "fe-signalloom-agents|patch|pods"
-    "fe-signalloom-agents|create|jobs.batch"
-    "fe-signalloom|get|pods"
-    "fe-signalloom|patch|pods"
-    "inf-signalloom|get|deployments.apps"
-    "inf-signalloom|create|pods/portforward"
-    "inf-bao|create|pods/exec"
-    "kube-system|list|services"
+    "fe-signalloom-agents|get|pods|"
+    "fe-signalloom-agents|patch|pods|"
+    "fe-signalloom-agents|create|jobs.batch|"
+    "fe-signalloom|get|pods|"
+    "fe-signalloom|patch|pods|"
+    "inf-signalloom|get|deployments.apps|"
+    "inf-signalloom|create|pods|portforward"
+    "inf-bao|create|pods|exec"
+    "kube-system|list|services|"
   )
   local failures=()
-  local entry ns verb res answer
+  local entry ns verb res sub answer args
   for entry in "${checks[@]}"; do
-    IFS='|' read -r ns verb res <<< "$entry"
-    answer="$(kubectl auth can-i "$verb" "$res" -n "$ns" --as="$RUNNER_SA" 2>/dev/null || true)"
-    [ "$answer" = "yes" ] || failures+=("$verb $res in $ns -> ${answer:-error}")
+    IFS='|' read -r ns verb res sub <<< "$entry"
+    args=("auth" "can-i" "$verb" "$res" "-n" "$ns" "--as=$RUNNER_SA")
+    [ -n "$sub" ] && args+=("--subresource=$sub")
+    answer="$(kubectl "${args[@]}" 2>/dev/null || true)"
+    [ "$answer" = "yes" ] || failures+=("$verb $res${sub:+/$sub} in $ns -> ${answer:-error}")
   done
   # Report every gap at once; one at a time turns an RBAC audit into nine runs.
   [ "${#failures[@]}" -eq 0 ] || {

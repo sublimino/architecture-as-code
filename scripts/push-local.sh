@@ -165,7 +165,7 @@ push_signalloom() {
   run_parallel_push signalloom \
     "signalloom/infra/inf-bao|d2-signalloom/infra/inf-bao" \
     "signalloom/infra/inf-signalloom|d2-signalloom/infra/inf-signalloom" \
-    "signalloom/apps/fe-signalloom|d2-signalloom/apps/fe-signalloom"
+    "signalloom/apps/fe-signalloom|d2-signalloom/apps"
 }
 
 push_osramp() {

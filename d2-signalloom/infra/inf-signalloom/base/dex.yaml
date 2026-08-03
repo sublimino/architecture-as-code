@@ -8,27 +8,23 @@ metadata:
 type: Opaque
 stringData:
   config.yaml: |
-    # ORDERING HAZARD — read before making this ${PUBLIC_ORIGIN}-aware.
+    # Origin-aware. PUBLIC_ORIGIN comes from the flux-runtime-info ConfigMap
+    # via this Kustomization's postBuild.substituteFrom, so publishing the demo
+    # on a tunnel, a LoadBalancer or a VM's external IP is a ConfigMap update
+    # plus a reconcile — Flux DELIVERS the origin instead of reverting it.
     #
-    # The intended end state is:
-    #     issuer: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
-    # so the demo can be published on any origin. That token is ONLY safe once
-    # inf-signalloom/infra-configs carries postBuild.substituteFrom — and that
-    # wiring is delivered by the fleet artifact through the flux-system/tenants
-    # Kustomization, NOT by this artifact.
+    # The :=default is load-bearing, not decoration. AGENTS.md records that a
+    # missing substituteFrom key is a SILENT no-op, so an undefaulted token
+    # would ship the literal string as Dex's issuer and break every login with
+    # no diagnostic anywhere. Confirmed the hard way on 2026-08-03.
     #
-    # The two travel independently, and this one is faster: infra-configs polls
-    # its OCIRepository every 5 minutes and applies immediately, whereas the
-    # postBuild wiring cannot arrive while `tenants` is suspended. Ship the
-    # token first and envsubst never runs, so the LITERAL string
-    # '${PUBLIC_ORIGIN:=...}' becomes Dex's issuer and every login on the
-    # cluster fails. Confirmed the hard way on 2026-08-03: the token reached a
-    # live cluster ~4 minutes after push and had to be reverted.
-    #
-    # Correct order: land the postBuild wiring, verify it with
-    #   kubectl get kustomization infra-configs -n inf-signalloom -o jsonpath='{.spec.postBuild}'
-    # returning a substituteFrom entry, and only then reintroduce the token.
-    issuer: https://dashboard.osramp.acme.local:30754/dex
+    # PREREQUISITE, verified before this landed:
+    #   kubectl get kustomization infra-configs -n inf-signalloom \
+    #     -o jsonpath='{.spec.postBuild}'
+    # must return a substituteFrom entry. It is delivered by the fleet artifact
+    # through flux-system/tenants; if that Kustomization is suspended, this
+    # token arrives with no envsubst to resolve it.
+    issuer: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
     storage:
       type: memory
     web:
@@ -56,6 +52,9 @@ stringData:
           - https://dashboard.osramp.acme.local:30754/callback
           - http://dashboard.osramp.acme.local:5173/callback
           - http://localhost:5173/callback
+          # Wherever the demo is published right now. Same default as the
+          # issuer, so this is a harmless duplicate when PUBLIC_ORIGIN is unset.
+          - ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/callback
           # Wherever the demo is currently published. Same default as the
           # issuer above, so this is a harmless duplicate when unset.
       - id: signalloom-api

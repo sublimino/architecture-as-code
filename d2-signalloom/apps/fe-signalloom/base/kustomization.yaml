@@ -30,6 +30,17 @@ resources:
   # not on the next GitOps reconcile. Only the fixed inputs it needs (identity
   # + test config) are GitOps-managed.
   - netassert-runner-sa.yaml
+  # SuperCred demo runner: the workload that actually executes
+  # scripts/supercred-demo.sh, so the dashboard can drive the demo from the
+  # browser. It is a separate image and ServiceAccount on purpose — the
+  # fe-signalloom API pod has no kubectl and no scripts/, and giving it either
+  # would put cluster-mutating grants on the pod that serves every
+  # tenant-facing route.
+  #
+  # Only the in-tenant objects are here. The cross-namespace RBAC is inline in
+  # the signalloom-infra ResourceSet, because this Kustomization's
+  # targetNamespace would otherwise relocate those Roles into fe-signalloom.
+  - ../../supercred-demo-runner/base
 
 configMapGenerator:
   # netassert-signalloom.yaml here is a committed copy of

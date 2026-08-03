@@ -195,6 +195,27 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # SuperCred demo runner: nginx's /demo-api/ block proxies here.
+    #
+    # This needs its OWN rule even though the rule directly above already opens
+    # :8000 inside this namespace — that one's podSelector is
+    # app.kubernetes.io/name: fe-signalloom, which selects the API pod and not
+    # the runner (app.kubernetes.io/name: supercred-demo-runner). A same-port,
+    # same-namespace rule is not the same rule.
+    #
+    # dashboard-route-collisions.bats compares nginx upstreams to this policy at
+    # namespace:port granularity, so `fe-signalloom:8000` already looked
+    # satisfied and that test passes with or without this block. It cannot see
+    # the podSelector mismatch. Deleting this rule therefore breaks the demo
+    # page silently and with a green suite — a 499 in the dashboard's nginx
+    # access log is the only symptom.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: supercred-demo-runner
+      ports:
+        - protocol: TCP
+          port: 8000
     - to:
         - namespaceSelector:
             matchLabels:

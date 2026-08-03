@@ -1,0 +1,114 @@
+# The SuperCred demo runner: the only workload allowed to execute
+# scripts/supercred-demo.sh against the cluster.
+#
+# It exists because the fe-signalloom API pod has neither kubectl nor the repo
+# scripts, so its /api/demo/supercred endpoints answered `script_available:
+# false` and every run 503'd with demo_script_unavailable. Rather than widen
+# that pod -- which serves every tenant-facing route -- the demo moved here,
+# behind its own image, its own ServiceAccount and its own RBAC.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supercred-demo-runner
+  labels:
+    app.kubernetes.io/name: supercred-demo-runner
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  # Exactly one. demo_runner.py serialises runs in PROCESS memory (_STATE_LOCK
+  # and _MUTATION_LOCK, plus a module-level _active run), so a second replica
+  # would not see the first one's active run and both would drive the same
+  # shared cluster at once. The 409 "demo_run_in_progress" guard is only
+  # sound while there is a single process. Do not scale this up without
+  # moving run state out of the process.
+  replicas: 1
+  strategy:
+    # For the same reason, never run two pods concurrently across a rollout.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supercred-demo-runner
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: supercred-demo-runner
+        app.kubernetes.io/component: supercred-demo
+    spec:
+      serviceAccountName: supercred-demo-runner
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: runner
+          image: supercred-demo-runner:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # demo_runner._repo_root() reads this; it must match the in-image
+            # repo root, because supercred-demo.sh applies manifests by paths
+            # relative to its cwd (e.g. `kubectl apply -k
+            # d2-signalloom/apps/cardvault/base/`). The image sets the same
+            # value, but it is restated here so the contract is visible in the
+            # manifest rather than only in the Dockerfile.
+            - name: SUPERCRED_DEMO_CWD
+              value: /repo
+            # Resolves the kind node name (${CLUSTER_NAME}-control-plane) for
+            # the `docker` shim that answers the script's image preflight.
+            # One of the five variables demo_runner.py forwards to the child.
+            - name: CLUSTER_NAME
+              value: osramp
+            # The script's own default (L28-30), set explicitly so the
+            # two-namespace sweep is documented where it is operated.
+            - name: AGENT_NAMESPACE_CANDIDATES
+              value: "fe-signalloom-agents fe-signalloom"
+            # Above the code's 900s default because `all` runs steps 1-5 back
+            # to back: step 2 alone waits up to 300s for the credential-chain
+            # Job, and step 1 waits 120s per Deployment rollout. 900s would
+            # kill a legitimate full run partway through step 4, leaving the
+            # cluster mid-demo with credentials already revoked.
+            - name: SUPERCRED_DEMO_TIMEOUT_SECONDS
+              value: "1800"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 15
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            # NOT readOnlyRootFilesystem. The demo script writes a policy file
+            # to /tmp inside the OpenBao pod, but on THIS pod bash still needs
+            # a writable /tmp for here-documents and process substitution, and
+            # kubectl writes a discovery cache under $HOME/.kube. Both are
+            # given dedicated emptyDir mounts below instead of an unrestricted
+            # writable root.
+            readOnlyRootFilesystem: true
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: kube-cache
+              mountPath: /home/appuser/.kube
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: kube-cache
+          emptyDir: {}

@@ -119,9 +119,19 @@ if ! python3 --version >/dev/null 2>&1; then
   sudo apt-get update -qq && sudo apt-get install -y -qq python3 >/dev/null
 fi
 
+# ── skopeo (required by scripts/build-sign-dashboard.sh) ─────────────
+# Not version-pinned, unlike every tool above it: skopeo publishes no
+# upstream release binaries, so apt is the only install route and the
+# distro decides the version (1.13.3 on ubuntu-2404-lts-amd64). Same
+# presence-gated shape as python3, for the same reason.
+if ! command -v skopeo >/dev/null 2>&1; then
+  log "installing skopeo"
+  sudo apt-get update -qq && sudo apt-get install -y -qq skopeo >/dev/null
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────
 log "all tools installed:"
-for t in go kind kubectl kustomize helm flux crane cosign syft grype bats python3 docker; do
+for t in go kind kubectl kustomize helm flux crane cosign syft grype bats python3 skopeo docker; do
   ver=$($t version 2>/dev/null | head -1 || $t --version 2>/dev/null | head -1 || echo "?")
   printf "  %-12s %s\n" "$t" "$ver"
 done

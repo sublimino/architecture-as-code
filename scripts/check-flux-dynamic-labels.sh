@@ -19,10 +19,19 @@
 # still-revoked agent as healthy — the wrong direction for a monitoring error,
 # and a live risk during a demo where an audience watches a second window.
 #
-# kustomize-controller v1.9.4 exposes no per-field drift ignore
-# (`.spec.driftDetection` is absent from the CRD; `.spec.ignore` matches source
-# paths, not fields), so "declare it and tell Flux to ignore it" is not
-# available. The only correct fix is to not declare a runtime-owned field.
+# CORRECTION (2026-08-03): an earlier version of this comment claimed no
+# per-field drift ignore existed. That was wrong — `Kustomization.spec.ignore`
+# takes JSON Pointer paths and is exactly that mechanism; it is now applied in
+# d2-osramp-fleet/tenants/base/apps.yaml. `.spec.driftDetection` is indeed
+# absent from this CRD, which is what caused the misreading.
+#
+# This check therefore enforces belt AND braces, not the only available fix:
+# the ignore rule stops Flux correcting drift on the field, and this check stops
+# a literal creeping back into desired state where a future reader would
+# reasonably assume git owns the value. See stun-under-flux.md Q6 for the open
+# question of whether the declaration must also be present for annotations to
+# survive pruning — if Q6 resolves toward "declare and ignore", THIS CHECK MUST
+# BE NARROWED to allow declarations covered by an ignore rule.
 #
 # This check makes that permanent: a field in DYNAMIC_FIELDS must never appear
 # as a declared key in YAML under a Flux-managed path.
@@ -123,9 +132,18 @@ if [ "$violations" -ne 0 ]; then
   red "as healthy."
   red ""
   red "Fix: delete the declaration. The runtime sets the value; consumers treat"
-  red "an absent label as 'no observation yet', which is honest. Do not try to"
-  red "keep the declaration and exempt it — kustomize-controller v1.9.4 has no"
-  red "per-field drift ignore."
+  red "an absent label as 'no observation yet', which is honest."
+  red ""
+  red "Note there is ALSO a Kustomization-level ignore rule covering these paths"
+  red "in d2-osramp-fleet/tenants/base/apps.yaml (.spec.ignore, JSON Pointer)."
+  red "That stops Flux CORRECTING drift on the field; this check stops a literal"
+  red "re-entering desired state, where a future reader would reasonably assume"
+  red "git owns the value. Both, deliberately."
+  red ""
+  red "If you are here because you believe the declaration must be present for"
+  red "the field to survive pruning, that is open question Q6 in"
+  red "docs/signalloom/stun-under-flux.md — settle it there and narrow this"
+  red "check, rather than deleting the check."
   exit 1
 fi
 

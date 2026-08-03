@@ -101,6 +101,30 @@ spec:
           name: apps
         path: "./<< inputs.environment >>"
         prune: true
+        # Runtime-owned fields on agent pods. These are written by the stun path
+        # (supercred-demo.sh step 4 and the proxy's stun handler) and read by the
+        # dashboard via fake-integration-proxy -> api/supercredState.ts.
+        #
+        # Without this, the stun is silently undone. Measured on kind-osramp:
+        #   kubectl label pod agent-cardvault signalloom.ai/state=stunned -> stunned
+        #   <any reconcile of this Kustomization>
+        #   read back                                                    -> idle
+        #
+        # Credential revocation lives outside the reconciled set and survives, so
+        # the agent stays genuinely revoked while the dashboard reports it healthy
+        # — split-brain, in the direction where the UI lies in the reassuring
+        # direction. Mid-demo it flips the agent back to idle in front of the
+        # audience while the presenter explains it has been contained.
+        #
+        # `~1` is JSON Pointer (RFC 6901) escaping for the `/` in the label key.
+        ignore:
+          - target:
+              kind: Pod
+              labelSelector: signalloom.ai/agent=true
+            paths:
+              - /metadata/labels/signalloom.ai~1state
+              - /metadata/annotations/signalloom.ai~1stunned-at
+              - /metadata/annotations/signalloom.ai~1stun-reason
         postBuild:
           substituteFrom:
             - kind: ConfigMap

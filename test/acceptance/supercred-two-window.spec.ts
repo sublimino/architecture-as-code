@@ -84,6 +84,18 @@ test.describe("SuperCredential demo — instructor window and audience window", 
         login(instructor, { demoMode: false }),
         login(audience, { demoMode: false }),
       ]);
+      // Fail fast, and by name, if the first-run wizard is covering the app.
+      // It renders OVER a fully working sidebar, so login() passes and the
+      // next click hangs for the whole test timeout while reporting a locator
+      // problem. newAuthedContext seeds the app's own skip key; this asserts
+      // the seed worked rather than discovering it fifteen minutes later.
+      for (const page of [instructor, audience]) {
+        await expect(
+          page.getByRole("heading", { name: /welcome to signal loom/i }),
+          "the onboarding wizard must not be covering the app — check the sl_onboarding_skipped seed in newAuthedContext",
+        ).toHaveCount(0, { timeout: 15_000 });
+      }
+
       await Promise.all([
         navigateTo(instructor, "/supercred"),
         navigateTo(audience, "/agents"),

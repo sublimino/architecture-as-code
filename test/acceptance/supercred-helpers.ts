@@ -153,6 +153,26 @@ export async function newAuthedContext(
       try {
         window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
         window.localStorage.setItem("signalloom.superadmin", admin ? "true" : "false");
+        // Dismiss the first-run onboarding wizard.
+        //
+        // App.tsx gates the whole app behind OnboardingWizard for a tenant
+        // with no connected providers, and a brand-new BrowserContext is
+        // always a first run. The wizard renders as a full-screen overlay ON
+        // TOP of a perfectly good sidebar, so login() succeeds (the nav link
+        // is present and visible) and the very next nav CLICK hangs until the
+        // test timeout, with the failure pointing at the locator rather than
+        // at the modal covering it. Cost the first live run of this spec 15
+        // minutes to a timeout that said nothing.
+        //
+        // 'sl_onboarding_skipped' is the app's own 30-minute skip TTL
+        // (App.tsx ONBOARDING_SKIP_STORAGE_KEY / OnboardingWizard.tsx
+        // SKIP_STORAGE_KEY). Setting it is exactly what pressing "Skip for
+        // now" does; because this runs as an init script the timestamp is
+        // re-minted on every document, so a long demo cannot age out of it.
+        window.localStorage.setItem(
+          "sl_onboarding_skipped",
+          JSON.stringify({ skippedAt: Date.now() }),
+        );
       } catch {
         /* storage unavailable */
       }

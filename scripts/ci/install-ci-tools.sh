@@ -115,18 +115,68 @@ if ! cosign version 2>/dev/null | grep -q "v${COSIGN_VERSION}"; then
   ${SUDO} chmod +x "${BIN}/cosign"
 fi
 
-# ── syft 1.28.0 ──────────────────────────────────────────────────────
+# ── syft 1.28.0 / grype 0.95.0 ───────────────────────────────────────
+# Both were installed by piping raw.githubusercontent.com/anchore/<tool>/main/
+# install.sh into `sudo sh`. The VERSION was pinned; the installer was not.
+# `main` is a moving branch head, so the script executed as root on every cold
+# CI machine was whatever had last landed upstream — a different artifact run
+# to run, with nothing recording which one.
+#
+# This is the same defect the witness pin fixed, and setup.sh's own comment on
+# that change says it plainly: an install script taken from a branch head makes
+# green runs unreproducible by construction. It is a worse instance, because
+# this one runs as root. The tool's pinned version is no defence — the pin is
+# an ARGUMENT to an unpinned program, and it is the program that has the
+# privileges.
+#
+# Anchore publish a checksums file per release, so the honest fix is the same
+# shape as ngrok above: fetch the pinned tarball, verify SHA256 before it is
+# unpacked, and never execute anything downloaded. Nothing here runs as root
+# except the final move into ${BIN}.
 SYFT_VERSION="1.28.0"
+SYFT_SHA256="3edee7fe1ceb1f78360e547f57048930d57f00c7ec3d0b8bdfb902805f048468"
+GRYPE_VERSION="0.95.0"
+GRYPE_SHA256="82f22c660dcc0b49a9b45ec060a8d0f7b7fb75b33aecf6cc08060062bbf012ce"
+
+# Verify-then-unpack. The checksum is checked while the download is still an
+# opaque blob in a temp dir; a mismatch aborts before tar ever reads it.
+# Fail-closed by construction, NOT by relying on `set -e`.
+#
+# The first version of this function listed the steps sequentially and let the
+# script's `set -e` stop a bad download. It does not survive contact: any call
+# in a tested context (`f && g`, `if f`, `f || h`) disables errexit for the
+# whole function body, so a checksum mismatch printed its warning, execution
+# carried on, and the function returned the exit status of the trailing
+# `rm -rf` — zero. A tamper test caught it returning success on a deliberately
+# wrong hash. Verification that only fails in some calling contexts is worse
+# than none, because it reads as a guarantee.
+#
+# So every step is && chained, the cleanup runs without touching the status,
+# and the status is returned explicitly.
+install_anchore_tool() { # name version sha256
+  local name="$1" version="$2" sha="$3" tmp rc=0
+  tmp="$(mktemp -d)"
+  curl -fsSL -o "${tmp}/${name}.tar.gz" \
+    "https://github.com/anchore/${name}/releases/download/v${version}/${name}_${version}_${OS}_${ARCH}.tar.gz" \
+    && echo "${sha}  ${tmp}/${name}.tar.gz" | sha256sum -c --status - \
+    && tar -C "${tmp}" -xzf "${tmp}/${name}.tar.gz" "${name}" \
+    && ${SUDO} install -m 0755 "${tmp}/${name}" "${BIN}/${name}" \
+    || rc=1
+  rm -rf "${tmp}"
+  if [ "$rc" -ne 0 ]; then
+    log "ERROR: ${name} ${version} failed verification or install; refusing to continue"
+  fi
+  return "$rc"
+}
+
 if ! syft version 2>/dev/null | grep -q "${SYFT_VERSION}"; then
   log "installing syft ${SYFT_VERSION}"
-  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | ${SUDO} sh -s -- -b "${BIN}" "v${SYFT_VERSION}"
+  install_anchore_tool syft "${SYFT_VERSION}" "${SYFT_SHA256}"
 fi
 
-# ── grype 0.95.0 ─────────────────────────────────────────────────────
-GRYPE_VERSION="0.95.0"
 if ! grype version 2>/dev/null | grep -q "${GRYPE_VERSION}"; then
   log "installing grype ${GRYPE_VERSION}"
-  curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | ${SUDO} sh -s -- -b "${BIN}" "v${GRYPE_VERSION}"
+  install_anchore_tool grype "${GRYPE_VERSION}" "${GRYPE_SHA256}"
 fi
 
 # ── vexctl 0.3.0 ─────────────────────────────────────────────────────

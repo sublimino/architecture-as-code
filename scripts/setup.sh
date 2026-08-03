@@ -24,7 +24,9 @@ FLUX_VERSION="2.6.4"
 HELM_VERSION="v3.18.4"
 COSIGN_VERSION="v3.0.6"
 SYFT_VERSION="v1.28.0"
+SYFT_SHA256="3edee7fe1ceb1f78360e547f57048930d57f00c7ec3d0b8bdfb902805f048468"
 GRYPE_VERSION="v0.95.0"
+GRYPE_SHA256="82f22c660dcc0b49a9b45ec060a8d0f7b7fb75b33aecf6cc08060062bbf012ce"
 GO_VERSION="1.24.5"   # install-ci-tools.sh installs 1.24.5 first; this said 1.23.10 and never applied
 GOVULNCHECK_VERSION="v1.1.4"
 VEXCTL_VERSION="v0.3.0"
@@ -58,6 +60,29 @@ fetch_bin() { # name url
 # `permission denied`. Running `go install` under sudo is not the fix: sudo
 # drops GOPATH/GOCACHE and go is often absent from root's PATH. Build into a
 # throwaway GOBIN, then move with the same escalation fetch_bin uses.
+# Anchore release tarball, verified before it is unpacked. The checksum is
+# checked while the download is still an opaque blob, so a mismatch aborts
+# before tar ever reads it, and nothing downloaded is ever executed. Only the
+# final install into ${BIN_DIR} escalates.
+# Fail-closed by construction, not by relying on `set -e` — errexit is
+# disabled inside a function called in a tested context, and this one is
+# (`have syft || anchore_bin ...`). See install-ci-tools.sh for the tamper
+# test that caught the earlier version returning success on a bad hash.
+anchore_bin() { # name version sha256
+  echo "installing $1 $2"
+  local tmp rc=0
+  tmp="$(mktemp -d)"
+  curl -fsSL -o "${tmp}/$1.tar.gz" \
+    "https://github.com/anchore/$1/releases/download/v$2/$1_$2_${OS}_${ARCH}.tar.gz" \
+    && echo "$3  ${tmp}/$1.tar.gz" | sha256sum -c --status - \
+    && tar -C "${tmp}" -xzf "${tmp}/$1.tar.gz" "$1" \
+    && ${SUDO} install -m 0755 "${tmp}/$1" "${BIN_DIR}/$1" \
+    || rc=1
+  rm -rf "${tmp}"
+  [ "$rc" -eq 0 ] || echo "ERROR: $1 $2 failed verification or install; refusing to continue" >&2
+  return "$rc"
+}
+
 go_install_bin() { # name package@version
   local tmp
   tmp="$(mktemp -d)"
@@ -93,8 +118,15 @@ install_tools() {
       | tar -xz -C /tmp flux && ${SUDO} mv /tmp/flux "${BIN_DIR}/flux"
   fi
   have cosign || fetch_bin cosign "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${OS}-${ARCH}"
-  have syft || { echo "installing syft"; curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | ${SUDO} sh -s -- -b "${BIN_DIR}" "${SYFT_VERSION}"; }
-  have grype || { echo "installing grype"; curl -fsSL https://raw.githubusercontent.com/anchore/grype/main/install.sh | ${SUDO} sh -s -- -b "${BIN_DIR}" "${GRYPE_VERSION}"; }
+  # Both piped raw.githubusercontent.com/anchore/<tool>/main/install.sh into
+  # `sudo sh`. The version was pinned; the installer was not — `main` is a
+  # moving branch head, so the program running as root differed run to run
+  # with nothing recording which one. The pinned version is no defence: it is
+  # an ARGUMENT to an unpinned program, and the program holds the privileges.
+  # Same defect the witness pin below fixed, and worse for running as root.
+  # See install-ci-tools.sh for the full reasoning and the pinned checksums.
+  have syft || anchore_bin syft "${SYFT_VERSION#v}" "${SYFT_SHA256}"
+  have grype || anchore_bin grype "${GRYPE_VERSION#v}" "${GRYPE_SHA256}"
   # Pinned tarball, not the install script off `main`.
   #
   # This was the only tool in either installer with NO version: it piped

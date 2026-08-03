@@ -349,7 +349,13 @@ spec:
           signalloom.ai/agent-type: signal-loom-built
           signalloom.ai/framework: kagent
           signalloom.ai/model: claude-opus-4-8
-          signalloom.ai/state: idle
+          # signalloom.ai/state is runtime state and is deliberately NOT
+          # declared here — see the long note in
+          # d2-signalloom/apps/fe-signalloom/base/agents-cardvault.yaml.
+          # Declaring it put it in Flux's desired state, so the stun's
+          # `stunned` value was drift and got reverted to `idle` on the next
+          # reconcile, silently erasing the evidence of a still-live
+          # revocation. test/flux-dynamic-labels.bats enforces this.
         annotations:
           signalloom.ai/agent-display-name: "Sir Lancelot"
           signalloom.ai/model-full: "anthropic/claude-opus-4-8"

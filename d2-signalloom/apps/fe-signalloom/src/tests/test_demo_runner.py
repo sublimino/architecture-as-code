@@ -28,7 +28,15 @@ from db.connection import set_pool_for_testing
 from main import app
 
 TEST_SIGNING_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-SUBJECT_TENANTS = {"demo-runner": "tenant-demo-runner"}
+SUPERADMIN_SUBJECT = "demo-runner"
+NON_SUPERADMIN_SUBJECT = "tenant-reader"
+EMAIL_SUPERADMIN_SUBJECT = "email-admin"
+SUPERADMIN_EMAIL = "demo-user@signalloom.local"
+SUBJECT_TENANTS = {
+    SUPERADMIN_SUBJECT: "tenant-demo-runner",
+    NON_SUPERADMIN_SUBJECT: "tenant-demo-runner",
+    EMAIL_SUPERADMIN_SUBJECT: "tenant-demo-runner",
+}
 
 
 class _ReadyPool:
@@ -44,26 +52,29 @@ class _TestJWKClient:
         return SimpleNamespace(key=TEST_SIGNING_KEY.public_key())
 
 
-def _token_for(subject: str) -> str:
+def _token_for(subject: str, *, email: str | None = None) -> str:
     now = int(time.time())
+    claims: dict[str, Any] = {
+        "iss": "https://issuer.test/dex",
+        "aud": "signalloom-api",
+        "iat": now,
+        "nbf": now,
+        "exp": now + 300,
+        "azp": "signalloom-dashboard",
+        "sub": subject,
+    }
+    if email is not None:
+        claims["email"] = email
     return jwt.encode(
-        {
-            "iss": "https://issuer.test/dex",
-            "aud": "signalloom-api",
-            "iat": now,
-            "nbf": now,
-            "exp": now + 300,
-            "azp": "signalloom-dashboard",
-            "sub": subject,
-        },
+        claims,
         TEST_SIGNING_KEY,
         algorithm="RS256",
         headers={"kid": "test-key", "typ": "JWT"},
     )
 
 
-def _bearer(subject: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {_token_for(subject)}"}
+def _bearer(subject: str, *, email: str | None = None) -> dict[str, str]:
+    return {"Authorization": f"Bearer {_token_for(subject, email=email)}"}
 
 
 def _write_fake_script(script_path: Path) -> None:
@@ -80,7 +91,7 @@ def _write_fake_script(script_path: Path) -> None:
 def _wait_for_terminal_run(client: TestClient, run_id: str) -> dict[str, Any]:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer("demo-runner"))
+        response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer(SUPERADMIN_SUBJECT))
         payload = response.json()
         if payload["status"] != "running":
             return cast(dict[str, Any], payload)
@@ -91,7 +102,7 @@ def _wait_for_terminal_run(client: TestClient, run_id: str) -> dict[str, Any]:
 def _wait_for_running_run(client: TestClient, run_id: str) -> dict[str, Any]:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
-        response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer("demo-runner"))
+        response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer(SUPERADMIN_SUBJECT))
         payload = response.json()
         if payload["status"] == "running":
             return cast(dict[str, Any], payload)
@@ -116,6 +127,8 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
     monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
     monkeypatch.setattr(settings, "api_subject_tenants", dict(SUBJECT_TENANTS))
+    monkeypatch.setattr(settings, "api_superadmin_subjects", {SUPERADMIN_SUBJECT})
+    monkeypatch.setattr(settings, "api_superadmin_emails", {SUPERADMIN_EMAIL})
     monkeypatch.setattr(api_compat, "_jwk_client", lambda _url: _TestJWKClient())
     monkeypatch.setenv("SUPERCRED_DEMO_SCRIPT", str(script_path))
     monkeypatch.setenv("SUPERCRED_DEMO_CWD", str(tmp_path))
@@ -202,7 +215,7 @@ def test_concurrent_start_is_refused(client: TestClient) -> None:
     assert second_response.json()["error"]["code"] == "demo_run_in_progress"
     assert first_run_id in second_response.json()["error"]["message"]
 
-    running = client.get(f"/api/demo/supercred/runs/{first_run_id}", headers=_bearer("demo-runner"))
+    running = client.get(f"/api/demo/supercred/runs/{first_run_id}", headers=_bearer(SUPERADMIN_SUBJECT))
     assert running.json()["status"] == "running"
 
 
@@ -217,7 +230,7 @@ def test_reset_midway_cancels_running_step(client: TestClient) -> None:
         assert first_run._process is not None
         pid = first_run._process.pid
 
-    reset_response = client.post("/api/demo/supercred/reset", headers=_bearer("demo-runner"))
+    reset_response = client.post("/api/demo/supercred/reset", headers=_bearer(SUPERADMIN_SUBJECT))
     assert reset_response.status_code == 202
     reset_run_id = reset_response.json()["run_id"]
 
@@ -230,7 +243,7 @@ def test_reset_midway_cancels_running_step(client: TestClient) -> None:
     assert reset_finished["status"] == "succeeded"
     assert reset_finished["step_id"] == "5"
 
-    follow_up = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer("demo-runner"))
+    follow_up = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
     assert follow_up.status_code == 202
     _wait_for_terminal_run(client, follow_up.json()["run_id"])
 
@@ -270,7 +283,7 @@ def test_log_offset_paging_returns_disjoint_chunks(client: TestClient) -> None:
 
     assert first_payload["chunk"] not in second_payload["chunk"]
     combined = first_payload["chunk"] + second_payload["chunk"]
-    whole_log = client.get(f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer("demo-runner")).json()
+    whole_log = client.get(f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT)).json()
     assert combined == whole_log["chunk"]
     assert second_payload["eof"] is True
 
@@ -285,7 +298,7 @@ def test_log_negative_offset_is_rejected(client: TestClient) -> None:
 
 
 def test_run_not_found(client: TestClient) -> None:
-    response = client.get(f"/api/demo/supercred/runs/{uuid4().hex}", headers=_bearer("demo-runner"))
+    response = client.get(f"/api/demo/supercred/runs/{uuid4().hex}", headers=_bearer(SUPERADMIN_SUBJECT))
     assert response.status_code == 404
 
 
@@ -303,3 +316,61 @@ def test_argv_is_a_constant_array_not_a_shell_string(client: TestClient) -> None
     assert len(demo_runner._argv_for("3")) == 2
     with pytest.raises(APIError):
         demo_runner._argv_for(cast(str, "9"))
+
+
+def test_non_superadmin_cannot_start_demo_run(client: TestClient) -> None:
+    response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": {
+            "code": "superadmin_required",
+            "message": "Superadmin access is required",
+        }
+    }
+
+
+def test_non_superadmin_cannot_reset_demo(client: TestClient) -> None:
+    response = client.post("/api/demo/supercred/reset", headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    assert response.status_code == 403
+    assert response.json() == {
+        "error": {
+            "code": "superadmin_required",
+            "message": "Superadmin access is required",
+        }
+    }
+
+
+def test_non_superadmin_can_still_read_demo_state(client: TestClient) -> None:
+    start_response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
+    run_id = start_response.json()["run_id"]
+    _wait_for_terminal_run(client, run_id)
+
+    steps_response = client.get("/api/demo/supercred/steps", headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    status_response = client.get("/api/demo/supercred/status", headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    run_response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    log_response = client.get(f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(NON_SUPERADMIN_SUBJECT))
+
+    assert steps_response.status_code == 200
+    assert status_response.status_code == 200
+    assert run_response.status_code == 200
+    assert log_response.status_code == 200
+
+
+def test_mutating_routes_still_require_authentication_before_authorization(client: TestClient) -> None:
+    start_response = client.post("/api/demo/supercred/runs", json={"step": "1"})
+    reset_response = client.post("/api/demo/supercred/reset")
+
+    assert start_response.status_code == 401
+    assert reset_response.status_code == 401
+
+
+def test_email_only_superadmin_can_start_demo_run(client: TestClient) -> None:
+    start_response = client.post(
+        "/api/demo/supercred/runs",
+        json={"step": "1"},
+        headers=_bearer(EMAIL_SUPERADMIN_SUBJECT, email=SUPERADMIN_EMAIL.upper()),
+    )
+    assert start_response.status_code == 202
+
+    finished = _wait_for_terminal_run(client, start_response.json()["run_id"])
+    assert finished["status"] == "succeeded"

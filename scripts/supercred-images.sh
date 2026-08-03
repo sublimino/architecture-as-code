@@ -29,11 +29,17 @@ CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 NODE="${SUPERCRED_NODE:-${CLUSTER_NAME}-control-plane}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# image-name|build-context (relative to the repo root)
+# image-name|build-context|dockerfile (fields after image-name are repo-root
+# relative; dockerfile is optional and defaults to <context>/Dockerfile)
 SUPERCRED_IMAGES=(
-  "cardvault:local|d2-signalloom/apps/cardvault"
-  "policy-engine:local|d2-signalloom/apps/policy-engine"
-  "cardvault-agent:local|d2-signalloom/apps/cardvault-agent"
+  "cardvault:local|d2-signalloom/apps/cardvault|"
+  "policy-engine:local|d2-signalloom/apps/policy-engine|"
+  "cardvault-agent:local|d2-signalloom/apps/cardvault-agent|"
+  # Deliberately verify the runner alongside the other SuperCred images. That
+  # is stricter than the host-side CLI path alone requires, but omitting it
+  # would let the shared preflight pass while the dashboard-driven entrypoint
+  # was still undeployed or stale.
+  "supercred-demo-runner:local|.|d2-signalloom/apps/supercred-demo-runner/Dockerfile"
 )
 
 log()  { printf '\033[1;36m[supercred-images]\033[0m %s\n' "$*"; }
@@ -41,8 +47,23 @@ ok()   { printf '\033[1;32m[supercred-images] ✓\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[supercred-images] !\033[0m %s\n' "$*" >&2; }
 fail() { printf '\033[1;31m[supercred-images] FAILED:\033[0m %s\n' "$*" >&2; exit 1; }
 
-image_name()    { printf '%s' "${1%%|*}"; }
-image_context() { printf '%s' "${1##*|}"; }
+image_name() {
+  local image context dockerfile
+  IFS='|' read -r image context dockerfile <<<"$1"
+  printf '%s' "$image"
+}
+
+image_context() {
+  local image context dockerfile
+  IFS='|' read -r image context dockerfile <<<"$1"
+  printf '%s' "$context"
+}
+
+image_dockerfile() {
+  local image context dockerfile
+  IFS='|' read -r image context dockerfile <<<"$1"
+  printf '%s' "$dockerfile"
+}
 
 # kind nodes run the host architecture; pin it explicitly so a multi-arch base
 # image cannot resolve to a platform the node cannot execute.
@@ -97,13 +118,19 @@ verify_images() {
 # ─── Build ──────────────────────────────────────────────────────────────────
 
 build_images() {
-  local entry image context
+  local entry image context dockerfile
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
     context="$(image_context "$entry")"
+    dockerfile="$(image_dockerfile "$entry")"
     log "building $image ($PLATFORM)"
-    "$DOCKER_BIN" build --platform "$PLATFORM" -t "$image" "$REPO_ROOT/$context" \
-      || fail "docker build failed for $image"
+    if [ -n "$dockerfile" ]; then
+      "$DOCKER_BIN" build --platform "$PLATFORM" -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
+        || fail "docker build failed for $image via $dockerfile"
+    else
+      "$DOCKER_BIN" build --platform "$PLATFORM" -t "$image" "$REPO_ROOT/$context" \
+        || fail "docker build failed for $image"
+    fi
   done
   ok "built ${#SUPERCRED_IMAGES[@]} images"
 }
@@ -126,19 +153,29 @@ kind_load_all() {
 # `--output type=docker,dest=…` forces BuildKit to write every layer into the
 # archive before the command returns.
 reload_via_archive() {
-  local image="$1" context="$2"
+  local image="$1" context="$2" dockerfile="${3:-}"
   local tar
   tar="$(mktemp -t "supercred-${image%%:*}-XXXXXX.tar")"
   # shellcheck disable=SC2064  # expand $tar now, not at trap time
   trap "rm -f '$tar'" RETURN
 
   log "recovery: rebuilding $image directly into an archive"
-  "$DOCKER_BIN" buildx build \
-    --platform "$PLATFORM" \
-    --provenance=false --sbom=false \
-    --output "type=docker,dest=$tar" \
-    -t "$image" "$REPO_ROOT/$context" \
-    || { warn "buildx archive build failed for $image"; return 1; }
+  if [ -n "$dockerfile" ]; then
+    "$DOCKER_BIN" buildx build \
+      --platform "$PLATFORM" \
+      --provenance=false --sbom=false \
+      --output "type=docker,dest=$tar" \
+      -f "$REPO_ROOT/$dockerfile" \
+      -t "$image" "$REPO_ROOT/$context" \
+      || { warn "buildx archive build failed for $image via $dockerfile"; return 1; }
+  else
+    "$DOCKER_BIN" buildx build \
+      --platform "$PLATFORM" \
+      --provenance=false --sbom=false \
+      --output "type=docker,dest=$tar" \
+      -t "$image" "$REPO_ROOT/$context" \
+      || { warn "buildx archive build failed for $image"; return 1; }
+  fi
 
   log "recovery: importing $image into containerd on $NODE"
   "$DOCKER_BIN" exec -i "$NODE" ctr -n k8s.io images import --all-platforms - <"$tar" \
@@ -149,15 +186,16 @@ reload_via_archive() {
 load_images() {
   kind_load_all
 
-  local entry image context recovered=0
+  local entry image context dockerfile recovered=0
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
     context="$(image_context "$entry")"
+    dockerfile="$(image_dockerfile "$entry")"
     if image_on_node "$image"; then
       continue
     fi
     warn "$image did not reach $NODE via kind load — attempting recovery"
-    reload_via_archive "$image" "$context" || true
+    reload_via_archive "$image" "$context" "$dockerfile" || true
     recovered=1
   done
   [ "$recovered" -eq 1 ] && log "recovery attempted; re-verifying"

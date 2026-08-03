@@ -83,6 +83,41 @@ spec:
             # cluster mid-demo with credentials already revoked.
             - name: SUPERCRED_DEMO_TIMEOUT_SECONDS
               value: "1800"
+            # ── Token validation ────────────────────────────────────────
+            # Without these five the runner falls back to config.py's
+            # defaults, and every /demo-api/ call fails for a reason that
+            # looks nothing like a config gap:
+            #   * api_jwt_issuer defaults to the in-cluster Dex service URL,
+            #     but Dex mints tokens with `iss` = PUBLIC_ORIGIN/dex. The
+            #     issuer check then rejects a perfectly valid token as
+            #     `invalid_token` -> 401 on every route, including the ones
+            #     that carry a superadmin bearer.
+            #   * api_subject_tenants defaults to {"demo-user": ...}, but Dex
+            #     sets `sub` to its connector-encoded id
+            #     (CglkZW1vLXVzZXISBWxvY2Fs), not the raw userID -> every
+            #     token that survives validation then dies at
+            #     `tenant_forbidden` -> 403.
+            # fe-signalloom carries exactly this block (apps/fe-signalloom/
+            # base/deployment.yaml); the runner validates the SAME tokens
+            # from the SAME issuer, so it needs the same configuration. The
+            # values are restated rather than shared because a silent drift
+            # between the two is a 401 with no diagnosis.
+            - name: API_JWT_ISSUER
+              value: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
+            - name: API_JWT_AUDIENCE
+              value: signalloom-api
+            - name: API_JWT_AUTHORIZED_PARTY
+              value: signalloom-dashboard
+            - name: API_JWKS_URL
+              value: http://dex.inf-signalloom.svc.cluster.local:5556/dex/keys
+            # Two identities, deliberately: the demo instructor (superadmin,
+            # by email allowlist) and a plain authenticated viewer that is
+            # NOT a superadmin. The viewer exists so the superadmin gate can
+            # be proven from outside the process — a 403 that only a unit
+            # test with an injected Principal has ever seen is an untested
+            # gate on the deployed system.
+            - name: API_SUBJECT_TENANTS
+              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo"}'
           startupProbe:
             httpGet:
               path: /health

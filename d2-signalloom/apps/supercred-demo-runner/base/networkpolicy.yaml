@@ -75,6 +75,24 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Dex JWKS. Every /demo-api/ request is authenticated by validating the
+    # caller's Dex-signed JWT against the issuer's public keys, which means an
+    # outbound fetch of http://dex.inf-signalloom:5556/dex/keys on the first
+    # request (PyJWKClient caches it thereafter). With this rule missing the
+    # fetch is dropped, api_compat raises JWTValidationError, and EVERY route
+    # answers 401 invalid_token — indistinguishable from a bad token, on a
+    # cluster where the token is fine. fe-signalloom's own policy carries the
+    # same rule (apps/fe-signalloom/base/networkpolicy.yaml).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dex
+      ports:
+        - protocol: TCP
+          port: 5556
     # kube-apiserver. Every kubectl call the demo makes, plus the port-forward
     # tunnel, rides this. Both ports are required for the same reason
     # allow-netassert-runner-egress lists both: kindnet evaluates service

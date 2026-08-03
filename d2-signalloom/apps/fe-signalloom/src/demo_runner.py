@@ -522,10 +522,15 @@ async def get_demo_run(
 @router.get("/runs/{run_id}/log", response_model=RunLogResponse, responses=ERROR_RESPONSES)
 async def get_demo_run_log(
     run_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(require_superadmin)],
     offset: int = Query(default=0),
 ) -> RunLogResponse:
-    del tenant_id
+    # Superadmin, not merely authenticated. This returns the demo script's RAW
+    # stdout/stderr — kubectl output, resource names, OpenBao policy paths, the
+    # failure text of anything that went wrong mid-run. The demo's EVIDENCE is
+    # meant to be public (that is what /agents and /compliance are for); the
+    # script's console output is instructor material and is scoped accordingly.
+    del principal
     if offset < 0:
         raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
     run = _get_run_or_404(run_id)
@@ -557,9 +562,14 @@ async def reset_demo(
 
 @router.get("/status", response_model=DemoStatusResponse, responses=ERROR_RESPONSES)
 async def demo_status(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> DemoStatusResponse:
-    del tenant_id
+    # Superadmin, not merely authenticated. `recent` is the run history of a
+    # cluster-mutating control plane — which privileged phase was driven, by
+    # whom, when, and whether it failed. That is the instructor console, not
+    # audience evidence, so it is scoped the same way the controls that
+    # produce it are.
+    del principal
     with _STATE_LOCK:
         active_run = _active
         recent_runs = list(reversed(list(_runs.values())))

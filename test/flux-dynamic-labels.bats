@@ -1,170 +1,152 @@
 #!/usr/bin/env bats
-# Unit tests for check-flux-dynamic-labels.sh.
+# Tests for check-flux-dynamic-labels.sh.
 #
-# The checker guards against a silent failure: a runtime-owned label declared in
-# Flux-managed desired state gets reverted on the next reconcile, erasing the
-# evidence of a live containment while the containment itself persists.
+# The rule under test is BOTH, not either: a runtime-owned field must be
+# DECLARED in a Flux-managed manifest AND covered by a `.spec.ignore` JSON
+# Pointer. Measured with a matched control in
+# docs/signalloom/_research-flux-ignore.md (TEST G / TEST H):
 #
-# These tests exist because a checker that cannot go red is worse than no
-# checker — it converts "we have a test for that" into a false statement. Each
-# test below constructs the violating condition and asserts the script actually
-# fails on it.
+#   declared, NOT ignored     -> reverted on reconcile        (the original bug)
+#   NOT declared, ignored     -> field DELETED outright       (strictly worse)
+#   declared AND ignored      -> survives                     (correct)
+#
+# An earlier version of this suite asserted the middle row was the fix, which
+# made CI enforce the falsified option and block the correct one. Each red-path
+# test below constructs the failing condition and proves the checker bites — a
+# checker that cannot go red converts "we have a test for that" into a false
+# statement.
 
 setup() {
   REPO_ROOT="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
   CHECK="${REPO_ROOT}/scripts/check-flux-dynamic-labels.sh"
   FIXTURE="$(mktemp -d)"
+  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing" "${FIXTURE}/d2-osramp-fleet"
 }
 
-teardown() {
-  rm -rf "$FIXTURE"
+teardown() { rm -rf "$FIXTURE"; }
+
+run_fixture() { CHECK_ROOT="$FIXTURE" run "$CHECK"; }
+
+# All three fields declared on a pod.
+declare_all() {
+  cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    signalloom.ai/state: idle
+  annotations:
+    signalloom.ai/stunned-at: ""
+    signalloom.ai/stun-reason: ""
+YAML
 }
 
-# Run the checker against a synthetic tree rather than the real repo, so the
-# red-path tests do not depend on the repo being broken.
-run_against_fixture() {
-  mkdir -p "${FIXTURE}/d2-signalloom/apps"
-  cp "$CHECK" "${FIXTURE}/check.sh"
-  # The script resolves REPO_ROOT from its own location, so placing it one
-  # level down makes the fixture root the repo root.
-  mkdir -p "${FIXTURE}/scripts"
-  mv "${FIXTURE}/check.sh" "${FIXTURE}/scripts/check-flux-dynamic-labels.sh"
-  chmod +x "${FIXTURE}/scripts/check-flux-dynamic-labels.sh"
-  run "${FIXTURE}/scripts/check-flux-dynamic-labels.sh"
+# Kustomization ignoring all three JSON Pointer paths.
+ignore_all() {
+  cat > "${FIXTURE}/d2-osramp-fleet/apps.yaml" <<'YAML'
+spec:
+  ignore:
+    - target: {kind: Pod}
+      paths:
+        - /metadata/labels/signalloom.ai~1state
+        - /metadata/annotations/signalloom.ai~1stunned-at
+        - /metadata/annotations/signalloom.ai~1stun-reason
+YAML
 }
 
 @test "the real repository passes" {
   run "$CHECK"
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no runtime-owned fields declared"* ]]
+  [[ "$output" == *"declared AND covered"* ]]
 }
 
-@test "FAILS when signalloom.ai/state is declared with a value" {
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
+@test "PASSES when every field is declared and ignored" {
+  declare_all; ignore_all
+  run_fixture
+  [ "$status" -eq 0 ]
+}
+
+@test "FAILS when a field is declared but NOT ignored — the original bug" {
+  declare_all
+  run_fixture
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NO .spec.ignore rule covers it"* ]]
+}
+
+@test "FAILS when a field is ignored but NOT declared — strictly worse than the bug" {
+  ignore_all
+  run_fixture
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NOT DECLARED"* ]]
+}
+
+@test "FAILS when only the label is handled and the annotations are forgotten" {
+  # The exact shape of the first shipped fix: the label was reasoned about and
+  # the two stun annotations were missed entirely.
   cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
-apiVersion: v1
-kind: Pod
 metadata:
   labels:
     signalloom.ai/state: idle
 YAML
-  run_against_fixture
+  cat > "${FIXTURE}/d2-osramp-fleet/apps.yaml" <<'YAML'
+spec:
+  ignore:
+    - paths: ["/metadata/labels/signalloom.ai~1state"]
+YAML
+  run_fixture
   [ "$status" -eq 1 ]
-  [[ "$output" == *"runtime-owned field"* ]]
+  [[ "$output" == *"stunned-at"* ]]
 }
 
-@test "FAILS on the stunned value too, not just idle" {
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
+@test "a policy SELECTOR does not count as a declaration" {
+  # A quarantine NetworkPolicy legitimately selects on the field. If a selector
+  # satisfied the declaration requirement, a repo could pass with no real
+  # declaration anywhere and the field would still be dropped on apply.
+  ignore_all
+  cat > "${FIXTURE}/d2-signalloom/apps/thing/netpol.yaml" <<'YAML'
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/state: stunned
+YAML
+  run_fixture
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NOT DECLARED"* ]]
+}
+
+@test "a commented-out declaration does not count" {
+  ignore_all
   cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
 metadata:
   labels:
-    signalloom.ai/state: stunned
+    # signalloom.ai/state: idle
+    app: thing
 YAML
-  run_against_fixture
+  run_fixture
   [ "$status" -eq 1 ]
 }
 
-@test "FAILS regardless of indentation depth" {
-  # ResourceSet templates nest the pod spec several levels deep; a check that
-  # only matched a fixed indent would miss the flux-operator copy, which is
-  # exactly where one of the two real declarations lived.
-  mkdir -p "${FIXTURE}/d2-osramp-fleet/tenants/local"
-  cat > "${FIXTURE}/d2-osramp-fleet/tenants/local/rs.yaml" <<'YAML'
+@test "deep ResourceSet indentation still counts as a declaration" {
+  ignore_all
+  cat > "${FIXTURE}/d2-osramp-fleet/rs.yaml" <<'YAML'
 spec:
+  ignore:
+    - paths:
+        - /metadata/labels/signalloom.ai~1state
+        - /metadata/annotations/signalloom.ai~1stunned-at
+        - /metadata/annotations/signalloom.ai~1stun-reason
   resources:
     - kind: Pod
       metadata:
         labels:
                     signalloom.ai/state: idle
+        annotations:
+                    signalloom.ai/stunned-at: ""
+                    signalloom.ai/stun-reason: ""
 YAML
-  run_against_fixture
-  [ "$status" -eq 1 ]
-}
-
-@test "PASSES when the field appears only in a comment" {
-  # The real manifests carry long explanatory comments naming this exact field.
-  # A fixed-string search would flag its own documentation and force whoever
-  # hit it to delete the explanation to get green — the worst outcome.
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
-  cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
-metadata:
-  labels:
-    # signalloom.ai/state is deliberately not declared here — it is runtime
-    # state and Flux would revert it.
-    signalloom.ai/agent: "true"
-YAML
-  run_against_fixture
-  [ "$status" -eq 0 ]
-}
-
-@test "PASSES when the field is used as a SELECTOR rather than declared" {
-  # A NetworkPolicy that quarantines stunned pods MUST reference the field.
-  # Selecting on it is the intended use; only declaring a value is the defect.
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
-  cat > "${FIXTURE}/d2-signalloom/apps/thing/netpol.yaml" <<'YAML'
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-spec:
-  podSelector:
-    matchLabels:
-      signalloom.ai/state: stunned
-YAML
-  run_against_fixture
-  # This is the load-bearing case. A quarantine NetworkPolicy selecting stunned
-  # pods is the intended enforcement mechanism; if the checker rejected it, the
-  # checker would forbid the very control it exists to protect. Selector and
-  # declaration are syntactically identical, so the checker distinguishes them
-  # by enclosing block.
-  [ "$status" -eq 0 ]
-}
-
-@test "PASSES when the field is used under matchExpressions" {
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
-  cat > "${FIXTURE}/d2-signalloom/apps/thing/netpol.yaml" <<'YAML'
-spec:
-  podSelector:
-    matchExpressions:
-      signalloom.ai/state: stunned
-YAML
-  run_against_fixture
-  [ "$status" -eq 0 ]
-}
-
-@test "still FAILS for a declaration in the same file as a selector" {
-  # The realistic regression: someone adds the quarantine policy correctly and
-  # re-adds the literal to the pod spec in the same change.
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
-  cat > "${FIXTURE}/d2-signalloom/apps/thing/both.yaml" <<'YAML'
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-spec:
-  podSelector:
-    matchLabels:
-      signalloom.ai/state: stunned
----
-apiVersion: v1
-kind: Pod
-metadata:
-  labels:
-    signalloom.ai/state: idle
-YAML
-  run_against_fixture
-  [ "$status" -eq 1 ]
-}
-
-@test "PASSES when an unrelated signalloom label is declared" {
-  mkdir -p "${FIXTURE}/d2-signalloom/apps/thing"
-  cat > "${FIXTURE}/d2-signalloom/apps/thing/pod.yaml" <<'YAML'
-metadata:
-  labels:
-    signalloom.ai/agent-name: cardvault
-    signalloom.ai/supercred: "true"
-YAML
-  run_against_fixture
-  [ "$status" -eq 0 ]
-}
-
-@test "PASSES on an empty tree" {
-  run_against_fixture
+  rm -f "${FIXTURE}/d2-osramp-fleet/apps.yaml"
+  run_fixture
   [ "$status" -eq 0 ]
 }

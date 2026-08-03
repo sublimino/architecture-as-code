@@ -5,7 +5,7 @@ import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AgentPosture, NHIAccount } from '../types/api'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 // NOTE: this view is not currently routed — /agents renders pages/AgentsPage.
 // It stays on the demo cadence so it cannot drift back if it is ever wired up.
@@ -143,9 +143,9 @@ export default function Agents() {
       {/* Governed tab */}
       {tab === 'governed' && (
         govLoading ? (
-          <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 48 }}>Loading…</div>
+          <LoadingState variant="block" status="loading" label="governed agents" testId="governed-load-state" />
         ) : govError ? (
-          <ErrorState message={govError} onRetry={loadGoverned} />
+          <LoadingState variant="block" status="error" label="governed agents" error={govError} onRetry={loadGoverned} testId="governed-load-state" />
         ) : governed.length === 0 ? (
           <EmptyState kicker="No governed agents" body="Agents appear here after enrollment via the registry API." />
         ) : (
@@ -158,9 +158,9 @@ export default function Agents() {
       {/* Discovered tab */}
       {tab === 'discovered' && (
         disLoading ? (
-          <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 48 }}>Loading…</div>
+          <LoadingState variant="block" status="loading" label="discovered accounts" testId="discovered-load-state" />
         ) : disError ? (
-          <ErrorState message={disError} onRetry={loadDiscovered} />
+          <LoadingState variant="block" status="error" label="discovered accounts" error={disError} onRetry={loadDiscovered} testId="discovered-load-state" />
         ) : discovered.length === 0 ? (
           <EmptyState kicker="No discovered accounts" body="Trigger an NHI scan to discover service accounts in your directory." />
         ) : (

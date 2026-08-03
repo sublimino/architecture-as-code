@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import LoadingState from './LoadingState'
 
 interface Props {
   onClose: () => void
@@ -94,7 +95,7 @@ export default function CookieSettingsModal({ onClose }: Props) {
         </div>
 
         {loading ? (
-          <p style={{ color: 'var(--muted, #94A3B8)', fontSize: 13 }}>Loading preferences…</p>
+          <LoadingState status="loading" label="preferences" testId="cookie-prefs-load-state" />
         ) : (
           <>
             {/* Strictly necessary */}

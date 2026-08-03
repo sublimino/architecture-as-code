@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { colors } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import { tint } from '../components/StatusBadge'
+import LoadingState, { loadPhase } from '../components/LoadingState'
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import type { PostureSummary } from '../types/compliance'
 
@@ -77,11 +78,15 @@ export default function RiskExposurePage() {
         </div>
       </div>
 
-      {error && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
-          {error}
-        </div>
-      )}
+      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        <LoadingState
+          status={loadPhase({ loading, error, loaded: summary !== null })}
+          label="risk data"
+          error={error}
+          onRetry={() => loadSummary(selectedVersion)}
+          testId="risk-load-state"
+        />
+      </div>
 
       {/* Big stat cards */}
       {summary && (
@@ -197,7 +202,9 @@ export default function RiskExposurePage() {
             >
               {VERSIONS.map((v) => <option key={v} value={v}>{v}</option>)}
             </select>
-            {loading && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</span>}
+            {/* Status for this control lives in the page-level LoadingState
+                above. A second live region repeating the same text makes
+                screen readers announce every refresh twice. */}
           </div>
           {summary && (
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>

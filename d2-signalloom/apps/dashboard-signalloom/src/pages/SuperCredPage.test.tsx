@@ -405,7 +405,7 @@ describe('SuperCredPage', () => {
     renderPage()
     await refresh()
     expect(await screen.findByTestId('supercred-error')).toHaveTextContent(/proxy unreachable/)
-    expect(screen.getByRole('heading', { level: 1, name: /SuperCred Demo/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: 'SuperCredential Demo' })).toBeInTheDocument()
   })
 
   // ─── Architecture overview ──────────────────────────────────────────────

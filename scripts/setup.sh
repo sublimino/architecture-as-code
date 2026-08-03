@@ -19,16 +19,17 @@ MODE="${1:-all}"
 
 KIND_VERSION="v0.29.0"
 KUBECTL_VERSION="v1.33.2"
-KUSTOMIZE_VERSION="v5.6.0"
+KUSTOMIZE_VERSION="v5.8.1"   # install-ci-tools.sh installs 5.8.1 first; this said 5.6.0 and never applied
 FLUX_VERSION="2.6.4"
 HELM_VERSION="v3.18.4"
 COSIGN_VERSION="v3.0.6"
 SYFT_VERSION="v1.28.0"
 GRYPE_VERSION="v0.95.0"
-GO_VERSION="1.23.10"
+GO_VERSION="1.24.5"   # install-ci-tools.sh installs 1.24.5 first; this said 1.23.10 and never applied
 GOVULNCHECK_VERSION="v1.1.4"
 VEXCTL_VERSION="v0.3.0"
-BATS_VERSION="v1.11.0"
+WITNESS_VERSION="0.9.1"   # tarball naming omits the v; see the install block below
+BATS_VERSION="v1.14.0"   # install-ci-tools.sh installs 1.14.0 first; this said 1.11.0 and never applied
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m); case "${ARCH}" in x86_64) ARCH=amd64 ;; aarch64|arm64) ARCH=arm64 ;; esac
@@ -78,7 +79,18 @@ install_tools() {
   have cosign || fetch_bin cosign "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-${OS}-${ARCH}"
   have syft || { echo "installing syft"; curl -fsSL https://raw.githubusercontent.com/anchore/syft/main/install.sh | ${SUDO} sh -s -- -b "${BIN_DIR}" "${SYFT_VERSION}"; }
   have grype || { echo "installing grype"; curl -fsSL https://raw.githubusercontent.com/anchore/grype/main/install.sh | ${SUDO} sh -s -- -b "${BIN_DIR}" "${GRYPE_VERSION}"; }
-  have witness || { echo "installing witness"; curl -fsSL https://raw.githubusercontent.com/in-toto/witness/main/install-witness.sh | INSTALL_DIR="${BIN_DIR}" ${SUDO} bash; }
+  # Pinned tarball, not the install script off `main`.
+  #
+  # This was the only tool in either installer with NO version: it piped
+  # install-witness.sh from the main branch, so what CI got depended on when it
+  # ran. For a supply-chain attestation tool that is the wrong tool to leave
+  # floating, and it makes a green run unreproducible by construction.
+  have witness || {
+    echo "installing witness ${WITNESS_VERSION}"
+    curl -fsSL "https://github.com/in-toto/witness/releases/download/v${WITNESS_VERSION}/witness_${WITNESS_VERSION}_${OS}_${ARCH}.tar.gz" \
+      | ${SUDO} tar -xzf - -C "${BIN_DIR}" witness
+    ${SUDO} chmod +x "${BIN_DIR}/witness"
+  }
 
   if ! have go; then
     echo "installing go ${GO_VERSION}"

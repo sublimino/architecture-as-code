@@ -175,7 +175,7 @@ all_three() {
 }
 
 @test "no recovery is attempted when kind load delivers everything" {
-	export KIND_LOADS="cardvault:local policy-engine:local cardvault-agent:local"
+	export KIND_LOADS="cardvault:local policy-engine:local cardvault-agent:local supercred-demo-runner:local"
 
 	run "$script" load
 	[ "$status" -eq 0 ]
@@ -188,7 +188,10 @@ all_three() {
 	run "$script" build
 	[ "$status" -eq 0 ]
 	run grep -c -- '--platform linux/' "$CALL_LOG"
-	[ "$output" -eq 3 ]
+	# One per entry in SUPERCRED_IMAGES: cardvault, policy-engine,
+	# cardvault-agent, supercred-demo-runner. Adding an image without a
+	# platform pin still fails this test.
+	[ "$output" -eq 4 ]
 }
 
 @test "a failed docker build aborts instead of loading a stale image" {

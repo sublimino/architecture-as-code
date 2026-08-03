@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -6,6 +6,7 @@ import {
   ReactFlow,
   ReactFlowProvider,
   ViewportPortal,
+  useReactFlow,
   type Node,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -68,6 +69,24 @@ function computeHighlight(activeId: string | null, activeKind: 'node' | 'edge' |
 
 function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTopologyCanvasProps) {
   const [hover, setHover] = useState<Selection | null>(null)
+  const { fitView } = useReactFlow()
+
+  /**
+   * Re-frame whenever the visible set changes.
+   *
+   * `fitView` as a prop only runs on first render. Every filter after that left
+   * the viewport where it was, so narrowing to one tenant squeezed the whole
+   * diagram into the top-left corner of a mostly-empty canvas at a fraction of
+   * its readable size -- the filter appeared to have broken the page.
+   *
+   * Animating the refit rather than snapping is the point at which the
+   * viewport movement carries meaning: you see the topology close in on what
+   * you asked for instead of being teleported somewhere new.
+   */
+  const visibleSignature = nodes.map(node => node.id).join('|')
+  useEffect(() => {
+    fitView({ padding: 0.08, duration: 420 })
+  }, [fitView, visibleSignature])
 
   const boundaries = useMemo(() => deriveBoundaries(nodes), [nodes])
   const band = useMemo(() => deriveExternalBand(nodes, CANVAS_HEIGHT), [nodes])

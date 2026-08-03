@@ -115,6 +115,14 @@ export default function AgentTrustTopologyPage() {
   const reset = () => { setPlane('identity'); setTenant('all'); setLocation('all'); setEvidence('all'); setDecision('all') }
   const counts = { observed: trustNodes.filter(item => item.evidence === 'observed').length + trustEdges.filter(item => item.evidence === 'observed').length, modeled: trustNodes.filter(item => item.evidence === 'modeled').length + trustEdges.filter(item => item.evidence === 'modeled').length, fixture: trustNodes.filter(item => item.evidence === 'fixture').length + trustEdges.filter(item => item.evidence === 'fixture').length }
   const inspectorAccent = visual[(node ?? edge)?.evidence ?? 'modeled'].color
+  // The inspector is deliberately persistent, so a filter can leave it
+  // describing something that is no longer on the canvas. Keeping the detail is
+  // right -- losing your place on every filter change would be worse -- but
+  // presenting it silently is not: the reader has no way to tell that the thing
+  // they are reading about is not the thing in front of them.
+  const pinnedOutOfView = node
+    ? !nodes.some(item => item.id === node.id)
+    : edge ? !edges.some(item => item.id === edge.id) : false
   return <div style={{ paddingBottom: 32 }}>
     <style>{`.trust-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px}.trust-native-list{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-top:1px solid var(--border)}.trust-native-list button:focus-visible,.topology-control:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}@media(max-width:1024px){.trust-layout{grid-template-columns:1fr}.trust-native-list{display:flex}}`}</style>
     <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Agent Trust Topology</h1>
@@ -142,6 +150,11 @@ export default function AgentTrustTopologyPage() {
             inspector states its own confidence before you read a word of it. */}
         <div className="trust-inspector__rail" style={{ left: 10, top: 16, bottom: 16, background: inspectorAccent }} />
         <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 10 }}>Persistent inspector</div>
+        {pinnedOutOfView && (
+          <div role="status" style={{ border: '1px solid var(--amber)', background: 'rgba(217,119,6,.12)', color: 'var(--text)', padding: '7px 9px', borderRadius: 5, fontSize: 11, marginBottom: 10 }}>
+            Not in the current view — the filters above exclude this item.
+          </div>
+        )}
         <div className="trust-inspector__body" key={`${selected.type}:${selected.id}`}>
           {node && <><h2 style={{ fontSize: 16 }}>{node.label}</h2><TrustPath nodeId={node.id} /><AssuranceMeter evidence={node.evidence} /><Detail label="SPIFFE ID" value={node.spiffeId} /><Detail label="Namespace / service account" value={node.namespace && node.serviceAccount ? `${node.namespace} / ${node.serviceAccount}` : undefined} /><Detail label="Selectors" value={node.selectors?.join(', ')} /><Detail label="OpenBao role / path / audience / TTL" value={[node.baoRole, node.baoPath, node.audience, node.ttl && `TTL: ${node.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Provider assertion / binding" value={node.providerAssertion} /><Detail label="Key custody / export" value={node.keyCustody} /><Detail label="Rotation / reload" value={node.rotationReload} /><Detail label="Trust bundle" value={node.trustBundle} /><Detail label="De-enrollment" value={node.deEnrollment} /><Detail label="Production gap" value={node.productionGap} /><Detail label="Source" value={node.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[node.evidence].label} · ${node.freshness} · ${node.assurance}`} /><Detail label="Reason" value={node.reason} /></>}
           {edge && <><h2 style={{ fontSize: 16 }}>{edge.verb}</h2>{edge.denialKind && <div style={{ border: '1px solid var(--error)', background: 'rgba(220,38,38,.1)', padding: 8, borderRadius: 5, fontSize: 12, marginBottom: 10 }}>{edge.denialKind === 'network-block' ? 'Network block' : 'Application authorization rejection'}</div>}<AssuranceMeter evidence={edge.evidence} /><Detail label="Plane / decision" value={`${edge.plane} · ${edge.decision}`} /><Detail label="OpenBao role / path / audience / TTL" value={[edge.baoRole, edge.baoPath, edge.audience, edge.ttl && `TTL: ${edge.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Policy reference" value={edge.policyRef} /><Detail label="Source" value={edge.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[edge.evidence].label} · ${edge.freshness} · ${edge.assurance}`} /><Detail label="Failure / denial reason" value={edge.reason} /></>}

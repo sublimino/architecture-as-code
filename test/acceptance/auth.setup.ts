@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { test as setup, expect } from "@playwright/test";
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://dashboard.osramp.acme.local:30754";
@@ -28,4 +29,18 @@ setup("authenticate via Dex", async ({ page }) => {
   });
 
   await page.context().storageState({ path: "test-results/.auth-state.json" });
+
+  // The OIDC token lives in sessionStorage, not localStorage, so that a shared
+  // demo link cannot hand the next visitor the previous one's session (see
+  // dashboard-signalloom/src/auth/oidc.tsx). Playwright's storageState captures
+  // cookies and localStorage only — sessionStorage is per-tab and is NOT in it.
+  //
+  // Without this the dependent projects load .auth-state.json, find no token,
+  // and every journey test lands back on the Dex login page. Observed as 10 of
+  // 11 failing the moment the dashboard moved off localStorage.
+  //
+  // So dump sessionStorage here and let the journey project replay it into each
+  // new context before the app boots (see fixtures.ts).
+  const sessionState = await page.evaluate(() => JSON.stringify(window.sessionStorage));
+  writeFileSync("test-results/.auth-session.json", sessionState);
 });

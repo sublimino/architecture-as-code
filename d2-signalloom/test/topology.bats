@@ -64,3 +64,32 @@ assert 'apiGroups: [""]' in rules, 'agent-inventory-reader must stay in the core
 PY
   [ "$status" -eq 0 ]
 }
+
+@test "Signal Loom artifact packages the SuperCred runner beside frontend manifests" {
+  run python3 - "$repo_root" <<'PY'
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+root = Path(sys.argv[1])
+push = (root / "scripts/push-local.sh").read_text()
+activate = (root / "scripts/signalloom-local.sh").read_text()
+restore = (root / "scripts/signalloom-up.sh").read_text()
+
+assert '"signalloom/apps/fe-signalloom|d2-signalloom/apps"' in push
+assert '"environment":"fe-signalloom/local"' in activate
+assert '"environment":"fe-signalloom/local"' in restore
+
+with tempfile.TemporaryDirectory() as temporary:
+    artifact = Path(temporary) / "apps"
+    shutil.copytree(root / "d2-signalloom/apps", artifact)
+    subprocess.run(
+        ["kubectl", "kustomize", str(artifact / "fe-signalloom/local")],
+        check=True,
+        stdout=subprocess.DEVNULL,
+    )
+PY
+  [ "$status" -eq 0 ]
+}

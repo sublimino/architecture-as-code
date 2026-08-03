@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { colors } from '../styles/tokens'
+import { useAuth0 } from '../auth/oidc'
 import { invalidateSuperCredState } from '../api/supercredSource'
 import {
   fetchDemoRun,
@@ -79,6 +80,7 @@ interface Props {
 }
 
 export default function SuperCredInstructorPanel({ superadmin, onRefreshClients }: Props) {
+  const { getAccessTokenSilently } = useAuth0()
   const [steps, setSteps] = useState<DemoStep[]>([])
   const [status, setStatus] = useState<DemoRunnerStatus | null>(null)
   const [activeRun, setActiveRun] = useState<DemoRunView | null>(null)
@@ -94,7 +96,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
   const loadStatus = useCallback(async () => {
     try {
-      const next = await fetchDemoStatus()
+      const next = await fetchDemoStatus(await getAccessTokenSilently())
       setStatus(next)
       setRunnerError(null)
       // Adopt a run another instructor (or a previous page load) started, so two
@@ -106,12 +108,13 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       setStatus(null)
       return null
     }
-  }, [])
+  }, [getAccessTokenSilently])
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
-      const [stepResult, statusResult] = await Promise.allSettled([fetchDemoSteps(), fetchDemoStatus()])
+      const token = await getAccessTokenSilently()
+      const [stepResult, statusResult] = await Promise.allSettled([fetchDemoSteps(token), fetchDemoStatus(token)])
       if (cancelled) return
       if (stepResult.status === 'fulfilled') setSteps(stepResult.value)
       if (statusResult.status === 'fulfilled') {
@@ -127,7 +130,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [getAccessTokenSilently])
 
   /**
    * Read whatever output landed after the run finished.
@@ -138,7 +141,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const drainLog = useCallback(async (runId: string) => {
     try {
       for (let read = 0; read < MAX_DRAIN_READS; read++) {
-        const chunk = await fetchDemoRunLog(runId, offsetRef.current)
+        const chunk = await fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently())
         if (chunk.chunk) setLog(prev => prev + chunk.chunk)
         if (chunk.next_offset === offsetRef.current) break
         offsetRef.current = chunk.next_offset
@@ -147,7 +150,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     } catch {
       /* the tail is best effort — the run status is the authoritative outcome */
     }
-  }, [])
+  }, [getAccessTokenSilently])
 
   const finishRun = useCallback(
     async (runId: string) => {
@@ -170,8 +173,8 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       void (async () => {
         try {
           const [run, chunk] = await Promise.all([
-            fetchDemoRun(runId),
-            fetchDemoRunLog(runId, offsetRef.current).catch(() => null),
+            fetchDemoRun(runId, await getAccessTokenSilently()),
+            fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
           ])
           if (stopped) return
           if (chunk) {
@@ -190,7 +193,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       stopped = true
       clearInterval(timer)
     }
-  }, [running, runId, finishRun])
+  }, [running, runId, finishRun, getAccessTokenSilently])
 
   const startRun = useCallback(
     async (start: () => Promise<DemoRunView>) => {
@@ -344,7 +347,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
                   data-testid="supercred-reset-confirm"
                   onClick={() => {
                     setResetArmed(false)
-                    void startRun(resetDemo)
+                    void startRun(async () => resetDemo(await getAccessTokenSilently()))
                   }}
                   disabled={runsBlocked}
                   style={{ fontSize: 12, padding: '6px 14px', color: colors.red, borderColor: colors.red }}
@@ -370,7 +373,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
                 className="btn btn-secondary"
                 data-testid={`supercred-run-step-${step.step_id}`}
                 title={step.description}
-                onClick={() => void startRun(() => startDemoRun(step.step_id))}
+                onClick={() => void startRun(async () => startDemoRun(step.step_id, await getAccessTokenSilently()))}
                 disabled={runsBlocked}
                 style={{
                   fontSize: 12, padding: '6px 12px',

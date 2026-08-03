@@ -23,6 +23,7 @@ interface Recorded {
   url: string
   method: string
   body: unknown
+  headers: HeadersInit | undefined
 }
 
 let calls: Recorded[] = []
@@ -34,6 +35,7 @@ function mockFetch(handler: (url: string) => { status?: number; payload?: unknow
       url,
       method: (init?.method ?? 'GET').toUpperCase(),
       body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      headers: init?.headers,
     })
     const result = handler(url)
     const status = result.status ?? 200
@@ -95,6 +97,12 @@ describe('demoRunner endpoints', () => {
     expect(status.active?.run_id).toBe('run-1')
     expect(status.recent).toHaveLength(1)
     expect(status.script_available).toBe(true)
+  })
+
+  it('forwards the authenticated caller token to the runner', async () => {
+    mockFetch(() => ({ payload: { active: null, recent: [], script_available: true } }))
+    await fetchDemoStatus('demo-token')
+    expect(calls[0].headers).toEqual({ Authorization: 'Bearer demo-token' })
   })
 
   it('treats a missing script_available as not available', async () => {

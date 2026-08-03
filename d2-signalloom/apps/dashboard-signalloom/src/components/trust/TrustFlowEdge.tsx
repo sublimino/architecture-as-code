@@ -17,6 +17,8 @@ export type TrustFlowEdgeData = {
    * position per edge separates them without moving the lines.
    */
   labelAt: number
+  /** Perpendicular nudge, px, chosen by the anti-overlap pass. */
+  labelOffset: number
   selected: boolean
   hot: boolean
   dim: boolean
@@ -41,7 +43,7 @@ export type TrustFlowEdgeData = {
  *     way and comes back. The page draws a hard distinction between these two
  *     denials in text; now the motion draws it too.
  */
-function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, onSelect, onHover }: TrustFlowEdgeData) {
+function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, labelOffset, selected, hot, dim, onSelect, onHover }: TrustFlowEdgeData) {
   const v = visual[edge.evidence]
   const denied = edge.decision === 'denied'
   const treatment = denialTreatment(edge.decision, edge.denialKind)
@@ -53,7 +55,9 @@ function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, on
     dim && 'trust-edge--dim',
   ].filter(Boolean).join(' ')
 
-  const label = pointAt(geom.start, geom.control, geom.end, labelAt)
+  const labelPoint = pointAt(geom.start, geom.control, geom.end, labelAt)
+  const labelTangent = tangentAt(geom.start, geom.control, geom.end, labelAt)
+  const label = { x: labelPoint.x - labelTangent.y * labelOffset, y: labelPoint.y + labelTangent.x * labelOffset }
   const wall = pointAt(geom.start, geom.control, geom.end, wallAt)
   const wallTangent = tangentAt(geom.start, geom.control, geom.end, wallAt)
   const wallAngle = (Math.atan2(wallTangent.y, wallTangent.x) * 180) / Math.PI
@@ -78,7 +82,7 @@ function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, on
             className="trust-edge__line"
             d={blocked.before}
             stroke={stroke}
-            strokeWidth={selected ? 3.4 : 2.4}
+            strokeWidth={5}
             strokeOpacity={v.restOpacity}
             strokeDasharray={v.dash === 'none' ? undefined : v.dash}
           />
@@ -96,16 +100,40 @@ function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, on
           className="trust-edge__line"
           d={geom.d}
           stroke={stroke}
-          strokeWidth={selected ? 3.4 : 2.2}
+          strokeWidth={denied ? 5 : selected ? 3.4 : 2.2}
           strokeOpacity={v.restOpacity}
           strokeDasharray={v.dash === 'none' ? undefined : v.dash}
           markerEnd={denied ? undefined : `url(#trust-arrow-${edge.evidence})`}
         />
       )}
 
+      {/* Denied edges get a hollow centre: a surface-coloured stroke railroaded
+       * down the middle of a heavier one.
+       *
+       * Decision cannot be carried by colour. In the "andy" theme --error and
+       * --cyan are 1.29:1 apart -- both red -- and a denied edge keeps its
+       * evidence dasharray, so a modeled-allowed and a modeled-denied edge came
+       * out identical: same hue, same 9 5 dash, same weight. Dash is spoken for
+       * by evidence, so decision takes the one channel still free, which is the
+       * shape of the stroke itself. */}
+      {denied && (
+        <path
+          className="trust-edge__line"
+          d={treatment === 'wall' ? blocked.before : geom.d}
+          stroke="var(--surface)"
+          strokeWidth={1.8}
+          strokeDasharray={v.dash === 'none' ? undefined : v.dash}
+          fill="none"
+        />
+      )}
+
       {/* Marching packets. pathLength=100 normalises the dash pattern so the
           cadence is identical on a short edge and a long one -- speed then
-          means evidence, not distance. */}
+          means evidence, not distance.
+       *
+       * No drop-shadow: a per-frame GPU blur on every edge simultaneously, and
+       * it smeared the packets into an irregular shimmer against the dashed
+       * line underneath rather than reading as dots travelling along it. */}
       {!denied && (
         <path
           className="trust-edge__flow"
@@ -117,7 +145,6 @@ function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, on
           style={{
             animationDuration: `${v.flowSeconds}s`,
             animationTimingFunction: v.timing,
-            filter: `drop-shadow(0 0 4px ${stroke})`,
           }}
         />
       )}
@@ -143,7 +170,7 @@ function TrustFlowEdgeImpl({ edge, geom, wallAt, labelAt, selected, hot, dim, on
         x={label.x}
         y={label.y - 9}
         textAnchor="middle"
-        fill={denied ? 'var(--error)' : 'var(--text)'}
+        fill={denied ? 'color-mix(in srgb, var(--error) 60%, var(--text))' : 'var(--text)'}
         fontSize={10}
         opacity={dim ? 0.2 : 1}
       >

@@ -29,7 +29,7 @@ function TrustFlowNodeImpl({ data }: NodeProps) {
   const v = visual[node.evidence]
   const isExternal = node.location === 'external'
   const accent = isExternal ? 'var(--amber)' : v.color
-  const glow = isExternal ? 'var(--amber-glow)' : v.tint
+  const glow = isExternal ? 'color-mix(in srgb, var(--amber) 44%, transparent)' : v.tint
 
   const classes = [
     'trust-node',

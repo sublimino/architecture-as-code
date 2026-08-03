@@ -35,7 +35,15 @@ export type EvidenceVisual = {
    */
   borderStyle: 'solid' | 'dashed' | 'dotted'
   color: string
-  /** Themed low-alpha fill for node backgrounds and boundary tints. */
+  /**
+   * Low-alpha fill, mixed from the theme-switched base.
+   *
+   * NOT --cyan-bg and friends: those live only in global.css's :root and are
+   * absent from CSS_VAR_NAMES, so applyTheme never rewrites them. They stayed
+   * frozen at their dark-theme values in every theme -- which put teal-cyan
+   * fills on three nodes in the all-red "andy" theme, and two different cyans
+   * in one component under Light. color-mix on the base tracks the theme.
+   */
   tint: string
   /** Seconds for one flow cycle. Higher = less convincing, by design. */
   flowSeconds: number
@@ -53,7 +61,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     dash: 'none',
     borderStyle: 'solid',
     color: 'var(--teal)',
-    tint: 'var(--teal-bg)',
+    tint: 'color-mix(in srgb, var(--teal) 20%, transparent)',
     flowSeconds: 2.2,
     restOpacity: 1,
     timing: 'linear',
@@ -64,7 +72,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     dash: '9 5',
     borderStyle: 'dashed',
     color: 'var(--violet)',
-    tint: 'var(--violet-bg)',
+    tint: 'color-mix(in srgb, var(--violet) 20%, transparent)',
     flowSeconds: 6,
     restOpacity: 0.72,
     timing: 'linear',
@@ -75,7 +83,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     dash: '2 5',
     borderStyle: 'dotted',
     color: 'var(--cyan)',
-    tint: 'var(--cyan-bg)',
+    tint: 'color-mix(in srgb, var(--cyan) 20%, transparent)',
     flowSeconds: 3.4,
     restOpacity: 0.9,
     timing: 'linear',
@@ -86,7 +94,7 @@ export const visual: Record<EvidenceState, EvidenceVisual> = {
     dash: '2 5',
     borderStyle: 'dotted',
     color: 'var(--amber)',
-    tint: 'var(--amber-bg)',
+    tint: 'color-mix(in srgb, var(--amber) 20%, transparent)',
     flowSeconds: 4.5,
     restOpacity: 0.8,
     timing: 'steps(9, end)',

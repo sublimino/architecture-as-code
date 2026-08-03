@@ -128,6 +128,93 @@ export function tangentAt(p0: Point, c: Point, p1: Point, t: number): Point {
   return { x: x / len, y: y / len }
 }
 
+export type Rect = { x: number; y: number; width: number; height: number }
+
+/**
+ * Everything an edge label must not cover.
+ *
+ * Exported so the canvas and the tests share one definition. The last time a
+ * layout rule existed in two places (the arc `bow`), the test asserted against
+ * a curve the application never drew.
+ */
+export function reservedForLabels(
+  nodes: { x: number; y: number }[],
+  boundaries: Boundary[],
+): Rect[] {
+  return [
+    // The strip at the top of each region carries its label and caption.
+    ...boundaries.map(b => ({ x: b.x, y: b.y, width: b.width, height: 30 })),
+    ...nodes.map(n => ({ x: n.x - NODE_W / 2 - 4, y: n.y - NODE_H / 2 - 4, width: NODE_W + 8, height: NODE_H + 8 })),
+  ]
+}
+
+export type LabelCandidate = { id: string; geom: EdgeGeometry; text: string }
+export type LabelPlacement = { id: string; at: number; offset: number }
+
+/** Approximate width of a 10px label. Close enough to reserve space with. */
+export function labelRect(geom: EdgeGeometry, text: string, at: number, offset: number): Rect {
+  const p = pointAt(geom.start, geom.control, geom.end, at)
+  const tangent = tangentAt(geom.start, geom.control, geom.end, at)
+  // Push perpendicular to the curve, so a nudged label still reads as belonging
+  // to its own line rather than drifting onto a neighbouring one.
+  const width = Math.max(text.length * 5.4, 24)
+  const height = 12
+  return {
+    x: p.x + -tangent.y * offset - width / 2,
+    y: p.y + tangent.x * offset - 9 - height,
+    width,
+    height,
+  }
+}
+
+function hits(a: Rect, b: Rect): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+}
+
+/**
+ * Places edge labels so they do not print on top of each other or of the
+ * boundary captions.
+ *
+ * The previous approach staggered each label to a fixed slot chosen by how many
+ * edges already touched its endpoints. That is the wrong variable: two labels
+ * collide because of where they land on screen, not because of what they are
+ * attached to. It left "SPIRE issues SVID" printing through "ACME RISK
+ * BOUNDARY", and "planner invokes triage" through "cross-project application
+ * denial" -- 43px and 68px of overlap measured in Chrome.
+ *
+ * This tries positions along the curve and perpendicular to it, takes the first
+ * that is clear, and reserves it. Greedy and order-dependent, which is fine:
+ * the input order is stable, so the layout is deterministic.
+ */
+export function placeLabels(candidates: LabelCandidate[], reserved: Rect[]): LabelPlacement[] {
+  const ATS = [0.5, 0.38, 0.62, 0.3, 0.7, 0.24, 0.76]
+  const OFFSETS = [0, -15, 15, -29, 29]
+  const taken = [...reserved]
+  const out: LabelPlacement[] = []
+
+  for (const candidate of candidates) {
+    let best: LabelPlacement = { id: candidate.id, at: 0.5, offset: 0 }
+    let bestRect = labelRect(candidate.geom, candidate.text, 0.5, 0)
+    let placed = false
+
+    for (const offset of OFFSETS) {
+      for (const at of ATS) {
+        const rect = labelRect(candidate.geom, candidate.text, at, offset)
+        if (taken.some(other => hits(rect, other))) continue
+        best = { id: candidate.id, at, offset }
+        bestRect = rect
+        placed = true
+        break
+      }
+      if (placed) break
+    }
+
+    taken.push(bestRect)
+    out.push(best)
+  }
+  return out
+}
+
 /**
  * Where along the edge the blocking wall stands.
  *

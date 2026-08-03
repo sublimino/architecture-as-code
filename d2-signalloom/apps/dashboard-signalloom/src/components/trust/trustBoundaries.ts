@@ -37,7 +37,8 @@ export type Boundary = {
 }
 
 const PAD = { tenant: 34, project: 16 }
-const LABEL_HEADROOM = 24
+// Two lines now (label + caption), so the boxes need more clear space on top.
+const LABEL_HEADROOM = 32
 
 /**
  * External nodes are deliberately excluded from every boundary. A workload in

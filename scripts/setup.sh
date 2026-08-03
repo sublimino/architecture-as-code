@@ -82,7 +82,6 @@ anchore_bin() { # name version sha256
   [ "$rc" -eq 0 ] || echo "ERROR: $1 $2 failed verification or install; refusing to continue" >&2
   return "$rc"
 }
-
 go_install_bin() { # name package@version
   local tmp
   tmp="$(mktemp -d)"

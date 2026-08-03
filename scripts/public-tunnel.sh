@@ -37,12 +37,15 @@ PF_LOG_FILE="${TUNNEL_DIR}/port-forward.log"
 PF_SUPERVISOR_PID_FILE="${TUNNEL_DIR}/pf-supervisor.pid"
 COOKIE_TOKEN_FILE="${TUNNEL_DIR}/cookie-token"
 DEX_BACKUP_FILE="${TUNNEL_DIR}/dex-backup.yaml"
+API_ISSUER_BACKUP_FILE="${TUNNEL_DIR}/api-issuer-backup"
 POLICY_FILE="${TUNNEL_DIR}/traffic-policy.yaml"
 SNAP_POLICY_COPY="${REPO_ROOT}/tunnel-policy.yaml"
 
 DEX_NAMESPACE="inf-signalloom"
 DEX_SECRET_NAME="dex-local-auth"
 DEX_DEPLOYMENT="dex"
+API_NAMESPACE="fe-signalloom"
+API_DEPLOYMENT="fe-signalloom"
 DASHBOARD_NAMESPACE="fe-signalloom"
 DASHBOARD_SERVICE="dashboard-signalloom"
 DASHBOARD_PORT=8080
@@ -238,6 +241,43 @@ patch_dex_secret() {
   sleep 2
   wait_rollout "$DEX_DEPLOYMENT" -n "$DEX_NAMESPACE" 120
   echo "    Dex restarted and ready"
+}
+
+# ── API issuer ───────────────────────────────────────────────────────
+#
+# Patching Dex alone is not enough. The API validates the `iss` claim against
+# API_JWT_ISSUER, so the moment Dex starts issuing under the ngrok host, every
+# token the dashboard presents is rejected: you log in successfully and then
+# watch an empty dashboard while every request 401s. That is a far more
+# confusing failure than being unable to log in at all.
+#
+# API_JWKS_URL is left alone deliberately -- it points at the in-cluster Dex
+# service and the signing keys do not change with the issuer.
+patch_api_issuer() {
+  local ngrok_url="$1" current
+  current="$(kubectl get deploy "$API_DEPLOYMENT" -n "$API_NAMESPACE" \
+    -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='API_JWT_ISSUER')].value}" 2>/dev/null || true)"
+
+  if [[ -n "$current" ]]; then
+    printf '%s' "$current" > "$API_ISSUER_BACKUP_FILE"
+  fi
+
+  kubectl set env "deploy/${API_DEPLOYMENT}" -n "$API_NAMESPACE" \
+    "API_JWT_ISSUER=${ngrok_url}/dex" >/dev/null
+  echo "    API issuer patched to ${ngrok_url}/dex"
+  wait_rollout "$API_DEPLOYMENT" -n "$API_NAMESPACE" 180
+  echo "    API restarted and ready"
+}
+
+restore_api_issuer() {
+  if [[ ! -f "$API_ISSUER_BACKUP_FILE" ]]; then
+    echo "    No API issuer backup found — skipping restore"
+    return 0
+  fi
+  kubectl set env "deploy/${API_DEPLOYMENT}" -n "$API_NAMESPACE" \
+    "API_JWT_ISSUER=$(cat "$API_ISSUER_BACKUP_FILE")" >/dev/null
+  echo "    API issuer restored"
+  wait_rollout "$API_DEPLOYMENT" -n "$API_NAMESPACE" 180
 }
 
 restore_dex_secret() {
@@ -446,6 +486,9 @@ cmd_up() {
   echo "==> Patching Dex for public URL..."
   patch_dex_secret "$url"
 
+  echo "==> Patching API token issuer to match..."
+  patch_api_issuer "$url"
+
   # 8. Prove it actually serves before telling anyone it is up. Everything
   #    above can succeed against a tunnel that 502s on every request.
   echo "==> Verifying the public URL end to end..."
@@ -550,7 +593,10 @@ kill_ngrok_group() {
 cmd_down() {
   echo "==> Tearing down public tunnel..."
 
-  # 1. Restore Dex.
+  # 1. Restore Dex and the API issuer.
+  echo "==> Restoring API issuer..."
+  restore_api_issuer
+
   echo "==> Restoring Dex secret..."
   restore_dex_secret
 

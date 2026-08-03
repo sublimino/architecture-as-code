@@ -275,5 +275,5 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Label-change re-evaluation works on a running pod | `REACHABLE → BLOCKED` in ~6s, no restart; reversible |
 | `kubectl exec` is unaffected by quarantine | Exec succeeded into a fully quarantined pod — forensic access is preserved for free |
 | An ordinary allow policy silently defeats a quarantine | `BLOCKED → REACHABLE` on adding a routine app policy; `NotIn` guard restores `BLOCKED` |
-| Established connections are never severed | Stream survived 14s+ past the stun; 24h conntrack timeout |
+| Established connections survive — on kindnet, Calico and AWS VPC CNI | Stream survived 14s+ past the stun; 24h conntrack timeout. **NOT true of Cilium**, which re-evaluates policy on every packet (`CT_ESTABLISHED` falls through to the same verdict call as `CT_NEW` in `bpf/bpf_lxc.c`) — established by cross-vendor audit against upstream source, correcting an earlier claim in this document. |
 | Drift correction is silent but logged | 36 `configured` events on one agent pod, none alerted |

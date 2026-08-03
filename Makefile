@@ -437,6 +437,14 @@ check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
 	bats test/supercred-images.bats test/supercred-crictl-shim.bats
 
+.PHONY: demo-signalloom-supercred-api-test
+demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).
+	bats d2-signalloom/test/supercred-demo-api.bats
+
+.PHONY: demo-signalloom-supercred-two-window
+demo-signalloom-supercred-two-window: ## Two-browser-context proof that phase 4 stuns the audience window with no reload (cluster required).
+	./scripts/acceptance-test.sh supercred-two-window.spec.ts
+
 .PHONY: demo-signalloom-supercred-1
 demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy services, agent, OpenBao secrets, SPIRE entry.
 	./scripts/supercred-demo.sh 1

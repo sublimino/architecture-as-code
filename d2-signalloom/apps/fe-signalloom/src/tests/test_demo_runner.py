@@ -329,6 +329,30 @@ def test_non_superadmin_cannot_start_demo_run(client: TestClient) -> None:
     }
 
 
+def test_rejected_run_starts_no_process(client: TestClient) -> None:
+    """403 is the visible half; the load-bearing half is that nothing ran.
+
+    A status code proves the response, not the side effect. If the gate were
+    ever moved BELOW the spawn — or if a future refactor started the
+    subprocess and then authorized — the caller would still see 403 while the
+    demo script had already begun mutating the cluster. So this asserts the
+    runner's own state: no active run, and no run recorded at all.
+    """
+    response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(NON_SUPERADMIN_SUBJECT))
+    assert response.status_code == 403
+
+    # Read the module state directly rather than through /status, which is
+    # itself superadmin-gated — this must not depend on the thing it verifies.
+    assert demo_runner._active is None
+    assert demo_runner._runs == {}
+
+    # And the superadmin's own view agrees: nothing to show.
+    status = client.get("/api/demo/supercred/status", headers=_bearer(SUPERADMIN_SUBJECT))
+    assert status.status_code == 200
+    assert status.json()["active"] is None
+    assert status.json()["recent"] == []
+
+
 def test_non_superadmin_cannot_reset_demo(client: TestClient) -> None:
     response = client.post("/api/demo/supercred/reset", headers=_bearer(NON_SUPERADMIN_SUBJECT))
     assert response.status_code == 403
@@ -340,7 +364,27 @@ def test_non_superadmin_cannot_reset_demo(client: TestClient) -> None:
     }
 
 
-def test_non_superadmin_can_still_read_demo_state(client: TestClient) -> None:
+def test_non_superadmin_reads_phase_state_but_not_the_console(client: TestClient) -> None:
+    """The read routes are split by audience, not opened wholesale.
+
+    This test previously asserted 200 on all four reads. Two of them are the
+    instructor console rather than demo evidence and are now superadmin-only:
+
+      * /status carries `recent` — the run history of a cluster-mutating
+        control plane (which privileged phase ran, when, and whether it
+        failed).
+      * /runs/{id}/log carries the demo script's raw stdout/stderr.
+
+    Both match the design constraint recorded in the ISA: "run/reset controls
+    and raw step logs are superadmin-only; all demo EVIDENCE is visible to any
+    authenticated user". The evidence lives on /agents and /compliance, which
+    is the point of the second demo window — it is not, and never was, in
+    these two payloads.
+
+    /steps (a static phase list) and /runs/{id} (one phase's status) stay open
+    so a non-superadmin still sees phase status and the "Show this on ->"
+    links, which the page requires.
+    """
     start_response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
     run_id = start_response.json()["run_id"]
     _wait_for_terminal_run(client, run_id)
@@ -351,9 +395,36 @@ def test_non_superadmin_can_still_read_demo_state(client: TestClient) -> None:
     log_response = client.get(f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(NON_SUPERADMIN_SUBJECT))
 
     assert steps_response.status_code == 200
-    assert status_response.status_code == 200
     assert run_response.status_code == 200
+    assert status_response.status_code == 403
+    assert status_response.json()["error"]["code"] == "superadmin_required"
+    assert log_response.status_code == 403
+    assert log_response.json()["error"]["code"] == "superadmin_required"
+
+
+def test_superadmin_reads_status_and_log(client: TestClient) -> None:
+    """The other half of the split: tightening the gate must not close it on
+    the identity the instructor panel actually uses."""
+    start_response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
+    run_id = start_response.json()["run_id"]
+    _wait_for_terminal_run(client, run_id)
+
+    status_response = client.get("/api/demo/supercred/status", headers=_bearer(SUPERADMIN_SUBJECT))
+    log_response = client.get(f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT))
+
+    assert status_response.status_code == 200
+    assert status_response.json()["script_available"] is True
     assert log_response.status_code == 200
+
+
+def test_status_and_log_require_authentication_before_authorization(client: TestClient) -> None:
+    """An unauthenticated caller gets 401, not the 403 that would leak the
+    existence of an authorization boundary to an anonymous prober."""
+    status_response = client.get("/api/demo/supercred/status")
+    log_response = client.get("/api/demo/supercred/runs/does-not-exist/log")
+
+    assert status_response.status_code == 401
+    assert log_response.status_code == 401
 
 
 def test_mutating_routes_still_require_authentication_before_authorization(client: TestClient) -> None:

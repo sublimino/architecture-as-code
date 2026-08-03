@@ -83,7 +83,11 @@ spec:
             # Dex emits sub as its connector-encoded id (protobuf of userID+connector),
             # not the raw userID; map that actual sub. (Kept demo-user too for clarity.)
             - name: API_SUBJECT_TENANTS
-              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo"}'
+              # viewer is the non-superadmin identity (dex.yaml staticPasswords).
+              # It is mapped to a tenant so it authenticates cleanly; it is on
+              # neither superadmin allowlist, so a 403 from it proves the
+              # superadmin gate rather than a missing tenant mapping.
+              value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo"}'
             - name: OIDC_PROVIDER
               value: generic
             - name: OIDC_ISSUER_URL

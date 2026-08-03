@@ -93,7 +93,9 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 
 ## Scope Summary
 
-**TRL 2 (Alpha).** The individual enforcement primitives are measured and working on a live cluster; what does not yet exist is a composed, tested, documented control with an un-stun path and an audit trail. This proposal takes measured primitives to an alpha-quality control, not to production.
+**TRL 2 (Alpha).** The full option set, with measured trade-offs, is in **Appendix C**; the GitOps field-ownership mechanisms are in **Appendix E**; claims corrected or still contested during this work are in **Appendix D**, which a reviewer should read before the milestones.
+
+The individual enforcement primitives are measured and working on a live cluster; what does not yet exist is a composed, tested, documented control with an un-stun path and an audit trail. This proposal takes measured primitives to an alpha-quality control, not to production.
 
 ### In Scope Activities
 
@@ -207,8 +209,8 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Milestones Committed To | Duration (days) | Consultants | Person-days | Deadline | Capability Mapping |
 | :---- | :---- | :---- | :---- | :---- | :---- |
 | M1: Reconciler-safe stun fields and static regression guard | | | | | #cap-gitops #cap-flux-taa #cap-policy-as-code |
-| M2: Label-driven network quarantine with enforced `NotIn` guard convention | | | | | #cap-networking #cap-kubernetes #cap-policy-as-code |
-| M3: Conntrack severing; cgroup-freeze feasibility spike and RBAC assessment | | | | | #cap-linux #cap-networking #cap-kubernetes |
+| M2: Tier-1 durable quarantine — `ClusterNetworkPolicy` Admin-tier Deny, with the `NotIn` guard retained as a lint (Appendix C) | | | | | #cap-networking #cap-kubernetes #cap-policy-as-code |
+| M3: Tier-0 immediate containment — host-side veth eBPF spike, privileged node agent threat model and cost (Appendix C.1); conntrack severing; cgroup-freeze feasibility incl. the liveness-probe conflict | | | | | #cap-linux #cap-networking #cap-kubernetes #cap-threat-modelling |
 | Mid-project review: demo of progress, evaluation of further milestones, raising of current and new risks | 0.25 | 2 | 0.5 | | #cap-project-management |
 | M4: Freeze-first composition and tested un-stun path | | | | | #cap-incident-response #cap-kubernetes #cap-architecture |
 | M5: Containment audit trail, drift-correction alerting, Argo CD portability note | | | | | #cap-observability #cap-gitops #cap-documentation |
@@ -263,6 +265,7 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 * `docs/signalloom/stun-under-flux.md` — the design research this proposal is drawn from
 * `docs/signalloom/_research-ebpf-options.md` — enforcement options, measured against the node's nftables ruleset
 * `docs/signalloom/_research-flux-ignore.md` — Flux field-ignore mechanisms in the running version
+* `docs/signalloom/_audit-cato.md`, `_audit-grok.md`, `_audit-gemini.md` — cross-vendor adversarial audits (OpenAI, xAI and Google family) that produced the corrections in Appendix D
 * `[[Proposal — Signal Loom Agent Security Platform (2026-Q3)]]` — parent, area 4
 * `[[Proposal — Signal Loom Agent Security Platform — Critique Appendix (2026-Q3)]]` — B.0 findings 3 and 4
 
@@ -277,3 +280,101 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | An ordinary allow policy silently defeats a quarantine | `BLOCKED → REACHABLE` on adding a routine app policy; `NotIn` guard restores `BLOCKED` |
 | Established connections survive — on kindnet, Calico and AWS VPC CNI | Stream survived 14s+ past the stun; 24h conntrack timeout. **NOT true of Cilium**, which re-evaluates policy on every packet (`CT_ESTABLISHED` falls through to the same verdict call as `CT_NEW` in `bpf/bpf_lxc.c`) — established by cross-vendor audit against upstream source, correcting an earlier claim in this document. |
 | Drift correction is silent but logged | 36 `configured` events on one agent pod, none alerted |
+
+### C. Enforcement options considered — network containment
+
+Four options were assessed. Every row is measured on `kind-osramp` or read from upstream source; none is inferred from marketing.
+
+| | **A. NetworkPolicy + label** | **B. Cilium / eBPF CNI** | **C. Controller watching label** | **D. Host-side veth eBPF** |
+| :---- | :---- | :---- | :---- | :---- |
+| Enforcement point | CNI, cluster-wide | CNI, cluster-wide | whatever it applies | **host end of the pod's veth pair** |
+| Visible to Flux | Yes — object, reverts | Yes — object | depends | **No — kernel state, nothing to reconcile** |
+| Defeated by an additive allow | **Yes, silently** | No (`ingressDeny`) | inherits A's flaw | **No — not a policy object** |
+| Severs established flows | No (24h conntrack) | Disputed — see §D.1 | no | **Yes — per-packet verdict** |
+| Time to deny | ~6s measured | ~5s (grace period) | +controller latency | immediate |
+| L7 rules | No | **Yes** (Envoy) | no | not without extra work |
+| Fail mode | **fail-OPEN** — kill `kindnetd` and every NetworkPolicy stops being enforced, silently | fail-closed | n/a | fail-closed while attached |
+| Survives pod restart | Yes | Yes | Yes | **No — netns is recreated** |
+| Visible to `kubectl` | Yes | Yes | Yes | **No — needs agent reporting** |
+| Build cost | ~40 lines YAML | cluster rebuild, a day+ | new component | privileged node agent |
+| Verdict | ship now, as the durable record | correct 12-month target, wrong move now | not justified over A | **best immediate primitive** |
+
+**Why D is architecturally distinct.** Options A, B and C all express containment as configuration. D expresses it as kernel state, which gives it the same property that makes a cgroup freeze attractive: the reconciler cannot see it, so it cannot revert it, so no `spec.ignore` or `reconcile: disabled` is needed for the *enforcement* half at all.
+
+**Enforce on the host end, not inside the container's netns.** The pod's veth pair is enumerable from the node (`vethe5279aad@if2 … link-netns cni-…`). Attaching inside the container namespace assumes the workload lacks `CAP_NET_ADMIN` — true for this agent today by containerd's default capability set, but *implicit rather than asserted*, and this is the pod whose empty `securityContext` is the demo's own compliance finding. The host end is unreachable from the container regardless of its capabilities.
+
+#### C.1 Recommended composition — three tiers by scope and lifetime
+
+Not OSI layers; enforcement tiers with deliberately different properties, so that compromising or losing one does not remove the others.
+
+| Tier | Mechanism | Latency | Lifetime | Revocable by | Weakness |
+| :---- | :---- | :---- | :---- | :---- | :---- |
+| **0** | host-side veth eBPF | immediate | dies with the pod | node agent | invisible to the API |
+| **1** | NetworkPolicy / ClusterNetworkPolicy | seconds | durable, reconciled | cluster admin | additive defeat (tier-1 NP only) |
+| **2** | VPC / security group | minutes | outlives the cluster | cloud admin | coarse, no pod identity |
+
+Tier 0 is the immediate action; tier 1 is the durable, auditable record; tier 2 is the backstop that survives cluster compromise. This is the two-phase model of §6 with a materially better phase one, and it is what a per-plane "guaranteed denial vs worst-case residual" table should be built on rather than a single MTTK.
+
+### D. Contested and corrected claims
+
+Recorded because a reader deserves to know which findings are settled and which are not.
+
+#### D.1 Do established connections survive a policy change?
+
+| Source | Position | Basis |
+| :---- | :---- | :---- |
+| Parent proposal, area 4 | Cilium severs in-flight connections | asserted |
+| This work's eBPF research | Nothing severs them, Cilium included | measured on kindnet; **Cilium inferred, not installed** |
+| Cross-vendor audit (Google family) | Cilium **does** re-evaluate: `CT_ESTABLISHED` falls through to the same `policy_can_egress4()` call as `CT_NEW` in `bpf/bpf_lxc.c` | **upstream source** |
+
+**Unresolved.** Primary source beats inference, so the audit is more likely right and the parent's claim is probably correct for Cilium. Settled for kindnet, Calico and AWS VPC CNI: connections **do** survive, with a 24h conntrack timeout. **Do not put either claim in a customer document until it is tested on a cluster actually running Cilium.** The originally planned erratum against the parent would have introduced an error rather than fixing one.
+
+#### D.2 Claims corrected during this work
+
+| Claim as first written | Correction | Found by |
+| :---- | :---- | :---- |
+| "The industry has not named this problem" | Named in Flux docs, Argo docs, GitLab's IR runbook, a 2023 Argo issue, a Jan-2024 CNCF blog. Only the *evidence* half, joined to agent containment, survives | contrarian audit (xAI family) |
+| "kustomize-controller v1.9.4 exposes no per-field drift ignore" | `Kustomization.spec.ignore` is exactly that | Flux research |
+| "Delete the runtime field from desired state" | **Strictly worse** — the field is deleted rather than reverted. Declared-**and**-ignored is the mechanism | matched control, TEST G/H |
+| "The Flux pin has started perturbing the demo" | Intermittent flake; a second run under the identical pin passed | own re-test |
+| "Nothing severs established connections, Cilium included" | Wrong for Cilium — see D.1 | cross-vendor audit |
+
+### E. GitOps field-ownership mechanisms
+
+| Mechanism | Granularity | Object stays managed | Verdict |
+| :---- | :---- | :---- | :---- |
+| **`Kustomization.spec.ignore`** (JSON Pointer) | **one field** | **yes** | **correct mechanism**, measured |
+| `reconcile: disabled` on the object | whole object | no | escalation only; also suppresses pruning **and drops the object from health checks** |
+| `ssa: ignore` | whole object | no | same cost as above, no benefit |
+| `ssa: merge` | field ownership | yes | does not solve it |
+| `.spec.patches` `op: remove` | field | yes | **worse than status quo** — wipes the value |
+| `spec.suspend` on the Kustomization | everything it owns | no | rejected: blast radius exceeds the threat, and it is an availability attack surface |
+
+**The rule is BOTH.** Declared-without-ignore reverts; ignored-without-declaration deletes. `spec.ignore` substitutes the *live* value at each ignored path into the desired object before apply — a path the manifest never declares has nothing to substitute into. `scripts/check-flux-dynamic-labels.sh` enforces the pair.
+
+**Known gap (Q7):** `spec.ignore` is a Kustomization field with no flux-operator ResourceSet equivalent, so agents rendered by a ResourceSet have nowhere to hang the rule.
+
+### F. Argo CD equivalents
+
+| Flux | Argo CD | Note |
+| :---- | :---- | :---- |
+| `Kustomization.spec.ignore` | `Application.spec.ignoreDifferences.jsonPointers` | direct analogue |
+| — | **`ignoreDifferences.managedFieldsManagers`** | **better model — ignores by field *owner*, not path** |
+| `reconcile: disabled` | no exact equivalent; nearest is `compare-options: IgnoreExtraneous` + `sync-options: Prune=false` | partial |
+| `spec.suspend` | `syncPolicy.automated.selfHeal: false` | same anti-pattern |
+
+`managedFieldsManagers` is worth stealing: a stun that starts writing a *new* annotation is covered automatically, whereas a path list silently misses it — which is exactly how the two stun annotations were missed in the first analysis. Actionable on either engine: apply the stun with `--field-manager=signalloom-stun`.
+
+### G. The five-mode taxonomy, mapped to reconciler friction
+
+From the parent proposal's area 4, with the mapping this work contributes.
+
+| Mode | Mechanism | Expressed as a k8s object | Reconciler friction |
+| :---- | :---- | :---- | :---- |
+| 1 Stun (freeze) | cgroup-v2 freezer | **no** | **none** |
+| 2 Network killswitch | eBPF / policy | tier 0 **no**, tier 1 yes | **none at tier 0** |
+| 3 Credential revocation | SVID + OpenBao | no (but see the bootstrap re-seed) | indirect |
+| 4 Forensic mode | relocate to deception ns | yes | high |
+| 5 Kill / decommission | + admission block, lifecycle | yes | high |
+
+The demo currently implements mode 3 plus a label and calls it "stun". Modes 1 and 2-at-tier-0 are the two that a reconciler cannot touch, and they are the two the demo does not yet do.

@@ -18,8 +18,9 @@
  * a badge appears, when a count changes, or when the label is reworded. Use
  * navLink() and nothing else.
  */
-import { expect, type Page } from "@playwright/test";
+import { expect, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 
 /** Sidebar link for a route, located by href. Never by label. */
 export function navLink(page: Page, route: string) {
@@ -94,6 +95,98 @@ export const supercred = {
     return null;
   },
 };
+
+// ── Multi-window contexts ──────────────────────────────────────────────────
+
+/** Where auth.setup.ts leaves cookies + localStorage. */
+const AUTH_STATE_FILE = "test-results/.auth-state.json";
+/** Where auth.setup.ts dumps sessionStorage. Mirrors fixtures.ts. */
+const AUTH_SESSION_FILE = "test-results/.auth-session.json";
+
+/**
+ * A second (or third) authenticated browser context.
+ *
+ * The two-window demo needs two genuinely independent contexts — separate
+ * cookie jars, separate storage, separate render loops — because the whole
+ * claim under test is that ONE browser changing the cluster is visible in
+ * ANOTHER browser that nobody touched. The `context` fixture in fixtures.ts
+ * only ever hands out the one Playwright made for the test, so contexts made
+ * here have to reproduce what that fixture does:
+ *
+ *   * `storageState` restores cookies and localStorage (Playwright's own
+ *     mechanism, configured per-project in playwright.config.ts);
+ *   * the OIDC token lives in sessionStorage, which storageState does NOT
+ *     cover (dashboard-signalloom/src/auth/oidc.tsx keeps it per-tab on
+ *     purpose so a shared demo link cannot hand over a session), so it is
+ *     restored by an init script — before any page script, because the app
+ *     reads its token during boot and would otherwise bounce to Dex.
+ *
+ * Both files are written by the `setup` project. When they are absent the
+ * context is still usable; login() will drive the Dex form instead.
+ */
+export async function newAuthedContext(
+  browser: Browser,
+  opts?: { demoMode?: boolean; superadmin?: boolean },
+): Promise<BrowserContext> {
+  const demoMode = opts?.demoMode ?? false;
+  const superadmin = opts?.superadmin ?? true;
+
+  const context = await browser.newContext({
+    ...(existsSync(AUTH_STATE_FILE) ? { storageState: AUTH_STATE_FILE } : {}),
+    ignoreHTTPSErrors: true,
+  });
+
+  if (existsSync(AUTH_SESSION_FILE)) {
+    await context.addInitScript((json: string) => {
+      try {
+        for (const [key, value] of Object.entries(JSON.parse(json) as Record<string, string>)) {
+          window.sessionStorage.setItem(key, value);
+        }
+      } catch {
+        /* a malformed dump must not mask the real assertion failure */
+      }
+    }, readFileSync(AUTH_SESSION_FILE, "utf8"));
+  }
+
+  await context.addInitScript(
+    ({ demo, admin }: { demo: boolean; admin: boolean }) => {
+      try {
+        window.localStorage.setItem("sl_demo_mode", demo ? "true" : "false");
+        window.localStorage.setItem("signalloom.superadmin", admin ? "true" : "false");
+      } catch {
+        /* storage unavailable */
+      }
+    },
+    { demo: demoMode, admin: superadmin },
+  );
+
+  return context;
+}
+
+/**
+ * Count every full document load and every main-frame navigation on a page.
+ *
+ * This is the instrument for "the audience window updated WITHOUT a reload".
+ * Asserting only that the stun became visible cannot distinguish live polling
+ * from a reload the test itself issued — and a reload would make the
+ * assertion pass while disproving the thing being demonstrated. So the count
+ * is taken and asserted to be zero.
+ *
+ * Both signals are watched: `load` catches a full document reload, and
+ * `framenavigated` on the main frame additionally catches SPA history
+ * navigation, which would mean the page remounted rather than re-rendered.
+ */
+export function watchForNavigation(page: Page): { count: () => number; describe: () => string } {
+  const events: string[] = [];
+  page.on("load", () => events.push(`load ${page.url()}`));
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) events.push(`framenavigated ${frame.url()}`);
+  });
+  return {
+    count: () => events.length,
+    describe: () => (events.length === 0 ? "no navigation" : events.join("; ")),
+  };
+}
 
 /**
  * Enable superadmin BEFORE the app boots.

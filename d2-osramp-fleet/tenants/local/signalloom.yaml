@@ -105,12 +105,34 @@ spec:
           namespace: inf-signalloom
     # ─── SuperCred demo runner: cross-namespace RBAC ─────────────────────────
     #
+    # SUBJECT NAMESPACE IS << inputs.appsTenant >>, NOT << inputs.tenant >>.
+    # Getting that wrong is not a cosmetic slip, it silently disarms every
+    # grant below. This ResourceSet is signalloom-infra, and it is activated
+    # with TWO inputs whose `tenant` values are the two INFRA namespaces --
+    # inf-bao and inf-signalloom (scripts/signalloom-local.sh, `up`). The
+    # runner's ServiceAccount is not in either of them: it is created by the
+    # signalloom-apps ResourceSet, whose tenant is the APPS namespace. So
+    # `namespace: << inputs.tenant >>` on a subject resolves to a
+    # ServiceAccount that does not exist, in both renderings, and the two
+    # renderings then collide on identical object names so one silently
+    # overwrites the other. RBAC has no dangling-subject error: every
+    # RoleBinding applies cleanly, Flux reports Ready, and the runner holds
+    # nothing outside its own namespace. Observed 2026-08-03: "Reset demo"
+    # (step 5) failed in 333ms, because step 5 is the first thing the UI can
+    # invoke that has no preflight, so it reached a real kubectl call and died
+    # on `pods is forbidden ... in the namespace "inf-bao"` under set -e. Every
+    # other step was equally dead, just behind "cluster not reachable".
+    #
+    # appsTenant is carried on BOTH signalloom-infra inputs with the same
+    # value, which also makes the double render idempotent rather than
+    # last-write-wins.
+    #
     # The supercred-demo-runner workload, its ServiceAccount, Service and
     # NetworkPolicy live in apps/supercred-demo-runner/base/ and land in
-    # << inputs.tenant >> via the apps Kustomization. Everything below reaches
-    # OUTSIDE that namespace, so it has to be here for exactly the reason
-    # agent-inventory-reader above is: the apps Kustomization sets
-    # `targetNamespace: << inputs.tenant >>` and would silently relocate these
+    # << inputs.appsTenant >> via the apps Kustomization. Everything below
+    # reaches OUTSIDE that namespace, so it has to be here for exactly the
+    # reason agent-inventory-reader above is: the apps Kustomization sets
+    # `targetNamespace: << inputs.appsTenant >>` and would silently relocate these
     # Roles into the tenant namespace, applying cleanly and reporting Ready
     # while the runner got Forbidden on every call that mattered.
     #
@@ -157,7 +179,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: << inputs.appsTenant >>
     # kube-system: `kubectl cluster-info` (L62) lists Services in kube-system
     # by label selector. Without this it exits non-zero and preflight_cluster
     # fails closed with "cluster not reachable" against a healthy cluster --
@@ -184,7 +206,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: << inputs.appsTenant >>
     # inf-signalloom: where the demo deploys cardvault and policy-engine.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
@@ -233,7 +255,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: << inputs.appsTenant >>
     # inf-bao: OpenBao and SPIRE. Everything here is reached by kubectl exec.
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
@@ -286,7 +308,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: << inputs.appsTenant >>
     # fe-signalloom-agents: declared home of the agent pod, its ServiceAccount
     # and the credential-chain Job. The matching Role for the OTHER candidate
     # namespace (the tenant namespace itself) follows immediately below.
@@ -331,10 +353,10 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
-    # << inputs.tenant >>: the OTHER candidate namespace. agents-cardvault.yaml
+          namespace: << inputs.appsTenant >>
+    # << inputs.appsTenant >>: the OTHER candidate namespace. agents-cardvault.yaml
     # declares `namespace: fe-signalloom-agents` while targetNamespace can land
-    # the pod in the tenant namespace instead, so supercred-demo.sh sweeps both
+    # the pod in the apps tenant namespace instead, so supercred-demo.sh sweeps both
     # candidates (L28-30) and teardown deletes from every one of them
     # (L346-350). Verb derivation is identical to the fe-signalloom-agents Role
     # directly above -- see there for the line-by-line justification.
@@ -358,7 +380,7 @@ spec:
       kind: Role
       metadata:
         name: supercred-demo-runner-agents
-        namespace: << inputs.tenant >>
+        namespace: << inputs.appsTenant >>
         labels:
           app.kubernetes.io/name: supercred-demo-runner
           app.kubernetes.io/component: supercred-demo
@@ -380,7 +402,7 @@ spec:
       kind: RoleBinding
       metadata:
         name: supercred-demo-runner-agents
-        namespace: << inputs.tenant >>
+        namespace: << inputs.appsTenant >>
         labels:
           app.kubernetes.io/name: supercred-demo-runner
           app.kubernetes.io/component: supercred-demo
@@ -392,7 +414,7 @@ spec:
       subjects:
         - kind: ServiceAccount
           name: supercred-demo-runner
-          namespace: << inputs.tenant >>
+          namespace: << inputs.appsTenant >>
     - apiVersion: v1
       kind: Pod
       metadata:

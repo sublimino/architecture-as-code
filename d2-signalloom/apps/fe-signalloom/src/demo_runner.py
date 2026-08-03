@@ -42,12 +42,34 @@ _DEFAULT_CANCEL_GRACE_SECONDS = 10
 _LOG_CAP_BYTES = 4 * 1024 * 1024
 _LOG_PAGE_BYTES = 64 * 1024
 _MAX_RUN_HISTORY = 20
+# Everything the demo script's child process is allowed to inherit. This stays
+# an allowlist -- the module docstring names the fixed child environment as one
+# of four security boundaries -- so it is widened by naming keys, never by
+# handing over os.environ.
+#
+# KUBERNETES_SERVICE_HOST / KUBERNETES_SERVICE_PORT are how client-go's
+# in-cluster config finds the API server. The ServiceAccount token and CA come
+# from the projected volume at /var/run/secrets/kubernetes.io/serviceaccount/
+# and need no environment at all, so these two keys are the entire environmental
+# dependency -- but without them kubectl has no server to talk to and exits
+# immediately. That is not a subtle degradation: on 2026-08-03 every step
+# invoked from the dashboard died at its first kubectl call, in tens to
+# hundreds of milliseconds, having printed only its banner. Step 5 ("Reset
+# demo") was the visible one at 333ms; phase 4 failed identically in 53ms.
+#
+# It is invisible to `kubectl exec ... -- bash scripts/supercred-demo.sh 5`,
+# because an interactive exec inherits the pod's full environment, which the
+# kubelet has populated. Only the spawned child was starved. See
+# tests/test_demo_runner_child_env.py, which asserts against the requirement
+# rather than against this tuple.
 _ENV_ALLOWLIST = (
     "PATH",
     "HOME",
     "KUBECONFIG",
     "CLUSTER_NAME",
     "AGENT_NAMESPACE_CANDIDATES",
+    "KUBERNETES_SERVICE_HOST",
+    "KUBERNETES_SERVICE_PORT",
 )
 
 

@@ -98,6 +98,28 @@ error_code() {
     "$BATS_TEST_TMPDIR/body"
 }
 
+# How many demo-script processes exist inside the runner pod right now.
+#
+# Two self-match traps here, and the obvious spelling falls into both. Written
+# as `grep -la supercred-demo.sh /proc/[0-9]*/cmdline`, the pattern appears
+# verbatim in the argv of the shell AND of grep itself, so both show up in
+# /proc and the probe finds only itself — reporting a running demo script on a
+# runner that started nothing. The bracket expression `[.]` matches the same
+# text while never containing the literal string it searches for, so neither
+# process can match.
+#
+# The count is compared BEFORE and AFTER rather than asserted to be zero: a
+# legitimate superadmin run may be in flight (the demo is often mid-rehearsal),
+# and "the refused call started nothing" is a statement about the delta.
+runner_script_processes() {
+  local pod
+  pod="$(kubectl -n "$FE_NS" get pod -l app.kubernetes.io/name=supercred-demo-runner \
+    -o jsonpath='{.items[0].metadata.name}')"
+  kubectl -n "$FE_NS" exec "$pod" -- \
+    bash -c 'grep -la "supercred-demo[.]sh" /proc/[0-9]*/cmdline 2>/dev/null | wc -l' 2>/dev/null \
+    || echo unavailable
+}
+
 # "how many runs does the runner know about, and is one active" — the state
 # that must not move when an unauthorized call is refused.
 run_state_fingerprint() {
@@ -172,6 +194,7 @@ print(\" \".join(hits))'"
   # code. A gate that ran the script and THEN refused would return 403 too.
   demo_api GET /demo-api/status "$SUPERADMIN_TOKEN" >/dev/null
   before_state="$(run_state_fingerprint)"
+  before_procs="$(runner_script_processes)"
 
   run demo_api POST /demo-api/runs "$VIEWER_TOKEN" '{"step":"1"}'
   [ "$output" = "403" ]
@@ -186,16 +209,8 @@ print(\" \".join(hits))'"
   # that a status-code assertion cannot reach: if the gate were ever moved
   # below the spawn, the caller would still see 403 while the script had
   # already started mutating the cluster.
-  pod="$(kubectl -n "$FE_NS" get pod -l app.kubernetes.io/name=supercred-demo-runner \
-    -o jsonpath='{.items[0].metadata.name}')"
-  # The pattern is ASSEMBLED at runtime and never appears whole in the probe's
-  # own command line. Written literally, `grep supercred-demo.sh /proc/*/cmdline`
-  # matches the /proc entry of the shell running it — the probe finds itself,
-  # reports 1, and fails on a runner that started nothing. Same self-match trap
-  # as `pgrep -f` on your own command.
-  run kubectl -n "$FE_NS" exec "$pod" -- \
-    bash -c 'p=supercred; q=-demo.sh; grep -la "$p$q" /proc/[0-9]*/cmdline 2>/dev/null | wc -l'
-  [ "$output" = "0" ]
+  after_procs="$(runner_script_processes)"
+  [ "$after_procs" = "$before_procs" ]
 }
 
 @test "DEMOAPI POST /demo-api/runs with a superadmin token returns 202 with a run_id" {

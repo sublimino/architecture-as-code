@@ -146,6 +146,33 @@ if ! vexctl version 2>/dev/null | grep -q "${VEXCTL_VERSION}"; then
   ${SUDO} chmod +x "${BIN}/vexctl"
 fi
 
+# ── ngrok 3.39.10 ────────────────────────────────────────────────────
+# Needed by `make public`, which until now had only ever run from a laptop.
+# The CI VM has NO external IP (verified: `gcloud compute instances describe
+# signalloom-ci` returns networkIP 10.0.0.13 with no accessConfigs block), so
+# a tunnel is not a laptop workaround carried over — it is the only mechanism
+# that reaches the demo from outside at all. It is also the only one that
+# terminates TLS, which this system already requires: the traffic-policy gate
+# cookie is set `Secure`, and a Secure cookie is never sent over plain HTTP.
+#
+# Pinned via the versioned .deb in ngrok's apt pool rather than the moving
+# `ngrok-v3-stable-linux-amd64.tgz` URL, which resolves to whatever is current
+# and would silently drift. This is the ONLY tool in this installer whose
+# artifact is checksum-verified — ngrok publishes SHA256 in its Packages index,
+# so we get a real integrity check for free. The version matches the laptop's
+# (3.39.10) so a tunnel defect reproduces identically in both places.
+NGROK_VERSION="3.39.10"
+NGROK_SHA256="14003f665c900744c653fe62832ad380a9c14c9649b413a61e25d642428371e8"
+if ! ngrok version 2>/dev/null | grep -q "${NGROK_VERSION}"; then
+  log "installing ngrok ${NGROK_VERSION}"
+  tmp="$(mktemp -d)"
+  curl -fsSL -o "${tmp}/ngrok.deb" \
+    "https://ngrok-agent.s3.amazonaws.com/pool/main/n/ngrok/ngrok_${NGROK_VERSION}-0_amd64.deb"
+  echo "${NGROK_SHA256}  ${tmp}/ngrok.deb" | sha256sum -c - >/dev/null
+  ${PKG_SUDO} dpkg -i "${tmp}/ngrok.deb" >/dev/null
+  rm -rf "${tmp}"
+fi
+
 # ── govulncheck 1.1.4 ────────────────────────────────────────────────
 # No prebuilt binary is published, so this stays a `go install` (~5s) in
 # setup.sh. Recorded here so the absence is a documented decision rather than
@@ -169,7 +196,7 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 log "all tools installed:"
-for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl bats python3 docker; do
+for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl ngrok bats python3 docker; do
   # head -1 must sit outside the || chain. Inside it, `head` supplies the
   # pipeline's exit status under `pipefail`, so a tool that prints a version to
   # stdout and *then* exits non-zero (kubectl version, which also tries to

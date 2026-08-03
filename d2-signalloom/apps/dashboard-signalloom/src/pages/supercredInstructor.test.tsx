@@ -378,6 +378,77 @@ describe('the run log streams in incrementally', () => {
     // re-reading (duplicated output) or skipping (lost output).
     expect(logCalls[1].url).toContain('offset=14')
   })
+
+  // Two readers share the log cursor — the 500ms poll and the post-run drain —
+  // and neither takes a lock or guards against a tick that is still in flight.
+  // So the panel receives responses that no longer describe the cursor. The
+  // server echoes back the offset it served, which makes those responses
+  // identifiable; the panel used to ignore that field and append regardless.
+  //
+  // Observed 2026-08-03 on a live reset: the banner appeared twice from a
+  // script that printed it once. Not cosmetic — it corrupts the log display of
+  // every step, and duplicated output during a failure is precisely when an
+  // instructor is trying to read it.
+  it('discards a duplicate chunk instead of printing the same line twice', async () => {
+    const banner = '[supercred] step 5: tearing down supercred demo resources\n'
+    mockRunner({
+      startResponse: runView({ step_id: '5', kind: 'reset', status: 'running' }),
+      pollRuns: [runView({ status: 'running' }), runView({ status: 'failed', exit_code: 1 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 58, chunk: banner, eof: false }),
+        // The overlapping tick: issued before the response above landed, so it
+        // asked for offset 0 too and carries bytes already on screen.
+        logChunk({ offset: 0, next_offset: 58, chunk: banner, eof: false }),
+        logChunk({ offset: 58, next_offset: 58, chunk: '', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('tearing down'), {
+      timeout: 4000,
+    })
+    await waitFor(
+      () => expect(demoApiCalls(c => c.url.includes('/log')).length).toBeGreaterThanOrEqual(3),
+      { timeout: 4000 },
+    )
+
+    const rendered = screen.getByTestId('supercred-run-log').textContent ?? ''
+    const occurrences = rendered.split('tearing down supercred demo resources').length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  it('never rewinds the cursor when an out-of-order chunk lands', async () => {
+    // A slow earlier response arriving after a fast later one used to assign
+    // its own stale next_offset, dragging the cursor backwards — after which
+    // the panel re-read and re-printed output already displayed. The live
+    // trace showed exactly this: offset=0, offset=0, offset=69, offset=0.
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' }), runView({ status: 'running' }), runView({ status: 'succeeded', exit_code: 0 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 30, chunk: 'registering SPIRE entry\n', eof: false }),
+        // The straggler: describes the stream from 0, but the cursor is at 30.
+        logChunk({ offset: 0, next_offset: 0, chunk: '', eof: false }),
+        logChunk({ offset: 30, next_offset: 55, chunk: 'entry registered\n', eof: false }),
+        logChunk({ offset: 55, next_offset: 55, chunk: '', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('entry registered'), {
+      timeout: 4000,
+    })
+
+    const offsets = demoApiCalls(c => c.url.includes('/log')).map(c =>
+      Number(new URL(c.url, 'http://x').searchParams.get('offset')),
+    )
+    // Monotonic. A single backwards step means output is about to be repeated.
+    for (let i = 1; i < offsets.length; i++) {
+      expect(offsets[i]).toBeGreaterThanOrEqual(offsets[i - 1])
+    }
+  })
 })
 
 // ─── Failure reporting ────────────────────────────────────────────────────────

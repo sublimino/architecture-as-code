@@ -113,19 +113,79 @@ iap_scp() {
     "$@"
 }
 
+# A local SSH failure is not a VM failure, and this used to report it as one.
+#
+# The loop below discards stderr, so "the VM has not finished provisioning yet"
+# and "ssh on THIS machine cannot authenticate at all" were indistinguishable:
+# both simply failed the test. Ten minutes later it printed "Timed out waiting
+# for VM startup provisioning" and pointed the reader at a VM that had in fact
+# finished in 124s, with `startup-script exit status 0` on the serial console
+# and the marker file present the whole time. Observed 2026-08-03: an ssh-agent
+# refusing to sign cost ~10 minutes of debugging in exactly the wrong place.
+#
+# The distinction is cheap to make. A missing marker file means ssh CONNECTED
+# and the file was not there — that is the legitimate keep-waiting case. Any
+# other failure means we never got far enough to look, and no amount of waiting
+# will change it, so fail immediately with the real error rather than burning
+# the full budget on a wrong diagnosis.
+# Patterns must be specific enough to not catch gcloud's routine chatter.
+# "was not found" alone looked reasonable and was actively dangerous: gcloud
+# prints "External IP address was not found; defaulting to using IAP
+# tunneling." on EVERY IAP connection, so a bare substring match classified
+# every healthy run as terminal and aborted it on the first attempt. Caught by
+# the classifier's own test table before it ever ran against a VM -- which is
+# the argument for having one.
+ssh_probe_error() { # returns 0 if the error is worth retrying, 1 if it is terminal
+  local err="$1"
+  case "$err" in
+    *"agent refused operation"*|\
+    *"Permission denied"*|\
+    *"Too many authentication failures"*|\
+    *"Could not resolve"*|\
+    *"not have permission"*|\
+    *"PERMISSION_DENIED"*|\
+    *"Instance ["*"was not found"*) return 1 ;;
+  esac
+  return 0
+}
+
 wait_for_provision() {
   echo "==> Waiting for VM startup script to complete..."
-  local attempts=0
+  local attempts=0 err_file last_err=""
+  err_file="$(mktemp)"
   while ((attempts < 60)); do
-    if iap_ssh "sudo test -f /home/ci/.provisioned" 2>/dev/null; then
+    if iap_ssh "sudo test -f /home/ci/.provisioned" 2>"$err_file"; then
       echo "==> VM provisioned successfully"
+      rm -f "$err_file"
       return 0
     fi
+    last_err="$(tr -d '\r' < "$err_file" | grep -v '^$' | tail -3)"
+
+    if [[ -n "$last_err" ]] && ! ssh_probe_error "$last_err"; then
+      echo "ERROR: SSH to ${VM_NAME} failed for a reason waiting cannot fix." >&2
+      echo "       This is a LOCAL or IAM problem, not VM provisioning." >&2
+      echo "       gcloud said:" >&2
+      printf '         %s\n' "$last_err" >&2
+      echo "       If it mentions 'agent refused operation', your ssh-agent is" >&2
+      echo "       refusing to sign; retry with: SSH_AUTH_SOCK= make ci-gcp" >&2
+      rm -f "$err_file"
+      return 2
+    fi
+
     ((attempts+=1))
     sleep 10
   done
 
-  echo "ERROR: Timed out waiting for VM startup provisioning" >&2
+  echo "ERROR: Timed out waiting for VM startup provisioning after 600s." >&2
+  if [[ -n "$last_err" ]]; then
+    echo "       Last SSH stderr (may explain it):" >&2
+    printf '         %s\n' "$last_err" >&2
+  fi
+  echo "       Check the startup script on the serial console before assuming" >&2
+  echo "       the VM is at fault:" >&2
+  echo "         gcloud compute instances get-serial-port-output ${VM_NAME} \\" >&2
+  echo "           --zone=${ZONE} --project=${PROJECT} | tail -40" >&2
+  rm -f "$err_file"
   return 1
 }
 

@@ -109,11 +109,18 @@ the reconciler", then inducing that response is itself an attack: the adversary 
 containment for estate-wide loss of drift correction. A security control whose activation degrades other
 security controls is not a control; it is a lever for the attacker.
 
-**Empirical corroboration, 2026-08-03.** Re-running `supercred-e2e.sh iterate 1` after merging the
-demo-runner work, step 2 failed — the agent credential chain timed out after 300s. Run directly against
-the same cluster with Flux **live**, the identical step passed on the first attempt, exit 0, full chain
-verified. The pin is no longer only protecting the measurement; it is now perturbing it. A workaround
-that has started causing the failure mode it was introduced to prevent has outlived its design.
+**An observation, deliberately not overstated, 2026-08-03.** Re-running `supercred-e2e.sh iterate 1`
+after merging the demo-runner work, step 2 failed — the agent credential chain timed out after 300s. Run
+directly against the same cluster with Flux **live**, the identical step passed immediately. That looked
+like evidence the pin had begun perturbing the demo. **It is not: a second harness run under the
+identical pin passed 1/1 clean.** The failure is intermittent — one occurrence in eight recorded 1→5
+cycles — and is therefore *not* attributable to the pin on this evidence.
+
+What it does establish is narrower and still worth recording: step 2 has a latent flake with a 300s
+budget, and the pinned path is where it has so far manifested. Distinguishing "the pin causes this" from
+"the pin is where we happened to see it" needs a controlled comparison — N runs pinned versus N unpinned
+— which has not been done. The arguments against pausing in this section stand on their own without it;
+they do not need this observation, which is why it is reported rather than leaned on.
 
 ## 5. What Flux actually offers instead of a pause
 
@@ -160,10 +167,23 @@ the mechanism.
    what it does — "revoke credentials". Demoing mode 3 as "Stun" to an audience that may have read the
    capability model is a credibility risk, and the critique appendix's own finding #3 warns that demoing
    mock controls "collapses confidence in the other areas".
-2. **The label is currently decorative.** `signalloom.ai/state=stunned` is set imperatively on a
-   Flux-owned object. Unless something selects on it — a NetworkPolicy, a Kyverno policy, admission
-   config — it enforces nothing and will be reverted. Whether anything consumes it is an open question
-   (§8). If nothing does, it is exactly the "security theatre" the appendix warns about.
+2. **The label is telemetry, not enforcement — and that is a split-brain risk.** `signalloom.ai/state`
+   *is* consumed, but only as an observation channel:
+   - `d2-signalloom/apps/fake-integration-proxy/server.py:372` reads `labels.get("signalloom.ai/state")`
+     and serves it as the agent's `state` on `GET /supercred-api/agents`.
+   - `dashboard-signalloom/src/api/supercredState.ts:19` — "The `signalloom.ai/state` pod label is
+     authoritative because both drivers…"
+
+   Nothing selects on it in a NetworkPolicy, Kyverno policy, or admission configuration. So it is not
+   security theatre — it is how the **dashboard knows** the agent is stunned, which is exactly what the
+   demo's audience window depends on.
+
+   That makes the Flux interaction worse, not better. The real enforcement (mode 3 credential
+   revocation) lives outside the reconciled set and persists. The *evidence* (the label) lives on a
+   Flux-owned pod and can be reverted. The failure mode is therefore **split-brain**: the agent stays
+   genuinely revoked while the dashboard quietly reports it healthy again. An operator looking at the UI
+   would conclude the stun had been lifted when it had not — the most dangerous possible direction for a
+   monitoring error, and one no current test would catch.
 3. **A real mode-1 freeze demos better.** It is instant, visibly reversible, and needs no reconciler
    pin — so the demo stops depending on the very workaround that is now breaking it.
 4. **Make the bootstrap idempotent.** Create-if-absent, so revocation is durable without suspending
@@ -176,11 +196,24 @@ These are stated as unresolved rather than assumed, because the design depends o
 - **Q1.** Does the running Flux version honour `kustomize.toolkit.fluxcd.io/reconcile: disabled` and
   `ssa: ignore` on an *individual* object, allowing one object to hold a stun without suspending its
   Kustomization? This is the single highest-value unknown in §5.
-- **Q2.** Does *anything* consume `signalloom.ai/state=stunned`? If not, §7.2 is confirmed as theatre.
+- ~~**Q2.** Does *anything* consume `signalloom.ai/state=stunned`?~~ **ANSWERED 2026-08-03.** Yes, as
+  telemetry only — `fake-integration-proxy/server.py:372` and `api/supercredState.ts:19`. No enforcement
+  consumer anywhere. See §7.2; this converts the question from "is it theatre" into "is the evidence
+  channel reconciler-safe", which it is not.
 - **Q3.** Under SSA, who owns `metadata.labels` on the agent pod, and is an imperatively-set label
-  reverted or merged on the next reconcile?
-- **Q4.** What are the real residual windows — SVID TTL, OpenBao lease TTL, ResourceSet `reconcileEvery`,
-  Kustomization `spec.interval`? These bound the worst case for every mode.
+  reverted or merged on the next reconcile? **Still open** — a `managedFields` query against the live
+  pod returned nothing usable and needs a better probe. This is now the highest-value remaining unknown,
+  because §7.2's split-brain risk is real only if Flux actually reverts the label. If SSA *merges*
+  rather than reverts, the risk is void. **Do not design around §7.2 until this is settled.**
+- ~~**Q4.** What are the real intervals?~~ **ANSWERED 2026-08-03**, measured on `kind-osramp`:
+  `flux-system/flux-system` **10m**; `fe-signalloom/apps`, `inf-bao/infra-configs`,
+  `inf-signalloom/infra-configs` and the rest **30m**; `flux-system/tenants` **12h**; every ResourceSet
+  (`signalloom-infra`, `signalloom-apps`, `infra`, `policies`, `agent-trust`)
+  `reconcileEvery` **5m**. SVID and OpenBao lease TTLs remain unmeasured.
+
+  The 30m Kustomization interval is the number that matters for §7.2: it is the upper bound on how long
+  a reverted evidence label could show the wrong state, and the 5m ResourceSet cadence is the upper
+  bound on how long any leaf-level pin survives.
 - **Q5.** Is cgroup-v2 freezer usable from the runner's security context, and what RBAC does it need?
   Mode 1's entire value rests on this being practical.
 

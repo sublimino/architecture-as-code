@@ -10,7 +10,8 @@
 # The original full-demo config is on the main branch.
 #
 # The JSON patches below index into spec.resources of each ResourceSet:
-# index 5 is infra's OCIRepository. Agent Trust's OCIRepository is index 16
+# index 5 is infra's OCIRepository. Agent Trust's OCIRepository is index 16.
+# Signal Loom infra's OCIRepository is index 23 after its runner RBAC grants.
 # after six namespaces, its ServiceAccount, two ClusterRoles, one
 # ClusterRoleBinding, and six namespaced RoleBindings. Keep indexes in sync.
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -75,10 +76,10 @@ patches:
       kind: ResourceSet
       name: signalloom-infra
     patch: |
-      # Index 13: OCIRepository follows the agent-inventory namespace, RBAC,
-      # and proxy Pod, then tenant namespace, RBAC, and namespace-patch grants.
+      # Index 23: OCIRepository follows the agent-inventory resources and
+      # SuperCred runner cross-namespace RBAC, then tenant delivery grants.
       - op: add
-        path: /spec/resources/13/spec/verify
+        path: /spec/resources/23/spec/verify
         value:
           provider: cosign
           secretRef:

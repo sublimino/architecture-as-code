@@ -1,0 +1,16 @@
+# FLUX ENVSUBST: YES — this directory is pulled in by
+# apps/fe-signalloom/base/kustomization.yaml, which the signalloom-apps Flux
+# Kustomization reconciles with postBuild.substituteFrom configured. Flux runs
+# envsubst over every rendered manifest here, so use $${VAR} to pass a literal
+# $ through to a container and ${VAR} only for values Flux should substitute
+# from flux-runtime-info. Nothing in this directory currently templates a
+# value; the annotation records that substitution DOES reach it, so a future
+# literal `$` must be escaped.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - serviceaccount.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml

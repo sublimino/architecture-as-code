@@ -1,0 +1,87 @@
+# fe-signalloom runs a default-deny policy, so the runner needs both its
+# ingress and its egress spelled out. Two policies rather than one so each can
+# be read, and revoked, on its own.
+---
+# Ingress: the demo-runner API is a control-plane surface for the demo -- its
+# mutating routes start and reset runs against the shared cluster. Only the
+# dashboard's nginx (which terminates /demo-api/ and forwards the caller's
+# bearer token) and the gateway may reach it. Nothing else in the namespace
+# has any business calling it, so there is deliberately no intra-namespace
+# `podSelector: {}` rule of the kind cardvault's policy carries for its
+# health checks -- the kubelet's probes are not subject to NetworkPolicy.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-supercred-demo-runner-ingress
+  labels:
+    app.kubernetes.io/name: supercred-demo-runner
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: supercred-demo-runner
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # The dashboard SPA's nginx, same namespace: the /demo-api/ proxy.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dashboard-signalloom
+        # Envoy Gateway. Same namespace selector the rest of the slice uses
+        # for gateway traffic (see inf-signalloom/configs/base/networkpolicy.yaml
+        # and fe-signalloom/base/gateway-route.yaml).
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress
+      ports:
+        - protocol: TCP
+          port: 8000
+---
+# Egress: DNS, and the kube-apiserver. That is the entire list.
+#
+# Note what is NOT here: the runner needs no direct egress to policy-engine in
+# inf-signalloom, even though step 3 POSTs to its /api/v1/evaluate endpoint.
+# That call goes through `kubectl port-forward svc/policy-engine 18081:8081`
+# (L258) and then to http://localhost:18081, so the traffic leaves this pod as
+# an API-server connection and arrives at policy-engine from the apiserver,
+# not from here. Adding a policy-engine egress rule would grant reachability
+# the demo never uses.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-supercred-demo-runner-egress
+  labels:
+    app.kubernetes.io/name: supercred-demo-runner
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: supercred-demo-runner
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # kube-apiserver. Every kubectl call the demo makes, plus the port-forward
+    # tunnel, rides this. Both ports are required for the same reason
+    # allow-netassert-runner-egress lists both: kindnet evaluates service
+    # traffic after DNAT, so a connection to the `kubernetes` ClusterIP on :443
+    # is seen as reaching the node's :6443.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

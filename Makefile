@@ -199,7 +199,7 @@ images-afm: ## Build the KubeSec-AFM platform image (RBAC analysis + Z3 + dashbo
 	./scripts/k8s-afm.sh build
 
 .PHONY: images-supercred
-images-supercred: demo-signalloom-supercred-images ## Build the SuperCred demo images (cardvault, policy-engine, cardvault-agent).
+images-supercred: demo-signalloom-supercred-images ## Build the SuperCred demo images (cardvault, policy-engine, cardvault-agent, runner).
 
 .PHONY: images-helpers
 images-helpers: signalloom-spire-helper netassert-runner-image ## Build the disposable helper images (SPIRE proof, netassert runner).
@@ -419,12 +419,15 @@ demo-signalloom-api-test: ## Run the consumer-driven contract + integration test
 ##  Each numbered step has a preflight check. Run in order: 1 → 2 → 3 → 4 → 5.
 
 .PHONY: demo-signalloom-supercred-images
-demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent images + load into kind (verified).
+demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent, runner images + load into kind (verified).
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/supercred-images.sh load
 
+.PHONY: demo-signalloom-supercred-runner-image
+demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.
+
 .PHONY: demo-signalloom-supercred-images-test
-demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard (no cluster required).
-	bats test/supercred-images.bats
+demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
+	bats test/supercred-images.bats test/supercred-crictl-shim.bats
 
 .PHONY: demo-signalloom-supercred-1
 demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy services, agent, OpenBao secrets, SPIRE entry.

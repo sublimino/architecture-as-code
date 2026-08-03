@@ -103,6 +103,236 @@ spec:
         - kind: ServiceAccount
           name: default
           namespace: inf-signalloom
+    # ─── SuperCred demo runner: cross-namespace RBAC ─────────────────────────
+    #
+    # The supercred-demo-runner workload, its ServiceAccount, Service and
+    # NetworkPolicy live in apps/supercred-demo-runner/base/ and land in
+    # << inputs.tenant >> via the apps Kustomization. Everything below reaches
+    # OUTSIDE that namespace, so it has to be here for exactly the reason
+    # agent-inventory-reader above is: the apps Kustomization sets
+    # `targetNamespace: << inputs.tenant >>` and would silently relocate these
+    # Roles into the tenant namespace, applying cleanly and reporting Ready
+    # while the runner got Forbidden on every call that mattered.
+    #
+    # Every verb below is derived from a specific kubectl invocation in
+    # scripts/supercred-demo.sh; line numbers refer to that file. No wildcards.
+    #
+    # Deliberately absent: `secrets` (all OpenBao credential material is
+    # handled by exec'ing into the OpenBao pod, never via the Kubernetes API)
+    # and `configmaps` (nothing in the script touches one).
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata:
+        name: supercred-demo-runner
+        labels:
+          app.kubernetes.io/name: supercred-demo-runner
+          app.kubernetes.io/part-of: signalloom
+      rules:
+        # L63-64 `get ns`; L147-148 `create namespace --dry-run=client -o yaml
+        # | kubectl apply -f -` (apply = get, then create); L149
+        # `annotate namespace --overwrite`. No delete: teardown deliberately
+        # leaves fe-signalloom-agents in place.
+        - apiGroups: [""]
+          resources: ["namespaces"]
+          verbs: ["get", "create", "patch"]
+        # Read-only, and not used by supercred-demo.sh directly: it is how the
+        # in-image `docker` shim answers `docker exec <node> crictl images` for
+        # preflight_images (L96-101). The kubelet fills node.status.images from
+        # the CRI's ListImages -- the same source crictl reads -- so the shim
+        # keeps the preflight's semantics without a Docker socket.
+        - apiGroups: [""]
+          resources: ["nodes"]
+          verbs: ["get"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata:
+        name: supercred-demo-runner
+        labels:
+          app.kubernetes.io/name: supercred-demo-runner
+          app.kubernetes.io/part-of: signalloom
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: ClusterRole
+        name: supercred-demo-runner
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
+    # kube-system: `kubectl cluster-info` (L62) lists Services in kube-system
+    # by label selector. Without this it exits non-zero and preflight_cluster
+    # fails closed with "cluster not reachable" against a healthy cluster --
+    # the same misleading-preflight class AGENTS.md records for
+    # wait_k8s_ready against a Deployment.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: supercred-demo-runner-cluster-info
+        namespace: kube-system
+      rules:
+        - apiGroups: [""]
+          resources: ["services"]
+          verbs: ["list"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: supercred-demo-runner-cluster-info
+        namespace: kube-system
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: supercred-demo-runner-cluster-info
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
+    # inf-signalloom: where the demo deploys cardvault and policy-engine.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: supercred-demo-runner
+        namespace: inf-signalloom
+      rules:
+        # L178/L183 `apply -k` (get + create/patch); L360/L361 `delete -k`;
+        # L179/L184 wait_rollout -> `rollout status` (get, list, watch);
+        # L106/L108 wait_k8s_exists (get); L403/L404 teardown check (get).
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        # `rollout status deploy/<n>` reads the Deployment's ReplicaSets.
+        - apiGroups: ["apps"]
+          resources: ["replicasets"]
+          verbs: ["get", "list", "watch"]
+        # rollout status; and `port-forward svc/policy-engine` (L258) resolves
+        # the Service to a backing pod before opening the tunnel.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch"]
+        # L258 `port-forward svc/policy-engine 18081:8081` for step 3.
+        - apiGroups: [""]
+          resources: ["pods/portforward"]
+          verbs: ["create"]
+        # Both kustomizations contain a Service: L178/L183 apply, L360/L361
+        # delete. L258 additionally needs get to resolve the port-forward.
+        - apiGroups: [""]
+          resources: ["services"]
+          verbs: ["get", "list", "create", "update", "patch", "delete"]
+        # cardvault/base/networkpolicy.yaml is in that kustomization, so L178's
+        # apply creates it and L360's delete removes it.
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["networkpolicies"]
+          verbs: ["get", "create", "update", "patch", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: supercred-demo-runner
+        namespace: inf-signalloom
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: supercred-demo-runner
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
+    # inf-bao: OpenBao and SPIRE. Everything here is reached by kubectl exec.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: supercred-demo-runner
+        namespace: inf-bao
+      rules:
+        # L54 resolves the spire-server pod by label; `exec deployment/openbao`
+        # resolves the Deployment to a pod before exec'ing.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
+        # The demo's whole credential lifecycle: SPIRE entry show/create/delete
+        # (L163, L167, L213, L367, L371) and every `bao` policy/role/kv call
+        # (L197, L299, L303, L393). This is the most powerful grant in the set
+        # -- exec into the OpenBao pod is equivalent to holding its root token
+        # -- which is precisely why it sits on this ServiceAccount and not on
+        # fe-signalloom-api's.
+        - apiGroups: [""]
+          resources: ["pods/exec"]
+          verbs: ["create"]
+        # L74/L76 wait_rollout openbao and spire-server; `exec
+        # deployment/openbao` needs get to resolve the Deployment.
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get", "list", "watch"]
+        - apiGroups: ["apps"]
+          resources: ["replicasets"]
+          verbs: ["get", "list", "watch"]
+        # L154 and L331 `delete job openbao-supercred-bootstrap
+        # --ignore-not-found --wait=true`. The --wait is why list and watch are
+        # here alongside delete.
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list", "watch", "delete"]
+        # L174 `apply -f .../inf-bao/configs/base/networkpolicy.yaml`.
+        # No delete: nothing in the script ever removes it.
+        - apiGroups: ["networking.k8s.io"]
+          resources: ["networkpolicies"]
+          verbs: ["get", "create", "update", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: supercred-demo-runner
+        namespace: inf-bao
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: supercred-demo-runner
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
+    # fe-signalloom-agents: declared home of the agent pod, its ServiceAccount
+    # and the credential-chain Job. The matching Role for the OTHER candidate
+    # namespace ships in apps/supercred-demo-runner/base/rbac.yaml, because
+    # that one IS the tenant namespace.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: supercred-demo-runner
+        namespace: fe-signalloom-agents
+      rules:
+        # get: L41, L112, L121, L132, L255. list/watch: L191 wait_pods_ready by
+        # label, plus the `--wait=true` deletes. create: L189 applies a bare
+        # Pod. delete: L156, L348. patch: L244/L285/L307 `label pod
+        # --overwrite` and L308 `annotate pod --overwrite` -- the agent state
+        # transitions the demo exists to show.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch", "create", "delete", "patch"]
+        # L237, L242, L320 `kubectl logs job/supercred-agent-run`.
+        - apiGroups: [""]
+          resources: ["pods/log"]
+          verbs: ["get"]
+        # create/update: L232 and L315 apply agents-cardvault-job.yaml.
+        # get/list/watch: L235/L316 `wait --for condition=complete`, and
+        # `logs job/<n>` resolving the Job to its pods.
+        # delete: L153, L231, L314, L323, L347.
+        - apiGroups: ["batch"]
+          resources: ["jobs"]
+          verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+        # L188 applies agents-cardvault-sa.yaml; L349 deletes it at teardown.
+        - apiGroups: [""]
+          resources: ["serviceaccounts"]
+          verbs: ["get", "create", "update", "patch", "delete"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: supercred-demo-runner
+        namespace: fe-signalloom-agents
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: supercred-demo-runner
+      subjects:
+        - kind: ServiceAccount
+          name: supercred-demo-runner
+          namespace: << inputs.tenant >>
     - apiVersion: v1
       kind: Pod
       metadata:

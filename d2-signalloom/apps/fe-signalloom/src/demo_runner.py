@@ -4,8 +4,9 @@ This module exists so the dashboard can drive the five-step SuperCred demo
 without shell access. The threat model is deliberate remote command execution:
 the server is allowed to run one repo-local script against a shared cluster,
 and the only client-controlled input is which of five hardcoded step IDs runs.
-The security boundary is therefore the server-side allowlist, argv-array spawn,
-and fixed child environment below.
+The security boundary is therefore the server-side step allowlist, server-side
+superadmin authorisation on the mutating routes, argv-array spawn, and fixed
+child environment below.
 """
 from __future__ import annotations
 
@@ -26,7 +27,8 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 
-from api_compat import ERROR_RESPONSES, APIError, authenticated_tenant
+from api_compat import ERROR_RESPONSES, APIError, Principal, authenticated_tenant
+from superadmin import require_superadmin
 
 logger = logging.getLogger(__name__)
 
@@ -500,9 +502,9 @@ async def list_demo_steps(
 @router.post("/runs", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)
 async def start_demo_run(
     request: RunRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> RunView:
-    del tenant_id
+    del principal
     # _start_step_run may block briefly on the mutation lock; keep it off the
     # event loop so a concurrent reset's cancellation cannot stall other requests.
     return _run_view(await run_in_threadpool(_start_step_run, request.step))
@@ -545,9 +547,9 @@ async def get_demo_run_log(
 
 @router.post("/reset", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)
 async def reset_demo(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> RunView:
-    del tenant_id
+    del principal
     # Reset waits on process cancellation, so keep the blocking path off the
     # event loop and let other requests stay responsive.
     return _run_view(await run_in_threadpool(_start_reset_run))

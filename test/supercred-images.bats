@@ -78,12 +78,15 @@ setup() {
 	export SUPERCRED_NODE="osramp-control-plane"
 }
 
-all_three() {
-	printf '%s\n' cardvault:local policy-engine:local cardvault-agent:local
+# Every entry in SUPERCRED_IMAGES. Keep in step with that array: verify()
+# iterates it, so an image missing here reads as "not on the node".
+all_images() {
+	printf '%s\n' cardvault:local policy-engine:local cardvault-agent:local \
+		supercred-demo-runner:local
 }
 
-@test "verify passes when all three images are runnable on the node" {
-	all_three >"$CRICTL_STATE"
+@test "verify passes when every image is runnable on the node" {
+	all_images >"$CRICTL_STATE"
 
 	run "$script" verify
 	[ "$status" -eq 0 ]
@@ -101,9 +104,9 @@ all_three() {
 	# It is a race between grep exiting and the producer finishing its write,
 	# so it only bites once the listing is long enough for the producer still
 	# to be writing -- which every other test in this file avoids by emitting
-	# exactly three lines. That is precisely why the defect shipped green.
+	# a handful of lines. That is precisely why the defect shipped green.
 	# A real node carries ~100 images; reproduce that.
-	all_three >"$CRICTL_STATE"
+	all_images >"$CRICTL_STATE"
 	for i in $(seq 1 400); do
 		printf 'docker.io/library/filler-%s:v1\n' "$i" >>"$CRICTL_STATE"
 	done
@@ -159,7 +162,11 @@ all_three() {
 }
 
 @test "load recovers an image kind load silently dropped" {
-	export KIND_LOADS="cardvault:local policy-engine:local"
+	# Every image EXCEPT cardvault-agent lands via kind load; that one is the
+	# single silently-dropped image the recovery path must pick up. Keeping it
+	# to exactly one is what makes the `buildx build == 1` assertion below mean
+	# "recovered precisely the missing image, and rebuilt nothing else".
+	export KIND_LOADS="cardvault:local policy-engine:local supercred-demo-runner:local"
 	export CTR_IMPORT_IMAGE="cardvault-agent:local"
 
 	run "$script" load
@@ -175,7 +182,7 @@ all_three() {
 }
 
 @test "no recovery is attempted when kind load delivers everything" {
-	export KIND_LOADS="cardvault:local policy-engine:local cardvault-agent:local"
+	export KIND_LOADS="cardvault:local policy-engine:local cardvault-agent:local supercred-demo-runner:local"
 
 	run "$script" load
 	[ "$status" -eq 0 ]
@@ -188,7 +195,10 @@ all_three() {
 	run "$script" build
 	[ "$status" -eq 0 ]
 	run grep -c -- '--platform linux/' "$CALL_LOG"
-	[ "$output" -eq 3 ]
+	# One per entry in SUPERCRED_IMAGES: cardvault, policy-engine,
+	# cardvault-agent, supercred-demo-runner. Adding an image without a
+	# platform pin still fails this test.
+	[ "$output" -eq 4 ]
 }
 
 @test "a failed docker build aborts instead of loading a stale image" {

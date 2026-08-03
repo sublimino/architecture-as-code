@@ -656,6 +656,33 @@ def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status_code, content=body.model_dump())
 
 
+def install_api_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(APIError)
+    async def handle_api_error(_request: Request, exc: APIError) -> JSONResponse:
+        return _error_response(exc.status_code, exc.code, exc.message)
+
+    @app.exception_handler(RequestValidationError)
+    async def handle_validation_error(
+        _request: Request, _exc: RequestValidationError
+    ) -> JSONResponse:
+        return _error_response(422, "invalid_request", "Request is invalid")
+
+    @app.exception_handler(StarletteHTTPException)
+    async def handle_http_error(
+        _request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
+        if exc.status_code == 404:
+            return _error_response(404, "not_found", "Resource was not found")
+        if exc.status_code == 405:
+            return _error_response(405, "method_not_allowed", "Method is not allowed")
+        return _error_response(exc.status_code, "request_error", "Request failed")
+
+    @app.exception_handler(Exception)
+    async def handle_internal_error(_request: Request, exc: Exception) -> JSONResponse:
+        logger.exception("compatibility API request failed", exc_info=exc)
+        return _error_response(500, "internal_error", "Internal server error")
+
+
 def _reject_json_constant(value: str) -> None:
     raise JWTValidationError(f"unsupported JSON constant: {value}")
 
@@ -3456,28 +3483,4 @@ async def patch_cookie_preferences(
 
 def install_compatibility_api(app: FastAPI) -> None:
     app.include_router(router)
-
-    @app.exception_handler(APIError)
-    async def handle_api_error(_request: Request, exc: APIError) -> JSONResponse:
-        return _error_response(exc.status_code, exc.code, exc.message)
-
-    @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(
-        _request: Request, _exc: RequestValidationError
-    ) -> JSONResponse:
-        return _error_response(422, "invalid_request", "Request is invalid")
-
-    @app.exception_handler(StarletteHTTPException)
-    async def handle_http_error(
-        _request: Request, exc: StarletteHTTPException
-    ) -> JSONResponse:
-        if exc.status_code == 404:
-            return _error_response(404, "not_found", "Resource was not found")
-        if exc.status_code == 405:
-            return _error_response(405, "method_not_allowed", "Method is not allowed")
-        return _error_response(exc.status_code, "request_error", "Request failed")
-
-    @app.exception_handler(Exception)
-    async def handle_internal_error(_request: Request, exc: Exception) -> JSONResponse:
-        logger.exception("compatibility API request failed", exc_info=exc)
-        return _error_response(500, "internal_error", "Internal server error")
+    install_api_exception_handlers(app)

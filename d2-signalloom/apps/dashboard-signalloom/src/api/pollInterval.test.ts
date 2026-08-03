@@ -19,10 +19,26 @@ import {
 
 const SRC_DIR = join(__dirname, '..')
 
-/** Surfaces the audience watches. These must poll at demo speed. */
+/**
+ * Surfaces the audience watches. These must poll at demo speed.
+ *
+ * Derived from where each demo phase LANDS, not from which pages happened to
+ * be mentioned when this work started:
+ *
+ *   phase 1 deploy      -> /agents               -> pages/AgentsPage
+ *   phase 2 credential  -> /credential-inventory -> pages/CredentialInventoryPage
+ *   phase 3 scan        -> /compliance           -> views/Compliance
+ *   phase 4 stun        -> /agents               -> pages/AgentsPage
+ *   phase 5 teardown    -> /audit                -> views/AuditTrail
+ *
+ * views/Agents is not routed today (/agents renders pages/AgentsPage) but is
+ * kept on the demo cadence so it cannot drift back if it is ever wired up.
+ */
 const AUDIENCE_SURFACES = [
   'pages/AgentsPage.tsx',
+  'pages/CredentialInventoryPage.tsx',
   'views/Compliance.tsx',
+  'views/AuditTrail.tsx',
   'views/Agents.tsx',
 ]
 
@@ -93,15 +109,36 @@ describe('no audience surface may quietly go back to a slow poll', () => {
     expect(source).not.toContain('900_000')
   })
 
+  it('every audience surface actually registers an interval', () => {
+    // CredentialInventoryPage had a useEffect and no setInterval at all: it
+    // fetched once on mount and then showed that first answer forever. A page
+    // that never polls is the same defect as one that polls too slowly, and
+    // grepping for a slow constant would never have caught it.
+    const missing = AUDIENCE_SURFACES.filter((relative) => {
+      const source = readFileSync(join(SRC_DIR, relative), 'utf8')
+      return !/setInterval\s*\(/.test(source)
+    })
+
+    expect(missing).toEqual([])
+  })
+
+  it('every audience surface clears its interval on unmount', () => {
+    const leaking = AUDIENCE_SURFACES.filter((relative) => {
+      const source = readFileSync(join(SRC_DIR, relative), 'utf8')
+      return !/clearInterval\s*\(/.test(source)
+    })
+
+    expect(leaking).toEqual([])
+  })
+
   it('only the surfaces outside the demo narrative still poll slowly', () => {
     // Not every page needs demo speed, and quietly cranking all of them to
     // 2.5s would multiply this dashboard's request load for no benefit. These
-    // three carry no SuperCred evidence, so they keep the fifteen-minute
+    // two carry no SuperCred evidence, so they keep the fifteen-minute
     // cadence — but the list is pinned, so a NEW slow poll on a surface the
     // audience does watch fails here rather than shipping.
     const KNOWN_SLOW = [
       'pages/DiscoveryPage.tsx',
-      'views/AuditTrail.tsx',
       'views/Settings.tsx',
     ].sort()
 

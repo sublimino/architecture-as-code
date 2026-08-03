@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AuditEventResponse } from '../types/api'
 import DataTable from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
 import ErrorState from '../components/ErrorState'
 
-const POLL_MS = 15 * 60 * 1000
+// Watched by the demo audience in a second window — see api/pollInterval.ts.
+//
+// This is the payoff page: the agent is gone, and the record of what happened
+// to it is not. That record has to arrive while the room is still looking at
+// it, so it polls at demo speed like /agents and /compliance.
+const POLL_MS = LIVE_POLL_MS
 const LIMIT = 50
 
 // The undotted values are the legacy vocabulary retained by migration 007; the
@@ -94,8 +100,16 @@ export default function AuditTrail() {
   // Track active filters so polling uses same params
   const filtersRef = useRef({ fromDate, toDate, agentId, eventType })
 
-  const fetchPage = useCallback(async (p: number, replace: boolean) => {
-    if (replace) setLoading(true)
+  /**
+   * @param silent Background refresh: no spinner, and a failure leaves the last
+   *   good page on screen. At the old fifteen-minute cadence a poll that
+   *   flipped `loading` was invisible; at demo speed it would blank the table
+   *   into "Loading…" every 2.5s, and one transient error would replace the
+   *   audit record with an error state in front of the room.
+   */
+  const fetchPage = useCallback(async (p: number, replace: boolean, silent = false) => {
+    if (silent) { /* background refresh — leave the current view alone */ }
+    else if (replace) setLoading(true)
     else setLoadingMore(true)
     try {
       const token = await getAccessTokenSilently()
@@ -112,6 +126,7 @@ export default function AuditTrail() {
       setPage(p)
       setError(null)
     } catch (e: unknown) {
+      if (silent) return
       const msg = e instanceof Error ? e.message : ''
       if (msg.includes('401') || msg.includes('403')) {
         setError('Your session has expired. Please sign in again.')
@@ -119,17 +134,28 @@ export default function AuditTrail() {
         setError('Something went wrong loading this view. Please try refreshing.')
       }
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (!silent) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [getAccessTokenSilently])
 
   useEffect(() => {
     filtersRef.current = { fromDate: '', toDate: '', agentId: '', eventType: '' }
     fetchPage(1, true)
-    const t = setInterval(() => fetchPage(1, true), POLL_MS)
-    return () => clearInterval(t)
   }, [fetchPage])
+
+  useEffect(() => {
+    // Only while the operator is on the first page. "Load More" appends pages
+    // onto `events`, and a poll re-fetching page 1 replaces the lot — at
+    // fifteen minutes that was a rare annoyance, at 2.5s it would make
+    // pagination impossible to use. Someone reading back through the log is
+    // doing archaeology, not watching a demo, so the poll waits for them.
+    if (page !== 1) return
+    const t = setInterval(() => fetchPage(1, true, true), POLL_MS)
+    return () => clearInterval(t)
+  }, [fetchPage, page])
 
   function applyFilters() {
     filtersRef.current = { fromDate, toDate, agentId, eventType }

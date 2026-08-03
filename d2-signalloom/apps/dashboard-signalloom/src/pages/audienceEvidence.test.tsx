@@ -5,21 +5,20 @@
  * projected to the room, sits on the ordinary customer-facing pages logged in
  * as a normal user. Nobody touches that window for the length of the talk.
  *
- * Two things therefore have to be true, and neither is covered by testing the
- * SuperCred page itself:
+ * This file covers WHAT that window shows — and specifically that it shows it
+ * WITHOUT superadmin, which is the requirement rather than an incidental.
+ * Every context mock here sets `superadmin: false` deliberately.
  *
- *   1. The evidence is visible WITHOUT superadmin. Every context mock here
- *      sets `superadmin: false` deliberately.
- *   2. The page updates on its own. A correct render on a poll that fires
- *      every fifteen minutes is a page that never visibly changes during a
- *      talk, so the interval is pinned here as well as in pollInterval.test.ts
- *      — that test guards the constant, this one guards the wiring.
+ * That the window refreshes at all is the other half, and lives in
+ * audienceRefresh.test.tsx. The two are split because mounting these pages
+ * retains memory per mount, and one file holding both grew heavy enough to
+ * exhaust a 4GB heap.
  *
  * Like supercredDemoEffects, these drive the REAL demo fixtures through the
  * REAL projection layer, so a failure means the data layer stopped moving
  * rather than a page forgetting a special case.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Routes, Route } from 'react-router-dom'
 import type { ReactNode } from 'react'
@@ -68,13 +67,13 @@ vi.mock('../api/client', () => ({
     audit: vi.fn().mockResolvedValue({ events: [], total: 0 }),
     auditExportCsv: vi.fn(),
     support: vi.fn(),
+    health: { crypto: vi.fn().mockResolvedValue({ proofs: [] }) },
   },
 }))
 
 import { api } from '../api/client'
 import { resolveFake } from '../api/fakeData'
 import { projectResponse, SUPERCRED_AGENT_ID } from '../api/supercredProjection'
-import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { SuperCredDemoState, SuperCredPhase } from '../api/supercredTypes'
 
 import AgentsPage from './AgentsPage'
@@ -140,72 +139,19 @@ function renderAgentDetail() {
 
 beforeEach(() => {
   vi.clearAllMocks()
-})
 
-// ── The audience window has to move on its own ──────────────────────────────
-
-describe('the audience window refreshes without a manual reload', () => {
-  // Inferred through a factory: globalThis's index signature does not accept
-  // 'setInterval' as a literal key, so the spy type cannot be written directly.
-  const spyOnSetInterval = () => vi.spyOn(globalThis, 'setInterval')
-  let setIntervalSpy: ReturnType<typeof spyOnSetInterval>
-
-  beforeEach(() => {
-    setIntervalSpy = spyOnSetInterval()
-  })
-  afterEach(() => {
-    setIntervalSpy.mockRestore()
-  })
-
-  /** Every polling interval the component registered on mount. */
-  function registeredIntervals(): number[] {
-    return setIntervalSpy.mock.calls.map((call) => Number(call[1]))
-  }
-
-  it('AgentsPage polls at the demo cadence, not every fifteen minutes', async () => {
-    wireApiFor('stunned')
-    renderPage(<AgentsPage />)
-    await screen.findByRole('heading', { level: 1, name: 'Agents' })
-
-    expect(registeredIntervals()).toContain(LIVE_POLL_MS)
-    expect(registeredIntervals()).not.toContain(15 * 60 * 1000)
-  })
-
-  it('Compliance polls at the demo cadence, not every fifteen minutes', async () => {
-    wireApiFor('non-compliant')
-    renderPage(<Compliance />)
-    await screen.findByRole('heading', { level: 1, name: 'Compliance' })
-
-    expect(registeredIntervals()).toContain(LIVE_POLL_MS)
-    expect(registeredIntervals()).not.toContain(15 * 60 * 1000)
-  })
-
-  it('polls fast enough that a phase change lands inside a spoken sentence', async () => {
-    wireApiFor('stunned')
-    renderPage(<AgentsPage />)
-    await screen.findByRole('heading', { level: 1, name: 'Agents' })
-
-    const demoPaced = registeredIntervals().filter((ms) => ms <= 5_000)
-    expect(demoPaced.length).toBeGreaterThan(0)
-  })
-
-  it('actually re-fetches on the interval, so a stun that lands mid-talk appears', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    try {
-      wireApiFor('credentialed')
-      renderPage(<AgentsPage />)
-      await waitFor(() => expect(api.agents.list).toHaveBeenCalledTimes(1))
-
-      // The instructor stuns the agent in the other window.
-      wireApiFor('stunned')
-      await vi.advanceTimersByTimeAsync(LIVE_POLL_MS + 50)
-
-      await waitFor(() => expect(api.agents.list).toHaveBeenCalledTimes(2))
-      expect(await screen.findByTestId('credential-state-revoked')).toBeInTheDocument()
-    } finally {
-      vi.useRealTimers()
-    }
-  })
+  // clearAllMocks wipes recorded calls but NOT implementations, so a test that
+  // makes a call reject leaves it rejecting for every test after it. That is
+  // how the error-path test below took out an unrelated AgentDetailPage test
+  // several describes later. Re-establish the ambient defaults each time.
+  vi.mocked(api.audit).mockResolvedValue({ events: [], total: 0 } as never)
+  vi.mocked(api.health.crypto).mockResolvedValue({ proofs: [] } as never)
+  vi.mocked(api.agents.violations).mockResolvedValue({ violations: [], total: 0 } as never)
+  vi.mocked(api.nhi.scans).mockResolvedValue({ scans: [] } as never)
+  vi.mocked(api.nhi.discovered).mockResolvedValue({
+    accounts: [], total: 0,
+    summary: { total_discovered: 0, needs_triage: 0, previously_dismissed: 0 },
+  } as never)
 })
 
 // ── Agents: the stun, in words ──────────────────────────────────────────────

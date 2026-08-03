@@ -25,6 +25,7 @@ import { useState, useEffect, useCallback, useMemo, type CSSProperties } from 'r
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
+import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable from '../components/DataTable'
 import { colors } from '../styles/tokens'
 import {
@@ -172,6 +173,15 @@ export default function CredentialInventoryPage() {
 
   useEffect(() => {
     void load()
+    // Watched by the demo audience in a second window — see api/pollInterval.ts.
+    //
+    // Phase 2 mints the credential chain and lands it here, and this page had
+    // no refresh at all: it fetched once on mount and then showed that first
+    // answer forever. `load` replaces the whole state in one setState and
+    // raises no spinner, so a background poll is invisible until the data
+    // actually changes.
+    const t = setInterval(() => { void load() }, LIVE_POLL_MS)
+    return () => clearInterval(t)
   }, [load])
 
   // Memoised so the `?? []` fallback does not mint a new array identity on

@@ -102,7 +102,8 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Reconciler-safe stun fields | Runtime-owned fields (`signalloom.ai/state` and the two stun annotations) are excluded from GitOps drift correction, via `Kustomization.spec.ignore` JSON Pointers and a stun-applied `reconcile: disabled` escalation. | Specific: the three paths survive a forced reconcile.<br/>Measurable: label and both annotations unchanged after `flux reconcile`; controller logs `skipped` not `configured`.<br/>Attainable: both mechanisms already verified working on `kind-osramp`.<br/>Realistic: no new components required.<br/>Time-Bound: M1. | Automated: forced-reconcile assertion in the e2e harness. |
 | Static guard against regression | CI check that no runtime-owned field is re-declared in Flux-managed desired state, distinguishing a declaration from a policy selector. | Specific: check fails on a declaration, passes on a `matchLabels` selector.<br/>Measurable: 10+ unit tests, including the selector and mixed-file cases.<br/>Attainable: implemented and green.<br/>Realistic: pure static analysis, no cluster.<br/>Time-Bound: M1. | `make check-flux-dynamic-labels-test`. |
 | Label-driven network quarantine | Committed NetworkPolicy selecting `signalloom.ai/state=stunned`, denying ingress and egress, plus the mandatory `NotIn: [stunned]` guard convention on every other allow policy. | Specific: labelling a running pod blocks it; unlabelling restores it.<br/>Measurable: reachable→blocked→reachable, no pod restart.<br/>Attainable: verified on kindnet; NetworkPolicy enforcement confirmed.<br/>Realistic: ~40 lines of committed YAML.<br/>Time-Bound: M2. | Automated network probe, both directions. |
-| Guard-convention enforcement | Static check that every allow policy able to select an agent carries the `NotIn: [stunned]` guard. | Specific: an unguarded allow policy fails CI.<br/>Measurable: check proven to go red on a crafted policy.<br/>Attainable: same analysis approach as the field guard.<br/>Realistic: extends existing tooling.<br/>Time-Bound: M2. | Unit tests with a deliberately unguarded fixture. |
+| Admin-tier quarantine (`ClusterNetworkPolicy` v1alpha2) | Express the quarantine as an **Admin-tier Deny**, which no NetworkPolicy can override, rather than relying on a convention every future policy author must remember. | Specific: an Admin-tier Deny selecting `state=stunned` holds against a deliberately hostile allow policy.<br/>Measurable: quarantine survives an allow policy that defeats the NetworkPolicy-tier version.<br/>Attainable: testable on the existing `kind` cluster, no CNI rebuild.<br/>Realistic: `ClusterNetworkPolicy` v1alpha2 is the live API — **not** ANP/BANP v1alpha1, which is the dead branch.<br/>Time-Bound: M2. | Adversarial "defeat the quarantine" test, run against both tiers. |
+| Guard-convention enforcement (defence in depth) | Static check that every allow policy able to select an agent carries the `NotIn: [stunned]` guard — retained as a lint beneath the Admin tier, not as the primary control. | Specific: an unguarded allow policy fails CI.<br/>Measurable: check proven to go red on a crafted policy.<br/>Attainable: same analysis approach as the field guard.<br/>Realistic: reduces surface; **does not** fully solve additive defeat.<br/>Time-Bound: M2. | Unit tests with a deliberately unguarded fixture. |
 | Established-connection severing | Conntrack invalidation for the quarantined pod, closing the residual that policy alone leaves open. | Specific: an established TCP stream stops after stun.<br/>Measurable: stream dies within 5s; without the step it survives past 60s.<br/>Attainable: `conntrack -D` against the pod IP.<br/>Realistic: no CNI change.<br/>Time-Bound: M3. | Long-lived-stream probe, measured before and after. |
 | Freeze-first containment | cgroup-v2 freeze as the first action of the stun, halting execution before any control the agent could observe and react to. | Specific: agent process is frozen before revocation begins.<br/>Measurable: freeze precedes revocation in the audit record; process state is `frozen`.<br/>Attainable: cgroup-v2 freezer on the node.<br/>Realistic: RBAC and runtime feasibility confirmed at M3.<br/>Time-Bound: M4. | Process-state assertion plus ordered audit record. |
 | Un-stun path | Documented, tested reversal: rotate credentials rather than restore, unfreeze last, and mandatory removal of the `reconcile: disabled` annotation. | Specific: after un-stun the object is fully managed again.<br/>Measurable: controller log transitions `skipped`→`unchanged`; new credential serial differs from the revoked one.<br/>Attainable: reverse-order runbook.<br/>Realistic: scripted, not manual.<br/>Time-Bound: M4. | Automated stun→un-stun→stun cycle. |
@@ -180,6 +181,9 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Node-local root and `hostNetwork` bypass | Quarantine does not contain node-root adversaries | Documented residual; out of scope for a network-layer control |
 | Owning controller recreates the agent | Fresh, unstunned replacement | Apply containment at the owner, or scale to zero |
 | Containment evidence is state, not history | "Never stunned" indistinguishable from "stun erased" | First-class events plus immutable audit record |
+| Liveness probe kills a frozen container | "Freeze first" is self-defeating on any probed workload — the kubelet restarts it into a fresh, unstunned instance | Suspend or tolerate probes as part of the freeze step; verified at M3 before M4 depends on it |
+| `reconcile: disabled` drops the object out of Flux health checks | Kustomization can report Ready while the contained object is unassessed | Treat as a documented cost of the escalation; alert independently |
+| Admin-tier `Allow` overrides the quarantine | An Admin-tier Allow outranks the Deny; no lower-tier policy can counter it | Restrict who may author Admin-tier policy; audit the tier |
 
 **SWOT:**
 
@@ -195,6 +199,7 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Joins a known GitOps/IR conflict to agent containment, where the consequence is a false all-clear rather than an inconvenience — the *evidence* half is un-named | The narrow claim is narrow: a sceptic can reasonably call this "a bug in your own demo" |
 | Directly remediates the parent proposal's weakest critiqued claim | Over-claiming again — the parent's "severs in-flight connections" is already wrong |
 | Conference and written-content material with real measurements behind it | Auditors reading it as a completeness claim rather than a bounded control |
+| `ClusterNetworkPolicy` Admin-tier Deny gives an API-level guarantee, testable on the existing cluster | Building on `ClusterNetworkPolicy` v1alpha2 while the API is still alpha and churning |
 | Strengthens the Flux and OpenBao sponsorship narrative | Standards churn in agent runtimes changing the containment surface |
 
 ## Milestones and Deliverables
@@ -207,7 +212,7 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | Mid-project review: demo of progress, evaluation of further milestones, raising of current and new risks | 0.25 | 2 | 0.5 | | #cap-project-management |
 | M4: Freeze-first composition and tested un-stun path | | | | | #cap-incident-response #cap-kubernetes #cap-architecture |
 | M5: Containment audit trail, drift-correction alerting, Argo CD portability note | | | | | #cap-observability #cap-gitops #cap-documentation |
-| M6: Adversarial review, residual-risk statement, parent-proposal errata | | | | | #cap-threat-modelling #cap-attackers-mindset |
+| M6: Adversarial review, per-CNI residual-risk statement, scoped parent-proposal erratum | | | | | #cap-threat-modelling #cap-attackers-mindset |
 | Signoff | | | | | #cap-project-management |
 
 **Total Estimated Effort**: *to be estimated with team*
@@ -220,7 +225,7 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 * A full stun → un-stun → stun cycle passes automatically, leaving the object fully managed.
 * A containment event survives a reconcile that reverts the label.
 * Published residual-risk statement naming every bypass found, including the fail-open CNI case.
-* Parent proposal errata raised for the "severs in-flight connections" claim.
+* Parent proposal erratum raised to **scope** the "severs in-flight connections" claim per-CNI — it is *correct* for Cilium and wrong for Calico, AWS VPC CNI and kindnet. The originally planned erratum would have introduced an error.
 
 ### Reviews & Collaboration (RACI)
 
@@ -247,6 +252,8 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 | 2026-08-03 | AJM | Do not adopt Cilium/eBPF for this deliverable | Measured benefit does not justify replacing the CNI on a working cluster; `kind` only accepts `disableDefaultCNI` at creation | Network layer stays L3/L4; L7 deferred |
 | 2026-08-03 | AJM | Use both `spec.ignore` and stun-applied `reconcile: disabled` | Different granularity and different jobs: standing per-field protection vs reactive per-object escalation | Two mechanisms to document and test |
 | 2026-08-03 | AJM | Freeze first, rather than revoke first | Every other control races a running adversary that can observe its own containment; freezing removes the ability to race | Reorders the stun; adds a cgroup dependency |
+| 2026-08-03 | AJM | Adopt `ClusterNetworkPolicy` v1alpha2 Admin-tier Deny as the primary quarantine, demoting the `NotIn` guard to a lint | Cross-vendor audit: the guard leaves five residual defeat classes and "a lint is not a control"; an Admin-tier Deny cannot be overridden by any NetworkPolicy | Stronger guarantee from the API rather than convention; alpha-API risk accepted |
+| 2026-08-03 | AJM | Do NOT raise the parent erratum as originally scoped | Cross-vendor audit found Cilium DOES re-evaluate policy on established flows (`CT_ESTABLISHED` falls through to the same verdict call as `CT_NEW` in `bpf/bpf_lxc.c`) — the parent's claim is correct for Cilium | The erratum becomes a per-CNI scoping note; the original would have introduced an error |
 | 2026-08-03 | AJM | Rotate credentials on un-stun rather than restore | Revoked credentials may be compromised — restoring re-grants what the adversary may hold | Un-stun requires issuance, not just re-enablement |
 
 ## Appendix

@@ -5,9 +5,42 @@ const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://dashboard.osramp.acm
 const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
 
 setup("authenticate via Dex", async ({ page }) => {
-  await page.goto(DASHBOARD_URL);
+  // Get to the Dex form, tolerating both the cookie gate and the SPA's own
+  // OIDC redirect.
+  //
+  // Two things sit between goto() and the login form when the dashboard is
+  // published through the ngrok tunnel:
+  //
+  //   1. The gate. A fresh browser's first request returns an interstitial that
+  //      sets _sl_gate and meta-refreshes, so goto() resolves on a page with no
+  //      form on it.
+  //   2. The SPA. Once loaded it starts its own redirect to /dex/auth/local,
+  //      which then redirects again to /dex/auth/local/login where the form
+  //      actually lives.
+  //
+  // A single extra goto() raced step 2 — it interrupted the in-flight OIDC
+  // redirect and left the page parked on /dex/auth/local with no form, which
+  // reports as "element(s) not found" against the login locator and reads like
+  // the app is broken rather than like navigation is still in progress.
+  //
+  // So: give it a chance to settle, and only re-navigate if it has genuinely
+  // stalled. Against the local gateway there is no gate and the first attempt
+  // succeeds immediately.
   const loginField = page.locator('input[name="login"]');
-  await expect(loginField).toBeVisible({ timeout: 15_000 });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    if (attempt === 0) {
+      await page.goto(DASHBOARD_URL);
+    } else {
+      await page.goto(DASHBOARD_URL, { waitUntil: "domcontentloaded" });
+    }
+    try {
+      await loginField.waitFor({ state: "visible", timeout: 10_000 });
+      break;
+    } catch {
+      /* gate page or mid-redirect — try again */
+    }
+  }
+  await expect(loginField).toBeVisible({ timeout: 20_000 });
   await loginField.fill("demo-user@signalloom.local");
   await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
   await page.getByRole("button", { name: /sign in|login/i }).click();

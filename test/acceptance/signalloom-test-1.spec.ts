@@ -56,15 +56,24 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
 test.describe("SignalLoom TEST-1 Dex and API contracts", () => {
   test("Dex login token maps demo user to local tenant", async ({ page, request }) => {
     // The auth.setup project already authenticated via Dex. This test verifies
-    // the resulting token (stored in localStorage by react-oidc-context) is
-    // accepted by the API and returns agent data for the demo tenant.
+    // the resulting token is accepted by the API and returns agent data for the
+    // demo tenant.
+    //
+    // The token lives in sessionStorage, not localStorage: this surface is
+    // shared as a public demo link, and a localStorage token outlived the
+    // browser, so the next person to open it inherited the previous session
+    // (dashboard-signalloom/src/auth/oidc.tsx). localStorage is still checked
+    // as a fallback so the assertion is about the API accepting the token, not
+    // about which store it came from.
     await page.goto(DASHBOARD_URL);
     await page.waitForURL(/\/agents/, { timeout: 15_000 });
 
     const idToken = await page.evaluate(() => {
-      for (const [key, value] of Object.entries(localStorage)) {
-        if (key.startsWith("oidc.user:")) {
-          try { return JSON.parse(value).id_token; } catch { /* skip */ }
+      for (const store of [sessionStorage, localStorage]) {
+        for (const [key, value] of Object.entries(store)) {
+          if (key.startsWith("oidc.user:")) {
+            try { return JSON.parse(value as string).id_token; } catch { /* skip */ }
+          }
         }
       }
       return null;

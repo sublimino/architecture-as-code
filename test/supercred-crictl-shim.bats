@@ -115,6 +115,33 @@ capture_command() {
 	[[ "$output" != *'registry.internal:5000/team/policy-engine '* ]]
 }
 
+# A node that holds an image only by digest reports `"names": null` for it --
+# present key, null value -- so `.get("names", [])` never returns its default.
+# The shim raised TypeError mid-table: it emitted the rows BEFORE the null,
+# exited 1, and silently dropped every row after it. Because the caller matches
+# this listing with awk, that surfaced as "SuperCred images are not all present
+# on <node>" against a node that had every image loaded, which blocked steps 1,
+# 2, 4 and `all` from the dashboard on 2026-08-03.
+#
+# The image AFTER the null is the whole point of the fixture: an assertion that
+# only checks the one before it passes on the broken shim.
+@test "a null names entry does not truncate the table" {
+	export KUBECTL_NODE_JSON='{"status":{"images":[{"names":["docker.io/library/cardvault-agent:local"]},{"names":null,"sizeBytes":322035286},{"names":["docker.io/library/policy-engine:local"]}]}}'
+
+	run "$script" exec demo-node crictl images
+	[ "$status" -eq 0 ]
+	[[ "$output" == *'docker.io/library/cardvault-agent local - -'* ]]
+	[[ "$output" == *'docker.io/library/policy-engine local - -'* ]]
+}
+
+@test "a null images list is an empty table, not a crash" {
+	export KUBECTL_NODE_JSON='{"status":{"images":null}}'
+
+	run "$script" exec demo-node crictl images
+	[ "$status" -eq 0 ]
+	[[ "$output" == *'IMAGE TAG IMAGE ID SIZE'* ]]
+}
+
 @test "tag splitting uses the last colon so registry ports stay in the repository column" {
 	export KUBECTL_NODE_JSON='{"status":{"images":[{"names":["registry.internal:5000/team/policy-engine:local"]}]}}'
 

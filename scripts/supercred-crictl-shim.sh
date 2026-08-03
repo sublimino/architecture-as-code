@@ -44,8 +44,17 @@ except json.JSONDecodeError as exc:
 
 print("IMAGE TAG IMAGE ID SIZE")
 
-for image in payload.get("status", {}).get("images", []):
-    for name in image.get("names", []):
+for image in payload.get("status", {}).get("images") or []:
+    # `names` is present-but-NULL for any image the node holds only by digest,
+    # which is routine -- a kind node had one at index 2 of 50. `.get("names",
+    # [])` returns None there, not the default, so the loop raised TypeError and
+    # the shim died PART WAY THROUGH the table: it printed the first two images,
+    # exited 1, and every image after the null was invisible. The caller reads
+    # this listing with awk and sees a short table, so the failure presented as
+    # "SuperCred images are not all present on <node>" against a node that had
+    # them all -- the same fail-closed-on-a-healthy-cluster shape the SIGPIPE
+    # comment in supercred-images.sh records, arriving by a different route.
+    for name in image.get("names") or []:
         # Digest refs and untagged refs do not have repo:tag semantics. Skipping
         # them is safer than inventing a tag the caller would treat as runnable.
         if "@" in name:

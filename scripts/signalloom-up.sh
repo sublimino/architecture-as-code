@@ -9,7 +9,7 @@ RESOURCESET="signalloom-apps"
 FLUX_NS="flux-system"
 INPUTS_FILE="/tmp/.signalloom-apps-resourceset-inputs.json"
 
-DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"local","tag":"latest","tenant":"fe-signalloom"}]'
+DEFAULT_INPUTS='[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"fe-signalloom/local","tag":"latest","tenant":"fe-signalloom"}]'
 
 if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
   echo "==> Namespace '${NAMESPACE}' already exists."

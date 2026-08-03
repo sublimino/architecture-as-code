@@ -71,7 +71,7 @@ up() {
   # The agent-inventory namespace + cross-namespace RBAC are now in
   # inf-signalloom/configs (deployed by signalloom-infra above), so the
   # namespace and Roles exist before the apps kustomization applies.
-  activate_resourceset signalloom-apps '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"local","tag":"latest","tenant":"fe-signalloom"}]'
+  activate_resourceset signalloom-apps '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"fe-signalloom","environment":"fe-signalloom/local","tag":"latest","tenant":"fe-signalloom"}]'
   "$repo_root/scripts/demo-lifecycle.sh" signalloom-up
   wait_resourceset signalloom-apps
   wait_namespace fe-signalloom

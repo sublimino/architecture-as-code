@@ -169,7 +169,7 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
             "tenant": "fe-signalloom",
             "component": "fe-signalloom",
             "tag": "latest",
-            "environment": "local",
+            "environment": "fe-signalloom/local",
             "artifactSubjectWorkflow": "push-signalloom",
             "artifactSubjectGitRef": "refs/heads/main"
           }

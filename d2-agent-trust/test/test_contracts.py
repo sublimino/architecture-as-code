@@ -24,38 +24,39 @@ class Contracts(unittest.TestCase):
 
 class A2A(unittest.TestCase):
  def setUp(self):
-  self.tmp=tempfile.TemporaryDirectory(); self.private=f'{self.tmp.name}/key'; self.public=f'{self.tmp.name}/pub'; self.now=1000
+  self.tmp=tempfile.TemporaryDirectory(); self.private=f'{self.tmp.name}/key'; self.public=f'{self.tmp.name}/pub'; self.now=1000; self.instance='test-instance'
   subprocess.run(['openssl','genrsa','-out',self.private,'2048'],check=True,capture_output=True); subprocess.run(['openssl','rsa','-in',self.private,'-pubout','-out',self.public],check=True,capture_output=True)
   self.request={'action':'triage.analyze','resource':'case/123'}
  def tearDown(self): self.tmp.cleanup()
  def context(self,**change):
-  c={'iss':ISSUER,'aud':AUDIENCE,'actor':PLANNER,'receiver':TRIAGE,'tenant':'acme','project':'payments','action':self.request['action'],'resource':self.request['resource'],'requestHash':request_hash(self.request),'nbf':999,'exp':1001,'jti':'one'}; c.update(change); return mint_authorization_context_fixture(self.private,c)
+  c={'iss':ISSUER,'aud':AUDIENCE,'actor':PLANNER,'receiver':TRIAGE,'instance':self.instance,'tenant':'acme','project':'payments','action':self.request['action'],'resource':self.request['resource'],'requestHash':request_hash(self.request),'nbf':999,'exp':1001,'jti':'one'}; c.update(change); return mint_authorization_context_fixture(self.private,c)
  def test_positive_and_all_mutation_denials(self):
-  self.assertEqual('allow',verify_and_authorize(self.context(),self.public,self.request,PLANNER,ReplayStore(),self.now)['decision'])
-  cases=[{'action':'other'},{'resource':'case/other'},{'receiver':'bad'},{'iss':'bad'},{'actor':'bad'},{'jti':''},{'exp':999},{'nbf':1001},{'aud':'bad'},{'project':'risk'}]
+  self.assertEqual('allow',verify_and_authorize(self.context(),self.public,self.request,PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)['decision'])
+  cases=[{'action':'other'},{'resource':'case/other'},{'receiver':'bad'},{'instance':'pre-restart'},{'iss':'bad'},{'actor':'bad'},{'jti':''},{'exp':999},{'nbf':1001},{'aud':'bad'},{'project':'risk'}]
   for change in cases:
-   with self.assertRaises(PermissionError): verify_and_authorize(self.context(**change),self.public,self.request,PLANNER,ReplayStore(),self.now)
-  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,{'action':'triage.analyze','resource':'case/mutated'},PLANNER,ReplayStore(),self.now)
-  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,'spiffe://bad',ReplayStore(),self.now)
-  replay=ReplayStore(); verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now)
-  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now)
+    with self.assertRaises(PermissionError): verify_and_authorize(self.context(**change),self.public,self.request,PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
+  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,{'action':'triage.analyze','resource':'case/mutated'},PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
+  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,'spiffe://bad',ReplayStore(),self.now,receiver_instance=self.instance)
+  replay=ReplayStore(); verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now,receiver_instance=self.instance)
+  with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,PLANNER,replay,self.now,receiver_instance=self.instance)
   for resource in ('case/alpha_2','case/Z-9'):
-   self.request={'action':'triage.analyze','resource':resource}; self.assertEqual('allow',verify_and_authorize(self.context(jti=resource),self.public,self.request,PLANNER,ReplayStore(),self.now)['decision'])
+    self.request={'action':'triage.analyze','resource':resource}; self.assertEqual('allow',verify_and_authorize(self.context(jti=resource),self.public,self.request,PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)['decision'])
   for resource in ('case/../x','case/a\n','case/'+('a'*129)):
    self.request={'action':'triage.analyze','resource':resource}
-   with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,PLANNER,ReplayStore(),self.now)
+   with self.assertRaises(PermissionError): verify_and_authorize(self.context(),self.public,self.request,PLANNER,ReplayStore(),self.now,receiver_instance=self.instance)
   replay=ReplayStore(max_entries=1); self.assertTrue(replay.consume('first',1001,1000)); self.assertFalse(replay.consume('second',1001,1000)); self.assertTrue(replay.consume('second',1003,1002))
  def test_card_bytes_at_standard_metadata_paths(self):
-  s=serve(self.public,0); th=threading.Thread(target=s.serve_forever); th.start()
+  s=serve(self.public,0,receiver_instance=self.instance); th=threading.Thread(target=s.serve_forever); th.start()
   try:
    wanted=(ROOT/'a2a/agent-card.json').read_bytes()
    for path in ('/.well-known/agent-card.json','/.well-known/agent.json'): self.assertEqual(wanted,urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}{path}').read())
+   self.assertEqual(self.instance,json.loads(urllib.request.urlopen(f'http://127.0.0.1:{s.server_port}/challenge').read())['instanceNonce'])
   finally: s.shutdown(); th.join(); s.server_close()
  def test_http_uses_validator_not_claimed_identity_header(self):
   def validator(token):
    if token != 'good-svid': raise PermissionError('bad identity')
    return PLANNER
-  s=serve(self.public,0,identity_validator=validator); th=threading.Thread(target=s.serve_forever); th.start()
+  s=serve(self.public,0,identity_validator=validator,receiver_instance=self.instance); th=threading.Thread(target=s.serve_forever); th.start()
   try:
    url=f'http://127.0.0.1:{s.server_port}/a2a'; now=int(time.time()); c=self.context(nbf=now-1,exp=now+30,jti='http')
    req=urllib.request.Request(url,data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid','X-Authenticated-SPIFFE-ID':'spiffe://spoof'},method='POST')
@@ -64,6 +65,12 @@ class A2A(unittest.TestCase):
    with self.assertRaises(urllib.error.HTTPError) as denied: urllib.request.urlopen(bad)
    denied.exception.close()
   finally: s.shutdown(); th.join(); s.server_close()
+  restarted=serve(self.public,0,identity_validator=validator,receiver_instance='post-restart'); restarted_thread=threading.Thread(target=restarted.serve_forever); restarted_thread.start()
+  try:
+   replay=urllib.request.Request(f'http://127.0.0.1:{restarted.server_port}/a2a',data=json.dumps(self.request).encode(),headers={'Authorization':'Bearer '+c,'X-SPIFFE-JWT-SVID':'good-svid'},method='POST')
+   with self.assertRaises(urllib.error.HTTPError) as denied_after_restart: urllib.request.urlopen(replay)
+   self.assertEqual(403,denied_after_restart.exception.code); denied_after_restart.exception.close()
+  finally: restarted.shutdown(); restarted_thread.join(); restarted.server_close()
  def test_openbao_identity_seam(self):
   class R:
    def read(self): return json.dumps({'auth':{'client_token':'ephemeral'}}).encode()

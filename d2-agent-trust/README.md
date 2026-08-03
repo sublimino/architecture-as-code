@@ -31,7 +31,11 @@ make demo-agent-trust-down
 `signalloom-spire-proof call-a2a` fetches the planner's JWT-SVID from the
 mounted Workload API socket. The deployed triage receiver submits that bearer
 credential to an exact-subject OpenBao role before applying its receiver-owned
-action/resource rule. `make demo-agent-trust-network-test` executes this flow
+action/resource rule. Each request carries an Ed25519-signed authorization
+context binding the JWT, body, timestamp, nonce, and receiver-instance
+challenge; the bounded nonce cache rejects in-process replay while the
+receiver-instance binding rejects captured requests after restart.
+`make demo-agent-trust-network-test` executes this flow
 over the planner-to-triage NetworkPolicy path. The richer Python
 `a2a/service.py` additionally tests signed authorization context, bounded replay
 protection, and mutation denials. `contracts/openbao-role-intent.sh` remains the
@@ -70,6 +74,10 @@ and applies two five-minute OpenBao JWT roles. `make demo-agent-trust-down` remo
 those entries and roles, then patches the
 ResourceSet to `inputs: []`, waits for Flux pruning, deletes only the six owned
 namespaces if they remain, and verifies absence. It never deletes `inf-bao`.
+To prevent the parent Fleet's five-minute reconciliation from reverting
+imperatively activated ResourceSet inputs, `up` suspends the root
+`flux-system` Kustomization after refreshing it and records ownership of that
+suspension. Failure and `down` resume it; a pre-existing suspension is preserved.
 
 The ResourceSet owns an additive `inf-bao` OpenBao ingress policy: only pods
 labelled planner or triage from the Acme Payments namespace labels can reach

@@ -50,13 +50,11 @@
     filter var(--motion-med) var(--ease-signature);
 }
 
-.trust-boundary--hot .trust-boundary__label { opacity: 1; }
-
-.trust-boundary__label {
-  opacity: 0.72;
-  transition: opacity var(--motion-med) var(--ease-signature);
-  pointer-events: none;
-}
+/* No resting opacity. 0.72 multiplied straight into the contrast ratio and
+   only lifted on hover, so the page's normal state was its failing state:
+   10px uppercase at .09em tracking measured 2.5-4.4:1 across the three themes.
+   Recessiveness is carried by size and weight instead, which cost nothing. */
+.trust-boundary__label { pointer-events: none; }
 
 .trust-boundary--dim { opacity: 0.3; }
 
@@ -200,9 +198,16 @@
  * shorthand, so .trust-enter's declaration replaced this one outright and the
  * breath never ran; and an animated box-shadow outranks an inline one, so it
  * would have erased the node's own selection ring while it played. */
+/* --border-subtle, deliberately NOT --teal.
+ *
+ * --teal is visual.observed.color: the page's designated colour for the one
+ * claim it exists to refuse. The platform node is `modeled`, so haloing the
+ * root of trust in the runtime-observed colour asserted, continuously and in
+ * the most eye-catching element on the canvas, exactly the wrong thing. A
+ * neutral pulse says "this is alive" without saying "this is proved". */
 @keyframes trust-root-breathe {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--teal) 30%, transparent); }
-  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--teal) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--border-subtle) 90%, transparent); }
+  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--border-subtle) 0%, transparent); }
 }
 
 .trust-node--root::after {

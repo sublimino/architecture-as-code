@@ -66,7 +66,18 @@ describe('AgentTrustTopologyPage', () => {
 
   it('keeps stale and unknown semantics out of the green observed treatment', () => {
     render(<AgentTrustTopologyPage />)
-    expect(screen.getByText(/Stale \/ dotted warning/i)).toHaveStyle({ color: 'var(--amber)' })
+    // Was pinned to var(--amber). The legend now greys the evidence states that
+    // have no instances on this page and marks them "· none" — Runtime-observed
+    // and Stale are both empty by design, and rendering "Runtime-observed" in
+    // confident green as the first and highest-contrast item in the strip, with
+    // a 0 in the StatCard directly above it, had the page arguing against its
+    // own thesis.
+    //
+    // The property this test is named for is unchanged and still asserted: the
+    // stale entry must never take the colour reserved for runtime-observed.
+    const stale = screen.getByText(/Stale \/ dotted warning/i)
+    expect(stale).not.toHaveStyle({ color: 'var(--teal)' })
+    expect(stale).toHaveStyle({ color: 'var(--muted)' })
     expect(screen.getAllByText(/unknown/).length).toBeGreaterThan(0)
   })
 })

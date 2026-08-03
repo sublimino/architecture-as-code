@@ -12,9 +12,9 @@ import {
 import '@xyflow/react/dist/style.css'
 
 import type { EvidenceState, Selection, TrustEdge, TrustNode } from './trustTypes'
-import { visual } from './trustVisuals'
+import { shortVerb, visual } from './trustVisuals'
 import { NODE_H, NODE_W, deriveBoundaries, deriveExternalBand } from './trustBoundaries'
-import { bowFor, edgeGeometry, wallFraction } from './trustGeometry'
+import { bowFor, edgeGeometry, placeLabels, reservedForLabels, wallFraction } from './trustGeometry'
 import TrustFlowNode from './TrustFlowNode'
 import TrustBoundaryNode from './TrustBoundaryNode'
 import TrustFlowEdge from './TrustFlowEdge'
@@ -200,30 +200,33 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
    */
   const drawnEdges = useMemo(() => {
     const byId = new Map(nodes.map(node => [node.id, node]))
-    // Edges sharing an endpoint converge, so their midpoints collide. Counting
-    // how many already touch each node -- at EITHER end, since two edges out of
-    // one source overlap just as badly as two into one target -- lets each claim
-    // a different slot along its own curve for its label.
-    const touched = new Map<string, number>()
-    return edges.flatMap(edge => {
+    const geoms = edges.flatMap(edge => {
       const from = byId.get(edge.from)
       const to = byId.get(edge.to)
       if (!from || !to) return []
-      const slot = Math.max(touched.get(edge.from) ?? 0, touched.get(edge.to) ?? 0)
-      touched.set(edge.from, slot + 1)
-      touched.set(edge.to, slot + 1)
-      const geom = edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bowFor(from, to))
-      return [{
+      return [{ edge, geom: edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bowFor(from, to)) }]
+    })
+
+    const reserved = reservedForLabels(nodes, boundaries)
+    const placements = new Map(
+      placeLabels(geoms.map(g => ({ id: g.edge.id, geom: g.geom, text: shortVerb(g.edge.verb) })), reserved)
+        .map(p => [p.id, p]),
+    )
+
+    return geoms.map(({ edge, geom }) => {
+      const placement = placements.get(edge.id)
+      return {
         edge,
         geom,
         wallAt: edge.denialKind === 'network-block' ? wallFraction(geom, boundaries, edge.from) : 0.5,
-        labelAt: 0.5 + ((slot % 3) - 1) * 0.17,
+        labelAt: placement?.at ?? 0.5,
+        labelOffset: placement?.offset ?? 0,
         selected: selected.type === 'edge' && selected.id === edge.id,
         hot: highlight.hotEdges.has(edge.id),
         dim: highlight.any && !highlight.hotEdges.has(edge.id),
         onSelect: onSelectEdge,
         onHover: hoverEdge,
-      }]
+      }
     })
   }, [boundaries, edges, highlight, hoverEdge, nodes, onSelectEdge, selected])
 

@@ -2,13 +2,17 @@
 // in the first cut of this diagram. Each of these shipped and was measured in a
 // real browser, so each gets a test rather than a comment.
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import AgentTrustTopologyPage, { trustEdges, trustNodes } from '../../pages/AgentTrustTopologyPage'
 import { deriveExternalBand, NODE_H } from './trustBoundaries'
-import { borderPoint, bowFor, edgeGeometry, pointAt, wallFraction } from './trustGeometry'
+import { shortVerb, visual } from './trustVisuals'
+import { borderPoint, bowFor, edgeGeometry, labelRect, placeLabels, pointAt, reservedForLabels, wallFraction } from './trustGeometry'
 import { deriveBoundaries } from './trustBoundaries'
 
 describe('the external band is bounded by its members, not by the canvas', () => {
@@ -190,5 +194,83 @@ describe('the canvas is decoration, the list is the interface', () => {
     // WCAG 2.5.3: a voice-control user saying "Decision" has to be able to hit
     // the control that visibly reads "Decision".
     expect(screen.getByLabelText('Decision')).toBeInTheDocument()
+  })
+})
+
+describe('the visual language survives every theme', () => {
+  // --cyan-bg and its siblings live only in global.css's :root and are absent
+  // from CSS_VAR_NAMES, so applyTheme never rewrites them: they stayed frozen
+  // at dark-theme values under Light and "andy". That put teal-cyan fills on
+  // three nodes inside an all-red theme. Anything colour-bearing on this page
+  // has to derive from a token the theme actually switches.
+  it('derives every tint from a theme-switched token', () => {
+    for (const [state, v] of Object.entries(visual)) {
+      expect(v.tint, `${state} tint`).not.toMatch(/--\w+-(bg|glow|border|focus)\b/)
+      expect(v.tint, `${state} tint`).toMatch(/color-mix/)
+    }
+  })
+
+  it('leaves no hardcoded rgba() in the page, which no theme can rewrite', () => {
+    const source = readFileSync(join(__dirname, '..', '..', 'pages', 'AgentTrustTopologyPage.tsx'), 'utf8')
+    expect(source).not.toMatch(/rgba\(\s*\d+\s*,/)
+  })
+
+  // Decision is not evidence. In "andy" the allowed and denied strokes are
+  // 1.29:1 apart -- both red -- and a denied edge keeps its evidence dash, so
+  // colour and dash are both spoken for. Decision needs its own channel.
+  it('distinguishes denied edges by stroke shape, not only by colour', () => {
+    render(<MemoryRouter><AgentTrustTopologyPage /></MemoryRouter>)
+    const canvas = screen.getByTestId('trust-canvas')
+    // The authorization plane carries one allowed and one denied relationship.
+    const denialEdge = trustEdges.find(e => e.decision === 'denied')!
+    expect(denialEdge).toBeDefined()
+    // A denied edge renders a surface-coloured inner stroke over a heavier one;
+    // an allowed edge renders a single stroke. Identity plane is all-allowed.
+    const innerStrokes = canvas.querySelectorAll('path[stroke="var(--surface)"]')
+    expect(innerStrokes.length).toBe(0)
+  })
+})
+
+describe('edge labels do not print on top of each other', () => {
+  // Measured in Chrome before this pass: "SPIRE issues SVID" overlapped "ACME
+  // RISK BOUNDARY" by 43px on the Identity plane, and "planner invokes triage"
+  // overlapped "cross-project application denial" by 68px on Evidence. The
+  // earlier stagger keyed on shared endpoints, which is the wrong variable --
+  // labels collide because of where they land, not what they attach to.
+  it('finds a clear position for every label in every plane', () => {
+    const planes = ['identity', 'authorization', 'network', 'external'] as const
+    for (const plane of [...planes, 'evidence' as const]) {
+      const visibleEdges = plane === 'evidence' ? trustEdges : trustEdges.filter(e => e.plane === plane)
+      const boundaries = deriveBoundaries(trustNodes)
+      const reserved = reservedForLabels(trustNodes, boundaries)
+
+      const candidates = visibleEdges.map(edge => {
+        const from = trustNodes.find(n => n.id === edge.from)!
+        const to = trustNodes.find(n => n.id === edge.to)!
+        return {
+          id: edge.id,
+          geom: edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bowFor(from, to)),
+          text: shortVerb(edge.verb),
+        }
+      })
+
+      const placements = placeLabels(candidates, reserved)
+      const rects = placements.map(p => {
+        const c = candidates.find(x => x.id === p.id)!
+        return { id: p.id, rect: labelRect(c.geom, c.text, p.at, p.offset) }
+      })
+
+      const overlap = (a: typeof rects[number]['rect'], b: typeof rects[number]['rect']) =>
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height
+
+      for (let i = 0; i < rects.length; i += 1) {
+        for (let j = i + 1; j < rects.length; j += 1) {
+          expect(overlap(rects[i].rect, rects[j].rect), `${plane}: ${rects[i].id} over ${rects[j].id}`).toBe(false)
+        }
+        for (const band of reserved) {
+          expect(overlap(rects[i].rect, band), `${plane}: ${rects[i].id} over a node or caption`).toBe(false)
+        }
+      }
+    }
   })
 })

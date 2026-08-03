@@ -38,32 +38,47 @@ function TrustBoundaryNodeImpl({ data }: NodeProps) {
         // The external band gets a hatch instead of a tint. A texture reads as
         // "somewhere else"; another flat tint would just read as another tenant.
         background: isExternal
-          ? `repeating-linear-gradient(135deg, color-mix(in srgb, ${accent} 9%, transparent) 0 6px, transparent 6px 13px)`
+          ? `repeating-linear-gradient(135deg, color-mix(in srgb, ${accent} 5%, transparent) 0 5px, transparent 5px 18px)`
           : `color-mix(in srgb, ${accent} 6%, transparent)`,
         boxShadow: hot ? `0 0 0 1px ${accent}, 0 10px 34px -18px ${accent}` : 'none',
         animationDelay: `${enterDelay}ms`,
         pointerEvents: 'none',
       }}
     >
+      {/* Label and caption stack, both clipped to the boundary they belong to.
+       *
+       * Previously they sat on one nowrap line: "NORTHSTAR INVESTIGATIONS
+       * BOUNDARY" is ~214px of text in a 222px box, so it overran its own
+       * dashed edge AND the parent tenant's, ending in open canvas. The caption
+       * was then gated on `width > 300`, which meant the 768px Acme tenant
+       * explained itself while the 258px Northstar tenant said nothing at all
+       * -- one of the two walls the page exists to show, silent.
+       *
+       * Colour: the label is --text, not the tenant accent. The accents are
+       * 3.8-4.2:1 against the canvas at 10px in some themes; the accent still
+       * codes the tenant via the dot and the border, where contrast rules for
+       * text do not apply. */}
       <div
         className="trust-boundary__label"
         style={{
           position: 'absolute',
-          top: isExternal ? 6 : 7,
+          top: isExternal ? 5 : 6,
           left: 12,
+          right: 10,
           display: 'flex',
-          alignItems: 'baseline',
-          gap: 8,
-          whiteSpace: 'nowrap',
+          flexDirection: 'column',
+          gap: 1,
         }}
       >
-        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.09em', color: accent, textTransform: 'uppercase' }}>
-          {label}
+        <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+          <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: 2, background: accent, flex: 'none' }} />
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.09em', color: 'var(--text)', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
         </span>
-        {/* A caption wider than its own boundary spills across the neighbouring
-            wall and reads as belonging to it. Below this width the label alone
-            has to carry the meaning. */}
-        {width > 300 && <span style={{ fontSize: 9.5, color: 'var(--dim)' }}>{caption}</span>}
+        <span style={{ fontSize: 9.5, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {caption}
+        </span>
       </div>
     </div>
   )

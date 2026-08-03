@@ -203,6 +203,24 @@ describe('the evidence-to-motion contract', () => {
     expect(visual.stale.label).toBe('Stale / dotted warning')
     expect(visual.stale.color).toBe('var(--amber)')
   })
+
+  // Colour cannot be trusted to carry evidence state. The "andy" theme maps
+  // --teal, --violet, --cyan and --amber onto four near-indistinguishable reds,
+  // so a node's border style is the only cue left there -- and the same is true
+  // for a colourblind viewer in any theme. This binds the border style to the
+  // word the legend actually prints, so the two cannot drift apart.
+  it('backs every evidence colour with a line style the legend names', () => {
+    for (const [state, v] of Object.entries(visual)) {
+      const named = v.label.toLowerCase()
+      expect(named, `${state} legend must name its line style`).toContain(v.borderStyle)
+    }
+  })
+
+  it('gives modeled and fixture-tested distinguishable line styles', () => {
+    expect(visual.modeled.borderStyle).not.toBe(visual.fixture.borderStyle)
+    expect(visual.modeled.dash).not.toBe(visual.fixture.dash)
+    expect(visual.observed.borderStyle).toBe('solid')
+  })
 })
 
 describe('on-canvas labels', () => {

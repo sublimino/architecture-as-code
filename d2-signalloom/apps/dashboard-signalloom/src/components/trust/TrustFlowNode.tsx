@@ -43,7 +43,9 @@ function TrustFlowNodeImpl({ data }: NodeProps) {
       className={classes}
       style={{
         borderColor: accent,
-        borderStyle: node.evidence === 'observed' ? 'solid' : 'dashed',
+        // Not a bare 'dashed': dotted-vs-dashed is the only evidence cue that
+        // survives a theme where every accent is the same red. See trustVisuals.
+        borderStyle: v.borderStyle,
         background: `linear-gradient(180deg, ${v.tint}, transparent 78%), var(--surface2)`,
         // Depth cues carry the node's own evidence colour, so a lit-up path is
         // colour-coded by how much it can be trusted rather than by one house

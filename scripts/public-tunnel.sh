@@ -33,6 +33,8 @@ PF_PID_FILE="${TUNNEL_DIR}/pf.pid"
 NGROK_PID_FILE="${TUNNEL_DIR}/ngrok.pid"
 NGROK_URL_FILE="${TUNNEL_DIR}/ngrok-url"
 NGROK_LOG_FILE="${TUNNEL_DIR}/ngrok.log"
+PF_LOG_FILE="${TUNNEL_DIR}/port-forward.log"
+PF_SUPERVISOR_PID_FILE="${TUNNEL_DIR}/pf-supervisor.pid"
 COOKIE_TOKEN_FILE="${TUNNEL_DIR}/cookie-token"
 DEX_BACKUP_FILE="${TUNNEL_DIR}/dex-backup.yaml"
 POLICY_FILE="${TUNNEL_DIR}/traffic-policy.yaml"
@@ -88,6 +90,40 @@ pid_alive() {
   [[ -f "$1" ]] && kill -0 "$(cat "$1")" 2>/dev/null
 }
 
+# PID currently listening on a local port, via ss -- not a cmdline pattern.
+# Pattern-matching processes from inside this script risks matching the shell
+# that is running it.
+pid_on_port() {
+  # "No process on that port" is a normal answer, not an error. Without the
+  # trailing `|| true` the unmatched grep returns 1, pipefail promotes it to
+  # the whole pipeline, and `set -e` kills the caller mid-teardown -- which is
+  # how a "successful" `down` left .tunnel and a live agent behind.
+  #
+  # head is deliberately last-but-one rather than piping into another grep:
+  # closing the pipe early sends SIGPIPE upstream, which pipefail also turns
+  # into a fatal 141.
+  { (ss -ltnp 2>/dev/null || true) | grep ":$1 " | grep -o 'pid=[0-9]*' | cut -d= -f2 | head -1; } || true
+}
+
+# A previous run's ngrok that outlived its teardown still owns port 4040 and
+# the public URL. Starting a second agent then fails silently: the new process
+# exits, and extract_ngrok_url reads the ORPHAN's API and returns a URL this
+# script neither owns nor can tear down. Reap it first.
+reap_orphan_ngrok() {
+  local owner
+  owner="$(pid_on_port 4040)"
+  [[ -z "$owner" ]] && return 0
+  # Ours already? Nothing to do.
+  if [[ -f "$NGROK_PID_FILE" ]] && [[ "$owner" == "$(cat "$NGROK_PID_FILE")" ]]; then
+    return 0
+  fi
+  echo "==> Found an orphaned ngrok on :4040 (PID ${owner}) from a previous run — stopping it"
+  kill "$owner" 2>/dev/null || true
+  local i=0
+  while kill -0 "$owner" 2>/dev/null && ((i < 20)); do sleep 0.5; ((++i)); done
+  kill -9 "$owner" 2>/dev/null || true
+}
+
 kill_pid_file() {
   local file="$1"
   if [[ -f "$file" ]]; then
@@ -99,7 +135,7 @@ kill_pid_file() {
       local i=0
       while kill -0 "$pid" 2>/dev/null && ((i < 10)); do
         sleep 0.5
-        ((i++))
+        ((++i))
       done
       kill -9 "$pid" 2>/dev/null || true
     fi
@@ -151,8 +187,38 @@ patch_dex_secret() {
   # Replace the issuer.
   config=$(echo "$config" | sed "s|issuer: ${ORIGINAL_ISSUER}|issuer: ${ngrok_url}/dex|")
 
-  # Add the ngrok callback to redirectURIs (after the last existing entry).
-  config=$(echo "$config" | sed "/- http:\/\/localhost:5173\/callback/a\\          - ${ngrok_url}/callback")
+  # Add the ngrok callback to redirectURIs, matching the anchor line's OWN
+  # indentation.
+  #
+  # This previously hardcoded ten spaces while the list items use six, so the
+  # appended line was not parsed as a member of redirectURIs at all. Everything
+  # downstream looked healthy -- secret patched, Dex restarted, tunnel serving
+  # HTTP 200 -- and the browser still died on the login redirect with Dex
+  # logging: Unregistered redirect_uri ("https://<id>.ngrok.app/callback").
+  # Deriving the indent from the matched line cannot drift out of step with it.
+  config=$(printf '%s\n' "$config" | awk -v url="${ngrok_url}/callback" '
+    { print }
+    /- http:\/\/localhost:5173\/callback/ && !done {
+      match($0, /^[[:space:]]*/)
+      printf "%s- %s\n", substr($0, 1, RLENGTH), url
+      done = 1
+    }')
+
+  # Assert the URI really landed as a list entry before we ship it to the
+  # cluster. A silent mis-indent here is invisible until a human tries to log in.
+  if ! printf '%s\n' "$config" | awk -v want="- ${ngrok_url}/callback" '
+      /redirectURIs:/ { inlist = 1; match($0, /^[[:space:]]*/); indent = RLENGTH; next }
+      inlist {
+        match($0, /^[[:space:]]*/)
+        if (RLENGTH <= indent) { inlist = 0; next }
+        line = $0; sub(/^[[:space:]]+/, "", line)
+        if (line == want) { found = 1 }
+      }
+      END { exit !found }'; then
+    echo "ERROR: ngrok callback was not added as a redirectURIs entry." >&2
+    echo "       Dex would reject the login with 'Unregistered redirect_uri'." >&2
+    return 1
+  fi
 
   # Reconstruct and apply. Preserves labels via --save-config.
   kubectl create secret generic "$DEX_SECRET_NAME" \
@@ -220,29 +286,88 @@ extract_ngrok_url() {
 }
 
 # ── Port-forward ─────────────────────────────────────────────────────
+#
+# `kubectl port-forward` is not a durable tunnel. It dies on pod restarts, on
+# idle timeouts, when the laptop sleeps, and whenever the apiserver drops the
+# SPDY stream. When it died here, ngrok stayed up and kept accepting public
+# traffic, so the URL still resolved and every request 502'd:
+#
+#   "failed to open private leg" ... "dial tcp [::1]:19080: connect: connection refused"
+#
+# The tunnel looked up (`ngrok: running`) and was completely broken. So the
+# port-forward gets a supervisor that restarts it, and everything that reports
+# tunnel health checks the port, not just the PID.
+
+port_forward_healthy() {
+  # The PID being alive proves nothing -- kubectl can survive with a dead
+  # stream. The listening socket is the thing callers actually depend on.
+  (ss -ltn 2>/dev/null || netstat -ltn 2>/dev/null) | grep -q ":${LOCAL_PORT} "
+}
+
+# One attempt. The supervisor loops on this.
+spawn_port_forward() {
+  kubectl port-forward -n "$DASHBOARD_NAMESPACE" \
+    "svc/${DASHBOARD_SERVICE}" "${LOCAL_PORT}:${DASHBOARD_PORT}" &>>"$PF_LOG_FILE" &
+  echo $! > "$PF_PID_FILE"
+}
+
+# Restarts the port-forward whenever the local port stops accepting.
+supervise_port_forward() {
+  while true; do
+    sleep 5
+    if ! port_forward_healthy; then
+      echo "$(date -Is) port-forward down — restarting" >> "$PF_LOG_FILE"
+      kill_pid_file "$PF_PID_FILE"
+      spawn_port_forward
+      wait_tcp 127.0.0.1 "$LOCAL_PORT" 30 >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 start_port_forward() {
-  # Guard against port already in use.
-  if ss -tlnp 2>/dev/null | grep -q ":${LOCAL_PORT} "; then
-    echo "ERROR: port ${LOCAL_PORT} already bound" >&2
+  # Guard against port already in use by something that is not ours.
+  if port_forward_healthy && ! pid_alive "$PF_PID_FILE"; then
+    echo "ERROR: port ${LOCAL_PORT} already bound by another process" >&2
     echo "       Set PUBLIC_LOCAL_PORT to a different value" >&2
     return 1
   fi
 
-  kubectl port-forward -n "$DASHBOARD_NAMESPACE" \
-    "svc/${DASHBOARD_SERVICE}" "${LOCAL_PORT}:${DASHBOARD_PORT}" &>/dev/null &
-  echo $! > "$PF_PID_FILE"
+  spawn_port_forward
   echo "    port-forward: ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} → localhost:${LOCAL_PORT}"
+  wait_tcp 127.0.0.1 "$LOCAL_PORT" 30 || return 1
 
-  wait_tcp 127.0.0.1 "$LOCAL_PORT" 30
+  # Supervisor in its own process group so it survives this script exiting.
+  setsid bash -c "$(declare -f port_forward_healthy spawn_port_forward kill_pid_file supervise_port_forward wait_tcp 2>/dev/null); \
+    LOCAL_PORT='${LOCAL_PORT}' DASHBOARD_NAMESPACE='${DASHBOARD_NAMESPACE}' \
+    DASHBOARD_SERVICE='${DASHBOARD_SERVICE}' DASHBOARD_PORT='${DASHBOARD_PORT}' \
+    PF_PID_FILE='${PF_PID_FILE}' PF_LOG_FILE='${PF_LOG_FILE}' \
+    supervise_port_forward" &>/dev/null &
+  echo $! > "$PF_SUPERVISOR_PID_FILE"
+  echo "    supervisor:   restarts the port-forward if it drops"
 }
 
 # ── Subcommands ──────────────────────────────────────────────────────
 cmd_up() {
-  # Idempotent: if tunnel is already running, just print info.
-  if pid_alive "$NGROK_PID_FILE" && pid_alive "$PF_PID_FILE" && [[ -f "$NGROK_URL_FILE" ]]; then
+  # Already fully up: nothing to do.
+  if tunnel_healthy && [[ -f "$NGROK_URL_FILE" ]]; then
     local url
     url="$(cat "$NGROK_URL_FILE")"
     echo "Tunnel is already running."
+    print_access_info "$url"
+    return 0
+  fi
+
+  # ngrok alive but the local leg is dead -- the exact state that serves 502s
+  # to every visitor. Repair in place: a full re-up would issue a NEW ngrok URL
+  # and re-patch Dex, invalidating a link that may already have been shared.
+  if pid_alive "$NGROK_PID_FILE" && [[ -f "$NGROK_URL_FILE" ]] && ! port_forward_healthy; then
+    echo "==> ngrok is up but the port-forward is down — repairing without changing the URL"
+    kill_pid_file "$PF_SUPERVISOR_PID_FILE"
+    kill_pid_file "$PF_PID_FILE"
+    start_port_forward || return 1
+    local url
+    url="$(cat "$NGROK_URL_FILE")"
+    verify_public_url "$url" || return 1
     print_access_info "$url"
     return 0
   fi
@@ -288,12 +413,30 @@ cmd_up() {
     policy_path="$SNAP_POLICY_COPY"
   fi
 
-  "$ngrok_bin" http "$LOCAL_PORT" \
+  reap_orphan_ngrok
+
+  # setsid so the whole agent lands in its own process group and teardown can
+  # take the group down. /snap/bin/ngrok is a wrapper that execs the real
+  # binary; killing only the recorded PID left the real agent running, still
+  # bound to :4040 and still serving the public URL after `down` reported
+  # "torn down".
+  setsid "$ngrok_bin" http "$LOCAL_PORT" \
     --traffic-policy-file="$policy_path" \
     --log=stdout --log-format=json > "$NGROK_LOG_FILE" 2>&1 &
   echo $! > "$NGROK_PID_FILE"
 
-  # 6. Extract URL.
+  # 6. Extract URL -- but only after confirming OUR agent is alive. If it
+  #    exited (port already taken, bad token, policy rejected), the 4040 API
+  #    may still answer from somebody else's agent, and we would publish a URL
+  #    we do not control.
+  sleep 2
+  if ! pid_alive "$NGROK_PID_FILE"; then
+    echo "ERROR: ngrok exited immediately after start." >&2
+    echo "       Last lines of ${NGROK_LOG_FILE}:" >&2
+    tail -5 "$NGROK_LOG_FILE" >&2 2>/dev/null || true
+    return 1
+  fi
+
   echo "==> Waiting for ngrok URL..."
   local url
   url="$(extract_ngrok_url)"
@@ -303,8 +446,65 @@ cmd_up() {
   echo "==> Patching Dex for public URL..."
   patch_dex_secret "$url"
 
+  # 8. Prove it actually serves before telling anyone it is up. Everything
+  #    above can succeed against a tunnel that 502s on every request.
+  echo "==> Verifying the public URL end to end..."
+  verify_public_url "$url" || return 1
+
   echo ""
   print_access_info "$url"
+}
+
+# Proves the tunnel serves AND that the login it hands people actually works.
+#
+# Checking only the front door was not enough: with the redirect_uri
+# mis-indented into oblivion, the root URL returned a cheerful HTTP 200 from
+# the cookie gate while every real visitor hit "Error" the instant Dex saw the
+# callback. So this also drives the OIDC authorize endpoint the dashboard will
+# send people to, and treats a 400 there as a failure of the tunnel.
+verify_public_url() {
+  local url="$1" code i=0 jar
+  jar="$(mktemp)"
+
+  while ((i < 12)); do
+    code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+      -c "$jar" -b "$jar" -H 'ngrok-skip-browser-warning: 1' "$url" 2>/dev/null || echo 000)"
+    case "$code" in
+      200|302|303|401|403) break ;;
+    esac
+    sleep 2
+    ((++i))
+  done
+
+  case "$code" in
+    200|302|303|401|403) echo "    HTTP ${code} — tunnel is serving" ;;
+    *)
+      echo "ERROR: public URL returned HTTP ${code} after retries — tunnel is not serving" >&2
+      echo "       port-forward log: ${PF_LOG_FILE}" >&2
+      echo "       ngrok log:        ${NGROK_LOG_FILE}" >&2
+      rm -f "$jar"; return 1 ;;
+  esac
+
+  # The authorize endpoint, with the redirect_uri the dashboard really sends.
+  local auth_code
+  auth_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+    -c "$jar" -b "$jar" -H 'ngrok-skip-browser-warning: 1' \
+    "${url}/dex/auth?client_id=signalloom-dashboard&redirect_uri=${url}/callback&response_type=code&scope=openid+profile+email" \
+    2>/dev/null || echo 000)"
+
+  if [[ "$auth_code" == "400" ]]; then
+    echo "ERROR: Dex rejected the login redirect (HTTP 400)." >&2
+    echo "       Almost always an unregistered redirect_uri. Check:" >&2
+    echo "       kubectl logs -n ${DEX_NAMESPACE} deploy/${DEX_DEPLOYMENT} | grep redirect_uri" >&2
+    rm -f "$jar"; return 1
+  fi
+  echo "    HTTP ${auth_code} — Dex accepts ${url}/callback"
+  rm -f "$jar"
+}
+
+# The whole chain, not one PID. This is what every caller should ask.
+tunnel_healthy() {
+  pid_alive "$NGROK_PID_FILE" && port_forward_healthy
 }
 
 print_access_info() {
@@ -325,6 +525,28 @@ print_access_info() {
   echo "════════════════════════════════════════════════════════════"
 }
 
+# ngrok runs under setsid, so it owns its process group; kill the group rather
+# than the single recorded PID. Then confirm :4040 is actually free -- a
+# teardown that leaves the agent running is worse than no teardown, because the
+# next `up` silently adopts its URL.
+kill_ngrok_group() {
+  if [[ -f "$NGROK_PID_FILE" ]]; then
+    local pid; pid="$(cat "$NGROK_PID_FILE")"
+    kill -- "-${pid}" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    local i=0
+    while kill -0 "$pid" 2>/dev/null && ((i < 20)); do sleep 0.5; ((++i)); done
+    kill -9 -- "-${pid}" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
+    rm -f "$NGROK_PID_FILE"
+  fi
+  # Belt and braces: whoever still holds :4040 is a leftover agent.
+  local owner; owner="$(pid_on_port 4040)"
+  if [[ -n "$owner" ]]; then
+    kill "$owner" 2>/dev/null || true
+    sleep 1
+    kill -9 "$owner" 2>/dev/null || true
+  fi
+}
+
 cmd_down() {
   echo "==> Tearing down public tunnel..."
 
@@ -339,7 +561,10 @@ cmd_down() {
 
 # Quiet teardown for cleanup during up (no Dex restore).
 cmd_down_quiet() {
-  kill_pid_file "$NGROK_PID_FILE"
+  # Supervisor first: it restarts the port-forward within 5s, so killing the
+  # forward before its supervisor just resurrects it.
+  kill_pid_file "$PF_SUPERVISOR_PID_FILE"
+  kill_ngrok_group
   kill_pid_file "$PF_PID_FILE"
   rm -f "$SNAP_POLICY_COPY"
   rm -rf "$TUNNEL_DIR"
@@ -354,26 +579,46 @@ cmd_status() {
     echo "ngrok: running (PID $(cat "$NGROK_PID_FILE"))"
   fi
 
-  if ! pid_alive "$PF_PID_FILE"; then
-    echo "port-forward: not running"
+  # Health is the listening socket, not the PID: kubectl can survive with a
+  # dead stream, and a dead PID with a live socket means someone else has the port.
+  if ! port_forward_healthy; then
+    echo "port-forward: not serving on ${LOCAL_PORT}"
     running=false
   else
-    echo "port-forward: running (PID $(cat "$PF_PID_FILE"))"
+    echo "port-forward: serving on ${LOCAL_PORT} (PID $(cat "$PF_PID_FILE" 2>/dev/null || echo '?'))"
   fi
 
+  # A verdict, not two facts to correlate. "ngrok: running" alongside
+  # "port-forward: not running" means the public URL is serving 502s, and that
+  # read as healthy at a glance.
   if [[ -f "$NGROK_URL_FILE" ]] && $running; then
     echo "url: $(cat "$NGROK_URL_FILE")"
+    echo "tunnel: HEALTHY"
     return 0
+  fi
+  if pid_alive "$NGROK_PID_FILE" && ! port_forward_healthy; then
+    echo "tunnel: BROKEN — ngrok is accepting traffic with no local backend;"
+    echo "        every visitor gets a 502. Run 'make public' to repair."
+  else
+    echo "tunnel: DOWN"
   fi
   return 1
 }
 
 cmd_url() {
-  if [[ -f "$NGROK_URL_FILE" ]] && pid_alive "$NGROK_PID_FILE"; then
+  # Requires the WHOLE chain. `make public-test` feeds this straight into the
+  # acceptance suite; handing back a URL whose backend is dead turned an
+  # infrastructure outage into a page full of application test failures.
+  if [[ -f "$NGROK_URL_FILE" ]] && tunnel_healthy; then
     cat "$NGROK_URL_FILE"
     return 0
   fi
-  echo "ERROR: no tunnel running" >&2
+  if pid_alive "$NGROK_PID_FILE"; then
+    echo "ERROR: tunnel is broken — ngrok is up but nothing is serving on ${LOCAL_PORT}." >&2
+    echo "       Run 'make public' to repair before testing." >&2
+  else
+    echo "ERROR: no tunnel running" >&2
+  fi
   return 1
 }
 

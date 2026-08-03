@@ -188,8 +188,13 @@ print(\" \".join(hits))'"
   # already started mutating the cluster.
   pod="$(kubectl -n "$FE_NS" get pod -l app.kubernetes.io/name=supercred-demo-runner \
     -o jsonpath='{.items[0].metadata.name}')"
+  # The pattern is ASSEMBLED at runtime and never appears whole in the probe's
+  # own command line. Written literally, `grep supercred-demo.sh /proc/*/cmdline`
+  # matches the /proc entry of the shell running it — the probe finds itself,
+  # reports 1, and fails on a runner that started nothing. Same self-match trap
+  # as `pgrep -f` on your own command.
   run kubectl -n "$FE_NS" exec "$pod" -- \
-    bash -c 'grep -la supercred-demo.sh /proc/[0-9]*/cmdline 2>/dev/null | wc -l'
+    bash -c 'p=supercred; q=-demo.sh; grep -la "$p$q" /proc/[0-9]*/cmdline 2>/dev/null | wc -l'
   [ "$output" = "0" ]
 }
 
@@ -207,9 +212,16 @@ print(\" \".join(hits))'"
   # The browser-side proof is in test/acceptance/supercred-two-window.spec.ts,
   # which audits every live request. This is the static half: the only query
   # parameter the client ever builds is the log offset.
-  run grep -nE '\?(.*)(token|authorization|bearer|jwt)' \
-    "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts"
-  [ "$status" -ne 0 ]
+  # Enumerate every query parameter the client builds and assert the set is
+  # exactly {offset}. Asserting the ABSENCE of "token" near a "?" instead was
+  # the first attempt and it was wrong twice over: it flagged the TypeScript
+  # optional-parameter syntax `body?: unknown, token?: string`, and it would
+  # have missed a parameter named anything else that carried a credential.
+  # Enumerating what IS there cannot be fooled by either.
+  params="$(grep -oE '[?&][A-Za-z_][A-Za-z0-9_]*=' \
+    "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts" \
+    | tr -d '?&=' | sort -u | tr '\n' ' ')"
+  [ "$params" = "offset " ]
 
   # And the token is passed as a header, on every call that carries one.
   run grep -c 'Authorization: `Bearer' "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts"

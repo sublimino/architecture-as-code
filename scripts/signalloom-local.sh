@@ -63,7 +63,19 @@ up() {
 
   # Both ResourceSets are inactive after `make up`; this explicit lifecycle
   # enables Signal Loom's infra first, then its frontend.
-  activate_resourceset signalloom-infra '[{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-bao","environment":"local","tag":"latest","tenant":"inf-bao"},{"artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-signalloom","environment":"local","tag":"latest","tenant":"inf-signalloom"}]'
+  #
+  # `appsTenant` on the INFRA inputs is not redundant with `tenant`. The
+  # SuperCred runner's cross-namespace RBAC has to be declared by
+  # signalloom-infra (a RoleBinding created by signalloom-apps trips the
+  # kustomize-controller privilege-escalation dry run -- see the long comment
+  # in tenants/local/signalloom.yaml), but its SUBJECT is a ServiceAccount in
+  # the APPS tenant. `tenant` here is inf-bao / inf-signalloom, so templating
+  # the subject off it named a ServiceAccount that never existed and left the
+  # runner with no authority at all -- silently, because RBAC does not
+  # validate subjects. Both infra inputs carry the same appsTenant value, and
+  # it MUST equal the apps activation's `tenant` below;
+  # d2-signalloom/test/supercred-runner-rbac.bats asserts exactly that.
+  activate_resourceset signalloom-infra '[{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-bao","environment":"local","tag":"latest","tenant":"inf-bao"},{"appsTenant":"fe-signalloom","artifactSubjectGitRef":"local","artifactSubjectWorkflow":"local","component":"inf-signalloom","environment":"local","tag":"latest","tenant":"inf-signalloom"}]'
   wait_resourceset signalloom-infra
   wait_namespace inf-bao
   "$repo_root/scripts/demo-lifecycle.sh" bao-up

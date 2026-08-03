@@ -14,6 +14,17 @@
 # Sourced by public-tunnel.sh; every function here is side-effect free except
 # the two named *_up / *_down.
 
+# Namespaces holding a flux-runtime-info copy that feeds a ${PUBLIC_ORIGIN}.
+ORIGIN_CONSUMER_NAMESPACES=(inf-signalloom fe-signalloom)
+
+# What teardown reverts to. Must match the :=default in dex.yaml and in the
+# fe-signalloom deployment, or teardown lands somewhere neither expects.
+LOCAL_ORIGIN_DEFAULT="${LOCAL_ORIGIN_DEFAULT:-https://dashboard.osramp.acme.local:30754}"
+
+# The Kustomizations that consume PUBLIC_ORIGIN. Defined here so expose.sh is
+# self-contained; public-tunnel.sh sets the same list for its own use.
+FLUX_TARGETS=("${FLUX_TARGETS[@]:-inf-signalloom/infra-configs fe-signalloom/apps}")
+
 # ── Strategy detection ───────────────────────────────────────────────
 #
 # Explicit beats inferred: PUBLIC_STRATEGY forces a choice, so a VM run can
@@ -83,43 +94,52 @@ loadbalancer_address() {
 # public origin rather than undo it. Nothing needs suspending, and the value
 # survives every future reconcile.
 publish_origin() {
-  local origin="$1"
+  local origin="$1" ns
 
-  kubectl create configmap flux-runtime-info -n flux-system \
-    --from-literal="PUBLIC_ORIGIN=${origin}" \
-    --dry-run=client -o yaml \
-    | kubectl patch --local=false -f - --type=merge --patch-file=/dev/stdin >/dev/null 2>&1 \
-    || kubectl patch configmap flux-runtime-info -n flux-system \
-         --type=merge -p "{\"data\":{\"PUBLIC_ORIGIN\":\"${origin}\"}}" >/dev/null
-
-  echo "    PUBLIC_ORIGIN=${origin} written to flux-runtime-info"
-
-  # The copies in each tenant namespace are made by flux-operator from the
-  # flux-system original; nudge the owners so the new value lands now rather
-  # than up to 30 minutes from now.
-  local target ns name
-  for target in "${FLUX_TARGETS[@]}"; do
-    ns="${target%%/*}"; name="${target##*/}"
-    kubectl annotate kustomization "$name" -n "$ns" \
-      "reconcile.fluxcd.io/requestedAt=$(date +%s)" --overwrite >/dev/null 2>&1 || true
+  # Written to flux-system AND to each tenant copy, deliberately.
+  #
+  # The tenant copies carry `fluxcd.controlplane.io/copyFrom:
+  # flux-system/flux-runtime-info`, but that copy does NOT reliably propagate an
+  # update: measured on 2026-08-03, changing the key in flux-system (and even
+  # forcing a ResourceSet reconcile) left both tenant copies on the previous
+  # value, so Dex and the API kept serving a stale origin. Writing flux-system
+  # alone looks correct and silently does nothing.
+  #
+  # flux-system is still written because it is the durable source a future
+  # re-copy or a rebuilt namespace will read; the tenant writes are what take
+  # effect now.
+  kubectl patch configmap flux-runtime-info -n flux-system \
+    --type=merge -p "{\"data\":{\"PUBLIC_ORIGIN\":\"${origin}\"}}" >/dev/null
+  for ns in "${ORIGIN_CONSUMER_NAMESPACES[@]}"; do
+    kubectl patch configmap flux-runtime-info -n "$ns" \
+      --type=merge -p "{\"data\":{\"PUBLIC_ORIGIN\":\"${origin}\"}}" >/dev/null 2>&1 || true
   done
-  echo "    reconcile requested for ${FLUX_TARGETS[*]}"
+  echo "    PUBLIC_ORIGIN=${origin}"
+
+  reconcile_origin_consumers
 }
 
-# Put the origin back to the in-git default so a torn-down demo leaves the
-# cluster exactly as GitOps describes it.
+# Teardown SETS the local default rather than removing the key.
+#
+# Removing it does not unpublish: the tenant copies keep the last value, so the
+# demo stays published on a dead origin while the cluster looks reset. An
+# explicit value always propagates; an absent one does not.
 unpublish_origin() {
-  kubectl patch configmap flux-runtime-info -n flux-system \
-    --type=json -p '[{"op":"remove","path":"/data/PUBLIC_ORIGIN"}]' >/dev/null 2>&1 \
-    && echo "    PUBLIC_ORIGIN removed — Dex reverts to the in-git default" \
-    || true
+  publish_origin "${LOCAL_ORIGIN_DEFAULT}"
+}
 
-  local target ns name
+# Reconciling the Kustomization alone is not enough -- it re-applies whatever
+# its source already had. The OCIRepository must be refreshed first or the new
+# substitution never reaches the manifest.
+reconcile_origin_consumers() {
+  local target ns name src
   for target in "${FLUX_TARGETS[@]}"; do
     ns="${target%%/*}"; name="${target##*/}"
-    kubectl annotate kustomization "$name" -n "$ns" \
-      "reconcile.fluxcd.io/requestedAt=$(date +%s)" --overwrite >/dev/null 2>&1 || true
+    src="$(kubectl get kustomization "$name" -n "$ns" -o jsonpath='{.spec.sourceRef.name}' 2>/dev/null || true)"
+    [[ -n "$src" ]] && flux reconcile source oci "$src" -n "$ns" >/dev/null 2>&1 || true
+    flux reconcile kustomization "$name" -n "$ns" >/dev/null 2>&1 || true
   done
+  echo "    reconciled ${FLUX_TARGETS[*]}"
 }
 
 # ── NodePort exposure (cloud VM) ─────────────────────────────────────

@@ -38,11 +38,28 @@ aliases:
 
 ## Press Release
 
-ControlPlane today announced that Signal Loom's agent containment now survives GitOps reconciliation. When a Signal Loom operator stuns a misbehaving AI agent, the containment holds — and, critically, the *evidence* that it holds is not silently erased by the platform's own reconciler minutes later.
+ControlPlane today announced that Signal Loom's agent containment now survives GitOps reconciliation — and, more importantly, that the *evidence* of containment survives with it.
 
-This is a problem the industry has not named. Every regulated organisation adopting agentic AI is also adopting GitOps, and the two have a defect at their intersection: a reconciler exists to drive live state back to what Git says, and an incident response exists to change live state *away* from what Git says. Where they meet, the reconciler wins — quietly, on its own schedule, with no error raised and no status degraded.
+That the reconciler undoes operational overrides is well known. Flux and Argo CD both document it, GitLab's public incident-response runbook warns about it, and practitioners say plainly that they disable the reconciler during incidents. What is not documented anywhere we can find is the second-order failure this creates for autonomous-agent containment: **the field the reconciler reverts is also the system's only record that containment happened.** Enforcement and evidence have different owners and therefore different lifetimes. Revocation lives outside the reconciled set and persists; the label recording it lives inside and is reverted. The console then reports a still-contained agent as healthy — a monitoring error in the reassuring direction, which is the worst one.
 
-ControlPlane found this in its own platform by measuring rather than assuming, and is publishing both the failure and the remedy. Signal Loom now composes containment across the layers that a reconciler cannot reach and those it can, declares which is which, and proves the distinction with tests. The result is a containment control an auditor can believe: one whose enforcement and whose evidence have the same lifetime.
+ControlPlane found this in its own platform by measuring rather than assuming. We are not claiming to have discovered that reconcilers fight incident response; we are claiming that nobody has yet joined it to agent containment, where the consequence is not an inconvenience but a false all-clear on a live incident. We have some standing to say so: ControlPlane presented *Automated Cloud Native Incident Response with Kubernetes and Service Mesh* at KubeCon EU 2023, and that talk treats GitOps purely as an asset. We said this three years ago and were incomplete.
+
+Signal Loom now composes containment across the layers a reconciler cannot reach and those it can, declares which is which, and proves the distinction with tests — including the negative case, where an ordinary allow policy silently defeats a quarantine. The result is a containment control an auditor can believe: one whose enforcement and whose evidence have the same lifetime.
+
+### Prior art, stated up front
+
+Cut a novelty claim before a reviewer does. Adversarial prior-art search found the enforcement half of this problem thoroughly named:
+
+| Source | What it already says |
+| :---- | :---- |
+| Flux documentation | Ignore rules exist precisely so operational state can coexist with reconciliation |
+| Argo CD | Went through this bug cycle and shipped `ignoreDifferences`; `managedFieldsManagers` is a better model than Flux's paths |
+| GitLab incident-response runbook | Publicly warns that the reconciler will revert manual production changes |
+| Argo CD issue (2023) | *"we end up disabling argocd during incidents so that we can make quick changes"* |
+| CNCF vendor blog (Jan 2024) | Names the two-loop conflict in a security-policy context |
+| CNCF OSS (2024) | Label-driven quarantine already shipped as a feature |
+
+**What survives:** the evidence half, joined to agent containment. **What does not:** any claim that the industry has not named the conflict. The narrow claim is defensible and is the one made here. Note also that `#stefan-prodan`, a named reviewer on this proposal, maintains the Flux mechanism this work depends on — a novelty claim that cannot survive its own first reviewer has no business in a press release.
 
 ## Proposal Overview
 
@@ -175,7 +192,7 @@ The urgency is not theoretical. The defect is live in the current demo path: a r
 
 | Opportunities | Threats |
 | :---- | :---- |
-| Names a defect at the GitOps/incident-response intersection that the industry has not articulated | A vendor publishes the same analysis first |
+| Joins a known GitOps/IR conflict to agent containment, where the consequence is a false all-clear rather than an inconvenience — the *evidence* half is un-named | The narrow claim is narrow: a sceptic can reasonably call this "a bug in your own demo" |
 | Directly remediates the parent proposal's weakest critiqued claim | Over-claiming again — the parent's "severs in-flight connections" is already wrong |
 | Conference and written-content material with real measurements behind it | Auditors reading it as a completeness claim rather than a bounded control |
 | Strengthens the Flux and OpenBao sponsorship narrative | Standards churn in agent runtimes changing the containment surface |

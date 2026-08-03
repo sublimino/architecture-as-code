@@ -10,5 +10,5 @@ for agent in planner triage; do
     bound_audiences=openbao-supercredential \
     bound_subject="spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/${agent}" \
     user_claim=sub policies=agent-trust-acme-payments token_ttl=5m token_max_ttl=5m \
-    token_period=0 token_renewable=false
+    token_period=0 token_type=batch
 done

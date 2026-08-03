@@ -27,6 +27,7 @@ import {
   makeCommandForStep,
   resetDemo,
   startDemoRun,
+  type DemoRunLogChunk,
   type DemoRunView,
   type DemoRunnerStatus,
   type DemoStep,
@@ -157,6 +158,38 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   }, [getAccessTokenSilently])
 
   /**
+   * Append a chunk to the log, but only if it starts exactly at the cursor.
+   *
+   * Two readers share `offsetRef`: the 500ms poll below and `drainLog`. Neither
+   * holds a lock, the poll has no in-flight guard, and the cursor only advances
+   * when a response LANDS — so a response can easily arrive that no longer
+   * describes the cursor's position:
+   *
+   *   * a tick fires while the previous tick is still outstanding (any round
+   *     trip over 500ms, which is routine through a tunnel), both ask for the
+   *     same offset, and both append the same bytes;
+   *   * a slow earlier response lands after a fast later one and assigns its
+   *     older `next_offset`, dragging the cursor BACKWARDS, so the next read
+   *     re-fetches output already on screen;
+   *   * `drainLog` runs concurrently with a tick that has not come back yet.
+   *
+   * Observed 2026-08-03: the reset banner rendered twice from a script that
+   * printed it once, and the request trace showed `offset=0`, `offset=0`,
+   * `offset=69`, `offset=0`. This corrupts every step's log, not just reset.
+   *
+   * The server already echoes the `offset` it served, so the check is exact and
+   * needs no locking: a chunk that does not begin at the cursor is a duplicate
+   * or an out-of-order straggler, and discarding it is always correct — the
+   * bytes it carries are either already displayed or will be re-requested.
+   */
+  const applyLogChunk = useCallback((chunk: DemoRunLogChunk): boolean => {
+    if (chunk.offset !== offsetRef.current) return false
+    if (chunk.chunk) setLog(prev => prev + chunk.chunk)
+    offsetRef.current = chunk.next_offset
+    return true
+  }, [])
+
+  /**
    * Read whatever output landed after the run finished.
    *
    * The last poll almost always lands before the script's final lines are
@@ -165,16 +198,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const drainLog = useCallback(async (runId: string) => {
     try {
       for (let read = 0; read < MAX_DRAIN_READS; read++) {
-        const chunk = await fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently())
-        if (chunk.chunk) setLog(prev => prev + chunk.chunk)
-        if (chunk.next_offset === offsetRef.current) break
-        offsetRef.current = chunk.next_offset
+        const before = offsetRef.current
+        const chunk = await fetchDemoRunLog(runId, before, await getAccessTokenSilently())
+        // A rejected chunk means a concurrent poll moved the cursor while this
+        // read was in flight. Re-read from wherever it got to rather than
+        // breaking, so the tail is not truncated. MAX_DRAIN_READS bounds it.
+        if (!applyLogChunk(chunk)) continue
+        if (offsetRef.current === before) break
         if (chunk.eof) break
       }
     } catch {
       /* the tail is best effort — the run status is the authoritative outcome */
     }
-  }, [getAccessTokenSilently])
+  }, [applyLogChunk, getAccessTokenSilently])
 
   const finishRun = useCallback(
     async (runId: string) => {
@@ -201,10 +237,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
           ])
           if (stopped) return
-          if (chunk) {
-            if (chunk.chunk) setLog(prev => prev + chunk.chunk)
-            offsetRef.current = chunk.next_offset
-          }
+          if (chunk) applyLogChunk(chunk)
           setActiveRun(run)
           if (!isRunActive(run)) await finishRun(runId)
         } catch (err) {
@@ -217,7 +250,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       stopped = true
       clearInterval(timer)
     }
-  }, [running, runId, finishRun, getAccessTokenSilently])
+  }, [running, runId, finishRun, applyLogChunk, getAccessTokenSilently])
 
   const startRun = useCallback(
     async (start: () => Promise<DemoRunView>) => {

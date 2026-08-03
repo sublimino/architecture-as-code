@@ -378,6 +378,77 @@ describe('the run log streams in incrementally', () => {
     // re-reading (duplicated output) or skipping (lost output).
     expect(logCalls[1].url).toContain('offset=14')
   })
+
+  // Two readers share the log cursor — the 500ms poll and the post-run drain —
+  // and neither takes a lock or guards against a tick that is still in flight.
+  // So the panel receives responses that no longer describe the cursor. The
+  // server echoes back the offset it served, which makes those responses
+  // identifiable; the panel used to ignore that field and append regardless.
+  //
+  // Observed 2026-08-03 on a live reset: the banner appeared twice from a
+  // script that printed it once. Not cosmetic — it corrupts the log display of
+  // every step, and duplicated output during a failure is precisely when an
+  // instructor is trying to read it.
+  it('discards a duplicate chunk instead of printing the same line twice', async () => {
+    const banner = '[supercred] step 5: tearing down supercred demo resources\n'
+    mockRunner({
+      startResponse: runView({ step_id: '5', kind: 'reset', status: 'running' }),
+      pollRuns: [runView({ status: 'running' }), runView({ status: 'failed', exit_code: 1 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 58, chunk: banner, eof: false }),
+        // The overlapping tick: issued before the response above landed, so it
+        // asked for offset 0 too and carries bytes already on screen.
+        logChunk({ offset: 0, next_offset: 58, chunk: banner, eof: false }),
+        logChunk({ offset: 58, next_offset: 58, chunk: '', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('tearing down'), {
+      timeout: 4000,
+    })
+    await waitFor(
+      () => expect(demoApiCalls(c => c.url.includes('/log')).length).toBeGreaterThanOrEqual(3),
+      { timeout: 4000 },
+    )
+
+    const rendered = screen.getByTestId('supercred-run-log').textContent ?? ''
+    const occurrences = rendered.split('tearing down supercred demo resources').length - 1
+    expect(occurrences).toBe(1)
+  })
+
+  it('never rewinds the cursor when an out-of-order chunk lands', async () => {
+    // A slow earlier response arriving after a fast later one used to assign
+    // its own stale next_offset, dragging the cursor backwards — after which
+    // the panel re-read and re-printed output already displayed. The live
+    // trace showed exactly this: offset=0, offset=0, offset=69, offset=0.
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' }), runView({ status: 'running' }), runView({ status: 'succeeded', exit_code: 0 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 30, chunk: 'registering SPIRE entry\n', eof: false }),
+        // The straggler: describes the stream from 0, but the cursor is at 30.
+        logChunk({ offset: 0, next_offset: 0, chunk: '', eof: false }),
+        logChunk({ offset: 30, next_offset: 55, chunk: 'entry registered\n', eof: false }),
+        logChunk({ offset: 55, next_offset: 55, chunk: '', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('entry registered'), {
+      timeout: 4000,
+    })
+
+    const offsets = demoApiCalls(c => c.url.includes('/log')).map(c =>
+      Number(new URL(c.url, 'http://x').searchParams.get('offset')),
+    )
+    // Monotonic. A single backwards step means output is about to be repeated.
+    for (let i = 1; i < offsets.length; i++) {
+      expect(offsets[i]).toBeGreaterThanOrEqual(offsets[i - 1])
+    }
+  })
 })
 
 // ─── Failure reporting ────────────────────────────────────────────────────────
@@ -581,4 +652,117 @@ describe('the credential-lifecycle UI still works alongside the new controls', (
       expect(screen.getByTestId(`lifecycle-step-${i}`)).toBeInTheDocument()
     }
   })
+})
+
+// ─── The log cursor ───────────────────────────────────────────────────────────
+
+/**
+ * A runner that serves its log the way the real one does: from a byte buffer,
+ * sliced at the offset the caller asked for.
+ *
+ * The fixtures above hand back the next scripted chunk on every call regardless
+ * of the requested offset, which makes a re-read at a stale cursor invisible —
+ * the panel asks twice and is handed two different chunks, so the bug looks
+ * like correct streaming. Serving from a real buffer is what makes duplicated
+ * output observable, so this is the fixture the cursor tests use.
+ *
+ * `logLatencyMs` models the thing that actually triggered it: a log read that
+ * takes longer than POLL_MS. Over a published tunnel (`make public`) that is
+ * the normal case, not the pathological one.
+ */
+function mockRunnerServingRealLog(opts: {
+  logBuffer: string
+  logLatencyMs?: number
+  runningPolls?: number
+  finalStatus?: DemoRunView['status']
+}) {
+  const { logBuffer, logLatencyMs = 0, runningPolls = 2, finalStatus = 'failed' } = opts
+  let runPolls = 0
+
+  const respond = (payload: unknown, status = 200) =>
+    ({
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => payload,
+      text: async () => (typeof payload === 'string' ? payload : ''),
+    }) as Response
+
+  const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input)
+    const method = (init?.method ?? 'GET').toUpperCase()
+    calls.push({ url, method, body: init?.body ? JSON.parse(String(init.body)) : undefined })
+
+    if (url === '/demo-api/steps') return respond({ steps: STEPS })
+    if (url === '/demo-api/status') {
+      return respond({ active: null, recent: [], script_available: true })
+    }
+    if (url.startsWith('/demo-api/runs/') && url.includes('/log')) {
+      const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? 0)
+      if (logLatencyMs) await sleep(logLatencyMs)
+      // Exactly the server's semantics: slice from the requested offset.
+      const chunk = logBuffer.slice(offset)
+      return respond({
+        run_id: 'run-1',
+        offset,
+        next_offset: logBuffer.length,
+        chunk,
+        truncated: false,
+        eof: runPolls > runningPolls,
+      })
+    }
+    if (url.startsWith('/demo-api/runs/')) {
+      runPolls += 1
+      return respond(
+        runPolls > runningPolls
+          ? runView({ status: finalStatus, exit_code: 1 })
+          : runView({ status: 'running' }),
+      )
+    }
+    if (url === '/demo-api/runs') return respond(runView({ status: 'running' }), 202)
+    if (url === '/demo-api/reset') return respond(runView({ step_id: '5', kind: 'reset' }), 202)
+    return respond({ agents: [cardvault()], namespaces: [FLUX_NS] })
+  }) as unknown as typeof fetch
+}
+
+function occurrences(haystack: string, needle: string): number {
+  return haystack.split(needle).length - 1
+}
+
+describe('the run log is not duplicated when the runner is slower than the poll', () => {
+  // Andy's reset, 2026-08-03: the script emits its banner exactly once, but the
+  // instructor panel showed it twice.
+  //
+  //   [supercred] step 5: tearing down supercred demo resources
+  //   [supercred] step 5: tearing down supercred demo resources
+  //
+  // setInterval does not wait for the previous tick, and the cursor advances
+  // only once a response comes back. Any read slower than POLL_MS therefore
+  // overlaps the next one, both ticks send the same offset, the server honestly
+  // returns the same bytes twice, and both append.
+  const BANNER = '[supercred] step 5: tearing down supercred demo resources\n'
+
+  it('shows a line once even when each log read outlives the poll interval', async () => {
+    mockRunnerServingRealLog({ logBuffer: BANNER, logLatencyMs: 800, runningPolls: 3 })
+    await readyPanel()
+    // Let the page's own discovery settle first. While it is still in flight the
+    // parent re-renders, which tears down and rebuilds the poll effect -- and the
+    // rebuilt effect's `stopped` flag happens to swallow the duplicate append.
+    // On a quiescent page (an instructor who loaded the tab and then pressed a
+    // button) nothing tears the effect down, and the duplicate lands. That is
+    // the case an instructor is actually in, so it is the case under test.
+    await new Promise(resolve => setTimeout(resolve, 400))
+    await userEvent.click(await screen.findByTestId('supercred-run-step-5'))
+
+    await waitFor(
+      () => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('tearing down'),
+      { timeout: 8000 },
+    )
+    // Let every overlapping in-flight read land before counting.
+    await new Promise(resolve => setTimeout(resolve, 2500))
+
+    const shown = screen.getByTestId('supercred-run-log').textContent ?? ''
+    expect(occurrences(shown, 'tearing down supercred demo resources')).toBe(1)
+  }, 20000)
 })

@@ -628,13 +628,26 @@ verify_public_url() {
     "${url}/dex/auth?client_id=signalloom-dashboard&redirect_uri=${url}/callback&response_type=code&scope=openid+profile+email" \
     2>/dev/null || echo 000)"
 
-  if [[ "$auth_code" == "400" ]]; then
-    echo "ERROR: Dex rejected the login redirect (HTTP 400)." >&2
-    echo "       Almost always an unregistered redirect_uri. Check:" >&2
-    echo "       kubectl logs -n ${DEX_NAMESPACE} deploy/${DEX_DEPLOYMENT} | grep redirect_uri" >&2
-    rm -f "$jar"; return 1
-  fi
-  echo "    HTTP ${auth_code} — Dex accepts ${url}/callback"
+  # Allow-list, not a deny-list. Rejecting only "400" let everything else
+  # through, including curl's own 000 (connection failed) -- which printed the
+  # nonsense "HTTP 000000 — Dex accepts ..." and passed the gate on a request
+  # that never completed. A verification step that cannot fail is not one.
+  case "$auth_code" in
+    200|302|303)
+      echo "    HTTP ${auth_code} — Dex accepts ${url}/callback" ;;
+    400)
+      echo "ERROR: Dex rejected the login redirect (HTTP 400)." >&2
+      echo "       Almost always an unregistered redirect_uri. Check:" >&2
+      echo "       kubectl logs -n ${DEX_NAMESPACE} deploy/${DEX_DEPLOYMENT} | grep redirect_uri" >&2
+      rm -f "$jar"; return 1 ;;
+    000|"")
+      echo "ERROR: could not reach Dex through the tunnel at all (curl exit)." >&2
+      echo "       ngrok log: ${NGROK_LOG_FILE}" >&2
+      rm -f "$jar"; return 1 ;;
+    *)
+      echo "ERROR: Dex returned an unexpected HTTP ${auth_code} for the login redirect." >&2
+      rm -f "$jar"; return 1 ;;
+  esac
   rm -f "$jar"
 }
 

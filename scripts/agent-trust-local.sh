@@ -352,6 +352,64 @@ network_dataplane_preflight() {
   # the capability gate, including kindnet when it is present on this cluster.
 }
 
+verify_nonrenewable_planner_token() {
+  local planner planner_state fetched jwt login client_token renew_output renew_status
+  planner_state="$(kubectl -n agent-trust-acme-payments get pods \
+    -l app.kubernetes.io/name=agent-trust-planner -o json)"
+  planner="$(jq -er '
+    [.items[] | select(
+      (.status.containerStatuses // []) as $statuses |
+      ($statuses | length) > 0 and
+      all($statuses[]; .ready == true)
+    ) | .metadata.name] |
+    if length == 1 then .[0] else error("expected one ready planner pod") end
+  ' <<<"$planner_state")"
+  fetched="$(kubectl -n agent-trust-acme-payments exec "$planner" -- \
+    /usr/local/bin/spire-agent api fetch jwt \
+      -audience openbao-supercredential \
+      -socketPath /run/spire/sockets/agent.sock \
+      -output json)"
+  jwt="$(jq -er '
+    if type == "array" then
+      [.[] | .svids? // empty] | flatten | .[0].svid
+    else
+      .svids[0].svid
+    end
+  ' <<<"$fetched")"
+  # shellcheck disable=SC2016 # JWT expands only inside the remote OpenBao shell.
+  login="$(printf '%s\n' "$jwt" | kubectl -n "$bao_namespace" exec -i deployment/openbao -- \
+    sh -ec '
+      IFS= read -r jwt
+      export BAO_ADDR=http://127.0.0.1:8200
+      bao write -format=json auth/jwt/login role=agent-trust-planner jwt="$jwt"
+    ')"
+  jq -e '.auth.renewable == false and .auth.lease_duration == 300' \
+    <<<"$login" >/dev/null || {
+      printf 'OpenBao planner token is renewable or exceeds five minutes\n' >&2
+      return 1
+    }
+  client_token="$(jq -er '.auth.client_token' <<<"$login")"
+  set +e
+  # shellcheck disable=SC2016 # Token expands only inside the remote OpenBao shell.
+  renew_output="$(printf '%s\n' "$client_token" | kubectl -n "$bao_namespace" exec -i deployment/openbao -- \
+    sh -ec '
+      IFS= read -r token
+      export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token"
+      bao token renew
+    ' 2>&1)"
+  renew_status=$?
+  set -e
+  if [[ "$renew_status" -eq 0 ]]; then
+    printf 'OpenBao unexpectedly renewed the planner batch token\n' >&2
+    return 1
+  fi
+  if [[ "$renew_output" != *'batch tokens cannot be renewed'* ]]; then
+    printf 'OpenBao batch-token renewal denial could not be proven\n' >&2
+    return 1
+  fi
+  printf 'OpenBao planner token is a five-minute non-renewable batch token\n'
+}
+
 expect_tcp() {
   local deployment="$1" namespace="$2" host="$3" port="$4" expected="$5"
   if kubectl -n "$namespace" exec "deployment/${deployment}" -- nc -z -w 5 "$host" "$port"; then
@@ -365,6 +423,7 @@ network_test() {
   require_command kubectl
   network_dataplane_preflight
   verify
+  verify_nonrenewable_planner_token
   wait_pods_ready app.kubernetes.io/name=agent-trust-triage -n agent-trust-acme-payments 180
   expect_tcp agent-trust-planner agent-trust-acme-payments agent-trust-triage 8080 allow
   kubectl -n agent-trust-acme-payments exec deployment/agent-trust-planner -- \

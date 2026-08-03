@@ -63,6 +63,31 @@ containerdConfigPatches:
   - |-
     [plugins."io.containerd.grpc.v1.cri".registry]
       config_path = "/etc/containerd/certs.d"
+kubeadmConfigPatches:
+  - |-
+    kind: KubeletConfiguration
+    apiVersion: kubelet.config.k8s.io/v1beta1
+    # Report EVERY image the node holds, not the fifty largest.
+    #
+    # --node-status-max-images defaults to 50 and the kubelet reports the
+    # LARGEST fifty, so on a node holding more than that the small images are
+    # simply absent from node.status.images. Anything reading that object to
+    # answer "is this image on the node?" then gets a confident wrong answer.
+    #
+    # This demo does exactly that: the in-cluster runner has no crictl and no
+    # docker socket, so its shim derives the image list from the node object.
+    # On 2026-08-03 the node held all four SuperCred images -- `crictl images`
+    # on the node listed them -- while node.status.images held 50 entries and
+    # omitted cardvault:local (8.9MB) and policy-engine:local (14.9MB) purely
+    # for being too small to rank. The preflight blocked the entire demo on a
+    # completely healthy cluster.
+    #
+    # 0 means unlimited. The cost is a larger Node object; on a single-node
+    # kind cluster that is irrelevant, and it makes the shim's data source
+    # actually answer the question being asked of it. The shim still warns
+    # when it sees a capped list, because a cluster created before this
+    # change, or by a different tool, will still be truncated.
+    nodeStatusMaxImages: 0
 nodes:
   - role: control-plane
     extraMounts:

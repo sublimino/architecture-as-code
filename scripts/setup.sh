@@ -51,6 +51,22 @@ fetch_bin() { # name url
   curl -fsSL "$2" -o "/tmp/$1" && chmod +x "/tmp/$1" && ${SUDO} mv "/tmp/$1" "${BIN_DIR}/$1"
 }
 
+# go install writes the linked binary straight into GOBIN, so pointing GOBIN at
+# ${BIN_DIR} skips the ${SUDO} that every other installer here routes its final
+# write through. On the non-root-with-sudo branch above — which is exactly the
+# CI VM — that is an unprivileged write into /usr/local/bin and it fails with
+# `permission denied`. Running `go install` under sudo is not the fix: sudo
+# drops GOPATH/GOCACHE and go is often absent from root's PATH. Build into a
+# throwaway GOBIN, then move with the same escalation fetch_bin uses.
+go_install_bin() { # name package@version
+  local tmp
+  tmp="$(mktemp -d)"
+  GOBIN="${tmp}" go install "$2" && ${SUDO} mv "${tmp}/$1" "${BIN_DIR}/$1"
+  local rc=$?
+  rm -rf "${tmp}"
+  return $rc
+}
+
 install_tools() {
   have docker || { echo "docker is required and must be installed first"; exit 1; }
   docker info >/dev/null 2>&1 || { echo "the docker daemon is not running; start it and rerun"; exit 1; }
@@ -129,9 +145,9 @@ install_tools() {
   }
 
   have yq || { echo "installing yq"; fetch_bin yq "https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_${OS}_${ARCH}"; }
-  have govulncheck || { echo "installing govulncheck"; GOBIN="${BIN_DIR}" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
-  have vexctl || { echo "installing vexctl"; GOBIN="${BIN_DIR}" go install "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }
-  have crane || { echo "installing crane"; GOBIN="${BIN_DIR}" go install "github.com/google/go-containerregistry/cmd/crane@v0.20.3"; }
+  have govulncheck || { echo "installing govulncheck"; go_install_bin govulncheck "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
+  have vexctl || { echo "installing vexctl"; go_install_bin vexctl "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }
+  have crane || { echo "installing crane"; go_install_bin crane "github.com/google/go-containerregistry/cmd/crane@v0.20.3"; }
 
   if ! have bats; then
     echo "installing bats"

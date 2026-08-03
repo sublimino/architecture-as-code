@@ -263,7 +263,9 @@ run_stage \
 run_stage \
   "TEST-1 harness contract" \
   "stage5-harness.tap" \
-  "cd ${WORK_DIR} && bats --tap test/signalloom-test-1-harness.bats"
+  "cd ${WORK_DIR} && bats --tap \
+     test/signalloom-test-1-harness.bats \
+     test/ci-installer-privileges.bats"
 
 # Stage 6: Flux convergence
 run_stage \

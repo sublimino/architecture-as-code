@@ -10,18 +10,20 @@ setup() {
   run grep -F 'name: cluster-admin' "$canonical"
   [ "$status" -ne 0 ]
 
-  # Four, since 0233217 added the in-cluster supercred-demo-runner. The count
-  # is the point of this assertion: a new ClusterRoleBinding must be a
-  # deliberate, reviewed act, so it fails until someone looks at the new one and
-  # updates this number. Reviewed here — supercred-demo-runner binds its own
-  # dedicated ClusterRole of the same name to its own ServiceAccount, not a
-  # shared or built-in role, and the cluster-admin check above still holds.
-  #
-  # The four: signalloom-spire-agent-kubelet, supercred-demo-runner, and
-  # flux-ns-patch-<< inputs.tenant >> twice (once per tenant ResourceSet).
+  # Four, and only these four. The count alone would silently accept any new
+  # cluster-scoped binding, which is the exact thing this test exists to catch,
+  # so the names are pinned too: two flux-ns-patch bindings (one per cluster
+  # slice), the SPIRE agent's kubelet grant, and supercred-demo-runner, whose
+  # ClusterRole is bounded to namespaces get/create/patch and nodes get.
   run grep -c 'kind: ClusterRoleBinding' "$canonical"
   [ "$status" -eq 0 ]
   [ "$output" -eq 4 ]
+
+  run grep -c 'name: supercred-demo-runner$' "$canonical"
+  [ "$status" -eq 0 ]
+
+  run grep -c 'name: signalloom-spire-agent-kubelet' "$canonical"
+  [ "$status" -eq 0 ]
 
   run grep -c 'name: flux-ns-patch-<< inputs.tenant >>' "$canonical"
   [ "$status" -eq 0 ]

@@ -10,7 +10,7 @@ import { colors, donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState, { loadPhase } from '../components/LoadingState'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -539,9 +539,10 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
   )
 }
 
-function GovernedTab({ agents, loading, error, onRetry, onReload }: {
+function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
   agents: AgentResponse[]
   loading: boolean
+  loaded: boolean
   error: string | null
   onRetry: () => void
   onReload: () => void
@@ -567,8 +568,10 @@ function GovernedTab({ agents, loading, error, onRetry, onReload }: {
     return list
   }, [agents, search, lifecycleFilter])
 
-  if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
-  if (error) return <ErrorState message={error} onRetry={onRetry} />
+  const phase = loadPhase({ loading, error, loaded })
+  if (phase === 'loading' || phase === 'idle' || phase === 'error') {
+    return <LoadingState variant="block" status={phase} label="agents" error={error} onRetry={onRetry} testId="agents-load-state" />
+  }
 
   const TH_STYLE: React.CSSProperties = {
     padding: '9px 16px', textAlign: 'left', color: 'var(--muted)',
@@ -681,6 +684,9 @@ export default function AgentsPage() {
 
   const [agents, setAgents] = useState<AgentResponse[]>([])
   const [agentsLoading, setAgentsLoading] = useState(true)
+  // Distinct from `agents.length > 0`: a tenant with genuinely zero agents has
+  // still loaded, and must not be shown the never-loaded state.
+  const [agentsLoaded, setAgentsLoaded] = useState(false)
   const [agentsError, setAgentsError] = useState<string | null>(null)
 
   const [scanning, setScanning] = useState(false)
@@ -692,6 +698,7 @@ export default function AgentsPage() {
       const data = await api.agents.list(token)
       setAgents(data.agents)
       setAgentsError(null)
+      setAgentsLoaded(true)
     } catch (e) {
       setAgentsError(e instanceof Error ? e.message : 'Failed to load agents')
     } finally {
@@ -750,6 +757,13 @@ export default function AgentsPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <LoadingState
+            status={loadPhase({ loading: agentsLoading, error: agentsError, loaded: agentsLoaded })}
+            label="agents"
+            error={agentsError}
+            onRetry={loadAgents}
+            testId="agents-poll-state"
+          />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {lastScanTimestamp && (
               <span style={{ fontSize: 11, color: 'var(--muted)' }}>
@@ -776,6 +790,7 @@ export default function AgentsPage() {
       <GovernedTab
         agents={agents}
         loading={agentsLoading}
+        loaded={agentsLoaded}
         error={agentsError}
         onRetry={loadAgents}
         onReload={loadAgents}

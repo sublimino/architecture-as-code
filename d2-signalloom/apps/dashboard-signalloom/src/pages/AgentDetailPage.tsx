@@ -12,7 +12,7 @@ import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 import CredentialActionsMenu from '../components/CredentialActionsMenu'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1043,7 +1043,7 @@ export default function AgentDetailPage() {
   }, null)
 
   if (loading) {
-    return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
+    return <LoadingState variant="block" status="loading" label="agent detail" testId="agent-detail-load-state" />
   }
 
   if (error || !agent) {
@@ -1052,7 +1052,14 @@ export default function AgentDetailPage() {
         <button onClick={() => navigate('/agents')} className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20 }}>
           ← Back to Agents
         </button>
-        <ErrorState message={error ?? 'Agent not found'} onRetry={load} />
+        <LoadingState
+          variant="block"
+          status="error"
+          label="agent detail"
+          error={error ?? 'Agent not found'}
+          onRetry={load}
+          testId="agent-detail-load-state"
+        />
       </div>
     )
   }

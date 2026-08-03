@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { colors } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
+import LoadingState, { loadPhase } from '../components/LoadingState'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import type { FrameworkSummary, PostureSummary } from '../types/compliance'
 
@@ -101,11 +102,15 @@ export default function CompliancePolicyPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
-          {error}
-        </div>
-      )}
+      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        <LoadingState
+          status={loadPhase({ loading: scanning, error, loaded: summary !== null })}
+          label="compliance data"
+          error={error}
+          onRetry={load}
+          testId="compliance-policy-load-state"
+        />
+      </div>
 
       {/* Stat cards */}
       {summary && (

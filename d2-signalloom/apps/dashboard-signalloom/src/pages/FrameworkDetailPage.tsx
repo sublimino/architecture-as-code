@@ -4,7 +4,7 @@ import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { FrameworkResponse, PostureResponse } from '../types/api'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 interface ReassessTarget {
   agentId: string
@@ -88,8 +88,8 @@ export default function FrameworkDetailPage() {
     }
   }
 
-  if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
-  if (error) return <ErrorState message={error} onRetry={load} />
+  if (loading) return <LoadingState variant="block" status="loading" label="framework" testId="framework-load-state" />
+  if (error) return <LoadingState variant="block" status="error" label="framework" error={error} onRetry={load} testId="framework-load-state" />
   if (!framework) return <EmptyState kicker="Framework not found" body="The requested framework does not exist." tone="amber" />
 
   const agents = posture?.agents ?? []

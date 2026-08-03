@@ -8,7 +8,7 @@ import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import TriageMenu, { type TriageAction } from '../components/TriageMenu'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 const POLL_MS = 15 * 60 * 1000
 const PAGE_SIZE = 50
@@ -557,9 +557,16 @@ export default function DiscoveryPage() {
       <AttentionPanel alerts={alerts} onAlert={setNhiFilter} />
 
       {loading ? (
-        <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
+        <LoadingState variant="block" status="loading" label="discovery data" testId="discovery-load-state" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => loadNhi(page, showDisconnected)} />
+        <LoadingState
+          variant="block"
+          status="error"
+          label="discovery data"
+          error={error}
+          onRetry={() => loadNhi(page, showDisconnected)}
+          testId="discovery-load-state"
+        />
       ) : (
         <>
           <ScanStatusCard scan={latestScan} />

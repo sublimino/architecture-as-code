@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import { colors } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
+import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { ComplianceCheck, PostureSummary } from '../types/compliance'
 
 function fmtGbp(n: number) {
@@ -108,11 +109,15 @@ export default function AgentPosturePage() {
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{overallPosture}</span>
       </div>
 
-      {error && (
-        <div className="card" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
-          {error}
-        </div>
-      )}
+      <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+        <LoadingState
+          status={loadPhase({ loading: false, error, loaded: summary !== null })}
+          label="posture data"
+          error={error}
+          onRetry={load}
+          testId="agent-posture-load-state"
+        />
+      </div>
 
       {/* Summary bar */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>

@@ -103,6 +103,45 @@ spec:
       app.kubernetes.io/name: dex
   template:
     metadata:
+      annotations:
+        # Dex reads /etc/dex/config.yaml ONCE, at process start. It has no
+        # config watcher and no SIGHUP reload. Kubernetes happily updates the
+        # mounted Secret file underneath it, so the file on disk and the config
+        # Dex is actually serving drift apart silently, with nothing in the
+        # logs to say so. Nothing about the Deployment changes when only the
+        # Secret changes, so no rollout is triggered and the drift persists
+        # until something unrelated happens to restart the pod.
+        #
+        # Observed 2026-08-03: adding the `viewer` identity landed in the
+        # Secret (`grep -c viewer /etc/dex/config.yaml` inside the pod returned
+        # 5) while Dex kept rejecting `viewer` with "Invalid username or
+        # password". The give-away was that Dex logged NO failed-login line at
+        # all — the user did not exist as far as the running process was
+        # concerned. `kubectl rollout restart deploy/dex` fixed it instantly.
+        #
+        # The same defect is far more dangerous on the issuer: change
+        # PUBLIC_ORIGIN, and Dex carries on minting tokens with the OLD `iss`
+        # while every consumer has already moved to the new one. Every token is
+        # then rejected as invalid_token, which reads like a broken login
+        # rather than a stale process.
+        #
+        # TWO annotations, because the two failure modes need different
+        # mechanisms and neither one alone is sufficient:
+        #
+        #   dex-origin  — carries the substituted PUBLIC_ORIGIN. Flux resolves
+        #     this at postBuild, so the rendered pod template differs whenever
+        #     the origin differs, and the rollout is automatic. A content hash
+        #     CANNOT cover this case: hashing happens before substitution, so
+        #     the bytes are identical for every possible origin.
+        #
+        #   config-sha  — sha256 of the Secret's config.yaml as written here,
+        #     pre-substitution. Covers every hand-edit (identities, clients,
+        #     connectors) that the origin annotation is blind to. Enforced by
+        #     test/dex-config-reload.bats, which recomputes it and fails if it
+        #     is stale, so this cannot silently rot the way a hand-maintained
+        #     hash normally would.
+        signalloom.ai/dex-origin: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}
+        signalloom.ai/dex-config-sha: "276891c421b48360bd29284aaa786680572cf464087543ca962e249efe3f9cb7"
       labels:
         app.kubernetes.io/name: dex
         app.kubernetes.io/part-of: signalloom-demo

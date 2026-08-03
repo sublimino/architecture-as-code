@@ -38,6 +38,7 @@ PF_SUPERVISOR_PID_FILE="${TUNNEL_DIR}/pf-supervisor.pid"
 COOKIE_TOKEN_FILE="${TUNNEL_DIR}/cookie-token"
 DEX_BACKUP_FILE="${TUNNEL_DIR}/dex-backup.yaml"
 API_ISSUER_BACKUP_FILE="${TUNNEL_DIR}/api-issuer-backup"
+FLUX_SUSPENDED_FILE="${TUNNEL_DIR}/flux-suspended"
 POLICY_FILE="${TUNNEL_DIR}/traffic-policy.yaml"
 SNAP_POLICY_COPY="${REPO_ROOT}/tunnel-policy.yaml"
 
@@ -241,6 +242,66 @@ patch_dex_secret() {
   sleep 2
   wait_rollout "$DEX_DEPLOYMENT" -n "$DEX_NAMESPACE" 120
   echo "    Dex restarted and ready"
+}
+
+# ── Flux reconciliation ──────────────────────────────────────────────
+#
+# THE reason the tunnel "worked and then stopped working".
+#
+# Both the Dex secret and the fe-signalloom deployment are owned by Flux
+# Kustomizations reconciling on a 30-minute interval. Every patch this script
+# makes is therefore live for AT MOST 30 minutes: Flux restores the in-git
+# values, Dex goes back to issuing for dashboard.osramp.acme.local, and the
+# public URL starts failing every login with "Unregistered redirect_uri".
+#
+# Nothing logs an error when this happens. ngrok is still up, the port-forward
+# is still serving, `status` still says HEALTHY -- so it presents as an
+# application bug in the browser, minutes to half an hour after a successful
+# `make public`. Measured directly: the ngrok issuer patch was gone from the
+# cluster while the tunnel was still reporting healthy.
+#
+# So the owning Kustomizations are suspended for the tunnel's lifetime. Only
+# the ones WE suspended are resumed, because a Kustomization somebody else
+# deliberately suspended must stay suspended.
+FLUX_TARGETS=(
+  "inf-signalloom/infra-configs"   # owns the Dex secret
+  "fe-signalloom/apps"             # owns the fe-signalloom deployment
+)
+
+suspend_flux() {
+  : > "$FLUX_SUSPENDED_FILE"
+  local target ns name already
+  for target in "${FLUX_TARGETS[@]}"; do
+    ns="${target%%/*}"; name="${target##*/}"
+    already="$(kubectl get kustomization "$name" -n "$ns" -o jsonpath='{.spec.suspend}' 2>/dev/null || true)"
+    if [[ "$already" == "true" ]]; then
+      echo "    ${target} already suspended — leaving it alone"
+      continue
+    fi
+    if kubectl patch kustomization "$name" -n "$ns" \
+        --type=merge -p '{"spec":{"suspend":true}}' >/dev/null 2>&1; then
+      echo "$target" >> "$FLUX_SUSPENDED_FILE"
+      echo "    suspended ${target}"
+    else
+      echo "    WARNING: could not suspend ${target}; Flux will revert the tunnel config" >&2
+    fi
+  done
+}
+
+resume_flux() {
+  [[ -f "$FLUX_SUSPENDED_FILE" ]] || return 0
+  local target ns name
+  while read -r target; do
+    [[ -z "$target" ]] && continue
+    ns="${target%%/*}"; name="${target##*/}"
+    if kubectl patch kustomization "$name" -n "$ns" \
+        --type=merge -p '{"spec":{"suspend":false}}' >/dev/null 2>&1; then
+      echo "    resumed ${target}"
+    else
+      echo "    WARNING: could not resume ${target}" >&2
+    fi
+  done < "$FLUX_SUSPENDED_FILE"
+  rm -f "$FLUX_SUSPENDED_FILE"
 }
 
 # ── API issuer ───────────────────────────────────────────────────────
@@ -483,6 +544,9 @@ cmd_up() {
   echo "    ${url}"
 
   # 7. Patch Dex.
+  echo "==> Suspending Flux reconciliation for the tunnel's lifetime..."
+  suspend_flux
+
   echo "==> Patching Dex for public URL..."
   patch_dex_secret "$url"
 
@@ -593,12 +657,16 @@ kill_ngrok_group() {
 cmd_down() {
   echo "==> Tearing down public tunnel..."
 
-  # 1. Restore Dex and the API issuer.
+  # 1. Restore our patches first, then hand control back to Flux. Resuming
+  #    before restoring would let Flux race the restore.
   echo "==> Restoring API issuer..."
   restore_api_issuer
 
   echo "==> Restoring Dex secret..."
   restore_dex_secret
+
+  echo "==> Resuming Flux reconciliation..."
+  resume_flux
 
   cmd_down_quiet
 

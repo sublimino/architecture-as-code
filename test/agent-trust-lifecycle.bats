@@ -19,6 +19,7 @@ fi
 if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then printf 'networkpolicies\n'; fi
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
 if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
+if [[ "$*" == *'bao read -format=json auth/jwt/role/agent-trust-'* ]]; then printf '%s\n' '{"data":{"token_type":"batch","token_ttl":300,"token_max_ttl":300,"token_period":0}}'; fi
 if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]; then printf 'spire-server-0'; fi
 if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then printf 'Entry ID : fixture-entry\n'; fi
 if [[ "$*" == *'exec deployment/'* ]]; then
@@ -63,6 +64,7 @@ line_number() {
   grep -Fq 'patch resourceset/agent-trust --type merge' "$log"
   grep -Fq 'reconcile kustomization agent-trust -n agent-trust-platform --with-source' "$log"
   grep -Fq 'bao write "auth/jwt/role/agent-trust-${agent}"' "$log"
+  grep -Fq 'bao read -format=json auth/jwt/role/agent-trust-planner' "$log"
   grep -Fq 'spire-server entry show -spiffeID spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner' "$log"
   grep -Fq 'rollout status deploy/agent-trust-triage' "$log"
   grep -Fq 'get service agent-trust-triage' "$log"

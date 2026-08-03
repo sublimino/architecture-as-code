@@ -19,8 +19,10 @@ class Contracts(unittest.TestCase):
   self.assertNotIn('kind: Job',rendered); self.assertEqual(rendered.count('name: default-deny'),6)
  def test_openbao_intent_is_exact_and_lifecycle_applies_it(self):
   intent=(ROOT/'contracts/openbao-role-intent.sh').read_text(); lifecycle=(ROOT.parent/'scripts/agent-trust-local.sh').read_text()
-  self.assertIn('bound_audiences=openbao-supercredential',intent); self.assertIn('token_renewable=false',intent)
+  self.assertIn('bound_audiences=openbao-supercredential',intent); self.assertIn('token_type=batch',intent); self.assertNotIn('token_renewable',intent)
   self.assertIn('bao write "auth/jwt/role/agent-trust-${agent}"',lifecycle); self.assertIn('configure_identity_plane',lifecycle)
+  self.assertIn('token_type=batch',lifecycle)
+  self.assertNotIn('token_renewable',lifecycle)
 
 class A2A(unittest.TestCase):
  def setUp(self):

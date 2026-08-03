@@ -234,7 +234,7 @@ POLICY
         bao write "auth/jwt/role/agent-trust-${agent}" role_type=jwt \
           bound_audiences=openbao-supercredential \
           bound_subject="spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/${agent}" \
-          user_claim=sub policies=agent-trust-acme-payments token_ttl=5m token_max_ttl=5m token_period=0 token_renewable=false >/dev/null
+          user_claim=sub policies=agent-trust-acme-payments token_ttl=5m token_max_ttl=5m token_period=0 token_type=batch >/dev/null
       done
     '
   identity_configured=true
@@ -271,7 +271,8 @@ cleanup_identity_plane() {
 }
 
 verify_identity_plane() {
-  local pod spiffe_id bao_token
+  local pod spiffe_id bao_token agent role_json
+  require_command jq
   pod="$(spire_server_pod)"
   bao_token="$(bao_admin_token)"
   for spiffe_id in \
@@ -281,12 +282,12 @@ verify_identity_plane() {
     spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator; do
     kubectl -n "$bao_namespace" exec "$pod" -- /opt/spire/bin/spire-server entry show -spiffeID "$spiffe_id" | grep -Fq 'Entry ID'
   done
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
-    bao read auth/jwt/role/agent-trust-planner >/dev/null
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
-    bao read auth/jwt/role/agent-trust-triage >/dev/null
+  for agent in planner triage; do
+    role_json="$(kubectl -n "$bao_namespace" exec deployment/openbao -- \
+      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+      bao read -format=json "auth/jwt/role/agent-trust-${agent}")"
+    jq -e '.data.token_type == "batch" and .data.token_ttl == 300 and .data.token_max_ttl == 300 and .data.token_period == 0' <<<"$role_json" >/dev/null
+  done
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
     bao policy read agent-trust-acme-payments >/dev/null

@@ -30,6 +30,7 @@ if [[ "$*" == *'get resourceset -o json'* ]]; then
 fi
 if [[ "${AGENT_TRUST_FAKE_ABSENT:-0}" == 1 && "$*" == *'get namespace agent-trust-'* ]]; then exit 1; fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'get resourceset/agent-trust -o jsonpath='* ]]; then printf 'true'; fi
+if [[ "$*" == *'get resourceset/agent-trust -o jsonpath='* ]]; then printf '[]'; fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'delete namespace agent-trust-platform'* ]]; then exit 1; fi
 SCRIPT
 cat >"$bin/flux" <<'SCRIPT'
@@ -51,6 +52,7 @@ line_number() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"Agent Trust local reconciliation converged"* ]]
   grep -Fq 'reconcile kustomization flux-system -n flux-system --with-source' "$log"
+  grep -Fq 'suspend kustomization tenants -n flux-system' "$log"
   grep -Fq 'get resourceset agent-trust' "$log"
   grep -Fq 'get resourceset -o json' "$log"
   grep -Fq 'patch resourceset/signalloom-infra --type merge -p {"spec":{"inputs":[{"tenant":"inf-bao","tag":"latest"}]}}' "$log"
@@ -65,7 +67,9 @@ line_number() {
   grep -Fq 'rollout status deploy/agent-trust-triage' "$log"
   grep -Fq 'get service agent-trust-triage' "$log"
   restore=$(line_number 'patch resourceset/signalloom-infra --type merge')
+  suspend=$(line_number 'suspend kustomization tenants -n flux-system')
   bao_preflight=$(line_number 'wait resourceset/signalloom-infra --for=condition=ready')
+  [ "$suspend" -lt "$restore" ]
   [ "$restore" -lt "$bao_preflight" ]
 }
 
@@ -90,7 +94,9 @@ line_number() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"restoring ResourceSet inputs to []"* ]]
   grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
+  grep -Fq 'get resourceset/agent-trust -o jsonpath={.spec.inputs}' "$log"
   grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
+  grep -Fq 'flux resume kustomization tenants -n flux-system' "$log"
 }
 
 @test "network test fails closed when no CNI daemonset is present" {
@@ -143,6 +149,7 @@ line_number() {
     "$root/scripts/agent-trust-local.sh" down
   [ "$status" -ne 0 ]
   grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
+  grep -Fq 'flux resume kustomization tenants -n flux-system' "$log"
 }
 
 @test "ResourceSet uses limited Agent Trust RBAC and signed OCI wiring" {

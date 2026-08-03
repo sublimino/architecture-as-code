@@ -49,10 +49,18 @@ rollback_failed_activation() {
 }
 
 suspend_root_reconciliation() {
-  local already_suspended
-  already_suspended="$(kubectl -n "$flux_namespace" get kustomization flux-system -o jsonpath='{.spec.suspend}' 2>/dev/null || true)"
-  if [[ "$already_suspended" == true ]]; then return 0; fi
-  flux suspend kustomization flux-system -n "$flux_namespace"
+  local fleet_suspended tenants_suspended
+  fleet_suspended="$(kubectl -n "$flux_namespace" get kustomization flux-system -o jsonpath='{.spec.suspend}' 2>/dev/null || true)"
+  tenants_suspended="$(kubectl -n "$flux_namespace" get kustomization tenants -o jsonpath='{.spec.suspend}' 2>/dev/null || true)"
+  if [[ "$fleet_suspended" == true && "$tenants_suspended" == true ]]; then return 0; fi
+  if [[ "$fleet_suspended" != true ]]; then
+    flux suspend kustomization flux-system -n "$flux_namespace"
+  fi
+  # `tenants` owns the ResourceSet manifests. Suspending only flux-system
+  # leaves it free to reconcile the declarative empty inputs during activation.
+  if [[ "$tenants_suspended" != true ]]; then
+    flux suspend kustomization tenants -n "$flux_namespace"
+  fi
   root_reconciliation_suspended=true
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     agent-trust.signalloom.io/resume-root-on-down=true --overwrite >/dev/null
@@ -64,6 +72,7 @@ resume_root_reconciliation() {
     owned="$(kubectl -n "$flux_namespace" get "resourceset/${resource_set}" -o jsonpath='{.metadata.annotations.agent-trust\.signalloom\.io/resume-root-on-down}' 2>/dev/null || true)"
   fi
   if [[ "$owned" == true ]]; then
+    flux resume kustomization tenants -n "$flux_namespace"
     flux resume kustomization flux-system -n "$flux_namespace"
     kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
       agent-trust.signalloom.io/resume-root-on-down- >/dev/null 2>&1 || true
@@ -299,8 +308,11 @@ up() {
   require_command flux
   snapshot_active_resourcesets
   refresh_fleet
-  restore_active_resourcesets
   suspend_root_reconciliation
+  # Refresh reapplies declarative empty inputs. Restore only after both owning
+  # reconcilers are suspended, otherwise their in-flight reconciliation can
+  # erase the restored prerequisite inputs before the Bao preflight.
+  restore_active_resourcesets
   preflight_bao
   prepare_a2a_keys
   activation_pending=true
@@ -381,7 +393,11 @@ down() {
   kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge -p '{"spec":{"inputs":[]}}'
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
-  wait_flux_ready resourceset "$resource_set" -n "$flux_namespace" 600
+  # Empty ResourceSet inputs intentionally render no template values, so Ready
+  # becomes false. Verify the deactivation state directly rather than waiting
+  # for a Ready condition that cannot exist without an input row.
+  _wait_retry 600 "inactive resourceset/${resource_set}" \
+    "test \"\$(kubectl -n '$flux_namespace' get 'resourceset/${resource_set}' -o jsonpath='{.spec.inputs}')\" = '[]'"
   local namespace
   for namespace in "${owned_namespaces[@]}"; do
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true

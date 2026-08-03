@@ -37,6 +37,18 @@ spec:
       serviceAccountName: supercred-demo-runner
       securityContext:
         runAsNonRoot: true
+        # runAsUser/runAsGroup are load-bearing, not belt-and-braces. The image
+        # declares `USER appuser`, which is a NAME, and the kubelet cannot
+        # resolve a name to a uid without running the image — so with
+        # runAsNonRoot: true and no numeric uid it fails closed:
+        #   "container has runAsNonRoot and image has non-numeric user
+        #    (appuser), cannot verify user is non-root"
+        # The pod sits in CreateContainerConfigError forever; it never starts
+        # and never crash-loops, so it does not look like a container failure.
+        # 999 is the uid/gid `useradd --system appuser` produces in the image.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
         seccompProfile:
           type: RuntimeDefault
       containers:

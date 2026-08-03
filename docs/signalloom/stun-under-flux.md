@@ -191,10 +191,38 @@ the mechanism.
    the presenter is explaining that it has been contained. The e2e harness never sees this because it
    pins Flux for the duration, which is precisely the condition a live demo does not run under.
 
-   **Root cause, and it is a one-line fix.** `agents-cardvault.yaml:25` declares
-   `signalloom.ai/state: idle` as a literal. A field whose value is *runtime state* must not be pinned
-   to a constant in desired state. Either drop the label from the manifest and let the runtime own it,
-   or mark that field ignored (see §5) so drift correction skips it.
+   **Root cause.** `agents-cardvault.yaml:25` declared `signalloom.ai/state: idle` as a literal, so a
+   field whose value is *runtime state* was pinned to a constant in desired state.
+
+   **CORRECTION, 2026-08-03.** An earlier revision of this document, and the commit message of
+   `77f227e`, both stated that "kustomize-controller v1.9.4 exposes no per-field drift ignore". **That
+   is wrong.** `Kustomization.spec.ignore` is exactly that mechanism. From the running CRD:
+
+   > *Ignore is a list of rules for specifying which changes to ignore during drift detection. These
+   > rules are applied to the resources managed by the Kustomization and are used to exclude specific
+   > JSON pointer paths from the drift detection and apply process.*
+
+   I mistook it for a source-path ignore (the `.sourceignore` sense the field has on `GitRepository`)
+   and did not read the schema description before asserting otherwise. The fix now applied to
+   `d2-osramp-fleet/tenants/base/apps.yaml` uses it:
+
+   ```yaml
+   ignore:
+     - target: {kind: Pod, labelSelector: signalloom.ai/agent=true}
+       paths:
+         - /metadata/labels/signalloom.ai~1state
+         - /metadata/annotations/signalloom.ai~1stunned-at
+         - /metadata/annotations/signalloom.ai~1stun-reason
+   ```
+
+   Note the two **annotations**. The stun writes `stunned-at` and `stun-reason` as well as the label,
+   and the original analysis missed them entirely — a fix covering only the label would still have lost
+   the timestamp and the reason.
+
+   **Open question, deliberately not resolved here (see §8 Q6):** whether the label should ALSO remain
+   declared in the manifest alongside the ignore rule. Removing the declaration and ignoring the path
+   are two different fixes and they are in tension; which is correct depends on whether Flux prunes an
+   undeclared label it previously owned.
 3. **A real mode-1 freeze demos better.** It is instant, visibly reversible, and needs no reconciler
    pin — so the demo stops depending on the very workaround that is now breaking it.
 4. **Make the bootstrap idempotent.** Create-if-absent, so revocation is durable without suspending
@@ -204,9 +232,21 @@ the mechanism.
 
 These are stated as unresolved rather than assumed, because the design depends on them:
 
-- **Q1.** Does the running Flux version honour `kustomize.toolkit.fluxcd.io/reconcile: disabled` and
-  `ssa: ignore` on an *individual* object, allowing one object to hold a stun without suspending its
-  Kustomization? This is the single highest-value unknown in §5.
+- ~~**Q1.** Does the running Flux version support a per-object / per-field ignore?~~ **ANSWERED
+  2026-08-03 — yes, and better than asked.** `Kustomization.spec.ignore` takes JSON Pointer paths with a
+  target selector, giving per-*field* granularity while the rest of the object stays fully managed.
+  `reconcile: disabled` and `ssa: ignore` also work but un-manage the whole object, which is a worse
+  trade. Applied in `d2-osramp-fleet/tenants/base/apps.yaml`.
+- **Q6 (NEW).** With an `ignore` rule in place, must the path ALSO remain declared in the manifest?
+  Supporting evidence says the annotations are wiped on reconcile unless declared with placeholder
+  values, which would mean "ignore" prevents *drift correction* but not *pruning of an owned field*.
+  The two candidate fixes — delete the declaration, versus declare it and ignore it — are in direct
+  tension, and `scripts/check-flux-dynamic-labels.sh` currently enforces the first. **Settle this before
+  relying on either.** The decisive test: apply the ignore rule, set the label at runtime, force a
+  reconcile, and check whether the label survives, is reverted, or is deleted.
+- **Q7 (NEW).** The second declaration lives in a flux-operator **ResourceSet**
+  (`d2-osramp-fleet/tenants/local/signalloom.yaml`), not a Kustomization. `spec.ignore` is a
+  Kustomization field, so it does not apply there. What protects the inert demo-agent cohort?
 - ~~**Q2.** Does *anything* consume `signalloom.ai/state=stunned`?~~ **ANSWERED 2026-08-03.** Yes, as
   telemetry only — `fake-integration-proxy/server.py:372` and `api/supercredState.ts:19`. No enforcement
   consumer anywhere. See §7.2; this converts the question from "is it theatre" into "is the evidence

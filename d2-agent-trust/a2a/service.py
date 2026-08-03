@@ -1,5 +1,5 @@
 """A2A receiver: SPIRE identity is authenticated separately from signed context."""
-import base64, hashlib, json, subprocess, tempfile, time, urllib.request
+import base64, hashlib, json, secrets, subprocess, tempfile, time, urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from adapters.spire_workload_api import fetch_jwt_svid
@@ -41,22 +41,24 @@ def authenticate_spiffe_via_openbao(audience, openbao_url, role, expected_spiffe
     svid=fetcher(audience)
     if svid.spiffe_id != expected_spiffe: raise PermissionError("Workload API SPIFFE mismatch")
     return validate_openbao_identity(openbao_url,svid.token,role,expected_spiffe,opener)
-def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=None):
+def verify_and_authorize(context, public_key, request, peer_spiffe, replay, now=None, *, receiver_instance):
     now=time.time() if now is None else now
     try:
         h,p,s=context.split("."); claims=json.loads(_unb64(p)); valid=json.loads(_unb64(h)).get("alg")=="RS256"
         with tempfile.NamedTemporaryFile() as f:
             f.write(_unb64(s)); f.flush(); valid &= subprocess.run(["openssl","dgst","-sha256","-verify",public_key,"-signature",f.name],input=f"{h}.{p}".encode(),capture_output=True).returncode==0
     except Exception as exc: raise PermissionError("malformed authorization context") from exc
-    required={"iss":ISSUER,"aud":AUDIENCE,"actor":PLANNER,"receiver":TRIAGE,"tenant":"acme","project":"payments","action":request.get("action"),"resource":request.get("resource"),"requestHash":request_hash(request)}
+    required={"iss":ISSUER,"aud":AUDIENCE,"actor":PLANNER,"receiver":TRIAGE,"instance":receiver_instance,"tenant":"acme","project":"payments","action":request.get("action"),"resource":request.get("resource"),"requestHash":request_hash(request)}
     if not valid or not valid_resource(request.get("resource")) or request.get("action") != "triage.analyze" or any(claims.get(k)!=v for k,v in required.items()): raise PermissionError("authorization context scope")
     if peer_spiffe != PLANNER or peer_spiffe != claims["actor"]: raise PermissionError("authenticated peer mismatch")
     if not (claims.get("nbf",now+1)<=now<claims.get("exp",0)) or not replay.consume(claims.get("jti"),claims.get("exp"),now): raise PermissionError("authorization context time/replay")
     return {"caller":peer_spiffe,"receiver":TRIAGE,"decision":"allow"}
-def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner"):
-    card=Path(__file__).with_name("agent-card.json").read_bytes(); replay=ReplayStore()
+def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, openbao_role="agent-trust-planner", receiver_instance=None):
+    card=Path(__file__).with_name("agent-card.json").read_bytes(); replay=ReplayStore(); instance=receiver_instance or secrets.token_urlsafe(16)
     class H(BaseHTTPRequestHandler):
         def do_GET(self):
+            if self.path == "/challenge":
+                body=json.dumps({"instanceNonce":instance}).encode(); self.send_response(200); self.send_header("Content-Type","application/json"); self.send_header("Content-Length",str(len(body))); self.end_headers(); self.wfile.write(body); return
             if self.path not in ("/.well-known/agent-card.json","/.well-known/agent.json","/agent-card.json"): self.send_error(404); return
             self.send_response(200); self.send_header("Content-Type","application/json"); self.end_headers(); self.wfile.write(card)
         def do_POST(self):
@@ -66,7 +68,7 @@ def serve(public_key, port=8080, *, identity_validator=None, openbao_url=None, o
                 context=self.headers["Authorization"].removeprefix("Bearer ")
                 jwt_svid=self.headers["X-SPIFFE-JWT-SVID"]
                 validator=identity_validator or (lambda token: validate_openbao_identity(openbao_url or "",token,openbao_role,PLANNER))
-                decision=verify_and_authorize(context, public_key, body, validator(jwt_svid), replay)
+                decision=verify_and_authorize(context, public_key, body, validator(jwt_svid), replay, receiver_instance=instance)
                 self.send_response(200); self.end_headers(); self.wfile.write(json.dumps(decision).encode())
             except (KeyError, ValueError, PermissionError): self.send_error(403)
         def log_message(self,*_): pass

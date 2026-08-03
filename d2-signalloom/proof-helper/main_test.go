@@ -23,14 +23,15 @@ func fixtureJWT(subject string) string {
 	return "header." + base64.RawURLEncoding.EncodeToString(payload) + ".signature"
 }
 
-func signedA2ARequest(privateKey ed25519.PrivateKey, jwt, nonce string) *http.Request {
+func signedA2ARequest(privateKey ed25519.PrivateKey, jwt, nonce, instance string) *http.Request {
 	body := []byte(`{"Action":"triage.analyze","Resource":"case/runtime-proof"}`)
 	timestamp := time.Now().Unix()
 	request := httptest.NewRequest(http.MethodPost, "/a2a", strings.NewReader(string(body)))
 	request.Header.Set("X-SPIFFE-JWT-SVID", jwt)
 	request.Header.Set("X-Agent-Trust-Timestamp", strconv.FormatInt(timestamp, 10))
 	request.Header.Set("X-Agent-Trust-Nonce", nonce)
-	request.Header.Set("X-Agent-Trust-Signature", base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, authorizationMessage(jwt, timestamp, nonce, body))))
+	request.Header.Set("X-Agent-Trust-Instance", instance)
+	request.Header.Set("X-Agent-Trust-Signature", base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, authorizationMessage(jwt, timestamp, nonce, instance, body))))
 	return request
 }
 
@@ -105,9 +106,9 @@ func TestA2AReceiverRequiresOpenBaoValidatedExactSPIFFEIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	receiver := newA2AHandler(bao.Client(), bao.URL, "agent-trust-planner", planner, publicKey)
+	receiver := newA2AHandlerWithInstance(bao.Client(), bao.URL, "agent-trust-planner", planner, publicKey, "instance-one")
 
-	request := signedA2ARequest(privateKey, fixtureJWT(planner), "first")
+	request := signedA2ARequest(privateKey, fixtureJWT(planner), "first", "instance-one")
 	response := httptest.NewRecorder()
 	receiver.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"decision":"allow"`) {
@@ -120,6 +121,13 @@ func TestA2AReceiverRequiresOpenBaoValidatedExactSPIFFEIdentity(t *testing.T) {
 	if replayResult.Code != http.StatusForbidden {
 		t.Fatalf("expected replay denial, got %d", replayResult.Code)
 	}
+	restarted := newA2AHandlerWithInstance(bao.Client(), bao.URL, "agent-trust-planner", planner, publicKey, "instance-two")
+	restartReplay := httptest.NewRecorder()
+	replayed.Body = io.NopCloser(strings.NewReader(`{"Action":"triage.analyze","Resource":"case/runtime-proof"}`))
+	restarted.ServeHTTP(restartReplay, replayed)
+	if restartReplay.Code != http.StatusForbidden {
+		t.Fatalf("expected pre-restart request denial, got %d", restartReplay.Code)
+	}
 	liveReceiver := httptest.NewServer(receiver)
 	defer liveReceiver.Close()
 	if err := callA2A(liveReceiver.Client(), liveReceiver.URL+"/a2a", request.Header.Get("X-SPIFFE-JWT-SVID"), privateKey); err != nil {
@@ -130,7 +138,7 @@ func TestA2AReceiverRequiresOpenBaoValidatedExactSPIFFEIdentity(t *testing.T) {
 	for name, token := range map[string]string{"missing": "", "wrong-subject": fixtureJWT("spiffe://signalloom.demo/other")} {
 		t.Run(name, func(t *testing.T) {
 			index++
-			denied := signedA2ARequest(privateKey, token, fmt.Sprintf("denied-%d", index))
+			denied := signedA2ARequest(privateKey, token, fmt.Sprintf("denied-%d", index), "instance-one")
 			result := httptest.NewRecorder()
 			receiver.ServeHTTP(result, denied)
 			if result.Code != http.StatusForbidden {

@@ -24,6 +24,7 @@ activation_pending=false
 identity_configured=false
 a2a_keys_created=false
 a2a_namespace_created=false
+root_reconciliation_suspended=false
 
 rollback_failed_activation() {
   local status=$?
@@ -43,7 +44,31 @@ rollback_failed_activation() {
       kubectl delete namespace agent-trust-acme-payments --ignore-not-found --wait=false >/dev/null 2>&1 || true
     fi
   fi
+  resume_root_reconciliation || true
   return "$status"
+}
+
+suspend_root_reconciliation() {
+  local already_suspended
+  already_suspended="$(kubectl -n "$flux_namespace" get kustomization flux-system -o jsonpath='{.spec.suspend}' 2>/dev/null || true)"
+  if [[ "$already_suspended" == true ]]; then return 0; fi
+  flux suspend kustomization flux-system -n "$flux_namespace"
+  root_reconciliation_suspended=true
+  kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
+    agent-trust.signalloom.io/resume-root-on-down=true --overwrite >/dev/null
+}
+
+resume_root_reconciliation() {
+  local owned="$root_reconciliation_suspended"
+  if [[ "$owned" != true ]]; then
+    owned="$(kubectl -n "$flux_namespace" get "resourceset/${resource_set}" -o jsonpath='{.metadata.annotations.agent-trust\.signalloom\.io/resume-root-on-down}' 2>/dev/null || true)"
+  fi
+  if [[ "$owned" == true ]]; then
+    flux resume kustomization flux-system -n "$flux_namespace"
+    kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
+      agent-trust.signalloom.io/resume-root-on-down- >/dev/null 2>&1 || true
+    root_reconciliation_suspended=false
+  fi
 }
 
 usage() {
@@ -163,8 +188,16 @@ spire_server_pod() {
     -o jsonpath='{.items[0].metadata.name}'
 }
 
+bao_admin_token() {
+  kubectl -n "$bao_namespace" get deployment openbao -o json | jq -er '
+    .spec.template.spec.containers[] | select(.name == "openbao") |
+    .env[] | select(.name == "BAO_DEV_ROOT_TOKEN_ID") | .value
+  '
+}
+
 configure_identity_plane() {
-  local pod spiffe_id namespace service_account existing
+  local pod spiffe_id namespace service_account existing bao_token
+  bao_token="$(bao_admin_token)"
   pod="$(spire_server_pod)"
   [[ -n "$pod" ]] || { printf 'SPIRE server pod unavailable\n' >&2; return 1; }
   while IFS='|' read -r spiffe_id namespace service_account; do
@@ -183,7 +216,7 @@ EOF
   # ${agent} intentionally expands inside the remote OpenBao shell.
   # shellcheck disable=SC2016
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token sh -ec '
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" sh -ec '
       cat >/tmp/agent-trust-acme-payments.hcl <<POLICY
 path "kv/data/signalloom/agent-trust/acme/payments/*" { capabilities = ["read"] }
 POLICY
@@ -199,7 +232,8 @@ POLICY
 }
 
 cleanup_identity_plane() {
-  local pod spiffe_id entry_id
+  local pod spiffe_id entry_id bao_token
+  bao_token="$(bao_admin_token 2>/dev/null || true)"
   pod="$(spire_server_pod 2>/dev/null || true)"
   if [[ -n "$pod" ]]; then
     for spiffe_id in \
@@ -213,21 +247,24 @@ cleanup_identity_plane() {
       fi
     done
   fi
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao delete auth/jwt/role/agent-trust-planner >/dev/null 2>&1 || true
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao delete auth/jwt/role/agent-trust-triage >/dev/null 2>&1 || true
-  kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao policy delete agent-trust-acme-payments >/dev/null 2>&1 || true
+  if [[ -n "$bao_token" ]]; then
+    kubectl -n "$bao_namespace" exec deployment/openbao -- \
+      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+      bao delete auth/jwt/role/agent-trust-planner >/dev/null 2>&1 || true
+    kubectl -n "$bao_namespace" exec deployment/openbao -- \
+      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+      bao delete auth/jwt/role/agent-trust-triage >/dev/null 2>&1 || true
+    kubectl -n "$bao_namespace" exec deployment/openbao -- \
+      env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
+      bao policy delete agent-trust-acme-payments >/dev/null 2>&1 || true
+  fi
   identity_configured=false
 }
 
 verify_identity_plane() {
-  local pod spiffe_id
+  local pod spiffe_id bao_token
   pod="$(spire_server_pod)"
+  bao_token="$(bao_admin_token)"
   for spiffe_id in \
     spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner \
     spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage \
@@ -236,13 +273,13 @@ verify_identity_plane() {
     kubectl -n "$bao_namespace" exec "$pod" -- /opt/spire/bin/spire-server entry show -spiffeID "$spiffe_id" | grep -Fq 'Entry ID'
   done
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
     bao read auth/jwt/role/agent-trust-planner >/dev/null
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
     bao read auth/jwt/role/agent-trust-triage >/dev/null
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
     bao policy read agent-trust-acme-payments >/dev/null
 }
 
@@ -263,6 +300,7 @@ up() {
   snapshot_active_resourcesets
   refresh_fleet
   restore_active_resourcesets
+  suspend_root_reconciliation
   preflight_bao
   prepare_a2a_keys
   activation_pending=true
@@ -337,6 +375,8 @@ wait_namespace_absent() {
 
 down() {
   require_command kubectl
+  require_command flux
+  trap 'resume_root_reconciliation || true' EXIT
   cleanup_identity_plane
   kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge -p '{"spec":{"inputs":[]}}'
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
@@ -347,6 +387,8 @@ down() {
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true
     wait_namespace_absent "$namespace"
   done
+  resume_root_reconciliation
+  trap - EXIT
   printf 'Agent Trust teardown verified; pre-existing inf-bao deployment remains intact\n'
 }
 

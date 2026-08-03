@@ -13,7 +13,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,9 +255,21 @@ func (cache *replayCache) consume(nonce string, expires, now int64) bool {
 }
 
 func newA2AHandler(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey) http.Handler {
+	instanceBytes := make([]byte, 16)
+	if _, err := rand.Read(instanceBytes); err != nil {
+		panic("generate receiver instance nonce: " + err.Error())
+	}
+	return newA2AHandlerWithInstance(client, address, role, expectedSubject, publicKey, base64.RawURLEncoding.EncodeToString(instanceBytes))
+}
+
+func newA2AHandlerWithInstance(client *http.Client, address, role, expectedSubject string, publicKey ed25519.PublicKey, instanceNonce string) http.Handler {
 	mux := http.NewServeMux()
 	replay := newReplayCache(10000)
 	mux.HandleFunc("/readyz", func(response http.ResponseWriter, _ *http.Request) { response.WriteHeader(http.StatusOK) })
+	mux.HandleFunc("/challenge", func(response http.ResponseWriter, _ *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(response).Encode(map[string]string{"instanceNonce": instanceNonce})
+	})
 	mux.HandleFunc("/a2a", func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
 			http.Error(response, "method not allowed", http.StatusMethodNotAllowed)
@@ -266,8 +280,13 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 			http.Error(response, "missing SPIFFE JWT-SVID", http.StatusForbidden)
 			return
 		}
-		if _, err := loginJWT(client, address, role, jwt); err != nil || jwtSubject(jwt) != expectedSubject {
-			http.Error(response, "identity denied", http.StatusForbidden)
+		if _, err := loginJWT(client, address, role, jwt); err != nil {
+			log.Printf("OpenBao JWT-SVID validation denied: %v", err)
+			http.Error(response, "OpenBao identity denied", http.StatusForbidden)
+			return
+		}
+		if jwtSubject(jwt) != expectedSubject {
+			http.Error(response, "SPIFFE subject denied", http.StatusForbidden)
 			return
 		}
 		bodyBytes, err := io.ReadAll(io.LimitReader(request.Body, 4097))
@@ -277,9 +296,10 @@ func newA2AHandler(client *http.Client, address, role, expectedSubject string, p
 		}
 		timestamp, err := strconv.ParseInt(request.Header.Get("X-Agent-Trust-Timestamp"), 10, 64)
 		nonce := request.Header.Get("X-Agent-Trust-Nonce")
+		instance := request.Header.Get("X-Agent-Trust-Instance")
 		signature, signatureErr := base64.RawURLEncoding.DecodeString(request.Header.Get("X-Agent-Trust-Signature"))
 		now := time.Now().Unix()
-		if err != nil || signatureErr != nil || timestamp < now-30 || timestamp > now+30 || !ed25519.Verify(publicKey, authorizationMessage(jwt, timestamp, nonce, bodyBytes), signature) {
+		if err != nil || signatureErr != nil || instance != instanceNonce || timestamp < now-30 || timestamp > now+30 || !ed25519.Verify(publicKey, authorizationMessage(jwt, timestamp, nonce, instance, bodyBytes), signature) {
 			http.Error(response, "authorization context denied", http.StatusForbidden)
 			return
 		}
@@ -320,6 +340,10 @@ func jwtSubject(jwt string) string {
 
 func callA2A(client *http.Client, target, jwt string, privateKey ed25519.PrivateKey) error {
 	body := []byte(`{"Action":"triage.analyze","Resource":"case/runtime-proof"}`)
+	instance, err := fetchReceiverChallenge(client, target)
+	if err != nil {
+		return err
+	}
 	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(nonceBytes); err != nil {
 		return err
@@ -334,7 +358,8 @@ func callA2A(client *http.Client, target, jwt string, privateKey ed25519.Private
 	request.Header.Set("X-SPIFFE-JWT-SVID", jwt)
 	request.Header.Set("X-Agent-Trust-Timestamp", strconv.FormatInt(timestamp, 10))
 	request.Header.Set("X-Agent-Trust-Nonce", nonce)
-	request.Header.Set("X-Agent-Trust-Signature", base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, authorizationMessage(jwt, timestamp, nonce, body))))
+	request.Header.Set("X-Agent-Trust-Instance", instance)
+	request.Header.Set("X-Agent-Trust-Signature", base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, authorizationMessage(jwt, timestamp, nonce, instance, body))))
 	response, err := client.Do(request)
 	if err != nil {
 		return err
@@ -347,10 +372,34 @@ func callA2A(client *http.Client, target, jwt string, privateKey ed25519.Private
 	return nil
 }
 
-func authorizationMessage(jwt string, timestamp int64, nonce string, body []byte) []byte {
+func fetchReceiverChallenge(client *http.Client, target string) (string, error) {
+	challengeURL, err := url.Parse(target)
+	if err != nil {
+		return "", err
+	}
+	challengeURL.Path = "/challenge"
+	challengeURL.RawQuery = ""
+	response, err := client.Get(challengeURL.String())
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("challenge returned %s", response.Status)
+	}
+	var challenge struct {
+		InstanceNonce string `json:"instanceNonce"`
+	}
+	if json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&challenge) != nil || challenge.InstanceNonce == "" {
+		return "", errors.New("invalid receiver challenge")
+	}
+	return challenge.InstanceNonce, nil
+}
+
+func authorizationMessage(jwt string, timestamp int64, nonce, instance string, body []byte) []byte {
 	jwtDigest := sha256.Sum256([]byte(jwt))
 	bodyDigest := sha256.Sum256(body)
-	return []byte(fmt.Sprintf("%x\n%d\n%s\n%x", jwtDigest, timestamp, nonce, bodyDigest))
+	return []byte(fmt.Sprintf("%x\n%d\n%s\n%s\n%x", jwtDigest, timestamp, nonce, instance, bodyDigest))
 }
 
 func loadPrivateKey(path string) (ed25519.PrivateKey, error) {

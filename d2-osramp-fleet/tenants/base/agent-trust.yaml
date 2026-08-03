@@ -33,22 +33,22 @@ spec:
   resources:
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-platform}
+      metadata: {name: agent-trust-platform, labels: {agent-trust.signalloom.io/boundary: platform, agent-trust.signalloom.io/platform: signalloom}}
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-tenant-acme-control}
+      metadata: {name: agent-trust-tenant-acme-control, labels: {agent-trust.signalloom.io/boundary: tenant-control, agent-trust.signalloom.io/tenant: acme}}
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-tenant-northstar-control}
+      metadata: {name: agent-trust-tenant-northstar-control, labels: {agent-trust.signalloom.io/boundary: tenant-control, agent-trust.signalloom.io/tenant: northstar}}
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-acme-payments}
+      metadata: {name: agent-trust-acme-payments, labels: {agent-trust.signalloom.io/boundary: project, agent-trust.signalloom.io/tenant: acme, agent-trust.signalloom.io/project: payments}}
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-acme-risk}
+      metadata: {name: agent-trust-acme-risk, labels: {agent-trust.signalloom.io/boundary: project, agent-trust.signalloom.io/tenant: acme, agent-trust.signalloom.io/project: risk}}
     - apiVersion: v1
       kind: Namespace
-      metadata: {name: agent-trust-northstar-investigations}
+      metadata: {name: agent-trust-northstar-investigations, labels: {agent-trust.signalloom.io/boundary: project, agent-trust.signalloom.io/tenant: northstar, agent-trust.signalloom.io/project: investigations}}
     - apiVersion: v1
       kind: ServiceAccount
       metadata: {name: agent-trust-flux, namespace: agent-trust-platform}

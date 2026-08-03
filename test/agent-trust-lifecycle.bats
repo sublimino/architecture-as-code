@@ -18,6 +18,7 @@ if [[ "$*" == *'get daemonset -o json'* ]]; then
 fi
 if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then printf 'networkpolicies\n'; fi
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
+if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
 if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]; then printf 'spire-server-0'; fi
 if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then printf 'Entry ID : fixture-entry\n'; fi
 if [[ "$*" == *'exec deployment/'* ]]; then
@@ -28,6 +29,8 @@ if [[ "$*" == *'get resourceset -o json'* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"signalloom-infra"},"spec":{"inputs":[{"tenant":"inf-bao","tag":"latest"}]}},{"metadata":{"name":"signalloom-apps"},"spec":{"inputs":[{"tenant":"fe-signalloom","tag":"latest"}]}},{"metadata":{"name":"olly"},"spec":{"inputs":[]}}]}'
 fi
 if [[ "${AGENT_TRUST_FAKE_ABSENT:-0}" == 1 && "$*" == *'get namespace agent-trust-'* ]]; then exit 1; fi
+if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'get resourceset/agent-trust -o jsonpath='* ]]; then printf 'true'; fi
+if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'delete namespace agent-trust-platform'* ]]; then exit 1; fi
 SCRIPT
 cat >"$bin/flux" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -87,6 +90,7 @@ line_number() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"restoring ResourceSet inputs to []"* ]]
   grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
+  grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
 }
 
 @test "network test fails closed when no CNI daemonset is present" {
@@ -132,6 +136,13 @@ line_number() {
   grep -Fq 'delete namespace agent-trust-northstar-investigations --ignore-not-found --wait=true' "$log"
   ! grep -Fq 'delete namespace inf-bao' "$log"
   grep -Fq 'bao delete auth/jwt/role/agent-trust-planner' "$log"
+}
+
+@test "failed teardown still resumes root Fleet reconciliation" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_DOWN_FAILURE=1 \
+    "$root/scripts/agent-trust-local.sh" down
+  [ "$status" -ne 0 ]
+  grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
 }
 
 @test "ResourceSet uses limited Agent Trust RBAC and signed OCI wiring" {

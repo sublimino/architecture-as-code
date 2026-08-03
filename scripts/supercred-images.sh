@@ -98,6 +98,16 @@ image_on_node() {
     | awk -v want="$want" '$1":"$2 == want { found = 1 } END { exit !found }'
 }
 
+# True when the listing we just read is known to be incomplete, in which case a
+# miss proves nothing. The in-cluster shim emits this warning on stderr when
+# node.status.images is at the kubelet's --node-status-max-images cap; that
+# list is sorted by size, so small images fall off the end while sitting
+# perfectly happily on the node.
+listing_is_truncated() {
+  "$DOCKER_BIN" exec "$NODE" crictl images 2>&1 >/dev/null \
+    | grep -q "node.status.images is at the kubelet cap"
+}
+
 verify_images() {
   local entry image missing=()
   for entry in "${SUPERCRED_IMAGES[@]}"; do
@@ -109,6 +119,27 @@ verify_images() {
     fi
   done
   if ((${#missing[@]} > 0)); then
+    # Do not fail closed on a listing that cannot answer the question.
+    #
+    # On 2026-08-03 this gate blocked the entire demo with "images are not all
+    # present" against a node whose own `crictl images` listed every one of
+    # them: the runner's shim reads node.status.images, which was capped at 50
+    # and size-sorted, so cardvault:local (8.9MB) and policy-engine:local
+    # (14.9MB) were missing from the DATA, not from the node.
+    #
+    # Being wrong in this direction is expensive and being wrong in the other
+    # direction is cheap. A genuinely absent image does not go unnoticed -- the
+    # pods run imagePullPolicy: Never, so it surfaces immediately and
+    # unmistakably as ErrImageNeverPull on the workload itself, which is a far
+    # better error than a preflight guess. So when the listing is known
+    # truncated, say so plainly and let the deploy be the judge.
+    if listing_is_truncated; then
+      warn "not visible in $NODE's image list: ${missing[*]}"
+      warn "that list is TRUNCATED (kubelet --node-status-max-images cap), so this"
+      warn "is inconclusive rather than missing — continuing. A genuinely absent"
+      warn "image will fail loudly as ErrImageNeverPull on the workload."
+      return 0
+    fi
     warn "missing from $NODE: ${missing[*]}"
     return 1
   fi

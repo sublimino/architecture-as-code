@@ -3,14 +3,30 @@
 #
 # Pre-built binaries where available (no go install, no compile on the VM).
 # Every tool is version-gated: re-running is a no-op when versions match.
-# Call from vm-pipeline.sh before the test stages.
+#
+# Called by vm-pipeline.sh immediately before `setup.sh --tools-only`, and
+# standalone via `make ci-tools`. This installer is a COMPLEMENT to setup.sh,
+# not a replacement: it does not install skopeo, witness, yq, govulncheck,
+# vexctl or jq, all of which setup.sh does and the pipeline needs. Running it
+# first means setup.sh's `have <tool>` guards no-op for everything already
+# placed here, so the tools this file can fetch as pinned pre-built binaries
+# never reach setup.sh's `go install` (compile-on-VM) path.
 set -euo pipefail
 
 BIN="/usr/local/bin"
 OS="linux"
 ARCH="amd64"
+
+# Two distinct privilege questions, and conflating them is a live trap (the
+# same one setup.sh documents around skopeo). SUDO answers "can I write to
+# ${BIN}?" — it is empty whenever ${BIN} is already writable, which is exactly
+# what vm-pipeline.sh arranges with `chmod a+w` before calling this. PKG_SUDO
+# answers "am I root?", which is what apt-get and any write outside ${BIN}
+# (bats installs into /usr/local/{bin,lib,libexec}) actually require.
 SUDO=""
 [ -w "${BIN}" ] || SUDO="sudo"
+PKG_SUDO=""
+[ "$(id -u)" -eq 0 ] || PKG_SUDO="sudo"
 
 log() { printf '\033[1;36m[ci-tools]\033[0m %s\n' "$*"; }
 
@@ -25,7 +41,12 @@ fi
 GO_VERSION="1.24.5"
 if ! go version 2>/dev/null | grep -q "go${GO_VERSION}"; then
   log "installing Go ${GO_VERSION}"
-  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | ${SUDO} tar -C /usr/local -xzf -
+  # Untarring over an existing /usr/local/go leaves the previous toolchain's
+  # stale files behind (upstream's own install docs require the rm first).
+  # Reachable here: setup.sh pins Go 1.23.10, so a VM provisioned before this
+  # installer existed has 1.23.10 on disk when 1.24.5 lands on top.
+  ${PKG_SUDO} rm -rf /usr/local/go
+  curl -fsSL "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" | ${PKG_SUDO} tar -C /usr/local -xzf -
 fi
 export PATH="/usr/local/go/bin:${PATH}"
 
@@ -93,14 +114,14 @@ fi
 SYFT_VERSION="1.28.0"
 if ! syft version 2>/dev/null | grep -q "${SYFT_VERSION}"; then
   log "installing syft ${SYFT_VERSION}"
-  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b "${BIN}" "v${SYFT_VERSION}"
+  curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | ${SUDO} sh -s -- -b "${BIN}" "v${SYFT_VERSION}"
 fi
 
 # ── grype 0.95.0 ─────────────────────────────────────────────────────
 GRYPE_VERSION="0.95.0"
 if ! grype version 2>/dev/null | grep -q "${GRYPE_VERSION}"; then
   log "installing grype ${GRYPE_VERSION}"
-  curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b "${BIN}" "v${GRYPE_VERSION}"
+  curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | ${SUDO} sh -s -- -b "${BIN}" "v${GRYPE_VERSION}"
 fi
 
 # ── bats 1.14.0 ──────────────────────────────────────────────────────
@@ -109,14 +130,14 @@ if ! bats --version 2>/dev/null | grep -q "${BATS_VERSION}"; then
   log "installing bats ${BATS_VERSION}"
   tmp="$(mktemp -d)"
   git clone --depth 1 --branch "v${BATS_VERSION}" https://github.com/bats-core/bats-core.git "${tmp}/bats" 2>/dev/null
-  sudo "${tmp}/bats/install.sh" /usr/local
+  ${PKG_SUDO} "${tmp}/bats/install.sh" /usr/local
   rm -rf "${tmp}"
 fi
 
 # ── python3 (for compliance scan) ────────────────────────────────────
 if ! python3 --version >/dev/null 2>&1; then
   log "installing python3"
-  sudo apt-get update -qq && sudo apt-get install -y -qq python3 >/dev/null
+  ${PKG_SUDO} apt-get update -qq && ${PKG_SUDO} apt-get install -y -qq python3 >/dev/null
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────

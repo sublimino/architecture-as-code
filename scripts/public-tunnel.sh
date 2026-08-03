@@ -414,6 +414,12 @@ spawn_port_forward() {
 
 # Restarts the port-forward whenever the local port stops accepting.
 supervise_port_forward() {
+  # Record OUR pid, from inside. `setsid ... & echo $!` records the launcher,
+  # which exits as soon as it has forked -- so teardown killed a pid that was
+  # already dead and left this loop running. It then resurrected the
+  # port-forward within 5s, and the next `up` died on "port 19080 already bound
+  # by another process" with no clue who held it. Cost two debugging rounds.
+  echo $$ > "$PF_SUPERVISOR_PID_FILE"
   while true; do
     sleep 5
     if ! port_forward_healthy; then
@@ -428,8 +434,21 @@ supervise_port_forward() {
 start_port_forward() {
   # Guard against port already in use by something that is not ours.
   if port_forward_healthy && ! pid_alive "$PF_PID_FILE"; then
-    echo "ERROR: port ${LOCAL_PORT} already bound by another process" >&2
-    echo "       Set PUBLIC_LOCAL_PORT to a different value" >&2
+    # Name the holder. A bare "already bound" sends the reader hunting; the
+    # usual culprit is a supervisor from a tunnel started in ANOTHER checkout,
+    # whose .tunnel state this invocation cannot see.
+    local holder parent
+    holder="$(pid_on_port "$LOCAL_PORT")"
+    echo "ERROR: port ${LOCAL_PORT} is already bound" >&2
+    if [[ -n "$holder" ]]; then
+      echo "       held by PID ${holder}: $(ps -o cmd= -p "$holder" 2>/dev/null | cut -c1-80)" >&2
+      parent="$(ps -o ppid= -p "$holder" 2>/dev/null | tr -d ' ')"
+      if [[ -n "$parent" && "$parent" != "1" ]]; then
+        echo "       supervised by PID ${parent} — kill that first or it will respawn" >&2
+      fi
+      echo "       If it belongs to another checkout, run 'make public-down' there." >&2
+    fi
+    echo "       Or set PUBLIC_LOCAL_PORT to a different value." >&2
     return 1
   fi
 

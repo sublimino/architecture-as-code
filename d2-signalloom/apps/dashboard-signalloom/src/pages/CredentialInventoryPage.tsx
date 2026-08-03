@@ -27,6 +27,7 @@ import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable from '../components/DataTable'
+import LoadingState from '../components/LoadingState'
 import { colors } from '../styles/tokens'
 import {
   TRUST_DOMAIN,
@@ -223,7 +224,7 @@ export default function CredentialInventoryPage() {
         }}
       >
         {state === null ? (
-          <span style={{ color: 'var(--muted)' }}>Loading credential inventory…</span>
+          <LoadingState status="loading" label="credential inventory" testId="credential-inventory-load-state" />
         ) : state.source === 'live' ? (
           <>
             <strong style={{ color: sourceColor }}>Live</strong>

@@ -31,6 +31,7 @@ import {
   type RbacSubject,
 } from '../api/rbacCorrelationApi'
 import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
+import LoadingState from '../components/LoadingState'
 
 class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -297,8 +298,10 @@ export default function RbacExplorerPage() {
   if (loading && clusters.length === 0) {
     return (
       <div style={{ padding: 64, textAlign: 'center', color: 'var(--muted)' }}>
-        <p>Connecting to KubeSec-AFM…</p>
-        <code style={{ fontSize: 12, color: 'var(--cyan)' }}>make demo-k8s-afm-up</code>
+        <LoadingState status="loading" label="KubeSec-AFM connection" testId="rbac-connecting" />
+        <p style={{ marginTop: 12 }}>
+          <code style={{ fontSize: 12, color: 'var(--cyan)' }}>make demo-k8s-afm-up</code>
+        </p>
       </div>
     )
   }
@@ -360,7 +363,7 @@ export default function RbacExplorerPage() {
         </div>
       </div>
 
-      {loading && <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 40 }} data-testid="rbac-loading">Loading…</div>}
+      {loading && <LoadingState variant="block" status="loading" label="RBAC data" testId="rbac-loading" />}
 
       {/* Live-mode failure — never silently substitutes demo data. */}
       {!loading && error && (

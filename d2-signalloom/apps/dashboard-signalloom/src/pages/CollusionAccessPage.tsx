@@ -23,6 +23,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
+import LoadingState from '../components/LoadingState'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 import {
   fetchAnalysisStatus,
@@ -350,8 +351,8 @@ export default function CollusionAccessPage() {
               </option>
             ))}
           </select>
-          {isLoadingList && <span style={{ fontSize: 12, color: 'var(--muted)' }}>Loading AFM runs…</span>}
-          {isLoadingView && <span data-testid="collusion-run-loading" style={{ fontSize: 12, color: 'var(--muted)' }}>Loading run…</span>}
+          {isLoadingList && <LoadingState status="loading" label="AFM runs" testId="collusion-list-loading" />}
+          {isLoadingView && <LoadingState status="loading" label="run" testId="collusion-run-loading" />}
         </div>
 
         {!demo && fatalError && (

@@ -5,7 +5,7 @@ import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AuditEventResponse } from '../types/api'
 import DataTable from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 //
@@ -266,9 +266,9 @@ export default function AuditTrail() {
 
       {/* Table */}
       {loading ? (
-        <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 48 }}>Loading…</div>
+        <LoadingState variant="block" status="loading" label="audit events" testId="audit-load-state" />
       ) : error ? (
-        <ErrorState message={error} onRetry={() => fetchPage(1, true)} />
+        <LoadingState variant="block" status="error" label="audit events" error={error} onRetry={() => fetchPage(1, true)} testId="audit-load-state" />
       ) : events.length === 0 ? (
         <EmptyState kicker="No events found" body="Try adjusting your filters or wait for governance actions to be recorded." />
       ) : (

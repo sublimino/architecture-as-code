@@ -18,6 +18,7 @@ import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { StatCard, Section, Pill } from '../components/DashKit'
 import DataTable from '../components/DataTable'
+import LoadingState from '../components/LoadingState'
 import { colors } from '../styles/tokens'
 import type { NetworkTestListResponse, NetworkTestResult } from '../types/api'
 
@@ -201,18 +202,29 @@ export default function NetworkTestsPage() {
       </div>
 
       {loadError && (
-        <div className="card" role="alert" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
-          {loadError}
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <LoadingState
+            status="error"
+            label="network test results"
+            error={loadError}
+            onRetry={load}
+            testId="network-tests-load-state"
+          />
         </div>
       )}
       {scanError && (
-        <div className="card" role="alert" style={{ padding: 16, marginBottom: 16, color: 'var(--error)' }}>
-          Scan failed: {scanError}
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <LoadingState
+            status="error"
+            label="scan"
+            error={`Scan failed: ${scanError}`}
+            testId="network-tests-scan-state"
+          />
         </div>
       )}
       {!data && !loadError && (
-        <div className="card" role="status" style={{ padding: 16, marginBottom: 16 }}>
-          Loading network test results…
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <LoadingState status="loading" label="network test results" testId="network-tests-load-state" />
         </div>
       )}
 

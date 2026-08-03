@@ -97,6 +97,8 @@ interface RunnerFixture {
   steps?: DemoStep[] | 'unreachable'
   scriptAvailable?: boolean
   statusUnreachable?: boolean
+  /** Fail GET /demo-api/status with a specific code+body (auth cases, not transport). */
+  statusFailure?: { code: number; body: unknown }
   recent?: DemoRunView[]
   activeOnLoad?: DemoRunView | null
   /** Successive GET /runs/{id} answers; the last one repeats. */
@@ -134,6 +136,7 @@ function mockRunner(fixture: RunnerFixture = {}) {
       return respond({ steps: fixture.steps ?? STEPS })
     }
     if (url === '/demo-api/status') {
+      if (fixture.statusFailure) return respond(fixture.statusFailure.body, fixture.statusFailure.code)
       if (fixture.statusUnreachable) return respond('no runner', 502)
       return respond({
         active: fixture.activeOnLoad ?? null,
@@ -459,6 +462,37 @@ describe('when the runner cannot execute the script', () => {
     expect(note).toHaveTextContent(/not reachable/i)
     expect(note).toHaveTextContent('502')
     expect(screen.getByTestId('supercred-make-command-3')).toHaveTextContent('make demo-signalloom-supercred-3')
+  })
+
+  // Reported from a live demo: clicking Refresh clients after Dex had restarted
+  // rendered "The demo runner is not reachable", sending the instructor to debug
+  // the network. The runner was healthy — the browser's token was signed by keys
+  // Dex discarded on restart (storage: memory). Reachability and authorisation
+  // are different failures and must not share a message.
+  it('blames the expired session, not the network, on a 401 from /demo-api/status', async () => {
+    mockRunner({
+      steps: 'unreachable',
+      statusFailure: {
+        code: 401,
+        body: { error: { code: 'invalid_token', message: 'Bearer token is invalid' } },
+      },
+    })
+    await readyPanel()
+    const note = await screen.findByTestId('supercred-script-unavailable')
+    expect(note).toHaveTextContent(/session is no longer valid/i)
+    expect(note).toHaveTextContent(/sign out and back in/i)
+    expect(note).not.toHaveTextContent(/not reachable/i)
+  })
+
+  it('names the missing superadmin role on a 403 from /demo-api/status', async () => {
+    mockRunner({
+      steps: 'unreachable',
+      statusFailure: { code: 403, body: { error: { code: 'superadmin_required' } } },
+    })
+    await readyPanel()
+    const note = await screen.findByTestId('supercred-script-unavailable')
+    expect(note).toHaveTextContent(/not a superadmin/i)
+    expect(note).not.toHaveTextContent(/not reachable/i)
   })
 })
 

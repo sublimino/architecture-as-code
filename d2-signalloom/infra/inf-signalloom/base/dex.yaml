@@ -8,7 +8,10 @@ metadata:
 type: Opaque
 stringData:
   config.yaml: |
-    issuer: https://dashboard.osramp.acme.local:30754/dex
+    # Origin-aware: set PUBLIC_ORIGIN in flux-runtime-info to expose the demo
+    # anywhere (ngrok, a LoadBalancer IP, a VM's external address). Defaults to
+    # the local gateway so an absent key cannot break local login.
+    issuer: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
     storage:
       type: memory
     web:
@@ -36,6 +39,9 @@ stringData:
           - https://dashboard.osramp.acme.local:30754/callback
           - http://dashboard.osramp.acme.local:5173/callback
           - http://localhost:5173/callback
+          # Wherever the demo is currently published. Same default as the
+          # issuer above, so this is a harmless duplicate when unset.
+          - ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/callback
       - id: signalloom-api
         name: Signal Loom API
         secret: signalloom-api-local-only

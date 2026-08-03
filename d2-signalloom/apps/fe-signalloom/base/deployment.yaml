@@ -67,7 +67,13 @@ spec:
                   name: discovery-portal-database
                   key: DATABASE_URL
             - name: API_JWT_ISSUER
-              value: https://dashboard.osramp.acme.local:30754/dex
+              # Must track Dex's issuer exactly, or every token the dashboard
+              # presents is rejected: you log in successfully and then watch an
+              # empty dashboard while every API call returns 401 — a much more
+              # confusing failure than being unable to log in at all. Same
+              # PUBLIC_ORIGIN and same default as dex.yaml, substituted by this
+              # Kustomization's existing postBuild.substituteFrom.
+              value: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
             - name: API_JWT_AUDIENCE
               value: signalloom-api
             - name: API_JWT_AUTHORIZED_PARTY

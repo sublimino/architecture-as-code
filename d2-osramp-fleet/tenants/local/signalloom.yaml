@@ -592,6 +592,22 @@ spec:
           name: << inputs.component >>
         path: ./configs/<< inputs.environment >>
         prune: true
+        # Added so Dex's issuer and redirect URI can come from PUBLIC_ORIGIN in
+        # flux-runtime-info, which is already copied into this namespace.
+        #
+        # Without it, exposing the demo on any origin other than the baked-in
+        # dashboard.osramp.acme.local meant hand-patching the Dex secret and
+        # then SUSPENDING this Kustomization to stop Flux reverting it 30
+        # minutes later. Every such patch was a time bomb: the tunnel kept
+        # serving, status kept reporting healthy, and logins started failing
+        # with "Unregistered redirect_uri" once reconciliation caught up.
+        #
+        # Routing the origin through substitution makes reconciliation the
+        # delivery mechanism instead of the thing we fight.
+        postBuild:
+          substituteFrom:
+            - kind: ConfigMap
+              name: flux-runtime-info
     # ─────────────────────────────────────────────────────────────────────────
     # APPENDED DELIBERATELY — see the identical warning below in signalloom-apps
     # (fleet-patch-indexes.bats guards both ResourceSets by name).

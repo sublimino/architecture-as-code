@@ -140,6 +140,21 @@ reconcile_origin_consumers() {
     flux reconcile kustomization "$name" -n "$ns" >/dev/null 2>&1 || true
   done
   echo "    reconciled ${FLUX_TARGETS[*]}"
+
+  # Dex reads its config once, at startup. Updating the Secret is not enough:
+  # the kubelet syncs a mounted Secret on its own schedule and Dex would not
+  # re-read it anyway, so the running process keeps serving the OLD issuer and
+  # redirect list. Symptom is maximally confusing — the Secret in the cluster
+  # visibly contains the new callback while Dex keeps rejecting it with
+  # "Unregistered redirect_uri".
+  #
+  # The API picks up its change automatically, because the substitution edits
+  # the Deployment's env and that rolls the pods.
+  if kubectl get deploy dex -n "$DEX_NAMESPACE" >/dev/null 2>&1; then
+    kubectl rollout restart "deployment/dex" -n "$DEX_NAMESPACE" >/dev/null 2>&1 || true
+    kubectl rollout status "deployment/dex" -n "$DEX_NAMESPACE" --timeout=120s >/dev/null 2>&1 || true
+    echo "    dex restarted to load the new issuer"
+  fi
 }
 
 # ── NodePort exposure (cloud VM) ─────────────────────────────────────

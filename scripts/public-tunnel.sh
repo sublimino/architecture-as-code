@@ -26,6 +26,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # shellcheck source=scripts/lib/wait.sh
 source "${SCRIPT_DIR}/lib/wait.sh"
+# shellcheck source=scripts/lib/expose.sh
+source "${SCRIPT_DIR}/lib/expose.sh"
 
 # ── Configuration ────────────────────────────────────────────────────
 TUNNEL_DIR="${REPO_ROOT}/.tunnel"
@@ -564,13 +566,21 @@ cmd_up() {
 
   # 7. Patch Dex.
   echo "==> Suspending Flux reconciliation for the tunnel's lifetime..."
-  suspend_flux
 
-  echo "==> Patching Dex for public URL..."
-  patch_dex_secret "$url"
-
-  echo "==> Patching API token issuer to match..."
-  patch_api_issuer "$url"
+  # Publish the origin as a GitOps input rather than patching Dex and the API
+  # directly.
+  #
+  # Direct patching no longer works, and worse, fails silently: Dex's issuer and
+  # redirect URI are now rendered from ${PUBLIC_ORIGIN}, so the next reconcile
+  # regenerates the secret from the manifest and overwrites the patch. The
+  # tunnel keeps serving, `status` still says HEALTHY, and every login dies with
+  # "Unregistered redirect_uri" — exactly the failure this whole mechanism
+  # exists to remove.
+  #
+  # Setting PUBLIC_ORIGIN makes reconciliation the delivery path, so nothing has
+  # to be suspended and the value survives every future reconcile.
+  echo "==> Publishing the origin to the cluster..."
+  publish_origin "$url"
 
   # 8. Prove it actually serves before telling anyone it is up. Everything
   #    above can succeed against a tunnel that 502s on every request.
@@ -678,14 +688,11 @@ cmd_down() {
 
   # 1. Restore our patches first, then hand control back to Flux. Resuming
   #    before restoring would let Flux race the restore.
-  echo "==> Restoring API issuer..."
-  restore_api_issuer
-
-  echo "==> Restoring Dex secret..."
-  restore_dex_secret
-
-  echo "==> Resuming Flux reconciliation..."
-  resume_flux
+  # Set the origin back to the in-git default. NOT a key deletion: the tenant
+  # ConfigMap copies keep the last value when the key disappears, so removing it
+  # leaves the demo published on a dead origin while the cluster looks reset.
+  echo "==> Reverting the public origin..."
+  unpublish_origin
 
   cmd_down_quiet
 

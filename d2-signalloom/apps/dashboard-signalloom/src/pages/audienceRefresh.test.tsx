@@ -268,6 +268,11 @@ describe('AuditTrail background refresh does not wreck the page it refreshes', (
     // The old fetchPage flipped `loading` on every refresh. At this cadence
     // that is a table that spends its life saying "Loading…".
     expect(screen.queryByText('Loading…')).not.toBeInTheDocument()
+    // The bare-string check above went vacuous when the loading treatment
+    // moved to LoadingState, whose copy is "Loading audit events…" — assert
+    // on the component itself so this test still guards what it was written
+    // to guard.
+    expect(screen.queryByTestId('audit-load-state')).not.toBeInTheDocument()
     expect(stunTag()).toBeInTheDocument()
   })
 

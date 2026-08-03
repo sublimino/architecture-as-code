@@ -6,7 +6,7 @@ import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
 import type { TenantSettingsResponse, FrameworkResponse, NHIScan, PlatformUser } from '../types/api'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
@@ -224,8 +224,8 @@ export default function Settings() {
     return () => clearInterval(t)
   }, [load])
 
-  if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
-  if (error) return <ErrorState message={error} onRetry={load} />
+  if (loading) return <LoadingState variant="block" status="loading" label="settings" testId="settings-load-state" />
+  if (error) return <LoadingState variant="block" status="error" label="settings" error={error} onRetry={load} testId="settings-load-state" />
 
   function fmtTs(iso: string | null) {
     if (!iso) return null

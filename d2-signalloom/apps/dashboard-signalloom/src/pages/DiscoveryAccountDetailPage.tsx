@@ -6,7 +6,7 @@ import type { NHIAccountDetail } from '../types/api'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import TriageMenu, { type TriageAction } from '../components/TriageMenu'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 function fmtDate(iso: string | null) {
   if (!iso) return '—'
@@ -64,7 +64,7 @@ export default function DiscoveryAccountDetailPage() {
   }
 
   if (loading) {
-    return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
+    return <LoadingState variant="block" status="loading" label="account detail" testId="account-detail-load-state" />
   }
 
   if (error || !account) {
@@ -73,7 +73,14 @@ export default function DiscoveryAccountDetailPage() {
         <button onClick={() => navigate('/discovery')} className="btn btn-secondary" style={{ fontSize: 12, padding: '5px 12px', marginBottom: 20 }}>
           ← Back to Discovery
         </button>
-        <ErrorState message={error ?? 'Account not found'} onRetry={load} />
+        <LoadingState
+          variant="block"
+          status="error"
+          label="account detail"
+          error={error ?? 'Account not found'}
+          onRetry={load}
+          testId="account-detail-load-state"
+        />
       </div>
     )
   }

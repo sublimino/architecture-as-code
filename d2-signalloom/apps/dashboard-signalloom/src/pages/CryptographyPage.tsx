@@ -18,6 +18,7 @@ import { PieChart, Pie, Cell } from 'recharts'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import StatusBadge from '../components/StatusBadge'
+import LoadingState from '../components/LoadingState'
 import { colors } from '../styles/tokens'
 import { cryptoLifecycle } from '../data/cryptoLifecycle'
 import type { CryptoProof } from '../types/api'
@@ -293,7 +294,7 @@ export default function CryptographyPage() {
 
       <Section title="Workload Identity Proofs (SPIFFE → OpenBao)" hint="live self-reported crypto trust health">
         {proofs === null ? (
-          <div style={{ color: 'var(--muted)', fontSize: 13 }}>Loading workload-identity proofs…</div>
+          <LoadingState status="loading" label="workload-identity proofs" testId="crypto-proofs-load-state" />
         ) : proofs.length === 0 ? (
           <div className="card" style={{ padding: '18px 16px' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>

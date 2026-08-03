@@ -11,7 +11,7 @@ import StatusBadge from '../components/StatusBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import OpenFindingsPanel from '../components/OpenFindingsPanel'
 import EmptyState from '../components/EmptyState'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -150,8 +150,8 @@ export default function Compliance() {
     }
   }
 
-  if (loading) return <div style={{ color: 'var(--muted)', textAlign: 'center', padding: 64 }}>Loading…</div>
-  if (error) return <ErrorState message={error} onRetry={load} />
+  if (loading) return <LoadingState variant="block" status="loading" label="compliance data" testId="compliance-load-state" />
+  if (error) return <LoadingState variant="block" status="error" label="compliance data" error={error} onRetry={load} testId="compliance-load-state" />
 
   const agents = posture?.agents ?? []
 

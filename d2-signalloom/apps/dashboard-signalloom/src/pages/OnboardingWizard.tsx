@@ -15,7 +15,7 @@ import ProviderConfigureStep from '../components/onboarding/ProviderConfigureSte
 import PreferencesStep, { type PreferencesValues } from '../components/onboarding/PreferencesStep'
 import ApiKeyStep, { type RevealedKey } from '../components/onboarding/ApiKeyStep'
 import SummaryStep from '../components/onboarding/SummaryStep'
-import ErrorState from '../components/ErrorState'
+import LoadingState from '../components/LoadingState'
 
 const DEFAULT_PREFERENCES: PreferencesValues = {
   preferred_scan_cadence_hours: 24,
@@ -324,7 +324,14 @@ export default function OnboardingWizard() {
   if (loadError) {
     return (
       <div style={fullPageStyle}>
-        <ErrorState message={loadError} onRetry={load} />
+        <LoadingState
+          variant="block"
+          status="error"
+          label="setup"
+          error={loadError}
+          onRetry={load}
+          testId="onboarding-load-state"
+        />
       </div>
     )
   }

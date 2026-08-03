@@ -1,0 +1,282 @@
+/* Agent Trust Topology — motion and depth.
+ *
+ * Every duration here is derived from --motion-* / --ease-signature in
+ * global.css so the diagram moves like the rest of the product rather than
+ * inventing its own timing feel.
+ *
+ * Read trustVisuals.ts before changing any of the flow keyframes: animation
+ * speed on this page encodes evidence strength, and making the modeled edges
+ * livelier would make assumptions look like proof.
+ */
+
+/* ---------------------------------------------------------------- canvas -- */
+
+.trust-canvas {
+  position: relative;
+  height: 620px;
+  border-radius: var(--radius);
+  background:
+    radial-gradient(900px 420px at 50% -8%, color-mix(in srgb, var(--cyan) 7%, transparent), transparent 70%),
+    var(--surface);
+  overflow: hidden;
+}
+
+/* React Flow paints its own surfaces; keep them transparent so the gradient
+   above and the boundary layer below stay visible. */
+.trust-canvas .react-flow__renderer,
+.trust-canvas .react-flow__pane { background: transparent; }
+.trust-canvas .react-flow__attribution { display: none; }
+.trust-canvas .react-flow__node { cursor: pointer; }
+
+.trust-canvas .react-flow__controls {
+  box-shadow: none;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.trust-canvas .react-flow__controls-button {
+  background: var(--surface2);
+  border-bottom: 1px solid var(--border);
+  fill: var(--muted);
+}
+.trust-canvas .react-flow__controls-button:hover { background: var(--border-subtle); fill: var(--text); }
+
+.trust-canvas .react-flow__minimap {
+  background: color-mix(in srgb, var(--bg) 82%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+/* ------------------------------------------------------------ boundaries -- */
+
+.trust-boundary {
+  transition:
+    opacity var(--motion-med) var(--ease-signature),
+    filter var(--motion-med) var(--ease-signature);
+}
+
+.trust-boundary--hot .trust-boundary__label { opacity: 1; }
+
+.trust-boundary__label {
+  opacity: 0.72;
+  transition: opacity var(--motion-med) var(--ease-signature);
+  pointer-events: none;
+}
+
+.trust-boundary--dim { opacity: 0.3; }
+
+/* ----------------------------------------------------------------- edges -- */
+
+.trust-edge__hit {
+  stroke: transparent;
+  stroke-width: 18;
+  fill: none;
+  cursor: pointer;
+}
+
+.trust-edge__line {
+  fill: none;
+  stroke-linecap: round;
+  transition:
+    stroke-opacity var(--motion-med) var(--ease-signature),
+    stroke-width var(--motion-fast) var(--ease-signature),
+    filter var(--motion-med) var(--ease-signature);
+}
+
+/* The march. Direction matters: it always runs source -> target, so an edge's
+   animation states which way trust is being asserted. */
+@keyframes trust-flow {
+  to { stroke-dashoffset: -100; }
+}
+
+.trust-edge__flow {
+  fill: none;
+  stroke-linecap: round;
+  animation-name: trust-flow;
+  animation-iteration-count: infinite;
+  pointer-events: none;
+}
+
+.trust-edge--hot .trust-edge__line { stroke-width: 3.4; stroke-opacity: 1; }
+.trust-edge--dim { opacity: 0.16; }
+
+.trust-edge__label {
+  transition: opacity var(--motion-med) var(--ease-signature);
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--surface);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
+}
+
+/* A network block stops at the wall. The bar is the wall; the pulse is the
+   packet hitting it and going no further. */
+@keyframes trust-wall-impact {
+  0%   { opacity: 0; transform: scale(0.55); }
+  22%  { opacity: 1; transform: scale(1.18); }
+  60%  { opacity: 0.55; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+.trust-wall__pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: trust-wall-impact 2.6s var(--ease-signature) infinite;
+}
+
+/* An authorization rejection is different: the call *arrives*, is understood,
+   and is refused. So the token travels the whole way and comes back. */
+@keyframes trust-rebound {
+  0%   { offset-distance: 0%;   opacity: 0; }
+  12%  { opacity: 1; }
+  46%  { offset-distance: 96%;  opacity: 1; }
+  54%  { offset-distance: 96%;  opacity: 1; }
+  92%  { offset-distance: 4%;   opacity: 0.6; }
+  100% { offset-distance: 0%;   opacity: 0; }
+}
+
+.trust-rebound__token {
+  animation: trust-rebound 3.6s var(--ease-signature) infinite;
+  offset-rotate: 0deg;
+}
+
+/* ----------------------------------------------------------------- nodes -- */
+
+.trust-node {
+  position: relative;
+  width: 190px;
+  height: 56px;
+  border-radius: 9px;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  background: var(--surface2);
+  border: 2px solid var(--border-subtle);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--text) 6%, transparent) inset;
+  transition:
+    transform var(--motion-fast) var(--ease-signature),
+    box-shadow var(--motion-med) var(--ease-signature),
+    border-color var(--motion-med) var(--ease-signature),
+    opacity var(--motion-med) var(--ease-signature);
+}
+
+.trust-node__label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.15;
+  max-width: 100%;
+  /* Two lines rather than an ellipsis. "Northstar Investigations" truncated to
+     "Northstar Investi..." is the same failure as not drawing the node at all --
+     the viewer cannot tell which project the boundary belongs to. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.trust-node__meta {
+  font-size: 9px;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+.trust-node--external .trust-node__meta { color: var(--amber); }
+
+/* Lift and glow are driven by React state (`hot` / `selected`), not by :hover,
+   so the shadow colour can be the node's own evidence colour -- set inline in
+   TrustFlowNode. A :hover rule could not reach that value without a
+   component-scoped custom property, and cssVarUsage.test.ts rightly refuses
+   var() references to properties no theme declares. */
+.trust-node--hot { transform: translateY(-2px); }
+
+.trust-node--dim { opacity: 0.22; }
+
+/* The platform node is the root of trust. One slow breath, on one element,
+   keeps the diagram alive without turning it into a light show.
+ *
+ * On a ::after ring rather than on the node itself, for two reasons that both
+ * silently broke the effect when it lived on the node: `animation` is a
+ * shorthand, so .trust-enter's declaration replaced this one outright and the
+ * breath never ran; and an animated box-shadow outranks an inline one, so it
+ * would have erased the node's own selection ring while it played. */
+@keyframes trust-root-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--teal) 30%, transparent); }
+  50%      { box-shadow: 0 0 0 10px color-mix(in srgb, var(--teal) 0%, transparent); }
+}
+
+.trust-node--root::after {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 11px;
+  pointer-events: none;
+  animation: trust-root-breathe 4.8s var(--ease-signature) infinite;
+}
+
+/* Entrance. Staggered by trust rank so the hierarchy assembles top-down:
+   platform, then tenants and issuers, then projects, then agents. */
+@keyframes trust-enter {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* animation-delay is set inline per element, staggered by trust rank. */
+.trust-enter { animation: trust-enter var(--motion-med) var(--ease-signature) both; }
+
+/* -------------------------------------------------------------- inspector -- */
+
+.trust-inspector { position: relative; }
+
+/* background is set inline to the selected item's evidence colour. */
+.trust-inspector__rail {
+  position: absolute;
+  width: 3px;
+  border-radius: 3px;
+  transition: background var(--motion-med) var(--ease-signature);
+}
+
+@keyframes trust-inspector-swap {
+  from { opacity: 0; transform: translateX(6px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+.trust-inspector__body { animation: trust-inspector-swap var(--motion-med) var(--ease-signature); }
+
+.trust-assurance {
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border-subtle);
+  overflow: hidden;
+}
+
+.trust-assurance__fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width var(--motion-slow) var(--ease-signature);
+}
+
+/* ------------------------------------------------------- reduced motion -- */
+
+/* Everything above is decoration over information that is also available as
+   text and as the native button list. None of it is load-bearing, so all of it
+   goes when the viewer has asked for less movement. */
+@media (prefers-reduced-motion: reduce) {
+  .trust-canvas *,
+  .trust-canvas *::before,
+  .trust-canvas *::after {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+  .trust-edge__flow,
+  .trust-wall__pulse,
+  .trust-rebound__token { display: none; }
+  .trust-enter { animation: none; opacity: 1; transform: none; }
+  .trust-node--root { animation: none; }
+  .trust-inspector__body { animation: none; }
+}

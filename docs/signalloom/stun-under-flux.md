@@ -180,10 +180,21 @@ the mechanism.
 
    That makes the Flux interaction worse, not better. The real enforcement (mode 3 credential
    revocation) lives outside the reconciled set and persists. The *evidence* (the label) lives on a
-   Flux-owned pod and can be reverted. The failure mode is therefore **split-brain**: the agent stays
-   genuinely revoked while the dashboard quietly reports it healthy again. An operator looking at the UI
-   would conclude the stun had been lifted when it had not — the most dangerous possible direction for a
-   monitoring error, and one no current test would catch.
+   Flux-owned pod and **is reverted** — measured, see Q3 in §8. The failure mode is therefore
+   **split-brain, confirmed**: the agent stays genuinely revoked while the dashboard reports it `idle`
+   again. An operator looking at the UI concludes the stun was lifted when it was not — the most
+   dangerous direction for a monitoring error, and one no current test catches.
+
+   **This is a live demo risk, not just a production one.** The demo's whole design has an audience
+   watching a second window. If a reconcile of `fe-signalloom/apps` lands after step 4 — and any
+   reconcile will do, scheduled or triggered — the agent flips back to `idle` in front of the room while
+   the presenter is explaining that it has been contained. The e2e harness never sees this because it
+   pins Flux for the duration, which is precisely the condition a live demo does not run under.
+
+   **Root cause, and it is a one-line fix.** `agents-cardvault.yaml:25` declares
+   `signalloom.ai/state: idle` as a literal. A field whose value is *runtime state* must not be pinned
+   to a constant in desired state. Either drop the label from the manifest and let the runtime own it,
+   or mark that field ignored (see §5) so drift correction skips it.
 3. **A real mode-1 freeze demos better.** It is instant, visibly reversible, and needs no reconciler
    pin — so the demo stops depending on the very workaround that is now breaking it.
 4. **Make the bootstrap idempotent.** Create-if-absent, so revocation is durable without suspending
@@ -200,11 +211,34 @@ These are stated as unresolved rather than assumed, because the design depends o
   telemetry only — `fake-integration-proxy/server.py:372` and `api/supercredState.ts:19`. No enforcement
   consumer anywhere. See §7.2; this converts the question from "is it theatre" into "is the evidence
   channel reconciler-safe", which it is not.
-- **Q3.** Under SSA, who owns `metadata.labels` on the agent pod, and is an imperatively-set label
-  reverted or merged on the next reconcile? **Still open** — a `managedFields` query against the live
-  pod returned nothing usable and needs a better probe. This is now the highest-value remaining unknown,
-  because §7.2's split-brain risk is real only if Flux actually reverts the label. If SSA *merges*
-  rather than reverts, the risk is void. **Do not design around §7.2 until this is settled.**
+- ~~**Q3.** Is an imperatively-set label reverted or merged on the next reconcile?~~
+  **ANSWERED 2026-08-03 — REVERTED. Measured, not inferred:**
+
+  ```
+  $ kubectl -n fe-signalloom get pod agent-cardvault \
+      -o jsonpath='{.metadata.labels.signalloom\.ai/state}'
+  idle
+  $ kubectl -n fe-signalloom label pod agent-cardvault \
+      signalloom.ai/state=stunned --overwrite
+  stunned
+  $ kubectl -n fe-signalloom annotate kustomization apps \
+      reconcile.fluxcd.io/requestedAt="$(date +%s)" --overwrite    # force reconcile
+  $ kubectl -n fe-signalloom get pod agent-cardvault \
+      -o jsonpath='{.metadata.labels.signalloom\.ai/state}'
+  idle          # <-- the stun evidence is gone
+  ```
+
+  The manifest declares `signalloom.ai/state: idle` at
+  `d2-signalloom/apps/fe-signalloom/base/agents-cardvault.yaml:25`, so the label is *in* Flux's desired
+  state with a fixed value. An imperative change to `stunned` is drift by definition, and the reconciler
+  corrects it. §7.2's split-brain is therefore **confirmed, not hypothetical** — the do-not-design-around
+  caveat is lifted.
+
+  Two aggravating details found in the same experiment. The agent pod was found running in
+  `fe-signalloom` **4 minutes after a teardown that had asserted clean** — Flux had already resurrected
+  it, exactly as `supercred-state.sh:356` warns. And the revert needs no scheduled reconcile: *any*
+  reconcile of `fe-signalloom/apps` does it, so the 30m interval is an upper bound on the lie, not a
+  floor.
 - ~~**Q4.** What are the real intervals?~~ **ANSWERED 2026-08-03**, measured on `kind-osramp`:
   `flux-system/flux-system` **10m**; `fe-signalloom/apps`, `inf-bao/infra-configs`,
   `inf-signalloom/infra-configs` and the rest **30m**; `flux-system/tenants` **12h**; every ResourceSet

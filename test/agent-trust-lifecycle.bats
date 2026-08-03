@@ -29,8 +29,8 @@ if [[ "$*" == *'get resourceset -o json'* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"signalloom-infra"},"spec":{"inputs":[{"tenant":"inf-bao","tag":"latest"}]}},{"metadata":{"name":"signalloom-apps"},"spec":{"inputs":[{"tenant":"fe-signalloom","tag":"latest"}]}},{"metadata":{"name":"olly"},"spec":{"inputs":[]}}]}'
 fi
 if [[ "${AGENT_TRUST_FAKE_ABSENT:-0}" == 1 && "$*" == *'get namespace agent-trust-'* ]]; then exit 1; fi
-if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'get resourceset/agent-trust -o jsonpath='* ]]; then printf 'true'; fi
-if [[ "$*" == *'get resourceset/agent-trust -o jsonpath='* ]]; then printf '[]'; fi
+if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'metadata.annotations.agent-trust'* ]]; then printf 'true'; fi
+if [[ "$*" == *'get resourceset/agent-trust -o jsonpath='* && "$*" != *'metadata.annotations.agent-trust'* ]]; then printf '[]'; fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'delete namespace agent-trust-platform'* ]]; then exit 1; fi
 SCRIPT
 cat >"$bin/flux" <<'SCRIPT'
@@ -94,7 +94,6 @@ line_number() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"restoring ResourceSet inputs to []"* ]]
   grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
-  grep -Fq 'get resourceset/agent-trust -o jsonpath={.spec.inputs}' "$log"
   grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
   grep -Fq 'flux resume kustomization tenants -n flux-system' "$log"
 }
@@ -138,6 +137,7 @@ line_number() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"pre-existing inf-bao deployment remains intact"* ]]
   grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
+  grep -Fq 'get resourceset/agent-trust -o jsonpath={.spec.inputs}' "$log"
   grep -Fq 'delete namespace agent-trust-platform --ignore-not-found --wait=true' "$log"
   grep -Fq 'delete namespace agent-trust-northstar-investigations --ignore-not-found --wait=true' "$log"
   ! grep -Fq 'delete namespace inf-bao' "$log"

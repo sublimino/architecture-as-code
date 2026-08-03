@@ -79,6 +79,14 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "TEST-1 acceptance reuses healthy existing local listeners" {
+  acceptance="$root/scripts/acceptance-test.sh"
+  run grep -F 'nc -z 127.0.0.1 "${local_port}"' "$acceptance"
+  [ "$status" -eq 0 ]
+  run grep -F 'reusing existing listener on localhost:${local_port}' "$acceptance"
+  [ "$status" -eq 0 ]
+}
+
 @test "TEST-1 discovers the shared Gateway data-plane Service dynamically" {
   acceptance="$root/scripts/acceptance-test.sh"
   run grep -F 'kubectl get service -A' "$acceptance"

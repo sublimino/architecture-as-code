@@ -27,6 +27,10 @@ start_port_forward() {
     echo "    SKIP: ${ns}/${svc} (service not found)"
     return
   fi
+  if nc -z 127.0.0.1 "${local_port}" 2>/dev/null; then
+    echo "    ${ns}/${svc} → reusing existing listener on localhost:${local_port}"
+    return
+  fi
   kubectl port-forward -n "${ns}" "svc/${svc}" "${local_port}:${remote_port}" &>/dev/null &
   PF_PIDS+=($!)
   echo "    ${ns}/${svc} → localhost:${local_port}"

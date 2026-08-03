@@ -20,6 +20,25 @@ if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then p
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
 if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
 if [[ "$*" == *'bao read -format=json auth/jwt/role/agent-trust-'* ]]; then printf '%s\n' '{"data":{"token_type":"batch","token_ttl":300,"token_max_ttl":300,"token_period":0}}'; fi
+if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-planner -o json'* ]]; then
+  printf '%s\n' '{"items":[{"metadata":{"name":"planner-0"},"status":{"containerStatuses":[{"ready":true}]}}]}'
+fi
+if [[ "$*" == *'exec planner-0 -- /usr/local/bin/spire-agent api fetch jwt'* ]]; then
+  printf '%s\n' '[{"svids":[{"svid":"fixture-jwt"}]}]'
+fi
+if [[ "$*" == *'sh -ec'* && "$*" == *'bao write -format=json auth/jwt/login role=agent-trust-planner'* ]]; then
+  if [[ "${AGENT_TRUST_FAKE_RENEWABLE_TOKEN:-0}" == 1 ]]; then
+    printf '%s\n' '{"auth":{"renewable":true,"lease_duration":300,"client_token":"fixture-service"}}'
+  else
+    printf '%s\n' '{"auth":{"renewable":false,"lease_duration":300,"client_token":"fixture-batch"}}'
+  fi
+fi
+if [[ "$*" == *'sh -ec'* && "$*" == *'bao token renew'* ]]; then
+  if [[ "${AGENT_TRUST_FAKE_RENEW_TRANSPORT_FAILURE:-0}" == 1 ]]; then printf 'connection refused\n' >&2; exit 1; fi
+  if [[ "${AGENT_TRUST_FAKE_RENEW_SUCCESS:-0}" == 1 ]]; then printf 'renewed\n'; exit 0; fi
+  printf 'batch tokens cannot be renewed\n' >&2
+  exit 2
+fi
 if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]; then printf 'spire-server-0'; fi
 if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then printf 'Entry ID : fixture-entry\n'; fi
 if [[ "$*" == *'exec deployment/'* ]]; then
@@ -112,10 +131,37 @@ line_number() {
     "$root/scripts/agent-trust-local.sh" network-test
   [ "$status" -eq 0 ]
   [[ "$output" == *"NetworkPolicy evidence passed"* ]]
+  [[ "$output" == *"five-minute non-renewable batch token"* ]]
   grep -Fq 'api-resources --api-group=networking.k8s.io -o name' "$log"
+  grep -Fq 'sh -ec' "$log"
+  grep -Fq 'bao token renew' "$log"
   grep -Fq 'exec deployment/agent-trust-planner -- nc -z -w 5 agent-trust-triage 8080' "$log"
   grep -Fq 'exec deployment/agent-trust-planner -- /usr/local/bin/signalloom-spire-proof call-a2a -audience openbao-supercredential' "$log"
   grep -Fq 'exec deployment/agent-trust-risk-reader -- nc -z -w 5 agent-trust-triage.agent-trust-acme-payments.svc 8080' "$log"
+}
+
+@test "renewable OpenBao token fails authenticated network evidence" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet AGENT_TRUST_FAKE_RENEWABLE_TOKEN=1 \
+    "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"renewable or exceeds five minutes"* ]]
+  ! grep -Fq 'signalloom-spire-proof call-a2a' "$log"
+}
+
+@test "renewal transport failure cannot prove a batch-token denial" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet AGENT_TRUST_FAKE_RENEW_TRANSPORT_FAILURE=1 \
+    "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"renewal denial could not be proven"* ]]
+  ! grep -Fq 'signalloom-spire-proof call-a2a' "$log"
+}
+
+@test "unexpectedly renewable batch token fails authenticated evidence" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet AGENT_TRUST_FAKE_RENEW_SUCCESS=1 \
+    "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unexpectedly renewed"* ]]
+  ! grep -Fq 'signalloom-spire-proof call-a2a' "$log"
 }
 
 @test "unexpectedly allowed denied dataplane path fails network evidence" {

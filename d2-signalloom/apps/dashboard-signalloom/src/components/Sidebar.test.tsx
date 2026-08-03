@@ -172,7 +172,7 @@ describe('Sidebar superadmin-only nav', () => {
     'RBAC Analysis',
     'RBAC Explorer',
     'Network Tests',
-    'SuperCred',
+    'SuperCredential Demo',
   ]
 
   beforeEach(() => {

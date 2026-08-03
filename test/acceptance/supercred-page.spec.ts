@@ -42,7 +42,7 @@ test.describe("SuperCred demo page", () => {
     // item's did at some point, and that is how this suite broke twice.
     await expect(navLink(page, "/supercred")).toBeVisible({ timeout: 15_000 });
     await navigateTo(page, "/supercred");
-    await expect(page.getByRole("heading", { name: "SuperCred Demo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "SuperCredential Demo" })).toBeVisible();
   });
 
   test("the page is hidden from the sidebar without superadmin", async ({ page, context }) => {

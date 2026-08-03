@@ -129,6 +129,28 @@ if ! grype version 2>/dev/null | grep -q "${GRYPE_VERSION}"; then
   curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | ${SUDO} sh -s -- -b "${BIN}" "v${GRYPE_VERSION}"
 fi
 
+# ── vexctl 0.3.0 ─────────────────────────────────────────────────────
+# The one installer change that actually saves CI time. setup.sh gets vexctl
+# with `go install`, measured at 19s of compile on a cold machine — the single
+# most expensive tool in either installer, and roughly five times the crane
+# compile this script was already displacing. openvex ships a prebuilt binary,
+# so there is no reason to build it.
+#
+# Pinned to the same version setup.sh declares (VEXCTL_VERSION=v0.3.0). If the
+# two ever disagree, whichever installer runs FIRST wins and the other pin is
+# a lie — this one runs first.
+VEXCTL_VERSION="0.3.0"
+if ! vexctl version 2>/dev/null | grep -q "${VEXCTL_VERSION}"; then
+  log "installing vexctl ${VEXCTL_VERSION}"
+  ${SUDO} curl -fsSL -o "${BIN}/vexctl" "https://github.com/openvex/vexctl/releases/download/v${VEXCTL_VERSION}/vexctl-linux-amd64"
+  ${SUDO} chmod +x "${BIN}/vexctl"
+fi
+
+# ── govulncheck 1.1.4 ────────────────────────────────────────────────
+# No prebuilt binary is published, so this stays a `go install` (~5s) in
+# setup.sh. Recorded here so the absence is a documented decision rather than
+# something the next person has to rediscover.
+
 # ── bats 1.14.0 ──────────────────────────────────────────────────────
 BATS_VERSION="1.14.0"
 if ! bats --version 2>/dev/null | grep -q "${BATS_VERSION}"; then
@@ -147,7 +169,7 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 log "all tools installed:"
-for t in go kind kubectl kustomize helm flux crane cosign syft grype bats python3 docker; do
+for t in go kind kubectl kustomize helm flux crane cosign syft grype vexctl bats python3 docker; do
   # head -1 must sit outside the || chain. Inside it, `head` supplies the
   # pipeline's exit status under `pipefail`, so a tool that prints a version to
   # stdout and *then* exits non-zero (kubectl version, which also tries to

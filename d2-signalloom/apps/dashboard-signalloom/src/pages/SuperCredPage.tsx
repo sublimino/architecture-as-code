@@ -1,6 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
+import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import type { AuditEventResponse } from '../types/api'
@@ -272,10 +274,14 @@ function DemoStepControls({ onAdvance }: { onAdvance: () => void }) {
   )
 }
 
-// ─── SuperCred Demo Page ────────────────────────────────────────────────────
+// ─── SuperCredential Demo Page ──────────────────────────────────────────────
+
+/** The one user-facing name for this page — h1, nav label and document title. */
+export const SUPERCRED_PAGE_TITLE = 'SuperCredential Demo'
 
 export default function SuperCredPage() {
   const { getAccessTokenSilently } = useAuth0()
+  const { superadmin } = useAppContext()
   const [agents, setAgents] = useState<RuntimeAgent[]>([])
   // null until a fetch completes, so "never loaded" is distinguishable from
   // "loaded and genuinely empty" — the two used to render identically.
@@ -376,6 +382,17 @@ export default function SuperCredPage() {
     }
   }, [loadAgents, getAccessTokenSilently])
 
+  // No app-wide title router exists, so each page that wants one sets it and
+  // puts the previous value back on unmount rather than leaving the tab
+  // advertising a page the operator has navigated away from.
+  useEffect(() => {
+    const previous = document.title
+    document.title = SUPERCRED_PAGE_TITLE
+    return () => {
+      document.title = previous
+    }
+  }, [])
+
   const blockedAgents = agents.filter(isBlocked)
   const code = { background: 'var(--surface)', padding: '2px 6px', borderRadius: 3, fontSize: 12 }
 
@@ -386,7 +403,7 @@ export default function SuperCredPage() {
 
   return (
     <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
-      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>SuperCred Demo</h1>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>{SUPERCRED_PAGE_TITLE}</h1>
       <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
         Agent identity chain: SPIFFE workload identity → OpenBao secret exchange → credential-based service access.
         Run <code style={code}>make demo-signalloom-supercred-1</code> first.
@@ -457,6 +474,11 @@ export default function SuperCredPage() {
           </div>
         </div>
       )}
+
+      {/* Live runner: phase status and links for everyone, controls for
+          superadmins. Falls back to the simulated path below when the runner
+          reports no script — the two coexist rather than replace each other. */}
+      <SuperCredInstructorPanel superadmin={superadmin} onRefreshClients={loadAgents} />
 
       <DemoStepControls onAdvance={loadAgents} />
 

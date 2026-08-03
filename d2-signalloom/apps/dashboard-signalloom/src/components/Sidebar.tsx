@@ -30,7 +30,7 @@ const NAV: NavItem[] = [
   { to: '/rbac-analysis', label: 'RBAC Analysis', superadminOnly: true },
   { to: '/rbac-explorer', label: 'RBAC Explorer', superadminOnly: true },
   { to: '/network-tests', label: 'Network Tests', superadminOnly: true },
-  { to: '/supercred', label: 'SuperCred', superadminOnly: true },
+  { to: '/supercred', label: 'SuperCredential Demo', superadminOnly: true },
   { to: '/agent-trust-topology', label: 'Agent Trust Topology' },
   { to: '/settings', label: 'Settings' },
 ]

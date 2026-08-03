@@ -93,6 +93,29 @@ install_tools() {
     fi
   fi
 
+  # skopeo publishes no upstream release binaries, so it is the one tool here
+  # that must come from the platform package manager rather than fetch_bin.
+  # Required by scripts/build-sign-dashboard.sh, which make signalloom-images
+  # invokes. Note the deliberate PKG_SUDO: the ${SUDO} above means "needed to
+  # write to BIN_DIR" and is empty whenever /usr/local/bin happens to be
+  # writable (which is exactly what vm-pipeline.sh arranges before calling
+  # this script), whereas a package install always needs real root.
+  have skopeo || {
+    echo "installing skopeo"
+    PKG_SUDO=""; [ "$(id -u)" -eq 0 ] || PKG_SUDO="sudo"
+    if have apt-get; then
+      ${PKG_SUDO} apt-get update -qq && ${PKG_SUDO} apt-get install -y -qq skopeo
+    elif have dnf; then
+      ${PKG_SUDO} dnf install -y skopeo
+    elif have brew; then
+      brew install skopeo
+    else
+      echo "skopeo is required but no supported package manager was found." >&2
+      echo "Install it manually: https://github.com/containers/skopeo/blob/main/install.md" >&2
+      exit 1
+    fi
+  }
+
   have yq || { echo "installing yq"; fetch_bin yq "https://github.com/mikefarah/yq/releases/download/v4.44.6/yq_${OS}_${ARCH}"; }
   have govulncheck || { echo "installing govulncheck"; GOBIN="${BIN_DIR}" go install "golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION}"; }
   have vexctl || { echo "installing vexctl"; GOBIN="${BIN_DIR}" go install "github.com/openvex/vexctl@${VEXCTL_VERSION}"; }
@@ -110,7 +133,7 @@ install_tools() {
 
   echo
   echo "tool versions:"
-  for tool in kind kubectl kustomize flux helm cosign jq yq syft grype witness govulncheck vexctl bats go; do
+  for tool in kind kubectl kustomize flux helm cosign jq yq skopeo syft grype witness govulncheck vexctl bats go; do
     printf '  %-12s %s\n' "${tool}" "$(command -v ${tool} >/dev/null && ${tool} version --short 2>/dev/null | head -1 || command -v ${tool} || echo MISSING)"
   done
 }

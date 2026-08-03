@@ -78,29 +78,33 @@ async function describeFailure(res: Response): Promise<string> {
   return `${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`
 }
 
-async function getJson<T>(path: string, what: string): Promise<T> {
-  const res = await fetch(`${DEMO_API}${path}`)
+function authHeaders(token?: string): HeadersInit | undefined {
+  return token ? { Authorization: `Bearer ${token}` } : undefined
+}
+
+async function getJson<T>(path: string, what: string, token?: string): Promise<T> {
+  const res = await fetch(`${DEMO_API}${path}`, { headers: authHeaders(token) })
   if (!res.ok) throw new Error(`${what} failed: ${await describeFailure(res)}`)
   return (await res.json()) as T
 }
 
-async function postJson<T>(path: string, what: string, body?: unknown): Promise<T> {
+async function postJson<T>(path: string, what: string, body?: unknown, token?: string): Promise<T> {
   const res = await fetch(`${DEMO_API}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders(token) },
     body: JSON.stringify(body ?? {}),
   })
   if (!res.ok) throw new Error(`${what} failed: ${await describeFailure(res)}`)
   return (await res.json()) as T
 }
 
-export async function fetchDemoSteps(): Promise<DemoStep[]> {
-  const data = await getJson<{ steps?: DemoStep[] }>('/steps', 'Demo steps')
+export async function fetchDemoSteps(token?: string): Promise<DemoStep[]> {
+  const data = await getJson<{ steps?: DemoStep[] }>('/steps', 'Demo steps', token)
   return Array.isArray(data.steps) ? data.steps : []
 }
 
-export async function fetchDemoStatus(): Promise<DemoRunnerStatus> {
-  const data = await getJson<Partial<DemoRunnerStatus>>('/status', 'Demo status')
+export async function fetchDemoStatus(token?: string): Promise<DemoRunnerStatus> {
+  const data = await getJson<Partial<DemoRunnerStatus>>('/status', 'Demo status', token)
   return {
     active: data.active ?? null,
     recent: Array.isArray(data.recent) ? data.recent : [],
@@ -111,23 +115,23 @@ export async function fetchDemoStatus(): Promise<DemoRunnerStatus> {
 }
 
 /** POST /demo-api/runs — 202 with the run that was accepted. */
-export async function startDemoRun(stepId: string): Promise<DemoRunView> {
-  return postJson<DemoRunView>('/runs', `Demo step ${stepId}`, { step: stepId })
+export async function startDemoRun(stepId: string, token?: string): Promise<DemoRunView> {
+  return postJson<DemoRunView>('/runs', `Demo step ${stepId}`, { step: stepId }, token)
 }
 
-export async function fetchDemoRun(runId: string): Promise<DemoRunView> {
-  return getJson<DemoRunView>(`/runs/${encodeURIComponent(runId)}`, 'Run status')
+export async function fetchDemoRun(runId: string, token?: string): Promise<DemoRunView> {
+  return getJson<DemoRunView>(`/runs/${encodeURIComponent(runId)}`, 'Run status', token)
 }
 
 /** Incremental log read — pass the previous chunk's `next_offset`. */
-export async function fetchDemoRunLog(runId: string, offset: number): Promise<DemoRunLogChunk> {
+export async function fetchDemoRunLog(runId: string, offset: number, token?: string): Promise<DemoRunLogChunk> {
   return getJson<DemoRunLogChunk>(
     `/runs/${encodeURIComponent(runId)}/log?offset=${encodeURIComponent(String(offset))}`,
-    'Run log',
+    'Run log', token,
   )
 }
 
 /** POST /demo-api/reset — the runner implements reset as demo step 5. */
-export async function resetDemo(): Promise<DemoRunView> {
-  return postJson<DemoRunView>('/reset', 'Demo reset')
+export async function resetDemo(token?: string): Promise<DemoRunView> {
+  return postJson<DemoRunView>('/reset', 'Demo reset', undefined, token)
 }

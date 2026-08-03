@@ -41,6 +41,32 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // The two-window SuperCredential demo.
+      //
+      // Its own project because it needs BOTH of the things only `chromium`
+      // has — the storageState the setup project writes, and a dependency on
+      // that setup project — plus a timeout that suits a real demo phase. A
+      // spec added to `smoke` gets neither and runs unauthenticated; a spec
+      // left on the global 30s timeout fails on a working demo, because step 2
+      // alone waits up to 300s for the credential-chain Job.
+      name: "supercred-two-window",
+      testMatch: /supercred-two-window\.spec\.ts/,
+      timeout: 15 * 60_000,
+      // The demo mutates one shared cluster and the runner serialises runs
+      // process-wide, so a retry would collide with its own leftovers rather
+      // than start clean.
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        storageState: "test-results/.auth-state.json",
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+        },
+      },
+      dependencies: ["setup"],
+    },
+    {
       name: "smoke",
       testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts/,
       use: {

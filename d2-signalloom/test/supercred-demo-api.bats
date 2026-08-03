@@ -98,6 +98,28 @@ error_code() {
     "$BATS_TEST_TMPDIR/body"
 }
 
+# How many demo-script processes exist inside the runner pod right now.
+#
+# Two self-match traps here, and the obvious spelling falls into both. Written
+# as `grep -la supercred-demo.sh /proc/[0-9]*/cmdline`, the pattern appears
+# verbatim in the argv of the shell AND of grep itself, so both show up in
+# /proc and the probe finds only itself — reporting a running demo script on a
+# runner that started nothing. The bracket expression `[.]` matches the same
+# text while never containing the literal string it searches for, so neither
+# process can match.
+#
+# The count is compared BEFORE and AFTER rather than asserted to be zero: a
+# legitimate superadmin run may be in flight (the demo is often mid-rehearsal),
+# and "the refused call started nothing" is a statement about the delta.
+runner_script_processes() {
+  local pod
+  pod="$(kubectl -n "$FE_NS" get pod -l app.kubernetes.io/name=supercred-demo-runner \
+    -o jsonpath='{.items[0].metadata.name}')"
+  kubectl -n "$FE_NS" exec "$pod" -- \
+    bash -c 'grep -la "supercred-demo[.]sh" /proc/[0-9]*/cmdline 2>/dev/null | wc -l' 2>/dev/null \
+    || echo unavailable
+}
+
 # "how many runs does the runner know about, and is one active" — the state
 # that must not move when an unauthorized call is refused.
 run_state_fingerprint() {
@@ -141,6 +163,92 @@ print(\" \".join(hits))'"
   [ -z "$output" ]
 }
 
+# ─── The runner's EFFECTIVE permissions ──────────────────────────────────────
+#
+# Not "do the RBAC objects exist" — they all did, with correct verbs and correct
+# names, while the runner had no permissions whatsoever. The subject namespace
+# on every binding named a ServiceAccount that does not exist, because the
+# block sits in a ResourceSet whose << inputs.tenant >> is never the runner's
+# tenant. Flux said Ready, the pod said script_available: true, and the first
+# real run died in 92ms reporting "agent-cardvault pod not found" — because
+# `kubectl get pod` exits non-zero on Forbidden exactly as it does on absent.
+#
+# `kubectl auth can-i --as` asks the API server the only question that matters:
+# can THIS subject do THIS thing HERE. A binding pointed at the wrong subject
+# answers "no" and names itself.
+
+RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
+
+@test "DEMOAPI the runner ServiceAccount can actually do what the demo script does" {
+  # namespace|verb|resource|subresource — each derived from a kubectl call in
+  # scripts/supercred-demo.sh, the same derivation the Roles document.
+  #
+  # Subresources go in the fourth field, NOT as "pods/exec" in the third.
+  # `kubectl auth can-i create pods/exec` answers "no" against a Role that
+  # plainly grants create on pods/exec, because the slash form is not how the
+  # SelfSubjectAccessReview is built — it needs --subresource. Written the
+  # obvious way this test reports a permissions gap that does not exist, which
+  # is worse than not having it.
+  local checks=(
+    "fe-signalloom-agents|get|pods|"
+    "fe-signalloom-agents|patch|pods|"
+    "fe-signalloom-agents|create|jobs.batch|"
+    "fe-signalloom|get|pods|"
+    "fe-signalloom|patch|pods|"
+    "inf-signalloom|get|deployments.apps|"
+    "inf-signalloom|create|pods|portforward"
+    "inf-bao|create|pods|exec"
+    "kube-system|list|services|"
+  )
+  local failures=()
+  local entry ns verb res sub answer args
+  for entry in "${checks[@]}"; do
+    IFS='|' read -r ns verb res sub <<< "$entry"
+    args=("auth" "can-i" "$verb" "$res" "-n" "$ns" "--as=$RUNNER_SA")
+    [ -n "$sub" ] && args+=("--subresource=$sub")
+    answer="$(kubectl "${args[@]}" 2>/dev/null || true)"
+    [ "$answer" = "yes" ] || failures+=("$verb $res${sub:+/$sub} in $ns -> ${answer:-error}")
+  done
+  # Report every gap at once; one at a time turns an RBAC audit into nine runs.
+  [ "${#failures[@]}" -eq 0 ] || {
+    printf 'runner SA cannot: %s\n' "${failures[@]}" >&2
+    return 1
+  }
+}
+
+@test "DEMOAPI every runner RoleBinding names a ServiceAccount that exists" {
+  # The generalised form of the defect: a binding whose subject resolves to
+  # nothing is silently inert. This catches it for any future binding, in any
+  # namespace, without enumerating verbs.
+  # Plain bash and jq. An earlier version embedded Python inside `run bash -c
+  # "..."`, where bats' own quoting, the shell's, and Python's string literals
+  # all had to survive four levels of escaping — it reported a failure that a
+  # hand-run of the same logic could not reproduce. The test harness must not
+  # be harder to read than the thing it tests.
+  local bindings failures=()
+  bindings="$(kubectl get rolebinding,clusterrolebinding -A -o json \
+    | jq -r '.items[]
+             | . as $b
+             | (.subjects // [])[]
+             | select(.name == "supercred-demo-runner")
+             | "\($b.kind)/\($b.metadata.namespace // "-")/\($b.metadata.name)\t\(.namespace // "")"')"
+
+  local line ref subject_ns
+  while IFS=$'\t' read -r ref subject_ns; do
+    [ -n "$ref" ] || continue
+    kubectl get serviceaccount supercred-demo-runner -n "$subject_ns" >/dev/null 2>&1 \
+      || failures+=("$ref -> serviceaccount ${subject_ns}/supercred-demo-runner does not exist")
+  done <<< "$bindings"
+
+  # A binding with no subjects at all is the same defect wearing a different
+  # hat, so an empty result is a failure too, not a pass.
+  [ -n "$bindings" ]
+  [ "${#failures[@]}" -eq 0 ] || {
+    printf 'inert binding: %s\n' "${failures[@]}" >&2
+    return 1
+  }
+}
+
 # ─── ISC-16/17/18: /status by token class ────────────────────────────────────
 
 @test "DEMOAPI /demo-api/status without a token returns 401" {
@@ -172,6 +280,7 @@ print(\" \".join(hits))'"
   # code. A gate that ran the script and THEN refused would return 403 too.
   demo_api GET /demo-api/status "$SUPERADMIN_TOKEN" >/dev/null
   before_state="$(run_state_fingerprint)"
+  before_procs="$(runner_script_processes)"
 
   run demo_api POST /demo-api/runs "$VIEWER_TOKEN" '{"step":"1"}'
   [ "$output" = "403" ]
@@ -186,11 +295,8 @@ print(\" \".join(hits))'"
   # that a status-code assertion cannot reach: if the gate were ever moved
   # below the spawn, the caller would still see 403 while the script had
   # already started mutating the cluster.
-  pod="$(kubectl -n "$FE_NS" get pod -l app.kubernetes.io/name=supercred-demo-runner \
-    -o jsonpath='{.items[0].metadata.name}')"
-  run kubectl -n "$FE_NS" exec "$pod" -- \
-    bash -c 'grep -la supercred-demo.sh /proc/[0-9]*/cmdline 2>/dev/null | wc -l'
-  [ "$output" = "0" ]
+  after_procs="$(runner_script_processes)"
+  [ "$after_procs" = "$before_procs" ]
 }
 
 @test "DEMOAPI POST /demo-api/runs with a superadmin token returns 202 with a run_id" {
@@ -207,9 +313,16 @@ print(\" \".join(hits))'"
   # The browser-side proof is in test/acceptance/supercred-two-window.spec.ts,
   # which audits every live request. This is the static half: the only query
   # parameter the client ever builds is the log offset.
-  run grep -nE '\?(.*)(token|authorization|bearer|jwt)' \
-    "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts"
-  [ "$status" -ne 0 ]
+  # Enumerate every query parameter the client builds and assert the set is
+  # exactly {offset}. Asserting the ABSENCE of "token" near a "?" instead was
+  # the first attempt and it was wrong twice over: it flagged the TypeScript
+  # optional-parameter syntax `body?: unknown, token?: string`, and it would
+  # have missed a parameter named anything else that carried a credential.
+  # Enumerating what IS there cannot be fooled by either.
+  params="$(grep -oE '[?&][A-Za-z_][A-Za-z0-9_]*=' \
+    "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts" \
+    | tr -d '?&=' | sort -u | tr '\n' ' ')"
+  [ "$params" = "offset " ]
 
   # And the token is passed as a header, on every call that carries one.
   run grep -c 'Authorization: `Bearer' "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts"

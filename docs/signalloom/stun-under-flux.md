@@ -298,3 +298,138 @@ These are stated as unresolved rather than assumed, because the design depends o
 - `scripts/supercred-state.sh:356` — `assert-stays-clean`, teardown durability under a live reconciler
 - `Proposal — Signal Loom Agent Security Platform (2026-Q3)` § Feature Architecture — 20 Capability Areas
 - `Proposal — Signal Loom Agent Security Platform — Critique Appendix (2026-Q3)` § B.0 findings 3 and 4
+
+---
+
+## 9. `reconcile: disabled` applied *by* the stun — verified, and it works
+
+Rather than pre-declaring an ignore rule, the stun can annotate the object it is containing. **Measured
+on `kind-osramp`, 2026-08-03:**
+
+```
+annotate pod kustomize.toolkit.fluxcd.io/reconcile=disabled
+label    pod signalloom.ai/state=stunned            -> stunned | disabled
+<force reconcile of fe-signalloom/apps>
+read back                                            -> stunned | disabled   # both survived
+```
+
+kustomize-controller reads the annotation from the **live** object, so the stun can protect itself
+without any pre-provisioned configuration. This is a genuinely good option and it was not in the
+original analysis.
+
+**How it compares to `.spec.ignore`:**
+
+| | `.spec.ignore` (Kustomization) | `reconcile: disabled` (on the object) |
+|---|---|---|
+| Applied | ahead of time, in git | reactively, by the stun |
+| Granularity | **per field** (JSON Pointer) | whole object |
+| Rest of object | stays fully managed | **completely unmanaged** |
+| Needs pre-provisioning | yes | no |
+| Survives if stun path is novel | only for enumerated paths | yes, anything |
+| Risk on un-stun | none | **object stays unmanaged if not removed** |
+
+**Use both, for different jobs.** `.spec.ignore` is the standing, narrow protection so an ordinary stun
+needs no GitOps action at all. `reconcile: disabled` is an *escalation* for a hard quarantine where
+freezing the object against all reconciliation is the intent — accepting that drift correction stops
+entirely for that object.
+
+**Two sharp edges.** It also suppresses pruning, so the object is not garbage-collected when removed
+from git. And anyone who can annotate a pod can opt it out of GitOps — the annotation is a privilege,
+and should be restricted like one.
+
+## 10. The Argo CD equivalents
+
+| Flux | Argo CD | Note |
+|---|---|---|
+| `Kustomization.spec.ignore` (JSON Pointer) | `Application.spec.ignoreDifferences` with `jsonPointers` | direct analogue |
+| — | `ignoreDifferences.managedFieldsManagers` | **better than Flux's model** |
+| `reconcile: disabled` on object | no exact single-object equivalent; nearest is `argocd.argoproj.io/compare-options: IgnoreExtraneous` + `sync-options: Prune=false` | partial |
+| `spec.suspend` on Kustomization | `syncPolicy.automated.selfHeal: false` | the same anti-pattern, §4 applies |
+| drift correction | "self-heal" | same concept, different name |
+
+**`managedFieldsManagers` is the more elegant model and worth stealing.** It ignores fields by *field
+owner* rather than by path: tell Argo to ignore whatever the field manager `signalloom-stun` owns, and
+you never enumerate paths, so a stun that starts writing a new annotation is covered automatically.
+Flux's path list would silently miss it — which is exactly how the two stun annotations went unnoticed
+in the first analysis.
+
+**Actionable regardless of GitOps engine:** the stun should apply with a **distinct field manager name**
+(`kubectl --field-manager=signalloom-stun ...`). It costs nothing today, makes ownership legible in
+`managedFields`, and is a precondition for the Argo model.
+
+## 11. Is the composition enough? What is missing
+
+Proposed: label → GitOps opt-out → eBPF network lockdown → credential revocation. Necessary, not
+sufficient. Missing, in priority order:
+
+1. **Freeze first (cgroup-v2), before anything else.** This is an ordering argument, not an extra step.
+   Every other control races a *running* adversary that can observe its own containment and react —
+   exfiltrate, re-auth, spawn. Freezing removes the ability to race, then the rest proceeds against a
+   target that cannot respond. It is also the canonical mode-1 Stun.
+2. **Conntrack flush.** Verified: established connections survive a network quarantine with a **24-hour**
+   timeout, on kindnet *and* Cilium. Without `conntrack -D` for the pod IP, "network lockdown" does not
+   touch the connections the agent already has open — which are the ones that matter.
+3. **The `NotIn: [stunned]` guard on every other allow policy.** Verified: an ordinary application allow
+   policy silently un-quarantines a stunned pod, because NetworkPolicy is allow-only and additive.
+4. **Neutralise the owning controller.** If the pod is owned by a Deployment/ReplicaSet/Job, freezing or
+   deleting it just yields a fresh, unstunned replacement. The quarantine must be applied at the owner,
+   or the owner scaled to zero.
+5. **Admission block** (Kyverno / ValidatingAdmissionPolicy) so the workload cannot be readmitted.
+6. **Session revocation at the gateway.** Credential revocation does not close MCP/A2A sessions already
+   established.
+7. **An immutable audit record.** See §12 — the current evidence is *state*, not an event, and state can
+   be reverted.
+8. **Dual control** on the irreversible steps, per the proposal's own control list.
+
+## 12. What the logs actually show
+
+kustomize-controller emits a per-object verb on every reconcile. Extracted from this cluster:
+
+```
+$ kubectl -n flux-system logs deploy/kustomize-controller | grep -o '"Pod/fe-signalloom/agent-cardvault":"[a-z]*"' | sort | uniq -c
+     36 "Pod/fe-signalloom/agent-cardvault":"configured"
+      2 "Pod/fe-signalloom/agent-cardvault":"created"
+      6 "Pod/fe-signalloom/agent-cardvault":"skipped"
+     43 "Pod/fe-signalloom/agent-cardvault":"unchanged"
+```
+
+| Verb | Meaning |
+|---|---|
+| `unchanged` | no drift |
+| **`configured`** | **drift corrected — this is the stun being undone** |
+| `skipped` | `reconcile: disabled` honoured — the stun was protected |
+| `created` | object (re)created, e.g. resurrection after teardown |
+
+**`configured` on an agent pod is the machine-readable signature of a silently reverted stun**, and there
+are 36 of them in this cluster's recent history. Nothing alerts on it. That is the cheapest available
+detection for the split-brain in §7.2 and it should be wired to an alert.
+
+**What does NOT show the stun:** Kubernetes Events on the pod carry only scheduling and container
+lifecycle — nothing about containment. The agent's own logs carry nothing. There is no first-class stun
+event anywhere; the entire record is the label plus two annotations, i.e. **state, not history**. When
+the label is reverted the record does not become stale, it *disappears* — the system cannot distinguish
+"never stunned" from "stun erased".
+
+**Recommendation:** emit a Kubernetes Event on stun and un-stun, and write an immutable audit record
+outside the cluster. State is not an audit trail.
+
+## 13. How to un-stun
+
+Un-stunning is **not** the stun reversed. Order is chosen so the agent is never running with controls
+partially removed.
+
+1. **Gate.** Confirm the triggering condition is resolved; dual control; record who and why.
+2. **Rotate, do not restore.** Issue *new* credentials. The old SVID/token may be compromised — that is
+   why they were revoked. Restoring the previous secret re-grants exactly what the attacker may hold.
+3. **Lift the network quarantine** — remove the `stunned` label, or let the label removal do it.
+4. **Flush conntrack again** if any deny-era connections were established.
+5. **Remove the GitOps opt-out** — `kubectl annotate pod ... kustomize.toolkit.fluxcd.io/reconcile-`.
+   **This is the step most likely to be forgotten**, and forgetting it leaves the object permanently
+   unmanaged: drift then accumulates silently and Flux reports Ready throughout. Verify with the
+   `skipped`→`unchanged` transition in §12.
+6. **Unfreeze last.** The agent wakes into a fully restored, fully monitored state rather than into a
+   half-lifted quarantine it could observe and exploit.
+7. **Record the un-stun** with the same rigour as the stun.
+
+An un-stun that skips step 5 is the mirror of the original defect: the first left the control without
+evidence, this leaves the object without governance.

@@ -118,7 +118,7 @@ export type ExternalBand = { y: number; height: number; count: number } | null
  * because everything below it is modeled rather than proved. Returned separately
  * from the nested boundaries because it is a half-plane, not a box.
  */
-export function deriveExternalBand(visibleNodes: TrustNode[], canvasHeight: number): ExternalBand {
+export function deriveExternalBand(visibleNodes: TrustNode[]): ExternalBand {
   const external = visibleNodes.filter(n => n.location === 'external')
   if (external.length === 0) return null
   const inCluster = visibleNodes.filter(n => n.location !== 'external')
@@ -127,5 +127,14 @@ export function deriveExternalBand(visibleNodes: TrustNode[], canvasHeight: numb
     ? Math.max(...inCluster.map(n => n.y + NODE_H / 2))
     : topOfExternal - 40
   const y = (topOfExternal + bottomOfCluster) / 2 - 10
-  return { y, height: Math.max(canvasHeight - y, NODE_H + 60), count: external.length }
+  // Height comes from the members, never from the canvas.
+  //
+  // This used to be `canvasHeight - y`, mixing a CSS pixel constant into a
+  // graph coordinate -- two different spaces, and not even the same scale once
+  // fitView applies a zoom. It happened to enclose the external row by about
+  // 12px; moving that row down by any amount would have left the workloads
+  // hanging outside the band labelled "Outside the cluster", which is a region
+  // asserting containment it did not have.
+  const bottom = Math.max(...external.map(n => n.y + NODE_H / 2)) + PAD.tenant
+  return { y, height: bottom - y, count: external.length }
 }

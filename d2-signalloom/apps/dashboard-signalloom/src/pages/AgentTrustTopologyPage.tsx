@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { Section, StatCard } from '../components/DashKit'
 import TrustTopologyCanvas from '../components/trust/TrustTopologyCanvas'
 import { visual } from '../components/trust/trustVisuals'
@@ -52,6 +52,20 @@ export const trustEdges: TrustEdge[] = [
 
 const nodesById = new Map(trustNodes.map(node => [node.id, node]))
 
+/**
+ * "spire → planner", the two things a relationship is actually between.
+ *
+ * Without this, `spire-planner` and `spire-investigator` were indistinguishable
+ * anywhere a human could read them: byte-identical list buttons AND
+ * byte-identical inspector panels, because every other field on the two edges
+ * matches. They cross DIFFERENT TENANTS -- on a page whose subject is which
+ * identity trusts which, being unable to tell them apart is a failure of the
+ * page's core job, not a labelling nicety.
+ */
+function endpointsOf(edge: TrustEdge): string {
+  return `${nodesById.get(edge.from)?.label ?? edge.from} → ${nodesById.get(edge.to)?.label ?? edge.to}`
+}
+
 function Detail({ label, value }: { label: string; value?: string }) {
   return value ? <div style={{ marginBottom: 9 }}><div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{label}</div><div style={{ fontSize: 12, color: 'var(--text)', overflowWrap: 'anywhere' }}>{value}</div></div> : null
 }
@@ -102,7 +116,12 @@ export default function AgentTrustTopologyPage() {
   const [evidence, setEvidence] = useState<'all' | EvidenceState>('all'); const [decision, setDecision] = useState<'all' | Decision>('all')
   const [selected, setSelected] = useState<Selection>({ type: 'edge', id: 'spire-planner' })
   const { nodes, edges } = useMemo(() => {
-    const matches = (node: TrustNode) => (tenant === 'all' || node.tenant === tenant) && (location === 'all' || node.location === location) && (evidence === 'all' || node.evidence === evidence)
+    // 'shared' is not a tenant -- SPIRE and OpenBao belong to the platform and
+    // serve every tenant. Filtering them out with the tenants left a tenant view
+    // showing "9 nodes · 0 relationships": every SVID issuance and credential
+    // exchange for that tenant's own agents vanished, so the one view a tenant
+    // operator would actually open could never show their own identity chain.
+    const matches = (node: TrustNode) => (tenant === 'all' || node.tenant === tenant || node.tenant === 'shared') && (location === 'all' || node.location === location) && (evidence === 'all' || node.evidence === evidence)
     const visible = new Set(trustNodes.filter(matches).map(node => node.id))
     let changed = true
     while (changed) { changed = false; trustNodes.forEach(node => { if (visible.has(node.id) && node.parentId && !visible.has(node.parentId)) { visible.add(node.parentId); changed = true } }) }
@@ -111,7 +130,11 @@ export default function AgentTrustTopologyPage() {
   }, [decision, evidence, location, plane, tenant])
   const node = selected.type === 'node' ? nodesById.get(selected.id) : undefined
   const edge = selected.type === 'edge' ? trustEdges.find(item => item.id === selected.id) : undefined
-  const selectNode = (id: string) => setSelected({ type: 'node', id }); const selectEdge = (id: string) => setSelected({ type: 'edge', id })
+  // useCallback, not inline arrows: these are in the canvas's memo dependency
+  // arrays, and a fresh identity every render meant the edge geometry (including
+  // wallFraction's search) was recomputed on every unrelated state change.
+  const selectNode = useCallback((id: string) => setSelected({ type: 'node', id }), [])
+  const selectEdge = useCallback((id: string) => setSelected({ type: 'edge', id }), [])
   const reset = () => { setPlane('identity'); setTenant('all'); setLocation('all'); setEvidence('all'); setDecision('all') }
   const counts = { observed: trustNodes.filter(item => item.evidence === 'observed').length + trustEdges.filter(item => item.evidence === 'observed').length, modeled: trustNodes.filter(item => item.evidence === 'modeled').length + trustEdges.filter(item => item.evidence === 'modeled').length, fixture: trustNodes.filter(item => item.evidence === 'fixture').length + trustEdges.filter(item => item.evidence === 'fixture').length }
   const inspectorAccent = visual[(node ?? edge)?.evidence ?? 'modeled'].color
@@ -130,7 +153,7 @@ export default function AgentTrustTopologyPage() {
     <div role="status" style={{ border: '1px solid var(--amber)', background: 'rgba(217,119,6,.12)', color: 'var(--text)', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}><strong>Demonstration data — warning.</strong> No relationship on this page is runtime-observed; items are modeled or fixture-tested.</div>
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}><StatCard label="Runtime-observed" value={String(counts.observed)} sub="no runtime API is connected" accent="var(--slate-gray)" /><StatCard label="Modeled items" value={String(counts.modeled)} sub="contract assumptions, not proof" accent="var(--violet)" /><StatCard label="Fixture-tested items" value={String(counts.fixture)} sub="demonstration contract paths" accent="var(--cyan)" /></div>
     <Section title="Trust relationship plane" hint="one display layer at a time"><div className="card" style={{ padding: 16 }}><div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>{(['identity', 'authorization', 'network', 'external', 'evidence'] as TopologyPlane[]).map(value => <button key={value} className="btn topology-control" aria-pressed={plane === value} onClick={() => setPlane(value)} style={{ background: plane === value ? 'rgba(6,182,212,.14)' : 'var(--surface2)', color: plane === value ? 'var(--cyan)' : 'var(--text)', border: `1px solid ${plane === value ? 'var(--cyan)' : 'var(--border)'}` }}>{value[0].toUpperCase() + value.slice(1)} plane</button>)}</div><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end' }}>
-      <label>Tenant<select aria-label="Tenant" value={tenant} onChange={e => setTenant(e.target.value)}><option value="all">All tenants</option><option value="acme">Acme</option><option value="northstar">Northstar</option></select></label><label>Location<select aria-label="Location" value={location} onChange={e => setLocation(e.target.value as typeof location)}><option value="all">Every location</option><option value="in-cluster">In-cluster</option><option value="external">External</option></select></label><label>Evidence<select aria-label="Evidence" value={evidence} onChange={e => setEvidence(e.target.value as typeof evidence)}><option value="all">Any evidence</option><option value="observed">Runtime-observed</option><option value="modeled">Modeled</option><option value="fixture">Fixture-tested</option><option value="stale">Stale</option></select></label><label>Decision<select aria-label="Allowed or denied" value={decision} onChange={e => setDecision(e.target.value as typeof decision)}><option value="all">Allowed + denied</option><option value="allowed">Allowed</option><option value="denied">Denied</option></select></label><button className="btn btn-secondary topology-control" onClick={reset}>Reset filters</button><span aria-live="polite" style={{ color: 'var(--muted)', fontSize: 12 }}>Showing {nodes.length} nodes · {edges.length} relationships</span>
+      <label>Tenant<select aria-label="Tenant" value={tenant} onChange={e => setTenant(e.target.value)}><option value="all">All tenants</option><option value="acme">Acme</option><option value="northstar">Northstar</option></select></label><label>Location<select aria-label="Location" value={location} onChange={e => setLocation(e.target.value as typeof location)}><option value="all">Every location</option><option value="in-cluster">In-cluster</option><option value="external">External</option></select></label><label>Evidence<select aria-label="Evidence" value={evidence} onChange={e => setEvidence(e.target.value as typeof evidence)}><option value="all">Any evidence</option><option value="observed">Runtime-observed</option><option value="modeled">Modeled</option><option value="fixture">Fixture-tested</option><option value="stale">Stale</option></select></label><label>Decision<select aria-label="Decision" value={decision} onChange={e => setDecision(e.target.value as typeof decision)}><option value="all">Allowed + denied</option><option value="allowed">Allowed</option><option value="denied">Denied</option></select></label><button className="btn btn-secondary topology-control" onClick={reset}>Reset filters</button><span aria-live="polite" style={{ color: 'var(--muted)', fontSize: 12 }}>Showing {nodes.length} nodes · {edges.length} relationships</span>
     </div></div></Section>
     <div className="trust-layout">
       <section className="card" aria-label="Agent trust topology graph" style={{ padding: 0, overflow: 'hidden' }}>
@@ -142,10 +165,22 @@ export default function AgentTrustTopologyPage() {
         {/* Remounting per plane replays the staggered entrance and refits the view,
             so switching plane reads as the topology reconfiguring rather than as
             arrows quietly appearing and disappearing. */}
-        <TrustTopologyCanvas key={plane} nodes={nodes} edges={edges} selected={selected} onSelectNode={selectNode} onSelectEdge={selectEdge} />
-        <div className="trust-native-list" aria-label="Selectable topology items">{nodes.map(item => <button key={item.id} className="btn btn-secondary" onClick={() => selectNode(item.id)}>{item.label} · {item.location} · {visual[item.evidence].label}</button>)}{edges.map(item => <button key={item.id} className="btn btn-secondary" onClick={() => selectEdge(item.id)}>{item.verb} · {item.decision} · {item.plane} · {visual[item.evidence].label} · {item.source}</button>)}</div>
+        {nodes.length === 0
+          ? <div role="status" style={{ height: 320, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: 24 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>Nothing matches these filters.</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 460 }}>
+                {evidence === 'observed'
+                  ? 'No item on this page is runtime-observed — that is the point of the page, not a fault in the filter. Every relationship here is modeled or fixture-tested.'
+                  : evidence === 'stale'
+                    ? 'Nothing here is stale: this topology is a contract, so it has no freshness clock to fall behind.'
+                    : 'Widen a filter, or reset them, to bring the topology back.'}
+              </div>
+              <button className="btn btn-secondary topology-control" onClick={reset} style={{ marginTop: 4 }}>Reset filters</button>
+            </div>
+          : <TrustTopologyCanvas key={plane} nodes={nodes} edges={edges} selected={selected} onSelectNode={selectNode} onSelectEdge={selectEdge} />}
+        <div className="trust-native-list" role="group" aria-label="Selectable topology items">{nodes.map(item => <button key={item.id} className="btn btn-secondary" aria-pressed={selected.type === 'node' && selected.id === item.id} onClick={() => selectNode(item.id)}>{item.label} · {item.location} · {visual[item.evidence].label}</button>)}{edges.map(item => <button key={item.id} className="btn btn-secondary" aria-pressed={selected.type === 'edge' && selected.id === item.id} onClick={() => selectEdge(item.id)}>{endpointsOf(item)} · {item.verb} · {item.decision} · {item.plane} · {visual[item.evidence].label} · {item.source}</button>)}</div>
       </section>
-      <aside className="card trust-inspector" aria-label="Persistent topology details" style={{ padding: '16px 16px 16px 22px' }}>
+      <aside className="card trust-inspector" aria-label="Persistent topology details" aria-live="polite" style={{ padding: '16px 16px 16px 22px' }}>
         {/* The rail takes the evidence colour of whatever is pinned, so the
             inspector states its own confidence before you read a word of it. */}
         <div className="trust-inspector__rail" style={{ left: 10, top: 16, bottom: 16, background: inspectorAccent }} />
@@ -157,7 +192,7 @@ export default function AgentTrustTopologyPage() {
         )}
         <div className="trust-inspector__body" key={`${selected.type}:${selected.id}`}>
           {node && <><h2 style={{ fontSize: 16 }}>{node.label}</h2><TrustPath nodeId={node.id} /><AssuranceMeter evidence={node.evidence} /><Detail label="SPIFFE ID" value={node.spiffeId} /><Detail label="Namespace / service account" value={node.namespace && node.serviceAccount ? `${node.namespace} / ${node.serviceAccount}` : undefined} /><Detail label="Selectors" value={node.selectors?.join(', ')} /><Detail label="OpenBao role / path / audience / TTL" value={[node.baoRole, node.baoPath, node.audience, node.ttl && `TTL: ${node.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Provider assertion / binding" value={node.providerAssertion} /><Detail label="Key custody / export" value={node.keyCustody} /><Detail label="Rotation / reload" value={node.rotationReload} /><Detail label="Trust bundle" value={node.trustBundle} /><Detail label="De-enrollment" value={node.deEnrollment} /><Detail label="Production gap" value={node.productionGap} /><Detail label="Source" value={node.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[node.evidence].label} · ${node.freshness} · ${node.assurance}`} /><Detail label="Reason" value={node.reason} /></>}
-          {edge && <><h2 style={{ fontSize: 16 }}>{edge.verb}</h2>{edge.denialKind && <div style={{ border: '1px solid var(--error)', background: 'rgba(220,38,38,.1)', padding: 8, borderRadius: 5, fontSize: 12, marginBottom: 10 }}>{edge.denialKind === 'network-block' ? 'Network block' : 'Application authorization rejection'}</div>}<AssuranceMeter evidence={edge.evidence} /><Detail label="Plane / decision" value={`${edge.plane} · ${edge.decision}`} /><Detail label="OpenBao role / path / audience / TTL" value={[edge.baoRole, edge.baoPath, edge.audience, edge.ttl && `TTL: ${edge.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Policy reference" value={edge.policyRef} /><Detail label="Source" value={edge.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[edge.evidence].label} · ${edge.freshness} · ${edge.assurance}`} /><Detail label="Failure / denial reason" value={edge.reason} /></>}
+          {edge && <><h2 style={{ fontSize: 16 }}>{edge.verb}</h2><div style={{ fontSize: 12, color: 'var(--text)', marginBottom: 10 }}>{endpointsOf(edge)}</div>{edge.denialKind && <div style={{ border: '1px solid var(--error)', background: 'rgba(220,38,38,.1)', padding: 8, borderRadius: 5, fontSize: 12, marginBottom: 10 }}>{edge.denialKind === 'network-block' ? 'Network block' : 'Application authorization rejection'}</div>}<AssuranceMeter evidence={edge.evidence} /><Detail label="Plane / decision" value={`${edge.plane} · ${edge.decision}`} /><Detail label="OpenBao role / path / audience / TTL" value={[edge.baoRole, edge.baoPath, edge.audience, edge.ttl && `TTL: ${edge.ttl}`].filter(Boolean).join(' · ')} /><Detail label="Policy reference" value={edge.policyRef} /><Detail label="Source" value={edge.source} /><Detail label="Evidence / freshness / assurance" value={`${visual[edge.evidence].label} · ${edge.freshness} · ${edge.assurance}`} /><Detail label="Failure / denial reason" value={edge.reason} /></>}
         </div>
       </aside>
     </div>

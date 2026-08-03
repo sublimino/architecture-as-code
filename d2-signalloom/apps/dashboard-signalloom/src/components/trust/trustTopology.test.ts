@@ -10,7 +10,7 @@
 import { describe, expect, it } from 'vitest'
 import { trustEdges, trustNodes } from '../../pages/AgentTrustTopologyPage'
 import { NODE_H, NODE_W, deriveBoundaries, deriveExternalBand, type Boundary } from './trustBoundaries'
-import { borderPoint, edgeGeometry, pointAt, splitQuadratic, wallFraction } from './trustGeometry'
+import { borderPoint, bowFor, edgeGeometry, pointAt, splitQuadratic, wallFraction } from './trustGeometry'
 import { shortVerb, visual } from './trustVisuals'
 import type { TrustNode } from './trustTypes'
 
@@ -42,15 +42,40 @@ describe('trust boundaries', () => {
   // two project boundaries claiming the same region and their captions printed
   // over each other. Overlapping walls are not a cosmetic defect on a page whose
   // whole subject is containment.
-  it('never lets two sibling boundaries of the same rank intersect', () => {
+  it('never lets two boundaries intersect unless one nests inside the other', () => {
+    // The earlier version of this guard skipped every cross-rank pair, which
+    // left the worst case unchecked: a PROJECT box straddling a different
+    // TENANT's box, i.e. the diagram asserting that one tenant's project sits
+    // inside another tenant's trust boundary -- the exact claim the page exists
+    // to refute. Legitimate nesting (a project inside its own tenant) is
+    // allowed; anything else is a collision.
+    const encloses = (outer: Boundary, inner: Boundary) =>
+      inner.x >= outer.x && inner.y >= outer.y
+      && inner.x + inner.width <= outer.x + outer.width
+      && inner.y + inner.height <= outer.y + outer.height
+
     const collisions: string[] = []
     for (const a of boundaries) {
       for (const b of boundaries) {
-        if (a.id >= b.id || a.depth !== b.depth) continue
-        if (overlaps(a, b)) collisions.push(`${a.id} ∩ ${b.id}`)
+        if (a.id >= b.id) continue
+        if (!overlaps(a, b)) continue
+        const nested = (encloses(a, b) && b.tenant === a.tenant) || (encloses(b, a) && a.tenant === b.tenant)
+        if (!nested) collisions.push(`${a.id} ∩ ${b.id}`)
       }
     }
     expect(collisions).toEqual([])
+  })
+
+  it('detects a project box that strays into another tenant', () => {
+    // Proves the guard above can actually fail. Shove Acme Risk right, into
+    // Northstar's territory, and the check must notice.
+    const strayed = trustNodes.map(node =>
+      node.id === 'acme-risk' || node.id === 'risk-reader' ? { ...node, x: node.x + 380 } : node)
+    const derived = deriveBoundaries(strayed)
+    const acmeRisk = derived.find(b => b.id === 'boundary-acme-risk')!
+    const northstar = derived.find(b => b.id === 'boundary-northstar')!
+    expect(overlaps(acmeRisk, northstar)).toBe(true)
+    expect(acmeRisk.tenant).not.toBe(northstar.tenant)
   })
 
   it('nests every project boundary wholly inside its tenant boundary', () => {
@@ -81,7 +106,7 @@ describe('trust boundaries', () => {
   })
 
   it('keeps the external band clear of every in-cluster boundary', () => {
-    const band = deriveExternalBand(trustNodes, 740)!
+    const band = deriveExternalBand(trustNodes)!
     expect(band.count).toBe(3)
     const lowestWall = Math.max(...boundaries.map(b => b.y + b.height))
     expect(band.y).toBeGreaterThan(lowestWall)
@@ -133,17 +158,42 @@ describe('edge geometry', () => {
     }
   })
 
-  it('splits a curve into two halves that meet exactly at the split point', () => {
-    const geom = edgeGeometry({ x: 0, y: 0 }, { x: 400, y: 300 })
-    const { before, after } = splitQuadratic(geom.start, geom.control, geom.end, 0.4)
-    const joinOfBefore = before.slice(before.lastIndexOf('Q')).trim().split(/\s+/).slice(3).map(Number)
-    const startOfAfter = after.slice(1, after.indexOf('Q')).trim().split(/\s+/).map(Number)
-    expect(joinOfBefore[0]).toBeCloseTo(startOfAfter[0], 6)
-    expect(joinOfBefore[1]).toBeCloseTo(startOfAfter[1], 6)
+  // Checking only that the halves meet is far too weak: it passes against a
+  // split whose control points are swapped, i.e. a curve bowing 193px the wrong
+  // way. The real property is that each half, sampled anywhere along its own
+  // length, lands on the original curve.
+  it('splits a curve into two halves that both lie on the original curve', () => {
+    const geom = edgeGeometry({ x: 0, y: 0 }, { x: 400, y: 300 }, -1)
+    const T = 0.4
+    const { before, after } = splitQuadratic(geom.start, geom.control, geom.end, T)
+    const parse = (d: string) => {
+      const n = d.replace(/[MQ]/g, ' ').trim().split(/\s+/).map(Number)
+      return { p0: { x: n[0], y: n[1] }, c: { x: n[2], y: n[3] }, p1: { x: n[4], y: n[5] } }
+    }
+    const first = parse(before)
+    const second = parse(after)
 
-    const expected = pointAt(geom.start, geom.control, geom.end, 0.4)
-    expect(startOfAfter[0]).toBeCloseTo(expected.x, 6)
-    expect(startOfAfter[1]).toBeCloseTo(expected.y, 6)
+    for (let i = 0; i <= 10; i += 1) {
+      const s = i / 10
+      // A point at s along the first half is the point at s*T along the whole.
+      const onFirst = pointAt(first.p0, first.c, first.p1, s)
+      const onWholeA = pointAt(geom.start, geom.control, geom.end, s * T)
+      expect(onFirst.x).toBeCloseTo(onWholeA.x, 6)
+      expect(onFirst.y).toBeCloseTo(onWholeA.y, 6)
+
+      // And s along the second half is T + s*(1-T) along the whole.
+      const onSecond = pointAt(second.p0, second.c, second.p1, s)
+      const onWholeB = pointAt(geom.start, geom.control, geom.end, T + s * (1 - T))
+      expect(onSecond.x).toBeCloseTo(onWholeB.x, 6)
+      expect(onSecond.y).toBeCloseTo(onWholeB.y, 6)
+    }
+  })
+
+  it('rejects a mis-split curve, proving the check above has teeth', () => {
+    const geom = edgeGeometry({ x: 0, y: 0 }, { x: 400, y: 300 }, -1)
+    const good = splitQuadratic(geom.start, geom.control, geom.end, 0.4)
+    const wrong = splitQuadratic(geom.start, geom.end, geom.control, 0.4)
+    expect(wrong.before).not.toBe(good.before)
   })
 })
 
@@ -157,7 +207,10 @@ describe('the denial wall', () => {
     const edge = trustEdges.find(item => item.denialKind === 'network-block')!
     const from = byId(edge.from)
     const to = byId(edge.to)
-    const geom = edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, 0.35)
+    // bowFor, not a hardcoded constant: `planner` and `investigator` are both
+    // at y=520, so the canvas draws this edge at bow -1 (arcing up over the
+    // row). Asserting against 0.35 tested a curve 94.5px from the real one.
+    const geom = edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bowFor(from, to))
     const t = wallFraction(geom, boundaries, edge.from)
 
     expect(t).not.toBe(0.5)

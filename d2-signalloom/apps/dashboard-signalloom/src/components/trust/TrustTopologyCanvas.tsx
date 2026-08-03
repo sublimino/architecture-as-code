@@ -14,12 +14,10 @@ import '@xyflow/react/dist/style.css'
 import type { EvidenceState, Selection, TrustEdge, TrustNode } from './trustTypes'
 import { visual } from './trustVisuals'
 import { NODE_H, NODE_W, deriveBoundaries, deriveExternalBand } from './trustBoundaries'
-import { edgeGeometry, wallFraction } from './trustGeometry'
+import { bowFor, edgeGeometry, wallFraction } from './trustGeometry'
 import TrustFlowNode from './TrustFlowNode'
 import TrustBoundaryNode from './TrustBoundaryNode'
 import TrustFlowEdge from './TrustFlowEdge'
-
-const CANVAS_HEIGHT = 740
 
 // Stable references. React Flow remounts every node when these change identity,
 // which would restart the entrance animation on every render.
@@ -46,6 +44,11 @@ export type TrustTopologyCanvasProps = {
  */
 function computeHighlight(activeId: string | null, activeKind: 'node' | 'edge' | null, edges: TrustEdge[]) {
   if (!activeId || !activeKind) return { hotNodes: new Set<string>(), hotEdges: new Set<string>(), any: false }
+  // `any` is derived from what was actually found, never from "something is
+  // hovered". A filtered-away element never fires mouseleave, so `hover` can
+  // hold an id that no longer exists; asserting `any: true` on that stale id
+  // dimmed every node, edge and boundary with nothing lit to justify it, and
+  // no further mouse movement recovered it. Measured hot=0, dim=20.
   const hotNodes = new Set<string>()
   const hotEdges = new Set<string>()
   if (activeKind === 'node') {
@@ -64,7 +67,7 @@ function computeHighlight(activeId: string | null, activeKind: 'node' | 'edge' |
       hotNodes.add(edge.to)
     }
   }
-  return { hotNodes, hotEdges, any: true }
+  return { hotNodes, hotEdges, any: hotNodes.size > 0 || hotEdges.size > 0 }
 }
 
 function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTopologyCanvasProps) {
@@ -86,10 +89,14 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
   const visibleSignature = nodes.map(node => node.id).join('|')
   useEffect(() => {
     fitView({ padding: 0.08, duration: 420 })
+    // Drop any hover the filter just removed. An element that disappears never
+    // fires mouseleave, so without this the hover id outlives the thing it
+    // points at -- and on touch there is no mouseleave at all.
+    setHover(null)
   }, [fitView, visibleSignature])
 
   const boundaries = useMemo(() => deriveBoundaries(nodes), [nodes])
-  const band = useMemo(() => deriveExternalBand(nodes, CANVAS_HEIGHT), [nodes])
+  const band = useMemo(() => deriveExternalBand(nodes), [nodes])
 
   const highlight = useMemo(
     () => computeHighlight(hover?.id ?? null, hover?.type ?? null, edges),
@@ -205,10 +212,7 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
       const slot = Math.max(touched.get(edge.from) ?? 0, touched.get(edge.to) ?? 0)
       touched.set(edge.from, slot + 1)
       touched.set(edge.to, slot + 1)
-      // Same-row relationships arc upward so they clear the nodes between
-      // them; everything else stays close to straight.
-      const bow = Math.abs(from.y - to.y) < NODE_H ? -1 : 0.35
-      const geom = edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bow)
+      const geom = edgeGeometry({ x: from.x, y: from.y }, { x: to.x, y: to.y }, bowFor(from, to))
       return [{
         edge,
         geom,
@@ -224,7 +228,12 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
   }, [boundaries, edges, highlight, hoverEdge, nodes, onSelectEdge, selected])
 
   return (
-    <div className="trust-canvas" data-testid="trust-canvas">
+    // aria-hidden because this is a visual rendering of the button list below
+    // it, not a second source of information. Without it every node name was
+    // announced twice, and the boundary labels read out as loose strings -- three
+    // of which lose their caption to the width gate, so they announced a name
+    // with no meaning attached.
+    <div className="trust-canvas" data-testid="trust-canvas" aria-hidden="true">
       {/* Document-scoped arrow markers, one per evidence state so an arrowhead
           never contradicts the colour of the line it terminates. */}
       <svg width={0} height={0} style={{ position: 'absolute' }} aria-hidden="true" focusable="false">
@@ -255,6 +264,16 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
         maxZoom={2.2}
         nodesConnectable={false}
         nodesDraggable={false}
+        // React Flow makes every node a tabbable role=group described by its
+        // stock "press enter to select, arrows to move, delete to remove"
+        // text. All three are false here -- nodes are not draggable, there is
+        // no delete, and Enter does nothing -- so it produced 15 focus stops
+        // that announce wrong instructions and lead nowhere, ahead of the
+        // button list that actually works. The canvas is a visual rendering of
+        // that list; the list is the accessible surface.
+        nodesFocusable={false}
+        edgesFocusable={false}
+        disableKeyboardA11y
         elementsSelectable
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, node) => { if (node.type === 'trust') onSelectNode(node.id) }}
@@ -263,12 +282,14 @@ function Canvas({ nodes, edges, selected, onSelectNode, onSelectEdge }: TrustTop
         onPaneClick={() => setHover(null)}
       >
         <ViewportPortal>
-          {/* zIndex 0 keeps the relationships behind the nodes (which sit at 10),
-              so a line never crosses over the box it terminates on. */}
+          {/* zIndex 5 puts relationships above the boundary regions (1-2) and
+              below the node boxes (10). At 0 the tenant box's dashed border
+              painted over the red denial wall -- hiding the one mark that says
+              which boundary did the blocking. */}
           <svg
             className="trust-edge-layer"
             data-testid="trust-edge-layer"
-            style={{ position: 'absolute', overflow: 'visible', width: 1, height: 1, zIndex: 0, pointerEvents: 'none' }}
+            style={{ position: 'absolute', overflow: 'visible', width: 1, height: 1, zIndex: 5, pointerEvents: 'none' }}
           >
             {drawnEdges.map(item => (
               <g key={item.edge.id} style={{ pointerEvents: 'auto' }}>

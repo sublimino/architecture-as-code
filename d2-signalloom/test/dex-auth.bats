@@ -70,7 +70,12 @@ setup() {
 }
 
 @test "Dex discovery and JWKS endpoints are served by the local issuer" {
-  run grep -E 'issuer: https?://[^ ]+/dex$' "$dex_manifest"
+  # The issuer is now ${PUBLIC_ORIGIN:=<url>}/dex so the demo can be published
+  # on a tunnel or an external IP. Still asserted as strictly as before: it must
+  # end in /dex, and whether literal or templated it must resolve to a real
+  # http(s) URL — a token with no default would break every login silently,
+  # because a missing substituteFrom key is a no-op rather than an error.
+  run grep -E 'issuer: (https?://[^ ]+|\$\{[A-Za-z_][A-Za-z0-9_]*:=https?://[^}]+\})/dex$' "$dex_manifest"
   [ "$status" -eq 0 ]
   run grep -F '/dex/.well-known/openid-configuration' "$dex_manifest"
   [ "$status" -eq 0 ]

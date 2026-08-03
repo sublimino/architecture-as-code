@@ -79,6 +79,30 @@ interface Props {
   onRefreshClients: () => void | Promise<void>
 }
 
+// A failed status call has three very different causes, and reporting all of
+// them as "not reachable" sends the instructor to debug the network when the
+// actual answer is "sign in again".
+//
+// The 401 case is not hypothetical and not rare. Dex runs `storage: memory`, so
+// it regenerates its signing keys on every restart — and it restarts whenever
+// the published origin changes, which is exactly what `make public` does. Any
+// browser tab open across that boundary holds a token signed by keys that no
+// longer exist, so the API rejects it. The demo runner is perfectly healthy;
+// the session is stale. Telling the instructor it is "not reachable" during a
+// live demo is the worst possible moment to be wrong about which.
+function describeRunnerError(runnerError: string): string {
+  if (/\b401\b|invalid_token|token is invalid/i.test(runnerError)) {
+    return 'Your session is no longer valid, so the demo runner rejected the request '
+      + '(the demo runner itself is fine). This happens when Dex restarts — publishing '
+      + 'or tearing down a public URL does exactly that. Sign out and back in, then retry.'
+  }
+  if (/\b403\b|superadmin_required|forbidden/i.test(runnerError)) {
+    return 'You are signed in, but this account is not a superadmin, so the run controls '
+      + 'are refused by the server.'
+  }
+  return `The demo runner is not reachable (${runnerError}).`
+}
+
 export default function SuperCredInstructorPanel({ superadmin, onRefreshClients }: Props) {
   const { getAccessTokenSilently } = useAuth0()
   const [steps, setSteps] = useState<DemoStep[]>([])
@@ -396,7 +420,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             >
               <div>
                 {runnerError
-                  ? `The demo runner is not reachable (${runnerError}).`
+                  ? describeRunnerError(runnerError)
                   : 'The demo runner is up but the demo script is not available to it.'}{' '}
                 Run the phases from a shell instead:
               </div>

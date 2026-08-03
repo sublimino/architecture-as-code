@@ -518,9 +518,16 @@ cmd_up() {
   generate_traffic_policy "$token"
   echo "==> Traffic policy written"
 
-  # 3. Backup Dex secret.
-  echo "==> Backing up Dex secret..."
-  backup_dex_secret
+  # 3. (was: back up the Dex secret)
+  #
+  # Removed, not disabled. `backup_dex_secret` wrote ${DEX_BACKUP_FILE} and the
+  # only reader of that file is `restore_dex_secret`, which nothing calls any
+  # more — so `up` was taking a backup that `down` would never restore, and
+  # printing "Backing up Dex secret..." implied a rollback contract that did
+  # not exist. Since the origin is now delivered by Flux substitution, there is
+  # no live patch to roll back from: teardown re-publishes the default origin
+  # and reconciliation restores the manifest's own values. The function is left
+  # defined but is dead — see the DEAD CODE note above its definition.
 
   # 4. Port-forward.
   echo "==> Starting port-forward..."
@@ -564,9 +571,15 @@ cmd_up() {
   url="$(extract_ngrok_url)"
   echo "    ${url}"
 
-  # 7. Patch Dex.
-  echo "==> Suspending Flux reconciliation for the tunnel's lifetime..."
-
+  # 7. Publish the origin.
+  #
+  # This step used to suspend Flux and patch Dex live, and until now it still
+  # ANNOUNCED that it did — the "Suspending Flux reconciliation" line survived
+  # the rewrite that removed the suspension. Anyone reading the output would
+  # reasonably conclude their shared cluster had just been frozen, and go
+  # looking for a resume that never has to happen. The output now describes
+  # what the code does.
+  #
   # Publish the origin as a GitOps input rather than patching Dex and the API
   # directly.
   #

@@ -163,6 +163,71 @@ print(\" \".join(hits))'"
   [ -z "$output" ]
 }
 
+# ─── The runner's EFFECTIVE permissions ──────────────────────────────────────
+#
+# Not "do the RBAC objects exist" — they all did, with correct verbs and correct
+# names, while the runner had no permissions whatsoever. The subject namespace
+# on every binding named a ServiceAccount that does not exist, because the
+# block sits in a ResourceSet whose << inputs.tenant >> is never the runner's
+# tenant. Flux said Ready, the pod said script_available: true, and the first
+# real run died in 92ms reporting "agent-cardvault pod not found" — because
+# `kubectl get pod` exits non-zero on Forbidden exactly as it does on absent.
+#
+# `kubectl auth can-i --as` asks the API server the only question that matters:
+# can THIS subject do THIS thing HERE. A binding pointed at the wrong subject
+# answers "no" and names itself.
+
+RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
+
+@test "DEMOAPI the runner ServiceAccount can actually do what the demo script does" {
+  # namespace|verb|resource — each derived from a kubectl call in
+  # scripts/supercred-demo.sh, the same derivation the Roles document.
+  local checks=(
+    "fe-signalloom-agents|get|pods"
+    "fe-signalloom-agents|patch|pods"
+    "fe-signalloom-agents|create|jobs.batch"
+    "fe-signalloom|get|pods"
+    "fe-signalloom|patch|pods"
+    "inf-signalloom|get|deployments.apps"
+    "inf-signalloom|create|pods/portforward"
+    "inf-bao|create|pods/exec"
+    "kube-system|list|services"
+  )
+  local failures=()
+  local entry ns verb res answer
+  for entry in "${checks[@]}"; do
+    IFS='|' read -r ns verb res <<< "$entry"
+    answer="$(kubectl auth can-i "$verb" "$res" -n "$ns" --as="$RUNNER_SA" 2>/dev/null || true)"
+    [ "$answer" = "yes" ] || failures+=("$verb $res in $ns -> ${answer:-error}")
+  done
+  # Report every gap at once; one at a time turns an RBAC audit into nine runs.
+  [ "${#failures[@]}" -eq 0 ] || {
+    printf 'runner SA cannot: %s\n' "${failures[@]}" >&2
+    return 1
+  }
+}
+
+@test "DEMOAPI every runner RoleBinding names a ServiceAccount that exists" {
+  # The generalised form of the defect: a binding whose subject resolves to
+  # nothing is silently inert. This catches it for any future binding, in any
+  # namespace, without enumerating verbs.
+  run bash -c "kubectl get rolebinding,clusterrolebinding -A -o json | python3 -c '
+import json, subprocess, sys
+missing = []
+for item in json.load(sys.stdin)[\"items\"]:
+    for subject in item.get(\"subjects\") or []:
+        if subject.get(\"name\") != \"supercred-demo-runner\":
+            continue
+        ns = subject.get(\"namespace\", \"\")
+        rc = subprocess.run([\"kubectl\", \"get\", \"sa\", \"supercred-demo-runner\", \"-n\", ns],
+                            capture_output=True).returncode
+        if rc != 0:
+            missing.append(f\"{item[\\\"kind\\\"]}/{item[\\\"metadata\\\"][\\\"name\\\"]} -> serviceaccount {ns}/supercred-demo-runner\")
+print(\"\n\".join(missing))'"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
+}
+
 # ─── ISC-16/17/18: /status by token class ────────────────────────────────────
 
 @test "DEMOAPI /demo-api/status without a token returns 401" {

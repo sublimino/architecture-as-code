@@ -8,10 +8,27 @@ metadata:
 type: Opaque
 stringData:
   config.yaml: |
-    # Origin-aware: set PUBLIC_ORIGIN in flux-runtime-info to expose the demo
-    # anywhere (ngrok, a LoadBalancer IP, a VM's external address). Defaults to
-    # the local gateway so an absent key cannot break local login.
-    issuer: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
+    # ORDERING HAZARD — read before making this ${PUBLIC_ORIGIN}-aware.
+    #
+    # The intended end state is:
+    #     issuer: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/dex
+    # so the demo can be published on any origin. That token is ONLY safe once
+    # inf-signalloom/infra-configs carries postBuild.substituteFrom — and that
+    # wiring is delivered by the fleet artifact through the flux-system/tenants
+    # Kustomization, NOT by this artifact.
+    #
+    # The two travel independently, and this one is faster: infra-configs polls
+    # its OCIRepository every 5 minutes and applies immediately, whereas the
+    # postBuild wiring cannot arrive while `tenants` is suspended. Ship the
+    # token first and envsubst never runs, so the LITERAL string
+    # '${PUBLIC_ORIGIN:=...}' becomes Dex's issuer and every login on the
+    # cluster fails. Confirmed the hard way on 2026-08-03: the token reached a
+    # live cluster ~4 minutes after push and had to be reverted.
+    #
+    # Correct order: land the postBuild wiring, verify it with
+    #   kubectl get kustomization infra-configs -n inf-signalloom -o jsonpath='{.spec.postBuild}'
+    # returning a substituteFrom entry, and only then reintroduce the token.
+    issuer: https://dashboard.osramp.acme.local:30754/dex
     storage:
       type: memory
     web:
@@ -41,7 +58,6 @@ stringData:
           - http://localhost:5173/callback
           # Wherever the demo is currently published. Same default as the
           # issuer above, so this is a harmless duplicate when unset.
-          - ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}/callback
       - id: signalloom-api
         name: Signal Loom API
         secret: signalloom-api-local-only

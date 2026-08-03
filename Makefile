@@ -667,6 +667,15 @@ public-test: ## Run acceptance tests against the public ngrok URL.
 
 CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=ci-reports-2 GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log
 
+.PHONY: ci-tools
+ci-tools: ## Install the CI toolchain: pinned pre-built binaries, then setup.sh.
+	@# Same two installers, same order, as scripts/ci/vm-pipeline.sh. The pinned
+	@# pre-built binaries go first so setup.sh's `have` guards skip them and its
+	@# `go install` compile path is never reached for anything already present;
+	@# setup.sh still runs because it alone installs skopeo, witness, yq and jq.
+	./scripts/ci/install-ci-tools.sh
+	./scripts/setup.sh --tools-only
+
 .PHONY: ci-provision
 ci-provision: ## One-time: create the persistent GCP CI VM + networking.
 	./scripts/ci/gcp-ci.sh provision

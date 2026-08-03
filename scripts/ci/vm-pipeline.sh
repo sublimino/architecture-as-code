@@ -102,7 +102,26 @@ fi
 # but sudo available → SUDO="sudo" but go install lines lack ${SUDO} prefix.
 # Fix: make /usr/local/bin writable so the first branch fires cleanly.
 sudo chmod a+w /usr/local/bin 2>/dev/null || true
-echo "==> Ensuring CI tools..."
+
+# Two installers, and the order is load-bearing.
+#
+# install-ci-tools.sh fetches version-pinned PRE-BUILT binaries — no compile on
+# the VM. It covers go, kind, kubectl, kustomize, helm, flux, crane, cosign,
+# syft, grype, bats, python3.
+#
+# setup.sh --tools-only is the shared local/CI installer and is the ONLY source
+# of skopeo, witness, yq, jq, govulncheck and vexctl. It is a complement, never
+# a replacement — skopeo in particular is a hard requirement of
+# scripts/build-sign-dashboard.sh, which `make signalloom-images` invokes.
+#
+# Running the pre-built installer FIRST means setup.sh's `have <tool>` guards
+# find crane already on PATH and skip it, so the only `go install` compiles left
+# are govulncheck and vexctl. Reverse the order and setup.sh compiles crane
+# from source before the pinned binary would ever have been considered.
+echo "==> Ensuring CI tools (pinned pre-built binaries)..."
+bash ./scripts/ci/install-ci-tools.sh
+
+echo "==> Ensuring CI tools (setup.sh — skopeo, witness, yq, jq, and friends)..."
 bash ./scripts/setup.sh --tools-only
 sudo chmod go-w /usr/local/bin 2>/dev/null || true
 

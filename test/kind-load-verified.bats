@@ -217,3 +217,41 @@ setup() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"usage:"* ]]
 }
+
+@test "KINDLOAD recovery waits for the CRI to adopt the image, rather than checking once" {
+	# Adoption is not synchronous. A single immediate re-verify reports a
+	# WORKING recovery as a failure, which is worse than a plain failure —
+	# it sends the reader looking in the wrong place entirely.
+	#
+	# The fake makes the image appear only on the second poll.
+	cat >"$bin/docker" <<-'SLOW'
+		#!/usr/bin/env bash
+		echo "docker $*" >>"$CALL_LOG"
+		case "$1" in
+		  save) for ((i=1;i<=$#;i++)); do [ "${!i}" = "-o" ] && { j=$((i+1)); : >"${!j}"; }; done; exit 0 ;;
+		  exec)
+		    shift; [ "$1" = "-i" ] && shift; shift
+		    case "$1" in
+		      crictl)
+		        printf 'IMAGE TAG IMAGE-ID SIZE\n'
+		        n=$(( $(cat "$BATS_TEST_TMPDIR/polls" 2>/dev/null || echo 0) + 1 ))
+		        echo "$n" >"$BATS_TEST_TMPDIR/polls"
+		        # Absent on the first poll after labelling, present afterwards.
+		        [ -f "$BATS_TEST_TMPDIR/labelled" ] && [ "$n" -gt 2 ] && \
+		          printf 'docker.io/library/slow-image dev abc123 10MB\n'
+		        ;;
+		      ctr)
+		        case "$*" in
+		          *"images import"*) cat >/dev/null; exit 0 ;;
+		          *"images label"*)  : >"$BATS_TEST_TMPDIR/labelled"; exit 0 ;;
+		        esac ;;
+		    esac ;;
+		esac
+		exit 0
+	SLOW
+	chmod +x "$bin/docker"
+
+	KIND_LOAD_CRI_ADOPT_TIMEOUT=10 run bash "$script" slow-image:dev
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"via archive recovery"* ]]
+}

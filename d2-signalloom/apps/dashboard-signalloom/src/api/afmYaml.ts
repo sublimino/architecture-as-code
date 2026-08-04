@@ -262,6 +262,27 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
   return `${prefix}\n${emitObject(normalisedValue, childDepth)}`
 }
 
+/**
+ * Generate a unique cluster import ID: `signalloom-{compact-ISO}-{random4}`
+ * e.g. `signalloom-20260803T143022-a7f2`
+ */
+export function generateImportId(now = new Date()): string {
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '')
+  const rand = Math.random().toString(16).slice(2, 6).padEnd(4, '0')
+  return `signalloom-${stamp}-${rand}`
+}
+
+/**
+ * Generate a human-readable cluster import name.
+ * e.g. `SignalLoom Import 2026-08-03T14:30:22Z`
+ * When a namespace filter is active: `SignalLoom Import 2026-08-03T14:30:22Z (ns: kube-system)`
+ */
+export function generateImportName(namespace: string, now = new Date()): string {
+  const iso = now.toISOString().replace(/\.\d{3}Z$/, 'Z')
+  const suffix = namespace !== 'all' ? ` (ns: ${namespace})` : ''
+  return `SignalLoom Import ${iso}${suffix}`
+}
+
 export function convertRbacToAfmImport(
   rbac: RBACData,
   cluster: { id: string; name: string },

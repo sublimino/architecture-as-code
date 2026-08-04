@@ -1,0 +1,24 @@
+# Agent Profile: txn-pipeline — Data Pipeline, depends on cardvault.
+apiVersion: signalloom.controlplane.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: agent-txn-pipeline
+  labels:
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: payments
+spec:
+  type: data-pipeline
+  team: payments
+  trustProfile: medium
+  riskClass: medium
+  gracePeriod: 72h
+  dependencies:
+    - agent-cardvault
+  namespace: fe-signalloom-agents
+  spiffe:
+    trustDomain: signalloom.local
+    path: /ns/payments/sa/agent-txn-pipeline
+  openbao:
+    authMount: jwt/payments
+    kvPath: secret/data/payments/txn-pipeline
+    policies: [payments-read]

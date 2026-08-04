@@ -303,9 +303,11 @@ describe('RbacAnalysisPage', () => {
         expect(yamlTextarea().value).toContain('secret-reader')
       })
       const yaml = yamlTextarea().value
-      expect(yaml).toContain('id: local')
-      // In live mode (default), the importer relabels the cluster as "Host Cluster"
-      expect(yaml).toContain('name: Host Cluster')
+      // The importer generates a unique import ID per click (signalloom-<timestamp>-<hex>)
+      // rather than reusing the cluster's own id. Assert the pattern, not a literal.
+      expect(yaml).toMatch(/id: signalloom-\d{8}T\d{6}-[0-9a-f]{4}/)
+      // In live mode (default), the importer relabels the cluster with a timestamped name
+      expect(yaml).toMatch(/name: SignalLoom Import \d{4}-\d{2}-\d{2}/)
       expect(yaml).toContain('system:masters')
       expect(yaml).toContain('flux-applier')
     })

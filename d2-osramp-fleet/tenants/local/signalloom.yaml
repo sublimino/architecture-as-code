@@ -71,6 +71,36 @@ spec:
         labels:
           app.kubernetes.io/part-of: signalloom
           signalloom.ai/purpose: agent-inventory
+    # The apps tenant namespace, created HERE even though signalloom-apps owns
+    # everything else in it.
+    #
+    # This set declares the SuperCred runner's Role and RoleBinding INTO the
+    # apps tenant (see the long justification further down: declaring them from
+    # signalloom-apps deadlocks on the privilege-escalation dry run). But this
+    # set reconciles FIRST -- infra before apps, by design -- so on a cluster
+    # where the apps namespace does not exist yet, those objects have nowhere
+    # to land and the whole set fails:
+    #
+    #   reconciliation failed: Role/fe-signalloom/supercred-demo-runner-agents
+    #   not found: namespaces "fe-signalloom" not found
+    #
+    # signalloom-infra then never goes Ready, so infra-controllers is never
+    # created, and stage 6 waits 443s for a Kustomization that cannot arrive.
+    # Stages 7 and 8 fail behind it.
+    #
+    # This was invisible on a long-lived local cluster, where the namespace
+    # already existed from an earlier run, and reproduced identically on BOTH
+    # CI VMs the first time the RBAC change met a cluster built from nothing.
+    # Creating a namespace is idempotent and signalloom-apps is content to
+    # adopt it -- the same pattern as fe-signalloom-agents directly above,
+    # which is likewise declared here and rendered once per input.
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: << inputs.appsTenant >>
+        labels:
+          toolkit.fluxcd.io/role: tenant
+          app.kubernetes.io/part-of: signalloom
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: Role
       metadata:

@@ -1,0 +1,24 @@
+# Agent Profile: llm-classifier — LLM Inference, PII handling, zero grace period.
+apiVersion: signalloom.controlplane.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: agent-llm-classifier
+  labels:
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: ml-ops
+spec:
+  type: llm-inference
+  team: ml-ops
+  trustProfile: low
+  riskClass: critical
+  gracePeriod: 0h
+  dependencies:
+    - agent-txn-pipeline
+  namespace: fe-signalloom-agents
+  spiffe:
+    trustDomain: signalloom.local
+    path: /ns/ml-ops/sa/agent-llm-classifier
+  openbao:
+    authMount: jwt/ml-ops
+    kvPath: secret/data/ml-ops/llm-classifier
+    policies: [ml-ops-read]

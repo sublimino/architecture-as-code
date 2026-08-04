@@ -1,0 +1,99 @@
+# Fleet definition — the single source of truth for the agent DAG.
+# Mounted into fleet-manager at /etc/fleet/fleet.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/part-of: signalloom
+data:
+  fleet.yaml: |
+    apiVersion: signalloom.controlplane.io/v1alpha1
+    kind: FleetDefinition
+    metadata:
+      name: supercred-fleet
+    spec:
+      agents:
+        - name: agent-cardvault
+          type: data-vault
+          team: payments
+          trustProfile: low
+          riskClass: critical
+          gracePeriod: 0h
+          dependencies: []
+          spiffe:
+            trustDomain: signalloom.local
+            path: /ns/payments/sa/agent-cardvault
+          openbao:
+            authMount: jwt/payments
+            kvPath: secret/data/payments/cardvault
+            policies: [payments-admin]
+
+        - name: agent-txn-pipeline
+          type: data-pipeline
+          team: payments
+          trustProfile: medium
+          riskClass: medium
+          gracePeriod: 72h
+          dependencies:
+            - agent-cardvault
+          spiffe:
+            trustDomain: signalloom.local
+            path: /ns/payments/sa/agent-txn-pipeline
+          openbao:
+            authMount: jwt/payments
+            kvPath: secret/data/payments/txn-pipeline
+            policies: [payments-read]
+
+        - name: agent-llm-classifier
+          type: llm-inference
+          team: ml-ops
+          trustProfile: low
+          riskClass: critical
+          gracePeriod: 0h
+          dependencies:
+            - agent-txn-pipeline
+          spiffe:
+            trustDomain: signalloom.local
+            path: /ns/ml-ops/sa/agent-llm-classifier
+          openbao:
+            authMount: jwt/ml-ops
+            kvPath: secret/data/ml-ops/llm-classifier
+            policies: [ml-ops-read]
+
+        - name: agent-api-gateway
+          type: api-gateway
+          team: platform
+          trustProfile: high
+          riskClass: low
+          gracePeriod: 168h
+          dependencies:
+            - agent-cardvault
+          spiffe:
+            trustDomain: signalloom.local
+            path: /ns/platform/sa/agent-api-gateway
+          openbao:
+            authMount: jwt/platform
+            kvPath: secret/data/platform/api-gateway
+            policies: [platform-read]
+
+        - name: agent-monitor
+          type: observability
+          team: sre
+          trustProfile: high
+          riskClass: low
+          gracePeriod: 168h
+          dependencies:
+            - agent-cardvault
+            - agent-txn-pipeline
+            - agent-llm-classifier
+            - agent-api-gateway
+          spiffe:
+            trustDomain: signalloom.local
+            path: /ns/sre/sa/agent-monitor
+          openbao:
+            authMount: jwt/sre
+            kvPath: secret/data/sre/monitor
+            policies: [sre-read]

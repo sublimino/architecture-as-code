@@ -76,7 +76,16 @@ kubeadmConfigPatches:
     #
     # This demo does exactly that: the in-cluster runner has no crictl and no
     # docker socket, so its shim derives the image list from the node object.
-    # On 2026-08-03 the node held all four SuperCred images -- `crictl images`
+    # NOTE: this heredoc is UNQUOTED, because it must expand the cluster name
+    # and zot cache path. Backticks, dollar-parens and bare dollar-names are
+    # therefore all live inside it -- YAML comments included. Prose written
+    # here gets EXECUTED or SUBSTITUTED, silently, and lands in the config file
+    # as an empty hole. Two rounds of this: first a tool name in backticks,
+    # which bash ran (crictl: command not found), then the warning about it,
+    # which ate its own dollar-parens example. Keep prose here free of
+    # backticks and dollar signs entirely.
+    #
+    # On 2026-08-03 the node held all four SuperCred images -- crictl images
     # on the node listed them -- while node.status.images held 50 entries and
     # omitted cardvault:local (8.9MB) and policy-engine:local (14.9MB) purely
     # for being too small to rank. The preflight blocked the entire demo on a

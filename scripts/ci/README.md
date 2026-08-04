@@ -203,6 +203,111 @@ workload or controller, apply one evidence-backed local fix, then rerun
 `make ci-gcp-2`. A successful run suspends VM2 automatically; a failure leaves
 it running for diagnosis.
 
+## Cold-path failures on the kind node
+
+Two failures that look like application bugs and are not. Both are invisible on
+a **warm** VM — the kind node's state survives between runs — and both bite
+reliably on a **cold** one, which is why they went unnoticed for so long. Both
+were diagnosed on 2026-08-04 after two consecutive CI runs failed identically.
+
+### `kind load docker-image` transfers nothing and exits 0
+
+**Symptom, in the order you meet it:** stages 6, 7 and 8 fail together, ~443s
+apart. `fe-signalloom` is empty. `inf-signalloom/infra-configs` is
+`Ready=False`, waiting on `fake-integration-proxy` and `netassert-controller`.
+Those two pods are in `ImagePullBackOff` with
+
+```
+failed to unpack image ... unexpected media type text/html for sha256:… : not found
+```
+
+**Nothing in that chain names an image.** The HTML is Docker Hub's 404 page:
+kubelet could not find `fake-integration-proxy:dev` locally, so it went looking
+for it on the internet.
+
+**Cause.** On a Docker daemon using the containerd image store, `docker save`
+emits an OCI index whose layers kind's importer does not always materialise.
+`kind load` prints `loading...` and exits 0 having transferred nothing.
+
+**The trap.** `ctr -n k8s.io images ls` *still lists* such an image, because the
+content store holds the manifest. Any check built on it passes while the pod
+cannot start. `crictl images` is the CRI's view — unpacked, labelled, runnable —
+and is the only sound verification.
+
+**Fixed** in `scripts/kind-load-verified.sh`, which every image load in
+`make signalloom-images` now goes through: it loads, verifies against `crictl`,
+recovers via an archive round-trip if the image is missing, and fails loudly
+naming the downstream consequence if recovery does not work. Guarded by
+`make test-kind-load-verified` (12 tests against fake docker/kind clients, no
+cluster needed; 10 of the 12 fail against the pre-fix behaviour).
+
+**Manual recovery**, if you meet this on an older checkout — the flags are not
+interchangeable:
+
+```bash
+NODE=osramp-control-plane
+# No --platform: the single-platform form imports into something ctr lists
+# and crictl does not, which is the same dead end by another route.
+docker save -o /tmp/img.tar fake-integration-proxy:dev
+docker cp /tmp/img.tar "$NODE:/var/tmp/img.tar"
+docker exec "$NODE" ctr -n k8s.io images import \
+  --all-platforms --digests --snapshotter=overlayfs /var/tmp/img.tar
+# Load-bearing. Without the label the CRI does not adopt the image and
+# `crictl images` still will not list it.
+docker exec "$NODE" ctr -n k8s.io images label \
+  docker.io/library/fake-integration-proxy:dev io.cri-containerd.image=managed
+docker exec "$NODE" crictl images | grep fake-integration   # must print a row
+kubectl -n inf-signalloom delete pod -l app.kubernetes.io/name=fake-integration-proxy
+```
+
+### Zot's cache becomes a stale bind mount and 500s every push
+
+**Symptom.** Every `make push-local-*` fails with
+
+```
+POST http://localhost:5001/v2/…/blobs/uploads/: unexpected status code 500 Internal Server Error
+```
+
+and every `OCIRepository` in the cluster reads `NAME_UNKNOWN: repository name
+not known to registry` — the whole fleet source disappears at once. Zot's own
+log says `readdirent /var/lib/zot: no such file or directory`.
+
+**Cause.** Zot mounts `/var/local/osramp-zot-cache` from the node as a
+hostPath. That path can survive as a *mount entry* whose backing directory is
+gone, leaving a dentry with a link count of 0. `ls -ld` shows the directory;
+`rm -rf` says `Device or resource busy`; a fresh pod's init container fails with
+`error mounting … no such file or directory`. Recreating the cluster does not
+clear it, because the stale mount is inside the node container.
+
+**Recovery** — the `umount -l` is the part that is easy to miss:
+
+```bash
+NODE=osramp-control-plane
+docker exec --privileged "$NODE" sh -c '
+  umount -l /var/local/osramp-zot-cache 2>/dev/null
+  rm -rf    /var/local/osramp-zot-cache
+  mkdir -p  /var/local/osramp-zot-cache
+  chown 65532:65532 /var/local/osramp-zot-cache
+  chmod 0750        /var/local/osramp-zot-cache'
+kubectl -n registry delete pod --all --force --grace-period=0
+# Then re-push everything the registry lost:
+make push-local-foundation && make push-local-signalloom && make bootstrap-local
+```
+
+### `signalloom-infra` inputs are reset by a fleet re-apply
+
+Re-applying the fleet resets `spec.inputs` on the `signalloom-infra`
+ResourceSet to `[]`, after which it fails to build with `map has no entry for
+key "tenant"` and renders **none** of its resources — including the whole
+`supercred-demo-runner` RBAC. The runner then deploys and passes both probes
+with no permissions at all. Re-activate with `./scripts/signalloom-local.sh up`,
+and confirm with:
+
+```bash
+kubectl auth can-i get pods -n fe-signalloom \
+  --as=system:serviceaccount:fe-signalloom:supercred-demo-runner   # must be: yes
+```
+
 ## Exit codes
 
 | Code | Meaning |

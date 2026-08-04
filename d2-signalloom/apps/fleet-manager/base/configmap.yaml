@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fleet-config
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+data:
+  fleet.yaml: |
+    agents:
+      - id: agent-cardvault
+        type: data-vault
+        team: platform
+        trustProfile: high
+        riskClass: high
+        gracePeriod: 0h
+        dependencies: []
+        namespace: fe-signalloom-agents
+      - id: agent-txn-pipeline
+        type: data-pipeline
+        team: payments
+        trustProfile: medium
+        riskClass: medium
+        gracePeriod: 72h
+        dependencies: [agent-cardvault]
+        namespace: fe-signalloom-agents
+      - id: agent-llm-classifier
+        type: llm-inference
+        team: ml-ops
+        trustProfile: high
+        riskClass: high
+        gracePeriod: 0h
+        dependencies: [agent-txn-pipeline]
+        namespace: fe-signalloom-agents
+      - id: agent-api-gateway
+        type: api-gateway
+        team: platform
+        trustProfile: medium
+        riskClass: medium
+        gracePeriod: 24h
+        dependencies: [agent-cardvault]
+        namespace: fe-signalloom-agents
+      - id: agent-monitor
+        type: observability
+        team: sre
+        trustProfile: low
+        riskClass: low
+        gracePeriod: 0h
+        dependencies: [agent-cardvault, agent-txn-pipeline, agent-llm-classifier, agent-api-gateway]
+        namespace: fe-signalloom-agents

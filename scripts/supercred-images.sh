@@ -209,9 +209,44 @@ reload_via_archive() {
   fi
 
   log "recovery: importing $image into containerd on $NODE"
-  "$DOCKER_BIN" exec -i "$NODE" ctr -n k8s.io images import --all-platforms - <"$tar" \
+  # --snapshotter=overlayfs so the layers are unpacked into the snapshotter the
+  # CRI actually reads. Without it the import succeeds and the image is not
+  # runnable.
+  "$DOCKER_BIN" exec -i "$NODE" \
+    ctr -n k8s.io images import --all-platforms --snapshotter=overlayfs - <"$tar" \
     || { warn "ctr import failed for $image"; return 1; }
-  return 0
+
+  # Load-bearing, and the reason this recovery path had never once worked.
+  #
+  # containerd's CRI plugin only surfaces images carrying this label. An
+  # imported-but-unlabelled image sits in the content store, is listed by
+  # `ctr images ls`, is NOT listed by `crictl images`, and cannot be run — so
+  # the recovery reported success, the verification that follows it failed, and
+  # the whole thing read as "the archive rebuild didn't help either".
+  #
+  # Observed on the CI VM 2026-08-04: after recovery, `ctr images ls` listed
+  # cardvault-agent:local while `crictl images` did not, and the deploy failed.
+  # Adding the label made crictl list it immediately.
+  "$DOCKER_BIN" exec "$NODE" \
+    ctr -n k8s.io images label "docker.io/library/${image%%:*}:${image##*:}" \
+      io.cri-containerd.image=managed >/dev/null \
+    || { warn "could not label $image as CRI-managed"; return 1; }
+
+  # The CRI does not adopt the freshly-labelled image synchronously, so an
+  # immediate re-verify can miss it by a second or two. Observed on the CI VM
+  # 2026-08-04: recovery labelled cardvault-agent:local, the caller's
+  # verification reported it missing and failed the build, and `crictl images`
+  # listed it moments later. A recovery that worked and was then declared a
+  # failure is worse than one that plainly did not work, because it sends the
+  # reader looking in the wrong place.
+  local waited=0
+  while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-20}" ]; do
+    image_on_node "$image" && return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "$image is labelled but the CRI has not adopted it after ${waited}s"
+  return 1
 }
 
 load_images() {

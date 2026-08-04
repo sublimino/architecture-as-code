@@ -112,7 +112,17 @@ recover_via_archive() {
     ctr -n k8s.io images label "$(canonical_ref "$image")" io.cri-containerd.image=managed >/dev/null \
     || { warn "could not label $image as CRI-managed"; return 1; }
 
-  return 0
+  # Adoption is not synchronous. Measured on the CI VM 2026-08-04: a labelled
+  # image was reported missing by an immediate re-verify and appeared in
+  # `crictl images` moments later — a recovery that worked, declared a failure.
+  local waited=0
+  while [ "$waited" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}" ]; do
+    image_on_node "$image" && return 0
+    sleep 1
+    waited=$((waited + 1))
+  done
+  warn "$image is labelled but the CRI has not adopted it after ${waited}s"
+  return 1
 }
 
 main() {

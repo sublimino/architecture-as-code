@@ -216,3 +216,31 @@ all_images() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"Usage:"* ]]
 }
+
+@test "IMAGES recovery labels the image CRI-managed, or it is imported and unusable" {
+	# The defect this pins, observed live on the CI VM 2026-08-04:
+	# reload_via_archive imported cardvault-agent:local successfully, `ctr
+	# images ls` listed it, `crictl images` did not, and the deploy failed. The
+	# recovery had never once worked, and it reported success every time.
+	#
+	# containerd's CRI plugin only surfaces images carrying this label, so the
+	# label is the step that makes a recovered image runnable rather than merely
+	# present.
+	CTR_IMPORT_IMAGE="cardvault-agent:local" KIND_LOADS="cardvault:local policy-engine:local supercred-demo-runner:local" \
+		run bash "$script" load
+	[ "$status" -eq 0 ]
+	run grep "images label" "$CALL_LOG"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"io.cri-containerd.image=managed"* ]]
+	[[ "$output" == *"cardvault-agent"* ]]
+}
+
+@test "IMAGES recovery unpacks into the snapshotter the CRI reads" {
+	# Same failure by a different route: an import without --snapshotter leaves
+	# the layers unextracted, so the image is listed and still not runnable.
+	CTR_IMPORT_IMAGE="cardvault-agent:local" KIND_LOADS="cardvault:local policy-engine:local supercred-demo-runner:local" \
+		run bash "$script" load
+	[ "$status" -eq 0 ]
+	run grep "images import" "$CALL_LOG"
+	[[ "$output" == *"--snapshotter=overlayfs"* ]]
+}

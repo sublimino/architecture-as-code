@@ -254,15 +254,21 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	docker build -t netassert-controller:dev d2-signalloom/apps/netassert-controller & NC_PID=$$!; \
 	BUILD_FAIL=0; wait $$FE_PID || BUILD_FAIL=1; wait $$FP_PID || BUILD_FAIL=1; wait $$NC_PID || BUILD_FAIL=1; \
 	[ $$BUILD_FAIL -eq 0 ] || { echo "signalloom parallel image build failed" >&2; exit 1; }; \
-	kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
 	# dashboard image repository literal: signalloom/apps/dashboard-signalloom:latest \
 	# dashboard build context literal: d2-signalloom/apps/dashboard-signalloom \
 	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
 	./scripts/build-sign-dashboard.sh; \
-	kind load docker-image --name $(CLUSTER_NAME) fake-integration-proxy:dev; \
-	kind load docker-image --name $(CLUSTER_NAME) netassert-controller:dev
+	# kind-load-verified.sh, not `kind load`: on a Docker daemon using the \
+	# containerd image store the loader exits 0 having transferred nothing, and \
+	# these two images are the ones it drops. The pods then sit in \
+	# ImagePullBackOff, inf-signalloom/infra-configs fails its health check, \
+	# signalloom-apps never reconciles, fe-signalloom stays EMPTY, and CI \
+	# stages 6-8 fail together naming no image at all. Masked on a warm VM \
+	# because the node's image cache survives; fatal on every cold run. \
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fake-integration-proxy:dev netassert-controller:dev
 
 .PHONY: cpai-images
 cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.
@@ -435,7 +441,11 @@ check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster
 
 .PHONY: demo-signalloom-supercred-images-test
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
-	bats test/supercred-images.bats test/supercred-crictl-shim.bats
+	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats
+
+.PHONY: test-kind-load-verified
+test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
+	bats test/kind-load-verified.bats
 
 .PHONY: demo-signalloom-supercred-api-test
 demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).
@@ -781,3 +791,7 @@ risk-check: ## CI gate: artefacts validate, engine self-checks, results are repr
 	@git diff --quiet -- risk/out/ \
 		|| { echo "risk/out/ is stale — commit the regenerated report"; git diff --stat -- risk/out/; exit 1; }
 	@echo "risk-check: artefacts valid, engine self-checked, report reproducible"
+
+.PHONY: test-ci-lock
+test-ci-lock: ## Verify the exclusive CI-VM lock against a fake remote (no VM required).
+	bats test/ci-lock.bats

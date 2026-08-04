@@ -471,6 +471,28 @@ export function parseAnalysisStatus(value: unknown): AnalysisStatusInfo {
 }
 
 /** Most recent runs for one cluster — the source list for the run-selector dropdown. */
+/** POST a cluster import payload to AFM. Throws on non-2xx or network error. */
+export async function postClusterImport(payload: unknown): Promise<void> {
+  const url = `${AFM}/clusters/import`
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+
+    if (!res.ok) {
+      throw new Error(`AFM import failed for ${url} with status ${res.status}.`)
+    }
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export async function fetchClusterJobs(clusterId: string, limit = 25): Promise<JobRecord[]> {
   return parseJobList(await fetchJsonOrThrow(`/clusters/${encodeURIComponent(clusterId)}/jobs?limit=${limit}`))
 }

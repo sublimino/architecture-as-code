@@ -4,15 +4,18 @@ import {
   fetchJsonOrThrow,
   parseClusterList,
   parseRbacData,
+  postClusterImport,
   type ClusterMeta,
   type RBACData,
 } from '../api/afmApi'
-import { convertRbacToAfmImport, emitYaml } from '../api/afmYaml'
+import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from '../api/afmYaml'
+import type { AfmClusterImport } from '../api/afmYaml'
 import { isDemoMode } from '../api/demoMode'
 
-type CopyFeedback =
+type InlineFeedback =
   | { tone: 'success'; message: string }
   | { tone: 'hint'; message: string }
+  | { tone: 'error'; message: string }
 
 function toInlineErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof DOMException && error.name === 'AbortError') {
@@ -46,13 +49,17 @@ export default function RbacImporterPanel() {
   const [namespaces, setNamespaces] = useState<string[]>([])
   const [yamlText, setYamlText] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [copyFeedback, setCopyFeedback] = useState<CopyFeedback | null>(null)
+  const [copyFeedback, setCopyFeedback] = useState<InlineFeedback | null>(null)
+  const [sendFeedback, setSendFeedback] = useState<InlineFeedback | null>(null)
   const [isLoadingClusters, setIsLoadingClusters] = useState(true)
   const [isLoadingRbac, setIsLoadingRbac] = useState(false)
+  const [isSending, setIsSending] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const requestSequenceRef = useRef(0)
   const copyResetTimeoutRef = useRef<number | null>(null)
+  const sendResetTimeoutRef = useRef<number | null>(null)
+  const lastImportPayloadRef = useRef<AfmClusterImport | null>(null)
 
   const demo = isDemoMode()
 
@@ -75,10 +82,22 @@ export default function RbacImporterPanel() {
     }
   }, [])
 
+  const clearSendResetTimeout = useCallback(() => {
+    if (sendResetTimeoutRef.current !== null) {
+      window.clearTimeout(sendResetTimeoutRef.current)
+      sendResetTimeoutRef.current = null
+    }
+  }, [])
+
   const resetCopyFeedback = useCallback(() => {
     clearCopyResetTimeout()
     setCopyFeedback(null)
   }, [clearCopyResetTimeout])
+
+  const resetSendFeedback = useCallback(() => {
+    clearSendResetTimeout()
+    setSendFeedback(null)
+  }, [clearSendResetTimeout])
 
   const queueCopiedReset = useCallback(() => {
     clearCopyResetTimeout()
@@ -87,6 +106,14 @@ export default function RbacImporterPanel() {
       copyResetTimeoutRef.current = null
     }, 2000)
   }, [clearCopyResetTimeout])
+
+  const queueSendReset = useCallback(() => {
+    clearSendResetTimeout()
+    sendResetTimeoutRef.current = window.setTimeout(() => {
+      setSendFeedback(null)
+      sendResetTimeoutRef.current = null
+    }, 3000)
+  }, [clearSendResetTimeout])
 
   const isCurrentRequest = useCallback((sequence: number): boolean => {
     return requestSequenceRef.current === sequence
@@ -130,6 +157,8 @@ export default function RbacImporterPanel() {
       setNamespaces([])
       setSelectedNamespace('all')
       resetCopyFeedback()
+      resetSendFeedback()
+      lastImportPayloadRef.current = null
 
       try {
         const nextClusters = await readClusters()
@@ -168,8 +197,9 @@ export default function RbacImporterPanel() {
       disposed = true
       requestSequenceRef.current += 1
       clearCopyResetTimeout()
+      clearSendResetTimeout()
     }
-  }, [clearCopyResetTimeout, isCurrentRequest, preloadNamespaces, resetCopyFeedback])
+  }, [clearCopyResetTimeout, clearSendResetTimeout, isCurrentRequest, preloadNamespaces, resetCopyFeedback, resetSendFeedback])
 
   async function handleClusterChange(nextClusterId: string) {
     const nextCluster = clusters.find(cluster => cluster.id === nextClusterId) ?? null
@@ -180,6 +210,8 @@ export default function RbacImporterPanel() {
     setNamespaces([])
     setError(null)
     resetCopyFeedback()
+    resetSendFeedback()
+    lastImportPayloadRef.current = null
 
     if (nextCluster === null) {
       setError('The selected AFM cluster is unavailable.')
@@ -192,7 +224,9 @@ export default function RbacImporterPanel() {
 
   async function handleGenerateYaml() {
     resetCopyFeedback()
+    resetSendFeedback()
     setError(null)
+    lastImportPayloadRef.current = null
 
     if (selectedCluster === null) {
       setYamlText('')
@@ -223,7 +257,12 @@ export default function RbacImporterPanel() {
         setSelectedNamespace('all')
       }
 
+      const now = new Date()
       const afmImport = convertRbacToAfmImport(rbac, selectedCluster, effectiveNamespace)
+      afmImport.id = generateImportId(now)
+      afmImport.name = generateImportName(effectiveNamespace, now)
+
+      lastImportPayloadRef.current = afmImport
       setYamlText(emitYaml(afmImport))
     } catch (nextError: unknown) {
       if (!isCurrentRequest(sequence)) {
@@ -268,6 +307,29 @@ export default function RbacImporterPanel() {
         textarea.select()
       }
       setCopyFeedback({ tone: 'hint', message: copyHint })
+    }
+  }
+
+  async function handleSendToAfm() {
+    const payload = lastImportPayloadRef.current
+    if (!payload) {
+      return
+    }
+
+    resetSendFeedback()
+    setIsSending(true)
+
+    try {
+      await postClusterImport(payload)
+      setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM` })
+      queueSendReset()
+    } catch (sendError: unknown) {
+      setSendFeedback({
+        tone: 'error',
+        message: toInlineErrorMessage(sendError, 'Failed to send RBAC data to AFM.'),
+      })
+    } finally {
+      setIsSending(false)
     }
   }
 
@@ -383,6 +445,19 @@ export default function RbacImporterPanel() {
         </div>
       )}
 
+      {sendFeedback && (
+        <div
+          data-testid="importer-send-feedback"
+          style={{
+            fontSize: 12,
+            color: sendFeedback.tone === 'success' ? 'var(--cyan)' : sendFeedback.tone === 'error' ? 'var(--error)' : 'var(--muted)',
+            marginBottom: 10,
+          }}
+        >
+          {sendFeedback.message}
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
         <textarea
           ref={textareaRef}
@@ -408,16 +483,29 @@ export default function RbacImporterPanel() {
           }}
         />
 
-        <button
-          type="button"
-          className="btn btn-primary"
-          data-testid="importer-copy"
-          disabled={!yamlText}
-          onClick={() => void handleCopy()}
-          style={{ minWidth: 110 }}
-        >
-          Copy
-        </button>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-testid="importer-copy"
+            disabled={!yamlText}
+            onClick={() => void handleCopy()}
+            style={{ minWidth: 110 }}
+          >
+            Copy
+          </button>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            data-testid="importer-send"
+            disabled={!lastImportPayloadRef.current || isSending}
+            onClick={() => void handleSendToAfm()}
+            style={{ minWidth: 110, fontSize: 12, padding: '5px 12px' }}
+          >
+            {isSending ? 'Sending…' : 'Send to AFM'}
+          </button>
+        </div>
       </div>
     </div>
   )

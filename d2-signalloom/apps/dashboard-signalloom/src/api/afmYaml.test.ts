@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RBACData } from './afmApi'
 import { deriveNamespaces, parseClusterList, parseRbacData } from './afmApi'
-import { convertRbacToAfmImport, emitYaml } from './afmYaml'
+import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from './afmYaml'
 
 // ── Minimal YAML parser (test-only) ────────────────────────────────────────
 
@@ -678,7 +678,43 @@ describe('emitYaml quoting', () => {
 
     expect(roundTrip(value)).toEqual(value)
   })
+})
 
+// ── Unique ID and name generation ────────────────────────────────────────
+
+describe('generateImportId', () => {
+  it('produces an id matching signalloom-{compactISO}-{hex4}', () => {
+    const id = generateImportId(new Date('2026-08-03T14:30:22.123Z'))
+
+    expect(id).toMatch(/^signalloom-20260803T143022-[0-9a-f]{4}$/)
+  })
+
+  it('produces unique ids across calls', () => {
+    const now = new Date()
+    const ids = new Set(Array.from({ length: 20 }, () => generateImportId(now)))
+
+    // With 4 hex chars of randomness, 20 samples should all be unique.
+    expect(ids.size).toBe(20)
+  })
+})
+
+describe('generateImportName', () => {
+  it('produces a name with ISO timestamp for all namespaces', () => {
+    const name = generateImportName('all', new Date('2026-08-03T14:30:22.456Z'))
+
+    expect(name).toBe('SignalLoom Import 2026-08-03T14:30:22Z')
+  })
+
+  it('includes the namespace filter when not "all"', () => {
+    const name = generateImportName('kube-system', new Date('2026-08-03T14:30:22.456Z'))
+
+    expect(name).toBe('SignalLoom Import 2026-08-03T14:30:22Z (ns: kube-system)')
+  })
+})
+
+// ── Quoting (continued) ──────────────────────────────────────────────────
+
+describe('emitYaml quoting', () => {
   it('round-trips RBAC data whose strings are all awkward at once', () => {
     const awkward: RBACData = {
       subjects: [{ name: '123', kind: 'yes', namespace: 'true' }],

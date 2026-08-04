@@ -1,0 +1,66 @@
+# Fleet agent: api-gateway — API Gateway, depends on cardvault
+# Uses the same cardvault-agent:local image (same binary, different identity).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: platform
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-api-gateway
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: signalloom-governor
+    app.kubernetes.io/instance: api-gateway
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: api-gateway
+    signalloom.ai/agent-type: api-gateway
+    signalloom.ai/state: idle
+    signalloom.ai/team: platform
+    signalloom.ai/fleet: supercred
+  annotations:
+    signalloom.ai/stunned-at: ""
+    signalloom.ai/stun-reason: ""
+    signalloom.ai/agent-display-name: "API Gateway Agent"
+    signalloom.ai/description: "Routes external API requests to internal services via cardvault."
+spec:
+  serviceAccountName: api-gateway-agent
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+  containers:
+    - name: agent
+      image: ghcr.io/stefanprodan/podinfo:6.7.1
+      ports:
+        - name: http
+          containerPort: 9898
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+  volumes:
+    - name: tmp
+      emptyDir: {}

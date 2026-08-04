@@ -1,0 +1,66 @@
+# Fleet agent: monitor — Observability, depends on all four agents, read-only
+# Uses the same cardvault-agent:local image (same binary, different identity).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitor-agent
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: sre
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: agent-monitor
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: signalloom-agent
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: signalloom-governor
+    app.kubernetes.io/instance: monitor
+    signalloom.ai/agent: "true"
+    signalloom.ai/agent-name: monitor
+    signalloom.ai/agent-type: observability
+    signalloom.ai/state: idle
+    signalloom.ai/team: sre
+    signalloom.ai/fleet: supercred
+  annotations:
+    signalloom.ai/stunned-at: ""
+    signalloom.ai/stun-reason: ""
+    signalloom.ai/agent-display-name: "Monitor Agent"
+    signalloom.ai/description: "Observability agent monitoring all fleet agents, read-only access."
+spec:
+  serviceAccountName: monitor-agent
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 65534
+    fsGroup: 65534
+  containers:
+    - name: agent
+      image: ghcr.io/stefanprodan/podinfo:6.7.1
+      ports:
+        - name: http
+          containerPort: 9898
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      resources:
+        requests:
+          cpu: 5m
+          memory: 16Mi
+        limits:
+          memory: 64Mi
+  volumes:
+    - name: tmp
+      emptyDir: {}

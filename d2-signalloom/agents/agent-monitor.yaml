@@ -1,0 +1,27 @@
+# Agent Profile: monitor — Observability, depends on all four agents, read-only.
+apiVersion: signalloom.controlplane.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: agent-monitor
+  labels:
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: sre
+spec:
+  type: observability
+  team: sre
+  trustProfile: high
+  riskClass: low
+  gracePeriod: 168h
+  dependencies:
+    - agent-cardvault
+    - agent-txn-pipeline
+    - agent-llm-classifier
+    - agent-api-gateway
+  namespace: fe-signalloom-agents
+  spiffe:
+    trustDomain: signalloom.local
+    path: /ns/sre/sa/agent-monitor
+  openbao:
+    authMount: jwt/sre
+    kvPath: secret/data/sre/monitor
+    policies: [sre-read]

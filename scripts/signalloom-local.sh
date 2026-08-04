@@ -50,6 +50,27 @@ prepare() {
 
 activate_resourceset() {
   local name="$1" inputs="$2"
+  # Wait for the object to EXIST before patching it.
+  #
+  # These ResourceSets are delivered by the flux-system/tenants Kustomization,
+  # which reconciles asynchronously. Patching one that has not arrived yet
+  # fails outright:
+  #
+  #   Error from server (NotFound): resourcesets.fluxcd.controlplane.io
+  #   "signalloom-infra" not found
+  #
+  # and under `set -euo pipefail` that aborts `up` on its first activation. The
+  # CI pipeline then falls back to patching signalloom-APPS only, leaving
+  # signalloom-infra inactive, so infra-controllers is never created and every
+  # later stage fails against a cluster that was never brought up. The run is
+  # reported as "aborted, NOT a test failure", which is accurate and points
+  # nowhere near the cause.
+  #
+  # Purely a race, and it only loses on a cold cluster: on a warm one the
+  # ResourceSets are already present from an earlier run, which is why this
+  # survived every local run and lost on a VM built from nothing. The wait is
+  # generous because it costs nothing when the object is already there.
+  wait_k8s_exists resourceset "${name}" -n flux-system 300
   kubectl -n flux-system patch "resourceset/${name}" --type merge \
     -p "{\"spec\":{\"inputs\":${inputs}}}"
   kubectl -n flux-system annotate "resourceset/${name}" \

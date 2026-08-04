@@ -307,6 +307,54 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
   [ -n "$output" ]
 }
 
+# ─── The read routes are split by audience, and BOTH halves are asserted ─────
+#
+# ISC-17 ("/status with a non-superadmin token returns 403") and ISC-45 ("a
+# non-superadmin sees phase status") read as a contradiction. They are not one:
+# ISC-45's "non-superadmin" is the dashboard's client-side visibility flag,
+# whose holder still carries a full superadmin token, while ISC-17's is a
+# genuinely different identity. The resolution, recorded in the ISA's Decisions
+# section on 2026-08-04, splits the read routes by audience:
+#
+#   superadmin only  /status            run history of a mutating control plane
+#                    /runs/{id}/log     raw script stdout/stderr
+#   any authenticated  /steps           a static phase list
+#                      /runs/{id}       one phase's status
+#
+# The half that is CLOSED is asserted above. This asserts the half that is
+# deliberately OPEN, so a future tightening cannot quietly break ISC-45 while
+# every test stays green — and so the split is legible here rather than only in
+# prose someone has to find.
+
+@test "DEMOAPI a NON-superadmin can still read the phase list and a phase's status" {
+  start="$(demo_api POST /demo-api/runs "$SUPERADMIN_TOKEN" '{"step":"1"}')"
+  [ "$start" = "202" ]
+  run_id="$(body_field run_id)"
+  [ -n "$run_id" ]
+
+  # Open: this is what the panel renders for a non-superadmin (ISC-45).
+  run demo_api GET /demo-api/steps "$VIEWER_TOKEN"
+  [ "$output" = "200" ]
+  run demo_api GET "/demo-api/runs/${run_id}" "$VIEWER_TOKEN"
+  [ "$output" = "200" ]
+
+  # Closed: raw script output is the literal subject of the design constraint
+  # "run/reset controls and raw step logs are superadmin-only".
+  run demo_api GET "/demo-api/runs/${run_id}/log?offset=0" "$VIEWER_TOKEN"
+  [ "$output" = "403" ]
+  run error_code
+  [ "$output" = "superadmin_required" ]
+}
+
+@test "DEMOAPI the gated read routes answer 401 before 403 when unauthenticated" {
+  # Ordering matters: a 403 to an anonymous caller would confirm the existence
+  # of an authorization boundary to someone who has not authenticated at all.
+  run demo_api GET /demo-api/status
+  [ "$output" = "401" ]
+  run demo_api GET "/demo-api/runs/does-not-exist/log?offset=0"
+  [ "$output" = "401" ]
+}
+
 # ─── ISC-22: no token in a URL ───────────────────────────────────────────────
 
 @test "DEMOAPI the client never puts a token in a URL" {

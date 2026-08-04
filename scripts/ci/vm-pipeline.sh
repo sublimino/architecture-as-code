@@ -198,6 +198,25 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
     echo "==> Waiting for signalloom-apps to reconcile..."
     kubectl -n flux-system wait resourceset/signalloom-apps --for=condition=ready --timeout=5m 2>/dev/null || true
   }
+
+  # This fallback only ever repaired signalloom-APPS. If `up` died before
+  # activating signalloom-INFRA, nothing here notices, and the run proceeds to
+  # execute eight stages against a cluster whose infra was never brought up.
+  # Stage 6 then waits its full budget for infra-controllers and stages 7-8
+  # fail behind it, so a SETUP abort is reported as three test failures — the
+  # most expensive possible way to be wrong, because it sends the reader to the
+  # tests.
+  #
+  # Half a recovery is worse than none. Say what actually happened and stop.
+  if ! kubectl -n flux-system get resourceset signalloom-infra \
+       -o jsonpath='{.spec.inputs}' 2>/dev/null | grep -q 'tenant'; then
+    echo "ERROR: signalloom-infra was never activated — its inputs are empty." >&2
+    echo "       This is a SETUP failure, not a test failure. The test stages" >&2
+    echo "       would run against a cluster with no infra and report stages" >&2
+    echo "       6, 7 and 8 as broken, which would be misleading." >&2
+    echo "       Check the output of signalloom-local.sh up above." >&2
+    exit 2
+  fi
 }
 
 # ── Run 8-stage test suite ───────────────────────────────────────────

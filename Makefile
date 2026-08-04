@@ -791,3 +791,7 @@ risk-check: ## CI gate: artefacts validate, engine self-checks, results are repr
 	@git diff --quiet -- risk/out/ \
 		|| { echo "risk/out/ is stale — commit the regenerated report"; git diff --stat -- risk/out/; exit 1; }
 	@echo "risk-check: artefacts valid, engine self-checked, report reproducible"
+
+.PHONY: test-ci-lock
+test-ci-lock: ## Verify the exclusive CI-VM lock against a fake remote (no VM required).
+	bats test/ci-lock.bats

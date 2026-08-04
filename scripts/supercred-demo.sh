@@ -125,15 +125,30 @@ preflight_step2_completed() {
   ok "agent state = $state (credential chain completed)"
 }
 
-preflight_step3_completed() {
-  log "preflight: verifying compliance scan ran"
+# Renamed from preflight_step3_completed. The compliance scan (step 3) is a
+# DEMO step, not a precondition for the stun. A superadmin must be able to
+# revoke an agent's credentials whether or not the compliance scan has run —
+# the whole point of the platform is that a misbehaving-but-compliant workload
+# is still stunnable. What matters is that the agent EXISTS and has CREDENTIALS
+# to revoke (step 2), not that the compliance scan has labelled it first.
+#
+# Previous behaviour hard-failed with "run step 3 first (expected
+# non-compliant)", which blocked the demo and the two-window acceptance spec
+# unless a compliance scan had already run — exactly backwards for a platform
+# that exists to give operators the ability to act on any agent, any time.
+preflight_agent_stunnable() {
+  log "preflight: verifying agent is deployed and stunnable"
   resolve_agent_pod_namespace || fail "agent-cardvault pod not found — run step 1 first"
   local state
   state=$(kubectl -n "$AGENT_POD_NAMESPACE" get pod agent-cardvault \
     -o jsonpath='{.metadata.labels.signalloom\.ai/state}' 2>/dev/null)
-  [ "$state" = "non-compliant" ] \
-    || fail "agent state is '$state' — run step 3 first (expected non-compliant)"
-  ok "agent state = non-compliant (compliance scan completed)"
+  [ "$state" = "active" ] || [ "$state" = "non-compliant" ] \
+    || fail "agent state is '$state' — run step 2 first (expected active or non-compliant)"
+  if [ "$state" = "active" ]; then
+    ok "agent state = active (compliant, stunnable without a compliance scan)"
+  else
+    ok "agent state = non-compliant (compliance scan completed, stunnable)"
+  fi
 }
 
 # ─── STEP 1: Deploy ─────────────────────────────────────────────────────────
@@ -292,7 +307,7 @@ print()
 # ─── STEP 4: Stun ───────────────────────────────────────────────────────────
 
 demo_4() {
-  preflight_step3_completed
+  preflight_agent_stunnable
   preflight_images
   log "step 4: revoking credentials and restricting agent"
 

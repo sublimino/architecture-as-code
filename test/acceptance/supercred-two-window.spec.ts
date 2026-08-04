@@ -51,7 +51,6 @@ const deployed = supercred.agentDeployed();
 const REVOKED = '[data-testid="credential-state-revoked"]';
 /** Phase 4's button on the instructor panel (components/SuperCredInstructorPanel.tsx). */
 const RUN_PHASE_4 = '[data-testid="supercred-run-step-4"]';
-const RUN_PHASE_3 = '[data-testid="supercred-run-step-3"]';
 const RUN_PHASE_2 = '[data-testid="supercred-run-step-2"]';
 const RUN_STATUS = '[data-testid="supercred-run-status"]';
 
@@ -120,28 +119,14 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       }
       await expect(audience.locator(REVOKED)).toHaveCount(0, { timeout: 60_000 });
 
-      // ── Phase 3 is a PRECONDITION of phase 4, not an optional flourish ──
-      // The stun refuses to run against a compliant agent:
-      //
-      //   [supercred] FAILED: agent state is 'active' — run step 3 first
-      //                       (expected non-compliant)
-      //
-      // and it refuses in ~60ms, because the guard is the first thing step 4
-      // does. That is why this presented as a mysterious instant failure
-      // rather than as a missing precondition: the run came back "failed"
-      // faster than a human can see, with a status line that said nothing
-      // about ordering.
-      //
-      // The spec previously went straight from the phase-2 repair branch to
-      // phase 4, so it only ever passed on a cluster where someone had
-      // happened to run the compliance scan by hand. Driven through the UI
-      // like every other phase here, because the UI path is what is under
-      // test -- calling the API directly would prove something the audience
-      // never does.
-      await instructor.locator(RUN_PHASE_3).click();
-      await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
-        timeout: 10 * 60_000,
-      });
+      // ── Phase 3 is deliberately NOT driven here ──────────────────────────
+      // The compliance scan is a demo step, not a precondition for the stun.
+      // A superadmin must be able to revoke an agent's credentials whether
+      // or not it has been scanned — a misbehaving-but-compliant workload is
+      // still stunnable. The script's own guard (`preflight_agent_stunnable`)
+      // now accepts `active` OR `non-compliant`, so jumping straight from the
+      // credential chain (phase 2) to the stun (phase 4) is the harder and
+      // more useful test.
 
       // ── From here on, nothing may navigate the audience window ─────────
       const audienceNav = watchForNavigation(audience);

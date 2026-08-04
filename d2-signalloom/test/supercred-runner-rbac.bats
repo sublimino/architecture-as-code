@@ -185,3 +185,97 @@ apps_tenant() {
 
 	[ -n "$first" ]
 }
+
+# ─── Namespace ordering ──────────────────────────────────────────────────────
+#
+# A ResourceSet that places objects into a namespace must also create that
+# namespace, because nothing else guarantees it exists when this set runs.
+#
+# signalloom-infra reconciles BEFORE signalloom-apps, by design. Moving the
+# runner's Role and RoleBinding into signalloom-infra (to dodge the
+# privilege-escalation dry-run deadlock) put infra-owned objects into the APPS
+# tenant namespace -- which, on a cluster built from nothing, does not exist
+# yet when infra reconciles:
+#
+#   reconciliation failed: Role/fe-signalloom/supercred-demo-runner-agents
+#   not found: namespaces "fe-signalloom" not found
+#
+# signalloom-infra then never goes Ready, infra-controllers is never created,
+# and stage 6 waits 443s for a Kustomization that cannot arrive; stages 7 and 8
+# fail behind it.
+#
+# This was invisible locally, where a long-lived cluster already had the
+# namespace from an earlier run, and reproduced identically on BOTH CI VMs the
+# first time the change met a fresh cluster. That asymmetry -- passes on the
+# machine you develop on, fails on every clean one -- is exactly what a static
+# test is for.
+
+# Every namespace this set's own resources are placed into.
+namespaces_used() {
+	jq -r '.[] | select(.kind != "Namespace") | .metadata.namespace // empty' <<<"$1" | sort -u
+}
+
+# Every namespace this set creates.
+namespaces_created() {
+	jq -r '.[] | select(.kind == "Namespace") | .metadata.name' <<<"$1" | sort -u
+}
+
+# Namespaces the cluster always has. kube-system et al are created by the
+# control plane before any Flux object exists, so writing into them is fine.
+PREEXISTING_NAMESPACES="kube-system kube-public kube-node-lease default flux-system"
+
+# Union of namespaces created across EVERY input, because the set renders once
+# per input and input[1] creates the namespace input[0] happens to reference.
+infra_namespaces_created_all() {
+	local resources inputs i rendered
+	resources="$(resources_for signalloom-infra)"
+	inputs="$(inputs_for signalloom-infra)"
+	for i in $(jq -r 'to_entries[].key' <<<"$inputs"); do
+		rendered="$(render "$resources" "$(jq -c ".[$i]" <<<"$inputs")")"
+		namespaces_created "$rendered"
+	done | sort -u
+}
+
+infra_namespaces_used_all() {
+	local resources inputs i rendered
+	resources="$(resources_for signalloom-infra)"
+	inputs="$(inputs_for signalloom-infra)"
+	for i in $(jq -r 'to_entries[].key' <<<"$inputs"); do
+		rendered="$(render "$resources" "$(jq -c ".[$i]" <<<"$inputs")")"
+		namespaces_used "$rendered"
+	done | sort -u
+}
+
+@test "SUPERCRED-RBAC signalloom-infra creates every namespace it writes into" {
+	local created used ns missing=()
+	created="$(infra_namespaces_created_all)"
+	used="$(infra_namespaces_used_all)"
+
+	while IFS= read -r ns; do
+		[ -n "$ns" ] || continue
+		# Skip namespaces the control plane guarantees.
+		case " $PREEXISTING_NAMESPACES " in *" $ns "*) continue ;; esac
+		grep -qx "$ns" <<<"$created" || missing+=("$ns")
+	done <<<"$used"
+
+	if ((${#missing[@]} > 0)); then
+		echo "signalloom-infra places resources into namespaces it does not create:"
+		printf '  %s\n' "${missing[@]}"
+		echo "It reconciles before signalloom-apps, so on a fresh cluster these do not"
+		echo "exist yet and the whole set fails with 'namespaces \"X\" not found'."
+		return 1
+	fi
+}
+
+@test "SUPERCRED-RBAC the apps tenant namespace is created by infra, not only by apps" {
+	# The specific instance of the rule above, pinned by name so a future edit
+	# that drops the Namespace fails with a message naming the actual cause.
+	local rendered tenant
+	rendered="$(render "$(resources_for signalloom-infra)" "$(inputs_for signalloom-infra | jq -c '.[0]')")"
+	tenant="$(apps_tenant)"
+	namespaces_created "$rendered" | grep -qx "$tenant" || {
+		echo "signalloom-infra does not create the apps tenant namespace '$tenant',"
+		echo "but it declares the runner's Role/RoleBinding into it and runs first."
+		return 1
+	}
+}

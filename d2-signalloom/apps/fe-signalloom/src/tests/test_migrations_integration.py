@@ -19,7 +19,10 @@ import asyncpg
 import pytest
 import pytest_asyncio
 
-from db.migrate import MIGRATIONS_DIR, apply_migrations
+from db.migrate import MIGRATIONS_DIR, apply_migrations, discover_migrations
+
+# Derived dynamically — never hand-listed.
+ALL_MIGRATIONS = [m.filename for m in discover_migrations(MIGRATIONS_DIR)]
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 
@@ -103,7 +106,7 @@ async def test_runner_adds_the_scan_preference_columns_to_an_existing_database(
 
     applied = await apply_migrations(scratch_pool)
 
-    assert applied == ["005_tenant_scan_preferences.sql"]
+    assert applied == ALL_MIGRATIONS[len(PRE_005_MIGRATIONS):]
     after = await _columns(scratch_pool, "tenant_settings")
     assert set(NEW_COLUMNS) <= after
 
@@ -152,7 +155,7 @@ async def test_a_second_run_against_a_migrated_database_is_a_no_op(
     scratch_pool: asyncpg.Pool,
 ) -> None:
     first = await apply_migrations(scratch_pool)
-    assert len(first) == 5
+    assert len(first) == len(ALL_MIGRATIONS)
 
     second = await apply_migrations(scratch_pool)
 
@@ -160,13 +163,7 @@ async def test_a_second_run_against_a_migrated_database_is_a_no_op(
     recorded = await scratch_pool.fetch(
         "SELECT version, filename FROM public.schema_migrations ORDER BY version",
     )
-    assert [row["filename"] for row in recorded] == [
-        "001_discovery_tables.sql",
-        "002_add_report_url_to_sessions.sql",
-        "003_platform_backends.sql",
-        "004_agent_governance_schema.sql",
-        "005_tenant_scan_preferences.sql",
-    ]
+    assert [row["filename"] for row in recorded] == ALL_MIGRATIONS
 
 
 @pytest.mark.asyncio
@@ -188,5 +185,5 @@ async def test_the_runner_agrees_with_the_bootstrap_sql(
     applied = await apply_migrations(scratch_pool)
 
     # Every migration re-runs once (the ledger is new) and every one is a no-op.
-    assert len(applied) == 5
+    assert len(applied) == len(ALL_MIGRATIONS)
     assert set(NEW_COLUMNS) <= await _columns(scratch_pool, "tenant_settings")

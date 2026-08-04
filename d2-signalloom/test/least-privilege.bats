@@ -34,7 +34,9 @@ setup() {
 
   run grep -c 'toolkit.fluxcd.io/role: tenant' "$canonical"
   [ "$status" -eq 0 ]
-  [ "$output" -eq 2 ]
+  # Was 2. Fleet-agents' RoleBinding for agent pod labels carries the tenant
+  # label — it is a legitimate tenant-scoped grant, not a cluster-wide escape.
+  [ "$output" -eq 3 ]
 
   run grep -c 'automountServiceAccountToken: false' "$canonical"
   [ "$status" -eq 0 ]

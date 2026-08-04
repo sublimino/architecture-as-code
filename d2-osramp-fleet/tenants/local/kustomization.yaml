@@ -76,12 +76,12 @@ patches:
       kind: ResourceSet
       name: signalloom-infra
     patch: |
-      # Index 25: OCIRepository follows the agent-inventory resources and
-      # SuperCred runner cross-namespace RBAC, then tenant delivery grants.
-      # Was 23 until the supercred-demo-runner-agents Role and RoleBinding
-      # moved into that RBAC block from the apps overlay, shifting it by two.
+      # Index 26: OCIRepository follows the agent-inventory resources,
+      # SuperCred runner cross-namespace RBAC, fleet-agents RBAC, then
+      # tenant delivery grants. Was 25 until the fleet-agents-reader Role
+      # and RoleBinding were added above it, shifting it by one.
       - op: add
-        path: /spec/resources/25/spec/verify
+        path: /spec/resources/26/spec/verify
         value:
           provider: cosign
           secretRef:

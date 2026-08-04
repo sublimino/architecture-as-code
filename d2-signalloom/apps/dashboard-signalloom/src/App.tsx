@@ -44,6 +44,7 @@ const AgentPosturePage = lazy(() => import('./pages/AgentPosturePage'))
 const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
+const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -248,6 +249,8 @@ export default function App() {
                 <Route path="/help/connectors/:provider" element={<ProtectedRoute exemptFromOnboardingGate><ConnectorHelpPage /></ProtectedRoute>} />
                 <Route path="/network-tests" element={<ProtectedRoute><NetworkTestsPage /></ProtectedRoute>} />
                 <Route path="/supercred" element={<ProtectedRoute><SuperCredPage /></ProtectedRoute>} />
+                <Route path="/fleet" element={<ProtectedRoute><FleetDemoPage /></ProtectedRoute>} />
+                <Route path="/fleet/audience" element={<ProtectedRoute><FleetDemoPage audience /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

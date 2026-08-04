@@ -1,0 +1,10 @@
+# FLUX ENVSUBST: N/A — applied manually (kubectl apply), not via a Flux
+# Kustomization. Flux envsubst does not apply.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  - rbac.yaml
+  - configmap.yaml

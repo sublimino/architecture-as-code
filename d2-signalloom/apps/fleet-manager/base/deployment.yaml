@@ -1,0 +1,77 @@
+# Fleet Manager: agent dependency DAG and cascade stun orchestrator.
+# Reads pod labels via K8s API (scoped ServiceAccount), orchestrates
+# credential revocation via OpenBao, sequences operations in dependency order.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-manager
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fleet-manager
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fleet-manager
+        app.kubernetes.io/component: supercred-demo
+    spec:
+      serviceAccountName: fleet-manager
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: fleet-manager
+          image: fleet-manager:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+          env:
+            - name: PORT
+              value: "8082"
+            - name: FLEET_CONFIG
+              value: /etc/fleet/fleet.yaml
+            - name: STEP_DELAY_MS
+              value: "200"
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 10
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 5m
+              memory: 16Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: fleet-config
+              mountPath: /etc/fleet
+              readOnly: true
+      volumes:
+        - name: fleet-config
+          configMap:
+            name: fleet-config

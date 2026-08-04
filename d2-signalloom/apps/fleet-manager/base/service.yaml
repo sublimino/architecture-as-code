@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-manager
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  selector:
+    app.kubernetes.io/name: fleet-manager
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http

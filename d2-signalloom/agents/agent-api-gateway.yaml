@@ -1,0 +1,24 @@
+# Agent Profile: api-gateway — API Gateway, depends on cardvault.
+apiVersion: signalloom.controlplane.io/v1alpha1
+kind: AgentProfile
+metadata:
+  name: agent-api-gateway
+  labels:
+    signalloom.ai/fleet: supercred
+    signalloom.ai/team: platform
+spec:
+  type: api-gateway
+  team: platform
+  trustProfile: high
+  riskClass: low
+  gracePeriod: 168h
+  dependencies:
+    - agent-cardvault
+  namespace: fe-signalloom-agents
+  spiffe:
+    trustDomain: signalloom.local
+    path: /ns/platform/sa/agent-api-gateway
+  openbao:
+    authMount: jwt/platform
+    kvPath: secret/data/platform/api-gateway
+    policies: [platform-read]

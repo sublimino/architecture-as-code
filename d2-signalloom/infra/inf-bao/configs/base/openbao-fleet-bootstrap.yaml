@@ -1,0 +1,131 @@
+# Fleet bootstrap: seed OpenBao with JWT auth mounts per team, KV policies
+# per agent, and seed secrets for the four new fleet agents.
+#
+# Does NOT overlap with openbao-supercred-bootstrap.yaml — that file handles
+# cardvault-agent only. This Job is additive and uses distinct auth mounts,
+# role names, policy names, and KV paths.
+#
+# Prerequisites: openbao-spire-bootstrap must have already enabled the KV-v2
+# engine and the JWT auth backend (jwt/ mount). This Job creates per-team
+# sub-mounts (jwt/payments, jwt/ml-ops, jwt/platform, jwt/sre).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: openbao-fleet-bootstrap
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: "true"
+spec:
+  backoffLimit: 6
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: configure
+          image: quay.io/openbao/openbao:2.1.1
+          env:
+            - name: BAO_ADDR
+              value: http://openbao.inf-bao.svc.cluster.local:8200
+            - name: BAO_TOKEN
+              value: signalloom-demo-root-token
+          command:
+            - sh
+            - -ec
+            - |
+              until bao status >/dev/null 2>&1; do sleep 2; done
+
+              # Wait for the base JWT auth backend
+              echo "waiting for JWT auth backend..."
+              until bao auth list 2>/dev/null | grep -q 'jwt/'; do sleep 2; done
+
+              # Wait for KV-v2 engine
+              until bao secrets list 2>/dev/null | grep -q 'kv/'; do sleep 2; done
+
+              echo "=== Fleet bootstrap: configuring per-team JWT auth and KV policies ==="
+
+              # --- Enable per-team JWT auth mounts ---
+              for team_mount in jwt-payments jwt-ml-ops jwt-platform jwt-sre; do
+                if ! bao auth list 2>/dev/null | grep -q "${team_mount}/"; then
+                  echo "enabling auth mount: ${team_mount}"
+                  bao auth enable -path="${team_mount}" jwt 2>/dev/null || true
+                fi
+              done
+
+              # --- agent-txn-pipeline (payments team) ---
+              cat >/tmp/txn-pipeline-policy.hcl <<'POLICY'
+              path "kv/data/payments/txn-pipeline" {
+                capabilities = ["read"]
+              }
+              POLICY
+              bao policy write fleet-txn-pipeline /tmp/txn-pipeline-policy.hcl
+              bao write auth/jwt-payments/role/fleet-txn-pipeline \
+                role_type=jwt \
+                bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/txn-pipeline-agent \
+                user_claim=sub \
+                policies=fleet-txn-pipeline
+              bao kv put kv/payments/txn-pipeline \
+                api-key=txn-pipeline-key-2026 \
+                endpoint=cardvault.inf-signalloom.svc.cluster.local:8080
+
+              # --- agent-llm-classifier (ml-ops team) ---
+              cat >/tmp/llm-classifier-policy.hcl <<'POLICY'
+              path "kv/data/ml-ops/llm-classifier" {
+                capabilities = ["read"]
+              }
+              POLICY
+              bao policy write fleet-llm-classifier /tmp/llm-classifier-policy.hcl
+              bao write auth/jwt-ml-ops/role/fleet-llm-classifier \
+                role_type=jwt \
+                bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/llm-classifier-agent \
+                user_claim=sub \
+                policies=fleet-llm-classifier
+              bao kv put kv/ml-ops/llm-classifier \
+                model-endpoint=https://api.internal/v1/classify \
+                api-key=llm-classifier-key-2026
+
+              # --- agent-api-gateway (platform team) ---
+              cat >/tmp/api-gateway-policy.hcl <<'POLICY'
+              path "kv/data/platform/api-gateway" {
+                capabilities = ["read"]
+              }
+              POLICY
+              bao policy write fleet-api-gateway /tmp/api-gateway-policy.hcl
+              bao write auth/jwt-platform/role/fleet-api-gateway \
+                role_type=jwt \
+                bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/api-gateway-agent \
+                user_claim=sub \
+                policies=fleet-api-gateway
+              bao kv put kv/platform/api-gateway \
+                upstream-url=cardvault.inf-signalloom.svc.cluster.local:8080 \
+                rate-limit=1000
+
+              # --- agent-monitor (sre team) ---
+              cat >/tmp/monitor-policy.hcl <<'POLICY'
+              path "kv/data/sre/monitor" {
+                capabilities = ["read"]
+              }
+              POLICY
+              bao policy write fleet-monitor /tmp/monitor-policy.hcl
+              bao write auth/jwt-sre/role/fleet-monitor \
+                role_type=jwt \
+                bound_audiences=openbao \
+                bound_subject=spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/monitor-agent \
+                user_claim=sub \
+                policies=fleet-monitor
+              bao kv put kv/sre/monitor \
+                prometheus-endpoint=http://prometheus.monitoring.svc:9090 \
+                alert-webhook=https://alerts.internal/fleet
+
+              echo "fleet bootstrap complete — 4 agents configured"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]

@@ -1,0 +1,44 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fleet-manager
+  labels:
+    app.kubernetes.io/name: fleet-manager
+    app.kubernetes.io/component: supercred-demo
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fleet-manager
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from the dashboard and other signalloom components
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: signalloom
+      ports:
+        - port: http
+          protocol: TCP
+  egress:
+    # Allow DNS
+    - to: []
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Allow K8s API (in-cluster)
+    - to: []
+      ports:
+        - port: 443
+          protocol: TCP
+        - port: 6443
+          protocol: TCP
+    # Allow OpenBao
+    - to: []
+      ports:
+        - port: 8200
+          protocol: TCP

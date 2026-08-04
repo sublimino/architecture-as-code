@@ -13,6 +13,10 @@
 #   ssh          — Open an interactive IAP SSH session for debugging
 #   destroy      — Tear down VM + networking (use only when decommissioning)
 #   status       — Show VM state (RUNNING / SUSPENDED / TERMINATED / not found)
+#   lock         — Inspect or manage the exclusive VM lock:
+#                    lock status | lock acquire [--force] | lock release
+#                  `run` and `push-code` take it automatically. Nothing but
+#                  the lock stops two callers destroying each other's cluster.
 #
 # Exit codes:
 #   0 — all tests passed (VM suspended)
@@ -65,6 +69,68 @@ readonly INSTANCE_LABELS="${GCP_CI_LABELS:-purpose=signalloom-ci,persistent=true
 # A separate CI-scoped variable keeps the two intentions distinguishable.
 # To run CI *with* observability: CI_ENABLE_OBSERVABILITY=true make ci-gcp
 readonly CI_ENABLE_OBSERVABILITY="${CI_ENABLE_OBSERVABILITY:-false}"
+
+# ── Exclusive lock on the shared VM ──────────────────────────────────
+# `run` destroys shared state before it tests anything: push_code does
+# `rm -rf ${REMOTE_WORK_DIR}` and the pipeline does `make teardown`. On
+# 2026-08-04 that landed on another agent's live cluster three times in one
+# night, once 25 seconds after they announced they were taking the VM — which
+# is the point: announcing is not a control, because the race is shorter than
+# the time it takes to read a message. See scripts/ci/ci-lock.sh.
+readonly LOCK_SCRIPT="${SCRIPT_DIR}/ci-lock.sh"
+readonly LOCK_HOLDER_NAME="${GCP_CI_LOCK_HOLDER:-$(id -un)@$(hostname -s)}"
+readonly LOCK_TOKEN_VALUE="${LOCK_HOLDER_NAME}:$$"
+GCP_CI_HOLDS_LOCK=0
+LOCK_SHIM=""
+
+# ci-lock.sh calls its remote boundary as `$CI_LOCK_REMOTE_EXEC "<snippet>"`,
+# so the boundary has to be an executable that takes the snippet as $1. A
+# throwaway shim is simpler and far more legible than exporting shell functions
+# through nested `bash -c`, and it keeps gcloud confined to one line.
+lock_shim() {
+  [ -n "$LOCK_SHIM" ] && { printf '%s' "$LOCK_SHIM"; return 0; }
+  LOCK_SHIM="$(mktemp -t gcp-ci-lock-shim-XXXXXX)"
+  cat >"$LOCK_SHIM" <<SHIM
+#!/usr/bin/env bash
+exec gcloud compute ssh $(printf '%q' "$VM_NAME") \\
+  --zone=$(printf '%q' "$ZONE") --project=$(printf '%q' "$PROJECT") \\
+  --tunnel-through-iap --command="sudo -u ci bash -c \\"\$1\\""
+SHIM
+  chmod +x "$LOCK_SHIM"
+  printf '%s' "$LOCK_SHIM"
+}
+
+lock_acquire() {
+  if [ "${GCP_CI_SKIP_LOCK:-0}" = "1" ]; then
+    echo "==> Lock skipped (GCP_CI_SKIP_LOCK=1) — you are responsible for the collision"
+    return 0
+  fi
+  local args=(acquire --reason "${GCP_CI_LOCK_REASON:-gcp-ci.sh run}")
+  [ "${GCP_CI_FORCE_LOCK:-0}" = "1" ] && args+=(--force)
+
+  if CI_LOCK_REMOTE_EXEC="$(lock_shim)" \
+     CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
+     CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" \
+     GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \
+     bash "$LOCK_SCRIPT" "${args[@]}"; then
+    GCP_CI_HOLDS_LOCK=1
+    return 0
+  fi
+  echo "    Override with: GCP_CI_FORCE_LOCK=1 $0 run" >&2
+  exit 2
+}
+
+# Released from a trap, so it must never turn a passing run into a failing one
+# — and never release a lock that was legitimately reclaimed while we ran.
+lock_release() {
+  [ "$GCP_CI_HOLDS_LOCK" = "1" ] || return 0
+  CI_LOCK_REMOTE_EXEC="$(lock_shim)" \
+  CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
+  CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" \
+    bash "$LOCK_SCRIPT" release || true
+  GCP_CI_HOLDS_LOCK=0
+  [ -n "$LOCK_SHIM" ] && rm -f "$LOCK_SHIM"
+}
 
 # ── Helpers ──────────────────────────────────────────────────────────
 vm_status() {
@@ -348,6 +414,11 @@ cmd_run() {
   local status
   status="$(vm_status)"
 
+  # Deliberately declared here rather than at the destructive step: the trap has
+  # to be armed before anything can fail, or a failure between acquire and
+  # push_code leaves the lock held with nobody to release it.
+  trap lock_release EXIT
+
   case "$status" in
     RUNNING)
       echo "==> VM is already running"
@@ -374,6 +445,14 @@ cmd_run() {
       exit 2
       ;;
   esac
+
+  # ── Claim the VM before touching anything ──────────────────────────
+  # Must come BEFORE push_code, which does `rm -rf ${REMOTE_WORK_DIR}`, and
+  # before the pipeline's `make teardown`. Acquiring afterwards would protect
+  # nothing — the damage is already done by then. test/ci-lock.bats asserts
+  # this ordering, because it is the kind of thing a later refactor moves.
+  echo "==> Claiming the VM..."
+  lock_acquire
 
   # ── Synchronize the local checkout before every test run ───────────
   # The pipeline validates uncommitted local changes; reusing a previous
@@ -508,6 +587,15 @@ cmd_status() {
   status="$(vm_status)"
   echo "VM: ${VM_NAME} | Project: ${PROJECT} | Zone: ${ZONE} | Status: ${status}"
 
+  # "Is anyone using it?" should be one command, not a ps heuristic — reading
+  # the process table was how three collisions were diagnosed AFTER the fact.
+  if [[ "$status" == "RUNNING" ]]; then
+    local lock
+    lock="$(CI_LOCK_REMOTE_EXEC="$(lock_shim)" bash "$LOCK_SCRIPT" status 2>/dev/null || echo "unknown")"
+    echo "Lock: ${lock}"
+    rm -f "$LOCK_SHIM"
+  fi
+
   if [[ "$status" == "RUNNING" ]]; then
     echo ""
     echo "SSH:     ./scripts/ci/gcp-ci.sh ssh"
@@ -558,12 +646,17 @@ cmd_destroy() {
 case "${1:-run}" in
   provision)   cmd_provision ;;
   run)         cmd_run ;;
-  push-code)   push_code ;;
+  # push-code is destructive on its own (`rm -rf ${REMOTE_WORK_DIR}`), so it
+  # takes the lock too rather than being a quiet back door around it.
+  push-code)   trap lock_release EXIT; lock_acquire; push_code ;;
+  lock)        shift; CI_LOCK_REMOTE_EXEC="$(lock_shim)" CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
+                 CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \
+                 bash "$LOCK_SCRIPT" "${@:-status}" ;;
   ssh)         cmd_ssh ;;
   status)      cmd_status ;;
   destroy)     cmd_destroy ;;
   *)
-    echo "Usage: $0 {provision|run|push-code|ssh|status|destroy}" >&2
+    echo "Usage: $0 {lock|provision|run|push-code|ssh|status|destroy}" >&2
     exit 1
     ;;
 esac

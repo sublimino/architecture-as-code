@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, act } from '@testing-library/react'
 import FleetRiskGauge from './FleetRiskGauge'
 
@@ -95,12 +95,18 @@ describe('FleetRiskGauge', () => {
     // Advance through some animation frames (20ms per frame with 30 frames).
     act(() => { vi.advanceTimersByTime(100) })
 
-    // The value should be between old and new during animation.
+    // Part-way through: the value must have MOVED off the old one but not yet
+    // arrived at the new one. Without these two the test passed even if the
+    // component snapped straight to the final number, which is precisely the
+    // behaviour it is named for.
     const midText = aleEl.textContent
+    expect(midText).not.toBe(initialText)
+
     // After full animation.
     act(() => { vi.advanceTimersByTime(600) })
     const finalText = aleEl.textContent
 
+    expect(midText).not.toBe(finalText)
     // The final value should reflect the new ALE.
     expect(finalText).toContain('500')
   })

@@ -24,7 +24,7 @@ import jwt
 from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from config import settings
@@ -1754,26 +1754,115 @@ async def network_tests_scan(
     return JSONResponse(status_code=response.status_code, content=payload)
 
 
+def _derived_topology(tenant_id: str, available, reason: str) -> TrustTopologyResponse:
+    """Build a topology from the tenant's own agent state.
+
+    Used ONLY when the live collector cannot be reached. Every item it emits is
+    labelled evidence_state="modeled" / assurance="modeled" and the kubernetes
+    collector is reported "unavailable" with the reason, so a caller can always
+    tell derived shape from observed fact. The dashboard renders modeled items
+    faint and slow precisely so this degradation is visible rather than silent.
+    """
+    now = _now_iso()
+    def ev(why: str) -> dict:
+        return {
+            "evidence_state": "modeled", "evidence_source": "Derived from authenticated tenant agent state",
+            "observed_at": now, "freshness": "unavailable", "assurance": "modeled", "reason": why,
+        }
+    nodes = [
+        TrustTopologyItem(id="platform", kind="platform", label="Signal Loom platform",
+                          tenant=None, **ev("Platform root implied by the authenticated principal")),
+        TrustTopologyItem(id=tenant_id, kind="tenant", label=f"{tenant_id} tenant", parent_id="platform",
+                          tenant=tenant_id, **ev("Tenant derived from the verified bearer-token subject")),
+    ]
+    edges = [
+        TrustTopologyEdge(id=f"platform-{tenant_id}", from_id="platform", to_id=tenant_id,
+                          verb="scopes authenticated tenant", plane="identity", decision="allowed",
+                          tenant=tenant_id, **ev("Tenant comes from the verified bearer-token subject mapping")),
+    ]
+    for agent in available:
+        nodes.append(TrustTopologyItem(
+            id=agent.id, kind="agent", label=agent.name, parent_id=tenant_id, tenant=tenant_id,
+            location="in-cluster", **ev(f"Agent lifecycle state: {agent.lifecycle_state}")))
+        edges.append(TrustTopologyEdge(
+            id=f"{tenant_id}-{agent.id}", from_id=tenant_id, to_id=agent.id,
+            verb=f"governs {agent.lifecycle_state} agent", plane="authorization",
+            decision="denied" if agent.lifecycle_state in {"suspended", "stunned"} else "allowed",
+            tenant=tenant_id, **ev(f"Lifecycle state {agent.lifecycle_state} derived from tenant state")))
+    return TrustTopologyResponse(
+        generated_at=now, version="v1",
+        collectors={"kubernetes": TopologyCollector(status="unavailable", observed_at=now, reason=reason)},
+        nodes=nodes, edges=edges,
+        modeled_gaps=[TrustTopologyItem(
+            id="gap-live-collector", kind="gap", label="Live topology collector unreachable",
+            **ev(reason))],
+    )
+
+
 @router.get("/trust-topology", response_model=TrustTopologyResponse, responses=ERROR_RESPONSES)
 async def trust_topology(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
 ) -> TrustTopologyResponse:
-    """Return only live, schema-validated topology evidence from the proxy.
+    """Live collector first; a labelled derived topology only if it is unreachable.
 
-    This route intentionally has no database or fixture fallback: an empty live
-    collector is materially different from a collector that cannot be reached.
+    Three outcomes, kept deliberately distinct, because collapsing them is how a
+    demo starts lying:
+
+      collector reachable, has data  -> observed evidence, returned as-is
+      collector reachable, EMPTY     -> returned empty and observed. An empty
+                                        estate is a real answer and must not be
+                                        back-filled with invented nodes.
+      collector unreachable          -> derived topology, every item marked
+                                        modeled, collectors.kubernetes
+                                        "unavailable" with the reason.
+
+    The middle case is why this does not simply fall back on any falsy result.
+    The original proxy route raised 502 on an unreachable collector, which is
+    honest but leaves the demo dead whenever the proxy is down; the original
+    derived route always answered but could not express which of the three
+    situations produced it. The schema can express all three, so it does.
     """
+    fallback_reason = ""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             response = await client.get(TRUST_TOPOLOGY_URL)
             response.raise_for_status()
             payload = response.json()
-        topology = TrustTopologyResponse.model_validate(payload)
-    except (httpx.HTTPError, ValueError, TypeError) as exc:
-        logger.warning("trust topology: fake-integration-proxy unavailable", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"trust topology unavailable: {exc}") from exc
-    if topology.collectors.get("kubernetes", TopologyCollector(status="unavailable", observed_at="", reason="missing")).status == "unavailable":
-        raise HTTPException(status_code=502, detail="trust topology collector unavailable")
+    except httpx.HTTPError as exc:
+        # TRANSPORT failure only. The collector might be down, restarting, or
+        # not deployed yet; none of that is a contract violation, and killing
+        # the demo for it helps nobody.
+        logger.warning("trust topology: fake-integration-proxy unreachable", exc_info=True)
+        fallback_reason = f"fake-integration-proxy unreachable: {exc}"
+
+    if not fallback_reason:
+        # A malformed payload is NOT falled back on, deliberately. A collector
+        # answering with garbage is a broken contract that someone has to fix,
+        # and quietly substituting a derived topology would hide it behind a
+        # page that looks fine. Unreachable is an outage; malformed is a bug.
+        try:
+            topology = TrustTopologyResponse.model_validate(payload)
+        except (ValidationError, ValueError, TypeError) as exc:
+            logger.error("trust topology: proxy returned a payload that is not v1", exc_info=True)
+            raise HTTPException(
+                status_code=502, detail=f"trust topology payload invalid: {exc}") from exc
+
+        collector = topology.collectors.get(
+            "kubernetes", TopologyCollector(status="unavailable", observed_at="", reason="missing"))
+        if collector.status == "unavailable":
+            # Reachable, well-formed, and honestly reporting that it could not
+            # collect. Same information value as an outage, so same treatment --
+            # but the reason is carried through rather than invented.
+            fallback_reason = f"kubernetes collector unavailable: {collector.reason}"
+
+    if fallback_reason:
+        available = (await agents(tenant_id)).agents
+        if not available:
+            _ensure_seeded(tenant_id)
+            with _STORE_LOCK:
+                available = [AgentResponse(**agent) for agent in _AGENTS[tenant_id].values()]
+        return _derived_topology(tenant_id, available, fallback_reason)
+
     nodes = [node for node in topology.nodes if node.tenant in {None, tenant_id}]
     visible = {node.id for node in nodes}
     edges = [
@@ -1782,10 +1871,7 @@ async def trust_topology(
         and edge.from_id in visible
         and edge.to_id in visible
     ]
-    modeled_gaps = [
-        gap for gap in topology.modeled_gaps
-        if gap.tenant in {None, tenant_id}
-    ]
+    modeled_gaps = [gap for gap in topology.modeled_gaps if gap.tenant in {None, tenant_id}]
     # model_copy preserves shared-object names and labels; filtering never
     # rewrites an object to impersonate the requesting tenant.
     return topology.model_copy(update={

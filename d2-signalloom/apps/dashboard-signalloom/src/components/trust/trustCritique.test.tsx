@@ -5,9 +5,40 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+
+// The page acquires a token and can fetch a live topology, so rendering it bare
+// now throws before a single element exists:
+//
+//   TypeError: Cannot destructure property 'signinRedirect' of 'auth' as it is
+//   undefined.  →  useAuth0 (auth/oidc.tsx) ← AgentTrustTopologyPage
+//
+// useAuth() returns undefined without an AuthProvider above it. Every assertion
+// in this file is about the DIAGRAM — boundary geometry, denial treatment,
+// label placement, the accessible list — none of it about authentication, so
+// the module is mocked rather than the whole provider tree being stood up.
+//
+// Demo mode is pinned ON deliberately. The page reads
+// `demo ? { nodes: trustNodes, edges: trustEdges } : liveTopology`, and these
+// tests assert against that exact static contract (planner, triage, the
+// cross-tenant denial). Left in live mode they would assert against whatever a
+// mocked endpoint happened to return, which tests the mock, not the diagram.
+//
+// Same shape as pages/AgentTrustTopologyPage.test.tsx, deliberately — one
+// pattern for one problem.
+const getAccessTokenSilently = vi.fn(async () => 'test-token')
+const trustTopology = vi.fn()
+
+vi.mock('../../auth/oidc', () => ({ useAuth0: () => ({ getAccessTokenSilently }) }))
+vi.mock('../../api/demoMode', () => ({
+  isDemoMode: () => true,
+  subscribeDemoMode: () => () => {},
+}))
+vi.mock('../../api/client', () => ({
+  api: { trustTopology: (token: string) => trustTopology(token) },
+}))
 
 import AgentTrustTopologyPage, { trustEdges, trustNodes } from '../../pages/AgentTrustTopologyPage'
 import { deriveExternalBand, NODE_H } from './trustBoundaries'
@@ -123,7 +154,13 @@ describe('the page under filtering', () => {
 
     expect(screen.getByText(/Nothing matches these filters/i)).toBeInTheDocument()
     // The page's central claim, stated where the reader trips over it.
-    expect(screen.getByText(/No item on this page is runtime-observed/i)).toBeInTheDocument()
+    //
+    // Matched loosely on purpose. The copy now varies between demo and live
+    // ("this page" vs "this demonstration page"), and the assertion is about
+    // the empty state EXPLAINING that nothing is runtime-observed rather than
+    // rendering a blank canvas — not about a particular sentence. Pinning the
+    // exact wording made a legitimate copy change look like a regression.
+    expect(screen.getByText(/No item on this .*page is runtime-observed/i)).toBeInTheDocument()
     expect(screen.queryByTestId('trust-canvas')).not.toBeInTheDocument()
   })
 })

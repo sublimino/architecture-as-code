@@ -229,3 +229,67 @@ func TestExpectDeniedTreatsIdentityDenialAsSuccess(t *testing.T) {
 		t.Fatal("successful issuance emitted denial marker")
 	}
 }
+
+func TestProbeSVIDWritesOnlyTokenFreeSubjectEvidence(t *testing.T) {
+	const subject = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
+	evidencePath := filepath.Join(t.TempDir(), "termination-log")
+	originalPath := probeEvidencePath
+	probeEvidencePath = evidencePath
+	t.Cleanup(func() { probeEvidencePath = originalPath })
+	runner := func(name string, _ ...string) ([]byte, error) {
+		if name != spireAgent {
+			t.Fatalf("unexpected executable: %s", name)
+		}
+		return []byte(`{"svids":[{"svid":"` + fixtureJWT(subject) + `"}]}`), nil
+	}
+	if code := run([]string{"probe-svid"}, io.Discard, io.Discard, runner); code != 0 {
+		t.Fatalf("probe-svid returned %d", code)
+	}
+	evidence, err := os.ReadFile(evidencePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(evidence, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["outcome"] != "pass" || payload["spiffe_id"] != subject {
+		t.Fatalf("unexpected evidence: %s", evidence)
+	}
+	rendered := strings.ToLower(string(evidence))
+	if strings.Contains(rendered, "header.") || strings.Contains(rendered, "client_token") {
+		t.Fatalf("probe leaked credential material: %s", evidence)
+	}
+}
+
+func TestProbeOpenBaoWritesMetadataWithoutClientToken(t *testing.T) {
+	const subject = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"auth":{"client_token":"must-not-leak","renewable":false,"lease_duration":300,"token_type":"batch"}}`))
+	}))
+	defer server.Close()
+	evidencePath := filepath.Join(t.TempDir(), "termination-log")
+	originalPath, originalClient := probeEvidencePath, openBaoClient
+	probeEvidencePath, openBaoClient = evidencePath, server.Client()
+	t.Cleanup(func() { probeEvidencePath, openBaoClient = originalPath, originalClient })
+	runner := func(string, ...string) ([]byte, error) {
+		return []byte(`{"svids":[{"svid":"` + fixtureJWT(subject) + `"}]}`), nil
+	}
+	if code := run([]string{"probe-openbao", "-address", server.URL, "-role", "agent-trust-planner"}, io.Discard, io.Discard, runner); code != 0 {
+		t.Fatalf("probe-openbao returned %d", code)
+	}
+	evidence, err := os.ReadFile(evidencePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(evidence, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload["renewable"] != false || payload["lease_duration"] != float64(300) || payload["token_type"] != "batch" {
+		t.Fatalf("unexpected OpenBao evidence: %s", evidence)
+	}
+	if strings.Contains(string(evidence), "must-not-leak") || strings.Contains(string(evidence), "client_token") {
+		t.Fatalf("OpenBao probe leaked token: %s", evidence)
+	}
+}

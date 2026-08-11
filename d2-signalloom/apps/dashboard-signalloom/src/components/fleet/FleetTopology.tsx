@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -8,7 +8,6 @@ import {
   ViewportPortal,
   useReactFlow,
   type Node,
-  type Edge as FlowEdge,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { AgentState } from '../../api/fleetApi'
@@ -64,12 +63,6 @@ function trustBadgeColour(profile: AgentState['trustProfile']): string {
 
 // ── Hierarchical layout (no dagre dependency) ───────────────────────────────
 
-interface LayoutNode {
-  id: string
-  depth: number
-  children: string[]
-}
-
 /**
  * Simple top-to-bottom layout. The root is the node with no incoming edges,
  * the leaves are nodes with no outgoing edges. When there are multiple nodes
@@ -79,7 +72,6 @@ function hierarchicalLayout(
   agents: AgentState[],
   edges: { from: string; to: string }[],
 ): Map<string, { x: number; y: number }> {
-  const byId = new Map(agents.map(a => [a.id, a]))
   const incoming = new Set(edges.map(e => e.to))
   const outgoing = new Map<string, string[]>()
 

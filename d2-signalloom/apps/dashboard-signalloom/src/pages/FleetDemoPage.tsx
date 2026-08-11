@@ -4,7 +4,7 @@ import { useAuth0 } from '../auth/oidc'
 import FleetTopology from '../components/fleet/FleetTopology'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
-import type { FleetTopology as FleetTopologyData, AgentState, CascadeEvent } from '../api/fleetApi'
+import type { FleetTopology as FleetTopologyData } from '../api/fleetApi'
 import {
   fetchFleetTopology,
   deployFleet,

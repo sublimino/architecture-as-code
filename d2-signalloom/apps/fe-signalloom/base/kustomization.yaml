@@ -19,11 +19,11 @@ resources:
   # The namespace, cross-namespace RBAC, and baseline agent are inline in the
   # signalloom-infra ResourceSet — they run first so Flux dry-run passes here.
   - health-rbac.yaml
-  # SuperCred demo: cardvault-agent SA, inert agent pod (deliberately non-compliant),
-  # and the Job template for the credential-chain run.
+  # SuperCred demo: cardvault-agent SA and inert agent pod (deliberately non-compliant).
+  # The credential-chain Job is created only by scripts/supercred-demo.sh so Flux
+  # cannot relocate it from fe-signalloom-agents into this target namespace.
   - agents-cardvault-sa.yaml
   - agents-cardvault.yaml
-  - agents-cardvault-job.yaml
   # Network Tests: ServiceAccount for the netassert-run Job. The Job itself is
   # NOT a static manifest here — fake-integration-proxy creates/deletes it on
   # demand (POST /network-tests/scan) so "Scan Now" triggers a run right now,

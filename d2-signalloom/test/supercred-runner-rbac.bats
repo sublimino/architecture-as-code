@@ -108,6 +108,15 @@ apps_tenant() {
 	[ "$tns" = '<< inputs.tenant >>' ]
 }
 
+@test "SUPERCRED-RBAC credential-chain Job is not Flux namespace-relocated" {
+	# The Job declares fe-signalloom-agents and must only be applied by the
+	# lifecycle script. This Kustomization has targetNamespace=fe-signalloom;
+	# including the Job here silently overrides its namespace and triggers a
+	# CrashLoopBackOff under the wrong ServiceAccount.
+	run grep -Fq -- '- agents-cardvault-job.yaml' "$apps_kustomization"
+	[ "$status" -ne 0 ]
+}
+
 @test "SUPERCRED-RBAC every runner grant names the namespace the runner runs in" {
 	tenant="$(apps_tenant)"
 	infra="$(resources_for signalloom-infra)"

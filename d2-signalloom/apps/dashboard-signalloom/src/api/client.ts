@@ -35,6 +35,7 @@ import type {
   TenantSettingsResponse,
   TransitionRequest,
   TransitionResponse,
+  TrustTopologyResponse,
   ViolationListResponse,
 } from '../types/api'
 import type {
@@ -151,6 +152,9 @@ async function req<T>(
 }
 
 export const api = {
+  trustTopology: (token: string) =>
+    req<TrustTopologyResponse>('/trust-topology', token),
+
   agents: {
     list: (token: string) =>
       req<AgentListResponse>('/agents', token),

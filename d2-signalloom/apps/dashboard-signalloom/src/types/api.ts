@@ -67,6 +67,81 @@ export interface AgentListResponse {
   total: number
 }
 
+// Trust topology, as the API actually returns it.
+//
+// These mirror fe-signalloom's api_compat models exactly. The route reports
+// three distinguishable situations and the UI has to be able to tell them
+// apart, so the provenance fields are NOT optional decoration:
+//
+//   collector ok, has data  -> observed evidence
+//   collector ok, EMPTY     -> genuinely nothing; not an error
+//   collector unavailable   -> derived topology, everything "modeled"
+//
+// A shape of just {nodes, edges} cannot express the difference, which is why
+// the richer response won when the two implementations were merged.
+export type TopologyEvidenceState = 'observed' | 'error' | 'unavailable' | 'modeled' | 'stale'
+export type TopologyAssurance = 'runtime-observed' | 'configuration-observed' | 'modeled'
+export type TopologyFreshness = 'fresh' | 'stale' | 'unavailable'
+
+export interface TopologyEvidence {
+  evidence_state: TopologyEvidenceState
+  evidence_source: string
+  observed_at: string | null
+  freshness: TopologyFreshness
+  assurance: TopologyAssurance
+  reason: string
+}
+
+/** Per-collector health. `status` is what drives the degraded badge. */
+export interface TopologyCollector {
+  status: 'ok' | 'partial' | 'unavailable'
+  observed_at: string
+  reason: string
+}
+
+export interface TrustTopologyNode extends TopologyEvidence {
+  id: string
+  kind: 'platform' | 'tenant' | 'project' | 'service' | 'agent' | 'external' | 'probe' | 'gap'
+  name?: string | null
+  label?: string | null
+  namespace?: string | null
+  tenant?: string | null
+  project?: string | null
+  parent_id?: string | null
+  location?: 'in-cluster' | 'external' | null
+  service_account?: string | null
+  phase?: string | null
+  ready?: boolean | null
+  pod_uid?: string | null
+  spiffe_id?: string | null
+  x?: number | null
+  y?: number | null
+}
+
+export interface TrustTopologyEdge extends TopologyEvidence {
+  id: string
+  from_id: string
+  to_id: string
+  verb: string
+  plane: 'identity' | 'authorization' | 'network' | 'external'
+  decision: 'allowed' | 'denied'
+  denial_kind?: 'network-block' | 'application-authorization-rejection' | null
+  tenant?: string | null
+  project?: string | null
+  policy_ref?: string | null
+  spiffe_id?: string | null
+}
+
+export interface TrustTopologyResponse {
+  generated_at: string
+  version: 'v1'
+  collectors: Record<string, TopologyCollector>
+  nodes: TrustTopologyNode[]
+  edges: TrustTopologyEdge[]
+  /** Things the collector knows it could NOT observe. Stated, never inferred. */
+  modeled_gaps: TrustTopologyNode[]
+}
+
 // Show-once credential issuance for an existing agent record (EHD-E3-001).
 // identity_token is a secret returned exactly once; only its SHA-256 hash is
 // persisted server-side (agent_tokens). It must be displayed once and never

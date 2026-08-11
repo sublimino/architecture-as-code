@@ -56,6 +56,10 @@ NETWORK_TESTS_SCAN_URL = os.environ.get(
     "NETWORK_TESTS_SCAN_URL",
     "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/network-tests/scan",
 )
+TRUST_TOPOLOGY_URL = os.environ.get(
+    "TRUST_TOPOLOGY_URL",
+    "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/trust-topology",
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic response models (UNCHANGED — these are the API contract)
@@ -177,6 +181,72 @@ class NetworkTestResult(BaseModel):
     result: Literal["pass", "fail", "pending", "running", "error"]
     evidence: str
     lastRun: str | None = None
+
+
+class TopologyCollector(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: Literal["ok", "partial", "unavailable"]
+    observed_at: str
+    reason: str
+
+
+class TopologyEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    evidence_state: Literal["observed", "error", "unavailable", "modeled", "stale"]
+    evidence_source: str
+    observed_at: str | None
+    freshness: Literal["fresh", "stale", "unavailable"]
+    assurance: Literal["runtime-observed", "configuration-observed", "modeled"]
+    reason: str
+
+
+class TrustTopologyItem(TopologyEvidence):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    kind: Literal["platform", "tenant", "project", "service", "agent", "external", "probe", "gap"]
+    name: str | None = None
+    label: str | None = None
+    namespace: str | None = None
+    tenant: str | None = None
+    project: str | None = None
+    parent_id: str | None = None
+    location: Literal["in-cluster", "external"] | None = None
+    service_account: str | None = None
+    phase: str | None = None
+    ready: bool | None = None
+    pod_uid: str | None = None
+    pod_name: str | None = None
+    spiffe_id: str | None = None
+    x: int | None = None
+    y: int | None = None
+
+
+class TrustTopologyEdge(TopologyEvidence):
+    model_config = ConfigDict(extra="forbid")
+    id: str
+    from_id: str
+    to_id: str
+    verb: str
+    plane: Literal["identity", "authorization", "network", "external"]
+    decision: Literal["allowed", "denied"]
+    denial_kind: Literal["network-block", "application-authorization-rejection"] | None = None
+    tenant: str | None = None
+    project: str | None = None
+    policy_ref: str | None = None
+    spiffe_id: str | None = None
+    renewable: bool | None = None
+    lease_duration: int | None = None
+    token_type: str | None = None
+
+
+class TrustTopologyResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    generated_at: str
+    version: Literal["v1"]
+    collectors: dict[str, TopologyCollector]
+    nodes: list[TrustTopologyItem]
+    edges: list[TrustTopologyEdge]
+    modeled_gaps: list[TrustTopologyItem]
 
 
 class NetworkTestListResponse(BaseModel):
@@ -1682,6 +1752,47 @@ async def network_tests_scan(
     # unchanged means the "already running" guard against double-submits
     # lives in exactly one place.
     return JSONResponse(status_code=response.status_code, content=payload)
+
+
+@router.get("/trust-topology", response_model=TrustTopologyResponse, responses=ERROR_RESPONSES)
+async def trust_topology(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> TrustTopologyResponse:
+    """Return only live, schema-validated topology evidence from the proxy.
+
+    This route intentionally has no database or fixture fallback: an empty live
+    collector is materially different from a collector that cannot be reached.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(TRUST_TOPOLOGY_URL)
+            response.raise_for_status()
+            payload = response.json()
+        topology = TrustTopologyResponse.model_validate(payload)
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        logger.warning("trust topology: fake-integration-proxy unavailable", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"trust topology unavailable: {exc}") from exc
+    if topology.collectors.get("kubernetes", TopologyCollector(status="unavailable", observed_at="", reason="missing")).status == "unavailable":
+        raise HTTPException(status_code=502, detail="trust topology collector unavailable")
+    nodes = [node for node in topology.nodes if node.tenant in {None, tenant_id}]
+    visible = {node.id for node in nodes}
+    edges = [
+        edge for edge in topology.edges
+        if edge.tenant in {None, tenant_id}
+        and edge.from_id in visible
+        and edge.to_id in visible
+    ]
+    modeled_gaps = [
+        gap for gap in topology.modeled_gaps
+        if gap.tenant in {None, tenant_id}
+    ]
+    # model_copy preserves shared-object names and labels; filtering never
+    # rewrites an object to impersonate the requesting tenant.
+    return topology.model_copy(update={
+        "nodes": nodes,
+        "edges": edges,
+        "modeled_gaps": modeled_gaps,
+    })
 
 
 @router.post("/agents", response_model=AgentResponse, responses=ERROR_RESPONSES)

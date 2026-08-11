@@ -13,6 +13,7 @@ import os
 import re
 import ssl
 import sys
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock
@@ -86,6 +87,45 @@ CRYPTO_PROOF_DEFINITIONS = (
 )
 SERVICE_ACCOUNT_TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
 SERVICE_ACCOUNT_CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+TRUST_TOPOLOGY_NAMESPACES = (
+    "agent-trust-platform",
+    "agent-trust-tenant-acme-control",
+    "agent-trust-tenant-northstar-control",
+    "agent-trust-acme-payments",
+    "agent-trust-acme-risk",
+    "agent-trust-northstar-investigations",
+)
+TRUST_TENANT_LABEL = "agent-trust.signalloom.io/tenant"
+TRUST_PROJECT_LABEL = "agent-trust.signalloom.io/project"
+TRUST_PROBES = (
+    "spiffe-planner", "spiffe-triage", "spiffe-risk-reader", "spiffe-investigator", "openbao-planner", "planner-triage-a2a",
+    "cross-project-denied", "cross-tenant-denied", "planner-egress-denied",
+)
+TRUST_NAMESPACE_NODES = {
+    "agent-trust-platform": {"id": "platform", "label": "Signal Loom platform", "kind": "platform", "parent_id": None, "x": 500, "y": 60},
+    "agent-trust-tenant-acme-control": {"id": "acme", "label": "Acme tenant", "kind": "tenant", "parent_id": "platform", "x": 300, "y": 280},
+    "agent-trust-tenant-northstar-control": {"id": "northstar", "label": "Northstar tenant", "kind": "tenant", "parent_id": "platform", "x": 980, "y": 280},
+    "agent-trust-acme-payments": {"id": "acme-payments", "label": "Acme Payments", "kind": "project", "parent_id": "acme", "x": 200, "y": 390},
+    "agent-trust-acme-risk": {"id": "acme-risk", "label": "Acme Risk", "kind": "project", "parent_id": "acme", "x": 620, "y": 390},
+    "agent-trust-northstar-investigations": {"id": "northstar-investigations", "label": "Northstar Investigations", "kind": "project", "parent_id": "northstar", "x": 980, "y": 390},
+}
+TRUST_WORKLOAD_NODES = {
+    "agent-trust-planner": {"id": "planner", "label": "planner", "parent_id": "acme-payments", "x": 110, "y": 520},
+    "agent-trust-triage": {"id": "triage", "label": "triage", "parent_id": "acme-payments", "x": 380, "y": 520},
+    "agent-trust-risk-reader": {"id": "risk-reader", "label": "risk-reader", "parent_id": "acme-risk", "x": 620, "y": 520},
+    "agent-trust-investigator": {"id": "investigator", "label": "investigator", "parent_id": "northstar-investigations", "x": 980, "y": 520},
+}
+TRUST_PROBE_EDGES = {
+    "spiffe-planner": {"id": "spire-planner", "from_id": "spire", "to_id": "planner", "verb": "SPIRE issued planner JWT-SVID", "plane": "identity", "decision": "allowed"},
+    "spiffe-triage": {"id": "spire-triage", "from_id": "spire", "to_id": "triage", "verb": "SPIRE issued triage JWT-SVID", "plane": "identity", "decision": "allowed"},
+    "spiffe-risk-reader": {"id": "spire-risk-reader", "from_id": "spire", "to_id": "risk-reader", "verb": "SPIRE issued risk-reader JWT-SVID", "plane": "identity", "decision": "allowed"},
+    "spiffe-investigator": {"id": "spire-investigator", "from_id": "spire", "to_id": "investigator", "verb": "SPIRE issued investigator JWT-SVID", "plane": "identity", "decision": "allowed"},
+    "openbao-planner": {"id": "bao-planner", "from_id": "openbao", "to_id": "planner", "verb": "OpenBao exchanged planner JWT-SVID", "plane": "identity", "decision": "allowed"},
+    "planner-triage-a2a": {"id": "planner-triage", "from_id": "planner", "to_id": "triage", "verb": "planner invoked triage", "plane": "authorization", "decision": "allowed"},
+    "cross-project-denied": {"id": "risk-triage-denied", "from_id": "risk-reader", "to_id": "triage", "verb": "cross-project path denied", "plane": "network", "decision": "denied", "denial_kind": "network-block"},
+    "cross-tenant-denied": {"id": "investigator-triage-denied", "from_id": "investigator", "to_id": "triage", "verb": "cross-tenant path denied", "plane": "network", "decision": "denied", "denial_kind": "network-block"},
+    "planner-egress-denied": {"id": "planner-egress-denied", "from_id": "planner", "to_id": "internet", "verb": "arbitrary planner egress denied", "plane": "network", "decision": "denied", "denial_kind": "network-block"},
+}
 
 # ── Network tests (netassert) ────────────────────────────────────────────────
 #
@@ -546,6 +586,369 @@ def _list_job_pods(
     return items
 
 
+def _topology_evidence(
+    state: str,
+    source: str,
+    observed_at: str | None,
+    freshness: str,
+    assurance: str,
+    reason: str,
+) -> dict[str, str | None]:
+    """The only evidence shape emitted by the topology collector.
+
+    Raw Kubernetes objects and probe messages never cross this boundary.  This
+    keeps service-account credentials, JWTs and OpenBao client material out of
+    the dashboard contract even if a workload is misconfigured.
+    """
+    return {
+        "evidence_state": state,
+        "evidence_source": source,
+        "observed_at": observed_at,
+        "freshness": freshness,
+        "assurance": assurance,
+        "reason": reason,
+    }
+
+
+def _safe_probe_message(value: object) -> dict[str, object] | None:
+    """Accept only small structured, token-free termination-message evidence."""
+    if not isinstance(value, str) or len(value) > 2048:
+        return None
+    try:
+        payload = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    allowed = {
+        "observed_at", "outcome", "reason", "spiffe_id",
+        "renewable", "lease_duration", "token_type",
+    }
+    if set(payload) - allowed:
+        return None
+    observed_at = payload.get("observed_at")
+    outcome = payload.get("outcome")
+    reason = payload.get("reason", "")
+    if (
+        not isinstance(observed_at, str)
+        or outcome not in {"pass", "fail", "error"}
+        or not isinstance(reason, str)
+    ):
+        return None
+    try:
+        timestamp = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    safe: dict[str, object] = {
+        "observed_at": observed_at,
+        "outcome": outcome,
+        "reason": reason[:240],
+        "timestamp": timestamp,
+    }
+    spiffe_id = payload.get("spiffe_id")
+    if spiffe_id is not None:
+        if not isinstance(spiffe_id, str) or not spiffe_id.startswith("spiffe://") or len(spiffe_id) > 512:
+            return None
+        safe["spiffe_id"] = spiffe_id
+    if "renewable" in payload:
+        if not isinstance(payload["renewable"], bool):
+            return None
+        safe["renewable"] = payload["renewable"]
+    if "lease_duration" in payload:
+        duration = payload["lease_duration"]
+        if not isinstance(duration, int) or isinstance(duration, bool) or duration < 1 or duration > 3600:
+            return None
+        safe["lease_duration"] = duration
+    if "token_type" in payload:
+        if payload["token_type"] != "batch":
+            return None
+        safe["token_type"] = "batch"
+    return safe
+
+
+def _probe_evidence_from_pods(
+    pods: list[object],
+    probe: str,
+    now: datetime,
+) -> tuple[dict[str, str | None], dict[str, object] | None]:
+    candidates: list[dict[str, object]] = []
+    for pod in pods:
+        statuses = pod.get("status", {}).get("containerStatuses", []) if isinstance(pod, dict) else []
+        for status in statuses if isinstance(statuses, list) else []:
+            terminated = status.get("state", {}).get("terminated", {}) if isinstance(status, dict) else {}
+            message = _safe_probe_message(terminated.get("message")) if isinstance(terminated, dict) else None
+            if message is None:
+                continue
+            candidates.append(message)
+    if candidates:
+        message = max(candidates, key=lambda item: item["timestamp"])
+        age = now - message["timestamp"]
+        if age < -timedelta(seconds=30):
+            return (
+                _topology_evidence(
+                    "error", f"probe/{probe}", message["observed_at"], "unavailable",
+                    "runtime-observed", "probe timestamp is in the future",
+                ),
+                message,
+            )
+        freshness = "fresh" if age <= timedelta(minutes=10) else "stale"
+        if message["outcome"] == "pass" and freshness == "fresh":
+            state = "observed"
+        elif message["outcome"] == "pass":
+            state = "stale"
+        else:
+            state = "error"
+        return (
+            _topology_evidence(
+                state,
+                f"pod label agent-trust.signalloom.io/probe={probe}",
+                message["observed_at"],
+                freshness,
+                "runtime-observed",
+                str(message["reason"] or "probe outcome"),
+            ),
+            message,
+        )
+    return (
+        _topology_evidence(
+            "unavailable", f"probe/{probe}", None, "unavailable",
+            "runtime-observed", "probe has never produced valid evidence",
+        ),
+        None,
+    )
+
+
+def _pod_ready(status: object) -> bool:
+    if not isinstance(status, dict):
+        return False
+    containers = status.get("containerStatuses")
+    return (
+        isinstance(containers, list)
+        and bool(containers)
+        and all(isinstance(item, dict) and item.get("ready") is True for item in containers)
+    )
+
+
+def _topology_node(
+    definition: dict[str, object],
+    *,
+    tenant: str | None,
+    project: str | None,
+    namespace: str | None,
+    evidence: dict[str, str | None],
+    **runtime: object,
+) -> dict[str, object]:
+    return {
+        **definition,
+        "tenant": tenant,
+        "project": project,
+        "namespace": namespace,
+        "location": "in-cluster",
+        **runtime,
+        **evidence,
+    }
+
+
+def collect_trust_topology(
+    base_url: str, service_account: str, context: ssl.SSLContext | None,
+    fetch: object | None = None, now: str | None = None,
+) -> dict[str, object]:
+    """Collect a fail-closed topology from the six fixed Agent Trust namespaces."""
+    getter = fetch if callable(fetch) else _fetch_kubernetes_json
+    observed_at = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    current_time = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    nodes_by_id: dict[str, dict[str, object]] = {}
+    configuration_gaps: list[dict[str, object]] = []
+    collector_errors: list[str] = []
+    probe_pods: dict[str, list[object]] = {probe: [] for probe in TRUST_PROBES}
+    for namespace in TRUST_TOPOLOGY_NAMESPACES:
+        try:
+            ns = getter(f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}", service_account, context)
+            labels = ns.get("metadata", {}).get("labels", {}) if isinstance(ns, dict) else {}
+            labels = labels if isinstance(labels, dict) else {}
+            tenant, project = labels.get(TRUST_TENANT_LABEL), labels.get(TRUST_PROJECT_LABEL)
+            tenant = tenant if isinstance(tenant, str) else None
+            project = project if isinstance(project, str) else None
+            definition = TRUST_NAMESPACE_NODES[namespace]
+            nodes_by_id[str(definition["id"])] = _topology_node(
+                definition,
+                tenant=tenant,
+                project=project,
+                namespace=namespace,
+                evidence=_topology_evidence(
+                    "observed", f"kubernetes namespace/{namespace}", observed_at,
+                    "fresh", "configuration-observed", "namespace labels read from Kubernetes API",
+                ),
+            )
+            pods = getter(f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}/pods", service_account, context)
+            for pod in pods.get("items", []) if isinstance(pods, dict) else []:
+                metadata = pod.get("metadata", {}) if isinstance(pod, dict) else {}
+                spec = pod.get("spec", {}) if isinstance(pod, dict) else {}
+                status = pod.get("status", {}) if isinstance(pod, dict) else {}
+                if not isinstance(metadata, dict) or not isinstance(spec, dict) or not isinstance(status, dict):
+                    continue
+                name, uid = metadata.get("name"), metadata.get("uid")
+                labels = metadata.get("labels", {})
+                if not isinstance(name, str) or not isinstance(uid, str) or not isinstance(labels, dict):
+                    continue
+                probe = labels.get("agent-trust.signalloom.io/probe")
+                if isinstance(probe, str) and probe in probe_pods:
+                    probe_pods[probe].append(pod)
+                workload_name = labels.get("app.kubernetes.io/name")
+                workload = TRUST_WORKLOAD_NODES.get(workload_name) if isinstance(workload_name, str) else None
+                if workload is None:
+                    continue
+                logical_id = str(workload["id"])
+                candidate = _topology_node(
+                    {**workload, "kind": "agent"},
+                    tenant=tenant,
+                    project=project,
+                    namespace=namespace,
+                    evidence=_topology_evidence(
+                        "observed", f"kubernetes pod/{namespace}/{name}", observed_at,
+                        "fresh", "runtime-observed", "pod metadata and readiness read from Kubernetes API",
+                    ),
+                    service_account=spec.get("serviceAccountName"),
+                    phase=status.get("phase"),
+                    ready=_pod_ready(status),
+                    pod_uid=uid,
+                    pod_name=name,
+                )
+                current = nodes_by_id.get(logical_id)
+                if current is None or (candidate.get("ready") is True and current.get("ready") is not True):
+                    nodes_by_id[logical_id] = candidate
+            policies = getter(f"{base_url}/apis/networking.k8s.io/v1/namespaces/{quote(namespace, safe='')}/networkpolicies", service_account, context)
+            for policy in policies.get("items", []) if isinstance(policies, dict) else []:
+                name = policy.get("metadata", {}).get("name") if isinstance(policy, dict) else None
+                if isinstance(name, str):
+                    configuration_gaps.append({
+                        "id": f"networkpolicy:{namespace}:{name}",
+                        "kind": "gap",
+                        "name": name,
+                        "namespace": namespace,
+                        "tenant": tenant,
+                        "project": project,
+                        **_topology_evidence(
+                            "modeled", f"kubernetes networkpolicy/{namespace}/{name}",
+                            observed_at, "fresh", "configuration-observed",
+                            "deployed NetworkPolicy is configuration, not enforcement proof",
+                        ),
+                    })
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            collector_errors.append(f"{namespace}: {exc}")
+
+    probe_results = {
+        probe: _probe_evidence_from_pods(probe_pods[probe], probe, current_time)
+        for probe in TRUST_PROBES
+    }
+    spire_evidence = probe_results["spiffe-planner"][0]
+    openbao_evidence = probe_results["openbao-planner"][0]
+    nodes_by_id["spire"] = _topology_node(
+        {"id": "spire", "label": "SPIRE issuer", "kind": "service", "parent_id": "platform", "x": 380, "y": 155},
+        tenant=None, project=None, namespace="inf-bao", evidence=spire_evidence,
+    )
+    nodes_by_id["openbao"] = _topology_node(
+        {"id": "openbao", "label": "OpenBao", "kind": "service", "parent_id": "platform", "x": 620, "y": 155},
+        tenant=None, project=None, namespace="inf-bao", evidence=openbao_evidence,
+    )
+    nodes_by_id["internet"] = {
+        "id": "internet", "label": "External network", "kind": "external",
+        "parent_id": "platform", "tenant": None, "project": None,
+        "namespace": None, "location": "external", "x": 1100, "y": 700,
+        **_topology_evidence(
+            "modeled", "external boundary", None, "unavailable", "modeled",
+            "external destination exists only as a denial-test boundary",
+        ),
+    }
+
+    edges: list[dict[str, object]] = []
+    probe_gaps: list[dict[str, object]] = []
+    for probe, definition in TRUST_PROBE_EDGES.items():
+        evidence, message = probe_results[probe]
+        edge: dict[str, object] = {
+            **definition,
+            "tenant": (
+                "northstar" if probe in {"spiffe-investigator", "cross-tenant-denied"}
+                else "acme"
+            ),
+            "project": None,
+            **evidence,
+        }
+        if message is not None and isinstance(message.get("spiffe_id"), str):
+            edge["spiffe_id"] = message["spiffe_id"]
+            target = nodes_by_id.get(str(definition["to_id"]))
+            if target is not None:
+                target["spiffe_id"] = message["spiffe_id"]
+        if probe == "openbao-planner" and message is not None:
+            edge["renewable"] = message.get("renewable")
+            edge["lease_duration"] = message.get("lease_duration")
+            edge["token_type"] = message.get("token_type")
+        edges.append(edge)
+        if evidence["evidence_state"] != "observed":
+            probe_gaps.append({
+                "id": f"probe:{probe}", "kind": "probe", "name": probe,
+                "tenant": edge["tenant"], "project": None, "namespace": None,
+                **evidence,
+            })
+
+    status = "unavailable" if len(collector_errors) == len(TRUST_TOPOLOGY_NAMESPACES) else ("partial" if collector_errors else "ok")
+    probe_status = "ok" if not probe_gaps else ("unavailable" if len(probe_gaps) == len(TRUST_PROBES) else "partial")
+    external_gaps = [
+        {
+            "id": f"external:{provider}", "kind": "gap", "name": provider,
+            "tenant": tenant, "project": project, "namespace": None,
+            **_topology_evidence(
+                "modeled", "contracts/external-enrollment.v1.json", None,
+                "unavailable", "modeled", "no external runtime attestation collector",
+            ),
+        }
+        for provider, tenant, project in (
+            ("AWS Lambda", "acme", "payments"),
+            ("Google Cloud Run", "acme", "risk"),
+            ("Azure Container Apps", "northstar", "investigations"),
+        )
+    ]
+    return {
+        "generated_at": observed_at,
+        "version": "v1",
+        "collectors": {
+            "kubernetes": {
+                "status": status,
+                "observed_at": observed_at,
+                "reason": "; ".join(collector_errors)[:500] or "six fixed namespaces collected",
+            },
+            "probes": {
+                "status": probe_status,
+                "observed_at": observed_at,
+                "reason": "token-free pod termination-message evidence",
+            },
+        },
+        "nodes": list(nodes_by_id.values()),
+        "edges": edges,
+        "modeled_gaps": configuration_gaps + probe_gaps + external_gaps,
+    }
+
+
+def filter_trust_topology(snapshot: dict[str, object], tenant: str) -> dict[str, object]:
+    """Tenant-filter without changing labels or identity of shared objects."""
+    result = dict(snapshot)
+    nodes = [node for node in snapshot.get("nodes", []) if isinstance(node, dict) and node.get("tenant") in {None, tenant}]
+    visible = {node.get("id") for node in nodes}
+    result["nodes"] = nodes
+    result["edges"] = [
+        edge for edge in snapshot.get("edges", [])
+        if isinstance(edge, dict)
+        and edge.get("tenant") in {None, tenant}
+        and edge.get("from_id") in visible
+        and edge.get("to_id") in visible
+    ]
+    result["modeled_gaps"] = [
+        gap for gap in snapshot.get("modeled_gaps", [])
+        if isinstance(gap, dict) and gap.get("tenant") in {None, tenant}
+    ]
+    return result
+
+
 def _get_kubernetes_job(
     base_url: str, token: str, context: ssl.SSLContext, namespace: str, name: str,
 ) -> dict[str, object] | None:
@@ -829,6 +1232,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 {"proofs": [], "error": str(exc), "namespace": CRYPTO_PROOF_NAMESPACE},
             )
 
+    def _handle_trust_topology(self) -> None:
+        try:
+            snapshot = collect_trust_topology(
+                _kubernetes_api_base(), _read_service_account_token(), _kubernetes_ssl_context(),
+            )
+            self._json(HTTPStatus.OK, snapshot)
+        except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+            # The FastAPI proxy treats complete collection failure as a 502; the
+            # direct endpoint remains structurally honest for diagnostics.
+            self._json(HTTPStatus.BAD_GATEWAY, {"error": f"trust topology unavailable: {exc}"})
+
     def _network_scan_status(self, job: object) -> str:
         if not isinstance(job, dict):
             return "never-run"
@@ -1090,6 +1504,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._handle_agents()
         elif path == "/crypto-proofs" and self.command == "GET":
             self._handle_crypto_proofs()
+        elif path == "/trust-topology" and self.command == "GET":
+            self._handle_trust_topology()
         elif path == "/network-tests" and self.command == "GET":
             self._handle_network_tests()
         elif path == "/network-tests/scan" and self.command == "POST":

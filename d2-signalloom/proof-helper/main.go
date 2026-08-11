@@ -32,6 +32,7 @@ const (
 )
 
 var openBaoClient = &http.Client{Timeout: 30 * time.Second}
+var probeEvidencePath = "/dev/termination-log"
 
 type commandRunner func(name string, args ...string) ([]byte, error)
 
@@ -49,7 +50,7 @@ func run(args []string, stdout, stderr io.Writer, invoke commandRunner) int {
 
 func runWithPause(args []string, stdout, stderr io.Writer, invoke commandRunner, pause func(time.Duration)) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: signalloom-spire-proof <write|exchange|expect-denied> [flags]")
+		fmt.Fprintln(stderr, "usage: signalloom-spire-proof <write|exchange|expect-denied|call-a2a|probe-svid|probe-openbao|probe-a2a> [flags]")
 		return 64
 	}
 
@@ -96,6 +97,33 @@ func runWithPause(args []string, stdout, stderr io.Writer, invoke commandRunner,
 
 	fetchArgs := []string{"api", "fetch", "jwt", "-audience", *audience, "-socketPath", *socket, "-output", "json"}
 	switch args[0] {
+	case "probe-svid", "probe-openbao":
+		result, err := invoke(spireAgent, fetchArgs...)
+		if err != nil {
+			writeProbeEvidence("error", "SPIFFE JWT-SVID fetch failed", "")
+			return 1
+		}
+		jwt, extractErr := extractJWT(result)
+		if extractErr != nil {
+			writeProbeEvidence("error", "SPIFFE JWT-SVID response was malformed", "")
+			return 1
+		}
+		claims, claimErr := jwtSVIDSubject(jwt)
+		if claimErr != nil {
+			writeProbeEvidence("error", "SPIFFE JWT-SVID subject was unavailable", "")
+			return 1
+		}
+		if args[0] == "probe-svid" {
+			writeProbeEvidence("pass", "SPIFFE JWT-SVID fetched", claims)
+			return 0
+		}
+		metadata, loginErr := loginJWTMetadata(openBaoClient, *address, *role, jwt)
+		if loginErr != nil {
+			writeProbeEvidence("error", "OpenBao JWT login failed", claims)
+			return 1
+		}
+		writeOpenBaoProbeEvidence("pass", "OpenBao JWT login succeeded", claims, metadata)
+		return 0
 	case "write":
 		var result []byte
 		var err error
@@ -142,25 +170,49 @@ func runWithPause(args []string, stdout, stderr io.Writer, invoke commandRunner,
 		}
 		fmt.Fprint(stderr, string(result))
 		return 1
-	case "call-a2a":
+	case "call-a2a", "probe-a2a":
 		result, err := invoke(spireAgent, fetchArgs...)
 		if err != nil {
+			if args[0] == "probe-a2a" {
+				writeProbeEvidence("error", "SPIFFE JWT-SVID fetch failed", "")
+			}
 			fmt.Fprint(stderr, string(result))
 			return 1
 		}
 		jwt, extractErr := extractJWT(result)
 		if extractErr != nil {
+			if args[0] == "probe-a2a" {
+				writeProbeEvidence("error", "SPIFFE JWT-SVID response was malformed", "")
+			}
 			fmt.Fprintf(stderr, "invalid SPIRE JWT-SVID response: %v\n", extractErr)
+			return 1
+		}
+		spiffeID, subjectErr := jwtSVIDSubject(jwt)
+		if subjectErr != nil {
+			if args[0] == "probe-a2a" {
+				writeProbeEvidence("error", "SPIFFE JWT-SVID subject was unavailable", "")
+			}
+			fmt.Fprintf(stderr, "invalid SPIFFE JWT-SVID subject: %v\n", subjectErr)
 			return 1
 		}
 		privateKey, keyErr := loadPrivateKey(*privateKeyPath)
 		if keyErr != nil {
+			if args[0] == "probe-a2a" {
+				writeProbeEvidence("error", "A2A signing key unavailable", spiffeID)
+			}
 			fmt.Fprintf(stderr, "load A2A signing key: %v\n", keyErr)
 			return 1
 		}
 		if err := callA2A(openBaoClient, *target, jwt, privateKey); err != nil {
+			if args[0] == "probe-a2a" {
+				writeProbeEvidence("error", "Authenticated A2A request failed", spiffeID)
+			}
 			fmt.Fprintf(stderr, "call A2A: %v\n", err)
 			return 1
+		}
+		if args[0] == "probe-a2a" {
+			writeProbeEvidence("pass", "Authenticated A2A request allowed", spiffeID)
+			return 0
 		}
 		fmt.Fprintln(stdout, "authenticated A2A request allowed")
 		return 0
@@ -168,6 +220,36 @@ func runWithPause(args []string, stdout, stderr io.Writer, invoke commandRunner,
 		fmt.Fprintf(stderr, "unknown mode %q\n", args[0])
 		return 64
 	}
+}
+
+func jwtSVIDSubject(token string) (string, error) {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 { return "", errors.New("malformed JWT") }
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1]); if err != nil { return "", err }
+	var claims struct { Subject string `json:"sub"` }; if err := json.Unmarshal(payload, &claims); err != nil || claims.Subject == "" { return "", errors.New("missing subject") }
+	return claims.Subject, nil
+}
+
+func writeProbeEvidence(outcome, reason, spiffeID string) {
+	payload, _ := json.Marshal(map[string]string{"observed_at": time.Now().UTC().Format(time.RFC3339), "outcome": outcome, "reason": reason, "spiffe_id": spiffeID})
+	_ = os.WriteFile(probeEvidencePath, payload, 0o600)
+}
+
+func writeOpenBaoProbeEvidence(outcome, reason, spiffeID string, metadata map[string]any) {
+	payload := map[string]any{"observed_at": time.Now().UTC().Format(time.RFC3339), "outcome": outcome, "reason": reason, "spiffe_id": spiffeID, "renewable": metadata["renewable"], "lease_duration": metadata["lease_duration"], "token_type": "batch"}
+	encoded, _ := json.Marshal(payload); _ = os.WriteFile(probeEvidencePath, encoded, 0o600)
+}
+
+func loginJWTMetadata(client *http.Client, address, role, jwt string) (map[string]any, error) {
+	payload, err := json.Marshal(map[string]string{"role": role, "jwt": jwt}); if err != nil { return nil, err }
+	req, err := http.NewRequest(http.MethodPost, strings.TrimRight(address, "/")+"/v1/auth/jwt/login", bytes.NewReader(payload)); if err != nil { return nil, err }
+	req.Header.Set("Content-Type", "application/json")
+	response, err := client.Do(req); if err != nil { return nil, err }; defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 1<<20)); if err != nil || response.StatusCode < 200 || response.StatusCode >= 300 { return nil, errors.New("OpenBao login failed") }
+	var result struct { Auth struct { Renewable bool `json:"renewable"`; LeaseDuration int `json:"lease_duration"`; TokenType string `json:"token_type"` } `json:"auth"` }
+	if err := json.Unmarshal(body, &result); err != nil { return nil, err }
+	if result.Auth.TokenType != "batch" { return nil, errors.New("unexpected OpenBao token type") }
+	return map[string]any{"renewable": result.Auth.Renewable, "lease_duration": result.Auth.LeaseDuration}, nil
 }
 
 func exchangeJWT(client *http.Client, address, role, jwtPath, output string) error {

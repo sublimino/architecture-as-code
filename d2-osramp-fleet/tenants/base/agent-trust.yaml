@@ -87,6 +87,12 @@ spec:
         - apiGroups: [networking.k8s.io]
           resources: [networkpolicies]
           verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [roles, rolebindings]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [batch]
+          resources: [cronjobs]
+          verbs: [get, list, watch, create, update, patch, delete]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata: {name: agent-trust-flux, namespace: agent-trust-platform}
@@ -117,6 +123,28 @@ spec:
       metadata: {name: agent-trust-flux, namespace: agent-trust-northstar-investigations}
       roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-flux-workloads}
       subjects: [{kind: ServiceAccount, name: agent-trust-flux, namespace: agent-trust-platform}]
+    # ResourceSet-owned because the workload Kustomization intentionally cannot
+    # create cluster-scoped RBAC. fake-integration-proxy may read labels from
+    # exactly these six namespaces and no others.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-trust-topology-namespaces}
+      rules:
+        - apiGroups: [""]
+          resources: [namespaces]
+          resourceNames:
+            - agent-trust-platform
+            - agent-trust-tenant-acme-control
+            - agent-trust-tenant-northstar-control
+            - agent-trust-acme-payments
+            - agent-trust-acme-risk
+            - agent-trust-northstar-investigations
+          verbs: [get]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata: {name: fake-proxy-agent-trust-topology-namespaces}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-trust-topology-namespaces}
+      subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
     - apiVersion: source.toolkit.fluxcd.io/v1
       kind: OCIRepository
       metadata: {name: agent-trust, namespace: agent-trust-platform}

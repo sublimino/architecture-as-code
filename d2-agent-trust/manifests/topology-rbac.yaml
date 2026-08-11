@@ -1,0 +1,81 @@
+# fake-integration-proxy reads fixed runtime state only. It receives no Secret,
+# ConfigMap, exec, mutation, wildcard-resource, or unrestricted namespace grant.
+# The namespace-name ClusterRole lives in the ResourceSet because this Flux
+# Kustomization is deliberately unable to mint cluster-scoped RBAC.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-platform}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-tenant-acme-control}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-tenant-northstar-control}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-acme-payments}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-acme-risk}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: agent-trust-topology-reader, namespace: agent-trust-northstar-investigations}
+rules:
+  - {apiGroups: [""], resources: [pods], verbs: [list]}
+  - {apiGroups: [networking.k8s.io], resources: [networkpolicies], verbs: [list]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-platform}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-tenant-acme-control}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-tenant-northstar-control}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-acme-payments}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-acme-risk}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: fake-proxy-agent-trust-topology-reader, namespace: agent-trust-northstar-investigations}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: agent-trust-topology-reader}
+subjects: [{kind: ServiceAccount, name: default, namespace: inf-signalloom}]

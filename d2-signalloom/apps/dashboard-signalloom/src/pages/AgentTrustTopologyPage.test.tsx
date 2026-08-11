@@ -1,13 +1,113 @@
-import { describe, expect, it } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import AgentTrustTopologyPage, { trustEdges, trustNodes } from './AgentTrustTopologyPage'
 
+const isDemoMode = vi.fn(() => true)
+const getAccessTokenSilently = vi.fn(async () => 'live-token')
+const trustTopology = vi.fn()
+
+vi.mock('../api/demoMode', () => ({
+  isDemoMode: () => isDemoMode(),
+  subscribeDemoMode: () => () => {},
+}))
+vi.mock('../auth/oidc', () => ({ useAuth0: () => ({ getAccessTokenSilently }) }))
+vi.mock('../api/client', () => ({ api: { trustTopology: (token: string) => trustTopology(token) } }))
+
 describe('AgentTrustTopologyPage', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(true)
+    trustTopology.mockReset()
+  })
+
+  // Shared builders. The live schema is the one the API actually returns --
+  // generated_at/version/collectors/modeled_gaps -- not the {nodes, edges}
+  // shape an earlier draft assumed.
+  const evidence = (state = 'observed', assurance = 'runtime-observed') => ({
+    evidence_state: state, evidence_source: 'kubernetes collector',
+    observed_at: '2026-08-11T16:00:00Z', freshness: 'fresh', assurance, reason: 'collected',
+  })
+  const snapshot = (collectors: Record<string, unknown>, state = 'observed', assurance = 'runtime-observed') => ({
+    generated_at: '2026-08-11T16:00:00Z', version: 'v1', collectors,
+    nodes: [{ id: 'platform', kind: 'platform', label: 'Signal Loom platform', tenant: 'shared', ...evidence(state, assurance) }],
+    edges: [], modeled_gaps: [],
+  })
+  const OK = { kubernetes: { status: 'ok', observed_at: '2026-08-11T16:00:00Z', reason: 'namespaces collected' } }
+
+  it('uses the authenticated topology endpoint in live mode', async () => {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockResolvedValue(snapshot(OK))
+
+    render(<AgentTrustTopologyPage />)
+
+    await waitFor(() => expect(trustTopology).toHaveBeenCalledWith('live-token'))
+    // The NODE must render, not merely the StatCard label of the same name --
+    // asserting on "Runtime-observed" alone passes even when nothing loaded,
+    // because that string is a permanent card heading.
+    expect(await screen.findByText('Signal Loom platform')).toBeInTheDocument()
+    expect(screen.queryByText(/Demonstration data/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('topology-degraded-banner')).not.toBeInTheDocument()
+  })
+
+  // ── The degraded badge ────────────────────────────────────────────────────
+  //
+  // The API answers even when its collector is unreachable, returning a derived
+  // topology with everything marked modeled. A derived diagram and an observed
+  // one look identical at a glance, so the ONLY thing standing between a viewer
+  // and a false conclusion is this banner. These assert it says what it must.
+
+  it('says plainly that a derived topology is not live', async () => {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockResolvedValue(snapshot(
+      { kubernetes: { status: 'unavailable', observed_at: '', reason: 'RBAC denied listing pods' } },
+      'modeled', 'modeled',
+    ))
+
+    render(<AgentTrustTopologyPage />)
+
+    const banner = await screen.findByTestId('topology-degraded-banner')
+    // An alert, not a status: this is a correctness warning about everything
+    // below it, and it should interrupt rather than wait its turn.
+    expect(banner).toHaveAttribute('role', 'alert')
+    expect(banner).toHaveTextContent(/not live/i)
+    expect(banner).toHaveTextContent(/derived, not observed/i)
+    // The collector's OWN reason, verbatim -- never a guess made in the UI.
+    expect(banner).toHaveTextContent('RBAC denied listing pods')
+    expect(banner).toHaveTextContent('kubernetes')
+  })
+
+  it('distinguishes partial evidence from no evidence at all', async () => {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockResolvedValue(snapshot({
+      kubernetes: { status: 'ok', observed_at: '2026-08-11T16:00:00Z', reason: 'collected' },
+      spire: { status: 'partial', observed_at: '2026-08-11T16:00:00Z', reason: 'registration API timed out' },
+    }))
+
+    render(<AgentTrustTopologyPage />)
+
+    const banner = await screen.findByTestId('topology-degraded-banner')
+    expect(banner).toHaveTextContent(/partial evidence/i)
+    // Names which one failed and how many, so the reader knows the blast radius.
+    expect(banner).toHaveTextContent('1 of 2 collectors')
+    expect(banner).toHaveTextContent('registration API timed out')
+    // A partial estate is not the same claim as a dead one.
+    expect(banner).not.toHaveTextContent(/derived, not observed/i)
+  })
+
+  it('shows no banner when every collector reported', async () => {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockResolvedValue(snapshot(OK))
+
+    render(<AgentTrustTopologyPage />)
+
+    await waitFor(() => expect(trustTopology).toHaveBeenCalled())
+    expect(screen.queryByTestId('topology-degraded-banner')).not.toBeInTheDocument()
+  })
+
   it('never represents hardcoded topology as runtime-observed', () => {
     expect([...trustNodes, ...trustEdges].every(item => item.evidence !== 'observed')).toBe(true)
     render(<AgentTrustTopologyPage />)
-    expect(screen.getByText(/No relationship on this page is runtime-observed/i)).toBeInTheDocument()
+    expect(screen.getByText(/Demonstration data/i)).toBeInTheDocument()
     expect(screen.getAllByText('Runtime-observed').length).toBeGreaterThan(0)
   })
 

@@ -158,3 +158,28 @@ select option { background: var(--surface); }
   50% { background-color: rgba(6, 182, 212, 0.06); }
 }
 .row-flash { animation: row-flash 0.7s ease-out; }
+
+/* Locally adapted from Beautiful UI's MIT-licensed sidebar and filter-table
+   patterns. Signal Loom tokens remain the sole colour authority. */
+.sl-sidebar__brand { background: linear-gradient(135deg, var(--surface), var(--surface2)); }
+.sl-sidebar__section-label {
+  color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .09em;
+  padding: 13px 14px 5px; text-transform: uppercase;
+}
+.sl-sidebar__link { outline-offset: 2px; }
+.sl-sidebar__link:hover { background: var(--surface2) !important; color: var(--text) !important; text-decoration: none; }
+.sl-sidebar__link:focus-visible, .sl-filter-chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.sl-filter-chips { display: flex; align-items: center; gap: 6px; overflow-x: auto; padding: 2px; }
+.sl-filter-chip {
+  align-items: center; background: var(--surface); border: 1px solid var(--border-subtle);
+  border-radius: 999px; color: var(--muted); display: inline-flex; font: inherit;
+  font-size: 12px; gap: 6px; padding: 5px 10px; white-space: nowrap;
+}
+.sl-filter-chip[aria-pressed="true"] { background: var(--surface2); border-color: var(--cyan); color: var(--text); }
+.sl-filter-chip__count { color: var(--text); font-variant-numeric: tabular-nums; font-weight: 700; }
+@media (max-width: 900px) {
+  .sl-sidebar { width: 224px !important; min-width: 224px !important; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sl-sidebar__link, .sl-filter-chip { transition: none !important; }
+}

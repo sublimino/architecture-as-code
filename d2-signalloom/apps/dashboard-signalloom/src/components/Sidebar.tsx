@@ -1,3 +1,5 @@
+/* Adapted interaction pattern from Beautiful UI Sidebar Nav (MIT); see
+ * THIRD_PARTY_NOTICES.md. Signal Loom owns routes, tokens, and semantics. */
 import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
@@ -11,29 +13,30 @@ import ApiKeyRevealModal from './ApiKeyRevealModal'
 interface NavItem {
   to: string
   label: string
+  section: 'Workspace' | 'Governance' | 'Configuration'
   end?: boolean
   superadminOnly?: boolean
 }
 
 const NAV: NavItem[] = [
-  { to: '/discovery', label: 'Discovery' },
-  { to: '/agents', label: 'Agents' },
-  { to: '/compliance', label: 'Compliance', end: true },
-  { to: '/compliance/policies', label: 'Policy Compliance' },
-  { to: '/compliance/posture', label: 'Agent Posture' },
-  { to: '/compliance/risk', label: 'Risk Exposure' },
-  { to: '/audit', label: 'Audit Trail' },
-  { to: '/cryptography', label: 'Cryptography', superadminOnly: true },
-  { to: '/credential-inventory', label: 'Credential Inventory', superadminOnly: true },
-  { to: '/federated-services', label: 'Federated Services', superadminOnly: true },
-  { to: '/collusion-access', label: 'Collusion & Access', superadminOnly: true },
-  { to: '/rbac-analysis', label: 'RBAC Analysis', superadminOnly: true },
-  { to: '/rbac-explorer', label: 'RBAC Explorer', superadminOnly: true },
-  { to: '/network-tests', label: 'Network Tests', superadminOnly: true },
-  { to: '/supercred', label: 'SuperCredential Demo', superadminOnly: true },
-  { to: '/fleet', label: 'Fleet Demo', superadminOnly: true },
-  { to: '/agent-trust-topology', label: 'Agent Trust Topology' },
-  { to: '/settings', label: 'Settings' },
+  { to: '/discovery', label: 'Discovery', section: 'Workspace' },
+  { to: '/agents', label: 'Agents', section: 'Workspace' },
+  { to: '/compliance', label: 'Compliance', section: 'Governance', end: true },
+  { to: '/compliance/policies', label: 'Policy Compliance', section: 'Governance' },
+  { to: '/compliance/posture', label: 'Agent Posture', section: 'Governance' },
+  { to: '/compliance/risk', label: 'Risk Exposure', section: 'Governance' },
+  { to: '/audit', label: 'Audit Trail', section: 'Governance' },
+  { to: '/cryptography', label: 'Cryptography', section: 'Governance', superadminOnly: true },
+  { to: '/credential-inventory', label: 'Credential Inventory', section: 'Governance', superadminOnly: true },
+  { to: '/federated-services', label: 'Federated Services', section: 'Governance', superadminOnly: true },
+  { to: '/collusion-access', label: 'Collusion & Access', section: 'Governance', superadminOnly: true },
+  { to: '/rbac-analysis', label: 'RBAC Analysis', section: 'Governance', superadminOnly: true },
+  { to: '/rbac-explorer', label: 'RBAC Explorer', section: 'Governance', superadminOnly: true },
+  { to: '/network-tests', label: 'Network Tests', section: 'Governance', superadminOnly: true },
+  { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', superadminOnly: true },
+  { to: '/fleet', label: 'Fleet Demo', section: 'Governance', superadminOnly: true },
+  { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance' },
+  { to: '/settings', label: 'Settings', section: 'Configuration' },
 ]
 
 export default function Sidebar() {
@@ -97,7 +100,7 @@ export default function Sidebar() {
     <>
       <HelpModal />
       <ApiKeyRevealModal />
-      <nav style={{
+      <nav aria-label="Primary navigation" className="sl-sidebar" style={{
         width: 268,
         minWidth: 268,
         height: '100vh',
@@ -144,11 +147,15 @@ export default function Sidebar() {
 
         {/* Nav links */}
         <div style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 2, overflowY: 'auto' }}>
-          {navItems.map(({ to, label, end }, i) => (
+          {navItems.map(({ to, label, end, section }, i) => (
+            <div key={to}>
+            {(i === 0 || navItems[i - 1].section !== section) && (
+              <div className="sl-sidebar__section-label">{section}</div>
+            )}
             <NavLink
-              key={to}
               to={to}
               end={end}
+              className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
               onMouseEnter={() => setHoveredNav(i)}
               onMouseLeave={() => setHoveredNav(null)}
               style={({ isActive }) => ({
@@ -160,7 +167,7 @@ export default function Sidebar() {
                 fontSize: 14,
                 fontWeight: isActive ? 600 : 400,
                 color: isActive ? 'var(--cyan)' : 'var(--muted)',
-                background: isActive ? 'rgba(6,182,212,0.10)' : 'transparent',
+                background: isActive ? 'var(--surface2)' : 'transparent',
                 transition: 'color 0.12s, background 0.12s',
                 textDecoration: 'none',
               })}
@@ -235,6 +242,7 @@ export default function Sidebar() {
                 </span>
               )}
             </NavLink>
+            </div>
           ))}
 
           {/* Superadmin-only nav block */}
@@ -248,6 +256,7 @@ export default function Sidebar() {
                 <NavLink
                   key={to}
                   to={to}
+                  className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
                   style={({ isActive }) => ({
                     display: 'flex',
                     alignItems: 'center',
@@ -257,7 +266,7 @@ export default function Sidebar() {
                     fontSize: 14,
                     fontWeight: isActive ? 600 : 400,
                     color: isActive ? 'var(--cyan)' : 'var(--muted)',
-                    background: isActive ? 'rgba(6,182,212,0.10)' : 'transparent',
+                    background: isActive ? 'var(--surface2)' : 'transparent',
                     transition: 'color 0.12s, background 0.12s',
                     textDecoration: 'none',
                   })}
@@ -273,6 +282,7 @@ export default function Sidebar() {
         <div style={{ padding: '8px 8px 16px', borderTop: '1px solid var(--border)' }}>
           <button
             onClick={() => setHelpOpen(true)}
+            aria-label="Open help and support"
             style={{
               width: '100%',
               display: 'flex',
@@ -298,6 +308,7 @@ export default function Sidebar() {
             <button
               data-testid="superadmin-toggle"
               onClick={() => setSuperadmin(!superadmin)}
+              aria-label="Toggle superadmin navigation"
               aria-pressed={superadmin}
               title="Show or hide the superadmin-only sections"
               style={{
@@ -329,7 +340,7 @@ export default function Sidebar() {
                 borderRadius: 99,
                 padding: '1px 6px',
                 color: superadmin ? 'var(--cyan)' : 'var(--muted)',
-                background: superadmin ? 'rgba(6,182,212,0.10)' : 'transparent',
+                background: superadmin ? 'var(--surface2)' : 'transparent',
                 border: `1px solid ${superadmin ? 'var(--cyan)' : 'var(--border)'}`,
               }}>
                 {superadmin ? 'On' : 'Off'}
@@ -361,6 +372,7 @@ export default function Sidebar() {
             </div>
             <button
               onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+              aria-label="Sign out"
               style={{ background: 'none', border: 'none', color: 'var(--muted)', fontSize: 11, cursor: 'pointer', flexShrink: 0, padding: '2px 4px' }}
               title="Sign out"
             >

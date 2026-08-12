@@ -152,6 +152,19 @@ describe('Sidebar active-link precision', () => {
   })
 })
 
+describe('Sidebar primary navigation destinations', () => {
+  it('keeps core destinations as client-side route links', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    await screen.findByRole('link', { name: /Agents/ })
+    expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('href', '/agents')
+    expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('href', '/compliance')
+    expect(screen.getByRole('link', { name: /Audit Trail/ })).toHaveAttribute('href', '/audit')
+    expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('href', '/settings')
+  })
+})
+
 describe('Sidebar Agent Trust Topology navigation', () => {
   it('places Agent Trust Topology immediately before Settings', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())

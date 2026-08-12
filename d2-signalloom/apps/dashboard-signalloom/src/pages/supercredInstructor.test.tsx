@@ -159,6 +159,9 @@ function mockRunner(fixture: RunnerFixture = {}) {
     if (url === '/demo-api/reset') {
       return respond(fixture.startResponse ?? runView({ step_id: '5', kind: 'reset' }), 202)
     }
+    if (url === '/api/agents/agent-cardvault/stun' && method === 'POST') {
+      return respond({ event_type: 'agent.stunned' }, 200)
+    }
 
     // /supercred-api — the estate the existing page already renders.
     return respond({ agents, namespaces: [FLUX_NS] })
@@ -247,6 +250,53 @@ describe('instructor controls are superadmin-only', () => {
     await readyPanel()
     await waitFor(() => expect(screen.getByTestId('supercred-phase-status-3')).toHaveTextContent('succeeded'))
     expect(screen.getByTestId('supercred-show-on-3')).toHaveAttribute('href', '/compliance')
+  })
+})
+
+describe('reset clean-state boundary', () => {
+  it('shows phases as not run after a successful latest reset', async () => {
+    mockRunner({
+      recent: [
+        runView({ step_id: '5', kind: 'reset', status: 'succeeded', exit_code: 0 }),
+        ...['5', '4', '3', '2', '1'].map(step_id => runView({ step_id, status: 'succeeded', exit_code: 0 })),
+      ],
+    })
+    await readyPanel()
+
+    expect(screen.getByTestId('supercred-clean-state')).toHaveTextContent(/Clean state verified.*teardown completed/i)
+    for (const id of ['1', '2', '3', '4', '5']) {
+      expect(screen.getByTestId(`supercred-phase-status-${id}`)).toHaveTextContent('not run')
+      expect(screen.getByTestId(`supercred-run-step-${id}`)).toBeEnabled()
+    }
+  })
+
+  it('shows new phase progress after reset without discarding run history', async () => {
+    mockRunner({
+      recent: [
+        runView({ step_id: '1', status: 'succeeded', exit_code: 0 }),
+        runView({ step_id: '5', kind: 'reset', status: 'succeeded', exit_code: 0 }),
+      ],
+    })
+    await readyPanel()
+
+    expect(screen.queryByTestId('supercred-clean-state')).not.toBeInTheDocument()
+    expect(screen.getByTestId('supercred-phase-status-1')).toHaveTextContent('succeeded')
+  })
+
+  it('does not present prior-cycle phases as completed after starting deployment', async () => {
+    mockRunner({
+      recent: [
+        runView({ step_id: '1', status: 'running' }),
+        runView({ step_id: '5', kind: 'reset', status: 'succeeded', exit_code: 0 }),
+        ...['5', '4', '3', '2', '1'].map(step_id => runView({ step_id, status: 'succeeded', exit_code: 0 })),
+      ],
+    })
+    await readyPanel()
+
+    expect(screen.getByTestId('supercred-phase-status-1')).toHaveTextContent('running')
+    for (const id of ['2', '3', '4', '5']) {
+      expect(screen.getByTestId(`supercred-phase-status-${id}`)).toHaveTextContent('not run')
+    }
   })
 })
 
@@ -352,6 +402,33 @@ describe('the cluster is shared, so controls lock while a run is active', () => 
 // ─── Log streaming ────────────────────────────────────────────────────────────
 
 describe('the run log streams in incrementally', () => {
+  it('records one durable audit event after a successful phase-four run', async () => {
+    mockRunner({
+      startResponse: runView({ step_id: '4', status: 'running' }),
+      pollRuns: [runView({ step_id: '4', status: 'succeeded', exit_code: 0 })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-4'))
+
+    await waitFor(() => expect(demoApiCalls(c => c.url === '/api/agents/agent-cardvault/stun')).toHaveLength(1))
+    expect(demoApiCalls(c => c.url === '/api/agents/agent-cardvault/stun')[0].body).toMatchObject({ outcome: 'stunned' })
+  })
+
+  it('strips terminal color sequences from browser log output', async () => {
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'succeeded', exit_code: 0 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 42, chunk: '\u001b[1;36m[supercred]\u001b[0m tearing down\n', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-5'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('[supercred] tearing down'))
+    expect(screen.getByTestId('supercred-run-log')).not.toHaveTextContent('\u001b[')
+  })
+
   it('appends each chunk and advances the offset it asks for next', async () => {
     mockRunner({
       startResponse: runView({ status: 'running' }),
@@ -636,9 +713,8 @@ describe('the credential-lifecycle UI still works alongside the new controls', (
     await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
 
     expect(await screen.findByTestId('supercred-lifecycle')).toBeInTheDocument()
-    // The card is now the evidence panel; its per-step rows come from the
-    // evidence endpoint rather than from agent state, so assert the card
-    // renders rather than counting steps that no longer exist without a probe.
+    // The card is the evidence panel now; its rows come from the evidence
+    // endpoint rather than from agent state, so assert the card renders.
     expect(screen.getByTestId('credential-evidence-panel')).toBeInTheDocument()
     expect(screen.getByTestId('supercred-credentials')).toBeInTheDocument()
     expect(screen.getByTestId('supercred-discovery-summary')).toBeInTheDocument()
@@ -651,9 +727,8 @@ describe('the credential-lifecycle UI still works alongside the new controls', (
     await readyPanel()
     await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
     await screen.findByTestId('supercred-lifecycle')
-    // Visibility is the property that matters for a non-superadmin: the
-    // evidence card is read-only, so it renders for them exactly as it does
-    // for an instructor. Step rows require the evidence endpoint.
+    // Visibility is the property that matters for a non-superadmin: the evidence
+    // card is read-only, so it renders for them exactly as for an instructor.
     expect(screen.getByTestId('credential-evidence-panel')).toBeInTheDocument()
   })
 })

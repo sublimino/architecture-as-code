@@ -73,6 +73,7 @@ const LOG_TAIL_LINES = 12
 // The lifecycle scripts color terminal output with ANSI sequences. A browser
 // preformatted block renders those bytes literally, so remove them only when
 // displaying logs; raw runner bytes and offsets remain unchanged.
+// eslint-disable-next-line no-control-regex -- \u001B IS the escape byte this regex strips from runner log output; matching it literally is the point
 const ANSI_SGR = /\u001B\[[0-?]*[ -/]*[@-~]/g
 
 function displayLog(log: string): string {

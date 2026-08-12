@@ -3,6 +3,7 @@ import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
 import { CredentialEvidencePanel } from '../components/CredentialEvidencePanel'
+import HelpHint from '../components/HelpHint'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -422,9 +423,14 @@ export default function SuperCredPage() {
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
-          <button className="btn btn-primary" onClick={loadAgents} disabled={loading} style={{ fontSize: 12, padding: '6px 14px' }}>
-            {loading ? 'Loading...' : 'Refresh Agents'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-primary" onClick={loadAgents} disabled={loading} style={{ fontSize: 12, padding: '6px 14px' }}>
+              {loading ? 'Loading...' : 'Refresh Agents'}
+            </button>
+            <HelpHint label="About the agent-list refresh" testId="supercred-refresh-agents-help">
+              Refreshes only the visible SuperCred agent list from the runtime. It does not refresh demo-runner phase status or clear cached SuperCred state.
+            </HelpHint>
+          </div>
         </div>
         {agents.length > 0 && (
           <div style={{ marginTop: 12 }}>
@@ -501,11 +507,10 @@ export default function SuperCredPage() {
       </div>
 
       {/* Credential Lifecycle — observed evidence, not asserted progress.
-          Replaced a card that derived all six steps from `!!agent.id` and
-          printed hardcoded timestamps, so it read "completed" the instant an
-          agent existed. Backed by the same script as
-          `make demo-signalloom-supercred-evidence`, so the UI and a terminal
-          cannot disagree. */}
+          The previous card derived all six steps from `!!agent.id` and printed
+          hardcoded 2026-01-01 timestamps, which is why it showed everything
+          completed after only the first deploy. Backed by the same script as
+          `make demo-signalloom-supercred-evidence`. */}
       {activeAgent && (
         <div data-testid="supercred-lifecycle" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
           <CredentialEvidencePanel />

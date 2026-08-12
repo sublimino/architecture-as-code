@@ -139,7 +139,9 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 30
+      # 120s, not 30s: the control probe below may wait for the CNI to program
+      # this pod's rules before the real assertion can run at all.
+      activeDeadlineSeconds: 120
       template:
         metadata: {labels: {agent-trust.signalloom.io/probe: planner-egress-denied, app.kubernetes.io/name: agent-trust-planner}}
         spec:
@@ -153,6 +155,34 @@ spec:
               command: [sh, -ec]
               args:
                 - |
+                  # A brand-new pod is briefly UNCONFINED. The CNI programs its
+                  # NetworkPolicy rules shortly AFTER it starts running, so an
+                  # `nc` fired at t=0 reaches anything and this probe reported
+                  # "arbitrary planner egress unexpectedly reachable" — a
+                  # security hole that does not exist. Observed 2026-08-12:
+                  # this probe failed on every run, while an identically
+                  # labelled pod given 20s to settle was correctly denied.
+                  #
+                  # A denial is only evidence once enforcement is live, so
+                  # prove that first. The planner is ALLOWED to reach OpenBao,
+                  # so that path succeeding is a positive control: it shows the
+                  # rules for THIS pod are programmed. Only then does a refused
+                  # 1.1.1.1 mean the policy denied it rather than the CNI not
+                  # having caught up.
+                  #
+                  # Fails UNVERIFIED rather than passing if the control never
+                  # comes up — same fail-closed vocabulary as the rest of the
+                  # slice; a probe that cannot observe enforcement must never
+                  # report a pass.
+                  deadline=$(( $(date +%s) + 60 ))
+                  until nc -z -w 3 openbao.inf-bao.svc.cluster.local 8200; do
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                      printf '{"observed_at":"%s","outcome":"unverified","reason":"NetworkPolicy enforcement never became observable; denial unproven"}' "$now" > /dev/termination-log
+                      exit 1
+                    fi
+                    sleep 2
+                  done
                   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                   if nc -z -w 5 1.1.1.1 443; then
                     printf '{"observed_at":"%s","outcome":"fail","reason":"arbitrary planner egress unexpectedly reachable"}' "$now" > /dev/termination-log

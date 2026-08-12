@@ -450,7 +450,7 @@ function AttentionPanel({ alerts, onAlert }: {
 
 // ─── Governed Tab ────────────────────────────────────────────────────────────
 
-const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked']
+const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked'] as const
 
 const LIFECYCLE_LABELS: Record<string, string> = {
   all: 'All states',
@@ -467,8 +467,9 @@ const LIFECYCLE_TOOLTIP: Record<string, string> = {
   revoked: 'Permanently revoked — terminal state; credentials refused.',
 }
 
-function AgentTableRow({ agent, onNavigate, onEdit }: {
+function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
   agent: AgentResponse
+  shown: boolean
   onNavigate: (id: string) => void
   onEdit: (agent: AgentResponse) => void
 }) {
@@ -476,6 +477,11 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
   const compStatus = agentComplianceStatus(agent)
 
   return (
+    <tbody
+      className="sl-filter-table-row"
+      aria-hidden={!shown}
+      style={{ gridTemplateRows: shown ? '1fr' : '0fr', opacity: shown ? 1 : 0 }}
+    >
     <tr
       onClick={() => onNavigate(agent.id)}
       style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
@@ -547,6 +553,7 @@ function AgentTableRow({ agent, onNavigate, onEdit }: {
         </button>
       </td>
     </tr>
+    </tbody>
   )
 }
 
@@ -633,6 +640,7 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
                 aria-pressed={lifecycleFilter === state}
                 onClick={() => setLifecycleFilter(state)}
               >
+                {state !== 'all' && <span aria-hidden="true" className={`sl-filter-dot sl-filter-dot--${state}`} />}
                 {LIFECYCLE_LABELS[state]}
                 <span className="sl-filter-chip__count">{lifecycleCounts[state]}</span>
               </button>
@@ -681,11 +689,18 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
                   <th style={{ ...TH_STYLE, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {filtered.map((a) => (
-                  <AgentTableRow key={a.id} agent={a} onNavigate={(id) => navigate(`/agents/${id}`)} onEdit={setEditingAgent} />
-                ))}
-              </tbody>
+              {agents.map((a) => {
+                  const shown = filtered.some((agent) => agent.id === a.id)
+                  return (
+                    <AgentTableRow
+                      key={a.id}
+                      agent={a}
+                      shown={shown}
+                      onNavigate={(id) => navigate(`/agents/${id}`)}
+                      onEdit={setEditingAgent}
+                    />
+                  )
+                })}
             </table>
           </div>
         )}

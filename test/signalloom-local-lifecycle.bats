@@ -73,20 +73,42 @@ line_number() {
   [ "$helper" -lt "$image" ]
 }
 
+# These asserted the literal `kind load docker-image --name osramp <image>`
+# until 770e523 routed the images most at risk through
+# scripts/kind-load-verified.sh: on a Docker daemon backed by the containerd
+# image store, plain `kind load` exits 0 having transferred nothing, and
+# fake-integration-proxy:dev and fe-signalloom:latest are the two it drops.
+# The pods then sit in ImagePullBackOff and CI stages 6-8 fail together naming
+# no image at all -- masked on a warm VM whose node cache survives, fatal on
+# every cold run.
+#
+# Pinned to the raw command, these guards demanded the exact form that fix
+# removed, so they failed against a tree that is strictly more correct. Assert
+# that each image reaches the Kind node and accept either loader; the verified
+# one is a strict improvement, and dashboard-signalloom still uses the plain
+# call, so both spellings are live in the same target.
+assert_kind_loaded() {
+  local image="$1" out="$2"
+  [[ "$out" == *"kind load docker-image --name osramp ${image}"* ]] && return 0
+  [[ "$out" == *"kind-load-verified.sh"*"${image}"* ]] && return 0
+  echo "no kind load of ${image} in \`make -n signalloom-images\`" >&2
+  return 1
+}
+
 @test "local lifecycle loads the fake integration proxy image into Kind" {
   run make -n signalloom-images
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"docker build -t fake-integration-proxy:dev"* ]]
-  [[ "$output" == *"kind load docker-image --name osramp fake-integration-proxy:dev"* ]]
+  assert_kind_loaded "fake-integration-proxy:dev" "$output"
 }
 
 @test "local lifecycle refreshes both portal images in Kind" {
   run make -n signalloom-images
 
   [ "$status" -eq 0 ]
-  [[ "$output" == *"kind load docker-image --name osramp zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest"* ]]
-  [[ "$output" == *"kind load docker-image --name osramp zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest"* ]]
+  assert_kind_loaded "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest" "$output"
+  assert_kind_loaded "zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest" "$output"
 }
 
 @test "Phase 1 is exposed through the approved demo lifecycle rather than a new wrapper" {

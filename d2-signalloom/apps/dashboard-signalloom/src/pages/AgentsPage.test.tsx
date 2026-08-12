@@ -187,6 +187,20 @@ describe('AgentsPage — Live Data Wiring', () => {
     expect(screen.getByText('Beta Agent')).toBeInTheDocument()
   })
 
+  it('keeps populated agent cells in the native table row', async () => {
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [makeAgent()], total: 1,
+    })
+    renderPage()
+
+    const name = await screen.findByText('Invoice Bot')
+    const row = name.closest('tr')!
+    expect(row).toContainElement(screen.getByText('Signal Loom Built'))
+    expect(row).toContainElement(screen.getByText('ops@acme.com'))
+    expect(within(row).getByText('active')).toBeInTheDocument()
+    expect(row.querySelectorAll('td')).toHaveLength(10)
+  })
+
   it('correctly filters governed agents by lifecycle state', async () => {
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [

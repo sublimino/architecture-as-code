@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
+import { CredentialEvidencePanel } from '../components/CredentialEvidencePanel'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -71,13 +72,6 @@ interface CredentialRecord {
   rotation_count: number
 }
 
-interface LifecycleStep {
-  step: number
-  label: string
-  description: string
-  status: 'completed' | 'active' | 'pending' | 'failed'
-  timestamp: string | null
-}
 
 // A pod whose image never loaded reports phase `Pending` — `ImagePullBackOff` is
 // a container waiting reason, not a phase — so `Pending` has to count as blocked.
@@ -102,57 +96,6 @@ function agentPath(agent: RuntimeAgent, suffix: string): string {
 }
 
 // ─── Fake lifecycle data for demo enrichment ────────────────────────────────
-
-function buildLifecycleSteps(agent: RuntimeAgent): LifecycleStep[] {
-  const isStunned = agent.state === 'stunned'
-  const hasAgent = !!agent.id
-  return [
-    {
-      step: 1,
-      label: 'Agent Deployment',
-      description: 'demo-cc-agent deployed via Flux into cluster namespace',
-      status: hasAgent ? 'completed' : 'pending',
-      timestamp: hasAgent ? '2026-01-01T00:00:01Z' : null,
-    },
-    {
-      step: 2,
-      label: 'SPIFFE Identity',
-      description: 'Workload identity issued via SPIRE — SVID bound to pod service account',
-      status: hasAgent ? 'completed' : 'pending',
-      timestamp: hasAgent ? '2026-01-01T00:00:02Z' : null,
-    },
-    {
-      step: 3,
-      label: 'OpenBao Exchange',
-      description: 'SVID exchanged for OpenBao dynamic secret — short-lived credential minted',
-      status: hasAgent ? 'completed' : 'pending',
-      timestamp: hasAgent ? '2026-01-01T00:00:03Z' : null,
-    },
-    {
-      step: 4,
-      label: 'Service Access',
-      description: 'Agent calls fake credit-card service using minted credential',
-      status: hasAgent ? 'completed' : 'pending',
-      timestamp: hasAgent ? '2026-01-01T00:00:04Z' : null,
-    },
-    {
-      step: 5,
-      label: 'Compliance Scan',
-      description: 'Platform scans agent pod for securityContext, resource limits, and network policy',
-      status: hasAgent ? 'active' : 'pending',
-      timestamp: hasAgent ? '2026-01-01T00:00:05Z' : null,
-    },
-    {
-      step: 6,
-      label: 'Platform Response',
-      description: isStunned
-        ? 'Credential revoked and agent isolated — OpenBao lease terminated'
-        : 'Awaiting operator action — stun available if non-compliant',
-      status: isStunned ? 'failed' : 'pending',
-      timestamp: isStunned ? (agent.stunned_at ?? '2026-01-01T00:01:00Z') : null,
-    },
-  ]
-}
 
 function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
   const isStunned = agent.state === 'stunned'
@@ -202,12 +145,6 @@ const CRED_STATUS_COLORS: Record<CredentialStatus, { bg: string; fg: string }> =
   expired:  { bg: 'rgba(217,119,6,0.12)', fg: 'var(--amber)' },
 }
 
-const STEP_STATUS_COLORS: Record<string, { bg: string; border: string; dot: string }> = {
-  completed: { bg: 'rgba(16,185,129,0.08)', border: 'rgba(16,185,129,0.3)', dot: colors.tealLoom },
-  active:    { bg: 'rgba(6,182,212,0.08)', border: 'rgba(6,182,212,0.3)', dot: colors.cyanLoom },
-  pending:   { bg: 'rgba(71,85,105,0.08)', border: 'rgba(71,85,105,0.2)', dot: colors.slateGray },
-  failed:    { bg: 'rgba(220,38,38,0.08)', border: 'rgba(220,38,38,0.3)', dot: colors.red },
-}
 
 
 // ─── Demo-data mode step controls ───────────────────────────────────────────
@@ -398,7 +335,6 @@ export default function SuperCredPage() {
 
   // Derive lifecycle and credential data from the first supercred agent
   const activeAgent = agents[0] ?? null
-  const lifecycleSteps = activeAgent ? buildLifecycleSteps(activeAgent) : []
   const credentialRecords = activeAgent ? buildCredentialRecords(activeAgent) : []
 
   return (
@@ -564,53 +500,15 @@ export default function SuperCredPage() {
         )}
       </div>
 
-      {/* Credential Lifecycle Timeline */}
+      {/* Credential Lifecycle — observed evidence, not asserted progress.
+          Replaced a card that derived all six steps from `!!agent.id` and
+          printed hardcoded timestamps, so it read "completed" the instant an
+          agent existed. Backed by the same script as
+          `make demo-signalloom-supercred-evidence`, so the UI and a terminal
+          cannot disagree. */}
       {activeAgent && (
         <div data-testid="supercred-lifecycle" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Credential Lifecycle</h2>
-          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.5 }}>
-            Each step in the SuperCred chain for <strong>{activeAgent.name}</strong>.
-            The platform enforces policy at every transition.
-          </p>
-          <div data-testid="supercred-lifecycle-steps" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {lifecycleSteps.map((step) => {
-              const sc = STEP_STATUS_COLORS[step.status] ?? STEP_STATUS_COLORS.pending
-              return (
-                <div key={step.step} data-testid={`lifecycle-step-${step.step}`} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 12,
-                  padding: '10px 14px', borderRadius: 6,
-                  background: sc.bg, border: `1px solid ${sc.border}`,
-                }}>
-                  <div style={{
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: sc.dot, marginTop: 4, flexShrink: 0,
-                  }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ fontWeight: 600, fontSize: 13 }}>
-                        Step {step.step}: {step.label}
-                      </span>
-                      <span data-testid={`lifecycle-status-${step.step}`} style={{
-                        fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-                        padding: '1px 6px', borderRadius: 3,
-                        background: sc.border, color: sc.dot,
-                      }}>
-                        {step.status}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
-                      {step.description}
-                    </div>
-                    {step.timestamp && (
-                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
-                        {step.timestamp}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+          <CredentialEvidencePanel />
         </div>
       )}
 

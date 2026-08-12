@@ -43,6 +43,19 @@ if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]
 if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then printf 'Entry ID : fixture-entry\n'; fi
 if [[ "$*" == *'exec deployment/'* ]]; then
   if [[ "${AGENT_TRUST_FAKE_UNEXPECTED_ALLOW:-0}" == 1 && "$*" == *'deployment/agent-trust-risk-reader'* ]]; then exit 0; fi
+  # Breakage that exits 1 exactly like a dropped packet does. Scoped to the nc
+  # probes so the call-a2a exec is untouched. The stderr strings are copied from
+  # real failures: busybox nc emits "bad address", and kubectl emits the exec and
+  # not-found messages.
+  if [[ "$*" == *' nc -z '* && "${AGENT_TRUST_FAKE_DNS_FAILURE:-0}" == 1 && "$*" == *'deployment/agent-trust-risk-reader'* ]]; then
+    printf "nc: bad address 'agent-trust-triage.agent-trust-acme-payments.svc'\n" >&2; exit 1
+  fi
+  if [[ "$*" == *' nc -z '* && "${AGENT_TRUST_FAKE_NC_MISSING:-0}" == 1 && "$*" == *'deployment/agent-trust-risk-reader'* ]]; then
+    printf 'OCI runtime exec failed: exec failed: unable to start container process: exec: "nc": executable file not found in $PATH\n' >&2; exit 126
+  fi
+  if [[ "$*" == *' nc -z '* && "${AGENT_TRUST_FAKE_PROBE_POD_ABSENT:-0}" == 1 && "$*" == *'deployment/agent-trust-risk-reader'* ]]; then
+    printf 'error: unable to upgrade connection: container not found ("risk-reader")\n' >&2; exit 1
+  fi
   if [[ "$*" == *'deployment/agent-trust-risk-reader'* || "$*" == *'deployment/agent-trust-investigator'* || "$*" == *' 1.1.1.1 443'* ]]; then exit 1; fi
 fi
 if [[ "$*" == *'get resourceset -o json'* ]]; then
@@ -92,6 +105,16 @@ line_number() {
   bao_preflight=$(line_number 'wait resourceset/signalloom-infra --for=condition=ready')
   [ "$suspend" -lt "$restore" ]
   [ "$restore" -lt "$bao_preflight" ]
+}
+
+@test "Agent Trust Flux bootstrap grants roles and rolebindings before reconciliation" {
+  fleet="$root/d2-osramp-fleet/tenants/base/agent-trust.yaml"
+  run yq -o=json 'select(.kind == "ResourceSet") | .spec.resources[] | select(.kind == "ClusterRole" and .metadata.name == "agent-trust-flux-workloads")' "$fleet"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *'"roles"'* ]]
+  [[ "$output" == *'"rolebindings"'* ]]
+  [[ "$output" == *'"pods"'* ]]
+  [[ "$output" == *'"patch"'* ]]
 }
 
 @test "repeat activation changes nonce without changing logical Agent Trust inputs" {
@@ -164,6 +187,40 @@ line_number() {
   ! grep -Fq 'signalloom-spire-proof call-a2a' "$log"
 }
 
+# A denial is only evidence if the probe could have succeeded. `nc` exits 1 for a
+# dropped packet, an unresolvable name, a missing binary and a dead container
+# alike — so without these three, every deny assertion in the suite passes on any
+# breakage and the run still prints "enforced NetworkPolicy evidence passed".
+# Verified against busybox:1.36, the image the scaffold pods actually run:
+# `nc -z -w 2 240.0.0.1 9999` and `nc -z -w 2 nope.invalid 9999` both exit 1.
+
+@test "a denial that is really a DNS failure is UNVERIFIED, not evidence" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_DNS_FAILURE=1 "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"UNVERIFIED"* ]]
+  [[ "$output" == *"DNS failed"* ]]
+  [[ "$output" != *"NetworkPolicy evidence passed"* ]]
+}
+
+@test "a denial produced by a missing nc binary is UNVERIFIED, not evidence" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_NC_MISSING=1 "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"UNVERIFIED"* ]]
+  [[ "$output" == *"probe itself is unusable"* ]]
+  [[ "$output" != *"NetworkPolicy evidence passed"* ]]
+}
+
+@test "a denial from a pod that is not running is UNVERIFIED, not evidence" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_PROBE_POD_ABSENT=1 "$root/scripts/agent-trust-local.sh" network-test
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"UNVERIFIED"* ]]
+  [[ "$output" == *"is not running"* ]]
+  [[ "$output" != *"NetworkPolicy evidence passed"* ]]
+}
+
 @test "unexpectedly allowed denied dataplane path fails network evidence" {
   run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet AGENT_TRUST_FAKE_UNEXPECTED_ALLOW=1 \
     "$root/scripts/agent-trust-local.sh" network-test
@@ -208,7 +265,7 @@ line_number() {
   grep -Fq 'name: agent-trust-flux' "$resource"
   grep -Fq 'resources: [namespaces]' "$resource"
   [ "$(grep -c 'kind: Namespace' "$resource")" -eq 6 ]
-  [ "$(grep -c 'kind: RoleBinding' "$resource")" -eq 6 ]
+  [ "$(grep -c 'kind: RoleBinding' "$resource")" -eq 12 ]
   grep -Fq 'verbs: [get, list, watch, create]' "$resource"
   grep -Fq 'verbs: [get, update, patch, delete]' "$resource"
   grep -Fq 'resourceNames:' "$resource"

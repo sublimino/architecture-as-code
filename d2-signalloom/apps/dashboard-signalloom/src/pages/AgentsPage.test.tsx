@@ -200,11 +200,44 @@ describe('AgentsPage — Live Data Wiring', () => {
     await screen.findByText('Active Agent')
 
     // Filter to suspended only
-    const select = screen.getByDisplayValue('All states')
-    await userEvent.selectOptions(select, 'suspended')
+    await userEvent.click(screen.getByTestId('agent-lifecycle-filter-suspended'))
 
     expect(screen.queryByText('Active Agent')).not.toBeInTheDocument()
     expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
+  })
+
+  it('restores the unfiltered rows after clearing filters', async () => {
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [
+        makeAgent({ name: 'Active Agent', lifecycle_state: 'active' }),
+        makeAgent({ id: 'agent-2', name: 'Suspended Agent', lifecycle_state: 'suspended' }),
+      ],
+      total: 2,
+    })
+    renderPage()
+
+    await screen.findByText('Active Agent')
+    const search = screen.getByRole('textbox', { name: 'Search agents' })
+    await userEvent.type(search, 'suspended')
+    expect(screen.queryByText('Active Agent')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    expect(screen.getByText('Active Agent')).toBeInTheDocument()
+    expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
+  })
+
+  it('shows a no-results state for a nonmatching text filter', async () => {
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [makeAgent({ name: 'Active Agent', lifecycle_state: 'active' })],
+      total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Active Agent')
+    await userEvent.type(screen.getByRole('textbox', { name: 'Search agents' }), 'missing')
+
+    expect(screen.getByText('No agents match your filter')).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Search agents' })).toBeInTheDocument()
   })
 })
 

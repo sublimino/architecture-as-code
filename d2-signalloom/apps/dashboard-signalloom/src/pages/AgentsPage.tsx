@@ -1,3 +1,5 @@
+// Filter interaction adapted from Beautiful UI Filter Table (MIT); see
+// THIRD_PARTY_NOTICES.md. Signal Loom owns data, tokens, and semantics.
 // TODO: migrate table to DataTable (1 table with search/lifecycle filtering)
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -449,6 +451,14 @@ function AttentionPanel({ alerts, onAlert }: {
 
 const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked']
 
+const LIFECYCLE_LABELS: Record<string, string> = {
+  all: 'All states',
+  active: 'Active',
+  enrolled: 'Enrolled',
+  suspended: 'Suspended',
+  revoked: 'Revoked',
+}
+
 const LIFECYCLE_TOOLTIP: Record<string, string> = {
   enrolled: 'Registered but not yet activated — cannot authenticate until transitioned to active.',
   active: 'Active and authorized to operate.',
@@ -568,6 +578,13 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
     return list
   }, [agents, search, lifecycleFilter])
 
+  const lifecycleCounts = useMemo(() => Object.fromEntries(
+    LIFECYCLE_OPTIONS.map((state) => [
+      state,
+      state === 'all' ? agents.length : agents.filter((agent) => agent.lifecycle_state === state).length,
+    ])
+  ), [agents])
+
   const phase = loadPhase({ loading, error, loaded })
   if (phase === 'loading' || phase === 'idle' || phase === 'error') {
     return <LoadingState variant="block" status={phase} label="agents" error={error} onRetry={onRetry} testId="agents-load-state" />
@@ -596,25 +613,30 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
       {/* Table */}
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Filter bar */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <input
             type="text"
+            aria-label="Search agents"
             placeholder="Search agents…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             style={{ flex: 1, maxWidth: 280 }}
           />
-          <select
-            value={lifecycleFilter}
-            onChange={(e) => setLifecycleFilter(e.target.value)}
-            style={{ width: 140 }}
-          >
-            {LIFECYCLE_OPTIONS.map(o => (
-              <option key={o} value={o}>
-                {o === 'all' ? 'All states' : o.charAt(0).toUpperCase() + o.slice(1)}
-              </option>
+          <div className="sl-filter-chips" role="group" aria-label="Filter agents by lifecycle state">
+            {LIFECYCLE_OPTIONS.map((state) => (
+              <button
+                key={state}
+                type="button"
+                className="sl-filter-chip"
+                data-testid={`agent-lifecycle-filter-${state}`}
+                aria-pressed={lifecycleFilter === state}
+                onClick={() => setLifecycleFilter(state)}
+              >
+                {LIFECYCLE_LABELS[state]}
+                <span className="sl-filter-chip__count">{lifecycleCounts[state]}</span>
+              </button>
             ))}
-          </select>
+          </div>
           {(search || lifecycleFilter !== 'all') && (
             <button
               className="btn btn-secondary"
@@ -642,7 +664,7 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
             <EmptyState kicker="No agents match your filter" body="Try clearing the search or changing the state filter." />
           )
         ) : (
-          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <div className="card" role="region" aria-label="Governed agents table" tabIndex={0} style={{ padding: 0, overflow: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
@@ -668,7 +690,7 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
         )}
 
         {filtered.length > 0 && (
-          <div style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
+          <div aria-live="polite" style={{ marginTop: 10, fontSize: 12, color: 'var(--muted)' }}>
             Showing {filtered.length} of {agents.length} agents
           </div>
         )}

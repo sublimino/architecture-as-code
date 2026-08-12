@@ -253,6 +253,35 @@ run_stage \
   "stage1-static.tap" \
   "cd ${WORK_DIR} && make -C d2-signalloom test"
 
+# Stage 1b: Dashboard unit and guard suite (vitest)
+#
+# Numbered 1b rather than renumbering 2-8: openreports-convert.sh maps report
+# FILES to parsers by name, so inserting a stage costs nothing as long as the
+# existing filenames stay put.
+#
+# Placed here, before ~25 minutes of cluster work, because it is the cheapest
+# stage in the pipeline (~12s) and it gates the most expensive ones.
+#
+# This suite ran nowhere in CI until now, which mattered more than it sounds:
+# it carries lockfileSync.test.ts, the guard for this directory being the only
+# one in the repo with both a bun.lock and a package-lock.json. `bun add`
+# writes the former while the dashboard Dockerfile runs `npm ci` against the
+# latter, so a desync builds clean locally and breaks the image on any clean
+# tree. That drift has reached a cold VM once already. It was caught then by
+# the Dockerfile's own `npm ci` failing, which is luck rather than a guard --
+# and luck that only pays out after the image build stage, not here.
+#
+# --frozen-lockfile is the point of the install, not a detail: it makes a
+# lockfile that disagrees with package.json a stage failure rather than
+# something bun silently reconciles on the way past.
+run_stage \
+  "Dashboard unit and guard suite" \
+  "stage1b-dashboard-unit.txt" \
+  "cd ${WORK_DIR}/d2-signalloom/apps/dashboard-signalloom && \
+   bun install --frozen-lockfile && \
+   bun run test --run --reporter=junit \
+     --outputFile=${REPORT_DIR}/stage1b-dashboard-unit.xml"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

@@ -1,0 +1,72 @@
+import { expect, test } from '@playwright/test'
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/')
+  await page.evaluate(() => localStorage.clear())
+  await page.reload()
+})
+
+test('navigates the primary operator journey through the sidebar', async ({ page }) => {
+  await expect(page.getByRole('heading', { level: 1, name: 'Your estate, explained.' })).toBeVisible()
+  await page.getByRole('link', { name: /Agent health/ }).click()
+  await expect(page).toHaveURL(/\/agents$/)
+  await expect(page.getByRole('heading', { level: 1, name: 'Agent health' })).toBeVisible()
+  await page.getByRole('link', { name: /Controls & evidence/ }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Controls & evidence' })).toBeVisible()
+  await page.getByRole('link', { name: /Activity history/ }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Activity history' })).toBeVisible()
+})
+
+test('reveals specialist navigation without guarding direct routes', async ({ page }) => {
+  await expect(page.getByRole('link', { name: /Permission findings/ })).toHaveCount(0)
+  await page.locator('label.admin-toggle').click()
+  await expect(page.getByRole('link', { name: /Permission findings/ })).toBeVisible()
+  await page.getByRole('link', { name: /Permission findings/ }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Permission findings' })).toBeVisible()
+  await page.locator('label.admin-toggle').click()
+  await expect(page.getByRole('link', { name: /Permission findings/ })).toHaveCount(0)
+  await expect(page.getByRole('heading', { level: 1, name: 'Permission findings' })).toBeVisible()
+})
+
+test('persists theme and offers an accessible inverse action', async ({ page }) => {
+  await page.getByTestId('theme-toggle').click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await page.reload()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect(page.getByRole('button', { name: 'Switch to dark theme' })).toBeVisible()
+})
+
+test('supports graph zoom, reset, selection, and pointer panning', async ({ page }) => {
+  await page.getByRole('link', { name: /Trust topology/ }).click()
+  const viewport = page.locator('.react-flow__viewport')
+  await expect(viewport).toBeVisible()
+  const initial = await viewport.getAttribute('style')
+  await page.getByTestId('zoom-in').click()
+  await expect.poll(() => viewport.getAttribute('style')).not.toBe(initial)
+  await page.getByRole('button', { name: /SPIRE identity/ }).click()
+  await expect(page.getByRole('complementary').getByRole('heading', { name: 'SPIRE identity' })).toBeVisible()
+  await page.getByTestId('graph-reset').click()
+  await expect(page.getByRole('complementary').getByRole('heading', { name: 'CardVault' })).toBeVisible()
+  const canvas = page.getByTestId('trust-graph')
+  const box = await canvas.boundingBox()
+  if (!box) throw new Error('graph canvas has no bounding box')
+  const beforePan = await viewport.getAttribute('style')
+  await page.mouse.move(box.x + box.width * 0.7, box.y + box.height * 0.7)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.55, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(() => viewport.getAttribute('style')).not.toBe(beforePan)
+  await page.mouse.wheel(0, -120)
+  await expect(viewport).toBeVisible()
+})
+
+test('mobile layout exposes grouped navigation through a dialog-like sheet', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  const drawer = page.getByRole('dialog', { name: 'Primary navigation' })
+  await expect(drawer).toHaveClass(/sidebar--open/)
+  await expect(page.getByRole('link', { name: /Agent health/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Close navigation' })).toBeFocused()
+  await page.getByRole('link', { name: /Agent health/ }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Agent health' })).toBeVisible()
+})

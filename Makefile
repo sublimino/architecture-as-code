@@ -37,6 +37,18 @@ up: ## Create the shared cluster foundation and advertise opt-in demos.
 .PHONY: help
 help: ## Display this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+	@printf '\n\033[1mWhere to read more\033[0m\n'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'AGENTS.md'                  'Start here — slices, shared foundation, conventions'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'scripts/ci/README.md'       'GCP CI VMs: warm/cold, locks, and the traps that cost hours'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/cluster-debugging.md'  'Cluster/registry faults + probes that lie'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'TESTING.md'                 'Which suites exist and what actually runs'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'd2-agent-trust/AGENTS.md'   'SPIFFE trust slice + its Pitfalls section'
+	@printf '\n\033[1mDebugging first moves\033[0m\n'
+	@printf '  %s\n' 'make doctor                                  full read-only cluster diagnostic'
+	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
+	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
+	@printf '  %s\n' 'unset SSH_AUTH_SOCK                          before any ad-hoc gcloud compute ssh, or it "times out"'
+	@printf '\n'
 
 ##@ Signal Loom preflight
 

@@ -187,6 +187,85 @@ cosign verify --key .keys/cosign.pub --insecure-ignore-tlog=true \
   --allow-insecure-registry <ref>@<digest>
 ```
 
+## 8. Probes that report a confident answer they did not earn
+
+The recurring failure in this repo is not a broken check — it is a check that
+**cannot fail**, or one that reports a cause it never measured. Root `AGENTS.md`
+states the rule: *a wait that can never succeed and a gate that always passes are
+the same bug wearing different hats.* Concrete instances, all found live:
+
+### `nc` exit codes cannot distinguish denial from breakage
+
+`busybox:1.36` returns **exit 1** for a blackholed IP *and* for an unresolvable
+host (`nc: bad address`), a missing binary, and a dead container. Only stderr
+differs. Any probe inspecting the status alone passes on any breakage:
+
+```bash
+nc -z -w 2 240.0.0.1 9999     # exit 1  — a real block
+nc -z -w 2 nope.invalid 9999  # exit 1  — DNS failure, indistinguishable
+```
+
+Capture stderr and classify. `scripts/agent-trust-local.sh` `expect_tcp` reports
+`UNVERIFIED` for breakage rather than counting it as a denial.
+
+### A brand-new pod is briefly UNCONFINED
+
+The CNI programs a pod's NetworkPolicy rules a moment **after** the container
+starts. A denial asserted at t=0 measures that gap, not the policy —
+`planner-egress-denied` reported "arbitrary egress unexpectedly reachable" on
+every run while an identically-labelled pod given 20s was correctly denied.
+
+Fix with a **positive control**: reach something the policy permits (kube-dns
+TCP/53 is allowed from every agent-trust namespace) to prove the dataplane is
+programmed, *then* assert the denial. Time out to `UNVERIFIED`, never a pass. A
+bare retry-until-denied is worse than the original bug — it makes a real hole
+indistinguishable from "not ready yet".
+
+### NetworkPolicies select on labels, not on identity
+
+A pod carrying the right ServiceAccount and SPIFFE ID still gets dropped if it
+lacks the label the policy names. The Fleet Manager 504 was exactly this: the
+policy admitted `app.kubernetes.io/part-of=signalloom`, the dashboard carries
+only `app.kubernetes.io/name=dashboard-signalloom`. **A NetworkPolicy naming a
+label the sender does not have is a closed door wearing a timeout's clothes.**
+
+Corollary: borrowing a workload's identity label captures every *other* selector
+that label feeds — Services, `kubectl get pods -l`, PDBs. Give probes
+`app.kubernetes.io/component: probe` and exclude it where a lookup requires
+exactly one pod.
+
+### A RoleBinding to a non-existent ServiceAccount is legal and SILENT
+
+`fleet-manager`'s binding named `namespace: default` for an SA living in
+`fe-signalloom`. It binds nothing, so every pod list/patch 403s — and client-go
+surfaces that as an **empty result**, not a permission error. The page renders an
+empty fleet with no reason given. Always verify the subject namespace matches
+where the Deployment actually runs.
+
+### An API path with no nginx `location` returns `index.html` with 200 OK
+
+`res.ok` is **true** for the SPA fallback, so a `fetch` goes straight to
+`res.json()` and throws `Unexpected token '<', "<!doctype "...`. That names the
+symptom and hides the cause. `d2-signalloom/test/dashboard-route-collisions.bats`
+guards both directions — proxy prefixes shadowing SPA routes, and every nginx
+upstream having a matching dashboard egress rule. It caught the Fleet egress gap
+the moment the proxy was added.
+
+### `kubectl -o jsonpath='{.items[0]...}'` with no matches EXITS 0
+
+It prints `error: ... array index out of bounds` on **stdout**. A naive
+`else` branch reads that error text as data. Establish the object exists first.
+
+### Reading the demo's own probe output
+
+Probe CronJobs use `terminationMessagePolicy: File`, so `kubectl logs` on a
+failed probe is **empty**. The verdict is in the termination message:
+
+```bash
+kubectl -n agent-trust-acme-payments get pod <probe-pod> \
+  -o jsonpath='{.status.containerStatuses[0].state.terminated.message}'
+```
+
 ## Recommendations for `make doctor` (`scripts/cluster-debug.sh`)
 
 The current report covers unhealthy pods, Flux Kustomizations/ResourceSets,

@@ -164,6 +164,95 @@ gcloud compute instances suspend signalloom-ci \
  └──────────┘
 ```
 
+## Operating the VMs — traps that cost real time
+
+Every entry here was a live failure. They share a shape: the symptom names
+something other than the cause, so the obvious diagnosis is the wrong one.
+
+### `SUSPENDED` is the SUCCESS state, not evidence nothing ran
+
+`gcp-ci.sh run` suspends on pass and deliberately **leaves the VM RUNNING on
+failure** so you can SSH in and investigate. A suspended VM therefore means the
+last run passed. Do not read it as "the run never started" — check
+`ci-reports*/summary.json` for the actual verdict.
+
+### `unset SSH_AUTH_SOCK` before any ad-hoc `gcloud compute ssh`
+
+With an agent loaded, `gcloud compute ssh` fails with `agent refused operation`.
+The wrapper scripts handle this; ad-hoc calls do not. The failure surfaces
+during the provisioning wait, so it reads as **a VM that never came up** — you
+will go looking at the serial console for a machine that is perfectly healthy.
+
+```bash
+unset SSH_AUTH_SOCK
+gcloud compute ssh signalloom-ci-2 --zone europe-west2-a --project cp-dev-ajm --tunnel-through-iap
+```
+
+### NEVER run `gcp-ci.sh destroy` for `signalloom-ci`
+
+`cmd_destroy` deletes the **shared VPC, Cloud NAT and firewall rules** that BOTH
+VMs depend on, not just the instance. Destroying VM1 breaks VM2 mid-run and
+costs ~15 minutes to rebuild. It early-returns to an instance-only delete for any
+other VM name, so `signalloom-ci-2` is safe to destroy — that is exactly how you
+get a genuine cold run, since `provision` is idempotent and will otherwise resume
+a warm disk.
+
+### The lock is PER-VM, and a stale one looks identical to a live one
+
+`ci-lock` state lives at `/home/ci/.ci-lock` **on whichever VM is targeted** —
+`ci-lock.sh` contains no VM name at all; `lock_shim` bakes `$VM_NAME` into the
+SSH command. So the two lanes hold independent locks and **warm and cold can run
+concurrently**. A refusal on one lane is that VM's own stale lock, never
+contention with the other.
+
+Before forcing, prove nothing is actually running:
+
+```bash
+unset SSH_AUTH_SOCK
+gcloud compute ssh signalloom-ci-2 --zone europe-west2-a --project cp-dev-ajm --tunnel-through-iap \
+  --command 'pgrep -af "vm-pipeline|bats|pytest"; sudo ls -l /home/ci/.ci-lock'
+# nothing running? then:
+GCP_CI_FORCE_LOCK=1 make ci-gcp-2
+```
+
+Locks older than 240m reclaim automatically. Historically the common cause of a
+stale lock was release being scheduled AFTER the suspend, so the release SSH
+could never land while `read_lock`'s `|| true` reported `already free` — that
+combination leaves a clean-looking log and a lock file on disk. Fixed, but the
+signature is worth recognising.
+
+### Warm vs cold, and why cold earns its keep
+
+`make ci-gcp` reuses `signalloom-ci`. `make ci-gcp-2` targets `signalloom-ci-2`;
+because `provision` is idempotent, it only gives a **genuinely cold** run if you
+destroy the instance first. Cold catches a whole defect class warm cannot:
+
+- `bun.lock` vs `package-lock.json` drift — `bun add` writes the former, the
+  dashboard Dockerfile runs `npm ci` against the latter, so a desync builds
+  clean locally and fails only on a clean tree. Stage 1b now runs the guard.
+- `kind load docker-image` exits 0 having transferred **nothing** on a Docker
+  daemon using the containerd image store. Masked warm (the node cache
+  survives), fatal cold. Use `scripts/kind-load-verified.sh`.
+
+### A green run that reports failure
+
+If 8/8 (now 9/9) stages pass and `make` still returns non-zero, suspect an EXIT
+trap: under `set -e` an EXIT trap's **final command status replaces** the status
+given to `exit`. This bit the lock-release path twice. Every path out of a trap
+should `return 0` explicitly.
+
+### Debugging shell traps inside the pipeline
+
+- **Never `pgrep`/`pkill` a pattern that appears in your own command line.** The
+  Bash tool wraps invocations in `bash -c 'eval ...'`, so the whole script text
+  is that shell's `/proc/*/cmdline`. `pkill -f pinentry` kills the shell running
+  it (silent exit 144). Filter: `pgrep -af PATTERN | grep -v 'claude\|grep'`.
+- **Never `set -u`.** The shell snapshot's `grep`/`rg` wrappers reference
+  `$ZSH_VERSION` unguarded; harmless in bash until nounset makes it fatal.
+- **Commits are unsigned here.** 199 of the last 200 repo-wide report `N`. Use
+  `git commit --no-gpg-sign`; a bare commit launches pinentry against a tty the
+  agent cannot reach and blocks until timeout.
+
 ## Reports
 
 | File | Format | Content |
@@ -171,6 +260,7 @@ gcloud compute instances suspend signalloom-ci \
 | `summary.json` | JSON | Overall pass/fail, per-stage results, commit SHA |
 | `signalloom-ci-report.yaml` | OpenReports v1alpha1 | All tests as ReportResult entries |
 | `stage1-static.tap` | TAP | BATS static contract results |
+| `stage1b-dashboard-unit.xml` | JUnit XML | vitest dashboard unit + guard suite |
 | `stage2-api.xml` | JUnit XML | pytest API contract results |
 | `stage3-fakes.xml` | JUnit XML | pytest fake integration results |
 | `stage4-dashboard.json` | Go test JSON | Dashboard API ownership results |

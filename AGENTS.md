@@ -91,9 +91,54 @@ make demo-<slice>-down      # Remove (keeps foundation)
 | Command | Scope |
 |---------|-------|
 | `make test` | End-to-end BATS against running cluster |
-| `make acceptance-test` | Playwright browser tests (all slices) |
+| `make acceptance-test` | Playwright browser tests — signalloom + k8s-afm, 68 tests / 9 specs |
 | `make demo-signalloom-api-test` | FastAPI contract + integration |
 | `make attested-test` | Test suite under witness attestation |
+
+## Remote CI — two GCP VMs
+
+Full 9-stage e2e runs against a real cluster, on persistent VMs that suspend
+between runs (~£0.02/day idle). Full operating guide, including the traps that
+misreport their own cause, is in [`scripts/ci/README.md`](scripts/ci/README.md).
+
+| Command | What it does |
+|---------|-------------|
+| `make ci-gcp` | Warm run — reuses `signalloom-ci` |
+| `make ci-gcp-2` | Second lane on `signalloom-ci-2` (cold only if you destroy the instance first) |
+| `make ci-status` / `ci-status-2` | VM state |
+| `make ci-ssh` / `ci-ssh-2` | SSH in for debugging (resumes if suspended) |
+| `make ci-report` / `ci-report-2` | Last collected stage summary |
+
+Three things that will otherwise cost you an hour each:
+
+- **`SUSPENDED` is the SUCCESS state.** The script suspends on pass and leaves
+  the VM RUNNING on failure for debugging. A suspended VM means the last run
+  passed.
+- **`unset SSH_AUTH_SOCK`** before any ad-hoc `gcloud compute ssh`, or it fails
+  with `agent refused operation` — which surfaces during the provisioning wait
+  and reads as a VM that never came up.
+- **Never `gcp-ci.sh destroy` `signalloom-ci`.** It deletes the shared VPC, NAT
+  and firewall that BOTH VMs use. Instance-only destroy is safe for
+  `signalloom-ci-2`, which is how you get a genuinely cold run.
+
+The two lanes hold **independent** locks (state lives on each VM), so warm and
+cold can run concurrently; a refusal is that VM's own stale lock.
+
+## Observing the demos
+
+Prefer asking the cluster over reading the UI — these print what is *observably*
+true, with the command that proved each claim:
+
+| Command | Answers |
+|---------|---------|
+| `make doctor` | Full read-only cluster diagnostic |
+| `make demo-signalloom-supercred-evidence` | Is the credential chain real? Six probes, each showing its command |
+| `make demo-agent-trust-network-test` | Are the SPIFFE trust boundaries actually enforced? |
+| `make demo-signalloom-fleet-up` | Deploy Fleet Manager (separate service, applied directly, not via Flux) |
+
+`docs/cluster-debugging.md` §8 catalogues the probes that historically reported a
+confident answer they had not earned — `nc` exit codes, unconfined new pods,
+silent RoleBindings, and API paths that return `index.html` with 200 OK.
 
 ## Repo Layout
 

@@ -14,8 +14,11 @@ class Contracts(unittest.TestCase):
   rendered=subprocess.run(['kubectl','kustomize','manifests'],cwd=ROOT,capture_output=True,text=True,check=True).stdout
   for n in ('agent-trust-platform','agent-trust-tenant-acme-control','agent-trust-tenant-northstar-control','agent-trust-acme-payments','agent-trust-acme-risk','agent-trust-northstar-investigations'): self.assertIn(f'namespace: {n}',rendered)
   for v in ('name: allow-planner-to-triage','name: allow-planner-to-triage-egress','name: allow-planner-openbao-egress','name: allow-triage-openbao-egress','name: agent-trust-triage','targetPort: 8080','agent-trust-risk-reader','agent-trust-investigator','automountServiceAccountToken: false','runAsNonRoot: true','readOnlyRootFilesystem: true','allowPrivilegeEscalation: false','openbao-ingress-intent'): self.assertIn(v,rendered)
-  self.assertEqual(rendered.count('runAsUser: 65532'),4)
-  self.assertEqual(rendered.count('automountServiceAccountToken: false'),4)
+  documents=[json.loads(line) for line in subprocess.run(['yq','-o=json','-I=0'],input=rendered,capture_output=True,text=True,check=True).stdout.splitlines()]
+  workloads=[document for document in documents if document.get('kind') == 'Deployment']
+  self.assertEqual(len(workloads),4)
+  self.assertTrue(all(workload['spec']['template']['spec']['securityContext']['runAsUser'] == 65532 for workload in workloads))
+  self.assertTrue(all(workload['spec']['template']['spec']['automountServiceAccountToken'] is False for workload in workloads))
   self.assertNotIn('kind: Job',rendered); self.assertEqual(rendered.count('name: default-deny'),6)
  def test_openbao_intent_is_exact_and_lifecycle_applies_it(self):
   intent=(ROOT/'contracts/openbao-role-intent.sh').read_text(); lifecycle=(ROOT.parent/'scripts/agent-trust-local.sh').read_text()

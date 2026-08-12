@@ -254,3 +254,68 @@ describe('the evidence request reaches the pod that can answer it', () => {
     expect(fetcher.mock.calls[0][0]).toBe('/demo-api/evidence')
   })
 })
+
+// "Evidence unavailable (HTTP 500)" and "Evidence unavailable (HTTP 401)" were
+// the same sentence with a different number. One means the platform is broken,
+// the other means it would not let you look. An operator standing in front of an
+// audience has to tell them apart without reading the status code.
+describe('a failure says what kind of failure it was', () => {
+  const failing = (status: number) => fetcherFor({}, false, status)
+
+  it('names a platform fault for a 500, and does not blame the session', async () => {
+    render(<CredentialEvidencePanel fetcher={failing(500) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    const err = screen.getByTestId('evidence-error')
+    expect(err).toHaveTextContent('platform failed while collecting evidence')
+    expect(err).toHaveTextContent('HTTP 500')
+    expect(err).not.toHaveTextContent('did not accept this session')
+  })
+
+  it('names a rejected session for a 401, and does not blame the platform', async () => {
+    render(<CredentialEvidencePanel fetcher={failing(401) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    const err = screen.getByTestId('evidence-error')
+    expect(err).toHaveTextContent('did not accept this session')
+    expect(err).not.toHaveTextContent('platform failed')
+  })
+
+  it('distinguishes a timeout and a routing fault from both', async () => {
+    const { unmount } = render(<CredentialEvidencePanel fetcher={failing(504) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toHaveTextContent('timed out'))
+    unmount()
+    render(<CredentialEvidencePanel fetcher={failing(404) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toHaveTextContent('could not be reached'))
+  })
+
+  it('still insists a failure is not a verdict on the chain, whatever the status', async () => {
+    for (const status of [401, 404, 500, 504]) {
+      const { unmount } = render(<CredentialEvidencePanel fetcher={failing(status) as unknown as typeof fetch} />)
+      await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+      expect(screen.getByTestId('evidence-error')).toHaveTextContent('not the same as the chain being absent')
+      unmount()
+    }
+  })
+
+  it('the headline stops claiming a clean empty state once a check has failed', async () => {
+    render(<CredentialEvidencePanel fetcher={failing(500) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    const line = screen.getByTestId('evidence-headline')
+    // "No evidence has been collected yet" describes a fresh card, not a broken probe.
+    expect(line).not.toHaveTextContent('No evidence has been collected yet')
+    expect(line).toHaveTextContent('the check itself failed')
+  })
+})
+
+describe('the commands toggle is honest about having nothing to show', () => {
+  it('is disabled while the chain is empty', async () => {
+    render(<CredentialEvidencePanel fetcher={fetcherFor({}, false, 500) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-toggle-commands')).toBeDisabled()
+  })
+
+  it('is enabled as soon as there are rows whose commands it can reveal', async () => {
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([step()])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-toggle-commands')).toBeEnabled()
+  })
+})

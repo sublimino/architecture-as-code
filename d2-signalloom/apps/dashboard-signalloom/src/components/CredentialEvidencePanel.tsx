@@ -29,8 +29,56 @@ const STATE_STYLE: Record<EvidenceState, { label: string; bg: string; border: st
   unavailable: { label: 'unverified', bg: 'rgba(245,158,11,0.10)', border: 'rgba(245,158,11,0.35)', dot: '#f59e0b' },
 }
 
-function headline(steps: EvidenceStep[]): string {
+/**
+ * What a failed request MEANS, not just what it returned.
+ *
+ * "Evidence unavailable (HTTP 500)" and "Evidence unavailable (HTTP 401)" read
+ * as the same sentence with a different number, and they are not remotely the
+ * same event: one says the platform is broken, the other says it would not let
+ * you look. An operator in front of an audience has to tell them apart at a
+ * glance. The status code stays in the text — an engineer still needs it — but
+ * it no longer carries the whole meaning on its own.
+ *
+ * None of these are findings about the credential chain, which is why every
+ * `detail` says so in its own words.
+ */
+function describeFailure(status: number): { title: string; detail: string } {
+  if (status === 401 || status === 403) {
+    return {
+      title: `The platform did not accept this session (HTTP ${status})`,
+      detail: 'Your sign-in was rejected, so no probe was ever run. Sign in again, then re-check.',
+    }
+  }
+  if (status === 404) {
+    return {
+      title: `The evidence probe could not be reached (HTTP ${status})`,
+      detail: 'The request never arrived at the service that runs the probe. That is a routing fault in the platform.',
+    }
+  }
+  if (status === 408 || status === 504) {
+    return {
+      title: `The evidence probe timed out (HTTP ${status})`,
+      detail: 'The cluster did not answer in time. Nothing was disproved — the probe simply did not finish.',
+    }
+  }
+  if (status >= 500) {
+    return {
+      title: `The platform failed while collecting evidence (HTTP ${status})`,
+      detail: 'The probe errored before it could report. This is a fault in the platform, not a verdict on the credential chain.',
+    }
+  }
+  return {
+    title: `The evidence probe did not complete (HTTP ${status})`,
+    detail: 'The platform returned a response this card does not know how to read.',
+  }
+}
+
+function headline(steps: EvidenceStep[], failed: boolean): string {
   const { observed, unavailable, total } = evidenceSummary(steps)
+  // On failure the count is zero because nothing ran — saying "none collected
+  // yet" would describe a clean starting state, which is the one reading this
+  // card must never produce for a probe that broke.
+  if (failed) return 'No evidence could be collected — the check itself failed. See below.'
   if (total === 0) return 'No evidence has been collected yet.'
   if (unavailable === total) return 'Nothing could be checked — the platform could not reach the cluster.'
   const base = `${observed} of ${total} steps in the credential chain are confirmed by direct inspection`
@@ -49,7 +97,7 @@ export function CredentialEvidencePanel({
   /**
    * Supplies the OIDC access token for the evidence request.
    *
-   * `/api/demo/supercred/evidence` sits behind `authenticated_tenant` exactly
+   * The evidence route sits behind `authenticated_tenant` exactly
    * like every other route on that router, so an unauthenticated request comes
    * back 401 and the card renders "No evidence has been collected yet." — which
    * reads as "the credential chain does not exist" rather than "we were not
@@ -60,7 +108,7 @@ export function CredentialEvidencePanel({
   getToken?: () => Promise<string | undefined | null>
 }) {
   const [evidence, setEvidence] = useState<CredentialEvidence | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<{ title: string; detail?: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState<Record<number, boolean>>({})
   const [showAllCommands, setShowAllCommands] = useState(false)
@@ -91,20 +139,19 @@ export function CredentialEvidencePanel({
         },
       })
       if (!response.ok) {
-        // Surface the status rather than falling back to a blank lifecycle: an
-        // empty card reads exactly like "nothing is deployed", which is the
-        // confusion this component exists to end.
-        setError(
-          response.status === 401
-            ? 'Evidence unavailable (HTTP 401) — the platform did not accept this session'
-            : `Evidence unavailable (HTTP ${response.status})`,
-        )
+        // Surface what the status MEANS rather than falling back to a blank
+        // lifecycle: an empty card reads exactly like "nothing is deployed",
+        // which is the confusion this component exists to end.
+        setError(describeFailure(response.status))
         setEvidence(null)
         return
       }
       setEvidence(parseEvidence(await response.json()))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Evidence request failed')
+      setError({
+        title: err instanceof Error ? err.message : 'Evidence request failed',
+        detail: 'The request never completed, so nothing was observed either way.',
+      })
       setEvidence(null)
     } finally {
       setLoading(false)
@@ -125,11 +172,16 @@ export function CredentialEvidencePanel({
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
         <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Credential Lifecycle</h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          {/* Disabled with no rows: the toggle only expands per-step commands,
+              so with an empty chain it is inert and reads as a broken button —
+              which is exactly how it looked while the endpoint was 500ing. */}
           <button
             type="button"
             data-testid="evidence-toggle-commands"
             onClick={() => setShowAllCommands((v) => !v)}
-            style={btn}
+            disabled={steps.length === 0}
+            title={steps.length === 0 ? 'No steps to show commands for yet — run Re-check first' : undefined}
+            style={{ ...btn, ...(steps.length === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
           >
             {showAllCommands ? 'Hide commands' : 'Show commands'}
           </button>
@@ -142,7 +194,7 @@ export function CredentialEvidencePanel({
       {/* The executive line: one sentence, no jargon, no counts of things that
           were not checked hidden inside a "completed". */}
       <p data-testid="evidence-headline" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.5 }}>
-        {headline(steps)}
+        {headline(steps, error !== null)}
       </p>
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
         Every row below was decided by running a command against the cluster just now — not by
@@ -156,8 +208,8 @@ export function CredentialEvidencePanel({
           background: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.35)',
           fontSize: 12, lineHeight: 1.5,
         }}>
-          <strong>{error}.</strong> No lifecycle state is shown, because none was observed. This is
-          not the same as the chain being absent.
+          <strong>{error.title}.</strong>{error.detail ? ` ${error.detail}` : ''} No lifecycle state
+          is shown, because none was observed. This is not the same as the chain being absent.
         </div>
       )}
 

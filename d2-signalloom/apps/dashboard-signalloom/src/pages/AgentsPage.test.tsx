@@ -214,6 +214,19 @@ describe('AgentsPage — Live Data Wiring', () => {
 // eu_ai_act_risk_class explicitly rather than leaning on makeAgent's default,
 // which differs between the two branches ('limited' here vs 'limited_risk').
 describe('AgentsPage — lifecycle tooltip + EU AI Act column', () => {
+  it('provides hover help for governed-agent operations', async () => {
+    vi.mocked(api.agents.list).mockResolvedValue({ agents: [makeAgent()], total: 1 })
+    renderPage()
+
+    await screen.findByText('Invoice Bot')
+    await userEvent.hover(screen.getByTestId('agents-governed-help'))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/one enriched record rather than a duplicate/i)
+
+    await userEvent.unhover(screen.getByTestId('agents-governed-help'))
+    await userEvent.hover(screen.getByTestId('agents-scan-help'))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/live policy scan/i)
+  })
+
   it('shows an EU AI Act column with the risk class badge', async () => {
     vi.mocked(api.agents.list).mockResolvedValue({
       agents: [makeAgent({ eu_ai_act_risk_class: 'limited_risk' })],

@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { colors } from '../styles/tokens'
+import HelpHint from './HelpHint'
 import { useAuth0 } from '../auth/oidc'
 import { invalidateSuperCredState } from '../api/supercredSource'
 import {
@@ -69,8 +70,31 @@ const MAX_DRAIN_READS = 20
 /** Lines of output kept on screen when a run fails. */
 const LOG_TAIL_LINES = 12
 
+// The lifecycle scripts color terminal output with ANSI sequences. A browser
+// preformatted block renders those bytes literally, so remove them only when
+// displaying logs; raw runner bytes and offsets remain unchanged.
+const ANSI_SGR = /\u001B\[[0-?]*[ -/]*[@-~]/g
+
+function displayLog(log: string): string {
+  return log.replace(ANSI_SGR, '')
+}
+
+async function recordStunAudit(token: string): Promise<void> {
+  const response = await fetch('/api/agents/agent-cardvault/stun', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      agent_name: 'Cardvault Agent',
+      namespace: 'fe-signalloom-agents',
+      reason: 'compliance-failure: securityContext not set',
+      outcome: 'stunned',
+    }),
+  })
+  if (!response.ok) throw new Error(`audit endpoint returned HTTP ${response.status}`)
+}
+
 function logTail(log: string): string {
-  return log.split('\n').filter(line => line.trim() !== '').slice(-LOG_TAIL_LINES).join('\n')
+  return displayLog(log).split('\n').filter(line => line.trim() !== '').slice(-LOG_TAIL_LINES).join('\n')
 }
 
 interface Props {
@@ -118,6 +142,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   // Log offsets are a stream cursor, not render state — advancing them must not
   // schedule a render, and the poll loop must read the latest value.
   const offsetRef = useRef(0)
+  const auditedStunRunsRef = useRef(new Set<string>())
 
   const loadStatus = useCallback(async () => {
     try {
@@ -213,14 +238,22 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   }, [applyLogChunk, getAccessTokenSilently])
 
   const finishRun = useCallback(
-    async (runId: string) => {
-      await drainLog(runId)
+    async (run: DemoRunView) => {
+      if (run.step_id === '4' && run.status === 'succeeded' && !auditedStunRunsRef.current.has(run.run_id)) {
+        auditedStunRunsRef.current.add(run.run_id)
+        try {
+          await recordStunAudit(await getAccessTokenSilently())
+        } catch (err) {
+          setError(err instanceof Error ? `Agent was stunned, but its audit event could not be recorded: ${err.message}` : 'Agent was stunned, but its audit event could not be recorded.')
+        }
+      }
+      await drainLog(run.run_id)
       // The run changed the cluster, so every projection above it is stale.
       invalidateSuperCredState()
       await onRefreshClients()
       await loadStatus()
     },
-    [drainLog, loadStatus, onRefreshClients],
+    [drainLog, getAccessTokenSilently, loadStatus, onRefreshClients],
   )
 
   const runId = activeRun?.run_id ?? null
@@ -238,8 +271,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
           ])
           if (stopped) return
           if (chunk) applyLogChunk(chunk)
+          if (!isRunActive(run)) {
+            if (run.step_id === '4' && run.status === 'succeeded') {
+              // Phase 4 is not complete until the transactional audit record
+              // exists; do not publish success before that durable effect.
+              await finishRun(run)
+              if (stopped) return
+            } else {
+              setActiveRun(run)
+              await finishRun(run)
+              return
+            }
+          }
           setActiveRun(run)
-          if (!isRunActive(run)) await finishRun(runId)
         } catch (err) {
           if (stopped) return
           setError(err instanceof Error ? err.message : 'Lost track of the running step')
@@ -259,8 +303,9 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       offsetRef.current = 0
       try {
         const run = await start()
+        if (!isRunActive(run) && !(run.step_id === '4' && run.status === 'succeeded')) setActiveRun(run)
+        if (!isRunActive(run)) await finishRun(run)
         setActiveRun(run)
-        if (!isRunActive(run)) await finishRun(run.run_id)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Could not start the step')
       }
@@ -285,11 +330,24 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   // does not, so it stays usable when the runner cannot run anything.
   const runsBlocked = running || !scriptAvailable
 
+  // A reset is a verified teardown boundary, not a sixth demo phase. The
+  // runner intentionally retains its history for auditability, but presenting
+  // history from before its newest reset as the current phase state makes a
+  // fresh lifecycle look completed. `recent` is newest-first: only entries
+  // before the latest reset belong to the current lifecycle.
+  const latestRun = activeRun ?? status?.recent[0] ?? null
+  const resetVerified = latestRun?.kind === 'reset' && latestRun.status === 'succeeded'
+  const latestResetIndex = status?.recent.findIndex(run => run.kind === 'reset') ?? -1
+  const currentLifecycleRuns = latestResetIndex >= 0
+    ? status!.recent.slice(0, latestResetIndex)
+    : status?.recent ?? []
+
   /** The most recent run for a step — active first, then the runner's history. */
   function runForStep(stepId: string): DemoRunView | null {
+    if (resetVerified) return null
     if (activeRun?.step_id === stepId) return activeRun
     // `recent` is newest-first, so the first match is the latest attempt.
-    return status?.recent.find(r => r.step_id === stepId) ?? null
+    return currentLifecycleRuns.find(r => r.step_id === stepId) ?? null
   }
 
   const displaySteps: DemoStep[] =
@@ -313,6 +371,11 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
           Each phase changes what a customer sees. Follow the link to the page where its effect lands.
         </p>
+        {resetVerified && (
+          <p data-testid="supercred-clean-state" style={{ fontSize: 12, color: colors.tealLoom, margin: '0 0 12px', lineHeight: 1.5 }}>
+            Clean state verified — teardown completed; no demo phase is currently active.
+          </p>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {displaySteps.map(step => {
             const run = runForStep(step.step_id)
@@ -352,6 +415,8 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
                   <a
                     data-testid={`supercred-show-on-${step.step_id}`}
                     href={target.to}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     title={`On ${target.label}, ${target.effect}`}
                     style={{ color: 'var(--cyan)', fontSize: 12, whiteSpace: 'nowrap', marginTop: 2 }}
                   >
@@ -383,6 +448,15 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             >
               {refreshing ? 'Refreshing…' : 'Refresh clients'}
             </button>
+            <HelpHint
+              label="About the client-and-status refresh"
+              testId="supercred-refresh-clients-help"
+            >
+              Refreshes the SuperCred agent list and current demo-runner phase status. It also clears cached SuperCred state before querying live services.
+            </HelpHint>
+            <HelpHint label="What Reset demo does" testId="supercred-reset-help">
+              Runs the verified teardown and clears the current lifecycle display. Historical run records remain available in runner history.
+            </HelpHint>
             {!resetArmed && (
               <button
                 className="btn btn-secondary"
@@ -515,7 +589,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
                 fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--text)',
               }}
             >
-              {log}
+              {displayLog(log)}
             </pre>
           )}
 

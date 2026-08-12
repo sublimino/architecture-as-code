@@ -100,6 +100,23 @@ describe('projectAgentList — the Agents page', () => {
     }
   })
 
+  it('enriches the live Cardvault API record instead of duplicating it', () => {
+    const liveApiResponse: AgentListResponse = {
+      agents: [baseAgent('agent-cardvault'), baseAgent('tenant-demo:a1')],
+      total: 2,
+    }
+
+    const result = projectAgentList(liveApiResponse, stateAt('deployed'))
+
+    expect(result.total).toBe(2)
+    expect(result.agents.filter((agent) => agent.id === 'agent-cardvault')).toHaveLength(1)
+    expect(result.agents.find((agent) => agent.id === 'agent-cardvault')).toMatchObject({
+      name: 'Cardvault Agent',
+      lifecycle_state: 'enrolled',
+      tenant_id: 'supercred',
+    })
+  })
+
   it('never mutates the response it was handed', () => {
     const input: AgentListResponse = { agents: [baseAgent('tenant-demo:a1')], total: 1 }
     projectAgentList(input, stateAt('stunned'))

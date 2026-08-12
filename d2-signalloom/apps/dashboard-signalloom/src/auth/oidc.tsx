@@ -29,26 +29,23 @@ const oidcConfig = {
   post_logout_redirect_uri: `${window.location.origin}/`,
   response_type: 'code',
   scope: 'openid profile email groups audience:server:client_id:signalloom-api',
-  // sessionStorage, NOT localStorage.
-  //
-  // This surface gets shared as a public demo link. With the token in
-  // localStorage the session outlived the browser: close the tab, close the
-  // browser, come back tomorrow, and you landed straight on /agents with no
-  // credential prompt. Measured directly against the public tunnel — a
-  // "REVISIT" after login went to /agents without ever showing Dex.
-  //
-  // sessionStorage is scoped to the tab and cleared when it closes, so the
-  // credential prompt comes back for every new session. It also means one
-  // person's login cannot be inherited by whoever next opens that browser.
-  userStore: new WebStorageStateStore({ store: window.sessionStorage }),
-  stateStore: new WebStorageStateStore({ store: window.sessionStorage }),
+  // Evidence links open in new tabs during the demo. sessionStorage is
+  // tab-scoped, so the new tab appeared anonymous and restarted OIDC. Same-
+  // origin localStorage lets dashboard tabs share a session without leaking it
+  // to another origin.
+  userStore: new WebStorageStateStore({ store: window.localStorage }),
+  stateStore: new WebStorageStateStore({ store: window.localStorage }),
   // Force Dex to re-authenticate rather than silently reusing its own server
   // side session cookie. Without this, clearing the client store still bounced
   // straight back through /dex/auth with a fresh token and no prompt, because
   // Dex remembered the browser independently of the SPA.
   extraQueryParams: { prompt: 'login' },
   automaticSilentRenew: false,
-  onSigninCallback: () => window.history.replaceState({}, document.title, '/agents'),
+  onSigninCallback: () => {
+    const returnTo = window.localStorage.getItem('signalloom-return-to') ?? '/agents'
+    window.localStorage.removeItem('signalloom-return-to')
+    window.history.replaceState({}, document.title, returnTo)
+  },
 }
 
 // Automatically start the Dex login when the user is not authenticated. This is
@@ -68,6 +65,7 @@ function AutoSignIn({ children }: Props) {
       !auth.error
     ) {
       triggered.current = true
+      window.localStorage.setItem('signalloom-return-to', `${window.location.pathname}${window.location.search}`)
       auth.signinRedirect().catch((e) => console.error('[oidc-signin-error]', e))
     }
   }, [auth.isAuthenticated, auth.activeNavigator, auth.isLoading, auth.error, auth])

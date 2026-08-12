@@ -106,8 +106,8 @@ EOF
 }
 
 @test "IMGVIS the kind cluster is configured to report every image" {
-  # Root-cause layer. nodeStatusMaxImages: 0 == unlimited.
-  run grep -F 'nodeStatusMaxImages: 0' "$kindcfg"
+  # Root-cause layer. kubelet uses -1 for an unlimited image list.
+  run grep -F 'nodeStatusMaxImages: -1' "$kindcfg"
   [ "$status" -eq 0 ]
   run grep -F 'kind: KubeletConfiguration' "$kindcfg"
   [ "$status" -eq 0 ]

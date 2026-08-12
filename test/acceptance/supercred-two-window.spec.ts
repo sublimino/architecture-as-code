@@ -104,19 +104,13 @@ test.describe("SuperCredential demo — instructor window and audience window", 
       await expect(instructor.locator(RUN_PHASE_4)).toBeVisible({ timeout: 30_000 });
       await expect(audience.getByText(/cardvault/i).first()).toBeVisible({ timeout: 60_000 });
 
-      // ── Precondition: the agent must not already be stunned ────────────
-      // A rehearsal an hour earlier is the normal case (ISA: "instructor
-      // error is expected"). Starting from an already-revoked agent would
-      // make the assertion below vacuous, so re-establish the credential
-      // chain from the instructor window — through the UI, because that is
-      // the path under test — and wait for the audience window to agree.
-      if (await audience.locator(REVOKED).first().isVisible().catch(() => false)) {
-        await instructor.locator(RUN_PHASE_2).click();
-        await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
-          timeout: 10 * 60_000,
-        });
-        await expect(audience.locator(REVOKED)).toHaveCount(0, { timeout: 120_000 });
-      }
+      // ── Precondition: phase 4 requires active agent state ──────────────
+      // A clean deploy begins idle and a rehearsal can leave it stunned, so
+      // establish the credential chain through the instructor UI every time.
+      await instructor.locator(RUN_PHASE_2).click();
+      await expect(instructor.locator(RUN_STATUS)).toContainText(/succeeded/, {
+        timeout: 10 * 60_000,
+      });
       await expect(audience.locator(REVOKED)).toHaveCount(0, { timeout: 60_000 });
 
       // ── Phase 3 is deliberately NOT driven here ──────────────────────────

@@ -245,7 +245,16 @@ wait_for_provision() {
       rm -f "$err_file"
       return 0
     fi
-    last_err="$(tr -d '\r' < "$err_file" | grep -v '^$' | tail -3)"
+    # `grep -v` exits 1 when it selects no lines, and under this script's
+    # `set -euo pipefail` a failing command substitution in an assignment kills
+    # the run outright: exit 1, mid-poll, without printing a single word. Empty
+    # stderr is not an edge case here, it is the ordinary cold-start case — SSH
+    # connects fine and `test -f` simply reports the marker is not written yet.
+    # A warm VM never reaches this line, because the first probe returns 0, so
+    # only a freshly created VM ever saw it. Observed 2026-08-12 on a new
+    # signalloom-ci-2: provisioning "failed" ~4 minutes in with no diagnosis,
+    # while the VM was healthy and finished writing the marker shortly after.
+    last_err="$(tr -d '\r' < "$err_file" | grep -v '^$' | tail -3 || true)"
 
     if [[ -n "$last_err" ]] && ! ssh_probe_error "$last_err"; then
       echo "ERROR: SSH to ${VM_NAME} failed for a reason waiting cannot fix." >&2

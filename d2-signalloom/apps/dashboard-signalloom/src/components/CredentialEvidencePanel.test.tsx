@@ -319,3 +319,59 @@ describe('the commands toggle is honest about having nothing to show', () => {
     expect(screen.getByTestId('evidence-toggle-commands')).toBeEnabled()
   })
 })
+
+// Four defects found by review of the first pass at this card, each one a place
+// where the UI still said something it had not earned.
+describe('the card does not overclaim while it is empty', () => {
+  it('distinguishes a refused session from a rejected one', async () => {
+    render(<CredentialEvidencePanel fetcher={fetcherFor({}, false, 403) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-error')).toHaveTextContent('not permitted')
+    expect(screen.getByTestId('evidence-error')).toHaveTextContent('HTTP 403')
+  })
+
+  it('never renders two different faults with identical text', async () => {
+    // The guard against someone re-collapsing the taxonomy later.
+    const seen = new Map<number, string>()
+    for (const status of [401, 403, 404, 500, 504]) {
+      const { unmount } = render(<CredentialEvidencePanel fetcher={fetcherFor({}, false, status) as unknown as typeof fetch} />)
+      await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+      seen.set(status, screen.getByTestId('evidence-error').textContent ?? '')
+      unmount()
+    }
+    expect(new Set(seen.values()).size).toBe(seen.size)
+  })
+
+  it('says it is checking rather than claiming a clean empty chain mid-flight', async () => {
+    let release: (v: unknown) => void = () => {}
+    const pending = new Promise((r) => { release = r })
+    const fetcher = vi.fn().mockReturnValue(pending)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-headline')).toHaveTextContent('Checking the credential chain'))
+    expect(screen.getByTestId('evidence-headline')).not.toHaveTextContent('No evidence has been collected yet')
+    release({ ok: true, status: 200, json: async () => payload([step()]) })
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+  })
+
+  it('does not claim "every row below" when there are no rows below', async () => {
+    const { container } = render(<CredentialEvidencePanel fetcher={fetcherFor({}, false, 500) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    expect(container.textContent).not.toMatch(/Every row below was decided/i)
+  })
+
+  it('stops offering to hide commands once a failed re-check has emptied the chain', async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step()]) } as unknown as Response)
+      .mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) } as unknown as Response)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('evidence-toggle-commands'))
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Hide commands')
+    await userEvent.click(screen.getByTestId('evidence-refresh'))
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    // Nothing left to hide — offering it is a lie about what the button does.
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Show commands')
+    expect(screen.getByTestId('evidence-toggle-commands')).toBeDisabled()
+  })
+})

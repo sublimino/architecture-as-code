@@ -13,6 +13,8 @@
 // "we looked and it is not there" are different claims, and collapsing them is
 // how a broken probe becomes a confident one.
 
+import { DEMO_API } from './demoRunner'
+
 export type EvidenceState = 'observed' | 'absent' | 'unavailable'
 
 export interface EvidenceStep {
@@ -33,7 +35,11 @@ export interface CredentialEvidence {
   steps: EvidenceStep[]
 }
 
-export const EVIDENCE_ENDPOINT = '/api/demo/supercred/evidence'
+// Routed through the same prefix as every other demo-runner call. Spelling this
+// `/api/demo/supercred/evidence` reaches fe-signalloom-api instead of the runner
+// — a pod with no kubectl and no scripts, where the handler dies with
+// `IndexError: 4` and the card renders a bare HTTP 500. See DEMO_API.
+export const EVIDENCE_ENDPOINT = `${DEMO_API}/evidence`
 
 /** Narrow an unknown state string without inventing progress for it. */
 export function normaliseState(raw: unknown): EvidenceState {

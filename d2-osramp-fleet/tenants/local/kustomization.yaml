@@ -10,7 +10,7 @@
 # The original full-demo config is on the main branch.
 #
 # The JSON patches below index into spec.resources of each ResourceSet:
-# index 5 is infra's OCIRepository. Agent Trust's OCIRepository is index 18.
+# index 5 is infra's OCIRepository. Agent Trust's OCIRepository is index 30.
 # Signal Loom infra's OCIRepository is index 23 after its runner RBAC grants.
 # after six namespaces, its ServiceAccount, two ClusterRoles, one
 # ClusterRoleBinding, and six namespaced RoleBindings. Keep indexes in sync.
@@ -53,11 +53,11 @@ patches:
       kind: ResourceSet
       name: agent-trust
     patch: |
-      # Index 18 is agent-trust's OCIRepository. Was 16 until the topology
-      # collector's ClusterRole and its fake-proxy ClusterRoleBinding were
-      # added above it, shifting it by two.
+      # Index 30 is agent-trust's OCIRepository. Bootstrap-owned topology
+      # Roles and RoleBindings precede it to eliminate the first-reconcile
+      # dependency race between a RoleBinding and its referenced Role.
       - op: add
-        path: /spec/resources/18/spec/verify
+        path: /spec/resources/30/spec/verify
         value:
           provider: cosign
           secretRef:

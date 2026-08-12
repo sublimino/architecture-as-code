@@ -1,5 +1,4 @@
 resources:
   - boundaries.yaml
   - policies.yaml
-  - topology-rbac.yaml
   - topology-probes.yaml

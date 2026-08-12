@@ -67,6 +67,23 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // Full lifecycle proof: UI drives phases 1–5, observes every audience
+      // projection, resets, then proves the workflow can start over.
+      name: "supercred-ui-lifecycle",
+      testMatch: /supercred-ui-lifecycle\.spec\.ts/,
+      timeout: 30 * 60_000,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        storageState: "test-results/.auth-state.json",
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+        },
+      },
+      dependencies: ["setup"],
+    },
+    {
       name: "smoke",
       testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts/,
       use: {

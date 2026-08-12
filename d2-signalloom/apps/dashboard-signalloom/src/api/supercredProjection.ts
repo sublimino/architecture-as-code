@@ -155,7 +155,16 @@ export function projectAgentList(base: AgentListResponse, state: SuperCredDemoSt
   const agent = buildSuperCredAgent(state)
   if (!agent) return base
 
-  const agents = [...(base.agents as AgentResponse[]).filter((a) => a?.id !== SUPERCRED_AGENT_ID), agent]
+  const observedId = state.agent!.id
+  const existing = base.agents as AgentResponse[]
+  // The live discovery API already returns `agent-cardvault`. Enrich that
+  // canonical record with the governance projection rather than append a
+  // second Cardvault row under the synthetic detail-route id. The synthetic
+  // record remains the fallback for fixture/API responses that lack discovery.
+  const hasObservedAgent = existing.some((candidate) => candidate?.id === observedId)
+  const agents = hasObservedAgent
+    ? existing.map((candidate) => candidate?.id === observedId ? { ...agent, id: candidate.id } : candidate)
+    : [...existing.filter((candidate) => candidate?.id !== SUPERCRED_AGENT_ID), agent]
   return { ...base, agents, total: agents.length } as AgentListResponse
 }
 

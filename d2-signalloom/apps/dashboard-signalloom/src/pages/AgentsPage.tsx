@@ -11,6 +11,7 @@ import StatusBadge from '../components/StatusBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import LoadingState, { loadPhase } from '../components/LoadingState'
+import HelpHint from '../components/HelpHint'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -755,7 +756,10 @@ export default function AgentsPage() {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agents</h1>
+          <HelpHint label="About governed agents" testId="agents-governed-help">Live registry records for governed workloads. During SuperCred, Cardvault appears as one enriched record rather than a duplicate.</HelpHint>
+        </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <LoadingState
             status={loadPhase({ loading: agentsLoading, error: agentsError, loaded: agentsLoaded })}
@@ -773,6 +777,7 @@ export default function AgentsPage() {
             <span style={{ fontSize: 11, color: 'var(--muted)', opacity: 0.7 }}>
               Auto-scan every 15 minutes
             </span>
+            <HelpHint label="About agent refresh timing" testId="agents-refresh-help">The list polls live registry state automatically. Use Scan Compliance to run an immediate policy evaluation.</HelpHint>
           </div>
           <button
             className="btn btn-primary"
@@ -782,6 +787,7 @@ export default function AgentsPage() {
           >
             {scanning ? 'Scanning...' : 'Scan Compliance'}
           </button>
+          <HelpHint label="About the policy scan" testId="agents-scan-help">Runs a live policy scan against the governed agent list and updates posture and compliance findings.</HelpHint>
         </div>
       </div>
 

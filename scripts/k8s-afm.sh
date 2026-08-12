@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Lifecycle script for the KubeSec-AFM D2 demo slice.
 #
+#   k8s-afm.sh preflight  Check the external AFM source repo is present. No side effects.
 #   k8s-afm.sh build    Build the image and kind-load it. No deploy, no cluster writes.
 #   k8s-afm.sh up       Build image, kind-load, deploy, wait.
 #   k8s-afm.sh down     Remove the AFM platform namespace + resources.
@@ -19,11 +20,39 @@ IMAGE="kubesec-afm:latest"
 
 cmd="${1:-up}"
 
+# The AFM image is built from a source repo that lives OUTSIDE this one. When it
+# is absent, `docker build -f <missing>` fails with a bare "no such file or
+# directory" naming a path nobody set explicitly, which reads as a broken
+# Makefile rather than a missing checkout. Say which repo, and which variable
+# relocates it, before spending anything on the build.
+require_afm_source() {
+  if [ ! -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" ]; then
+    cat >&2 <<EOF
+error: KubeSec-AFM source repo not found at: $AFM_SOURCE
+  Expected: \$AFM_SOURCE/AFM/docker/backend.Dockerfile
+  The AFM image is built from a separate checkout, not from this repo.
+  Clone it, then either place it at that path or set KUBESEC_AFM_ROOT:
+      KUBESEC_AFM_ROOT=/path/to/kubesec-afm make demo-k8s-afm-up
+  Until AFM is deployed, Signal Loom's RBAC Explorer reports
+  "KubeSec-AFM is not deployed" — that page reads its data from this slice.
+EOF
+    exit 1
+  fi
+}
+
 case "$cmd" in
+  preflight)
+    # Single source of truth for "can the AFM slice be built here?", so callers
+    # that must decide without failing (make demo-signalloom-afm-up) probe it
+    # rather than duplicating the path.
+    require_afm_source
+    echo "KubeSec-AFM source: $AFM_SOURCE"
+    ;;
   build)
     # Image build only — no kubectl apply, no rollout, no seeding. This is what
     # `make images-afm` calls, so the AFM slice can be rebuilt alongside every
     # other slice without deploying to (or otherwise touching) a live cluster.
+    require_afm_source
     echo "==> Building kubesec-afm image (multi-stage: Next.js + FastAPI + Z3)..."
     docker build -q -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" \
       -t "$IMAGE" "$AFM_SOURCE/AFM" 2>&1 | tail -2
@@ -32,6 +61,7 @@ case "$cmd" in
     echo "kubesec-afm image built and loaded: $IMAGE"
     ;;
   up)
+    require_afm_source
     echo "==> Building kubesec-afm image (multi-stage: Next.js + FastAPI + Z3)..."
     docker build -q -f "$AFM_SOURCE/AFM/docker/backend.Dockerfile" \
       -t "$IMAGE" "$AFM_SOURCE/AFM" 2>&1 | tail -2
@@ -96,6 +126,7 @@ else:
     echo "==> Done."
     ;;
   test)
+    require_afm_source
     echo "==> Running backend pytest from source repo..."
     cd "$AFM_SOURCE/AFM/backend"
     if [ -d "$AFM_SOURCE/AFM/.venv" ]; then
@@ -123,7 +154,7 @@ else:
     kill "$PF" 2>/dev/null || true
     ;;
   *)
-    echo "usage: $0 [up|down|test|seed|status]" >&2
+    echo "usage: $0 [preflight|build|up|down|test|seed|status]" >&2
     exit 64
     ;;
 esac

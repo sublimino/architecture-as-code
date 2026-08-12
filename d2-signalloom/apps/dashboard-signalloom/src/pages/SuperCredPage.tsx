@@ -513,7 +513,7 @@ export default function SuperCredPage() {
           `make demo-signalloom-supercred-evidence`. */}
       {activeAgent && (
         <div data-testid="supercred-lifecycle" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-          <CredentialEvidencePanel />
+          <CredentialEvidencePanel getToken={getAccessTokenSilently} />
         </div>
       )}
 

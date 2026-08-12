@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   EVIDENCE_ENDPOINT,
   evidenceSummary,
@@ -42,9 +42,22 @@ function headline(steps: EvidenceStep[]): string {
 export function CredentialEvidencePanel({
   fetcher = fetch,
   autoLoad = true,
+  getToken,
 }: {
   fetcher?: typeof fetch
   autoLoad?: boolean
+  /**
+   * Supplies the OIDC access token for the evidence request.
+   *
+   * `/api/demo/supercred/evidence` sits behind `authenticated_tenant` exactly
+   * like every other route on that router, so an unauthenticated request comes
+   * back 401 and the card renders "No evidence has been collected yet." — which
+   * reads as "the credential chain does not exist" rather than "we were not
+   * allowed to look". That is precisely the conflation this component was built
+   * to end, so the token is not optional in practice; it is optional only in the
+   * type, to keep the component renderable in isolation.
+   */
+  getToken?: () => Promise<string | undefined | null>
 }) {
   const [evidence, setEvidence] = useState<CredentialEvidence | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -52,16 +65,40 @@ export function CredentialEvidencePanel({
   const [open, setOpen] = useState<Record<number, boolean>>({})
   const [showAllCommands, setShowAllCommands] = useState(false)
 
+  // Held in a ref so a caller passing an inline arrow (a new identity every
+  // render) cannot change `load`'s identity, retrigger the autoLoad effect and
+  // spin the endpoint in a loop.
+  const getTokenRef = useRef(getToken)
+  getTokenRef.current = getToken
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const response = await fetcher(EVIDENCE_ENDPOINT, { headers: { Accept: 'application/json' } })
+      // A token failure must not abort the probe silently: fall through with no
+      // Authorization header and let the 401 be reported, rather than throwing
+      // away the request and leaving the card looking merely empty.
+      let token: string | undefined | null
+      try {
+        token = await getTokenRef.current?.()
+      } catch {
+        token = undefined
+      }
+      const response = await fetcher(EVIDENCE_ENDPOINT, {
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      })
       if (!response.ok) {
         // Surface the status rather than falling back to a blank lifecycle: an
         // empty card reads exactly like "nothing is deployed", which is the
         // confusion this component exists to end.
-        setError(`Evidence unavailable (HTTP ${response.status})`)
+        setError(
+          response.status === 401
+            ? 'Evidence unavailable (HTTP 401) — the platform did not accept this session'
+            : `Evidence unavailable (HTTP ${response.status})`,
+        )
         setEvidence(null)
         return
       }

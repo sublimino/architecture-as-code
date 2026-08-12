@@ -57,6 +57,61 @@ paths, both permitted OpenBao paths, denied risk→OpenBao, and denied arbitrary
 egress. Generic compatibility remains runtime-tested; absent prerequisites fail
 `UNVERIFIED` and never skip. No CNI is installed or replaced by this slice.
 
+## Pitfalls
+
+Every entry here was a live defect in this slice, found 2026-08-12. They share
+one shape, the one root `AGENTS.md` names: *a wait that can never succeed and a
+gate that always passes are the same bug wearing different hats.* In a slice
+whose entire purpose is proving denial, that shape is the thing to hunt.
+
+### `nc` cannot tell a firewall from a typo
+
+busybox:1.36 returns **exit 1** for a blackholed IP *and* for an unresolvable
+host (`nc: bad address`), a missing binary, and a container that isn't running.
+Only stderr distinguishes them. `expect_tcp` inspected the exit code alone, so
+every `deny` assertion passed on any breakage — delete the `allow-dns` policy
+for `agent-trust-acme-risk` and the run still printed "enforced NetworkPolicy
+evidence passed" while proving nothing. It now captures stderr and reports
+breakage as `UNVERIFIED`. Never assert a denial from a status code alone.
+
+### A new pod is briefly unconfined
+
+The CNI programs a pod's NetworkPolicy rules a moment *after* the container
+starts. The `planner-egress-denied` probe fired at t=0, reached `1.1.1.1:443`,
+and reported a security hole that does not exist — on every run. An identically
+labelled pod given 20s settles to correctly denied. The probe now waits on a
+**positive control** (the permitted OpenBao path succeeding proves this pod's
+rules are programmed) before asserting the denial, and times out `UNVERIFIED`.
+A bare retry-until-denied would be worse than the original bug: it makes a real
+hole indistinguishable from "CNI not ready yet".
+
+### NetworkPolicies select on labels, not on identity
+
+The probe CronJobs carry the planner's ServiceAccount and SPIFFE ID but
+originally not `app.kubernetes.io/name`, which every policy selects on — so
+`openbao-planner` and `planner-triage-a2a` could never reach their targets and
+had been failing continuously. Same binary, same args, same namespace: exit 0
+from the labelled Deployment, exit 1 from the probe pod.
+
+The fix has a sting. Adding that label makes probes match
+`kubectl get pods -l app.kubernetes.io/name=agent-trust-planner`, and
+`verify_nonrenewable_planner_token` errors unless *exactly one* ready pod
+matches — so a probe overlapping a test run breaks the demo intermittently with
+"expected one ready planner pod". Probes therefore also carry
+`app.kubernetes.io/component: probe`, and the lookup excludes it. If you add a
+pod that borrows a workload's identity labels, check every selector that label
+feeds: Services, `get pods -l`, PDBs, ServiceMonitors.
+
+### Probe output goes to the termination log, not stdout
+
+`terminationMessagePolicy: File` means `kubectl logs` on a failed probe is
+empty. Read the outcome with:
+
+```bash
+kubectl -n agent-trust-acme-payments get pod <probe-pod> \
+  -o jsonpath='{.status.containerStatuses[0].state.terminated.message}'
+```
+
 ## Production gaps
 
 Cloud workload attestors, cloud key custody, trust-bundle delivery and

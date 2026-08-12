@@ -120,6 +120,31 @@ runner_script_processes() {
     || echo unavailable
 }
 
+# Block until the runner has no active run, so a POST that expects 202 is not
+# racing one.
+#
+# The runner serialises runs: POST /demo-api/runs answers 409
+# demo_run_in_progress while another is in flight. Any test that starts a run
+# and does not wait for it therefore arms the next one to fail, and the failure
+# names a status code rather than the collision — which is exactly how this
+# read as a product bug when it was only test ordering. The same race hits a
+# clean single test if the demo is mid-rehearsal, which the note above
+# explicitly allows for.
+#
+# Returns non-zero on timeout rather than looping forever, so a genuinely stuck
+# runner still surfaces as a failure instead of a hang.
+wait_for_idle() {
+  local deadline=$((SECONDS + ${1:-60}))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    demo_api GET /demo-api/status "$SUPERADMIN_TOKEN" >/dev/null
+    python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1]))["active"] is None else 1)' \
+      "$BATS_TEST_TMPDIR/body" 2>/dev/null && return 0
+    sleep 2
+  done
+  echo "runner still busy after ${1:-60}s" >&2
+  return 1
+}
+
 # "how many runs does the runner know about, and is one active" — the state
 # that must not move when an unauthorized call is refused.
 run_state_fingerprint() {
@@ -300,6 +325,7 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
 }
 
 @test "DEMOAPI POST /demo-api/runs with a superadmin token returns 202 with a run_id" {
+  wait_for_idle 60
   run demo_api POST /demo-api/runs "$SUPERADMIN_TOKEN" '{"step":"1"}'
   [ "$output" = "202" ]
   run body_field run_id
@@ -327,6 +353,9 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
 # prose someone has to find.
 
 @test "DEMOAPI a NON-superadmin can still read the phase list and a phase's status" {
+  # The preceding test starts a run and does not await it; without this the
+  # POST below lands on a busy runner and answers 409, not 202.
+  wait_for_idle 60
   start="$(demo_api POST /demo-api/runs "$SUPERADMIN_TOKEN" '{"step":"1"}')"
   [ "$start" = "202" ]
   run_id="$(body_field run_id)"

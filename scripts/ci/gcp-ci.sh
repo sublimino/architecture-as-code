@@ -87,8 +87,16 @@ LOCK_SHIM=""
 # so the boundary has to be an executable that takes the snippet as $1. A
 # throwaway shim is simpler and far more legible than exporting shell functions
 # through nested `bash -c`, and it keeps gcloud confined to one line.
+#
+# Call it as a plain command and then read $LOCK_SHIM. It must NOT be called as
+# `$(lock_shim)`: command substitution runs in a subshell, so the assignment to
+# LOCK_SHIM was discarded, the memo never hit, every call mktemp'd a fresh file
+# that nothing ever deleted, and — because the parent's LOCK_SHIM stayed empty
+# — the `[ -n "$LOCK_SHIM" ]` cleanup below always evaluated false and returned
+# 1 as the last command of the EXIT trap. Under `set -e` that replaced the
+# script's own exit status, so a run with 8/8 stages green exited 1.
 lock_shim() {
-  [ -n "$LOCK_SHIM" ] && { printf '%s' "$LOCK_SHIM"; return 0; }
+  [ -n "$LOCK_SHIM" ] && return 0
   LOCK_SHIM="$(mktemp -t gcp-ci-lock-shim-XXXXXX)"
   cat >"$LOCK_SHIM" <<SHIM
 #!/usr/bin/env bash
@@ -97,7 +105,6 @@ exec gcloud compute ssh $(printf '%q' "$VM_NAME") \\
   --tunnel-through-iap --command="sudo -u ci bash -c \\"\$1\\""
 SHIM
   chmod +x "$LOCK_SHIM"
-  printf '%s' "$LOCK_SHIM"
 }
 
 lock_acquire() {
@@ -108,7 +115,8 @@ lock_acquire() {
   local args=(acquire --reason "${GCP_CI_LOCK_REASON:-gcp-ci.sh run}")
   [ "${GCP_CI_FORCE_LOCK:-0}" = "1" ] && args+=(--force)
 
-  if CI_LOCK_REMOTE_EXEC="$(lock_shim)" \
+  lock_shim
+  if CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" \
      CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
      CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" \
      GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \
@@ -122,14 +130,26 @@ lock_acquire() {
 
 # Released from a trap, so it must never turn a passing run into a failing one
 # — and never release a lock that was legitimately reclaimed while we ran.
+#
+# Every path out of this function returns 0, explicitly. `set -e` makes a
+# failing final command inside an EXIT trap override the status the script
+# asked for, which is how a green run reported failure. The invariant in the
+# comment above is only as good as that trailing `return 0`.
 lock_release() {
-  [ "$GCP_CI_HOLDS_LOCK" = "1" ] || return 0
-  CI_LOCK_REMOTE_EXEC="$(lock_shim)" \
+  if [ "$GCP_CI_HOLDS_LOCK" != "1" ]; then
+    return 0
+  fi
+  lock_shim
+  CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" \
   CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
   CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" \
     bash "$LOCK_SCRIPT" release || true
   GCP_CI_HOLDS_LOCK=0
-  [ -n "$LOCK_SHIM" ] && rm -f "$LOCK_SHIM"
+  if [ -n "$LOCK_SHIM" ]; then
+    rm -f "$LOCK_SHIM"
+    LOCK_SHIM=""
+  fi
+  return 0
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────
@@ -544,6 +564,15 @@ cmd_run() {
     echo "OpenReports: ${REPORT_DIR}/${REPORT_FILENAME}"
   fi
 
+  # ── Release the lock while the VM can still be reached ─────────────
+  # The lock lives on the VM, so it can only be released over SSH. Leaving this
+  # to the EXIT trap put it AFTER the suspend below, where every release call
+  # hit an unreachable host — and ci-lock.sh's read then reported "already
+  # free", so each successful run left its own lock behind for the full 4h TTL.
+  # The next caller met "REFUSING — the CI VM is in use" naming a run that had
+  # finished, which trains exactly the --force reflex the lock exists to stop.
+  lock_release
+
   # ── Suspend on success, leave running on failure for debugging ──
   if ((pipeline_exit == 0)); then
     echo "==> PASS — suspending VM to save cost"
@@ -591,9 +620,11 @@ cmd_status() {
   # the process table was how three collisions were diagnosed AFTER the fact.
   if [[ "$status" == "RUNNING" ]]; then
     local lock
-    lock="$(CI_LOCK_REMOTE_EXEC="$(lock_shim)" bash "$LOCK_SCRIPT" status 2>/dev/null || echo "unknown")"
+    lock_shim
+    lock="$(CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" bash "$LOCK_SCRIPT" status 2>/dev/null || echo "unknown")"
     echo "Lock: ${lock}"
     rm -f "$LOCK_SHIM"
+    LOCK_SHIM=""
   fi
 
   if [[ "$status" == "RUNNING" ]]; then
@@ -649,9 +680,11 @@ case "${1:-run}" in
   # push-code is destructive on its own (`rm -rf ${REMOTE_WORK_DIR}`), so it
   # takes the lock too rather than being a quiet back door around it.
   push-code)   trap lock_release EXIT; lock_acquire; push_code ;;
-  lock)        shift; CI_LOCK_REMOTE_EXEC="$(lock_shim)" CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
+  lock)        shift; lock_shim
+               CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
                  CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \
-                 bash "$LOCK_SCRIPT" "${@:-status}" ;;
+                 bash "$LOCK_SCRIPT" "${@:-status}"
+               rm -f "$LOCK_SHIM" ;;
   ssh)         cmd_ssh ;;
   status)      cmd_status ;;
   destroy)     cmd_destroy ;;

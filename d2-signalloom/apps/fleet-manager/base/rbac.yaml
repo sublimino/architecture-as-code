@@ -7,6 +7,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: fleet-manager
+  namespace: fe-signalloom
   labels:
     app.kubernetes.io/name: fleet-manager
     app.kubernetes.io/component: supercred-demo
@@ -42,4 +43,9 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: fleet-manager
-    namespace: default
+    # fe-signalloom, not default: the Deployment runs there, and a RoleBinding
+    # naming a ServiceAccount that does not exist is LEGAL and SILENT. It binds
+    # nothing, so every pod list/patch 403s -- which client-go surfaces as an
+    # EMPTY result, not a permission error. The Fleet page would have rendered
+    # an empty fleet with no reason given.
+    namespace: fe-signalloom

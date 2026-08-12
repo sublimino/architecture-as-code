@@ -2,6 +2,11 @@
 # Kustomization. Flux envsubst does not apply.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
+# Everything lands in fe-signalloom. Without this the Deployment and Service
+# declare no namespace and `kubectl apply -k` puts them in `default`, where the
+# dashboard's /fleet-api/ proxy (which targets
+# fleet-manager.fe-signalloom.svc.cluster.local) cannot reach them.
+namespace: fe-signalloom
 resources:
   - deployment.yaml
   - service.yaml

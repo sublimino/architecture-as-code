@@ -395,6 +395,17 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	$(MAKE) netassert-runner-image
 	$(MAKE) signalloom-images
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+	$(MAKE) demo-signalloom-afm-up
+
+.PHONY: demo-signalloom-afm-up
+demo-signalloom-afm-up: ## Deploy the KubeSec-AFM slice that the RBAC Explorer reads; warn, do not fail, if its source repo is absent.
+	@if ./scripts/k8s-afm.sh preflight >/dev/null 2>&1; then \
+	  $(MAKE) demo-k8s-afm-up; \
+	else \
+	  ./scripts/k8s-afm.sh preflight || true; \
+	  echo "WARNING: continuing WITHOUT the AFM slice. Signal Loom's RBAC Explorer will"; \
+	  echo "         report \"KubeSec-AFM is not deployed\" until the above is resolved."; \
+	fi
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test
 demo-signalloom-test: demo-signalloom-test-config ## Verify focused Signal Loom Flux readiness.

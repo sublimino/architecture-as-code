@@ -43,10 +43,16 @@ const STATE_STYLE: Record<EvidenceState, { label: string; bg: string; border: st
  * `detail` says so in its own words.
  */
 function describeFailure(status: number): { title: string; detail: string } {
-  if (status === 401 || status === 403) {
+  if (status === 401) {
     return {
-      title: `The platform did not accept this session (HTTP ${status})`,
+      title: 'The platform did not accept this session (HTTP 401)',
       detail: 'Your sign-in was rejected, so no probe was ever run. Sign in again, then re-check.',
+    }
+  }
+  if (status === 403) {
+    return {
+      title: 'This session is not permitted to read the evidence (HTTP 403)',
+      detail: 'The sign-in was accepted but refused. Check which tenant this session belongs to. The cluster was never queried.',
     }
   }
   if (status === 404) {
@@ -73,12 +79,15 @@ function describeFailure(status: number): { title: string; detail: string } {
   }
 }
 
-function headline(steps: EvidenceStep[], failed: boolean): string {
+function headline(steps: EvidenceStep[], failed: boolean, loading: boolean): string {
   const { observed, unavailable, total } = evidenceSummary(steps)
   // On failure the count is zero because nothing ran — saying "none collected
   // yet" would describe a clean starting state, which is the one reading this
   // card must never produce for a probe that broke.
   if (failed) return 'No evidence could be collected — the check itself failed. See below.'
+  // Before the first probe resolves the count is zero, which would otherwise
+  // render the same false clean state the failure branch above exists to stop.
+  if (loading && total === 0) return 'Checking the credential chain…'
   if (total === 0) return 'No evidence has been collected yet.'
   if (unavailable === total) return 'Nothing could be checked — the platform could not reach the cluster.'
   const base = `${observed} of ${total} steps in the credential chain are confirmed by direct inspection`
@@ -174,17 +183,27 @@ export function CredentialEvidencePanel({
         <div style={{ display: 'flex', gap: 8 }}>
           {/* Disabled with no rows: the toggle only expands per-step commands,
               so with an empty chain it is inert and reads as a broken button —
-              which is exactly how it looked while the endpoint was 500ing. */}
-          <button
-            type="button"
-            data-testid="evidence-toggle-commands"
-            onClick={() => setShowAllCommands((v) => !v)}
-            disabled={steps.length === 0}
-            title={steps.length === 0 ? 'No steps to show commands for yet — run Re-check first' : undefined}
-            style={{ ...btn, ...(steps.length === 0 ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
-          >
-            {showAllCommands ? 'Hide commands' : 'Show commands'}
-          </button>
+              which is exactly how it looked while the endpoint was 500ing.
+              Disabled rather than hidden: hiding it would shift the header on
+              every re-check, and mid-demo jitter reads as a fault of its own.
+              The title sits on the wrapper because browsers suppress hover
+              events on a disabled control, so a title on the button itself
+              would never be shown to the person who needs it. */}
+          <span title={steps.length === 0 ? 'Nothing has been collected, so there are no commands to show' : undefined}>
+            <button
+              type="button"
+              data-testid="evidence-toggle-commands"
+              onClick={() => setShowAllCommands((v) => !v)}
+              disabled={steps.length === 0}
+              style={{ ...btn, ...(steps.length === 0 ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }}
+            >
+              {/* Derived, not stored. Opening every console and then hitting a
+                  failing Re-check would otherwise leave this reading "Hide
+                  commands" with nothing to hide. Deriving beats resetting the
+                  state, because a SUCCESSFUL re-check should keep them open. */}
+              {showAllCommands && steps.length > 0 ? 'Hide commands' : 'Show commands'}
+            </button>
+          </span>
           <button type="button" data-testid="evidence-refresh" onClick={() => void load()} disabled={loading} style={btn}>
             {loading ? 'Checking…' : 'Re-check'}
           </button>
@@ -194,13 +213,18 @@ export function CredentialEvidencePanel({
       {/* The executive line: one sentence, no jargon, no counts of things that
           were not checked hidden inside a "completed". */}
       <p data-testid="evidence-headline" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.5 }}>
-        {headline(steps, error !== null)}
+        {headline(steps, error !== null, loading)}
       </p>
+      {/* A claim about rows, so it is only made when there are rows. With an
+          empty chain it asserted that six absent rows had each been decided by
+          a command that never ran. */}
+      {steps.length > 0 && (
       <p style={{ fontSize: 11, color: 'var(--muted)', margin: '0 0 12px', lineHeight: 1.5 }}>
         Every row below was decided by running a command against the cluster just now — not by
         what the operator clicked. Open a row, or run{' '}
         <code style={code}>make demo-signalloom-supercred-evidence</code> for the same result in a terminal.
       </p>
+      )}
 
       {error && (
         <div role="alert" data-testid="evidence-error" style={{

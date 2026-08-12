@@ -28,7 +28,7 @@ spec:
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 2
-  jobTemplate: {spec: {backoffLimit: 0, activeDeadlineSeconds: 45, template: {metadata: {labels: {agent-trust.signalloom.io/probe: openbao-planner, app.kubernetes.io/name: agent-trust-planner}}, spec: {serviceAccountName: agent-trust-planner, automountServiceAccountToken: false, restartPolicy: Never, securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}, containers: [{name: probe, image: signalloom-spire-helper:local, imagePullPolicy: Never, args: [probe-openbao, -audience, openbao-supercredential, -role, agent-trust-planner], terminationMessagePolicy: File, securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}, volumeMounts: [{name: spire-sockets, mountPath: /run/spire/sockets, readOnly: true}]}], volumes: [{name: spire-sockets, hostPath: {path: /run/spire/sockets, type: Directory}}]}}}}
+  jobTemplate: {spec: {backoffLimit: 0, activeDeadlineSeconds: 45, template: {metadata: {labels: {agent-trust.signalloom.io/probe: openbao-planner, app.kubernetes.io/name: agent-trust-planner, app.kubernetes.io/component: probe}}, spec: {serviceAccountName: agent-trust-planner, automountServiceAccountToken: false, restartPolicy: Never, securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}, containers: [{name: probe, image: signalloom-spire-helper:local, imagePullPolicy: Never, args: [probe-openbao, -audience, openbao-supercredential, -role, agent-trust-planner], terminationMessagePolicy: File, securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}, volumeMounts: [{name: spire-sockets, mountPath: /run/spire/sockets, readOnly: true}]}], volumes: [{name: spire-sockets, hostPath: {path: /run/spire/sockets, type: Directory}}]}}}}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -38,7 +38,7 @@ spec:
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 2
   failedJobsHistoryLimit: 2
-  jobTemplate: {spec: {backoffLimit: 0, activeDeadlineSeconds: 45, template: {metadata: {labels: {agent-trust.signalloom.io/probe: planner-triage-a2a, app.kubernetes.io/name: agent-trust-planner}}, spec: {serviceAccountName: agent-trust-planner, automountServiceAccountToken: false, restartPolicy: Never, securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}, containers: [{name: probe, image: signalloom-spire-helper:local, imagePullPolicy: Never, args: [probe-a2a, -audience, openbao-supercredential], terminationMessagePolicy: File, securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}, volumeMounts: [{name: spire-sockets, mountPath: /run/spire/sockets, readOnly: true}, {name: a2a-private, mountPath: /run/agent-trust, readOnly: true}]}], volumes: [{name: spire-sockets, hostPath: {path: /run/spire/sockets, type: Directory}}, {name: a2a-private, secret: {secretName: agent-trust-a2a-private}}]}}}}
+  jobTemplate: {spec: {backoffLimit: 0, activeDeadlineSeconds: 45, template: {metadata: {labels: {agent-trust.signalloom.io/probe: planner-triage-a2a, app.kubernetes.io/name: agent-trust-planner, app.kubernetes.io/component: probe}}, spec: {serviceAccountName: agent-trust-planner, automountServiceAccountToken: false, restartPolicy: Never, securityContext: {runAsNonRoot: true, runAsUser: 65532, seccompProfile: {type: RuntimeDefault}}, containers: [{name: probe, image: signalloom-spire-helper:local, imagePullPolicy: Never, args: [probe-a2a, -audience, openbao-supercredential], terminationMessagePolicy: File, securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}, volumeMounts: [{name: spire-sockets, mountPath: /run/spire/sockets, readOnly: true}, {name: a2a-private, mountPath: /run/agent-trust, readOnly: true}]}], volumes: [{name: spire-sockets, hostPath: {path: /run/spire/sockets, type: Directory}}, {name: a2a-private, secret: {secretName: agent-trust-a2a-private}}]}}}}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -143,7 +143,7 @@ spec:
       # this pod's rules before the real assertion can run at all.
       activeDeadlineSeconds: 120
       template:
-        metadata: {labels: {agent-trust.signalloom.io/probe: planner-egress-denied, app.kubernetes.io/name: agent-trust-planner}}
+        metadata: {labels: {agent-trust.signalloom.io/probe: planner-egress-denied, app.kubernetes.io/name: agent-trust-planner, app.kubernetes.io/component: probe}}
         spec:
           serviceAccountName: agent-trust-planner
           automountServiceAccountToken: false

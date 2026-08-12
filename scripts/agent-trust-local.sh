@@ -355,7 +355,7 @@ network_dataplane_preflight() {
 verify_nonrenewable_planner_token() {
   local planner planner_state fetched jwt login client_token renew_output renew_status
   planner_state="$(kubectl -n agent-trust-acme-payments get pods \
-    -l app.kubernetes.io/name=agent-trust-planner -o json)"
+    -l app.kubernetes.io/name=agent-trust-planner,app.kubernetes.io/component!=probe -o json)"
   planner="$(jq -er '
     [.items[] | select(
       (.status.containerStatuses // []) as $statuses |

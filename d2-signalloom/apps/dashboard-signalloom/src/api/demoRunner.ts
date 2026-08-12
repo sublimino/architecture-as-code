@@ -51,7 +51,24 @@ export interface DemoRunnerStatus {
   script_available: boolean
 }
 
-const DEMO_API = '/demo-api'
+/**
+ * Every demo-runner call must go through this prefix — nothing may hardcode
+ * `/api/demo/supercred`.
+ *
+ * The two look interchangeable and are not. nginx routes `/demo-api/` to the
+ * supercred-demo-runner pod (rewriting it back to `/api/demo/supercred$1`),
+ * because that pod is the only one carrying kubectl, the repo scripts and the
+ * cluster-mutating RBAC. `/api/` goes to fe-signalloom-api, which deliberately
+ * has none of them.
+ *
+ * The credential-evidence module used the `/api/demo/supercred` form directly.
+ * The router is mounted in BOTH pods, so the call was accepted rather than
+ * 404'd — and then died in fe-signalloom with `IndexError: 4`, because
+ * `_repo_root()` resolves `parents[4]` of `/app/demo_runner.py`, which has two.
+ * The browser saw a bare HTTP 500 and the Credential Lifecycle card rendered
+ * empty. Exported so there is one spelling of this prefix in the codebase.
+ */
+export const DEMO_API = '/demo-api'
 
 /** A run in any state other than `running` is terminal and will not change. */
 export function isRunActive(run: DemoRunView | null | undefined): boolean {

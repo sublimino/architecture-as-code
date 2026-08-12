@@ -2,7 +2,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CredentialEvidencePanel } from './CredentialEvidencePanel'
-import { evidenceSummary, normaliseState, parseEvidence } from '../api/credentialEvidence'
+import { EVIDENCE_ENDPOINT, evidenceSummary, normaliseState, parseEvidence } from '../api/credentialEvidence'
+import { DEMO_API } from '../api/demoRunner'
 
 // The card this replaces derived six steps from `!!agent.id` and printed
 // hardcoded timestamps, so it showed everything completed the moment an agent
@@ -229,5 +230,27 @@ describe('the evidence request is authenticated', () => {
     await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
     expect(screen.getByTestId('evidence-error')).toHaveTextContent('did not accept this session')
     expect(screen.queryByTestId('evidence-step-1')).not.toBeInTheDocument()
+  })
+})
+
+// Which prefix the evidence request uses is not cosmetic — it decides which POD
+// answers it. nginx sends /demo-api/ to supercred-demo-runner (kubectl, repo
+// scripts, cluster RBAC) and /api/ to fe-signalloom-api, which has none of them.
+// The demo_runner router is mounted in BOTH, so the wrong prefix is accepted
+// rather than 404'd and then dies with `IndexError: 4` deep in the handler. The
+// browser sees a bare HTTP 500 and the card renders empty.
+describe('the evidence request reaches the pod that can answer it', () => {
+  it('is routed through the demo-runner prefix, not the generic API prefix', () => {
+    expect(EVIDENCE_ENDPOINT).toBe('/demo-api/evidence')
+    expect(EVIDENCE_ENDPOINT.startsWith(DEMO_API)).toBe(true)
+    // The spelling that reaches fe-signalloom-api and 500s.
+    expect(EVIDENCE_ENDPOINT).not.toContain('/api/demo/supercred')
+  })
+
+  it('asks for exactly that path at runtime', async () => {
+    const fetcher = fetcherFor(payload([step()]))
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} getToken={async () => 't'} />)
+    await waitFor(() => expect(fetcher).toHaveBeenCalled())
+    expect(fetcher.mock.calls[0][0]).toBe('/demo-api/evidence')
   })
 })

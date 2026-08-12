@@ -10,6 +10,7 @@ child environment below.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import signal
@@ -33,6 +34,7 @@ from superadmin import require_superadmin
 logger = logging.getLogger(__name__)
 
 _ENV_SCRIPT = "SUPERCRED_DEMO_SCRIPT"
+_ENV_EVIDENCE_SCRIPT = "SUPERCRED_EVIDENCE_SCRIPT"
 _ENV_CWD = "SUPERCRED_DEMO_CWD"
 _ENV_TIMEOUT = "SUPERCRED_DEMO_TIMEOUT_SECONDS"
 _ENV_CANCEL_GRACE = "SUPERCRED_DEMO_CANCEL_GRACE_SECONDS"
@@ -155,6 +157,35 @@ class DemoStepsResponse(BaseModel):
     steps: list[DemoStepView]
 
 
+class EvidenceStepView(BaseModel):
+    """One lifecycle step, and the command that decided its state.
+
+    `state` is a closed vocabulary and deliberately has no "completed":
+
+      observed     a probe ran and confirmed it
+      absent       a probe ran and disproved it
+      unavailable  the probe could not run — NOT the same as absent
+
+    `command` is the whole point of shipping this to the browser. The card this
+    replaces rendered "completed" with a hardcoded timestamp off a single
+    boolean; a claim a debugger cannot re-execute is indistinguishable from a
+    fabricated one.
+    """
+
+    step: int
+    label: str
+    state: str
+    command: str
+    detail: str
+    summary: str
+
+
+class EvidenceResponse(BaseModel):
+    generated_at: str
+    source: str
+    steps: list[EvidenceStepView]
+
+
 class RunRequest(BaseModel):
     step: StepId
 
@@ -200,6 +231,13 @@ def _script_path() -> Path:
     if override:
         return Path(override)
     return _repo_root() / "scripts" / "supercred-demo.sh"
+
+
+def _evidence_script_path() -> Path:
+    override = os.environ.get(_ENV_EVIDENCE_SCRIPT)
+    if override:
+        return Path(override)
+    return _repo_root() / "scripts" / "supercred-evidence.sh"
 
 
 def _read_int_env(name: str, default: int) -> int:
@@ -519,6 +557,61 @@ async def list_demo_steps(
             for step in DEMO_STEPS.values()
         ]
     )
+
+
+@router.get("/evidence", response_model=EvidenceResponse, responses=ERROR_RESPONSES)
+async def credential_chain_evidence(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> EvidenceResponse:
+    """What is observably true about the credential chain, with proof commands.
+
+    Deliberately the SAME script the CLI runs
+    (`make demo-signalloom-supercred-evidence`), not a reimplementation of its
+    logic in Python. Two implementations of "is there a SPIRE entry" drift, and
+    the one nobody runs from a terminal is the one that drifts silently.
+
+    Read-only: it observes and never mutates, so unlike /runs it needs no lock
+    and cannot disturb a demo in flight.
+    """
+    del tenant_id
+    path = _evidence_script_path()
+    if not _script_is_available(path):
+        raise APIError(
+            503,
+            "evidence_script_unavailable",
+            f"SuperCred evidence script is unavailable: {path}",
+        )
+    try:
+        completed = subprocess.run(  # noqa: S603 - fixed argv, no shell, no user input
+            [str(path), "json"],
+            capture_output=True,
+            timeout=90,
+            cwd=str(_repo_root()),
+            # Same allowlisted child environment as the demo runs. The module
+            # docstring names the fixed child env as one of four security
+            # boundaries; a read-only probe is no reason to hand a child
+            # os.environ. It also carries KUBERNETES_SERVICE_HOST/PORT, without
+            # which kubectl has no server and every probe would report
+            # "unavailable" from inside the cluster.
+            env=_child_env(),
+            check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise APIError(504, "evidence_timeout", "Evidence collection timed out") from exc
+    if completed.returncode != 0:
+        raise APIError(
+            502,
+            "evidence_failed",
+            f"Evidence collection failed: {completed.stderr.decode(errors='replace')[:400]}",
+        )
+    try:
+        payload = json.loads(completed.stdout.decode(errors="replace"))
+    except ValueError as exc:
+        # Malformed output is a bug, not an outage: surface it as 502 rather than
+        # degrading to a cheerful empty list, which would render as "no evidence"
+        # and read identically to "nothing is deployed".
+        raise APIError(502, "evidence_malformed", f"Evidence output was not JSON: {exc}") from exc
+    return EvidenceResponse(**payload)
 
 
 @router.post("/runs", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)

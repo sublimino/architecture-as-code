@@ -6,7 +6,25 @@ For a human review of the live browser experience, use [HUMAN_VALIDATION.md](HUM
 
 ## Browser acceptance tests
 
-The browser suite uses Playwright 1.61.1, Bun, and the system Chrome channel. The suite currently contains eight tests in [`test/acceptance/cluster.spec.ts`](test/acceptance/cluster.spec.ts):
+The browser suite uses Playwright 1.61.1, Bun, and the system Chrome channel.
+`make acceptance-test` currently runs **68 tests across 9 specs**, in four
+projects defined by `testMatch` in
+[`test/acceptance/playwright.config.ts`](test/acceptance/playwright.config.ts):
+`auth.setup.ts`, `signalloom-test-1.spec.ts`, `supercred-two-window.spec.ts`,
+and the `smoke` set (`smoke`, `signalloom-login`, `afm-integration`,
+`afm-frontend`, `rbac-analysis`, `rbac-explorer`, `credential-lifecycle`).
+Confirm the live count with `cd test/acceptance && bunx playwright test --list`.
+
+**Four specs on disk match no project's `testMatch` and therefore never run**
+(confirmed against `bunx playwright test --list`; the only "cluster" string in
+the config is an unrelated comment):
+`cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`
+and `supercred-page.spec.ts`. Anything below describing `cluster.spec.ts` —
+including the Grafana / Archivista / Olly assertions and the baseline at the end
+of this section — documents a spec the command does not execute. Wire it into a
+project before relying on it.
+
+The historical eight-test description of [`test/acceptance/cluster.spec.ts`](test/acceptance/cluster.spec.ts) follows:
 
 | Area | Tests | Expected endpoint |
 | --- | ---: | --- |

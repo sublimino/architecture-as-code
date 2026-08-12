@@ -202,8 +202,21 @@ describe('AgentsPage — Live Data Wiring', () => {
     // Filter to suspended only
     await userEvent.click(screen.getByTestId('agent-lifecycle-filter-suspended'))
 
-    expect(screen.queryByText('Active Agent')).not.toBeInTheDocument()
+    expect(screen.getByText('Active Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
     expect(screen.getByText('Suspended Agent')).toBeInTheDocument()
+  })
+
+  it('renders lifecycle dots and exposes selected chip state', async () => {
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents: [makeAgent({ lifecycle_state: 'active' })], total: 1,
+    })
+    renderPage()
+
+    await screen.findByText('Invoice Bot')
+    const activeChip = screen.getByTestId('agent-lifecycle-filter-active')
+    expect(activeChip.querySelector('.sl-filter-dot--active')).toBeInTheDocument()
+    await userEvent.click(activeChip)
+    expect(activeChip).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('restores the unfiltered rows after clearing filters', async () => {
@@ -219,7 +232,7 @@ describe('AgentsPage — Live Data Wiring', () => {
     await screen.findByText('Active Agent')
     const search = screen.getByRole('textbox', { name: 'Search agents' })
     await userEvent.type(search, 'suspended')
-    expect(screen.queryByText('Active Agent')).not.toBeInTheDocument()
+    expect(screen.getByText('Active Agent').closest('tbody')).toHaveAttribute('aria-hidden', 'true')
 
     await userEvent.click(screen.getByRole('button', { name: 'Clear' }))
     expect(screen.getByText('Active Agent')).toBeInTheDocument()

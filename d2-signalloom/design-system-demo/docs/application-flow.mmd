@@ -1,0 +1,23 @@
+flowchart LR
+  entry([Enter Signal Loom]) --> overview[Trust overview]
+  overview --> agents[Agent health]
+  agents --> detail[Agent investigation]
+  detail --> topology[Trace trust path]
+  overview --> controls[Controls and evidence]
+  controls --> finding[Control investigation]
+  finding --> evidence[Evidence package]
+  finding --> audit[Activity history]
+  topology --> credentials[Credential lifecycle]
+  topology --> services[Connected services]
+  topology --> access[Risky access paths]
+  admin{Show Superadmin tools?} -->|Yes| permissions[Permission findings]
+  permissions --> map[Permission map]
+  admin -->|No| overview
+  credentials --> revoke[Revoke credential]
+  revoke --> consequence[Operational consequence]
+  consequence --> agents
+  consequence --> controls
+  consequence --> audit
+  evidence --> outcome([Evidence-backed decision])
+  audit --> outcome
+  map --> outcome

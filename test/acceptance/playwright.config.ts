@@ -84,6 +84,26 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // The Credential Lifecycle card specifically: that its evidence request
+      // is authenticated on the wire, and that the rows re-probe when the
+      // instructor runs a phase. Separate from supercred-ui-lifecycle so a
+      // failure names the credential-evidence path rather than the whole
+      // 30-minute journey.
+      name: "supercred-evidence-lifecycle",
+      testMatch: /supercred-evidence-lifecycle\.spec\.ts/,
+      timeout: 30 * 60_000,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: "chrome",
+        storageState: "test-results/.auth-state.json",
+        launchOptions: {
+          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+        },
+      },
+      dependencies: ["setup"],
+    },
+    {
       name: "smoke",
       testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts/,
       use: {

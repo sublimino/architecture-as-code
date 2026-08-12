@@ -178,6 +178,18 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Fleet Manager. nginx proxies /fleet-api/ to fleet-manager:8082; without a
+    # matching egress rule the dashboard pod cannot reach it and nginx returns
+    # 504 while the service is healthy. d2-signalloom/test/dashboard-route-
+    # collisions.bats asserts every nginx upstream has a rule here, and caught
+    # this omission.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fleet-manager
+      ports:
+        - protocol: TCP
+          port: 8082
     - to:
         - namespaceSelector:
             matchLabels:

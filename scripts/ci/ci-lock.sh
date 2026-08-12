@@ -64,9 +64,33 @@ remote() {
 
 now() { date +%s; }
 
-# Read the holder record, or print nothing when the lock is free.
+# Bare word on purpose: it is interpolated into a remote snippet that gcp-ci.sh
+# passes through `bash -c "$1"`, so anything needing quoting would not survive.
+readonly LOCK_FREE_SENTINEL="__CI_LOCK_FREE__"
+
+# Read the holder record. Three outcomes, deliberately distinguishable:
+#   held        — prints the record, returns 0
+#   free        — prints nothing,   returns 0
+#   unreachable — prints nothing,   returns 2
+#
+# The previous `|| true` collapsed the third case into the second, and an
+# unreachable VM is the opposite of a free lock. It made `status` answer "free"
+# to anyone whose IAP tunnel hiccupped while another agent was mid-run — the
+# green light for exactly the collision this file exists to prevent — and made
+# `release` print "already free" and exit 0 without releasing anything.
+#
+# The far side echoes a sentinel for "no lock", so empty stdout can only mean
+# the transport never ran the snippet.
 read_lock() {
-  remote "cat '${LOCK_PATH}/holder' 2>/dev/null || true" 2>/dev/null || true
+  local out
+  out="$(remote "cat '${LOCK_PATH}/holder' 2>/dev/null || echo ${LOCK_FREE_SENTINEL}" 2>/dev/null)" \
+    || return 2
+  [ -n "$out" ] || return 2
+  if printf '%s\n' "$out" | grep -qF "$LOCK_FREE_SENTINEL"; then
+    return 0
+  fi
+  printf '%s\n' "$out"
+  return 0
 }
 
 # holder|token|epoch|reason
@@ -83,8 +107,14 @@ human_age() {
 }
 
 cmd_status() {
-  local record held_since age
-  record="$(read_lock)"
+  local record held_since age rc=0
+  record="$(read_lock)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # Never answer "free" for a question we could not ask. A caller who acts on
+    # a false "free" runs `rm -rf` and `make teardown` on someone else's work.
+    echo "unknown — could not reach the VM to read the lock" >&2
+    return 2
+  fi
   if [ -z "$record" ]; then
     echo "free"
     return 0
@@ -127,9 +157,16 @@ cmd_acquire() {
     return 0
   fi
 
-  # Held. Decide between refusing, stealing a stale lock, and forcing.
-  local record held_since age holder
-  record="$(read_lock)"
+  # Held, OR the far side is unreachable — the mkdir above cannot tell those
+  # apart on its own. Separate them here, before any branch that would write a
+  # holder record: an unreachable VM must never be mistaken for a stale lock
+  # and reclaimed, and --force past a VM we cannot talk to acquires nothing.
+  local record held_since age holder rc=0
+  record="$(read_lock)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    die "cannot reach the VM to read the lock — refusing to assume it is free"
+  fi
+
   holder="$(lock_field "$record" 1)"
   held_since="$(lock_field "$record" 3)"
   age=0
@@ -172,8 +209,18 @@ EOF
 }
 
 cmd_release() {
-  local record token
-  record="$(read_lock)"
+  local record token rc=0
+  record="$(read_lock)" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # Say the lock is still held, because it is. "already free" here was the
+    # exact wording a suspended VM produced on every successful run, while the
+    # lock sat on disk for its whole 4h TTL.
+    printf 'ci-lock: could not reach the VM — the lock was NOT released and is still held by %s\n' \
+      "$LOCK_HOLDER" >&2
+    printf '        It expires on its own after %sm, or: %s release\n' \
+      "$LOCK_TTL_MINUTES" "$(basename "$0")" >&2
+    return 1
+  fi
   if [ -z "$record" ]; then
     echo "ci-lock: already free"
     return 0

@@ -198,3 +198,129 @@ hold_as() {
 	[ -n "$push_line" ]
 	[ "$acquire_line" -lt "$push_line" ]
 }
+
+# ─── Unreachable is not free ────────────────────────────────────────────────
+#
+# All four of these regress one 2026-08-12 warm CI run: 8/8 stages green, and
+# the run still printed "ci-lock: already free" and exited 1. The lock was on a
+# VM that had just been suspended, so every remote read failed and was reported
+# as "free" — leaving the lock held for its full TTL.
+
+# A remote boundary that cannot reach the far side, as a suspended VM or a
+# dropped IAP tunnel presents.
+unreachable_exec() {
+	printf '#!/usr/bin/env bash\necho "ERROR: could not reach the instance" >&2\nexit 255\n' \
+		>"$BATS_TEST_TMPDIR/unreachable"
+	chmod +x "$BATS_TEST_TMPDIR/unreachable"
+	export CI_LOCK_REMOTE_EXEC="$BATS_TEST_TMPDIR/unreachable"
+}
+
+@test "CILOCK status does NOT report free when the VM is unreachable" {
+	unreachable_exec
+	run bash "$script" status
+	[ "$status" -ne 0 ]
+	[ "$output" != "free" ]
+	[[ "$output" == *"could not reach"* ]]
+}
+
+@test "CILOCK release does NOT claim already-free when the VM is unreachable" {
+	# The lock lives on the VM. If we cannot reach it we have not released it,
+	# and saying otherwise is how a lock survives its own run.
+	unreachable_exec
+	run bash "$script" release
+	[ "$status" -ne 0 ]
+	[[ "$output" != *"already free"* ]]
+	[[ "$output" == *"NOT released"* ]]
+}
+
+@test "CILOCK acquire refuses rather than reclaiming an unreachable VM as stale" {
+	unreachable_exec
+	run bash "$script" acquire
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"cannot reach"* ]]
+}
+
+@test "CILOCK acquire does not let --force past an unreachable VM" {
+	# --force past a VM we cannot talk to writes no holder record: it would
+	# report an acquisition that never happened.
+	unreachable_exec
+	run bash "$script" acquire --force
+	[ "$status" -ne 0 ]
+	[[ "$output" != *"acquired"* ]]
+}
+
+@test "CILOCK a held lock is still read correctly through the sentinel path" {
+	# The free/unreachable split works by having the far side echo a sentinel.
+	# Guard that it did not start leaking into the holder record.
+	hold_as "agent-b@host" "agent-b@host:222" 60
+	run bash "$script" status
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"agent-b@host"* ]]
+	[[ "$output" != *"__CI_LOCK_FREE__"* ]]
+}
+
+# ─── The exit trap must not rewrite the run's verdict ───────────────────────
+
+@test "CILOCK gcp-ci.sh releases the lock BEFORE suspending the VM" {
+	# Releasing from the EXIT trap alone put every release after the suspend,
+	# where it could never succeed.
+	# Scoped to cmd_run: cmd_provision legitimately suspends too, and it has no
+	# lock to release.
+	local gcp="$BATS_TEST_DIRNAME/../scripts/ci/gcp-ci.sh"
+	local body release_line suspend_line
+	body="$(awk '/^cmd_run\(\)/{f=1} f{print} f&&/^}/{exit}' "$gcp")"
+	release_line="$(printf '%s\n' "$body" | grep -n '^[[:space:]]*lock_release$' | head -1 | cut -d: -f1)"
+	suspend_line="$(printf '%s\n' "$body" | grep -n 'instances suspend' | head -1 | cut -d: -f1)"
+	[ -n "$release_line" ]
+	[ -n "$suspend_line" ]
+	[ "$release_line" -lt "$suspend_line" ]
+}
+
+@test "CILOCK gcp-ci.sh lock_release ends in an unconditional return 0" {
+	# `set -e` makes a failing last command in an EXIT trap override the exit
+	# status the script asked for. lock_release ended in
+	# `[ -n "$LOCK_SHIM" ] && rm -f "$LOCK_SHIM"`, which returned 1 whenever
+	# LOCK_SHIM was empty — which was always, because lock_shim assigned it in
+	# a `$( )` subshell. 8/8 stages green, exit 1.
+	local gcp="$BATS_TEST_DIRNAME/../scripts/ci/gcp-ci.sh"
+	run awk '/^lock_release\(\)/{f=1} f{print} f&&/^}/{exit}' "$gcp"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"return 0"* ]]
+	# The last statement before the closing brace must be `return 0`.
+	local last
+	last="$(printf '%s\n' "$output" | grep -v '^\s*$' | tail -2 | head -1 | tr -d '[:space:]')"
+	[ "$last" = "return0" ]
+}
+
+@test "CILOCK gcp-ci.sh never calls lock_shim in a command substitution" {
+	# `LOCK_SHIM="$(mktemp ...)"` inside `$(lock_shim)` is discarded with the
+	# subshell: the memo never hits, each call leaks a temp file, and the
+	# parent's LOCK_SHIM stays empty forever.
+	local gcp="$BATS_TEST_DIRNAME/../scripts/ci/gcp-ci.sh"
+	# Code only — the comment on lock_shim quotes the broken form on purpose.
+	run bash -c "grep -v '^[[:space:]]*#' '$gcp' | grep -n '\$(lock_shim)'"
+	[ "$status" -ne 0 ]
+}
+
+@test "CILOCK an exit trap wired to lock_release preserves a zero exit status" {
+	# End to end on the real function, with the remote boundary stubbed out:
+	# a script that succeeds must still exit 0 after the trap has run.
+	local gcp="$BATS_TEST_DIRNAME/../scripts/ci/gcp-ci.sh"
+	cat >"$BATS_TEST_TMPDIR/trap-probe.sh" <<PROBE
+#!/usr/bin/env bash
+set -euo pipefail
+VM_NAME=vm; ZONE=z; PROJECT=p
+LOCK_SCRIPT="$BATS_TEST_TMPDIR/noop-lock.sh"
+LOCK_HOLDER_NAME=probe
+LOCK_TOKEN_VALUE=probe:1
+GCP_CI_HOLDS_LOCK=1
+LOCK_SHIM=""
+$(awk '/^lock_shim\(\)/{f=1} f{print} f&&/^}/{if(++n==1)exit}' "$gcp")
+$(awk '/^lock_release\(\)/{f=1} f{print} f&&/^}/{exit}' "$gcp")
+trap lock_release EXIT
+exit 0
+PROBE
+	printf '#!/usr/bin/env bash\nexit 0\n' >"$BATS_TEST_TMPDIR/noop-lock.sh"
+	run bash "$BATS_TEST_TMPDIR/trap-probe.sh"
+	[ "$status" -eq 0 ]
+}

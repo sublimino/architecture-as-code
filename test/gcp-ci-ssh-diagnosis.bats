@@ -111,6 +111,46 @@ sign_and_send_pubkey: signing failed for RSA key from agent: agent refused opera
   echo "$loop" | grep -qF 'err_file'
 }
 
+@test "GCPSSH empty SSH stderr must not abort the polling loop" {
+  # The classifier says "" is retryable -- but the loop has to survive long
+  # enough to ask it, and for a while it did not. `grep -v '^$'` exits 1 when it
+  # selects no lines, and under `set -euo pipefail` a failing command
+  # substitution in an assignment terminates the script immediately: exit 1,
+  # mid-poll, with no message at all.
+  #
+  # Empty stderr is the ordinary cold-start case, not a rarity: SSH connects and
+  # `sudo test -f` merely reports the marker is absent, writing nothing. A warm
+  # VM never reaches the line, because the very first probe returns 0 -- which is
+  # exactly why this survived every warm run and only ever broke fresh ones.
+  # Observed 2026-08-12 on a newly created signalloom-ci-2: provisioning aborted
+  # roughly 4 minutes in while the VM was healthy throughout.
+  #
+  # Asserted against the real line lifted out of the script, not a copy of it,
+  # so rewording the pipeline cannot quietly opt out of the guard.
+  local line
+  line="$(awk '/^wait_for_provision\(\)/,/^}/' "$script" | grep -F 'last_err="$(')"
+  [ -n "$line" ]
+
+  local tmp probe err_file
+  tmp="$(mktemp -d)"
+  probe="$tmp/probe.sh"
+  err_file="$tmp/stderr"
+  : > "$err_file"   # SSH connected; `test -f` just returned 1 and said nothing
+
+  {
+    echo 'set -euo pipefail'
+    echo 'err_file="$1"'
+    echo "$line"
+    echo 'echo "survived:[${last_err}]"'
+  } > "$probe"
+
+  run bash "$probe" "$err_file"
+  rm -rf "$tmp"
+
+  [ "$status" -eq 0 ]
+  [ "$output" = "survived:[]" ]
+}
+
 @test "GCPSSH the timeout message points at the serial console" {
   # The old message blamed the VM with no way to check. Whatever the cause, the
   # reader should be told how to see what the VM actually did.

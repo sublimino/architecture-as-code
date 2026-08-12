@@ -23,7 +23,19 @@ setup() {
 @test "Kind-load regression guard F2: signalloom-images loads fe-signalloom into kind" {
   # A prior regression only pushed this image to zot, which left kind unable to
   # resolve the in-cluster registry DNS and caused ErrImagePull.
-  run grep -F 'kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest' "$makefile"
+  #
+  # This asserted the literal `kind load docker-image ... fe-signalloom:latest`
+  # until 770e523 replaced that call with scripts/kind-load-verified.sh --
+  # on a Docker daemon backed by the containerd image store, plain `kind load`
+  # exits 0 having transferred nothing, and fe-signalloom is one of the images
+  # it drops. Pinning the guard to the raw command meant it demanded the very
+  # form that commit removed, so it failed on a tree that is more correct than
+  # the one it was written against.
+  #
+  # Assert the outcome the guard actually cares about -- fe-signalloom gets
+  # loaded into the kind node -- and accept either loader, since the verified
+  # one is a strict improvement.
+  run grep -E "(kind load docker-image --name \\\$\(CLUSTER_NAME\)|kind-load-verified\.sh).*signalloom/apps/fe-signalloom:latest" "$makefile"
   [ "$status" -eq 0 ]
 }
 

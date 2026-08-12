@@ -236,7 +236,16 @@ line_number() {
   run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | (.spec.inputs | length) == 0' "$rendered"
   [ "$status" -eq 0 ]
   [ "$output" = "true" ]
-  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | .spec.resources[16].spec.verify.secretRef.name == "cosign-pub"' "$rendered"
+  # Selected by kind, not by position. This asserted .spec.resources[16] until
+  # the topology collector's ClusterRole and its fake-proxy ClusterRoleBinding
+  # were added above the OCIRepository and shifted it to 18 -- index 16 is now
+  # ClusterRole/agent-trust-topology-namespaces, so the test failed while the
+  # manifest was correct. The cosign patch in tenants/local/kustomization.yaml
+  # is positional and has to be realigned by hand (cosign-patch-index.bats
+  # guards that), but nothing forces this assertion to move with it, and a
+  # stale index here fails loudly at best and silently checks the wrong
+  # resource at worst.
+  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | .spec.resources[] | select(.kind == "OCIRepository") | .spec.verify.secretRef.name == "cosign-pub"' "$rendered"
   [ "$status" -eq 0 ]
   [ "$output" = "true" ]
   run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | .spec.dependsOn[] | select(.name == "signalloom-infra" or (.name == "infra-configs" and .namespace == "inf-bao")) | .readyExpr | contains("conditions")' "$rendered"

@@ -58,7 +58,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
 from typing import Annotated, Any, Literal
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends
@@ -73,6 +75,13 @@ AFM_BASE_URL = os.environ.get(
     "http://afm-platform.fe-k8s-afm.svc.cluster.local:8000",
 )
 AFM_TIMEOUT_S = 20.0
+
+# Bound at import time, deliberately. Tests substitute the module's ``httpx``
+# attribute with a stand-in namespace exposing only ``AsyncClient`` and
+# ``HTTPError``; resolving these classes lazily through ``httpx.`` would then
+# raise AttributeError inside the very error path being exercised.
+_TimeoutException = httpx.TimeoutException
+_HTTPStatusError = httpx.HTTPStatusError
 
 router = APIRouter(prefix="/api/rbac", tags=["rbac"])
 
@@ -500,6 +509,81 @@ async def _afm_get_json(client: httpx.AsyncClient, path: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Failure classification
+#
+# The 503 is deliberate and stays (see "Fails closed, not open" above) — what
+# changes here is that it names the *kind* of failure rather than repeating the
+# transport exception verbatim. The page used to render
+#
+#     KubeSec-AFM is unreachable: [Errno -2] Name or service not known
+#
+# which is the truth expressed in the least useful available form: an errno is
+# not something an operator can act on, and it does not distinguish "the AFM
+# slice was never deployed" from "AFM is deployed and refusing connections".
+# Those have different fixes. Same principle as api_compat's
+# ``fallback_reason`` for the trust topology: carry the reason through, do not
+# invent one and do not flatten distinct causes into one string.
+# ---------------------------------------------------------------------------
+
+
+def _afm_host() -> str:
+    """The authority (host:port) of AFM_BASE_URL, for operator-facing messages."""
+    return urlsplit(AFM_BASE_URL).netloc or AFM_BASE_URL
+
+
+def _is_dns_failure(exc: BaseException) -> bool:
+    """True when the cause chain bottoms out in a name-resolution failure.
+
+    httpx reports a failed lookup as ``ConnectError`` wrapping ``gaierror``, so
+    the distinguishing evidence is only ever in the cause chain — the outer
+    exception type is identical to a refused connection.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, socket.gaierror):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _afm_failure(exc: Exception, reading: str) -> APIError:
+    """Map a transport/decode failure onto an honest, actionable 503."""
+    host = _afm_host()
+    if _is_dns_failure(exc):
+        # No such name means no such Service: the AFM slice is not deployed in
+        # this cluster. Naming the fix is the whole point of the distinction.
+        return APIError(
+            503, "afm_not_deployed",
+            f"KubeSec-AFM is not deployed: {host} does not resolve, so {reading} cannot be read. "
+            f"Deploy the AFM slice with `make demo-k8s-afm-up`.",
+        )
+    if isinstance(exc, _TimeoutException):
+        return APIError(
+            503, "afm_unreachable",
+            f"KubeSec-AFM at {host} did not respond within {AFM_TIMEOUT_S:.0f}s while reading {reading}.",
+        )
+    if isinstance(exc, _HTTPStatusError):
+        return APIError(
+            503, "afm_unreachable",
+            f"KubeSec-AFM at {host} returned HTTP {exc.response.status_code} while reading {reading}.",
+        )
+    if isinstance(exc, ValueError):
+        # Reachable and answering, but not with JSON — a contract break, not an
+        # outage, so it is reported as one.
+        return APIError(
+            503, "afm_bad_response",
+            f"KubeSec-AFM at {host} returned a non-JSON response while reading {reading}.",
+        )
+    return APIError(
+        503, "afm_unreachable",
+        f"KubeSec-AFM at {host} is deployed but unreachable while reading {reading} "
+        f"({type(exc).__name__}). Check its pod status and the NetworkPolicy egress to fe-k8s-afm:8000.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -510,7 +594,8 @@ async def list_clusters(tenant_id: Annotated[str, Depends(authenticated_tenant)]
         try:
             payload = await _afm_get_json(client, "/clusters")
         except (httpx.HTTPError, ValueError) as exc:
-            raise APIError(503, "afm_unreachable", f"KubeSec-AFM is unreachable: {exc}") from exc
+            logger.warning("rbac_correlation: /clusters unavailable", exc_info=True)
+            raise _afm_failure(exc, "the cluster list") from exc
 
     if not isinstance(payload, list):
         raise APIError(503, "afm_bad_response", "KubeSec-AFM returned a malformed cluster list")
@@ -541,10 +626,8 @@ async def correlated_rbac(
         try:
             rbac_raw = await _afm_get_json(client, f"/clusters/{cluster_id}/rbac")
         except (httpx.HTTPError, ValueError) as exc:
-            raise APIError(
-                503, "afm_unreachable",
-                f"KubeSec-AFM RBAC data for cluster {cluster_id!r} is unavailable: {exc}",
-            ) from exc
+            logger.warning("rbac_correlation: RBAC unavailable for cluster %s", cluster_id, exc_info=True)
+            raise _afm_failure(exc, f"RBAC data for cluster {cluster_id!r}") from exc
         if not isinstance(rbac_raw, dict):
             raise APIError(
                 503, "afm_bad_response",

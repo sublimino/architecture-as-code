@@ -19,11 +19,26 @@ resources:
   # The namespace, cross-namespace RBAC, and baseline agent are inline in the
   # signalloom-infra ResourceSet — they run first so Flux dry-run passes here.
   - health-rbac.yaml
-  # SuperCred demo: cardvault-agent SA and inert agent pod (deliberately non-compliant).
-  # The credential-chain Job is created only by scripts/supercred-demo.sh so Flux
-  # cannot relocate it from fe-signalloom-agents into this target namespace.
+  # SuperCred demo: cardvault-agent ServiceAccount only.
+  #
+  # The agent POD is deliberately NOT here, for the same reason the
+  # credential-chain Job is not: this Kustomization sets
+  # `targetNamespace: fe-signalloom`, which OVERRIDES the `namespace:
+  # fe-signalloom-agents` that agents-cardvault.yaml declares. Flux therefore
+  # created a second agent-cardvault in fe-signalloom while
+  # scripts/supercred-demo.sh:204 applied the same manifest into
+  # fe-signalloom-agents — two live pods claiming one SPIFFE ID, visible as a
+  # duplicate "Cardvault Agent" on the Agents page.
+  #
+  # Deleting the stray pod does not fix it: Flux owns that copy
+  # (kustomize.toolkit.fluxcd.io/name: apps) and recreates it on the next
+  # reconcile. The fix is to have exactly one creator, and it must be the demo
+  # script, because only it can place the pod in the namespace the SPIFFE ID,
+  # the SPIRE selectors and the OpenBao role all name.
+  #
+  # The SA stays: it is namespace-correct under targetNamespace and the demo
+  # depends on it existing before step 1 runs.
   - agents-cardvault-sa.yaml
-  - agents-cardvault.yaml
   # Network Tests: ServiceAccount for the netassert-run Job. The Job itself is
   # NOT a static manifest here — fake-integration-proxy creates/deletes it on
   # demand (POST /network-tests/scan) so "Scan Now" triggers a run right now,

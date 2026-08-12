@@ -6,6 +6,7 @@ import Sidebar from './components/Sidebar'
 import ProtectedRoute from './auth/ProtectedRoute'
 import DemoToggle from './components/DemoToggle'
 import ThemeToggle from './components/ThemeToggle'
+import KeyboardShortcutsOverlay from './components/KeyboardShortcutsOverlay'
 import SetupBanner from './components/onboarding/SetupBanner'
 import { api } from './api/client'
 import { connectorsApi } from './api/connectorsClient'
@@ -210,6 +211,10 @@ export default function App() {
           <CookieSettingsModal onClose={() => setCookieSettingsOpen(false)} />
         </Suspense>
       )}
+
+      {/* Every shortcut it documents is bound by the Sidebar, so it only
+          makes sense once the Sidebar is on screen. */}
+      {isAuthenticated && <KeyboardShortcutsOverlay />}
 
       <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {isAuthenticated && <Sidebar />}

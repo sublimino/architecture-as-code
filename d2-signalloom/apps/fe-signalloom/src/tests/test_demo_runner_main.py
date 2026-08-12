@@ -31,6 +31,11 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
         "/api/demo/supercred/runs/{run_id}/log",
         "/api/demo/supercred/reset",
         "/api/demo/supercred/status",
+        # Read-only evidence probe backing the dashboard's Credential
+        # Lifecycle card. Listed explicitly because this set is a security
+        # surface: a route appearing here without a deliberate edit is
+        # exactly what this test exists to catch.
+        "/api/demo/supercred/evidence",
         "/health",
         "/readyz",
     }

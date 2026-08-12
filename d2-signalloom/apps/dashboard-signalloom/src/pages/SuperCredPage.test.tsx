@@ -146,6 +146,14 @@ async function refresh() {
   await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
 }
 
+describe('SuperCred refresh explanations', () => {
+  it('explains that Refresh Agents only reloads the agent list', async () => {
+    renderPage()
+    await userEvent.hover(screen.getByTestId('supercred-refresh-agents-help'))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/only the visible SuperCred agent list/i)
+  })
+})
+
 describe('SuperCredPage', () => {
   beforeEach(() => {
     vi.restoreAllMocks()
@@ -433,26 +441,20 @@ describe('SuperCredPage', () => {
 
   // ─── Lifecycle timeline ─────────────────────────────────────────────────
 
-  // The four tests that used to live here pinned the defect: they asserted that
-  // steps 1-4 read "completed" and step 5 "active" purely because an agent was
-  // running, and that step 6 read "failed" purely because it was stunned. That
-  // was the whole bug — six steps derived from `!!agent.id` and `isStunned`,
-  // with hardcoded timestamps. The card is now backed by observed evidence from
-  // supercred-evidence.sh, so the contract to pin is the opposite one.
+  // These four used to pin the defect: they asserted steps 1-4 read "completed"
+  // and step 5 "active" purely because an agent was running, and step 6 "failed"
+  // purely because it was stunned — six steps derived from `!!agent.id` and
+  // `isStunned` with hardcoded 2026-01-01 timestamps. The card is now backed by
+  // observed evidence, so the contract to pin is the inverse.
 
   it('renders the credential lifecycle card when an agent is loaded', async () => {
     mockFetch({ agents: [cardvault()] })
     renderPage()
     await refresh()
-    const lifecycle = await screen.findByTestId('supercred-lifecycle')
-    expect(lifecycle).toHaveTextContent('Credential Lifecycle')
+    expect(await screen.findByTestId('supercred-lifecycle')).toHaveTextContent('Credential Lifecycle')
   })
 
   it('does NOT derive lifecycle state from the agent being running', async () => {
-    // The regression that started this: a running agent must not, by itself,
-    // produce a single "completed"/observed step. Evidence comes from the
-    // evidence endpoint, which is not mocked here, so no step may claim
-    // progress.
     mockFetch({ agents: [cardvault()] })
     renderPage()
     await refresh()
@@ -465,8 +467,7 @@ describe('SuperCredPage', () => {
     mockFetch({ agents: [stunnedCardvault()] })
     renderPage()
     await refresh()
-    const lifecycle = await screen.findByTestId('supercred-lifecycle')
-    expect(lifecycle).not.toHaveTextContent(/completed/i)
+    expect(await screen.findByTestId('supercred-lifecycle')).not.toHaveTextContent(/completed/i)
   })
 
   it('does not render lifecycle when no agents are loaded', () => {

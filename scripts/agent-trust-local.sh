@@ -204,6 +204,21 @@ bao_admin_token() {
   '
 }
 
+# The one table both creation and verification read: `spiffeID|namespace|serviceAccount`.
+#
+# Shared deliberately. Verification used to carry its own hardcoded list of
+# SPIFFE IDs and assert only that an entry existed, so the selectors -- the
+# actual workload-attestation property -- could be changed or dropped at
+# creation with nothing noticing. Two lists would drift; one cannot.
+agent_trust_identity_table() {
+  cat <<'EOF'
+spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner|agent-trust-acme-payments|agent-trust-planner
+spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage|agent-trust-acme-payments|agent-trust-triage
+spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/risk/agent/risk-reader|agent-trust-acme-risk|agent-trust-risk-reader
+spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator|agent-trust-northstar-investigations|agent-trust-investigator
+EOF
+}
+
 configure_identity_plane() {
   local pod spiffe_id namespace service_account existing bao_token
   bao_token="$(bao_admin_token)"
@@ -216,12 +231,7 @@ configure_identity_plane() {
         -spiffeID "$spiffe_id" -parentID "$spire_parent_id" \
         -selector "k8s:ns:${namespace}" -selector "k8s:sa:${service_account}"
     fi
-  done <<'EOF'
-spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner|agent-trust-acme-payments|agent-trust-planner
-spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage|agent-trust-acme-payments|agent-trust-triage
-spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/risk/agent/risk-reader|agent-trust-acme-risk|agent-trust-risk-reader
-spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator|agent-trust-northstar-investigations|agent-trust-investigator
-EOF
+  done < <(agent_trust_identity_table)
   # ${agent} intentionally expands inside the remote OpenBao shell.
   # shellcheck disable=SC2016
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
@@ -271,22 +281,43 @@ cleanup_identity_plane() {
 }
 
 verify_identity_plane() {
-  local pod spiffe_id bao_token agent role_json
+  local pod spiffe_id bao_token agent role_json entry_show entry_ns entry_sa
   require_command jq
   pod="$(spire_server_pod)"
   bao_token="$(bao_admin_token)"
-  for spiffe_id in \
-    spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner \
-    spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/triage \
-    spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/risk/agent/risk-reader \
-    spiffe://signalloom.demo/platform/signalloom/tenant/northstar/project/investigations/agent/investigator; do
-    kubectl -n "$bao_namespace" exec "$pod" -- /opt/spire/bin/spire-server entry show -spiffeID "$spiffe_id" | grep -Fq 'Entry ID'
-  done
+  while IFS='|' read -r spiffe_id entry_ns entry_sa; do
+    # The SELECTORS are the workload-attestation property, not the entry's
+    # existence. `grep -Fq 'Entry ID'` passed for any entry at this SPIFFE ID,
+    # so deleting `-selector k8s:sa:...` at entry creation left every pod in
+    # agent-trust-acme-payments -- triage included -- able to fetch the
+    # PLANNER's SVID and log into OpenBao as the planner, with this gate, the
+    # network probes, bats and test_contracts.py all still green.
+    entry_show="$(kubectl -n "$bao_namespace" exec "$pod" -- \
+      /opt/spire/bin/spire-server entry show -spiffeID "$spiffe_id")"
+    grep -Fq 'Entry ID' <<<"$entry_show"
+    grep -Fq "k8s:ns:${entry_ns}" <<<"$entry_show" || {
+      printf 'SPIRE entry for %s is missing selector k8s:ns:%s\n' "$spiffe_id" "$entry_ns" >&2; return 1; }
+    grep -Fq "k8s:sa:${entry_sa}" <<<"$entry_show" || {
+      printf 'SPIRE entry for %s is missing selector k8s:sa:%s — any pod in the namespace could assume this identity\n' "$spiffe_id" "$entry_sa" >&2; return 1; }
+  done < <(agent_trust_identity_table)
   for agent in planner triage; do
     role_json="$(kubectl -n "$bao_namespace" exec deployment/openbao -- \
       env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
       bao read -format=json "auth/jwt/role/agent-trust-${agent}")"
-    jq -e '.data.token_type == "batch" and .data.token_ttl == 300 and .data.token_max_ttl == 300 and .data.token_period == 0' <<<"$role_json" >/dev/null
+    # Lifetime alone said the token was short-lived, never that it was THIS
+    # agent's. bound_subject/bound_audiences/policies are what bind the role to
+    # one SPIFFE ID; without bound_subject any workload holding any SVID with
+    # the openbao-supercredential audience logs in as the planner and reads the
+    # payments KV path — and every gate stayed green.
+    jq -e --arg sub "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/${agent}" '
+      .data.token_type == "batch" and .data.token_ttl == 300
+      and .data.token_max_ttl == 300 and .data.token_period == 0
+      and .data.bound_subject == $sub
+      and (.data.bound_audiences == ["openbao-supercredential"])
+      and ((.data.token_policies // .data.policies) | index("agent-trust-acme-payments") != null)
+    ' <<<"$role_json" >/dev/null || {
+      printf 'OpenBao role agent-trust-%s is not bound to its SPIFFE subject, audience and policy\n' "$agent" >&2
+      return 1; }
   done
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \

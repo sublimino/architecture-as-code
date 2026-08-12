@@ -91,12 +91,12 @@ kubeadmConfigPatches:
     # for being too small to rank. The preflight blocked the entire demo on a
     # completely healthy cluster.
     #
-    # 0 means unlimited. The cost is a larger Node object; on a single-node
+    # -1 means unlimited. The cost is a larger Node object; on a single-node
     # kind cluster that is irrelevant, and it makes the shim's data source
     # actually answer the question being asked of it. The shim still warns
     # when it sees a capped list, because a cluster created before this
     # change, or by a different tool, will still be truncated.
-    nodeStatusMaxImages: 0
+    nodeStatusMaxImages: -1
 nodes:
   - role: control-plane
     extraMounts:

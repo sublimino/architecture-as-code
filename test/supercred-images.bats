@@ -63,7 +63,7 @@ setup() {
 		exit 0
 	FAKE
 
-	cat >"$bin/kind" <<-'FAKE'
+  cat >"$bin/kind" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "kind $*" >>"$CALL_LOG"
 		# Mirrors the real failure: prints progress, exits 0, transfers nothing
@@ -72,9 +72,16 @@ setup() {
 		exit 0
 	FAKE
 
-	chmod +x "$bin/docker" "$bin/kind"
+  cat >"$bin/kubectl" <<-'FAKE'
+		#!/usr/bin/env bash
+		echo "kubectl $*" >>"$CALL_LOG"
+		exit 0
+	FAKE
+
+	chmod +x "$bin/docker" "$bin/kind" "$bin/kubectl"
 	export DOCKER_BIN="$bin/docker"
 	export KIND_BIN="$bin/kind"
+	export PATH="$bin:$PATH"
 	export SUPERCRED_NODE="osramp-control-plane"
 }
 
@@ -177,8 +184,9 @@ all_images() {
 	# Recovery must rebuild straight into an archive, never via the docker store.
 	run grep -c 'buildx build' "$CALL_LOG"
 	[ "$output" -eq 1 ]
-	grep -q 'type=docker,dest=' "$CALL_LOG"
-	grep -q 'images import --all-platforms' "$CALL_LOG"
+  grep -q 'type=docker,dest=' "$CALL_LOG"
+  grep -q 'images rm docker.io/library/cardvault-agent:local' "$CALL_LOG"
+  grep -q 'images import --all-platforms' "$CALL_LOG"
 }
 
 @test "no recovery is attempted when kind load delivers everything" {
@@ -189,6 +197,8 @@ all_images() {
 	[[ "$output" != *"attempting recovery"* ]]
 	run grep -c 'buildx build' "$CALL_LOG"
 	[ "$output" -eq 0 ]
+	grep -Fq 'kubectl -n fe-signalloom rollout restart deployment/supercred-demo-runner' "$CALL_LOG"
+	grep -Fq 'kubectl -n fe-signalloom rollout status deployment/supercred-demo-runner --timeout=300s' "$CALL_LOG"
 }
 
 @test "build pins an explicit platform for every image" {

@@ -209,6 +209,13 @@ reload_via_archive() {
   fi
 
   log "recovery: importing $image into containerd on $NODE"
+  # `kind load` can leave the requested tag pointing at an incomplete HTML
+  # manifest. Importing under that occupied reference reports success but keeps
+  # the poisoned target, so CRI cannot adopt the recovered archive. Remove only
+  # the known-unrunnable reference immediately before its replacement.
+  "$DOCKER_BIN" exec "$NODE" \
+    ctr -n k8s.io images rm "docker.io/library/${image%%:*}:${image##*:}" >/dev/null 2>&1 \
+    || true
   # --snapshotter=overlayfs so the layers are unpacked into the snapshotter the
   # CRI actually reads. Without it the import succeeds and the image is not
   # runnable.
@@ -277,6 +284,14 @@ load_images() {
        Then retry:  make demo-signalloom-supercred-images"
   fi
   ok "all SuperCred images verified runnable on $NODE"
+
+  # `supercred-demo-runner` uses imagePullPolicy: IfNotPresent. Loading a new
+  # local tag does not replace an already-running pod, so dashboard-triggered
+  # steps could execute an older runner than the CLI path just verified.
+  if kubectl -n fe-signalloom get deployment supercred-demo-runner >/dev/null 2>&1; then
+    kubectl -n fe-signalloom rollout restart deployment/supercred-demo-runner
+    kubectl -n fe-signalloom rollout status deployment/supercred-demo-runner --timeout=300s
+  fi
 }
 
 # ─── Dispatch ───────────────────────────────────────────────────────────────

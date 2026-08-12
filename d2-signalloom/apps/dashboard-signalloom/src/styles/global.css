@@ -203,7 +203,7 @@ select option { background: var(--surface); }
 .sl-filter-dot--suspended { background: var(--amber); }
 .sl-filter-dot--revoked { background: var(--error); }
 .sl-filter-table-row { display: grid; transition: grid-template-rows 300ms cubic-bezier(.23,1,.32,1), opacity 300ms cubic-bezier(.23,1,.32,1); }
-.sl-filter-table-row > div { min-height: 0; overflow: hidden; }
+.sl-filter-table-row > tr { min-height: 0; overflow: hidden; }
 @media (prefers-reduced-motion: reduce) {
   .sl-filter-table-row, .sl-sidebar__selection { transition: none; }
 }

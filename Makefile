@@ -479,6 +479,13 @@ demo-signalloom-supercred-5: ## Step 5: Teardown + verify clean.
 demo-signalloom-supercred-all: demo-signalloom-supercred-images ## Run full SuperCred demo (steps 1→5).
 	./scripts/supercred-demo.sh all
 
+.PHONY: demo-signalloom-supercred-evidence demo-signalloom-supercred-evidence-json
+demo-signalloom-supercred-evidence: ## Observe the SuperCred credential chain and show the command that proved each step.
+	./scripts/supercred-evidence.sh text
+
+demo-signalloom-supercred-evidence-json: ## Same evidence as JSON — what the dashboard's Credential Lifecycle card renders.
+	@./scripts/supercred-evidence.sh json
+
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh

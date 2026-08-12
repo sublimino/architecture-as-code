@@ -129,7 +129,15 @@ proxy_segments() {
 	local spa proxy collisions
 	spa="$(spa_segments)"
 	proxy="$(proxy_segments)"
-	collisions="$(comm -12 <(echo "$spa") <(echo "$proxy"))"
+	# LC_ALL=C is load-bearing. Both lists come out of Python's sorted(), which
+	# orders by codepoint, but comm checks order using the locale's collation.
+	# en_GB.UTF-8 ignores punctuation at the primary level, so it reads
+	# "agent-trust-topology" as sorting AFTER "agents" while Python puts it
+	# before ('-' 0x2D < 's' 0x73). comm then aborts with "input is not in
+	# sorted order" and the guard silently stops guarding -- it reports a test
+	# failure rather than a collision, so the thing it exists to catch goes
+	# unchecked. C collation is byte order, which matches Python exactly.
+	collisions="$(LC_ALL=C comm -12 <(echo "$spa") <(echo "$proxy"))"
 
 	[ -z "$collisions" ] || {
 		echo "nginx proxy prefixes shadow these SPA routes: $collisions"

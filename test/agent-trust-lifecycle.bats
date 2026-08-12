@@ -19,7 +19,17 @@ fi
 if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then printf 'networkpolicies\n'; fi
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
 if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
-if [[ "$*" == *'bao read -format=json auth/jwt/role/agent-trust-'* ]]; then printf '%s\n' '{"data":{"token_type":"batch","token_ttl":300,"token_max_ttl":300,"token_period":0}}'; fi
+# Carries bound_subject/bound_audiences/token_policies as well as the lifetime.
+# The old fixture returned lifetime only, so verify's identity-binding assertions
+# had nothing to bind against — dropping bound_subject from role creation left
+# every gate green while any SVID with the right audience could log in as the
+# planner.
+if [[ "$*" == *'bao read -format=json auth/jwt/role/agent-trust-'* ]]; then
+  at_args="$*"; at_role="${at_args##*auth/jwt/role/agent-trust-}"; at_role="${at_role%% *}"
+  at_sub="spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/${at_role}"
+  [[ "${AGENT_TRUST_FAKE_UNBOUND_ROLE:-0}" == 1 && "$at_role" == planner ]] && at_sub=""
+  printf '{"data":{"token_type":"batch","token_ttl":300,"token_max_ttl":300,"token_period":0,"bound_subject":"%s","bound_audiences":["openbao-supercredential"],"token_policies":["agent-trust-acme-payments"]}}\n' "$at_sub"
+fi
 # Matches the planner selector without pinning its full text. The script excludes
 # probe pods via `,app.kubernetes.io/component!=probe`, and a shim pinned to the
 # bare selector silently returned nothing the moment that exclusion was added --
@@ -44,7 +54,26 @@ if [[ "$*" == *'sh -ec'* && "$*" == *'bao token renew'* ]]; then
   exit 2
 fi
 if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]; then printf 'spire-server-0'; fi
-if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then printf 'Entry ID : fixture-entry\n'; fi
+# Must echo the SELECTORS, not just an Entry ID. verify asserts k8s:ns/k8s:sa
+# because those are the workload-attestation property; a fixture that returns a
+# bare "Entry ID" would let the selector assertions pass against a response that
+# never carried a selector at all — the exact gate-that-cannot-fail this shim
+# exists to exercise.
+if [[ "$*" == *'spire-server entry show -spiffeID'* ]]; then
+  at_args="$*"; at_id="${at_args##*-spiffeID }"; at_id="${at_id%% *}"
+  case "$at_id" in
+    */payments/agent/planner)      at_ns=agent-trust-acme-payments;              at_sa=agent-trust-planner ;;
+    */payments/agent/triage)       at_ns=agent-trust-acme-payments;              at_sa=agent-trust-triage ;;
+    */risk/agent/risk-reader)      at_ns=agent-trust-acme-risk;                  at_sa=agent-trust-risk-reader ;;
+    */investigations/agent/investigator) at_ns=agent-trust-northstar-investigations; at_sa=agent-trust-investigator ;;
+    *) at_ns=unknown; at_sa=unknown ;;
+  esac
+  [[ "${AGENT_TRUST_FAKE_MISSING_SA_SELECTOR:-0}" == 1 && "$at_sa" == agent-trust-planner ]] && at_sa=""
+  printf 'Entry ID : fixture-entry\n'
+  printf 'SPIFFE ID : %s\n' "$at_id"
+  printf 'Selector : k8s:ns:%s\n' "$at_ns"
+  [[ -n "$at_sa" ]] && printf 'Selector : k8s:sa:%s\n' "$at_sa"
+fi
 if [[ "$*" == *'exec deployment/'* ]]; then
   if [[ "${AGENT_TRUST_FAKE_UNEXPECTED_ALLOW:-0}" == 1 && "$*" == *'deployment/agent-trust-risk-reader'* ]]; then exit 0; fi
   # Breakage that exits 1 exactly like a dropped packet does. Scoped to the nc
@@ -233,6 +262,30 @@ line_number() {
 # A probe running concurrently would therefore break the demo intermittently with
 # "expected one ready planner pod". The component exclusion is what prevents that,
 # and nothing else in the suite would notice if it were dropped.
+# The two properties this slice exists to demonstrate — SPIFFE workload
+# attestation and OpenBao subject binding — were the two the verification path
+# never checked. `verify` asserted a SPIRE entry EXISTS (not its selectors) and
+# that an OpenBao role is short-lived (not whose it is). Either could be removed
+# entirely with verify, the network probes, bats and test_contracts.py all green:
+# drop `-selector k8s:sa:...` and any pod in agent-trust-acme-payments can fetch
+# the planner's SVID; drop `bound_subject=` and any SVID with the right audience
+# logs in as the planner and reads the payments KV path.
+
+@test "a SPIRE entry missing its ServiceAccount selector fails verification" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_MISSING_SA_SELECTOR=1 "$root/scripts/agent-trust-local.sh" verify
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"missing selector k8s:sa:agent-trust-planner"* ]]
+  [[ "$output" == *"could assume this identity"* ]]
+}
+
+@test "an OpenBao role not bound to its SPIFFE subject fails verification" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_UNBOUND_ROLE=1 "$root/scripts/agent-trust-local.sh" verify
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not bound to its SPIFFE subject"* ]]
+}
+
 @test "the planner pod lookup excludes probe pods it would otherwise collide with" {
   grep -Fq 'app.kubernetes.io/name=agent-trust-planner,app.kubernetes.io/component!=probe' \
     "$root/scripts/agent-trust-local.sh"

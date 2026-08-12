@@ -20,7 +20,11 @@ if [[ "$*" == *'api-resources --api-group=networking.k8s.io -o name'* ]]; then p
 if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-triage'* ]]; then printf 'true\n'; fi
 if [[ "$*" == *'get deployment openbao -o json'* ]]; then printf '%s\n' '{"spec":{"template":{"spec":{"containers":[{"name":"openbao","env":[{"name":"BAO_DEV_ROOT_TOKEN_ID","value":"fixture-admin-token"}]}]}}}}'; fi
 if [[ "$*" == *'bao read -format=json auth/jwt/role/agent-trust-'* ]]; then printf '%s\n' '{"data":{"token_type":"batch","token_ttl":300,"token_max_ttl":300,"token_period":0}}'; fi
-if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-planner -o json'* ]]; then
+# Matches the planner selector without pinning its full text. The script excludes
+# probe pods via `,app.kubernetes.io/component!=probe`, and a shim pinned to the
+# bare selector silently returned nothing the moment that exclusion was added --
+# turning eleven tests red for a reason unrelated to what they assert.
+if [[ "$*" == *'get pods -l app.kubernetes.io/name=agent-trust-planner'*'-o json'* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"planner-0"},"status":{"containerStatuses":[{"ready":true}]}}]}'
 fi
 if [[ "$*" == *'exec planner-0 -- /usr/local/bin/spire-agent api fetch jwt'* ]]; then
@@ -219,6 +223,37 @@ line_number() {
   [[ "$output" == *"UNVERIFIED"* ]]
   [[ "$output" == *"is not running"* ]]
   [[ "$output" != *"NetworkPolicy evidence passed"* ]]
+}
+
+# The probe CronJobs carry the planner's app label so the NetworkPolicies that
+# select on it actually apply to them -- without it they could never reach
+# OpenBao or triage and failed on every run. But that label also makes them match
+# `kubectl get pods -l app.kubernetes.io/name=agent-trust-planner`, and
+# verify_nonrenewable_planner_token errors unless EXACTLY ONE ready pod matches.
+# A probe running concurrently would therefore break the demo intermittently with
+# "expected one ready planner pod". The component exclusion is what prevents that,
+# and nothing else in the suite would notice if it were dropped.
+@test "the planner pod lookup excludes probe pods it would otherwise collide with" {
+  grep -Fq 'app.kubernetes.io/name=agent-trust-planner,app.kubernetes.io/component!=probe' \
+    "$root/scripts/agent-trust-local.sh"
+}
+
+@test "every planner-labelled probe also carries the component label that exempts it" {
+  local probes="$root/d2-agent-trust/manifests/topology-probes.yaml"
+  run python3 -c '
+import sys, yaml
+bad = []
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if not d or d.get("kind") != "CronJob":
+        continue
+    labels = d["spec"]["jobTemplate"]["spec"]["template"]["metadata"].get("labels", {})
+    if labels.get("app.kubernetes.io/name") == "agent-trust-planner" \
+       and labels.get("app.kubernetes.io/component") != "probe":
+        bad.append(d["metadata"]["name"])
+print(",".join(bad))
+' "$probes"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ]
 }
 
 @test "unexpectedly allowed denied dataplane path fails network evidence" {

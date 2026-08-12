@@ -35,6 +35,12 @@ WORKDIR /repo
 COPY scripts/supercred-demo.sh /repo/scripts/supercred-demo.sh
 COPY scripts/supercred-images.sh /repo/scripts/supercred-images.sh
 COPY scripts/supercred-state.sh /repo/scripts/supercred-state.sh
+# The evidence probe the dashboard's Credential Lifecycle card runs via
+# GET /api/demo/supercred/evidence. This image COPYs scripts individually rather
+# than the whole scripts/ tree, so a script that is not named here simply is not
+# in the pod — the endpoint would 503 with evidence_script_unavailable on every
+# request while working perfectly from a developer's terminal.
+COPY scripts/supercred-evidence.sh /repo/scripts/supercred-evidence.sh
 COPY scripts/lib /repo/scripts/lib
 COPY d2-signalloom/apps/cardvault/base /repo/d2-signalloom/apps/cardvault/base
 COPY d2-signalloom/apps/policy-engine/base /repo/d2-signalloom/apps/policy-engine/base

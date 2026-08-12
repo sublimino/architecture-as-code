@@ -386,3 +386,100 @@ def test_list_clusters_fails_closed_when_afm_unreachable(monkeypatch):
     with client_for(monkeypatch, fake_client_cls({})) as client:
         response = client.get("/api/rbac/clusters", headers=bearer(token_for()))
     assert response.status_code == 503
+
+
+# ─── Failure classification ──────────────────────────────────────────────────
+# The AFM slice was absent from the cluster entirely, and both endpoints
+# answered with the transport exception repeated verbatim:
+#
+#     KubeSec-AFM is unreachable: [Errno -2] Name or service not known
+#
+# An errno is not actionable, and "unreachable" conflated "never deployed"
+# (fix: deploy it) with "deployed and refusing" (fix: look at the pod). These
+# assert the two are told apart and that neither leaks the raw errno.
+
+
+def raising_client_cls(exc_factory):
+    """A client whose every request fails with a freshly built exception."""
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def get(self, url: str):
+            raise exc_factory(url)
+
+    return FakeAsyncClient
+
+
+def dns_failure(url: str) -> httpx.ConnectError:
+    """What an undeployed AFM slice actually produces.
+
+    httpx reports a failed lookup as ConnectError *wrapping* socket.gaierror.
+    The outer type is identical to a refused connection, so the fake has to
+    reproduce the cause chain rather than just the exception class — that chain
+    is the only evidence distinguishing the two cases.
+    """
+    cause = socket.gaierror(-2, "Name or service not known")
+    error = httpx.ConnectError(f"[Errno -2] Name or service not known ({url})",
+                               request=httpx.Request("GET", url))
+    error.__cause__ = cause
+    return error
+
+
+def test_list_clusters_reports_afm_not_deployed_when_its_name_does_not_resolve(monkeypatch):
+    with client_for(monkeypatch, raising_client_cls(dns_failure)) as client:
+        response = client.get("/api/rbac/clusters", headers=bearer(token_for()))
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "afm_not_deployed"
+    # Names the host that failed to resolve and the command that fixes it.
+    assert "afm-platform.fe-k8s-afm" in error["message"]
+    assert "make demo-k8s-afm-up" in error["message"]
+    # And never hands the operator a bare errno.
+    assert "Errno" not in error["message"]
+
+
+def test_correlated_rbac_reports_afm_not_deployed_when_its_name_does_not_resolve(monkeypatch):
+    with client_for(monkeypatch, raising_client_cls(dns_failure)) as client:
+        response = client.get("/api/rbac/clusters/local/correlated", headers=bearer(token_for()))
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "afm_not_deployed"
+    assert "make demo-k8s-afm-up" in error["message"]
+    assert "Errno" not in error["message"]
+
+
+def test_refused_connection_is_not_reported_as_not_deployed(monkeypatch):
+    """Deployed but refusing has a different fix, so it keeps a different code."""
+    def refused(url: str) -> httpx.ConnectError:
+        return httpx.ConnectError("[Errno 111] Connection refused", request=httpx.Request("GET", url))
+
+    with client_for(monkeypatch, raising_client_cls(refused)) as client:
+        response = client.get("/api/rbac/clusters", headers=bearer(token_for()))
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "afm_unreachable"
+    assert "not deployed" not in error["message"]
+    assert "Errno" not in error["message"]
+
+
+def test_timeout_reports_the_deadline_rather_than_the_exception(monkeypatch):
+    def timed_out(url: str) -> httpx.ConnectTimeout:
+        return httpx.ConnectTimeout("timed out", request=httpx.Request("GET", url))
+
+    with client_for(monkeypatch, raising_client_cls(timed_out)) as client:
+        response = client.get("/api/rbac/clusters", headers=bearer(token_for()))
+
+    assert response.status_code == 503
+    error = response.json()["error"]
+    assert error["code"] == "afm_unreachable"
+    assert "did not respond within 20s" in error["message"]

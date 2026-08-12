@@ -115,6 +115,10 @@ function parseGoJson(content, source, category) {
 
 const stageMap = [
   { file: 'stage1-static.tap',     parser: parseTap,       source: 'bats-static-contracts',     category: 'topology' },
+  // vitest emits JUnit natively (--reporter=junit), so this reuses parseJunitXml
+  // rather than adding a parser. Nesting is irrelevant to it: the parser walks
+  // <testcase> elements with a regex and never looks at their <testsuite>.
+  { file: 'stage1b-dashboard-unit.xml', parser: parseJunitXml, source: 'vitest-dashboard-unit', category: 'unit' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

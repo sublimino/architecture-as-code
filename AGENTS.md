@@ -33,6 +33,7 @@ own their own namespaces, images, tests, and lifecycle.
 | `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `d2-k8s-afm/AGENTS.md` |
 | `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `d2-osramp-fleet/AGENTS.md` |
 | `d2-infra/` | Shared infrastructure components | `d2-infra/AGENTS.md` |
+| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles, enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own | `d2-agent-trust/AGENTS.md` |
 | `olly-replica/` | Olly Sentinel AI SRE replica | — |
 
 ## Quick Start
@@ -47,6 +48,7 @@ make demo-osramp-up        # OSRAMP apps
 make demo-k8s-afm-up       # KubeSec-AFM
 make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao/SPIRE only
+make demo-agent-trust-up    # SPIFFE agent trust (needs inf-bao ready first)
 
 # 3. Health check
 make healthcheck            # foundation readiness
@@ -97,7 +99,7 @@ make demo-<slice>-down      # Remove (keeps foundation)
 
 ```
 osramp-demo/
-├── Makefile                 # 60+ targets — `make help`
+├── Makefile                 # 157 documented targets — `make help`
 ├── AGENTS.md                # This file (shared foundation)
 ├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
 ├── scripts/                 # Lifecycle, build, and test scripts
@@ -109,6 +111,7 @@ osramp-demo/
 ├── d2-k8s-afm/              # KubeSec-AFM slice → d2-k8s-afm/AGENTS.md
 ├── d2-osramp-fleet/         # Flux fleet → d2-osramp-fleet/AGENTS.md
 ├── d2-infra/                # Shared infra → d2-infra/AGENTS.md
+├── d2-agent-trust/          # SPIFFE agent trust → d2-agent-trust/AGENTS.md
 ├── olly-replica/            # Olly Sentinel replica
 │
 ├── tools/demo-console/      # Go: Estate 95 broker + API contract fixtures
@@ -242,7 +245,13 @@ reached and isn't) is exactly how this incident happened.
 ## Conventions
 
 - **Commits**: conventional commits with slice scope — `feat(signalloom):`, `fix(osramp):`, `test(k8s-afm):`
-- **Signing**: all commits GPG-signed; all images cosign-signed
+- **Signing**: all images and OCI artifacts are cosign-signed, and Flux refuses to
+  reconcile an unsigned one — that half is machine-enforced. Commit GPG signing is
+  the intent but is **not** enforced and most history is unsigned (`git log
+  --pretty='%h %G? %s'` reports `N` on the last 200 commits repo-wide). Match the
+  branch you are on rather than assuming: a bare `git commit` on a branch whose
+  history is unsigned launches pinentry against a tty the agent harness cannot
+  reach and blocks until timeout — use `--no-gpg-sign` there.
 - **Supply chain**: SBOM (SPDX), SLSA provenance, digest verification
 - **Everything signed**: nothing deploys unsigned, even locally
 - **Tests ship with code**: new features include unit + integration + acceptance coverage

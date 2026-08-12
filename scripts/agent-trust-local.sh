@@ -410,12 +410,69 @@ verify_nonrenewable_planner_token() {
   printf 'OpenBao planner token is a five-minute non-renewable batch token\n'
 }
 
+# A denial is only evidence if the probe that produced it was capable of
+# succeeding. `nc` exits 1 for a packet the CNI dropped AND for a hostname it
+# could not resolve AND for a binary that isn't there AND for a pod that isn't
+# running — verified against the exact image these scaffolds use:
+#
+#   busybox:1.36 $ nc -z -w 2 240.0.0.1 9999   -> exit 1   (blackholed: a real block)
+#   busybox:1.36 $ nc -z -w 2 nope.invalid 9999 -> exit 1  (nc: bad address 'nope.invalid')
+#
+# Identical status, different stderr. The old implementation inspected only the
+# status and discarded stderr, so every `deny` assertion passed on any breakage.
+# That is this repo's named failure mode — "a gate that always passes" — sitting
+# in the one place the demo exists to prove something: that a packet was refused.
+#
+# Concretely, deleting the `allow-dns` NetworkPolicy for agent-trust-acme-risk
+# left every deny assertion green while proving nothing whatsoever about
+# reachability to triage, and the run still printed "enforced NetworkPolicy
+# evidence passed".
+#
+# So: capture stderr, and refuse to call a resolution failure or a missing probe
+# a denial. Those are UNVERIFIED — the same fail-closed vocabulary the CNI
+# preflight already uses — never a silent pass.
 expect_tcp() {
   local deployment="$1" namespace="$2" host="$3" port="$4" expected="$5"
-  if kubectl -n "$namespace" exec "deployment/${deployment}" -- nc -z -w 5 "$host" "$port"; then
+  local output status
+
+  # set +e around the capture is load-bearing. Under `set -e` an assignment whose
+  # command substitution exits non-zero terminates the script THERE — so the
+  # first deny probe would abort the run before its status could be inspected,
+  # printing nothing. The previous `if kubectl ...; then` form was protected by
+  # the `if` context; a bare capture is not. Same idiom as
+  # verify_nonrenewable_planner_token above.
+  set +e
+  output="$(kubectl -n "$namespace" exec "deployment/${deployment}" -- \
+    nc -z -w 5 "$host" "$port" 2>&1)"
+  status=$?
+  set -e
+
+  # Breakage masquerading as denial. Checked before the allow/deny branch so it
+  # cannot be absorbed by an `expected=deny` assertion.
+  case "$output" in
+    *'bad address'*|*'getaddrinfo'*|*'Name or service not known'*|*'Temporary failure in name resolution'*)
+      printf 'UNVERIFIED: %s could not resolve %s — DNS failed, so this is not proof of a network denial\n' \
+        "$deployment" "$host" >&2
+      return 1 ;;
+    # Pod-absent BEFORE probe-unusable, and no bare *'not found'* pattern: kubectl
+    # says `container not found ("risk-reader")` for a dead pod, which a greedy
+    # 'not found' match would misreport as a missing nc binary. Both are
+    # UNVERIFIED either way, but a wrong diagnosis sends the next engineer to
+    # rebuild an image when the pod simply is not up.
+    *'unable to upgrade connection'*|*'container not found'*|*'is not running'*|*'pods '*' not found'*)
+      printf 'UNVERIFIED: %s is not running, so nothing was proven about %s:%s — %s\n' \
+        "$deployment" "$host" "$port" "$output" >&2
+      return 1 ;;
+    *'executable file not found'*|*'no such file or directory'*|*'OCI runtime exec'*)
+      printf 'UNVERIFIED: the probe itself is unusable in %s (nc missing or container not execable): %s\n' \
+        "$deployment" "$output" >&2
+      return 1 ;;
+  esac
+
+  if [[ "$status" -eq 0 ]]; then
     [[ "$expected" == allow ]] || { printf 'network assertion unexpectedly allowed: %s -> %s:%s\n' "$deployment" "$host" "$port" >&2; return 1; }
   else
-    [[ "$expected" == deny ]] || { printf 'network assertion unexpectedly denied: %s -> %s:%s\n' "$deployment" "$host" "$port" >&2; return 1; }
+    [[ "$expected" == deny ]] || { printf 'network assertion unexpectedly denied: %s -> %s:%s (%s)\n' "$deployment" "$host" "$port" "$output" >&2; return 1; }
   fi
 }
 

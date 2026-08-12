@@ -36,6 +36,13 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
     test(`${journey} opens through the integrated dashboard`, async ({ page }) => {
       await page.goto(DASHBOARD_URL);
       await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
+      // A freshly authenticated browser is deliberately greeted by onboarding,
+      // which is modal and covers the page route under test. Dismiss it through
+      // the visible operator control before asserting route-specific content.
+      const skipOnboarding = page.getByRole("button", { name: "Skip for now" });
+      if (await skipOnboarding.isVisible().catch(() => false)) {
+        await skipOnboarding.click();
+      }
       if (href !== null) {
         // Locate by href, NOT by accessible name with exact:true.
         //

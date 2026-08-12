@@ -480,7 +480,7 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
     <tbody
       className="sl-filter-table-row"
       aria-hidden={!shown}
-      style={{ gridTemplateRows: shown ? '1fr' : '0fr', opacity: shown ? 1 : 0 }}
+      style={{ opacity: shown ? 1 : 0, visibility: shown ? 'visible' : 'collapse' }}
     >
     <tr
       onClick={() => onNavigate(agent.id)}

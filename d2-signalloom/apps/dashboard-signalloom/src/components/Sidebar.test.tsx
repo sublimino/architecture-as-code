@@ -165,6 +165,32 @@ describe('Sidebar primary navigation destinations', () => {
   })
 })
 
+describe('Sidebar Beautiful UI interactions', () => {
+  it('renders icon-bearing navigation and filters it through quick search', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+    expect(screen.getByRole('link', { name: /Agents/ }).querySelector('svg')).toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'audit' } })
+    expect(screen.getByRole('link', { name: /Audit Trail/ })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Agents/ })).not.toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: '' } })
+    expect(screen.getByRole('link', { name: /Agents/ })).toBeInTheDocument()
+  })
+
+  it('focuses quick search when slash is pressed outside inputs', async () => {
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    renderSidebar()
+
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+    fireEvent.keyDown(window, { key: '/' })
+    expect(search).toHaveFocus()
+  })
+})
+
 describe('Sidebar Agent Trust Topology navigation', () => {
   it('places Agent Trust Topology immediately before Settings', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())

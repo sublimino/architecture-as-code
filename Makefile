@@ -802,3 +802,15 @@ risk-check: ## CI gate: artefacts validate, engine self-checks, results are repr
 .PHONY: test-ci-lock
 test-ci-lock: ## Verify the exclusive CI-VM lock against a fake remote (no VM required).
 	bats test/ci-lock.bats
+
+.PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
+demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.
+	docker build -t fleet-manager:local d2-signalloom/apps/fleet-manager
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fleet-manager:local
+
+demo-signalloom-fleet-up: demo-signalloom-fleet-image ## Deploy Fleet Manager (separate service; applied directly, not via Flux).
+	kubectl apply -k d2-signalloom/apps/fleet-manager/base
+	kubectl -n fe-signalloom rollout status deploy/fleet-manager --timeout=180s
+
+demo-signalloom-fleet-down: ## Remove Fleet Manager only.
+	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found

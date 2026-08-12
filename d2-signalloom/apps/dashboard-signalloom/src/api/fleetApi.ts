@@ -55,11 +55,35 @@ const FLEET_API = '/fleet-api/v1/fleet'
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
+/** Thrown when the Fleet API answered with something that is not the API. */
+export class FleetUnreachableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'FleetUnreachableError'
+  }
+}
+
 async function fleetFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${FLEET_API}${path}`, init)
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     throw new Error(`Fleet API ${res.status}: ${body || res.statusText}`)
+  }
+
+  // `res.ok` is TRUE for the SPA fallback. When no nginx location matches
+  // /fleet-api/, the catch-all serves index.html with 200 OK, so this reached
+  // res.json() and surfaced as
+  //   Unexpected token '<', "<!doctype "... is not valid JSON
+  // which describes the symptom and hides the cause: fleet-manager is not
+  // deployed, or not proxied. Content-type is the discriminator -- a 200 that
+  // is not JSON is not an answer from this API.
+  const contentType = res.headers.get('content-type') ?? ''
+  if (!contentType.includes('json')) {
+    throw new FleetUnreachableError(
+      'Fleet Manager did not respond — the request was answered by the dashboard ' +
+        'itself, which means the fleet-manager service is not deployed or /fleet-api/ ' +
+        'is not proxied. Run `make demo-signalloom-fleet-up` to deploy it.',
+    )
   }
   return res.json() as Promise<T>
 }

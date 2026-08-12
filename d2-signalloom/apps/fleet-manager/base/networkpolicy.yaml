@@ -14,11 +14,21 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # Allow traffic from the dashboard and other signalloom components
+    # Allow traffic from the dashboard and other signalloom components.
+    #
+    # Two selectors, because the dashboard does NOT carry part-of: its pods are
+    # labelled only app.kubernetes.io/name=dashboard-signalloom. A policy
+    # admitting part-of alone silently dropped every /fleet-api/ request, and
+    # nginx returned 504 while fleet-manager was healthy and listening — a
+    # NetworkPolicy naming a label the sender does not have is a closed door
+    # wearing a timeout's clothes.
     - from:
         - podSelector:
             matchLabels:
               app.kubernetes.io/part-of: signalloom
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: dashboard-signalloom
       ports:
         - port: http
           protocol: TCP

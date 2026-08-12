@@ -159,3 +159,75 @@ describe('parsing refuses to invent progress', () => {
     expect(s).toEqual({ observed: 1, absent: 1, unavailable: 1, total: 3 })
   })
 })
+
+// The defect these exist to prevent.
+//
+// Every test above injects `fetcher` and asserts on the RESPONSE. None of them
+// looked at the REQUEST, and that is exactly how this component shipped calling
+// `/api/demo/supercred/evidence` with no Authorization header while every other
+// module in src/api attached one. The endpoint sits behind `authenticated_tenant`,
+// so the live call returned 401 and the card read "No evidence has been collected
+// yet." — indistinguishable, to a viewer, from an empty cluster.
+//
+// The injection seam that makes the component testable is the seam that hid the
+// bug. So: assert the request, not just the reply.
+describe('the evidence request is authenticated', () => {
+  it('sends the bearer token the endpoint requires', async () => {
+    const fetcher = fetcherFor(payload([step()]))
+    render(
+      <CredentialEvidencePanel
+        fetcher={fetcher as unknown as typeof fetch}
+        getToken={async () => 'test-token'}
+      />,
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalled())
+    const [, init] = fetcher.mock.calls[0]
+    expect((init as RequestInit).headers).toMatchObject({
+      Accept: 'application/json',
+      Authorization: 'Bearer test-token',
+    })
+  })
+
+  it('re-authenticates on Re-check rather than replaying a stale header', async () => {
+    const fetcher = fetcherFor(payload([step()]))
+    let issued = 0
+    render(
+      <CredentialEvidencePanel
+        fetcher={fetcher as unknown as typeof fetch}
+        getToken={async () => `token-${++issued}`}
+      />,
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1))
+    await userEvent.click(screen.getByTestId('evidence-refresh'))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+    expect((fetcher.mock.calls[1][1] as RequestInit).headers).toMatchObject({
+      Authorization: 'Bearer token-2',
+    })
+  })
+
+  it('still issues the request when no token can be obtained, so the 401 is visible', async () => {
+    // Silently skipping the request would leave the card empty, which is the one
+    // rendering this component must never produce for a state it did not observe.
+    const fetcher = fetcherFor({}, false, 401)
+    render(
+      <CredentialEvidencePanel
+        fetcher={fetcher as unknown as typeof fetch}
+        getToken={async () => {
+          throw new Error('token refresh failed')
+        }}
+      />,
+    )
+    await waitFor(() => expect(fetcher).toHaveBeenCalled())
+    expect((fetcher.mock.calls[0][1] as RequestInit).headers).not.toHaveProperty('Authorization')
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-error')).toHaveTextContent('HTTP 401')
+  })
+
+  it('names an unaccepted session instead of implying the chain is absent', async () => {
+    const fetcher = fetcherFor({}, false, 401)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-error')).toHaveTextContent('did not accept this session')
+    expect(screen.queryByTestId('evidence-step-1')).not.toBeInTheDocument()
+  })
+})

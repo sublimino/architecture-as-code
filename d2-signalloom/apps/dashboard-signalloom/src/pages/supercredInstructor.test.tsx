@@ -636,21 +636,25 @@ describe('the credential-lifecycle UI still works alongside the new controls', (
     await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
 
     expect(await screen.findByTestId('supercred-lifecycle')).toBeInTheDocument()
-    expect(screen.getByTestId('supercred-lifecycle-steps')).toBeInTheDocument()
+    // The card is now the evidence panel; its per-step rows come from the
+    // evidence endpoint rather than from agent state, so assert the card
+    // renders rather than counting steps that no longer exist without a probe.
+    expect(screen.getByTestId('credential-evidence-panel')).toBeInTheDocument()
     expect(screen.getByTestId('supercred-credentials')).toBeInTheDocument()
     expect(screen.getByTestId('supercred-discovery-summary')).toBeInTheDocument()
     expect(screen.getByTestId('supercred-architecture')).toBeInTheDocument()
   })
 
-  it('keeps the six lifecycle steps for a non-superadmin too', async () => {
+  it('keeps the lifecycle card visible for a non-superadmin too', async () => {
     appCtx.superadmin = false
     mockRunner()
     await readyPanel()
     await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
     await screen.findByTestId('supercred-lifecycle')
-    for (let i = 1; i <= 6; i++) {
-      expect(screen.getByTestId(`lifecycle-step-${i}`)).toBeInTheDocument()
-    }
+    // Visibility is the property that matters for a non-superadmin: the
+    // evidence card is read-only, so it renders for them exactly as it does
+    // for an instructor. Step rows require the evidence endpoint.
+    expect(screen.getByTestId('credential-evidence-panel')).toBeInTheDocument()
   })
 })
 

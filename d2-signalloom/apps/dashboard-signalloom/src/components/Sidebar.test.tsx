@@ -854,3 +854,295 @@ describe('Sidebar Design System nav entry', () => {
     expect(screen.getByRole('link', { name: 'Design System' })).not.toHaveAttribute('aria-current', 'page')
   })
 })
+
+describe('Sidebar selection highlight', () => {
+  // Two independent mechanisms say "this row is selected": the per-link
+  // `--active` class react-router applies, and the single moving
+  // `.sl-sidebar__selection` pill the effect positions. Andy's report — pick
+  // Fleet Demo and the previously-selected row stays half-lit — is the two
+  // disagreeing. These tests pin them together for every route.
+  const SUPERADMIN_ROUTES = [
+    '/cryptography',
+    '/credential-inventory',
+    '/federated-services',
+    '/collusion-access',
+    '/rbac-analysis',
+    '/rbac-explorer',
+    '/network-tests',
+    '/supercred',
+    '/fleet',
+    '/design-system',
+  ]
+
+  // jsdom performs no layout, so every getBoundingClientRect is 0x0 and a
+  // highlight stranded on the old row is indistinguishable from one that
+  // moved. Give each rendered anchor a deterministic top from its DOM order:
+  // the pill's `top` then names the row it is actually sitting on.
+  const ROW_ORIGIN = 100
+  const ROW_PITCH = 40
+  const ROW_HEIGHT = 34
+  let rectSpy: ReturnType<typeof vi.spyOn> | null = null
+
+  function domRect(top: number, height: number): DOMRect {
+    return {
+      top, height, bottom: top + height, left: 0, right: 0, width: 0, x: 0, y: top,
+      toJSON: () => ({}),
+    } as DOMRect
+  }
+
+  function navRegion(): HTMLElement {
+    return document.getElementById('sl-sidebar-nav')!
+  }
+
+  function navLinks(): HTMLAnchorElement[] {
+    return Array.from(navRegion().querySelectorAll('a'))
+  }
+
+  function link(href: string): HTMLAnchorElement {
+    const found = navRegion().querySelector<HTMLAnchorElement>(`a[href="${href}"]`)
+    expect(found, `no nav link for ${href}`).not.toBeNull()
+    return found!
+  }
+
+  function expectedTop(href: string): string {
+    return `${ROW_ORIGIN + navLinks().indexOf(link(href)) * ROW_PITCH}px`
+  }
+
+  function selection(): HTMLElement | null {
+    return navRegion().querySelector<HTMLElement>('.sl-sidebar__selection')
+  }
+
+  /** Every row the UI currently paints as selected, by href. */
+  function selectedHrefs(): string[] {
+    const box = selection()
+    const boxed = box?.dataset.navTo
+    const classed = Array.from(navRegion().querySelectorAll<HTMLAnchorElement>('a.sl-sidebar__link--active'))
+      .map((a) => a.getAttribute('href')!)
+    const current = Array.from(navRegion().querySelectorAll<HTMLAnchorElement>('a[aria-current="page"]'))
+      .map((a) => a.getAttribute('href')!)
+    return Array.from(new Set([...(boxed ? [boxed] : []), ...classed, ...current]))
+  }
+
+  function renderAt(entry: string, ctx: Partial<typeof appCtxValue> = {}) {
+    return render(
+      <MemoryRouter initialEntries={[entry]}>
+        <AppContext.Provider value={{ ...appCtxValue, ...ctx }}>
+          <Sidebar />
+        </AppContext.Provider>
+      </MemoryRouter>
+    )
+  }
+
+  beforeEach(() => {
+    installMemoryStorage()
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    rectSpy = vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+      const nav = document.getElementById('sl-sidebar-nav')
+      if (!nav) return domRect(0, 0)
+      if (this === nav) return domRect(0, 1000)
+      const index = Array.from(nav.querySelectorAll('a')).indexOf(this as HTMLAnchorElement)
+      // Rects are viewport-relative, so a scrolled rail drags its rows up by
+      // scrollTop while the container's own rect stays put. Modelling that is
+      // what lets the scroll test assert a real invariant.
+      return index === -1 ? domRect(0, 0) : domRect(ROW_ORIGIN + index * ROW_PITCH - nav.scrollTop, ROW_HEIGHT)
+    })
+  })
+
+  afterEach(() => {
+    rectSpy?.mockRestore()
+    rectSpy = null
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it.each(SUPERADMIN_ROUTES)('shows exactly one selected row on %s', async (route) => {
+    renderAt(route, { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(selectedHrefs()).toEqual([route])
+    expect(selection()!.style.top).toBe(expectedTop(route))
+    expect(selection()!.style.height).toBe(`${ROW_HEIGHT}px`)
+  })
+
+  it.each(['/discovery', '/agents', '/audit', '/agent-trust-topology', '/settings'])(
+    'shows exactly one selected row on %s with the superadmin block open',
+    async (route) => {
+      renderAt(route, { superadmin: true })
+      await screen.findByRole('link', { name: 'Agents' })
+
+      expect(selectedHrefs()).toEqual([route])
+      expect(selection()!.style.top).toBe(expectedTop(route))
+    },
+  )
+
+  it('leaves no stale highlight going from a normal route to a superadmin one', async () => {
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+    const agentsTop = expectedTop('/agents')
+    expect(selection()!.style.top).toBe(agentsTop)
+
+    fireEvent.click(link('/fleet'))
+
+    await waitFor(() => expect(link('/fleet')).toHaveAttribute('aria-current', 'page'))
+    expect(selectedHrefs()).toEqual(['/fleet'])
+    // The actual defect: the pill stayed on Agents while Fleet Demo lit up.
+    expect(selection()!.style.top).not.toBe(agentsTop)
+    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+    expect(link('/agents')).not.toHaveClass('sl-sidebar__link--active')
+  })
+
+  it('leaves no stale highlight going from a superadmin route back to a normal one', async () => {
+    renderAt('/fleet', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+    const fleetTop = expectedTop('/fleet')
+    expect(selection()!.style.top).toBe(fleetTop)
+
+    fireEvent.click(link('/agents'))
+
+    await waitFor(() => expect(link('/agents')).toHaveAttribute('aria-current', 'page'))
+    expect(selectedHrefs()).toEqual(['/agents'])
+    expect(selection()!.style.top).not.toBe(fleetTop)
+    expect(selection()!.style.top).toBe(expectedTop('/agents'))
+    expect(link('/fleet')).not.toHaveClass('sl-sidebar__link--active')
+  })
+
+  it('walks every superadmin route in turn without accumulating highlights', async () => {
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    for (const route of SUPERADMIN_ROUTES) {
+      fireEvent.click(link(route))
+      await waitFor(() => expect(link(route)).toHaveAttribute('aria-current', 'page'))
+      expect(selectedHrefs()).toEqual([route])
+      expect(selection()!.style.top).toBe(expectedTop(route))
+    }
+  })
+
+  it('tracks superadmin rows while collapsed', async () => {
+    const user = userEvent.setup()
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+    fireEvent.click(link('/network-tests'))
+
+    await waitFor(() => expect(link('/network-tests')).toHaveAttribute('aria-current', 'page'))
+    expect(selectedHrefs()).toEqual(['/network-tests'])
+    expect(selection()!.style.top).toBe(expectedTop('/network-tests'))
+  })
+
+  it('previews a hovered superadmin row and returns to the active one', async () => {
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    fireEvent.mouseEnter(link('/rbac-explorer'))
+    expect(selection()!.style.top).toBe(expectedTop('/rbac-explorer'))
+    expect(selection()!.dataset.navTo).toBe('/rbac-explorer')
+
+    fireEvent.mouseLeave(link('/rbac-explorer'))
+    expect(selection()!.style.top).toBe(expectedTop('/agents'))
+  })
+
+  it('previews a hovered normal row and returns to the active superadmin one', async () => {
+    renderAt('/fleet', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    fireEvent.mouseEnter(link('/audit'))
+    expect(selection()!.style.top).toBe(expectedTop('/audit'))
+
+    fireEvent.mouseLeave(link('/audit'))
+    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+  })
+
+  it('withdraws the highlight when the active row is filtered out of the rail', async () => {
+    renderAt('/agents', { superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+    expect(selection()).not.toBeNull()
+
+    // "audit" leaves Audit Trail alone in the rail; nothing selected is showing.
+    fireEvent.change(search, { target: { value: 'audit' } })
+
+    expect(selectedHrefs()).toEqual([])
+    expect(selection()).toBeNull()
+  })
+
+  it('re-seats the highlight on the active row once the filter is cleared', async () => {
+    renderAt('/agents', { superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'agent' } })
+    // Agents survives its own filter, but the rail above it has shrunk.
+    expect(selectedHrefs()).toEqual(['/agents'])
+    expect(selection()!.style.top).toBe(expectedTop('/agents'))
+
+    fireEvent.change(search, { target: { value: '' } })
+    expect(selectedHrefs()).toEqual(['/agents'])
+    expect(selection()!.style.top).toBe(expectedTop('/agents'))
+  })
+
+  it('withdraws the highlight when the active route is hidden behind the superadmin flag', async () => {
+    renderAt('/fleet', { superadmin: false })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(selectedHrefs()).toEqual([])
+    expect(selection()).toBeNull()
+  })
+
+  it('seats the highlight when the superadmin block opens onto the active route', async () => {
+    const { rerender } = render(
+      <MemoryRouter initialEntries={['/fleet']}>
+        <AppContext.Provider value={{ ...appCtxValue, superadmin: false }}>
+          <Sidebar />
+        </AppContext.Provider>
+      </MemoryRouter>
+    )
+    await screen.findByRole('link', { name: 'Agents' })
+    expect(selection()).toBeNull()
+
+    rerender(
+      <MemoryRouter initialEntries={['/fleet']}>
+        <AppContext.Provider value={{ ...appCtxValue, superadmin: true }}>
+          <Sidebar />
+        </AppContext.Provider>
+      </MemoryRouter>
+    )
+
+    expect(selectedHrefs()).toEqual(['/fleet'])
+    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+  })
+
+  it('seats the highlight in content coordinates when the rail is scrolled', async () => {
+    // The rail is the scroll container and the pill's containing block, so the
+    // pill scrolls with the rows: its `top` is measured from the top of the
+    // content, while the rects it is computed from are viewport-relative. With
+    // 19 rows the superadmin block is below the fold on a laptop, so reaching
+    // Fleet Demo means scrolling — and an unadjusted offset puts the pill a
+    // screenful high, over an unrelated row.
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    // jsdom has no scrolling of its own; the geometry stub reads this back and
+    // drags the row rects up by it, exactly as a real scroll container does.
+    Object.defineProperty(navRegion(), 'scrollTop', { value: 120, configurable: true })
+    fireEvent.click(link('/fleet'))
+
+    await waitFor(() => expect(link('/fleet')).toHaveAttribute('aria-current', 'page'))
+    // The row's offset within the content is unchanged by scrolling, so the
+    // pill's `top` must be too.
+    expect(selection()!.style.top).toBe(expectedTop('/fleet'))
+  })
+
+  it('keeps digit-shortcut badges off superadmin rows even when hovered', async () => {
+    renderAt('/agents', { superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    // NAV index 7 is /cryptography — inside the `i < 9` badge window, but the
+    // digit keys bind the non-superadmin list, so the badge would be a lie.
+    fireEvent.mouseEnter(link('/cryptography'))
+    expect(link('/cryptography').querySelector('.sl-sidebar__shortcut')).toBeNull()
+    expect(link('/cryptography').textContent).toBe('Cryptography')
+
+    fireEvent.mouseEnter(link('/agents'))
+    expect(link('/agents').querySelector('.sl-sidebar__shortcut')).toHaveTextContent('2')
+  })
+})

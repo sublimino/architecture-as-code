@@ -30,6 +30,7 @@ import {
   makeCommandForStep,
   resetDemo,
   startDemoRun,
+  streamDemoRunLog,
   type DemoRunLogChunk,
   type DemoRunView,
   type DemoRunnerStatus,
@@ -98,7 +99,15 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   cancelled: colors.amber,
 }
 
-/** How often an in-flight run is re-read. Fast enough to feel live on stage. */
+/**
+ * How often an in-flight run is re-read.
+ *
+ * This is the transport of record. The SSE stream below is faster and is used
+ * whenever the runner will serve it, but the poll is the one that needs no
+ * negotiation to recover — it sends its cursor with every read, so it survives
+ * a dropped connection, a buffering proxy and a runner image that predates
+ * /stream, all without the instructor being told anything happened.
+ */
 const POLL_MS = 500
 
 /** Bound on the post-run log drain, so a runner that never reports eof cannot spin. */
@@ -189,6 +198,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   // schedule a render, and the poll loop must read the latest value.
   const offsetRef = useRef(0)
   const auditedStunRunsRef = useRef(new Set<string>())
+  /**
+   * Whether the SSE stream currently owns the log.
+   *
+   * Exactly one transport reads the log at a time. Both are safe to display —
+   * `applyLogChunk` guarantees that — but they are not safe to interleave: a
+   * poll response landing between two stream frames advances the cursor past
+   * where the stream is, every later frame is then refused, and the stream
+   * quietly stops contributing. So the poll skips its log read while the
+   * stream is live, and resumes the instant it is not. A ref rather than
+   * state: the poll tick reads it at fire time and flipping it must not
+   * re-render, which would tear down and rebuild both effects mid-run.
+   */
+  const streamLiveRef = useRef(false)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -305,6 +327,57 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const runId = activeRun?.run_id ?? null
   const running = isRunActive(activeRun)
 
+  /**
+   * Follow the log over SSE for as long as the runner will serve it.
+   *
+   * One attempt per run, and that is deliberate: the effect's dependencies are
+   * all stable for the lifetime of a run, so a stream that 404s (an older
+   * runner image), breaks, or diverges from the cursor is not retried — the
+   * poll below simply keeps doing what it was already doing. Retrying would
+   * turn an endpoint that does not exist into a reconnect loop for the length
+   * of a phase.
+   *
+   * Nothing here is user-visible on failure. There is no action an instructor
+   * could take, and the log arrives either way; the only difference is latency.
+   * Every chunk goes through `applyLogChunk`, so the exact-offset guard that
+   * fixed the 2026-08-03 duplication covers this transport too.
+   */
+  useEffect(() => {
+    if (!running || !runId) return
+    const controller = new AbortController()
+    let stopped = false
+    void (async () => {
+      try {
+        await streamDemoRunLog(
+          runId,
+          offsetRef.current,
+          {
+            onOpen: () => {
+              if (!stopped) streamLiveRef.current = true
+            },
+            // Returning false hands the stream its own shutdown: the cursor
+            // moved under it (a poll response that was still in flight when it
+            // opened) and SSE cannot re-ask for a different offset.
+            onChunk: chunk => (stopped ? false : applyLogChunk(chunk)),
+          },
+          await getAccessTokenSilently(),
+          controller.signal,
+        )
+      } catch {
+        /* silent by design — see the note above */
+      } finally {
+        streamLiveRef.current = false
+      }
+    })()
+    return () => {
+      stopped = true
+      streamLiveRef.current = false
+      // Unmounting mid-phase, or the run reaching a terminal state, closes the
+      // response body rather than leaving a reader attached to a dead panel.
+      controller.abort()
+    }
+  }, [running, runId, applyLogChunk, getAccessTokenSilently])
+
   useEffect(() => {
     if (!running || !runId) return
     let stopped = false
@@ -313,7 +386,9 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
         try {
           const [run, chunk] = await Promise.all([
             fetchDemoRun(runId, await getAccessTokenSilently()),
-            fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
+            streamLiveRef.current
+              ? Promise.resolve(null)
+              : fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
           ])
           if (stopped) return
           if (chunk) applyLogChunk(chunk)
@@ -691,8 +766,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               for display and hands the untouched string to its Copy button,
               which is the one artefact an instructor actually wants off this
               screen when a phase fails. `running` drives only the caret; the
-              lines themselves appear when their chunk lands and never before. */}
-          {log !== '' && (
+              lines themselves appear when their chunk lands and never before.
+
+              Mounted as soon as a run is live, not when the first byte lands.
+              Phase 1 can spend a long time in kubectl before it prints
+              anything, and until it did, the instructor was looking at a panel
+              with every control greyed out and no log surface at all — which
+              is indistinguishable from a panel that has hung. The block says
+              it is waiting rather than showing an empty bordered box, and it
+              does not invent a line, a timestamp or a progress figure to fill
+              the space: PixelLoader above already carries "time is passing",
+              and anything more here would be reporting progress the runner has
+              not made. */}
+          {(running || log !== '') && (
             <StreamingLogBlock
               testId="supercred-run-log"
               label="Run log"
@@ -701,6 +787,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               statusTone={activeRun ? RUN_STATUS_COLORS[activeRun.status] ?? 'var(--muted)' : undefined}
               log={log}
               streaming={running}
+              placeholder="Waiting for the runner's first output…"
               style={{ marginTop: 12 }}
             />
           )}

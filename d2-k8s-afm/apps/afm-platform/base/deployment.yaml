@@ -36,6 +36,17 @@ spec:
               value: /app/backend/samples/clusters
             - name: KUBESEC_FRONTEND_DIST
               value: /app/frontend/out
+            # Bounds CONCURRENT JOBS (the JobRunner ProcessPool) — it does NOT
+            # bound the solver pool forked inside a single job. The collusion
+            # phase of an escalation analysis sizes its own pool from
+            # `mp.cpu_count()`, which reports the host's core count because it
+            # does not read the cgroup CPU quota; on a 24-core host that forks
+            # 24 Z3 processes into the 512Mi limit below and the pod is
+            # OOMKilled, taking the in-memory cluster store with it.
+            # Until that is fixed upstream in kubesec-afm, callers must pass
+            # `{"check_pairs": false}` to POST /clusters/{id}/analysis/escalation
+            # (see d2-k8s-afm/test/afm-live.bats). Raising the memory limit is
+            # not a fix — the pool scales with host cores, not with the limit.
             - name: KUBESEC_MAX_WORKERS
               value: "1"
             # Open CORS for potential cross-D2 access from Signal Loom.

@@ -47,17 +47,17 @@ PORT_FORWARD_PID=""
 # Keep the source identity aligned with .dockerignore. Its use immediately
 # before COPY . . prevents BuildKit from reusing application layers for a
 # different source tree while retaining the package-install cache.
-SOURCE_ID="$(tar \
-  --sort=name \
-  --mtime='UTC 1970-01-01' \
-  --owner=0 \
-  --group=0 \
-  --numeric-owner \
-  --exclude-vcs \
-  --exclude='./node_modules' \
-  --exclude='./dist' \
-  --exclude='./coverage' \
-  -cf - -C "${CONTEXT}" . | sha256sum | awk '{print $1}')"
+#
+# The computation moved into scripts/lib/source-id.sh and is NOT reproduced here.
+# The same fingerprint is now also read back out of the running pod by
+# scripts/check-deployed-staleness.sh, and that comparison is only meaningful
+# while both sides are produced by one piece of code — two copies of this tar
+# pipeline would drift the moment one was edited, and a guard that fires on an
+# up-to-date deployment gets muted, which is worse than no guard.
+# shellcheck source=scripts/lib/source-id.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/source-id.sh"
+SOURCE_ID="$(source_id_for dashboard-signalloom)"
+GIT_REF="$(source_id_git_ref)"
 test -n "${SOURCE_ID}" || { echo "dashboard source fingerprint is empty"; exit 1; }
 
 cleanup() {
@@ -84,6 +84,7 @@ docker buildx build \
   --sbom=true \
   --provenance=mode=max \
   --build-arg "SOURCE_ID=${SOURCE_ID}" \
+  --build-arg "GIT_REF=${GIT_REF}" \
   -t "${IMAGE_REF}" \
   --output "type=oci,dest=${OCI_TAR}" \
   "${CONTEXT}"

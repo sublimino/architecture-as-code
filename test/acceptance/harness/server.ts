@@ -46,25 +46,26 @@
  * invented a friendlier shape would let the client drift away from the real
  * runner unnoticed, which is the failure mode one directory up.
  *
- * ─── The SSE endpoint is present and deliberately unused ──────────────────
+ * ─── Two transports, because the app has two ──────────────────────────────
  *
- * `GET /demo-api/runs/{id}/stream` is served as Server-Sent Events carrying the
- * same DemoRunLogChunk JSON. It is NOT the default and nothing in the specs
- * reaches it — they assert the opposite, that it was never requested.
+ * DEFAULT — `GET /runs/{id}/log?offset=N&wait=S`. The `wait` long poll is
+ * implemented here rather than answered immediately: a double that ignores it
+ * turns the panel's long poll into a hot loop, and would let a real runner that
+ * dropped `wait` handling pass unnoticed.
  *
- * The offset poll stays the default because SSE cannot cover its own worst
- * failure mode: a buffering intermediary ACCEPTS the connection and then
- * delivers nothing. The connection is healthy, no error fires, no fallback
- * triggers, and the panel sits silent — which is indistinguishable from the
- * batching defect this harness reproduces in `batch` mode, and would be
- * introduced by the fix for it. In front of customers, the proven path wins.
+ * OPT-IN — `GET /runs/{id}/stream`, Server-Sent Events. Reached only when the
+ * page carries `?logTransport=sse`, which one spec case does deliberately.
  *
- * This endpoint exists so the secondary opt-in case can be written the day the
- * flag exists without building anything new. Worth knowing when it is: a
- * harness on loopback can never reproduce a buffering intermediary, so an SSE
- * spec here proves the happy path only, and the silent-stall risk stays
- * un-testable at this layer. That is an argument for the poll default, not
- * against the endpoint.
+ * The poll stays the default because SSE cannot cover its own worst failure
+ * mode: a buffering intermediary ACCEPTS the connection and then delivers
+ * nothing. No error fires, no fallback triggers, and the panel sits silent —
+ * indistinguishable from the batching defect this harness reproduces in
+ * `batch` mode, and introduced by the fix for it.
+ *
+ * Worth knowing before anyone reads too much into the SSE case: a harness on
+ * loopback cannot reproduce a buffering intermediary, so it proves the happy
+ * path only. The silent-stall risk stays un-testable at this layer — an
+ * argument for the default, not against the test.
  *
  * ─── Running it by hand ───────────────────────────────────────────────────
  *
@@ -95,6 +96,22 @@ export interface HarnessOptions {
   port?: number
   /** Make the run end `failed`, to exercise the failure log tail. */
   outcome?: 'succeeded' | 'failed'
+  /**
+   * Silence between accepting a run and its first line of output.
+   *
+   * 0 by default, because the poll path does not care. The SSE case does: the
+   * panel opens the stream and issues a waiting read at the same moment, and
+   * whichever lands second is a duplicate the cursor guard rejects. If the read
+   * wins, `onChunk` returns false and the panel shuts its own stream down —
+   * deliberate behaviour, documented in SuperCredInstructorPanel, and it leaves
+   * the poll delivering everything while /stream still shows one request.
+   *
+   * A real phase never prints in its first millisecond, so a short silence is
+   * the normal case rather than a thumb on the scale: the waiting read parks
+   * (which is what `wait` is FOR), the stream delivers first, and the case
+   * measures the transport it claims to.
+   */
+  startDelayMs?: number
 }
 
 export interface Harness {
@@ -116,6 +133,26 @@ interface Run {
   /** Everything produced so far. In `batch` mode this is invisible until done. */
   log: string
   timer: ReturnType<typeof setInterval> | null
+  /**
+   * Open SSE responses, notified synchronously as each line is appended.
+   *
+   * ─── Why synchronous, and why before the pollers ──────────────────────────
+   *
+   * This is ordering, not optimisation. A real runner writes to its open
+   * streams from inside the emit path and only then wakes anything blocked on
+   * a long poll, so a subscriber that is already attached sees a byte before a
+   * poller can. Reproducing that order is the difference between the SSE case
+   * measuring SSE and measuring the fallback.
+   *
+   * With the stream on its own timer instead, the poll won every start: both
+   * wake when the first line lands, the poll loop re-checks every 10ms and the
+   * stream ticked every 30ms, so the poll's response landed first, moved the
+   * cursor, and the panel's own guard (`onChunk` returning false, by design)
+   * shut the stream down. Measured: 93 poll requests against 1 stream request,
+   * a log that filled perfectly over the fallback, and every other assertion
+   * green. That is the shape of a test that proves nothing.
+   */
+  subscribers: Set<() => void>
 }
 
 const STEPS = [
@@ -192,9 +229,33 @@ async function bundle(): Promise<string> {
       {
         name: 'harness-resolve',
         setup(build) {
-          build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => ({
-            path: Bun.resolveSync(args.path, join(ACCEPTANCE_DIR, 'node_modules')),
-          }))
+          build.onResolve({ filter: /^react(-dom)?(\/.*)?$/ }, (args) => {
+            try {
+              return { path: Bun.resolveSync(args.path, join(ACCEPTANCE_DIR, 'node_modules')) }
+            } catch {
+              // Bun.resolveSync THROWS rather than returning a build log, so
+              // this never reaches the `built.success` check below — it escapes
+              // as a bare `ResolveMessage: Cannot find package 'react'` and the
+              // spec reports "harness exited before it was ready", which reads
+              // as a harness bug. It is a missing install.
+              //
+              // Cost a full CI-adjacent run once: a checkout whose node_modules
+              // predated react being added to package.json had
+              // node_modules/@playwright present, the Makefile's `[ -d
+              // node_modules/@playwright ] || bun install` guard short-circuited
+              // on it, and the dependency never landed. The guard is now an
+              // unconditional --frozen-lockfile install; this message is the
+              // belt to that braces.
+              throw new Error(
+                `harness bundle failed: cannot resolve "${args.path}" from ` +
+                  `${join(ACCEPTANCE_DIR, 'node_modules')}.\n` +
+                  `The harness renders the REAL dashboard components, so it needs react and ` +
+                  `react-dom. Run:\n\n    cd test/acceptance && bun install --frozen-lockfile\n\n` +
+                  `(a node_modules from before react was added to package.json looks "installed" ` +
+                  `to any guard that checks only for @playwright)`,
+              )
+            }
+          })
           build.onResolve({ filter: /auth\/oidc$/ }, () => ({
             path: join(HERE, 'auth-stub.tsx'),
           }))
@@ -212,11 +273,41 @@ async function bundle(): Promise<string> {
   return cachedBundle
 }
 
+/**
+ * The app's own stylesheet, served from where it lives.
+ *
+ * ─── Why this is not optional ──────────────────────────────────────────────
+ *
+ * The harness used to render the panel with NO stylesheet at all, on the
+ * reasoning that StreamingLogBlock styles itself inline. That reasoning was
+ * wrong in one specific and expensive way: `global.css` sets the font stack,
+ * the base font-size and the line-height on `html, body, #root`, and it defines
+ * `.card` and `.btn`, which the panel uses by class name. Without it the page
+ * inherits the browser's defaults, which is NOT what the app renders — and the
+ * scroll assertions here are assertions about LAYOUT, so rendering under
+ * different typography means measuring a box the app never has.
+ *
+ * It also removes a whole class of confusing failure. Text with no resolvable
+ * font produces zero-height line boxes, an unscrollable log block, and the
+ * message "the log never overflowed its box" — which reads as a component bug
+ * and is not one. Serving the real stylesheet means the harness fails the same
+ * way the app would, and `expectRendersText()` in the spec catches the
+ * remaining environment case by name.
+ *
+ * Self-contained by luck and worth recording: global.css has no `@import`, no
+ * `@font-face` and no `url()`, and the app's index.html loads no webfont, so
+ * every family in it resolves against system fonts. Serving one file is
+ * therefore the whole stylesheet, not the first of a chain.
+ */
+const GLOBAL_CSS = join(DASHBOARD_SRC, 'styles', 'global.css')
+
 const INDEX_HTML = `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <title>SuperCred streaming harness</title>
+    <!-- The app's real stylesheet, not an approximation of it. See GLOBAL_CSS. -->
+    <link rel="stylesheet" href="/global.css" />
   </head>
   <body>
     <!-- No cluster, no Dex, no router: one component and the runner it talks to. -->
@@ -244,6 +335,7 @@ export function startHarness(options: HarnessOptions = {}): Harness {
   const lines = options.lines ?? 90
   const intervalMs = options.intervalMs ?? 60
   const outcome = options.outcome ?? 'succeeded'
+  const startDelayMs = options.startDelayMs ?? 0
 
   const runs = new Map<string, Run>()
   let active: Run | null = null
@@ -262,24 +354,36 @@ export function startHarness(options: HarnessOptions = {}): Harness {
       error: null,
       log: '',
       timer: null,
+      subscribers: new Set(),
     }
     runs.set(run.run_id, run)
     history.unshift(run)
     active = run
 
     let emitted = 0
-    run.timer = setInterval(() => {
-      emitted += 1
-      run.log += scriptedLine(stepId, emitted, lines)
-      if (emitted < lines) return
-      if (run.timer) clearInterval(run.timer)
-      run.timer = null
-      run.status = outcome
-      run.finished_at = new Date().toISOString()
-      run.exit_code = outcome === 'succeeded' ? 0 : 1
-      run.error = outcome === 'succeeded' ? null : 'scripted failure'
-      if (active === run) active = null
-    }, intervalMs)
+    const beginEmitting = () => {
+      run.timer = setInterval(() => {
+        emitted += 1
+        run.log += scriptedLine(stepId, emitted, lines)
+        // Streams first, in the same tick as the append. See Run.subscribers.
+        for (const notify of run.subscribers) notify()
+        if (emitted < lines) return
+        if (run.timer) clearInterval(run.timer)
+        run.timer = null
+        run.status = outcome
+        run.finished_at = new Date().toISOString()
+        run.exit_code = outcome === 'succeeded' ? 0 : 1
+        run.error = outcome === 'succeeded' ? null : 'scripted failure'
+        if (active === run) active = null
+        // Terminal too: an open stream must see the end frame without waiting
+        // for a timer that may be slower than the client's patience.
+        for (const notify of run.subscribers) notify()
+      }, intervalMs)
+    }
+    // The run is `running` from the moment it is accepted either way; the delay
+    // only holds back OUTPUT, which is what a real script's startup looks like.
+    if (startDelayMs > 0) setTimeout(beginEmitting, startDelayMs)
+    else beginEmitting()
 
     return run
   }
@@ -309,6 +413,23 @@ export function startHarness(options: HarnessOptions = {}): Harness {
       if (path === '/harness.js') {
         return new Response(await bundle(), {
           headers: { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' },
+        })
+      }
+      if (path === '/global.css') {
+        const css = Bun.file(GLOBAL_CSS)
+        if (!(await css.exists())) {
+          // Loud rather than silent: a missing stylesheet degrades to "the page
+          // renders with browser defaults", which passes the streaming
+          // assertions and fails the layout ones with a message about the
+          // component. Serving a comment that says so puts the cause in the
+          // page instead.
+          return new Response(`/* harness: ${GLOBAL_CSS} not found — did the app move? */`, {
+            status: 404,
+            headers: { 'content-type': 'text/css; charset=utf-8' },
+          })
+        }
+        return new Response(css, {
+          headers: { 'content-type': 'text/css; charset=utf-8', 'cache-control': 'no-store' },
         })
       }
 
@@ -342,6 +463,36 @@ export function startHarness(options: HarnessOptions = {}): Harness {
 
         if (runMatch[2] === '/log') {
           const offset = Number(url.searchParams.get('offset') ?? '0')
+
+          // ── The long poll ────────────────────────────────────────────────
+          //
+          // `&wait=<seconds>` is what makes the DEFAULT transport feel live:
+          // when the caller is already at the end of the buffer the runner
+          // holds the request open until new bytes arrive, the run ends, or
+          // the deadline passes, then answers normally. Delivery lands within
+          // milliseconds of the script printing while the response stays an
+          // ordinary short HTTP response — which is the whole reason it beats
+          // SSE through a buffering intermediary.
+          //
+          // Implemented here rather than answered immediately because a
+          // harness that ignores `wait` is not a stand-in for the transport
+          // under test: it turns the panel's long poll into a hot loop, and it
+          // would let a regression that drops `wait` handling on the real
+          // runner pass here unnoticed. Polled rather than event-driven
+          // because the scripted emitter is a setInterval and 10ms of latency
+          // is an order of magnitude under the sampler's 200ms tick.
+          const waitSeconds = Number(url.searchParams.get('wait') ?? '0')
+          if (Number.isFinite(waitSeconds) && waitSeconds > 0) {
+            const deadline = Date.now() + Math.min(waitSeconds, 30) * 1000
+            while (
+              Date.now() < deadline &&
+              run.status === 'running' &&
+              readable(run).length <= Math.max(0, offset)
+            ) {
+              await Bun.sleep(10)
+            }
+          }
+
           const available = readable(run)
           const from = Number.isFinite(offset) && offset >= 0 ? Math.min(offset, available.length) : 0
           const chunk = available.slice(from)
@@ -359,11 +510,64 @@ export function startHarness(options: HarnessOptions = {}): Harness {
         }
 
         if (runMatch[2] === '/stream') {
+          // The frame contract is api/demoRunner.ts's, not one invented here.
+          // It dispatches on the event NAME — `log` carries a DemoRunLogChunk,
+          // `end` carries that plus `status` and `exit_code` — and a frame with
+          // any other name is silently ignored. This endpoint emitted
+          // `event: chunk` when it was written speculatively, before that
+          // client existed, which would have produced a stream that connects,
+          // delivers, and shows nothing: the exact failure the whole SSE
+          // caution is about, reproduced by the test double.
           const encoder = new TextEncoder()
-          let cursor = 0
+          const startAt = Number(url.searchParams.get('offset') ?? '0')
+          let cursor = Number.isFinite(startAt) && startAt >= 0 ? startAt : 0
+          // Declared out here so `cancel` can stop the emitter `start` began.
+          //
+          // WITHOUT THIS THE WHOLE HARNESS DIES. api/demoRunner.ts calls
+          // `reader.cancel()` in a `finally`, on every exit path — the `end`
+          // frame, an abort, a rejected chunk, the first-byte watchdog — which
+          // closes this controller. A setInterval that keeps pushing then
+          // throws `Invalid state: Controller is already closed`, and an
+          // exception out of a stream callback takes the Bun PROCESS down, not
+          // just the response. Every subsequent request in the run then fails
+          // with net::ERR_CONNECTION_REFUSED and the spec reports a hung panel.
+          //
+          // Observed exactly that: the run sat on `running` for 60s while the
+          // browser console filled with connection-refused errors, and the real
+          // cause was four lines of stack in the harness's own stdout. A test
+          // double that can die mid-run does not fail the assertion it broke —
+          // it fails all of them, in a way that names nothing.
+          let subscription: (() => void) | null = null
+          const stop = () => {
+            if (subscription !== null) run.subscribers.delete(subscription)
+            subscription = null
+          }
+
           const body = new ReadableStream({
+            cancel: stop,
             start(controller) {
+              // A byte immediately. STREAM_FIRST_BYTE_MS gives a stream 2s to
+              // produce anything before writing it off as buffered, and a
+              // harness that stays silent until its first scripted line would
+              // trip that watchdog on any interval above 2s — the spec would
+              // then be measuring the fallback while claiming to measure SSE.
+              // `:` is an SSE comment: the client's parser drops it, which is
+              // what makes it a keepalive rather than an event.
+              controller.enqueue(encoder.encode(': harness stream open\n\n'))
+
               const push = () => {
+                try {
+                  emit()
+                } catch {
+                  // A close that raced this tick. Stop, and stay alive: the
+                  // caller has gone, which is normal, and is not worth taking
+                  // the server down for. `cancel` above handles the ordered
+                  // case; this handles the race.
+                  stop()
+                }
+              }
+
+              const emit = () => {
                 const available = readable(run)
                 if (available.length > cursor) {
                   const chunk = available.slice(cursor)
@@ -376,17 +580,32 @@ export function startHarness(options: HarnessOptions = {}): Harness {
                     eof: false,
                   }
                   cursor += chunk.length
-                  controller.enqueue(encoder.encode(`event: chunk\ndata: ${JSON.stringify(frame)}\n\n`))
+                  controller.enqueue(encoder.encode(`event: log\ndata: ${JSON.stringify(frame)}\n\n`))
                 }
                 if (run.status !== 'running' && cursor >= readable(run).length) {
-                  clearInterval(tick)
-                  controller.enqueue(
-                    encoder.encode(`event: end\ndata: ${JSON.stringify({ ...view(run), eof: true })}\n\n`),
-                  )
+                  stop()
+                  const end = {
+                    run_id: run.run_id,
+                    offset: cursor,
+                    next_offset: cursor,
+                    // The contract says the end frame carries no bytes; the
+                    // client passes it through its cursor guard regardless.
+                    chunk: '',
+                    truncated: false,
+                    eof: true,
+                    status: run.status,
+                    exit_code: run.exit_code,
+                  }
+                  controller.enqueue(encoder.encode(`event: end\ndata: ${JSON.stringify(end)}\n\n`))
                   controller.close()
                 }
               }
-              const tick = setInterval(push, Math.max(20, Math.floor(intervalMs / 2)))
+              subscription = push
+              run.subscribers.add(subscription)
+              // Once immediately, for the bytes that already exist at the
+              // requested offset — a stream that only ever speaks on the NEXT
+              // line would start a phase by withholding everything printed
+              // before it connected.
               push()
             },
           })
@@ -436,6 +655,7 @@ export function startHarness(options: HarnessOptions = {}): Harness {
  *
  *   bun harness/server.ts [--mode stream|batch] [--port N] [--lines N]
  *                         [--interval MS] [--outcome succeeded|failed]
+ *                         [--start-delay MS]
  *
  * The bundle is built BEFORE the ready line is printed, so "ready" means the
  * page will render rather than "the socket is open and the first request will
@@ -457,6 +677,7 @@ if (import.meta.main) {
     lines: num('lines'),
     intervalMs: num('interval'),
     outcome: (flag('outcome') as 'succeeded' | 'failed') ?? 'succeeded',
+    startDelayMs: num('start-delay'),
   })
   // Machine-readable and on its own line: the spec matches this exact prefix.
   console.log(`HARNESS_READY ${harness.url} mode=${harness.mode}`)

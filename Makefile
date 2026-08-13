@@ -837,3 +837,7 @@ demo-signalloom-fleet-up: demo-signalloom-fleet-image ## Deploy Fleet Manager (s
 
 demo-signalloom-fleet-down: ## Remove Fleet Manager only.
 	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found
+
+.PHONY: check-backends
+check-backends: ## Assert every backend the dashboard proxies to is declared and deployed.
+	./scripts/check-backends.sh live

@@ -191,3 +191,129 @@ describe('FleetTopology', () => {
     expect(screen.getByTestId('fleet-topology')).toBeInTheDocument()
   })
 })
+
+// ─── The diagram ────────────────────────────────────────────────────────────
+//
+// The lines used to be drawn from the bottom-centre of one card to the
+// top-centre of another, over a layout that put the SRE monitor on top and
+// every other agent in one flat row beneath it. Four of the five real
+// dependencies were therefore between cards on the SAME row, which draws as a
+// horizontal line straight across the diagram, and the edge layer sat at
+// z-index 5 -- above React Flow's renderer -- so those lines were painted over
+// the cards rather than between them.
+//
+// The fixture below is the real fleet from fleet-manager/base/fleet-config.yaml.
+// Nothing here is a magic number; the counts come off the dependency record.
+
+const FLEET_DEPENDENCIES: Record<string, string[]> = {
+  'agent-cardvault': [],
+  'agent-txn-pipeline': ['agent-cardvault'],
+  'agent-llm-classifier': ['agent-txn-pipeline'],
+  'agent-api-gateway': ['agent-cardvault'],
+  'agent-monitor': [
+    'agent-cardvault',
+    'agent-txn-pipeline',
+    'agent-llm-classifier',
+    'agent-api-gateway',
+  ],
+}
+
+const REAL_TYPES: Record<string, AgentState['type']> = {
+  'agent-cardvault': 'data-vault',
+  'agent-txn-pipeline': 'data-pipeline',
+  'agent-llm-classifier': 'llm-inference',
+  'agent-api-gateway': 'api-gateway',
+  'agent-monitor': 'observability',
+}
+
+const REAL_AGENTS: AgentState[] = Object.keys(FLEET_DEPENDENCIES).map(id =>
+  makeAgent({ id, type: REAL_TYPES[id] }),
+)
+
+const REAL_EDGES = Object.entries(FLEET_DEPENDENCIES).flatMap(([from, deps]) =>
+  deps.map(to => ({ from, to })),
+)
+
+describe('FleetTopology draws the dependency graph it is given', () => {
+  it('draws one line per declared dependency, no more and no fewer', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    const declared = Object.values(FLEET_DEPENDENCIES).reduce((n, deps) => n + deps.length, 0)
+    const drawn = screen.getByTestId('fleet-edge-layer').querySelectorAll('path[data-edge-kind]')
+    expect(drawn).toHaveLength(declared)
+    expect(drawn).toHaveLength(REAL_EDGES.length)
+  })
+
+  it('gives every declared dependency its own path', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    for (const { from, to } of REAL_EDGES) {
+      expect(screen.getByTestId(`fleet-edge-${from}-${to}`)).toBeInTheDocument()
+    }
+  })
+
+  it('marks a link into the observability agent as watch-only', () => {
+    // fleet-manager's CascadeTargets skips observability agents, so a stun
+    // never reaches the monitor. Drawing that link like a cascade link would
+    // claim a blast radius the backend does not have.
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    for (const dep of FLEET_DEPENDENCIES['agent-monitor']) {
+      expect(screen.getByTestId(`fleet-edge-agent-monitor-${dep}`))
+        .toHaveAttribute('data-edge-kind', 'watch')
+    }
+    expect(screen.getByTestId('fleet-edge-agent-txn-pipeline-agent-cardvault'))
+      .toHaveAttribute('data-edge-kind', 'cascade')
+  })
+
+  it('keeps the lines underneath the cards', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    // React Flow's renderer is z-index 4 inside the viewport's stacking
+    // context. Anything above that paints over the agents.
+    expect(Number(screen.getByTestId('fleet-edge-layer').style.zIndex)).toBeLessThan(4)
+  })
+
+  it('points every line at what fails next', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    for (const path of screen.getByTestId('fleet-edge-layer').querySelectorAll('path[data-edge-kind]')) {
+      expect(path.getAttribute('marker-end')).toMatch(/^url\(#fleet-arrow-[a-zA-Z0-9-]+\)$/)
+    }
+  })
+
+  it('names both link classes in a legend', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    const legend = screen.getByTestId('fleet-topology-legend')
+    expect(legend.textContent).toMatch(/cascade/i)
+    expect(legend.textContent).toMatch(/watch only/i)
+    expect(legend.textContent).toMatch(/broken/i)
+  })
+
+  it('keeps the legend in audience mode, where nobody can ask what a line means', () => {
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} audience />)
+    expect(screen.getByTestId('fleet-topology-legend')).toBeInTheDocument()
+  })
+})
+
+describe('FleetTopology chrome', () => {
+  it('themes the zoom controls instead of leaving the vendor white block', () => {
+    // @xyflow/react/dist/style.css defaults these buttons to #fefefe on a
+    // #eee divider, and its dark palette is gated behind a `.dark` ancestor
+    // this app does not use. Unset, the control renders as a white rectangle
+    // floating in the corner of the panel.
+    render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    const controls = document.querySelector('.react-flow__controls') as HTMLElement
+    expect(controls).not.toBeNull()
+    for (const property of [
+      '--xy-controls-button-background-color',
+      '--xy-controls-button-color',
+      '--xy-controls-button-border-color',
+    ]) {
+      expect(controls.style.getPropertyValue(property), property).toMatch(/^var\(--[a-z0-9-]+\)$/)
+    }
+  })
+
+  it('uses no literal colour anywhere in the topology chrome', () => {
+    const { container } = render(<FleetTopology agents={REAL_AGENTS} edges={REAL_EDGES} />)
+    const legend = screen.getByTestId('fleet-topology-legend')
+    expect(legend.outerHTML).not.toMatch(/#[0-9a-fA-F]{3,8}\b/)
+    expect(container.querySelector('[data-testid="fleet-edge-layer"]')!.outerHTML)
+      .not.toMatch(/(stroke|fill)="#/)
+  })
+})

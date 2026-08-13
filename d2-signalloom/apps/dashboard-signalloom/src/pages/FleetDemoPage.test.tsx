@@ -267,6 +267,151 @@ describe('FleetDemoPage', () => {
     // Should not crash; page still renders.
     expect(screen.getByTestId('fleet-topology-status')).toBeInTheDocument()
   })
+
+  // ── Introduction ──────────────────────────────────────────────────────────
+  //
+  // This page is presented from, live, to an audience. One sentence saying
+  // "topology and cascade visualisation" told the instructor nothing they
+  // could say out loud and told the audience nothing at all.
+
+  describe('the introduction explains the demo', () => {
+    /** Every hint on this page, keyed by the control it explains. */
+    const HINTS = [
+      'fleet-intro-help',
+      'fleet-deploy-help',
+      'fleet-scan-help',
+      'fleet-stun-help',
+      'fleet-recover-help',
+      'fleet-reset-help',
+      'fleet-risk-help',
+    ]
+
+    /** Focus a hint and return the tooltip it points `aria-describedby` at. */
+    function openHint(testId: string): HTMLElement {
+      const hint = screen.getByTestId(testId)
+      act(() => { hint.focus() })
+      const id = hint.getAttribute('aria-describedby')
+      expect(id, `${testId} should describe its tooltip`).toBeTruthy()
+      return document.getElementById(id!)!
+    }
+
+    it('says what the diagram is, not just that there is one', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-intro')).toBeInTheDocument())
+      const intro = screen.getByTestId('fleet-intro').textContent ?? ''
+
+      expect(intro).toMatch(/dependency graph/i)
+      // A line is a blast radius, which is the whole reason the page exists.
+      expect(intro).toMatch(/blast radius/i)
+      // The FAIR figure needs naming or the big number on the right is decoration.
+      expect(intro).toMatch(/annual loss expectancy|\bALE\b/i)
+      expect(intro).toMatch(/VaR95/)
+      expect(intro).toMatch(/FAIR/)
+      // And the controls are live against a real cluster.
+      expect(intro).toMatch(/superadmin/i)
+      expect(intro).toMatch(/no confirmation|without confirmation/i)
+      expect(intro.length).toBeGreaterThan(400)
+    })
+
+    it('uses no em dashes, in the introduction or in any hint', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      const emDash = /—/
+      expect(screen.getByTestId('fleet-intro').textContent).not.toMatch(emDash)
+      for (const testId of HINTS) {
+        expect(openHint(testId).textContent, testId).not.toMatch(emDash)
+      }
+    })
+
+    it('is written in American English', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      const british = /\b\w+isation\b|\bmodelled\b|\bbehaviour\b|\bcolour\b|\bprioritise\b/i
+      expect(screen.getByTestId('fleet-intro').textContent).not.toMatch(british)
+      for (const testId of HINTS) {
+        expect(openHint(testId).textContent, testId).not.toMatch(british)
+      }
+    })
+
+    it('explains every instructor control, including Deploy and Scan', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      expect(openHint('fleet-deploy-help').textContent).toMatch(/SPIFFE|OpenBao/i)
+      expect(openHint('fleet-scan-help').textContent).toMatch(/nothing is revoked|only reads/i)
+      // The running order is presenter guidance, not control documentation, so
+      // it belongs in a hint rather than on screen with everything else.
+      expect(openHint('fleet-intro-help').textContent).toMatch(/deploy/i)
+      expect(openHint('fleet-intro-help').textContent).toMatch(/reset/i)
+    })
+
+    it('hides the introduction hint from a non-superadmin along with the controls', async () => {
+      mockSuperadmin.value = false
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-intro')).toBeInTheDocument())
+      expect(screen.queryByTestId('fleet-intro-help')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('fleet-deploy-help')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('fleet-scan-help')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── Control chrome ────────────────────────────────────────────────────────
+
+  describe('the instructor controls look like the rest of the product', () => {
+    const BUTTONS = [
+      'fleet-deploy-btn',
+      'fleet-scan-btn',
+      'fleet-stun-btn',
+      'fleet-recover-btn',
+      'fleet-reset-btn',
+    ]
+
+    it('uses the shared button classes rather than a private outlined box', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      for (const testId of BUTTONS) {
+        const button = screen.getByTestId(testId)
+        expect(button.className.split(/\s+/), testId).toContain('btn')
+        expect(button.className, testId).toMatch(/\bbtn-(primary|secondary|danger)\b/)
+      }
+    })
+
+    it('leaves fill and border to the stylesheet, so the themes still reach them', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      for (const testId of BUTTONS) {
+        const button = screen.getByTestId(testId)
+        expect(button.style.background, testId).toBe('')
+        expect(button.style.border, testId).toBe('')
+        expect(button.style.color, testId).toBe('')
+      }
+    })
+
+    it('marks the destructive controls as destructive', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+      expect(screen.getByTestId('fleet-stun-btn').className).toMatch(/btn-danger/)
+      expect(screen.getByTestId('fleet-reset-btn').className).toMatch(/btn-danger/)
+      expect(screen.getByTestId('fleet-deploy-btn').className).toMatch(/btn-primary/)
+    })
+
+    it('lets the global form styling reach the stun target select', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-stun-select')).toBeInTheDocument())
+      const select = screen.getByTestId('fleet-stun-select')
+      // global.css already themes `input, select, textarea`. The inline
+      // overrides here used --surface/--border against the stylesheet's
+      // --surface2/--border-subtle, so this one control did not match any
+      // other select in the product.
+      expect(select.style.background).toBe('')
+      expect(select.style.border).toBe('')
+      expect(select.style.color).toBe('')
+    })
+  })
   // Every one of these three buttons changes a shared cluster and none of them
   // asks for confirmation. The label says the verb; only the hint says the
   // blast radius, which is what an instructor needs before pressing it live.
@@ -311,7 +456,7 @@ describe('FleetDemoPage', () => {
       renderPage()
       await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
 
-      for (const name of ['reset', 'recover']) {
+      for (const name of ['deploy', 'scan', 'reset', 'recover']) {
         const button = screen.getByTestId(`fleet-${name}-btn`)
         const hint = screen.getByTestId(`fleet-${name}-help`)
         // The controls column is vertical; a hint that is a sibling of the

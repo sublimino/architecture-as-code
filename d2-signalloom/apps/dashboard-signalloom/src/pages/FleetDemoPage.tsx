@@ -37,6 +37,25 @@ const FLEET_POLL_MS = 2000
  *  one button here that sizes to its content rather than filling its column. */
 const STUN_BUTTON_W = 110
 
+// ─── Chrome ─────────────────────────────────────────────────────────────────
+//
+// These five controls used to carry a private `btn()` style function that
+// reimplemented the shared button badly: --surface fill and a --border
+// outline, where every other button in the product is a filled .btn-primary,
+// .btn-secondary or .btn-danger. The result was a column of grey outlined
+// boxes with no hierarchy, so Reset Fleet, which destroys the estate, read
+// exactly like Scan Fleet, which reads it.
+//
+// Nothing here sets fill, border or colour any more. The only inline style
+// left is layout: these buttons fill their column, and .btn does not
+// centre a label it was never asked to stretch.
+
+/** Layout-only. Every colour comes from the .btn classes. */
+const FILL_COLUMN: React.CSSProperties = { width: '100%', justifyContent: 'center' }
+
+/** A control and the hint that explains it, on one row. */
+const CONTROL_ROW: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 }
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 interface FleetDemoPageProps {
@@ -190,27 +209,6 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
   const showControls = superadmin && !audience
 
-  // Button style.
-  const btn = (loading: boolean): React.CSSProperties => ({
-    padding: '8px 16px',
-    borderRadius: 8,
-    border: '1px solid var(--border)',
-    background: 'var(--surface)',
-    color: 'var(--text)',
-    fontSize: 13,
-    fontWeight: 500,
-    cursor: loading ? 'wait' : 'pointer',
-    opacity: loading ? 0.6 : 1,
-    fontFamily: 'inherit',
-    transition: 'opacity 0.15s',
-    width: '100%',
-    // Centres the loader the same way the browser centres the idle label, so
-    // swapping one for the other does not move the content.
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  })
-
   if (audience) {
     return (
       <div data-testid="fleet-demo-page" style={{ display: 'flex', height: '100vh', gap: 0 }}>
@@ -250,9 +248,48 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
       <h1 style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>
         Fleet Demo
       </h1>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
-        Multi-agent SuperCredential fleet topology and cascade visualisation.
-      </p>
+      {/* This page is presented from, live. The previous single line said
+          "topology and cascade visualisation", which is a label rather than an
+          explanation: it named the picture without saying what a card is, what
+          a line is, what the money on the right is measuring, or that the
+          buttons act on a real cluster with no confirmation step. Everything
+          an instructor has to say out loud in the first thirty seconds is now
+          on the page, and the running order, which is presenter guidance
+          rather than product documentation, sits in the hint. */}
+      <div data-testid="fleet-intro" style={{ maxWidth: 780, marginBottom: 20 }}>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px', lineHeight: 1.55 }}>
+          A live SuperCredential fleet: every agent running in the cluster, drawn as the
+          dependency graph the fleet manager actually serves. Each card is one workload agent
+          with its team and its trust profile. Each line runs downward from an agent to whatever
+          needs it, which makes the diagram a blast radius as well as a topology (revoke
+          credentials at the top of a chain and everything below loses access too). Links into
+          the SRE monitor are drawn differently, because the cascade deliberately stops there.
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px', lineHeight: 1.55 }}>
+          The figure on the right prices that exposure. <strong style={{ color: 'var(--text)' }}>ALE</strong> is
+          Annual Loss Expectancy, what this fleet is modeled to cost in a typical year;
+          <strong style={{ color: 'var(--text)' }}>VaR95</strong> is the bad year that only 1 in 20 exceeds.
+          Both come from a FAIR simulation over the agents currently deployed and recompute on
+          every poll, so stunning an agent moves a number a board recognizes rather than lighting
+          up another red icon.
+        </p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: 0, lineHeight: 1.55, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span>
+            Instructor controls (superadmin only) act on the real cluster immediately, with no
+            confirmation step. Check the hint beside a control before pressing it in front of
+            an audience.
+          </span>
+          {showControls && (
+            <HelpHint label="Suggested running order for this demo" testId="fleet-intro-help">
+              Deploy fleet first, then Scan fleet to show the estate coming up clean. Stun the card
+              vault and let the cascade run down the diagram while the loss figure climbs; that is
+              the moment the demo exists for. Recover fleet puts everything back for the next
+              audience. Leave Reset fleet until you are finished, because it tears the estate down
+              to nothing and the next deploy has to build it again.
+            </HelpHint>
+          )}
+        </p>
+      </div>
 
       <div style={{ display: 'flex', gap: 24, minHeight: 500 }}>
         {/* Left panel: topology graph (60%) */}
@@ -334,14 +371,23 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               </div>
 
               {/* Deploy */}
-              <button
-                data-testid="fleet-deploy-btn"
-                onClick={handleDeploy}
-                disabled={deployLoading}
-                style={btn(deployLoading)}
-              >
-                {deployLoading ? <ButtonWait testId="fleet-deploy-loader" label="Deploying" /> : 'Deploy Fleet'}
-              </button>
+              <div style={CONTROL_ROW}>
+                <button
+                  data-testid="fleet-deploy-btn"
+                  className="btn btn-primary"
+                  onClick={handleDeploy}
+                  disabled={deployLoading}
+                  style={FILL_COLUMN}
+                >
+                  {deployLoading ? <ButtonWait testId="fleet-deploy-loader" label="Deploying" /> : 'Deploy Fleet'}
+                </button>
+                <HelpHint label="What the Deploy control does" testId="fleet-deploy-help">
+                  Asks the fleet manager to bring the whole estate up: one workload per agent on
+                  the diagram, each with its own SPIFFE identity and its own OpenBao role. The call
+                  returns as soon as the deployment is accepted, so the diagram filling in is what
+                  tells you it finished, not the button.
+                </HelpHint>
+              </div>
               <LoadingState
                 status={loadPhase({ loading: deployLoading, error: deployError, loaded: deployLoaded })}
                 label="deploy"
@@ -350,14 +396,23 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Scan */}
-              <button
-                data-testid="fleet-scan-btn"
-                onClick={handleScan}
-                disabled={scanLoading}
-                style={btn(scanLoading)}
-              >
-                {scanLoading ? <ButtonWait testId="fleet-scan-loader" label="Scanning" /> : 'Scan Fleet'}
-              </button>
+              <div style={CONTROL_ROW}>
+                <button
+                  data-testid="fleet-scan-btn"
+                  className="btn btn-secondary"
+                  onClick={handleScan}
+                  disabled={scanLoading}
+                  style={FILL_COLUMN}
+                >
+                  {scanLoading ? <ButtonWait testId="fleet-scan-loader" label="Scanning" /> : 'Scan Fleet'}
+                </button>
+                <HelpHint label="What the Scan control does" testId="fleet-scan-help">
+                  Runs a compliance sweep across every deployed agent and flags the ones that have
+                  drifted out of policy, which shows up as the non-compliant count below and an
+                  amber card on the diagram. It only reads state: nothing is revoked, and no agent
+                  stops working.
+                </HelpHint>
+              </div>
               <LoadingState
                 status={loadPhase({ loading: scanLoading, error: scanError, loaded: scanLoaded })}
                 label="scan"
@@ -371,16 +426,12 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-stun-select"
                   value={stunTarget}
                   onChange={e => setStunTarget(e.target.value)}
-                  style={{
-                    flex: 1,
-                    padding: '8px 12px',
-                    borderRadius: 8,
-                    border: '1px solid var(--border)',
-                    background: 'var(--surface)',
-                    color: 'var(--text)',
-                    fontSize: 13,
-                    fontFamily: 'inherit',
-                  }}
+                  // Layout only. global.css already themes `input, select,
+                  // textarea`; the fill and border that used to be set here
+                  // were --surface/--border against the stylesheet's
+                  // --surface2/--border-subtle, so this was the one select in
+                  // the product that matched no other.
+                  style={{ flex: 1, minWidth: 0 }}
                 >
                   {stunnableAgents.map(a => (
                     <option key={a.id} value={a.id}>{a.name}</option>
@@ -397,12 +448,13 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                   data-testid="fleet-stun-btn"
                   onClick={handleStun}
                   disabled={stunLoading}
-                  style={{ ...btn(stunLoading), width: 'auto', minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap' }}
+                  className="btn btn-danger"
+                  style={{ minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap', justifyContent: 'center' }}
                 >
                   {stunLoading ? <ButtonWait testId="fleet-stun-loader" label="Stunning" /> : 'Stun'}
                 </button>
                 <HelpHint label="What Stun does to the fleet" testId="fleet-stun-help">
-                  Revokes the selected agent’s credentials and marks it stunned, then does the same to every agent that depends on it — that spreading failure is the cascade drawn on the left. The pods keep running; they simply cannot authenticate any more. Recover fleet puts it back.
+                  Revokes the selected agent’s credentials and marks it stunned, then does the same to every agent that depends on it. That spreading failure is the cascade drawn on the left. The pods keep running; they simply cannot authenticate any more. Recover fleet puts it back.
                 </HelpHint>
               </div>
               <LoadingState
@@ -413,12 +465,13 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Recover */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={CONTROL_ROW}>
                 <button
                   data-testid="fleet-recover-btn"
+                  className="btn btn-secondary"
                   onClick={handleRecover}
                   disabled={recoverLoading}
-                  style={btn(recoverLoading)}
+                  style={FILL_COLUMN}
                 >
                   {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}
                 </button>
@@ -434,12 +487,13 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Reset */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <div style={CONTROL_ROW}>
                 <button
                   data-testid="fleet-reset-btn"
+                  className="btn btn-danger"
                   onClick={handleReset}
                   disabled={resetLoading}
-                  style={btn(resetLoading)}
+                  style={FILL_COLUMN}
                 >
                   {resetLoading ? <ButtonWait testId="fleet-reset-loader" label="Resetting" /> : 'Reset Fleet'}
                 </button>

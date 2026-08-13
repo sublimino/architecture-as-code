@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { LONG_WAIT_MS, useLoadTimes, type LoadTimesSetting } from '../api/loadTimes'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PIXEL LOADER — for work that takes long enough that a spinner stops helping.
@@ -43,6 +44,13 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 // one theme. Everything is therefore inline styles over this app's real
 // tokens: --ink → --text, --ink-3 → --muted. src/styles/cssVarUsage.test.ts
 // enforces that; do not reach for a token that is not in CSS_VAR_NAMES.
+//
+// THE ELAPSED FIGURE IS A USER SETTING — `all` / `long` / `none`, defaulting
+// to `all`, read from api/loadTimes.ts. THE LABEL IS NOT. In every mode the
+// wording next to the mark is rendered; only the figure is conditional. An
+// unlabelled spinner is the exact failure this component was built to escape,
+// so that is an invariant rather than a default, and PixelLoader.test.tsx
+// asserts the label explicitly in each of the three modes.
 //
 // Two things the source promised and did not do, fixed here:
 //   1. Its header claimed reduced motion "freezes the grid to its dim state;
@@ -420,16 +428,67 @@ const TICK_MS = 100
  * React children, so React has nothing to clobber and this owns its text
  * outright. useLayoutEffect, so the first figure is there before first paint
  * rather than a frame of blank.
+ *
+ * `enabled` is the load-times setting reaching down here. Under `none` there
+ * is no node to write to and no interval is started at all: the saving is
+ * small per loader and not the point; the point is that a setting which says
+ * "do not show me this" should not leave a 10Hz timer running behind it. It is
+ * in the dependency list rather than only guarding the body, so the flip from
+ * hidden to shown re-runs the effect and writes the first figure immediately,
+ * instead of leaving the newly-mounted span blank for a tick.
  */
-function useElapsedText(startedAt: number, ref: { current: HTMLElement | null }): void {
+function useElapsedText(
+  startedAt: number,
+  ref: { current: HTMLElement | null },
+  enabled: boolean,
+): void {
   useLayoutEffect(() => {
+    if (!enabled) return
     const write = () => {
       if (ref.current) ref.current.textContent = formatElapsed(Date.now() - startedAt)
     }
     write()
     const t = setInterval(write, TICK_MS)
     return () => clearInterval(t)
-  }, [startedAt, ref])
+  }, [startedAt, ref, enabled])
+}
+
+/**
+ * Under `long`, whether the wait has run past LONG_WAIT_MS yet.
+ *
+ * A single setTimeout for the remaining time, not a poll and not a check
+ * folded into the 10Hz writer. That writer mutates textContent directly and
+ * deliberately holds no React state, so it cannot mount an element; this is a
+ * genuine render decision and needs exactly one re-render, at the moment the
+ * threshold is crossed.
+ *
+ * `armed` is false for `all` and `none`, and then no timer is scheduled at
+ * all. That matters beyond tidiness: `all` is the default, so the overwhelming
+ * majority of loaders in the app, including every one LoadingState mounts,
+ * schedule nothing new as a result of this feature, and no consuming test
+ * suite acquires a timer it has to know about.
+ *
+ * The initial state is computed rather than assumed false, because `startedAt`
+ * can be a stamp from well before mount. A loader handed one of those is
+ * already a long wait and must show its figure on the first paint, not two
+ * seconds after someone happened to render it.
+ */
+function useCrossedLongWait(armed: boolean, startedAt: number): boolean {
+  const [crossed, setCrossed] = useState(() => armed && Date.now() - startedAt >= LONG_WAIT_MS)
+
+  useEffect(() => {
+    if (!armed) return
+    const remaining = LONG_WAIT_MS - (Date.now() - startedAt)
+    if (remaining <= 0) {
+      setCrossed(true)
+      return
+    }
+    setCrossed(false)
+    const t = setTimeout(() => setCrossed(true), remaining)
+    return () => clearTimeout(t)
+  }, [armed, startedAt])
+
+  return crossed
 }
 
 export interface PixelLoaderProps {
@@ -461,6 +520,21 @@ export interface PixelLoaderProps {
    * learn that a loader moved in underneath it.
    */
   labelTestId?: string
+  /**
+   * Override for the load-times setting, which is otherwise the source of
+   * truth for whether the elapsed figure is drawn.
+   *
+   * There is exactly one good reason to pass this and it is the design-system
+   * gallery, which has to show all three modes at once and therefore cannot be
+   * governed by the reader's own choice. Anywhere else, leaving it undefined is
+   * correct: the whole value of the setting is that one choice reaches every
+   * loader in the app, and a call site that pins its own mode is a loader the
+   * setting cannot turn off.
+   *
+   * Note what it does NOT override. The label is drawn in every mode; this
+   * governs the figure alone.
+   */
+  loadTimes?: LoadTimesSetting
   style?: CSSProperties
 }
 
@@ -472,6 +546,7 @@ export default function PixelLoader({
   announce = true,
   testId = 'pixel-loader',
   labelTestId,
+  loadTimes,
   style,
 }: PixelLoaderProps) {
   const reducedMotion = usePrefersReducedMotion()
@@ -480,8 +555,17 @@ export default function PixelLoader({
   // tick) cannot restart the clock at zero.
   const mountedAt = useRef(Date.now())
   const origin = startedAt ?? mountedAt.current
+
+  // The setting is the default source; the prop is the override. Subscribed,
+  // not read once, so changing it in Settings reaches a loader that is already
+  // on screen without a reload and without a remount.
+  const setting = useLoadTimes()
+  const mode = loadTimes ?? setting
+  const crossedLongWait = useCrossedLongWait(mode === 'long', origin)
+  const showElapsed = mode === 'all' || (mode === 'long' && crossedLongWait)
+
   const elapsedRef = useRef<HTMLSpanElement | null>(null)
-  useElapsedText(origin, elapsedRef)
+  useElapsedText(origin, elapsedRef, showElapsed)
 
   const isLoom = variant === 'Loom'
   const { delays, dur, round } = PATTERNS[variant as GridVariant] ?? PATTERNS.Drive
@@ -502,6 +586,10 @@ export default function PixelLoader({
       {...liveProps}
       data-testid={testId}
       data-size={size}
+      // Same reason `data-motion` and `data-size` exist: a host can assert the
+      // mode it is running under without reaching for the figure's presence
+      // and guessing why it is or is not there.
+      data-load-times={mode}
       style={{ display: 'inline-flex', width: 'fit-content', alignItems: 'center', gap, ...style }}
     >
       <style>{KEYFRAMES}</style>
@@ -571,18 +659,27 @@ export default function PixelLoader({
       {/* aria-hidden, and that is the accessibility decision, not an oversight.
           This element's text changes ten times a second; inside a polite live
           region that is a screen reader reading digits forever. The label
-          carries the announcement. */}
-      <span
-        ref={elapsedRef}
-        aria-hidden="true"
-        data-testid={`${testId}-elapsed`}
-        style={{
-          fontFamily: 'monospace',
-          fontSize: elapsedPx,
-          color: 'var(--muted)',
-          fontVariantNumeric: 'tabular-nums',
-        }}
-      />
+          carries the announcement.
+
+          Absent entirely rather than hidden with CSS when the setting says so.
+          A `visibility: hidden` span is still a node the 10Hz writer keeps
+          writing to, and still a node a test can find and assert against, so
+          "off" would be a claim about styling rather than about the DOM. The
+          flex `gap` above only applies between rendered children, so dropping
+          it also closes the space it was sitting in. */}
+      {showElapsed && (
+        <span
+          ref={elapsedRef}
+          aria-hidden="true"
+          data-testid={`${testId}-elapsed`}
+          style={{
+            fontFamily: 'monospace',
+            fontSize: elapsedPx,
+            color: 'var(--muted)',
+            fontVariantNumeric: 'tabular-nums',
+          }}
+        />
+      )}
     </span>
   )
 }

@@ -109,6 +109,62 @@ interface RunnerFixture {
   startResponse?: DemoRunView
   startStatus?: number
   agents?: ReturnType<typeof cardvault>[]
+  /** A live SSE body for GET /runs/{id}/stream. Absent means the route 404s. */
+  sse?: SseServer
+}
+
+/**
+ * An SSE response body a test pushes frames into, one at a time.
+ *
+ * The point is that a test can assert what the panel has rendered BETWEEN
+ * frames. Every streaming test that existed before this one handed over its
+ * whole log and asserted the final text, which is why a transport that
+ * delivered nothing until the process exited passed them all.
+ */
+function sseServer() {
+  let controller: ReadableStreamDefaultController<Uint8Array> | null = null
+  const encoder = new TextEncoder()
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c
+    },
+  })
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+  return {
+    body,
+    /** Push a `log` frame carrying exactly the chunk the /log endpoint would. */
+    async send(chunk: Partial<DemoRunLogChunk>) {
+      controller?.enqueue(encoder.encode(`event: log\ndata: ${JSON.stringify(logChunk({ eof: false, ...chunk }))}\n\n`))
+      await settle()
+    },
+    /** The ~15s keepalive comment. Carries no event and must change nothing. */
+    async keepalive() {
+      controller?.enqueue(encoder.encode(': keepalive\n\n'))
+      await settle()
+    },
+    async end(offset: number, status: DemoRunView['status'], exitCode: number | null) {
+      controller?.enqueue(encoder.encode(
+        `event: end\ndata: ${JSON.stringify({
+          ...logChunk({ offset, next_offset: offset, eof: true }), status, exit_code: exitCode,
+        })}\n\n`,
+      ))
+      await settle()
+      controller?.close()
+      await settle()
+    },
+  }
+}
+
+type SseServer = ReturnType<typeof sseServer>
+
+function streamingResponse(sse: SseServer): Response {
+  return {
+    ok: true,
+    status: 200,
+    body: sse.body,
+    json: async () => ({}),
+    text: async () => '',
+  } as unknown as Response
 }
 
 let calls: Recorded[] = []
@@ -144,6 +200,15 @@ function mockRunner(fixture: RunnerFixture = {}) {
         recent: fixture.recent ?? [],
         script_available: fixture.scriptAvailable ?? true,
       })
+    }
+    // The panel opens an SSE stream first and falls back to polling when it
+    // cannot. Unless a fixture says otherwise this answers as a runner image
+    // from before /stream existed, which keeps every test below on the polling
+    // path it was written for — and makes the fallback itself load-bearing in
+    // all of them rather than only in the one test that names it.
+    if (url.startsWith('/demo-api/runs/') && url.includes('/stream')) {
+      if (!fixture.sse) return respond('no stream endpoint', 404)
+      return streamingResponse(fixture.sse)
     }
     if (url.startsWith('/demo-api/runs/') && url.includes('/log')) {
       return respond(pollLogs.length > 1 ? pollLogs.shift() : pollLogs[0])
@@ -515,8 +580,13 @@ describe('the run log streams in incrementally', () => {
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-5'))
 
-    const copy = await screen.findByTestId('supercred-run-log-copy', {}, { timeout: 4000 })
-    await userEvent.click(copy)
+    // The block is mounted when the run STARTS now, so its Copy button exists
+    // before any bytes do. Wait for the output rather than for the button, or
+    // this asserts on the empty log the waiting state legitimately holds.
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('tearing down'), {
+      timeout: 4000,
+    })
+    await userEvent.click(screen.getByTestId('supercred-run-log-copy'))
 
     expect(writeText).toHaveBeenCalledWith(raw)
   })
@@ -1028,6 +1098,12 @@ function mockRunnerServingRealLog(opts: {
     if (url === '/demo-api/steps') return respond({ steps: STEPS })
     if (url === '/demo-api/status') {
       return respond({ active: null, recent: [], script_available: true })
+    }
+    // No /stream route: this fixture exists to exercise the polling cursor
+    // against a runner that serves its log from a real byte buffer, and the
+    // fallback is what puts the panel on that path.
+    if (url.startsWith('/demo-api/runs/') && url.includes('/stream')) {
+      return respond('no stream endpoint', 404)
     }
     if (url.startsWith('/demo-api/runs/') && url.includes('/log')) {
       const offset = Number(new URL(url, 'http://x').searchParams.get('offset') ?? 0)

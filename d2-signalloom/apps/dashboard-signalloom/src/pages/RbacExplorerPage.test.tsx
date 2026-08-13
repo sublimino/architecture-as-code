@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import RbacExplorerPage from './RbacExplorerPage'
+import RbacExplorerPage, { conformanceProofs, correlatedPath, escalationProofs } from './RbacExplorerPage'
 
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
 const isDemoMode = vi.fn(() => false)
@@ -45,7 +45,10 @@ const correlatedFixture = {
   roles: [
     {
       name: 'cluster-admin', scope: 'Cluster', namespace: null,
-      rules: [{ verbs: ['*'], apiGroups: ['*'], resources: ['*'] }],
+      // `delete` is here because no role in this fixture previously carried a
+      // verb the page actually colours, so the red-verb branch — the only key
+      // this table has to "dangerous" — was never rendered by any test.
+      rules: [{ verbs: ['*', 'delete'], apiGroups: ['*'], resources: ['*'] }],
       conformance_issue_count: 1, shared_by_count: 2, has_privileged_sharing: true,
     },
     {
@@ -265,6 +268,112 @@ describe('RbacExplorerPage', () => {
 
       expect(screen.queryByRole('button', { name: 'What Name means' })).toBeNull()
       expect(screen.queryByRole('button', { name: 'What Namespace means' })).toBeNull()
+    })
+  })
+
+  // The red verbs are the only key this table has to "dangerous", and the help
+  // hint above promises them.
+  describe('the dangerous verbs actually render red', () => {
+    it('tints the chip with color-mix rather than a string concatenation that is not a colour', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      const chip = screen.getByText('delete', { selector: 'span' })
+      // `${colors.red}20` produced `var(--error)20`, which every browser drops
+      // — so the verb the help hint calls dangerous had no fill at all.
+      expect(chip.style.background).not.toContain('var(--error)20')
+      expect(chip.style.background).toContain('color-mix')
+      expect(chip.style.background).toContain('var(--error)')
+      expect(chip.style.color).toBe('var(--error)')
+    })
+
+    it('leaves an ordinary verb on the neutral surface', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      // Pinned so the fill fix above cannot quietly turn the whole column red.
+      const wildcard = screen.getByText('*', { selector: 'span' })
+      expect(wildcard.style.background).toBe('var(--surface2)')
+    })
+  })
+
+  // A finding here says a ServiceAccount can become admin. Z3 ran two systems
+  // away and cannot be re-run from a browser, so the proof is the request this
+  // page made and the record it got back, before anything reworded it.
+  describe('how do we know a finding is real', () => {
+    it('shows the correlated request and the wire record behind an escalation', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await userEvent.click(screen.getByTestId('rbac-escalation-disclose-0'))
+
+      const panel = screen.getByTestId('rbac-escalation-console-0-panel')
+      expect(panel.textContent).toContain('/api/rbac/clusters/local/correlated')
+      expect(panel.textContent).toContain('Authorization: Bearer $TOKEN')
+      expect(panel.textContent).toContain('select(.subject == "sa_fe_signalloom_flux")')
+      // Snake_case, because that is what the endpoint prints — the camelCase
+      // the page renders from is this client's doing, not AFM's.
+      expect(panel.textContent).toContain('"escalation_type": "admin_via_impersonation"')
+      expect(panel.textContent).toContain('"risk_score": 48')
+    })
+
+    it('shows the role’s whole conformance record behind a conformance issue', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await userEvent.click(screen.getByTestId('rbac-conformance-disclose-0'))
+
+      const panel = screen.getByTestId('rbac-conformance-console-0-panel')
+      expect(panel.textContent).toContain('select(.role_name == "cluster-admin")')
+      expect(panel.textContent).toContain('"reason": "Contains escalate/bind or wildcard verb"')
+      // role_namespace was null on the wire and null is what jq prints.
+      expect(panel.textContent).toContain('"role_namespace": null')
+    })
+
+    it('closes again from the same control', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      const toggle = screen.getByTestId('rbac-escalation-disclose-0')
+      await userEvent.click(toggle)
+      expect(toggle.textContent).toBe('Hide proof')
+      await userEvent.click(toggle)
+      expect(screen.queryByTestId('rbac-escalation-console-0')).toBeNull()
+    })
+
+    it('refuses to invent a command in demo mode, where no request was made', async () => {
+      // Demo mode builds the whole page from buildFakeCorrelated() and never
+      // touches the network — asserted by the test above. A curl line here
+      // would name a request that did not happen.
+      isDemoMode.mockReturnValue(true)
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await userEvent.click(screen.getByTestId('rbac-escalation-disclose-0'))
+      const console_ = screen.getByTestId('rbac-escalation-console-0')
+      expect(console_.textContent).toContain('no proof was recorded')
+      expect(console_.textContent).not.toContain('curl')
+      expect(fetchMock).not.toHaveBeenCalled()
+    })
+
+    it('names the cluster that was actually requested, url-encoded as the client encodes it', () => {
+      expect(correlatedPath('a/b')).toBe('/api/rbac/clusters/a%2Fb/correlated')
+    })
+
+    it('prints every match, because a subject can carry more than one route', () => {
+      const one = { kind: 'single' as const, subject: 's', riskLevel: 'high' }
+      const two = { kind: 'group' as const, subject: 's', riskLevel: 'medium' }
+      const [proof] = escalationProofs(one, [one, two], 'local', false)
+      expect(proof.detail).toContain('"risk_level": "high"')
+      expect(proof.detail).toContain('"risk_level": "medium"')
+      // Absent optional fields print as null, exactly as the command does.
+      expect(proof.detail).toContain('"summary": null')
+    })
+
+    it('compares against null when the parse left the key absent', () => {
+      const finding = { severity: 'high', reason: 'unnamed role' }
+      const [proof] = conformanceProofs(finding, [finding], 'local', false)
+      expect(proof.command).toContain('select(.role_name == null)')
     })
   })
 })

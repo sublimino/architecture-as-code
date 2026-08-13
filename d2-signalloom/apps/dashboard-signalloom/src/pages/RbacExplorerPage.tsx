@@ -17,6 +17,7 @@
  * TODO: migrate tables to DataTable (5 tables, already has manual pagination for subjects — 92 items)
  */
 import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
+import { isAuthError, redirectToLogin } from '../components/ErrorState'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
 import { colors } from '../styles/tokens'
 import { isDemoMode } from '../api/demoMode'
@@ -371,10 +372,23 @@ export default function RbacExplorerPage() {
           background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)',
           borderRadius: 6, padding: '10px 14px', marginBottom: 16, color: 'var(--error)', fontSize: 13,
         }} data-testid="rbac-live-error">
-          <strong>KubeSec-AFM is unreachable.</strong> {error}
-          <div style={{ marginTop: 6 }}>
-            <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => void loadCluster(clusterId)}>Retry</button>
-          </div>
+          {/* A 401 is not unreachability — the service answered, and refused.
+              Retry cannot fix it, so it is not offered. */}
+          {isAuthError(error) ? (
+            <>
+              <strong>Your session has expired.</strong> Sign in again to load RBAC data.
+              <div style={{ marginTop: 6 }}>
+                <button className="btn btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} data-testid="rbac-live-login" onClick={redirectToLogin}>Log in</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <strong>KubeSec-AFM is unreachable.</strong> {error}
+              <div style={{ marginTop: 6 }}>
+                <button className="btn btn-secondary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => void loadCluster(clusterId)}>Retry</button>
+              </div>
+            </>
+          )}
         </div>
       )}
 

@@ -28,6 +28,7 @@ import { isDemoMode } from '../api/demoMode'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable from '../components/DataTable'
 import LoadingState from '../components/LoadingState'
+import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { colors } from '../styles/tokens'
 import {
   TRUST_DOMAIN,
@@ -60,6 +61,16 @@ interface LoadedState {
   /** Why the live path was abandoned, when it was. */
   reason: string | null
   baoExchangeProven?: boolean
+  /**
+   * The calls this page actually made, and what they answered.
+   *
+   * The provenance banner says "Live" or "Demo data" — a summary of a data path
+   * the reader has to take on trust. The same standard the Credential Lifecycle
+   * card is held to applies here: an engineer must be able to open the claim,
+   * read the literal request behind it, and rerun it. Recorded during the load
+   * so it reports what happened, not what was supposed to happen.
+   */
+  proofs: Proof[]
 }
 
 // ─── Presentation ───────────────────────────────────────────────────────────
@@ -125,29 +136,63 @@ export default function CredentialInventoryPage() {
   const { getAccessTokenSilently } = useAuth0()
   const [state, setState] = useState<LoadedState | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | CredentialStatus>('all')
+  const [proofOpen, setProofOpen] = useState(false)
 
   // Frozen at mount. Every TTL, expiry and rotation figure derives from this one
   // instant, so a re-render cannot make two rows disagree about "now".
   const now = useMemo(() => new Date(), [])
 
   const load = useCallback(async () => {
+    // Declared per call, never accumulated across polls: a console showing the
+    // union of every request this tab has ever made would say nothing about the
+    // rows currently on screen.
+    const manifestProof: Proof = {
+      label: 'Registration entries (manifests)',
+      command: "rg -n 'spiffe://' d2-signalloom/apps/dashboard-signalloom/src/data/credentialInventory.ts",
+      detail: `${CONFIG_REGISTRATION_ENTRIES.length} entries declared in the SPIRE/OpenBao manifests. `
+        + 'These are DECLARED, not observed — a row tagged "config" says the platform intends this '
+        + 'identity to exist, and nothing more.',
+    }
+
     if (isDemoMode()) {
-      setState({ entries: DEMO_REGISTRATION_ENTRIES, source: 'demo', reason: 'Demo mode is on' })
+      setState({
+        entries: DEMO_REGISTRATION_ENTRIES,
+        source: 'demo',
+        reason: 'Demo mode is on',
+        proofs: [{
+          label: 'Data source',
+          command: 'localStorage.getItem("demoMode")   // ?demo=1 sets this',
+          detail: 'Demo mode is on, so no cluster call was made. Every figure on this page is a '
+            + 'fixture — nothing here was measured.',
+        }],
+      })
       return
     }
 
     // The crypto proof is advisory — its absence must not cost us the inventory,
     // so it is settled independently of the discovery call.
     let baoExchangeProven: boolean | undefined
+    let cryptoDetail: string
     try {
       const token = await getAccessTokenSilently()
       const health = await api.health.crypto(token)
       const positive = health.proofs.find((p) => p.name === POSITIVE_PROOF)
       if (positive && positive.status !== 'pending') baoExchangeProven = positive.status === 'passed'
-    } catch {
+      cryptoDetail = positive
+        ? `${POSITIVE_PROOF}: ${positive.status}`
+        : `no ${POSITIVE_PROOF} in the response — lease status left as declared, not marked failed`
+    } catch (err) {
       // No proof signal — leave the lease status untouched rather than guessing.
+      cryptoDetail = `request failed (${err instanceof Error ? err.message : 'unknown error'}) — `
+        + 'the lease status below is unproven, not disproven'
+    }
+    const cryptoProof: Proof = {
+      label: 'OpenBao exchange proof',
+      command: `curl -s -H "Authorization: Bearer $TOKEN" /api/health/crypto   # ${POSITIVE_PROOF}`,
+      detail: cryptoDetail,
     }
 
+    const discoveryCommand = `curl -s ${SUPERCRED_API}/agents`
     try {
       const res = await fetch(`${SUPERCRED_API}/agents`)
       if (!res.ok) throw new Error(`Agent discovery failed: ${res.status}`)
@@ -162,12 +207,35 @@ export default function CredentialInventoryPage() {
         source: 'live',
         reason: null,
         baoExchangeProven,
+        proofs: [
+          {
+            label: 'Agent discovery',
+            command: discoveryCommand,
+            detail: `HTTP ${res.status} — ${agents.length} pod(s) discovered in-cluster, `
+              + `${live.length} of which resolve to a workload identity:\n`
+              + (agents.map((a) => `  ${a.namespace ?? '?'}/${a.name ?? a.id} (sa: ${a.service_account ?? '?'})`).join('\n')
+                 || '  (none)'),
+          },
+          cryptoProof,
+          manifestProof,
+        ],
       })
     } catch (err) {
+      const reason = err instanceof Error ? err.message : 'Agent discovery failed'
       setState({
         entries: DEMO_REGISTRATION_ENTRIES,
         source: 'demo',
-        reason: err instanceof Error ? err.message : 'Agent discovery failed',
+        reason,
+        proofs: [
+          {
+            label: 'Agent discovery',
+            command: discoveryCommand,
+            detail: `${reason}\n\nNo pod was observed, so the table below fell back to fixtures. `
+              + 'That is a failure to look, not a finding that nothing is deployed.',
+          },
+          cryptoProof,
+          manifestProof,
+        ],
       })
     }
   }, [getAccessTokenSilently])
@@ -240,6 +308,30 @@ export default function CredentialInventoryPage() {
               {' '}— the live path was not used{state.reason ? `: ${state.reason}` : ''}. Figures below are
               fixtures, not measurements.
             </span>
+          </>
+        )}
+
+        {/* Same disclosure the Credential Lifecycle card offers, same console.
+            The banner above is a summary of a data path; this is the data path. */}
+        {state !== null && state.proofs.length > 0 && (
+          <>
+            <button
+              type="button"
+              data-testid="inventory-disclose-proof"
+              onClick={() => setProofOpen((v) => !v)}
+              style={{
+                fontSize: 11, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+                marginTop: 8, border: '1px solid var(--border)',
+                background: 'transparent', color: 'inherit', fontFamily: 'inherit',
+              }}
+            >
+              {proofOpen
+                ? 'Hide proof'
+                : state.proofs.length > 1
+                  ? `How do we know? (${state.proofs.length} checks)`
+                  : 'How do we know?'}
+            </button>
+            {proofOpen && <ProofConsole proofs={state.proofs} testId="inventory-proof-console" />}
           </>
         )}
       </div>

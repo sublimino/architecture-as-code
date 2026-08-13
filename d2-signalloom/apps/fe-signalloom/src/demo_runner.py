@@ -157,6 +157,22 @@ class DemoStepsResponse(BaseModel):
     steps: list[DemoStepView]
 
 
+class EvidenceProofView(BaseModel):
+    """One command, and what it printed, backing part of a step's verdict.
+
+    A step used to carry exactly one command, so a verdict that rested on
+    several observations could only publish one of them — and step 6 ("has the
+    platform responded?") rests on three: the OpenBao revocation that is the
+    mechanism, the stun annotation that merely corroborates it, and the
+    NetworkPolicy that contains it. Publishing one of three made whichever one
+    was published the de facto definition of the step.
+    """
+
+    label: str
+    command: str
+    detail: str
+
+
 class EvidenceStepView(BaseModel):
     """One lifecycle step, and the command that decided its state.
 
@@ -178,6 +194,11 @@ class EvidenceStepView(BaseModel):
     command: str
     detail: str
     summary: str
+    # Every proof behind the verdict, the primary one first. Defaulted rather
+    # than required so a runner image shipping an older evidence script still
+    # deserialises: the browser synthesises a single proof from command/detail
+    # in that case, which is exactly what the old shape meant.
+    proofs: list[EvidenceProofView] = []
 
 
 class EvidenceResponse(BaseModel):

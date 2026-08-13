@@ -94,6 +94,69 @@ describe('the debugger console', () => {
   })
 })
 
+// One command per step made whichever command was chosen the definition of the
+// step. Step 6 is the proof: a stun is a REVOCATION (the mechanism), a stun
+// annotation (corroboration) and a NetworkPolicy (containment), and the single
+// command on offer was the NetworkPolicy — the weakest of the three.
+describe('a step whose verdict rests on several commands can show all of them', () => {
+  const stunStep = step({
+    step: 6,
+    label: 'Platform Response',
+    state: 'observed',
+    command: 'bao kv get kv/signalloom/cardvault-agent',
+    detail: 'No value found',
+    summary: 'Agent has been stunned — its OpenBao secret and JWT role are both gone',
+    proofs: [
+      { label: 'Credential revocation', command: 'bao kv get kv/signalloom/cardvault-agent', detail: 'No value found' },
+      { label: 'Stun annotation (corroboration)', command: 'kubectl get pod -o jsonpath=stunned-at', detail: 'state=stunned' },
+      { label: 'Network isolation', command: 'kubectl get networkpolicy -o name', detail: 'networkpolicy/stun-cardvault-agent' },
+    ],
+  })
+
+  it('renders one tab per proof inside the step console', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([stunStep])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-6')).toBeInTheDocument())
+    await user.click(screen.getByTestId('evidence-disclose-6'))
+    expect(screen.getAllByRole('tab')).toHaveLength(3)
+    expect(screen.getByTestId('evidence-console-6-tab-0')).toHaveTextContent('Credential revocation')
+  })
+
+  it('opens on the revocation — the mechanism, not the corroboration', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([stunStep])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-6')).toBeInTheDocument())
+    await user.click(screen.getByTestId('evidence-disclose-6'))
+    expect(screen.getByTestId('evidence-console-6-panel')).toHaveTextContent('bao kv get kv/signalloom/cardvault-agent')
+  })
+
+  it('reaches every proof, including ones the old single-command shape could not carry', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([stunStep])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-6')).toBeInTheDocument())
+    await user.click(screen.getByTestId('evidence-disclose-6'))
+    await user.click(screen.getByTestId('evidence-console-6-tab-1'))
+    expect(screen.getByTestId('evidence-console-6-panel')).toHaveTextContent('stunned-at')
+    await user.click(screen.getByTestId('evidence-console-6-tab-2'))
+    expect(screen.getByTestId('evidence-console-6-panel')).toHaveTextContent('networkpolicy/stun-cardvault-agent')
+  })
+
+  it('says how many checks are behind a step before it is opened', async () => {
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([stunStep])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-6')).toBeInTheDocument())
+    expect(screen.getByTestId('evidence-disclose-6')).toHaveTextContent('3 checks')
+  })
+
+  it('leaves a single-proof step free of tabs', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(payload([step()])) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.getByTestId('evidence-console-1')).toHaveTextContent('signalloom.ai/supercred=true')
+  })
+})
+
 describe('the executive headline', () => {
   it('counts only what was actually confirmed, and says what was not checked', async () => {
     const fetcher = fetcherFor(payload([
@@ -151,11 +214,46 @@ describe('parsing refuses to invent progress', () => {
     expect(parsed.source).toBe('unknown')
   })
 
+  // The API and the UI must not disagree about the shape. A runner image built
+  // before `proofs` existed still sends command/detail only, and the card has to
+  // keep showing the command that decided the step rather than an empty console.
+  it('normalises a single-command step into one labelled proof', () => {
+    const parsed = parseEvidence(payload([step()]))
+    expect(parsed.steps[0].proofs).toHaveLength(1)
+    expect(parsed.steps[0].proofs[0].command).toBe(parsed.steps[0].command)
+    expect(parsed.steps[0].proofs[0].detail).toBe('true')
+    expect(parsed.steps[0].proofs[0].label).toBe('Agent Deployment')
+  })
+
+  it('keeps every proof a multi-proof step sent, in order', () => {
+    const parsed = parseEvidence(payload([step({
+      proofs: [
+        { label: 'Credential revocation', command: 'bao kv get x', detail: 'gone' },
+        { label: 'Network isolation', command: 'kubectl get netpol', detail: 'none' },
+      ],
+    })]))
+    expect(parsed.steps[0].proofs.map((p) => p.label)).toEqual(['Credential revocation', 'Network isolation'])
+  })
+
+  it('drops a proof with no command instead of rendering an empty tab', () => {
+    const parsed = parseEvidence(payload([step({
+      proofs: [{ label: 'nothing', detail: 'x' }, { label: 'real', command: 'kubectl get pod', detail: 'y' }],
+    })]))
+    expect(parsed.steps[0].proofs).toHaveLength(1)
+    expect(parsed.steps[0].proofs[0].label).toBe('real')
+  })
+
+  it('falls back to the step command when the proofs array is junk', () => {
+    const parsed = parseEvidence(payload([step({ proofs: 'not-an-array' })]))
+    expect(parsed.steps[0].proofs).toHaveLength(1)
+    expect(parsed.steps[0].proofs[0].command).toContain('kubectl -n fe-signalloom-agents')
+  })
+
   it('counts states independently so unavailable is never scored as progress', () => {
     const s = evidenceSummary([
-      { step: 1, label: '', state: 'observed', command: '', detail: '', summary: '' },
-      { step: 2, label: '', state: 'unavailable', command: '', detail: '', summary: '' },
-      { step: 3, label: '', state: 'absent', command: '', detail: '', summary: '' },
+      { step: 1, label: '', state: 'observed', command: '', detail: '', summary: '', proofs: [] },
+      { step: 2, label: '', state: 'unavailable', command: '', detail: '', summary: '', proofs: [] },
+      { step: 3, label: '', state: 'absent', command: '', detail: '', summary: '', proofs: [] },
     ])
     expect(s).toEqual({ observed: 1, absent: 1, unavailable: 1, total: 3 })
   })

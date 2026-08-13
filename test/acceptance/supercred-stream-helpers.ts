@@ -343,6 +343,88 @@ export function expectProgressiveArrival(
   ).toBeGreaterThan(0);
 }
 
+// ── Which transport actually carried the bytes ──────────────────────────────
+
+/**
+ * Count the log requests the page makes, split by transport.
+ *
+ * ─── Why an acceptance spec cares about the wire at all ────────────────────
+ *
+ * It normally should not, and everything else in this module deliberately does
+ * not: the assertions read the rendered DOM precisely so they hold over any
+ * transport. This one exists because "which transport is the default" is now a
+ * DECISION rather than an implementation detail, and an undefended decision
+ * drifts.
+ *
+ * The 500ms offset poll (`GET /demo-api/runs/{id}/log?offset=N`) is the
+ * default and is what runs on stage. SSE
+ * (`GET /demo-api/runs/{id}/stream`) is opt-in behind an explicit flag,
+ * because it cannot cover its own worst failure mode: a buffering intermediary
+ * ACCEPTS the connection and then delivers nothing. No error fires, so no
+ * fallback triggers, and the panel sits silent — which is indistinguishable
+ * from the bug this whole branch exists to fix, and worse, would be introduced
+ * by the fix for it.
+ *
+ * ─── What the assertion buys ───────────────────────────────────────────────
+ *
+ * Without it, this suite would keep passing if someone made SSE the default,
+ * because the DOM assertions cannot tell the two apart — which is their virtue
+ * everywhere else and their blind spot here. With it, flipping the default
+ * turns the acceptance layer red, and re-pointing it becomes a deliberate edit
+ * with a reviewer, rather than a silent change of what "proven on stage" means.
+ *
+ * Install before the run starts. Counts requests, not responses, so a
+ * connection that opens and then delivers nothing still registers — that being
+ * exactly the failure the poll default is guarding against.
+ */
+export interface TransportWatch {
+  polls: () => number;
+  streams: () => number;
+  describe: () => string;
+}
+
+export function watchTransport(page: Page): TransportWatch {
+  const polls: string[] = [];
+  const streams: string[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname + new URL(request.url()).search;
+    if (/\/demo-api\/runs\/[^/]+\/log(\?|$)/.test(path)) polls.push(path);
+    if (/\/demo-api\/runs\/[^/]+\/stream(\?|$)/.test(path)) streams.push(path);
+  });
+  return {
+    polls: () => polls.length,
+    streams: () => streams.length,
+    describe: () =>
+      `${polls.length} poll request(s) to /log, ${streams.length} to /stream` +
+      (streams.length ? `\nstream requests: ${streams.slice(0, 5).join(", ")}` : ""),
+  };
+}
+
+/**
+ * Assert the run was carried by the DEFAULT transport: the offset poll, and
+ * not SSE.
+ *
+ * If this fails with stream requests > 0, nothing is necessarily broken — but
+ * the default has moved, and the spec that protects the on-stage path must be
+ * re-pointed on purpose. Do not delete this to make it pass.
+ */
+export function expectDefaultTransport(watch: TransportWatch, what = "the run"): void {
+  expect(
+    watch.polls(),
+    `${what}: the default transport is the 500ms offset poll, so the page must have ` +
+      `requested /demo-api/runs/{id}/log at least once. It requested none, which means ` +
+      `the log reached the DOM by some route this spec is not watching. ${watch.describe()}`,
+  ).toBeGreaterThan(0);
+
+  expect(
+    watch.streams(),
+    `${what}: SSE is opt-in behind an explicit flag and this spec sets no flag, so ` +
+      `/demo-api/runs/{id}/stream must never be requested. It was. Either the panel now ` +
+      `opts in by default — in which case the on-stage path has changed and this spec ` +
+      `must be re-pointed deliberately — or the flag is leaking. ${watch.describe()}`,
+  ).toBe(0);
+}
+
 /** The scroll region of a log block. */
 export function logScroll(page: Page, testId = "supercred-run-log"): Locator {
   return page.locator(`[data-testid="${testId}-scroll"]`);

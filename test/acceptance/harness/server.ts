@@ -46,11 +46,25 @@
  * invented a friendlier shape would let the client drift away from the real
  * runner unnoticed, which is the failure mode one directory up.
  *
+ * ─── The SSE endpoint is present and deliberately unused ──────────────────
+ *
  * `GET /demo-api/runs/{id}/stream` is served as Server-Sent Events carrying the
- * same DemoRunLogChunk JSON, for the SSE client landing on
- * feat/stream-instructor-panel. The panel on this branch does not call it, so
- * nothing in these specs depends on the frame format — see the note in
- * supercred-log-streaming-harness.spec.ts.
+ * same DemoRunLogChunk JSON. It is NOT the default and nothing in the specs
+ * reaches it — they assert the opposite, that it was never requested.
+ *
+ * The offset poll stays the default because SSE cannot cover its own worst
+ * failure mode: a buffering intermediary ACCEPTS the connection and then
+ * delivers nothing. The connection is healthy, no error fires, no fallback
+ * triggers, and the panel sits silent — which is indistinguishable from the
+ * batching defect this harness reproduces in `batch` mode, and would be
+ * introduced by the fix for it. In front of customers, the proven path wins.
+ *
+ * This endpoint exists so the secondary opt-in case can be written the day the
+ * flag exists without building anything new. Worth knowing when it is: a
+ * harness on loopback can never reproduce a buffering intermediary, so an SSE
+ * spec here proves the happy path only, and the silent-stall risk stays
+ * un-testable at this layer. That is an argument for the poll default, not
+ * against the endpoint.
  *
  * ─── Running it by hand ───────────────────────────────────────────────────
  *

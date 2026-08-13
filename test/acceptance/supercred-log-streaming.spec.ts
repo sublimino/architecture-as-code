@@ -52,17 +52,41 @@
  * run reports terminal, exactly as the old runner did — and asserts that
  * `expectProgressiveArrival()` THROWS. Recorded there, on every run.
  *
- * ─── Transport-agnostic on purpose ─────────────────────────────────────────
+ * ─── This asserts the DEFAULT transport: the 500ms offset poll ─────────────
  *
- * Two branches are changing how the bytes travel: the runner is gaining
- * `GET /demo-api/runs/{id}/stream` (SSE) beside the existing
- * `GET /demo-api/runs/{id}/log?offset=N` poll, and the panel is gaining an SSE
- * client with automatic fallback to the 500ms poll. Nothing in this file names
- * either endpoint. Every assertion reads the rendered DOM, so the spec holds
- * over SSE, over polling, and over the fallback between them — and it will
- * still fail if a future transport regresses to delivering everything at once.
- * A spec that asserted on the SSE frames would pass while the panel showed
- * nothing, which is the class of test that let this ship.
+ * `GET /demo-api/runs/{id}/log?offset=N` is the default and is what runs on
+ * stage, so it is what the acceptance layer protects. This spec sets no
+ * transport flag and never opts into SSE.
+ *
+ * SSE (`GET /demo-api/runs/{id}/stream`) is being built, but behind an
+ * explicit opt-in, because it cannot cover its own worst failure mode: a
+ * buffering intermediary ACCEPTS the connection and then delivers nothing. No
+ * error fires, so no fallback triggers, and the panel sits silent — which is
+ * indistinguishable from the very defect this branch exists to fix. In front of
+ * customers, the proven path stays the default.
+ *
+ * Two consequences for how this file is written:
+ *
+ *   * every assertion still reads the rendered DOM and names no endpoint, so
+ *     the temporal property survives if the transport is ever swapped, and a
+ *     spec asserting on SSE frames could never pass while the panel showed
+ *     nothing — the class of test that let this ship;
+ *
+ *   * BUT that virtue is a blind spot for exactly one question, so
+ *     `expectDefaultTransport()` additionally asserts the run really did poll
+ *     `/log` and really did NOT open `/stream`. Without it this suite would go
+ *     on passing if SSE quietly became the default, because the DOM cannot tell
+ *     them apart. With it, moving the default turns the acceptance layer red
+ *     and re-pointing it is a deliberate edit rather than drift.
+ *
+ * A secondary case that opts INTO SSE and asserts the same temporal property is
+ * wanted, and is not here yet: the opt-in flag does not exist on this branch,
+ * and a guessed flag name that silently never opts in is precisely the
+ * silent-skip failure test/acceptance-spec-coverage.bats exists to prevent. It
+ * is a new test case rather than new machinery — the harness already serves
+ * SSE and every assertion above is transport-agnostic. When it lands it must
+ * stay clearly secondary: if SSE is later removed, the assertions above are the
+ * ones that must survive.
  *
  * ─── Locators ──────────────────────────────────────────────────────────────
  *
@@ -84,6 +108,7 @@ import { login } from "./helpers";
 import { navigateTo, newAuthedContext } from "./supercred-helpers";
 import {
   currentLastLine,
+  expectDefaultTransport,
   expectFollowsTail,
   expectHoldsPositionWhileUnpinned,
   expectProgressiveArrival,
@@ -93,6 +118,7 @@ import {
   sampleCursor,
   startLogSampler,
   waitForLine,
+  watchTransport,
 } from "./supercred-stream-helpers";
 
 // Serial, and long: a reset and a phase against a real cluster. The project
@@ -167,6 +193,7 @@ test("a reset streams its teardown output while it is still running", async ({ b
     const page = await context.newPage();
     await openInstructor(page);
 
+    const transport = watchTransport(page);
     await startLogSampler(page);
     await expect(page.locator(RESET)).toBeVisible({ timeout: 30_000 });
     await page.locator(RESET).click();
@@ -185,6 +212,7 @@ test("a reset streams its teardown output while it is still running", async ({ b
 
     expectProgressiveArrival(samples, { what: "the reset" });
     expectFollowsTail(samples, "the reset");
+    expectDefaultTransport(transport, "the reset");
   } finally {
     await context.close();
   }
@@ -198,6 +226,7 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     const page = await context.newPage();
     await openInstructor(page);
 
+    const transport = watchTransport(page);
     await startLogSampler(page);
     await page.locator(RUN_STEP_1).click();
     await expectLogVisibleWhileRunning(page, "phase 1");
@@ -251,6 +280,7 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
       samples.slice(afterScrollDown),
       "phase 1, after the instructor scrolled back down",
     );
+    expectDefaultTransport(transport, "phase 1");
   } finally {
     await context.close();
   }

@@ -109,8 +109,12 @@ describe('PixelLoader', () => {
     expect(screen.getByTestId('pixel-loader-elapsed')).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('renders nine cells', () => {
-    render(<PixelLoader label="Churning" />)
+  // `variant="Drive"` is explicit here and everywhere else that counts cells.
+  // Nine cells is a property of the grid variants, not of the component, and
+  // the default is `Loom`, which draws bars. A test that says "Drive" when it
+  // means Drive keeps working whatever the default is next.
+  it('renders nine cells for the grid variants', () => {
+    render(<PixelLoader label="Churning" variant="Drive" />)
     expect(cells()).toHaveLength(9)
   })
 
@@ -145,6 +149,61 @@ describe('PixelLoader', () => {
   it('counts from an explicit start stamp when one is given', () => {
     render(<PixelLoader label="Churning" startedAt={Date.now() - 4_200} />)
     expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('4.2s')
+  })
+
+  // No caller in the app passes `variant`, so whatever this default is IS the
+  // loader the product shows — LoadingState's twenty-odd pages, Instructor
+  // Controls, and the in-button loaders all inherit it. It is the brand mark
+  // deliberately, and it is pinned here so that flipping it back is a failing
+  // test rather than a quiet change of appearance across the whole app.
+  describe('the default variant', () => {
+    it('is Loom — the brand mark, not the anonymous pixel grid', () => {
+      render(<PixelLoader label="Churning" />)
+      expect(bars()).toHaveLength(8)
+      expect(screen.getByTestId('pixel-loader-grid').querySelectorAll('[data-shape]')).toHaveLength(0)
+    })
+
+    it('is Loom at sm too, where LoadingState renders it inline', () => {
+      render(<PixelLoader label="Churning" size="sm" />)
+      expect(bars()).toHaveLength(8)
+      expect(screen.getByTestId('pixel-loader-grid').querySelectorAll('[data-shape]')).toHaveLength(0)
+    })
+
+    it('draws the mark at the right size without being asked, at both sizes', () => {
+      const { container: md } = render(<PixelLoader label="Churning" testId="d-md" />)
+      expect(md.querySelector('svg')?.getAttribute('width')).toBe('15')
+      const { container: sm } = render(<PixelLoader label="Churning" size="sm" testId="d-sm" />)
+      expect(sm.querySelector('svg')?.getAttribute('width')).toBe('14')
+    })
+
+    it('carries the brand gradient by default', () => {
+      // The whole reason for the change: an unconfigured loader is on-brand.
+      const { container } = render(<PixelLoader label="Churning" />)
+      expect(
+        Array.from(container.querySelectorAll('linearGradient stop')).map(s =>
+          s.getAttribute('stop-color'),
+        ),
+      ).toEqual(['#7A42B1', '#518EAD', '#37BF9B'])
+    })
+
+    it('still announces, still labels, still counts', () => {
+      // Everything the default already promised has to survive the new mark.
+      render(<PixelLoader label="Loading agents…" />)
+      const root = screen.getByTestId('pixel-loader')
+      expect(root).toHaveAttribute('role', 'status')
+      expect(root).toHaveAttribute('aria-live', 'polite')
+      expect(screen.getByTestId('pixel-loader-label')).toHaveTextContent('Loading agents…')
+      act(() => {
+        vi.advanceTimersByTime(1_300)
+      })
+      expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('1.3s')
+    })
+
+    it('is overridable — the other three are still one prop away', () => {
+      render(<PixelLoader label="Churning" variant="Drive" />)
+      expect(cells()).toHaveLength(9)
+      expect(screen.getByTestId('pixel-loader').querySelectorAll('line[data-bar]')).toHaveLength(0)
+    })
   })
 
   describe('variants', () => {
@@ -301,8 +360,9 @@ describe('PixelLoader', () => {
     })
 
     describe('size', () => {
-      // The mark is square and takes the grid's own footprint, so a Loom
-      // loader occupies exactly the line a Drive loader would.
+      // The mark is square. At md it takes the grid's own footprint, so a Loom
+      // loader occupies exactly the line a Drive loader would — that is the
+      // shipped Instructor Controls rendering and it must not move.
       it('renders at md the same width the 3x3 grid occupies', () => {
         const { container } = render(<PixelLoader label="Weaving" variant="Loom" />)
         expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'md')
@@ -311,13 +371,78 @@ describe('PixelLoader', () => {
         expect(svg?.getAttribute('height')).toBe('15')
       })
 
-      it('scales down at sm', () => {
+      // At sm it does NOT match the grid's 11px footprint, and that is the
+      // point. A diamond is inscribed in its box — it touches the four edge
+      // midpoints and covers half the area — so at a matched footprint it is
+      // always the smaller, denser drawing, with four bars across a 45° span
+      // where the grid has three cells across a straight one. 11px of that is
+      // a smudge. 14px is the largest it can be for free: the 12px label's
+      // line box measures 14px, so the loader is 14px tall for any mark up to
+      // 14 and only grows at 15.
+      it('gets its own slightly larger footprint at sm, which costs no height', () => {
         const { container } = render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
         expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'sm')
         const svg = container.querySelector('svg')
-        expect(svg?.getAttribute('width')).toBe('11') // 3 cells of 3px + 2 gutters of 1px
+        expect(svg?.getAttribute('width')).toBe('14')
+        expect(svg?.getAttribute('height')).toBe('14')
         expect(screen.getByTestId('pixel-loader-label').style.fontSize).toBe('12px')
         expect(bars()).toHaveLength(8)
+      })
+
+      // 14 is a ceiling, not a preference: 15 is where the label's line box
+      // stops absorbing the mark and the inline row starts getting taller.
+      it('keeps the sm mark inside the 12px line box it has to sit in', () => {
+        const { container } = render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        const px = Number(container.querySelector('svg')?.getAttribute('width'))
+        expect(px).toBeGreaterThan(11) // bigger than the grid, or it is a smudge
+        expect(px).toBeLessThanOrEqual(14) // 15 would push the inline line taller
+      })
+    })
+
+    // The interlace gaps are the first thing to die when the mark gets small.
+    // A gap is 6 of 40 viewBox units, so at sm it is ~1.6 CSS px cut through a
+    // bar ~1.1 CSS px wide: it does not read as "passes underneath", it chops
+    // each interior bar into antialiased stubs and fogs the whole mark. Below
+    // the threshold the mark reduces to the diamond outline plus the crossing
+    // strokes — the same reduction the favicon work landed on.
+    describe('interlacing below the legibility threshold', () => {
+      it('keeps the full weave at md, where the gaps are big enough to read', () => {
+        render(<PixelLoader label="Weaving" variant="Loom" />)
+        expect(bars().filter(b => b.getAttribute('stroke-dasharray'))).toHaveLength(4)
+      })
+
+      it('drops the gaps at sm rather than drawing them sub-pixel', () => {
+        render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        expect(bars().filter(b => b.getAttribute('stroke-dasharray'))).toHaveLength(0)
+      })
+
+      it('drops nothing else — same eight bars, same gradient, same wavefront', () => {
+        // Un-weaving must not become "a different mark at small size".
+        const { container } = render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        const all = bars()
+        expect(all).toHaveLength(8)
+        expect(all.filter(b => b.dataset.bar === 'warp')).toHaveLength(4)
+        expect(all.filter(b => b.dataset.bar === 'weft')).toHaveLength(4)
+        expect(all.every(b => b.dataset.animated === 'true')).toBe(true)
+        expect(all.every(b => (b.getAttribute('style') ?? '').includes('sl-loom-weave'))).toBe(true)
+        const id = container.querySelector('linearGradient')?.getAttribute('id') ?? ''
+        expect(all.every(b => b.getAttribute('stroke') === `url(#${id})`)).toBe(true)
+      })
+
+      it('gives every bar a square cap once there are no gaps to protect', () => {
+        // Butt caps exist so a 2-unit cap does not eat a third of a 6-unit
+        // gap. With no gaps, butt caps would just leave the corners open.
+        render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        expect(bars().every(b => b.getAttribute('stroke-linecap') === 'square')).toBe(true)
+      })
+
+      it('says which treatment it used, so a host can assert it cheaply', () => {
+        const { container: md } = render(<PixelLoader label="W" variant="Loom" testId="a" />)
+        expect(md.querySelector('[data-loom-weave]')).toHaveAttribute('data-loom-weave', 'woven')
+        const { container: sm } = render(
+          <PixelLoader label="W" variant="Loom" size="sm" testId="b" />,
+        )
+        expect(sm.querySelector('[data-loom-weave]')).toHaveAttribute('data-loom-weave', 'plain')
       })
     })
 
@@ -365,7 +490,7 @@ describe('PixelLoader', () => {
     })
 
     it('freezes the grid to its dim state', () => {
-      render(<PixelLoader label="Churning" />)
+      render(<PixelLoader label="Churning" variant="Drive" />)
       const all = cells()
       expect(all).toHaveLength(9)
       expect(all.every(c => c.dataset.animated === 'false')).toBe(true)
@@ -394,8 +519,28 @@ describe('PixelLoader', () => {
     })
 
     it('freezes at sm as well', () => {
-      render(<PixelLoader label="Churning" size="sm" />)
+      render(<PixelLoader label="Churning" variant="Drive" size="sm" />)
       expect(cells().every(c => c.dataset.animated === 'false')).toBe(true)
+    })
+
+    // The same guarantee, reached the way the app reaches it: no variant prop.
+    it('freezes the default loader at both sizes, and keeps the clock running', () => {
+      for (const size of ['md', 'sm'] as const) {
+        const testId = `rm-${size}`
+        render(<PixelLoader label="Churning" size={size} testId={testId} />)
+        const grid = screen.getByTestId(`${testId}-grid`)
+        expect(grid).toHaveAttribute('data-motion', 'static')
+        expect(
+          Array.from(grid.querySelectorAll('line[data-bar]')).every(
+            b => (b as SVGLineElement).dataset.animated === 'false',
+          ),
+        ).toBe(true)
+      }
+      act(() => {
+        vi.advanceTimersByTime(5_600)
+      })
+      expect(screen.getByTestId('rm-md-elapsed')).toHaveTextContent('5.6s')
+      expect(screen.getByTestId('rm-sm-elapsed')).toHaveTextContent('5.6s')
     })
   })
 
@@ -404,7 +549,7 @@ describe('PixelLoader', () => {
   // leaves a 4px block against a 13px label looking like a mistake.
   describe('size', () => {
     it('defaults to md, and md is the rendering Instructor Controls already ships', () => {
-      render(<PixelLoader label="Churning" />)
+      render(<PixelLoader label="Churning" variant="Drive" />)
       expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'md')
       expect(cells()[0].style.width).toBe('4px')
       expect(screen.getByTestId('pixel-loader-label').style.fontSize).toBe('13px')
@@ -412,7 +557,7 @@ describe('PixelLoader', () => {
     })
 
     it('scales the whole thing down at sm, not just the grid', () => {
-      render(<PixelLoader label="Churning" size="sm" />)
+      render(<PixelLoader label="Churning" variant="Drive" size="sm" />)
       expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'sm')
       expect(cells()[0].style.width).toBe('3px')
       expect(cells()[0].style.height).toBe('3px')
@@ -421,7 +566,7 @@ describe('PixelLoader', () => {
     })
 
     it('is the same loader at sm — nine cells, same wavefront, same clock', () => {
-      render(<PixelLoader label="Churning" size="sm" />)
+      render(<PixelLoader label="Churning" variant="Drive" size="sm" />)
       const all = cells()
       expect(all).toHaveLength(9)
       expect(all.every(c => c.dataset.animated === 'true')).toBe(true)
@@ -485,7 +630,7 @@ describe('PixelLoader', () => {
   it('defines the keyframes it references', () => {
     // The snippet referenced `pixel-on` and `shimmer-text` and defined
     // neither, so nothing moved. The keyframes ship inside the component.
-    const { container } = render(<PixelLoader label="Churning" />)
+    const { container } = render(<PixelLoader label="Churning" variant="Drive" />)
     const css = container.querySelector('style')?.textContent ?? ''
     expect(css).toContain('@keyframes sl-pixel-on')
     expect(css).toContain('@keyframes sl-shimmer-text')

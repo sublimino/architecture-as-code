@@ -28,6 +28,8 @@ KIND_BIN="${KIND_BIN:-kind}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 NODE="${SUPERCRED_NODE:-${CLUSTER_NAME}-control-plane}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/source-id.sh
+source "${REPO_ROOT}/scripts/lib/source-id.sh"
 
 # image-name|build-context|dockerfile (fields after image-name are repo-root
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
@@ -148,18 +150,32 @@ verify_images() {
 
 # ─── Build ──────────────────────────────────────────────────────────────────
 
+# Build args that bake a build identity into images which declare the ARGs, so
+# scripts/check-deployed-staleness.sh can later read that identity back out of
+# the running container and prove the pod is running this source tree.
+#
+# Empty for images with no marker: passing --build-arg for an ARG a Dockerfile
+# never declares is a warning on every build, and noise at build time is how
+# real warnings stop being read.
+build_id_args() {
+  local image="$1" args=()
+  mapfile -t args < <(source_id_build_args "${image%%:*}" 2>/dev/null) || return 0
+  printf '%s\n' ${args[@]+"${args[@]}"}
+}
+
 build_images() {
-  local entry image context dockerfile
+  local entry image context dockerfile id_args
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
     context="$(image_context "$entry")"
     dockerfile="$(image_dockerfile "$entry")"
+    mapfile -t id_args < <(build_id_args "$image")
     log "building $image ($PLATFORM)"
     if [ -n "$dockerfile" ]; then
-      "$DOCKER_BIN" build --platform "$PLATFORM" -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
+      "$DOCKER_BIN" build --platform "$PLATFORM" ${id_args[@]+"${id_args[@]}"} -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
         || fail "docker build failed for $image via $dockerfile"
     else
-      "$DOCKER_BIN" build --platform "$PLATFORM" -t "$image" "$REPO_ROOT/$context" \
+      "$DOCKER_BIN" build --platform "$PLATFORM" ${id_args[@]+"${id_args[@]}"} -t "$image" "$REPO_ROOT/$context" \
         || fail "docker build failed for $image"
     fi
   done

@@ -72,7 +72,11 @@ setup() {
 }
 
 @test "Dashboard delivery fingerprints sources before application cache layers" {
-  run grep -F 'SOURCE_ID="$(tar ' "$script"
+  # The fingerprint now comes from scripts/lib/source-id.sh, which is also what
+  # scripts/check-deployed-staleness.sh uses to decide whether the RUNNING pod
+  # matches this tree. Asserting the shared definition rather than an inline tar
+  # is the point: the two sides of that comparison must be one piece of code.
+  run grep -F 'source_id_for dashboard-signalloom' "$script"
   [ "$status" -eq 0 ]
   run grep -F -- '--build-arg "SOURCE_ID=${SOURCE_ID}"' "$script"
   [ "$status" -eq 0 ]
@@ -80,6 +84,12 @@ setup() {
   [ "$status" -eq 0 ]
   run awk '/ARG SOURCE_ID/{source_arg=NR} /^COPY \. \./{source_copy=NR} END {exit !(source_arg && source_arg < source_copy)}' "$root/d2-signalloom/apps/dashboard-signalloom/Dockerfile"
   [ "$status" -eq 0 ]
+
+  # No second definition may reappear here. A guard whose expected value is
+  # computed by different code from the baked value fires on healthy
+  # deployments, and a guard that cries wolf gets muted.
+  run grep -F 'SOURCE_ID="$(tar ' "$script"
+  [ "$status" -ne 0 ]
 }
 
 @test "Dashboard source fingerprint changes when build-context content changes" {

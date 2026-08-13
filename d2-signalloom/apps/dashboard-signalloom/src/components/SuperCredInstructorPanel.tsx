@@ -418,6 +418,16 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       ? 'Resetting the demo'
       : `Phase ${activeRun?.step_id ?? '?'}${runningStep ? ` · ${runningStep.title}` : ''}`
 
+  // What the log block's header names. Present tense is wrong here in a way it
+  // is not for the in-flight indicator above: this header outlives the run, so
+  // "Resetting the demo" would still be claiming a teardown is under way
+  // minutes after it finished. The status word beside it carries the tense.
+  const logTitle = activeRun
+    ? activeRun.kind === 'reset'
+      ? 'Reset'
+      : `Phase ${activeRun.step_id}${runningStep ? ` · ${runningStep.title}` : ''}`
+    : undefined
+
   return (
     <>
       {/* Phase status + where to look — rendered for every role */}
@@ -685,7 +695,10 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
           {log !== '' && (
             <StreamingLogBlock
               testId="supercred-run-log"
-              label="Runner output"
+              label="Run log"
+              title={logTitle}
+              status={activeRun?.status}
+              statusTone={activeRun ? RUN_STATUS_COLORS[activeRun.status] ?? 'var(--muted)' : undefined}
               log={log}
               streaming={running}
               style={{ marginTop: 12 }}

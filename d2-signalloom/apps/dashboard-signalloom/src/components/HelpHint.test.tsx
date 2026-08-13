@@ -1,9 +1,156 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
-import HelpHint from './HelpHint'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import HelpHint, { HINT_GAP, HINT_MARGIN, placeTooltip, type Rect } from './HelpHint'
+
+const ANCHOR: Rect = { top: 300, left: 400, width: 18, height: 18 }
+const TIP: Rect = { top: 0, left: 0, width: 260, height: 64 }
+const VIEWPORT = { width: 1280, height: 800 }
+
+/** Every edge of the placed tooltip, for "is it on screen" assertions. */
+function edges(place: { top: number; left: number; width: number }, height: number) {
+  return { top: place.top, bottom: place.top + height, left: place.left, right: place.left + place.width }
+}
+
+describe('placeTooltip', () => {
+  it('sits below and left-aligned when there is room for both', () => {
+    const place = placeTooltip(ANCHOR, TIP, VIEWPORT)
+
+    expect(place.vertical).toBe('below')
+    expect(place.horizontal).toBe('start')
+    expect(place.top).toBe(ANCHOR.top + ANCHOR.height + HINT_GAP)
+    expect(place.left).toBe(ANCHOR.left)
+    expect(place.width).toBe(TIP.width)
+  })
+
+  it('flips to right-aligned when left-aligning would overflow the right edge', () => {
+    // Anchor at the right-hand end of a card header — the real failing case.
+    const anchor = { ...ANCHOR, left: VIEWPORT.width - 40 }
+
+    const place = placeTooltip(anchor, TIP, VIEWPORT)
+
+    expect(place.horizontal).toBe('end')
+    // Right edge of tooltip aligns with right edge of the anchor.
+    expect(place.left + place.width).toBe(anchor.left + anchor.width)
+    expect(edges(place, TIP.height).right).toBeLessThanOrEqual(VIEWPORT.width - HINT_MARGIN)
+    expect(place.vertical).toBe('below')
+  })
+
+  it('shifts back on-screen when the anchor hugs the left edge', () => {
+    const anchor = { ...ANCHOR, left: 2 }
+
+    const place = placeTooltip(anchor, TIP, VIEWPORT)
+
+    expect(place.horizontal).toBe('clamped')
+    expect(place.left).toBeGreaterThanOrEqual(HINT_MARGIN)
+  })
+
+  it('flips above when there is not enough room below', () => {
+    const anchor = { ...ANCHOR, top: VIEWPORT.height - 40 }
+
+    const place = placeTooltip(anchor, TIP, VIEWPORT)
+
+    expect(place.vertical).toBe('above')
+    expect(place.top).toBe(anchor.top - HINT_GAP - TIP.height)
+    expect(edges(place, TIP.height).bottom).toBeLessThanOrEqual(anchor.top)
+    expect(place.top).toBeGreaterThanOrEqual(HINT_MARGIN)
+  })
+
+  it('stays below when flipping above would overflow the top edge', () => {
+    // Tall tip, anchor near the top: above does not fit, below is the lesser evil.
+    const anchor = { ...ANCHOR, top: 10 }
+    const tip = { ...TIP, height: 200 }
+
+    const place = placeTooltip(anchor, tip, { width: 1280, height: 260 })
+
+    expect(place.top).toBeGreaterThanOrEqual(HINT_MARGIN)
+    expect(edges(place, tip.height).bottom).toBeLessThanOrEqual(260 - HINT_MARGIN)
+  })
+
+  it('flips on both axes at the bottom-right corner', () => {
+    const anchor = { top: VIEWPORT.height - 40, left: VIEWPORT.width - 40, width: 18, height: 18 }
+
+    const place = placeTooltip(anchor, TIP, VIEWPORT)
+
+    expect(place.vertical).toBe('above')
+    expect(place.horizontal).toBe('end')
+    const box = edges(place, TIP.height)
+    expect(box.right).toBeLessThanOrEqual(VIEWPORT.width - HINT_MARGIN)
+    expect(box.bottom).toBeLessThanOrEqual(VIEWPORT.height - HINT_MARGIN)
+  })
+
+  it('narrows the tooltip when the viewport is narrower than its natural width', () => {
+    const viewport = { width: 200, height: 800 }
+
+    const place = placeTooltip({ ...ANCHOR, left: 150 }, TIP, viewport)
+
+    expect(place.width).toBe(viewport.width - HINT_MARGIN * 2)
+    expect(place.left).toBe(HINT_MARGIN)
+    expect(place.left + place.width).toBeLessThanOrEqual(viewport.width - HINT_MARGIN)
+  })
+
+  it('clamps rather than going negative when the tip is taller than the viewport', () => {
+    const tip = { ...TIP, height: 900 }
+
+    const place = placeTooltip(ANCHOR, tip, VIEWPORT)
+
+    expect(place.top).toBe(HINT_MARGIN)
+    expect(place.left).toBeGreaterThanOrEqual(0)
+  })
+
+  it('never overflows any edge, wherever the anchor sits', () => {
+    const overflows: string[] = []
+
+    for (let top = 0; top <= VIEWPORT.height; top += 40) {
+      for (let left = 0; left <= VIEWPORT.width; left += 40) {
+        const place = placeTooltip({ top, left, width: 18, height: 18 }, TIP, VIEWPORT)
+        const box = edges(place, TIP.height)
+        if (box.left < 0 || box.top < 0 || box.right > VIEWPORT.width || box.bottom > VIEWPORT.height) {
+          overflows.push(`anchor(${top},${left}) -> ${JSON.stringify(box)}`)
+        }
+      }
+    }
+
+    expect(overflows).toEqual([])
+  })
+
+  it('does not cover the anchor it explains', () => {
+    for (const top of [0, 100, 400, 760, 799]) {
+      const anchor = { ...ANCHOR, top }
+      const place = placeTooltip(anchor, TIP, VIEWPORT)
+      const box = edges(place, TIP.height)
+      const clear = box.top >= anchor.top + anchor.height || box.bottom <= anchor.top
+      expect(clear, `tooltip overlaps anchor at top=${top}`).toBe(true)
+    }
+  })
+})
+
+/** jsdom reports all-zero rects, so edge cases only exist if we fake the geometry. */
+function stubGeometry(anchor: Rect, tip: Rect, viewport = VIEWPORT) {
+  window.innerWidth = viewport.width
+  window.innerHeight = viewport.height
+  return vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+    const r = this.getAttribute('role') === 'tooltip' ? tip : anchor
+    return {
+      top: r.top, left: r.left, width: r.width, height: r.height,
+      right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top,
+      toJSON: () => ({}),
+    } as DOMRect
+  })
+}
+
+const JSDOM_WIDTH = window.innerWidth
+const JSDOM_HEIGHT = window.innerHeight
 
 describe('HelpHint', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+    // Plain assignments, so restoreAllMocks does not undo them; leaking a 500px
+    // viewport into the next test would silently change its geometry.
+    window.innerWidth = JSDOM_WIDTH
+    window.innerHeight = JSDOM_HEIGHT
+  })
+
   it('shows its explanation on hover and keyboard focus', async () => {
     const user = userEvent.setup()
     render(<HelpHint label="Explain current data">Refreshes current data.</HelpHint>)
@@ -15,5 +162,79 @@ describe('HelpHint', () => {
     await user.unhover(control)
     await user.tab()
     expect(screen.getByRole('tooltip')).toHaveTextContent('Refreshes current data.')
+  })
+
+  it('hides again on blur and on mouse leave', async () => {
+    const user = userEvent.setup()
+    render(<HelpHint label="Explain current data">Refreshes current data.</HelpHint>)
+
+    const control = screen.getByRole('button', { name: 'Explain current data' })
+    await user.hover(control)
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    await user.unhover(control)
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+    await user.tab()
+    expect(screen.getByRole('tooltip')).toBeInTheDocument()
+    await user.tab()
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  })
+
+  it('wires aria-describedby to the tooltip only while it is open', async () => {
+    const user = userEvent.setup()
+    render(<HelpHint label="Explain current data" testId="hint-under-test">Refreshes current data.</HelpHint>)
+
+    const control = screen.getByTestId('hint-under-test')
+    expect(control).not.toHaveAttribute('aria-describedby')
+
+    await user.hover(control)
+    const tip = screen.getByRole('tooltip')
+    expect(control.getAttribute('aria-describedby')).toBe(tip.id)
+    expect(tip.id).toBeTruthy()
+  })
+
+  it('keeps a right-edge tooltip on screen instead of clipping it', async () => {
+    stubGeometry({ top: 300, left: VIEWPORT.width - 40, width: 18, height: 18 }, TIP)
+    const user = userEvent.setup()
+    render(<HelpHint label="Explain current data">Refreshes current data.</HelpHint>)
+
+    await user.hover(screen.getByRole('button', { name: 'Explain current data' }))
+
+    const tip = screen.getByRole('tooltip')
+    expect(tip).toHaveStyle({ position: 'fixed' })
+    const left = Number.parseFloat(tip.style.left)
+    const width = Number.parseFloat(tip.style.width)
+    expect(left + width).toBeLessThanOrEqual(VIEWPORT.width - HINT_MARGIN)
+  })
+
+  it('repositions when the viewport is resized while open', async () => {
+    stubGeometry({ top: 300, left: 400, width: 18, height: 18 }, TIP)
+    const user = userEvent.setup()
+    render(<HelpHint label="Explain current data">Refreshes current data.</HelpHint>)
+
+    await user.hover(screen.getByRole('button', { name: 'Explain current data' }))
+    expect(Number.parseFloat(screen.getByRole('tooltip').style.left)).toBe(400)
+
+    // Native listener, so React needs an explicit act() to flush the re-render.
+    window.innerWidth = 500
+    act(() => window.dispatchEvent(new Event('resize')))
+
+    const left = Number.parseFloat(screen.getByRole('tooltip').style.left)
+    const width = Number.parseFloat(screen.getByRole('tooltip').style.width)
+    expect(left + width).toBeLessThanOrEqual(500 - HINT_MARGIN)
+  })
+
+  it('removes its resize and scroll listeners when it closes', async () => {
+    const remove = vi.spyOn(window, 'removeEventListener')
+    const user = userEvent.setup()
+    render(<HelpHint label="Explain current data">Refreshes current data.</HelpHint>)
+
+    const control = screen.getByRole('button', { name: 'Explain current data' })
+    await user.hover(control)
+    await user.unhover(control)
+
+    const removed = remove.mock.calls.map((c) => c[0])
+    expect(removed).toContain('resize')
+    expect(removed).toContain('scroll')
   })
 })

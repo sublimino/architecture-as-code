@@ -107,29 +107,44 @@
  * the `__spec-coverage-guard-probe__` in test/acceptance-spec-coverage.bats:
  * a check whose over-permissiveness is itself checked.
  *
- * ─── Transport: this asserts the DEFAULT, which is the poll ───────────────
+ * ─── Transport: the DEFAULT is a long-poll waiting read ───────────────────
  *
- * `GET /demo-api/runs/{id}/log?offset=N` is the default and is what runs on
- * stage. SSE is opt-in behind an explicit flag, because it cannot cover its own
- * worst failure mode: a buffering intermediary ACCEPTS the connection and then
- * delivers nothing, so no error fires, no fallback triggers, and the panel sits
- * silent — indistinguishable from the defect this branch exists to fix.
+ * `GET /demo-api/runs/{id}/log?offset=N&wait=S` is the default. It is an
+ * ordinary short HTTP response that the runner simply holds open until bytes
+ * exist, the run ends, or the deadline passes — so delivery lands within
+ * milliseconds of the script printing, and nothing between the browser and the
+ * runner can swallow it. harness/server.ts implements `wait` rather than
+ * answering immediately: a double that ignores it turns the panel's long poll
+ * into a hot loop and would let a runner that dropped `wait` handling pass here
+ * unnoticed.
  *
- * These tests set no flag, and `expectDefaultTransport()` asserts that: the
- * page must have polled `/log`, and must never have opened `/stream`. The DOM
- * assertions cannot tell the transports apart — that is their virtue
- * everywhere else and their one blind spot here — so without this the suite
- * would keep passing if SSE quietly became the default.
+ * SSE is opt-in, via `?logTransport=sse` or
+ * `localStorage['signalloom.logTransport'] = 'sse'`, because it cannot cover
+ * its own worst failure mode: a buffering intermediary ACCEPTS the connection
+ * and then delivers nothing. No error fires, so no fallback triggers, and the
+ * panel sits silent — indistinguishable from the batching defect this branch
+ * exists to fix.
  *
- * harness/server.ts DOES serve `/demo-api/runs/{id}/stream` as SSE. It is
- * there so a secondary opt-in case can be written the day the flag exists,
- * without new machinery; nothing here reaches it, and the assertion above
- * proves nothing here reaches it. That secondary case is deliberately not
- * written yet: guessing the flag name would produce a test that silently never
- * opts in, which is exactly the silent-skip failure
- * test/acceptance-spec-coverage.bats exists to prevent. When it lands it stays
- * secondary — if SSE is ever removed, the assertions in this file are the ones
- * that must survive.
+ * Both are covered, asymmetrically and on purpose:
+ *
+ *   * the first three tests set NO flag and assert the default. Every
+ *     assertion reads the rendered DOM, so the temporal property survives a
+ *     transport swap — but that virtue is a blind spot for exactly one
+ *     question, so `expectDefaultTransport()` also asserts at the request layer
+ *     that the run polled `/log` and never opened `/stream`. Without it the
+ *     suite would keep passing if SSE quietly became the default;
+ *
+ *   * the fourth opts in with `?logTransport=sse` and asserts the SAME temporal
+ *     property over the stream. It is deliberately secondary: if SSE is removed
+ *     tomorrow, deleting that one test leaves progressive arrival fully
+ *     asserted. It is not permitted to be the only place the property is
+ *     proven.
+ *
+ * Worth knowing before anyone reads too much into the SSE case: a harness on
+ * loopback cannot reproduce a buffering intermediary, so it proves the happy
+ * path only. The silent-stall risk that motivated the poll default stays
+ * un-testable at this layer — which is an argument for the default, not
+ * against the test.
  */
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { join } from "node:path";
@@ -138,6 +153,9 @@ import { test, expect } from "@playwright/test";
 import {
   expectDefaultTransport,
   expectFollowsTail,
+  expectRendersText,
+  expectSseTransport,
+  expectStreamCarriedOutput,
   expectHoldsPositionWhileUnpinned,
   expectProgressiveArrival,
   formatSamples,
@@ -202,12 +220,19 @@ interface Harness {
  * this suite that hardcoded a port eventually collided with a port-forward.
  */
 async function startHarness(
-  opts: { mode: "stream" | "batch"; lines: number; intervalMs: number },
+  opts: { mode: "stream" | "batch"; lines: number; intervalMs: number; startDelayMs?: number },
 ): Promise<Harness> {
   const script = join(test.info().config.rootDir, "harness", "server.ts");
   const child = spawn(
     "bun",
-    [script, "--mode", opts.mode, "--port", "0", "--lines", String(opts.lines), "--interval", String(opts.intervalMs)],
+    [
+      script,
+      "--mode", opts.mode,
+      "--port", "0",
+      "--lines", String(opts.lines),
+      "--interval", String(opts.intervalMs),
+      "--start-delay", String(opts.startDelayMs ?? 0),
+    ],
     { stdio: ["ignore", "pipe", "pipe"] },
   );
 
@@ -246,9 +271,18 @@ test.afterEach(() => {
 });
 
 /** Boot the panel against a harness and wait for it to be usable. */
-async function openPanel(page: import("@playwright/test").Page, h: Harness): Promise<void> {
-  await page.goto(h.url, { waitUntil: "domcontentloaded" });
+async function openPanel(
+  page: import("@playwright/test").Page,
+  h: Harness,
+  query = "",
+): Promise<void> {
+  await page.goto(`${h.url}/${query}`, { waitUntil: "domcontentloaded" });
   await expect(page.locator(INSTRUCTOR)).toBeVisible({ timeout: 15_000 });
+  // Before ANY measurement is trusted. A browser with no resolvable font
+  // builds a perfect DOM and lays every string out at 0x0, which passes the
+  // streaming assertions and fails the layout ones with a message blaming the
+  // log block. Asserted here so that environment fails as itself.
+  await expectRendersText(page);
   // The phase buttons stay disabled until GET /demo-api/status has answered
   // with script_available — clicking before that is a no-op that then reads as
   // "the runner produced nothing".
@@ -380,4 +414,47 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   );
   expectFollowsTail(samples.slice(afterScrollDown), "after the instructor scrolled back down");
   expectDefaultTransport(transport, "the scrolling run");
+});
+
+test("SSE, when explicitly opted into, delivers the same progressive arrival", async ({ page }) => {
+  // SECONDARY. The three tests above are the ones that protect the on-stage
+  // path; this one proves the opt-in capability works, over the frame contract
+  // api/demoRunner.ts actually parses — `event: log` carrying a
+  // DemoRunLogChunk, then `event: end`. A frame with any other name is
+  // silently ignored by that client, so a stream that connects and delivers
+  // nothing visible is a real failure mode and this is what catches it.
+  // startDelayMs: the panel opens the stream and issues a waiting read in the
+  // same tick, and whichever lands second is rejected by the cursor guard. If
+  // the read wins, the panel shuts its own stream down — deliberate, and it
+  // would leave this case measuring the poll while calling itself SSE. A short
+  // silence before the first line parks the waiting read (what `wait` is for)
+  // and is what a real script's startup looks like anyway.
+  harness = await startHarness({
+    mode: "stream", lines: LINES, intervalMs: INTERVAL_MS, startDelayMs: 700,
+  });
+  await openPanel(page, harness, "?logTransport=sse");
+
+  const transport = watchTransport(page);
+  await startLogSampler(page);
+  await page.locator(RUN_STEP_1).click();
+
+  await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });
+  await expect(page.locator(RUN_LOG)).toBeVisible({ timeout: 15_000 });
+
+  const samples = await readLogSamples(page);
+  test.info().attach("sse-timeline", { body: formatSamples(samples), contentType: "text/plain" });
+
+  // First that the opt-in actually took effect. Without this the test would
+  // pass identically on the default poll path and quietly assert nothing about
+  // SSE at all — the same shape of vacuous pass as a spec no project claims.
+  expectSseTransport(transport, "the SSE opt-in run");
+  // And that it CARRIED the log rather than merely opening. Opening proves
+  // nothing: the panel abandons a stream whose cursor moved under it, and the
+  // poll then delivers every byte while /stream still shows one request.
+  expectStreamCarriedOutput(transport, samples, "the SSE opt-in run");
+
+  expectProgressiveArrival(samples, { what: "the scripted phase 1 (SSE opt-in)" });
+  expectFollowsTail(samples, "the scripted phase 1 (SSE opt-in)");
+
+  await expect(page.locator(RUN_LOG_LINE).last()).toContainText(/phase 1 complete/);
 });

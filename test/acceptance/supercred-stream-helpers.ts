@@ -425,6 +425,144 @@ export function expectDefaultTransport(watch: TransportWatch, what = "the run"):
   ).toBe(0);
 }
 
+/**
+ * The inverse, for the secondary case that opts INTO SSE.
+ *
+ * Only `streams() > 0` is asserted. The poll count is deliberately NOT required
+ * to be zero: the panel's post-run drain calls the log endpoint on every path,
+ * SSE or not, so requiring zero would fail against a perfectly healthy stream —
+ * and worse, it would fail in a way that looks like "SSE is not being used"
+ * when the truth is "the drain ran, as designed".
+ *
+ * This is the weaker assertion of the pair, and that asymmetry is on purpose.
+ * The default path is what runs on stage; the opt-in path is a capability.
+ */
+export function expectSseTransport(watch: TransportWatch, what = "the run"): void {
+  expect(
+    watch.streams(),
+    `${what}: this case opts into SSE, so the page must have opened ` +
+      `/demo-api/runs/{id}/stream at least once. It did not — the opt-in did not take ` +
+      `effect, and what was actually measured is the default poll path wearing an SSE ` +
+      `label. ${watch.describe()}`,
+  ).toBeGreaterThan(0);
+}
+
+/**
+ * Assert the STREAM actually carried the output, not merely that it opened.
+ *
+ * ─── Why opening is not enough ─────────────────────────────────────────────
+ *
+ * SuperCredInstructorPanel treats an open stream as worthless until a frame
+ * lands: `streamLiveRef` is set in `onChunk`, never on connect, precisely
+ * because a buffering proxy opens a response instantly and then holds every
+ * frame. It also hands the stream its own shutdown when the cursor moved
+ * underneath it — `onChunk` returning false — which happens whenever a waiting
+ * read was still in flight as the stream opened. Both are deliberate, and both
+ * end with the POLL delivering every byte while `/stream` still shows one
+ * request.
+ *
+ * So `expectSseTransport()` alone is a test that passes while proving nothing:
+ * it would go green on an SSE connection that was opened, rejected and
+ * abandoned within 200ms. Observed exactly that here before this existed.
+ *
+ * ─── The counting argument ─────────────────────────────────────────────────
+ *
+ * Every distinct growth observation needs a delivery behind it: lines cannot
+ * appear without bytes arriving, and bytes arrive either in a poll response or
+ * in a stream frame. One poll response can deliver many lines, so it can
+ * account for at most ONE growth step in the sampled timeline — a second step
+ * needs a second delivery.
+ *
+ * Therefore `growthSteps > pollRequests` proves at least
+ * `growthSteps - pollRequests` steps were delivered by the stream. It is a
+ * strict inequality on counts, needs no clock alignment between the in-page
+ * sampler and Node's request listener, and cannot be satisfied by the poll path
+ * alone at any polling rate.
+ *
+ * The panel's own behaviour gives this enormous margin when the stream is
+ * genuinely live: the poll loop skips issuing a request entirely while
+ * `streamLiveRef` is set, so a healthy stream leaves two or three poll
+ * requests against twenty-odd growth steps. A stream that died leaves them
+ * equal.
+ */
+export function expectStreamCarriedOutput(
+  watch: TransportWatch,
+  samples: LogSample[],
+  what = "the run",
+): void {
+  const growth = growthWhileRunning(samples);
+  expect(
+    growth.length,
+    `${what}: the log grew ${growth.length} time(s) while running but the page made ` +
+      `${watch.polls()} poll request(s). Since one poll response can account for at most ` +
+      `one growth step, the stream carried nothing — it opened and was then abandoned, ` +
+      `which is what happens when a waiting read moves the cursor under it (the panel's ` +
+      `onChunk returns false and the stream shuts itself down) or when frames never ` +
+      `arrive. The log still filled, over the poll fallback, so every other assertion ` +
+      `here passes; this is the one that notices. ${watch.describe()}` +
+      `\n${formatSamples(samples)}`,
+  ).toBeGreaterThan(watch.polls());
+}
+
+// ── Preflight: can this browser measure text at all? ────────────────────────
+
+/**
+ * Fail early, and by name, if the browser lays every string out at zero size.
+ *
+ * ─── Why this exists ───────────────────────────────────────────────────────
+ *
+ * A Chromium that cannot resolve any font — no reachable fontconfig, an
+ * unwritable cache directory, a renderer sandbox with no font access — still
+ * builds a complete and correct DOM. `textContent.length` is right, every node
+ * is present, the streaming assertions all pass. What it does not do is produce
+ * line boxes: every element measures 0x0.
+ *
+ * The log block then has a scrollHeight of 36px while holding 6470 characters,
+ * and `expectFollowsTail()` fails with "the log never overflowed its box".
+ * That message is true, and it points at the component, and the component is
+ * fine. Two people have now lost time to it.
+ *
+ * So the layout precondition is asserted as a precondition, before anything is
+ * concluded from a measurement. Same discipline as
+ * scripts/acceptance-test.sh's Gateway preflight: a missing environment
+ * capability should fail as itself, not as a downstream assertion about
+ * something else.
+ *
+ * Measured on a string this module injects and removes, not on the app's own
+ * markup, so it holds whatever the page under test happens to be rendering and
+ * cannot be defeated by the app styling that text to zero on purpose.
+ */
+export async function expectRendersText(page: Page): Promise<void> {
+  const box = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.textContent = "font metrics probe 0123456789";
+    // Inline, unstyled, and out of flow so it cannot disturb the layout it is
+    // about to measure — but NOT display:none, which would legitimately be 0x0.
+    probe.style.cssText = "position:absolute;left:-9999px;top:0;white-space:pre";
+    document.body.appendChild(probe);
+    const rect = probe.getBoundingClientRect();
+    probe.remove();
+    return { width: rect.width, height: rect.height };
+  });
+
+  expect(
+    Math.min(box.width, box.height),
+    `this browser cannot measure text: a 29-character string laid out at ` +
+      `${Math.round(box.width)}x${Math.round(box.height)}. The DOM is fine and the ` +
+      `components are fine — no font is resolvable, so nothing has a line box, and every ` +
+      `layout assertion below would fail with a message about the log block instead.\n\n` +
+      `On Linux this is usually fontconfig being unreachable or its cache unwritable:\n\n` +
+      `    mkdir -p /tmp/fcfg/cache\n` +
+      `    printf '%s\\n' '<?xml version="1.0"?>' \\\n` +
+      `      '<fontconfig><dir>/usr/share/fonts</dir>' \\\n` +
+      `      '<cachedir>/tmp/fcfg/cache</cachedir></fontconfig>' > /tmp/fcfg/fonts.conf\n` +
+      `    FONTCONFIG_FILE=/tmp/fcfg/fonts.conf make demo-signalloom-supercred-stream-harness\n\n` +
+      `Nothing in this suite compensates for it deliberately: a spec that forced its own ` +
+      `line heights would stop testing the component's real layout, which is the whole ` +
+      `subject of the pin/unpin assertions.`,
+  ).toBeGreaterThan(0);
+}
+
 /** The scroll region of a log block. */
 export function logScroll(page: Page, testId = "supercred-run-log"): Locator {
   return page.locator(`[data-testid="${testId}-scroll"]`);

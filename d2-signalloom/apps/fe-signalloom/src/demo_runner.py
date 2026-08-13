@@ -690,6 +690,79 @@ def _get_run_or_404(run_id: str) -> _Run:
     return run
 
 
+class _WaiterPool:
+    """How many `wait=` calls may hold an anyio worker thread at once.
+
+    Sized well under anyio's default limiter (40) so parked waiters can never
+    be the reason a control-plane call has no thread to run on. One instructor
+    with a handful of tabs is the real load; the cap exists for the abandoned
+    ones, which a browser produces every time a tab is closed mid-wait.
+    """
+
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._held = 0
+        self._lock = threading.Lock()
+
+    def acquire(self) -> bool:
+        with self._lock:
+            if self._held >= self._limit:
+                return False
+            self._held += 1
+            return True
+
+    def release(self) -> None:
+        with self._lock:
+            self._held = max(0, self._held - 1)
+
+    def held(self) -> int:
+        with self._lock:
+            return self._held
+
+
+_MAX_CONCURRENT_LOG_WAITERS = 8
+_log_waiters = _WaiterPool(_MAX_CONCURRENT_LOG_WAITERS)
+
+
+def _more_bytes_possible(run: _Run) -> bool:
+    """Whether another byte can still enter ``run._log``.
+
+    Deliberately NOT "is the run still running", and the difference is two
+    separate defects that both read as the same innocuous line.
+
+    TOO EARLY. `_cancel_active` flips `status` to "cancelled" the moment it
+    sends SIGTERM, while the monitor thread is still draining the pipe. A demo
+    script that traps TERM prints its cleanup on the way out -- which is
+    precisely the output someone reaching for Reset wants -- so a reader that
+    treats the status flip as end-of-stream stops exactly one moment before the
+    interesting part. Capture is finished when the monitor says so (`_done`,
+    set by `_finalize_run` after the read loop has drained and the child has
+    been reaped), not when the control plane changes its mind.
+
+    TOO LATE. Once the log hits `_LOG_CAP_BYTES` nothing further is ever
+    appended, but `status` stays "running" for as long as the script does. That
+    combination wedges a reader: the trailing-character hold-back waits for a
+    continuation that cannot arrive, so `next_offset` stops advancing, while
+    `eof` stays False because the run has not ended. The client polls the same
+    offset forever, receiving nothing and never being told it is finished.
+
+    One predicate, because both callers -- the hold-back and the eof test --
+    are asking the same question and got different wrong answers to it.
+    """
+    if len(run._log) >= _LOG_CAP_BYTES:
+        return False
+    if run.status == "running":
+        return True
+    # Every other terminal status is set BY the monitor thread, in
+    # `_finalize_run`, after its read loop has drained the pipe and the child
+    # has been reaped -- so by the time one is visible, capture really is over.
+    # `cancelled` is the single exception: `_cancel_active` sets it on the way
+    # IN to the kill, and only `_done` marks the drain actually finishing.
+    if run.status == "cancelled":
+        return not run._done.is_set()
+    return False
+
+
 def _wait_for_new_log_bytes(run: _Run, offset: int, seconds: float) -> None:
     """Block until the run has bytes past ``offset``, ends, or the deadline passes.
 
@@ -707,7 +780,7 @@ def _wait_for_new_log_bytes(run: _Run, offset: int, seconds: float) -> None:
     deadline = time.monotonic() + seconds
     with run._lock:
         while True:
-            if len(run._log) > offset or run.status != "running":
+            if len(run._log) > offset or not _more_bytes_possible(run):
                 return
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -777,7 +850,11 @@ async def _iter_run_log_events(run: _Run, offset: int) -> AsyncIterator[bytes]:
             # run that finished between the two reads would report eof against a
             # buffer snapshot taken before the monitor thread's final append,
             # and the stream would end one chunk short of the truth.
-            still_running = run.status == "running"
+            # `_more_bytes_possible`, not `status == "running"`: a cancelled run
+            # is still draining its child's TERM-trap cleanup, and a capped log
+            # has stopped accepting bytes while the script runs on. See that
+            # function -- both mistakes end this stream at the wrong moment.
+            still_running = _more_bytes_possible(run)
             with run._lock:
                 log_bytes = len(run._log)
                 page_end = min(log_bytes, offset + _LOG_PAGE_BYTES)
@@ -987,9 +1064,24 @@ async def get_demo_run_log(
         # ask a worker thread to hold: an abandoned waiter cannot be cancelled
         # mid-wait, so it returns at its deadline and no later, and the cap is
         # what makes "no later" a short time rather than an arbitrary one.
-        await run_in_threadpool(
-            _wait_for_new_log_bytes, run, offset, min(wait, _MAX_LOG_WAIT_SECONDS)
-        )
+        # The cap is a liveness guard on the pod, not on the caller. A parked
+        # wait holds an anyio worker thread, and that pool is shared with every
+        # other threadpool-backed route here -- including POST /runs and POST
+        # /reset. `run_in_threadpool` is not cancellable: when a browser tab
+        # closes mid-wait the coroutine is cancelled but the thread stays parked
+        # until its own deadline, so abandoned waiters accumulate at the rate
+        # tabs are closed. Exhaust the pool and Reset stops responding, on
+        # stage, which is the exact moment it is needed.
+        #
+        # Over the cap the request degrades to the non-blocking read it would
+        # have been without `wait` -- a little more latency, never a stall.
+        if _log_waiters.acquire():
+            try:
+                await run_in_threadpool(
+                    _wait_for_new_log_bytes, run, offset, min(wait, _MAX_LOG_WAIT_SECONDS)
+                )
+            finally:
+                _log_waiters.release()
     with run._lock:
         log_bytes = len(run._log)
         next_offset = min(log_bytes, offset + _LOG_PAGE_BYTES)
@@ -1000,9 +1092,10 @@ async def get_demo_run_log(
     # further can arrive, so the tail is handed over whole and `eof` is always
     # reachable. A run that ends between this read and the next simply releases
     # the held bytes on the following poll -- at most three bytes, one interval.
-    chunk, _held = _decodable_prefix(chunk, more_bytes_expected=run.status == "running")
+    more_possible = _more_bytes_possible(run)
+    chunk, _held = _decodable_prefix(chunk, more_bytes_expected=more_possible)
     next_offset -= len(_held)
-    eof = run.status != "running" and next_offset == log_bytes
+    eof = not more_possible and next_offset == log_bytes
     return RunLogResponse(
         run_id=run_id,
         offset=offset,

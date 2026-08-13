@@ -376,3 +376,143 @@ def test_a_character_split_across_two_polls_survives_the_poll_path(
         "An instructor sees mojibake where phase 3 printed ✅/❌."
     )
     assert seen.count("✓") == 6, f"characters went missing entirely: {seen!r}"
+
+
+# Traps TERM and prints on the way out. The cleanup a teardown prints while it
+# is being cancelled is exactly the output someone reaching for Reset wants --
+# and it lands AFTER the status flips to "cancelled".
+_TERM_TRAP_SCRIPT = (
+    "#!/usr/bin/env bash\n"
+    "cleanup() { echo 'cleanup begin'; sleep 0.4; echo 'cleanup end'; exit 0; }\n"
+    "trap cleanup TERM\n"
+    "echo starting\n"
+    "sleep 30 &\n"
+    "wait $!\n"
+)
+
+
+def test_a_cancelled_run_does_not_report_eof_before_its_child_stops_printing(
+    demo_client: Callable[[str], TestClient]
+) -> None:
+    """`cancelled` is set on the way IN to the kill, not after the drain.
+
+    Both transports used `status != "running"` as their end-of-stream test, so
+    a reader tailing a Reset could be told eof while the script was still
+    printing its TERM-trap cleanup — the one part of a teardown anybody reads.
+    """
+    client = demo_client(_TERM_TRAP_SCRIPT)
+    run_id = _start_run(client)
+    _wait_until_first_line(client, run_id)
+
+    seen = ""
+    offset = 0
+    eof_at: str | None = None
+
+    def cancel_shortly() -> None:
+        time.sleep(0.2)
+        demo_runner._cancel_active()
+
+    threading.Thread(target=cancel_shortly, daemon=True).start()
+
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        page = _read_log(client, run_id, offset=offset, wait=1.0)
+        seen += page["chunk"]
+        offset = page["next_offset"]
+        if page["eof"]:
+            eof_at = seen
+            break
+
+    assert eof_at is not None, "the reader never reached eof on a cancelled run"
+    assert "cleanup end" in eof_at, (
+        "eof was reported before the cancelled script finished printing. A reader "
+        f"tailing Reset stops one moment before the interesting part. Saw: {eof_at!r}"
+    )
+
+
+def test_a_capped_log_still_reaches_eof_instead_of_wedging(
+    demo_client: Callable[[str], TestClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap closes the buffer while the script keeps running.
+
+    Once `_LOG_CAP_BYTES` is reached nothing is ever appended again, but the
+    status stays "running". Holding an incomplete trailing character back then
+    waits for a continuation that cannot arrive: `next_offset` stops advancing,
+    `eof` stays False, and the client polls the same offset forever receiving
+    nothing and never being told it is done.
+    """
+    # A cap two bytes short of a whole ✓, so the buffer's last byte is half a
+    # character and the hold-back has something to be wrong about.
+    monkeypatch.setattr(demo_runner, "_LOG_CAP_BYTES", 24)
+    client = demo_client(
+        "#!/usr/bin/env bash\nprintf 'aaaaaaaaaaaaaaaaaaaaaa\\xe2\\x9c\\x93 and more\\n'\nsleep 30\n"
+    )
+    run_id = _start_run(client)
+
+    offset = 0
+    deadline = time.monotonic() + 15
+    saw_eof = False
+    stalled_reads = 0
+    while time.monotonic() < deadline:
+        page = _read_log(client, run_id, offset=offset, wait=0.5)
+        if page["next_offset"] == offset:
+            stalled_reads += 1
+        offset = page["next_offset"]
+        if page["eof"]:
+            saw_eof = True
+            break
+        if stalled_reads > 6:
+            break
+
+    assert saw_eof, (
+        "a capped log never reported eof while the script ran on, so the client "
+        f"polls offset {offset} forever with nothing to show for it"
+    )
+
+
+def test_abandoned_waiters_cannot_starve_the_control_plane(
+    demo_client: Callable[[str], TestClient]
+) -> None:
+    """A parked wait holds an anyio worker thread and cannot be cancelled.
+
+    A browser tab closed mid-wait leaves the thread parked until its own
+    deadline, so abandoned waiters accumulate at the rate tabs are closed. That
+    pool is shared with POST /runs and POST /reset — exhaust it and Reset stops
+    responding, on stage.
+    """
+    client = demo_client(_SILENT_AFTER_FIRST_SCRIPT)
+    run_id = _start_run(client)
+    _wait_until_first_line(client, run_id)
+
+    barrier_errors: list[BaseException] = []
+
+    def park() -> None:
+        try:
+            _read_log(client, run_id, offset=_FIRST_LINE_BYTES, wait=10.0)
+        except BaseException as exc:  # noqa: BLE001 - recorded, asserted below
+            barrier_errors.append(exc)
+
+    threads = [threading.Thread(target=park, daemon=True) for _ in range(16)]
+    for thread in threads:
+        thread.start()
+    time.sleep(1.0)
+
+    # A concrete bound, not the module's own constant: comparing the observed
+    # count against the value that produced it is a tautology that passes
+    # however high someone raises the cap.
+    ANYIO_DEFAULT_THREAD_LIMIT = 40
+    held = demo_runner._log_waiters.held()
+    assert held < ANYIO_DEFAULT_THREAD_LIMIT / 2, (
+        f"{held} of 16 concurrent waits parked worker threads at once. The cap must "
+        f"stay well under anyio's default limit of {ANYIO_DEFAULT_THREAD_LIMIT}, or "
+        "parked waiters become the reason POST /runs and POST /reset have no thread."
+    )
+    assert demo_runner._MAX_CONCURRENT_LOG_WAITERS < ANYIO_DEFAULT_THREAD_LIMIT / 2, (
+        "the cap has been raised to where abandoned waiters can starve the control plane"
+    )
+
+    # Over the cap the request must degrade to the non-blocking read it would
+    # have been without `wait` -- more latency, never a stall and never an error.
+    assert not barrier_errors, f"a capped-out waiter failed instead of degrading: {barrier_errors!r}"
+    for thread in threads:
+        thread.join(timeout=20)

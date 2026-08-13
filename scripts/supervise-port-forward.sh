@@ -54,6 +54,11 @@ SCRIPT_PATH="${SCRIPT_DIR}/$(basename "${BASH_SOURCE[0]}")"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 CURL_BIN="${CURL_BIN:-curl}"
 
+# The single greppable marker for a respawn. cmd_down counts these to report how
+# often the forward actually had to be repaired, so it must not drift from what
+# supervisor_loop writes.
+RESTART_MARKER='restart #'
+
 log()  { printf '\033[1;36m[port-forward]\033[0m %s\n' "$*"; }
 ok()   { printf '\033[1;32m[port-forward] ✓\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[port-forward] !\033[0m %s\n' "$*" >&2; }
@@ -284,6 +289,7 @@ supervisor_loop() {
   local log_file
   local supervisor_file
   local forward_file
+  local restarts=0
 
   load_config "$state_dir"
   log_file="$(forward_log_file "$state_dir")"
@@ -311,7 +317,8 @@ supervisor_loop() {
       continue
     fi
 
-    append_log "$log_file" "probe failed at $(state_endpoint); restarting kubectl port-forward"
+    restarts=$((restarts + 1))
+    append_log "$log_file" "${RESTART_MARKER}${restarts}: probe failed at $(state_endpoint), respawning kubectl port-forward"
     stop_pid_file "$forward_file" "port-forward child"
     spawn_forward "$state_dir"
   done
@@ -371,16 +378,26 @@ cmd_ensure() {
   local deadline
   local log_file
   local supervisor_pid=""
+  local started
 
   load_config "$state_dir"
+  # Hot path: this runs before every push, so a healthy forward says nothing.
   if probe_endpoint; then
     return 0
   fi
 
+  started=$SECONDS
   deadline=$((SECONDS + timeout))
   while [ "$SECONDS" -lt "$deadline" ]; do
     sleep 1
     if probe_endpoint; then
+      # Surfaced from the foreground command, not from the supervisor: the
+      # supervisor's stdout and stderr are deliberately detached so kubectl's
+      # own noise stays out of the build log. This line is therefore the only
+      # way a repair becomes visible to CI, and a repair that nobody can see is
+      # indistinguishable from a code path that never ran.
+      printf 'supervise-port-forward: forward was down at %s, restored after %ss\n' \
+        "$(state_endpoint)" "$((SECONDS - started))"
       return 0
     fi
   done
@@ -408,6 +425,34 @@ cmd_down() {
   return 0
 }
 
+# The restart record lives in the state dir, and the Makefile's EXIT trap removes
+# that dir immediately after tearing the forward down. Counting the restarts here
+# — after the processes are stopped, so nothing can be missed — is what makes the
+# evidence outlive the `rm -rf`.
+report_restarts() {
+  local state_dir="$1"
+  local log_file
+  local count
+
+  log_file="$(forward_log_file "$state_dir")"
+  # No log means no supervised session ever ran here: an idempotent second
+  # `down`, or a state dir that never came up. Silence is the honest answer.
+  [ -f "$log_file" ] || return 0
+
+  # grep -c exits 1 when it counts nothing, which under `set -e` would abort the
+  # teardown. It still prints the 0, so the guard costs nothing.
+  count="$(grep -c "$RESTART_MARKER" "$log_file" 2>/dev/null || true)"
+  [ -n "$count" ] || count=0
+
+  # Printed even when the count is zero, deliberately. On a warm CI lane the
+  # Docker layers are cached, the build window collapses, and the forward is
+  # never stressed — so a green run is not evidence that supervision works, it
+  # is evidence the code path never ran. An explicit zero tells those two apart;
+  # silence leaves them indistinguishable, which is the exact unfalsifiable
+  # green this whole change exists to remove.
+  printf 'supervise-port-forward: %s restart(s) during this run\n' "$count"
+}
+
 main() {
   [ "$#" -gt 0 ] || usage
 
@@ -422,7 +467,12 @@ main() {
       ;;
     down)
       shift
-      cmd_down "$@"
+      [ "$#" -eq 1 ] || usage
+      # Stop first, then count: a restart racing the teardown still gets
+      # reported. cmd_up's internal cleanup deliberately does not report, since
+      # any log it finds belongs to a previous run.
+      cmd_down "$1"
+      report_restarts "$1"
       ;;
     __supervise)
       shift

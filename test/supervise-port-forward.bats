@@ -199,7 +199,7 @@ start_supervised() {
 	[ "$new_pid" != "$old_pid" ]
 	pid_alive "$new_pid"
 
-	grep -q "restarting kubectl port-forward" "$STATE/forward.log"
+	grep -q "restart #1: probe failed at .*, respawning kubectl port-forward" "$STATE/forward.log"
 }
 
 @test "ensure bridges a forward that died during the build window" {
@@ -212,6 +212,65 @@ start_supervised() {
 	run env PF_ENSURE_TIMEOUT=20 "$script" ensure "$STATE"
 	[ "$status" -eq 0 ]
 	endpoint_up
+}
+
+# ─── The repair has to be visible, or a green lane proves nothing ───────────
+#
+# On a warm CI lane the Docker layers are cached, the build window collapses,
+# and the forward is never stressed. A run with no `Error 7` is then equally
+# consistent with "supervision worked" and "supervision never ran". These two
+# lines are what tell those apart in a 1000-line CI log — and they are emitted
+# from the foreground commands because the supervisor's own streams are
+# detached to keep kubectl's noise out of the build output.
+
+@test "ensure announces a repair on stdout, naming the endpoint and how long it took" {
+	start_supervised
+
+	kill "$(forward_pid)"
+	poll_until "the endpoint to stop answering" 10 endpoint_down
+
+	run env PF_ENSURE_TIMEOUT=20 "$script" ensure "$STATE"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"supervise-port-forward: forward was down at http://localhost:5001/v2/, restored after "*"s" ]]
+}
+
+@test "ensure stays silent when the forward was healthy all along" {
+	start_supervised
+
+	# The hot path runs before every push; narrating a non-event would bury the
+	# line that matters when there IS one.
+	run env PF_ENSURE_TIMEOUT=5 "$script" ensure "$STATE"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+}
+
+@test "down reports the restart count before the state dir is deleted" {
+	start_supervised
+
+	kill "$(forward_pid)"
+	poll_until "the supervisor to spawn a replacement" 20 kubectl_spawn_count_at_least 2
+	poll_until "the endpoint to answer again" 20 endpoint_up
+
+	run "$script" down "$STATE"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"supervise-port-forward: 1 restart(s) during this run"* ]]
+
+	# The Makefile removes the state dir immediately after this call, so the
+	# printed line is the only surviving record.
+	rm -rf "$STATE"
+	run "$script" down "$STATE"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ]
+}
+
+@test "down reports an explicit zero when the forward never needed repairing" {
+	start_supervised
+
+	run "$script" down "$STATE"
+	[ "$status" -eq 0 ]
+	# Explicit rather than silent: a missing line cannot be distinguished from a
+	# teardown that never ran, which is the ambiguity this reporting removes.
+	[[ "$output" == *"supervise-port-forward: 0 restart(s) during this run"* ]]
 }
 
 # ─── Unreachable registries fail loudly, and bounded ────────────────────────

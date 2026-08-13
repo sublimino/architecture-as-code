@@ -148,3 +148,76 @@ async def test_state_vocabulary_has_no_completed(tmp_path, monkeypatch):
     result = await demo_runner.credential_chain_evidence(tenant_id="t")
     assert {s.state for s in result.steps} <= {"observed", "absent", "unavailable"}
     assert not any(s.state == "completed" for s in result.steps)
+
+
+@pytest.mark.asyncio
+async def test_every_proof_behind_a_step_reaches_the_browser(tmp_path, monkeypatch):
+    """A step's verdict can rest on several commands, and all of them travel.
+
+    Step 6 is the case: a stun is an OpenBao REVOCATION (the mechanism), a stun
+    annotation (corroboration) and a NetworkPolicy (containment). With room for
+    one command the API published one of the three, and whichever one that was
+    silently became the definition of the step.
+    """
+    payload = {
+        "generated_at": "x",
+        "source": "supercred-evidence.sh",
+        "steps": [
+            {
+                "step": 6,
+                "label": "Platform Response",
+                "state": "observed",
+                "command": "bao kv get kv/signalloom/cardvault-agent",
+                "detail": "No value found",
+                "summary": "Agent has been stunned",
+                "proofs": [
+                    {
+                        "label": "Credential revocation",
+                        "command": "bao kv get kv/signalloom/cardvault-agent\nbao read auth/jwt/role/signalloom-cardvault-agent",
+                        "detail": "No value found",
+                    },
+                    {"label": "Stun annotation (corroboration)", "command": "kubectl get pod", "detail": "state=stunned"},
+                    {"label": "Network isolation", "command": "kubectl get networkpolicy -o name", "detail": "(none)"},
+                ],
+            }
+        ],
+    }
+    script = _write_script(tmp_path, f"cat <<'EOF'\n{json.dumps(payload)}\nEOF\n")
+    monkeypatch.setenv(demo_runner._ENV_EVIDENCE_SCRIPT, str(script))
+
+    result = await demo_runner.credential_chain_evidence(tenant_id="t")
+
+    step = result.steps[0]
+    assert [p.label for p in step.proofs] == [
+        "Credential revocation",
+        "Stun annotation (corroboration)",
+        "Network isolation",
+    ]
+    # Verbatim, including the newline that makes a two-command proof pasteable.
+    assert step.proofs[0].command.count("\n") == 1
+    assert step.proofs[0].detail == "No value found"
+    # The primary proof stays duplicated into the legacy pair, so a consumer
+    # that predates `proofs` shows the mechanism rather than nothing.
+    assert step.command == step.proofs[0].command.splitlines()[0]
+
+
+@pytest.mark.asyncio
+async def test_a_step_without_proofs_still_deserialises(tmp_path, monkeypatch):
+    """The runner image can ship an evidence script older than this field.
+
+    A required `proofs` would turn that skew into a 502 on every request, which
+    is a worse answer than the single command the old script already provides.
+    """
+    payload = {
+        "generated_at": "x",
+        "source": "s",
+        "steps": [
+            {"step": 1, "label": "Agent Deployment", "state": "observed", "command": "kubectl get pod", "detail": "true", "summary": "ready"}
+        ],
+    }
+    script = _write_script(tmp_path, f"cat <<'EOF'\n{json.dumps(payload)}\nEOF\n")
+    monkeypatch.setenv(demo_runner._ENV_EVIDENCE_SCRIPT, str(script))
+
+    result = await demo_runner.credential_chain_evidence(tenant_id="t")
+    assert result.steps[0].proofs == []
+    assert result.steps[0].command == "kubectl get pod"

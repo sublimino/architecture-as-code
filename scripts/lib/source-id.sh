@@ -141,6 +141,14 @@ source_id_copied_paths() {
 source_id_hash_paths() {
 	local root="$1"
 	shift
+	# The excludes mirror the repo-root .dockerignore, and must keep mirroring it.
+	# The runner COPYs the whole of fe-signalloom/src, so running the test suite
+	# once leaves .coverage and a tree of .pyc files inside a hashed path. Without
+	# these, the fingerprint changed every time anyone ran pytest, and two
+	# checkouts of the SAME commit disagreed — measured at dda1d702 against
+	# 95b668d2, differing in nothing but build artefacts. A guard that reports
+	# drift against a matching deployment is a guard that gets ignored, which
+	# costs more than not having one.
 	tar \
 		--sort=name \
 		--mtime='UTC 1970-01-01' \
@@ -148,6 +156,11 @@ source_id_hash_paths() {
 		--group=0 \
 		--numeric-owner \
 		--exclude-vcs \
+		--exclude='__pycache__' \
+		--exclude='*.pyc' \
+		--exclude='*.pyo' \
+		--exclude='.pytest_cache' \
+		--exclude='.coverage' \
 		-cf - -C "$root" "$@" | sha256sum | awk '{print $1}'
 }
 

@@ -13,6 +13,21 @@
 #
 # Nothing here is ever COPYed into an image. Excluding it also stops the context
 # tar carrying build state, dependency trees and git history it has no use for.
+# Python build artefacts. These are not cosmetic exclusions: the runner COPYs
+# the whole of fe-signalloom/src, so running the test suite once puts .coverage
+# and a tree of .pyc files INTO the image. Two checkouts of the same commit then
+# produce different images, and the deployed-staleness fingerprint — which hashes
+# the same paths — reports DRIFT against a deployment that matches perfectly.
+# Observed: main checkout dda1d702, a fresh worktree at the identical commit
+# 95b668d2, differing only in __pycache__ and .coverage.
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+.coverage
+.pytest_cache/
+**/.pytest_cache/
+
 .cache/
 .git/
 node_modules/

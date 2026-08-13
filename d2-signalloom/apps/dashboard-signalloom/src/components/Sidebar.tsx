@@ -122,7 +122,10 @@ export default function Sidebar() {
   const [query, setQuery] = useState('')
   const [collapsed, setCollapsed] = useState(readSidebarCollapsed)
   const [pendingSearchFocus, setPendingSearchFocus] = useState(false)
-  const [selectionBox, setSelectionBox] = useState<{ top: number; height: number } | null>(null)
+  // `to` is the row the highlight is currently sitting on. Carrying it in the
+  // state — rather than deriving it twice — is what makes "the pill and the
+  // --active link agree" a single fact instead of two that can drift.
+  const [selectionBox, setSelectionBox] = useState<{ to: string; top: number; height: number } | null>(null)
   const navRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Record<string, HTMLAnchorElement | null>>({})
   const searchRef = useRef<HTMLInputElement>(null)
@@ -168,12 +171,31 @@ export default function Sidebar() {
   useLayoutEffect(() => {
     const container = navRef.current
     const activeItem = NAV.find(({ to, end }) => end ? location.pathname === to : location.pathname === to || location.pathname.startsWith(`${to}/`))
-    const target = itemRefs.current[hoveredNav === null ? activeItem?.to ?? '' : NAV[hoveredNav]?.to]
-    if (!container || !target) return
+    const targetTo = (hoveredNav === null ? activeItem : NAV[hoveredNav])?.to
+    const target = targetTo ? itemRefs.current[targetTo] : null
+    // No row to sit on: the active route is off-nav, filtered out of the rail,
+    // or behind the superadmin flag. Withdrawing the highlight is the whole
+    // fix — bailing out early instead left it parked on the row it was last
+    // measured against, so that row stayed lit while the newly-active one lit
+    // up too. Two selected rows, which is what Andy saw.
+    if (!container || !target || !targetTo) {
+      setSelectionBox(null)
+      return
+    }
     const containerRect = container.getBoundingClientRect()
     const targetRect = target.getBoundingClientRect()
-    setSelectionBox({ top: targetRect.top - containerRect.top, height: targetRect.height })
-  }, [hoveredNav, location.pathname, collapsed])
+    // `.sl-sidebar__nav` is the scroll container *and* the containing block, so
+    // the pill scrolls with the rows and its `top` is in content coordinates.
+    // The rect delta is in viewport coordinates: without adding the scroll
+    // offset back, a rail scrolled far enough to reach the superadmin block
+    // seats the pill a screenful above the row it belongs to — over whichever
+    // row happens to be there.
+    const top = targetRect.top - containerRect.top + container.scrollTop
+    setSelectionBox({ to: targetTo, top, height: targetRect.height })
+    // The rail's geometry moves under the highlight for more reasons than the
+    // route changing: filtering removes rows above it, and the superadmin flag
+    // adds or removes a whole block. Both have to re-measure.
+  }, [hoveredNav, location.pathname, collapsed, normalizedQuery, showSuperadminNav])
 
   useEffect(() => {
     let canceled = false
@@ -240,6 +262,86 @@ export default function Sidebar() {
     searchRef.current?.focus()
     setPendingSearchFocus(false)
   }, [pendingSearchFocus, collapsed])
+
+  // Every row in the rail — main block and superadmin block alike — is
+  // rendered here. The superadmin block used to be a second copy of this JSX,
+  // and the copy had drifted: it registered no `itemRefs` entry and no hover
+  // handlers, so the moving selection highlight could neither find a
+  // superadmin row nor follow the pointer over one. A duplicated render block
+  // that has to be kept in sync is the defect behind the defect.
+  function renderNavLink({ to, label, end, icon, superadminOnly }: NavItem) {
+    const i = NAV.findIndex((item) => item.to === to)
+    // The digit keys bind `navItems`, which excludes superadmin entries, so a
+    // badge on one would advertise a shortcut that does not exist.
+    const showShortcut = !collapsed && !superadminOnly && hoveredNav === i && i < 9
+    return (
+      <NavLink
+        key={to}
+        to={to}
+        end={end}
+        title={collapsed ? label : undefined}
+        className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
+        ref={(element) => { itemRefs.current[to] = element }}
+        onMouseEnter={() => setHoveredNav(i)}
+        onFocus={() => setHoveredNav(i)}
+        onMouseLeave={() => setHoveredNav(null)}
+      >
+        <NavIcon kind={icon} />
+        {/* Collapsed keeps the label in the a11y tree, not on screen. */}
+        <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>{label}</span>
+        {showShortcut && <kbd aria-hidden="true" className="sl-sidebar__shortcut">{i + 1}</kbd>}
+        {!collapsed && label === 'Compliance' && failingControls > 0 && (
+          <span
+            aria-hidden="true"
+            style={{
+              background: 'var(--error)',
+              color: 'var(--on-accent)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '1px 6px',
+              minWidth: 18,
+              textAlign: 'center',
+            }}>
+            {failingControls > 99 ? '99+' : failingControls}
+          </span>
+        )}
+        {!collapsed && label === 'Agents' && tenant && tenant.agent_count > 0 && (
+          <span
+            aria-hidden="true"
+            style={{
+              background: 'var(--border)',
+              color: 'var(--muted)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '1px 6px',
+              minWidth: 18,
+              textAlign: 'center',
+            }}>
+            {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
+          </span>
+        )}
+        {!collapsed && label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
+          <span
+            aria-hidden="true"
+            title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
+            style={{
+              background: 'var(--error)',
+              color: 'var(--on-accent)',
+              borderRadius: 99,
+              fontSize: 10,
+              fontWeight: 700,
+              padding: '1px 6px',
+              minWidth: 18,
+              textAlign: 'center',
+            }}>
+            {needsTriage > 99 ? '99+' : needsTriage}
+          </span>
+        )}
+      </NavLink>
+    )
+  }
 
   return (
     <>
@@ -350,83 +452,27 @@ export default function Sidebar() {
 
         {/* Nav links */}
         <div ref={navRef} id="sl-sidebar-nav" className="sl-sidebar__nav" onMouseLeave={() => setHoveredNav(null)}>
-          {selectionBox && <span aria-hidden="true" className="sl-sidebar__selection" style={{ top: selectionBox.top, height: selectionBox.height }} />}
-          {visibleNavItems.map(({ to, label, end, section, icon }, visibleIndex) => {
-            const i = NAV.findIndex((item) => item.to === to)
+          {selectionBox && (
+            <span
+              aria-hidden="true"
+              data-nav-to={selectionBox.to}
+              className="sl-sidebar__selection"
+              style={{ top: selectionBox.top, height: selectionBox.height }}
+            />
+          )}
+          {visibleNavItems.map((item, visibleIndex) => {
             // Previous *visible* sibling, so a heading is emitted only where a
             // section actually starts in the filtered list.
             const previous = visibleNavItems[visibleIndex - 1]
             return (
-            <div key={to}>
-            {!collapsed && (!previous || previous.section !== section) && (
-              <div className="sl-sidebar__section-label">{section}</div>
-            )}
-            <NavLink
-              to={to}
-              end={end}
-              title={collapsed ? label : undefined}
-              className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
-              ref={(element) => { itemRefs.current[to] = element }}
-              onMouseEnter={() => setHoveredNav(i)}
-              onFocus={() => setHoveredNav(i)}
-              onMouseLeave={() => setHoveredNav(null)}
-            >
-              <NavIcon kind={icon} />
-              {/* Collapsed keeps the label in the a11y tree, not on screen. */}
-              <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>{label}</span>
-              {!collapsed && hoveredNav === i && i < 9 && <kbd aria-hidden="true" className="sl-sidebar__shortcut">{i + 1}</kbd>}
-              {!collapsed && label === 'Compliance' && failingControls > 0 && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    background: 'var(--error)',
-                    color: 'var(--on-accent)',
-                    borderRadius: 99,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: '1px 6px',
-                    minWidth: 18,
-                    textAlign: 'center',
-                  }}>
-                  {failingControls > 99 ? '99+' : failingControls}
-                </span>
-              )}
-              {!collapsed && label === 'Agents' && tenant && tenant.agent_count > 0 && (
-                <span
-                  aria-hidden="true"
-                  style={{
-                    background: 'var(--border)',
-                    color: 'var(--muted)',
-                    borderRadius: 99,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: '1px 6px',
-                    minWidth: 18,
-                    textAlign: 'center',
-                  }}>
-                  {tenant.agent_count > 99 ? '99+' : tenant.agent_count}
-                </span>
-              )}
-              {!collapsed && label === 'Discovery' && needsTriage !== null && needsTriage > 0 && (
-                <span
-                  aria-hidden="true"
-                  title={`${needsTriage} discovered account${needsTriage === 1 ? '' : 's'} need triage`}
-                  style={{
-                    background: 'var(--error)',
-                    color: 'var(--on-accent)',
-                    borderRadius: 99,
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: '1px 6px',
-                    minWidth: 18,
-                    textAlign: 'center',
-                  }}>
-                  {needsTriage > 99 ? '99+' : needsTriage}
-                </span>
-              )}
-            </NavLink>
-            </div>
-          )})}
+              <div key={item.to}>
+                {!collapsed && (!previous || previous.section !== item.section) && (
+                  <div className="sl-sidebar__section-label">{item.section}</div>
+                )}
+                {renderNavLink(item)}
+              </div>
+            )
+          })}
 
           {/* Superadmin-only nav block. Gated on there being something to show:
             * filtering used to leave the rule and the "Superadmin" title
@@ -439,17 +485,7 @@ export default function Sidebar() {
                   Superadmin
                 </div>
               )}
-              {visibleSuperadminItems.map(({ to, label, icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  title={collapsed ? label : undefined}
-                  className={({ isActive }) => `sl-sidebar__link${isActive ? ' sl-sidebar__link--active' : ''}`}
-                >
-                  <NavIcon kind={icon} />
-                  <span className={collapsed ? 'sr-only' : 'sl-sidebar__link-label'}>{label}</span>
-                </NavLink>
-              ))}
+              {visibleSuperadminItems.map((item) => renderNavLink(item))}
             </>
           )}
 

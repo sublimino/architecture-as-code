@@ -233,3 +233,32 @@ describe('AgentTrustTopologyPage', () => {
     expect(screen.getAllByText(/unknown/).length).toBeGreaterThan(0)
   })
 })
+
+// This page had the last bespoke wait in the app — a bare
+// <div role="status">Loading authenticated trust topology…</div> that bypassed
+// LoadingState entirely, so it showed no elapsed time and did not match any
+// other wait on screen.
+describe('the topology wait uses the shared pattern', () => {
+  // The wait only exists in LIVE mode (demo mode renders fixtures immediately),
+  // and only while the request is in flight — so hold the promise open.
+  function renderLoading() {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockReturnValue(new Promise(() => {}))
+    return render(<AgentTrustTopologyPage />)
+  }
+
+  it('renders the pixel loader while loading, with a specific label', async () => {
+    renderLoading()
+    const loader = await screen.findByTestId('trust-topology-loading')
+    expect(loader).toHaveTextContent(/Loading authenticated trust topology/i)
+  })
+
+  it('owns exactly one live region — it must not be wrapped in a second', async () => {
+    // The old markup was itself role="status"; nesting the loader inside that
+    // would make a screen reader read the same sentence twice.
+    renderLoading()
+    const loader = await screen.findByTestId('trust-topology-loading')
+    expect(loader).toHaveAttribute('role', 'status')
+    expect(loader.querySelectorAll('[aria-live]')).toHaveLength(0)
+  })
+})

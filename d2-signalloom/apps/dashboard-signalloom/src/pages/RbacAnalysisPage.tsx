@@ -7,6 +7,7 @@
  * escalation analysis, collusion detection, and remediation recommendations.
  */
 import { useCallback, useEffect, useState } from 'react'
+import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { isDemoMode } from '../api/demoMode'
 import RbacImporterPanel from '../components/RbacImporterPanel'
@@ -218,7 +219,7 @@ export default function RbacAnalysisPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--muted)', fontSize: 13, zIndex: 0,
         }}>
-          Loading KubeSec-AFM dashboard…
+          <PixelLoader testId="afm-iframe-loading" label="Loading KubeSec-AFM dashboard" />
         </div>
       )}
 

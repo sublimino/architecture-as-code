@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import PixelLoader from '../components/PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
@@ -355,7 +356,11 @@ export default function AgentTrustTopologyPage() {
     </div>
     <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 780, marginBottom: 18 }}>{demo ? 'Contract topology fixture. Relationship evidence is never inferred from this display.' : 'Authenticated tenant topology derived from available agent runtime or fixture state.'}</p>
     {demo && <div role="status" style={{ border: '1px solid var(--amber)', background: 'color-mix(in srgb, var(--amber) 12%, var(--surface))', color: 'var(--text)', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}><strong>Demonstration data — warning.</strong> Demo mode is showing modeled and fixture-tested contract data.</div>}
-    {!demo && loading && <div role="status">Loading authenticated trust topology…</div>}
+    {/* PixelLoader owns the live region here — do NOT wrap it in another
+        role="status", which is what this line used to be. */}
+    {!demo && loading && (
+      <PixelLoader testId="trust-topology-loading" label="Loading authenticated trust topology" />
+    )}
     {!demo && loadError && <div role="alert">Unable to load authenticated trust topology: {loadError}</div>}
     {!demo && !loading && !loadError && <DegradedBanner topology={liveTopology} />}
     <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 22 }}><StatCard label="Runtime-observed" value={String(counts.observed)} sub={demo ? 'none in demonstration fixture' : 'authenticated endpoint response'} accent="var(--slate-gray)" /><StatCard label="Modeled items" value={String(counts.modeled)} sub="contract assumptions, not proof" accent="var(--violet)" /><StatCard label="Fixture-tested items" value={String(counts.fixture)} sub="available fixture state" accent="var(--cyan)" /></div>

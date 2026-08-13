@@ -110,10 +110,7 @@ select option { background: var(--surface); }
 /* LoadingState's spinner. The component also checks prefers-reduced-motion in
    JS and swaps the ring for a static dot; this block is the belt-and-braces
    layer for anything that renders the class without that check. */
-@keyframes loading-spin { to { transform: rotate(360deg); } }
-.loading-spinner { animation: loading-spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .loading-spinner { animation: none; }
 }
 
 .card {

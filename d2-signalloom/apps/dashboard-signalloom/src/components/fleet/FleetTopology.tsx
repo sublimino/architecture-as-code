@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   Background,
   BackgroundVariant,
@@ -11,6 +11,14 @@ import {
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import type { AgentState } from '../../api/fleetApi'
+import {
+  NODE_W,
+  NODE_H,
+  layoutFleet,
+  routeFleetEdges,
+  type EdgeKind,
+  type RoutedEdge,
+} from './topologyLayout'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -27,11 +35,38 @@ export interface FleetTopologyProps {
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
-const NODE_W = 200
-const NODE_H = 80
-const H_GAP = 40
-const V_GAP = 60
 const CASCADE_STAGGER_MS = 200
+
+/** Stroke per link class. Broken wins over both of the others. */
+const EDGE_STROKE: Record<EdgeKind | 'broken', string> = {
+  cascade: 'var(--cyan)',
+  watch: 'var(--violet)',
+  broken: 'var(--error)',
+}
+
+/**
+ * React Flow's zoom controls, in this product's colours.
+ *
+ * They shipped in the vendor default, which is `#fefefe` buttons with a
+ * `#eee` divider and a drop shadow (see the `-default` custom properties in
+ * @xyflow/react/dist/style.css). Against this dashboard that renders as a
+ * small white block floating in the bottom-right corner of the panel, which is
+ * what it looked like: an artifact, not a control. The library's own dark
+ * palette is gated behind a `.dark` ancestor class this app does not use, so
+ * the fix is to supply the four button variables directly. They are set on the
+ * container and inherit to the buttons, which is where the CSS reads them.
+ */
+const CONTROLS_STYLE = {
+  '--xy-controls-button-background-color': 'var(--surface)',
+  '--xy-controls-button-background-color-hover': 'var(--surface2)',
+  '--xy-controls-button-color': 'var(--text)',
+  '--xy-controls-button-color-hover': 'var(--cyan)',
+  '--xy-controls-button-border-color': 'var(--border)',
+  '--xy-controls-box-shadow': 'none',
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  overflow: 'hidden',
+} as React.CSSProperties
 
 const TYPE_ICONS: Record<string, string> = {
   'data-vault': '\uD83C\uDFE6',     // bank
@@ -59,69 +94,6 @@ function trustBadgeColour(profile: AgentState['trustProfile']): string {
     case 'medium': return 'var(--amber)'
     case 'low': return 'var(--error)'
   }
-}
-
-// ── Hierarchical layout (no dagre dependency) ───────────────────────────────
-
-/**
- * Simple top-to-bottom layout. The root is the node with no incoming edges,
- * the leaves are nodes with no outgoing edges. When there are multiple nodes
- * at the same depth they are spread horizontally.
- */
-function hierarchicalLayout(
-  agents: AgentState[],
-  edges: { from: string; to: string }[],
-): Map<string, { x: number; y: number }> {
-  const incoming = new Set(edges.map(e => e.to))
-  const outgoing = new Map<string, string[]>()
-
-  for (const e of edges) {
-    const list = outgoing.get(e.from) ?? []
-    list.push(e.to)
-    outgoing.set(e.from, list)
-  }
-
-  // BFS from roots (nodes with no incoming edges).
-  const roots = agents.filter(a => !incoming.has(a.id)).map(a => a.id)
-  if (roots.length === 0 && agents.length > 0) roots.push(agents[0].id)
-
-  const depth = new Map<string, number>()
-  const queue = roots.map(id => ({ id, d: 0 }))
-  while (queue.length > 0) {
-    const { id, d } = queue.shift()!
-    if (depth.has(id)) continue
-    depth.set(id, d)
-    for (const child of outgoing.get(id) ?? []) {
-      if (!depth.has(child)) queue.push({ id: child, d: d + 1 })
-    }
-  }
-
-  // Any disconnected nodes get placed at depth 0.
-  for (const a of agents) {
-    if (!depth.has(a.id)) depth.set(a.id, 0)
-  }
-
-  // Group by depth, compute x positions.
-  const byDepth = new Map<number, string[]>()
-  for (const [id, d] of depth) {
-    const list = byDepth.get(d) ?? []
-    list.push(id)
-    byDepth.set(d, list)
-  }
-
-  const positions = new Map<string, { x: number; y: number }>()
-  for (const [d, ids] of byDepth) {
-    const totalWidth = ids.length * NODE_W + (ids.length - 1) * H_GAP
-    const startX = -totalWidth / 2
-    ids.forEach((id, i) => {
-      positions.set(id, {
-        x: startX + i * (NODE_W + H_GAP),
-        y: d * (NODE_H + V_GAP),
-      })
-    })
-  }
-
-  return positions
 }
 
 // ── Custom node ─────────────────────────────────────────────────────────────
@@ -215,38 +187,69 @@ function FleetNode({ data }: { data: FleetNodeData }) {
 
 // ── Edge rendering via ViewportPortal ───────────────────────────────────────
 
-interface DrawnEdge {
-  from: { x: number; y: number }
-  to: { x: number; y: number }
+interface DrawnEdge extends RoutedEdge {
   broken: boolean
-  key: string
 }
 
-function FleetEdgeSvg({ edges }: { edges: DrawnEdge[] }) {
+/** Marker ids have to be unique per mount, and `useId` output contains colons. */
+function markerId(scope: string, name: string): string {
+  return `fleet-arrow-${scope}-${name}`
+}
+
+/**
+ * Edges are drawn here rather than by React Flow because React Flow attaches
+ * to Handles, and these nodes deliberately have none: the graph is read-only,
+ * nothing is connectable, and the interesting routing (bypass channels for
+ * links that skip a layer) is not something the built-in edge types do.
+ *
+ * `zIndex: 0` is load-bearing. `.react-flow__renderer` sits at z-index 4
+ * inside the viewport's stacking context, so the previous value of 5 painted
+ * every line ON TOP of the cards -- the lines appeared to run straight through
+ * the agents rather than between them.
+ */
+function FleetEdgeSvg({ edges, scope }: { edges: DrawnEdge[]; scope: string }) {
   return (
     <svg
       data-testid="fleet-edge-layer"
-      style={{ position: 'absolute', overflow: 'visible', width: 1, height: 1, zIndex: 5, pointerEvents: 'none' }}
+      style={{ position: 'absolute', overflow: 'visible', width: 1, height: 1, zIndex: 0, pointerEvents: 'none' }}
     >
-      {edges.map(({ from, to, broken, key }) => {
-        const x1 = from.x + NODE_W / 2
-        const y1 = from.y + NODE_H
-        const x2 = to.x + NODE_W / 2
-        const y2 = to.y
-        const midY = (y1 + y2) / 2
-        const d = `M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`
+      <defs>
+        {(['cascade', 'watch', 'broken'] as const).map(kind => (
+          <marker
+            key={kind}
+            id={markerId(scope, kind)}
+            viewBox="0 0 8 8"
+            refX={7}
+            refY={4}
+            markerWidth={5}
+            markerHeight={5}
+            orient="auto-start-reverse"
+          >
+            <path d="M0,0 L8,4 L0,8 z" fill={EDGE_STROKE[kind]} />
+          </marker>
+        ))}
+      </defs>
 
+      {edges.map(({ key, path, kind, broken, span }) => {
+        const stroke = broken ? EDGE_STROKE.broken : EDGE_STROKE[kind]
         return (
           <path
             key={key}
-            d={d}
+            d={path}
             data-testid={`fleet-edge-${key}`}
+            data-edge-kind={kind}
+            data-edge-span={span}
             data-broken={broken || undefined}
             fill="none"
-            stroke={broken ? 'var(--error)' : 'var(--cyan)'}
+            stroke={stroke}
             strokeWidth={2}
-            strokeDasharray={broken ? '6 4' : undefined}
-            opacity={broken ? 0.7 : 0.5}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            // Dashed says "this link is not carrying a live cascade": either it
+            // never will (watch) or it has already failed (broken).
+            strokeDasharray={broken ? '7 5' : kind === 'watch' ? '2 6' : undefined}
+            opacity={broken ? 0.9 : kind === 'watch' ? 0.55 : 0.8}
+            markerEnd={`url(#${markerId(scope, broken ? 'broken' : kind)})`}
           />
         )
       })}
@@ -254,10 +257,69 @@ function FleetEdgeSvg({ edges }: { edges: DrawnEdge[] }) {
   )
 }
 
+// ── Legend ──────────────────────────────────────────────────────────────────
+
+function LegendSwatch({ stroke, dash }: { stroke: string; dash?: string }) {
+  return (
+    <svg width={22} height={8} aria-hidden style={{ flexShrink: 0 }}>
+      <path d="M1,4 L21,4" stroke={stroke} strokeWidth={2} strokeDasharray={dash} strokeLinecap="round" fill="none" />
+    </svg>
+  )
+}
+
+/**
+ * Without this the lines are just lines. The distinction it names -- a
+ * dependency into the SRE monitor does NOT propagate a stun, because
+ * fleet-manager's CascadeTargets skips observability agents -- is invisible
+ * otherwise, and it is the one thing an audience always asks about.
+ */
+function FleetLegend() {
+  const rows: { stroke: string; dash?: string; text: string }[] = [
+    { stroke: EDGE_STROKE.cascade, text: 'Cascade: stun the agent above and this one goes with it' },
+    { stroke: EDGE_STROKE.watch, dash: '2 4', text: 'Watch only: a dependency the cascade stops at' },
+    { stroke: EDGE_STROKE.broken, dash: '5 3', text: 'Broken: one end has lost its credentials' },
+  ]
+
+  return (
+    <div
+      data-testid="fleet-topology-legend"
+      style={{
+        position: 'absolute',
+        left: 12,
+        bottom: 12,
+        zIndex: 6,
+        maxWidth: 300,
+        padding: '9px 11px',
+        borderRadius: 8,
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 5,
+        pointerEvents: 'none',
+      }}
+    >
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+        Read downward: each line points at what breaks next
+      </div>
+      {rows.map(row => (
+        <div key={row.text} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: 'var(--text)' }}>
+          <LegendSwatch stroke={row.stroke} dash={row.dash} />
+          <span>{row.text}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ── Main canvas ─────────────────────────────────────────────────────────────
 
 function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyProps) {
   const { fitView } = useReactFlow()
+  // SVG marker ids are document-global, so two canvases on one page would
+  // otherwise share arrowheads. useId's output contains colons, which are not
+  // legal in a `url(#…)` reference.
+  const scope = useId().replace(/[^a-zA-Z0-9-]/g, '')
   const [cascadeState, setCascadeState] = useState<Set<string>>(new Set())
   const cascadeTimers = useRef<ReturnType<typeof setTimeout>[]>([])
 
@@ -299,7 +361,8 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
   }, [cascadeInProgress])
 
   // Compute layout positions.
-  const positions = useMemo(() => hierarchicalLayout(agents, edges), [agents, edges])
+  const layout = useMemo(() => layoutFleet(agents, edges), [agents, edges])
+  const positions = layout.positions
 
   // Build React Flow nodes.
   const flowNodes: Node<FleetNodeData>[] = useMemo(() => {
@@ -319,38 +382,33 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
     })
   }, [agents, cascadeState, positions])
 
-  // Build edge geometry for the ViewportPortal SVG.
+  // Build edge geometry for the ViewportPortal SVG. Routing is pure and lives
+  // in topologyLayout.ts; the only thing decided here is whether a link is
+  // currently carrying a failure.
   const drawnEdges: DrawnEdge[] = useMemo(() => {
     const agentMap = new Map(agents.map(a => [a.id, a]))
-    return edges.map(e => {
-      const fromPos = positions.get(e.from)
-      const toPos = positions.get(e.to)
-      if (!fromPos || !toPos) return null
+    const stunned = (id: string) => cascadeState.has(id) || agentMap.get(id)?.state === 'stunned'
+    return routeFleetEdges(agents, edges, layout).map(edge => ({
+      ...edge,
+      broken: stunned(edge.dependency) || stunned(edge.dependent),
+    }))
+  }, [agents, edges, cascadeState, layout])
 
-      const fromAgent = agentMap.get(e.from)
-      const toAgent = agentMap.get(e.to)
-      const fromStunned = cascadeState.has(e.from) || fromAgent?.state === 'stunned'
-      const toStunned = cascadeState.has(e.to) || toAgent?.state === 'stunned'
-      const broken = fromStunned || toStunned
-
-      return { from: fromPos, to: toPos, broken, key: `${e.from}-${e.to}` }
-    }).filter((e): e is DrawnEdge => e !== null)
-  }, [agents, edges, cascadeState, positions])
-
-  // Fit view on agent changes.
+  // Fit view on agent changes. Padding covers the bypass channels, which sit
+  // outside the card block and are not part of React Flow's node bounds.
   useEffect(() => {
-    const t = setTimeout(() => fitView({ padding: 0.15, duration: 200 }), 50)
+    const t = setTimeout(() => fitView({ padding: 0.22, duration: 200 }), 50)
     return () => clearTimeout(t)
-  }, [agents.length, fitView])
+  }, [agents.length, edges.length, fitView])
 
   return (
-    <div data-testid="fleet-topology" style={{ width: '100%', height: '100%', minHeight: 400 }}>
+    <div data-testid="fleet-topology" style={{ width: '100%', height: '100%', minHeight: 400, position: 'relative' }}>
       <ReactFlow
         nodes={flowNodes}
         edges={[]}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.15 }}
+        fitViewOptions={{ padding: 0.22 }}
         minZoom={0.3}
         maxZoom={2}
         nodesConnectable={false}
@@ -362,12 +420,14 @@ function Canvas({ agents, edges, cascadeInProgress, audience }: FleetTopologyPro
         proOptions={{ hideAttribution: true }}
       >
         <ViewportPortal>
-          <FleetEdgeSvg edges={drawnEdges} />
+          <FleetEdgeSvg edges={drawnEdges} scope={scope} />
         </ViewportPortal>
 
         <Background variant={BackgroundVariant.Dots} gap={26} size={1} color="var(--border-subtle)" />
-        {!audience && <Controls showInteractive={false} position="bottom-right" />}
+        {!audience && <Controls showInteractive={false} position="bottom-right" style={CONTROLS_STYLE} />}
       </ReactFlow>
+
+      <FleetLegend />
     </div>
   )
 }

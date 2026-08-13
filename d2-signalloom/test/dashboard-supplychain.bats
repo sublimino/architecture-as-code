@@ -31,7 +31,16 @@ setup() {
   [ "$status" -eq 0 ]
   run grep -F -- '--allow-insecure-registry' "$script"
   [ "$status" -eq 0 ]
-  run grep -F -- '--registry-referrers-mode=legacy' "$script"
+  # This used to require --registry-referrers-mode=legacy. Measured against the
+  # pinned cosign v3.0.6 on 2026-08-13, that flag is inert: legacy, oci-1-1 and
+  # omitting it all store a key-based signature as a single sigstore-bundle OCI
+  # referrer with no sha256-<digest>.sig tag, which Flux reads correctly. It has
+  # been removed from all five call sites; test/cosign-signing-consistency.bats
+  # now asserts its ABSENCE, so requiring it here would deadlock the two suites.
+  run grep -F -- '--registry-referrers-mode' "$script"
+  [ "$status" -ne 0 ]
+  # What matters instead: sign the digest, never a tag that can move underneath.
+  run grep -F -- '"${LOCAL_DIGEST_REF}"' "$script"
   [ "$status" -eq 0 ]
 }
 

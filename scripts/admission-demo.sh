@@ -37,6 +37,12 @@ SIGNED_DIGEST=$(crane digest --insecure "${REGISTRY_HOST}/acme/images/listener:s
 [ -f .keys/signing-config.json ] || cosign signing-config create \
   --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
   --out .keys/signing-config.json >/dev/null 2>&1
+# Same flag set as every other cosign sign in the repo, asserted by
+# test/cosign-signing-consistency.bats. This was previously the only call site
+# without --registry-referrers-mode; the flag has since been removed everywhere
+# rather than added here, because cosign v3.0.6 ignores it (see that test's
+# header for the measurement). Sign by digest, never by tag: the :signed tag can
+# move under a concurrent push, stranding the signature on a digest nobody serves.
 COSIGN_PASSWORD="" cosign sign --yes --key .keys/cosign.key \
   --signing-config .keys/signing-config.json --allow-insecure-registry \
   "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"

@@ -69,10 +69,22 @@ Deploy the slice first:  make demo-osramp-up"
 }
 
 # Push the artifact and sign it, then prove the signature landed on that exact
-# digest. Mirrors the push/sign/verify sequence in scripts/push-local.sh --
-# including --registry-referrers-mode=legacy, which the previous version of
-# this script omitted, so its "restore" could leave a signature Flux would not
-# find. Echoes the digest. Idempotent: safe to call repeatedly.
+# digest. Mirrors the push/sign/verify sequence in scripts/push-local.sh.
+#
+# This used to pass --registry-referrers-mode=legacy and claim that omitting it
+# left "a signature Flux would not find". Measured against the pinned cosign
+# v3.0.6 on 2026-08-13, that is not so: legacy, oci-1-1 and omitting the flag all
+# store a key-based signature identically, as one OCI referrer of artifactType
+# application/vnd.dev.sigstore.bundle.v0.3+json with no sha256-<digest>.sig tag,
+# and Flux source-controller v1.9.4 reads that fine. The flag was inert, and the
+# comment asserting otherwise is what sent a later investigation after the
+# storage format instead of the signing key. Echoes the digest. Idempotent.
+#
+# NOTE: the verify below shares the tautology that scripts/push-local.sh now
+# guards against -- COSIGN_PUB is the public half of COSIGN_KEY, so this can only
+# pass. It proves the signature landed on this digest, not that the cluster will
+# accept it. push-local.sh's assert_signing_key_is_trusted covers the trust
+# question for every artifact this demo depends on, including this one.
 push_signed() {
   local revision="$1" digest
   digest="$(flux push artifact "${ARTIFACT}" \
@@ -86,7 +98,6 @@ push_signed() {
     --key "${COSIGN_KEY}" \
     --signing-config "${SIGNING_CONFIG}" \
     --allow-insecure-registry \
-    --registry-referrers-mode=legacy \
     "${REGISTRY}/${REPO}@${digest}" >/dev/null 2>&1 || return 1
 
   COSIGN_PASSWORD="" cosign verify \

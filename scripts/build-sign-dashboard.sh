@@ -140,7 +140,6 @@ COSIGN_PASSWORD="" cosign sign --yes \
   --key "${COSIGN_KEY}" \
   --signing-config "${SIGNING_CONFIG}" \
   --allow-insecure-registry \
-  --registry-referrers-mode=legacy \
   "${LOCAL_DIGEST_REF}"
 
 echo "loading ${IMAGE_REF} into kind cluster ${CLUSTER_NAME}"

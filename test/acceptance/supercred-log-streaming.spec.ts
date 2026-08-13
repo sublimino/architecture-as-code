@@ -186,8 +186,22 @@ async function expectLogVisibleWhileRunning(page: Page, what: string): Promise<v
 test("a reset streams its teardown output while it is still running", async ({ browser }) => {
   // Reset first, for two reasons: it needs no precondition (it is the verified
   // teardown, valid from any state), and it leaves the estate clean for the
-  // phase-1 run below. It is also reliably talkative — kubectl delete across
-  // several namespaces — which is what a progressive-arrival assertion needs.
+  // phase-1 run below.
+  //
+  // It is talkative ENOUGH for progressive arrival and no more, which is why
+  // this test asserts arrival and transport but NOT expectFollowsTail. Measured
+  // against the live estate: a reset of a fully deployed estate renders 11
+  // lines / 554 chars, and one of an already-clean estate renders 5 / 316. The
+  // log block auto-sizes to its content up to roughly 260px, so it first
+  // overflows at ~16 lines — a reset never reaches that from any starting
+  // state. expectFollowsTail is explicitly guarded on `overflows` and fails
+  // closed rather than passing vacuously, so asserting it here could only ever
+  // fail, whatever the component did. That is what its own message means by
+  // "Drive a phase that produces more output."
+  //
+  // No coverage is lost: tail-following is asserted on phase 1 below, which
+  // renders ~80 lines and overflows comfortably. What this test uniquely owns
+  // is the temporal claim in its title, and that is asserted in full.
   const context = await newAuthedContext(browser, { demoMode: false, superadmin: true });
   try {
     const page = await context.newPage();
@@ -203,15 +217,17 @@ test("a reset streams its teardown output while it is still running", async ({ b
     await expect(page.locator(RUN_STATUS)).toContainText(/Step\s+5\s+\(reset\)\s+—\s+succeeded/, {
       timeout: PHASE_TIMEOUT,
     });
-    // The post-run drain lands after the status word flips, so give it a moment
-    // to be recorded rather than reading the timeline mid-drain.
-    await expect(page.locator(`${RUN_LOG}-status`)).toHaveText(/succeeded/i, { timeout: 30_000 });
+    // The post-run drain lands after the status word flips, so wait for the log
+    // block to be present rather than reading the timeline mid-drain. Matches
+    // the harness spec's wait exactly: `${RUN_LOG}-status` was a string-concat
+    // slip that produced `[data-testid="supercred-run-log"]-status`, a selector
+    // no element can ever match, so this line could only ever time out.
+    await expect(page.locator(RUN_LOG)).toBeVisible({ timeout: 30_000 });
 
     const samples = await readLogSamples(page);
     test.info().attach("reset-timeline", { body: formatSamples(samples), contentType: "text/plain" });
 
     expectProgressiveArrival(samples, { what: "the reset" });
-    expectFollowsTail(samples, "the reset");
     expectDefaultTransport(transport, "the reset");
   } finally {
     await context.close();
@@ -242,9 +258,33 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     // ── The instructor scrolls up to read something ─────────────────────────
     // Assigning scrollTop fires a real `scroll` event, which is the same signal
     // a wheel produces and the one StreamingLogBlock's own onScroll listens to.
-    await scroll.evaluate((el) => {
-      el.scrollTop = 0;
-    });
+    //
+    // AWAITING that event is load-bearing, not tidiness. The assignment moves
+    // the viewport synchronously, but the browser DELIVERS `scroll`
+    // asynchronously, at frame time. StreamingLogBlock only learns it has been
+    // unpinned in its onScroll handler, so between the assignment and the
+    // event there is a window in which `pinnedRef` still reads true — and its
+    // useLayoutEffect, which DOES run synchronously on commit, will re-pin the
+    // view to the bottom if a log chunk lands inside it. The unpin is then lost
+    // entirely: the following scroll event observes the re-pinned position and
+    // records `pinned` all over again.
+    //
+    // That window is the difference between this test passing and failing, and
+    // it is a race the TEST creates rather than a property of the component.
+    // Observed here: run phase 1 against an already-deployed estate and output
+    // is slow enough at the 20-line mark that the event always wins; run it
+    // straight after a reset and lines 20→38 arrive inside one 200ms tick, the
+    // commit wins, and every one of the 19 in-flight samples reads pinned.
+    // A real instructor's wheel emits a stream of scroll events over many
+    // frames, so they unpin on the next tick; a single scripted assignment gets
+    // exactly one chance and has to wait for it.
+    await scroll.evaluate(
+      (el) =>
+        new Promise<void>((resolve) => {
+          el.addEventListener("scroll", () => resolve(), { once: true });
+          el.scrollTop = 0;
+        }),
+    );
     const afterScrollUp = await sampleCursor(page);
 
     // Wait for MORE lines rather than for a fixed line number: a live phase
@@ -254,9 +294,17 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     const beforeScrollDown = await sampleCursor(page);
 
     // ── They scroll back down, and following resumes ────────────────────────
-    await scroll.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
+    // Awaited for the same reason as the scroll up, in the mirror direction:
+    // until the event lands the component still believes it is unpinned, so a
+    // chunk committing in the window leaves the view where it is and the
+    // follows-tail assertion below reads a viewport that never caught up.
+    await scroll.evaluate(
+      (el) =>
+        new Promise<void>((resolve) => {
+          el.addEventListener("scroll", () => resolve(), { once: true });
+          el.scrollTop = el.scrollHeight;
+        }),
+    );
     const afterScrollDown = await sampleCursor(page);
     await waitForLine(page, (await currentLastLine(page)) + 10, { timeout: PHASE_TIMEOUT });
 

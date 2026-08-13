@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 
 interface Props {
   label: string
@@ -104,6 +104,40 @@ function samePlacement(a: Placement, b: Placement): boolean {
     && a.vertical === b.vertical && a.horizontal === b.horizontal
 }
 
+/**
+ * Every inherited text property that can deform a hint, pinned to a known value.
+ *
+ * A hint has to look identical wherever it is dropped, and the container it is
+ * dropped into gets a vote it never asked for: `text-transform`,
+ * `letter-spacing`, `white-space`, `font-weight`, `font-style`, `word-spacing`
+ * and `text-align` all inherit. A table header is the case that actually bit —
+ * every `th` in this codebase carries
+ * `{ textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap',
+ * fontWeight: 600 }` (DataTable, DashKit and the hand-rolled tables all agree
+ * on it), and the tooltip is a DOM descendant of that `th`. `position: fixed`
+ * moves where it paints, not where it inherits from, so a full sentence of
+ * explanation rendered in BOLD LETTER-SPACED CAPITALS ON ONE UNWRAPPABLE LINE.
+ *
+ * Fixed here rather than at each call site on purpose. There are ~40 HelpHints
+ * across the dashboard and any of them can be moved into a header later; a
+ * component that only looks right in the places someone remembered to defend is
+ * a component that is wrong by default.
+ *
+ * The font stack is spelled out for the same reason — a hint inside a `.mono`
+ * or `<code>` cell would otherwise render its "?" in JetBrains Mono. It matches
+ * `body` in global.css, which `.display`, `.number`, `.kicker` and `.label`
+ * already restate for the same reason.
+ */
+const IMMUNE_TO_INHERITED_TYPOGRAPHY: CSSProperties = {
+  fontFamily: "'Inter Tight', ui-sans-serif, system-ui, sans-serif",
+  textTransform: 'none',
+  letterSpacing: 'normal',
+  wordSpacing: 'normal',
+  fontStyle: 'normal',
+  fontVariant: 'normal',
+  textIndent: 0,
+}
+
 /** A compact, keyboard-accessible explanation for nearby dashboard controls. */
 export default function HelpHint({ label, children, testId, tone = 'var(--cyan)' }: Props) {
   const [open, setOpen] = useState(false)
@@ -157,6 +191,7 @@ export default function HelpHint({ label, children, testId, tone = 'var(--cyan)'
           onBlur={() => setOpen(false)}
           onFocus={() => setOpen(true)}
           style={{
+            ...IMMUNE_TO_INHERITED_TYPOGRAPHY,
             width: 18, height: 18, borderRadius: '50%', padding: 0,
             // Longhands, not the `border` shorthand: a shorthand carrying a
             // custom property is unreadable to jsdom, so the tone would be
@@ -164,6 +199,12 @@ export default function HelpHint({ label, children, testId, tone = 'var(--cyan)'
             borderWidth: 1, borderStyle: 'solid', borderColor: tone,
             background: 'transparent', color: tone,
             fontSize: 12, fontWeight: 700, lineHeight: 1, cursor: 'help',
+            // The 18px circle is the whole affordance, so the glyph has to be
+            // centred in it. Inherited `letter-spacing: 0.05em` from a `th`
+            // adds a right-side bearing after the "?" and shoves it visibly
+            // off-centre; the reset above kills that, and these two make the
+            // centring explicit rather than a default someone can inherit away.
+            textAlign: 'center', whiteSpace: 'nowrap',
           }}
         >
           ?
@@ -192,6 +233,12 @@ export default function HelpHint({ label, children, testId, tone = 'var(--cyan)'
             padding: '8px 10px', borderRadius: 4,
             background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--text)',
             boxShadow: '0 6px 18px rgba(0, 0, 0, 0.25)', fontSize: 12, lineHeight: 1.4,
+            ...IMMUNE_TO_INHERITED_TYPOGRAPHY,
+            // The three the popup needs beyond the shared reset. `whiteSpace`
+            // is the load-bearing one: the tooltip is sized to `placement.width`
+            // and a `nowrap` inherited from a `th` makes a sentence run straight
+            // out of the box the placement arithmetic just measured.
+            whiteSpace: 'normal', textAlign: 'left', fontWeight: 400,
           }}
         >
           {children}

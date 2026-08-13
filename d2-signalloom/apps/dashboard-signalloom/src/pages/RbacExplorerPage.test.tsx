@@ -83,7 +83,15 @@ const correlatedFixture = {
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 function response(ok: boolean, body?: unknown, status = ok ? 200 : 500): Response {
-  return { ok, status, json: vi.fn().mockResolvedValue(body) } as unknown as Response
+  // content-type is part of the shape here because the client reads it: a 200
+  // that is not JSON means the SPA catch-all answered instead of the API, and
+  // is reported as such rather than parsed (see RbacUnreachableError).
+  return {
+    ok,
+    status,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response
 }
 
 interface RouteOverrides {

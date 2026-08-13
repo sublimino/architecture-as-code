@@ -241,6 +241,39 @@ export function parseClusterMetaList(value: unknown): ClusterMeta[] {
     .filter(cluster => cluster.id !== '')
 }
 
+/**
+ * Thrown when the backend that should answer /api/rbac/* is not there.
+ *
+ * Two distinct absences produce this, and the message says which:
+ *
+ * - KubeSec-AFM is not deployed. The fe-signalloom API is up and detects this
+ *   itself (rbac_correlation.py's _afm_failure), returning 503 with code
+ *   `afm_not_deployed` and a message naming the remedy. This class carries
+ *   that message through rather than re-deriving it from a status code.
+ * - The fe-signalloom API itself is absent or /api/ is not proxied. Then
+ *   nothing answers as the API, the SPA catch-all serves index.html with
+ *   200 OK, and res.json() throws "Unexpected token '<'" — the same trap
+ *   FleetUnreachableError exists for. Content-type is the discriminator: a
+ *   200 that is not JSON is not an answer from this API.
+ */
+export class RbacUnreachableError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RbacUnreachableError'
+  }
+}
+
+/** Error codes rbac_correlation.py raises whose message is already actionable. */
+const BACKEND_ABSENT_CODES = new Set(['afm_not_deployed', 'afm_unreachable'])
+
+function notTheApiError(): RbacUnreachableError {
+  return new RbacUnreachableError(
+    'The Signal Loom API did not respond — the request was answered by the dashboard ' +
+      'itself, which means fe-signalloom is not deployed or /api/ is not proxied. ' +
+      'Run `make demo-signalloom-up` to deploy it.',
+  )
+}
+
 async function authedGet(path: string, token: string): Promise<unknown> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -253,14 +286,41 @@ async function authedGet(path: string, token: string): Promise<unknown> {
       try {
         const body: unknown = await res.json()
         if (isRecord(body) && isRecord(body.error) && typeof body.error.message === 'string') {
-          detail = ` ${body.error.message}`
+          const message = body.error.message
+          // The API already classified this and wrote an actionable sentence.
+          // Prefixing it with the URL and status buries the useful half under
+          // transport trivia the reader cannot act on, so surface it alone.
+          if (typeof body.error.code === 'string' && BACKEND_ABSENT_CODES.has(body.error.code)) {
+            throw new RbacUnreachableError(message)
+          }
+          detail = ` ${message}`
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof RbacUnreachableError) throw error
         /* body wasn't JSON — fall back to the bare status */
       }
       throw new Error(`RBAC correlation request failed for ${url} with status ${res.status}.${detail}`)
     }
-    return await res.json()
+
+    // `res.ok` is TRUE for the SPA fallback: with no API behind /api/, nginx's
+    // catch-all returns the dashboard shell with 200 OK, and the parse error
+    // that follows names the symptom while hiding the cause.
+    //
+    // Diagnosed on an EXPLICITLY non-JSON content-type, plus a failed parse as
+    // the backstop. Asserting the header must say JSON would reject a valid
+    // response that simply omits it; the header is evidence when present, and
+    // the parse is the evidence when it is not. nginx labels the shell
+    // text/html, so the real failure is caught either way.
+    const contentType = res.headers.get('content-type')
+    if (contentType !== null && !contentType.includes('json')) {
+      throw notTheApiError()
+    }
+    try {
+      return await res.json()
+    } catch (error) {
+      if (error instanceof SyntaxError) throw notTheApiError()
+      throw error
+    }
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error(`RBAC correlation request to ${url} timed out after ${FETCH_TIMEOUT_MS / 1000} seconds.`)

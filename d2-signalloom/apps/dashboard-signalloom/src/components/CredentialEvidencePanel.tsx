@@ -141,8 +141,23 @@ export function CredentialEvidencePanel({
   const [evidence, setEvidence] = useState<CredentialEvidence | null>(null)
   const [error, setError] = useState<{ title: string; detail?: string } | null>(null)
   const [loading, setLoading] = useState(false)
+  /**
+   * Which consoles are open — the ONLY source of truth for that, keyed by step
+   * number.
+   *
+   * There used to be a second one: a global `showAllCommands` flag, combined as
+   * `showAllCommands || open[step]`. While the flag was set the `||` re-asserted
+   * "open" on every render regardless of the map, so after "Show commands" a
+   * row's own "Hide proof" wrote `false` into the map and changed nothing on
+   * screen. The row control was dead for as long as the global one was on.
+   *
+   * The global button now SEEDS this map (see `toggleAllCommands`) instead of
+   * outranking it, so nothing derived can contradict a click. On a card whose
+   * entire purpose is showing an engineer the evidence rather than asking for
+   * trust, a control that looks like it works and does not is the worst defect
+   * available.
+   */
   const [open, setOpen] = useState<Record<number, boolean>>({})
-  const [showAllCommands, setShowAllCommands] = useState(false)
 
   // Held in a ref so a caller passing an inline arrow (a new identity every
   // render) cannot change `load`'s identity, retrigger the autoLoad effect and
@@ -198,6 +213,23 @@ export function CredentialEvidencePanel({
   const steps = useMemo(() => evidence?.steps ?? [], [evidence])
   const summary = useMemo(() => evidenceSummary(steps), [steps])
 
+  // Computed over the RENDERED rows, never over the whole map. A re-check that
+  // drops a step leaves its remembered `true` behind, and a vanished row must
+  // not be what makes this button offer to hide something — that is the same
+  // "stale state outranks what is on screen" fault the `||` had, one level up.
+  const anyCommandsOpen = useMemo(() => steps.some((s) => open[s.step] === true), [steps, open])
+
+  /**
+   * Seeds every row at once: open them all, or close them all.
+   *
+   * Replaces the map rather than merging into it, which also drops the entries
+   * for steps a re-check no longer returns.
+   */
+  const toggleAllCommands = useCallback(() => {
+    const next = !anyCommandsOpen
+    setOpen(Object.fromEntries(steps.map((s) => [s.step, next])))
+  }, [anyCommandsOpen, steps])
+
   return (
     <div data-testid="credential-evidence-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
@@ -224,15 +256,21 @@ export function CredentialEvidencePanel({
             <button
               type="button"
               data-testid="evidence-toggle-commands"
-              onClick={() => setShowAllCommands((v) => !v)}
+              onClick={toggleAllCommands}
               disabled={steps.length === 0}
               style={{ ...btn, ...(steps.length === 0 ? { opacity: 0.45, cursor: 'not-allowed' } : {}) }}
             >
-              {/* Derived, not stored. Opening every console and then hitting a
-                  failing Re-check would otherwise leave this reading "Hide
-                  commands" with nothing to hide. Deriving beats resetting the
-                  state, because a SUCCESSFUL re-check should keep them open. */}
-              {showAllCommands && steps.length > 0 ? 'Hide commands' : 'Show commands'}
+              {/* Read off the rows themselves, so the label always describes what
+                  the press will do. Opening every console and then hitting a
+                  failing Re-check leaves nothing rendered and nothing to hide,
+                  and this says so.
+
+                  ANY open row makes it "Hide commands", not only a full house:
+                  a button reading "Show commands" over five open rows would
+                  visibly do almost nothing when pressed, which is the same dead
+                  control this component just stopped shipping. One press always
+                  clears the screen. */}
+              {anyCommandsOpen ? 'Hide commands' : 'Show commands'}
             </button>
           </span>
           {/* Explains this button AND the per-row "How do we know?", which is
@@ -305,7 +343,7 @@ export function CredentialEvidencePanel({
       <div data-testid="evidence-steps" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {steps.map((step) => {
           const sc = STATE_STYLE[step.state]
-          const isOpen = showAllCommands || open[step.step] === true
+          const isOpen = open[step.step] === true
           return (
             <div
               key={step.step}
@@ -335,7 +373,11 @@ export function CredentialEvidencePanel({
                   <button
                     type="button"
                     data-testid={`evidence-disclose-${step.step}`}
-                    onClick={() => setOpen((prev) => ({ ...prev, [step.step]: !isOpen }))}
+                    // Flipped from the map itself, not from the derived `isOpen`
+                    // above: the row's own state is the thing being toggled, and
+                    // reading anything else back into the write is how the last
+                    // model let a global flag swallow this click.
+                    onClick={() => setOpen((prev) => ({ ...prev, [step.step]: prev[step.step] !== true }))}
                     style={{ ...btn, marginTop: 6, fontSize: 10 }}
                   >
                     {isOpen

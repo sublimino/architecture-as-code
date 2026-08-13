@@ -386,3 +386,100 @@ LOG
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"command terminated with exit code 2"* ]]
 }
+
+# ─── Timestamps: whose clock, and whose line ────────────────────────────────
+#
+# These live in this file rather than one of their own because the stubs above
+# are what make a complete step-4 run possible without a cluster, and step 4 is
+# the step that emits BOTH kinds of line: the script's own narration, and
+# output it is QUOTING from somewhere else — OpenBao's reply, the agent pod's
+# log. A timestamp is only true for a line the script printed at the moment it
+# printed it, so the two kinds are stamped differently and both halves of that
+# rule are asserted here.
+
+# A run under a non-UTC zone. Asia/Tokyo is +9 year-round, so a stamp that
+# followed the host's local time can never coincidentally equal UTC — unlike
+# Europe/London, which would make this test pass every winter for the wrong
+# reason.
+run_step4_in_tokyo() {
+	run bash -c "TZ=Asia/Tokyo PATH='$PATH' DOCKER_BIN='$DOCKER_BIN' '$script' 4 2>&1"
+}
+
+@test "every narration line is stamped with the instant it was printed" {
+	write_revoked_agent_log
+	run_step4
+	[ "$status" -eq 0 ]
+
+	local line unstamped="" narration=0
+	while IFS= read -r line; do
+		case "$line" in *"[supercred]"*) ;; *) continue ;; esac
+		narration=$((narration + 1))
+		if [[ ! "$line" =~ ^\[[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z\]\  ]]; then
+			unstamped="${unstamped}${line}"$'\n'
+		fi
+	done <<<"$output"
+
+	# Step 4 narrates far more than five lines; the floor only guards against a
+	# run that emitted nothing and vacuously satisfied the loop.
+	[ "$narration" -ge 5 ]
+	[ -z "$unstamped" ] || {
+		printf 'narration lines with no timestamp:\n%s' "$unstamped" >&2
+		false
+	}
+}
+
+# The same script runs from a terminal in Europe/London and from the
+# demo-runner pod, whose image sets no TZ and is therefore UTC. Local time
+# would render one instant two ways with nothing on the line to say which.
+@test "the stamp is UTC, so a terminal and the demo-runner pod agree" {
+	write_revoked_agent_log
+	local before after first
+	before="$(date -u +%H:%M)"
+	run_step4_in_tokyo
+	after="$(date -u +%H:%M)"
+	[ "$status" -eq 0 ]
+
+	first="$(printf '%s\n' "$output" | grep -oE '^\[[0-9]{2}:[0-9]{2}' | head -1)"
+	first="${first#[}"
+	# Either side of a minute rollover is fine; nine hours out is not.
+	[ "$first" = "$before" ] || [ "$first" = "$after" ]
+}
+
+@test "stamps never go backwards over the course of a run" {
+	write_revoked_agent_log
+	run_step4
+	[ "$status" -eq 0 ]
+
+	local stamps sorted
+	stamps="$(printf '%s\n' "$output" | grep -oE '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}Z\]')"
+	[ -n "$stamps" ]
+	# HH:MM:SS sorts lexicographically in chronological order.
+	sorted="$(printf '%s\n' "$stamps" | sort)"
+	[ "$stamps" = "$sorted" ]
+}
+
+# The agent's line was printed inside a pod, and this script reads it back
+# after the Job has already failed — a delay of up to SUPERCRED_STUN_EVIDENCE_-
+# TIMEOUT seconds. Stamping it with the moment the script echoed it would put a
+# false time on a real event, in a demo whose entire subject is evidence. Same
+# for OpenBao's reply, which is quoted, not narrated.
+@test "output the script is quoting from elsewhere is left unstamped" {
+	write_revoked_agent_log
+	run_step4
+	[ "$status" -eq 0 ]
+
+	# Deliberately NOT written as `! grep -q …`: bash exempts a !-inverted
+	# command from errexit, so under bats such a line is inert and passes
+	# whatever the output says. Capturing the offenders and asserting the
+	# capture is empty is the form that can actually fail.
+	local fabricated
+	fabricated="$(printf '%s\n' "$output" \
+		| grep -E '^\[[0-9]{2}:[0-9]{2}:[0-9]{2}Z\].*(\[step-2\] FAILED|Success! Data deleted)' || true)"
+	[ -z "$fabricated" ] || {
+		printf 'quoted output was given a timestamp it did not earn:\n%s\n' "$fabricated" >&2
+		false
+	}
+
+	# Present, verbatim, and still recognisable at the start of its own line.
+	printf '%s\n' "$output" | grep -qE '^[[:space:]]*\[step-2\] FAILED: OpenBao login'
+}

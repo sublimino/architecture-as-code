@@ -1,8 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback, lazy, Suspense } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, matchPath } from 'react-router-dom'
 import { useAuth0 } from './auth/oidc'
 import { useSuperadmin } from './auth/superadmin'
-import Sidebar from './components/Sidebar'
+import Sidebar, { NAV } from './components/Sidebar'
+import PixelLoader from './components/PixelLoader'
 import ProtectedRoute from './auth/ProtectedRoute'
 import DemoToggle from './components/DemoToggle'
 import ThemeToggle from './components/ThemeToggle'
@@ -91,11 +92,103 @@ export function useAppContext() {
   return useContext(AppContext)
 }
 
-function Spinner() {
+// ─── Waiting ─────────────────────────────────────────────────────────────────
+//
+// App has two waits, and until now each drew a rotating ring of its own. That
+// is what produced the double-loader users saw on every navigation: the ring
+// while the route chunk downloaded, then the Signal Loom mark once the page
+// mounted and rendered its own LoadingState. Two idioms, back to back, for one
+// continuous wait.
+//
+// Both waits now draw the brand mark, so a navigation shows one loader that is
+// simply relabelled as the page takes over.
+//
+// PixelLoader directly, not LoadingState. LoadingState is a *phase* component:
+// idle / loading / success / error, with the stamps and the "last refreshed
+// 12s ago" line that go with them. Neither of these two surfaces has phases —
+// a chunk that fails to load throws to an error boundary rather than settling
+// into an error state, and the auth gate resolves by rendering the app or
+// redirecting away. Feeding a four-phase machine a constant `status="loading"`
+// to get at the loader inside it would be using the wrapper for a side effect.
+// OnboardingWizard is the other way round and uses LoadingState, correctly:
+// its initial load really can fail in place, and already rendered LoadingState
+// for that.
+
+/**
+ * Destinations that are not in the Sidebar's NAV: detail pages, and the flows
+ * only ever arrived at by redirect. NAV supplies the rest, so a new nav entry
+ * gets a loading label for free and the label the user reads while waiting is
+ * the same word they just clicked.
+ */
+const EXTRA_ROUTE_LABELS: Record<string, string> = {
+  '/agents/:id': 'Agent',
+  '/discovery/accounts/:accountId': 'Account',
+  '/compliance/:frameworkId': 'Framework',
+  '/fleet/audience': 'Fleet Demo',
+  '/onboarding': 'Setup',
+  '/help/connectors/:provider': 'Connector Help',
+  '/redeem-invite': 'Invite',
+}
+
+/**
+ * What to call the page whose chunk is being fetched.
+ *
+ * The Suspense fallback sits above the Routes and so is not told which route
+ * it is covering — but App already holds the pathname (it keys the fade on it),
+ * and that is enough to name the destination. Worth doing: "Loading" is the
+ * one label PixelLoader's own docs tell callers not to use, and the fallback
+ * is on screen for precisely the moment the user is wondering whether their
+ * click registered.
+ */
+export function routeLoadingLabel(pathname: string): string {
+  const patterns: [string, string][] = [
+    ...NAV.map((item): [string, string] => [item.to, item.label]),
+    ...Object.entries(EXTRA_ROUTE_LABELS),
+  ]
+  // Exact patterns before parameterised ones. `/compliance/:frameworkId`
+  // matches `/compliance/policies` perfectly well, so a plain first-match walk
+  // in declaration order would label the Policy Compliance page "Framework".
+  // Within each group order is irrelevant: matchPath is a whole-path match, so
+  // no two distinct exact patterns can both hit the same pathname.
+  const ordered = [
+    ...patterns.filter(([pattern]) => !pattern.includes(':')),
+    ...patterns.filter(([pattern]) => pattern.includes(':')),
+  ]
+  for (const [pattern, label] of ordered) {
+    if (matchPath(pattern, pathname)) return `Loading ${label}`
+  }
+  return 'Loading'
+}
+
+/**
+ * The brand mark, centred, for a surface that is doing nothing else yet.
+ *
+ * One live region, and it is PixelLoader's own (`announce` defaults true) —
+ * this wrapper adds none. Announcing on navigation is the deliberate choice
+ * rather than an accident of the default: a client-side route change is
+ * otherwise completely silent to a screen reader, so "Loading Compliance" is
+ * the only confirmation that the click did anything. It is polite, so it
+ * queues rather than interrupts, and it only ever fires when the chunk is not
+ * already cached — which is exactly when there is something worth saying.
+ *
+ * `minHeight` rather than a height: the box must never be taller than the
+ * space it sits in, or the scrollbar appears while loading and vanishes when
+ * the page swaps in, and the whole column shifts sideways twice. The ring this
+ * replaces asked for `height: 100vh` inside a container already carrying 28px
+ * of padding, and did exactly that.
+ */
+function AppLoader({ label, minHeight, testId }: { label: string; minHeight: string; testId: string }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)' }}>
-      <div style={{ width: 36, height: 36, border: '3px solid var(--border)', borderTopColor: 'var(--cyan)', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        minHeight,
+        background: 'var(--bg)',
+      }}
+    >
+      <PixelLoader label={label} testId={testId} />
     </div>
   )
 }
@@ -183,7 +276,10 @@ export default function App() {
     setConsentRequired(false)
   }
 
-  if (isLoading) return <Spinner />
+  // "Signing in", not "Loading": this wait is the OIDC library resolving an
+  // existing session or completing a redirect callback, and that is a thing
+  // worth naming.
+  if (isLoading) return <AppLoader label="Signing in" minHeight="100vh" testId="auth-loading" />
 
   const onboardingGateExempt =
     location.pathname === '/onboarding' || location.pathname.startsWith('/help/connectors')
@@ -227,7 +323,11 @@ export default function App() {
             />
           )}
           <div key={location.pathname} className="fade-in" style={{ padding: '28px 32px', maxWidth: 1172, margin: '0 auto', minHeight: '100%' }}>
-            <Suspense fallback={<Spinner />}>
+            {/* 60vh, not the full height: the container this sits in is at
+                most one viewport tall and already spends 56px of it on
+                padding, so a taller box would toggle a scrollbar for the
+                duration of the chunk fetch. */}
+            <Suspense fallback={<AppLoader label={routeLoadingLabel(location.pathname)} minHeight="60vh" testId="route-loading" />}>
               <Routes>
                 <Route path="/redeem-invite" element={<RedeemInvitePage />} />
                 <Route path="/signup" element={<Navigate to="/redeem-invite" replace />} />

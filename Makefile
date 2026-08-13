@@ -491,6 +491,23 @@ demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization b
 demo-signalloom-supercred-two-window: ## Two-browser-context proof that phase 4 stuns the audience window with no reload (cluster required).
 	./scripts/acceptance-test.sh supercred-two-window.spec.ts
 
+.PHONY: demo-signalloom-supercred-stream
+demo-signalloom-supercred-stream: ## Prove the instructor run log arrives progressively while a phase runs, not in one frame at the end (cluster required).
+	./scripts/acceptance-test.sh supercred-log-streaming.spec.ts
+
+# The same streaming assertions with NO cluster: a scripted runner
+# (test/acceptance/harness/server.ts) driving the real
+# SuperCredInstructorPanel and StreamingLogBlock, plus a negative control that
+# reproduces the original batching defect and requires the assertions to fail
+# against it. ~25s. Deliberately not routed through scripts/acceptance-test.sh:
+# that script establishes cluster port-forwards and runs a Gateway preflight,
+# every one of which this target exists to do without.
+.PHONY: demo-signalloom-supercred-stream-harness
+demo-signalloom-supercred-stream-harness: ## Prove the instructor run log streams, against a scripted runner (no cluster required).
+	cd test/acceptance && { [ -d node_modules/@playwright ] || bun install; } && \
+		bunx playwright test supercred-log-streaming-harness.spec.ts \
+			--project=supercred-log-streaming-harness
+
 .PHONY: demo-signalloom-supercred-1
 demo-signalloom-supercred-1: demo-signalloom-supercred-images ## Step 1: Deploy services, agent, OpenBao secrets, SPIRE entry.
 	./scripts/supercred-demo.sh 1

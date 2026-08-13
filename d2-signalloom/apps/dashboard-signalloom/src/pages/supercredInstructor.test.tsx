@@ -497,6 +497,93 @@ describe('the run log streams in incrementally', () => {
     expect(screen.getByTestId('supercred-run-log')).not.toHaveTextContent('\u001b[')
   })
 
+  // The panel strips the runner's escape bytes for DISPLAY only. What it must
+  // hand the block is the raw stream: the clipboard is where a failed run goes
+  // when it leaves this screen — into a terminal, an issue, or a message to us
+  // — and the bytes the runner actually emitted are the honest artefact. A
+  // panel that passes its own stripped display text instead loses that quietly
+  // and looks identical on screen.
+  it('gives Copy the raw runner bytes, not the stripped text on screen', async () => {
+    const writeText = vi.fn(async () => {})
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    const raw = '\u001B[1;36m[supercred]\u001B[0m tearing down\n'
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'succeeded', exit_code: 0 })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 42, chunk: raw, eof: true })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-5'))
+
+    const copy = await screen.findByTestId('supercred-run-log-copy', {}, { timeout: 4000 })
+    await userEvent.click(copy)
+
+    expect(writeText).toHaveBeenCalledWith(raw)
+  })
+
+  it('heads the log with the phase it is the log OF, and that phase\'s status', async () => {
+    // Projected on a wall, an unlabelled log is output from nowhere. The
+    // runner's own step title is the honest label — and it must not be stuck
+    // in the present tense, because this header outlives the run.
+    //
+    // Phase 2, not phase 4: phase 4 alone clears `activeRun` on success (its
+    // audit branch lets the poll effect tear down mid-await, so the
+    // `setActiveRun(run)` after `finishRun` never runs), which takes the whole
+    // run status line down with it. Pre-existing, unrelated to the log block,
+    // and not this change's to fix.
+    mockRunner({
+      startResponse: runView({ step_id: '2', status: 'running' }),
+      pollRuns: [runView({ step_id: '2', status: 'succeeded', exit_code: 0 })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 20, chunk: 'minting the SVID\n', eof: true })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-2'))
+
+    await waitFor(
+      () => expect(screen.getByTestId('supercred-run-log-title')).toHaveTextContent('Phase 2 · Credential chain'),
+      { timeout: 4000 },
+    )
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log-status')).toHaveTextContent('succeeded'), {
+      timeout: 4000,
+    })
+  })
+
+  it('heads a reset with "Reset" rather than a phase number', async () => {
+    mockRunner({
+      startResponse: runView({ step_id: '5', kind: 'reset', status: 'running' }),
+      pollRuns: [runView({ step_id: '5', kind: 'reset', status: 'succeeded', exit_code: 0 })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 20, chunk: 'tearing down\n', eof: true })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-reset'))
+    await userEvent.click(await screen.findByTestId('supercred-reset-confirm'))
+
+    const title = await screen.findByTestId('supercred-run-log-title', {}, { timeout: 4000 })
+    await waitFor(() => expect(title).toHaveTextContent('Reset'))
+    expect(title).not.toHaveTextContent('Phase')
+  })
+
+  it('marks the log live while the phase runs and settles it when the phase ends', async () => {
+    // The caret is the only thing on the block that says "more is coming". It
+    // has to track the run, not the presence of output — a finished log wearing
+    // a caret tells an instructor to keep waiting for a script that has exited.
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' }), runView({ status: 'succeeded', exit_code: 0 })],
+      pollLogs: [
+        logChunk({ offset: 0, next_offset: 14, chunk: 'step 1: deploy\n', eof: false }),
+        logChunk({ offset: 14, next_offset: 14, chunk: '', eof: true }),
+      ],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log-caret')).toBeInTheDocument(), {
+      timeout: 4000,
+    })
+    await waitFor(() => expect(screen.queryByTestId('supercred-run-log-caret')).toBeNull(), { timeout: 4000 })
+  })
+
   it('appends each chunk and advances the offset it asks for next', async () => {
     mockRunner({
       startResponse: runView({ status: 'running' }),

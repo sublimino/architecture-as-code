@@ -49,11 +49,29 @@ const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
 
 const http = axios.create({ baseURL: BASE })
 
+// How long a demo fixture pretends to be on the network. Named because the
+// cancellation path below has to clear this timer rather than let it fire.
+const DEMO_LATENCY_MS = 120
+
 // Coalesce identical concurrent GETs so an accidental render storm (or rapid
 // re-mounts) cannot fan out into hundreds of duplicate backend calls. Only
 // in-flight requests share a promise; sequential and interval refreshes are
 // unaffected.
-const inflightGets = new Map<string, Promise<unknown>>()
+//
+// `waiters` is what makes per-caller cancellation safe here. A coalesced
+// request has more than one consumer by construction, so one caller aborting
+// must NOT kill the HTTP request the others are still waiting on — it may only
+// detach that caller. The shared request is aborted when, and only when, the
+// last waiter has left. A caller that passed no signal is uncancellable and so
+// pins the request open, which is the correct conservative reading of "this
+// consumer cannot be told to stop caring".
+interface InflightGet {
+  promise: Promise<unknown>
+  controller: AbortController
+  waiters: number
+}
+
+const inflightGets = new Map<string, InflightGet>()
 
 // Merge union: both helpers below are live in the merged req(). demoModeError
 // (feat/supercred-agents-unify) makes an unresolvable demo route fail loudly
@@ -100,12 +118,94 @@ async function applyDemoProjection<T>(method: string, path: string, data: T): Pr
   }
 }
 
+/**
+ * The rejection every cancelled request produces.
+ *
+ * Named `AbortError` because callers have to be able to tell "you stopped
+ * caring" apart from "the service failed" — a page that renders the first as
+ * the second reports an outage that never happened.
+ */
+function abortError(): ApiLikeError {
+  const err = new Error('Request aborted') as ApiLikeError
+  err.name = 'AbortError'
+  return err
+}
+
+/**
+ * The demo fixture's simulated latency, as a promise that can actually be
+ * cancelled.
+ *
+ * `clearTimeout` rather than a resolved-but-ignored timer is the whole point:
+ * an abandoned timer still fires, still holds its callback alive, and — if the
+ * caller has gone away in the meantime — still runs that callback in whatever
+ * the environment has become by then.
+ */
+function delayedFixture<T>(value: T, signal?: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(abortError())
+      return
+    }
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(abortError())
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve(value)
+    }, DEMO_LATENCY_MS)
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+/**
+ * Detach one caller from a coalesced request, aborting the shared HTTP call
+ * only once nobody is left waiting on it.
+ */
+function releaseInflight(url: string, entry: InflightGet): void {
+  entry.waiters -= 1
+  if (entry.waiters > 0) return
+  entry.controller.abort()
+  if (inflightGets.get(url) === entry) inflightGets.delete(url)
+}
+
+/** One caller's view of a coalesced request, cancellable independently. */
+function joinInflight<T>(url: string, entry: InflightGet, signal?: AbortSignal): Promise<T> {
+  if (!signal) return entry.promise as Promise<T>
+  if (signal.aborted) {
+    releaseInflight(url, entry)
+    return Promise.reject(abortError())
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      releaseInflight(url, entry)
+      reject(abortError())
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    // Attached for every waiter, including one that has already been rejected
+    // by its own abort — settling an already-settled promise is a no-op, and
+    // the handler is what keeps a cancelled shared request from surfacing as an
+    // unhandled rejection.
+    entry.promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value as T)
+      },
+      (err) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(err)
+      },
+    )
+  })
+}
+
 async function req<T>(
   path: string,
   token: string,
-  config?: { method?: string; data?: unknown },
+  config?: { method?: string; data?: unknown; signal?: AbortSignal },
 ): Promise<T> {
   const method = config?.method ?? 'GET'
+  const signal = config?.signal
   // Demo mode: short-circuit to local fixtures so every screen renders even
   // when the backend API is unavailable / in development. No call sites change.
   // If a demo route cannot resolve, fail explicitly instead of escaping back to
@@ -113,7 +213,7 @@ async function req<T>(
   if (isDemoMode()) {
     const fake = resolveFake(method, path, config?.data)
     if (fake !== undefined) {
-      const settled = await new Promise<T>((resolve) => setTimeout(() => resolve(fake as T), 120))
+      const settled = await delayedFixture(fake as T, signal)
       return applyDemoProjection(method, path, settled)
     }
     const status = hasFakeRoute(method, path) ? 404 : 501
@@ -125,7 +225,7 @@ async function req<T>(
     )
   }
   const url = path.startsWith('/api') ? path : `/api${path}`
-  const send = () =>
+  const send = (requestSignal?: AbortSignal) =>
     http
       .request<T>({
         url,
@@ -135,20 +235,33 @@ async function req<T>(
           Authorization: `Bearer ${token}`,
         },
         data: config?.data,
+        signal: requestSignal,
       })
       .then((res) => res.data)
 
+  // Not coalesced, so this caller owns the request outright and its signal can
+  // go straight to axios.
   if (method.toUpperCase() !== 'GET') {
-    return applyDemoProjection(method, path, await send())
+    return applyDemoProjection(method, path, await send(signal))
   }
 
   // Coalesce on the raw response so concurrent callers share one HTTP request,
   // then project per-caller — the projection is pure and cheap.
-  const existing = inflightGets.get(url) as Promise<T> | undefined
-  if (existing) return applyDemoProjection(method, path, await existing)
-  const promise = send().finally(() => inflightGets.delete(url))
-  inflightGets.set(url, promise)
-  return applyDemoProjection(method, path, await promise)
+  const existing = inflightGets.get(url)
+  if (existing) {
+    existing.waiters += 1
+    return applyDemoProjection(method, path, await joinInflight<T>(url, existing, signal))
+  }
+  const controller = new AbortController()
+  const entry: InflightGet = {
+    controller,
+    waiters: 1,
+    promise: send(controller.signal).finally(() => {
+      if (inflightGets.get(url) === entry) inflightGets.delete(url)
+    }),
+  }
+  inflightGets.set(url, entry)
+  return applyDemoProjection(method, path, await joinInflight<T>(url, entry, signal))
 }
 
 export const api = {
@@ -278,8 +391,11 @@ export const api = {
   },
 
   health: {
-    crypto: (token: string) =>
-      req<CryptoHealthResponse>('/health/crypto', token),
+    // Takes a signal because CryptographyPage is mounted and unmounted far
+    // faster than this call settles, and an uncancellable request there writes
+    // React state into a tree that has already gone.
+    crypto: (token: string, signal?: AbortSignal) =>
+      req<CryptoHealthResponse>('/health/crypto', token, { signal }),
   },
 
   networkTests: {

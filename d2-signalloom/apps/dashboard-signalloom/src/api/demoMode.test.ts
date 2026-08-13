@@ -115,6 +115,12 @@ describe('demo mode', () => {
         Authorization: 'Bearer users-token',
       },
       data: undefined,
+      // Every coalesced GET now carries the signal of the AbortController that
+      // client.ts owns on its behalf, so that the last caller to walk away can
+      // actually cancel the request rather than leave it running into a page
+      // that has gone. Present on every such call, whether or not any caller
+      // passed a signal of its own.
+      signal: expect.any(AbortSignal),
     })
   })
 

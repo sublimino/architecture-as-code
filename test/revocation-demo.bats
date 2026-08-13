@@ -170,7 +170,21 @@ restore_pushes()  { grep -cE 'flux push artifact.*(restored|restore-on-exit)@' "
   [[ "$output" == *"could not restore"* ]]
 }
 
-@test "the restore push is signed with the legacy referrers mode Flux reads" {
+@test "the restore push signs the exact digest it just pushed" {
+  # This replaces an assertion that the push passed --registry-referrers-mode=legacy,
+  # "the legacy referrers mode Flux reads". That was measured false on 2026-08-13:
+  # under the pinned cosign v3.0.6, legacy, oci-1-1 and omitting the flag all store
+  # a key-based signature identically -- one sigstore-bundle OCI referrer, never a
+  # sha256-<digest>.sig tag -- and Flux source-controller v1.9.4 verifies that form
+  # without complaint. The flag was inert, so asserting it proved nothing about
+  # whether Flux would accept the restore, while reading as though it did. It sent
+  # a later investigation of a genuine Ready=False after the storage format when
+  # the real fault was a signing key the cluster did not trust.
+  #
+  # What actually matters here is the property the flag was standing in for: the
+  # signature must land on the digest this push produced. Signing anything else --
+  # a tag that a concurrent push can move -- is what strands `latest` on an
+  # artifact Flux refuses. See test/cosign-signing-consistency.bats.
   run_demo READY_STATUS=True
-  grep -q 'registry-referrers-mode=legacy' "${CMD_LOG}"
+  grep -q 'cosign sign .*@sha256:' "${CMD_LOG}"
 }

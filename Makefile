@@ -306,7 +306,6 @@ cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign 
 		--key $(KEYS_DIR)/cosign.key \
 		--signing-config $(KEYS_DIR)/signing-config.json \
 		--allow-insecure-registry \
-		--registry-referrers-mode=legacy \
 		"localhost:5001/acme/images/cpai/apps/cpai-runtime@$${DIGEST}"
 
 .PHONY: workload-key
@@ -610,6 +609,10 @@ test-bao-spire-proof-harness: ## Verify positive and negative Bao/SPIRE runtime-
 .PHONY: test-revocation-demo-safety
 test-revocation-demo-safety: ## Verify revocation-demo never strands an unsigned artifact (local fake flux/cosign/kubectl).
 	bats test/revocation-demo.bats
+
+.PHONY: test-cosign-signing-consistency
+test-cosign-signing-consistency: ## Assert every cosign sign call site agrees and push-local verifies against the cluster's key (no cluster required).
+	bats test/cosign-signing-consistency.bats
 
 .PHONY: attested-test
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.

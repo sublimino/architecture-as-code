@@ -264,3 +264,34 @@ setup() {
 		}' "$df")
 	[ "$missing" -eq 0 ]
 }
+
+@test "the fingerprint ignores untracked build artefacts, so it survives a test run" {
+	# The runner COPYs the whole of fe-signalloom/src, so running pytest once
+	# leaves .coverage and a tree of .pyc files inside a hashed path. Before the
+	# excludes, that changed the fingerprint every time anyone ran the suite, and
+	# two checkouts of the same commit disagreed (dda1d702 vs 95b668d2, differing
+	# in nothing else). A guard that reports drift against a matching deployment
+	# is a guard that gets ignored.
+	local src="$root/d2-signalloom/apps/fe-signalloom/src"
+	local probe="$src/__pycache__/zz_guard_probe.cpython-312.pyc"
+	local before after
+	before="$(source_id_for supercred-demo-runner)"
+
+	mkdir -p "$src/__pycache__"
+	printf 'not real bytecode' >"$probe"
+	after="$(source_id_for supercred-demo-runner)"
+	rm -f "$probe"
+	rmdir "$src/__pycache__" 2>/dev/null || true
+
+	[ -n "$before" ]
+	[ "$before" = "$after" ]
+
+	# And the converse, so this cannot pass by the fingerprint being constant:
+	# a real source file the image COPYs must still move it.
+	local real="$src/zz_guard_probe_real.py"
+	printf '# a file the Dockerfile COPYs\n' >"$real"
+	local changed
+	changed="$(source_id_for supercred-demo-runner)"
+	rm -f "$real"
+	[ "$before" != "$changed" ]
+}

@@ -16,29 +16,58 @@ test.setTimeout(Number(process.env.SIGNALLOOM_TEST_TIMEOUT ?? 30_000));
 // Href is also stable against the failing-control and agent-count badges that
 // render inside the Compliance and Agents links, which change the accessible
 // name to "Compliance 7" / "Agents 12" whenever those counts are non-zero.
+// Each journey is [name, href, h1, bodyMarker?].
+//
+// The h1 is asserted by role, NOT with getByText, and that distinction is the
+// whole point of this matrix. Until now every marker here was a bare
+// getByText(title).first(), and for seven of the eight journeys the title was
+// ALSO the sidebar's own label for that route — "Compliance", "Audit Trail",
+// "Cryptography", "Federated Services", "Collusion", "Settings", and "Agents"
+// for the root. getByText matches the whole document, the sidebar renders on
+// every route, and .first() takes whatever comes earliest in the DOM, which is
+// the nav link. Those seven assertions therefore passed whenever the sidebar
+// rendered — including when the route body rendered nothing at all, and
+// including when the app had redirected away from the route under test
+// entirely. They could not fail. Only the Agents journey, whose marker lives
+// solely in page content, was capable of catching the onboarding-gate
+// regression, and it was the only one that did.
+//
+// A heading lookup closes that hole without inventing per-page markers. Nav
+// links are links, not headings, so the sidebar cannot satisfy it; and the
+// onboarding wizard — the specific thing that used to hide behind these
+// assertions — has its own h1 of "Welcome to Signal Loom", so a gated route
+// now fails here instead of passing on the strength of the sidebar.
+//
+// bodyMarker is for content that proves the page did more than print its
+// title. Only /agents carries one today: "Register Agent" is a real control
+// rendered by GovernedTab's toolbar, so it is absent whenever the tab is
+// showing its loading or error state rather than the governed list.
 const pages = [
-  ["Dashboard root", null, "Agents"],
-  // "Governed" was a tab label on AgentsPage; GovernedTab is now rendered
-  // unconditionally with no visible tab UI, so the literal text never
-  // appears — "Register Agent" is the stable content marker smoke.spec.ts
-  // already relies on for this page.
-  ["Agents", "/agents", "Register Agent"],
+  ["Dashboard root", null, "Agents", "Register Agent"],
+  ["Agents", "/agents", "Agents", "Register Agent"],
   ["Compliance", "/compliance", "Compliance"],
   ["Audit Trail", "/audit", "Audit Trail"],
   ["Cryptography", "/cryptography", "Cryptography"],
   ["Federated Services", "/federated-services", "Federated Services"],
-  ["Collusion & Access", "/collusion-access", "Collusion"],
+  ["Collusion & Access", "/collusion-access", "Collusion & Access"],
   ["Settings", "/settings", "Settings"],
 ] as const;
 
 test.describe("SignalLoom TEST-1 dashboard matrix", () => {
-  for (const [journey, href, title] of pages) {
+  for (const [journey, href, h1, bodyMarker] of pages) {
     test(`${journey} opens through the integrated dashboard`, async ({ page }) => {
       await page.goto(DASHBOARD_URL);
-      await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({ timeout: 10_000 });
-      // A freshly authenticated browser is deliberately greeted by onboarding,
-      // which is modal and covers the page route under test. Dismiss it through
-      // the visible operator control before asserting route-specific content.
+      // The sidebar is the readiness signal here and nothing more — it says the
+      // SPA has authenticated and mounted. It deliberately does NOT stand in for
+      // the route body, which is what the h1 below is for.
+      await expect(page.locator("nav a[href='/agents']")).toBeVisible({ timeout: 10_000 });
+      // Onboarding is dismissed once in auth.setup.ts, before storageState is
+      // captured, so by here the gate is already suppressed for every journey.
+      // This stays as a fallback for a context that somehow arrives without it,
+      // but it must not be relied on: isVisible() is an instantaneous check and
+      // "Skip for now" renders ~470ms after the gate above resolves, so on a
+      // gated context it reads false and does nothing. That race is exactly how
+      // the onboarding redirect went unnoticed.
       const skipOnboarding = page.getByRole("button", { name: "Skip for now" });
       if (await skipOnboarding.isVisible().catch(() => false)) {
         await skipOnboarding.click();
@@ -54,7 +83,10 @@ test.describe("SignalLoom TEST-1 dashboard matrix", () => {
         // match then silently stops matching. Href is stable against both.
         await page.locator(`nav a[href="${href}"]`).click();
       }
-      await expect(page.getByText(title, { exact: false }).first()).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: h1 })).toBeVisible();
+      if (bodyMarker !== undefined) {
+        await expect(page.getByText(bodyMarker, { exact: false }).first()).toBeVisible();
+      }
     });
   }
 

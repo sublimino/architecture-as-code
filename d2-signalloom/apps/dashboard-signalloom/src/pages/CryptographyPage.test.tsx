@@ -245,6 +245,48 @@ describe('CryptographyPage', () => {
     })
   })
 
+  // The page mounts, fires the proof request, and — in every synchronous test
+  // above — is unmounted by Testing Library's auto-cleanup long before that
+  // request settles. Nothing here used to stop it, so the fixture's 120ms timer
+  // outlived the test file and React ran `dispatchSetState` against a torn-down
+  // jsdom, failing the whole suite with all 1611 tests green. The guarantee
+  // below is what closes that, and it is the same guarantee a user navigating
+  // away from /cryptography mid-request depends on.
+  describe('leaves nothing running behind it', () => {
+    /** The signal handed to the most recent proof request. */
+    function latestSignal(): AbortSignal | undefined {
+      const calls = cryptoSpy.mock.calls
+      return calls[calls.length - 1]?.[1]
+    }
+
+    it('aborts the in-flight proof request when the page unmounts', async () => {
+      const { unmount } = renderPage()
+      await waitFor(() => expect(cryptoSpy).toHaveBeenCalled())
+
+      const signal = latestSignal()
+      expect(signal).toBeInstanceOf(AbortSignal)
+      expect(signal?.aborted).toBe(false)
+
+      unmount()
+
+      expect(signal?.aborted).toBe(true)
+    })
+
+    it('supersedes an outstanding attempt when Retry is pressed', async () => {
+      cryptoSpy.mockRejectedValueOnce(new Error('network error'))
+      renderPage()
+
+      const retry = await screen.findByRole('button', { name: /retry/i })
+      const firstSignal = latestSignal()
+
+      fireEvent.click(retry)
+
+      await waitFor(() => expect(cryptoSpy.mock.calls.length).toBeGreaterThan(1))
+      expect(firstSignal?.aborted).toBe(true)
+      expect(latestSignal()?.aborted).toBe(false)
+    })
+  })
+
   it('makes the Key exchange column click through to the matching Algorithm Inventory row', () => {
     renderPage()
     const links = screen.getAllByRole('button', { name: /View ECDHE P-256 in Algorithm Inventory/ })

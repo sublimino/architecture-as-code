@@ -1,0 +1,76 @@
+# SPEC-REGISTRY.tsv — where every acceptance spec actually runs.
+#
+# Enforced by test/acceptance-spec-coverage.bats (CI stage 1c). Adding a spec
+# to this directory without adding a row here is a stage-1c failure, and so is
+# a row whose claim disagrees with playwright.config.ts, the Makefile, or
+# scripts/ci/vm-pipeline.sh.
+#
+# ─── Why this file exists ───────────────────────────────────────────────────
+#
+# Commit d9d1d2f rewrote a test in smoke.spec.ts to assert the Collusion &
+# Access page carries no page-specific background. Nothing enforced it: at that
+# point smoke.spec.ts appeared in no CI stage and no make target, so the
+# assertion could regress silently and forever. It was not the only one — of 15
+# specs on disk, CI ran exactly one.
+#
+# Worse, four specs matched no `testMatch` in playwright.config.ts at all, so
+# they ran nowhere, not even under a bare `make acceptance-test`. Playwright
+# does not warn about a spec no project claims; it simply reports a smaller
+# total. `bunx playwright test --list` on 978dfea says "70 tests in 12 files"
+# against 16 files on disk, and nothing draws attention to the missing four.
+#
+# This is the same defect class as the dashboard vitest suite (fixed by CI
+# stage 1b) and as the missing junit reporter documented in
+# playwright.config.ts: a missing input degrades to nothing rather than to an
+# error. The suite passes; it just proves less than the reader believes.
+#
+# ─── Why a file rather than a comment ───────────────────────────────────────
+#
+# TESTING.md already described this coverage in prose, and had already drifted:
+# it says "68 tests across 9 specs, in four projects" while the config now has
+# six projects and Playwright reports 70 tests in 12 files. Prose cannot fail a
+# build. Every column below is cross-checked against the artefact that actually
+# decides, in both directions, so a stale row is as loud as a missing one.
+#
+# ─── Columns ────────────────────────────────────────────────────────────────
+#
+#   spec     Filename in this directory. Must exist; every *.spec.ts here must
+#            appear exactly once.
+#
+#   runner   Where it runs automatically. One of:
+#              ci:<stage>      a run_stage in scripts/ci/vm-pipeline.sh. The
+#                              guard asserts that stage really names the spec.
+#              make:<target>   a Makefile target. The guard asserts the target
+#                              exists and that its recipe names the spec.
+#              suite-only      matches a playwright.config.ts project, so a
+#                              bare `make acceptance-test` runs it, but no CI
+#                              stage and no dedicated target does.
+#              unwired         matches NO project `testMatch`. Runs nowhere at
+#                              all — not in CI, not via any target, not under
+#                              `make acceptance-test`. The guard asserts this
+#                              in both directions, so a spec cannot be marked
+#                              unwired once it is wired, or stay marked
+#                              suite-only after being dropped from the config.
+#
+#   reason   Required for everything except ci:*. Why it is not in a CI lane.
+#            "it just isn't" is not a reason; name the blocking precondition,
+#            because that sentence is the work item for wiring it in later.
+#
+# Tab-separated. Comments start with #. Order is alphabetical by spec.
+#
+#spec	runner	reason
+afm-frontend.spec.ts	suite-only	Every test is behind guards.afmDeployed(); the CI lane never runs `make demo-k8s-afm-up`, so all 11 would SKIP. A stage of 11 skips is a green light that proves nothing, which is worse than an absent stage because it reads as coverage.
+afm-integration.spec.ts	suite-only	Same guards.afmDeployed() precondition as afm-frontend: 9 tests, all SKIP without the k8s-afm slice. Wire in only alongside deploying that slice in the lane.
+cluster.spec.ts	unwired	Probes Grafana (13000), Archivista (18082) and the Olly portal (18080) — three services the CI lane does not deploy, and three port-forwards the TEST-1 branch of scripts/acceptance-test.sh does not create. TESTING.md's 2026-07-26 baseline records 4 of its 8 tests failing purely on service availability.
+credential-lifecycle.spec.ts	suite-only	Both tests test.skip() unless the live estate already holds an enrolled/active agent with a UUID-shaped agent_registry id. A freshly built CI cluster has none, so this contributes 2 skips. It needs a seeding step before it can mean anything in a lane.
+dashboard-journey.spec.ts	unwired	Targets the Estate 95 win95 console at http://127.0.0.1:8675 (`make console`), a different application from the Signal Loom dashboard every other spec drives. It needs no cluster and no gateway, so it does not belong in any of the current projects — it wants a project of its own with `make console` as its precondition.
+rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP without the k8s-afm slice.
+rbac-explorer.spec.ts	suite-only	Behind guards.afmDeployed(). Ten tests, all SKIP without the k8s-afm slice.
+signalloom-login.spec.ts	suite-only	Three of its four tests re-prove Dex login/logout, which stage 8 already covers via signalloom-test-1.spec.ts's Dex contracts; the fourth needs AFM. Cheap, and the best candidate for the next stage — but adding it today buys duplicate coverage rather than new coverage.
+signalloom-test-1.spec.ts	ci:stage8
+smoke.spec.ts	ci:stage8b
+supercred-evidence-lifecycle.spec.ts	suite-only	Its project sets a 30-minute test timeout. CI_STAGE_TIMEOUT_SECONDS is 900, so a passing run would be killed mid-flight and reported as a stage failure. It also drives instructor phases that mutate one shared cluster, which is why its project sets retries:0.
+supercred-live-pages.spec.ts	unwired	Needs the SuperCred demo to have been driven first, and needs the storageState the setup project writes. Adding it to the `smoke` project would silently run it unauthenticated — playwright.config.ts documents exactly that trap. It needs its own project with dependencies:["setup"].
+supercred-page.spec.ts	unwired	Seeds the superadmin flag before app boot and needs the SuperCred demo deployed. Same storageState problem as supercred-live-pages: the `smoke` project would run it logged out.
+supercred-two-window.spec.ts	make:demo-signalloom-supercred-two-window	Drives two browser contexts against a demo that mutates one shared cluster, and its project sets a 15-minute timeout — at or above the 900s CI stage cap, so CI would kill a healthy run. retries:0 for the same mutation reason, so a single flake fails the lane outright.
+supercred-ui-lifecycle.spec.ts	suite-only	30-minute project timeout against the 900s CI stage cap, same as supercred-evidence-lifecycle. It runs all five phases, resets, then reruns them — the longest single test in the repo.

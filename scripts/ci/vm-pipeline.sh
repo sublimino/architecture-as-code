@@ -2,7 +2,7 @@
 # vm-pipeline.sh — Runs the Signalloom D2 e2e pipeline on the CI VM.
 #
 # Called via SSH from gcp-ci.sh or GitHub Actions. Pulls latest code,
-# rebuilds the cluster, runs the 8-stage test suite, and generates an
+# rebuilds the cluster, runs the 10-stage test suite, and generates an
 # OpenReports-format report.
 #
 # Exit codes:
@@ -201,8 +201,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 
   # This fallback only ever repaired signalloom-APPS. If `up` died before
   # activating signalloom-INFRA, nothing here notices, and the run proceeds to
-  # execute eight stages against a cluster whose infra was never brought up.
-  # Stage 6 then waits its full budget for infra-controllers and stages 7-8
+  # execute ten stages against a cluster whose infra was never brought up.
+  # Stage 6 then waits its full budget for infra-controllers and stages 7-8b
   # fail behind it, so a SETUP abort is reported as three test failures — the
   # most expensive possible way to be wrong, because it sends the reader to the
   # tests.
@@ -219,8 +219,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   fi
 }
 
-# ── Run 8-stage test suite ───────────────────────────────────────────
-echo "==> [6/7] Running 8-stage test suite..."
+# ── Run 10-stage test suite ───────────────────────────────────────────
+echo "==> [6/7] Running 10-stage test suite..."
 
 failures=0
 declare -a stage_results=()
@@ -282,6 +282,37 @@ run_stage \
    bun run test --run --reporter=junit \
      --outputFile=${REPORT_DIR}/stage1b-dashboard-unit.xml"
 
+# Stage 1c: Acceptance-spec coverage guard (BATS TAP)
+#
+# Numbered 1c for the reason 1b was numbered 1b: openreports-convert.sh maps
+# report FILES to parsers by name, so an inserted stage costs nothing as long as
+# the existing filenames stay put.
+#
+# What it guards is this file. Until now stage 8 ran one of the 15 specs in
+# test/acceptance, two more were reachable from make targets, and FOUR matched
+# no `testMatch` in test/acceptance/playwright.config.ts at all -- so they ran
+# nowhere, including under `make acceptance-test`. Playwright does not warn when
+# no project claims a spec; it reports a smaller total and exits 0.
+#
+# That is the same silent-degradation shape as the missing junit reporter
+# documented in playwright.config.ts, and it cost coverage the day this stage
+# was added: d9d1d2f rewrote a test in smoke.spec.ts to assert the Collusion &
+# Access page carries no page-specific background, and nothing would ever have
+# run it.
+#
+# The guard reads test/acceptance/SPEC-REGISTRY.tsv and cross-checks it against
+# the filesystem, playwright.config.ts, the Makefile and this file, in both
+# directions. A spec added without a registry row fails here; so does a row
+# claiming a CI stage that does not run it -- which is why adding stage 8b below
+# and forgetting its row would be caught by the stage before it.
+#
+# python3 and coreutils only: no cluster, no node_modules, no network, ~1s. It
+# sits here for the same reason 1b does, ahead of the expensive stages it gates.
+run_stage \
+  "Acceptance-spec coverage registry" \
+  "stage1c-acceptance-coverage.tap" \
+  "cd ${WORK_DIR} && bats --tap test/acceptance-spec-coverage.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \
@@ -336,6 +367,46 @@ run_stage \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
    ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
+
+# Stage 8b: Dashboard page smoke suite (Playwright → JUnit XML)
+#
+# The second browser stage, and the only one that walks every page in the
+# sidebar. Stage 8 proves the Dex contracts and the TEST-1 journey matrix;
+# smoke.spec.ts proves each of the ten nav destinations renders its heading and
+# representative content with no uncaught page error, plus the page-level
+# assertions nothing else covers: the DemoToggle, the Help & Support modal, the
+# unknown-route redirect, the Agent Trust Topology denial evidence, and the
+# Collusion & Access background assertion added in d9d1d2f -- which ran nowhere
+# until this stage existed.
+#
+# Runtime, and why it is affordable. 18 tests. It is the only browser spec that
+# needs no auth setup: the `smoke` project carries no storageState and no
+# dependency on the setup project, so each test logs in through Dex itself and
+# nothing serialises them. The CI VM is n2-standard-16, so Playwright's default
+# worker count is 8 and the 18 run in roughly three waves. Budget a couple of
+# minutes against a lane that already runs 40-60, with the 900s stage timeout as
+# the ceiling that would catch a hang.
+#
+# Why the locators are safe here, which was the open question. smoke.spec.ts
+# addresses nav links by accessible name with { exact: true }, the pattern
+# signalloom-test-1.spec.ts explicitly avoids because the sidebar renders count
+# badges that turn "Compliance" into "Compliance 7" on live data. That comment
+# predates bd0ba7a, which put aria-hidden="true" on every badge span; the badges
+# no longer contribute to the accessible name, so the exact-name locators hold
+# against a live estate. If a badge ever loses that attribute this stage goes
+# red, which is the correct outcome -- it is an accessibility regression too.
+#
+# Separate from stage 8 rather than appended to it so a failure names the page
+# smoke suite instead of "the browser stage", and so the report keeps the two
+# journeys distinct. Passing the filename takes the non-TEST-1 branch of
+# acceptance-test.sh, which adds Grafana/Archivista/Olly port-forwards that skip
+# cleanly when those services are absent.
+run_stage \
+  "Dashboard page smoke suite" \
+  "stage8b-smoke.txt" \
+  "cd ${WORK_DIR} && \
+   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
+   ./scripts/acceptance-test.sh smoke.spec.ts"
 
 # Write stage results JSON
 printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"

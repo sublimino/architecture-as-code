@@ -2,7 +2,8 @@
 # openreports-convert.sh — Convert test output to OpenReports format.
 #
 # Generates a Kubernetes Report CRD (openreports.io/v1alpha1) from the
-# 8-stage test suite output. Each test becomes a ReportResult entry with
+# test suite output (the stageMap below is the authoritative stage list).
+# Each test becomes a ReportResult entry with
 # policy, rule, result (pass/fail/error), severity, and category.
 #
 # Usage: ./openreports-convert.sh <report-dir> [report-filename]
@@ -119,6 +120,10 @@ const stageMap = [
   // rather than adding a parser. Nesting is irrelevant to it: the parser walks
   // <testcase> elements with a regex and never looks at their <testsuite>.
   { file: 'stage1b-dashboard-unit.xml', parser: parseJunitXml, source: 'vitest-dashboard-unit', category: 'unit' },
+  // The acceptance-spec coverage registry. Categorised as 'meta' because it
+  // asserts nothing about the product -- it asserts that the other stages run
+  // what they claim to run.
+  { file: 'stage1c-acceptance-coverage.tap', parser: parseTap, source: 'bats-acceptance-coverage', category: 'meta' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },
@@ -126,6 +131,7 @@ const stageMap = [
   { file: 'stage6-flux.tap',       parser: parseTap,       source: 'flux-convergence',           category: 'gitops' },
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
   { file: 'stage8-browser.xml',    parser: parseJunitXml,  source: 'playwright-browser-journey', category: 'e2e' },
+  { file: 'stage8b-smoke.xml',     parser: parseJunitXml,  source: 'playwright-page-smoke',      category: 'e2e' },
 ];
 
 // ── Process all stages ──────────────────────────────────────────────

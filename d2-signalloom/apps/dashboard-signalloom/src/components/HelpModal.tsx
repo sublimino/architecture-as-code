@@ -27,11 +27,11 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: 'How do I register a new agent?',
-        a: 'Open the Agents page (Governed tab) and click Register Agent. Enter the agent\'s name and type — and optionally a description and owner. The agent is created in the enrolled state and appears in the Governed tab; your operator then activates it. Agents can also be enrolled programmatically via the registry API.',
+        a: 'Open the Agents page (Governed tab) and click Register Agent. Enter the agent\'s name and type. A description and owner are optional. The agent is created in the enrolled state and appears in the Governed tab; your operator then activates it. Agents can also be enrolled programmatically via the registry API.',
       },
       {
         q: 'What do the lifecycle states mean?',
-        a: 'Enrolled — registered but not yet active. Active — running in production and fully governed. Suspended — temporarily halted (e.g. for investigation). Revoked — permanently decommissioned.',
+        a: 'Enrolled: registered but not yet active. Active: running in production and fully governed. Suspended: temporarily halted, for example during an investigation. Revoked: permanently decommissioned.',
       },
     ],
   },
@@ -40,11 +40,11 @@ const FAQ_SECTIONS: FaqSection[] = [
     items: [
       {
         q: 'How do I change an agent\'s lifecycle state?',
-        a: 'Lifecycle changes (for example enrolled → active, or active → suspended) are applied by your Signal Loom operator — they are not made directly from the dashboard. To request one, open the agent\'s detail page and click Request Transition, then choose the target state and give a reason. This sends the request to your operator, who applies the change; it is then recorded in the agent\'s activity timeline and the audit log. (You can also raise the request via Help → Contact Support.) Valid transitions are: enrolled → active; active → suspended or revoked; suspended → active or revoked. Revoked is permanent.',
+        a: 'Lifecycle changes (for example enrolled → active, or active → suspended) are applied by your Signal Loom operator. They are not made directly from the dashboard. To request one, open the agent\'s detail page and click Request Transition, then choose the target state and give a reason. This sends the request to your operator, who applies the change; it is then recorded in the agent\'s activity timeline and the audit log. (You can also raise the request via Help → Contact Support.) Valid transitions are: enrolled → active; active → suspended or revoked; suspended → active or revoked. Revoked is permanent.',
       },
       {
         q: 'What is a violation?',
-        a: 'A violation is a policy infraction detected by the OPA compliance engine — for example, an agent without an assigned owner or an expired credential. Violations appear on the Agent Detail page and in the Attention panel.',
+        a: 'A violation is a policy infraction detected by the OPA compliance engine. Examples include an agent without an assigned owner, or an expired credential. Violations appear on the Agent Detail page and in the Attention panel.',
       },
       {
         q: 'How do I acknowledge a violation?',
@@ -57,7 +57,7 @@ const FAQ_SECTIONS: FaqSection[] = [
     items: [
       {
         q: 'Which compliance frameworks are supported?',
-        a: 'Stage 1 supports SOC 2 (CC6.1, CC6.2, CC7.2) and EU AI Act (Traceability, Human Oversight, Incident Attribution). Additional frameworks can be enabled — contact support.',
+        a: 'Stage 1 supports SOC 2 (CC6.1, CC6.2, CC7.2) and EU AI Act (Traceability, Human Oversight, Incident Attribution). Additional frameworks can be enabled. Contact support.',
       },
       {
         q: 'What is a posture score?',
@@ -78,11 +78,11 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: 'What does "Enroll" do?',
-        a: 'Enrolling an NHI account registers it into the Signal Loom agent registry and begins governance tracking — lifecycle management, compliance assessment, and audit logging.',
+        a: 'Enrolling an NHI account registers it into the Signal Loom agent registry and begins governance tracking: lifecycle management, compliance assessment, and audit logging.',
       },
       {
         q: 'What does "Dismiss" do?',
-        a: 'Dismissing marks the account as reviewed and not requiring enrollment — for example, a known system account. If the account changes after dismissal, it reappears for triage.',
+        a: 'Dismissing marks the account as reviewed and not requiring enrollment, such as a known system account. If the account changes after dismissal, it reappears for triage.',
       },
       {
         q: 'How do I connect my Entra directory?',
@@ -103,7 +103,7 @@ const FAQ_SECTIONS: FaqSection[] = [
       },
       {
         q: 'How is billing calculated?',
-        a: 'Billing is per enrolled agent per month, pro-rated for partial months. Agent count is based on the max enrolled at any point in the billing period.',
+        a: 'Billing is per enrolled agent per month, prorated for partial months. Agent count is based on the max enrolled at any point in the billing period.',
       },
       {
         q: 'How do I upgrade my plan?',
@@ -116,7 +116,7 @@ const FAQ_SECTIONS: FaqSection[] = [
     items: [
       {
         q: 'How is my data isolated from other tenants?',
-        a: 'Signal Loom uses PostgreSQL Row Level Security (RLS). Every database query is scoped to your tenant_id — it is impossible for one tenant to read another tenant\'s data.',
+        a: 'Signal Loom uses PostgreSQL Row Level Security (RLS). Every database query is scoped to your tenant_id. It is impossible for one tenant to read another tenant\'s data.',
       },
       {
         q: 'Where are my auth tokens stored?',
@@ -130,7 +130,7 @@ const FAQ_SECTIONS: FaqSection[] = [
   },
 ]
 
-// The modal is a fixed-position overlay — closing it on navigate keeps it
+// The modal is a fixed-position overlay, so closing it on navigate keeps it
 // from sitting on top of the help page it just linked to.
 function ConnectorHelpLink({ to, children }: { to: string; children: ReactNode }) {
   const { setHelpOpen } = useAppContext()
@@ -300,10 +300,10 @@ export default function HelpModal() {
                   <div>
                     <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 5 }}>Urgency</label>
                     <select value={urgency} onChange={e => setUrgency(e.target.value as typeof urgency)} style={{ width: '100%' }}>
-                      <option value="low">Low — general question</option>
-                      <option value="normal">Normal — needs attention soon</option>
-                      <option value="high">High — impacting operations</option>
-                      <option value="critical">Critical — system down or data risk</option>
+                      <option value="low">Low: general question</option>
+                      <option value="normal">Normal: needs attention soon</option>
+                      <option value="high">High: impacting operations</option>
+                      <option value="critical">Critical: system down or data risk</option>
                     </select>
                   </div>
                   <div>

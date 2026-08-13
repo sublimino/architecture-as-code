@@ -46,6 +46,7 @@ const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
+const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -256,6 +257,10 @@ export default function App() {
                 <Route path="/supercred" element={<ProtectedRoute><SuperCredPage /></ProtectedRoute>} />
                 <Route path="/fleet" element={<ProtectedRoute><FleetDemoPage /></ProtectedRoute>} />
                 <Route path="/fleet/audience" element={<ProtectedRoute><FleetDemoPage audience /></ProtectedRoute>} />
+                {/* Superadmin is a VISIBILITY control (see auth/superadmin.ts):
+                    the Sidebar decides whether to render the link, the route
+                    stays registered and reachable by URL like every other one. */}
+                <Route path="/design-system" element={<ProtectedRoute><DesignSystemPage /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

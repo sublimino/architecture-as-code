@@ -10,7 +10,24 @@
 
 setup() {
   base="${SIGNALLOOM_UI_URL:-http://localhost:5173}"
-  curl -fsS "$base/readyz" >/dev/null 2>&1 || skip "dashboard not reachable at $base (port-forward required)"
+
+  # Check the BODY, not just the status. A Vite dev server on the same port
+  # answers /readyz with 200 and index.html, because everything unknown hits its
+  # SPA fallback -- so a status-only guard never skips, the SPA tests pass
+  # (index.html is genuinely what they expect), and only the two tests that need
+  # the real nginx build fail: "readyz probe returns ready" gets HTML instead of
+  # `ready`, and the bundle test finds /src/main.tsx instead of
+  # assets/index-*.js. That pair read as a broken dashboard for most of a day
+  # when the dashboard was fine and a leftover dev server was answering.
+  #
+  # This is the same shape as the Fleet bug it sits next to: a 200 that is not
+  # the answer you asked for.
+  local ready
+  ready="$(curl -fsS "$base/readyz" 2>/dev/null || true)"
+  [ -n "$ready" ] || skip "dashboard not reachable at $base (port-forward required)"
+  if [ "$ready" != "ready" ]; then
+    skip "$base is not the nginx dashboard — /readyz returned '$(printf '%.40s' "$ready")' rather than 'ready' (a Vite dev server on this port answers everything with index.html). Point SIGNALLOOM_UI_URL at the real service."
+  fi
 }
 
 # ── SPA fallback: every client-side route returns index.html with id="root" ──

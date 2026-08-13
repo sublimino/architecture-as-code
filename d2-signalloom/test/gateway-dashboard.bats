@@ -67,9 +67,19 @@ setup() {
   [[ "$output" == *'id="root"'* ]]
 }
 
-@test "Gateway: KTP background image served" {
+# Repointed from /ktp-collusion-graph.png, which was the Collusion & Access
+# backdrop until that backdrop was removed for uniformity with its sibling pages.
+# The file outlived the only thing that referenced it, so this test was guarding
+# an orphan.
+#
+# The asset changed; the invariant did not. This proves the gateway passes a
+# non-HTML response through intact — content_type is the discriminator, since a
+# route misconfiguration that lands on the SPA fallback still returns HTTP 200,
+# just with text/html. /brand/signal-loom-logo.png is rendered by Sidebar.tsx on
+# every page, so unlike the KTP graph it cannot silently become unreferenced.
+@test "Gateway: static assets pass through with their real content type" {
   # shellcheck disable=SC2086
-  run curl $curl_opts -o /dev/null -w '%{content_type}' "$gw_base/ktp-collusion-graph.png"
+  run curl $curl_opts -o /dev/null -w '%{content_type}' "$gw_base/brand/signal-loom-logo.png"
   [ "$status" -eq 0 ]
   [[ "$output" == image/* ]]
 }

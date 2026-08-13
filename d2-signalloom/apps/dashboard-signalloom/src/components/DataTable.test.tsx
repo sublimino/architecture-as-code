@@ -293,6 +293,131 @@ describe('DataTable', () => {
     })
   })
 
+  // ── toolbar and emptyState ────────────────────────────────────────────────
+  //
+  // These two are why there is one DataTable and not a `DataTableFiltered`
+  // beside it. The predicate stays with the caller, because AgentsPage and
+  // CredentialInventoryPage define "search" differently and always will. What
+  // these share is the chrome and one bug, and the bug is the whole reason
+  // `toolbar` is a prop rather than something a page stacks above the table.
+
+  describe('toolbar and emptyState', () => {
+    const toolbar = <input aria-label="Search" data-testid="tb-search" />
+    const empty = <p data-testid="tb-empty-copy">Nothing matches that search.</p>
+
+    it('adds neither unless asked, so an existing call site is untouched', () => {
+      const { queryByTestId } = render(
+        <DataTable columns={COLUMNS} data={makeRows(3)} renderRow={renderRow} testIdPrefix="bare" />,
+      )
+      expect(queryByTestId('bare-toolbar')).toBeNull()
+      expect(queryByTestId('bare-empty')).toBeNull()
+    })
+
+    it('renders the toolbar above the table and reads nothing in it', () => {
+      const { getByTestId, container } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          toolbar={toolbar}
+          testIdPrefix="tb"
+        />,
+      )
+      const slot = getByTestId('tb-toolbar')
+      expect(slot).toContainElement(getByTestId('tb-search'))
+      // A slot, not a feature: typing in it filters nothing, because the
+      // predicate belongs to the caller. All three rows are still here.
+      fireEvent.change(getByTestId('tb-search'), { target: { value: 'row-00' } })
+      expect(container.querySelectorAll('tbody tr')).toHaveLength(3)
+      // Above the table in DOM order, which is what makes it read as a control
+      // FOR the table rather than a caption under it.
+      const table = container.querySelector('table') as HTMLElement
+      expect(slot.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('swaps the table for the empty state when the data runs out', () => {
+      const { getByTestId, container } = render(
+        <DataTable columns={COLUMNS} data={[]} renderRow={renderRow} emptyState={empty} testIdPrefix="tb" />,
+      )
+      expect(getByTestId('tb-empty-copy')).toBeInTheDocument()
+      // Headers over zero rows is a table pretending to be a table.
+      expect(container.querySelector('table')).toBeNull()
+    })
+
+    it('keeps the toolbar when the table is replaced by the empty state', () => {
+      // THE assertion. A hand-rolled `rows.length ? <Table/> : <Empty/>`
+      // ternary takes the search box down with the table, and the user is left
+      // with no way to undo the filter that emptied it short of a reload.
+      // Inside DataTable the toolbar renders on the empty branch by
+      // construction, so a caller cannot get this wrong.
+      const { getByTestId } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={[]}
+          renderRow={renderRow}
+          toolbar={toolbar}
+          emptyState={empty}
+          testIdPrefix="tb"
+        />,
+      )
+      expect(getByTestId('tb-toolbar')).toBeInTheDocument()
+      expect(getByTestId('tb-search')).toBeInTheDocument()
+      expect(getByTestId('tb-empty-copy')).toBeInTheDocument()
+    })
+
+    it('goes back to the table when rows return', () => {
+      const { rerender, queryByTestId, container } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={[]}
+          renderRow={renderRow}
+          toolbar={toolbar}
+          emptyState={empty}
+          testIdPrefix="tb"
+        />,
+      )
+      rerender(
+        <DataTable
+          columns={COLUMNS}
+          data={makeRows(3)}
+          renderRow={renderRow}
+          toolbar={toolbar}
+          emptyState={empty}
+          testIdPrefix="tb"
+        />,
+      )
+      expect(queryByTestId('tb-empty-copy')).toBeNull()
+      expect(container.querySelectorAll('tbody tr')).toHaveLength(3)
+      expect(queryByTestId('tb-toolbar')).toBeInTheDocument()
+    })
+
+    it('leaves the old behaviour alone when emptyState is omitted', () => {
+      // Opt-in: a caller that already handles emptiness its own way keeps
+      // rendering headers over no rows exactly as it does today.
+      const { container } = render(
+        <DataTable columns={COLUMNS} data={[]} renderRow={renderRow} testIdPrefix="tb" />,
+      )
+      expect(container.querySelector('table')).not.toBeNull()
+      expect(container.querySelectorAll('tbody tr')).toHaveLength(0)
+    })
+
+    it('shows no pager over an empty state', () => {
+      const { queryByTestId } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={[]}
+          renderRow={renderRow}
+          emptyState={empty}
+          hidePaginationWhenSinglePage={false}
+          testIdPrefix="tb"
+        />,
+      )
+      // "Page 1 of 1 · No rows" under a panel that already says nothing matched
+      // is furniture restating a fact.
+      expect(queryByTestId('tb-pagination')).toBeNull()
+    })
+  })
+
   it('exports th and td style constants', () => {
     expect(DataTable.th).toBeDefined()
     expect(DataTable.td).toBeDefined()

@@ -1,0 +1,9 @@
+event: log
+data: {"run_id": "RUNIDRUNIDRUNIDRUNIDRUNIDRUNID00", "offset": 0, "next_offset": 21, "chunk": "[supercred] starting ", "truncated": false, "eof": false}
+
+event: log
+data: {"run_id": "RUNIDRUNIDRUNIDRUNIDRUNIDRUNID00", "offset": 21, "next_offset": 65, "chunk": "\u2713\n[supercred] \u2713 done\nno trailing newline", "truncated": false, "eof": false}
+
+event: end
+data: {"run_id": "RUNIDRUNIDRUNIDRUNIDRUNIDRUNID00", "offset": 65, "next_offset": 65, "chunk": "", "truncated": false, "eof": true, "status": "succeeded", "exit_code": 0}
+

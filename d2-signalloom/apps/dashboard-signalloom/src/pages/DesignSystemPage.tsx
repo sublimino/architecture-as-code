@@ -22,11 +22,13 @@
  *    waiting-indicators at once, which makes it the only page where the count
  *    of ARIA live regions is a design problem rather than an afterthought. Each
  *    gallery PixelLoader therefore passes `announce={false}` — the default is
- *    true, and eight defaulted loaders is a screen reader reading eight
+ *    true, and nine defaulted loaders is a screen reader reading nine
  *    simultaneous "Churning" announcements at anyone who opens this page. The
  *    six LoadingState specimens do own regions, because LoadingState has no
  *    `announce` opt-out; six is a deliberate ceiling, asserted exactly in the
  *    test rather than left to drift. See the note rendered in that section.
+ *    ButtonWait owns no region by design and adds none here — the roster is
+ *    seven regions before and after that section, asserted by name in the test.
  *
  * 2. COLOURS. styles/cssVarUsage.test.ts forbids bare hex in inline styles and
  *    forbids referencing a `var(--x)` that no theme declares. The swatches below
@@ -34,7 +36,7 @@
  *    palette here cannot fall behind themes.ts, and the hex values shown are
  *    read from THEMES — displayed as text, never as a style value.
  */
-import { useState, type CSSProperties, type ReactNode } from 'react'
+import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import PixelLoader, { type PixelLoaderVariant } from '../components/PixelLoader'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
@@ -48,37 +50,52 @@ import CredentialStateNotice from '../components/CredentialStateNotice'
 import { Pill, StatCard, Section as DashSection, Table as DashTable, td as dashTd } from '../components/DashKit'
 import { colors } from '../styles/tokens'
 import { CSS_VAR_NAMES, THEMES, THEME_LABELS, THEME_NAMES, type CssVarName } from '../styles/themes'
+import ButtonWait from '../components/ButtonWait'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
 
 /**
- * The loader variants, by name.
+ * The loader variants, in the order a reader should meet them.
  *
- * `Loom` is being added to PixelLoader in a parallel branch and does not exist
- * in this file's copy of `PixelLoaderVariant` yet. Naming it as a plain string
- * and widening at the call site (see `asVariant`) keeps this file compiling both
- * before and after that lands, and needs no edit when it does. Until it lands,
- * PixelLoader falls back to its Drive pattern for an unknown name — so the
- * specimen renders and is labelled Loom, it just animates as Drive for now.
+ * Loom is first and carries the "default" badge because the question anyone
+ * opening this page actually has is "what do I get if I write `<PixelLoader />`
+ * and pass nothing?". A gallery that answers that only by ordering has not
+ * answered it — so the answer is stated in the section's when-to-use line, shown
+ * as a badge on the Loom specimen, and demonstrated by a ninth specimen below
+ * the four that passes no `variant` at all.
+ *
+ * The other three are alternatives: reached by naming them, and each with a
+ * reason you would.
  */
-const LOADER_VARIANTS: readonly { name: string; blurb: string }[] = [
-  { name: 'Drive', blurb: 'Square cells, chevron wavefront driving right. The default.' },
+const LOADER_VARIANTS: readonly { name: PixelLoaderVariant; blurb: string; isDefault?: boolean }[] = [
+  {
+    name: 'Loom',
+    blurb: 'Low-fi animation of the Signal Loom woven-diamond mark. What you get when you pass no variant.',
+    isDefault: true,
+  },
+  { name: 'Drive', blurb: 'Square cells, chevron wavefront driving right. Reach for it beside dense telemetry, where the mark reads as decoration.' },
   { name: 'Dots', blurb: 'The same wavefront with circular cells. Softer beside body text.' },
   { name: 'Orbit', blurb: 'A comet lapping the perimeter; the centre cell stays dark.' },
-  { name: 'Loom', blurb: 'Low-fi animation of the Signal Loom woven-diamond mark.' },
 ]
 
 const LOADER_SIZES = ['sm', 'md'] as const
 
+
 /**
- * Widen a name to the variant union.
+ * Both buttons in the ButtonWait pair share this.
  *
- * A downcast from `string`, not a cross-cast from a literal — so a name the
- * union does not yet carry (`Loom`) is accepted today without `@ts-expect-error`
- * and without this file having to be touched the moment it is added.
+ * The fixed `minWidth` is the specimen's actual claim: a control that grows or
+ * shrinks when its work starts drags the rest of the row with it, and on a
+ * toolbar that means the button under the pointer moves out from under it. The
+ * test asserts both buttons carry the same one, because "it does not resize" is
+ * a property worth failing on rather than eyeballing.
  */
-function asVariant(name: string): PixelLoaderVariant {
-  return name as PixelLoaderVariant
+const WAIT_BUTTON_STYLE: CSSProperties = {
+  minWidth: 190,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
 }
 
 // ── Specimen data ────────────────────────────────────────────────────────────
@@ -125,6 +142,81 @@ const TABLE_COLUMNS: Column<DemoRow>[] = [
   },
   { key: 'state', label: 'State' },
 ]
+
+/**
+ * The second DataTable specimen: the configuration a real page needs.
+ *
+ * AgentsPage.tsx line 3 has carried `// TODO: migrate table to DataTable (1
+ * table with search/lifecycle filtering)` since the filter interaction was
+ * written by hand. The reason it has not moved is that nothing showed what the
+ * migrated version looks like — the only worked example of DataTable was the
+ * four-column one above, which answers none of the questions AgentsPage has:
+ * where does the search box live, who owns the filter state, what happens to
+ * the page number when a filter cuts the rows out from under it.
+ *
+ * So this specimen is that answer, at the same shape: seven columns, every one
+ * sortable, StatusBadge in two of them, a `pageSize` small enough that the pager
+ * is a visible part of the example rather than a code path you have to trust.
+ *
+ * The division of labour is the thing to take away. DataTable sorts and
+ * paginates; the page owns search and filtering and hands down an already-narrow
+ * array. DataTable notices the length change and resets to page 1 by itself
+ * (see its `usePrevious` guard), which is the bug you would otherwise ship —
+ * filtering to three rows while sitting on page 2 and rendering nothing.
+ */
+interface FleetRow {
+  agent: string
+  type: string
+  owner: string
+  state: string
+  findings: number
+  posture: number
+  lastActivity: string
+}
+
+/** Deliberately not in alphabetical or numeric order — a sort you cannot see is not a demonstration. */
+const FLEET_ROWS: FleetRow[] = [
+  { agent: 'policy-evaluator', type: 'evaluator', owner: 'platform-eng', state: 'active', findings: 2, posture: 71, lastActivity: '12s ago' },
+  { agent: 'sbom-collector', type: 'collector', owner: 'supply-chain', state: 'revoked', findings: 5, posture: 34, lastActivity: '4h ago' },
+  { agent: 'ingest-worker', type: 'worker', owner: 'platform-eng', state: 'active', findings: 0, posture: 96, lastActivity: '3s ago' },
+  { agent: 'drift-detector', type: 'detector', owner: 'platform-eng', state: 'active', findings: 1, posture: 88, lastActivity: '41s ago' },
+  { agent: 'attestation-signer', type: 'signer', owner: 'supply-chain', state: 'active', findings: 0, posture: 99, lastActivity: '8s ago' },
+  { agent: 'credential-rotator', type: 'rotator', owner: 'identity', state: 'enrolled', findings: 0, posture: 62, lastActivity: 'never' },
+  { agent: 'egress-auditor', type: 'auditor', owner: 'network', state: 'suspended', findings: 3, posture: 45, lastActivity: '2m ago' },
+  { agent: 'mesh-probe', type: 'prober', owner: 'network', state: 'active', findings: 0, posture: 93, lastActivity: '5s ago' },
+  { agent: 'log-shipper', type: 'shipper', owner: 'observability', state: 'active', findings: 0, posture: 90, lastActivity: '1s ago' },
+  { agent: 'trace-sampler', type: 'sampler', owner: 'observability', state: 'active', findings: 1, posture: 84, lastActivity: '6s ago' },
+  { agent: 'quota-reaper', type: 'reaper', owner: 'platform-eng', state: 'active', findings: 0, posture: 78, lastActivity: '30s ago' },
+  { agent: 'cert-renewer', type: 'renewer', owner: 'identity', state: 'enrolled', findings: 0, posture: 66, lastActivity: 'never' },
+  { agent: 'secret-syncer', type: 'syncer', owner: 'identity', state: 'suspended', findings: 4, posture: 39, lastActivity: '18m ago' },
+  { agent: 'image-scanner', type: 'scanner', owner: 'supply-chain', state: 'active', findings: 2, posture: 74, lastActivity: '22s ago' },
+]
+
+const FLEET_COLUMNS: Column<FleetRow>[] = [
+  { key: 'agent', label: 'Agent', sortable: true },
+  { key: 'type', label: 'Type', sortable: true },
+  { key: 'owner', label: 'Owner', sortable: true },
+  { key: 'state', label: 'State', sortable: true },
+  {
+    key: 'findings',
+    label: 'Open findings',
+    sortable: true,
+    help: 'Controls this agent currently fails. Zero is a pass, not an absence of data.',
+  },
+  {
+    key: 'posture',
+    label: 'Posture',
+    sortable: true,
+    help: 'Percentage of applicable controls passing. Sorts numerically, so the worst offenders are one click away.',
+  },
+  { key: 'lastActivity', label: 'Last activity', sortable: true },
+]
+
+/** `all` first, then the lifecycle states in the order an agent moves through them. */
+const FLEET_STATES = ['all', 'enrolled', 'active', 'suspended', 'revoked'] as const
+
+/** Posture at or above this renders a passing compliance badge. Presentational only. */
+const POSTURE_PASS_THRESHOLD = 70
 
 const DONUT_SEGMENTS = [
   { value: 46, color: colors.tealLoom, label: 'Passing' },
@@ -224,12 +316,17 @@ function Group({
 function Specimen({
   caption,
   captionTestId,
+  badge,
+  badgeTestId,
   note,
   children,
   minWidth = 220,
 }: {
   caption: string
   captionTestId?: string
+  /** A short word in the corner of the caption — "default", and nothing longer. */
+  badge?: string
+  badgeTestId?: string
   note?: string
   children: ReactNode
   minWidth?: number
@@ -239,6 +336,10 @@ function Specimen({
       <div
         data-testid={captionTestId}
         style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
           fontSize: 11,
           fontWeight: 600,
           textTransform: 'uppercase',
@@ -247,7 +348,26 @@ function Specimen({
           marginBottom: 10,
         }}
       >
-        {caption}
+        <span>{caption}</span>
+        {badge && (
+          <span
+            data-testid={badgeTestId}
+            style={{
+              // Cyan on a cyan tint rather than a solid fill: black-on-accent
+              // fails contrast in the Andy theme, and this badge has to be
+              // legible in all three.
+              color: 'var(--cyan)',
+              background: 'color-mix(in srgb, var(--cyan) 12%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--cyan) 25%, transparent)',
+              borderRadius: 3,
+              padding: '1px 6px',
+              fontSize: 10,
+              letterSpacing: '0.05em',
+            }}
+          >
+            {badge}
+          </span>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, minHeight: 24 }}>
         {children}
@@ -280,12 +400,61 @@ function Caveat({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * A heading for one example inside a section that carries several.
+ *
+ * h3, not h2: `Group` already owns the section's h2, and the page's test asserts
+ * the section heading is an H2 found by testid. A second h2 in the same group
+ * would make that query ambiguous — the same trap the Group heading's testid was
+ * added for.
+ */
+function ExampleHeading({ id, title, blurb }: { id: string; title: string; blurb: string }) {
+  return (
+    <>
+      <h3 data-testid={`ds-example-heading-${id}`} style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', margin: '0 0 3px' }}>
+        {title}
+      </h3>
+      <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', maxWidth: 780, lineHeight: 1.5 }}>{blurb}</p>
+    </>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DesignSystemPage() {
   // Local, so the interactive specimens are actually interactive rather than
   // frozen screenshots. Nothing here escapes the page.
   const [retryCount, setRetryCount] = useState(0)
+
+  // Search and lifecycle filtering for the complex DataTable specimen. They live
+  // here, not in DataTable, and that is the point the specimen is making: the
+  // page narrows the array, DataTable sorts and paginates whatever it is given.
+  const [fleetSearch, setFleetSearch] = useState('')
+  const [fleetState, setFleetState] = useState<(typeof FLEET_STATES)[number]>('all')
+
+  const fleetRows = useMemo(() => {
+    const q = fleetSearch.trim().toLowerCase()
+    return FLEET_ROWS.filter((row) => {
+      if (fleetState !== 'all' && row.state !== fleetState) return false
+      if (!q) return true
+      return (
+        row.agent.toLowerCase().includes(q) ||
+        row.owner.toLowerCase().includes(q) ||
+        row.type.toLowerCase().includes(q)
+      )
+    })
+  }, [fleetSearch, fleetState])
+
+  const fleetStateCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        FLEET_STATES.map((state) => [
+          state,
+          state === 'all' ? FLEET_ROWS.length : FLEET_ROWS.filter((row) => row.state === state).length,
+        ]),
+      ) as Record<(typeof FLEET_STATES)[number], number>,
+    [],
+  )
 
   return (
     <div>
@@ -335,14 +504,16 @@ export default function DesignSystemPage() {
       <Group
         id="pixel-loader"
         title="PixelLoader"
-        when="Use for work long enough that a spinner stops helping — it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. md owns its own line; sm sits inside a 12px one."
+        when="Use for work long enough that a spinner stops helping — it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. Render it with no variant prop and you get Loom, the default; the other three are alternatives you have to ask for by name. md owns its own line; sm sits inside a 12px one."
       >
         <div style={rowStyle}>
-          {LOADER_VARIANTS.map(({ name, blurb }) => (
+          {LOADER_VARIANTS.map(({ name, blurb, isDefault }) => (
             <Specimen
               key={name}
               caption={name}
               captionTestId={`ds-loader-caption-${name}`}
+              badge={isDefault ? 'default' : undefined}
+              badgeTestId={isDefault ? 'ds-loader-default-badge' : undefined}
               note={blurb}
               minWidth={260}
             >
@@ -351,10 +522,10 @@ export default function DesignSystemPage() {
                   <div key={size} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <code style={{ fontSize: 10.5, color: 'var(--dim)', width: 22 }}>{size}</code>
                     {/* announce={false} on every gallery instance — see the file
-                        header. The default is true, and eight defaulted loaders
-                        is eight simultaneous announcements on page load. */}
+                        header. The default is true, and nine defaulted loaders
+                        is nine simultaneous announcements on page load. */}
                     <PixelLoader
-                      variant={asVariant(name)}
+                      variant={name}
                       size={size}
                       label={name}
                       announce={false}
@@ -365,12 +536,77 @@ export default function DesignSystemPage() {
               </div>
             </Specimen>
           ))}
+          {/* The default, demonstrated rather than described. Passing no
+              `variant` here is the whole specimen: whatever PixelLoader's
+              default is, this is it, and it cannot drift out of step with the
+              component the way a sentence can. */}
+          <Specimen
+            caption="no variant prop"
+            captionTestId="ds-loader-caption-default"
+            note="Rendered as <PixelLoader label='Churning' /> — no variant passed. Compare it against the Loom specimen: they are the same loader."
+            minWidth={260}
+          >
+            <PixelLoader label="Churning" announce={false} testId="ds-loader-default" />
+          </Specimen>
         </div>
         <Caveat>
           Accessibility note, and the reason this page can exist at all: <code>announce</code> defaults
-          to <code>true</code>, which is right for a lone loader and wrong for a gallery. All eight
+          to <code>true</code>, which is right for a lone loader and wrong for a gallery. All nine
           instances above pass <code>announce={'{false}'}</code>. Pass it whenever the host is already a
           live region — <code>LoadingState</code> does exactly that.
+        </Caveat>
+      </Group>
+
+      {/* ── ButtonWait ─────────────────────────────────────────────────────── */}
+      <Group
+        id="button-wait"
+        title="ButtonWait"
+        when="A wait that happens inside an interactive control. Three constraints come with that position and none of them are negotiable: there is no room for a label, the control must not change size when the work starts, and it must not own a live region — the button already has an accessible name and a disabled state, and a region inside it talks over both."
+      >
+        <div style={rowStyle}>
+          <Specimen
+            caption="idle"
+            minWidth={260}
+            note="The control at rest. Note the width — it is fixed, and the loading state below has to match it."
+          >
+            <button className="btn btn-secondary" data-testid="ds-buttonwait-idle" style={WAIT_BUTTON_STYLE}>
+              Rotate credential
+            </button>
+          </Specimen>
+          <Specimen
+            caption="waiting"
+            minWidth={260}
+            note="Same label, same width, disabled, plus an 8px indicator. Nothing moves; the row around it does not reflow."
+          >
+            <button
+              className="btn btn-secondary"
+              data-testid="ds-buttonwait-loading"
+              disabled
+              style={WAIT_BUTTON_STYLE}
+            >
+              <ButtonWait testId="ds-buttonwait-indicator" label="Rotating credential" />
+              Rotate credential
+            </button>
+          </Specimen>
+        </div>
+        <Caveat>
+          Which of the three to reach for, and it is decided by where the wait lives rather than by how
+          long it lasts.{' '}
+          <strong>
+            <code>ButtonWait</code>
+          </strong>{' '}
+          — the wait is inside a control the user just pressed: no label, fixed size, no live region,
+          because the button is already the thing being announced.{' '}
+          <strong>
+            <code>PixelLoader</code>
+          </strong>{' '}
+          — the wait is a named piece of work in the body of the page: it says what is running and counts
+          the seconds, so a slow step is distinguishable from a hung one.{' '}
+          <strong>
+            <code>LoadingState</code>
+          </strong>{' '}
+          — the wait is a whole fetch: all four phases including idle and a retryable error, and it owns
+          the live region for everything nested inside it.
         </Caveat>
       </Group>
 
@@ -509,22 +745,137 @@ export default function DesignSystemPage() {
       <Group
         id="data-table"
         title="DataTable"
-        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header."
+        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Two examples below, because the gap between them is where every question about this component actually lives: the minimum that works, and the configuration a real page needs."
       >
-        <DataTable
-          columns={TABLE_COLUMNS}
-          data={TABLE_ROWS}
-          pageSize={10}
-          testIdPrefix="ds-datatable"
-          renderRow={(row: DemoRow, i: number) => (
-            <tr key={`${row.agent}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
-              <td style={DataTable.td}>{row.agent}</td>
-              <td style={DataTable.td}>{row.namespace}</td>
-              <td style={DataTable.td}>{row.findings}</td>
-              <td style={DataTable.td}><StatusBadge status={row.state} variant="lifecycle" /></td>
-            </tr>
+        <div data-testid="ds-datatable-simple-example">
+          <ExampleHeading
+            id="datatable-simple"
+            title="Minimum viable"
+            blurb="Four columns, three of them sortable, one page control. This is the whole API surface you need for a table that is just a list — hand it columns, data and a row renderer and stop."
+          />
+          <DataTable
+            columns={TABLE_COLUMNS}
+            data={TABLE_ROWS}
+            pageSize={10}
+            testIdPrefix="ds-datatable"
+            renderRow={(row: DemoRow, i: number) => (
+              <tr key={`${row.agent}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={DataTable.td}>{row.agent}</td>
+                <td style={DataTable.td}>{row.namespace}</td>
+                <td style={DataTable.td}>{row.findings}</td>
+                <td style={DataTable.td}><StatusBadge status={row.state} variant="lifecycle" /></td>
+              </tr>
+            )}
+          />
+        </div>
+
+        <div data-testid="ds-datatable-complex-example" style={{ marginTop: 30 }}>
+          <ExampleHeading
+            id="datatable-complex"
+            title="Realistic — the shape AgentsPage needs"
+            blurb="Seven sortable columns, StatusBadge in two of them, pageSize 5 so the pager is part of the example, and search plus lifecycle filtering owned by the page above it. This is what the TODO on AgentsPage.tsx line 3 is asking for, written out."
+          />
+          <div
+            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}
+            role="group"
+            aria-label="Filter the DataTable example"
+          >
+            <input
+              type="search"
+              aria-label="Search the DataTable example"
+              placeholder="Search agent, type or owner…"
+              value={fleetSearch}
+              onChange={(e) => setFleetSearch(e.target.value)}
+              data-testid="ds-datatable-complex-search"
+              style={{
+                fontSize: 12,
+                padding: '5px 9px',
+                minWidth: 230,
+                color: 'var(--text)',
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+              }}
+            />
+            {FLEET_STATES.map((state) => {
+              const selected = fleetState === state
+              return (
+                <button
+                  key={state}
+                  type="button"
+                  onClick={() => setFleetState(state)}
+                  aria-pressed={selected}
+                  data-testid={`ds-datatable-complex-filter-${state}`}
+                  style={{
+                    fontSize: 11.5,
+                    padding: '4px 9px',
+                    borderRadius: 4,
+                    cursor: 'pointer',
+                    // Selected is a tinted fill plus a full-strength border, not
+                    // a solid accent fill: text on solid amber or cyan fails AA
+                    // in at least one of the three themes.
+                    color: selected ? 'var(--cyan)' : 'var(--muted)',
+                    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+                    border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
+                  }}
+                >
+                  {state} <span style={{ color: 'var(--dim)' }}>{fleetStateCounts[state]}</span>
+                </button>
+              )
+            })}
+            <span data-testid="ds-datatable-complex-count" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {fleetRows.length} of {FLEET_ROWS.length} shown
+            </span>
+          </div>
+
+          {fleetRows.length === 0 ? (
+            <EmptyState
+              kicker="Nothing matches that search"
+              body="Clear the search box or pick a different lifecycle state."
+            />
+          ) : (
+            <DataTable
+              columns={FLEET_COLUMNS}
+              data={fleetRows}
+              pageSize={5}
+              testIdPrefix="ds-datatable-complex"
+              renderRow={(row: FleetRow, i: number) => (
+                <tr
+                  key={`${row.agent}-${i}`}
+                  data-testid="ds-datatable-complex-row"
+                  style={{ borderBottom: '1px solid var(--border)' }}
+                >
+                  <td style={DataTable.td}>{row.agent}</td>
+                  <td style={DataTable.td}>{row.type}</td>
+                  <td style={DataTable.td}>{row.owner}</td>
+                  <td style={DataTable.td}><StatusBadge status={row.state} variant="lifecycle" /></td>
+                  <td style={DataTable.td}>{row.findings}</td>
+                  <td style={DataTable.td}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span>{row.posture}%</span>
+                      <StatusBadge
+                        status={row.posture >= POSTURE_PASS_THRESHOLD ? 'pass' : 'fail'}
+                        variant="compliance"
+                      />
+                    </span>
+                  </td>
+                  <td style={DataTable.td}>{row.lastActivity}</td>
+                </tr>
+              )}
+            />
           )}
-        />
+        </div>
+
+        <Caveat>
+          The two specimens differ in configuration, not in kind — same component, same props. What the
+          second one adds is entirely outside DataTable: the search box and the lifecycle chips are page
+          state, and they hand down an already-narrowed array. Keep it that way. Pushing filtering into
+          DataTable would mean every caller inherits one opinion about what &ldquo;search&rdquo; means, and
+          AgentsPage searches three fields while CredentialInventoryPage searches something else entirely.
+          The one thing DataTable does own across that boundary is the page reset: change the array length
+          under it and it returns to page 1 by itself, which is the bug you would otherwise ship — filter
+          down to three rows while sitting on page 2 and render an empty table.
+        </Caveat>
       </Group>
 
       {/* ── DonutChart ─────────────────────────────────────────────────────── */}

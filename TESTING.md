@@ -7,22 +7,35 @@ For a human review of the live browser experience, use [HUMAN_VALIDATION.md](HUM
 ## Browser acceptance tests
 
 The browser suite uses Playwright 1.61.1, Bun, and the system Chrome channel.
-`make acceptance-test` currently runs **68 tests across 9 specs**, in four
-projects defined by `testMatch` in
-[`test/acceptance/playwright.config.ts`](test/acceptance/playwright.config.ts):
-`auth.setup.ts`, `signalloom-test-1.spec.ts`, `supercred-two-window.spec.ts`,
-and the `smoke` set (`smoke`, `signalloom-login`, `afm-integration`,
-`afm-frontend`, `rbac-analysis`, `rbac-explorer`, `credential-lifecycle`).
-Confirm the live count with `cd test/acceptance && bunx playwright test --list`.
 
-**Four specs on disk match no project's `testMatch` and therefore never run**
-(confirmed against `bunx playwright test --list`; the only "cluster" string in
-the config is an unrelated comment):
-`cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`
-and `supercred-page.spec.ts`. Anything below describing `cluster.spec.ts` —
-including the Grafana / Archivista / Olly assertions and the baseline at the end
-of this section — documents a spec the command does not execute. Wire it into a
-project before relying on it.
+**[`test/acceptance/SPEC-REGISTRY.tsv`](test/acceptance/SPEC-REGISTRY.tsv) is the
+source of truth for where each spec runs**, and CI stage 1c
+([`test/acceptance-spec-coverage.bats`](test/acceptance-spec-coverage.bats))
+enforces it against `playwright.config.ts`, the `Makefile` and
+`scripts/ci/vm-pipeline.sh`. Read the registry, not this paragraph: this section
+described "68 tests across 9 specs in four projects" long after the config had
+grown to six projects and 70 tests in 12 files, which is why the registry exists
+in a form that can fail a build.
+
+In summary, as of 2026-08-13:
+
+| Where | Specs |
+| --- | --- |
+| CI stage 8 | `signalloom-test-1.spec.ts` |
+| CI stage 8b | `smoke.spec.ts` |
+| `make demo-signalloom-supercred-two-window` | `supercred-two-window.spec.ts` |
+| `make acceptance-test` only | `afm-frontend`, `afm-integration`, `credential-lifecycle`, `rbac-analysis`, `rbac-explorer`, `signalloom-login`, `supercred-evidence-lifecycle`, `supercred-ui-lifecycle` |
+| Nowhere — matches no project `testMatch` | `cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`, `supercred-page.spec.ts` |
+
+Playwright does not warn when no project claims a spec; it reports a smaller
+total and exits 0. Anything below describing `cluster.spec.ts` — including the
+Grafana / Archivista / Olly assertions and the baseline at the end of this
+section — documents a spec the command does not execute. Wire it into a project
+before relying on it.
+
+Note that `make acceptance-test` with no arguments is no longer a quick check:
+`supercred-ui-lifecycle` and `supercred-evidence-lifecycle` each carry a
+30-minute project timeout. Pass a filename to run one spec.
 
 The historical eight-test description of [`test/acceptance/cluster.spec.ts`](test/acceptance/cluster.spec.ts) follows:
 
@@ -164,6 +177,11 @@ runbooks, and CI investigations.
 - Fleet patch-index check: `bats d2-signalloom/test/fleet-patch-indexes.bats`
   (the local overlay patches ResourceSets by positional index; asserts each
   patched index still points at an `OCIRepository`; needs `yq`, no cluster)
+- Acceptance-spec coverage registry: `bats test/acceptance-spec-coverage.bats`
+  (every spec in `test/acceptance` must declare where it runs, and the
+  declaration is cross-checked against `playwright.config.ts`, the `Makefile`
+  and `scripts/ci/vm-pipeline.sh` in both directions; needs `python3`, no
+  cluster — runs as CI stage 1c)
 - Dashboard route-collision check: `bats d2-signalloom/test/dashboard-route-collisions.bats`
   (no nginx proxy prefix may shadow a SPA route in `App.tsx` or sit under a
   gateway path routed away from the dashboard; needs `yq`, no cluster)

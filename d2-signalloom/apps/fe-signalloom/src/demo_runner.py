@@ -954,13 +954,17 @@ async def get_demo_run_log(
     filters — every layer that can silently swallow a stream and leave a blank
     console with no error to debug.
 
-    `chunk` is decoded with errors="replace", and a page boundary at
-    _LOG_PAGE_BYTES can in principle split a multi-byte character. The demo
-    script does print them (phase 3's compliance summary emits ✅/❌ from a
-    python3 heredoc). It stays low-frequency here because the boundary only
-    falls every 64KiB — unlike the SSE route, which chops at every partial read
-    and therefore holds an incomplete trailing sequence back instead. Left as
-    is because this endpoint's byte-for-byte behaviour is a tested contract.
+    An incomplete trailing character is held back rather than decoded with
+    errors="replace", the same as the SSE route. This endpoint used to reason
+    that its boundary falls only every _LOG_PAGE_BYTES, so a split character
+    was a curiosity worth accepting. `wait` falsified that: a waiting caller is
+    released the instant new bytes land and therefore reads to the END of the
+    buffer, so the boundary is now wherever read1 happened to stop — every
+    poll, not every 64KiB. Measured against a script printing six ✓ across the
+    gap, all six came back as ✗-shaped mojibake (twelve U+FFFD) while the raw
+    buffer decoded cleanly throughout: the corruption was manufactured here,
+    on the path the dashboard actually uses. Phase 3's compliance summary emits
+    ✅/❌ from a python3 heredoc, so this is what an audience would have seen.
     """
     # Superadmin, not merely authenticated. This returns the demo script's RAW
     # stdout/stderr — kubectl output, resource names, OpenBao policy paths, the
@@ -991,6 +995,13 @@ async def get_demo_run_log(
         next_offset = min(log_bytes, offset + _LOG_PAGE_BYTES)
         chunk = bytes(run._log[offset:next_offset])
         truncated = run._log_truncated
+    # Hold back an incomplete trailing character, exactly as the SSE route does.
+    # `more_bytes_expected` is what keeps that safe: once the run is over nothing
+    # further can arrive, so the tail is handed over whole and `eof` is always
+    # reachable. A run that ends between this read and the next simply releases
+    # the held bytes on the following poll -- at most three bytes, one interval.
+    chunk, _held = _decodable_prefix(chunk, more_bytes_expected=run.status == "running")
+    next_offset -= len(_held)
     eof = run.status != "running" and next_offset == log_bytes
     return RunLogResponse(
         run_id=run_id,

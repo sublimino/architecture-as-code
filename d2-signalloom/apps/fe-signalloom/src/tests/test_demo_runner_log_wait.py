@@ -323,3 +323,56 @@ def test_a_finished_wait_leaves_no_thread_parked(
     assert threading.active_count() <= threads_after_first_wait, (
         "repeated waits accumulated threads; a parked waiter is not being released"
     )
+
+
+# Writes half of a "✓" (U+2713 is three bytes: e2 9c 93), pauses, then writes
+# the rest. read1 hands the parent whatever the pipe holds, so a caller polling
+# in that window sees a truncated character -- which is not a contrived case:
+# phase 3's compliance summary prints ✅ and ❌ from a python3 heredoc, and a
+# waiting caller is by construction always reading the live tail.
+_SPLIT_CHARACTER_SCRIPT = (
+    "#!/usr/bin/env bash\n"
+    "for i in $(seq 1 6); do\n"
+    "  printf 'check %s \\xe2\\x9c' \"$i\"\n"
+    "  sleep 0.15\n"
+    "  printf '\\x93 done\\n'\n"
+    "  sleep 0.15\n"
+    "done\n"
+    "sleep 5\n"
+)
+
+
+def test_a_character_split_across_two_polls_survives_the_poll_path(
+    demo_client: Callable[[str], TestClient]
+) -> None:
+    """The default transport must not burn a half-character to U+FFFD.
+
+    /log used to reason that its page boundary falls only every 64KiB, so a
+    multi-byte character straddling one was a curiosity worth accepting. `wait`
+    falsified that: a waiting caller is released the instant new bytes land and
+    reads to the end of the buffer, so the boundary is now wherever read1
+    happened to stop -- every single poll, not every 64KiB.
+
+    Measured before the fix: six ✓ characters became twelve U+FFFD. The raw
+    buffer decoded cleanly the whole time, so nothing was lost in capture; the
+    corruption was created by the endpoint, on the path the dashboard actually
+    uses.
+    """
+    client = demo_client(_SPLIT_CHARACTER_SCRIPT)
+    run_id = _start_run(client)
+
+    seen = ""
+    offset = 0
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        page = _read_log(client, run_id, offset=offset, wait=0.5)
+        seen += page["chunk"]
+        offset = page["next_offset"]
+        if seen.count("done") >= 6:
+            break
+
+    assert "�" not in seen, (
+        f"the poll path replaced a truncated character instead of holding it back: {seen!r}. "
+        "An instructor sees mojibake where phase 3 printed ✅/❌."
+    )
+    assert seen.count("✓") == 6, f"characters went missing entirely: {seen!r}"

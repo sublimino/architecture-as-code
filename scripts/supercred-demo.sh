@@ -29,9 +29,38 @@ IFS=' ' read -r -a AGENT_NAMESPACE_CANDIDATES \
   <<< "${AGENT_NAMESPACE_CANDIDATES:-fe-signalloom-agents fe-signalloom}"
 AGENT_POD_NAMESPACE="$NAMESPACE_AGENTS"
 
-log() { printf '\033[1;36m[supercred]\033[0m %s\n' "$*"; }
-ok()  { printf '\033[1;32m[supercred] ✓\033[0m %s\n' "$*"; }
-fail() { printf '\033[1;31m[supercred] FAILED:\033[0m %s\n' "$*" >&2; exit 1; }
+# Narration carries the wall-clock instant it was PRINTED.
+#
+# Only these three functions are stamped, and that is the design, not an
+# omission. Everything else this script emits — OpenBao's replies, the agent
+# pod's log, the compliance results — is output it is QUOTING from somewhere
+# else, and it quotes them after the fact: the agent's denial line is read back
+# up to SUPERCRED_STUN_EVIDENCE_TIMEOUT seconds after the pod wrote it. A stamp
+# on those lines would be the time this script echoed them, presented as the
+# time they happened. In a demo whose subject is evidence, a clock that lies is
+# worse than no clock. So the timestamp goes only where it is true: on lines
+# this script authored at the moment it printed them.
+#
+# UTC, with an explicit Z. This script runs from a terminal in Europe/London
+# and from inside the demo-runner pod, whose image sets no TZ and is therefore
+# UTC — local time would render one instant two ways with nothing on the line
+# to say which was which. It also matches the UTC that step 4 already writes
+# into the signalloom.ai/stunned-at annotation, so the log line and the
+# artefact it produced agree.
+#
+# Seconds, not milliseconds. These lines bracket kubectl calls and rollout
+# waits that are seconds to minutes apart, and the things worth correlating
+# them against — Kubernetes event timestamps, the stun annotation — are
+# themselves second-resolution. Milliseconds would advertise a precision
+# nothing else in the demo can be aligned to.
+#
+# printf's %(fmt)T is a bash builtin (4.2+), so a stamp costs no `date` fork
+# and no new dependency: moreutils `ts` is not in the runner image
+# (d2-signalloom/apps/supercred-demo-runner/Dockerfile installs bash, curl,
+# wget and kubectl, nothing more).
+log() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;36m[supercred]\033[0m %s\n' -1 "$*"; }
+ok()  { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;32m[supercred] ✓\033[0m %s\n' -1 "$*"; }
+fail() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;31m[supercred] FAILED:\033[0m %s\n' -1 "$*" >&2; exit 1; }
 
 # Sets AGENT_POD_NAMESPACE to the namespace that actually holds agent-cardvault.
 # Falls back to NAMESPACE_AGENTS and returns non-zero when the pod is nowhere.

@@ -4,6 +4,7 @@ import { api } from '../api/client'
 import { isDemoMode, subscribeDemoMode } from '../api/demoMode'
 import type { TrustTopologyResponse } from '../types/api'
 import { Section, StatCard } from '../components/DashKit'
+import HelpHint from '../components/HelpHint'
 import TrustTopologyCanvas from '../components/trust/TrustTopologyCanvas'
 import { visual } from '../components/trust/trustVisuals'
 import type {
@@ -221,10 +222,18 @@ function DegradedBanner({ topology }: { topology: TrustTopologyResponse | null }
         color: 'var(--text)', padding: '12px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13,
       }}
     >
-      <div style={{ fontWeight: 700, marginBottom: 4 }}>
-        {partial
-          ? 'Partial evidence — some of this topology was not observed.'
-          : 'Not live — this topology was derived, not observed.'}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+        <span style={{ fontWeight: 700 }}>
+          {partial
+            ? 'Partial evidence — some of this topology was not observed.'
+            : 'Not live — this topology was derived, not observed.'}
+        </span>
+        {/* The banner says WHAT is degraded. This says what a viewer should
+            now refuse to conclude from the diagram, which is the part that
+            actually changes a decision. */}
+        <HelpHint label="What this warning means for the diagram" testId="topology-degraded-help">
+          A collector that should be watching the live cluster did not report, so the parts it covers are drawn from the design instead of from observation. Those parts describe what should exist. Do not read them as proof that it does, or that a denied link would really be denied.
+        </HelpHint>
       </div>
       <div style={{ color: 'var(--muted)', marginBottom: failing.length ? 6 : 0 }}>
         {partial
@@ -335,7 +344,15 @@ export default function AgentTrustTopologyPage() {
     : edge ? !edges.some(item => item.id === edge.id) : false
   return <div style={{ paddingBottom: 32 }}>
     <style>{`.trust-layout{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px}.trust-native-list{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-top:1px solid var(--border)}.trust-native-list button:focus-visible,.topology-control:focus-visible{outline:3px solid var(--cyan);outline-offset:2px}@media(max-width:1024px){.trust-layout{grid-template-columns:1fr}.trust-native-list{display:flex}}`}</style>
-    <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Agent Trust Topology</h1>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+      <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Agent Trust Topology</h1>
+      {/* The three words govern the whole page — the legend, the stat cards,
+          the Evidence filter and the inspector all repeat them. Explaining
+          them once, at the top, beats three hints that each say a third of it. */}
+      <HelpHint label="What runtime-observed, fixture-tested and modeled mean" testId="topology-evidence-help">
+        Every box and arrow here carries one of three evidence states. Runtime-observed: a collector saw it in the live cluster. Fixture-tested: a test proved the contract holds, not that it is running right now. Modeled: it is what the design says should exist and nobody checked. Only runtime-observed is evidence.
+      </HelpHint>
+    </div>
     <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 780, marginBottom: 18 }}>{demo ? 'Contract topology fixture. Relationship evidence is never inferred from this display.' : 'Authenticated tenant topology derived from available agent runtime or fixture state.'}</p>
     {demo && <div role="status" style={{ border: '1px solid var(--amber)', background: 'color-mix(in srgb, var(--amber) 12%, var(--surface))', color: 'var(--text)', padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13 }}><strong>Demonstration data — warning.</strong> Demo mode is showing modeled and fixture-tested contract data.</div>}
     {!demo && loading && <div role="status">Loading authenticated trust topology…</div>}

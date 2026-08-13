@@ -5,6 +5,7 @@
  */
 import { type ReactNode, type CSSProperties } from 'react'
 import { colors } from '../styles/tokens'
+import HelpHint from './HelpHint'
 
 export function hex(c: string, o: number) {
   return c + Math.round(o * 255).toString(16).padStart(2, '0')
@@ -70,13 +71,33 @@ export function Section({ title, hint, children }: { title: string; hint: string
 const thStyle: CSSProperties = { padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }
 export const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--text)', whiteSpace: 'nowrap' }
 
-export function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
+/**
+ * A column header, optionally carrying a plain-English explanation.
+ *
+ * Plain strings stay valid so the existing callers are untouched; only the
+ * headers whose meaning is genuinely not self-evident pay the cost of an object.
+ */
+export type TableHeader = string | { label: string; help: string; testId?: string }
+
+export function Table({ headers, children }: { headers: TableHeader[]; children: ReactNode }) {
   return (
     <div className="card" style={{ padding: 0, overflow: 'auto' }}>
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-            {headers.map((h) => <th key={h} style={thStyle}>{h}</th>)}
+            {headers.map((h) => {
+              const label = typeof h === 'string' ? h : h.label
+              return (
+                <th key={label} style={thStyle}>
+                  {typeof h === 'string' ? label : (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      {label}
+                      <HelpHint label={`What ${label} means`} testId={h.testId}>{h.help}</HelpHint>
+                    </span>
+                  )}
+                </th>
+              )
+            })}
           </tr>
         </thead>
         <tbody>{children}</tbody>

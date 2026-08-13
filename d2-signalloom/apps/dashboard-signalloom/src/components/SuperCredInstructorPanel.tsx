@@ -54,6 +54,29 @@ const STEP_TARGETS: Record<string, { to: string; label: string; effect: string }
   '5': { to: '/audit', label: 'Audit Trail', effect: 'the agent is gone; the record of what happened is not' },
 }
 
+/**
+ * What each phase DOES to the cluster, in plain words, plus what the audience
+ * should watch change.
+ *
+ * `step.description` comes from the runner and is a one-line effect ("the agent
+ * joins the estate as enrolled"). That is the right length for a button title
+ * and the wrong length for someone deciding whether to press a control that
+ * mutates a shared cluster in front of a room. These strings say the mechanism
+ * and the visible consequence, so an instructor who has never run the demo — and
+ * an executive reading over their shoulder — both know what is about to happen.
+ *
+ * Written from what scripts/supercred-demo.sh actually executes, not from the
+ * phase titles, so they cannot drift into describing an intention the script
+ * does not carry out.
+ */
+const STEP_HELP: Record<string, string> = {
+  '1': 'Deletes anything left from a previous run, then deploys the Cardvault agent with its SPIRE registration entry and its OpenBao secrets. Watch a new agent appear on Agents — enrolled, but holding no credentials yet.',
+  '2': 'Runs the agent for real: it presents its SPIFFE identity to OpenBao, exchanges it for a short-lived credential and uses that to read the cardvault secret. Watch Credential Inventory fill with the SVID, the OpenBao lease and the service token.',
+  '3': 'Reads the running pod’s spec and evaluates it against policy. The agent fails on a missing securityContext and is labelled non-compliant. Nothing is revoked here — watch it drop into the critical band on Compliance.',
+  '4': 'Destructive. Deletes the agent’s OpenBao secret and its login role, marks the pod stunned, then re-runs the credential chain to prove it now fails. The pod keeps running but can no longer authenticate to anything. Watch Agents, then Audit Trail.',
+  '5': 'Destructive. Deletes the agent pod, its jobs and its SPIRE entry from every namespace they can land in. Watch it disappear everywhere except Audit Trail, which still holds the record of what happened — that is the point.',
+}
+
 const RUN_STATUS_COLORS: Record<string, string> = {
   running: colors.cyanLoom,
   succeeded: colors.tealLoom,
@@ -525,21 +548,33 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
           <div data-testid="supercred-run-steps" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {displaySteps.map(step => (
-              <button
-                key={step.step_id}
-                className="btn btn-secondary"
-                data-testid={`supercred-run-step-${step.step_id}`}
-                title={step.description}
-                onClick={() => void startRun(async () => startDemoRun(step.step_id, await getAccessTokenSilently()))}
-                disabled={runsBlocked}
-                style={{
-                  fontSize: 12, padding: '6px 12px',
-                  borderColor: activeRun?.step_id === step.step_id && running ? 'var(--cyan)' : undefined,
-                  color: activeRun?.step_id === step.step_id && running ? 'var(--cyan)' : undefined,
-                }}
-              >
-                {step.step_id} · {step.title}
-              </button>
+              // Button and hint are wrapped together so `flexWrap` can never
+              // break the row between them and leave a "?" explaining the phase
+              // on the line above it.
+              <span key={step.step_id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <button
+                  className="btn btn-secondary"
+                  data-testid={`supercred-run-step-${step.step_id}`}
+                  title={step.description}
+                  onClick={() => void startRun(async () => startDemoRun(step.step_id, await getAccessTokenSilently()))}
+                  disabled={runsBlocked}
+                  style={{
+                    fontSize: 12, padding: '6px 12px',
+                    borderColor: activeRun?.step_id === step.step_id && running ? 'var(--cyan)' : undefined,
+                    color: activeRun?.step_id === step.step_id && running ? 'var(--cyan)' : undefined,
+                  }}
+                >
+                  {step.step_id} · {step.title}
+                </button>
+                {STEP_HELP[step.step_id] && (
+                  <HelpHint
+                    label={`What phase ${step.step_id} does to the cluster`}
+                    testId={`supercred-run-step-${step.step_id}-help`}
+                  >
+                    {STEP_HELP[step.step_id]}
+                  </HelpHint>
+                )}
+              </span>
             ))}
           </div>
 

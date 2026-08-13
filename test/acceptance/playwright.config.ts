@@ -159,12 +159,33 @@ export default defineConfig({
       // preconditions and would only inherit the ones it cannot meet.
       name: "supercred-log-streaming-harness",
       testMatch: /supercred-log-streaming-harness\.spec\.ts/,
-      // Three scripted runs of 5-12s each, plus a browser launch and a Bun
+      // Four scripted runs of 5-13s each, plus a browser launch and a Bun
       // bundle of the real component tree on first request.
       timeout: 3 * 60_000,
       use: {
         ...devices["Desktop Chrome"],
-        channel: CHANNEL,
+        // NO `channel`, and that is the one deliberate difference from every
+        // other project here.
+        //
+        // Everything else drives the dashboard through the Envoy Gateway and
+        // wants the real branded Chrome, because that is what an instructor
+        // will be running on stage. This project drives a bun server on
+        // 127.0.0.1 with no Gateway, no TLS and no SNI, so branded Chrome buys
+        // it nothing — and costs it reproducibility, because whether
+        // /opt/google/chrome exists, is executable, and can reach the system
+        // font cache varies per machine in a way the bundled build does not.
+        //
+        // That is not hypothetical. The same run rendered correctly under a
+        // plain bundled-Chromium launch and rendered with ZERO-HEIGHT TEXT
+        // under this config on the same machine — every string present in the
+        // DOM, every string laying out at 0x0, a 36px-tall scroll region
+        // holding 6470 characters, and a failure message about the log not
+        // overflowing its box. A layout assertion is only worth having if the
+        // browser it runs in is the same one every time.
+        //
+        // expectRendersText() in the spec catches the residual case by name, so
+        // a machine that still cannot resolve a font fails saying so rather
+        // than blaming the component.
         video: "off",
       },
     },

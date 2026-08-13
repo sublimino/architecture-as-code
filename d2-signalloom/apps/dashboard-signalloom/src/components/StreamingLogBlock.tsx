@@ -240,6 +240,20 @@ export interface StreamingLogBlockProps {
   statusTone?: string
   /** Accessible name for the scroll region and the Copy button. */
   label?: string
+  /**
+   * What the body says while the log is empty and output is still expected.
+   *
+   * The block is now mounted when a run STARTS rather than when its first byte
+   * lands, so there is a real interval — a slow first phase spends it inside
+   * kubectl — where there is a block and nothing to put in it. Rendering the
+   * empty log as-is produces one blank numbered row carrying the caret, which
+   * reads as "the runner is producing nothing"; an empty bordered box is worse
+   * than no box. This says what is actually true and claims nothing else: no
+   * invented line, no fake timestamp, no progress figure.
+   *
+   * Omitted, the block behaves exactly as it did before this prop existed.
+   */
+  placeholder?: string
   testId?: string
   /** Override for the DOM bound. Present for tests; production uses the default. */
   maxLines?: number
@@ -253,6 +267,7 @@ export default function StreamingLogBlock({
   status,
   statusTone = 'var(--muted)',
   label = 'Run log',
+  placeholder,
   testId = 'streaming-log',
   maxLines = MAX_VISIBLE_LINES,
   style,
@@ -359,7 +374,15 @@ export default function StreamingLogBlock({
         data-testid={`${testId}-scroll`}
         style={scroll}
       >
-        {lines.map((line, i) => {
+        {log === '' && placeholder !== undefined ? (
+          // Deliberately not a numbered row: numbering it would assert that
+          // line 1 of the runner's output exists and is blank. Nothing here
+          // animates — a pulsing "waiting" is decoration that reads as
+          // activity, and the activity indicator is PixelLoader's job.
+          <div data-testid={`${testId}-waiting`} style={waiting}>
+            {placeholder}
+          </div>
+        ) : lines.map((line, i) => {
           const number = firstLineNumber + i
           const isLast = i === lines.length - 1
           return (
@@ -517,6 +540,13 @@ const content: CSSProperties = {
   // 300-character kubectl line from giving the whole block a horizontal
   // scrollbar nobody will find on a projector.
   whiteSpace: 'pre-wrap', wordBreak: 'break-word', minWidth: 0,
+}
+
+const waiting: CSSProperties = {
+  // --muted, for the same reason the gutter uses it: subordinate to real
+  // output but readable from the back of a room (7.87 / 7.58 / 7.37 against
+  // --bg across the three themes). Italic so it is visibly not a log line.
+  color: 'var(--muted)', fontStyle: 'italic',
 }
 
 const caret: CSSProperties = {

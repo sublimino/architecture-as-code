@@ -134,6 +134,29 @@ describe('demoRunner endpoints', () => {
     expect(chunk.next_offset).toBe(96)
   })
 
+  it('asks the runner to hold the read open when given a wait bound', async () => {
+    // The waiting read is the live transport. It returns within milliseconds of
+    // the script printing, while staying an ordinary short HTTP response — so
+    // no proxy, compressor or tunnel between here and the runner can sit on it
+    // the way they can sit on an event-stream.
+    mockFetch(() => ({
+      payload: { run_id: 'run-1', offset: 40, next_offset: 40, chunk: '', truncated: false, eof: false },
+    }))
+    await fetchDemoRunLog('run-1', 40, undefined, 3)
+    expect(calls[0].url).toBe('/demo-api/runs/run-1/log?offset=40&wait=3')
+  })
+
+  it('omits wait entirely when none is asked for', async () => {
+    // A runner image that predates the parameter drops it rather than failing,
+    // but a caller that does not want to block must not send it at all —
+    // `drainLog` reads a finished run and has nothing to wait for.
+    mockFetch(() => ({
+      payload: { run_id: 'run-1', offset: 0, next_offset: 0, chunk: '', truncated: false, eof: true },
+    }))
+    await fetchDemoRunLog('run-1', 0)
+    expect(calls[0].url).toBe('/demo-api/runs/run-1/log?offset=0')
+  })
+
   it('escapes a run id that would otherwise change the path', async () => {
     mockFetch(() => ({ payload: run() }))
     await fetchDemoRun('run/../reset')

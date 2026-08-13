@@ -117,6 +117,58 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // Progressive log arrival against the live runner: the log must GROW
+      // while a phase is still in flight, and stop following once the
+      // instructor scrolls up.
+      //
+      // Its own project rather than a home in `supercred-ui-lifecycle`, for
+      // the reason that project's own comment gives about `smoke`: a failure
+      // here must name the streaming path. Sharing a project would bury a
+      // streaming regression inside a 30-minute lifecycle journey and make the
+      // two impossible to run independently — and the whole reason this defect
+      // survived is that its symptom was invisible inside a bigger green test.
+      //
+      // 15 minutes, not 30: it drives one reset and one phase, not all five.
+      // retries:0 like its siblings — it mutates one shared cluster, so a
+      // retry would start against its own leftovers rather than clean.
+      name: "supercred-log-streaming",
+      testMatch: /supercred-log-streaming\.spec\.ts/,
+      timeout: 15 * 60_000,
+      retries: 0,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        storageState: "test-results/.auth-state.json",
+      },
+      dependencies: ["setup"],
+    },
+    {
+      // The same streaming assertions, against a scripted runner and no
+      // cluster at all (harness/server.ts). Runs in ~25s on a laptop.
+      //
+      // NO storageState and NO `setup` dependency, and both omissions are
+      // deliberate: the setup project drives Dex through the Gateway, so
+      // depending on it would give this project the cluster requirement it
+      // exists to avoid — and `test-results/.auth-state.json` does not exist
+      // on a machine that has never run against a cluster, which Playwright
+      // reports as a project-level failure rather than a skip.
+      //
+      // Left out of `smoke` for the same reason: `smoke` is for specs that
+      // drive the DASHBOARD and log themselves in. This one boots a bun server
+      // and points a page at 127.0.0.1, so it shares none of that project's
+      // preconditions and would only inherit the ones it cannot meet.
+      name: "supercred-log-streaming-harness",
+      testMatch: /supercred-log-streaming-harness\.spec\.ts/,
+      // Three scripted runs of 5-12s each, plus a browser launch and a Bun
+      // bundle of the real component tree on first request.
+      timeout: 3 * 60_000,
+      use: {
+        ...devices["Desktop Chrome"],
+        channel: CHANNEL,
+        video: "off",
+      },
+    },
+    {
       // Specs that authenticate themselves, per test, via helpers.ts `login()`.
       // The absence of storageState and of a `setup` dependency is deliberate
       // and must stay: smoke.spec.ts's first case asserts that an

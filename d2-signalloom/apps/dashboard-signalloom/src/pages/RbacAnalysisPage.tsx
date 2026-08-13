@@ -11,6 +11,7 @@ import { useAuth0 } from '../auth/oidc'
 import { isDemoMode } from '../api/demoMode'
 import RbacImporterPanel from '../components/RbacImporterPanel'
 import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
+import { afmDashboardUrl, selectMostRecentImport } from '../api/afmYaml'
 
 const AFM_DASHBOARD = '/dashboard/'
 const AFM_HEALTH = '/afm/health'
@@ -29,6 +30,10 @@ export default function RbacAnalysisPage() {
   const [iframeKey, setIframeKey] = useState(0)
   const [showAddCluster, setShowAddCluster] = useState(false)
   const [localClusters, setLocalClusters] = useState<NewClusterEntry[]>([])
+  // Which cluster the embed opens on. AFM selects nothing by default, so an
+  // unparameterised /dashboard/ renders an empty frame and every import looks
+  // like it never arrived.
+  const [embedClusterId, setEmbedClusterId] = useState<string | null>(null)
 
   const checkHealth = useCallback(async () => {
     try {
@@ -41,6 +46,11 @@ export default function RbacAnalysisPage() {
         clusterCount: Array.isArray(clustersRes) ? clustersRes.length : null,
         checkedAt: new Date(),
       })
+      if (Array.isArray(clustersRes)) {
+        const ids = clustersRes.filter((c: unknown): c is { id: string } =>
+          typeof (c as { id?: unknown })?.id === 'string')
+        setEmbedClusterId(selectMostRecentImport(ids))
+      }
     } catch {
       setStatus({ reachable: false, clusterCount: null, checkedAt: new Date() })
     }
@@ -154,7 +164,15 @@ export default function RbacAnalysisPage() {
         </div>
       )}
 
-      <RbacImporterPanel />
+      <RbacImporterPanel
+        onImported={(clusterId) => {
+          // Point the embed at what was just sent and force a reload: the
+          // iframe will not re-navigate on a src change alone once loaded.
+          setEmbedClusterId(clusterId)
+          setIframeLoaded(false)
+          setIframeKey((k) => k + 1)
+        }}
+      />
 
       {showAddCluster && (
         <AddClusterModal
@@ -208,7 +226,7 @@ export default function RbacAnalysisPage() {
       {status.reachable && (
         <iframe
           key={iframeKey}
-          src={AFM_DASHBOARD}
+          src={afmDashboardUrl(embedClusterId, AFM_DASHBOARD)}
           title="KubeSec-AFM Dashboard"
           data-testid="afm-iframe"
           style={{

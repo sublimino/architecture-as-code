@@ -171,7 +171,12 @@ describe('RbacAnalysisPage', () => {
       expect(await screen.findByText(/afm connected/i)).toBeInTheDocument()
       // In live mode (default), the cluster count shows "Host Cluster" instead of "2 clusters"
       expect(screen.getByTestId('cluster-count')).toHaveTextContent(/host cluster/i)
-      expect(screen.getByTestId('afm-iframe')).toHaveAttribute('src', '/dashboard/')
+      // The embed must name a cluster. AFM selects NOTHING on a bare
+      // /dashboard/ — verified against the live instance — so an
+      // unparameterised iframe renders an empty frame and every import looks
+      // like it never arrived. With no SignalLoom import in this fixture the
+      // host cluster is the correct fallback.
+      expect(screen.getByTestId('afm-iframe')).toHaveAttribute('src', '/dashboard/?cluster=local')
 
       expect(requestedUrls()).toContain('/afm/health')
       expect(requestedUrls()).toContain('/afm/clusters')

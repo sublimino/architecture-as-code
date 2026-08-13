@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CredentialEvidencePanel } from './CredentialEvidencePanel'
@@ -455,6 +455,47 @@ describe('the card does not overclaim while it is empty', () => {
     const { container } = render(<CredentialEvidencePanel fetcher={fetcherFor({}, false, 500) as unknown as typeof fetch} />)
     await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
     expect(container.textContent).not.toMatch(/Every row below was decided/i)
+  })
+
+  it('counts the first probe up rather than just asserting it is checking', async () => {
+    // The headline already said "Checking the credential chain…" and then said
+    // it forever, indistinguishable at second 2 and second 90.
+    let release: (v: unknown) => void = () => {}
+    const pending = new Promise((r) => { release = r })
+    const fetcher = vi.fn().mockReturnValue(pending)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+
+    const loader = await screen.findByTestId('evidence-headline-loader')
+    expect(within(loader).getByTestId('evidence-headline-loader-elapsed')).toHaveTextContent(/s$/)
+    // Same sentence, same element — the loader carries it rather than replacing it.
+    expect(screen.getByTestId('evidence-headline')).toHaveTextContent('Checking the credential chain')
+
+    release({ ok: true, status: 200, json: async () => payload([step()]) })
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+    expect(screen.queryByTestId('evidence-headline-loader')).not.toBeInTheDocument()
+  })
+
+  it('counts a re-check up inside the button and keeps the button named', async () => {
+    let release: (v: unknown) => void = () => {}
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step()]) } as unknown as Response)
+      .mockReturnValueOnce(new Promise((r) => { release = r }))
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    const idleWidth = (screen.getByTestId('evidence-refresh') as HTMLButtonElement).style.minWidth
+    await userEvent.click(screen.getByTestId('evidence-refresh'))
+
+    expect(await screen.findByTestId('evidence-recheck-loader')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /checking/i })).toBeDisabled()
+    // The header must not shuffle mid-demo, so the box is reserved up front.
+    expect((screen.getByTestId('evidence-refresh') as HTMLButtonElement).style.minWidth).toBe(idleWidth)
+    expect(idleWidth).not.toBe('')
+
+    release({ ok: true, status: 200, json: async () => payload([step()]) })
+    await waitFor(() => expect(screen.queryByTestId('evidence-recheck-loader')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /re-check/i })).toBeEnabled()
   })
 
   it('stops offering to hide commands once a failed re-check has emptied the chain', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import FleetDemoPage from './FleetDemoPage'
@@ -331,5 +331,103 @@ describe('FleetDemoPage', () => {
       expect(screen.queryByTestId('fleet-reset-help')).not.toBeInTheDocument()
       expect(screen.queryByTestId('fleet-recover-help')).not.toBeInTheDocument()
     })
+  })
+})
+
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// Every control here already had a LoadingState beside it saying THAT it is
+// running. None of them said for HOW LONG, which is the only thing anyone
+// actually wants to know sixty seconds into a fleet deploy. The in-button
+// loader supplies the elapsed figure and is deliberately aria-hidden: the
+// sibling LoadingState is already a polite live region for this operation, and
+// two regions announcing one operation is worse than one.
+
+describe('fleet waits say how long they have been waiting', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.clearAllMocks()
+    mockSuperadmin.value = true
+    mockFetchFleetTopology.mockResolvedValue(TOPOLOGY)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** A promise held open until the test decides the request has finished. */
+  function gate() {
+    let release!: () => void
+    const promise = new Promise<void>(resolve => { release = () => resolve() })
+    return { promise, release }
+  }
+
+  it('counts up inside Deploy Fleet and stops when the deploy returns', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const held = gate()
+    mockDeployFleet.mockReturnValue(held.promise)
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-deploy-btn')).toBeInTheDocument())
+    await user.click(screen.getByTestId('fleet-deploy-btn'))
+
+    const loader = await screen.findByTestId('fleet-deploy-loader')
+    expect(within(loader).getByTestId('fleet-deploy-loader-elapsed')).toHaveTextContent(/s$/)
+    // The control keeps a meaningful name even though the loader is hidden
+    // from assistive technology.
+    expect(screen.getByRole('button', { name: /deploying/i })).toBeDisabled()
+
+    held.release()
+    await waitFor(() => expect(screen.queryByTestId('fleet-deploy-loader')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /deploy fleet/i })).toBeEnabled()
+  })
+
+  it('does not add a second live region beside the one already announcing', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const held = gate()
+    mockScanFleet.mockReturnValue(held.promise)
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-scan-btn')).toBeInTheDocument())
+    await user.click(screen.getByTestId('fleet-scan-btn'))
+
+    const loader = await screen.findByTestId('fleet-scan-loader')
+    // PixelLoader is role=status by construction; hiding the subtree is what
+    // keeps the announcement single. fleet-scan-status stays the announcer.
+    expect(loader.closest('[aria-hidden="true"]')).not.toBeNull()
+    expect(screen.getByTestId('fleet-scan-status')).toHaveAttribute('aria-live', 'polite')
+
+    held.release()
+    await waitFor(() => expect(screen.queryByTestId('fleet-scan-loader')).not.toBeInTheDocument())
+  })
+
+  it('counts up inside the narrow Stun button without letting it change size', async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const held = gate()
+    mockStunFleetAgent.mockReturnValue(held.promise)
+
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-stun-btn')).toBeInTheDocument())
+    const idleWidth = screen.getByTestId('fleet-stun-btn').style.minWidth
+    await user.click(screen.getByTestId('fleet-stun-btn'))
+
+    expect(await screen.findByTestId('fleet-stun-loader')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /stunning/i })).toBeDisabled()
+    // Reserved, not measured: the button is the same box idle and busy, so
+    // neither the swap nor a tick can nudge the row.
+    expect(screen.getByTestId('fleet-stun-btn').style.minWidth).toBe(idleWidth)
+    expect(idleWidth).not.toBe('')
+
+    held.release()
+    await waitFor(() => expect(screen.queryByTestId('fleet-stun-loader')).not.toBeInTheDocument())
+  })
+
+  it('leaves the two-second topology poll alone', async () => {
+    // topologyLoading flips true on EVERY poll. A loader there would flash
+    // twice a second forever, which is noise, not information — the existing
+    // LoadingState already carries "Refreshing… · last refreshed 3s ago".
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('fleet-topology-status')).toBeInTheDocument())
+    expect(screen.queryByTestId('fleet-topology-loader')).not.toBeInTheDocument()
   })
 })

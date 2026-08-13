@@ -11,6 +11,27 @@ import {
 import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from '../api/afmYaml'
 import type { AfmClusterImport } from '../api/afmYaml'
 import { isDemoMode } from '../api/demoMode'
+import PixelLoader from './PixelLoader'
+
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// All three waits here talk to AFM across a proxy with a fifteen-second
+// timeout, and all three used to say one unchanging word. Each now carries the
+// pixel grid and a live elapsed figure, so a slow AFM and a hung one stop
+// looking identical.
+//
+// The two button loaders get an explicit width and their buttons a min-width
+// that already fits the busy state. The figure gains a character at 10.0s and
+// again at 1m 0.0s, and this control row sits next to two selects — a button
+// that grows mid-request drags them sideways under the cursor.
+
+/** Grid + gap + a one-word label at 13px + gap + the figure at its longest. */
+const LABELLED_LOADER_W = 144
+const SEND_LOADER_W = 124
+const LOADER_GAP = 6
+const GENERATE_BUTTON_W = 170
+/** Copy shares it so the two-button stack keeps one edge while Send is busy. */
+const SEND_BUTTON_W = 150
 
 type InlineFeedback =
   | { tone: 'success'; message: string }
@@ -390,7 +411,17 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
           )}
           {displayClusters.length === 0 && (
             <div style={{ minWidth: 220, fontSize: 12, color: 'var(--muted)' }}>
-              {isLoadingClusters ? 'Loading AFM clusters…' : 'No AFM clusters available yet.'}
+              {/* A panel-level wait with a line to itself, so it keeps the full
+                  sentence rather than going compact the way the buttons do. */}
+              {isLoadingClusters
+                ? (
+                  <PixelLoader
+                    testId="importer-clusters-loader"
+                    label="Loading AFM clusters"
+                    style={{ gap: LOADER_GAP }}
+                  />
+                )
+                : 'No AFM clusters available yet.'}
             </div>
           )}
         </div>
@@ -419,9 +450,14 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
           data-testid="importer-fetch"
           disabled={fetchDisabled}
           onClick={() => void handleGenerateYaml()}
-          style={{ fontSize: 12, padding: '5px 12px' }}
+          style={{
+            fontSize: 12, padding: '5px 12px', minWidth: GENERATE_BUTTON_W,
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}
         >
-          {isLoadingRbac ? 'Generating…' : 'Generate YAML'}
+          {isLoadingRbac
+            ? <PixelLoader testId="importer-generate-loader" label="Generating" style={{ width: LABELLED_LOADER_W, gap: LOADER_GAP }} />
+            : 'Generate YAML'}
         </button>
       </div>
 
@@ -494,7 +530,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
             data-testid="importer-copy"
             disabled={!yamlText}
             onClick={() => void handleCopy()}
-            style={{ minWidth: 110 }}
+            style={{ minWidth: SEND_BUTTON_W }}
           >
             Copy
           </button>
@@ -505,9 +541,14 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
             data-testid="importer-send"
             disabled={!lastImportPayloadRef.current || isSending}
             onClick={() => void handleSendToAfm()}
-            style={{ minWidth: 110, fontSize: 12, padding: '5px 12px' }}
+            style={{
+              minWidth: SEND_BUTTON_W, fontSize: 12, padding: '5px 12px',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}
           >
-            {isSending ? 'Sending…' : 'Send to AFM'}
+            {isSending
+              ? <PixelLoader testId="importer-send-loader" label="Sending" style={{ width: SEND_LOADER_W, gap: LOADER_GAP }} />
+              : 'Send to AFM'}
           </button>
         </div>
       </div>

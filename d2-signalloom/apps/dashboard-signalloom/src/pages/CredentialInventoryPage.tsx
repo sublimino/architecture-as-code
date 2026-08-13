@@ -27,8 +27,10 @@ import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable from '../components/DataTable'
-import HelpHint from '../components/HelpHint'
+import { Table, type TableHeader } from '../components/DashKit'
+import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
+import StatusBadge from '../components/StatusBadge'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { colors } from '../styles/tokens'
 import {
@@ -76,7 +78,10 @@ interface LoadedState {
 
 // ─── Presentation ───────────────────────────────────────────────────────────
 
-const th: CSSProperties = { padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }
+// Local, and deliberately not DashKit's `td`: that one carries
+// `whiteSpace: 'nowrap'`, and the Scope column here is a long OpenBao path that
+// has to wrap. The header row is DashKit's, which is where the duplication
+// actually mattered.
 const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--text)' }
 
 /**
@@ -85,39 +90,29 @@ const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--tex
  * Only "Selectors" carries a hint. It is the one column that describes a
  * mechanism rather than a value, and it is the mechanism the whole page rests
  * on — everything else here (SPIFFE ID, Workload, OpenBao role, Policy path)
- * either names itself or is already explained by the tag titles in its cells.
+ * either names itself or is already explained by the badge titles in its cells.
  */
-const IDENTITY_HEADERS: { label: string; help?: string; testId?: string }[] = [
-  { label: 'SPIFFE ID' },
-  { label: 'Workload' },
+const IDENTITY_HEADERS: TableHeader[] = [
+  'SPIFFE ID',
+  'Workload',
   {
     label: 'Selectors',
     help: 'What SPIRE checks about a running pod before it will hand that pod an identity — here, its namespace and its Kubernetes service account. A workload that does not match cannot obtain the credential even if it knows the name of it.',
     testId: 'identity-selectors-help',
   },
-  { label: 'OpenBao role' },
-  { label: 'Policy path' },
-  { label: 'Source' },
-  { label: 'State' },
+  'OpenBao role',
+  'Policy path',
+  'Source',
+  'State',
 ]
 
-function tint(cssVar: string, opacity: number) {
-  return `color-mix(in srgb, ${cssVar} ${Math.round(opacity * 100)}%, transparent)`
-}
-
-const STATUS_COLOR: Record<CredentialStatus, string> = {
-  active: 'var(--teal)',
-  pending: 'var(--cyan)',
-  expired: 'var(--amber)',
-  failed: 'var(--error)',
-  revoked: 'var(--error)',
-}
-
-const PROVENANCE_COLOR: Record<Provenance, string> = {
-  live: 'var(--teal)',
-  config: 'var(--cyan)',
-  demo: 'var(--amber)',
-}
+/**
+ * The shared button, shrunk. `.btn .btn-secondary` brings the themed fill,
+ * border and the measured focus ring; only the size is local, exactly as
+ * DataTable's pagination controls do it. The bespoke transparent button this
+ * replaces had no focus treatment of its own beyond the global fallback.
+ */
+const PROOF_BUTTON: CSSProperties = { fontSize: 11, padding: '3px 10px', marginTop: 8 }
 
 const PROVENANCE_HINT: Record<Provenance, string> = {
   live: 'Observed in-cluster via agent discovery',
@@ -125,18 +120,6 @@ const PROVENANCE_HINT: Record<Provenance, string> = {
   demo: 'Fixture data — the live path was unavailable',
 }
 
-function Tag({ label, color, testId, title }: { label: string; color: string; testId?: string; title?: string }) {
-  return (
-    <span
-      data-testid={testId}
-      title={title}
-      className="tag"
-      style={{ background: tint(color, 0.12), color, whiteSpace: 'nowrap' }}
-    >
-      {label}
-    </span>
-  )
-}
 
 function StatCard({ label, value, sub, accent, testId }: { label: string; value: string; sub: string; accent: string; testId: string }) {
   return (
@@ -160,6 +143,7 @@ export default function CredentialInventoryPage() {
   const [state, setState] = useState<LoadedState | null>(null)
   const [statusFilter, setStatusFilter] = useState<'all' | CredentialStatus>('all')
   const [proofOpen, setProofOpen] = useState(false)
+  const [unregisteredProofOpen, setUnregisteredProofOpen] = useState(false)
 
   // Frozen at mount. Every TTL, expiry and rotation figure derives from this one
   // instant, so a re-render cannot make two rows disagree about "now".
@@ -286,6 +270,37 @@ export default function CredentialInventoryPage() {
   const summary = useMemo(() => summariseCredentials(credentials, now), [credentials, now])
   const unregistered = useMemo(() => entries.filter((e) => !e.registered), [entries])
 
+  /**
+   * The proof behind the amber banner, and the one on this page where getting
+   * it wrong would be worse than omitting it.
+   *
+   * `registered` is decided by `deriveEntriesFromAgents` doing
+   * `new Set(CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId)).has(id)` — a
+   * comparison against a constant transcribed from the repo manifests. There is
+   * no SPIRE call anywhere in this page's data path, so the console shows the
+   * comparison that ran and names the command that would actually answer the
+   * SPIRE question as one nobody executed. Inventing a plausible
+   * `spire-server entry show` transcript here would turn an honest banner into
+   * a fabricated one, which is the failure mode this console exists to prevent.
+   */
+  const unregisteredProof = useMemo<Proof>(() => {
+    const declared = CONFIG_REGISTRATION_ENTRIES.map((e) => `  ${e.spiffeId}`).join('\n')
+    const absent = unregistered.map((e) => `  ${e.spiffeId} — ${e.workload}`).join('\n')
+    return {
+      label: 'Registration check',
+      command: 'CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId).includes(discoveredId)'
+        + '   // in-browser, src/data/credentialInventory.ts',
+      detail: 'Set membership against the registration entries declared in this repo\'s '
+        + 'SPIRE/OpenBao manifests. No SPIRE server was contacted.\n\n'
+        + `Declared (${CONFIG_REGISTRATION_ENTRIES.length}):\n${declared}\n\n`
+        + `Discovered and absent from that list (${unregistered.length}):\n${absent || '  (none)'}\n\n`
+        + 'What this does NOT establish: whether SPIRE currently holds an entry for these IDs. '
+        + 'That question is answered by `spire-server entry show -spiffeID <id>` against the '
+        + 'SPIRE server, and this dashboard has no path to run it. The finding above is that the '
+        + 'manifests do not ask for these identities.',
+    }
+  }, [unregistered])
+
   const visibleCredentials = useMemo(
     () => (statusFilter === 'all'
       ? credentials
@@ -340,13 +355,10 @@ export default function CredentialInventoryPage() {
           <>
             <button
               type="button"
+              className="btn btn-secondary"
               data-testid="inventory-disclose-proof"
               onClick={() => setProofOpen((v) => !v)}
-              style={{
-                fontSize: 11, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
-                marginTop: 8, border: '1px solid var(--border)',
-                background: 'transparent', color: 'inherit', fontFamily: 'inherit',
-              }}
+              style={PROOF_BUTTON}
             >
               {proofOpen
                 ? 'Hide proof'
@@ -368,7 +380,13 @@ export default function CredentialInventoryPage() {
         <StatCard testId="summary-failed" label="Failed" value={String(summary.failed)} sub="exchange did not complete" accent="var(--amber)" />
       </div>
 
-      {/* Unregistered workloads — a pod running without any workload identity. */}
+      {/* Unregistered workloads — a pod whose identity the manifests never ask
+          for. The heading used to read "with no SPIRE registration entry",
+          which asserts a fact about SPIRE that this page has never gone and
+          checked: `registered` is a set-membership test against the hardcoded
+          CONFIG_REGISTRATION_ENTRIES, and nothing here queries a SPIRE server.
+          The table below was already honest about that (rows tagged `config`,
+          "registration expected, not observed") while this banner was not. */}
       {unregistered.length > 0 && (
         <div
           data-testid="unregistered-warning"
@@ -379,12 +397,15 @@ export default function CredentialInventoryPage() {
           }}
         >
           <strong style={{ color: colors.amber }}>
-            {unregistered.length} discovered workload{unregistered.length === 1 ? '' : 's'} with no SPIRE registration entry
+            {unregistered.length} discovered workload{unregistered.length === 1 ? '' : 's'} not in the declared registration manifest
           </strong>
           <div style={{ color: 'var(--muted)', marginTop: 4 }}>
-            These pods are running without a workload identity — no SVID is issued for them, so they
-            hold no credential this platform can rotate or revoke. Register the identity, or move the
-            workload onto a service account that has one.
+            Their SPIFFE IDs do not appear in the registration entries this repo&rsquo;s SPIRE/OpenBao
+            manifests declare. No SPIRE server was queried, so read this as &ldquo;the platform never
+            asked for this identity&rdquo; rather than &ldquo;SPIRE has confirmed it issued none&rdquo;.
+            Where the manifests are the source of truth the two coincide: with no entry there is no
+            SVID, and the workload holds no credential this platform can rotate or revoke. Register
+            the identity, or move the workload onto a service account that has one.
           </div>
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--muted)', fontSize: 12 }}>
             {unregistered.map((entry) => (
@@ -393,6 +414,18 @@ export default function CredentialInventoryPage() {
               </li>
             ))}
           </ul>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            data-testid="unregistered-disclose-proof"
+            onClick={() => setUnregisteredProofOpen((v) => !v)}
+            style={PROOF_BUTTON}
+          >
+            {unregisteredProofOpen ? 'Hide proof' : 'How do we know?'}
+          </button>
+          {unregisteredProofOpen && (
+            <ProofConsole proofs={[unregisteredProof]} testId="unregistered-proof-console" />
+          )}
         </div>
       )}
 
@@ -402,65 +435,53 @@ export default function CredentialInventoryPage() {
           <h2 style={{ fontSize: 16, fontWeight: 700 }}>Workload Identities</h2>
           <span style={{ fontSize: 12, color: 'var(--muted)' }}>SPIRE registration entries and their OpenBao binding</span>
         </div>
-        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                {IDENTITY_HEADERS.map((h) => (
-                  <th key={h.label} style={th}>
-                    {h.help ? (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                        {h.label}
-                        <HelpHint label={`What ${h.label} means`} testId={h.testId}>{h.help}</HelpHint>
-                      </span>
-                    ) : h.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {entries.map((entry) => (
-                <tr key={entry.spiffeId} data-testid={`identity-row-${entry.spiffeId}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{entry.spiffeId}</code></td>
-                  <td style={td}>{entry.workload}</td>
-                  <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>
-                    {entry.selectors.map((s) => <div key={s}>{s}</div>)}
-                  </td>
-                  <td style={{ ...td, fontSize: 12 }}>
-                    {entry.baoRole ?? <span style={{ color: 'var(--muted)' }}>—</span>}
-                  </td>
-                  <td style={{ ...td, fontSize: 12 }}>
-                    {entry.baoPolicyPath
-                      ? <code style={{ color: 'var(--violet)', fontSize: 12 }}>{entry.baoPolicyPath}</code>
-                      : <span style={{ color: 'var(--muted)' }}>—</span>}
-                  </td>
-                  <td style={td}>
-                    <Tag
-                      testId={`identity-provenance-${entry.spiffeId}`}
-                      label={entry.provenance}
-                      color={PROVENANCE_COLOR[entry.provenance]}
-                      title={PROVENANCE_HINT[entry.provenance]}
-                    />
-                  </td>
-                  <td style={td}>
-                    <Tag
-                      testId={`identity-state-${entry.spiffeId}`}
-                      label={entry.state}
-                      color={entry.state === 'revoked' ? 'var(--error)' : entry.state === 'pending' ? 'var(--cyan)' : 'var(--teal)'}
-                    />
-                  </td>
-                </tr>
-              ))}
-              {entries.length === 0 && state !== null && (
-                <tr>
-                  <td colSpan={7} style={{ ...td, color: 'var(--muted)', textAlign: 'center', padding: '18px 14px' }}>
-                    No workload identities found.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        {/* DashKit's static Table, not DataTable: this list is two to six rows
+            and DataTable is for "more rows than fit on a screen, and the reader
+            needs to sort them". The markup replaced here was a character-level
+            copy of DashKit's, header hint included. */}
+        <Table headers={IDENTITY_HEADERS}>
+          {entries.map((entry) => (
+            <tr key={entry.spiffeId} data-testid={`identity-row-${entry.spiffeId}`} style={{ borderBottom: '1px solid var(--border)' }}>
+              <td style={td}><code style={{ color: 'var(--cyan)', fontSize: 12 }}>{entry.spiffeId}</code></td>
+              <td style={td}>{entry.workload}</td>
+              <td style={{ ...td, color: 'var(--muted)', fontSize: 11 }}>
+                {entry.selectors.map((s) => <div key={s}>{s}</div>)}
+              </td>
+              <td style={{ ...td, fontSize: 12 }}>
+                {entry.baoRole ?? <span style={{ color: 'var(--muted)' }}>—</span>}
+              </td>
+              <td style={{ ...td, fontSize: 12 }}>
+                {entry.baoPolicyPath
+                  ? <code style={{ color: 'var(--violet)', fontSize: 12 }}>{entry.baoPolicyPath}</code>
+                  : <span style={{ color: 'var(--muted)' }}>—</span>}
+              </td>
+              <td style={td}>
+                <StatusBadge
+                  status={entry.provenance}
+                  variant="provenance"
+                  testId={`identity-provenance-${entry.spiffeId}`}
+                  title={PROVENANCE_HINT[entry.provenance]}
+                />
+              </td>
+              <td style={td}>
+                <StatusBadge
+                  status={entry.state}
+                  variant="credential"
+                  testId={`identity-state-${entry.spiffeId}`}
+                />
+              </td>
+            </tr>
+          ))}
+        </Table>
+        {/* Outside the table, because an EmptyState is a centred panel and a
+            `tbody` may only hold rows. `state !== null` is what keeps a healthy
+            zero apart from a load that has not answered yet. */}
+        {entries.length === 0 && state !== null && (
+          <EmptyState
+            kicker="No workload identities found"
+            body="The discovery call answered, and it listed no pod that resolves to a workload identity."
+          />
+        )}
       </section>
 
       {/* Credentials */}
@@ -531,7 +552,7 @@ export default function CredentialInventoryPage() {
                 <td style={{ ...td, color: 'var(--muted)', fontSize: 12 }}>{cred.issuer}</td>
                 <td style={{ ...td, fontSize: 11, wordBreak: 'break-all' }}>{cred.scope}</td>
                 <td style={td}>
-                  <Tag testId={`credential-status-${cred.id}`} label={status} color={STATUS_COLOR[status]} />
+                  <StatusBadge status={status} variant="credential" testId={`credential-status-${cred.id}`} />
                 </td>
                 <td style={{ ...td, color: expiringSoon ? colors.amber : 'var(--muted)', fontSize: 11, whiteSpace: 'nowrap' }}>
                   {cred.revokedAt ? `revoked ${shortTime(cred.revokedAt)}` : shortTime(cred.expiresAt)}
@@ -539,7 +560,7 @@ export default function CredentialInventoryPage() {
                 <td style={{ ...td, color: 'var(--muted)', fontSize: 12 }}>{cred.ttlSeconds}s</td>
                 <td style={{ ...td, textAlign: 'center' }}>{cred.rotationCount}</td>
                 <td style={td}>
-                  <Tag label={cred.provenance} color={PROVENANCE_COLOR[cred.provenance]} title={PROVENANCE_HINT[cred.provenance]} />
+                  <StatusBadge status={cred.provenance} variant="provenance" title={PROVENANCE_HINT[cred.provenance]} />
                 </td>
               </tr>
             )

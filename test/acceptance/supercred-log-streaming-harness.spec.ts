@@ -107,20 +107,36 @@
  * the `__spec-coverage-guard-probe__` in test/acceptance-spec-coverage.bats:
  * a check whose over-permissiveness is itself checked.
  *
- * ─── SSE ───────────────────────────────────────────────────────────────────
+ * ─── Transport: this asserts the DEFAULT, which is the poll ───────────────
  *
- * harness/server.ts also serves GET /demo-api/runs/{id}/stream as SSE, ready
- * for the client on feat/stream-instructor-panel. Nothing in this file depends
- * on that endpoint or on its frame format: every assertion reads the rendered
- * DOM, so the spec is indifferent to whether the bytes arrived over SSE or over
- * the 500ms poll — which is what makes it survive that merge, and what makes it
- * a real acceptance test rather than a transport test.
+ * `GET /demo-api/runs/{id}/log?offset=N` is the default and is what runs on
+ * stage. SSE is opt-in behind an explicit flag, because it cannot cover its own
+ * worst failure mode: a buffering intermediary ACCEPTS the connection and then
+ * delivers nothing, so no error fires, no fallback triggers, and the panel sits
+ * silent — indistinguishable from the defect this branch exists to fix.
+ *
+ * These tests set no flag, and `expectDefaultTransport()` asserts that: the
+ * page must have polled `/log`, and must never have opened `/stream`. The DOM
+ * assertions cannot tell the transports apart — that is their virtue
+ * everywhere else and their one blind spot here — so without this the suite
+ * would keep passing if SSE quietly became the default.
+ *
+ * harness/server.ts DOES serve `/demo-api/runs/{id}/stream` as SSE. It is
+ * there so a secondary opt-in case can be written the day the flag exists,
+ * without new machinery; nothing here reaches it, and the assertion above
+ * proves nothing here reaches it. That secondary case is deliberately not
+ * written yet: guessing the flag name would produce a test that silently never
+ * opts in, which is exactly the silent-skip failure
+ * test/acceptance-spec-coverage.bats exists to prevent. When it lands it stays
+ * secondary — if SSE is ever removed, the assertions in this file are the ones
+ * that must survive.
  */
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
 import { test, expect } from "@playwright/test";
 import {
+  expectDefaultTransport,
   expectFollowsTail,
   expectHoldsPositionWhileUnpinned,
   expectProgressiveArrival,
@@ -130,6 +146,7 @@ import {
   sampleCursor,
   startLogSampler,
   waitForLine,
+  watchTransport,
 } from "./supercred-stream-helpers";
 
 // Serial: each test owns a whole harness process and a whole run, and the
@@ -242,6 +259,7 @@ test("a phase's output is rendered as it arrives, not in one frame at the end", 
   harness = await startHarness({ mode: "stream", lines: LINES, intervalMs: INTERVAL_MS });
   await openPanel(page, harness);
 
+  const transport = watchTransport(page);
   // Installed BEFORE the click, so the recording contains the empty state.
   // Without those leading zero-line samples a log that was ALREADY on screen
   // would be indistinguishable from one that arrived.
@@ -259,6 +277,7 @@ test("a phase's output is rendered as it arrives, not in one frame at the end", 
 
   expectProgressiveArrival(samples, { what: "the scripted phase 1 (stream mode)" });
   expectFollowsTail(samples, "the scripted phase 1 (stream mode)");
+  expectDefaultTransport(transport, "the scripted phase 1 (stream mode)");
 
   // Independent of the sampler: the block, its caret and its ANSI handling all
   // did their job. The runner emits `[1;36m[supercred][0m`, so an
@@ -319,6 +338,7 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   harness = await startHarness({ mode: "stream", lines: 150, intervalMs: 80 });
   await openPanel(page, harness);
 
+  const transport = watchTransport(page);
   await startLogSampler(page);
   await page.locator(RUN_STEP_1).click();
 
@@ -359,4 +379,5 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
     "while the instructor was reading",
   );
   expectFollowsTail(samples.slice(afterScrollDown), "after the instructor scrolled back down");
+  expectDefaultTransport(transport, "the scrolling run");
 });

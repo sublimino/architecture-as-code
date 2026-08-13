@@ -306,18 +306,140 @@ print()
 
 # ─── STEP 4: Stun ───────────────────────────────────────────────────────────
 
+BAO_SECRET_PATH="kv/signalloom/cardvault-agent"
+BAO_ROLE_PATH="auth/jwt/role/signalloom-cardvault-agent"
+
+# Runs a bao command inside the OpenBao pod with stderr MERGED INTO STDOUT and
+# returns bao's own exit status.
+#
+# The previous form was `... 2>/dev/null || true` on both revocation calls,
+# which discarded the two things that decide whether the stun happened: the
+# reason for a failure, and the fact of it. A sealed vault, an expired root
+# token or an unreachable pod all produced silence followed by "✓ step 4
+# complete — agent stunned, credentials revoked".
+bao_run() {
+  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
+    "$@" 2>&1
+}
+
+indent() { sed 's/^/    /'; }
+
+# `kubectl exec` echoes "command terminated with exit code N" on stderr for any
+# non-zero command. bao_run merges stderr so no diagnostic is lost, but that
+# line is kubectl's own, not OpenBao's, and printing it inside a ✓ evidence
+# block reads as a fresh error at the exact moment the demo is claiming
+# success. Every failure path below reports bao's exit status explicitly, so
+# dropping it from the evidence blocks (and only there) costs nothing.
+drop_exec_noise() { grep -v '^command terminated with exit code [0-9]\+$' || true; }
+
+# Reads the KV secret back and decides on the PAYLOAD, never on exit status.
+#
+# `bao kv delete` is a soft delete and prints "Success! Data deleted (if it
+# existed)" whether or not anything was there — it is OpenBao telling you it
+# ran, not that a credential is gone. `bao kv get` then exits 0 on the
+# soft-deleted secret, so status is no better. The only sound test is the
+# response body: revoked means data.data is null AND metadata.deletion_time is
+# set, or the path is absent entirely.
+assert_kv_revoked() {
+  local out rc verdict
+  out="$(bao_run bao kv get -format=json "$BAO_SECRET_PATH")" && rc=0 || rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    case "$out" in
+      *"No value found"*)
+        ok "KV credential revoked — read-back proves the path is gone:"
+        printf '%s\n' "$out" | drop_exec_noise | indent
+        return 0
+        ;;
+      *)
+        fail "could not read back $BAO_SECRET_PATH to prove revocation (bao exit $rc):
+$(printf '%s' "$out" | indent)"
+        ;;
+    esac
+  fi
+
+  verdict="$(BAO_KV_JSON="$out" python3 -c '
+import json, os, sys
+try:
+    payload = json.loads(os.environ["BAO_KV_JSON"])
+except json.JSONDecodeError as exc:
+    print(f"UNREADABLE {exc}")
+    sys.exit(0)
+data = payload.get("data") or {}
+secret = data.get("data")
+deleted_at = (data.get("metadata") or {}).get("deletion_time") or ""
+if secret:
+    print("LIVE " + ",".join(sorted(secret)))
+elif deleted_at and deleted_at != "n/a":
+    print("REVOKED " + deleted_at)
+else:
+    print("INDETERMINATE no data and no deletion_time")
+')" || verdict="UNREADABLE the read-back could not be parsed"
+
+  case "$verdict" in
+    REVOKED\ *)
+      ok "KV credential revoked — read-back returns no data, deleted at ${verdict#REVOKED }:"
+      printf '%s\n' "$out" | indent
+      ;;
+    LIVE\ *)
+      fail "REVOCATION DID NOT HAPPEN — $BAO_SECRET_PATH still returns secret data (keys: ${verdict#LIVE }).
+       The agent can still authenticate. Do not present this as a stun."
+      ;;
+    *)
+      fail "could not prove revocation of $BAO_SECRET_PATH — $verdict
+$(printf '%s' "$out" | indent)"
+      ;;
+  esac
+}
+
+# The JWT role is the other half of the stun: without it the agent's SVID
+# cannot be exchanged for a token at all, whatever the KV path holds.
+assert_role_revoked() {
+  local out rc
+  out="$(bao_run bao read "$BAO_ROLE_PATH")" && rc=0 || rc=$?
+
+  if [ "$rc" -eq 0 ]; then
+    fail "REVOCATION DID NOT HAPPEN — $BAO_ROLE_PATH still resolves, so the agent can still log in:
+$(printf '%s' "$out" | indent)"
+  fi
+  case "$out" in
+    *"No value found"*)
+      ok "JWT auth role revoked — read-back proves the login path is gone:"
+      printf '%s\n' "$out" | drop_exec_noise | indent
+      ;;
+    *)
+      fail "could not prove revocation of $BAO_ROLE_PATH (bao exit $rc):
+$(printf '%s' "$out" | indent)"
+      ;;
+  esac
+}
+
+job_condition() {
+  kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
+    -o "jsonpath={.status.conditions[?(@.type=='$1')].status}" 2>/dev/null
+}
+
 demo_4() {
   preflight_agent_stunnable
   preflight_images
   log "step 4: revoking credentials and restricting agent"
 
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao kv delete kv/signalloom/cardvault-agent 2>/dev/null || true
+  local kv_delete_out role_delete_out rc
+  kv_delete_out="$(bao_run bao kv delete "$BAO_SECRET_PATH")" && rc=0 || rc=$?
+  [ "$rc" -eq 0 ] || fail "OpenBao rejected the KV delete — nothing was revoked (exit $rc):
+$(printf '%s' "$kv_delete_out" | indent)"
+  printf '%s\n' "$kv_delete_out" | indent
 
-  kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
-    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=signalloom-demo-root-token \
-    bao delete auth/jwt/role/signalloom-cardvault-agent 2>/dev/null || true
+  role_delete_out="$(bao_run bao delete "$BAO_ROLE_PATH")" && rc=0 || rc=$?
+  [ "$rc" -eq 0 ] || fail "OpenBao rejected the auth-role delete — the agent can still log in (exit $rc):
+$(printf '%s' "$role_delete_out" | indent)"
+  printf '%s\n' "$role_delete_out" | indent
+
+  log "\"(if it existed)\" is OpenBao reporting that the DELETE RAN, not that a"
+  log "credential was there to remove. Reading the paths back is the proof:"
+  assert_kv_revoked
+  assert_role_revoked
 
   kubectl -n "$AGENT_POD_NAMESPACE" label pod agent-cardvault signalloom.ai/state=stunned --overwrite
   kubectl -n "$AGENT_POD_NAMESPACE" annotate pod agent-cardvault \
@@ -325,18 +447,77 @@ demo_4() {
     "signalloom.ai/stun-reason=compliance-failure: securityContext not set" \
     --overwrite
 
-  log "verifying agent credential revocation..."
+  log "verifying revocation end-to-end: re-running the agent's credential chain"
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
-  if wait_k8s_ready job supercred-agent-run -n "$NAMESPACE_AGENTS" --for condition=complete 60 2>/dev/null; then
-    fail "agent should not complete after stun — credentials were not revoked"
+
+  # Capture the agent's output WHILE ITS POD STILL EXISTS.
+  #
+  # The Job controller deletes the pod the moment backoffLimit is exceeded
+  # (SuccessfulDelete then BackoffLimitExceeded, ~44s in on this cluster). The
+  # old code waited for the Job's terminal condition FIRST and only afterwards
+  # ran `kubectl logs job/supercred-agent-run --tail=5` — by then there was no
+  # pod left to read, so kubectl blocked, printed "error: timed out waiting for
+  # the condition" to stderr, and `2>/dev/null` swallowed that too. The demo
+  # printed NOTHING at the single moment it had something to prove, and "✓ step
+  # 4 complete — agent stunned, credentials revoked" rested on nothing but the
+  # Job having failed to succeed — which a missing image, an unschedulable pod
+  # or a deleted ServiceAccount produce just as readily as a revoked credential.
+  #
+  # Polling for the pod and reading its log in full is what makes the claim
+  # evidenced. --tail is deliberately absent: the whole chain is four lines and
+  # the failing one is not always the last.
+  local agent_log="" agent_pod="" waited=0
+  local deadline="${SUPERCRED_STUN_EVIDENCE_TIMEOUT:-120}"
+  while [ "$waited" -lt "$deadline" ]; do
+    if [ -z "$agent_log" ]; then
+      agent_pod="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || agent_pod=""
+      if [ -n "$agent_pod" ]; then
+        agent_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers 2>/dev/null)" \
+          || agent_log=""
+      fi
+    fi
+    # `[ … ] && break` as a bare statement returns 1 when the test is false,
+    # which `set -e` would treat as a script failure the moment it lands last
+    # in the loop body. An explicit `if` keeps the loop refactor-safe.
+    if [ "$(job_condition Complete)" = "True" ] || [ "$(job_condition Failed)" = "True" ]; then
+      break
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+
+  if [ "$(job_condition Complete)" = "True" ]; then
+    fail "agent job COMPLETED after the stun — credentials were NOT revoked.
+       Agent output:
+$(printf '%s' "$agent_log" | indent)"
+  fi
+
+  [ -n "$agent_log" ] || fail "the stun is unproven: no output was captured from the agent job's pod
+       within ${deadline}s. The Job did not succeed, but nothing here shows WHY,
+       and 'did not succeed' is not evidence of credential revocation.
+       Inspect: kubectl -n $NAMESPACE_AGENTS describe job supercred-agent-run"
+
+  log "agent output after revocation (full, verbatim):"
+  printf '%s\n' "$agent_log" | indent
+
+  if printf '%s' "$agent_log" | grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[13])'; then
+    ok "confirmed: the agent reached SPIFFE but was DENIED credentials — that is the stun"
+  elif printf '%s' "$agent_log" | grep -q 'FAILED'; then
+    # A failure at a different step means the demo broke, not that the stun
+    # worked. Saying so beats claiming a revocation the output does not support.
+    fail "the agent job failed, but NOT at the credential step, so this run does not
+       prove revocation. Fix the underlying failure and re-run. Agent output:
+$(printf '%s' "$agent_log" | indent)"
   else
-    log "confirmed: agent cannot acquire credentials (expected failure)"
-    kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run --tail=5 2>/dev/null || true
+    fail "the agent job did not succeed and did not report a failure — the stun is
+       unproven. Agent output:
+$(printf '%s' "$agent_log" | indent)"
   fi
 
   kubectl delete job supercred-agent-run -n "$NAMESPACE_AGENTS" --ignore-not-found --wait=true >/dev/null 2>&1 || true
-  ok "step 4 complete — agent stunned, credentials revoked"
+  ok "step 4 complete — agent stunned, credentials revoked and proven revoked"
 }
 
 # ─── STEP 5: Teardown ───────────────────────────────────────────────────────

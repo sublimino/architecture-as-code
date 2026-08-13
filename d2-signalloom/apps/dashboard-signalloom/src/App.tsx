@@ -17,8 +17,8 @@ import type { CookiePreferences } from './types/api'
 const CONSENT_ENABLED = import.meta.env.VITE_CONSENT_MODAL_ENABLED === 'true'
 
 /** localStorage key shared with OnboardingWizard — skip TTL (30 min). */
-const ONBOARDING_SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
-const ONBOARDING_SKIP_TTL_MS = 30 * 60 * 1000
+export const ONBOARDING_SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
+export const ONBOARDING_SKIP_TTL_MS = 30 * 60 * 1000
 
 const ConsentModal    = CONSENT_ENABLED ? lazy(() => import('./components/ConsentModal'))    : null
 const CookieSettingsModal = lazy(() => import('./components/CookieSettingsModal'))

@@ -36,7 +36,7 @@
  *    palette here cannot fall behind themes.ts, and the hex values shown are
  *    read from THEMES — displayed as text, never as a style value.
  */
-import { useMemo, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import PixelLoader, { type PixelLoaderVariant } from '../components/PixelLoader'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
@@ -45,7 +45,8 @@ import StatusBadge from '../components/StatusBadge'
 import HelpHint from '../components/HelpHint'
 import DataTable, { type Column } from '../components/DataTable'
 import DonutChart from '../components/DonutChart'
-import { ProofConsole, type Proof } from '../components/ProofConsole'
+import { ProofConsole, type Proof, type ProofStreamPhase } from '../components/ProofConsole'
+import type { DemoRunLogChunk } from '../api/demoRunner'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import { Pill, StatCard, Section as DashSection, Table as DashTable, td as dashTd } from '../components/DashKit'
 import { colors } from '../styles/tokens'
@@ -236,6 +237,173 @@ const PROOFS: Proof[] = [
     detail: 'nc: connect to api.example.com port 443 (tcp) timed out: Operation now in progress\ncommand terminated with exit code 1',
   },
 ]
+
+// ── ProofConsole streaming demo ──────────────────────────────────────────────
+//
+// SIMULATED, AND THAT IS THE POINT. There is no streaming endpoint in this
+// backend: no server-sent events route, no `text/event-stream` response, no
+// EventSource and no ReadableStream reader anywhere in the app. This section
+// exists so the decision to build one can be made from something visible
+// rather than from a description, which is why it is on the design-system page
+// and nowhere else.
+//
+// What it simulates is the pattern that DOES exist. `fetchDemoRunLog(runId,
+// offset)` returns a `DemoRunLogChunk` and is how the Instructor Controls run
+// log fills in today. `pollFixture` below returns that same type — imported,
+// not redeclared, so this claim is checked by the compiler rather than
+// asserted in a comment — and the hook applies the same append rule: position
+// each chunk by its absolute offset instead of concatenating, so a duplicate
+// or out-of-order chunk overwrites the bytes it already wrote rather than
+// doubling them.
+
+/** How often the fake poll fires. Named so the copy on screen cannot drift from it. */
+const POLL_INTERVAL_MS = 350
+
+/**
+ * How much the fake poll returns each time.
+ *
+ * Bytes, not lines, and deliberately not a multiple of the line length: an
+ * offset read returns a slice of a file, so partial lines arrive and the last
+ * line on screen is often half a line. A fixture that emitted whole lines would
+ * be a prettier demo of something that is not what happens.
+ */
+const BYTES_PER_POLL = 64
+
+const STREAM_COMMAND =
+  'kubectl -n signalloom exec deploy/policy-engine -- collect-evidence --step 6 --follow'
+
+const STREAM_FIXTURE = [
+  '[evidence] step 6 · platform response to a failed control',
+  '[evidence] resolving credential cardvault-agent in ns signalloom',
+  '[evidence] ✓ lease found: kv/signalloom/cardvault-agent',
+  '[evidence] revoking the lease',
+  '[evidence] ✓ bao kv delete returned 204',
+  '[evidence] annotating pod agent-cardvault-7d9f4b8c6-x2klm',
+  '[evidence] ✓ signalloom.io/state=stunned applied',
+  '[evidence] applying networkpolicy deny-cardvault-egress',
+  '[evidence] ✓ networkpolicy created',
+  '[evidence] re-probing egress from the stunned pod',
+  '[evidence] nc: connect to api.example.com port 443 timed out',
+  '[evidence] ✓ egress refused, blast radius contained',
+  '[evidence] 3 of 3 platform responses verified',
+].join('\n')
+
+/** Where the stalled specimen died. Mid-line, because that is where a stream dies. */
+const STALLED_DETAIL = STREAM_FIXTURE.slice(0, 268)
+
+/**
+ * One fake poll.
+ *
+ * Typed as `DemoRunLogChunk` on purpose: if the real chunk shape changes, this
+ * demo stops compiling instead of quietly documenting a shape the API no longer
+ * returns.
+ */
+function pollFixture(log: string, offset: number): DemoRunLogChunk {
+  const next = Math.min(log.length, offset + BYTES_PER_POLL)
+  return {
+    run_id: 'simulated-there-is-no-run',
+    offset,
+    next_offset: next,
+    chunk: log.slice(offset, next),
+    truncated: false,
+    eof: next >= log.length,
+  }
+}
+
+/**
+ * Drives the live specimen: polls the fixture on a timer until it reports eof.
+ *
+ * `replay` bumps a key rather than mutating in place, so a second run starts
+ * from a genuinely empty console instead of appending to the first one — the
+ * mistake that makes a replayed demo look like it produced twice the output.
+ */
+function useSimulatedProofStream(log: string): {
+  detail: string
+  phase: ProofStreamPhase
+  replay: () => void
+} {
+  const [detail, setDetail] = useState('')
+  const [phase, setPhase] = useState<ProofStreamPhase>('streaming')
+  const [run, setRun] = useState(0)
+
+  useEffect(() => {
+    setDetail('')
+    setPhase('streaming')
+    let offset = 0
+    const timer = setInterval(() => {
+      const chunk = pollFixture(log, offset)
+      offset = chunk.next_offset
+      setDetail((prev) => {
+        // The real poller's rule, reproduced rather than approximated. A chunk
+        // is positioned by its absolute offset: one that starts beyond what we
+        // hold is a gap and is dropped (the next poll re-reads from where we
+        // are), and one that starts behind is a repeat and overwrites itself
+        // instead of appearing twice.
+        if (chunk.offset > prev.length) return prev
+        return prev.slice(0, chunk.offset) + chunk.chunk
+      })
+      if (chunk.eof) {
+        clearInterval(timer)
+        setPhase('complete')
+      }
+    }, POLL_INTERVAL_MS)
+    return () => clearInterval(timer)
+  }, [log, run])
+
+  return { detail, phase, replay: () => setRun((n) => n + 1) }
+}
+
+const STALLED_PROOF: Proof[] = [
+  {
+    label: 'Platform response',
+    command: STREAM_COMMAND,
+    detail: STALLED_DETAIL,
+    stream: 'stalled',
+    streamNote: 'No output for 45s and the runner stopped answering. The last line is where it stopped, not where it finished.',
+  },
+]
+
+const disclaimerStyle: CSSProperties = {
+  display: 'flex',
+  gap: 12,
+  alignItems: 'flex-start',
+  border: '1px solid var(--amber)',
+  borderRadius: 6,
+  background: 'color-mix(in srgb, var(--amber) 8%, transparent)',
+  padding: '10px 12px',
+  marginBottom: 16,
+  maxWidth: 820,
+  fontSize: 12.5,
+  lineHeight: 1.55,
+  color: 'var(--muted)',
+}
+
+const disclaimerTag: CSSProperties = {
+  flexShrink: 0,
+  // --text, not --amber, and this one was measured rather than eyeballed.
+  // Amber on --surface is 5.60:1 in Dark and 4.80:1 in Light but only 3.82:1 in
+  // Andy, which is under AA for a 10px bold word — and this is the single word
+  // on the section that most needs to be read rather than scanned. The amber
+  // moves to the border, where 3.82:1 clears the 3:1 that non-text UI has to
+  // meet, and the word itself is then 17:1 or better in all three themes.
+  color: 'var(--text)',
+  border: '1px solid var(--amber)',
+  borderRadius: 3,
+  padding: '1px 7px',
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+}
+
+/** Matches the ButtonWait specimen above: the control must not resize when work starts. */
+const REPLAY_BUTTON_STYLE: CSSProperties = {
+  minWidth: 132,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 8,
+}
 
 const REVOKED_CREDENTIAL = {
   status: 'revoked' as const,
@@ -444,6 +612,22 @@ export default function DesignSystemPage() {
       )
     })
   }, [fleetSearch, fleetState])
+
+  // The streaming demo. Starts on mount so the section is showing what it
+  // claims to show to anyone who opens the page, and replays on demand for
+  // anyone who arrived after it finished.
+  const liveStream = useSimulatedProofStream(STREAM_FIXTURE)
+  const liveProofs: Proof[] = useMemo(
+    () => [
+      {
+        label: 'Platform response',
+        command: STREAM_COMMAND,
+        detail: liveStream.detail,
+        stream: liveStream.phase,
+      },
+    ],
+    [liveStream.detail, liveStream.phase],
+  )
 
   const fleetStateCounts = useMemo(
     () =>
@@ -745,7 +929,7 @@ export default function DesignSystemPage() {
       <Group
         id="data-table"
         title="DataTable"
-        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Two examples below, because the gap between them is where every question about this component actually lives: the minimum that works, and the configuration a real page needs."
+        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Two examples below, because the gap between them is where every question about this component actually lives: the minimum that works, and the configuration a real page needs. Both are the same component. There is no separate filtered variant, and the caveat under them says why."
       >
         <div data-testid="ds-datatable-simple-example">
           <ExampleHeading
@@ -773,108 +957,129 @@ export default function DesignSystemPage() {
           <ExampleHeading
             id="datatable-complex"
             title="Realistic — the shape AgentsPage needs"
-            blurb="Seven sortable columns, StatusBadge in two of them, pageSize 5 so the pager is part of the example, and search plus lifecycle filtering owned by the page above it. This is what the TODO on AgentsPage.tsx line 3 is asking for, written out."
+            blurb="The same component with two more optional props. Seven sortable columns, StatusBadge in two of them, pageSize 5 so the pager is part of the example, and a toolbar slot carrying search and lifecycle chips whose state and predicate still belong to this page. This is what the TODO on AgentsPage.tsx line 3 is asking for, written out."
           />
-          <div
-            style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 12 }}
-            role="group"
-            aria-label="Filter the DataTable example"
-          >
-            <input
-              type="search"
-              aria-label="Search the DataTable example"
-              placeholder="Search agent, type or owner…"
-              value={fleetSearch}
-              onChange={(e) => setFleetSearch(e.target.value)}
-              data-testid="ds-datatable-complex-search"
-              style={{
-                fontSize: 12,
-                padding: '5px 9px',
-                minWidth: 230,
-                color: 'var(--text)',
-                background: 'var(--surface2)',
-                border: '1px solid var(--border)',
-                borderRadius: 4,
-              }}
-            />
-            {FLEET_STATES.map((state) => {
-              const selected = fleetState === state
-              return (
-                <button
-                  key={state}
-                  type="button"
-                  onClick={() => setFleetState(state)}
-                  aria-pressed={selected}
-                  data-testid={`ds-datatable-complex-filter-${state}`}
+          <DataTable
+            columns={FLEET_COLUMNS}
+            data={fleetRows}
+            pageSize={5}
+            testIdPrefix="ds-datatable-complex"
+            // The advanced form, and it is the same component with two more
+            // optional props rather than a second component. `toolbar` is a
+            // slot: the search state, the chips and the predicate all still
+            // live in this page, and DataTable is handed an already-narrowed
+            // array. What it owns is the position of the strip and — the part
+            // worth having — the guarantee that the strip outlives the table
+            // when a filter matches nothing.
+            toolbar={
+              <div
+                style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+                role="group"
+                aria-label="Filter the DataTable example"
+              >
+                <input
+                  type="search"
+                  aria-label="Search the DataTable example"
+                  placeholder="Search agent, type or owner…"
+                  value={fleetSearch}
+                  onChange={(e) => setFleetSearch(e.target.value)}
+                  data-testid="ds-datatable-complex-search"
                   style={{
-                    fontSize: 11.5,
-                    padding: '4px 9px',
+                    fontSize: 12,
+                    padding: '5px 9px',
+                    minWidth: 230,
+                    color: 'var(--text)',
+                    background: 'var(--surface2)',
+                    border: '1px solid var(--border)',
                     borderRadius: 4,
-                    cursor: 'pointer',
-                    // Selected is a tinted fill plus a full-strength border, not
-                    // a solid accent fill: text on solid amber or cyan fails AA
-                    // in at least one of the three themes.
-                    color: selected ? 'var(--cyan)' : 'var(--muted)',
-                    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
-                    border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
                   }}
-                >
-                  {state} <span style={{ color: 'var(--dim)' }}>{fleetStateCounts[state]}</span>
-                </button>
-              )
-            })}
-            <span data-testid="ds-datatable-complex-count" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-              {fleetRows.length} of {FLEET_ROWS.length} shown
-            </span>
-          </div>
-
-          {fleetRows.length === 0 ? (
-            <EmptyState
-              kicker="Nothing matches that search"
-              body="Clear the search box or pick a different lifecycle state."
-            />
-          ) : (
-            <DataTable
-              columns={FLEET_COLUMNS}
-              data={fleetRows}
-              pageSize={5}
-              testIdPrefix="ds-datatable-complex"
-              renderRow={(row: FleetRow, i: number) => (
-                <tr
-                  key={`${row.agent}-${i}`}
-                  data-testid="ds-datatable-complex-row"
-                  style={{ borderBottom: '1px solid var(--border)' }}
-                >
-                  <td style={DataTable.td}>{row.agent}</td>
-                  <td style={DataTable.td}>{row.type}</td>
-                  <td style={DataTable.td}>{row.owner}</td>
-                  <td style={DataTable.td}><StatusBadge status={row.state} variant="lifecycle" /></td>
-                  <td style={DataTable.td}>{row.findings}</td>
-                  <td style={DataTable.td}>
-                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <span>{row.posture}%</span>
-                      <StatusBadge
-                        status={row.posture >= POSTURE_PASS_THRESHOLD ? 'pass' : 'fail'}
-                        variant="compliance"
-                      />
-                    </span>
-                  </td>
-                  <td style={DataTable.td}>{row.lastActivity}</td>
-                </tr>
-              )}
-            />
-          )}
+                />
+                {FLEET_STATES.map((state) => {
+                  const selected = fleetState === state
+                  return (
+                    <button
+                      key={state}
+                      type="button"
+                      onClick={() => setFleetState(state)}
+                      aria-pressed={selected}
+                      data-testid={`ds-datatable-complex-filter-${state}`}
+                      style={{
+                        fontSize: 11.5,
+                        padding: '4px 9px',
+                        borderRadius: 4,
+                        cursor: 'pointer',
+                        // Selected is a tinted fill plus a full-strength border, not
+                        // a solid accent fill: text on solid amber or cyan fails AA
+                        // in at least one of the three themes.
+                        color: selected ? 'var(--cyan)' : 'var(--muted)',
+                        background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+                        border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
+                      }}
+                    >
+                      {state} <span style={{ color: 'var(--dim)' }}>{fleetStateCounts[state]}</span>
+                    </button>
+                  )
+                })}
+                <span data-testid="ds-datatable-complex-count" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                  {fleetRows.length} of {FLEET_ROWS.length} shown
+                </span>
+              </div>
+            }
+            emptyState={
+              <EmptyState
+                kicker="Nothing matches that search"
+                body="Clear the search box or pick a different lifecycle state."
+              />
+            }
+            renderRow={(row: FleetRow, i: number) => (
+              <tr
+                key={`${row.agent}-${i}`}
+                data-testid="ds-datatable-complex-row"
+                style={{ borderBottom: '1px solid var(--border)' }}
+              >
+                <td style={DataTable.td}>{row.agent}</td>
+                <td style={DataTable.td}>{row.type}</td>
+                <td style={DataTable.td}>{row.owner}</td>
+                <td style={DataTable.td}><StatusBadge status={row.state} variant="lifecycle" /></td>
+                <td style={DataTable.td}>{row.findings}</td>
+                <td style={DataTable.td}>
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span>{row.posture}%</span>
+                    <StatusBadge
+                      status={row.posture >= POSTURE_PASS_THRESHOLD ? 'pass' : 'fail'}
+                      variant="compliance"
+                    />
+                  </span>
+                </td>
+                <td style={DataTable.td}>{row.lastActivity}</td>
+              </tr>
+            )}
+          />
         </div>
 
         <Caveat>
-          The two specimens differ in configuration, not in kind — same component, same props. What the
-          second one adds is entirely outside DataTable: the search box and the lifecycle chips are page
-          state, and they hand down an already-narrowed array. Keep it that way. Pushing filtering into
-          DataTable would mean every caller inherits one opinion about what &ldquo;search&rdquo; means, and
-          AgentsPage searches three fields while CredentialInventoryPage searches something else entirely.
-          The one thing DataTable does own across that boundary is the page reset: change the array length
-          under it and it returns to page 1 by itself, which is the bug you would otherwise ship — filter
-          down to three rows while sitting on page 2 and render an empty table.
+          <strong>One component, not two.</strong> The two specimens above differ in configuration, not
+          in kind: same <code>DataTable</code>, and the second one passes two optional props the first
+          one omits. There is no <code>DataTableFiltered</code> and there should not be one. What
+          genuinely differs between a plain table and a filtered one is the predicate, and the predicate
+          is the one thing that can never be shared. AgentsPage searches name, owner and type;
+          CredentialInventoryPage filters on a status computed against the clock. A component that owned
+          &ldquo;search&rdquo; would hand every caller one opinion about a word they each define
+          differently, and the escape hatch for the callers it did not fit would be a prop that switches
+          it off, which is two behaviors in one component: exactly where a fork lands, only later.
+        </Caveat>
+        <Caveat>
+          <strong>So what the props share is the chrome and one bug.</strong> <code>toolbar</code> is a
+          slot that positions the strip identically on every table and reads none of it; the page still
+          owns the state and hands down an already-narrowed array. <code>emptyState</code> replaces the
+          table when nothing matches. Passing both is what fixes the bug, and the bug is the reason this
+          is a prop rather than something a page stacks by hand: write{' '}
+          <code>rows.length === 0 ? &lt;EmptyState/&gt; : &lt;DataTable/&gt;</code> and the filter control
+          that emptied the table disappears with it, leaving the user no way to undo it short of a
+          reload. Inside DataTable the toolbar renders on the empty branch by construction, so a caller
+          cannot get it wrong. Try it: search this example for something that matches nothing. The one
+          thing DataTable already owned across that boundary is the page reset, which changes the array
+          length under it and returns to page 1 by itself.
         </Caveat>
       </Group>
 
@@ -901,6 +1106,104 @@ export default function DesignSystemPage() {
         when="Show the command and its verbatim output, so a claim on screen can be checked rather than believed. One proof renders bare; several grow a tab strip."
       >
         <ProofConsole proofs={PROOFS} testId="ds-proof-console" />
+      </Group>
+
+      {/* ── ProofConsole streaming demo ────────────────────────────────────── */}
+      <Group
+        id="streaming-proof"
+        title="ProofConsole streaming demo"
+        when="What an incrementally filled proof looks like, shown here so the choice to build one can be made from something visible. A finished proof and a half-collected one are different claims and must not render alike, so Proof.stream says which. It is optional: omit it and the console renders exactly what it always did, which is what every current caller gets."
+      >
+        <div data-testid="ds-stream-disclaimer" style={disclaimerStyle}>
+          <span style={disclaimerTag}>Simulated</span>
+          <div>
+            <strong style={{ color: 'var(--text)' }}>
+              There is no streaming endpoint in this backend.
+            </strong>{' '}
+            No server-sent events route, no <code>text/event-stream</code> response, no{' '}
+            <code>EventSource</code> and no <code>ReadableStream</code> reader anywhere in the app. The
+            console below is filled by a fixture in this file that hands out {BYTES_PER_POLL}-byte slices
+            of a fixed string every {POLL_INTERVAL_MS}ms. Nothing here reaches the network.
+            <br />
+            <br />
+            What it simulates is the pattern that does exist and is already in production:{' '}
+            <strong style={{ color: 'var(--text)' }}>offset polling</strong>.{' '}
+            <code>fetchDemoRunLog(runId, offset)</code> in <code>src/api/demoRunner.ts</code> returns{' '}
+            <code>{'{ offset, next_offset, chunk, eof }'}</code> and is how the Instructor Controls run
+            log fills in today. The fixture returns that same <code>DemoRunLogChunk</code> type, so the
+            cadence you are watching is the cadence a real implementation would have, and the append rule
+            is the same one: each chunk is positioned by its absolute offset rather than concatenated, so
+            a duplicate or out-of-order chunk overwrites itself instead of doubling.
+          </div>
+        </div>
+
+        <div data-testid="ds-stream-live-example">
+          <ExampleHeading
+            id="stream-live"
+            title="Streaming, then complete"
+            blurb="Press Replay to watch it fill again. While the stream is open the console carries the house wait treatment, PixelLoader at sm in the default Loom variant, which counts elapsed seconds; a stream that has produced nothing for ninety seconds is probably not going to, and the figure is the thing that tells you. The Replay control is disabled and carries a ButtonWait while the run is live, because a wait inside a control the user just pressed is that component and not this one."
+          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              data-testid="ds-stream-replay"
+              disabled={liveStream.phase === 'streaming'}
+              onClick={liveStream.replay}
+              style={REPLAY_BUTTON_STYLE}
+            >
+              {liveStream.phase === 'streaming' && (
+                <ButtonWait testId="ds-stream-replay-wait" label="Collecting proof" />
+              )}
+              Replay
+            </button>
+            <span data-testid="ds-stream-phase" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              phase: <code>{liveStream.phase}</code>
+            </span>
+          </div>
+          {/* announce: this is the console the reader is waiting on, so it is
+              the one that gets the region. See the caveat below. */}
+          <ProofConsole proofs={liveProofs} testId="ds-stream-live" announce />
+        </div>
+
+        <div data-testid="ds-stream-stalled-example" style={{ marginTop: 26 }}>
+          <ExampleHeading
+            id="stream-stalled"
+            title="Stalled"
+            blurb="The state a happy-path demo hides, and the one that decides whether this is safe to ship. Output stopped arriving and the run never finished, so the console says Stopped in words rather than by a caret that quietly went missing, and it says what it knows about why. The bytes on screen are real output; they are just not all of it."
+          />
+          <ProofConsole proofs={STALLED_PROOF} testId="ds-stream-stalled" />
+        </div>
+
+        <Caveat>
+          <strong>Live regions, and this is the part that decides whether streaming is safe on a real
+          page.</strong> An auto-appending console is the worst case: every chunk is a DOM change, and a
+          region wrapped around the log body reads the run out loud line by line over whatever the user
+          was doing. So the body is never a live region under any setting. What <code>announce</code>{' '}
+          opts into is one polite region carrying the phase sentence alone. It is visually hidden, because
+          the loader and the status word already say it to anyone who can see them. It sits beside the
+          status row rather than around it, because PixelLoader rewrites its elapsed figure ten times a
+          second and a region around that would announce ten times a second. And it is mounted from the
+          first render rather than created on completion, because a region born at the same instant as
+          its content is announced unreliably or not at all.
+        </Caveat>
+        <Caveat>
+          <code>announce</code> defaults to <strong>false</strong>, so CredentialEvidencePanel and the
+          Credential Inventory page are untouched. The live specimen above passes it; the stalled one does
+          not, because a frozen specimen has nothing to announce. Net effect on this page is exactly one
+          new region, taking the roster from seven to eight, and the eighth is named in the test rather
+          than counted.
+        </Caveat>
+        <Caveat>
+          <strong>Before wiring this into a page, note what already exists.</strong>{' '}
+          <code>StreamingLogBlock</code> is the heavier treatment of the same problem: line numbers so a
+          room can be pointed at a line, a 200-line bound on the DOM, a Copy button that hands over the
+          raw untailed bytes, and a caret at the live edge. <code>SuperCredInstructorPanel</code> already
+          drives it from <code>fetchDemoRunLog</code>, which is the working proof that the offset-polling
+          path is enough. Streaming a ProofConsole is for the short case: a handful of lines that are
+          evidence for one claim. A full multi-thousand-line run log wants the block, not this. Choosing
+          this component for that job is the mistake this note exists to prevent.
+        </Caveat>
       </Group>
 
       {/* ── CredentialStateNotice ──────────────────────────────────────────── */}

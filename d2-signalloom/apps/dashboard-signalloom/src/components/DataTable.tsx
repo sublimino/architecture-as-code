@@ -20,6 +20,33 @@
  *     )}
  *   />
  *
+ * ONE COMPONENT, NOT TWO. The question that produced this note was whether the
+ * advanced call sites want a second component — `DataTableFiltered` beside
+ * `DataTable`. They do not, and the reason is specific rather than a general
+ * preference for fewer files.
+ *
+ * What actually differs between a simple table and a filtered one is the
+ * PREDICATE, and the predicate is the one part that can never be shared:
+ * AgentsPage searches name, owner and type, CredentialInventoryPage filters on
+ * a computed status that depends on the clock. A component that owned "search"
+ * would be handing every caller one opinion about a thing they each define
+ * differently, and the escape hatch for the callers it did not fit would be a
+ * prop that turns it off — at which point there are two behaviours in one
+ * component and we have arrived where a fork would have, only later. So the
+ * page keeps the predicate and hands down an already-narrowed array.
+ *
+ * What does NOT differ, and is therefore what these props share, is the
+ * CHROME and one bug. The chrome is the strip above the table and the
+ * nothing-matched panel. The bug is that composing them by hand strands the
+ * user: write `rows.length === 0 ? <EmptyState/> : <DataTable/>` and the
+ * filter control that caused the empty result disappears along with the table,
+ * leaving no way to undo it except a reload. Every caller has to remember to
+ * hoist the toolbar out of that ternary. Passing both in means they cannot get
+ * it wrong, because the toolbar renders on the empty branch by construction.
+ *
+ * Both props are optional and neither changes an existing call site. A table
+ * that is just a list stays the four-line call at the top of this comment.
+ *
  * // TODO: server-side pagination when API supports it
  */
 import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode, type CSSProperties } from 'react'
@@ -61,6 +88,23 @@ export interface DataTableProps<T> {
   hidePaginationWhenSinglePage?: boolean
   /** Optional test-id prefix for pagination controls. */
   testIdPrefix?: string
+  /**
+   * Controls that belong above the table — a search box, filter chips, a count.
+   *
+   * A slot, not a feature: this renders whatever it is given and reads none of
+   * it. The caller still owns the state and the predicate and still hands down
+   * an already-filtered `data`. What it buys is that the strip is positioned
+   * and spaced the same on every table, and that it survives the empty branch.
+   */
+  toolbar?: ReactNode
+  /**
+   * What to show instead of the table when `data` is empty.
+   *
+   * Rendered in place of the table, with the toolbar still above it, so a
+   * filter that matches nothing can always be undone. Omit it and an empty
+   * `data` renders an empty table, which is the existing behaviour.
+   */
+  emptyState?: ReactNode
 }
 
 // ── Shared styles (exported for use by renderRow callbacks) ─────────────────
@@ -75,6 +119,14 @@ const thStyle: CSSProperties = {
   letterSpacing: '0.05em',
   whiteSpace: 'nowrap',
   userSelect: 'none',
+}
+
+const toolbarStyle: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 8,
+  marginBottom: 12,
 }
 
 const tdStyle: CSSProperties = {
@@ -110,6 +162,8 @@ export default function DataTable<T>({
   renderRow,
   hidePaginationWhenSinglePage = true,
   testIdPrefix = 'datatable',
+  toolbar,
+  emptyState,
 }: DataTableProps<T>) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(initialPageSize)
@@ -166,56 +220,78 @@ export default function DataTable<T>({
   const start = (safePage - 1) * pageSize
   const pageData = sorted.slice(start, start + pageSize)
 
-  const showPagination = !hidePaginationWhenSinglePage || sorted.length > pageSize
+  // `emptyState` is opt-in, so an existing caller that passes none keeps
+  // rendering the headers over no rows exactly as it does today.
+  const showEmptyState = emptyState != null && sorted.length === 0
+
+  // No pager over an empty state, even when the caller asked for one
+  // unconditionally: "Page 1 of 1 · No rows" beneath a panel that already says
+  // nothing matched is furniture restating a fact.
+  const showPagination = !showEmptyState && (!hidePaginationWhenSinglePage || sorted.length > pageSize)
 
   return (
     <div>
-      <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-              {columns.map((col, colIdx) => (
-                <th
-                  key={`${col.key}-${colIdx}`}
-                  style={{
-                    ...thStyle,
-                    cursor: col.sortable ? 'pointer' : 'default',
-                  }}
-                  onClick={col.sortable ? () => handleSort(col.key) : undefined}
-                  aria-sort={
-                    sort.key === col.key && sort.dir
-                      ? sort.dir === 'asc' ? 'ascending' : 'descending'
-                      : undefined
-                  }
-                >
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <span>
-                      {col.label}
-                      {col.sortable && <SortArrow dir={sort.key === col.key ? sort.dir : null} />}
-                    </span>
-                    {col.help && (
-                      // The sort handler lives on the `th`, so a click that
-                      // lands on the "?" would otherwise re-sort the table —
-                      // a surprise mutation from a control that only explains.
-                      <span onClick={(e) => e.stopPropagation()}>
-                        <HelpHint
-                          label={`What ${col.label} means`}
-                          testId={`${testIdPrefix}-help-${col.key}`}
-                        >
-                          {col.help}
-                        </HelpHint>
+      {toolbar != null && (
+        // Outside the empty branch below, deliberately. The whole reason this
+        // is a prop rather than something the page stacks above the table is
+        // that a hand-rolled `rows.length ? table : empty` ternary takes the
+        // filter control down with the table and leaves the user with no way
+        // to clear the filter that emptied it.
+        <div data-testid={`${testIdPrefix}-toolbar`} style={toolbarStyle}>
+          {toolbar}
+        </div>
+      )}
+
+      {showEmptyState ? (
+        <div data-testid={`${testIdPrefix}-empty`}>{emptyState}</div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
+                {columns.map((col, colIdx) => (
+                  <th
+                    key={`${col.key}-${colIdx}`}
+                    style={{
+                      ...thStyle,
+                      cursor: col.sortable ? 'pointer' : 'default',
+                    }}
+                    onClick={col.sortable ? () => handleSort(col.key) : undefined}
+                    aria-sort={
+                      sort.key === col.key && sort.dir
+                        ? sort.dir === 'asc' ? 'ascending' : 'descending'
+                        : undefined
+                    }
+                  >
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <span>
+                        {col.label}
+                        {col.sortable && <SortArrow dir={sort.key === col.key ? sort.dir : null} />}
                       </span>
-                    )}
-                  </span>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {pageData.map((item, i) => renderRow(item, start + i))}
-          </tbody>
-        </table>
-      </div>
+                      {col.help && (
+                        // The sort handler lives on the `th`, so a click that
+                        // lands on the "?" would otherwise re-sort the table —
+                        // a surprise mutation from a control that only explains.
+                        <span onClick={(e) => e.stopPropagation()}>
+                          <HelpHint
+                            label={`What ${col.label} means`}
+                            testId={`${testIdPrefix}-help-${col.key}`}
+                          >
+                            {col.help}
+                          </HelpHint>
+                        </span>
+                      )}
+                    </span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {pageData.map((item, i) => renderRow(item, start + i))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {showPagination && (
         <div

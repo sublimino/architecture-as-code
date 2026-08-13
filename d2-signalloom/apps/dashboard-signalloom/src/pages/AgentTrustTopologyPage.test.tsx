@@ -44,7 +44,14 @@ describe('AgentTrustTopologyPage', () => {
     // The NODE must render, not merely the StatCard label of the same name --
     // asserting on "Runtime-observed" alone passes even when nothing loaded,
     // because that string is a permanent card heading.
-    expect(await screen.findByText('Signal Loom platform')).toBeInTheDocument()
+    // Scoped to the node's own label element: that bare string now also appears
+    // in a help hint, so a plain getByText matches several elements. The comment
+    // above is the point -- this must prove the NODE rendered.
+    await waitFor(() =>
+      expect(
+        Array.from(document.querySelectorAll('.trust-node__label')).map((n) => n.textContent),
+      ).toContain('Signal Loom platform'),
+    )
     expect(screen.queryByText(/Demonstration data/i)).not.toBeInTheDocument()
     expect(screen.queryByTestId('topology-degraded-banner')).not.toBeInTheDocument()
   })
@@ -154,6 +161,51 @@ describe('AgentTrustTopologyPage', () => {
     expect(screen.getByText('Application authorization rejection')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /^Network plane$/i })); await user.click(screen.getByRole('button', { name: /cross-tenant network denial/i }))
     expect(screen.getByText('Network block')).toBeInTheDocument()
+  })
+
+  // ── The evidence vocabulary ───────────────────────────────────────────────
+  //
+  // "Observed", "modeled" and "fixture" appear in the legend, the stat cards,
+  // the Evidence filter and the inspector, and the page never defines any of
+  // them. A viewer who reads "modeled" as "we checked it and it is fine" draws
+  // the exact false conclusion this page exists to prevent, so the definition
+  // is not decoration.
+
+  it('defines all three evidence words behind one keyboard-reachable "?"', async () => {
+    const user = userEvent.setup()
+    render(<AgentTrustTopologyPage />)
+
+    const hint = screen.getByTestId('topology-evidence-help')
+    hint.focus()
+    expect(document.activeElement).toBe(hint)
+    expect(hint).toHaveAccessibleName('What runtime-observed, fixture-tested and modeled mean')
+
+    await user.hover(hint)
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip.textContent).toMatch(/Runtime-observed/i)
+    expect(tooltip.textContent).toMatch(/Fixture-tested/i)
+    expect(tooltip.textContent).toMatch(/Modeled/i)
+    // The whole distinction: only one of the three is evidence.
+    expect(tooltip.textContent).toMatch(/nobody checked/i)
+  })
+
+  it('tells a viewer what the degraded banner forbids them from concluding', async () => {
+    isDemoMode.mockReturnValue(false)
+    trustTopology.mockResolvedValue(snapshot(
+      { kubernetes: { status: 'unavailable', observed_at: '', reason: 'RBAC denied listing pods' } },
+      'modeled', 'modeled',
+    ))
+    const user = userEvent.setup()
+    render(<AgentTrustTopologyPage />)
+
+    const banner = await screen.findByTestId('topology-degraded-banner')
+    // The banner states the fault. Only the hint states the consequence — that
+    // a denied arrow drawn from the model is not proof the denial is enforced.
+    const hint = screen.getByTestId('topology-degraded-help')
+    expect(banner).toContainElement(hint)
+
+    await user.hover(hint)
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('Do not read them as proof')
   })
 
   it('selects node details through a native keyboard button', async () => {

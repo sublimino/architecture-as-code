@@ -27,6 +27,7 @@ import { api } from '../api/client'
 import { isDemoMode } from '../api/demoMode'
 import { LIVE_POLL_MS } from '../api/pollInterval'
 import DataTable from '../components/DataTable'
+import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { colors } from '../styles/tokens'
@@ -77,6 +78,28 @@ interface LoadedState {
 
 const th: CSSProperties = { padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }
 const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--text)' }
+
+/**
+ * Column headers for the Workload Identities table.
+ *
+ * Only "Selectors" carries a hint. It is the one column that describes a
+ * mechanism rather than a value, and it is the mechanism the whole page rests
+ * on — everything else here (SPIFFE ID, Workload, OpenBao role, Policy path)
+ * either names itself or is already explained by the tag titles in its cells.
+ */
+const IDENTITY_HEADERS: { label: string; help?: string; testId?: string }[] = [
+  { label: 'SPIFFE ID' },
+  { label: 'Workload' },
+  {
+    label: 'Selectors',
+    help: 'What SPIRE checks about a running pod before it will hand that pod an identity — here, its namespace and its Kubernetes service account. A workload that does not match cannot obtain the credential even if it knows the name of it.',
+    testId: 'identity-selectors-help',
+  },
+  { label: 'OpenBao role' },
+  { label: 'Policy path' },
+  { label: 'Source' },
+  { label: 'State' },
+]
 
 function tint(cssVar: string, opacity: number) {
   return `color-mix(in srgb, ${cssVar} ${Math.round(opacity * 100)}%, transparent)`
@@ -383,8 +406,15 @@ export default function CredentialInventoryPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                {['SPIFFE ID', 'Workload', 'Selectors', 'OpenBao role', 'Policy path', 'Source', 'State'].map((h) => (
-                  <th key={h} style={th}>{h}</th>
+                {IDENTITY_HEADERS.map((h) => (
+                  <th key={h.label} style={th}>
+                    {h.help ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {h.label}
+                        <HelpHint label={`What ${h.label} means`} testId={h.testId}>{h.help}</HelpHint>
+                      </span>
+                    ) : h.label}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -460,13 +490,32 @@ export default function CredentialInventoryPage() {
         <DataTable<CredentialRecord>
           columns={[
             { key: 'workload', label: 'Workload', sortable: true },
-            { key: 'kind', label: 'Kind', sortable: true },
+            {
+              key: 'kind',
+              label: 'Kind',
+              sortable: true,
+              help: 'Which link in the chain this row is. An x509-svid is the identity SPIRE issues to a workload. An openbao-lease is the short-lived secret the workload exchanged that identity for. A service-token is what it then presents to the application.',
+            },
             { key: 'issuer', label: 'Issuer', sortable: true },
-            { key: 'scope', label: 'Scope' },
+            {
+              key: 'scope',
+              label: 'Scope',
+              help: 'The only thing this credential can open — the OpenBao path or audience it was minted for. Holding a valid credential does not grant anything outside its scope.',
+            },
             { key: 'status', label: 'Status', sortable: true },
             { key: 'expiresAt', label: 'Expires', sortable: true },
-            { key: 'ttlSeconds', label: 'TTL', sortable: true },
-            { key: 'rotationCount', label: 'Rotations', sortable: true },
+            {
+              key: 'ttlSeconds',
+              label: 'TTL',
+              sortable: true,
+              help: 'How long this credential stays valid from the moment it was issued, in seconds. Expires is the resulting instant. A short TTL is the control: a stolen credential is worthless within minutes.',
+            },
+            {
+              key: 'rotationCount',
+              label: 'Rotations',
+              sortable: true,
+              help: 'How many times this credential has been re-minted since it was first issued. A rising count is the design working, not a fault — short-lived credentials are meant to be replaced rather than kept.',
+            },
             { key: 'provenance', label: 'Source', sortable: true },
           ]}
           data={visibleCredentials}

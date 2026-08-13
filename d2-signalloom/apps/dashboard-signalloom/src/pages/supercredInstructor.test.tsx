@@ -363,6 +363,73 @@ describe('phase buttons come from GET /demo-api/steps', () => {
   })
 })
 
+// ─── Self-describing phase controls ───────────────────────────────────────────
+
+// Every phase button mutates a shared cluster in front of a live audience. The
+// runner's own one-line description is a button title, not a briefing: it says
+// what the phase is FOR, never what it will delete. These tests pin the "?" that
+// says what actually happens, and pin the two phases whose consequence is
+// irreversible to the wording that admits it.
+describe('each phase says what it will do to the cluster before you press it', () => {
+  it('gives every phase button a keyboard-reachable, named "?"', async () => {
+    mockRunner()
+    await readyPanel()
+    await screen.findByTestId('supercred-run-step-1')
+
+    for (const step of STEPS) {
+      const hint = screen.getByRole('button', { name: `What phase ${step.step_id} does to the cluster` })
+      hint.focus()
+      expect(document.activeElement).toBe(hint)
+    }
+  })
+
+  it('names the mechanism and the page the audience should watch', async () => {
+    mockRunner()
+    await readyPanel()
+    await screen.findByTestId('supercred-run-step-2')
+
+    await userEvent.hover(screen.getByTestId('supercred-run-step-2-help'))
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip).toHaveTextContent('OpenBao')
+    expect(tooltip).toHaveTextContent('Credential Inventory')
+  })
+
+  it('warns that stun and teardown are destructive, and says what survives', async () => {
+    mockRunner()
+    await readyPanel()
+    await screen.findByTestId('supercred-run-step-4')
+
+    // Stun: the audience must know the pod keeps running but loses its identity.
+    await userEvent.hover(screen.getByTestId('supercred-run-step-4-help'))
+    const stun = await screen.findByRole('tooltip')
+    expect(stun).toHaveTextContent('Destructive')
+    expect(stun.textContent).toMatch(/no longer authenticate/i)
+    await userEvent.unhover(screen.getByTestId('supercred-run-step-4-help'))
+
+    // Teardown: the whole point of the demo is that the audit record outlives it.
+    await userEvent.hover(screen.getByTestId('supercred-run-step-5-help'))
+    const teardown = await screen.findByRole('tooltip')
+    expect(teardown).toHaveTextContent('Destructive')
+    expect(teardown).toHaveTextContent('Audit Trail')
+  })
+
+  it('keeps the hint beside its button, so wrapping cannot separate them', async () => {
+    mockRunner()
+    await readyPanel()
+    const container = await screen.findByTestId('supercred-run-steps')
+    const button = await screen.findByTestId('supercred-run-step-3')
+    const hint = screen.getByTestId('supercred-run-step-3-help')
+
+    // The row is `flex-wrap`, so button and hint must share a wrapper INSIDE
+    // it. Siblings directly in the wrapping row can be split across lines,
+    // stranding a bare "?" above the phase it explains.
+    const pair = button.parentElement
+    expect(pair).not.toBe(container)
+    expect(pair).toBe(hint.closest('span[style]')?.parentElement)
+    expect(pair?.parentElement).toBe(container)
+  })
+})
+
 // ─── One run at a time ────────────────────────────────────────────────────────
 
 describe('the cluster is shared, so controls lock while a run is active', () => {

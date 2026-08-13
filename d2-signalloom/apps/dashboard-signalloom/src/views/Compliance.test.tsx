@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Compliance from './Compliance'
 import { api } from '../api/client'
@@ -120,5 +121,57 @@ describe('Compliance framework filter', () => {
       expect(screen.getByText('SOC 2 Type II')).toBeInTheDocument()
       expect(screen.getByText('EU AI Act')).toBeInTheDocument()
     })
+  })
+})
+
+// The posture table is the artefact a bank executive is handed as evidence, and
+// three of its columns can be read exactly backwards: "Lifecycle: stunned"
+// looks like the agent stopped, "Posture Score: 62" gives no sense of whether
+// higher is better, and "Last Assessed" is easily taken for a live reading.
+describe('the posture table explains the columns an executive will misread', () => {
+  beforeEach(() => {
+    setup()
+    vi.mocked(api.settings).mockResolvedValue({ ...BASE_SETTINGS, selected_frameworks: [] } as never)
+    vi.mocked(api.compliance.posture).mockResolvedValue({
+      agents: [{ agent_id: 'a1', agent_name: 'Cardvault Agent', posture_score: 62, results: [] }],
+    } as never)
+  })
+
+  it('says which direction is good on the posture score, and that it is not live', async () => {
+    const user = userEvent.setup()
+    renderCompliance()
+
+    const hint = await screen.findByTestId('compliance-posture-help')
+    expect(hint).toHaveAccessibleName('What Posture Score means')
+    await user.hover(hint)
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip.textContent).toMatch(/Higher is better/i)
+    expect(tooltip.textContent).toMatch(/only moves when an assessment runs/i)
+  })
+
+  it('says stunned means credentials revoked, not that the workload stopped', async () => {
+    const user = userEvent.setup()
+    renderCompliance()
+
+    await user.hover(await screen.findByTestId('compliance-lifecycle-help'))
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip.textContent).toMatch(/revoked its credentials/i)
+    expect(tooltip.textContent).toMatch(/may still be running/i)
+  })
+
+  it('warns that a stale assessment timestamp makes the row unreliable', async () => {
+    const user = userEvent.setup()
+    renderCompliance()
+
+    await user.hover(await screen.findByTestId('compliance-assessed-help'))
+    expect((await screen.findByRole('tooltip')).textContent).toMatch(/not a live reading/i)
+  })
+
+  it('leaves the framework columns unhinted — they link to their own detail page', async () => {
+    renderCompliance()
+    await screen.findByTestId('compliance-posture-help')
+
+    expect(screen.queryByRole('button', { name: 'What SOC 2 Type II means' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'What Agent means' })).toBeNull()
   })
 })

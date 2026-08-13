@@ -9,6 +9,13 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 // is visibly cycling, a label naming what is running, and an elapsed figure
 // that keeps counting.
 //
+// It is no longer only the instructor panel's loader. LoadingState renders it
+// for every `loading` phase across the app, so this component now has to
+// survive being embedded: `size="sm"` to fit a 12px line, `announce={false}`
+// to keep quiet when the host is already a live region, and `labelTestId` so
+// the host keeps its own testid convention. Defaults are unchanged, and that
+// is deliberate — Instructor Controls passes none of them and must not move.
+//
 // Variants (design intent, preserved from the source):
 //   Drive  square cells, chevron wavefront driving right. The 650ms cycle is
 //          deliberately SHORTER than the sweep across the grid, so two fronts
@@ -62,7 +69,29 @@ const PATTERNS: Record<
   Orbit: { delays: ORBIT, dur: 950, round: false },
 }
 
-const CELL_PX = 4
+export type PixelLoaderSize = 'sm' | 'md'
+
+/**
+ * Two sizes, because the pattern now has two homes.
+ *
+ * `md` is the original and the default: a loader that owns its own line,
+ * used by Instructor Controls while a demo phase runs. Every number here is
+ * the shipped one and must not drift — that panel is what gets demoed.
+ *
+ * `sm` is for sitting inside a line of 12px text, which is what LoadingState's
+ * inline variant is. It scales as a unit rather than just shrinking the grid:
+ * a 3px cell on a 1px gutter is 11px of grid, which fits a 12px line without
+ * pushing it taller, and the label and figure come down with it so the three
+ * parts stay in proportion.
+ */
+const SIZES: Record<
+  PixelLoaderSize,
+  { cell: number; cellGap: number; gap: number; labelPx: number; elapsedPx: number }
+> = {
+  md: { cell: 4, cellGap: 1.5, gap: 10, labelPx: 13, elapsedPx: 12 },
+  sm: { cell: 3, cellGap: 1, gap: 6, labelPx: 12, elapsedPx: 11 },
+}
+
 const DIM_OPACITY = 0.15
 /** Cells the pattern never lights (Orbit's centre) sit below the dim floor. */
 const DARK_OPACITY = 0.07
@@ -160,17 +189,42 @@ export interface PixelLoaderProps {
   /** What is running. Announced; keep it specific — "Deploy", not "Loading". */
   label?: string
   variant?: PixelLoaderVariant
+  /** `md` owns its own line; `sm` sits inside one. See SIZES. */
+  size?: PixelLoaderSize
   /** Epoch ms the work began. Defaults to mount, which is usually the same. */
   startedAt?: number
+  /**
+   * Whether to own a live region. Default true: standalone, this element is
+   * the only thing announcing, so it has to.
+   *
+   * Pass false when the host is ALREADY a live region — LoadingState is, and
+   * has been for twenty-odd pages. Two nested regions is not "more
+   * accessible"; a screen reader hits both and reads the same sentence twice.
+   * The host's region wins rather than this one, because the host's survives
+   * the phase change into success or failure and this one is unmounted by it,
+   * and a live region that is created at the same instant as its content is
+   * announced unreliably or not at all.
+   */
+  announce?: boolean
   testId?: string
+  /**
+   * Override for the label's test id. A host that embeds this loader in place
+   * of its own text keeps its own `data-testid` convention that way — pages
+   * query LoadingState's message as `${testId}-message` and should not have to
+   * learn that a loader moved in underneath it.
+   */
+  labelTestId?: string
   style?: CSSProperties
 }
 
 export default function PixelLoader({
   label = 'Churning',
   variant = 'Drive',
+  size = 'md',
   startedAt,
+  announce = true,
   testId = 'pixel-loader',
+  labelTestId,
   style,
 }: PixelLoaderProps) {
   const reducedMotion = usePrefersReducedMotion()
@@ -183,23 +237,35 @@ export default function PixelLoader({
   useElapsedText(origin, elapsedRef)
 
   const { delays, dur, round } = PATTERNS[variant] ?? PATTERNS.Drive
+  const { cell, cellGap, gap, labelPx, elapsedPx } = SIZES[size] ?? SIZES.md
 
+  // See the `announce` prop. Empty when the host already owns a live region.
+  const liveProps = announce
+    ? ({ role: 'status' as const, 'aria-live': 'polite' as const })
+    : {}
+
+  // A span, not a div, so this is legal phrasing content and can be dropped
+  // inside a <span> host (LoadingState's inline variant is one) without
+  // producing invalid nesting. display:inline-flex was already set, so the box
+  // model — and therefore the shipped Instructor Controls rendering — is
+  // unchanged by the tag.
   return (
-    <div
-      role="status"
-      aria-live="polite"
+    <span
+      {...liveProps}
       data-testid={testId}
-      style={{ display: 'inline-flex', width: 'fit-content', alignItems: 'center', gap: 10, ...style }}
+      data-size={size}
+      style={{ display: 'inline-flex', width: 'fit-content', alignItems: 'center', gap, ...style }}
     >
       <style>{KEYFRAMES}</style>
 
       <span
         aria-hidden="true"
         data-testid={`${testId}-grid`}
+        data-motion={reducedMotion ? 'static' : 'animated'}
         style={{
           display: 'grid',
-          gridTemplateColumns: `repeat(3, ${CELL_PX}px)`,
-          gap: 1.5,
+          gridTemplateColumns: `repeat(3, ${cell}px)`,
+          gap: cellGap,
           flexShrink: 0,
         }}
       >
@@ -211,8 +277,8 @@ export default function PixelLoader({
               data-animated={animated ? 'true' : 'false'}
               data-shape={round ? 'round' : 'square'}
               style={{
-                width: CELL_PX,
-                height: CELL_PX,
+                width: cell,
+                height: cell,
                 background: 'var(--text)',
                 borderRadius: round ? '50%' : 1,
                 opacity: d === null ? DARK_OPACITY : DIM_OPACITY,
@@ -229,13 +295,13 @@ export default function PixelLoader({
           gradient: a background-clip:text fill that is not moving is just a
           harder way to draw solid text, and one more thing to get wrong. */}
       <span
-        data-testid={`${testId}-label`}
+        data-testid={labelTestId ?? `${testId}-label`}
         data-shimmer={reducedMotion ? 'false' : 'true'}
         style={
           reducedMotion
-            ? { fontSize: 13, fontWeight: 500, color: 'var(--text)' }
+            ? { fontSize: labelPx, fontWeight: 500, color: 'var(--text)' }
             : {
-                fontSize: 13,
+                fontSize: labelPx,
                 fontWeight: 500,
                 color: 'transparent',
                 backgroundImage:
@@ -260,11 +326,11 @@ export default function PixelLoader({
         data-testid={`${testId}-elapsed`}
         style={{
           fontFamily: 'monospace',
-          fontSize: 12,
+          fontSize: elapsedPx,
           color: 'var(--muted)',
           fontVariantNumeric: 'tabular-nums',
         }}
       />
-    </div>
+    </span>
   )
 }

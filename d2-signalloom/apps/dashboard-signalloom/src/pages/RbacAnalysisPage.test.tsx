@@ -13,7 +13,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import RbacAnalysisPage from './RbacAnalysisPage'
+import RbacAnalysisPage, { afmReachabilityProofs } from './RbacAnalysisPage'
 
 // getAccessTokenSilently must keep a STABLE identity across renders, otherwise
 // the effects that depend on it are recreated every render and re-fire.
@@ -96,8 +96,12 @@ const rbacFixture: unknown = {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function response(ok: boolean, body?: unknown): Response {
-  return { ok, json: vi.fn().mockResolvedValue(body) } as unknown as Response
+// `status` is part of the shape because a real Response always has one, and
+// the page now keeps it: the health proof shows the code the service answered
+// with, and a fixture without one would have let "undefined" render as
+// evidence.
+function response(ok: boolean, body?: unknown, status = ok ? 200 : 500): Response {
+  return { ok, status, json: vi.fn().mockResolvedValue(body) } as unknown as Response
 }
 
 interface RouteOverrides {
@@ -228,12 +232,108 @@ describe('RbacAnalysisPage', () => {
       expect(screen.getByTestId('rbac-importer')).toBeInTheDocument()
 
       healthy = true
-      await userEvent.click(screen.getByRole('button', { name: /retry connection/i }))
+      // "Retry", not "Retry connection": the panel is ErrorState now, which is
+      // where the shared wording (and the 401 rule) lives.
+      await userEvent.click(within(screen.getByTestId('afm-unreachable')).getByTestId('error-retry'))
 
       await waitFor(() => {
         expect(screen.getByTestId('afm-iframe')).toBeInTheDocument()
       })
       expect(requestedUrls().filter(url => url === '/afm/health').length).toBeGreaterThanOrEqual(2)
+    })
+  })
+
+  describe('the header controls are built out of the shared design system', () => {
+    it('lets .btn-secondary own the colours instead of overriding half of it inline', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      const add = screen.getByTestId('add-cluster-btn')
+      expect(add.className.split(/\s+/)).toEqual(expect.arrayContaining(['btn', 'btn-secondary']))
+      // The cyan border-and-colour pair that used to sit here was an inline
+      // copy of a different variant, laid over the one the class declares.
+      expect(add.style.border).toBe('')
+      expect(add.style.color).toBe('')
+    })
+
+    it('gives the external link the shared class rather than two JS mouse handlers', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      const link = screen.getByRole('link', { name: /open full/i })
+      expect(link.className.split(/\s+/)).toEqual(expect.arrayContaining(['btn', 'btn-secondary']))
+      // It stays an anchor: it opens a new tab and must remain middle-clickable.
+      expect(link.tagName).toBe('A')
+      expect(link).toHaveAttribute('target', '_blank')
+      // `.btn:focus-visible` now supplies the focus ring the hand-rolled
+      // border never had.
+      expect(link.style.borderColor).toBe('')
+    })
+
+    it('uses the shared ErrorState for the whole-panel failure, and keeps the remediation command', async () => {
+      routeFetch({ health: () => Promise.resolve(response(false)) })
+      render(<RbacAnalysisPage />)
+
+      const panel = await screen.findByTestId('afm-unreachable')
+      expect(within(panel).getByTestId('error-retry')).toBeInTheDocument()
+      expect(within(panel).getByText(/platform is not reachable/i)).toBeInTheDocument()
+      // Dropping this to fit the component would have made the migration cost
+      // the reader the most useful thing on the screen.
+      expect(within(panel).getByText(/make demo-k8s-afm-up/i)).toBeInTheDocument()
+    })
+  })
+
+  // "AFM connected" and a cluster count are claims about another system. Both
+  // came from a request this page issued seconds ago, so both can be re-run.
+  describe('how do we know AFM is connected', () => {
+    it('shows the status probe and the cluster query behind the indicator', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.click(screen.getByTestId('afm-proof-toggle'))
+
+      const panel = screen.getByTestId('afm-proof-console-panel')
+      expect(panel.textContent).toContain('/afm/health')
+      expect(panel.textContent).toContain('200')
+
+      // Two proofs, so a tab strip. The second is the source of the count.
+      await userEvent.click(screen.getByTestId('afm-proof-console-tab-1'))
+      const clusters = screen.getByTestId('afm-proof-console-panel')
+      expect(clusters.textContent).toContain(`curl -s /afm/clusters | jq 'length'`)
+      expect(clusters.textContent).toContain('2')
+    })
+
+    it('sends no bearer header in the command, because the page sends none either', () => {
+      const proofs = afmReachabilityProofs({
+        reachable: true, clusterCount: 2, checkedAt: new Date(), healthStatus: 200,
+      })
+      // A command that would not run as written is worse than no proof.
+      expect(proofs.every(p => !p.command.includes('Authorization'))).toBe(true)
+    })
+
+    it('reports the code the service actually answered with, not a rounded verdict', () => {
+      const proofs = afmReachabilityProofs({
+        reachable: false, clusterCount: null, checkedAt: new Date(), healthStatus: 503,
+      })
+      expect(proofs).toHaveLength(1)
+      expect(proofs[0].detail).toBe('503')
+    })
+
+    it('offers no proof at all when the request never completed', async () => {
+      // curl would print its own failure here and this page did not record it.
+      // "Unreachable" is the verdict a reader is most entitled to check, which
+      // makes it the worst possible place to guess.
+      expect(afmReachabilityProofs({
+        reachable: false, clusterCount: null, checkedAt: new Date(), healthStatus: null,
+      })).toEqual([])
+
+      routeFetch({ health: () => Promise.reject(new Error('connection refused')) })
+      render(<RbacAnalysisPage />)
+
+      await userEvent.click(await screen.findByTestId('afm-proof-toggle'))
+      const console_ = screen.getByTestId('afm-proof-console')
+      expect(console_.textContent).toContain('no proof was recorded')
+      expect(console_.textContent).not.toContain('curl')
     })
   })
 

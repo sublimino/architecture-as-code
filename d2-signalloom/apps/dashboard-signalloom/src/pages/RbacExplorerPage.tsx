@@ -16,23 +16,27 @@
  *
  * TODO: migrate tables to DataTable (5 tables, already has manual pagination for subjects — 92 items)
  */
-import { Component, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Component, Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type ErrorInfo, type ReactNode } from 'react'
 import { isAuthError, redirectToLogin } from '../components/ErrorState'
 import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
-import { colors } from '../styles/tokens'
+import { tint } from '../components/StatusBadge'
+import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { isDemoMode } from '../api/demoMode'
 import { useAuth0 } from '../auth/oidc'
 import {
   fetchCorrelatedRbac,
   fetchRbacClusters,
   type ClusterMeta,
+  type ConformanceFinding,
   type CorrelatedRbac,
+  type EscalationFinding,
   type RbacBinding,
   type RbacRole,
   type RbacSubject,
 } from '../api/rbacCorrelationApi'
 import AddClusterModal, { type NewClusterEntry } from '../components/AddClusterModal'
 import LoadingState from '../components/LoadingState'
+import { curlPipeJq, jqOutput, jqString } from './proofQuery'
 
 class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -52,6 +56,118 @@ class RbacErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
     }
     return this.props.children
   }
+}
+
+// ─── "How do we know?" ───────────────────────────────────────────────────────
+//
+// Every finding on this page is a claim about someone else's cluster —
+// "this ServiceAccount can become admin", "this role is non-conformant" — and
+// the analysis that produced it ran two systems away, inside AFM's Z3 model
+// checker. A reader cannot re-run Z3 from here, and pretending otherwise by
+// printing an invented `kubectl auth can-i` would be the fabricated-probe
+// failure this repo already has history with. What a reader CAN re-run is the
+// request this page made, so that is what the proof is: the correlated
+// endpoint, and the finding as it came off the wire, before anything on this
+// page rendered or reworded it.
+//
+// The projections below are restricted to fields whose client-side parse maps
+// a missing value to `undefined` — every one is `asOptionalString`, a
+// validated enum, or `typeof === 'number' ? v : undefined` (see
+// rbacCorrelationApi.ts). That restriction is what makes the printed object
+// byte-identical to what the command prints: a field parsed with a `?? 0` or
+// `?? []` default would read as 0 or [] here where jq reads null, and there is
+// no honest way to show that under a jq command. It is also why the
+// shared-role and role tables carry no proof — see the report; their
+// substantive fields go through exactly those defaulting parses.
+
+/** Matches `fetchCorrelatedRbac`, so the command names the route really called. */
+export function correlatedPath(clusterId: string): string {
+  return `/api/rbac/clusters/${encodeURIComponent(clusterId)}/correlated`
+}
+
+/** A jq comparison literal, with `null` for a field the parse left absent. */
+function jqKey(value: string | undefined): string {
+  return value === undefined ? 'null' : jqString(value)
+}
+
+/**
+ * Proof for one escalation finding: the wire record AFM's analysis produced.
+ *
+ * Keyed on `subject` and printing EVERY match, because a subject can carry
+ * more than one route and `select` is a stream — showing only the clicked row
+ * would be a truthful object under a command that prints two.
+ */
+export function escalationProofs(
+  finding: EscalationFinding,
+  all: EscalationFinding[],
+  clusterId: string,
+  demo: boolean,
+): Proof[] {
+  if (demo) return []
+  const projection = '{kind, subject, subject_display, escalation_type, risk_level, risk_score, summary}'
+  const matches = all
+    .filter((f) => f.subject === finding.subject)
+    .map((f) => ({
+      kind: f.kind,
+      subject: f.subject,
+      subject_display: f.subjectDisplay,
+      escalation_type: f.escalationType,
+      risk_level: f.riskLevel,
+      risk_score: f.riskScore,
+      summary: f.summary,
+    }))
+  return [{
+    label: 'Finding',
+    command: curlPipeJq({
+      path: correlatedPath(clusterId),
+      bearer: true,
+      filter: `.escalations[] | select(.subject == ${jqKey(finding.subject)}) | ${projection}`,
+    }),
+    detail: jqOutput(matches),
+  }]
+}
+
+/**
+ * Proof for one conformance issue — and for every other issue against the same
+ * role, which is the point rather than a side effect: a role's full
+ * conformance record is more use than the single line the row happened to show.
+ */
+export function conformanceProofs(
+  finding: ConformanceFinding,
+  all: ConformanceFinding[],
+  clusterId: string,
+  demo: boolean,
+): Proof[] {
+  if (demo) return []
+  const projection = '{role_name, role_scope, role_namespace, severity, reason}'
+  const matches = all
+    .filter((c) => c.roleName === finding.roleName)
+    .map((c) => ({
+      role_name: c.roleName,
+      role_scope: c.roleScope,
+      role_namespace: c.roleNamespace,
+      severity: c.severity,
+      reason: c.reason,
+    }))
+  return [{
+    label: 'Finding',
+    command: curlPipeJq({
+      path: correlatedPath(clusterId),
+      bearer: true,
+      filter: `.conformance[] | select(.role_name == ${jqKey(finding.roleName)}) | ${projection}`,
+    }),
+    detail: jqOutput(matches),
+  }]
+}
+
+/**
+ * The row-level disclosure, matching Network Tests and the Credential
+ * Lifecycle card. Not `.btn`: it sits under a 12px table cell, and a full-size
+ * button there outranks the finding it belongs to.
+ */
+const proofButton: CSSProperties = {
+  marginTop: 6, fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+  border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)',
 }
 
 // ─── Demo-mode fallback fixtures ─────────────────────────────────────────────
@@ -163,6 +279,8 @@ export default function RbacExplorerPage() {
   const [nsFilter, setNsFilter] = useState<string>('all')
   const [showAddCluster, setShowAddCluster] = useState(false)
   const [localClusters, setLocalClusters] = useState<ClusterMeta[]>([])
+  /** Which proof consoles are open, keyed `table:index`. */
+  const [openProof, setOpenProof] = useState<Record<string, boolean>>({})
 
   const demo = isDemoMode()
 
@@ -418,14 +536,42 @@ export default function RbacExplorerPage() {
                 testId: 'rbac-escalation-risk-help',
                 help: 'How much damage this path allows if someone walks it — derived by the analyser from what the subject could actually reach, not from a severity field a human typed in. A finding is a route that exists, not a breach that happened.',
               }, 'Detail']}>
-                {data.escalations.slice(0, 20).map((finding, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                {data.escalations.slice(0, 20).map((finding, i) => {
+                  const key = `escalation:${i}`
+                  const open = openProof[key] === true
+                  return (
+                  <Fragment key={key}>
+                  <tr style={{ borderBottom: open ? undefined : '1px solid var(--border)' }}>
                     <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{finding.subjectDisplay ?? finding.subject}</code></td>
                     <td style={{ ...td, color: 'var(--muted)' }}>{finding.escalationType ?? finding.kind}</td>
                     <td style={td}>{finding.riskLevel ? <Pill label={finding.riskLevel} /> : '—'}</td>
-                    <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 350 }}>{finding.summary ?? '—'}</td>
+                    <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal', maxWidth: 350 }}>
+                      {finding.summary ?? '—'}
+                      <div>
+                        <button
+                          type="button"
+                          data-testid={`rbac-escalation-disclose-${i}`}
+                          onClick={() => setOpenProof(prev => ({ ...prev, [key]: prev[key] !== true }))}
+                          style={proofButton}
+                        >
+                          {open ? 'Hide proof' : 'How do we know?'}
+                        </button>
+                      </div>
+                    </td>
                   </tr>
-                ))}
+                  {open && (
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td colSpan={4} style={{ ...td, padding: '0 14px 10px', whiteSpace: 'normal' }}>
+                        <ProofConsole
+                          proofs={escalationProofs(finding, data.escalations, clusterId, demo)}
+                          testId={`rbac-escalation-console-${i}`}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  )
+                })}
               </Table>
             </Section>
           )}
@@ -434,14 +580,46 @@ export default function RbacExplorerPage() {
           {filteredConformance.length > 0 && (
             <Section title="Conformance Issues" hint={`${filteredConformance.length} findings`}>
               <Table headers={['Issue', 'Severity', 'Role', 'Namespace']}>
-                {filteredConformance.slice(0, 20).map((c, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300 }}>{c.reason ?? '—'}</td>
+                {filteredConformance.slice(0, 20).map((c, i) => {
+                  const key = `conformance:${i}`
+                  const open = openProof[key] === true
+                  return (
+                  <Fragment key={key}>
+                  <tr style={{ borderBottom: open ? undefined : '1px solid var(--border)' }}>
+                    <td style={{ ...td, whiteSpace: 'normal', maxWidth: 300 }}>
+                      {c.reason ?? '—'}
+                      <div>
+                        <button
+                          type="button"
+                          data-testid={`rbac-conformance-disclose-${i}`}
+                          onClick={() => setOpenProof(prev => ({ ...prev, [key]: prev[key] !== true }))}
+                          style={proofButton}
+                        >
+                          {open ? 'Hide proof' : 'How do we know?'}
+                        </button>
+                      </div>
+                    </td>
                     <td style={td}><Pill label={c.severity ?? 'info'} /></td>
                     <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{c.roleName ?? '—'}</code></td>
                     <td style={{ ...td, color: 'var(--muted)' }}>{c.roleNamespace ?? 'cluster'}</td>
                   </tr>
-                ))}
+                  {open && (
+                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td colSpan={4} style={{ ...td, padding: '0 14px 10px', whiteSpace: 'normal' }}>
+                        <ProofConsole
+                          // The unfiltered array: the command selects on
+                          // role_name against the whole response, and a
+                          // namespace filter applied on this page changes
+                          // nothing about what that command prints.
+                          proofs={conformanceProofs(c, data.conformance, clusterId, demo)}
+                          testId={`rbac-conformance-console-${i}`}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
+                  )
+                })}
               </Table>
               {filteredConformance.length > 20 && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
@@ -486,16 +664,25 @@ export default function RbacExplorerPage() {
                     <td style={{ ...td, color: 'var(--muted)' }}>{r.rules.length}</td>
                     <td style={td}>
                       <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                        {Array.from(verbs).slice(0, 6).map(v => (
+                        {Array.from(verbs).slice(0, 6).map(v => {
+                          // `${colors.red}20` was DashKit.hex()'s bug open-coded:
+                          // colors.red has been `var(--error)` since the palette
+                          // moved to tokens, so the concatenation produced
+                          // `var(--error)20` — not a colour, silently dropped by
+                          // every browser. The red verbs have been rendering
+                          // with NO fill at all, while the Verbs help hint on
+                          // this very table tells the reader red means dangerous.
+                          // StatusBadge.tint is the working pattern (color-mix).
+                          const dangerous = hasDangerous && dangerousVerbs.includes(v)
+                          return (
                           <span key={v} style={{
                             fontSize: 10, padding: '1px 5px', borderRadius: 3,
-                            background: hasDangerous && dangerousVerbs.includes(v)
-                              ? `${colors.red}20` : 'var(--surface2)',
-                            color: hasDangerous && dangerousVerbs.includes(v)
-                              ? colors.red : 'var(--muted)',
+                            background: dangerous ? tint('var(--error)', 0.12) : 'var(--surface2)',
+                            color: dangerous ? 'var(--error)' : 'var(--muted)',
                             fontFamily: 'monospace',
                           }}>{v}</span>
-                        ))}
+                          )
+                        })}
                         {verbs.size > 6 && <span style={{ fontSize: 10, color: 'var(--muted)' }}>+{verbs.size - 6}</span>}
                       </div>
                     </td>

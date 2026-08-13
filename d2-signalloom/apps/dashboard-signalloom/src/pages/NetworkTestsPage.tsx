@@ -13,13 +13,17 @@
  * CI Pipeline Results and Agent Test Infrastructure below are unrelated
  * subsystems and remain self-contained demo data.
  */
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { Fragment, useState, useEffect, useCallback, useRef, type CSSProperties } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
+import { isDemoMode } from '../api/demoMode'
 import { StatCard, Section, Pill } from '../components/DashKit'
+import ButtonWait from '../components/ButtonWait'
 import DataTable from '../components/DataTable'
 import LoadingState from '../components/LoadingState'
+import { ProofConsole, type Proof } from '../components/ProofConsole'
 import { colors } from '../styles/tokens'
+import { curlPipeJq, jqOutput, jqString } from './proofQuery'
 import type { NetworkTestListResponse, NetworkTestResult } from '../types/api'
 
 // ── CI Pipeline results (from signalloom-ci-run-5/signalloom-ci-report.yaml) ──
@@ -72,6 +76,21 @@ function fmtDate(iso: string | null) {
 
 type TestFilter = 'all' | 'allowed' | 'denied'
 
+/**
+ * The row-level "How do we know?" control.
+ *
+ * Deliberately the same 10px bordered-transparent shape CredentialEvidencePanel
+ * gives its per-step disclosure rather than `.btn btn-secondary`: this sits
+ * inside a dense table cell under an 11px description, and a 13px padded
+ * button there outweighs the row it belongs to. Tokens throughout, so it
+ * follows all three themes.
+ */
+const proofButton: CSSProperties = {
+  marginTop: 6, fontSize: 10, padding: '3px 8px', borderRadius: 4, cursor: 'pointer',
+  border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)',
+  fontWeight: 400,
+}
+
 // Poll while a scan is running so the board reflects completion without a
 // manual refresh. Bounded so a Job that never finishes (RBAC misconfigured,
 // image pull failure, etc.) doesn't poll forever — the last-known state and
@@ -87,6 +106,83 @@ export function isPollExhausted(pollCount: number): boolean {
 
 export function isScanActive(status: NetworkTestListResponse['scanStatus'] | undefined): boolean {
   return status === 'pending' || status === 'running'
+}
+
+/**
+ * The endpoint whose response every NetAssert row on this page is a view of.
+ *
+ * Named here rather than inlined because the proof below promises it is the
+ * route the client called, and the two must not be able to drift apart —
+ * see `api.networkTests.list`.
+ */
+const NETWORK_TESTS_ENDPOINT = '/network-tests'
+
+/**
+ * Reserved so the control does not resize when its label becomes a loader.
+ *
+ * Fits the widest of the three states — "Refresh Results" — which is wider
+ * than ButtonWait's own reserved width, so nothing in the header row moves at
+ * either transition. A toolbar button that jumps mid-scan reads to a room as a
+ * fault, and this page's whole subject is telling faults from non-faults.
+ */
+const SCAN_BUTTON_W = 152
+
+/**
+ * "How do we know this test passed?", answered from the response itself.
+ *
+ * The whole verdict for a row is three fields the server derived from the
+ * netassert Job's own TAP output (see `_network_test_result` in
+ * fake-integration-proxy/server.py): `result`, `evidence` — the literal TAP
+ * line, or an explicit sentence saying why there is no verdict — and
+ * `lastRun`. The assertion those were judged against is the other six. All
+ * nine came down the same request, so one command reproduces the lot.
+ *
+ * Every field here is passed through by the client untouched, which is what
+ * lets the printed object be the command's real output rather than a
+ * re-rendering of it.
+ *
+ * DEMO MODE RETURNS NO PROOF, and that is the honest answer rather than a gap.
+ * With the toggle on, `api.networkTests.list` short-circuits to
+ * fakeNetworkTestsData before any HTTP happens (see fakeData's route table),
+ * so no request was issued and no command would reproduce this row. Showing
+ * one anyway is precisely the fabricated-probe failure this page has a history
+ * of. ProofConsole renders an empty list as "(no proof was recorded for this
+ * step)", which is true.
+ */
+export function netAssertProofs(
+  test: NetworkTestResult,
+  tests: NetworkTestResult[],
+  demo: boolean,
+): Proof[] {
+  if (demo) return []
+  const projection =
+    '{name, description, src, dst, targetPort, expectedExit, result, evidence, lastRun}'
+  // Every match, not just the row that was clicked: `select` is a stream, and
+  // a duplicated test name would make the command print two objects.
+  const matches = tests
+    .filter((t) => t.name === test.name)
+    .map((t) => ({
+      name: t.name,
+      description: t.description,
+      src: t.src,
+      dst: t.dst,
+      targetPort: t.targetPort,
+      expectedExit: t.expectedExit,
+      result: t.result,
+      evidence: t.evidence,
+      lastRun: t.lastRun,
+    }))
+  return [
+    {
+      label: 'Verdict',
+      command: curlPipeJq({
+        path: NETWORK_TESTS_ENDPOINT,
+        bearer: true,
+        filter: `.tests[] | select(.name == ${jqString(test.name)}) | ${projection}`,
+      }),
+      detail: jqOutput(matches),
+    },
+  ]
 }
 
 function latestLastRun(tests: NetworkTestResult[]): string | null {
@@ -105,7 +201,13 @@ export default function NetworkTestsPage() {
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
   const [pollExhausted, setPollExhausted] = useState(false)
+  // Which rows have their proof console open, keyed by test name — the only
+  // source of truth for that. A derived "show all" flag combined with `||` is
+  // how the credential card shipped a row control that looked live and was
+  // dead for as long as the global one was on.
+  const [openProof, setOpenProof] = useState<Record<string, boolean>>({})
   const pollCount = useRef(0)
+  const demo = isDemoMode()
 
   const load = useCallback(async () => {
     try {
@@ -196,8 +298,19 @@ export default function NetworkTestsPage() {
           disabled={scanInProgress}
           aria-busy={scanInProgress}
           aria-label={scanInProgress ? 'Network test scan in progress' : pollExhausted ? 'Refresh network test results' : 'Run network test scan now'}
+          // Reserved width and centring so the loader occupies exactly the
+          // space the label vacated. See SCAN_BUTTON_W.
+          style={{ minWidth: SCAN_BUTTON_W, justifyContent: 'center' }}
         >
-          {scanInProgress ? 'Scanning…' : pollExhausted ? 'Refresh Results' : 'Scan Now'}
+          {/* The shared in-button wait, not a bespoke "Scanning…". A scan
+              takes about forty seconds against a live cluster, and a static
+              word reads identically at second two and second ninety —
+              ButtonWait carries the elapsed figure that tells those apart,
+              and owns no live region of its own because the button already
+              has a name and a disabled state. */}
+          {scanInProgress
+            ? <ButtonWait testId="network-tests-scan-wait" label="Scanning" />
+            : pollExhausted ? 'Refresh Results' : 'Scan Now'}
         </button>
       </div>
 
@@ -239,26 +352,43 @@ export default function NetworkTestsPage() {
 
       {/* ── NetAssert ── */}
       <Section title="NetAssert — Network Policy Assertions" hint={lastRun ? `last run ${fmtDate(lastRun)}` : 'netassert-signalloom.yaml'}>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {(['all', 'allowed', 'denied'] as TestFilter[]).map((f) => (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              style={{
-                padding: '4px 12px',
-                borderRadius: 6,
-                fontSize: 12,
-                fontWeight: filter === f ? 600 : 400,
-                border: `1px solid ${filter === f ? 'var(--cyan)' : 'var(--border)'}`,
-                background: filter === f ? 'rgba(6,182,212,0.10)' : 'transparent',
-                color: filter === f ? 'var(--cyan)' : 'var(--muted)',
-                cursor: 'pointer',
-                textTransform: 'capitalize',
-              }}
-            >
-              {f} {f === 'all' ? `(${tests.length})` : f === 'allowed' ? `(${allowed.length})` : `(${denied.length})`}
-            </button>
-          ))}
+        {/* Lifecycle chips in the sanctioned shape — see the DataTable section
+            of the Design System page, which documents this exact selected
+            treatment. Two things were wrong before and both were invisible in
+            Dark: the selected fill was a literal `rgba(6,182,212,0.10)` that
+            does not move with the theme, and the group announced nothing —
+            no `aria-pressed`, so a screen reader could not tell which of the
+            three was in force. `type="button"` because an unqualified button
+            inside a form submits it. */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }} role="group" aria-label="Filter NetAssert assertions">
+          {(['all', 'allowed', 'denied'] as TestFilter[]).map((f) => {
+            const selected = filter === f
+            return (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                aria-pressed={selected}
+                data-testid={`netassert-filter-${f}`}
+                style={{
+                  padding: '4px 12px',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: selected ? 600 : 400,
+                  cursor: 'pointer',
+                  textTransform: 'capitalize',
+                  // A tinted fill plus a full-strength border rather than a
+                  // solid accent: text on solid cyan fails AA in at least one
+                  // of the three themes.
+                  color: selected ? 'var(--cyan)' : 'var(--muted)',
+                  background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+                  border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
+                }}
+              >
+                {f} {f === 'all' ? `(${tests.length})` : f === 'allowed' ? `(${allowed.length})` : `(${denied.length})`}
+              </button>
+            )
+          })}
         </div>
         {data?.scanStatus === 'never-run' && (
           <div className="card" style={{ padding: 16, marginBottom: 12 }}>
@@ -287,11 +417,26 @@ export default function NetworkTestsPage() {
           data={displayed}
           pageSize={25}
           testIdPrefix="netserts"
-          renderRow={(t) => (
-            <tr key={t.name} style={{ borderBottom: '1px solid var(--border)' }}>
+          renderRow={(t) => {
+            const proofOpen = openProof[t.name] === true
+            return (
+            <Fragment key={t.name}>
+            <tr style={{ borderBottom: proofOpen ? undefined : '1px solid var(--border)' }}>
               <td style={{ ...DataTable.td, fontWeight: 500 }}>
                 <div>{t.name}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{t.description}</div>
+                {/* The same disclosure the Credential Lifecycle card uses, at
+                    the same altitude: a reachability verdict is a claim about
+                    the cluster, and a claim a reader cannot re-run is
+                    indistinguishable from one nobody checked. */}
+                <button
+                  type="button"
+                  data-testid={`netassert-disclose-${t.name}`}
+                  onClick={() => setOpenProof((prev) => ({ ...prev, [t.name]: prev[t.name] !== true }))}
+                  style={proofButton}
+                >
+                  {proofOpen ? 'Hide proof' : 'How do we know?'}
+                </button>
               </td>
               <td style={DataTable.td}>
                 <code style={{ fontSize: 11, color: 'var(--cyan)' }}>
@@ -307,7 +452,16 @@ export default function NetworkTestsPage() {
               <td style={DataTable.td}><Pill label={t.result} /></td>
               <td style={{ ...DataTable.td, fontSize: 11, color: 'var(--muted)' }}>{fmtDate(t.lastRun)}</td>
             </tr>
-          )}
+            {proofOpen && (
+              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+                <td colSpan={6} style={{ ...DataTable.td, padding: '0 14px 10px', whiteSpace: 'normal' }}>
+                  <ProofConsole proofs={netAssertProofs(t, tests, demo)} testId={`netassert-console-${t.name}`} />
+                </td>
+              </tr>
+            )}
+            </Fragment>
+            )
+          }}
         />
         <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
           Run: <code style={{ color: 'var(--cyan)' }}>netassert run --config d2-signalloom/test/netassert-signalloom.yaml</code>

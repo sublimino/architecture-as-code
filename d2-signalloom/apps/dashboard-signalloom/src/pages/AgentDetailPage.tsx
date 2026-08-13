@@ -520,9 +520,9 @@ function RequestTransitionModal({ agent, onClose }: { agent: AgentResponse; onCl
                   onChange={e => setUrgency(e.target.value as typeof urgency)}
                   style={{ width: '100%' }}
                 >
-                  <option value="low">Low — when convenient</option>
-                  <option value="normal">Normal — soon</option>
-                  <option value="high">High — impacting operations</option>
+                  <option value="low">Low: when convenient</option>
+                  <option value="normal">Normal: soon</option>
+                  <option value="high">High: impacting operations</option>
                   <option value="critical">Critical — security or data risk</option>
                 </select>
               </div>

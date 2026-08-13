@@ -10,22 +10,26 @@ child environment below.
 """
 from __future__ import annotations
 
+import asyncio
+import codecs
 import json
 import logging
 import os
 import signal
 import subprocess
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Mapping, cast
+from typing import Annotated, Any, AsyncIterator, Literal, Mapping, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from api_compat import ERROR_RESPONSES, APIError, Principal, authenticated_tenant
@@ -44,6 +48,17 @@ _DEFAULT_CANCEL_GRACE_SECONDS = 10
 _LOG_CAP_BYTES = 4 * 1024 * 1024
 _LOG_PAGE_BYTES = 64 * 1024
 _MAX_RUN_HISTORY = 20
+# How often an open SSE stream re-reads the shared log buffer. There is no
+# wakeup to subscribe to -- the log is filled by a plain thread appending to a
+# bytearray -- so the push endpoint polls that buffer internally and pushes what
+# it finds. That is still a categorical improvement on the browser polling over
+# HTTP: one connection instead of two per second, and a quarter of the latency.
+_SSE_POLL_SECONDS = 0.25
+# An SSE comment line on an otherwise idle stream. Demo phase 2 waits up to 300s
+# for the credential-chain Job while printing nothing, and both nginx
+# (proxy_read_timeout 300s) and any intermediate proxy will drop a connection
+# that goes quiet for long enough. 15s is comfortably inside every default.
+_SSE_KEEPALIVE_SECONDS = 15.0
 # Everything the demo script's child process is allowed to inherit. This stays
 # an allowlist -- the module docstring names the fixed child environment as one
 # of four security boundaries -- so it is widened by naming keys, never by
@@ -170,6 +185,15 @@ _STATE_LOCK = threading.RLock()
 _MUTATION_LOCK = threading.Lock()
 _active: _Run | None = None
 _runs: OrderedDict[str, _Run] = OrderedDict()
+# Open SSE log streams. This is instrumentation, and it exists because "a
+# disconnected client leaves nothing running behind it" is otherwise an
+# unfalsifiable claim -- the generator's cleanup happens inside the server's
+# event loop, where a test has nothing to observe. Incremented when a stream
+# starts and decremented in its finally, so a test can assert the count returns
+# to zero after a client walks away. Cheap enough to keep in production, where
+# it is also the number a "why is this pod busy?" question would want.
+_STREAM_LOCK = threading.Lock()
+_open_log_streams = 0
 
 router = APIRouter(prefix="/api/demo/supercred", tags=["demo-runner"])
 
@@ -612,6 +636,126 @@ def _get_run_or_404(run_id: str) -> _Run:
     return run
 
 
+def _sse_frame(event: str, payload: Mapping[str, Any]) -> bytes:
+    # json.dumps escapes newlines, so however many lines the demo script printed
+    # the data field stays exactly one SSE line and the frame stays parseable.
+    return f"event: {event}\ndata: {json.dumps(dict(payload))}\n\n".encode("utf-8")
+
+
+def _decodable_prefix(chunk: bytes, *, more_bytes_expected: bool) -> tuple[bytes, bytes]:
+    """Split a chunk into (safe to decode now, hold back until more arrives).
+
+    Offsets in this API are BYTE offsets into a stream that is chopped up by
+    whatever the child happened to have written when the pipe was read. Under
+    the poll endpoint a boundary lands mid-character roughly never, because it
+    only chops every 64KiB; a push stream chops at every partial read, so a
+    multi-byte character straddling a boundary is a routine event rather than a
+    curiosity. Decoding it with errors="replace" would burn it to U+FFFD and no
+    later chunk could put it back.
+
+    So an incomplete trailing sequence is held back and re-read on the next
+    pass, which costs one poll interval and keeps the offsets exact.
+
+    The distinction that matters is between a truncated character and a
+    genuinely malformed one. Holding back bytes that can never become valid --
+    a stray 0xFF, say -- would park them until the run ended, waiting for a
+    continuation that is not coming. The stdlib's incremental decoder already
+    draws exactly this line: with final=False it buffers a truncated sequence
+    and reports it through getstate(), while replacing invalid bytes on the
+    spot. So malformed input still degrades to errors="replace" precisely as it
+    does on /log, and only a real half-character waits.
+
+    Once the run is over nothing more can arrive, there is nothing to wait for,
+    and the whole chunk is handed over as-is.
+    """
+    if not more_bytes_expected:
+        return chunk, b""
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    decoder.decode(chunk, False)
+    pending, _ = decoder.getstate()
+    if not pending:
+        return chunk, b""
+    return chunk[: len(chunk) - len(pending)], bytes(pending)
+
+
+async def _iter_run_log_events(run: _Run, offset: int) -> AsyncIterator[bytes]:
+    """Push the run's log as SSE frames, resuming from a byte offset.
+
+    Reads the SAME run._log the poll endpoint reads. There is deliberately no
+    second capture off the subprocess: one capture with two readers cannot
+    disagree about what the script printed, whereas two captures eventually
+    will, and the one nobody is watching is the one that drifts.
+    """
+    global _open_log_streams
+    with _STREAM_LOCK:
+        _open_log_streams += 1
+    try:
+        last_frame_at = time.monotonic()
+        while True:
+            # Sample the terminal flag BEFORE the buffer. status only ever moves
+            # forwards (running -> terminal), so a stale "still running" reading
+            # costs one more poll and nothing else. Read the other way round, a
+            # run that finished between the two reads would report eof against a
+            # buffer snapshot taken before the monitor thread's final append,
+            # and the stream would end one chunk short of the truth.
+            still_running = run.status == "running"
+            with run._lock:
+                log_bytes = len(run._log)
+                page_end = min(log_bytes, offset + _LOG_PAGE_BYTES)
+                chunk = bytes(run._log[offset:page_end])
+                truncated = run._log_truncated
+            body, _held_back = _decodable_prefix(chunk, more_bytes_expected=still_running)
+
+            if body:
+                chunk_start = offset
+                offset += len(body)
+                yield _sse_frame(
+                    "log",
+                    {
+                        "run_id": run.run_id,
+                        "offset": chunk_start,
+                        "next_offset": offset,
+                        "chunk": body.decode("utf-8", errors="replace"),
+                        "truncated": truncated,
+                        "eof": False,
+                    },
+                )
+                last_frame_at = time.monotonic()
+                # Straight back round without sleeping: a finished run, or a
+                # burst larger than one page, drains at full speed.
+                continue
+
+            if not still_running and page_end >= log_bytes:
+                yield _sse_frame(
+                    "end",
+                    {
+                        "run_id": run.run_id,
+                        "offset": offset,
+                        "next_offset": offset,
+                        "chunk": "",
+                        "truncated": truncated,
+                        "eof": True,
+                        "status": run.status,
+                        "exit_code": run.exit_code,
+                    },
+                )
+                return
+
+            now = time.monotonic()
+            if now - last_frame_at >= _SSE_KEEPALIVE_SECONDS:
+                # A bare SSE comment. Ignored by every EventSource client, and
+                # the only thing standing between a silent 300s demo phase and
+                # an idle-timeout disconnect.
+                yield b": keepalive\n\n"
+                last_frame_at = now
+            await asyncio.sleep(_SSE_POLL_SECONDS)
+    finally:
+        # Runs on client disconnect too: Starlette closes the generator when the
+        # response task is cancelled, which raises in at the await above.
+        with _STREAM_LOCK:
+            _open_log_streams -= 1
+
+
 def reset_state_for_testing() -> None:
     with _MUTATION_LOCK:
         _cancel_active()
@@ -737,6 +881,55 @@ async def get_demo_run_log(
         chunk=chunk.decode("utf-8", errors="replace"),
         truncated=truncated,
         eof=eof,
+    )
+
+
+@router.get("/runs/{run_id}/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def stream_demo_run_log(
+    run_id: str,
+    principal: Annotated[Principal, Depends(require_superadmin)],
+    offset: int = Query(default=0),
+) -> StreamingResponse:
+    """The same log as /log, pushed instead of polled.
+
+    ADDITIVE. /log stays the tested default and its behaviour is unchanged: a
+    client that ignores this route entirely still works exactly as before. This
+    exists because a 500ms poll shows a demo audience a console that updates in
+    visible steps, and because two requests a second for minutes is a poor way
+    to carry a byte stream.
+
+    Superadmin, for the identical reason /log is superadmin and not merely
+    authenticated: this is the demo script's RAW stdout/stderr -- kubectl
+    output, resource names, OpenBao policy paths, the failure text of whatever
+    went wrong. Changing the transport does not change the audience.
+
+    Offset semantics are /log's, exactly: `offset` is where the event's chunk
+    starts, `next_offset` is where the next read resumes. A client that
+    reconnects with the last `next_offset` it saw gets no gap and no repeat, so
+    a dropped connection costs nothing and a client may freely switch between
+    this route and /log.
+
+    Both failure modes are resolved BEFORE the response begins. Once the first
+    byte of a 200 is on the wire an error can only be delivered as a stream
+    event, which no EventSource client would recognise -- so a bad offset or an
+    unknown run must 422/404 here, in the handler, not in the generator.
+    """
+    del principal
+    if offset < 0:
+        raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+    run = _get_run_or_404(run_id)
+    return StreamingResponse(
+        _iter_run_log_events(run, offset),
+        media_type="text/event-stream",
+        headers={
+            # no-transform bars a proxy from gzipping the stream, which would
+            # reintroduce buffering at the compressor. X-Accel-Buffering is
+            # nginx's per-response opt-out and belt-and-braces with the
+            # proxy_buffering off in the dashboard's nginx.conf: the response
+            # carries its own requirement even behind a proxy nobody edited.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

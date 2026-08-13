@@ -29,7 +29,9 @@ import {
   isRunFailure,
   makeCommandForStep,
   resetDemo,
+  sseLogStreamEnabled,
   startDemoRun,
+  streamDemoRunLog,
   type DemoRunLogChunk,
   type DemoRunView,
   type DemoRunnerStatus,
@@ -98,8 +100,35 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   cancelled: colors.amber,
 }
 
-/** How often an in-flight run is re-read. Fast enough to feel live on stage. */
+/** How often an in-flight run's STATUS is re-read. Fast enough to feel live. */
 const POLL_MS = 500
+
+/**
+ * How long a log read may block waiting for output before answering empty.
+ *
+ * This is the transport of record and it is not a compromise: the response
+ * comes back within milliseconds of the script printing, so it is as live as a
+ * stream, while remaining an ordinary short HTTP response that no proxy,
+ * compressor or tunnel can silently sit on. Chosen against the 300s
+ * `proxy_read_timeout` on the `/demo-api/` nginx location — three seconds
+ * leaves two orders of magnitude of headroom, so the boring failure (the
+ * deadline passes, an empty chunk comes back, the loop re-arms) is the only
+ * one available.
+ */
+const LOG_WAIT_SECONDS = 3
+
+/**
+ * Floor between two log reads when the runner answered immediately.
+ *
+ * Only reachable against a runner image that predates `wait` and therefore
+ * drops it: an unknown query parameter is not an error, so the read returns at
+ * once with nothing in it and an unpaced loop would spin hot. 300ms rather
+ * than the old 500ms because the loop is now self-rescheduling — it cannot
+ * issue a read while one is outstanding, so the request stacking that caused
+ * the 2026-08-03 duplication is structurally impossible and the interval no
+ * longer has to be conservative enough to outrun a slow round trip.
+ */
+const LOG_IDLE_FLOOR_MS = 300
 
 /** Bound on the post-run log drain, so a runner that never reports eof cannot spin. */
 const MAX_DRAIN_READS = 20
@@ -189,6 +218,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   // schedule a render, and the poll loop must read the latest value.
   const offsetRef = useRef(0)
   const auditedStunRunsRef = useRef(new Set<string>())
+  /**
+   * Whether the SSE stream currently owns the log.
+   *
+   * Exactly one transport reads the log at a time. Both are safe to display —
+   * `applyLogChunk` guarantees that — but they are not safe to interleave: a
+   * poll response landing between two stream frames advances the cursor past
+   * where the stream is, every later frame is then refused, and the stream
+   * quietly stops contributing. So the poll skips its log read while the
+   * stream is live, and resumes the instant it is not. A ref rather than
+   * state: the poll tick reads it at fire time and flipping it must not
+   * re-render, which would tear down and rebuild both effects mid-run.
+   */
+  const streamLiveRef = useRef(false)
 
   const loadStatus = useCallback(async () => {
     try {
@@ -305,18 +347,141 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const runId = activeRun?.run_id ?? null
   const running = isRunActive(activeRun)
 
+  /**
+   * Read the log with a waiting request, re-issuing as each one returns.
+   *
+   * This is the live path. A self-rescheduling loop rather than a setInterval,
+   * and that difference is the point: the old interval fired every 500ms
+   * whether or not the previous read had come back, so any read slower than
+   * the interval overlapped the next one, both sent the same offset, and the
+   * server honestly returned the same bytes twice — the 2026-08-03 duplicated
+   * reset banner. A loop that only issues a read when the last one has landed
+   * cannot stack requests at all. `applyLogChunk` still guards every chunk,
+   * because `drainLog` and the opt-in stream are also writers.
+   */
+  useEffect(() => {
+    if (!running || !runId) return
+    let stopped = false
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+    void (async () => {
+      while (!stopped) {
+        // The opt-in stream, once proven live, owns the log. Yield to it and
+        // keep checking, so the moment it stops — watchdog, break, divergence
+        // — this loop is already the one reading.
+        if (streamLiveRef.current) {
+          await sleep(LOG_IDLE_FLOOR_MS)
+          continue
+        }
+        const startedAt = Date.now()
+        try {
+          const chunk = await fetchDemoRunLog(
+            runId, offsetRef.current, await getAccessTokenSilently(), LOG_WAIT_SECONDS,
+          )
+          if (stopped) return
+          // Progress means bytes that actually reached the screen. A read can
+          // fail to make progress two ways and both must be paced: an empty
+          // chunk (a runner that ignored `wait` and answered at once, since an
+          // unknown query parameter is not an error), or a chunk `applyLogChunk`
+          // refused because it did not start at the cursor — a straggler from
+          // `drainLog` or the opt-in stream. Pacing on "nothing new appeared"
+          // rather than on "the chunk was empty" is what stops a refused chunk
+          // becoming a hot loop; a runner that honours `wait` makes progress
+          // every time and therefore never sleeps.
+          const advanced = applyLogChunk(chunk) && chunk.chunk !== ''
+          if (!advanced) {
+            const elapsed = Date.now() - startedAt
+            if (elapsed < LOG_IDLE_FLOOR_MS) await sleep(LOG_IDLE_FLOOR_MS - elapsed)
+          }
+        } catch {
+          // The run status poll below is the authoritative account of what
+          // happened; a failed log read is not worth a banner. Pace and retry.
+          if (stopped) return
+          await sleep(LOG_IDLE_FLOOR_MS)
+        }
+      }
+    })()
+
+    return () => {
+      stopped = true
+    }
+  }, [running, runId, applyLogChunk, getAccessTokenSilently])
+
+  /**
+   * Follow the log over SSE — only when this browser has explicitly asked for it.
+   *
+   * Off by default. The waiting read above is what an instructor gets, because
+   * it cannot fail the way a stream fails: a buffering intermediary accepts an
+   * SSE connection, raises no error, and then delivers nothing until the run
+   * ends, which is a blank log on stage with no signal that anything is wrong.
+   * This path exists so the streaming pattern can be exercised and judged, and
+   * it carries a first-byte watchdog precisely because the failure it guards
+   * against is silent.
+   *
+   * One attempt per run, deliberately: the effect's dependencies are stable for
+   * a run's lifetime, so a stream that 404s, breaks, starves or diverges from
+   * the cursor is not retried. The loop above simply carries on.
+   *
+   * Every chunk goes through `applyLogChunk`, so the exact-offset guard covers
+   * this transport too — and it is what makes the handover safe in both
+   * directions if a waiting read is still outstanding when a frame lands.
+   */
+  useEffect(() => {
+    if (!running || !runId || !sseLogStreamEnabled()) return
+    const controller = new AbortController()
+    let stopped = false
+    void (async () => {
+      try {
+        await streamDemoRunLog(
+          runId,
+          offsetRef.current,
+          {
+            onChunk: chunk => {
+              if (stopped) return false
+              // The stream counts as live only once a frame has actually
+              // arrived, never merely because the response opened. nginx
+              // buffers proxied responses by default, and a buffering proxy
+              // opens the response at once and then holds every frame until
+              // the run ends — so trusting the open would silence the poll for
+              // the whole phase and leave the panel emptier than it was
+              // before any of this existed.
+              streamLiveRef.current = true
+              // Returning false hands the stream its own shutdown: the cursor
+              // moved under it (a poll response still in flight when it
+              // opened) and SSE cannot re-ask for a different offset.
+              return applyLogChunk(chunk)
+            },
+          },
+          await getAccessTokenSilently(),
+          controller.signal,
+        )
+      } catch {
+        /* silent by design — see the note above */
+      } finally {
+        streamLiveRef.current = false
+      }
+    })()
+    return () => {
+      stopped = true
+      streamLiveRef.current = false
+      // Unmounting mid-phase, or the run reaching a terminal state, closes the
+      // response body rather than leaving a reader attached to a dead panel.
+      controller.abort()
+    }
+  }, [running, runId, applyLogChunk, getAccessTokenSilently])
+
+  // The run's STATUS only. The log is read by the waiting loop above, which
+  // paces itself against the runner rather than against a clock — leaving this
+  // interval to do the one job it is actually good at: noticing, within half a
+  // second, that the run has reached a terminal state.
   useEffect(() => {
     if (!running || !runId) return
     let stopped = false
     const timer = setInterval(() => {
       void (async () => {
         try {
-          const [run, chunk] = await Promise.all([
-            fetchDemoRun(runId, await getAccessTokenSilently()),
-            fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
-          ])
+          const run = await fetchDemoRun(runId, await getAccessTokenSilently())
           if (stopped) return
-          if (chunk) applyLogChunk(chunk)
           if (!isRunActive(run)) {
             if (run.step_id === '4' && run.status === 'succeeded') {
               // Phase 4 is not complete until the transactional audit record
@@ -691,8 +856,19 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               for display and hands the untouched string to its Copy button,
               which is the one artefact an instructor actually wants off this
               screen when a phase fails. `running` drives only the caret; the
-              lines themselves appear when their chunk lands and never before. */}
-          {log !== '' && (
+              lines themselves appear when their chunk lands and never before.
+
+              Mounted as soon as a run is live, not when the first byte lands.
+              Phase 1 can spend a long time in kubectl before it prints
+              anything, and until it did, the instructor was looking at a panel
+              with every control greyed out and no log surface at all — which
+              is indistinguishable from a panel that has hung. The block says
+              it is waiting rather than showing an empty bordered box, and it
+              does not invent a line, a timestamp or a progress figure to fill
+              the space: PixelLoader above already carries "time is passing",
+              and anything more here would be reporting progress the runner has
+              not made. */}
+          {(running || log !== '') && (
             <StreamingLogBlock
               testId="supercred-run-log"
               label="Run log"
@@ -701,6 +877,7 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               statusTone={activeRun ? RUN_STATUS_COLORS[activeRun.status] ?? 'var(--muted)' : undefined}
               log={log}
               streaming={running}
+              placeholder="Waiting for the runner's first output…"
               style={{ marginTop: 12 }}
             />
           )}

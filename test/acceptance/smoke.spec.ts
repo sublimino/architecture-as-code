@@ -84,18 +84,17 @@ test.describe("authenticated dashboard", () => {
     });
   }
 
-  test("Collusion & Access uses the radial cluster graph background", async ({ page }) => {
+  test("Collusion & Access has no page-specific background", async ({ page }) => {
     await page.getByRole("link", { name: "Collusion & Access", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Collusion & Access" })).toBeVisible({ timeout: 20_000 });
     // Role-scoped (not getByText) so this can't match the Run selector's
-    // hidden demo option that also contains the substring "collusion pairs"
-    // — see the comment on PAGES above.
+    // hidden demo option that also contains the substring "collusion pairs".
     await expect(page.getByRole("heading", { level: 2, name: "Collusion Pairs" })).toBeVisible({ timeout: 15_000 });
-    const bg = page.getByTestId("ktp-graph-bg");
-    await expect(bg).toHaveAttribute("data-bg", "/ktp-collusion-graph.png");
-    // The background asset is actually served (not 404/403).
-    const res = await page.request.get(`${BASE}/ktp-collusion-graph.png`);
-    expect(res.status(), "background image must be served").toBe(200);
+    // This page used to carry a radial cluster-graph backdrop that no other
+    // page had, which made it look like a different product. Uniformity is the
+    // requirement now, so the absence is the thing worth asserting: a
+    // reintroduced backdrop should fail here rather than be noticed by eye.
+    await expect(page.getByTestId("ktp-graph-bg")).toHaveCount(0);
   });
 
   test("DemoToggle widget is visible on every page", async ({ page }) => {

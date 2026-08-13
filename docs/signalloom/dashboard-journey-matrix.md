@@ -100,7 +100,10 @@ local Dex OIDC at `localhost:5173`.
 | `/redeem-invite` | Redeem Invite | API `/api/invite` | — |
 | `*` | Redirect → `/agents` | — | `smoke.spec.ts` |
 
-Static assets: `/ktp-collusion-graph.png` (Collusion & Access background).
+Static assets: `/favicon.ico` and `/brand/*.png` (icons and the sidebar logo).
+Collusion & Access previously carried a `/ktp-collusion-graph.png` backdrop; it
+was removed so the page matches its siblings, and `smoke.spec.ts` now asserts its
+absence.
 
 BATS runtime coverage: `d2-signalloom/test/dashboard-routes.bats` — SPA
 fallback for every route, static assets served, and bundle route references.

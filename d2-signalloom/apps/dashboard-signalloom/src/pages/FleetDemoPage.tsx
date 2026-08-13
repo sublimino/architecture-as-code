@@ -5,6 +5,7 @@ import FleetTopology from '../components/fleet/FleetTopology'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import HelpHint from '../components/HelpHint'
 import LoadingState, { loadPhase } from '../components/LoadingState'
+import PixelLoader from '../components/PixelLoader'
 import type { FleetTopology as FleetTopologyData } from '../api/fleetApi'
 import {
   fetchFleetTopology,
@@ -18,6 +19,54 @@ import {
 // ── Constants ───────────────────────────────────────────────────────────────
 
 const FLEET_POLL_MS = 2000
+
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// Every control here already had a LoadingState beside it saying THAT it was
+// running. None said for how long, which is the only thing anyone wants to
+// know a minute into a fleet deploy against a real cluster.
+//
+// Two decisions worth keeping:
+//
+// The in-button loader is wrapped in aria-hidden. PixelLoader is role=status
+// with aria-live=polite by construction, and the sibling LoadingState is
+// ALREADY a polite region for the same operation. Two regions announcing one
+// operation is worse than one, so the grid and the figure are made visual-only
+// and each button carries an explicit aria-label instead. That keeps the
+// control's accessible name meaningful while the announcement stays single.
+//
+// Widths are reserved rather than measured: the figure gains a character at
+// 10.0s and again at 1m 0.0s, and a centred block that shifts on a tick reads
+// as a fault mid-demo.
+
+/** Grid + gap + the figure at its longest ("1m 5.0s"), with no word. */
+const COMPACT_LOADER_W = 78
+/** The same, plus room for one word at the loader's 13px ("Recovering"). */
+const LABELLED_LOADER_W = 144
+const LOADER_GAP = 6
+/** Fits COMPACT_LOADER_W plus the button's padding — the Stun control is the
+ *  one button here that sizes to its content rather than filling its column. */
+const STUN_BUTTON_W = 110
+
+/**
+ * The visual half of a wait: pixel grid, optional word, live elapsed figure.
+ * Hidden from assistive technology on purpose — see the note above.
+ */
+function ButtonWait({ testId, label }: { testId: string; label?: string }) {
+  return (
+    <span aria-hidden="true" style={{ display: 'inline-flex' }}>
+      <PixelLoader
+        testId={testId}
+        label={label ?? ''}
+        style={{
+          width: label === undefined ? COMPACT_LOADER_W : LABELLED_LOADER_W,
+          maxWidth: '100%',
+          gap: LOADER_GAP,
+        }}
+      />
+    </span>
+  )
+}
 
 // ── Component ───────────────────────────────────────────────────────────────
 
@@ -186,6 +235,11 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
     fontFamily: 'inherit',
     transition: 'opacity 0.15s',
     width: '100%',
+    // Centres the loader the same way the browser centres the idle label, so
+    // swapping one for the other does not move the content.
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   })
 
   if (audience) {
@@ -311,8 +365,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               </div>
 
               {/* Deploy */}
-              <button data-testid="fleet-deploy-btn" onClick={handleDeploy} disabled={deployLoading} style={btn(deployLoading)}>
-                {deployLoading ? 'Deploying...' : 'Deploy Fleet'}
+              <button
+                data-testid="fleet-deploy-btn"
+                onClick={handleDeploy}
+                disabled={deployLoading}
+                style={btn(deployLoading)}
+                aria-label={deployLoading ? 'Deploying' : undefined}
+              >
+                {deployLoading ? <ButtonWait testId="fleet-deploy-loader" label="Deploying" /> : 'Deploy Fleet'}
               </button>
               <LoadingState
                 status={loadPhase({ loading: deployLoading, error: deployError, loaded: deployLoaded })}
@@ -322,8 +382,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Scan */}
-              <button data-testid="fleet-scan-btn" onClick={handleScan} disabled={scanLoading} style={btn(scanLoading)}>
-                {scanLoading ? 'Scanning...' : 'Scan Fleet'}
+              <button
+                data-testid="fleet-scan-btn"
+                onClick={handleScan}
+                disabled={scanLoading}
+                style={btn(scanLoading)}
+                aria-label={scanLoading ? 'Scanning' : undefined}
+              >
+                {scanLoading ? <ButtonWait testId="fleet-scan-loader" label="Scanning" /> : 'Scan Fleet'}
               </button>
               <LoadingState
                 status={loadPhase({ loading: scanLoading, error: scanError, loaded: scanLoaded })}
@@ -356,8 +422,18 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                     <option value="agent-cardvault">agent-cardvault</option>
                   )}
                 </select>
-                <button data-testid="fleet-stun-btn" onClick={handleStun} disabled={stunLoading} style={{ ...btn(stunLoading), width: 'auto', whiteSpace: 'nowrap' }}>
-                  {stunLoading ? 'Stunning...' : 'Stun'}
+                {/* The only content-sized button in the column, and the one
+                    that shares its row with a select — so it goes compact and
+                    keeps a fixed min-width, or the select resizes under the
+                    operator's cursor every time the figure gains a digit. */}
+                <button
+                  data-testid="fleet-stun-btn"
+                  onClick={handleStun}
+                  disabled={stunLoading}
+                  style={{ ...btn(stunLoading), width: 'auto', minWidth: STUN_BUTTON_W, whiteSpace: 'nowrap' }}
+                  aria-label={stunLoading ? 'Stunning' : undefined}
+                >
+                  {stunLoading ? <ButtonWait testId="fleet-stun-loader" /> : 'Stun'}
                 </button>
                 <HelpHint label="What Stun does to the fleet" testId="fleet-stun-help">
                   Revokes the selected agent’s credentials and marks it stunned, then does the same to every agent that depends on it — that spreading failure is the cascade drawn on the left. The pods keep running; they simply cannot authenticate any more. Recover fleet puts it back.
@@ -372,8 +448,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
               {/* Recover */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button data-testid="fleet-recover-btn" onClick={handleRecover} disabled={recoverLoading} style={btn(recoverLoading)}>
-                  {recoverLoading ? 'Recovering...' : 'Recover Fleet'}
+                <button
+                  data-testid="fleet-recover-btn"
+                  onClick={handleRecover}
+                  disabled={recoverLoading}
+                  style={btn(recoverLoading)}
+                  aria-label={recoverLoading ? 'Recovering' : undefined}
+                >
+                  {recoverLoading ? <ButtonWait testId="fleet-recover-loader" label="Recovering" /> : 'Recover Fleet'}
                 </button>
                 <HelpHint label="What Recover fleet does" testId="fleet-recover-help">
                   Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down.
@@ -388,8 +470,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
 
               {/* Reset */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button data-testid="fleet-reset-btn" onClick={handleReset} disabled={resetLoading} style={btn(resetLoading)}>
-                  {resetLoading ? 'Resetting...' : 'Reset Fleet'}
+                <button
+                  data-testid="fleet-reset-btn"
+                  onClick={handleReset}
+                  disabled={resetLoading}
+                  style={btn(resetLoading)}
+                  aria-label={resetLoading ? 'Resetting' : undefined}
+                >
+                  {resetLoading ? <ButtonWait testId="fleet-reset-loader" label="Resetting" /> : 'Reset Fleet'}
                 </button>
                 <HelpHint label="What Reset fleet does" testId="fleet-reset-help">
                   Tears the whole fleet down and returns the estate to empty. Every agent on the diagram goes away, stunned or not, and the risk figure falls to zero because there is nothing left to lose. Deploy fleet builds it again from scratch.

@@ -533,3 +533,49 @@ describe('DataTable', () => {
     expect(DataTable.td.fontSize).toBe(13)
   })
 })
+
+// A <select> whose value matches no <option> renders the FIRST option instead.
+// So a caller passing a page size outside the presets got a control reporting a
+// size the table was not using: the Design System's "Realistic" specimen passes
+// pageSize={5} and the select read "10 per page" while the table paged by 5.
+// Same defect class as the footer that used to hide the control that opened it,
+// which is why it is worth a test rather than a shrug.
+describe('the rows-per-page select reports the size actually in use', () => {
+  const renderAt = (pageSize: number) =>
+    render(
+      <DataTable
+        columns={COLUMNS}
+        data={makeRows(14)}
+        pageSize={pageSize}
+        renderRow={(r) => (
+          <tr key={r.name}>
+            <td>{r.name}</td>
+          </tr>
+        )}
+      />,
+    )
+
+  it('offers a non-preset size and selects it', () => {
+    const { getByTestId } = renderAt(5)
+    const sel = getByTestId('datatable-page-size') as HTMLSelectElement
+    expect(sel.value).toBe('5')
+    expect(Array.from(sel.options).map((o) => o.value)).toContain('5')
+  })
+
+  it('keeps the presets and orders them', () => {
+    const { getByTestId } = renderAt(5)
+    const sel = getByTestId('datatable-page-size') as HTMLSelectElement
+    expect(Array.from(sel.options).map((o) => Number(o.value))).toEqual([5, 10, 25, 50])
+  })
+
+  it('does not duplicate a size that is already a preset', () => {
+    const { getByTestId } = renderAt(25)
+    const sel = getByTestId('datatable-page-size') as HTMLSelectElement
+    expect(Array.from(sel.options).map((o) => Number(o.value))).toEqual([10, 25, 50])
+  })
+
+  it('actually pages by the size it reports', () => {
+    const { getAllByText } = renderAt(5)
+    expect(getAllByText(/^row-\d+$/)).toHaveLength(5)
+  })
+})

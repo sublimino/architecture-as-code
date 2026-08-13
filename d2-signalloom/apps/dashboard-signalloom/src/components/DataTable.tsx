@@ -77,6 +77,9 @@ interface SortState {
   dir: SortDir
 }
 
+/** The offered page sizes. The current size is added if it is not one of these. */
+const PAGE_SIZE_OPTIONS = [10, 25, 50] as const
+
 export interface DataTableProps<T> {
   columns: Column<T>[]
   data: T[]
@@ -342,11 +345,20 @@ export default function DataTable<T>({
               style={{ fontSize: 12, padding: '2px 6px' }}
               data-testid={`${testIdPrefix}-page-size`}
             >
-              {[10, 25, 50].map((n) => (
-                <option key={n} value={n}>
-                  {n} per page
-                </option>
-              ))}
+              {/* The current size is always an option, even when it is not one
+                  of the presets. A caller can pass any pageSize — the Design
+                  System's "Realistic" specimen passes 5 — and a <select> whose
+                  value matches no option renders the FIRST one instead. The
+                  control then reads "10 per page" while the table pages by 5:
+                  it misreports its own state, which is the same defect class as
+                  the footer that used to hide the control that opened it. */}
+              {Array.from(new Set([...PAGE_SIZE_OPTIONS, pageSize]))
+                .sort((a, b) => a - b)
+                .map((n) => (
+                  <option key={n} value={n}>
+                    {n} per page
+                  </option>
+                ))}
             </select>
           </div>
           {/* `-pagination` names exactly the pagination, which is what the

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Sidebar, { NAV, SIDEBAR_COLLAPSED_STORAGE_KEY } from './Sidebar'
@@ -511,6 +511,229 @@ describe('Sidebar quick-search clearing', () => {
     // Digits typed inside the search box must filter, never navigate.
     fireEvent.keyDown(search, { key: '3' })
     expect(screen.getByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+  })
+})
+
+describe('Sidebar filtered section headings', () => {
+  // A section heading is a label for the items beneath it. Filtering used to
+  // leave headings — and the superadmin block's dividing rule — printed over
+  // nothing, so the rail claimed sections it was no longer showing.
+  const ALL_HEADINGS = ['Workspace', 'Governance', 'Configuration', 'Superadmin']
+
+  // Scoped to the nav region, not the whole rail: the footer's superadmin
+  // toggle is also labelled "Superadmin", and a document-wide text query
+  // cannot tell that button apart from the section heading.
+  function navRegion(): HTMLElement {
+    return document.getElementById('sl-sidebar-nav')!
+  }
+
+  function visibleHeadings(): string[] {
+    return ALL_HEADINGS.filter((heading) => within(navRegion()).queryByText(heading) !== null)
+  }
+
+  beforeEach(() => {
+    installMemoryStorage()
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  afterEach(() => {
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it('renders every heading when nothing is filtered', async () => {
+    renderSidebar({ superadmin: true })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(visibleHeadings()).toEqual(ALL_HEADINGS)
+  })
+
+  it('renders only the heading whose section still has a match', async () => {
+    renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    // "audit" matches Audit Trail alone, which lives under Governance.
+    fireEvent.change(search, { target: { value: 'audit' } })
+
+    expect(visibleHeadings()).toEqual(['Governance'])
+    expect(screen.getByRole('link', { name: /Audit Trail/ })).toBeInTheDocument()
+  })
+
+  it('renders only Workspace when the match is a Workspace item', async () => {
+    renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'discovery' } })
+
+    expect(visibleHeadings()).toEqual(['Workspace'])
+  })
+
+  it('drops the Superadmin heading and its rule when no superadmin item matches', async () => {
+    const { container } = renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    // Andy's report: the "Splitter and Super Admin bar titles still display".
+    fireEvent.change(search, { target: { value: 'audit' } })
+
+    expect(within(navRegion()).queryByText('Superadmin')).not.toBeInTheDocument()
+    expect(container.querySelector('hr')).toBeNull()
+    // The footer toggle keeps its own label — only the section heading goes.
+    expect(screen.getByTestId('superadmin-toggle')).toHaveTextContent('Superadmin')
+  })
+
+  it('keeps the Superadmin heading and its rule when a superadmin item matches', async () => {
+    const { container } = renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'rbac' } })
+
+    expect(within(navRegion()).getByText('Superadmin')).toBeInTheDocument()
+    expect(container.querySelector('hr')).not.toBeNull()
+    expect(screen.getByRole('link', { name: 'RBAC Analysis' })).toBeInTheDocument()
+    // …and no Workspace/Governance/Configuration heading, since nothing under
+    // those matched.
+    expect(visibleHeadings()).toEqual(['Superadmin'])
+  })
+
+  it('renders no headings at all when nothing matches', async () => {
+    const { container } = renderSidebar({ superadmin: true })
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'zzzznotathing' } })
+
+    expect(visibleHeadings()).toEqual([])
+    expect(container.querySelector('hr')).toBeNull()
+    expect(screen.queryAllByRole('link')).toHaveLength(0)
+  })
+})
+
+describe('Sidebar empty search results', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  it('explains the empty rail instead of leaving a blank dead end', async () => {
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.change(search, { target: { value: 'zzzznotathing' } })
+
+    const empty = screen.getByTestId('sidebar-no-matches')
+    expect(empty).toHaveTextContent('No navigation matches zzzznotathing')
+    // Announced, not merely drawn — focus is in the search box, so a silent
+    // change from a list to nothing is exactly what a screen reader misses.
+    expect(empty).toHaveAttribute('role', 'status')
+    expect(empty).toHaveTextContent(/Escape to clear/i)
+  })
+
+  it('shows nothing of the kind while there are still matches', async () => {
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    expect(screen.queryByTestId('sidebar-no-matches')).not.toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'audit' } })
+    expect(screen.queryByTestId('sidebar-no-matches')).not.toBeInTheDocument()
+  })
+
+  it('withdraws once the search is cleared', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    await user.type(search, 'zzzz')
+    expect(screen.getByTestId('sidebar-no-matches')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('sidebar-search-clear'))
+
+    expect(screen.queryByTestId('sidebar-no-matches')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
+  })
+
+  it('withdraws on Escape too', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    await user.type(search, 'zzzz')
+    expect(screen.getByTestId('sidebar-no-matches')).toBeInTheDocument()
+
+    await user.keyboard('{Escape}')
+
+    expect(screen.queryByTestId('sidebar-no-matches')).not.toBeInTheDocument()
+    expect(search).toHaveValue('')
+  })
+})
+
+describe('Sidebar collapse control legibility', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  function toggleGlyph(): SVGSVGElement {
+    return screen.getByTestId('sidebar-collapse-toggle').querySelector('svg')!
+  }
+
+  it('draws a panel, not a bare stroke, so the icon depicts what it acts on', async () => {
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const svg = toggleGlyph()
+    // A framed rectangle with the rail partitioned off inside it.
+    expect(svg.querySelector('rect')).not.toBeNull()
+    expect(svg.innerHTML).toContain('M9 4v16')
+    expect(svg).toHaveAttribute('aria-hidden', 'true')
+  })
+
+  it('points the chevron the way the rail will travel, and flips it', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    // Expanded: the next click closes the rail, so the chevron points left.
+    const expandedGlyph = toggleGlyph().innerHTML
+    expect(expandedGlyph).toContain('m16.5 9.5-2.5 2.5 2.5 2.5')
+
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+
+    // Collapsed: the next click reopens it, so the chevron points right.
+    const collapsedGlyph = toggleGlyph().innerHTML
+    expect(collapsedGlyph).toContain('m14 9.5 2.5 2.5-2.5 2.5')
+    expect(collapsedGlyph).not.toBe(expandedGlyph)
+    // The panel itself is the constant; only the direction changes.
+    expect(toggleGlyph().querySelector('rect')).not.toBeNull()
+  })
+
+  it('keeps its name, tooltip and aria-expanded truthful in both states', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const toggle = screen.getByTestId('sidebar-collapse-toggle')
+    expect(toggle).toHaveAccessibleName('Collapse sidebar')
+    expect(toggle).toHaveAttribute('title', 'Collapse sidebar')
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(toggle).toHaveAttribute('aria-controls', 'sl-sidebar-nav')
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAccessibleName('Expand sidebar')
+    expect(toggle).toHaveAttribute('title', 'Expand sidebar')
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // aria-controls has to keep pointing at something that exists.
+    expect(document.getElementById('sl-sidebar-nav')).not.toBeNull()
+  })
+
+  it('does not collide with the nav glyphs it sits above', async () => {
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    // The nav's no-duplicate-icons rule exists because a collapsed rail is
+    // icons only; the collapse control shares that rail and that constraint.
+    const navGlyphs = screen.getAllByRole('link').map((link) => link.querySelector('svg')?.innerHTML)
+    expect(navGlyphs).not.toContain(toggleGlyph().innerHTML)
   })
 })
 

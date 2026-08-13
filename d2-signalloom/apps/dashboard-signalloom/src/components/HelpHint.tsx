@@ -4,6 +4,14 @@ interface Props {
   label: string
   children: string
   testId?: string
+  /**
+   * CSS colour for the "?" affordance, so a hint can be tied visually to the
+   * control it explains — the hint beside a red destructive button reads as
+   * belonging to something else when it is cyan. Only the "?" is toned; a
+   * coloured popup would read as an error rather than an explanation.
+   * Proximity, not colour, is what actually establishes the association.
+   */
+  tone?: string
 }
 
 export interface Rect {
@@ -97,7 +105,7 @@ function samePlacement(a: Placement, b: Placement): boolean {
 }
 
 /** A compact, keyboard-accessible explanation for nearby dashboard controls. */
-export default function HelpHint({ label, children, testId }: Props) {
+export default function HelpHint({ label, children, testId, tone = 'var(--cyan)' }: Props) {
   const [open, setOpen] = useState(false)
   const [placement, setPlacement] = useState<Placement | null>(null)
   const anchorRef = useRef<HTMLButtonElement>(null)
@@ -150,7 +158,11 @@ export default function HelpHint({ label, children, testId }: Props) {
           onFocus={() => setOpen(true)}
           style={{
             width: 18, height: 18, borderRadius: '50%', padding: 0,
-            border: '1px solid var(--cyan)', background: 'transparent', color: 'var(--cyan)',
+            // Longhands, not the `border` shorthand: a shorthand carrying a
+            // custom property is unreadable to jsdom, so the tone would be
+            // untestable outside a real browser.
+            borderWidth: 1, borderStyle: 'solid', borderColor: tone,
+            background: 'transparent', color: tone,
             fontSize: 12, fontWeight: 700, lineHeight: 1, cursor: 'help',
           }}
         >

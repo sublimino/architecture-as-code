@@ -10,22 +10,26 @@ child environment below.
 """
 from __future__ import annotations
 
+import asyncio
+import codecs
 import json
 import logging
 import os
 import signal
 import subprocess
 import threading
+import time
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Annotated, Any, Literal, Mapping, cast
+from typing import Annotated, Any, AsyncIterator, Literal, Mapping, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from api_compat import ERROR_RESPONSES, APIError, Principal, authenticated_tenant
@@ -44,6 +48,21 @@ _DEFAULT_CANCEL_GRACE_SECONDS = 10
 _LOG_CAP_BYTES = 4 * 1024 * 1024
 _LOG_PAGE_BYTES = 64 * 1024
 _MAX_RUN_HISTORY = 20
+# How often an open SSE stream re-reads the shared log buffer. There is no
+# wakeup to subscribe to -- the log is filled by a plain thread appending to a
+# bytearray -- so the push endpoint polls that buffer internally and pushes what
+# it finds. That is still a categorical improvement on the browser polling over
+# HTTP: one connection instead of two per second, and a quarter of the latency.
+_SSE_POLL_SECONDS = 0.25
+# An SSE comment line on an otherwise idle stream. Demo phase 2 waits up to 300s
+# for the credential-chain Job while printing nothing, and both nginx
+# (proxy_read_timeout 300s) and any intermediate proxy will drop a connection
+# that goes quiet for long enough. 15s is comfortably inside every default.
+_SSE_KEEPALIVE_SECONDS = 15.0
+# Ceiling on GET /log?wait=. A waiting request occupies a worker thread and
+# cannot be cancelled part-way, so this is the longest a client that has walked
+# away can keep one -- the bound on the damage, not a recommended value.
+_MAX_LOG_WAIT_SECONDS = 30.0
 # Everything the demo script's child process is allowed to inherit. This stays
 # an allowlist -- the module docstring names the fixed child environment as one
 # of four security boundaries -- so it is widened by naming keys, never by
@@ -72,6 +91,33 @@ _ENV_ALLOWLIST = (
     "AGENT_NAMESPACE_CANDIDATES",
     "KUBERNETES_SERVICE_HOST",
     "KUBERNETES_SERVICE_PORT",
+)
+
+# Constants the runner SETS for the child, as opposed to values it forwards from
+# its own environment. These are not part of _ENV_ALLOWLIST because nothing is
+# inherited: no parent value can influence them, so they widen the allowlist
+# boundary by exactly nothing.
+#
+# PYTHONUNBUFFERED is the child half of the streaming fix. Reading the pipe with
+# read1 (see _monitor_run) makes the PARENT hand bytes over the moment they
+# arrive, but it cannot help if the child never wrote them: CPython
+# block-buffers stdout at 8KiB whenever it is not a tty, so any Python step in
+# the demo script's chain would sit on its output until exit and reproduce the
+# original symptom one process further down. Shell builtins write(2) straight
+# through and Go tools (kubectl) do not buffer a pipe, so bash and kubectl need
+# nothing here.
+#
+# There is deliberately no equivalent for a libc-stdio child (a C program
+# block-buffering a pipe). The only environmental lever for that is coreutils'
+# stdbuf, which works by LD_PRELOAD-ing a shim and setting private _STDBUF_*
+# variables -- an implementation detail of another package, injected into a
+# security-relevant fixed environment. If a C binary in the chain ever buffers,
+# the honest fix is stdbuf in the demo script at the call site, where it is
+# visible.
+_CHILD_CONSTANT_ENV = MappingProxyType(
+    {
+        "PYTHONUNBUFFERED": "1",
+    }
 )
 
 
@@ -131,6 +177,10 @@ class _Run:
     _log_truncated: bool
     _timed_out: bool
     _lock: threading.Lock
+    # Shares _lock, so a waiter can test the buffer and park without a window
+    # in between for a notify to slip through and be missed. See
+    # _wait_for_new_log_bytes.
+    _log_changed: threading.Condition
     _done: threading.Event
 
 
@@ -143,6 +193,15 @@ _STATE_LOCK = threading.RLock()
 _MUTATION_LOCK = threading.Lock()
 _active: _Run | None = None
 _runs: OrderedDict[str, _Run] = OrderedDict()
+# Open SSE log streams. This is instrumentation, and it exists because "a
+# disconnected client leaves nothing running behind it" is otherwise an
+# unfalsifiable claim -- the generator's cleanup happens inside the server's
+# event loop, where a test has nothing to observe. Incremented when a stream
+# starts and decremented in its finally, so a test can assert the count returns
+# to zero after a client walks away. Cheap enough to keep in production, where
+# it is also the number a "why is this pod busy?" question would want.
+_STREAM_LOCK = threading.Lock()
+_open_log_streams = 0
 
 router = APIRouter(prefix="/api/demo/supercred", tags=["demo-runner"])
 
@@ -298,6 +357,9 @@ def _child_env() -> dict[str, str]:
         value = os.environ.get(key)
         if value is not None:
             child_env[key] = value
+    # Applied after the allowlist so a forwarded value can never quietly
+    # override a constant the runner depends on.
+    child_env.update(_CHILD_CONSTANT_ENV)
     return child_env
 
 
@@ -325,6 +387,24 @@ def _append_log(run: _Run, chunk: bytes) -> None:
         run._log.extend(chunk[:remaining])
         if len(chunk) > remaining:
             run._log_truncated = True
+        # Raw bytes in, raw bytes stored. Nothing here decodes: read1 chops the
+        # pipe at arbitrary offsets, and a bytearray is the only representation
+        # that can hold half a multi-byte character until its other half
+        # arrives. Decoding belongs at the read endpoints, which know whether
+        # more bytes are still coming.
+        run._log_changed.notify_all()
+
+
+def _notify_log_waiters(run: _Run) -> None:
+    """Wake every long-poll waiter parked on this run.
+
+    Called when a run reaches a terminal state. Missing this is the subtle
+    half: a waiter woken only by output would sit out its whole deadline every
+    time a run ended quietly, which is exactly what happens at the end of every
+    phase -- the last thing a step does is exit, not print.
+    """
+    with run._lock:
+        run._log_changed.notify_all()
 
 
 def _finalize_run(run: _Run, *, status: RunStatus | None = None, exit_code: int | None = None, error: str | None = None) -> None:
@@ -340,6 +420,10 @@ def _finalize_run(run: _Run, *, status: RunStatus | None = None, exit_code: int 
             globals()["_active"] = None
         _evict_finished_runs_locked()
     run._done.set()
+    # Outside the _STATE_LOCK block on purpose: this takes run._lock, and
+    # taking it while holding _STATE_LOCK would invert the order every other
+    # path uses.
+    _notify_log_waiters(run)
 
 
 def _evict_finished_runs_locked() -> None:
@@ -385,8 +469,46 @@ def _monitor_run(run: _Run) -> None:
         watchdog.daemon = True
         watchdog.start()
         while True:
-            chunk = proc.stdout.read(8192)
-            if not chunk:
+            # read1, NOT read. This is the difference between a live console and
+            # a console that stays blank for the whole run.
+            #
+            # BufferedReader.read(n) is a fill-EXACTLY-n read: it loops on the
+            # raw pipe until it has n bytes or reaches EOF. Every demo phase
+            # prints a few hundred bytes of banner and then blocks on kubectl
+            # for seconds to minutes, so with read(8192) the first byte reached
+            # run._log only when the child exited and closed the pipe. The
+            # dashboard polls /log every 500ms into a purpose-built streaming
+            # console; it rendered nothing at all for a multi-minute phase and
+            # then filled in one jump.
+            #
+            # read1(n) issues at most one raw read and returns whatever is
+            # already there. Measured against a script printing a line every
+            # 250ms for 3s:
+            #
+            #   read(8192)  -> 1 chunk delivered at 3.01s
+            #   read1(8192) -> 12 chunks at 0.00s, 0.25s, 0.50s ... 2.76s
+            #
+            # Do not "tidy" this back to read(). tests/test_demo_runner_streaming.py
+            # asserts the wall-clock property rather than the final text,
+            # because every assertion of the form "the finished log contains X"
+            # is equally true of the batching behaviour and stayed green
+            # throughout the period this was broken.
+            chunk = proc.stdout.read1(8192)
+            if chunk is None:
+                # None and b"" are NOT the same answer, and `if not chunk`
+                # cannot tell them apart. b"" means the write end is gone --
+                # EOF, stop. None means "nothing ready right now", which is
+                # what read1 returns on a non-blocking fd. Nothing here sets
+                # O_NONBLOCK, so this should be unreachable; it is written
+                # anyway because the failure it prevents is silent. Treating
+                # None as EOF would end the capture at whatever had arrived and
+                # report the run as complete with a truncated log -- and the
+                # dashboard cannot distinguish a truncated log from a short
+                # one. Sleep rather than spin, so a genuinely non-blocking fd
+                # degrades to a poll instead of burning a core.
+                time.sleep(0.01)
+                continue
+            if chunk == b"":
                 break
             _append_log(run, chunk)
         try:
@@ -443,6 +565,9 @@ def _spawn_run(step_id: str, kind: Literal["step", "reset"]) -> _Run:
     except OSError as exc:
         raise APIError(503, "demo_script_unavailable", f"Failed to start SuperCred demo script {script_path}: {exc}") from exc
 
+    # Built first so the Condition can share it -- a Condition over a different
+    # lock than the one guarding _log would protect nothing.
+    run_lock = threading.Lock()
     run = _Run(
         run_id=uuid4().hex,
         step_id=step_id,
@@ -456,7 +581,8 @@ def _spawn_run(step_id: str, kind: Literal["step", "reset"]) -> _Run:
         _log=bytearray(),
         _log_truncated=False,
         _timed_out=False,
-        _lock=threading.Lock(),
+        _lock=run_lock,
+        _log_changed=threading.Condition(run_lock),
         _done=threading.Event(),
     )
     with _STATE_LOCK:
@@ -476,6 +602,10 @@ def _cancel_active() -> None:
             return
         run.status = "cancelled"
         proc = run._process
+    # The status flip is itself a terminal transition a waiter is parked on, so
+    # wake them here rather than only when the monitor thread finalises -- a
+    # cancelled run may take the full SIGTERM grace period to get that far.
+    _notify_log_waiters(run)
     if proc is None:
         with _STATE_LOCK:
             if _active is run:
@@ -483,6 +613,7 @@ def _cancel_active() -> None:
             if run.finished_at is None:
                 run.finished_at = _utcnow()
         run._done.set()
+        _notify_log_waiters(run)
         return
 
     try:
@@ -509,6 +640,7 @@ def _cancel_active() -> None:
         if _active is run:
             globals()["_active"] = None
     run._done.set()
+    _notify_log_waiters(run)
 
 
 def _start_step_run(step_id: str) -> _Run:
@@ -556,6 +688,151 @@ def _get_run_or_404(run_id: str) -> _Run:
     if run is None:
         raise APIError(404, "run_not_found", f"SuperCred demo run not found: {run_id}")
     return run
+
+
+def _wait_for_new_log_bytes(run: _Run, offset: int, seconds: float) -> None:
+    """Block until the run has bytes past ``offset``, ends, or the deadline passes.
+
+    This is what turns /log from a 500ms-floor poll into something that
+    delivers within milliseconds of the producer emitting. The dashboard polls
+    on a timer, so with no wait the best case is half a poll interval of
+    latency and the worst is a full one, no matter how fast the script prints.
+
+    The buffer test and the park happen under the same lock the writer takes,
+    which is the whole reason _log_changed is a Condition over run._lock rather
+    than a bare Event: between "is there anything new?" and "wait", there is no
+    window for a notify to be delivered and lost. Returns rather than raises on
+    timeout -- a wait that expires is a normal empty read, not an error.
+    """
+    deadline = time.monotonic() + seconds
+    with run._lock:
+        while True:
+            if len(run._log) > offset or run.status != "running":
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            run._log_changed.wait(remaining)
+
+
+def _sse_frame(event: str, payload: Mapping[str, Any]) -> bytes:
+    # json.dumps escapes newlines, so however many lines the demo script printed
+    # the data field stays exactly one SSE line and the frame stays parseable.
+    return f"event: {event}\ndata: {json.dumps(dict(payload))}\n\n".encode("utf-8")
+
+
+def _decodable_prefix(chunk: bytes, *, more_bytes_expected: bool) -> tuple[bytes, bytes]:
+    """Split a chunk into (safe to decode now, hold back until more arrives).
+
+    Offsets in this API are BYTE offsets into a stream that is chopped up by
+    whatever the child happened to have written when the pipe was read. Under
+    the poll endpoint a boundary lands mid-character roughly never, because it
+    only chops every 64KiB; a push stream chops at every partial read, so a
+    multi-byte character straddling a boundary is a routine event rather than a
+    curiosity. Decoding it with errors="replace" would burn it to U+FFFD and no
+    later chunk could put it back.
+
+    So an incomplete trailing sequence is held back and re-read on the next
+    pass, which costs one poll interval and keeps the offsets exact.
+
+    The distinction that matters is between a truncated character and a
+    genuinely malformed one. Holding back bytes that can never become valid --
+    a stray 0xFF, say -- would park them until the run ended, waiting for a
+    continuation that is not coming. The stdlib's incremental decoder already
+    draws exactly this line: with final=False it buffers a truncated sequence
+    and reports it through getstate(), while replacing invalid bytes on the
+    spot. So malformed input still degrades to errors="replace" precisely as it
+    does on /log, and only a real half-character waits.
+
+    Once the run is over nothing more can arrive, there is nothing to wait for,
+    and the whole chunk is handed over as-is.
+    """
+    if not more_bytes_expected:
+        return chunk, b""
+    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+    decoder.decode(chunk, False)
+    pending, _ = decoder.getstate()
+    if not pending:
+        return chunk, b""
+    return chunk[: len(chunk) - len(pending)], bytes(pending)
+
+
+async def _iter_run_log_events(run: _Run, offset: int) -> AsyncIterator[bytes]:
+    """Push the run's log as SSE frames, resuming from a byte offset.
+
+    Reads the SAME run._log the poll endpoint reads. There is deliberately no
+    second capture off the subprocess: one capture with two readers cannot
+    disagree about what the script printed, whereas two captures eventually
+    will, and the one nobody is watching is the one that drifts.
+    """
+    global _open_log_streams
+    with _STREAM_LOCK:
+        _open_log_streams += 1
+    try:
+        last_frame_at = time.monotonic()
+        while True:
+            # Sample the terminal flag BEFORE the buffer. status only ever moves
+            # forwards (running -> terminal), so a stale "still running" reading
+            # costs one more poll and nothing else. Read the other way round, a
+            # run that finished between the two reads would report eof against a
+            # buffer snapshot taken before the monitor thread's final append,
+            # and the stream would end one chunk short of the truth.
+            still_running = run.status == "running"
+            with run._lock:
+                log_bytes = len(run._log)
+                page_end = min(log_bytes, offset + _LOG_PAGE_BYTES)
+                chunk = bytes(run._log[offset:page_end])
+                truncated = run._log_truncated
+            body, _held_back = _decodable_prefix(chunk, more_bytes_expected=still_running)
+
+            if body:
+                chunk_start = offset
+                offset += len(body)
+                yield _sse_frame(
+                    "log",
+                    {
+                        "run_id": run.run_id,
+                        "offset": chunk_start,
+                        "next_offset": offset,
+                        "chunk": body.decode("utf-8", errors="replace"),
+                        "truncated": truncated,
+                        "eof": False,
+                    },
+                )
+                last_frame_at = time.monotonic()
+                # Straight back round without sleeping: a finished run, or a
+                # burst larger than one page, drains at full speed.
+                continue
+
+            if not still_running and page_end >= log_bytes:
+                yield _sse_frame(
+                    "end",
+                    {
+                        "run_id": run.run_id,
+                        "offset": offset,
+                        "next_offset": offset,
+                        "chunk": "",
+                        "truncated": truncated,
+                        "eof": True,
+                        "status": run.status,
+                        "exit_code": run.exit_code,
+                    },
+                )
+                return
+
+            now = time.monotonic()
+            if now - last_frame_at >= _SSE_KEEPALIVE_SECONDS:
+                # A bare SSE comment. Ignored by every EventSource client, and
+                # the only thing standing between a silent 300s demo phase and
+                # an idle-timeout disconnect.
+                yield b": keepalive\n\n"
+                last_frame_at = now
+            await asyncio.sleep(_SSE_POLL_SECONDS)
+    finally:
+        # Runs on client disconnect too: Starlette closes the generator when the
+        # response task is cancelled, which raises in at the await above.
+        with _STREAM_LOCK:
+            _open_log_streams -= 1
 
 
 def reset_state_for_testing() -> None:
@@ -660,7 +937,31 @@ async def get_demo_run_log(
     run_id: str,
     principal: Annotated[Principal, Depends(require_superadmin)],
     offset: int = Query(default=0),
+    wait: float = Query(default=0.0),
 ) -> RunLogResponse:
+    """The demo script's console output, from a byte offset.
+
+    `wait` is optional and defaults to 0, which is the original non-blocking
+    behaviour exactly. Given a positive value, a caller that is already at the
+    end of the buffer parks until new bytes arrive, the run ends, or the
+    deadline passes — then answers normally. It changes latency, never shape:
+    the response is the same model with the same fields, and a timed-out wait
+    is an ordinary empty read rather than an error.
+
+    A long poll is deliberately preferred over the SSE route for the default
+    path. The response is an ordinary short HTTP response, so it is immune to
+    proxy buffering, gzip block-filling, HTTP/1.0 upstreams and compressor
+    filters — every layer that can silently swallow a stream and leave a blank
+    console with no error to debug.
+
+    `chunk` is decoded with errors="replace", and a page boundary at
+    _LOG_PAGE_BYTES can in principle split a multi-byte character. The demo
+    script does print them (phase 3's compliance summary emits ✅/❌ from a
+    python3 heredoc). It stays low-frequency here because the boundary only
+    falls every 64KiB — unlike the SSE route, which chops at every partial read
+    and therefore holds an incomplete trailing sequence back instead. Left as
+    is because this endpoint's byte-for-byte behaviour is a tested contract.
+    """
     # Superadmin, not merely authenticated. This returns the demo script's RAW
     # stdout/stderr — kubectl output, resource names, OpenBao policy paths, the
     # failure text of anything that went wrong mid-run. The demo's EVIDENCE is
@@ -669,7 +970,22 @@ async def get_demo_run_log(
     del principal
     if offset < 0:
         raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+    if wait < 0:
+        raise APIError(422, "invalid_log_wait", f"Log wait must be non-negative: {wait}")
     run = _get_run_or_404(run_id)
+    if wait > 0:
+        # Off by default, so a client that never sends `wait` gets byte-for-byte
+        # the behaviour this endpoint has always had.
+        #
+        # In a thread because the wait is a blocking Condition on a buffer the
+        # producer fills from a plain thread; parking the event loop on it would
+        # stall every other request in the pod. The cap bounds what a client can
+        # ask a worker thread to hold: an abandoned waiter cannot be cancelled
+        # mid-wait, so it returns at its deadline and no later, and the cap is
+        # what makes "no later" a short time rather than an arbitrary one.
+        await run_in_threadpool(
+            _wait_for_new_log_bytes, run, offset, min(wait, _MAX_LOG_WAIT_SECONDS)
+        )
     with run._lock:
         log_bytes = len(run._log)
         next_offset = min(log_bytes, offset + _LOG_PAGE_BYTES)
@@ -683,6 +999,55 @@ async def get_demo_run_log(
         chunk=chunk.decode("utf-8", errors="replace"),
         truncated=truncated,
         eof=eof,
+    )
+
+
+@router.get("/runs/{run_id}/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+async def stream_demo_run_log(
+    run_id: str,
+    principal: Annotated[Principal, Depends(require_superadmin)],
+    offset: int = Query(default=0),
+) -> StreamingResponse:
+    """The same log as /log, pushed instead of polled.
+
+    ADDITIVE. /log stays the tested default and its behaviour is unchanged: a
+    client that ignores this route entirely still works exactly as before. This
+    exists because a 500ms poll shows a demo audience a console that updates in
+    visible steps, and because two requests a second for minutes is a poor way
+    to carry a byte stream.
+
+    Superadmin, for the identical reason /log is superadmin and not merely
+    authenticated: this is the demo script's RAW stdout/stderr -- kubectl
+    output, resource names, OpenBao policy paths, the failure text of whatever
+    went wrong. Changing the transport does not change the audience.
+
+    Offset semantics are /log's, exactly: `offset` is where the event's chunk
+    starts, `next_offset` is where the next read resumes. A client that
+    reconnects with the last `next_offset` it saw gets no gap and no repeat, so
+    a dropped connection costs nothing and a client may freely switch between
+    this route and /log.
+
+    Both failure modes are resolved BEFORE the response begins. Once the first
+    byte of a 200 is on the wire an error can only be delivered as a stream
+    event, which no EventSource client would recognise -- so a bad offset or an
+    unknown run must 422/404 here, in the handler, not in the generator.
+    """
+    del principal
+    if offset < 0:
+        raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+    run = _get_run_or_404(run_id)
+    return StreamingResponse(
+        _iter_run_log_events(run, offset),
+        media_type="text/event-stream",
+        headers={
+            # no-transform bars a proxy from gzipping the stream, which would
+            # reintroduce buffering at the compressor. X-Accel-Buffering is
+            # nginx's per-response opt-out and belt-and-braces with the
+            # proxy_buffering off in the dashboard's nginx.conf: the response
+            # carries its own requirement even behind a proxy nobody edited.
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 

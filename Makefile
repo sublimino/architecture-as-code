@@ -509,6 +509,10 @@ demo-signalloom-supercred-evidence: ## Observe the SuperCred credential chain an
 demo-signalloom-supercred-evidence-json: ## Same evidence as JSON — what the dashboard's Credential Lifecycle card renders.
 	@./scripts/supercred-evidence.sh json
 
+.PHONY: demo-signalloom-supercred-evidence-test
+demo-signalloom-supercred-evidence-test: ## Unit-test what the evidence probes CONCLUDE, against a stub kubectl (no cluster required).
+	bats d2-signalloom/test/supercred-evidence-probe.bats
+
 .PHONY: demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down
 demo-osramp-up: ## Restore OSRAMP frontend+backend (durable: restores ResourceSet inputs).
 	./scripts/osramp-up.sh

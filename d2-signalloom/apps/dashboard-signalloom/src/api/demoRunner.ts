@@ -140,10 +140,33 @@ export async function fetchDemoRun(runId: string, token?: string): Promise<DemoR
   return getJson<DemoRunView>(`/runs/${encodeURIComponent(runId)}`, 'Run status', token)
 }
 
-/** Incremental log read — pass the previous chunk's `next_offset`. */
-export async function fetchDemoRunLog(runId: string, offset: number, token?: string): Promise<DemoRunLogChunk> {
+/**
+ * Incremental log read — pass the previous chunk's `next_offset`.
+ *
+ * `waitSeconds` turns it into a long poll: when the caller is already at the
+ * end of the buffer the runner holds the request open until new bytes arrive,
+ * the run finishes, or the deadline passes, then answers normally. Delivery is
+ * then within milliseconds of the script printing, while the request stays an
+ * ordinary short HTTP response — which is the entire point. Every layer
+ * between the browser and the runner can silently swallow an event-stream
+ * (nginx buffers proxied responses by default, gzip fills blocks before
+ * flushing, an HTTP/1.0 upstream cannot chunk, ngrok's inspector reassembles,
+ * venue wifi runs a transparent proxy); none of them can swallow a response
+ * that simply took a while to come back.
+ *
+ * The parameter is optional on both sides. A runner image that predates it
+ * ignores an unknown query parameter and answers immediately, which is exactly
+ * today's behaviour — so this can never make the log worse, only slower.
+ */
+export async function fetchDemoRunLog(
+  runId: string,
+  offset: number,
+  token?: string,
+  waitSeconds?: number,
+): Promise<DemoRunLogChunk> {
+  const wait = waitSeconds === undefined ? '' : `&wait=${encodeURIComponent(String(waitSeconds))}`
   return getJson<DemoRunLogChunk>(
-    `/runs/${encodeURIComponent(runId)}/log?offset=${encodeURIComponent(String(offset))}`,
+    `/runs/${encodeURIComponent(runId)}/log?offset=${encodeURIComponent(String(offset))}${wait}`,
     'Run log', token,
   )
 }
@@ -153,23 +176,72 @@ export async function resetDemo(token?: string): Promise<DemoRunView> {
   return postJson<DemoRunView>('/reset', 'Demo reset', undefined, token)
 }
 
-// ─── Live log stream ──────────────────────────────────────────────────────────
+// ─── Live log stream (SSE) — OPT-IN, NOT THE DEFAULT ──────────────────────────
 //
-// GET /demo-api/runs/{id}/stream pushes the same chunks the polling endpoint
-// serves, as they are written, instead of once every 500ms. Both transports
-// stay: the poll is what works when the stream cannot be opened at all — an
-// older runner image with no /stream route, a proxy that buffers event-streams,
-// a connection dropped mid-phase — and it needs no negotiation to recover,
-// because it sends its cursor with every read. The stream is the fast path
-// layered on top, never the only path.
+// GET /demo-api/runs/{id}/stream pushes the same chunks the log endpoint
+// serves, as they are written. It is real, it is tested, and it is deliberately
+// NOT how the panel reads the log. The waiting read above is.
 //
-// WHY NOT EventSource. It is the purpose-built API for this and it cannot set
-// a single request header, so the only way to authenticate it is to put the
-// bearer token in the query string. That writes a live credential into the
-// nginx access log, into every proxy log between the browser and the runner,
-// and into the browser's own history — three places that outlive the session
-// the token belongs to. `fetch()` carries the header properly, and the cost is
-// framing the byte stream ourselves, which is what parseSseFrames does.
+// WHY IT LOST. The failure this whole exercise exists to prevent is a blank log
+// on stage, and SSE's characteristic failure produces exactly that with no
+// error to react to. Any intermediary that buffers — nginx (proxy_buffering is
+// ON by default and the /demo-api/ block does not turn it off), a Kubernetes
+// Gateway compressor filter, ngrok, venue wifi running a transparent proxy —
+// accepts the connection, answers the headers, and then holds every byte until
+// the response completes. Nothing errors. `onerror` never fires. The log sits
+// empty for the length of the phase and the panel has no way to know. A
+// waiting read cannot fail that way: it is an ordinary short response, so a
+// buffering proxy has nothing to buffer.
+//
+// So the stream is kept behind `sseLogStreamEnabled()` for deliberate use —
+// the pattern is worth being able to demonstrate and judge — and it carries a
+// first-byte watchdog rather than trusting an error that will not come.
+//
+// WHY NOT EventSource, for two reasons. It cannot set a single request header,
+// so authenticating it means putting the bearer token in the query string —
+// into the nginx access log, into every proxy log in between, and into the
+// browser's own history, three places that outlive the session the token
+// belongs to. It also cannot send `ngrok-skip-browser-warning`, which the free
+// tier requires and which is how the demo is published. `fetch()` carries both
+// headers properly; the cost is framing the byte stream ourselves.
+//
+// PAYLOADS ARE JSON, always. SSE treats a bare CR as a line terminator, so raw
+// text in a `data:` field would be silently mangled by any progress bar or
+// spinner the runner's kubectl output contains. The parser below is written
+// against JSON payloads only and nothing else is a valid frame.
+
+/**
+ * Whether this browser has asked for the SSE log transport.
+ *
+ * Two ways in, both deliberate and neither reachable by accident:
+ *   * `?logTransport=sse` on the page URL — one demo, no residue;
+ *   * `localStorage['signalloom.logTransport'] = 'sse'` — sticky for a machine.
+ *
+ * There is no UI for this and there should not be. An instructor picking a
+ * transport mid-demo is a decision they cannot evaluate; the waiting read is
+ * the one that works everywhere and it is what they get.
+ */
+export function sseLogStreamEnabled(): boolean {
+  try {
+    if (new URLSearchParams(window.location.search).get('logTransport') === 'sse') return true
+    return window.localStorage.getItem('signalloom.logTransport') === 'sse'
+  } catch {
+    // localStorage throws outright under some privacy settings, and a panel
+    // that cannot read a preference has plainly not been opted in.
+    return false
+  }
+}
+
+/**
+ * How long a stream may deliver nothing at all before it is written off.
+ *
+ * This is the buffering detector. A proxy holding the response produces zero
+ * bytes; a healthy connection produces the runner's banner or its keepalive
+ * comment. Two seconds is long enough to cross a tunnel and short enough that
+ * an instructor never sees the difference, and the penalty for being wrong is
+ * only that a working stream is dropped in favour of a working poll.
+ */
+export const STREAM_FIRST_BYTE_MS = 2000
 
 /** One decoded `field: value` frame off the wire. */
 export interface SseFrame {
@@ -253,26 +325,61 @@ export async function streamDemoRunLog(
   handlers: DemoRunStreamHandlers,
   token?: string,
   signal?: AbortSignal,
+  firstByteMs: number = STREAM_FIRST_BYTE_MS,
 ): Promise<void> {
   const res = await fetch(
     `${DEMO_API}/runs/${encodeURIComponent(runId)}/stream?offset=${encodeURIComponent(String(offset))}`,
-    { headers: { Accept: 'text/event-stream', ...authHeaders(token) }, signal },
+    {
+      headers: {
+        Accept: 'text/event-stream',
+        // The published demo runs through ngrok's free tier, which serves an
+        // interstitial to any request without this header. EventSource cannot
+        // send it; that is the second reason this is a fetch().
+        'ngrok-skip-browser-warning': 'true',
+        ...authHeaders(token),
+      },
+      signal,
+    },
   )
   if (!res.ok) throw new Error(`Run log stream failed: ${await describeFailure(res)}`)
   if (!res.body) throw new Error('Run log stream failed: the response carried no body')
 
-  // Note there is deliberately no "the stream is open" callback. An open
-  // response proves nothing about whether bytes will flow: nginx buffers
-  // proxied responses by default, and a buffering proxy answers the request
-  // immediately and then holds every frame until the run ends. The only honest
-  // evidence that this transport is working is a frame arriving, so that is
-  // what the caller is given to react to.
+  // Note there is deliberately no "the stream is open" callback, and the
+  // watchdog below is not an error handler. An open response proves nothing
+  // about whether bytes will flow: a buffering intermediary answers the
+  // headers immediately, emits NO error of any kind, and then holds every
+  // frame until the run ends. Waiting for `onerror` would mean waiting
+  // forever, with a blank log on screen. The only honest evidence that this
+  // transport works is a byte arriving, so that is what is timed.
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let firstByteTimer: ReturnType<typeof setTimeout> | undefined
+  const starved = firstByteMs > 0
+    ? new Promise<never>((_, reject) => {
+        firstByteTimer = setTimeout(
+          () => reject(new Error(
+            `Run log stream failed: nothing arrived within ${firstByteMs}ms — an intermediary is buffering it`,
+          )),
+          firstByteMs,
+        )
+      })
+    : null
+  // Keeps the rejection handled in the paths that never race it, so a stream
+  // that ends normally does not trip an unhandled-rejection warning. The race
+  // below still sees the original promise reject.
+  starved?.catch(() => {})
+
   try {
     for (;;) {
-      const { done, value } = await reader.read()
+      const pending = reader.read()
+      const { done, value } = starved && firstByteTimer !== undefined
+        ? await Promise.race([pending, starved])
+        : await pending
+      if (firstByteTimer !== undefined) {
+        clearTimeout(firstByteTimer)
+        firstByteTimer = undefined
+      }
       if (done) return
       // `stream: true` so a multi-byte character split across two reads is
       // held rather than decoded into a replacement character — the runner's
@@ -299,9 +406,10 @@ export async function streamDemoRunLog(
       }
     }
   } finally {
+    if (firstByteTimer !== undefined) clearTimeout(firstByteTimer)
     // Without this the response body stays open on every early return — the
-    // `end` frame, an abort, a rejected chunk — and a demo that runs five
-    // phases leaks five readers.
+    // `end` frame, an abort, a rejected chunk, the watchdog — and a demo that
+    // runs five phases leaks five readers.
     void reader.cancel().catch(() => {})
   }
 }

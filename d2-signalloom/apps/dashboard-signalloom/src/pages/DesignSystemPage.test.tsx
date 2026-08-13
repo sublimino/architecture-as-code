@@ -22,6 +22,25 @@ const LOADER_CAPTION_IDS = [
   'ds-loader-caption-default',
 ] as const
 
+/**
+ * The load-times specimens, in render order.
+ *
+ * `long` appears twice on purpose and the pair is the section's whole claim:
+ * one wait that started at mount and is still inside the threshold, one handed
+ * an older stamp and already past it. A single `long` specimen would be
+ * indistinguishable from `all` to anyone who arrived a few seconds late, which
+ * is the failure mode a gallery exists to prevent.
+ */
+const LOADER_TIME_KEYS = ['all', 'long-new', 'long-aged', 'none'] as const
+
+/** Which of the four is showing an elapsed figure at first paint, and why. */
+const LOADER_TIME_EXPECTATIONS: readonly [key: string, showsFigure: boolean][] = [
+  ['all', true],
+  ['long-new', false],
+  ['long-aged', true],
+  ['none', false],
+]
+
 
 // ── Query helpers for the complex DataTable specimen ─────────────────────────
 //
@@ -159,16 +178,86 @@ describe('DesignSystemPage', () => {
 
   it('gives the gallery loaders no live region of their own', () => {
     render(<DesignSystemPage />)
+    // Thirteen since the load-times specimens landed, and the count is stated
+    // rather than derived so that adding a loader to this page is a decision
+    // about live regions rather than an accident. The page-wide roster below
+    // is unchanged by those four, which is the assertion that they really did
+    // all pass `announce={false}`.
     const loaderIds = [
       ...LOADER_VARIANTS.flatMap((variant) => LOADER_SIZES.map((size) => `ds-loader-${variant}-${size}`)),
       'ds-loader-default',
+      ...LOADER_TIME_KEYS.map((key) => `ds-loader-times-${key}`),
     ]
-    expect(loaderIds).toHaveLength(9)
+    expect(loaderIds).toHaveLength(13)
     for (const id of loaderIds) {
       const loader = screen.getByTestId(id)
       expect(loader).not.toHaveAttribute('role')
       expect(loader).not.toHaveAttribute('aria-live')
     }
+  })
+
+  // ── Load times ────────────────────────────────────────────────────────────
+  //
+  // The setting is a presence and an absence, so the section has to show it
+  // rather than describe it. What is asserted here is mostly the absence side,
+  // because that is the half a future edit can delete without noticing.
+
+  describe('the load-times specimens', () => {
+    it('shows all three modes side by side, long twice', () => {
+      render(<DesignSystemPage />)
+      const section = screen.getByTestId('ds-section-pixel-loader')
+      const captions = within(section).getAllByTestId(/^ds-loader-times-caption-/)
+      expect(captions.map((el) => el.getAttribute('data-testid'))).toEqual(
+        LOADER_TIME_KEYS.map((key) => `ds-loader-times-caption-${key}`),
+      )
+    })
+
+    it('renders each specimen in the mode it claims', () => {
+      render(<DesignSystemPage />)
+      for (const key of LOADER_TIME_KEYS) {
+        const expected = key.startsWith('long') ? 'long' : key
+        expect(screen.getByTestId(`ds-loader-times-${key}`)).toHaveAttribute(
+          'data-load-times',
+          expected,
+        )
+      }
+    })
+
+    it('shows the figure on exactly the two specimens that should have one', () => {
+      // This is the demonstration. If all four looked the same the section
+      // would be four copies of one screenshot with different captions.
+      render(<DesignSystemPage />)
+      for (const [key, showsFigure] of LOADER_TIME_EXPECTATIONS) {
+        const figure = screen.queryByTestId(`ds-loader-times-${key}-elapsed`)
+        if (showsFigure) expect(figure).toBeInTheDocument()
+        else expect(figure).not.toBeInTheDocument()
+      }
+    })
+
+    it('KEEPS THE LABEL on all four, including none', () => {
+      // The rule that outranks the setting, demonstrated rather than asserted
+      // in prose alone: "none" is a loader without a figure, not a loader
+      // without wording.
+      render(<DesignSystemPage />)
+      for (const key of LOADER_TIME_KEYS) {
+        expect(screen.getByTestId(`ds-loader-times-${key}-label`)).toHaveTextContent('Deploying')
+      }
+    })
+
+    it('keeps the mark on the none specimen, so there is still a loader to see', () => {
+      render(<DesignSystemPage />)
+      expect(screen.getByTestId('ds-loader-times-none-grid')).toBeInTheDocument()
+    })
+
+    it('states the threshold and the label rule in the section prose', () => {
+      render(<DesignSystemPage />)
+      const blurb = screen.getByTestId('ds-loader-times-blurb')
+      expect(blurb).toHaveTextContent(/2\.0 seconds/)
+      expect(blurb).toHaveTextContent(/shown in every mode/i)
+      expect(blurb).toHaveTextContent(/Only the figure is conditional/i)
+      // And where to change it, since a setting nobody can find is decoration.
+      expect(blurb).toHaveTextContent(/Settings under Display/i)
+    })
   })
 
   // ── ButtonWait ────────────────────────────────────────────────────────────

@@ -16,8 +16,10 @@
  * status line used by twenty-odd pages, and this is a different thing.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { cleanup, render, screen, act } from '@testing-library/react'
 import PixelLoader, { formatElapsed } from './PixelLoader'
+import LoadingState from './LoadingState'
+import { DEFAULT_LOAD_TIMES, LONG_WAIT_MS, setLoadTimes } from '../api/loadTimes'
 
 /** Swap the global matchMedia stub for one that reports a given preference. */
 function setReducedMotion(reduced: boolean) {
@@ -79,6 +81,17 @@ describe('PixelLoader', () => {
   afterEach(() => {
     restoreMedia?.()
     restoreMedia = null
+    // The load-times setting is module state shared by every test in this
+    // file. A test that leaves it on `none` silently deletes the elapsed
+    // figure out from under every test declared after it.
+    //
+    // cleanup() first, and deliberately: this hook is registered inside the
+    // describe, so it runs BEFORE testing-library's own auto-cleanup. Resetting
+    // the store while loaders are still mounted pushes a state update through
+    // every subscriber outside act(), which is an act warning per mounted
+    // loader for no benefit. Unmount, then reset.
+    cleanup()
+    setLoadTimes(DEFAULT_LOAD_TIMES)
     vi.useRealTimers()
   })
 
@@ -619,6 +632,239 @@ describe('PixelLoader', () => {
       // invalid nesting that browsers paper over inconsistently.
       render(<PixelLoader label="Churning" />)
       expect(screen.getByTestId('pixel-loader').tagName).toBe('SPAN')
+    })
+  })
+
+  // ── The load-times setting ──────────────────────────────────────────────
+  //
+  // `all` / `long` / `none`, defaulting to `all`, governing the elapsed figure
+  // and ONLY the elapsed figure. Andy's constraint, in his words: "we should
+  // always keep the wording next to the spinner". So every mode below asserts
+  // the label explicitly rather than only asserting what disappeared — the
+  // label is the thing most likely to be lost by a future change that reaches
+  // for the whole trailing half of the component instead of one span.
+  describe('the load-times setting', () => {
+    const label = () => screen.queryByTestId('pixel-loader-label')
+    const elapsed = () => screen.queryByTestId('pixel-loader-elapsed')
+
+    it('shows the figure by default, with nothing stored and no prop passed', () => {
+      render(<PixelLoader label="Churning" />)
+      expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-load-times', 'all')
+      expect(elapsed()).toBeInTheDocument()
+      act(() => {
+        vi.advanceTimersByTime(300)
+      })
+      expect(elapsed()).toHaveTextContent('0.3s')
+      expect(label()).toHaveTextContent('Churning')
+    })
+
+    describe('none', () => {
+      beforeEach(() => {
+        setLoadTimes('none')
+      })
+
+      it('drops the figure from the DOM rather than hiding it with CSS', () => {
+        render(<PixelLoader label="Churning" />)
+        expect(elapsed()).not.toBeInTheDocument()
+        expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-load-times', 'none')
+      })
+
+      it('KEEPS THE LABEL — the whole point of the setting being about the figure', () => {
+        render(<PixelLoader label="Running phase 3 · Compliance scan" />)
+        expect(label()).toBeInTheDocument()
+        expect(label()).toHaveTextContent('Running phase 3 · Compliance scan')
+      })
+
+      it('keeps the mark, so there is still visibly a loader there', () => {
+        render(<PixelLoader label="Churning" />)
+        expect(screen.getByTestId('pixel-loader-grid')).toBeInTheDocument()
+        expect(bars()).toHaveLength(8)
+      })
+
+      it('never produces a figure however long the wait runs', () => {
+        // Not "hidden at first": off. A five-minute step must not sprout one.
+        render(<PixelLoader label="Churning" />)
+        act(() => {
+          vi.advanceTimersByTime(5 * 60_000)
+        })
+        expect(elapsed()).not.toBeInTheDocument()
+        expect(label()).toHaveTextContent('Churning')
+      })
+    })
+
+    describe('long', () => {
+      beforeEach(() => {
+        setLoadTimes('long')
+      })
+
+      it('shows no figure before the threshold, and the label throughout', () => {
+        render(<PixelLoader label="Churning" />)
+        expect(elapsed()).not.toBeInTheDocument()
+        expect(label()).toHaveTextContent('Churning')
+
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS - 100)
+        })
+        expect(elapsed()).not.toBeInTheDocument()
+        expect(label()).toHaveTextContent('Churning')
+      })
+
+      it('shows the figure once the wait passes the threshold', () => {
+        render(<PixelLoader label="Churning" />)
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS)
+        })
+        expect(elapsed()).toBeInTheDocument()
+        expect(label()).toHaveTextContent('Churning')
+      })
+
+      it('arrives with the real elapsed time already written, not a blank tick', () => {
+        // The figure is written by a layout effect keyed on visibility, so it
+        // is correct at the paint it appears in. A frame of empty monospace
+        // that then jumps to a number is a flicker in the exact spot the user
+        // is looking.
+        render(<PixelLoader label="Churning" />)
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS)
+        })
+        expect(elapsed()).toHaveTextContent(`${(LONG_WAIT_MS / 1000).toFixed(1)}s`)
+      })
+
+      it('keeps counting after it appears', () => {
+        render(<PixelLoader label="Churning" />)
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS + 1_500)
+        })
+        expect(elapsed()).toHaveTextContent(`${((LONG_WAIT_MS + 1_500) / 1000).toFixed(1)}s`)
+      })
+
+      it('shows immediately for a start stamp that is already past the threshold', () => {
+        // A caller that has been waiting since before this component mounted
+        // is already a long wait. Waiting another two seconds to say so would
+        // be measuring the loader's age rather than the work's.
+        render(<PixelLoader label="Churning" startedAt={Date.now() - LONG_WAIT_MS - 5_000} />)
+        expect(elapsed()).toBeInTheDocument()
+        expect(elapsed()).toHaveTextContent('7.0s')
+      })
+    })
+
+    describe('the prop override', () => {
+      it('wins over the setting in both directions', () => {
+        setLoadTimes('none')
+        const { unmount } = render(<PixelLoader label="Churning" loadTimes="all" testId="forced-on" />)
+        expect(screen.getByTestId('forced-on-elapsed')).toBeInTheDocument()
+        unmount()
+
+        setLoadTimes('all')
+        render(<PixelLoader label="Churning" loadTimes="none" testId="forced-off" />)
+        expect(screen.queryByTestId('forced-off-elapsed')).not.toBeInTheDocument()
+        expect(screen.getByTestId('forced-off-label')).toHaveTextContent('Churning')
+      })
+
+      it('does not override the label in any mode', () => {
+        render(
+          <>
+            <PixelLoader label="A" loadTimes="all" announce={false} testId="m-all" />
+            <PixelLoader label="B" loadTimes="long" announce={false} testId="m-long" />
+            <PixelLoader label="C" loadTimes="none" announce={false} testId="m-none" />
+          </>,
+        )
+        expect(screen.getByTestId('m-all-label')).toHaveTextContent('A')
+        expect(screen.getByTestId('m-long-label')).toHaveTextContent('B')
+        expect(screen.getByTestId('m-none-label')).toHaveTextContent('C')
+        // …and only the middle one is waiting on a threshold.
+        expect(screen.getByTestId('m-all-elapsed')).toBeInTheDocument()
+        expect(screen.queryByTestId('m-long-elapsed')).not.toBeInTheDocument()
+        expect(screen.queryByTestId('m-none-elapsed')).not.toBeInTheDocument()
+      })
+    })
+
+    describe('changing the setting while a loader is on screen', () => {
+      // No reload, and no remount either: the loader is subscribed to the
+      // store, so a change in Settings reaches a loader that is mid-wait
+      // without restarting its clock.
+      it('turns the figure off and back on in place', () => {
+        render(<PixelLoader label="Churning" />)
+        const root = screen.getByTestId('pixel-loader')
+        act(() => {
+          vi.advanceTimersByTime(4_000)
+        })
+        expect(elapsed()).toHaveTextContent('4.0s')
+
+        act(() => {
+          setLoadTimes('none')
+        })
+        expect(screen.getByTestId('pixel-loader')).toBe(root) // same node: no remount
+        expect(elapsed()).not.toBeInTheDocument()
+        expect(label()).toHaveTextContent('Churning')
+
+        act(() => {
+          setLoadTimes('all')
+        })
+        expect(screen.getByTestId('pixel-loader')).toBe(root)
+        // The clock kept running while the figure was away — it did not
+        // restart at zero, which is what a remount would have produced.
+        expect(elapsed()).toHaveTextContent('4.0s')
+      })
+
+      it('switching to long mid-wait shows at once if the wait is already long', () => {
+        render(<PixelLoader label="Churning" />)
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS + 3_000)
+        })
+        act(() => {
+          setLoadTimes('long')
+        })
+        expect(elapsed()).toBeInTheDocument()
+      })
+
+      it('switching to long on a fresh wait hides the figure until the threshold', () => {
+        render(<PixelLoader label="Churning" />)
+        expect(elapsed()).toBeInTheDocument()
+
+        act(() => {
+          setLoadTimes('long')
+        })
+        expect(elapsed()).not.toBeInTheDocument()
+
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS)
+        })
+        expect(elapsed()).toBeInTheDocument()
+      })
+    })
+
+    // The setting is only worth having if it reaches the loaders nobody wrote
+    // by hand. LoadingState is how roughly twenty pages render a wait, and it
+    // passes no `loadTimes`, so this is the assertion that the default source
+    // of truth actually is the setting rather than a prop somebody has to
+    // remember. Rendered here rather than in LoadingState.test.tsx because the
+    // behaviour under test is PixelLoader's.
+    describe('reaching the app through LoadingState', () => {
+      it('honours none while keeping the loading message', () => {
+        setLoadTimes('none')
+        render(<LoadingState status="loading" label="agents" />)
+        expect(screen.queryByTestId('loading-state-loader-elapsed')).not.toBeInTheDocument()
+        expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
+      })
+
+      it('honours long, and the message is there the whole time', () => {
+        setLoadTimes('long')
+        render(<LoadingState status="loading" label="agents" />)
+        expect(screen.queryByTestId('loading-state-loader-elapsed')).not.toBeInTheDocument()
+        expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
+
+        act(() => {
+          vi.advanceTimersByTime(LONG_WAIT_MS)
+        })
+        expect(screen.getByTestId('loading-state-loader-elapsed')).toBeInTheDocument()
+        expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
+      })
+
+      it('shows the figure under the default', () => {
+        render(<LoadingState status="loading" label="agents" />)
+        expect(screen.getByTestId('loading-state-loader-elapsed')).toBeInTheDocument()
+      })
     })
   })
 

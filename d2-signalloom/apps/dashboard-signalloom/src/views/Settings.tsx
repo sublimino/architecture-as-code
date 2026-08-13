@@ -7,6 +7,7 @@ import { connectorsApi } from '../api/connectorsClient'
 import type { TenantSettingsResponse, FrameworkResponse, NHIScan, PlatformUser } from '../types/api'
 import type { ConnectorProvider, TenantConnector } from '../types/connectors'
 import LoadingState from '../components/LoadingState'
+import { LOAD_TIMES_OPTIONS, setLoadTimes, useLoadTimes, type LoadTimesSetting } from '../api/loadTimes'
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
@@ -110,6 +111,13 @@ export default function Settings() {
   const [preferencesSaved, setPreferencesSaved] = useState(false)
   const [preferencesError, setPreferencesError] = useState<string | null>(null)
   const [teamMembers, setTeamMembers] = useState<PlatformUser[]>([])
+
+  // Browser-local, not tenant state: it is read straight from the store rather
+  // than mirrored into React state here, so the control and every loader
+  // currently on screen are looking at the same value. Declared with the other
+  // hooks and above the early returns below, or the hook order changes between
+  // the loading and loaded renders.
+  const loadTimes = useLoadTimes()
 
   const load = useCallback(async () => {
     try {
@@ -565,6 +573,60 @@ export default function Settings() {
           </div>
         </SectionCard>
       )}
+
+      {/* Display
+          Deliberately its own card rather than a fourth field inside Scan
+          Preferences. Everything in that card is tenant state behind a Save
+          Preferences button; this is a browser-local preference that applies
+          the instant it changes, and sitting it under that button would
+          promise a save that never happens. */}
+      <SectionCard title="Display">
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
+              Load Times
+            </div>
+            <select
+              data-testid="settings-load-times"
+              aria-label="Load times"
+              value={loadTimes}
+              onChange={(e) => setLoadTimes(e.target.value as LoadTimesSetting)}
+              style={{ width: '100%' }}
+            >
+              {LOAD_TIMES_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+            {/* All three explained at once, rather than one line that changes
+                as you scroll the select. Choosing between three values you
+                cannot see the meaning of is not a choice. */}
+            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+              {LOAD_TIMES_OPTIONS.map((option) => (
+                <p
+                  key={option.value}
+                  data-testid={`settings-load-times-hint-${option.value}`}
+                  style={{
+                    fontSize: 11,
+                    margin: 0,
+                    color: option.value === loadTimes ? 'var(--text)' : 'var(--muted)',
+                  }}
+                >
+                  <span style={{ fontWeight: 600 }}>{option.label}:</span> {option.hint}
+                </p>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p data-testid="settings-load-times-note" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 24 }}>
+              This controls the elapsed figure only. The wording next to the spinner, naming what is
+              running, is always shown.
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+              Applies immediately, everywhere in the dashboard, and is remembered on this browser.
+            </p>
+          </div>
+        </div>
+      </SectionCard>
 
       {/* Account */}
       <SectionCard title="Account">

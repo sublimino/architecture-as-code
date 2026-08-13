@@ -13,7 +13,7 @@
 // auth/superadmin.ts) — the route stays reachable by direct URL either way, so
 // this is presentation, not authorization. The runner enforces its own access.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { colors } from '../styles/tokens'
 import HelpHint from './HelpHint'
 import PixelLoader from './PixelLoader'
@@ -34,6 +34,18 @@ import {
   type DemoRunnerStatus,
   type DemoStep,
 } from '../api/demoRunner'
+
+/**
+ * A control and the "?" that explains it, bound into one flex item.
+ *
+ * `nowrap` is the load-bearing part: the controls row wraps, and a wrap landing
+ * between a button and its hint would put the "?" at the head of the next line
+ * beside a control it has nothing to do with — the confusion this grouping
+ * exists to remove.
+ */
+const CONTROL_WITH_HINT: CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'nowrap',
+}
 
 /**
  * Where each phase's effect shows up for a customer.
@@ -487,53 +499,68 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             every control is locked while a step is in flight.
           </p>
 
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
-            <button
-              className="btn btn-primary"
-              data-testid="supercred-refresh-clients"
-              onClick={() => void refreshClients()}
-              disabled={running || refreshing}
-              style={{ fontSize: 12, padding: '6px 14px' }}
-            >
-              {refreshing ? 'Refreshing…' : 'Refresh clients'}
-            </button>
-            <HelpHint
-              label="About the client-and-status refresh"
-              testId="supercred-refresh-clients-help"
-            >
-              Refreshes the SuperCred agent list and current demo-runner phase status. It also clears cached SuperCred state before querying live services.
-            </HelpHint>
-            <HelpHint label="What Reset demo does" testId="supercred-reset-help">
-              Runs the verified teardown and clears the current lifecycle display. Historical run records remain available in runner history.
-            </HelpHint>
-            {!resetArmed && (
+          {/* Gap here is deliberately wider than CONTROL_WITH_HINT's: the two
+              distances are what tell an instructor which "?" belongs to which
+              button, so the inter-control gap has to beat the intra-pair one. */}
+          <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
+            <div data-testid="supercred-refresh-clients-group" style={CONTROL_WITH_HINT}>
               <button
-                className="btn btn-secondary"
-                data-testid="supercred-reset"
-                onClick={() => setResetArmed(true)}
-                disabled={runsBlocked}
-                style={{ fontSize: 12, padding: '6px 14px', color: colors.red, borderColor: colors.red }}
+                className="btn btn-primary"
+                data-testid="supercred-refresh-clients"
+                onClick={() => void refreshClients()}
+                disabled={running || refreshing}
+                style={{ fontSize: 12, padding: '6px 14px' }}
               >
-                Reset demo
+                {refreshing ? 'Refreshing…' : 'Refresh clients'}
               </button>
+              <HelpHint
+                label="About the client-and-status refresh"
+                testId="supercred-refresh-clients-help"
+              >
+                Refreshes the SuperCred agent list and current demo-runner phase status. It also clears cached SuperCred state before querying live services.
+              </HelpHint>
+            </div>
+            {!resetArmed && (
+              <div data-testid="supercred-reset-group" style={CONTROL_WITH_HINT}>
+                <button
+                  className="btn btn-secondary"
+                  data-testid="supercred-reset"
+                  onClick={() => setResetArmed(true)}
+                  disabled={runsBlocked}
+                  style={{ fontSize: 12, padding: '6px 14px', color: colors.red, borderColor: colors.red }}
+                >
+                  Reset demo
+                </button>
+                <HelpHint label="What Reset demo does" testId="supercred-reset-help" tone={colors.red}>
+                  Runs the verified teardown and clears the current lifecycle display. Historical run records remain available in runner history.
+                </HelpHint>
+              </div>
             )}
             {resetArmed && (
               <>
                 <span data-testid="supercred-reset-prompt" style={{ fontSize: 12, color: colors.amber, alignSelf: 'center' }}>
                   Reset tears the demo down and returns the estate to a clean state. Sure?
                 </span>
-                <button
-                  className="btn btn-secondary"
-                  data-testid="supercred-reset-confirm"
-                  onClick={() => {
-                    setResetArmed(false)
-                    void startRun(async () => resetDemo(await getAccessTokenSilently()))
-                  }}
-                  disabled={runsBlocked}
-                  style={{ fontSize: 12, padding: '6px 14px', color: colors.red, borderColor: colors.red }}
-                >
-                  Yes, reset the demo
-                </button>
+                {/* The hint follows the destructive button in this state too —
+                    that is the button it describes. Cancel stays outside the
+                    group so the "?" is not stranded between the two. */}
+                <div data-testid="supercred-reset-group" style={CONTROL_WITH_HINT}>
+                  <button
+                    className="btn btn-secondary"
+                    data-testid="supercred-reset-confirm"
+                    onClick={() => {
+                      setResetArmed(false)
+                      void startRun(async () => resetDemo(await getAccessTokenSilently()))
+                    }}
+                    disabled={runsBlocked}
+                    style={{ fontSize: 12, padding: '6px 14px', color: colors.red, borderColor: colors.red }}
+                  >
+                    Yes, reset the demo
+                  </button>
+                  <HelpHint label="What Reset demo does" testId="supercred-reset-help" tone={colors.red}>
+                    Runs the verified teardown and clears the current lifecycle display. Historical run records remain available in runner history.
+                  </HelpHint>
+                </div>
                 <button
                   className="btn btn-secondary"
                   data-testid="supercred-reset-cancel"

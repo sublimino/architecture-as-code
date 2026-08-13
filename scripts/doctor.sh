@@ -238,6 +238,17 @@ fi
 
 # ─── Summary ───
 header "SUMMARY"
+# ── Are the backends the dashboard proxies to actually deployed? ────────────
+#
+# Twice a complete slice sat in the repo undeployed (fleet-manager, afm-platform)
+# and the failure reached a human as a JSON parse error or a raw errno rather
+# than "not deployed". doctor is where an engineer looks FIRST, so it is where
+# a missing backend belongs.
+echo -e "\n${CYAN}━━━ DASHBOARD BACKENDS ━━━${NC}"
+if ! "$(dirname "$0")/check-backends.sh" live 2>&1 | sed 's/^/  /'; then
+  ISSUES=$(( ISSUES + 1 ))
+fi
+
 if [ "${ISSUES}" -eq 0 ]; then
   echo -e "  ${GREEN}${BOLD}All checks passed.${NC} Cluster is demo-ready."
 else

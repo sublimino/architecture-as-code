@@ -521,6 +521,48 @@ describe('the run log streams in incrementally', () => {
     expect(writeText).toHaveBeenCalledWith(raw)
   })
 
+  it('heads the log with the phase it is the log OF, and that phase\'s status', async () => {
+    // Projected on a wall, an unlabelled log is output from nowhere. The
+    // runner's own step title is the honest label — and it must not be stuck
+    // in the present tense, because this header outlives the run.
+    //
+    // Phase 2, not phase 4: phase 4 alone clears `activeRun` on success (its
+    // audit branch lets the poll effect tear down mid-await, so the
+    // `setActiveRun(run)` after `finishRun` never runs), which takes the whole
+    // run status line down with it. Pre-existing, unrelated to the log block,
+    // and not this change's to fix.
+    mockRunner({
+      startResponse: runView({ step_id: '2', status: 'running' }),
+      pollRuns: [runView({ step_id: '2', status: 'succeeded', exit_code: 0 })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 20, chunk: 'minting the SVID\n', eof: true })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-2'))
+
+    await waitFor(
+      () => expect(screen.getByTestId('supercred-run-log-title')).toHaveTextContent('Phase 2 · Credential chain'),
+      { timeout: 4000 },
+    )
+    await waitFor(() => expect(screen.getByTestId('supercred-run-log-status')).toHaveTextContent('succeeded'), {
+      timeout: 4000,
+    })
+  })
+
+  it('heads a reset with "Reset" rather than a phase number', async () => {
+    mockRunner({
+      startResponse: runView({ step_id: '5', kind: 'reset', status: 'running' }),
+      pollRuns: [runView({ step_id: '5', kind: 'reset', status: 'succeeded', exit_code: 0 })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 20, chunk: 'tearing down\n', eof: true })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-reset'))
+    await userEvent.click(await screen.findByTestId('supercred-reset-confirm'))
+
+    const title = await screen.findByTestId('supercred-run-log-title', {}, { timeout: 4000 })
+    await waitFor(() => expect(title).toHaveTextContent('Reset'))
+    expect(title).not.toHaveTextContent('Phase')
+  })
+
   it('marks the log live while the phase runs and settles it when the phase ends', async () => {
     // The caret is the only thing on the block that says "more is coming". It
     // has to track the run, not the presence of output — a finished log wearing

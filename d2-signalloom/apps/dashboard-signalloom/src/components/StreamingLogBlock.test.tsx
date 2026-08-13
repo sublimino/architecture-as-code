@@ -152,6 +152,80 @@ describe('tokeniseLine', () => {
       { text: 'pod/agent-cardvault condition met', kind: 'plain' },
     ])
   })
+
+  // Every token is a slice of the input and nothing is dropped, reordered or
+  // rewritten. This is what makes it safe to tokenise output whose format we
+  // do not control: the worst a rule can do is colour the wrong span, never
+  // change what the line SAYS.
+  it('reassembles every line it splits, byte for byte', () => {
+    const lines = [
+      '[supercred] ✓ credential chain complete',
+      '2026-08-13T04:12:33Z [supercred] FAILED: no such entry',
+      '   indented kubectl output',
+      '',
+      'Error: no such entry',
+      '04:12:33.123 pod/agent-cardvault condition met',
+    ]
+    for (const line of lines) {
+      expect(tokeniseLine(line).map(t => t.text).join('')).toBe(line)
+    }
+  })
+})
+
+// ─── Timestamps added by other work ───────────────────────────────────────────
+
+// Timestamps are being added to the runner's output elsewhere. A tokeniser
+// anchored at position 0 fails SILENTLY when one lands: `[supercred]` is no
+// longer at the head, so the tag loses its colour, the marker after it loses
+// its colour, and every line goes monochrome. Nothing throws and nothing looks
+// broken — it just stops working. These pin the formats a shell script or a
+// Python runner would plausibly emit, and the fact that the stamp is DISPLAYED
+// rather than stripped.
+describe('a leading timestamp does not disarm the colouring', () => {
+  const stamped: [string, string][] = [
+    ['ISO with a zone', '2026-08-13T04:12:33Z '],
+    ['ISO with an offset', '2026-08-13T04:12:33+01:00 '],
+    ['ISO with millis', '2026-08-13 04:12:33.123 '],
+    ['bare clock', '04:12:33 '],
+    ['bracketed clock', '[04:12:33] '],
+    ['parenthesised clock', '(04:12:33) '],
+    ['bracketed elapsed', '[+12.4s] '],
+  ]
+
+  for (const [name, stamp] of stamped) {
+    it(`keeps the tag and the marker coloured behind a ${name}`, () => {
+      const tokens = tokeniseLine(`${stamp}[supercred] ✓ credential chain complete`)
+      expect(tokens).toEqual([
+        { text: stamp, kind: 'time' },
+        { text: '[supercred]', kind: 'prefix' },
+        { text: ' ✓', kind: 'ok' },
+        { text: ' credential chain complete', kind: 'plain' },
+      ])
+    })
+  }
+
+  it('colours the marker on a stamped line that carries no tag', () => {
+    expect(tokeniseLine('04:12:33 Error: no such entry')).toEqual([
+      { text: '04:12:33 ', kind: 'time' },
+      { text: 'Error:', kind: 'error' },
+      { text: ' no such entry', kind: 'plain' },
+    ])
+  })
+
+  it('displays the timestamp rather than stripping it', () => {
+    render(<StreamingLogBlock log={'2026-08-13T04:12:33Z [supercred] deploying\n'} />)
+    expect(screen.getByTestId('streaming-log')).toHaveTextContent(
+      '2026-08-13T04:12:33Z [supercred] deploying',
+    )
+  })
+
+  it('will not read prose before a bracketed word as if it were a clock', () => {
+    // Only clock characters may precede a tag. Otherwise the first bracketed
+    // word in any sentence would grey out everything before it.
+    expect(tokeniseLine('pod/agent-cardvault [Ready] condition met')).toEqual([
+      { text: 'pod/agent-cardvault [Ready] condition met', kind: 'plain' },
+    ])
+  })
 })
 
 // ─── The reveal follows the stream, not a clock ───────────────────────────────
@@ -340,19 +414,100 @@ describe('prefers-reduced-motion: reduce', () => {
   })
 })
 
+// ─── The header says something true ───────────────────────────────────────────
+
+describe('the header names the run, not a filename', () => {
+  // The component this is adapted from headed its block with `churn.ts` and
+  // `TypeScript`. There is no file and no language here, and inventing one
+  // would be decoration that reads as fact.
+  it('names the phase being run and its status', () => {
+    render(<StreamingLogBlock log={'one\n'} title="Phase 4 · Stun" status="running" />)
+    expect(screen.getByTestId('streaming-log-title')).toHaveTextContent('Phase 4 · Stun')
+    expect(screen.getByTestId('streaming-log-status')).toHaveTextContent('running')
+  })
+
+  it('colours the status with the tone it was given', () => {
+    render(<StreamingLogBlock log={'one\n'} title="Phase 4" status="failed" statusTone="var(--error)" />)
+    expect(screen.getByTestId('streaming-log-status').style.color).toBe('var(--error)')
+  })
+
+  it('falls back to the accessible name when no run is known', () => {
+    render(<StreamingLogBlock log={'one\n'} />)
+    expect(screen.getByTestId('streaming-log-title')).toHaveTextContent('Run log')
+    expect(screen.queryByTestId('streaming-log-status')).toBeNull()
+  })
+})
+
+// ─── Copy affordance ──────────────────────────────────────────────────────────
+
+describe('Copy shows a tick when it worked', () => {
+  it('swaps the clipboard glyph for a tick on success', async () => {
+    stubClipboard()
+    render(<StreamingLogBlock log={'one\n'} />)
+    const glyph = () => screen.getByTestId('copy-glyph').getAttribute('data-glyph')
+    expect(glyph()).toBe('clipboard')
+
+    await userEvent.click(screen.getByTestId('streaming-log-copy'))
+    await waitFor(() => expect(glyph()).toBe('tick'))
+  })
+
+  it('keeps the clipboard glyph when the copy was refused', async () => {
+    stubClipboard('refused')
+    render(<StreamingLogBlock log={'one\n'} />)
+    await userEvent.click(screen.getByTestId('streaming-log-copy'))
+    await waitFor(() => expect(screen.getByTestId('streaming-log-copy')).toHaveTextContent('Copy failed'))
+    expect(screen.getByTestId('copy-glyph').getAttribute('data-glyph')).toBe('clipboard')
+  })
+})
+
+// ─── No replay ────────────────────────────────────────────────────────────────
+
+describe('the view never rewinds', () => {
+  // The source component's timer reset its counter to 0 after a hold and
+  // replayed the whole thing, forever. That is a marketing loop. An instructor
+  // watching a real run must never see the log restart — they would read the
+  // replay as a second run, or as the script retrying.
+  it('only ever grows as the run proceeds, and holds when it ends', async () => {
+    const chunks = [
+      '[supercred] step 1\n',
+      '[supercred] step 1\n[supercred] step 2\n',
+      '[supercred] step 1\n[supercred] step 2\n[supercred] ✓ done\n',
+    ]
+    const { rerender } = render(<StreamingLogBlock log={chunks[0]} streaming />)
+    let seen = lineNodes().length
+
+    for (const chunk of chunks.slice(1)) {
+      rerender(<StreamingLogBlock log={chunk} streaming />)
+      expect(lineNodes().length).toBeGreaterThanOrEqual(seen)
+      seen = lineNodes().length
+    }
+
+    // The run ends. Nothing may restart, replay or clear.
+    rerender(<StreamingLogBlock log={chunks[2]} streaming={false} />)
+    await new Promise(resolve => setTimeout(resolve, 350))
+    expect(lineNodes()).toHaveLength(3)
+    expect(lineText(lineNodes()[2])).toBe('[supercred] ✓ done')
+  })
+})
+
 // ─── Accessibility ────────────────────────────────────────────────────────────
 
 describe('the block is reachable without a mouse', () => {
   it('names the scroll region and puts it in the tab order', () => {
-    render(<StreamingLogBlock log={'one\n'} label="Runner output" />)
-    const region = screen.getByRole('region', { name: 'Runner output' })
+    render(<StreamingLogBlock log={'one\n'} label="Run log" />)
+    const region = screen.getByRole('region', { name: 'Run log' })
     expect(region).toHaveAttribute('tabindex', '0')
   })
 
+  it('adds the run to the region name when there is one', () => {
+    render(<StreamingLogBlock log={'one\n'} label="Run log" title="Phase 4 · Stun" />)
+    expect(screen.getByRole('region', { name: 'Run log — Phase 4 · Stun' })).toBeInTheDocument()
+  })
+
   it('gives Copy a label that says what it copies', () => {
-    render(<StreamingLogBlock log={'one\n'} label="Runner output" />)
+    render(<StreamingLogBlock log={'one\n'} label="Run log" />)
     expect(screen.getByTestId('streaming-log-copy')).toHaveAccessibleName(
-      'Copy the full runner output to the clipboard',
+      'Copy the full run log to the clipboard',
     )
   })
 })

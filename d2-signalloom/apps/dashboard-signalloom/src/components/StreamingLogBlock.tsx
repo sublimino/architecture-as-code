@@ -68,7 +68,7 @@ export const MAX_VISIBLE_LINES = 200
 /** How long "Copied" stays up before the button offers itself again. */
 const COPY_FEEDBACK_MS = 2000
 
-export type LogTokenKind = 'prefix' | 'ok' | 'error' | 'warn' | 'plain'
+export type LogTokenKind = 'time' | 'prefix' | 'ok' | 'error' | 'warn' | 'plain'
 
 export interface LogToken {
   text: string
@@ -76,6 +76,7 @@ export interface LogToken {
 }
 
 const TOKEN_COLOURS: Record<LogTokenKind, string> = {
+  time: 'var(--muted)',
   prefix: 'var(--cyan)',
   ok: 'var(--teal)',
   error: 'var(--error)',
@@ -83,8 +84,53 @@ const TOKEN_COLOURS: Record<LogTokenKind, string> = {
   plain: 'var(--text)',
 }
 
-/** A bracketed source tag at the head of a line — `[supercred]` and friends. */
+/** A bracketed source tag — `[supercred]` and friends. */
 const PREFIX = /^\[[A-Za-z][A-Za-z0-9_.-]*\]/
+const PREFIX_ANYWHERE = /\[[A-Za-z][A-Za-z0-9_.-]*\]/
+
+/**
+ * Explicit timestamp shapes, for a line that carries a stamp but no tag —
+ * `04:12:33 Error: no such entry` is what kubectl on stderr looks like once
+ * something upstream starts stamping. Bare, bracketed or parenthesised;
+ * ISO date optional; fractional seconds and zone optional.
+ */
+const CLOCK = String.raw`(?:\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?`
+const ELAPSED = String.raw`\+?\d+(?:\.\d+)?m?s`
+const TIMESTAMP = new RegExp(
+  `^(?:\\[(?:${CLOCK}|${ELAPSED})\\]|\\((?:${CLOCK}|${ELAPSED})\\)|${CLOCK})\\s*`,
+)
+
+/**
+ * Only these characters may sit between the head of a line and its tag for
+ * that run to be called a timestamp. No letters except the T and Z that ISO
+ * 8601 itself uses — which is what stops `pod/agent-cardvault [Ready] met`
+ * from having "pod/agent-cardvault " recoloured as if it were a clock.
+ */
+const TIMESTAMP_SHAPED = /^[\d\s:.,+\-TZ()[\]]*$/
+
+/**
+ * How many characters at the head of the line are a timestamp.
+ *
+ * Written against the fact that we do not know the format. Timestamps are
+ * being added to the runner's output by other work, and a tokeniser anchored
+ * at position 0 fails SILENTLY when one appears: `[supercred]` stops being at
+ * the head, the tag loses its colour, the marker after it loses its colour,
+ * and every line renders plain. Nothing throws, nothing looks broken, the log
+ * is simply monochrome from then on.
+ *
+ * So the tag is located rather than assumed, and whatever precedes it is
+ * accepted as a stamp only if it is made of clock characters. That holds for
+ * every format the runner could plausibly choose — ISO, bare clock, bracketed,
+ * parenthesised, elapsed seconds — without this file needing to know which one
+ * landed. A format outside all of it degrades to a plain line, which is what
+ * the block already does with unrecognised output.
+ */
+export function leadingMetaLength(line: string): number {
+  const tagAt = line.search(PREFIX_ANYWHERE)
+  if (tagAt === 0) return 0
+  if (tagAt > 0 && TIMESTAMP_SHAPED.test(line.slice(0, tagAt))) return tagAt
+  return line.match(TIMESTAMP)?.[0].length ?? 0
+}
 
 /**
  * Status markers, matched only where the runner puts them: immediately after
@@ -102,13 +148,22 @@ const MARKERS: ReadonlyArray<readonly [RegExp, LogTokenKind]> = [
 /**
  * Split one line into coloured spans.
  *
- * Deliberately shallow: a prefix, at most one marker, and the rest verbatim.
+ * Deliberately shallow: an optional timestamp, an optional tag, at most one
+ * marker, and the rest verbatim. Every token is a slice of the input and the
+ * tokens concatenate back to it exactly — nothing is dropped, reordered or
+ * rewritten, so a timestamp arriving from elsewhere is displayed, not stripped.
  * Exported so the rules are testable without a DOM, and so the next person
  * adding a marker has one obvious place to add it.
  */
 export function tokeniseLine(line: string): LogToken[] {
   const tokens: LogToken[] = []
   let rest = line
+
+  const metaLength = leadingMetaLength(rest)
+  if (metaLength > 0) {
+    tokens.push({ text: rest.slice(0, metaLength), kind: 'time' })
+    rest = rest.slice(metaLength)
+  }
 
   const prefix = rest.match(PREFIX)
   if (prefix) {
@@ -166,7 +221,24 @@ export interface StreamingLogBlockProps {
   log: string
   /** Whether output is still arriving — drives the caret, nothing else. */
   streaming?: boolean
-  /** Names the region for screen readers and captions the block. */
+  /**
+   * What is producing this output — "Phase 4 · Stun", "Reset".
+   *
+   * The header of the component this is adapted from carried a filename and a
+   * language. Neither exists here, and inventing one ("run.log", "Shell")
+   * would be decoration that reads as fact. What an audience actually needs
+   * named is which phase they are watching, so that is what the header says.
+   */
+  title?: string
+  /** The run's own status word — `running`, `succeeded`, `failed`. */
+  status?: string
+  /**
+   * Colour for the status word. Must be a `var(--token)` string: a bare hex
+   * here fails src/styles/cssVarUsage.test.ts, and would be wrong in two of
+   * the three themes anyway.
+   */
+  statusTone?: string
+  /** Accessible name for the scroll region and the Copy button. */
   label?: string
   testId?: string
   /** Override for the DOM bound. Present for tests; production uses the default. */
@@ -177,7 +249,10 @@ export interface StreamingLogBlockProps {
 export default function StreamingLogBlock({
   log,
   streaming = false,
-  label = 'Runner output',
+  title,
+  status,
+  statusTone = 'var(--muted)',
+  label = 'Run log',
   testId = 'streaming-log',
   maxLines = MAX_VISIBLE_LINES,
   style,
@@ -240,8 +315,15 @@ export default function StreamingLogBlock({
       <style>{KEYFRAMES}</style>
 
       <div style={header}>
-        <span data-testid={`${testId}-label`} style={caption}>
-          {label}
+        <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <span data-testid={`${testId}-title`} style={headerTitle}>
+            {title ?? label}
+          </span>
+          {status && (
+            <span data-testid={`${testId}-status`} style={{ ...headerStatus, color: statusTone }}>
+              {status}
+            </span>
+          )}
         </span>
         <button
           type="button"
@@ -252,6 +334,7 @@ export default function StreamingLogBlock({
           aria-label={`Copy the full ${label.toLowerCase()} to the clipboard`}
           style={copyButton}
         >
+          <CopyGlyph state={copyState} />
           {copyState === 'copied' ? 'Copied' : copyState === 'failed' ? 'Copy failed' : 'Copy'}
         </button>
       </div>
@@ -271,7 +354,7 @@ export default function StreamingLogBlock({
         ref={scrollRef}
         onScroll={onScroll}
         role="region"
-        aria-label={label}
+        aria-label={title ? `${label} — ${title}` : label}
         tabIndex={0}
         data-testid={`${testId}-scroll`}
         style={scroll}
@@ -323,26 +406,62 @@ export default function StreamingLogBlock({
   )
 }
 
+/**
+ * The clipboard, and the tick that replaces it on success.
+ *
+ * currentColor throughout, so the glyph is whatever the button's text colour
+ * already resolved to and no colour decision is duplicated here. aria-hidden
+ * because the button's own label already says what state it is in — a screen
+ * reader does not need the picture as well.
+ */
+function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
+  return (
+    <svg
+      aria-hidden="true"
+      data-testid="copy-glyph"
+      data-glyph={state === 'copied' ? 'tick' : 'clipboard'}
+      width="11"
+      height="11"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {state === 'copied' ? (
+        <polyline points="3,8.5 6.5,12 13,4" />
+      ) : (
+        <>
+          <rect x="5" y="2" width="9" height="11" rx="1.5" />
+          <path d="M11 13v1a1.5 1.5 0 0 1-1.5 1.5H3.5A1.5 1.5 0 0 1 2 14V5.5A1.5 1.5 0 0 1 3.5 4H5" />
+        </>
+      )}
+    </svg>
+  )
+}
+
 // Measured across all three themes rather than eyeballed in whichever one the
 // author had open — that is how DemoToggle shipped at 1.03:1.
 //
-// The code area is --surface and the chrome is --surface2, which is the
-// opposite of ProofConsole's arrangement and is deliberate. Against --surface2
-// the Dark theme's --error sits at 3.03:1; against --surface it is 3.70:1, and
-// every other token gains with it (--text 13.98 → 17.06, --cyan 6.03 → 7.35).
-// The red marker is the single most important glyph in this block, so the
-// surface is chosen to favour it and the header takes the elevated colour
-// instead. --border-subtle rather than --border keeps the block delimited from
-// the card behind it, which is also --surface.
+// Three tiers, matching the source's card / bar / inset structure: the card
+// behind this is --surface, the header bar is --surface2 (raised), the code
+// body is --bg (inset). That the inset also happens to be the highest-contrast
+// choice is the reason it is not merely cosmetic. Dark's --error — the single
+// most important glyph in a failure log — is 3.03:1 on --surface2 and 3.70:1
+// on --surface, but 4.18:1 on --bg, and every other token rises with it
+// (--text 13.98 → 19.28, --cyan 6.03 → 8.31). --border-subtle rather than
+// --border keeps the block delimited from the card it sits on.
 //
-// RESIDUAL, and it is not fixable here: --error on any surface tops out at
-// 4.18:1 in Dark, and --cyan and --amber at ~4.0-4.2:1 in Andy. Those are
-// properties of the palettes in themes.ts, shared by every accent-coloured
-// string in the app (ProofConsole, StatusBadge, the phase status chips), and
-// inventing a brighter red here would put a bare hex in an inline style — the
-// exact thing cssVarUsage.test.ts exists to stop. Nothing in this block encodes
-// meaning in colour ALONE: the markers it colours are the literal text
-// "FAILED:", "Error:" and "✓", which read the same in monochrome.
+// RESIDUAL, and it is not fixable here: even on --bg, --error tops out at
+// 4.18:1 in Dark and --cyan / --amber at ~4.1-4.2:1 in Andy — all just under
+// AA. Those are properties of the palettes in themes.ts, shared by every
+// accent-coloured string in the app (ProofConsole, StatusBadge, the phase
+// status chips), and inventing a brighter red here would put a bare hex in an
+// inline style, which is the exact thing cssVarUsage.test.ts exists to stop.
+// Nothing in this block encodes meaning in colour ALONE: the markers it
+// colours are the literal text "FAILED:", "Error:" and "✓", which read the
+// same in monochrome.
 const block: CSSProperties = {
   borderRadius: 6,
   background: 'var(--surface)',
@@ -355,9 +474,15 @@ const header: CSSProperties = {
   padding: '6px 10px', borderBottom: '1px solid var(--border-subtle)', background: 'var(--surface2)',
 }
 
-const caption: CSSProperties = {
+const headerTitle: CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11, fontWeight: 600, color: 'var(--text)',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+}
+
+const headerStatus: CSSProperties = {
   fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase',
-  color: 'var(--muted)',
+  flexShrink: 0,
 }
 
 const copyButton: CSSProperties = {
@@ -366,11 +491,14 @@ const copyButton: CSSProperties = {
 
 const truncationNote: CSSProperties = {
   padding: '4px 10px', fontSize: 10, color: 'var(--muted)',
-  borderBottom: '1px solid var(--border-subtle)',
+  // Chrome, not content: it describes the body rather than being part of it,
+  // so it stays on the header's surface and above the inset.
+  background: 'var(--surface2)', borderBottom: '1px solid var(--border-subtle)',
 }
 
 const scroll: CSSProperties = {
   maxHeight: 260, overflow: 'auto', padding: '8px 10px',
+  background: 'var(--bg)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 11, lineHeight: 1.55,
 }
@@ -378,9 +506,9 @@ const scroll: CSSProperties = {
 const gutter: CSSProperties = {
   flexShrink: 0, minWidth: 28, textAlign: 'right',
   // --muted, not --dim. The numbers exist so a room can be pointed at a line,
-  // which only works if the room can read them: --dim is 3.75:1 against
-  // --surface in Dark and 4.16:1 in Andy, both under AA; --muted clears it in
-  // all three (6.96 / 7.24 / 6.95) and is still visibly subordinate to --text.
+  // which only works if the room can read them: --dim is 4.24:1 against --bg
+  // in Dark and 4.41:1 in Andy, both under AA; --muted clears it in all three
+  // (7.87 / 7.58 / 7.37) and is still visibly subordinate to --text.
   color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', userSelect: 'none',
 }
 

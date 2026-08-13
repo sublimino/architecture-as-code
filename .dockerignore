@@ -1,0 +1,24 @@
+# The SuperCred runner image builds with the REPO ROOT as its context, because
+# its Dockerfile COPYs manifests and scripts from all over the tree. That makes
+# every stray directory at the root part of the build context, and one of them
+# is not readable by the user running docker:
+#
+#   .cache/zot   drwxr-x---  65532:65532   <- created by the in-cluster zot
+#
+# The daemon tars the context before it looks at the Dockerfile, so a directory
+# it cannot stat fails the build outright, before a single COPY is evaluated:
+#
+#   checking context: can't stat '/home/andy/src/cp/osramp-demo/.cache/zot'
+#   FAILED: docker build failed for supercred-demo-runner:local
+#
+# Nothing here is ever COPYed into an image. Excluding it also stops the context
+# tar carrying build state, dependency trees and git history it has no use for.
+.cache/
+.git/
+node_modules/
+**/node_modules/
+worktrees/
+.worktrees/
+**/test-results/
+**/playwright-report/
+.keys/

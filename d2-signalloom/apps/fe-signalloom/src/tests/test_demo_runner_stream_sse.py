@@ -286,6 +286,7 @@ def _synthetic_run() -> demo_runner._Run:
     Lets the generator be driven against an exactly-controlled buffer. Nothing
     here spawns, so it cannot depend on how fast a shell happens to be.
     """
+    run_lock = threading.Lock()
     return demo_runner._Run(
         run_id="synthetic-run",
         step_id="1",
@@ -299,7 +300,8 @@ def _synthetic_run() -> demo_runner._Run:
         _log=bytearray(),
         _log_truncated=False,
         _timed_out=False,
-        _lock=threading.Lock(),
+        _lock=run_lock,
+        _log_changed=threading.Condition(run_lock),
         _done=threading.Event(),
     )
 

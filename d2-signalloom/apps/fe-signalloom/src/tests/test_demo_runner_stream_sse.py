@@ -735,3 +735,70 @@ def test_the_poll_endpoint_is_unaffected_by_an_attached_stream(
     assert first_page["truncated"] is False
     assert first_page["chunk"].count("tick ") == 10
     assert first_page["next_offset"] == len(first_page["chunk"].encode("utf-8"))
+
+
+# The dashboard's src/api/demoRunnerSseContract.test.ts replays a transcript
+# captured from this endpoint and asserts the client reassembles it. That test
+# is only worth having while the transcript still resembles what we emit, and a
+# fixture nobody re-derives is a fixture that quietly describes last quarter's
+# wire format.
+_CLIENT_FIXTURE = (
+    Path(__file__).resolve().parents[3]
+    / "dashboard-signalloom/src/api/__fixtures__/sse-transcript.txt"
+)
+
+
+def test_the_transcript_the_dashboard_is_tested_against_still_describes_us(
+    demo_server: Callable[[str], httpx.Client]
+) -> None:
+    """The two halves of the SSE path must not drift apart in silence.
+
+    Nothing else joins them. This module tests the emitter against Python
+    assertions; the dashboard tests its parser against strings; the acceptance
+    harness drives the real components against a handwritten SSE *double* — and
+    that double shipped emitting `event: chunk` while the client dispatches on
+    `log`. The stream connected, delivered every byte, and displayed nothing.
+    The spec passed anyway, because the client fell back to polling.
+
+    So this asserts the shape the client is compiled against, not the bytes:
+    run ids and timings differ every run, and pinning those would make this a
+    test of the capture rather than of the contract.
+    """
+    fixture = _CLIENT_FIXTURE.read_text(encoding="utf-8")
+    client = demo_server(_TICKING_SCRIPT)
+    run_id = _start_run(client)
+    with client.stream("GET", _STREAM_PATH.format(run_id=run_id), headers=_bearer(SUPERADMIN_SUBJECT)) as response:
+        assert response.status_code == 200
+        frames = _read_frames(response)
+
+    events = [frame.event for frame in frames if frame.event != "comment"]
+    assert events[0] == "log", f"the fixture's first event is `log`; we emitted {events[0]!r}"
+    assert events[-1] == "end", f"the fixture terminates with `end`; we emitted {events[-1]!r}"
+    assert "event: log\n" in fixture and "event: end\n" in fixture, (
+        "the committed transcript no longer names the events this endpoint emits — "
+        "re-capture it, or the dashboard's contract test is asserting against fiction"
+    )
+
+    # Field sets, not values. A key added here is fine; a key REMOVED or renamed
+    # is what breaks a client that destructures it.
+    fixture_log_keys = {
+        key
+        for line in fixture.splitlines()
+        if line.startswith("data: ") and '"eof": false' in line
+        for key in json.loads(line[len("data: ") :])
+    }
+    emitted_log_keys = set(_logs(frames)[0])
+    assert fixture_log_keys <= emitted_log_keys, (
+        f"the transcript carries keys we no longer emit: {fixture_log_keys - emitted_log_keys}"
+    )
+
+    fixture_end_keys = {
+        key
+        for line in fixture.splitlines()
+        if line.startswith("data: ") and '"eof": true' in line
+        for key in json.loads(line[len("data: ") :])
+    }
+    emitted_end_keys = set(frames[-1].data)
+    assert fixture_end_keys <= emitted_end_keys, (
+        f"the terminal frame lost keys the client reads: {fixture_end_keys - emitted_end_keys}"
+    )

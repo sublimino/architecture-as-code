@@ -152,3 +152,153 @@ export async function fetchDemoRunLog(runId: string, offset: number, token?: str
 export async function resetDemo(token?: string): Promise<DemoRunView> {
   return postJson<DemoRunView>('/reset', 'Demo reset', undefined, token)
 }
+
+// ─── Live log stream ──────────────────────────────────────────────────────────
+//
+// GET /demo-api/runs/{id}/stream pushes the same chunks the polling endpoint
+// serves, as they are written, instead of once every 500ms. Both transports
+// stay: the poll is what works when the stream cannot be opened at all — an
+// older runner image with no /stream route, a proxy that buffers event-streams,
+// a connection dropped mid-phase — and it needs no negotiation to recover,
+// because it sends its cursor with every read. The stream is the fast path
+// layered on top, never the only path.
+//
+// WHY NOT EventSource. It is the purpose-built API for this and it cannot set
+// a single request header, so the only way to authenticate it is to put the
+// bearer token in the query string. That writes a live credential into the
+// nginx access log, into every proxy log between the browser and the runner,
+// and into the browser's own history — three places that outlive the session
+// the token belongs to. `fetch()` carries the header properly, and the cost is
+// framing the byte stream ourselves, which is what parseSseFrames does.
+
+/** One decoded `field: value` frame off the wire. */
+export interface SseFrame {
+  /** The event name; SSE's default for a frame that omits one is `message`. */
+  event: string
+  data: string
+}
+
+/**
+ * Split whatever has been read so far into whole frames, plus the remainder.
+ *
+ * A network read is not a frame. One read can carry several events, half an
+ * event, or nothing but the `:` keepalive comment the runner emits every ~15s
+ * to stop an idle proxy closing the connection. So this is a pure, incremental
+ * parser: everything after the last blank line is handed back as `rest` for the
+ * caller to prepend to the next read, and a frame is only emitted once its
+ * terminating blank line has actually arrived.
+ */
+export function parseSseFrames(buffer: string): { frames: SseFrame[]; rest: string } {
+  // A trailing CR may be the first half of a CRLF that the next read finishes.
+  // Normalising it now would end a line that has not ended, and every frame
+  // after it would be misparsed — so it is held back verbatim.
+  const heldCarriageReturn = buffer.endsWith('\r')
+  const body = heldCarriageReturn ? buffer.slice(0, -1) : buffer
+  const parts = body.replace(/\r\n|\r/g, '\n').split('\n\n')
+  const rest = (parts.pop() ?? '') + (heldCarriageReturn ? '\r' : '')
+
+  const frames: SseFrame[] = []
+  for (const part of parts) {
+    let event = 'message'
+    const data: string[] = []
+    for (const line of part.split('\n')) {
+      if (line === '' || line.startsWith(':')) continue
+      const colon = line.indexOf(':')
+      const field = colon === -1 ? line : line.slice(0, colon)
+      const raw = colon === -1 ? '' : line.slice(colon + 1)
+      const value = raw.startsWith(' ') ? raw.slice(1) : raw
+      if (field === 'event') event = value
+      else if (field === 'data') data.push(value)
+      // id and retry are the remaining spec fields and neither is used here:
+      // reconnection is the polling path's job, not a Last-Event-ID replay.
+    }
+    // A block with no data line is a keepalive, not an event. Reporting it as
+    // one would hand the caller a frame with nothing to parse.
+    if (data.length > 0) frames.push({ event, data: data.join('\n') })
+  }
+  return { frames, rest }
+}
+
+/** The `end` frame: a final (empty) chunk plus the run's terminal outcome. */
+export interface DemoRunStreamEnd extends DemoRunLogChunk {
+  status: DemoRunStatus
+  exit_code: number | null
+}
+
+export interface DemoRunStreamHandlers {
+  /** Fired once the response is open and the runner really is streaming. */
+  onOpen?: () => void
+  /**
+   * A `log` frame.
+   *
+   * Return false to say the chunk did not begin at the caller's cursor. Unlike
+   * a poll, a stream cannot be re-asked for a different offset, so that is
+   * unrecoverable here and the stream is torn down — see the throw below.
+   */
+  onChunk: (chunk: DemoRunLogChunk) => boolean | void
+  onEnd?: (end: DemoRunStreamEnd) => void
+}
+
+/**
+ * Follow a run's log over SSE until it ends, the caller aborts, or it breaks.
+ *
+ * Rejects on anything that means "this transport is not usable" — a runner with
+ * no /stream route, a response with no body, a malformed frame, a chunk the
+ * caller could not place. The caller is expected to answer every one of those
+ * the same way: say nothing to the user and fall back to polling. There is no
+ * failure mode here worth an error banner, because there is nothing the
+ * instructor could do about it and the log arrives either way.
+ */
+export async function streamDemoRunLog(
+  runId: string,
+  offset: number,
+  handlers: DemoRunStreamHandlers,
+  token?: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(
+    `${DEMO_API}/runs/${encodeURIComponent(runId)}/stream?offset=${encodeURIComponent(String(offset))}`,
+    { headers: { Accept: 'text/event-stream', ...authHeaders(token) }, signal },
+  )
+  if (!res.ok) throw new Error(`Run log stream failed: ${await describeFailure(res)}`)
+  if (!res.body) throw new Error('Run log stream failed: the response carried no body')
+  handlers.onOpen?.()
+
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) return
+      // `stream: true` so a multi-byte character split across two reads is
+      // held rather than decoded into a replacement character — the runner's
+      // output contains ✓ and ✗, which are three bytes each.
+      buffer += decoder.decode(value, { stream: true })
+      const parsed = parseSseFrames(buffer)
+      buffer = parsed.rest
+      for (const frame of parsed.frames) {
+        if (frame.event === 'log') {
+          if (handlers.onChunk(JSON.parse(frame.data) as DemoRunLogChunk) === false) {
+            throw new Error('Run log stream failed: chunk did not match the log cursor')
+          }
+        } else if (frame.event === 'end') {
+          const end = JSON.parse(frame.data) as DemoRunStreamEnd
+          // Passed through the same guard as every other chunk, so there is one
+          // path into the log. Its verdict is ignored: the contract says this
+          // frame carries no bytes, and if a future runner puts the tail here,
+          // a rejection at the very end is repaired by the caller's post-run
+          // drain rather than being worth failing the whole stream over.
+          handlers.onChunk(end)
+          handlers.onEnd?.(end)
+          return
+        }
+      }
+    }
+  } finally {
+    // Without this the response body stays open on every early return — the
+    // `end` frame, an abort, a rejected chunk — and a demo that runs five
+    // phases leaks five readers.
+    void reader.cancel().catch(() => {})
+  }
+}

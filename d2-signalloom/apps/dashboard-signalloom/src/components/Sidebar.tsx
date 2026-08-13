@@ -82,7 +82,10 @@ export const NAV: NavItem[] = [
   { to: '/settings', label: 'Settings', section: 'Configuration', icon: 'settings' },
 ]
 
-const EXPANDED_WIDTH = 268
+// Exported so the quick-search width budget in
+// styles/sidebarQuickSearchLayout.test.ts is computed against the real rail
+// width rather than a copy of it that can drift.
+export const EXPANDED_WIDTH = 268
 const COLLAPSED_WIDTH = 64
 
 // Collapsed/expanded is a per-browser display preference, so it lives in
@@ -132,6 +135,13 @@ export default function Sidebar() {
   const matchesQuery = ({ label }: NavItem) => !normalizedQuery || label.toLowerCase().includes(normalizedQuery)
   const visibleNavItems = navItems.filter(matchesQuery)
   const visibleSuperadminItems = superadminItems.filter(matchesQuery)
+  // A heading, and the rule above it, are labels for the items beneath them —
+  // with nothing beneath, they are furniture announcing an empty room. The
+  // Workspace/Governance/Configuration headings already derive from
+  // visibleNavItems; the superadmin block did not, so it kept printing its
+  // divider and title over nothing.
+  const hasVisibleSuperadminItems = showSuperadminNav && visibleSuperadminItems.length > 0
+  const hasNoMatches = normalizedQuery !== '' && visibleNavItems.length === 0 && !hasVisibleSuperadminItems
 
   function applyCollapsed(next: boolean) {
     setCollapsed(next)
@@ -292,10 +302,20 @@ export default function Sidebar() {
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             onClick={() => applyCollapsed(!collapsed)}
           >
+            {/* A chevron beside a bare vertical stroke reads as "next/previous"
+              * far more readily than "collapse this panel" — the stroke has no
+              * shape to identify it as an edge of anything. This is the
+              * conventional panel glyph instead: a framed rectangle with the
+              * rail partitioned off inside it, so the icon depicts the thing it
+              * acts on. Only the chevron flips between states, and it always
+              * points the way the rail is about to travel — left to close, right
+              * to reopen — so the icon states the outcome, not the state. */}
             <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="4" width="18" height="16" rx="2" />
+              <path d="M9 4v16" />
               {collapsed
-                ? <><path d="m9 6 6 6-6 6" /><path d="M18 5v14" /></>
-                : <><path d="m15 6-6 6 6 6" /><path d="M6 5v14" /></>}
+                ? <path d="m14 9.5 2.5 2.5-2.5 2.5" />
+                : <path d="m16.5 9.5-2.5 2.5 2.5 2.5" />}
             </svg>
           </button>
         </div>
@@ -331,9 +351,11 @@ export default function Sidebar() {
         {/* Nav links */}
         <div ref={navRef} id="sl-sidebar-nav" className="sl-sidebar__nav" onMouseLeave={() => setHoveredNav(null)}>
           {selectionBox && <span aria-hidden="true" className="sl-sidebar__selection" style={{ top: selectionBox.top, height: selectionBox.height }} />}
-          {visibleNavItems.map(({ to, label, end, section, icon }) => {
+          {visibleNavItems.map(({ to, label, end, section, icon }, visibleIndex) => {
             const i = NAV.findIndex((item) => item.to === to)
-            const previous = visibleNavItems[visibleNavItems.indexOf(visibleNavItems.find((item) => item.to === to)!)-1]
+            // Previous *visible* sibling, so a heading is emitted only where a
+            // section actually starts in the filtered list.
+            const previous = visibleNavItems[visibleIndex - 1]
             return (
             <div key={to}>
             {!collapsed && (!previous || previous.section !== section) && (
@@ -406,8 +428,10 @@ export default function Sidebar() {
             </div>
           )})}
 
-          {/* Superadmin-only nav block */}
-          {showSuperadminNav && (
+          {/* Superadmin-only nav block. Gated on there being something to show:
+            * filtering used to leave the rule and the "Superadmin" title
+            * stranded above nothing. */}
+          {hasVisibleSuperadminItems && (
             <>
               <hr style={{ border: 'none', borderTop: '1px solid var(--border)', margin: collapsed ? '8px 6px' : '8px 14px' }} />
               {!collapsed && (
@@ -427,6 +451,20 @@ export default function Sidebar() {
                 </NavLink>
               ))}
             </>
+          )}
+
+          {/* Filtering everything away leaves a blank rail, which reads as
+            * broken rather than filtered and offers no way out. role="status"
+            * so the result is announced, not merely drawn — the filter is
+            * driven from a text box the user is already focused in, and a
+            * silent change of nothing to nothing is the one case a screen
+            * reader would otherwise miss. */}
+          {hasNoMatches && (
+            <p className="sl-sidebar__empty" role="status" data-testid="sidebar-no-matches">
+              No navigation matches <strong>{query.trim()}</strong>.
+              <br />
+              Press Escape to clear the search.
+            </p>
           )}
         </div>
 

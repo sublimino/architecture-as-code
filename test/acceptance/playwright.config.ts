@@ -21,6 +21,27 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     video: "retain-on-failure",
+    // dashboard.osramp.acme.local has no DNS record and no /etc/hosts entry, by
+    // design: the Gateway needs the SNI name, and the browser is the only thing
+    // that ever has to resolve it. Chrome's --host-resolver-rules is therefore
+    // the single reason that hostname resolves anywhere in this suite, and
+    // every project drives a browser at it (helpers.ts `config.base`).
+    //
+    // It used to be repeated in each project's own launchOptions. Five projects
+    // carried it and `smoke` did not, so every spec in `smoke` died on
+    // net::ERR_NAME_NOT_RESOLVED before its first assertion — CI stage 8b failed
+    // 18/18 on both lanes while stage 8 passed against the same cluster minutes
+    // earlier. Per-project opt-in makes "forgot it" the default and turns a
+    // missing precondition into an unrelated-looking DNS error; declaring it
+    // once here makes "works" the default and leaves a new project nothing to
+    // forget.
+    //
+    // NOTE: Playwright merges `use` shallowly per key, so a project that
+    // re-declares `launchOptions` REPLACES this rather than extending it. Do not
+    // add a project-level `launchOptions` without repeating this argument.
+    launchOptions: {
+      args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
+    },
   },
   projects: [
     {
@@ -29,9 +50,6 @@ export default defineConfig({
       use: {
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
-        },
       },
     },
     {
@@ -41,9 +59,6 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
-        },
       },
       dependencies: ["setup"],
     },
@@ -67,9 +82,6 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
-        },
       },
       dependencies: ["setup"],
     },
@@ -84,9 +96,6 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
-        },
       },
       dependencies: ["setup"],
     },
@@ -104,13 +113,16 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
-        launchOptions: {
-          args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
-        },
       },
       dependencies: ["setup"],
     },
     {
+      // Specs that authenticate themselves, per test, via helpers.ts `login()`.
+      // The absence of storageState and of a `setup` dependency is deliberate
+      // and must stay: smoke.spec.ts's first case asserts that an
+      // unauthenticated visit is redirected to Dex, which a pre-seeded auth
+      // state would defeat. What was NOT deliberate was the absence of the
+      // host-resolver rule — that now comes from the top-level `use`.
       name: "smoke",
       testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts/,
       use: {

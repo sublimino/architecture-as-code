@@ -37,21 +37,6 @@ const STEP_MAX_WIDTH: Record<WizardStep['kind'], number> = {
   summary: 680,
 }
 
-function Spinner() {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flex: 1 }}>
-      <div
-        style={{
-          width: 32, height: 32, border: '3px solid var(--border)',
-          borderTopColor: 'var(--cyan)', borderRadius: '50%',
-          animation: 'onboarding-spin 0.8s linear infinite',
-        }}
-      />
-      <style>{`@keyframes onboarding-spin { to { transform: rotate(360deg) } }`}</style>
-    </div>
-  )
-}
-
 /** localStorage key for the 30-minute skip TTL (client-side only). */
 const SKIP_STORAGE_KEY = 'sl_onboarding_skipped'
 
@@ -313,10 +298,21 @@ export default function OnboardingWizard() {
     navigate(returnTo)
   }
 
+  // Same component, same testId and same label as the error branch below —
+  // this is one wait with two possible outcomes, so it gets one indicator that
+  // changes phase rather than a private spinner followed by an unrelated
+  // panel. The spinner that used to live here was App's rotating ring copied
+  // in, which is how the product ended up with two loading idioms.
   if (loading) {
     return (
       <div style={fullPageStyle}>
-        <Spinner />
+        <LoadingState
+          variant="block"
+          status="loading"
+          label="setup"
+          testId="onboarding-load-state"
+          style={{ flex: 1 }}
+        />
       </div>
     )
   }

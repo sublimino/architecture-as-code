@@ -2,7 +2,7 @@
 # vm-pipeline.sh — Runs the Signalloom D2 e2e pipeline on the CI VM.
 #
 # Called via SSH from gcp-ci.sh or GitHub Actions. Pulls latest code,
-# rebuilds the cluster, runs the 8-stage test suite, and generates an
+# rebuilds the cluster, runs the 9-stage test suite, and generates an
 # OpenReports-format report.
 #
 # Exit codes:
@@ -201,7 +201,7 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 
   # This fallback only ever repaired signalloom-APPS. If `up` died before
   # activating signalloom-INFRA, nothing here notices, and the run proceeds to
-  # execute eight stages against a cluster whose infra was never brought up.
+  # execute nine stages against a cluster whose infra was never brought up.
   # Stage 6 then waits its full budget for infra-controllers and stages 7-8
   # fail behind it, so a SETUP abort is reported as three test failures — the
   # most expensive possible way to be wrong, because it sends the reader to the
@@ -219,8 +219,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   fi
 }
 
-# ── Run 8-stage test suite ───────────────────────────────────────────
-echo "==> [6/7] Running 8-stage test suite..."
+# ── Run 9-stage test suite ───────────────────────────────────────────
+echo "==> [6/7] Running 9-stage test suite..."
 
 failures=0
 declare -a stage_results=()
@@ -281,6 +281,37 @@ run_stage \
    bun install --frozen-lockfile && \
    bun run test --run --reporter=junit \
      --outputFile=${REPORT_DIR}/stage1b-dashboard-unit.xml"
+
+# Stage 1c: Acceptance-spec coverage guard (BATS TAP)
+#
+# Numbered 1c for the reason 1b was numbered 1b: openreports-convert.sh maps
+# report FILES to parsers by name, so an inserted stage costs nothing as long as
+# the existing filenames stay put.
+#
+# What it guards is this file. Until now stage 8 ran one of the 15 specs in
+# test/acceptance, two more were reachable from make targets, and FOUR matched
+# no `testMatch` in test/acceptance/playwright.config.ts at all -- so they ran
+# nowhere, including under `make acceptance-test`. Playwright does not warn when
+# no project claims a spec; it reports a smaller total and exits 0.
+#
+# That is the same silent-degradation shape as the missing junit reporter
+# documented in playwright.config.ts, and it cost coverage the day this stage
+# was added: d9d1d2f rewrote a test in smoke.spec.ts to assert the Collusion &
+# Access page carries no page-specific background, and nothing would ever have
+# run it.
+#
+# The guard reads test/acceptance/SPEC-REGISTRY.tsv and cross-checks it against
+# the filesystem, playwright.config.ts, the Makefile and this file, in both
+# directions. A spec added without a registry row fails here; so does a row
+# claiming a CI stage that does not run it -- which is why adding stage 8b below
+# and forgetting its row would be caught by the stage before it.
+#
+# python3 and coreutils only: no cluster, no node_modules, no network, ~1s. It
+# sits here for the same reason 1b does, ahead of the expensive stages it gates.
+run_stage \
+  "Acceptance-spec coverage registry" \
+  "stage1c-acceptance-coverage.tap" \
+  "cd ${WORK_DIR} && bats --tap test/acceptance-spec-coverage.bats"
 
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \

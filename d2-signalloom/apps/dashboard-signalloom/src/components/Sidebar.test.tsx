@@ -513,3 +513,121 @@ describe('Sidebar quick-search clearing', () => {
     expect(screen.getByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
   })
 })
+
+describe('Sidebar brand mark', () => {
+  // The workspace button used to draw its own diamond in inline SVG. It is now
+  // the real Signal Loom mark, which changes the a11y calculus: an <img> can
+  // acquire a name of its own and give the button two, so the asserts below are
+  // as much about what the mark must NOT contribute as what it must render.
+  const LOGO_SRC = '/brand/signal-loom-logo.png'
+
+  function workspaceButton() {
+    return screen.getByRole('button', { name: /Acme Insurance/ })
+  }
+
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  it('renders the Signal Loom mark inside the workspace button', async () => {
+    renderSidebar()
+    await waitFor(() => expect(screen.getByText('Acme Insurance')).toBeInTheDocument())
+
+    const logo = workspaceButton().querySelector('img')
+    expect(logo).not.toBeNull()
+    expect(logo).toHaveAttribute('src', LOGO_SRC)
+  })
+
+  it('keeps the mark decorative so the button has exactly one accessible name', async () => {
+    renderSidebar()
+    await waitFor(() => expect(screen.getByText('Acme Insurance')).toBeInTheDocument())
+
+    const button = workspaceButton()
+    const logo = button.querySelector('img')!
+
+    // alt="" + aria-hidden keeps the mark out of the a11y tree entirely, so the
+    // button is named once, by the workspace title sitting beside it.
+    expect(logo).toHaveAttribute('alt', '')
+    expect(logo).toHaveAttribute('aria-hidden', 'true')
+    expect(logo).not.toHaveAttribute('title')
+    expect(screen.queryAllByRole('img')).toHaveLength(0)
+    expect(screen.getAllByRole('button', { name: /Acme Insurance/ })).toHaveLength(1)
+    expect(button.textContent?.match(/Acme Insurance/g)).toHaveLength(1)
+  })
+
+  it('reserves a square 32px box so the mark is never stretched', async () => {
+    renderSidebar()
+    await waitFor(() => expect(screen.getByText('Acme Insurance')).toBeInTheDocument())
+
+    const logo = workspaceButton().querySelector('img')! as HTMLImageElement
+    expect(logo).toHaveAttribute('width', '32')
+    expect(logo).toHaveAttribute('height', '32')
+    // The source asset is square; contain is what guarantees it stays that way
+    // if the flex row ever squeezes the box.
+    expect(logo.style.objectFit).toBe('contain')
+    expect(logo.style.flexShrink).toBe('0')
+  })
+
+  it('still shows the mark when the rail is collapsed to icons only', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await waitFor(() => expect(screen.getByText('Acme Insurance')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+
+    // Workspace copy is gone; the mark is the only thing identifying the rail.
+    expect(screen.queryByText('Agent governance workspace')).not.toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Acme Insurance' })
+    expect(button.querySelector('img')).toHaveAttribute('src', LOGO_SRC)
+    expect(screen.queryAllByRole('img')).toHaveLength(0)
+  })
+})
+
+describe('Sidebar Design System nav entry', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  afterEach(() => {
+    authMock.user = { ...DEFAULT_USER }
+  })
+
+  it('is declared superadmin-only and owns an icon kind no other item uses', () => {
+    const item = NAV.find(({ to }) => to === '/design-system')
+    expect(item).toBeDefined()
+    expect(item!.label).toBe('Design System')
+    expect(item!.superadminOnly).toBe(true)
+    expect(NAV.filter(({ icon }) => icon === item!.icon)).toHaveLength(1)
+  })
+
+  it('renders in the superadmin block, with a glyph, when superadmin is on', async () => {
+    renderSidebar({ superadmin: true })
+
+    const link = await screen.findByRole('link', { name: 'Design System' })
+    expect(link).toHaveAttribute('href', '/design-system')
+    expect(link.querySelector('svg')).toBeInTheDocument()
+  })
+
+  it('is hidden when superadmin is off — it is an internal surface', async () => {
+    renderSidebar({ superadmin: false })
+    await screen.findByRole('link', { name: 'Agents' })
+
+    expect(screen.queryByRole('link', { name: 'Design System' })).not.toBeInTheDocument()
+  })
+
+  it('never claims a numbered keyboard shortcut', async () => {
+    renderSidebar({ superadmin: true })
+    await screen.findByRole('link', { name: 'Design System' })
+
+    // 9 is the last digit the nav binds, and it must still land on Settings.
+    fireEvent.keyDown(window, { key: '9' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('aria-current', 'page')
+    )
+    expect(screen.getByRole('link', { name: 'Design System' })).not.toHaveAttribute('aria-current', 'page')
+  })
+})

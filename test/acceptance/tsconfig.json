@@ -1,4 +1,22 @@
 {
+  // harness/ is excluded, and not because it is untidy.
+  //
+  // harness/entry.tsx deliberately imports the REAL dashboard components from
+  // d2-signalloom/apps/dashboard-signalloom/src — that is the whole point of
+  // the cluster-free streaming harness; a copy would prove nothing. Pulling
+  // those files into THIS program drags in react, react-dom, axios,
+  // react-oidc-context and the DOM lib, none of which this directory has or
+  // should have: it is a Playwright suite, and `lib` here is deliberately
+  // ESNext-only.
+  //
+  // Nothing is lost. Bun's bundler transpiles rather than typechecks, so this
+  // was never what made the harness correct, and those files are already
+  // typechecked where they live — `bun run typecheck` in the dashboard, run by
+  // CI stage 1b's suite alongside the vitest run. The two harness files of our
+  // own are twelve lines each and are exercised on every run of
+  // supercred-log-streaming-harness.spec.ts, which fails loudly if the bundle
+  // does not build.
+  "exclude": ["node_modules", "harness"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],

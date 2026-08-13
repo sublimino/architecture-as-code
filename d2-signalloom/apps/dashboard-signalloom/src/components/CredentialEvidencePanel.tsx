@@ -8,6 +8,7 @@ import {
   type EvidenceState,
   type EvidenceStep,
 } from '../api/credentialEvidence'
+import ButtonWait from './ButtonWait'
 import PixelLoader from './PixelLoader'
 import { ProofConsole } from './ProofConsole'
 
@@ -88,16 +89,16 @@ function describeFailure(status: number): { title: string; detail: string } {
 // second ninety, and the probe shells out to kubectl six times — it is not
 // fast. Both of this card's waits now carry a live elapsed figure.
 //
-// The button goes COMPACT (grid and figure, no word): it is an 11px control in
-// a header row, a 13px label inside it is out of scale, and its aria-label
-// carries the meaning. The headline keeps the full sentence, because that is a
-// panel-level wait with a whole line to itself.
+// The button's wait is `ButtonWait`, shared with the other three pages that
+// had each grown their own version of it: no visible word, a reserved width,
+// an accessible name, no live region. The headline below is NOT one of those —
+// it is a panel-level wait with a whole line to itself, so it stays a plain
+// PixelLoader and keeps the full sentence.
 
-/** Grid + gap + the figure at its longest ("1m 5.0s"), with no word. */
-const COMPACT_LOADER_W = 78
+/** Matches the in-button wait's own gap, so the two read as one family. */
 const LOADER_GAP = 6
-/** Fits COMPACT_LOADER_W plus the button's padding, and the idle label too, so
- *  the header does not shuffle when Re-check becomes a loader. */
+/** Fits the wait plus the button's padding, and the idle label too, so the
+ *  header does not shuffle when Re-check becomes a loader. */
 const REFRESH_BUTTON_W = 96
 
 function headline(steps: EvidenceStep[], failed: boolean, loading: boolean): string {
@@ -251,10 +252,9 @@ export function CredentialEvidencePanel({
               minWidth: REFRESH_BUTTON_W,
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}
-            aria-label={loading ? 'Checking' : undefined}
           >
             {loading
-              ? <PixelLoader testId="evidence-recheck-loader" label="" style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }} />
+              ? <ButtonWait testId="evidence-recheck-loader" label="Checking" />
               : 'Re-check'}
           </button>
         </div>

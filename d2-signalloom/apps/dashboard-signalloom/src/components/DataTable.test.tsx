@@ -418,6 +418,114 @@ describe('DataTable', () => {
     })
   })
 
+  // ── the footer and the page navigation are two different questions ────────
+  //
+  // They used to be one boolean, and the one it was is what made the
+  // rows-per-page select a one-way door: `sorted.length > pageSize` reads the
+  // select's OWN value, so choosing a size at or above the row count unmounted
+  // the footer that held the select. The control vanished as a direct
+  // consequence of being used, and nothing but a reload brought it back.
+  //
+  // The severity is not that a control is hidden. It is that the control hides
+  // ITSELF, which is a state the user cannot leave. So the rule these tests
+  // pin is narrow and absolute: a control's own value never decides whether
+  // that control renders.
+
+  describe('rows-per-page is not a one-way door', () => {
+    it('keeps the select, its new value and the count when the chosen size swallows every row', () => {
+      const data = makeRows(15)
+      const { getByTestId, queryByTestId } = render(
+        <DataTable columns={COLUMNS} data={data} pageSize={10} renderRow={renderRow} testIdPrefix="ow" />,
+      )
+      expect(getByTestId('ow-pagination')).toBeTruthy()
+
+      // 25 ≥ 15 rows: the value that used to take the whole footer with it.
+      fireEvent.change(getByTestId('ow-page-size'), { target: { value: '25' } })
+
+      const select = getByTestId('ow-page-size') as HTMLSelectElement
+      expect(select).toBeInTheDocument()
+      expect(select.value).toBe('25')
+      expect(getByTestId('ow-footer').textContent).toContain('1–15 of 15')
+      // The page navigation is the only part with nothing left to do.
+      expect(queryByTestId('ow-pagination')).toBeNull()
+
+      // The door swings back, which is the whole point of it not being a door.
+      fireEvent.change(select, { target: { value: '10' } })
+      expect((getByTestId('ow-page-size') as HTMLSelectElement).value).toBe('10')
+      expect(getByTestId('ow-pagination')).toBeTruthy()
+    })
+
+    it('clamps to the first page and still shows the new size when the size grows underneath page 3', () => {
+      const data = makeRows(30)
+      const { getByTestId, queryByTestId } = render(
+        <DataTable columns={COLUMNS} data={data} pageSize={10} renderRow={renderRow} testIdPrefix="cl" />,
+      )
+      fireEvent.click(getByTestId('cl-next'))
+      fireEvent.click(getByTestId('cl-next'))
+      expect(getByTestId('cl-page-indicator').textContent).toBe('Page 3 of 3')
+
+      fireEvent.change(getByTestId('cl-page-size'), { target: { value: '50' } })
+
+      expect((getByTestId('cl-page-size') as HTMLSelectElement).value).toBe('50')
+      expect(queryByTestId('cl-pagination')).toBeNull()
+      // Clamped to the top of the list rather than stranded past the end.
+      expect(getByTestId('cl-footer').textContent).toContain('1–30 of 30')
+    })
+
+    it('shows the count and the size control on a single-page table, but no page navigation', () => {
+      const { getByTestId, queryByTestId } = render(
+        <DataTable columns={COLUMNS} data={makeRows(3)} renderRow={renderRow} testIdPrefix="sm" />,
+      )
+      // `hidePaginationWhenSinglePage` means what its name says: it hides the
+      // PAGINATION. "Page 1 of 1" between two dead buttons is the tautology it
+      // exists to suppress. How many rows there are is not a tautology.
+      expect(queryByTestId('sm-pagination')).toBeNull()
+      expect(getByTestId('sm-page-size')).toBeTruthy()
+      expect(getByTestId('sm-footer').textContent).toContain('1–3 of 3')
+    })
+
+    it('shows page navigation as soon as there is more than one page', () => {
+      const { getByTestId } = render(
+        <DataTable columns={COLUMNS} data={makeRows(11)} renderRow={renderRow} pageSize={10} testIdPrefix="mp" />,
+      )
+      expect(getByTestId('mp-pagination')).toBeTruthy()
+      expect(getByTestId('mp-page-indicator').textContent).toBe('Page 1 of 2')
+    })
+
+    it('suppresses the entire footer over an empty state', () => {
+      const { queryByTestId } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={[]}
+          renderRow={renderRow}
+          emptyState={<p>Nothing matches that search.</p>}
+          hidePaginationWhenSinglePage={false}
+          testIdPrefix="es"
+        />,
+      )
+      // Nothing to size, nothing to count, nothing to page through.
+      expect(queryByTestId('es-footer')).toBeNull()
+      expect(queryByTestId('es-pagination')).toBeNull()
+      expect(queryByTestId('es-page-size')).toBeNull()
+    })
+
+    it('renders no footer when there are no rows at all, even without an empty state', () => {
+      const { queryByTestId, container } = render(
+        <DataTable
+          columns={COLUMNS}
+          data={[]}
+          renderRow={renderRow}
+          hidePaginationWhenSinglePage={false}
+          testIdPrefix="nr"
+        />,
+      )
+      // The old headers-over-nothing branch is untouched…
+      expect(container.querySelector('table')).not.toBeNull()
+      // …but a size control over zero rows controls nothing.
+      expect(queryByTestId('nr-footer')).toBeNull()
+    })
+  })
+
   it('exports th and td style constants', () => {
     expect(DataTable.th).toBeDefined()
     expect(DataTable.td).toBeDefined()

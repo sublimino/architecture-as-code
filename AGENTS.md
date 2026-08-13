@@ -26,15 +26,33 @@ control plane, and Envoy Ingress Gateway.
 Each slice is an independent deployment boundary. They share the cluster but
 own their own namespaces, images, tests, and lifecycle.
 
-| Slice | Purpose | AGENTS.md |
-|-------|---------|-----------|
-| `d2-signalloom/` | Signal Loom agent governance platform (dashboard + API + identity + infra) | `d2-signalloom/AGENTS.md` |
-| `d2-osramp-apps/` | OSRAMP application services (archiver, listener, processor) | `d2-osramp-apps/AGENTS.md` |
-| `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `d2-k8s-afm/AGENTS.md` |
-| `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `d2-osramp-fleet/AGENTS.md` |
-| `d2-infra/` | Shared infrastructure components | `d2-infra/AGENTS.md` |
-| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles, enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own | `d2-agent-trust/AGENTS.md` |
-| `olly-replica/` | Olly Sentinel AI SRE replica | — |
+| Slice | Purpose | Deploy | AGENTS.md |
+|-------|---------|--------|-----------|
+| `d2-signalloom/` | Signal Loom agent governance platform (dashboard + API + identity + infra) | `make demo-signalloom-up` | `d2-signalloom/AGENTS.md` |
+| `d2-osramp-apps/` | OSRAMP application services (archiver, listener, processor) | `make demo-osramp-up` | `d2-osramp-apps/AGENTS.md` |
+| `d2-k8s-afm/` | KubeSec-AFM formal-methods RBAC analysis | `make demo-k8s-afm-up` | `d2-k8s-afm/AGENTS.md` |
+| `d2-osramp-fleet/` | Flux fleet definitions (clusters, tenants, ResourceSets) | `make up` (foundation) | `d2-osramp-fleet/AGENTS.md` |
+| `d2-infra/` | Shared infrastructure components | `make up` (foundation) | `d2-infra/AGENTS.md` |
+| `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles, enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own | `make demo-agent-trust-up` | `d2-agent-trust/AGENTS.md` |
+| `d2-cpai/` | CPAI runtime (aichat-backed conversation demo) | `make demo-cpai-up`, or `make cpai-only` for a minimal foundation | `d2-cpai/README.md` |
+| `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | `olly-replica/README.md` |
+
+Two services deploy **outside** their slice's `-up` target and are therefore easy
+to miss. Both were finished, tested and undeployed for days:
+
+| Service | Deploy | Consumed by |
+|---------|--------|-------------|
+| Fleet Manager | `make demo-signalloom-fleet-up` (applied directly, not via Flux) | `/fleet` in the dashboard, through nginx `/fleet-api/` |
+| `afm-platform` | `make demo-k8s-afm-up` — opt-in; neither `make up` nor `demo-signalloom-up` brings it | `/rbac-analysis` and `/rbac-explorer`, plus seven nginx prefixes and the API's server-side `httpx` call |
+
+`make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT` (default
+`/home/andy/src/cp/kubesec-afm`), not from anything in this repo — on a machine
+without that checkout it fails at `docker build`.
+
+Before adding a backend service of your own, read
+[`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md): four
+independent layers each break the page on their own, and none of them reports
+"not deployed".
 
 ## Quick Start
 
@@ -49,6 +67,8 @@ make demo-k8s-afm-up       # KubeSec-AFM
 make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao/SPIRE only
 make demo-agent-trust-up    # SPIFFE agent trust (needs inf-bao ready first)
+make demo-cpai-up           # CPAI runtime
+make demo-signalloom-fleet-up  # Fleet Manager — NOT included in demo-signalloom-up
 
 # 3. Health check
 make healthcheck            # foundation readiness
@@ -134,17 +154,33 @@ true, with the command that proved each claim:
 | `make doctor` | Full read-only cluster diagnostic |
 | `make demo-signalloom-supercred-evidence` | Is the credential chain real? Six probes, each showing its command |
 | `make demo-agent-trust-network-test` | Are the SPIFFE trust boundaries actually enforced? |
-| `make demo-signalloom-fleet-up` | Deploy Fleet Manager (separate service, applied directly, not via Flux) |
+| `make demo-k8s-afm-status` | Is `afm-platform` up, and what does its `/health` say? |
+
+"The page is broken" is not a diagnosis. Ask the path the browser actually uses,
+from inside the pod that uses it — this distinguishes all four deployment layers
+in one call:
+
+```bash
+kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
+  curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  http://localhost:8080/fleet-api/v1/fleet/topology
+# 200 application/json  → healthy
+# 200 text/html         → no nginx location; the SPA answered the API call
+# 504                   → NetworkPolicy, either the receiver's ingress or the caller's egress
+# DNS failure           → the service is not deployed (make demo-signalloom-fleet-up)
+```
 
 `docs/cluster-debugging.md` §8 catalogues the probes that historically reported a
 confident answer they had not earned — `nc` exit codes, unconfined new pods,
 silent RoleBindings, and API paths that return `index.html` with 200 OK.
+[`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md) is
+the checklist that stops the last of those recurring.
 
 ## Repo Layout
 
 ```
 osramp-demo/
-├── Makefile                 # 157 documented targets — `make help`
+├── Makefile                 # 162 documented targets — `make help`
 ├── AGENTS.md                # This file (shared foundation)
 ├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
 ├── scripts/                 # Lifecycle, build, and test scripts
@@ -157,6 +193,7 @@ osramp-demo/
 ├── d2-osramp-fleet/         # Flux fleet → d2-osramp-fleet/AGENTS.md
 ├── d2-infra/                # Shared infra → d2-infra/AGENTS.md
 ├── d2-agent-trust/          # SPIFFE agent trust → d2-agent-trust/AGENTS.md
+├── d2-cpai/                 # CPAI runtime → d2-cpai/README.md
 ├── olly-replica/            # Olly Sentinel replica
 │
 ├── tools/demo-console/      # Go: Estate 95 broker + API contract fixtures

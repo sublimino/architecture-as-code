@@ -124,7 +124,10 @@ See `DESIGN.md` in this directory for the full visual guide. Summary:
 - **ConsentModal.test.tsx**: 2 pre-existing failures (duplicate text matches) — not a regression
 - **Port-forward drops on rollout**: always restart after `rollout restart`
 - **nginx proxies**: `/dex/*` → dex:5556, `/api/*` → fe-signalloom-api:8000 (single-origin, no CORS),
-  `/supercred-api/*` → fake-integration-proxy:8080
+  `/supercred-api/*` → fake-integration-proxy:8080, `/demo-api/*` → supercred-demo-runner:8000,
+  `/fleet-api/*` → fleet-manager:8082 (rewritten to `/api`), and seven prefixes to
+  afm-platform.fe-k8s-afm:8000 (`/dashboard/`, `/afm/`, `/clusters`, `/metrics/`, `/health`,
+  `/jobs`, `/webhooks/`)
 - **No proxy prefix may shadow a SPA route.** nginx matches proxy locations before `location /`
   reaches `try_files`, so a prefix sharing a name with a client-side route means that page can never
   render. This is why the SuperCred proxy is `/supercred-api/` and not `/supercred/`. Guarded by
@@ -135,6 +138,49 @@ See `DESIGN.md` in this directory for the full visual guide. Summary:
 - **Manifest edits need an artifact push, not `kubectl apply`.** Flux reverts hand-applied changes on
   its next reconcile. See the delivery-pipeline section in
   `docs/signalloom/dashboard-superadmin-themes-importer.md`.
+
+### A backend this slice depends on may simply not be deployed
+
+Twice in two days — fleet-manager on 2026-08-12, `afm-platform` on 2026-08-13 — a
+complete, tested backend sat in the repo undeployed, and the dashboard reported
+something other than that fact. **Not every service this slice calls is brought up
+by `make demo-signalloom-up`**: Fleet Manager needs `make demo-signalloom-fleet-up`
+and `afm-platform` needs `make demo-k8s-afm-up`, both opt-in, both consumed by
+pages that look like ordinary Signal Loom pages.
+
+The symptoms name the wrong thing, and each of the four wiring layers produces a
+different one. With no nginx `location`, the request falls through to the SPA
+catch-all and `index.html` comes back with **200 OK** — `res.ok` is true, so the
+client parses HTML as JSON and reports `Unexpected token '<', "<!doctype "... is
+not valid JSON`. With the proxy present but a NetworkPolicy short, you get a 504
+against a service that is healthy and listening: fleet-manager's ingress admitted
+`app.kubernetes.io/part-of: signalloom`, which the dashboard pods do not carry —
+they are labelled only `app.kubernetes.io/name: dashboard-signalloom` — and the
+dashboard had no egress rule for 8082. Server-side, `rbac_correlation.py` reaches
+AFM over `httpx` and raises `APIError(503, "afm_unreachable", ...)` carrying
+`[Errno -2] Name or service not known`, which is a visible failure by design but
+still describes DNS rather than the missing deployment.
+
+The obvious diagnosis in each case is wrong. A parse error looks like a bad
+response body, so the instinct is to fix the client or fall back to demo data —
+neither can help, because nothing that parses `index.html` will ever produce a
+topology. A 504 looks like the backend being slow or down, so the instinct is to
+check the pod — which is `1/1 Running` and answering `/health` on its own port.
+Ask the path the browser uses, from inside the pod that uses it:
+
+```bash
+kubectl -n fe-signalloom exec deploy/dashboard-signalloom -- \
+  curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  http://localhost:8080/fleet-api/v1/fleet/topology
+```
+
+`200 text/html` is the proxy layer, `504` is a NetworkPolicy, a DNS failure is a
+missing deployment. `bats test/dashboard-route-collisions.bats` guards two of the
+four layers for the dashboard's own nginx — it asserts every upstream has a
+matching egress rule, and it caught the Fleet gap the moment the proxy was added.
+Nothing guards "is it deployed at all". Full checklist, with the namespace and
+RoleBinding traps that make this class silent:
+[`docs/deploying-a-backend-service.md`](../docs/deploying-a-backend-service.md).
 
 ## Supply Chain
 

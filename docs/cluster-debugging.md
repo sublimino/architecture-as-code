@@ -194,6 +194,12 @@ The recurring failure in this repo is not a broken check — it is a check that
 states the rule: *a wait that can never succeed and a gate that always passes are
 the same bug wearing different hats.* Concrete instances, all found live:
 
+Several of the entries below (the silent RoleBinding, the label-blind
+NetworkPolicy, the API path answered by `index.html`) are layers of one larger
+failure — a finished backend service that was never deployed. The checklist that
+prevents it is [`deploying-a-backend-service.md`](deploying-a-backend-service.md);
+what follows is why each layer lies about itself when you go looking.
+
 ### `nc` exit codes cannot distinguish denial from breakage
 
 `busybox:1.36` returns **exit 1** for a blackholed IP *and* for an unresolvable

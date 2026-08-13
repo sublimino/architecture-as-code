@@ -506,9 +506,17 @@ export default function Sidebar() {
 
         {/* Bottom: help + superadmin + user */}
         <div style={{ padding: collapsed ? '8px 4px 16px' : '8px 8px 16px', borderTop: '1px solid var(--border)' }}>
+          {/* The accessible name is the visible label, verbatim. It used to be
+            * "Open help and support", which is a WCAG 2.5.3 failure twice over:
+            * "and" is not "&", so a speech-input user saying what they read —
+            * "click Help and Support" — matched nothing, and a screen reader
+            * announced words printed nowhere on the screen. The "Open" verb
+            * bought nothing either; role=button already says the control acts.
+            * Named unconditionally rather than only when collapsed, so the
+            * phrase that activates it does not change as the rail folds. */}
           <button
             onClick={() => setHelpOpen(true)}
-            aria-label="Open help and support"
+            aria-label="Help & Support"
             title={collapsed ? 'Help & Support' : undefined}
             style={{
               width: '100%',
@@ -564,7 +572,12 @@ export default function Sidebar() {
               onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--muted)')}
             >
               {!collapsed && 'Superadmin'}
-              <span style={{
+              {/* aria-hidden because aria-pressed above already carries this
+                * state; the pill is the sighted restatement of it, not a second
+                * fact. Collapsed, it is the button's only text, so without this
+                * the visible label reads "On" — which the accessible name
+                * happens to contain (in "navigati-on-") purely by accident. */}
+              <span aria-hidden="true" style={{
                 fontSize: 10,
                 fontWeight: 700,
                 letterSpacing: '0.08em',

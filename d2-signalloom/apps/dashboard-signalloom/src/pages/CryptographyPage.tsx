@@ -11,13 +11,16 @@
  * workload-identity proof section at the top so the trust story can render both
  * online and offline.
  */
-import { useState, useEffect, useCallback, type ReactNode, type CSSProperties } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import DataTable from '../components/DataTable'
 import { PieChart, Pie, Cell } from 'recharts'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import StatusBadge from '../components/StatusBadge'
+import StatusBadge, { tint } from '../components/StatusBadge'
+import { StatCard, Section, Table, td } from '../components/DashKit'
+import EmptyState from '../components/EmptyState'
+import ErrorState from '../components/ErrorState'
 import LoadingState from '../components/LoadingState'
 import { colors } from '../styles/tokens'
 import { cryptoLifecycle } from '../data/cryptoLifecycle'
@@ -169,33 +172,17 @@ const PQC_DONUT = [
 ]
 
 // ── Small presentational helpers ─────────────────────────────────────────────
-
-function hex(c: string, o: number) {
-  return c + Math.round(o * 255).toString(16).padStart(2, '0')
-}
-
-const PILL: Record<string, string> = {
-  active: colors.tealLoom,
-  unsealed: colors.tealLoom,
-  ready: colors.tealLoom,
-  renewing: colors.cyanLoom,
-  hybrid: colors.cyanLoom,
-  pending: colors.cyanLoom,
-  expiring: colors.amber,
-  degraded: colors.amber,
-  classical: colors.amber,
-  sealed: colors.red,
-  revoked: colors.red,
-}
-
-function Pill({ label }: { label: string }) {
-  const c = PILL[label] ?? colors.muted
-  return (
-    <span className="tag" style={{ background: hex(c, 0.12), color: c }}>
-      {label}
-    </span>
-  )
-}
+//
+// The local `hex()`, `Pill`, `StatCard`, `Section` and `Table` that used to
+// live here are gone. The last four were character-level duplicates of
+// DashKit's; `hex()` was worse than duplication — it concatenated an alpha
+// suffix onto its argument, and every colour it was handed is a `var(--teal)`
+// token rather than a hex literal (see styles/tokens.ts), so every pill on this
+// page computed `background: var(--teal)1f`, which is not a colour and was
+// dropped. Every badge here has been rendering with no fill at all in all three
+// themes. StatusBadge's `tint()` is the working pattern — `color-mix`, which
+// composes with custom properties — and it is what the Design System page
+// already points at for this exact defect.
 
 function proofBadgeColor(status: CryptoProof['status']) {
   switch (status) {
@@ -207,46 +194,6 @@ function proofBadgeColor(status: CryptoProof['status']) {
     case 'pending':
       return colors.amber
   }
-}
-
-function StatCard({ label, value, sub, accent }: { label: string; value: string; sub: string; accent: string }) {
-  return (
-    <div className="card" style={{ flex: 1, minWidth: 190, padding: '16px 18px' }}>
-      <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: accent, lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>{sub}</div>
-    </div>
-  )
-}
-
-function Section({ title, hint, children }: { title: string; hint: string; children: ReactNode }) {
-  return (
-    <section style={{ marginBottom: 26 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 10 }}>
-        <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{title}</h2>
-        <span style={{ fontSize: 12, color: 'var(--muted)' }}>{hint}</span>
-      </div>
-      {children}
-    </section>
-  )
-}
-
-const th: CSSProperties = { padding: '9px 14px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }
-const td: CSSProperties = { padding: '9px 14px', fontSize: 13, color: 'var(--text)', whiteSpace: 'nowrap' }
-
-function Table({ headers, children }: { headers: string[]; children: ReactNode }) {
-  return (
-    <div className="card" style={{ padding: 0, overflow: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-            {headers.map((h) => <th key={h} style={th}>{h}</th>)}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  )
 }
 
 // ── Page ─────────────────────────────────────────────────────────────────────
@@ -296,15 +243,26 @@ export default function CryptographyPage() {
         {proofs === null ? (
           <LoadingState status="loading" label="workload-identity proofs" testId="crypto-proofs-load-state" />
         ) : proofs.length === 0 ? (
-          <div className="card" style={{ padding: '18px 16px' }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
-              {proofError ? 'Workload-identity proof service unreachable' : 'No workload-identity proofs reported'}
-            </div>
-            <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 720 }}>
-              {proofError
-                ? 'The dashboard could not reach the crypto-proof service (fe-signalloom → fake-integration-proxy → Kubernetes Job status for bao-spire-positive-proof / bao-spire-negative-proof). Check connectivity or backend health and retry.'
-                : 'The crypto-proof service responded with zero proofs — the bao-spire-positive-proof / bao-spire-negative-proof Jobs may not have run yet in this namespace.'}
-            </div>
+          // Two different answers that used to share one grey card. The design
+          // system's rule is that a healthy zero and a fetch that never ran must
+          // not look alike: ErrorState for the failure, EmptyState for the zero.
+          // ErrorState also brings the Retry this dead end never had.
+          <div className="card" data-testid="crypto-proofs-outcome" style={{ padding: 0 }}>
+            {proofError ? (
+              <ErrorState
+                message={'Workload-identity proof service unreachable. The dashboard could not reach it '
+                  + '(fe-signalloom → fake-integration-proxy → Kubernetes Job status for '
+                  + 'bao-spire-positive-proof / bao-spire-negative-proof). Check connectivity or backend health.'}
+                onRetry={() => void load()}
+              />
+            ) : (
+              <EmptyState
+                tone="amber"
+                kicker="No workload-identity proofs reported"
+                body={'The crypto-proof service responded with zero proofs — the bao-spire-positive-proof / '
+                  + 'bao-spire-negative-proof Jobs may not have run yet in this namespace.'}
+              />
+            )}
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
@@ -313,7 +271,11 @@ export default function CryptographyPage() {
               return (
                 <div key={proof.name} className="card" style={{ flex: 1, minWidth: 320, padding: '18px 16px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
-                    <span className="tag" style={{ background: hex(badge, 0.12), color: badge }}>
+                    {/* Not StatusBadge: `pending` means "the Job has not
+                        finished" here (amber, a wait) and "in flight" in the
+                        crypto map (cyan), and one word cannot carry both. The
+                        shared `tint` is what fixes the missing fill. */}
+                    <span className="tag" style={{ background: tint(badge, 0.12), borderColor: tint(badge, 0.25), color: badge }}>
                       {proof.status}
                     </span>
                     <span style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -351,7 +313,7 @@ export default function CryptographyPage() {
               <td style={{ ...td, color: 'var(--muted)' }}>{ca.role}</td>
               <td style={td}><code style={{ color: 'var(--cyan)' }}>{ca.algo}</code></td>
               <td style={{ ...td, color: 'var(--muted)' }}>{ca.expires}</td>
-              <td style={td}><Pill label={ca.status} /></td>
+              <td style={td}><StatusBadge status={ca.status} variant="crypto" /></td>
             </tr>
           ))}
         </Table>
@@ -370,7 +332,7 @@ export default function CryptographyPage() {
               <td style={td}><code style={{ color: 'var(--cyan)' }}>{e.path}</code></td>
               <td style={{ ...td, color: 'var(--muted)' }}>{e.type}</td>
               <td style={td}>{e.leases}</td>
-              <td style={td}><Pill label={e.status} /></td>
+              <td style={td}><StatusBadge status={e.status} variant="crypto" /></td>
             </tr>
           ))}
         </Table>
@@ -395,7 +357,7 @@ export default function CryptographyPage() {
               <td style={{ ...td, color: 'var(--text)' }}>{s.workload}</td>
               <td style={{ ...td, color: 'var(--muted)' }}>{s.selector}</td>
               <td style={{ ...td, color: 'var(--muted)' }}>{s.ttl}</td>
-              <td style={td}><StatusBadge status={s.status} variant="lifecycle" /></td>
+              <td style={td}><StatusBadge status={s.status} variant="credential" /></td>
             </tr>
           ))}
         </Table>
@@ -475,13 +437,13 @@ export default function CryptographyPage() {
                         <code style={{ color: 'var(--cyan)', fontSize: 12 }}>{c.kex}</code>
                       )}
                     </td>
-                    <td style={td}><Pill label={c.pqc} /></td>
+                    <td style={td}><StatusBadge status={c.pqc} variant="crypto" /></td>
                     <td style={td}>
                       {lifecycle?.eolDate ? (
                         <span
                           className="tag"
                           title={lifecycle.source}
-                          style={{ background: hex(colors.red, 0.12), color: colors.red }}
+                          style={{ background: tint(colors.red, 0.12), borderColor: tint(colors.red, 0.25), color: colors.red }}
                         >
                           EOL {lifecycle.eolDate}
                         </span>
@@ -520,7 +482,7 @@ export default function CryptographyPage() {
                 data-highlighted={a.algorithm === highlightedAlgo}
                 style={{
                   borderBottom: '1px solid var(--border)',
-                  background: a.algorithm === highlightedAlgo ? hex(colors.cyanLoom, 0.16) : undefined,
+                  background: a.algorithm === highlightedAlgo ? tint(colors.cyanLoom, 0.16) : undefined,
                   transition: 'background 200ms ease',
                 }}
               >
@@ -533,7 +495,7 @@ export default function CryptographyPage() {
                     <span
                       className="tag"
                       title={lifecycle.source}
-                      style={{ background: hex(colors.red, 0.12), color: colors.red }}
+                      style={{ background: tint(colors.red, 0.12), borderColor: tint(colors.red, 0.25), color: colors.red }}
                     >
                       EOL {lifecycle.eolDate}
                     </span>
@@ -541,7 +503,7 @@ export default function CryptographyPage() {
                     <span style={{ color: colors.tealLoom }}>None</span>
                   )}
                 </td>
-                <td style={td}><Pill label={a.quantumSafe ? 'ready' : 'classical'} /></td>
+                <td style={td}><StatusBadge status={a.quantumSafe ? 'ready' : 'classical'} variant="crypto" /></td>
               </tr>
             )
           }}
@@ -557,7 +519,7 @@ export default function CryptographyPage() {
               <td style={td}><code style={{ color: 'var(--violet)' }}>{p.kind}</code></td>
               <td style={{ ...td, color: 'var(--muted)' }}>{p.upstream}</td>
               <td style={{ ...td, color: 'var(--muted)' }}>{p.provider}</td>
-              <td style={td}><Pill label={p.status} /></td>
+              <td style={td}><StatusBadge status={p.status} variant="crypto" /></td>
             </tr>
           ))}
         </Table>

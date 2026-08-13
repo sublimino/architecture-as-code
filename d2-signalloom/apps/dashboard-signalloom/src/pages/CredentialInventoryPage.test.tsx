@@ -134,12 +134,59 @@ describe('CredentialInventoryPage — unregistered workloads', () => {
     supercred: false,
   })
 
-  it('warns when a discovered pod has no SPIRE registration entry', async () => {
+  it('warns when a discovered pod is absent from the declared registration manifest', async () => {
     mockAgentFetch({ agents: [defaultSaPod] })
     renderPage()
     const warning = await screen.findByTestId('unregistered-warning')
-    expect(warning).toHaveTextContent(/no SPIRE registration entry/i)
+    expect(warning).toHaveTextContent(/not in the declared registration manifest/i)
     expect(warning).toHaveTextContent('spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/default')
+  })
+
+  // The banner's claim has to match the check that produced it. `registered` is
+  // decided by set membership against the hardcoded CONFIG_REGISTRATION_ENTRIES
+  // — no SPIRE server is contacted anywhere in this page's data path — so a
+  // banner asserting "no SPIRE registration entry" was reporting a query that
+  // never ran.
+  it('does not assert a SPIRE fact it never went and checked', async () => {
+    mockAgentFetch({ agents: [defaultSaPod] })
+    renderPage()
+    const warning = await screen.findByTestId('unregistered-warning')
+    expect(warning).not.toHaveTextContent(/no SPIRE registration entry/i)
+    expect(warning).toHaveTextContent(/No SPIRE server was queried/i)
+  })
+
+  it('shows the literal comparison behind the warning, and both sides of it', async () => {
+    mockAgentFetch({ agents: [defaultSaPod] })
+    renderPage()
+    await screen.findByTestId('unregistered-warning')
+    await userEvent.click(screen.getByTestId('unregistered-disclose-proof'))
+
+    const panel = screen.getByTestId('unregistered-proof-console-panel')
+    expect(panel).toHaveTextContent('CONFIG_REGISTRATION_ENTRIES.map(e => e.spiffeId).includes(discoveredId)')
+    expect(panel).toHaveTextContent('No SPIRE server was contacted')
+    // Both sides of the comparison, so the reader can check the verdict.
+    expect(panel).toHaveTextContent('spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom')
+    expect(panel).toHaveTextContent('spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/default')
+  })
+
+  it('names the command that would answer the SPIRE question, as one nobody ran', async () => {
+    mockAgentFetch({ agents: [defaultSaPod] })
+    renderPage()
+    await screen.findByTestId('unregistered-warning')
+    await userEvent.click(screen.getByTestId('unregistered-disclose-proof'))
+
+    const panel = screen.getByTestId('unregistered-proof-console-panel')
+    expect(panel).toHaveTextContent('spire-server entry show')
+    expect(panel).toHaveTextContent('this dashboard has no path to run it')
+    // Named as unavailable, never staged as a command with fabricated output.
+    expect(panel).not.toHaveTextContent('$ spire-server entry show')
+  })
+
+  it('keeps the warning proof closed until it is asked for', async () => {
+    mockAgentFetch({ agents: [defaultSaPod] })
+    renderPage()
+    await screen.findByTestId('unregistered-warning')
+    expect(screen.queryByTestId('unregistered-proof-console')).toBeNull()
   })
 
   it('shows the unregistered identity as pending, never active', async () => {
@@ -349,6 +396,57 @@ describe('CredentialInventoryPage — structure', () => {
       expect(screen.queryByTestId('credential-inventory-help-status')).not.toBeInTheDocument()
       expect(screen.queryByTestId('credential-inventory-help-expiresAt')).not.toBeInTheDocument()
     })
+  })
+})
+
+// ─── Design-system conformance ──────────────────────────────────────────────
+
+describe('CredentialInventoryPage — shared components', () => {
+  it('renders every status through StatusBadge rather than a local pill', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+
+    const state = await screen.findByTestId('identity-state-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent')
+    const credential = screen.getByTestId('credential-status-cardvault-agent-x509-svid')
+    for (const badge of [state, credential]) {
+      expect(badge).toHaveClass('tag')
+      // StatusBadge tints via color-mix; the local Tag it replaced did too, but
+      // only StatusBadge also carries the matching border tint.
+      expect(badge.style.borderColor).toContain('color-mix')
+    }
+  })
+
+  it('keeps provenance colour-coded after the migration, not flattened to neutral', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+
+    // The most load-bearing colour on the page: measured vs declared.
+    const live = await screen.findByTestId('identity-provenance-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent')
+    const config = screen.getByTestId('identity-provenance-spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom')
+    expect(live.style.color).toBe('var(--teal)')
+    expect(config.style.color).toBe('var(--cyan)')
+    expect(config).toHaveAttribute('title', expect.stringContaining('not observed'))
+  })
+
+  it('opens the proof from a shared .btn, not a bespoke one', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+
+    const button = screen.getByTestId('inventory-disclose-proof')
+    expect(button).toHaveClass('btn', 'btn-secondary')
+    // Still toggles, which is the only thing the class change could break.
+    await userEvent.click(button)
+    expect(screen.getByTestId('inventory-proof-console')).toBeInTheDocument()
+  })
+
+  it('distinguishes a healthy empty result from a load that has not answered', async () => {
+    // Discovery answers with no pods, and both config entries are dropped only
+    // in demo mode — so here the table is non-empty and no EmptyState shows.
+    mockAgentFetch({ agents: [] })
+    renderPage()
+    await waitFor(() => expect(screen.getAllByTestId(/^identity-row-/).length).toBeGreaterThan(0))
+    expect(screen.queryByText('No workload identities found')).toBeNull()
   })
 })
 

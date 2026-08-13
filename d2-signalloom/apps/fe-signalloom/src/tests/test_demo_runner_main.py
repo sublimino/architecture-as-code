@@ -29,6 +29,11 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
         "/api/demo/supercred/runs",
         "/api/demo/supercred/runs/{run_id}",
         "/api/demo/supercred/runs/{run_id}/log",
+        # The SSE push route beside the poll route above. Same log, same
+        # superadmin gate, different transport — and listed here deliberately,
+        # because this set is the security surface and a route arriving in it
+        # without an edit is what the assertion exists to catch.
+        "/api/demo/supercred/runs/{run_id}/stream",
         "/api/demo/supercred/reset",
         "/api/demo/supercred/status",
         # Read-only evidence probe backing the dashboard's Credential

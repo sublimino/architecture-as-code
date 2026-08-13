@@ -502,9 +502,25 @@ demo-signalloom-supercred-stream: ## Prove the instructor run log arrives progre
 # against it. ~25s. Deliberately not routed through scripts/acceptance-test.sh:
 # that script establishes cluster port-forwards and runs a Gateway preflight,
 # every one of which this target exists to do without.
+#
+# The install is UNCONDITIONAL, and that is the fix for a real failure rather
+# than tidiness. This used to read `[ -d node_modules/@playwright ] || bun
+# install`, which guards on one package to decide whether the whole dependency
+# SET is present. A checkout whose node_modules predated react being added to
+# package.json therefore short-circuited: @playwright was there, bun install
+# never ran, and the harness died with `Cannot find package 'react'` — reported
+# by the spec as "harness exited before it was ready", which reads as a harness
+# bug rather than a missing install. Any guard of that shape is wrong for the
+# same reason; the lockfile is the only thing that describes the dependency set,
+# so let bun compare against it.
+#
+# --frozen-lockfile is deliberate twice over: it is a no-op in ~100ms when the
+# tree already satisfies bun.lock, and it makes a package.json that disagrees
+# with the lockfile a hard failure here rather than something bun silently
+# reconciles — the same reason CI stage 1b passes it.
 .PHONY: demo-signalloom-supercred-stream-harness
 demo-signalloom-supercred-stream-harness: ## Prove the instructor run log streams, against a scripted runner (no cluster required).
-	cd test/acceptance && { [ -d node_modules/@playwright ] || bun install; } && \
+	cd test/acceptance && bun install --frozen-lockfile && \
 		bunx playwright test supercred-log-streaming-harness.spec.ts \
 			--project=supercred-log-streaming-harness
 

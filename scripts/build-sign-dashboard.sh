@@ -9,7 +9,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 IMAGE_REF="${IMAGE_REF:-zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest}"
 LOCAL_REF="${LOCAL_REF:-localhost:5001/acme/images/signalloom/apps/dashboard-signalloom:latest}"
-COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
+# shellcheck source=scripts/lib/keys.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
+KEYS_DIR="$(keys_dir)"
+COSIGN_KEY="${COSIGN_KEY:-${KEYS_DIR}/cosign.key}"
 EVIDENCE_DIR="${EVIDENCE_DIR:-docs/signalloom/evidence}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
 CONTEXT="${CONTEXT:-d2-signalloom/apps/dashboard-signalloom}"

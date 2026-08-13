@@ -11,7 +11,10 @@ mode="${1:-all}"
 ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-true}"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
-COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
+# shellcheck source=scripts/lib/keys.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
+KEYS_DIR="$(keys_dir)"
+COSIGN_KEY="${COSIGN_KEY:-${KEYS_DIR}/cosign.key}"
 REVISION="local@sha1:$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)"
 
 test -f "${COSIGN_KEY}" || { echo "${COSIGN_KEY} not found; run 'make signing-keys' first"; exit 1; }

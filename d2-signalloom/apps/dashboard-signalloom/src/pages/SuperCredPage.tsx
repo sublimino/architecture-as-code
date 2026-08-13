@@ -4,6 +4,7 @@ import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
 import { CredentialEvidencePanel } from '../components/CredentialEvidencePanel'
 import HelpHint from '../components/HelpHint'
+import PixelLoader from '../components/PixelLoader'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -217,6 +218,30 @@ function DemoStepControls({ onAdvance }: { onAdvance: () => void }) {
 /** The one user-facing name for this page — h1, nav label and document title. */
 export const SUPERCRED_PAGE_TITLE = 'SuperCredential Demo'
 
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// Every wait on this page shows the pixel grid and a live elapsed figure — the
+// treatment the instructor panel already uses for a running demo phase. A
+// disabled button says "busy" and nothing more, and ninety seconds into a step
+// nobody in the room can tell a slow proxy from a hung one.
+//
+// The widths below are RESERVED, not measured. The figure gains a character at
+// 10.0s and another at 1m 0.0s; inside a shrink-to-fit button each of those is
+// a visible nudge of the whole row, and mid-demo jitter reads as a fault. So
+// the loader is given an explicit width and the button a min-width that
+// already fits its busy state — which incidentally makes the idle→busy swap
+// still as well.
+
+/** Grid + gap + the figure at its longest ("1m 5.0s"), with no word. */
+const COMPACT_LOADER_W = 78
+/** The same, plus room for a single word at the loader's 13px. */
+const LABELLED_LOADER_W = 144
+const LOADER_GAP = 6
+/** Fits `LABELLED_LOADER_W` plus the button's own horizontal padding. */
+const LABELLED_BUTTON_W = 176
+/** Fits the widest idle label in an agent row ("Compliance Scan") and a loader. */
+const ROW_BUTTON_W = 112
+
 export default function SuperCredPage() {
   const { getAccessTokenSilently } = useAuth0()
   const { superadmin } = useAppContext()
@@ -233,6 +258,11 @@ export default function SuperCredPage() {
   const [stunEvent, setStunEvent] = useState<AuditEventResponse | null>(null)
   const [stunEventError, setStunEventError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Which row the in-flight scan or stun belongs to. `scanLoading` and
+  // `stunLoading` are page-wide — they disable every row's buttons — so
+  // without this the progress timer would tick on all of them at once and
+  // claim five operations are running when one is.
+  const [busyAgentId, setBusyAgentId] = useState<string | null>(null)
 
   const loadAgents = useCallback(async () => {
     setLoading(true)
@@ -257,6 +287,7 @@ export default function SuperCredPage() {
 
   const runComplianceScan = useCallback(async (agent: RuntimeAgent) => {
     setScanLoading(true)
+    setBusyAgentId(agent.id)
     setCompliance(null)
     setError(null)
     try {
@@ -269,11 +300,13 @@ export default function SuperCredPage() {
       setError(err instanceof Error ? err.message : 'Compliance scan failed')
     } finally {
       setScanLoading(false)
+      setBusyAgentId(null)
     }
   }, [])
 
   const stunAgent = useCallback(async (agent: RuntimeAgent) => {
     setStunLoading(true)
+    setBusyAgentId(agent.id)
     setStunResult(null)
     setStunEvent(null)
     setStunEventError(null)
@@ -317,6 +350,7 @@ export default function SuperCredPage() {
       setError(err instanceof Error ? err.message : 'Stun failed')
     } finally {
       setStunLoading(false)
+      setBusyAgentId(null)
     }
   }, [loadAgents, getAccessTokenSilently])
 
@@ -424,8 +458,27 @@ export default function SuperCredPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button className="btn btn-primary" onClick={loadAgents} disabled={loading} style={{ fontSize: 12, padding: '6px 14px' }}>
-              {loading ? 'Loading...' : 'Refresh Agents'}
+            <button
+              className="btn btn-primary"
+              onClick={loadAgents}
+              disabled={loading}
+              style={{
+                fontSize: 12, padding: '6px 14px', minWidth: LABELLED_BUTTON_W,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}
+            >
+              {/* No sibling live region on this page, so the loader's own
+                  role=status is the one announcement of the wait — which is
+                  why this one keeps its word rather than going compact. */}
+              {loading
+                ? (
+                  <PixelLoader
+                    testId="supercred-refresh-loader"
+                    label="Refreshing"
+                    style={{ width: LABELLED_LOADER_W, gap: LOADER_GAP }}
+                  />
+                )
+                : 'Refresh Agents'}
             </button>
             <HelpHint label="About the agent-list refresh" testId="supercred-refresh-agents-help">
               Refreshes only the visible SuperCred agent list from the runtime. It does not refresh demo-runner phase status or clear cached SuperCred state.
@@ -458,22 +511,54 @@ export default function SuperCredPage() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
+                  {/* Both row buttons carry the same min-width so the pair is
+                      one stable block: the row must not re-flow when a label
+                      is swapped for a loader, and both must stay put while the
+                      figure counts. These two go COMPACT — grid and figure, no
+                      word — because a 13px label inside an 11px button is out
+                      of scale, and the button's own aria-label carries the
+                      meaning for anyone who cannot see the grid. */}
                   <button
                     className="btn btn-secondary"
-                    style={{ fontSize: 11, padding: '4px 10px' }}
+                    style={{
+                      fontSize: 11, padding: '4px 10px', minWidth: ROW_BUTTON_W,
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    }}
                     onClick={() => runComplianceScan(agent)}
                     disabled={scanLoading}
+                    aria-label={scanLoading && busyAgentId === agent.id ? 'Compliance scan running' : undefined}
                   >
-                    {scanLoading ? 'Scanning...' : 'Compliance Scan'}
+                    {scanLoading && busyAgentId === agent.id
+                      ? (
+                        <PixelLoader
+                          testId={`supercred-scan-loader-${agent.id}`}
+                          label=""
+                          style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }}
+                        />
+                      )
+                      : 'Compliance Scan'}
                   </button>
                   {agent.state !== 'stunned' && (
                     <button
                       className="btn btn-secondary"
-                      style={{ fontSize: 11, padding: '4px 10px', color: colors.red, borderColor: colors.red }}
+                      style={{
+                        fontSize: 11, padding: '4px 10px', color: colors.red, borderColor: colors.red,
+                        minWidth: ROW_BUTTON_W,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      }}
                       onClick={() => stunAgent(agent)}
                       disabled={stunLoading}
+                      aria-label={stunLoading && busyAgentId === agent.id ? 'Stunning agent' : undefined}
                     >
-                      {stunLoading ? 'Stunning...' : 'Stun Agent'}
+                      {stunLoading && busyAgentId === agent.id
+                        ? (
+                          <PixelLoader
+                            testId={`supercred-stun-loader-${agent.id}`}
+                            label=""
+                            style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }}
+                          />
+                        )
+                        : 'Stun Agent'}
                     </button>
                   )}
                 </div>

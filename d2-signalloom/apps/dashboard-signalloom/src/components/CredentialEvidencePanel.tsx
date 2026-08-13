@@ -8,6 +8,7 @@ import {
   type EvidenceState,
   type EvidenceStep,
 } from '../api/credentialEvidence'
+import PixelLoader from './PixelLoader'
 import { ProofConsole } from './ProofConsole'
 
 // One card, two audiences.
@@ -80,6 +81,24 @@ function describeFailure(status: number): { title: string; detail: string } {
     detail: 'The platform returned a response this card does not know how to read.',
   }
 }
+
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// "Checking the credential chain…" reads identically at second two and at
+// second ninety, and the probe shells out to kubectl six times — it is not
+// fast. Both of this card's waits now carry a live elapsed figure.
+//
+// The button goes COMPACT (grid and figure, no word): it is an 11px control in
+// a header row, a 13px label inside it is out of scale, and its aria-label
+// carries the meaning. The headline keeps the full sentence, because that is a
+// panel-level wait with a whole line to itself.
+
+/** Grid + gap + the figure at its longest ("1m 5.0s"), with no word. */
+const COMPACT_LOADER_W = 78
+const LOADER_GAP = 6
+/** Fits COMPACT_LOADER_W plus the button's padding, and the idle label too, so
+ *  the header does not shuffle when Re-check becomes a loader. */
+const REFRESH_BUTTON_W = 96
 
 function headline(steps: EvidenceStep[], failed: boolean, loading: boolean): string {
   const { observed, unavailable, total } = evidenceSummary(steps)
@@ -222,17 +241,45 @@ export function CredentialEvidencePanel({
           <HelpHint label="What showing the proof does" testId="evidence-commands-help">
             Opens the literal command that decided each row, and the raw output it returned, for every row at once. A row’s own “How do we know?” button opens the same proof for that row alone. Paste the command into a terminal to check the platform rather than trust it.
           </HelpHint>
-          <button type="button" data-testid="evidence-refresh" onClick={() => void load()} disabled={loading} style={btn}>
-            {loading ? 'Checking…' : 'Re-check'}
+                    <button
+            type="button"
+            data-testid="evidence-refresh"
+            onClick={() => void load()}
+            disabled={loading}
+            style={{
+              ...btn,
+              minWidth: REFRESH_BUTTON_W,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            aria-label={loading ? 'Checking' : undefined}
+          >
+            {loading
+              ? <PixelLoader testId="evidence-recheck-loader" label="" style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }} />
+              : 'Re-check'}
           </button>
         </div>
       </div>
 
       {/* The executive line: one sentence, no jargon, no counts of things that
-          were not checked hidden inside a "completed". */}
-      <p data-testid="evidence-headline" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.5 }}>
-        {headline(steps, error !== null, loading)}
-      </p>
+          were not checked hidden inside a "completed".
+
+          A div rather than a p: the first-pass wait renders PixelLoader here,
+          whose root is a div, and a paragraph may not contain one — the
+          browser would close the paragraph early and the styling with it. The
+          test id, the sentence and the styling are otherwise unchanged, and on
+          a RE-check the line keeps showing the previous counts rather than
+          throwing them away. */}
+      <div data-testid="evidence-headline" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 4px', lineHeight: 1.5 }}>
+        {error === null && loading && summary.total === 0
+          ? (
+            <PixelLoader
+              testId="evidence-headline-loader"
+              label="Checking the credential chain"
+              style={{ gap: LOADER_GAP }}
+            />
+          )
+          : headline(steps, error !== null, loading)}
+      </div>
       {/* A claim about rows, so it is only made when there are rows. With an
           empty chain it asserted that six absent rows had each been decided by
           a command that never ran. */}

@@ -595,3 +595,125 @@ describe('SuperCredPage', () => {
     expect(row).toHaveTextContent('non-compliant securityContext')
   })
 })
+
+// ─── Waiting ────────────────────────────────────────────────────────────────
+//
+// A control that is merely disabled tells the room nothing. Mid-demo the only
+// question anyone has about a running step is "is it slow or is it hung", and
+// the answer to that is an elapsed figure that keeps moving. Every wait on this
+// page now carries the instructor panel's pixel-grid-and-timer treatment.
+
+/** A promise held open until the test decides the request has finished. */
+function gate<T>() {
+  let release!: (value: T) => void
+  const promise = new Promise<T>(resolve => { release = resolve })
+  return { promise, release }
+}
+
+const okJson = (body: unknown) => ({ ok: true, json: async () => body }) as Response
+
+describe('SuperCred waits say what is running and for how long', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('counts up on Refresh Agents while discovery is in flight', async () => {
+    const held = gate<Response>()
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith('/agents')) return held.promise
+      return okJson({})
+    }) as unknown as typeof fetch
+
+    renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /Refresh Agents/ }))
+
+    const loader = await screen.findByTestId('supercred-refresh-loader')
+    // The elapsed figure is present and reading a real duration, not a stub.
+    expect(within(loader).getByTestId('supercred-refresh-loader-elapsed')).toHaveTextContent(/^\d+(\.\d)?s$/)
+    // Nothing anonymous: the control still names its own operation.
+    expect(screen.getByRole('button', { name: /refreshing/i })).toBeDisabled()
+
+    held.release(okJson({ agents: [cardvault()], namespaces: [FLUX_NS] }))
+
+    await waitFor(() => expect(screen.queryByTestId('supercred-refresh-loader')).not.toBeInTheDocument())
+    expect(screen.getByRole('button', { name: /Refresh Agents/ })).toBeEnabled()
+  })
+
+  it('ticks only on the row being stunned, never on every row at once', async () => {
+    const held = gate<Response>()
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/stun')) return held.promise
+      if (url.endsWith('/agents')) {
+        return okJson({
+          agents: [cardvault(), cardvault({ id: 'agent-second', name: 'Second Agent' })],
+          namespaces: [FLUX_NS],
+        })
+      }
+      return okJson({})
+    }) as unknown as typeof fetch
+
+    renderPage()
+    await refresh()
+
+    const stunButtons = await screen.findAllByRole('button', { name: /Stun Agent/ })
+    expect(stunButtons).toHaveLength(2)
+    await userEvent.click(stunButtons[0])
+
+    expect(await screen.findByTestId('supercred-stun-loader-agent-cardvault')).toBeInTheDocument()
+    // `stunLoading` is page-wide — it disables every row. A timer on every row
+    // would claim two operations are running when one is.
+    expect(screen.queryByTestId('supercred-stun-loader-agent-second')).not.toBeInTheDocument()
+    // The grid and the figure are decoration; the button carries the name.
+    expect(screen.getByRole('button', { name: /stunning/i })).toBeDisabled()
+
+    held.release(okJson({
+      agent_id: 'agent-cardvault',
+      namespace: FLUX_NS,
+      state: 'stunned',
+      stunned_at: '2026-01-01T00:00:00Z',
+      message: 'Agent agent-cardvault stunned: credentials revoked',
+    }))
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('supercred-stun-loader-agent-cardvault')).not.toBeInTheDocument(),
+    )
+    expect(await screen.findAllByRole('button', { name: /Stun Agent/ })).toHaveLength(2)
+  })
+
+  it('counts up on the compliance scan of the row that started it', async () => {
+    const held = gate<Response>()
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.includes('/compliance')) return held.promise
+      if (url.endsWith('/agents')) return okJson({ agents: [cardvault()], namespaces: [FLUX_NS] })
+      return okJson({})
+    }) as unknown as typeof fetch
+
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Compliance Scan/ }))
+
+    const loader = await screen.findByTestId('supercred-scan-loader-agent-cardvault')
+    expect(within(loader).getByTestId('supercred-scan-loader-agent-cardvault-elapsed')).toHaveTextContent(/s$/)
+    expect(screen.getByRole('button', { name: /compliance scan running/i })).toBeDisabled()
+
+    held.release(okJson({
+      agent_id: 'agent-cardvault',
+      compliant: true,
+      results: [],
+      evaluated_at: '2026-01-01T00:00:00Z',
+    }))
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('supercred-scan-loader-agent-cardvault')).not.toBeInTheDocument(),
+    )
+    expect(screen.getByRole('button', { name: /Compliance Scan/ })).toBeEnabled()
+  })
+})

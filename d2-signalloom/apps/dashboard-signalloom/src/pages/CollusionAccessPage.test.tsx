@@ -13,13 +13,20 @@
  *     *empirically different* from the demo fixture — the concrete proof that
  *     the "demo and live return identical data" bug is fixed;
  *  4. a live-mode failure renders a visible error and never falls back to
- *     demo content, per the non-negotiable in WORKTREE-INTEGRATION.md.
+ *     demo content, per the non-negotiable in WORKTREE-INTEGRATION.md;
+ *  5. the selector offers a CLUSTER entry per cluster, not only job history —
+ *     the gap that made a cluster visible on the KubeSec-AFM dashboard and
+ *     RBAC Explorer unreachable from this page;
+ *  6. every claim on the page can be traced to a command, and the demo path
+ *     says plainly that nothing was measured rather than dressing a fixture
+ *     up as a probe.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import CollusionAccessPage from './CollusionAccessPage'
+import { DEMO_RUNS } from '../api/afmDemoFixtures'
 
 const isDemoMode = vi.fn(() => true)
 const fetchMock = vi.fn()
@@ -140,6 +147,10 @@ function requestedUrls(): string[] {
   return fetchMock.mock.calls.map(([input]) => String(input))
 }
 
+function optionValues(select: HTMLElement): (string | null)[] {
+  return within(select).getAllByRole('option').map(o => o.getAttribute('value'))
+}
+
 /** Reads a StatCard's numeric value by its label — several stat cards can share a value, so text queries alone are ambiguous. */
 function statCardValue(label: string): string {
   const labelNode = screen.getByText(label)
@@ -185,6 +196,8 @@ describe('CollusionAccessPage — demo mode', () => {
     const options = within(select).getAllByRole('option').map(o => o.textContent)
     expect(options).toEqual([
       'All runs (aggregate)',
+      'Prod GitOps Cluster (EU) · latest analysis',
+      'Staging Cluster · latest analysis',
       'Prod GitOps Cluster (EU) · 2026-07-28 09:12 · 2 collusion pairs',
       'Staging Cluster · 2026-07-30 14:47 · 2 collusion pairs',
     ])
@@ -201,6 +214,106 @@ describe('CollusionAccessPage — demo mode', () => {
     expect(screen.getAllByText(/role:flux-reconciler/).length).toBeGreaterThan(0)
     // Collusion-pairs count drops from the aggregate's 4 to this run's 2.
     expect(statCardValue('Collusion pairs')).toBe('2')
+  })
+})
+
+describe('CollusionAccessPage — page chrome', () => {
+  it('renders no decorative page background, so the chrome matches every sibling page', () => {
+    const { container } = renderPage()
+
+    // The radial cluster-graph placeholder this page alone used to carry.
+    expect(screen.queryByTestId('ktp-graph-bg')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-bg]')).toBeNull()
+    // No element paints a backgroundImage behind the page.
+    const painted = Array.from(container.querySelectorAll<HTMLElement>('[style]'))
+      .filter(el => el.style.backgroundImage !== '')
+    expect(painted).toHaveLength(0)
+  })
+})
+
+describe('CollusionAccessPage — run selector covers the same selections as the AFM/RBAC surfaces', () => {
+  it('offers every cluster as well as every run, derived from the fixtures rather than hardcoded', () => {
+    renderPage()
+
+    // Derived from the same source the page reads, so the assertion cannot
+    // drift into agreeing with a stale copy of the option list.
+    const expectedClusters = Array.from(new Set(DEMO_RUNS.map(r => `cluster:${r.clusterId}`)))
+    const expectedRuns = DEMO_RUNS.map(r => r.id)
+
+    expect(optionValues(screen.getByTestId('collusion-run-select')))
+      .toEqual(['aggregate', ...expectedClusters, ...expectedRuns])
+  })
+
+  it('groups the selector so a cluster reads as a different altitude from a run', () => {
+    renderPage()
+
+    const groups = Array.from(screen.getByTestId('collusion-run-select').querySelectorAll('optgroup'))
+      .map(g => g.getAttribute('label'))
+    expect(groups).toEqual(['Cluster (latest analysis)', 'Run history'])
+  })
+
+  it("selecting a cluster shows that cluster's analysis and nothing from the other cluster", async () => {
+    renderPage()
+
+    await userEvent.selectOptions(screen.getByTestId('collusion-run-select'), 'cluster:staging-1')
+
+    expect(screen.getAllByText(/role:secret-reader/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/role:flux-reconciler/)).not.toBeInTheDocument()
+    expect(statCardValue('Collusion pairs')).toBe('2')
+  })
+})
+
+describe('CollusionAccessPage — how do we know', () => {
+  it('discloses the demo data path and says outright that nothing was measured', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByTestId('collusion-proof-provenance'))
+
+    const console_ = screen.getByTestId('collusion-console-provenance')
+    expect(console_).toHaveTextContent('localStorage.getItem("demoMode")')
+    expect(console_).toHaveTextContent('afmDemoFixtures.ts')
+    expect(console_).toHaveTextContent(/nothing here was measured/i)
+  })
+
+  it('sources each collusion pair to the fixture that declares it, carrying AFM\'s own reason', async () => {
+    renderPage()
+
+    await userEvent.selectOptions(screen.getByTestId('collusion-run-select'), 'demo-run-prod-eu-1')
+    await userEvent.click(screen.getByTestId('collusion-proof-group-0'))
+
+    const console_ = screen.getByTestId('collusion-console-group-0')
+    expect(console_).toHaveTextContent('afmDemoFixtures.ts')
+    // The claim's own substance, not a restatement of the row: AFM's reason.
+    expect(console_).toHaveTextContent('pivots through role:flux-reconciler, 4-step joint trace')
+    expect(console_).toHaveTextContent('group:dev-eu, sa:ci/runner')
+    // A fixture must never read as a probe result.
+    expect(console_).toHaveTextContent(/not a measurement/i)
+  })
+
+  it('sources the shared-role and remediation tables too', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByTestId('collusion-proof-shared-roles'))
+    expect(screen.getByTestId('collusion-console-shared-roles'))
+      .toHaveTextContent('role:flux-reconciler — shared by 4, privileged: sa:ci/runner')
+
+    await userEvent.click(screen.getByTestId('collusion-proof-guards'))
+    expect(screen.getByTestId('collusion-console-guards'))
+      .toHaveTextContent('Remove escalate verb from role:flux-reconciler')
+  })
+
+  it('closes the console again, and does not leave it open across a run change', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByTestId('collusion-proof-provenance'))
+    expect(screen.getByTestId('collusion-console-provenance')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('collusion-proof-provenance'))
+    expect(screen.queryByTestId('collusion-console-provenance')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('collusion-proof-group-0'))
+    await userEvent.selectOptions(screen.getByTestId('collusion-run-select'), 'demo-run-staging-1')
+    expect(screen.queryByTestId('collusion-console-group-0')).not.toBeInTheDocument()
   })
 })
 
@@ -246,16 +359,84 @@ describe('CollusionAccessPage — live mode', () => {
 
     const select = await screen.findByTestId('collusion-run-select')
     await waitFor(() => {
-      expect(within(select).getAllByRole('option')).toHaveLength(2)
+      expect(within(select).getAllByRole('option')).toHaveLength(3)
     })
-    expect(within(select).getAllByRole('option')[1]).toHaveTextContent('Prod Live Cluster · 2026-08-01 10:00 · done')
+    expect(within(select).getAllByRole('option')[2]).toHaveTextContent('Prod Live Cluster · 2026-08-01 10:00 · done')
+  })
+
+  it('offers every AFM cluster as a selection, so the results the AFM dashboard shows are reachable here', async () => {
+    renderPage()
+
+    const select = await screen.findByTestId('collusion-run-select')
+    // One entry per cluster from /afm/clusters — the same list the RBAC
+    // Analysis embed and RBAC Explorer enumerate — plus the run history.
+    await waitFor(() => {
+      expect(optionValues(select)).toEqual(['aggregate', 'cluster:prod', 'job-live-1'])
+    })
+  })
+
+  it("selecting a cluster fetches that cluster's latest analysis rather than a job result", async () => {
+    renderPage()
+
+    const select = await screen.findByTestId('collusion-run-select')
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3))
+    fetchMock.mockClear()
+
+    await userEvent.selectOptions(select, 'cluster:prod')
+
+    await waitFor(() => {
+      expect(requestedUrls()).toContain('/afm/clusters/prod/analysis/latest')
+    })
+    expect(requestedUrls()).not.toContain('/afm/jobs/job-live-1/result')
+    expect(await screen.findAllByText('sa:prod/api')).not.toHaveLength(0)
+  })
+
+  it('names the endpoint and the exact row behind a live finding', async () => {
+    renderPage()
+
+    const select = await screen.findByTestId('collusion-run-select')
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3))
+    await userEvent.selectOptions(select, 'job-live-1')
+
+    await userEvent.click(await screen.findByTestId('collusion-proof-single-0'))
+
+    const console_ = screen.getByTestId('collusion-console-single-0')
+    // The command returns exactly the object this row was rendered from.
+    expect(console_).toHaveTextContent("curl -s /afm/jobs/job-live-1/result | jq '.single_escalations[0]'")
+    // toHaveTextContent collapses runs of whitespace, so the console's column
+    // alignment is not asserted here — only the field/value pairs.
+    expect(console_).toHaveTextContent('escalation_type: admin_via_impersonation')
+    expect(console_).toHaveTextContent('risk.level: high')
+    // AFM sent no reason for this finding; the console says so rather than
+    // inventing one.
+    expect(console_).toHaveTextContent('risk.reason: (none reported by AFM)')
+  })
+
+  it('attributes an aggregate row to its own cluster endpoint, not to whichever cluster came first', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByTestId('collusion-proof-single-0'))
+
+    expect(screen.getByTestId('collusion-console-single-0'))
+      .toHaveTextContent("curl -s /afm/clusters/prod/analysis/latest | jq '.single_escalations[0]'")
+  })
+
+  it('discloses the aggregate data path, including how many clusters were rolled up', async () => {
+    renderPage()
+
+    await userEvent.click(await screen.findByTestId('collusion-proof-provenance'))
+
+    const console_ = screen.getByTestId('collusion-console-provenance')
+    expect(console_).toHaveTextContent('curl -s /afm/clusters | jq -r ".[].id"')
+    expect(console_).toHaveTextContent('1 cluster(s) returned: prod')
+    expect(console_).toHaveTextContent('1 of them have a completed analysis run')
   })
 
   it('drilling into the live run fetches /jobs/{id}/result and its guards', async () => {
     renderPage()
 
     const select = await screen.findByTestId('collusion-run-select')
-    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2))
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3))
 
     await userEvent.selectOptions(select, 'job-live-1')
 
@@ -289,7 +470,7 @@ describe('CollusionAccessPage — live mode', () => {
     renderPage()
 
     const select = await screen.findByTestId('collusion-run-select')
-    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(2))
+    await waitFor(() => expect(within(select).getAllByRole('option')).toHaveLength(3))
 
     routeLiveFetch({ jobResult: () => Promise.reject(new Error('job result unavailable')) })
     await userEvent.selectOptions(select, 'job-live-1')

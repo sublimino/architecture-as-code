@@ -515,6 +515,166 @@ describe('the card does not overclaim while it is empty', () => {
   })
 })
 
+// A control that looks like it works and does not is the exact failure this
+// whole card exists to prevent, and the proof disclosure had one.
+//
+// The panel held the row state twice: a per-row `open` map and a global
+// `showAllCommands` flag, combined as `showAllCommands || open[step]`. While the
+// global flag was set, the `||` re-asserted "open" on every render no matter what
+// the row map said, so after "Show commands" a row's own "Hide proof" wrote
+// `open[step] = false` and changed nothing on screen. The row control was dead
+// for as long as the global one was on.
+//
+// The fix is a single source of truth: the per-row map. The global button SEEDS
+// it — open every row, or close every row — and then gets out of the way. No
+// derived value may contradict a click.
+describe('the global commands toggle seeds the rows rather than overriding them', () => {
+  const twoSteps = () => payload([step(), step({ step: 2, label: 'SPIFFE Identity' })])
+  const threeSteps = () => payload([step(), step({ step: 2 }), step({ step: 3 })])
+
+  it('lets a row be hidden again after "Show commands" opened them all', async () => {
+    // The reported defect, verbatim.
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(threeSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    expect(screen.getByTestId('evidence-console-2')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('evidence-disclose-2'))
+
+    expect(screen.queryByTestId('evidence-console-2')).not.toBeInTheDocument()
+    // And only that row: hiding one proof is not hiding the walkthrough.
+    expect(screen.getByTestId('evidence-console-1')).toBeInTheDocument()
+    expect(screen.getByTestId('evidence-console-3')).toBeInTheDocument()
+  })
+
+  it('offers to hide the row it just closed, rather than reporting it still open', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(twoSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    expect(screen.getByTestId('evidence-disclose-1')).toHaveTextContent('Hide proof')
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    // The label is the tell: it read "Hide proof" over a closed console.
+    expect(screen.getByTestId('evidence-disclose-1')).toHaveTextContent('How do we know?')
+  })
+
+  it('closes every row on "Hide commands"', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(threeSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+
+    expect(screen.queryByTestId('evidence-console-1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('evidence-console-2')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('evidence-console-3')).not.toBeInTheDocument()
+  })
+
+  it('leaves each row working on its own after "Hide commands"', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(twoSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    await user.click(screen.getByTestId('evidence-disclose-2'))
+
+    expect(screen.getByTestId('evidence-console-2')).toBeInTheDocument()
+    expect(screen.queryByTestId('evidence-console-1')).not.toBeInTheDocument()
+  })
+
+  it('collapses a hand-opened row in one press, because that is what the label promises', async () => {
+    // "Hide commands" appears as soon as ANY console is showing, so the label
+    // always describes what the press does. A button reading "Show commands"
+    // over five open rows would visibly do nothing when pressed — the same class
+    // of dead control this fix exists to remove.
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(twoSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Show commands')
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Hide commands')
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    expect(screen.queryByTestId('evidence-console-1')).not.toBeInTheDocument()
+  })
+
+  it('stops offering to hide once the last row has been hand-closed', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(twoSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    // One still open, so there is still something to hide.
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Hide commands')
+    await user.click(screen.getByTestId('evidence-disclose-2'))
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Show commands')
+  })
+
+  it('re-opens every row when pressed again after the rows were hand-closed', async () => {
+    const user = userEvent.setup()
+    render(<CredentialEvidencePanel fetcher={fetcherFor(twoSteps()) as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    await user.click(screen.getByTestId('evidence-disclose-2'))
+    await user.click(screen.getByTestId('evidence-toggle-commands'))
+
+    expect(screen.getByTestId('evidence-console-1')).toBeInTheDocument()
+    expect(screen.getByTestId('evidence-console-2')).toBeInTheDocument()
+  })
+})
+
+// A Re-check replaces the steps. It does not replace the reader.
+describe('a re-check keeps the rows the engineer opened', () => {
+  it('leaves an open console open across a successful re-check', async () => {
+    // Step 1 is step 1 before and after: the same six probes are re-run, and an
+    // engineer watching one of them wants the NEW output in the place they were
+    // already looking. Collapsing it mid-inspection is its own annoyance.
+    const user = userEvent.setup()
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step(), step({ step: 2 })]) } as unknown as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step({ detail: 'second run' }), step({ step: 2 })]) } as unknown as Response)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-disclose-1'))
+    await user.click(screen.getByTestId('evidence-refresh'))
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2))
+
+    const console_ = await screen.findByTestId('evidence-console-1')
+    expect(console_).toHaveTextContent('second run')
+    expect(screen.queryByTestId('evidence-console-2')).not.toBeInTheDocument()
+  })
+
+  it('does not offer to hide a row that the re-check no longer returns', async () => {
+    // The remembered state of a vanished step must not speak for rows on screen —
+    // that is the same "a stale flag outranks what is rendered" fault, one level up.
+    const user = userEvent.setup()
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step(), step({ step: 2 })]) } as unknown as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => payload([step()]) } as unknown as Response)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.click(screen.getByTestId('evidence-disclose-2'))
+    await user.click(screen.getByTestId('evidence-refresh'))
+    await waitFor(() => expect(screen.queryByTestId('evidence-step-2')).not.toBeInTheDocument())
+
+    expect(screen.queryByTestId('evidence-console-2')).not.toBeInTheDocument()
+    expect(screen.getByTestId('evidence-toggle-commands')).toHaveTextContent('Show commands')
+  })
+})
+
 // The three badges are the whole epistemic claim of this card, and the
 // dangerous confusion is "unverified" reading as "absent" — a probe that could
 // not run reported as a probe that found nothing. The rows say WHICH state each

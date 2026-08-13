@@ -43,6 +43,7 @@ vi.mock('../App', () => ({
 }))
 
 import SuperCredPage from './SuperCredPage'
+import { colors } from '../styles/tokens'
 import type { DemoRunLogChunk, DemoRunView, DemoStep } from '../api/demoRunner'
 
 const FLUX_NS = 'fe-signalloom'
@@ -768,6 +769,103 @@ describe('Reset demo is behind a confirmation', () => {
     expect(screen.queryByTestId('supercred-reset-confirm')).not.toBeInTheDocument()
     expect(screen.getByTestId('supercred-reset')).toBeInTheDocument()
     expect(demoApiCalls(c => c.url === '/demo-api/reset')).toHaveLength(0)
+  })
+})
+
+// ─── Which "?" explains which control ─────────────────────────────────────────
+
+/**
+ * The two hints used to sit side by side in the middle of the row —
+ * `[Refresh clients] [?] [?] [Reset demo]` — so the second "?" explained a
+ * button it appeared to the left of, and both were cyan while Reset demo is
+ * red. An instructor mid-demo cannot afford to guess. Each "?" now follows its
+ * own control inside a nowrap group, and carries that control's colour.
+ */
+describe('each help hint sits with the control it explains', () => {
+  /** True when `first` precedes `second` in document order. */
+  function precedes(first: Element, second: Element) {
+    return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+  }
+
+  it('pairs each "?" with its own button and nothing else', async () => {
+    mockRunner()
+    await readyPanel()
+
+    const refresh = screen.getByTestId('supercred-refresh-clients-group')
+    expect(within(refresh).getByTestId('supercred-refresh-clients')).toBeInTheDocument()
+    expect(within(refresh).getByTestId('supercred-refresh-clients-help')).toBeInTheDocument()
+    expect(within(refresh).queryByTestId('supercred-reset-help')).not.toBeInTheDocument()
+
+    const reset = screen.getByTestId('supercred-reset-group')
+    expect(within(reset).getByTestId('supercred-reset')).toBeInTheDocument()
+    expect(within(reset).getByTestId('supercred-reset-help')).toBeInTheDocument()
+    expect(within(reset).queryByTestId('supercred-refresh-clients-help')).not.toBeInTheDocument()
+  })
+
+  it('puts each "?" after the button it explains, never before it', async () => {
+    mockRunner()
+    await readyPanel()
+
+    const refreshButton = screen.getByTestId('supercred-refresh-clients')
+    const refreshHelp = screen.getByTestId('supercred-refresh-clients-help')
+    const resetButton = screen.getByTestId('supercred-reset')
+    const resetHelp = screen.getByTestId('supercred-reset-help')
+
+    // The row reads [Refresh clients][?] [Reset demo][?].
+    expect(precedes(refreshButton, refreshHelp)).toBe(true)
+    expect(precedes(refreshHelp, resetButton)).toBe(true)
+    expect(precedes(resetButton, resetHelp)).toBe(true)
+  })
+
+  it('keeps a pair on one line when the row wraps', async () => {
+    mockRunner()
+    await readyPanel()
+
+    // Without this the row can wrap between a button and its "?", which puts
+    // the hint at the start of the next line beside an unrelated control.
+    for (const id of ['supercred-refresh-clients-group', 'supercred-reset-group']) {
+      expect(screen.getByTestId(id).style.flexWrap).toBe('nowrap')
+    }
+  })
+
+  it('colours each "?" like the button it belongs to', async () => {
+    mockRunner()
+    await readyPanel()
+
+    const resetHelp = screen.getByTestId('supercred-reset-help')
+    expect(resetHelp.style.color).toBe(colors.red)
+    expect(resetHelp.style.borderColor).toBe(colors.red)
+
+    // The refresh hint belongs to a primary button and stays on the default.
+    expect(screen.getByTestId('supercred-refresh-clients-help').style.color).toBe('var(--cyan)')
+  })
+
+  it('keeps the reset hint with the destructive button once reset is armed', async () => {
+    mockRunner()
+    await readyPanel()
+    await userEvent.click(screen.getByTestId('supercred-reset'))
+
+    const confirm = await screen.findByTestId('supercred-reset-confirm')
+    const group = screen.getByTestId('supercred-reset-group')
+    const help = within(group).getByTestId('supercred-reset-help')
+
+    expect(within(group).getByTestId('supercred-reset-confirm')).toBe(confirm)
+    expect(precedes(confirm, help)).toBe(true)
+    // Cancel is not destructive and gets no hint of its own.
+    expect(precedes(help, screen.getByTestId('supercred-reset-cancel'))).toBe(true)
+    expect(help.style.color).toBe(colors.red)
+  })
+
+  it('names the control each "?" explains, so the two are never interchangeable', async () => {
+    mockRunner()
+    await readyPanel()
+
+    const refresh = screen.getByTestId('supercred-refresh-clients-help').getAttribute('aria-label') ?? ''
+    const reset = screen.getByTestId('supercred-reset-help').getAttribute('aria-label') ?? ''
+
+    expect(refresh).toMatch(/refresh/i)
+    expect(reset).toMatch(/reset/i)
+    expect(refresh).not.toBe(reset)
   })
 })
 

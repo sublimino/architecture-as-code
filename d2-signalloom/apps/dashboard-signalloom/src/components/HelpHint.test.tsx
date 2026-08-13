@@ -224,6 +224,43 @@ describe('HelpHint', () => {
     expect(left + width).toBeLessThanOrEqual(500 - HINT_MARGIN)
   })
 
+  it('draws the "?" in the cyan token unless told otherwise', () => {
+    render(<HelpHint label="Explain current data" testId="hint-under-test">Refreshes current data.</HelpHint>)
+
+    const control = screen.getByTestId('hint-under-test')
+    expect(control.style.color).toBe('var(--cyan)')
+    expect(control.style.borderColor).toBe('var(--cyan)')
+  })
+
+  it('takes the colour of the control it explains', () => {
+    render(
+      <HelpHint label="What Reset demo does" testId="hint-under-test" tone="var(--error)">
+        Tears the demo down.
+      </HelpHint>,
+    )
+
+    const control = screen.getByTestId('hint-under-test')
+    expect(control.style.color).toBe('var(--error)')
+    expect(control.style.borderColor).toBe('var(--error)')
+  })
+
+  it('tones only the "?" affordance, never the tooltip body', async () => {
+    const user = userEvent.setup()
+    render(
+      <HelpHint label="What Reset demo does" testId="hint-under-test" tone="var(--error)">
+        Tears the demo down.
+      </HelpHint>,
+    )
+
+    await user.hover(screen.getByTestId('hint-under-test'))
+
+    // A red popup would read as an error message rather than an explanation.
+    const tip = screen.getByRole('tooltip')
+    expect(tip.style.color).toBe('var(--text)')
+    expect(tip.style.background).toBe('var(--surface)')
+    expect(tip.getAttribute('style')).not.toContain('var(--error)')
+  })
+
   it('removes its resize and scroll listeners when it closes', async () => {
     const remove = vi.spyOn(window, 'removeEventListener')
     const user = userEvent.setup()

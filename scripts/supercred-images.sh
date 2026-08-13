@@ -160,7 +160,17 @@ verify_images() {
 build_id_args() {
   local image="$1" args=()
   mapfile -t args < <(source_id_build_args "${image%%:*}" 2>/dev/null) || return 0
-  printf '%s\n' ${args[@]+"${args[@]}"}
+  # Return with NO output when there are no args, rather than falling through to
+  # printf. `printf '%s\n'` runs its format once even with zero arguments, so an
+  # image with no marker emitted a single blank line here; mapfile in the caller
+  # turned that into a one-element array holding "", and docker received an empty
+  # positional argument alongside the build context:
+  #
+  #   docker: 'docker build' requires 1 argument     (it had been handed two)
+  #
+  # Every SuperCred image failed to build, starting at cardvault:local.
+  ((${#args[@]})) || return 0
+  printf '%s\n' "${args[@]}"
 }
 
 build_images() {

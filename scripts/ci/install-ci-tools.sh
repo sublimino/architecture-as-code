@@ -107,7 +107,12 @@ if ! crane version 2>/dev/null | grep -q "${CRANE_VERSION}"; then
   ${SUDO} chmod +x "${BIN}/crane"
 fi
 
-# ── cosign 3.0.6 (matches local dev; needs --use-signing-config + --registry-referrers-mode)
+# ── cosign 3.0.6 (matches local dev; needs --signing-config for key-only, no-tlog
+# signing, the non-deprecated replacement for --tlog-upload=false). The version
+# is load-bearing: 3.0.6 always stores a key-based signature as a sigstore-bundle
+# OCI referrer and never as a sha256-<digest>.sig tag, regardless of
+# --registry-referrers-mode. test/cosign-signing-consistency.bats asserts no call
+# site passes that flag; revisit both if this pin ever moves.
 COSIGN_VERSION="3.0.6"
 if ! cosign version 2>/dev/null | grep -q "v${COSIGN_VERSION}"; then
   log "installing cosign ${COSIGN_VERSION}"

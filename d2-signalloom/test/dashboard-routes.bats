@@ -3,7 +3,7 @@
 # Runtime SPA route + static-asset smoke checks for the dashboard-signalloom
 # nginx container. Curls the port-forwarded dashboard at localhost:5173 and
 # verifies nginx returns the React SPA index for every known client-side route,
-# and that static assets (background images) are served.
+# and that static assets are served rather than swallowed by the SPA fallback.
 #
 # Precondition: kubectl port-forward -n fe-signalloom svc/dashboard-signalloom 5173:8080
 # Skips gracefully when the port-forward is absent.
@@ -122,8 +122,22 @@ setup() {
 
 # ── Static assets ────────────────────────────────────────────────────────────
 
-@test "KTP collusion graph background image is served" {
-  run curl -fsS -o /dev/null -w '%{content_type}' "$base/ktp-collusion-graph.png"
+# This used to fetch /ktp-collusion-graph.png, the Collusion & Access backdrop.
+# That backdrop was removed so the page matches its siblings, which left the test
+# guarding an orphan: the file was still served, but nothing rendered it.
+#
+# Repointed rather than deleted. The asset was incidental; the invariant is not.
+# Every static file except /assets/* falls through `location /` to
+# `try_files $uri $uri/ /index.html`, so if that fallback ever swallows real
+# files, nginx answers /brand/signal-loom-logo.png with index.html and HTTP 200.
+# Checking content_type is what catches it — a swallowed request returns
+# text/html, not image/*. The bundle test below cannot cover this: /assets/ has
+# its own location block, so it never exercises the try_files path at all.
+#
+# /brand/signal-loom-logo.png is the replacement because Sidebar.tsx renders it
+# on every page, so it cannot quietly become an orphan the way the KTP graph did.
+@test "root static files are served, not swallowed by the SPA fallback" {
+  run curl -fsS -o /dev/null -w '%{content_type}' "$base/brand/signal-loom-logo.png"
   [ "$status" -eq 0 ]
   [[ "$output" == image/* ]]
 }

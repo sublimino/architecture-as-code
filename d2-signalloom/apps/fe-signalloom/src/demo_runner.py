@@ -59,6 +59,10 @@ _SSE_POLL_SECONDS = 0.25
 # (proxy_read_timeout 300s) and any intermediate proxy will drop a connection
 # that goes quiet for long enough. 15s is comfortably inside every default.
 _SSE_KEEPALIVE_SECONDS = 15.0
+# Ceiling on GET /log?wait=. A waiting request occupies a worker thread and
+# cannot be cancelled part-way, so this is the longest a client that has walked
+# away can keep one -- the bound on the damage, not a recommended value.
+_MAX_LOG_WAIT_SECONDS = 30.0
 # Everything the demo script's child process is allowed to inherit. This stays
 # an allowlist -- the module docstring names the fixed child environment as one
 # of four security boundaries -- so it is widened by naming keys, never by
@@ -173,6 +177,10 @@ class _Run:
     _log_truncated: bool
     _timed_out: bool
     _lock: threading.Lock
+    # Shares _lock, so a waiter can test the buffer and park without a window
+    # in between for a notify to slip through and be missed. See
+    # _wait_for_new_log_bytes.
+    _log_changed: threading.Condition
     _done: threading.Event
 
 
@@ -379,6 +387,24 @@ def _append_log(run: _Run, chunk: bytes) -> None:
         run._log.extend(chunk[:remaining])
         if len(chunk) > remaining:
             run._log_truncated = True
+        # Raw bytes in, raw bytes stored. Nothing here decodes: read1 chops the
+        # pipe at arbitrary offsets, and a bytearray is the only representation
+        # that can hold half a multi-byte character until its other half
+        # arrives. Decoding belongs at the read endpoints, which know whether
+        # more bytes are still coming.
+        run._log_changed.notify_all()
+
+
+def _notify_log_waiters(run: _Run) -> None:
+    """Wake every long-poll waiter parked on this run.
+
+    Called when a run reaches a terminal state. Missing this is the subtle
+    half: a waiter woken only by output would sit out its whole deadline every
+    time a run ended quietly, which is exactly what happens at the end of every
+    phase -- the last thing a step does is exit, not print.
+    """
+    with run._lock:
+        run._log_changed.notify_all()
 
 
 def _finalize_run(run: _Run, *, status: RunStatus | None = None, exit_code: int | None = None, error: str | None = None) -> None:
@@ -394,6 +420,10 @@ def _finalize_run(run: _Run, *, status: RunStatus | None = None, exit_code: int 
             globals()["_active"] = None
         _evict_finished_runs_locked()
     run._done.set()
+    # Outside the _STATE_LOCK block on purpose: this takes run._lock, and
+    # taking it while holding _STATE_LOCK would invert the order every other
+    # path uses.
+    _notify_log_waiters(run)
 
 
 def _evict_finished_runs_locked() -> None:
@@ -521,6 +551,9 @@ def _spawn_run(step_id: str, kind: Literal["step", "reset"]) -> _Run:
     except OSError as exc:
         raise APIError(503, "demo_script_unavailable", f"Failed to start SuperCred demo script {script_path}: {exc}") from exc
 
+    # Built first so the Condition can share it -- a Condition over a different
+    # lock than the one guarding _log would protect nothing.
+    run_lock = threading.Lock()
     run = _Run(
         run_id=uuid4().hex,
         step_id=step_id,
@@ -534,7 +567,8 @@ def _spawn_run(step_id: str, kind: Literal["step", "reset"]) -> _Run:
         _log=bytearray(),
         _log_truncated=False,
         _timed_out=False,
-        _lock=threading.Lock(),
+        _lock=run_lock,
+        _log_changed=threading.Condition(run_lock),
         _done=threading.Event(),
     )
     with _STATE_LOCK:
@@ -554,6 +588,10 @@ def _cancel_active() -> None:
             return
         run.status = "cancelled"
         proc = run._process
+    # The status flip is itself a terminal transition a waiter is parked on, so
+    # wake them here rather than only when the monitor thread finalises -- a
+    # cancelled run may take the full SIGTERM grace period to get that far.
+    _notify_log_waiters(run)
     if proc is None:
         with _STATE_LOCK:
             if _active is run:
@@ -561,6 +599,7 @@ def _cancel_active() -> None:
             if run.finished_at is None:
                 run.finished_at = _utcnow()
         run._done.set()
+        _notify_log_waiters(run)
         return
 
     try:
@@ -587,6 +626,7 @@ def _cancel_active() -> None:
         if _active is run:
             globals()["_active"] = None
     run._done.set()
+    _notify_log_waiters(run)
 
 
 def _start_step_run(step_id: str) -> _Run:
@@ -634,6 +674,31 @@ def _get_run_or_404(run_id: str) -> _Run:
     if run is None:
         raise APIError(404, "run_not_found", f"SuperCred demo run not found: {run_id}")
     return run
+
+
+def _wait_for_new_log_bytes(run: _Run, offset: int, seconds: float) -> None:
+    """Block until the run has bytes past ``offset``, ends, or the deadline passes.
+
+    This is what turns /log from a 500ms-floor poll into something that
+    delivers within milliseconds of the producer emitting. The dashboard polls
+    on a timer, so with no wait the best case is half a poll interval of
+    latency and the worst is a full one, no matter how fast the script prints.
+
+    The buffer test and the park happen under the same lock the writer takes,
+    which is the whole reason _log_changed is a Condition over run._lock rather
+    than a bare Event: between "is there anything new?" and "wait", there is no
+    window for a notify to be delivered and lost. Returns rather than raises on
+    timeout -- a wait that expires is a normal empty read, not an error.
+    """
+    deadline = time.monotonic() + seconds
+    with run._lock:
+        while True:
+            if len(run._log) > offset or run.status != "running":
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            run._log_changed.wait(remaining)
 
 
 def _sse_frame(event: str, payload: Mapping[str, Any]) -> bytes:
@@ -858,7 +923,31 @@ async def get_demo_run_log(
     run_id: str,
     principal: Annotated[Principal, Depends(require_superadmin)],
     offset: int = Query(default=0),
+    wait: float = Query(default=0.0),
 ) -> RunLogResponse:
+    """The demo script's console output, from a byte offset.
+
+    `wait` is optional and defaults to 0, which is the original non-blocking
+    behaviour exactly. Given a positive value, a caller that is already at the
+    end of the buffer parks until new bytes arrive, the run ends, or the
+    deadline passes — then answers normally. It changes latency, never shape:
+    the response is the same model with the same fields, and a timed-out wait
+    is an ordinary empty read rather than an error.
+
+    A long poll is deliberately preferred over the SSE route for the default
+    path. The response is an ordinary short HTTP response, so it is immune to
+    proxy buffering, gzip block-filling, HTTP/1.0 upstreams and compressor
+    filters — every layer that can silently swallow a stream and leave a blank
+    console with no error to debug.
+
+    `chunk` is decoded with errors="replace", and a page boundary at
+    _LOG_PAGE_BYTES can in principle split a multi-byte character. The demo
+    script does print them (phase 3's compliance summary emits ✅/❌ from a
+    python3 heredoc). It stays low-frequency here because the boundary only
+    falls every 64KiB — unlike the SSE route, which chops at every partial read
+    and therefore holds an incomplete trailing sequence back instead. Left as
+    is because this endpoint's byte-for-byte behaviour is a tested contract.
+    """
     # Superadmin, not merely authenticated. This returns the demo script's RAW
     # stdout/stderr — kubectl output, resource names, OpenBao policy paths, the
     # failure text of anything that went wrong mid-run. The demo's EVIDENCE is
@@ -867,7 +956,22 @@ async def get_demo_run_log(
     del principal
     if offset < 0:
         raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+    if wait < 0:
+        raise APIError(422, "invalid_log_wait", f"Log wait must be non-negative: {wait}")
     run = _get_run_or_404(run_id)
+    if wait > 0:
+        # Off by default, so a client that never sends `wait` gets byte-for-byte
+        # the behaviour this endpoint has always had.
+        #
+        # In a thread because the wait is a blocking Condition on a buffer the
+        # producer fills from a plain thread; parking the event loop on it would
+        # stall every other request in the pod. The cap bounds what a client can
+        # ask a worker thread to hold: an abandoned waiter cannot be cancelled
+        # mid-wait, so it returns at its deadline and no later, and the cap is
+        # what makes "no later" a short time rather than an arbitrary one.
+        await run_in_threadpool(
+            _wait_for_new_log_bytes, run, offset, min(wait, _MAX_LOG_WAIT_SECONDS)
+        )
     with run._lock:
         log_bytes = len(run._log)
         next_offset = min(log_bytes, offset + _LOG_PAGE_BYTES)

@@ -41,6 +41,13 @@ function cells(): HTMLElement[] {
   return Array.from(screen.getByTestId('pixel-loader-grid').children) as HTMLElement[]
 }
 
+/** The Loom variant draws bars, not grid cells. Both live under the same node. */
+function bars(): SVGLineElement[] {
+  return Array.from(
+    screen.getByTestId('pixel-loader-grid').querySelectorAll('line[data-bar]'),
+  ) as SVGLineElement[]
+}
+
 describe('formatElapsed', () => {
   it('renders tenths under a minute', () => {
     expect(formatElapsed(0)).toBe('0.0s')
@@ -166,6 +173,189 @@ describe('PixelLoader', () => {
     it('falls back to Drive for an unknown variant', () => {
       render(<PixelLoader label="Churning" variant={'Nonsense' as 'Drive'} />)
       expect(cells().every(c => c.dataset.animated === 'true')).toBe(true)
+    })
+  })
+
+  // The Loom variant is the only one that is not a 3x3 grid, so it gets its
+  // own block. It draws the brand mark — a square rotated 45°, woven from four
+  // warp bars and four weft bars — and weaves it in sequence. Everything the
+  // other variants promise (size, reduced motion, announce, label, clock) has
+  // to survive the different geometry; that is most of what is pinned here.
+  describe('the Loom variant', () => {
+    it('renders, and says it is moving on the same node the others use', () => {
+      render(<PixelLoader label="Weaving" variant="Loom" />)
+      const grid = screen.getByTestId('pixel-loader-grid')
+      expect(grid).toHaveAttribute('data-motion', 'animated')
+      expect(grid).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('draws eight bars — four warp, four weft — and animates every one', () => {
+      render(<PixelLoader label="Weaving" variant="Loom" />)
+      const all = bars()
+      expect(all).toHaveLength(8)
+      expect(all.filter(b => b.dataset.bar === 'warp')).toHaveLength(4)
+      expect(all.filter(b => b.dataset.bar === 'weft')).toHaveLength(4)
+      expect(all.every(b => b.dataset.animated === 'true')).toBe(true)
+      expect(all.every(b => (b.getAttribute('style') ?? '').includes('sl-loom-weave'))).toBe(true)
+    })
+
+    it('does not render the 3x3 grid as well', () => {
+      // Belt and braces: the branch replaces the grid, it does not add to it.
+      render(<PixelLoader label="Weaving" variant="Loom" />)
+      expect(
+        screen.getByTestId('pixel-loader-grid').querySelectorAll('[data-shape]'),
+      ).toHaveLength(0)
+    })
+
+    it('staggers the bars into a travelling wavefront', () => {
+      // Same technique as Drive: one duration, fixed per-element offsets. That
+      // makes the whole composition periodic in the duration, so it loops
+      // seamlessly however long it runs.
+      render(<PixelLoader label="Weaving" variant="Loom" />)
+      const delays = bars().map(b => {
+        const m = (b.getAttribute('style') ?? '').match(/sl-loom-weave\s+(\d+)ms[^;]*?\s(\d+(?:\.\d+)?)ms/)
+        return { dur: Number(m?.[1]), delay: Number(m?.[2]) }
+      })
+      expect(delays.every(d => Number.isFinite(d.delay))).toBe(true)
+      // Every bar shares one duration, and no offset reaches it.
+      const durations = new Set(delays.map(d => d.dur))
+      expect(durations.size).toBe(1)
+      expect(Math.max(...delays.map(d => d.delay))).toBeLessThan([...durations][0])
+      // Warp leads, weft follows half a step behind, so the two directions
+      // interleave rather than lighting in lockstep.
+      const warp = delays.slice(0, 4).map(d => d.delay)
+      const weft = delays.slice(4).map(d => d.delay)
+      expect(warp).toEqual([...warp].sort((a, b) => a - b))
+      expect(new Set(warp.concat(weft)).size).toBe(8)
+    })
+
+    it('interlaces: the interior bars break at the crossings they pass under', () => {
+      // A gap is how a bar goes under another one without needing to know what
+      // colour the page behind it is. The four outer bars are the diamond's
+      // frame and stay solid; each of the four interior bars dips exactly once.
+      render(<PixelLoader label="Weaving" variant="Loom" />)
+      const dashed = bars().filter(b => b.getAttribute('stroke-dasharray'))
+      expect(dashed).toHaveLength(4)
+      expect(bars().filter(b => b.dataset.loomFrame === 'true')).toHaveLength(4)
+      expect(dashed.every(b => b.dataset.loomFrame !== 'true')).toBe(true)
+    })
+
+    it('carries the brand gradient, purple through blue to teal', () => {
+      const { container } = render(<PixelLoader label="Weaving" variant="Loom" />)
+      const stops = Array.from(container.querySelectorAll('linearGradient stop'))
+      expect(stops).toHaveLength(3)
+      expect(stops.map(s => s.getAttribute('stop-color'))).toEqual([
+        '#7A42B1',
+        '#518EAD',
+        '#37BF9B',
+      ])
+      const id = container.querySelector('linearGradient')?.getAttribute('id') ?? ''
+      expect(id).not.toBe('')
+      expect(bars().every(b => b.getAttribute('stroke') === `url(#${id})`)).toBe(true)
+    })
+
+    it('gives each instance its own gradient id', () => {
+      // Two loaders on one page sharing an id means one of them silently wins.
+      const { container } = render(
+        <>
+          <PixelLoader label="One" variant="Loom" testId="loom-a" />
+          <PixelLoader label="Two" variant="Loom" testId="loom-b" />
+        </>,
+      )
+      const ids = Array.from(container.querySelectorAll('linearGradient')).map(g => g.id)
+      expect(ids).toHaveLength(2)
+      expect(new Set(ids).size).toBe(2)
+      // React's useId emits colons, which are not legal in a CSS identifier.
+      expect(ids.every(id => !id.includes(':'))).toBe(true)
+    })
+
+    it('defines the keyframe it references', () => {
+      const { container } = render(<PixelLoader label="Weaving" variant="Loom" />)
+      expect(container.querySelector('style')?.textContent ?? '').toContain(
+        '@keyframes sl-loom-weave',
+      )
+    })
+
+    it('keeps the label and the ticking figure', () => {
+      render(<PixelLoader label="Weaving cloth" variant="Loom" />)
+      expect(screen.getByTestId('pixel-loader-label')).toHaveTextContent('Weaving cloth')
+      act(() => {
+        vi.advanceTimersByTime(2_100)
+      })
+      expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('2.1s')
+    })
+
+    it('drops the live region when announce is false', () => {
+      const { container } = render(
+        <PixelLoader label="Weaving" variant="Loom" announce={false} />,
+      )
+      const root = screen.getByTestId('pixel-loader')
+      expect(root).not.toHaveAttribute('role')
+      expect(root).not.toHaveAttribute('aria-live')
+      expect(container.querySelectorAll('[aria-live]')).toHaveLength(0)
+    })
+
+    it('lets the host keep its own testid for the label', () => {
+      render(<PixelLoader label="Weaving" variant="Loom" labelTestId="loading-state-message" />)
+      expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Weaving')
+    })
+
+    describe('size', () => {
+      // The mark is square and takes the grid's own footprint, so a Loom
+      // loader occupies exactly the line a Drive loader would.
+      it('renders at md the same width the 3x3 grid occupies', () => {
+        const { container } = render(<PixelLoader label="Weaving" variant="Loom" />)
+        expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'md')
+        const svg = container.querySelector('svg')
+        expect(svg?.getAttribute('width')).toBe('15') // 3 cells of 4px + 2 gutters of 1.5px
+        expect(svg?.getAttribute('height')).toBe('15')
+      })
+
+      it('scales down at sm', () => {
+        const { container } = render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'sm')
+        const svg = container.querySelector('svg')
+        expect(svg?.getAttribute('width')).toBe('11') // 3 cells of 3px + 2 gutters of 1px
+        expect(screen.getByTestId('pixel-loader-label').style.fontSize).toBe('12px')
+        expect(bars()).toHaveLength(8)
+      })
+    })
+
+    describe('prefers-reduced-motion: reduce', () => {
+      beforeEach(() => {
+        restoreMedia = setReducedMotion(true)
+      })
+
+      it('freezes the weave to a dim static state', () => {
+        render(<PixelLoader label="Weaving" variant="Loom" />)
+        const all = bars()
+        expect(all).toHaveLength(8)
+        expect(all.every(b => b.dataset.animated === 'false')).toBe(true)
+        expect(all.every(b => (b.getAttribute('style') ?? '').includes('animation'))).toBe(false)
+        expect(screen.getByTestId('pixel-loader-grid')).toHaveAttribute('data-motion', 'static')
+      })
+
+      it('keeps the mark visible rather than blanking it', () => {
+        // Frozen is not gone. A dim mark still says "there is a loader here".
+        render(<PixelLoader label="Weaving" variant="Loom" />)
+        const opacities = bars().map(b => Number(b.style.opacity))
+        expect(opacities.every(o => o > 0 && o < 1)).toBe(true)
+        expect(new Set(opacities).size).toBe(1)
+      })
+
+      it('keeps the timer ticking while the weave is still', () => {
+        render(<PixelLoader label="Weaving" variant="Loom" />)
+        act(() => {
+          vi.advanceTimersByTime(3_400)
+        })
+        expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('3.4s')
+        expect(bars().every(b => b.dataset.animated === 'false')).toBe(true)
+      })
+
+      it('freezes at sm as well', () => {
+        render(<PixelLoader label="Weaving" variant="Loom" size="sm" />)
+        expect(bars().every(b => b.dataset.animated === 'false')).toBe(true)
+      })
     })
   })
 

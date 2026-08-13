@@ -226,8 +226,6 @@ export interface DemoRunStreamEnd extends DemoRunLogChunk {
 }
 
 export interface DemoRunStreamHandlers {
-  /** Fired once the response is open and the runner really is streaming. */
-  onOpen?: () => void
   /**
    * A `log` frame.
    *
@@ -262,8 +260,13 @@ export async function streamDemoRunLog(
   )
   if (!res.ok) throw new Error(`Run log stream failed: ${await describeFailure(res)}`)
   if (!res.body) throw new Error('Run log stream failed: the response carried no body')
-  handlers.onOpen?.()
 
+  // Note there is deliberately no "the stream is open" callback. An open
+  // response proves nothing about whether bytes will flow: nginx buffers
+  // proxied responses by default, and a buffering proxy answers the request
+  // immediately and then holds every frame until the run ends. The only honest
+  // evidence that this transport is working is a frame arriving, so that is
+  // what the caller is given to react to.
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''

@@ -246,13 +246,36 @@ reload_via_archive() {
   # listed it moments later. A recovery that worked and was then declared a
   # failure is worse than one that plainly did not work, because it sends the
   # reader looking in the wrong place.
+  # 90s, not 20s. The 20 was fitted to cardvault-agent (54MB) on 2026-08-04 and
+  # is not a property of containerd — adoption follows the snapshotter unpacking
+  # the layers, so it scales with image size. supercred-demo-runner is 111MB,
+  # roughly twice that, and on 2026-08-13 it timed out at 20s having worked:
+  # `crictl images` listed it a short time later and the pod ran from it with no
+  # further intervention.
+  #
+  # That is precisely the failure the comment above warns about, reproduced by
+  # the fix for it — the recovery succeeded and was declared a failure, and the
+  # reader was sent to look at the registry (the bare `:local` tag resolves to
+  # docker.io, so the kubelet's message names Docker Hub) instead of at a wait
+  # that was simply too short.
   local waited=0
-  while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-20}" ]; do
+  while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-90}" ]; do
     image_on_node "$image" && return 0
     sleep 1
     waited=$((waited + 1))
   done
-  warn "$image is labelled but the CRI has not adopted it after ${waited}s"
+
+  # Say which of the two states we are actually in. "Not adopted" with the image
+  # sitting in the content store is a slow unpack and is very likely to resolve
+  # on its own; "not adopted" with nothing in the content store is a genuinely
+  # failed import. Collapsing those into one message is what made this cost an
+  # afternoon.
+  if "$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images ls -q 2>/dev/null \
+      | grep -Fqx "docker.io/library/${image%%:*}:${image##*:}"; then
+    warn "$image is in the content store and labelled, but the CRI has not adopted it after ${waited}s — this is a slow unpack, not a failed import; re-run and it will usually be present"
+  else
+    warn "$image is not in the content store after ${waited}s — the import itself failed"
+  fi
   return 1
 }
 

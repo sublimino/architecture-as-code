@@ -230,12 +230,23 @@ bunx playwright test --config=playwright.config.ts "$@"
 EXIT=$?
 set -e
 
+# Fail closed: a green run against a build we could not vouch for is not a pass,
+# it is an unanswered question. But say WHICH it was — reporting "some tests
+# failed" when every test passed sends the reader to the trace of a test that
+# did not fail, and the actual reason scrolls off the top.
+PREFLIGHT_ONLY=0
 if [[ "$PREFLIGHT_FAILED" -ne 0 && "$EXIT" -eq 0 ]]; then
   EXIT=1
+  PREFLIGHT_ONLY=1
 fi
 
 if [ "${EXIT}" -eq 0 ]; then
   echo "==> All acceptance tests passed."
+elif [ "${PREFLIGHT_ONLY}" -eq 1 ]; then
+  echo "==> Every test PASSED, but preflight was not satisfied (exit ${EXIT})."
+  echo "    The results above are real; what is unproven is that they describe"
+  echo "    THIS working tree. Scroll up to the ERROR lines in ==> Preflight."
+  echo "    There is no failing test to inspect — fix the preflight, then re-run."
 else
   echo "==> Some tests failed (exit ${EXIT})."
   echo "    Report: ${TEST_DIR}/playwright-report/index.html"

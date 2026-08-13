@@ -7,6 +7,7 @@ import {
   type EvidenceState,
   type EvidenceStep,
 } from '../api/credentialEvidence'
+import { ProofConsole } from './ProofConsole'
 
 // One card, two audiences.
 //
@@ -273,16 +274,15 @@ export function CredentialEvidencePanel({
                     onClick={() => setOpen((prev) => ({ ...prev, [step.step]: !isOpen }))}
                     style={{ ...btn, marginTop: 6, fontSize: 10 }}
                   >
-                    {isOpen ? 'Hide proof' : 'How do we know?'}
+                    {isOpen
+                      ? 'Hide proof'
+                      : step.proofs.length > 1
+                        ? `How do we know? (${step.proofs.length} checks)`
+                        : 'How do we know?'}
                   </button>
 
                   {isOpen && (
-                    <div data-testid={`evidence-console-${step.step}`} style={consoleBox}>
-                      <div style={{ color: 'var(--cyan)' }}>$ {step.command}</div>
-                      <pre style={{ margin: '6px 0 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--text)' }}>
-                        {step.detail || '(no output)'}
-                      </pre>
-                    </div>
+                    <ProofConsole proofs={step.proofs} testId={`evidence-console-${step.step}`} />
                   )}
                 </div>
               </div>
@@ -311,14 +311,4 @@ const code: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 10, padding: '1px 4px', borderRadius: 3,
   background: 'rgba(148,163,184,0.15)',
-}
-
-const consoleBox: React.CSSProperties = {
-  marginTop: 8, padding: '8px 10px', borderRadius: 4,
-  // --surface2 with --text is the pairing the theme guarantees contrast for;
-  // a hardcoded slate console rendered 1.03:1 against the light theme's text
-  // when this repo last hardcoded a panel colour.
-  background: 'var(--surface2)', border: '1px solid var(--border)',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 10, lineHeight: 1.5, overflowX: 'auto',
 }

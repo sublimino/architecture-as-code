@@ -41,6 +41,9 @@ function mockAgentFetch(opts: { agents?: AgentFixture[]; fail?: boolean } = {}) 
     if (opts.fail) throw new Error('proxy unreachable')
     return {
       ok: true,
+      // Carried because the page reports the literal status in its proof
+      // console; a mock without one would let "HTTP undefined" ship.
+      status: 200,
       json: async () => ({ agents: opts.agents ?? [], namespaces: ['fe-signalloom-agents'] }),
     } as unknown as Response
   })
@@ -284,5 +287,86 @@ describe('CredentialInventoryPage — structure', () => {
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
     await waitFor(() => expect(screen.getByTestId('trust-domain')).toHaveTextContent('signalloom.demo'))
+  })
+})
+
+// ─── The proof behind the provenance banner ─────────────────────────────────
+//
+// The banner says "Live" or "Demo data" and the rows carry provenance tags —
+// a summary of a data path the reader has to take on trust. The Credential
+// Lifecycle card is held to a higher standard than that: open the claim, read
+// the literal request behind it, rerun it. This page makes the same claims at a
+// higher altitude, so it owes the same console.
+
+describe('CredentialInventoryPage — how do we know?', () => {
+  it('offers the disclosure and names how many checks are behind the page', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    expect(screen.getByTestId('inventory-disclose-proof')).toHaveTextContent('3 checks')
+    // Closed by default — the executive reading is the banner, not the console.
+    expect(screen.queryByTestId('inventory-proof-console')).not.toBeInTheDocument()
+  })
+
+  it('exposes the literal discovery request and what it answered', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('inventory-disclose-proof'))
+    const panel = screen.getByTestId('inventory-proof-console-panel')
+    expect(panel).toHaveTextContent('curl -s /supercred-api/agents')
+    expect(panel).toHaveTextContent('HTTP 200')
+    // The pods it actually saw, not a count it asserts.
+    expect(panel).toHaveTextContent('fe-signalloom-agents/Cardvault Agent')
+  })
+
+  it('reaches the crypto proof and the manifest source through its tabs', async () => {
+    cryptoMock.mockResolvedValue({
+      tenant_id: 't1',
+      proofs: [{ name: 'bao-spire-positive-proof', status: 'passed' }],
+    })
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('inventory-disclose-proof'))
+
+    await userEvent.click(screen.getByTestId('inventory-proof-console-tab-1'))
+    expect(screen.getByTestId('inventory-proof-console-panel')).toHaveTextContent('/api/health/crypto')
+    expect(screen.getByTestId('inventory-proof-console-panel')).toHaveTextContent('bao-spire-positive-proof: passed')
+
+    await userEvent.click(screen.getByTestId('inventory-proof-console-tab-2'))
+    expect(screen.getByTestId('inventory-proof-console-panel')).toHaveTextContent('credentialInventory.ts')
+    // Declared is not observed, and the console has to say which it is.
+    expect(screen.getByTestId('inventory-proof-console-panel')).toHaveTextContent('DECLARED, not observed')
+  })
+
+  it('says a failed look is a failure to look, not an empty cluster', async () => {
+    mockAgentFetch({ fail: true })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('inventory-disclose-proof'))
+    const panel = screen.getByTestId('inventory-proof-console-panel')
+    expect(panel).toHaveTextContent('proxy unreachable')
+    expect(panel).toHaveTextContent('failure to look, not a finding that nothing is deployed')
+  })
+
+  it('admits the crypto proof was never obtained rather than implying it passed', async () => {
+    cryptoMock.mockRejectedValue(new Error('crypto health 503'))
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('inventory-disclose-proof'))
+    await userEvent.click(screen.getByTestId('inventory-proof-console-tab-1'))
+    expect(screen.getByTestId('inventory-proof-console-panel')).toHaveTextContent('unproven, not disproven')
+  })
+
+  it('states plainly that demo mode made no cluster call at all', async () => {
+    setDemoMode(true)
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('inventory-disclose-proof')).toBeInTheDocument())
+    await userEvent.click(screen.getByTestId('inventory-disclose-proof'))
+    expect(screen.getByTestId('inventory-proof-console')).toHaveTextContent('no cluster call was made')
+    setDemoMode(false)
   })
 })

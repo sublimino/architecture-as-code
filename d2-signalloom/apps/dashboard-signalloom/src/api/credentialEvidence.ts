@@ -17,16 +17,41 @@ import { DEMO_API } from './demoRunner'
 
 export type EvidenceState = 'observed' | 'absent' | 'unavailable'
 
+/**
+ * One command and its output, backing part of a step's verdict.
+ *
+ * A step carried exactly one command until step 6 proved that was too few. A
+ * stun is a revocation (the mechanism), an annotation (corroboration) and a
+ * NetworkPolicy (containment); with room for one command, whichever one was
+ * shown silently became the definition of the step — and the one that had been
+ * shown was the NetworkPolicy, the weakest of the three.
+ */
+export interface EvidenceProof {
+  /** Short name for the tab — what this command is evidence OF. */
+  label: string
+  /** The literal command that produced this output — paste-and-rerun. */
+  command: string
+  /** Raw output, shown in the debugger console. */
+  detail: string
+}
+
 export interface EvidenceStep {
   step: number
   label: string
   state: EvidenceState
-  /** The literal command that produced this verdict — paste-and-rerun. */
+  /** The primary proof's command, carried for producers that predate `proofs`. */
   command: string
-  /** Raw probe output, shown in the debugger console. */
+  /** The primary proof's output, carried for producers that predate `proofs`. */
   detail: string
   /** One plain sentence for a non-technical viewer. */
   summary: string
+  /**
+   * Every proof behind the verdict, primary first. Always populated after
+   * parsing: a payload carrying only `command`/`detail` is normalised to a
+   * single proof, so the renderer has one shape to draw and an old producer
+   * degrades to exactly what it used to show.
+   */
+  proofs: EvidenceProof[]
 }
 
 export interface CredentialEvidence {
@@ -46,6 +71,30 @@ export function normaliseState(raw: unknown): EvidenceState {
   return raw === 'observed' || raw === 'absent' ? raw : 'unavailable'
 }
 
+/**
+ * Normalise a step's proofs to the multi-proof shape, whatever the producer sent.
+ *
+ * The single-command shape is not deprecated data to be tolerated — it is what
+ * every step with one probe still sends, and what a runner image built before
+ * `proofs` existed sends for all of them. Both collapse to the same thing: one
+ * proof, labelled with the step it belongs to.
+ */
+function parseProofs(raw: unknown, fallback: { label: string; command: string; detail: string }): EvidenceProof[] {
+  const entries = Array.isArray(raw) ? raw : []
+  const proofs = entries
+    .map((entry) => {
+      const p = (entry ?? {}) as Record<string, unknown>
+      return {
+        label: typeof p.label === 'string' ? p.label : '',
+        command: typeof p.command === 'string' ? p.command : '',
+        detail: typeof p.detail === 'string' ? p.detail : '',
+      }
+    })
+    // A proof with no command proves nothing and would render as an empty tab.
+    .filter((p) => p.command !== '')
+  return proofs.length > 0 ? proofs : [fallback]
+}
+
 export function parseEvidence(payload: unknown): CredentialEvidence {
   const root = (payload ?? {}) as Record<string, unknown>
   const rawSteps = Array.isArray(root.steps) ? root.steps : []
@@ -54,13 +103,17 @@ export function parseEvidence(payload: unknown): CredentialEvidence {
     source: typeof root.source === 'string' ? root.source : 'unknown',
     steps: rawSteps.map((entry, index) => {
       const s = (entry ?? {}) as Record<string, unknown>
+      const label = typeof s.label === 'string' ? s.label : `Step ${index + 1}`
+      const command = typeof s.command === 'string' ? s.command : ''
+      const detail = typeof s.detail === 'string' ? s.detail : ''
       return {
         step: typeof s.step === 'number' ? s.step : index + 1,
-        label: typeof s.label === 'string' ? s.label : `Step ${index + 1}`,
+        label,
         state: normaliseState(s.state),
-        command: typeof s.command === 'string' ? s.command : '',
-        detail: typeof s.detail === 'string' ? s.detail : '',
+        command,
+        detail,
         summary: typeof s.summary === 'string' ? s.summary : '',
+        proofs: parseProofs(s.proofs, { label, command, detail }),
       }
     }),
   }

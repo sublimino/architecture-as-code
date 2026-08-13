@@ -153,10 +153,38 @@ lock_release() {
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────
+# NOT_FOUND means the API answered and the VM is absent. It must NOT mean "we
+# could not ask".
+#
+# `2>/dev/null || echo NOT_FOUND` swallowed every failure alike, so an expired
+# credential printed
+#
+#   ERROR: VM not found. Run './scripts/ci/gcp-ci.sh provision' first.
+#
+# against a VM that was present and healthy. Following that advice would spend
+# ~11 minutes provisioning a duplicate, and for signalloom-ci the destroy path
+# deletes the shared VPC both CI VMs depend on — so a misdiagnosis here is
+# expensive in a way it is not elsewhere. Observed 2026-08-13.
+#
+# Distinguish the three outcomes: absent, unauthenticated, and everything else.
 vm_status() {
-  gcloud compute instances describe "$VM_NAME" \
+  local out rc
+  out="$(gcloud compute instances describe "$VM_NAME" \
     --zone="$ZONE" --project="$PROJECT" \
-    --format='get(status)' 2>/dev/null || echo "NOT_FOUND"
+    --format='get(status)' 2>&1)"
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    printf '%s' "$out"
+    return 0
+  fi
+  case "$out" in
+    *"was not found"*|*"notFound"*|*"does not exist"*)
+      printf 'NOT_FOUND' ;;
+    *"Reauthentication failed"*|*"gcloud auth login"*|*"credentials"*|*"invalid_grant"*|*"Request had invalid authentication"*)
+      printf 'AUTH_REQUIRED' ;;
+    *)
+      printf 'QUERY_FAILED' ;;
+  esac
 }
 
 iap_ssh() {
@@ -464,6 +492,18 @@ cmd_run() {
       gcloud compute instances start "$VM_NAME" \
         --zone="$ZONE" --project="$PROJECT"
       wait_for_ssh 33 5 || exit 2
+      ;;
+    AUTH_REQUIRED)
+      # Not a VM problem. Saying "not found" here sent an operator to provision a
+      # duplicate of a healthy VM.
+      echo "ERROR: gcloud is not authenticated, so the VM's state is UNKNOWN — this is not" >&2
+      echo "       evidence that ${VM_NAME} is missing. Run:  gcloud auth login" >&2
+      exit 2
+      ;;
+    QUERY_FAILED)
+      echo "ERROR: could not query ${VM_NAME} (the API call failed for a reason other than" >&2
+      echo "       absence or auth). Its state is UNKNOWN — do NOT provision on this basis." >&2
+      exit 2
       ;;
     NOT_FOUND)
       echo "ERROR: VM not found. Run './scripts/ci/gcp-ci.sh provision' first." >&2

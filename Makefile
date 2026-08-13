@@ -392,6 +392,18 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	$(MAKE) signalloom-spire-helper
 	$(MAKE) netassert-runner-image
 	$(MAKE) signalloom-images
+	# supercred-demo-runner/base has been an unconditional member of
+	# apps/fe-signalloom/base/kustomization.yaml since 0233217 (2026-08-03), so
+	# every bring-up DEPLOYS it — but nothing here ever BUILT it. The workload
+	# uses imagePullPolicy: IfNotPresent and a bare `supercred-demo-runner:local`
+	# tag, so on a node that happens to have the image from an earlier
+	# `make images` it starts silently, and on a fresh node the bare tag resolves
+	# to docker.io/library and the kubelet reports
+	#   failed to pull and unpack image "docker.io/library/supercred-demo-runner:local"
+	# which reads as a registry problem rather than a missing build step.
+	# Always-deployed has to mean always-built; the /demo-api proxy in
+	# dashboard-signalloom/nginx.conf depends on it either way.
+	$(MAKE) demo-signalloom-supercred-images
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	$(MAKE) demo-signalloom-afm-up
 

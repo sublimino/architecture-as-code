@@ -176,6 +176,39 @@ else
   echo "    SKIP: Dex issuer preflight (inf-signalloom/dex not deployed)"
 fi
 
+# Is the deployed code the code in the working tree?
+#
+# This script does not rebuild, so a source fix stays invisible to every spec
+# below until somebody rebuilds and rolls — a known trap that has bitten twice.
+# The second time, a streaming fix verified by 315 backend tests, 1657 dashboard
+# tests and this harness was reported as working while the pods answering the
+# requests predated all 22 of its commits. Nothing here asserted against what was
+# RUNNING, so nothing could have caught it.
+#
+# Only workloads that are actually deployed are checked, mirroring the SKIP
+# convention start_port_forward uses above: whether a slice is deployed is not
+# this guard's business, but whether a deployed slice is CURRENT is exactly its
+# business. Both failure modes are loud — a stale pod invalidates every
+# assertion below it, and an unverifiable one means we do not know that it does not.
+for _workload in supercred-demo-runner dashboard-signalloom; do
+  if ! kubectl -n fe-signalloom get deployment "${_workload}" &>/dev/null; then
+    echo "    SKIP: ${_workload} staleness check (not deployed)"
+    continue
+  fi
+  "${SCRIPT_DIR}/check-deployed-staleness.sh" "${_workload}" >/dev/null 2>&1
+  case $? in
+    0) echo "    ${_workload} → running the current working tree" ;;
+    1) echo "    ERROR: ${_workload} is running code OLDER than the working tree." >&2
+       echo "           Specs below would test a build that no longer exists in this repo." >&2
+       echo "           Rebuild and roll it, then re-run. Detail: make check-deployed-staleness" >&2
+       PREFLIGHT_FAILED=1 ;;
+    *) echo "    ERROR: could not verify what ${_workload} is running." >&2
+       echo "           Unproven, not disproven — results below cannot be trusted to" >&2
+       echo "           describe this working tree. Detail: make check-deployed-staleness" >&2
+       PREFLIGHT_FAILED=1 ;;
+  esac
+done
+
 # Advisory only — Grafana backs no assertion in any spec. Gated on the forward
 # existing so a run that never asked for it stops emitting a warning about a
 # port-forward it deliberately did not make.

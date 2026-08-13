@@ -4,6 +4,13 @@ import { defineConfig, devices } from "@playwright/test";
 // the hostname to 127.0.0.1 (port-forward) via Chrome's host-resolver.
 const gatewayAddress = process.env.GATEWAY_ADDRESS ?? "127.0.0.1";
 
+// Which Chrome to drive. The suite wants the real branded Chrome, but some
+// environments (sandboxed shells, minimal CI images) cannot exec
+// /opt/google/chrome/chrome and fail every project with EACCES before a single
+// assertion runs. PW_CHANNEL=chromium falls back to Playwright's bundled build,
+// which is enough for functional E2E; leave it unset to keep real Chrome.
+const CHANNEL = process.env.PW_CHANNEL ?? "chrome"
+
 export default defineConfig({
   testDir: ".",
   timeout: 30_000,
@@ -21,7 +28,7 @@ export default defineConfig({
       testMatch: "auth.setup.ts",
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         launchOptions: {
           args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
         },
@@ -32,7 +39,7 @@ export default defineConfig({
       testMatch: "signalloom-test-1.spec.ts",
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
         launchOptions: {
           args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
@@ -58,7 +65,7 @@ export default defineConfig({
       retries: 0,
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
         launchOptions: {
           args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
@@ -75,7 +82,7 @@ export default defineConfig({
       retries: 0,
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
         launchOptions: {
           args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
@@ -95,7 +102,7 @@ export default defineConfig({
       retries: 0,
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         storageState: "test-results/.auth-state.json",
         launchOptions: {
           args: [`--host-resolver-rules=MAP dashboard.osramp.acme.local ${gatewayAddress}`],
@@ -108,7 +115,7 @@ export default defineConfig({
       testMatch: /smoke\.spec\.ts|signalloom-login\.spec\.ts|afm-integration\.spec\.ts|afm-frontend\.spec\.ts|rbac-analysis\.spec\.ts|rbac-explorer\.spec\.ts|credential-lifecycle\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
-        channel: "chrome",
+        channel: CHANNEL,
         video: "off",
       },
     },

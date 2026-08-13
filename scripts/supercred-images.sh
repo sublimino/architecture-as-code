@@ -175,6 +175,19 @@ build_id_args() {
 
 build_images() {
   local entry image context dockerfile id_args
+  # TARGETARCH is one of BuildKit's AUTOMATIC build args -- it is populated by
+  # the builder, not by the Dockerfile, and the LEGACY builder does not populate
+  # it at all. The runner's Dockerfile selects its kubectl checksum on it:
+  #
+  #   Unsupported TARGETARCH for kubectl:            <- empty, and it exits 1
+  #
+  # So the build silently depended on the caller having buildx. Docker resolves
+  # the buildx plugin through ~/.docker/config.json, and any environment where
+  # that file is unreadable falls back to the legacy builder and hits this --
+  # a confusing failure four steps into a build, blamed on the Dockerfile.
+  # Passing it explicitly costs nothing under BuildKit (same value, stated
+  # rather than inferred) and is the difference between working and not without.
+  local target_arch="${PLATFORM##*/}"
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
     context="$(image_context "$entry")"
@@ -182,10 +195,10 @@ build_images() {
     mapfile -t id_args < <(build_id_args "$image")
     log "building $image ($PLATFORM)"
     if [ -n "$dockerfile" ]; then
-      "$DOCKER_BIN" build --platform "$PLATFORM" ${id_args[@]+"${id_args[@]}"} -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
+      "$DOCKER_BIN" build --platform "$PLATFORM" --build-arg "TARGETARCH=${target_arch}" ${id_args[@]+"${id_args[@]}"} -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
         || fail "docker build failed for $image via $dockerfile"
     else
-      "$DOCKER_BIN" build --platform "$PLATFORM" ${id_args[@]+"${id_args[@]}"} -t "$image" "$REPO_ROOT/$context" \
+      "$DOCKER_BIN" build --platform "$PLATFORM" --build-arg "TARGETARCH=${target_arch}" ${id_args[@]+"${id_args[@]}"} -t "$image" "$REPO_ROOT/$context" \
         || fail "docker build failed for $image"
     fi
   done

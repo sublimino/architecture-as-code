@@ -2,7 +2,7 @@
 # vm-pipeline.sh — Runs the Signalloom D2 e2e pipeline on the CI VM.
 #
 # Called via SSH from gcp-ci.sh or GitHub Actions. Pulls latest code,
-# rebuilds the cluster, runs the 9-stage test suite, and generates an
+# rebuilds the cluster, runs the 10-stage test suite, and generates an
 # OpenReports-format report.
 #
 # Exit codes:
@@ -201,8 +201,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 
   # This fallback only ever repaired signalloom-APPS. If `up` died before
   # activating signalloom-INFRA, nothing here notices, and the run proceeds to
-  # execute nine stages against a cluster whose infra was never brought up.
-  # Stage 6 then waits its full budget for infra-controllers and stages 7-8
+  # execute ten stages against a cluster whose infra was never brought up.
+  # Stage 6 then waits its full budget for infra-controllers and stages 7-8b
   # fail behind it, so a SETUP abort is reported as three test failures — the
   # most expensive possible way to be wrong, because it sends the reader to the
   # tests.
@@ -219,8 +219,8 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   fi
 }
 
-# ── Run 9-stage test suite ───────────────────────────────────────────
-echo "==> [6/7] Running 9-stage test suite..."
+# ── Run 10-stage test suite ───────────────────────────────────────────
+echo "==> [6/7] Running 10-stage test suite..."
 
 failures=0
 declare -a stage_results=()
@@ -367,6 +367,46 @@ run_stage \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8-browser.xml \
    ./scripts/acceptance-test.sh signalloom-test-1.spec.ts"
+
+# Stage 8b: Dashboard page smoke suite (Playwright → JUnit XML)
+#
+# The second browser stage, and the only one that walks every page in the
+# sidebar. Stage 8 proves the Dex contracts and the TEST-1 journey matrix;
+# smoke.spec.ts proves each of the ten nav destinations renders its heading and
+# representative content with no uncaught page error, plus the page-level
+# assertions nothing else covers: the DemoToggle, the Help & Support modal, the
+# unknown-route redirect, the Agent Trust Topology denial evidence, and the
+# Collusion & Access background assertion added in d9d1d2f -- which ran nowhere
+# until this stage existed.
+#
+# Runtime, and why it is affordable. 18 tests. It is the only browser spec that
+# needs no auth setup: the `smoke` project carries no storageState and no
+# dependency on the setup project, so each test logs in through Dex itself and
+# nothing serialises them. The CI VM is n2-standard-16, so Playwright's default
+# worker count is 8 and the 18 run in roughly three waves. Budget a couple of
+# minutes against a lane that already runs 40-60, with the 900s stage timeout as
+# the ceiling that would catch a hang.
+#
+# Why the locators are safe here, which was the open question. smoke.spec.ts
+# addresses nav links by accessible name with { exact: true }, the pattern
+# signalloom-test-1.spec.ts explicitly avoids because the sidebar renders count
+# badges that turn "Compliance" into "Compliance 7" on live data. That comment
+# predates bd0ba7a, which put aria-hidden="true" on every badge span; the badges
+# no longer contribute to the accessible name, so the exact-name locators hold
+# against a live estate. If a badge ever loses that attribute this stage goes
+# red, which is the correct outcome -- it is an accessibility regression too.
+#
+# Separate from stage 8 rather than appended to it so a failure names the page
+# smoke suite instead of "the browser stage", and so the report keeps the two
+# journeys distinct. Passing the filename takes the non-TEST-1 branch of
+# acceptance-test.sh, which adds Grafana/Archivista/Olly port-forwards that skip
+# cleanly when those services are absent.
+run_stage \
+  "Dashboard page smoke suite" \
+  "stage8b-smoke.txt" \
+  "cd ${WORK_DIR} && \
+   PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
+   ./scripts/acceptance-test.sh smoke.spec.ts"
 
 # Write stage results JSON
 printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"

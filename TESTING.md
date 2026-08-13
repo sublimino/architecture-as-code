@@ -22,8 +22,9 @@ In summary, as of 2026-08-13:
 | Where | Specs |
 | --- | --- |
 | CI stage 8 | `signalloom-test-1.spec.ts` |
+| CI stage 8b | `smoke.spec.ts` |
 | `make demo-signalloom-supercred-two-window` | `supercred-two-window.spec.ts` |
-| `make acceptance-test` only | `afm-frontend`, `afm-integration`, `credential-lifecycle`, `rbac-analysis`, `rbac-explorer`, `signalloom-login`, `smoke`, `supercred-evidence-lifecycle`, `supercred-ui-lifecycle` |
+| `make acceptance-test` only | `afm-frontend`, `afm-integration`, `credential-lifecycle`, `rbac-analysis`, `rbac-explorer`, `signalloom-login`, `supercred-evidence-lifecycle`, `supercred-ui-lifecycle` |
 | Nowhere — matches no project `testMatch` | `cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`, `supercred-page.spec.ts` |
 
 Playwright does not warn when no project claims a spec; it reports a smaller

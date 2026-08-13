@@ -50,6 +50,7 @@ import CredentialStateNotice from '../components/CredentialStateNotice'
 import { Pill, StatCard, Section as DashSection, Table as DashTable, td as dashTd } from '../components/DashKit'
 import { colors } from '../styles/tokens'
 import { CSS_VAR_NAMES, THEMES, THEME_LABELS, THEME_NAMES, type CssVarName } from '../styles/themes'
+import ButtonWait from '../components/ButtonWait'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
 
@@ -79,56 +80,6 @@ const LOADER_VARIANTS: readonly { name: PixelLoaderVariant; blurb: string; isDef
 
 const LOADER_SIZES = ['sm', 'md'] as const
 
-// ── ButtonWait: temporary stand-in ───────────────────────────────────────────
-//
-// The shared component lands in a parallel branch as
-// `src/components/ButtonWait.tsx`, default export, props
-// `{ testId?: string; label?: string }`. It does not exist in this worktree, so
-// a real import would fail to resolve and this whole page — every specimen on
-// it — would stop rendering. A gallery that cannot mount is worse than one
-// section short.
-//
-// AT MERGE, two edits and the specimens below are untouched:
-//   1. uncomment the import on the next line;
-//   2. delete the stand-in function under it.
-// The local function is deliberately named `ButtonWait` so the JSX call sites
-// are already written against the real contract and do not change.
-//
-// This is not left to whoever notices. DesignSystemPage.test.tsx carries a
-// tripwire that fails the moment `components/ButtonWait.tsx` exists while this
-// stand-in is still here, so the swap is enforced by the build rather than by
-// memory.
-//
-// import ButtonWait from '../components/ButtonWait'
-
-/**
- * Stand-in only — see the block comment above. Static, because inventing a
- * keyframe name here would be the same dead-reference bug cssVarUsage.test.ts
- * exists to catch. The real component owns the motion, and owns no live region:
- * the button already has an accessible name and a disabled state, and a region
- * inside it would talk over both.
- */
-function ButtonWait({ testId = 'button-wait', label = 'Working' }: { testId?: string; label?: string }) {
-  return (
-    <span
-      data-testid={testId}
-      // aria-hidden, so the button's own text stays its accessible name. The
-      // label is the sighted-mouse affordance only; the real component decides
-      // whether it deserves more than that.
-      aria-hidden
-      title={label}
-      style={{
-        display: 'inline-block',
-        width: 8,
-        height: 8,
-        flex: '0 0 auto',
-        borderRadius: 2,
-        background: 'var(--cyan)',
-        opacity: 0.75,
-      }}
-    />
-  )
-}
 
 /**
  * Both buttons in the ButtonWait pair share this.

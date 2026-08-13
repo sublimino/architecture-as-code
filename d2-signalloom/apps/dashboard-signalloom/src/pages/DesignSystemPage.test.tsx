@@ -22,20 +22,6 @@ const LOADER_CAPTION_IDS = [
   'ds-loader-caption-default',
 ] as const
 
-/**
- * Tripwire for the ButtonWait stand-in.
- *
- * DesignSystemPage renders a local `ButtonWait` because the shared component
- * lands in a parallel branch and importing something that does not exist would
- * take the whole gallery down, not just one section. The stand-in is a debt with
- * an owner, not a decision — so this asserts the debt is still outstanding, and
- * fails the moment it is not.
- *
- * A glob rather than a filesystem read: it is resolved by Vite at transform
- * time against the same module graph the page imports through, so it cannot
- * disagree with what an import would have found. `{}` means the file is absent.
- */
-const BUTTON_WAIT_MODULE = import.meta.glob('../components/ButtonWait.tsx')
 
 // ── Query helpers for the complex DataTable specimen ─────────────────────────
 //
@@ -204,15 +190,6 @@ describe('DesignSystemPage', () => {
     expect(section).toHaveTextContent(/no live region/i)
   })
 
-  it('still needs its ButtonWait stand-in — fails the moment the real one lands', () => {
-    expect(
-      Object.keys(BUTTON_WAIT_MODULE),
-      'src/components/ButtonWait.tsx now exists. In DesignSystemPage.tsx: uncomment the ' +
-        "`import ButtonWait from '../components/ButtonWait'` line and delete the stand-in " +
-        'function beneath it. The specimens do not change — the stand-in is named ButtonWait ' +
-        'so the call sites are already written against the real contract. Then delete this test.',
-    ).toEqual([])
-  })
 
   it('holds the whole page to its declared live-region roster', () => {
     render(<DesignSystemPage />)

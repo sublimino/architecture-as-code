@@ -29,7 +29,10 @@ cd "$(dirname "$0")/.."
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
-COSIGN_KEY="${COSIGN_KEY:-.keys/cosign.key}"
+# shellcheck source=scripts/lib/keys.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
+KEYS_DIR="$(keys_dir)"
+COSIGN_KEY="${COSIGN_KEY:-${KEYS_DIR}/cosign.key}"
 COSIGN_PUB="${COSIGN_PUB:-${COSIGN_KEY%.key}.pub}"
 SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
 FRONTEND_PATH="d2-osramp-apps/components/frontend"

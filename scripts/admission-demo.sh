@@ -12,7 +12,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 REGISTRY_HOST="${REGISTRY_HOST:-127.0.0.1:5001}"
 CLUSTER_IMAGE_BASE="zot.registry.svc.cluster.local:5000/acme/images"
 
-test -f .keys/cosign.key || { echo "run 'make signing-keys' first"; exit 1; }
+# shellcheck source=scripts/lib/keys.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
+KEYS_DIR="$(keys_dir)"
+test -f "${KEYS_DIR}/cosign.key" || { echo "run 'make signing-keys' first"; exit 1; }
 
 echo "=== installing Kyverno ${KYVERNO_VERSION} (idempotent)"
 # server-side apply: the Kyverno CRDs exceed the client-side annotation limit
@@ -34,17 +37,17 @@ LISTENER_TAR="vex/out/.push-listener.tar"
 docker save listener:dev -o "${LISTENER_TAR}"
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/listener:signed" >/dev/null
 SIGNED_DIGEST=$(crane digest --insecure "${REGISTRY_HOST}/acme/images/listener:signed")
-[ -f .keys/signing-config.json ] || cosign signing-config create \
+[ -f ${KEYS_DIR}/signing-config.json ] || cosign signing-config create \
   --no-default-rekor --no-default-fulcio --no-default-oidc --no-default-tsa \
-  --out .keys/signing-config.json >/dev/null 2>&1
+  --out ${KEYS_DIR}/signing-config.json >/dev/null 2>&1
 # Same flag set as every other cosign sign in the repo, asserted by
 # test/cosign-signing-consistency.bats. This was previously the only call site
 # without --registry-referrers-mode; the flag has since been removed everywhere
 # rather than added here, because cosign v3.0.6 ignores it (see that test's
 # header for the measurement). Sign by digest, never by tag: the :signed tag can
 # move under a concurrent push, stranding the signature on a digest nobody serves.
-COSIGN_PASSWORD="" cosign sign --yes --key .keys/cosign.key \
-  --signing-config .keys/signing-config.json --allow-insecure-registry \
+COSIGN_PASSWORD="" cosign sign --yes --key "${KEYS_DIR}/cosign.key" \
+  --signing-config ${KEYS_DIR}/signing-config.json --allow-insecure-registry \
   "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"
 
 crane push --insecure "${LISTENER_TAR}" "${REGISTRY_HOST}/acme/images/unsigned:latest" >/dev/null
@@ -53,7 +56,7 @@ rm -f "${LISTENER_TAR}"
 echo "=== applying the verify-images policy"
 kubectl create ns admission-demo --dry-run=client -o yaml | kubectl apply -f -
 # the PEM is multiline, so each line must carry the YAML block indentation
-INDENTED_KEY=$(sed 's/^/                      /' .keys/cosign.pub)
+INDENTED_KEY=$(sed 's/^/                      /' ${KEYS_DIR}/cosign.pub)
 awk -v key="${INDENTED_KEY}" \
   '{ if ($0 ~ /\$\{COSIGN_PUBLIC_KEY\}/) print key; else print }' \
   policy/kyverno-verify-images.yaml | kubectl apply -f -

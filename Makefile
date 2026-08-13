@@ -11,7 +11,30 @@ SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
 CLUSTER_NAME ?= osramp
-KEYS_DIR := .keys
+
+# Signing keys live in the MAIN worktree and are shared by every linked one.
+#
+# .keys/ is gitignored, so it was per-checkout while the Kind cluster and the
+# zot registry it signs for are shared. `signing-keys` only creates what is
+# absent, so each new worktree minted its own keypair: on 2026-08-13 there were
+# four on disk, the cluster trusted one of them, and pushes from the others were
+# refused. cosign words that refusal "no matching signatures were found" —
+# identical to the wording for an artifact that was never signed — so it reads
+# as unsigned and sends the reader hunting for a signature that is present and
+# valid. That cost hours and pinned the fleet OCIRepository to a stale revision.
+#
+# git knows where the main worktree is, so nothing needs configuring per
+# worktree: --git-common-dir resolves to the main checkout's .git from inside
+# any linked worktree, and to its own from the main checkout. On the main
+# checkout this is exactly the old value, so that path is unchanged.
+#
+# The fallback matters: gcp-ci.sh:322 tars the tree with --exclude='.git', so on
+# a CI VM there is no git at all. There it is a single checkout building its own
+# cluster, keys and cluster born together in the same `make up`, so the plain
+# relative default is already correct.
+GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
+KEYS_DIR ?= $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys)
+export KEYS_DIR
 SIGNALLOOM_PLATFORM_ROOT ?= /home/andy/src/cp/platform
 OSRAMP_PRODUCT_ROOT ?= /home/andy/src/cp/osramp
 OSRAMP_DEMO_ROOT ?= /home/andy/src/cp/osramp-demo

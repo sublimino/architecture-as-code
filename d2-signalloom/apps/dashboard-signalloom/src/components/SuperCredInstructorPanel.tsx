@@ -352,13 +352,21 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
           runId,
           offsetRef.current,
           {
-            onOpen: () => {
-              if (!stopped) streamLiveRef.current = true
+            onChunk: chunk => {
+              if (stopped) return false
+              // The stream counts as live only once a frame has actually
+              // arrived, never merely because the response opened. nginx
+              // buffers proxied responses by default, and a buffering proxy
+              // opens the response at once and then holds every frame until
+              // the run ends — so trusting the open would silence the poll for
+              // the whole phase and leave the panel emptier than it was
+              // before any of this existed.
+              streamLiveRef.current = true
+              // Returning false hands the stream its own shutdown: the cursor
+              // moved under it (a poll response still in flight when it
+              // opened) and SSE cannot re-ask for a different offset.
+              return applyLogChunk(chunk)
             },
-            // Returning false hands the stream its own shutdown: the cursor
-            // moved under it (a poll response that was still in flight when it
-            // opened) and SSE cannot re-ask for a different offset.
-            onChunk: chunk => (stopped ? false : applyLogChunk(chunk)),
           },
           await getAccessTokenSilently(),
           controller.signal,

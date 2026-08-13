@@ -11,7 +11,7 @@
  * workload-identity proof section at the top so the trust story can render both
  * online and offline.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import DataTable from '../components/DataTable'
 import { PieChart, Pie, Cell } from 'recharts'
@@ -204,13 +204,29 @@ export default function CryptographyPage() {
   const [proofError, setProofError] = useState(false)
   const [highlightedAlgo, setHighlightedAlgo] = useState<string | null>(null)
 
+  // Holds whichever attempt is currently outstanding, so that both ways of
+  // abandoning one — unmounting the page, and pressing Retry while the previous
+  // request is still in flight — cancel it through the same path.
+  const inFlight = useRef<AbortController | null>(null)
+
   const load = useCallback(async () => {
+    inFlight.current?.abort()
+    const attempt = new AbortController()
+    inFlight.current = attempt
     try {
       const token = await getAccessTokenSilently()
-      const res = await api.health.crypto(token)
+      const res = await api.health.crypto(token, attempt.signal)
+      if (attempt.signal.aborted) return
       setProofs(res.proofs)
       setProofError(false)
     } catch {
+      // An abort means this page went away or a newer attempt superseded this
+      // one — not that the proof service failed, and rendering it as a failure
+      // would report an outage that never happened. It also must not reach
+      // setProofs: after unmount React has no tree to dispatch into, and this
+      // catch would then throw a second time from inside the handler itself,
+      // with nothing above it left to catch that.
+      if (attempt.signal.aborted) return
       setProofs([])
       setProofError(true)
     }
@@ -218,6 +234,7 @@ export default function CryptographyPage() {
 
   useEffect(() => {
     load()
+    return () => inFlight.current?.abort()
   }, [load])
 
   // Scrolls the Algorithm Inventory table to the row matching a Cipher

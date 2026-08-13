@@ -496,11 +496,15 @@ check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster
 
 .PHONY: demo-signalloom-supercred-images-test
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
-	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats test/supervise-port-forward.bats
+	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats test/supervise-port-forward.bats test/deployed-staleness.bats
 
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
 	bats test/kind-load-verified.bats
+
+.PHONY: test-deployed-staleness
+test-deployed-staleness: ## Verify the deployed-vs-source guard against a fake kubectl, including that it cannot pass vacuously (no cluster required).
+	bats test/deployed-staleness.bats
 
 .PHONY: test-supervise-port-forward
 test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
@@ -918,3 +922,7 @@ demo-signalloom-fleet-down: ## Remove Fleet Manager only.
 .PHONY: check-backends
 check-backends: ## Assert every backend the dashboard proxies to is declared and deployed.
 	./scripts/check-backends.sh live
+
+.PHONY: check-deployed-staleness
+check-deployed-staleness: ## Assert the running pods are running THIS working tree, not an older build.
+	./scripts/check-deployed-staleness.sh

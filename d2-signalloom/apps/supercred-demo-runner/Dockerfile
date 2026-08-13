@@ -57,6 +57,20 @@ RUN chmod 0755 /repo/scripts/supercred-demo.sh /repo/scripts/supercred-images.sh
     && useradd --system --gid appgroup appuser \
     && chown -R appuser:appgroup /repo
 
+# The build identity, written where scripts/check-deployed-staleness.sh reads it
+# back out of the RUNNING container. Declared here rather than at the top of the
+# file so that a changed fingerprint invalidates only this final layer instead
+# of every COPY and pip install above it.
+#
+# Written while still root — appuser could not create a file in /etc — and left
+# world-readable so the readback works whichever user the pod ends up running as.
+ARG SOURCE_ID
+ARG GIT_REF
+RUN test -n "$SOURCE_ID" \
+    && printf 'workload=supercred-demo-runner\nsource_id=%s\ngit_ref=%s\n' \
+         "$SOURCE_ID" "${GIT_REF:-unknown}" > /etc/osramp-build-id \
+    && chmod 0644 /etc/osramp-build-id
+
 USER appuser
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget --no-verbose --tries=1 --spider http://localhost:8000/health || exit 1

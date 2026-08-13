@@ -352,6 +352,23 @@ run_stage \
   "stage6-flux.tap" \
   "cd ${WORK_DIR} && make demo-signalloom-test"
 
+# Stage 6b: Deployed-vs-source drift
+#
+# Placed immediately after convergence and before every stage that asserts
+# against the running system. Stages 7, 8 and 8b all exercise workloads through
+# the cluster, and each of them passes happily against a pod built from an older
+# tree — which is how a fully-tested streaming fix was reported as working on
+# 2026-08-13 while the pods answering the requests predated all 22 of its
+# commits. Proving the running code IS this checkout is a precondition for
+# reading anything the later stages say about this checkout.
+#
+# Exits 2 rather than 1 when it cannot reach the cluster, so a broken kubeconfig
+# fails this stage instead of quietly certifying the deployment.
+run_stage \
+  "Deployed workloads match the source under test" \
+  "stage6b-deployed-staleness.txt" \
+  "cd ${WORK_DIR} && make check-deployed-staleness"
+
 # Stage 7: Runtime negatives (BATS TAP)
 run_stage \
   "Gateway, probes, Dex, and NetworkPolicy runtime negatives" \

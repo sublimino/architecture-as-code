@@ -494,7 +494,21 @@ def _monitor_run(run: _Run) -> None:
             # is equally true of the batching behaviour and stayed green
             # throughout the period this was broken.
             chunk = proc.stdout.read1(8192)
-            if not chunk:
+            if chunk is None:
+                # None and b"" are NOT the same answer, and `if not chunk`
+                # cannot tell them apart. b"" means the write end is gone --
+                # EOF, stop. None means "nothing ready right now", which is
+                # what read1 returns on a non-blocking fd. Nothing here sets
+                # O_NONBLOCK, so this should be unreachable; it is written
+                # anyway because the failure it prevents is silent. Treating
+                # None as EOF would end the capture at whatever had arrived and
+                # report the run as complete with a truncated log -- and the
+                # dashboard cannot distinguish a truncated log from a short
+                # one. Sleep rather than spin, so a genuinely non-blocking fd
+                # degrades to a poll instead of burning a core.
+                time.sleep(0.01)
+                continue
+            if chunk == b"":
                 break
             _append_log(run, chunk)
         try:

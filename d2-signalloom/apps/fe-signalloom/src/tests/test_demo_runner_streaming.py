@@ -33,8 +33,10 @@ from __future__ import annotations
 import select
 import subprocess
 import sys
+import threading
 import time
 from contextlib import ExitStack
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Callable, Iterator, cast
 
@@ -270,6 +272,130 @@ def test_a_burst_larger_than_the_read_size_is_captured_byte_for_byte(
     assert not truncated
     assert len(captured) == len(_EXPECTED_BURST)
     assert captured == _EXPECTED_BURST
+
+
+# A phase that leaves a grandchild holding the log pipe and then exits. Nothing
+# in scripts/supercred-demo.sh does this today -- its one background command
+# (kubectl port-forward, line 302) redirects both streams to /dev/null, so it
+# does not inherit the pipe -- but it is one forgotten redirect away.
+_ORPHAN_HOLDS_PIPE_SCRIPT = (
+    "#!/usr/bin/env bash\n"
+    "echo phase-banner\n"
+    "sleep 300 &\n"   # inherits stdout: the pipe stays open after this shell exits
+    "exit 0\n"
+)
+
+
+def test_cancelling_releases_a_reader_a_grandchild_has_pinned_open(
+    demo_client: Callable[[str], TestClient]
+) -> None:
+    """EOF is not guaranteed by the direct child exiting.
+
+    A grandchild that inherited stdout keeps the pipe's write end open, so the
+    monitor thread's read parks indefinitely even though the process it is
+    nominally following has already finished. If the reader's exit depended
+    solely on EOF, an aborted run would leak a blocked thread forever.
+
+    It does not: cancellation signals the whole process group, which kills the
+    grandchild too and closes the last write end. Measured directly -- a
+    blocking read1 returns b"" within a millisecond of the killpg. This test
+    pins the end-to-end consequence, that a cancelled run in this shape still
+    reaches a terminal state promptly rather than sitting until the 900s
+    timeout.
+    """
+    client = demo_client(_ORPHAN_HOLDS_PIPE_SCRIPT)
+    run_id = _start_run(client)
+
+    # The banner arrives, and then nothing: the shell has exited but the read
+    # cannot see EOF, so the run stays "running" with a dead child.
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        payload = client.get(
+            f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT)
+        ).json()
+        if "phase-banner" in payload["chunk"]:
+            break
+        time.sleep(0.02)
+    assert "phase-banner" in payload["chunk"]
+
+    reset = client.post("/api/demo/supercred/reset", headers=_bearer(SUPERADMIN_SUBJECT))
+    assert reset.status_code == 202
+
+    cancelled = _wait_for_terminal_run(client, run_id)
+    assert cancelled["status"] == "cancelled"
+
+
+class _StubPipe:
+    """A pipe that returns a scripted sequence, including None."""
+
+    def __init__(self, reads: list[bytes | None]) -> None:
+        self._reads = list(reads)
+        self.closed = False
+
+    def read1(self, size: int) -> bytes | None:
+        del size
+        return self._reads.pop(0) if self._reads else b""
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _StubProcess:
+    def __init__(self, stdout: _StubPipe) -> None:
+        self.stdout = stdout
+
+    def wait(self, timeout: float | None = None) -> int:
+        del timeout
+        return 0
+
+    def poll(self) -> int:
+        return 0
+
+
+def _run_with_stubbed_pipe(reads: list[bytes | None]) -> Any:
+    run_lock = threading.Lock()
+    return demo_runner._Run(
+        run_id="stubbed-pipe-run",
+        step_id="1",
+        kind="step",
+        status="running",
+        started_at=datetime.now(UTC),
+        finished_at=None,
+        exit_code=None,
+        error=None,
+        _process=cast(Any, _StubProcess(_StubPipe(reads))),
+        _log=bytearray(),
+        _log_truncated=False,
+        _timed_out=False,
+        _lock=run_lock,
+        _log_changed=threading.Condition(run_lock),
+        _done=threading.Event(),
+    )
+
+
+def test_a_none_read_is_not_end_of_file() -> None:
+    """None and b"" are different answers, and `if not chunk` conflates them.
+
+    read1 returns None -- not b"" -- when the fd is non-blocking and has
+    nothing ready this instant. b"" is the one that means the write end is
+    gone. Nothing in the runner sets O_NONBLOCK today, so this is a guard
+    rather than a live bug; it is worth a test because the failure it prevents
+    is silent. Reading None as EOF would stop the capture at whatever had
+    arrived and then report the run succeeded, and a truncated log is
+    indistinguishable from a short one at every layer above.
+    """
+    run = _run_with_stubbed_pipe([b"first ", None, b"second", b""])
+
+    demo_runner._monitor_run(run)
+
+    with run._lock:
+        captured = bytes(run._log)
+    assert captured == b"first second", (
+        "output after a None read was dropped, so a non-blocking pipe would "
+        "silently truncate the log at the first moment it had nothing ready"
+    )
+    assert run.status == "succeeded"
+    assert run.exit_code == 0
 
 
 def test_a_python_child_is_told_not_to_block_buffer_its_output() -> None:

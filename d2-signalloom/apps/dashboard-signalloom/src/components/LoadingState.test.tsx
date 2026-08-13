@@ -22,9 +22,23 @@ function withReducedMotion(reduced: boolean) {
   }
 }
 
-/** The nine pixels of the embedded PixelLoader, at the default testId. */
-function gridCells(testId = 'loading-state'): HTMLElement[] {
-  return Array.from(screen.getByTestId(`${testId}-loader-grid`).children) as HTMLElement[]
+/**
+ * The moving parts of the embedded PixelLoader, whichever variant it draws.
+ *
+ * This used to read the grid's nine children directly. PixelLoader's default
+ * is now `Loom`, the brand mark, which draws eight woven bars instead of a 3x3
+ * grid — so a helper that counts cells was really asserting "the default is
+ * Drive", which is PixelLoader's business and not LoadingState's. Every
+ * element that takes part in the animation carries `data-animated` in either
+ * shape, so querying that keeps these tests about what they were always about:
+ * that the waiting pattern is drawn, that it moves, and that it stops moving
+ * when the user asks it to. Which variant is the default is pinned in
+ * PixelLoader.test.tsx, in one place.
+ */
+function loaderMarks(testId = 'loading-state'): (HTMLElement | SVGElement)[] {
+  return Array.from(
+    screen.getByTestId(`${testId}-loader-grid`).querySelectorAll('[data-animated]'),
+  ) as (HTMLElement | SVGElement)[]
 }
 
 afterEach(() => {
@@ -230,7 +244,8 @@ describe('prefers-reduced-motion', () => {
       render(<LoadingState status="loading" />)
       const grid = screen.getByTestId('loading-state-loader-grid')
       expect(grid).toHaveAttribute('data-motion', 'animated')
-      expect(gridCells().every(c => c.dataset.animated === 'true')).toBe(true)
+      expect(loaderMarks().length).toBeGreaterThan(0)
+      expect(loaderMarks().every(c => c.dataset.animated === 'true')).toBe(true)
     } finally {
       restore()
     }
@@ -242,9 +257,10 @@ describe('prefers-reduced-motion', () => {
       render(<LoadingState status="loading" label="agents" />)
       const grid = screen.getByTestId('loading-state-loader-grid')
       expect(grid).toHaveAttribute('data-motion', 'static')
-      expect(gridCells().every(c => c.dataset.animated === 'false')).toBe(true)
+      expect(loaderMarks().length).toBeGreaterThan(0)
+      expect(loaderMarks().every(c => c.dataset.animated === 'false')).toBe(true)
       expect(
-        gridCells().every(c => (c.getAttribute('style') ?? '').includes('animation')),
+        loaderMarks().every(c => (c.getAttribute('style') ?? '').includes('animation')),
       ).toBe(false)
       // The meaning survives the missing animation.
       expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
@@ -337,15 +353,17 @@ describe('an expired session in the inline variant', () => {
 // pixel grid and a running clock; this is that pattern reaching the twenty-odd
 // pages that render LoadingState.
 describe('the waiting pattern is the loading state', () => {
-  it('draws the pixel grid, not a dot, while loading inline', () => {
+  it('draws the waiting pattern, not a dot, while loading inline', () => {
     render(<LoadingState status="loading" label="agents" />)
-    expect(gridCells()).toHaveLength(9)
+    expect(screen.getByTestId('loading-state-loader')).toBeInTheDocument()
+    expect(loaderMarks().length).toBeGreaterThan(0)
     expect(screen.queryByTestId('loading-indicator')).not.toBeInTheDocument()
   })
 
   it('draws it in the block variant too', () => {
     render(<LoadingState variant="block" status="loading" label="agents" />)
-    expect(gridCells()).toHaveLength(9)
+    expect(screen.getByTestId('loading-state-loader')).toBeInTheDocument()
+    expect(loaderMarks().length).toBeGreaterThan(0)
     expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
   })
 

@@ -13,8 +13,16 @@ import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties
 // for every `loading` phase across the app, so this component now has to
 // survive being embedded: `size="sm"` to fit a 12px line, `announce={false}`
 // to keep quiet when the host is already a live region, and `labelTestId` so
-// the host keeps its own testid convention. Defaults are unchanged, and that
-// is deliberate — Instructor Controls passes none of them and must not move.
+// the host keeps its own testid convention.
+//
+// THE DEFAULT VARIANT IS `Loom` — the brand mark. That is a product decision,
+// not an implementation detail: the loader is the thing users stare at while
+// they wait, so it should be the Signal Loom diamond rather than an anonymous
+// pixel grid. No caller in the app passes `variant`, so this default is what
+// every loading surface renders — LoadingState's twenty-odd pages, Instructor
+// Controls, and the in-button loaders. `Drive`, `Dots` and `Orbit` are
+// unchanged and still available by asking for them. There is a test pinning
+// the default so it cannot be flipped back by accident.
 //
 // Variants (design intent, preserved from the source):
 //   Drive  square cells, chevron wavefront driving right. The 650ms cycle is
@@ -131,6 +139,30 @@ const LOOM_GAP = 6
 const LOOM_DASH_NEAR = `5 ${LOOM_GAP} 13`
 const LOOM_DASH_FAR = `13 ${LOOM_GAP} 5`
 
+/**
+ * Below this rendered size the weave is drawn WITHOUT its interlace gaps.
+ *
+ * The gaps are the first thing to die when the mark gets small, and they do
+ * not die quietly. A gap is 6 of 40 viewBox units, so at a rendered 11px it is
+ * 1.65 CSS px punched through a bar that is itself only 1.1 CSS px wide
+ * (stroke 4 of 40). That does not read as "this bar passes underneath"; it
+ * chops each interior bar into two ~1.4px stubs that antialias to grey fog and
+ * take the diamond's silhouette down with them. Rasterised at 1x and magnified,
+ * the woven mark at 11px is a coloured smudge while the same mark with solid
+ * bars still reads as a lattice — measured, not assumed.
+ *
+ * So below the threshold the mark reduces to the diamond outline plus the
+ * crossing strokes, which is exactly the reduction the favicon work landed on
+ * when it hit this same wall. All eight bars stay, the gradient stays, the
+ * wavefront stays; only the over/under goes, and only where it was never
+ * legible in the first place.
+ *
+ * 15 is the `md` footprint, so `md` keeps the full weave and `sm` (14) does
+ * not. It is a px threshold rather than a check on the size token so that an
+ * arbitrary caller size still gets the right treatment.
+ */
+const LOOM_MIN_WOVEN_PX = 15
+
 /** Per-bar offset. Weft trails warp by half a step so the two interleave. */
 const LOOM_STEP = 90
 /** Shorter than the 315ms it takes the front to cross, so two are in flight. */
@@ -196,6 +228,9 @@ function LoomMark({ px, frozen }: { px: number; frozen: boolean }) {
   // HTML id but not in a CSS identifier, so they come out.
   const gradientId = `sl-loom-${useId().replace(/:/g, '')}`
   const mid = LOOM_VIEW / 2
+  // See LOOM_MIN_WOVEN_PX. Small enough, and the interlace gaps stop being
+  // holes and start being fog, so they are not drawn at all.
+  const woven = px >= LOOM_MIN_WOVEN_PX
 
   return (
     <svg
@@ -221,31 +256,35 @@ function LoomMark({ px, frozen }: { px: number; frozen: boolean }) {
         </linearGradient>
       </defs>
 
-      <g transform={`rotate(45 ${mid} ${mid})`}>
-        {LOOM_BARS.map((bar, i) => (
-          <line
-            key={i}
-            data-bar={bar.dir}
-            data-loom-frame={bar.frame ? 'true' : 'false'}
-            data-animated={frozen ? 'false' : 'true'}
-            x1={bar.x1}
-            y1={bar.y1}
-            x2={bar.x2}
-            y2={bar.y2}
-            stroke={`url(#${gradientId})`}
-            strokeWidth={LOOM_STROKE}
-            // Square caps close the diamond's corners; the dashed interior
-            // bars need butt caps or each cap would eat 2 of the 6-unit gap.
-            strokeLinecap={bar.dash ? 'butt' : 'square'}
-            strokeDasharray={bar.dash}
-            style={{
-              opacity: LOOM_DIM,
-              ...(frozen
-                ? null
-                : { animation: `sl-loom-weave ${LOOM_DUR}ms ease-in-out ${bar.delay}ms infinite` }),
-            }}
-          />
-        ))}
+      <g data-loom-weave={woven ? 'woven' : 'plain'} transform={`rotate(45 ${mid} ${mid})`}>
+        {LOOM_BARS.map((bar, i) => {
+          const dash = woven ? bar.dash : undefined
+          return (
+            <line
+              key={i}
+              data-bar={bar.dir}
+              data-loom-frame={bar.frame ? 'true' : 'false'}
+              data-animated={frozen ? 'false' : 'true'}
+              x1={bar.x1}
+              y1={bar.y1}
+              x2={bar.x2}
+              y2={bar.y2}
+              stroke={`url(#${gradientId})`}
+              strokeWidth={LOOM_STROKE}
+              // Square caps close the diamond's corners; the dashed interior
+              // bars need butt caps or each cap would eat 2 of the 6-unit gap.
+              // Un-woven, every bar is a frame bar and wants the square cap.
+              strokeLinecap={dash ? 'butt' : 'square'}
+              strokeDasharray={dash}
+              style={{
+                opacity: LOOM_DIM,
+                ...(frozen
+                  ? null
+                  : { animation: `sl-loom-weave ${LOOM_DUR}ms ease-in-out ${bar.delay}ms infinite` }),
+              }}
+            />
+          )
+        })}
       </g>
     </svg>
   )
@@ -265,13 +304,29 @@ export type PixelLoaderSize = 'sm' | 'md'
  * a 3px cell on a 1px gutter is 11px of grid, which fits a 12px line without
  * pushing it taller, and the label and figure come down with it so the three
  * parts stay in proportion.
+ *
+ * `markPx` is the Loom mark's footprint, and it is a separate number rather
+ * than the grid's own `cell * 3 + cellGap * 2` because the two shapes do not
+ * fill a box the same way. The grid fills it; the diamond is inscribed in it,
+ * touching only the four edge midpoints, so it covers half the area and puts
+ * four bars across a 45° span instead of three cells across a straight one. At
+ * matched footprints the mark is systematically the smaller, denser drawing —
+ * fine when Loom was opt-in, not fine now it is the default.
+ *
+ * At `md` it stays 15, exactly the grid's footprint: that is the shipped
+ * Instructor Controls rendering and it must not move. At `sm` it is 14 rather
+ * than 11, which is free — the 12px label's line box measures 14px, so the
+ * loader's height is 14 for any mark up to 14 and only grows at 15. Three more
+ * pixels of mark, no reflow. Nothing at `sm` sets a width (the fixed 78/124/144
+ * widths in the panels are all `md`), so the extra 3px of width just moves the
+ * label along.
  */
 const SIZES: Record<
   PixelLoaderSize,
-  { cell: number; cellGap: number; gap: number; labelPx: number; elapsedPx: number }
+  { cell: number; cellGap: number; gap: number; labelPx: number; elapsedPx: number; markPx: number }
 > = {
-  md: { cell: 4, cellGap: 1.5, gap: 10, labelPx: 13, elapsedPx: 12 },
-  sm: { cell: 3, cellGap: 1, gap: 6, labelPx: 12, elapsedPx: 11 },
+  md: { cell: 4, cellGap: 1.5, gap: 10, labelPx: 13, elapsedPx: 12, markPx: 15 },
+  sm: { cell: 3, cellGap: 1, gap: 6, labelPx: 12, elapsedPx: 11, markPx: 14 },
 }
 
 const DIM_OPACITY = 0.15
@@ -411,7 +466,7 @@ export interface PixelLoaderProps {
 
 export default function PixelLoader({
   label = 'Churning',
-  variant = 'Drive',
+  variant = 'Loom',
   size = 'md',
   startedAt,
   announce = true,
@@ -430,11 +485,7 @@ export default function PixelLoader({
 
   const isLoom = variant === 'Loom'
   const { delays, dur, round } = PATTERNS[variant as GridVariant] ?? PATTERNS.Drive
-  const { cell, cellGap, gap, labelPx, elapsedPx } = SIZES[size] ?? SIZES.md
-
-  // The mark takes the grid's own footprint rather than a size of its own, so
-  // swapping variants never moves the label or reflows the line it sits in.
-  const markPx = cell * 3 + cellGap * 2
+  const { cell, cellGap, gap, labelPx, elapsedPx, markPx } = SIZES[size] ?? SIZES.md
 
   // See the `announce` prop. Empty when the host already owns a live region.
   const liveProps = announce

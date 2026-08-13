@@ -68,7 +68,7 @@ rbac-analysis.spec.ts	suite-only	Behind guards.afmDeployed(). One test, SKIP wit
 rbac-explorer.spec.ts	suite-only	Behind guards.afmDeployed(). Ten tests, all SKIP without the k8s-afm slice.
 signalloom-login.spec.ts	suite-only	Three of its four tests re-prove Dex login/logout, which stage 8 already covers via signalloom-test-1.spec.ts's Dex contracts; the fourth needs AFM. Cheap, and the best candidate for the next stage — but adding it today buys duplicate coverage rather than new coverage.
 signalloom-test-1.spec.ts	ci:stage8
-smoke.spec.ts	suite-only	No CI stage runs it yet. It is the strongest candidate: 18 tests over every sidebar page, self-authenticating (the smoke project carries no storageState and no setup dependency), and it holds the Collusion & Access background assertion from d9d1d2f that nothing enforces.
+smoke.spec.ts	ci:stage8b
 supercred-evidence-lifecycle.spec.ts	suite-only	Its project sets a 30-minute test timeout. CI_STAGE_TIMEOUT_SECONDS is 900, so a passing run would be killed mid-flight and reported as a stage failure. It also drives instructor phases that mutate one shared cluster, which is why its project sets retries:0.
 supercred-live-pages.spec.ts	unwired	Needs the SuperCred demo to have been driven first, and needs the storageState the setup project writes. Adding it to the `smoke` project would silently run it unauthenticated — playwright.config.ts documents exactly that trap. It needs its own project with dependencies:["setup"].
 supercred-page.spec.ts	unwired	Seeds the superadmin flag before app boot and needs the SuperCred demo deployed. Same storageState problem as supercred-live-pages: the `smoke` project would run it logged out.

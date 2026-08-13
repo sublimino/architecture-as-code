@@ -22,7 +22,7 @@
  *    waiting-indicators at once, which makes it the only page where the count
  *    of ARIA live regions is a design problem rather than an afterthought. Each
  *    gallery PixelLoader therefore passes `announce={false}` — the default is
- *    true, and nine defaulted loaders is a screen reader reading nine
+ *    true, and thirteen defaulted loaders is a screen reader reading thirteen
  *    simultaneous "Churning" announcements at anyone who opens this page. The
  *    six LoadingState specimens do own regions, because LoadingState has no
  *    `announce` opt-out; six is a deliberate ceiling, asserted exactly in the
@@ -38,6 +38,7 @@
  */
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import PixelLoader, { type PixelLoaderVariant } from '../components/PixelLoader'
+import { LONG_WAIT_MS, type LoadTimesSetting } from '../api/loadTimes'
 import LoadingState from '../components/LoadingState'
 import ErrorState from '../components/ErrorState'
 import EmptyState from '../components/EmptyState'
@@ -80,6 +81,60 @@ const LOADER_VARIANTS: readonly { name: PixelLoaderVariant; blurb: string; isDef
 ]
 
 const LOADER_SIZES = ['sm', 'md'] as const
+
+/**
+ * The load-times setting, shown rather than described.
+ *
+ * `all` / `long` / `none` governs whether a loader draws its elapsed figure.
+ * The difference between the three is a presence and an absence, which is
+ * exactly the kind of thing prose is bad at and four specimens side by side are
+ * good at. Each passes an explicit `loadTimes`, which is the one legitimate use
+ * of that prop: a gallery cannot be governed by the reader's own choice or it
+ * would show the same specimen three times.
+ *
+ * `long` gets TWO specimens, because it is the only mode whose behaviour
+ * changes with time and a reader who arrives after the threshold has passed
+ * would otherwise see it as identical to `all`. One is stamped at mount and is
+ * still inside the threshold when the page opens; the other is stamped well
+ * before it and is already past. Both sides of the rule, visible at once.
+ *
+ * The label is present on all four, and that is the demonstration that matters
+ * most: `none` is a loader with no figure, not a loader with no wording.
+ */
+const LOADER_TIME_MODES: readonly {
+  key: string
+  mode: LoadTimesSetting
+  caption: string
+  note: string
+  /** ms before mount to stamp the wait, for the specimen that must look old. */
+  aged?: number
+}[] = [
+  {
+    key: 'all',
+    mode: 'all',
+    caption: 'all',
+    note: 'The default. The figure is there from the first paint, however brief the wait turns out to be.',
+  },
+  {
+    key: 'long-new',
+    mode: 'long',
+    caption: 'long · fresh wait',
+    note: `Under the threshold, so no figure yet. Leave this page open and it appears at ${(LONG_WAIT_MS / 1000).toFixed(1)}s, which is the whole behavior.`,
+  },
+  {
+    key: 'long-aged',
+    mode: 'long',
+    caption: 'long · past the threshold',
+    note: 'The same mode, handed a start stamp from before the threshold. It shows at once rather than waiting again.',
+    aged: LONG_WAIT_MS + 30_000,
+  },
+  {
+    key: 'none',
+    mode: 'none',
+    caption: 'none',
+    note: 'No figure, ever. Note what is still here: the mark, and the wording naming what is running.',
+  },
+]
 
 
 /**
@@ -597,6 +652,12 @@ export default function DesignSystemPage() {
   // Search and lifecycle filtering for the complex DataTable specimen. They live
   // here, not in DataTable, and that is the point the specimen is making: the
   // page narrows the array, DataTable sorts and paginates whatever it is given.
+  // Stamped once, at mount, for the load-times specimen that has to look like
+  // a wait that started before the page did. A module-level constant would be
+  // frozen at import and a bare Date.now() in render would be recomputed on
+  // every keystroke in the table filters above, restarting the clock.
+  const [pageMountedAt] = useState(() => Date.now())
+
   const [fleetSearch, setFleetSearch] = useState('')
   const [fleetState, setFleetState] = useState<(typeof FLEET_STATES)[number]>('all')
 
@@ -688,7 +749,7 @@ export default function DesignSystemPage() {
       <Group
         id="pixel-loader"
         title="PixelLoader"
-        when="Use for work long enough that a spinner stops helping — it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. Render it with no variant prop and you get Loom, the default; the other three are alternatives you have to ask for by name. md owns its own line; sm sits inside a 12px one."
+        when="Use for work long enough that a spinner stops helping — it names what is running and counts elapsed seconds, so a slow step is distinguishable from a hung one. Render it with no variant prop and you get Loom, the default; the other three are alternatives you have to ask for by name. md owns its own line; sm sits inside a 12px one. Whether the elapsed figure is drawn is the reader's own load-times setting; the label is not, and is shown in every mode."
       >
         <div style={rowStyle}>
           {LOADER_VARIANTS.map(({ name, blurb, isDefault }) => (
@@ -733,11 +794,51 @@ export default function DesignSystemPage() {
             <PixelLoader label="Churning" announce={false} testId="ds-loader-default" />
           </Specimen>
         </div>
+
+        {/* Load times: all / long / none. See LOADER_TIME_MODES. */}
+        <h4
+          data-testid="ds-loader-times-heading"
+          style={{ fontSize: 12, fontWeight: 700, margin: '22px 0 4px', color: 'var(--text)' }}
+        >
+          Load times
+        </h4>
+        <p data-testid="ds-loader-times-blurb" style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 12px', maxWidth: 780, lineHeight: 1.5 }}>
+          A user setting, in Settings under Display, governing whether a loader shows how long it has
+          been waiting. Three values, all four specimens below, and one rule that outranks all of them:
+          the wording naming what is running is shown in every mode. Only the figure is conditional.{' '}
+          <strong>all</strong> always shows it. <strong>long</strong> shows it once the wait passes{' '}
+          {(LONG_WAIT_MS / 1000).toFixed(1)} seconds, so a two-hundred-millisecond flash reading
+          &ldquo;0.2s&rdquo; never happens while a thirty-second wait still reports its age.{' '}
+          <strong>none</strong> never shows it.
+        </p>
+        <div style={rowStyle}>
+          {LOADER_TIME_MODES.map(({ key, mode, caption, note, aged }) => (
+            <Specimen
+              key={key}
+              caption={caption}
+              captionTestId={`ds-loader-times-caption-${key}`}
+              note={note}
+              minWidth={260}
+            >
+              <PixelLoader
+                label="Deploying"
+                loadTimes={mode}
+                announce={false}
+                startedAt={aged ? pageMountedAt - aged : undefined}
+                testId={`ds-loader-times-${key}`}
+              />
+            </Specimen>
+          ))}
+        </div>
+
         <Caveat>
           Accessibility note, and the reason this page can exist at all: <code>announce</code> defaults
-          to <code>true</code>, which is right for a lone loader and wrong for a gallery. All nine
+          to <code>true</code>, which is right for a lone loader and wrong for a gallery. All thirteen
           instances above pass <code>announce={'{false}'}</code>. Pass it whenever the host is already a
-          live region — <code>LoadingState</code> does exactly that.
+          live region — <code>LoadingState</code> does exactly that. The four load-times specimens are
+          no exception: a mode that hides the figure hides nothing a screen reader was reading anyway,
+          since the figure is <code>aria-hidden</code> in every mode and the label carries the
+          announcement.
         </Caveat>
       </Group>
 

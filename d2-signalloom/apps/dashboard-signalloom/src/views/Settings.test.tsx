@@ -1,10 +1,17 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import Settings from './Settings'
+import PixelLoader from '../components/PixelLoader'
 import { api } from '../api/client'
 import { connectorsApi } from '../api/connectorsClient'
+import {
+  DEFAULT_LOAD_TIMES,
+  LOAD_TIMES_OPTIONS,
+  getLoadTimes,
+  setLoadTimes,
+} from '../api/loadTimes'
 import { AppContext } from '../App'
 import type { TenantSettingsResponse } from '../types/api'
 
@@ -192,5 +199,130 @@ describe('Settings — Service Connectors', () => {
     vi.mocked(connectorsApi.listProviders).mockResolvedValue([])
     renderSettings()
     expect(await screen.findByText('No providers available.')).toBeInTheDocument()
+  })
+})
+
+/**
+ * The Display card: whether loaders show how long they have been waiting.
+ *
+ * Unlike everything else on this page, this setting is browser-local and takes
+ * effect the moment it changes — there is no Save Preferences button behind it
+ * and no PATCH. So the tests here are not "does the select hold a value" but
+ * "does changing the select move the loaders", which is the only claim worth
+ * making: the whole feature is one choice reaching every loader in the app.
+ */
+describe('Settings — Display, load times', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+    vi.mocked(connectorsApi.listProviders).mockResolvedValue([])
+    vi.mocked(connectorsApi.listConnectors).mockResolvedValue([])
+    setLoadTimes(DEFAULT_LOAD_TIMES)
+  })
+
+  afterEach(() => {
+    // cleanup() first, and deliberately: this hook is registered inside the
+    // describe, so it runs BEFORE testing-library's own auto-cleanup. Resetting
+    // the store while the tree is still mounted pushes a state update through
+    // every subscriber outside act(), which is twelve act warnings per test for
+    // no benefit. Unmount, then reset, and there is nobody left to notify.
+    cleanup()
+    setLoadTimes(DEFAULT_LOAD_TIMES)
+  })
+
+  /** Settings, with a loader alongside it standing in for the rest of the app. */
+  function renderWithProbe() {
+    return render(
+      <MemoryRouter initialEntries={['/settings']}>
+        <AppContext.Provider value={appCtxValue}>
+          <Settings />
+          <PixelLoader label="Deploying" announce={false} testId="probe" />
+        </AppContext.Provider>
+      </MemoryRouter>,
+    )
+  }
+
+  const control = () => screen.getByTestId<HTMLSelectElement>('settings-load-times')
+
+  it('offers the three values and starts on all', async () => {
+    renderSettings()
+    await screen.findByText('Display')
+    expect(control().value).toBe('all')
+    expect([...control().options].map((o) => o.value)).toEqual(
+      LOAD_TIMES_OPTIONS.map((o) => o.value),
+    )
+  })
+
+  it('explains what each value means rather than just naming it', async () => {
+    // Three one-word options with no explanation is not a choice a user can
+    // make. Every hint is on screen at once, not one that swaps as you scroll.
+    renderSettings()
+    await screen.findByText('Display')
+    for (const option of LOAD_TIMES_OPTIONS) {
+      expect(screen.getByTestId(`settings-load-times-hint-${option.value}`)).toHaveTextContent(
+        option.hint,
+      )
+    }
+  })
+
+  it('says on the page that the wording next to the spinner is never hidden', async () => {
+    // The invariant, stated where the person changing the setting will read it,
+    // so "None" cannot be read as "no loader".
+    renderSettings()
+    await screen.findByText('Display')
+    expect(screen.getByTestId('settings-load-times-note')).toHaveTextContent(
+      /wording next to the spinner.*always shown/i,
+    )
+  })
+
+  it('reflects a value that was already set', async () => {
+    setLoadTimes('long')
+    renderSettings()
+    await screen.findByText('Display')
+    expect(control().value).toBe('long')
+  })
+
+  it('changes the stored setting when the operator picks a new value', async () => {
+    renderSettings()
+    await screen.findByText('Display')
+
+    await userEvent.selectOptions(control(), 'none')
+    expect(getLoadTimes()).toBe('none')
+    expect(control().value).toBe('none')
+
+    await userEvent.selectOptions(control(), 'long')
+    expect(getLoadTimes()).toBe('long')
+    expect(control().value).toBe('long')
+  })
+
+  it('reaches a loader that is already on screen, with no reload and no remount', async () => {
+    renderWithProbe()
+    await screen.findByText('Display')
+
+    const loader = screen.getByTestId('probe')
+    expect(screen.getByTestId('probe-elapsed')).toBeInTheDocument()
+
+    await userEvent.selectOptions(control(), 'none')
+
+    expect(screen.getByTestId('probe')).toBe(loader) // same node: not remounted
+    expect(screen.queryByTestId('probe-elapsed')).not.toBeInTheDocument()
+    // And the requirement that outranks the setting: the wording stays.
+    expect(screen.getByTestId('probe-label')).toHaveTextContent('Deploying')
+
+    await userEvent.selectOptions(control(), 'all')
+    expect(screen.getByTestId('probe')).toBe(loader)
+    expect(screen.getByTestId('probe-elapsed')).toBeInTheDocument()
+  })
+
+  it('puts a loader into long mode from the control, figure withheld until it earns it', async () => {
+    renderWithProbe()
+    await screen.findByText('Display')
+
+    await userEvent.selectOptions(control(), 'long')
+    // The probe mounted moments ago, so it is a short wait so far: the label
+    // is there and the figure is not.
+    expect(screen.getByTestId('probe-label')).toHaveTextContent('Deploying')
+    expect(screen.queryByTestId('probe-elapsed')).not.toBeInTheDocument()
+    expect(screen.getByTestId('probe')).toHaveAttribute('data-load-times', 'long')
   })
 })

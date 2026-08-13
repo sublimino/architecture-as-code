@@ -10,7 +10,21 @@ TEST_DIR="${REPO_ROOT}/test/acceptance"
 # shellcheck source=scripts/lib/wait.sh
 source "${SCRIPT_DIR}/lib/wait.sh"
 PF_PIDS=()
+# "namespace/service" for every forward that is actually listening — whether we
+# started it or reused an existing listener. Preflight asserts against THIS,
+# not against a spec name: we check the health of what we established, so a
+# check can neither be skipped for a spec that needs it nor fire for a slice
+# that was never deployed.
+PF_ENDPOINTS=()
 PREFLIGHT_FAILED=0
+
+pf_established() {
+  local needle="$1" endpoint
+  for endpoint in ${PF_ENDPOINTS[@]+"${PF_ENDPOINTS[@]}"}; do
+    [[ "${endpoint}" == "${needle}" ]] && return 0
+  done
+  return 1
+}
 
 cleanup() {
   echo "==> Cleaning up port-forwards..."
@@ -29,10 +43,12 @@ start_port_forward() {
   fi
   if nc -z 127.0.0.1 "${local_port}" 2>/dev/null; then
     echo "    ${ns}/${svc} → reusing existing listener on localhost:${local_port}"
+    PF_ENDPOINTS+=("${ns}/${svc}")
     return
   fi
   kubectl port-forward -n "${ns}" "svc/${svc}" "${local_port}:${remote_port}" &>/dev/null &
   PF_PIDS+=($!)
+  PF_ENDPOINTS+=("${ns}/${svc}")
   echo "    ${ns}/${svc} → localhost:${local_port}"
 }
 
@@ -51,7 +67,9 @@ setup_gateway_forward() {
   read -r gateway_namespace gateway_service < <(kubectl get service -A \
     -l gateway.envoyproxy.io/owning-gateway-name=cluster \
     -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null || true)
+  gateway_forwarded=0
   if [[ -n "$gateway_service" && -n "$gateway_namespace" ]]; then
+    gateway_forwarded=1
     # Dex pins its local issuer and callback client to this stable port. Forward
     # the dynamic NodePort here rather than exposing that ephemeral port to the
     # browser, otherwise Dex rejects the OIDC redirect URI.
@@ -84,52 +102,87 @@ setup_gateway_forward() {
 }
 
 echo "==> Setting up port-forwards..."
+# The ONE thing that is legitimately specific to signalloom-test-1.spec.ts: the
+# narrowed forward SET. TEST-1 is the slice-isolation harness — it exists to
+# prove the signalloom slice stands up without the rest of the estate, so
+# forwarding olly-replica / archivista / grafana for it would let a cross-slice
+# dependency pass unnoticed. test/signalloom-test-1-harness.bats enforces that
+# exclusion. Nothing else below may branch on a spec name.
 if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
   start_port_forward fe-signalloom fe-signalloom 18000 8000
   start_port_forward inf-signalloom dex 15556 5556
-  setup_gateway_forward
-  export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-http://127.0.0.1:18000}"
-  export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
 else
   start_port_forward monitoring kube-prometheus-stack-grafana 13000 80
   start_port_forward backend osramp-archivista 18082 8082
   start_port_forward fe-signalloom fe-signalloom 18000 8000
   start_port_forward olly-replica customer-portal 18080 8080
   start_port_forward inf-signalloom dex 15556 5556
-  setup_gateway_forward
 fi
+
+# Everything from here to the end of preflight is a requirement of the SUITE,
+# not of one spec, so it runs for every invocation.
+#
+# The Gateway forward was already hoisted into setup_gateway_forward for exactly
+# this reason (see its comment above), but the two exports below were left
+# behind inside the TEST-1 branch even though BOTH branches create the forwards
+# that back them — every other spec got fe-signalloom:18000 and dex:15556 stood
+# up and then was told nothing about them. Deriving these from the forwards we
+# just made, rather than from argv, keeps them true by construction.
+setup_gateway_forward
+export SIGNALLOOM_API_URL="${SIGNALLOOM_API_URL:-http://127.0.0.1:18000}"
+export SIGNALLOOM_DEX_URL="${SIGNALLOOM_DEX_URL:-http://127.0.0.1:15556}"
 
 echo "==> Waiting for port-forwards to establish..."
 sleep 4
 
-if [[ " $* " == *" signalloom-test-1.spec.ts "* ]]; then
-  for pid in "${PF_PIDS[@]}"; do
-    if ! kill -0 "$pid" 2>/dev/null; then
-      echo "    ERROR: TEST-1 port-forward process ${pid} exited" >&2
-      PREFLIGHT_FAILED=1
-    fi
-  done
-  # Same --resolve as the readiness probe above: dashboard.osramp.acme.local is
-  # an SNI-only name with no DNS record and no /etc/hosts entry (by design — the
-  # browser side resolves it via Chrome's --host-resolver-rules). Without it this
-  # curl fails with "(6) Could not resolve host" and wrongly reports the Gateway
-  # as unreachable, setting PREFLIGHT_FAILED on an otherwise healthy cluster.
+echo "==> Preflight..."
+# These preconditions were gated on the TEST-1 spec name, which meant every
+# other spec ran with NO preflight at all: a Gateway that never came up surfaced
+# 30s later as net::ERR_* inside a browser assertion, naming the wrong component.
+# They are suite-wide preconditions — auth.setup.ts and helpers.ts login() both
+# navigate to DASHBOARD_URL — so they are asserted for every invocation, and
+# each is guarded by whether its own forward was actually established rather
+# than by which spec asked.
+for pid in ${PF_PIDS[@]+"${PF_PIDS[@]}"}; do
+  if ! kill -0 "$pid" 2>/dev/null; then
+    echo "    ERROR: port-forward process ${pid} exited" >&2
+    PREFLIGHT_FAILED=1
+  fi
+done
+
+# Same --resolve as the readiness probe above: dashboard.osramp.acme.local is an
+# SNI-only name with no DNS record and no /etc/hosts entry (by design — the
+# browser side resolves it via Chrome's --host-resolver-rules). Without it this
+# curl fails with "(6) Could not resolve host" and wrongly reports the Gateway
+# as unreachable, setting PREFLIGHT_FAILED on an otherwise healthy cluster.
+if (( gateway_forwarded )); then
   if ! curl -kfsS --max-time 3 \
     --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" \
     "${DASHBOARD_URL}/livez" >/dev/null; then
-    echo "    ERROR: TEST-1 shared Gateway is not reachable" >&2
+    echo "    ERROR: shared Gateway is not reachable at ${DASHBOARD_URL}" >&2
     PREFLIGHT_FAILED=1
   fi
-  if ! curl -fsS --max-time 3 \
-    "${SIGNALLOOM_DEX_URL}/dex/.well-known/openid-configuration" >/dev/null; then
-    echo "    ERROR: TEST-1 Dex issuer is not reachable" >&2
-    PREFLIGHT_FAILED=1
-  fi
+else
+  echo "    SKIP: Gateway preflight (no Envoy data-plane Service in cluster)"
 fi
 
-# Verify at least one is reachable
-if ! curl -s -o /dev/null -w "" http://127.0.0.1:13000/ 2>/dev/null; then
-  echo "    WARNING: Grafana port-forward may not be ready yet, continuing..."
+if pf_established inf-signalloom/dex; then
+  if ! curl -fsS --max-time 3 \
+    "${SIGNALLOOM_DEX_URL}/dex/.well-known/openid-configuration" >/dev/null; then
+    echo "    ERROR: Dex issuer is not reachable at ${SIGNALLOOM_DEX_URL}" >&2
+    PREFLIGHT_FAILED=1
+  fi
+else
+  echo "    SKIP: Dex issuer preflight (inf-signalloom/dex not deployed)"
+fi
+
+# Advisory only — Grafana backs no assertion in any spec. Gated on the forward
+# existing so a run that never asked for it stops emitting a warning about a
+# port-forward it deliberately did not make.
+if pf_established monitoring/kube-prometheus-stack-grafana; then
+  if ! curl -s -o /dev/null -w "" http://127.0.0.1:13000/ 2>/dev/null; then
+    echo "    WARNING: Grafana port-forward may not be ready yet, continuing..."
+  fi
 fi
 
 echo "==> Running Playwright tests..."

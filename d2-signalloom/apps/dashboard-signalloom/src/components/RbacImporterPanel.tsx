@@ -11,6 +11,7 @@ import {
 import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from '../api/afmYaml'
 import type { AfmClusterImport } from '../api/afmYaml'
 import { isDemoMode } from '../api/demoMode'
+import ButtonWait from './ButtonWait'
 import PixelLoader from './PixelLoader'
 
 // ─── Waiting ────────────────────────────────────────────────────────────────
@@ -20,14 +21,16 @@ import PixelLoader from './PixelLoader'
 // pixel grid and a live elapsed figure, so a slow AFM and a hung one stop
 // looking identical.
 //
-// The two button loaders get an explicit width and their buttons a min-width
-// that already fits the busy state. The figure gains a character at 10.0s and
-// again at 1m 0.0s, and this control row sits next to two selects — a button
-// that grows mid-request drags them sideways under the cursor.
+// The two in-button waits are `ButtonWait`, which owns the loader's width, its
+// accessible name and its silence. Their buttons keep a min-width that already
+// fits the busy state: the figure gains a character at 10.0s and again at
+// 1m 0.0s, and this control row sits next to two selects — a button that grows
+// mid-request drags them sideways under the cursor.
+//
+// The clusters wait below is NOT one of those. It has a line to itself, so it
+// stays a plain PixelLoader and keeps its full sentence — at the same 6px gap
+// the in-button waits use, so the family still looks like one family.
 
-/** Grid + gap + a one-word label at 13px + gap + the figure at its longest. */
-const LABELLED_LOADER_W = 144
-const SEND_LOADER_W = 124
 const LOADER_GAP = 6
 const GENERATE_BUTTON_W = 170
 /** Copy shares it so the two-button stack keeps one edge while Send is busy. */
@@ -456,7 +459,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
           }}
         >
           {isLoadingRbac
-            ? <PixelLoader testId="importer-generate-loader" label="Generating" style={{ width: LABELLED_LOADER_W, gap: LOADER_GAP }} />
+            ? <ButtonWait testId="importer-generate-loader" label="Generating" />
             : 'Generate YAML'}
         </button>
       </div>
@@ -547,7 +550,7 @@ export default function RbacImporterPanel({ onImported }: { onImported?: (cluste
             }}
           >
             {isSending
-              ? <PixelLoader testId="importer-send-loader" label="Sending" style={{ width: SEND_LOADER_W, gap: LOADER_GAP }} />
+              ? <ButtonWait testId="importer-send-loader" label="Sending" />
               : 'Send to AFM'}
           </button>
         </div>

@@ -4,7 +4,7 @@ import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
 import { CredentialEvidencePanel } from '../components/CredentialEvidencePanel'
 import HelpHint from '../components/HelpHint'
-import PixelLoader from '../components/PixelLoader'
+import ButtonWait from '../components/ButtonWait'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -225,21 +225,15 @@ export const SUPERCRED_PAGE_TITLE = 'SuperCredential Demo'
 // disabled button says "busy" and nothing more, and ninety seconds into a step
 // nobody in the room can tell a slow proxy from a hung one.
 //
-// The widths below are RESERVED, not measured. The figure gains a character at
-// 10.0s and another at 1m 0.0s; inside a shrink-to-fit button each of those is
-// a visible nudge of the whole row, and mid-demo jitter reads as a fault. So
-// the loader is given an explicit width and the button a min-width that
-// already fits its busy state — which incidentally makes the idle→busy swap
-// still as well.
+// The three in-button waits are `ButtonWait`, which owns the loader's own
+// width, its accessible name and its silence. What stays here is the other
+// half of the no-jitter contract: a min-width on each BUTTON that already fits
+// both its idle label and the wait, so the idle→busy swap does not move the
+// row either. Those widths are RESERVED, not measured.
 
-/** Grid + gap + the figure at its longest ("1m 5.0s"), with no word. */
-const COMPACT_LOADER_W = 78
-/** The same, plus room for a single word at the loader's 13px. */
-const LABELLED_LOADER_W = 144
-const LOADER_GAP = 6
-/** Fits `LABELLED_LOADER_W` plus the button's own horizontal padding. */
+/** Fits the idle "Refresh Agents" with room to spare, and the wait. */
 const LABELLED_BUTTON_W = 176
-/** Fits the widest idle label in an agent row ("Compliance Scan") and a loader. */
+/** Fits the widest idle label in an agent row ("Compliance Scan") and a wait. */
 const ROW_BUTTON_W = 112
 
 export default function SuperCredPage() {
@@ -467,17 +461,8 @@ export default function SuperCredPage() {
                 display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
               }}
             >
-              {/* No sibling live region on this page, so the loader's own
-                  role=status is the one announcement of the wait — which is
-                  why this one keeps its word rather than going compact. */}
               {loading
-                ? (
-                  <PixelLoader
-                    testId="supercred-refresh-loader"
-                    label="Refreshing"
-                    style={{ width: LABELLED_LOADER_W, gap: LOADER_GAP }}
-                  />
-                )
+                ? <ButtonWait testId="supercred-refresh-loader" label="Refreshing" />
                 : 'Refresh Agents'}
             </button>
             <HelpHint label="About the agent-list refresh" testId="supercred-refresh-agents-help">
@@ -513,11 +498,8 @@ export default function SuperCredPage() {
                 <div style={{ display: 'flex', gap: 8 }}>
                   {/* Both row buttons carry the same min-width so the pair is
                       one stable block: the row must not re-flow when a label
-                      is swapped for a loader, and both must stay put while the
-                      figure counts. These two go COMPACT — grid and figure, no
-                      word — because a 13px label inside an 11px button is out
-                      of scale, and the button's own aria-label carries the
-                      meaning for anyone who cannot see the grid. */}
+                      is swapped for a wait, and both must stay put while the
+                      figure counts. */}
                   <button
                     className="btn btn-secondary"
                     style={{
@@ -526,14 +508,12 @@ export default function SuperCredPage() {
                     }}
                     onClick={() => runComplianceScan(agent)}
                     disabled={scanLoading}
-                    aria-label={scanLoading && busyAgentId === agent.id ? 'Compliance scan running' : undefined}
                   >
                     {scanLoading && busyAgentId === agent.id
                       ? (
-                        <PixelLoader
+                        <ButtonWait
                           testId={`supercred-scan-loader-${agent.id}`}
-                          label=""
-                          style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }}
+                          label="Compliance scan running"
                         />
                       )
                       : 'Compliance Scan'}
@@ -548,14 +528,12 @@ export default function SuperCredPage() {
                       }}
                       onClick={() => stunAgent(agent)}
                       disabled={stunLoading}
-                      aria-label={stunLoading && busyAgentId === agent.id ? 'Stunning agent' : undefined}
                     >
                       {stunLoading && busyAgentId === agent.id
                         ? (
-                          <PixelLoader
+                          <ButtonWait
                             testId={`supercred-stun-loader-${agent.id}`}
-                            label=""
-                            style={{ width: COMPACT_LOADER_W, gap: LOADER_GAP }}
+                            label="Stunning agent"
                           />
                         )
                         : 'Stun Agent'}

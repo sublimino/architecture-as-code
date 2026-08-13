@@ -4,7 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Signal Loom — Agent Governance</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- .ico first as the untyped legacy fallback; browsers that understand
+         type+sizes skip past it to the exact PNG they want. Small sizes carry a
+         simplified diamond+cross because the full weave mushes below ~32px. -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/favicon-16.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="48x48" href="/brand/favicon-48.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/brand/apple-touch-icon.png" />
     <script>
       // Apply stored theme before first paint to prevent flash-of-dark-theme.
       // Must stay in sync with themes.ts THEMES and THEME_STORAGE_KEY.

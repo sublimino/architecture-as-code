@@ -25,7 +25,7 @@ export type IconKind =
   | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
   | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'topology' | 'settings'
+  | 'topology' | 'designSystem' | 'settings'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -52,6 +52,9 @@ function NavIcon({ kind }: { kind: IconKind }) {
     supercred: <><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M12 14v2" /></>,
     fleet: <><rect x="3" y="5" width="7" height="6" rx="1" /><rect x="14" y="5" width="7" height="6" rx="1" /><rect x="8.5" y="14" width="7" height="6" rx="1" /><path d="M6.5 11v2h5M17.5 11v2h-5" /></>,
     topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
+    // Painter's palette with paint wells — the only organic blob in the set, so
+    // it stays legible against the grids and shields around it.
+    designSystem: <><path d="M12 3a9 9 0 0 0 0 18 1.6 1.6 0 0 0 1.6-1.6c0-.42-.16-.8-.42-1.08a1.6 1.6 0 0 1 1.18-2.7h1.9A4.74 4.74 0 0 0 21 10.9C21 6.54 16.97 3 12 3Z" /><circle cx="7.5" cy="12.5" r="1.15" /><circle cx="9.5" cy="8.5" r="1.15" /><circle cx="14" cy="7.5" r="1.15" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4l-.3 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.8h4l.3-2.8a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1.1Z" /></>,
   }
   return <svg aria-hidden="true" className="sl-sidebar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>
@@ -75,6 +78,7 @@ export const NAV: NavItem[] = [
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', icon: 'supercred', superadminOnly: true },
   { to: '/fleet', label: 'Fleet Demo', section: 'Governance', icon: 'fleet', superadminOnly: true },
   { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
+  { to: '/design-system', label: 'Design System', section: 'Configuration', icon: 'designSystem', superadminOnly: true },
   { to: '/settings', label: 'Settings', section: 'Configuration', icon: 'settings' },
 ]
 
@@ -251,12 +255,21 @@ export default function Sidebar() {
             className="sl-sidebar__workspace-button"
             title={collapsed ? (tenant?.org_name || 'Signal Loom') : undefined}
           >
-            <svg aria-hidden="true" width="32" height="32" viewBox="0 0 32 32" fill="none">
-              <rect width="32" height="32" rx="8" fill="var(--cyan)" fillOpacity="0.12" />
-              <path d="M7 16 L16 7 L25 16 L16 25 Z" stroke="var(--cyan)" strokeWidth="1.75" fill="none" strokeLinejoin="round" />
-              <circle cx="16" cy="16" r="3.5" fill="var(--cyan)" fillOpacity="0.35" />
-              <circle cx="16" cy="16" r="1.75" fill="var(--cyan)" />
-            </svg>
+            {/* The real woven-diamond mark, transparent-keyed so it carries
+              * across all three themes. Decorative: it sits beside the
+              * workspace title (or its sr-only twin when collapsed), and a
+              * named image here would give the button a second accessible
+              * name. The asset is square — `contain` keeps it that way even if
+              * the flex row squeezes the box. */}
+            <img
+              src="/brand/signal-loom-logo.png"
+              alt=""
+              aria-hidden="true"
+              width={32}
+              height={32}
+              className="sl-sidebar__workspace-logo"
+              style={{ width: 32, height: 32, objectFit: 'contain', flexShrink: 0, display: 'block' }}
+            />
             {collapsed ? (
               <span className="sr-only">{tenant?.org_name || 'Signal Loom'}</span>
             ) : (

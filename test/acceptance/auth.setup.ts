@@ -1,8 +1,47 @@
 import { writeFileSync } from "node:fs";
-import { test as setup, expect } from "@playwright/test";
+import { test as setup, expect, errors, type Page } from "@playwright/test";
 
 const DASHBOARD_URL = process.env.DASHBOARD_URL ?? "https://dashboard.osramp.acme.local:30754";
 const DEX_DEMO_PASSWORD = process.env.DEX_DEMO_PASSWORD ?? "demo-user";
+const ONBOARDING_SKIP_WAIT_MS = 15_000;
+const DASHBOARD_SETTLE_TIMEOUT_MS = 15_000;
+
+async function dismissOnboardingIfPresent(page: Page): Promise<void> {
+  const skipOnboarding = page.getByRole("button", { name: "Skip for now" });
+
+  // This runs once in the setup project, not in every journey. That is the
+  // right place to absorb the onboarding race: the button appears ~500 ms
+  // after login, so a one-shot visibility check in each test can only win by
+  // luck. Wait here, boundedly, click the product's own control if it renders,
+  // and capture storageState only after the app has settled post-skip.
+  const onboardingRendered = await skipOnboarding
+    .waitFor({ state: "visible", timeout: ONBOARDING_SKIP_WAIT_MS })
+    .then(() => true)
+    .catch((error: unknown) => {
+      // Only a timeout means "onboarding simply wasn't shown". Anything else —
+      // a closed page, a navigation error — is a real failure and must not be
+      // laundered into the warm-cluster path, or a broken login would look
+      // like a user who had already skipped.
+      if (error instanceof errors.TimeoutError) {
+        return false;
+      }
+      throw error;
+    });
+
+  if (!onboardingRendered) {
+    // Warm cluster / previously skipped user: the durable backend flag already
+    // suppressed onboarding, so there is nothing to dismiss and setup can
+    // carry on with the authenticated dashboard state it already has.
+    return;
+  }
+
+  await skipOnboarding.click();
+  await page.waitForURL(/\/agents(?:[/?#]|$)/, { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+  await expect(page.getByText("Agents", { exact: false }).first()).toBeVisible({
+    timeout: DASHBOARD_SETTLE_TIMEOUT_MS,
+  });
+  await page.waitForLoadState("networkidle", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+}
 
 setup("authenticate via Dex", async ({ page }) => {
   // Get to the Dex form, tolerating both the cookie gate and the SPA's own
@@ -45,7 +84,15 @@ setup("authenticate via Dex", async ({ page }) => {
   await page.locator('input[name="password"]').fill(DEX_DEMO_PASSWORD);
   await page.getByRole("button", { name: /sign in|login/i }).click();
   await page.waitForURL(/\/agents/, { timeout: 15_000 });
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("networkidle", { timeout: DASHBOARD_SETTLE_TIMEOUT_MS });
+
+  // Onboarding is another deterministic precondition, alongside the
+  // superadmin visibility seed below. Clicking "Skip for now" is not just a
+  // client-side dodge: it writes sl_onboarding_skipped in localStorage *and*
+  // persists skipped_at via POST /api/onboarding/skip, which is exactly what
+  // the integrated journeys need in order for protected routes such as
+  // /agents to stay reachable across cold and warm clusters alike.
+  await dismissOnboardingIfPresent(page);
 
   // Reveal the superadmin-only sidebar links (Cryptography, Federated Services,
   // Collusion & Access, RBAC Analysis, RBAC Explorer). Per

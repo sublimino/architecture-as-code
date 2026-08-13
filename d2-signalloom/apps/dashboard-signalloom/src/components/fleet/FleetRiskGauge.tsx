@@ -144,7 +144,7 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle }: Fleet
             region, because opening the tooltip changes the region's content. */}
         <span aria-live="off">
           <HelpHint label="What these two money figures mean" testId="fleet-risk-help">
-            The big number is Annual Loss Expectancy: what this fleet is modelled to cost you in a typical year. VaR95 is the bad year — the loss that only 1 year in 20 exceeds. Both come from a FAIR simulation over the agents currently deployed, so stunning or removing an agent moves them.
+            The big number is Annual Loss Expectancy: what this fleet is modeled to cost you in a typical year. VaR95 is the bad year, the loss that only 1 year in 20 exceeds. Both come from a FAIR simulation over the agents currently deployed, so stunning or removing an agent moves them.
           </HelpHint>
         </span>
       </div>

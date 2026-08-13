@@ -288,6 +288,89 @@ def test_log_offset_paging_returns_disjoint_chunks(client: TestClient) -> None:
     assert second_payload["eof"] is True
 
 
+def test_log_is_readable_before_the_run_finishes(client: TestClient) -> None:
+    """The assertion this file was missing, in the file that should have had it.
+
+    Every log test here waited for a terminal state first -- including
+    test_log_offset_paging_returns_disjoint_chunks, which calls
+    _wait_for_terminal_run() before it reads. That makes the whole set
+    structurally incapable of observing the defect it should have caught: the
+    runner read the child with a fill-exactly-8192 read, so nothing reached the
+    log until the child exited, and "the finished log contains the text" is
+    equally true either way.
+
+    The fixture already had the right shape. Step 2's fake script prints and
+    then sleeps 30s -- the same profile as a real phase that banners and then
+    blocks on kubectl -- so a mid-run read has a wide window to land in.
+    """
+    start_response = client.post(
+        "/api/demo/supercred/runs", json={"step": "2"}, headers=_bearer(SUPERADMIN_SUBJECT)
+    )
+    assert start_response.status_code == 202
+    run_id = start_response.json()["run_id"]
+    _wait_for_running_run(client, run_id)
+
+    deadline = time.monotonic() + 10
+    chunk = ""
+    while time.monotonic() < deadline:
+        chunk = client.get(
+            f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT)
+        ).json()["chunk"]
+        if chunk:
+            break
+        time.sleep(0.02)
+
+    # Read the payload first and the status second. Status only moves forwards,
+    # so "still running now" proves it was also running when the bytes were
+    # read -- the other order would pass on bytes that only landed at exit.
+    still_running = client.get(
+        f"/api/demo/supercred/runs/{run_id}", headers=_bearer(SUPERADMIN_SUBJECT)
+    ).json()["status"]
+
+    assert "fake-step:2" in chunk, (
+        "the log was still empty while the script was mid-run, so the dashboard's "
+        "console shows nothing until the phase ends"
+    )
+    assert still_running == "running"
+
+
+def test_log_paging_mid_run_reports_no_eof(client: TestClient) -> None:
+    """The mid-run half of the paging contract.
+
+    Terminal-state-only is the pattern that let the batching defect through, so
+    the paging protocol is exercised here while the producer is still alive:
+    a caught-up reader gets an empty chunk and, crucially, eof False -- because
+    more output is still coming.
+    """
+    start_response = client.post(
+        "/api/demo/supercred/runs", json={"step": "2"}, headers=_bearer(SUPERADMIN_SUBJECT)
+    )
+    run_id = start_response.json()["run_id"]
+    _wait_for_running_run(client, run_id)
+
+    deadline = time.monotonic() + 10
+    first_payload: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        first_payload = client.get(
+            f"/api/demo/supercred/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT)
+        ).json()
+        if first_payload["chunk"]:
+            break
+        time.sleep(0.02)
+
+    caught_up = client.get(
+        f"/api/demo/supercred/runs/{run_id}/log",
+        headers=_bearer(SUPERADMIN_SUBJECT),
+        params={"offset": first_payload["next_offset"]},
+    ).json()
+
+    assert "fake-step:2" in first_payload["chunk"]
+    assert first_payload["eof"] is False, "a running script cannot have reached eof"
+    assert caught_up["chunk"] == ""
+    assert caught_up["eof"] is False
+    assert caught_up["next_offset"] == first_payload["next_offset"]
+
+
 def test_log_negative_offset_is_rejected(client: TestClient) -> None:
     response = client.get(
         f"/api/demo/supercred/runs/{uuid4().hex}/log",

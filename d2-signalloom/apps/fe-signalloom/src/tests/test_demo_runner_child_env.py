@@ -141,7 +141,27 @@ def test_child_environment_carries_nothing_beyond_the_allowlist(
     built = demo_runner._child_env()
     observed = _child_observed_env(built)
     assert set(observed) - interpreter_injected == set(built)
-    assert set(built) <= set(demo_runner._ENV_ALLOWLIST)
+    # Two sanctioned sources, and only two: values FORWARDED from the parent
+    # (_ENV_ALLOWLIST) and constants the runner SETS itself
+    # (_CHILD_CONSTANT_ENV, e.g. PYTHONUNBUFFERED so a Python step in the script
+    # chain does not block-buffer its output). The second set widens nothing --
+    # nothing is inherited into it -- which the next test pins.
+    assert set(built) <= set(demo_runner._ENV_ALLOWLIST) | set(demo_runner._CHILD_CONSTANT_ENV)
+
+
+def test_runner_set_constants_cannot_be_influenced_by_the_parent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A "constant" that a parent value can override is not a constant, it is an
+    # undeclared allowlist entry -- and would be one the security review of
+    # _ENV_ALLOWLIST never sees. Poison every constant in the parent and assert
+    # the child still receives the runner's own value.
+    for key in demo_runner._CHILD_CONSTANT_ENV:
+        monkeypatch.setenv(key, "parent-supplied-override")
+
+    built = demo_runner._child_env()
+    for key, expected in demo_runner._CHILD_CONSTANT_ENV.items():
+        assert built[key] == expected
 
 
 def test_required_keys_are_actually_reachable_from_a_real_pod_environment() -> None:

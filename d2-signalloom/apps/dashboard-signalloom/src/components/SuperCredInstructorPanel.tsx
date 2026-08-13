@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { colors } from '../styles/tokens'
 import HelpHint from './HelpHint'
+import PixelLoader from './PixelLoader'
 import { useAuth0 } from '../auth/oidc'
 import { invalidateSuperCredState } from '../api/supercredSource'
 import {
@@ -92,6 +93,21 @@ async function recordStunAudit(token: string): Promise<void> {
     }),
   })
   if (!response.ok) throw new Error(`audit endpoint returned HTTP ${response.status}`)
+}
+
+/**
+ * When a run began, in epoch ms, or undefined if the runner did not say.
+ *
+ * Read from the runner's own stamp rather than from this component's mount, so
+ * a run adopted from another browser — or from before this page load, which is
+ * routine when the instructor refreshes mid-phase — shows its true age instead
+ * of restarting the clock at zero and understating how long the audience has
+ * been waiting.
+ */
+function runStartedAt(run: DemoRunView | null): number | undefined {
+  if (!run?.started_at) return undefined
+  const ms = Date.parse(run.started_at)
+  return Number.isNaN(ms) ? undefined : ms
 }
 
 function logTail(log: string): string {
@@ -364,6 +380,15 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
   const failed = isRunFailure(activeRun)
 
+  // What the in-flight indicator says. A reset is not a phase, so it does not
+  // get a phase number; a step whose title the runner never returned still
+  // gets its number, which is the part the instructor is watching for.
+  const runningStep = displaySteps.find(step => step.step_id === activeRun?.step_id)
+  const runningLabel =
+    activeRun?.kind === 'reset'
+      ? 'Resetting the demo'
+      : `Phase ${activeRun?.step_id ?? '?'}${runningStep ? ` · ${runningStep.title}` : ''}`
+
   return (
     <>
       {/* Phase status + where to look — rendered for every role */}
@@ -517,6 +542,21 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
               </button>
             ))}
           </div>
+
+          {/* Every control above is now disabled and a phase can run for
+              minutes. Without this the panel is indistinguishable from a
+              panel that has hung — which, on stage, is the moment an
+              instructor starts clicking things. Presentation only: it reads
+              `running` and the runner's start stamp and drives nothing. */}
+          {running && activeRun && (
+            <div style={{ marginTop: 12 }}>
+              <PixelLoader
+                testId="supercred-run-progress"
+                label={runningLabel}
+                startedAt={runStartedAt(activeRun)}
+              />
+            </div>
+          )}
 
           {!scriptAvailable && (
             <div

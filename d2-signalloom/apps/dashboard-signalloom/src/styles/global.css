@@ -163,7 +163,29 @@ select option { background: var(--surface); }
    patterns. Signal Loom tokens remain the sole colour authority. */
 .sl-sidebar__brand { background: linear-gradient(135deg, var(--surface), var(--surface2)); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
-.sl-sidebar__workspace { border-bottom: 1px solid var(--border); padding: 12px; }
+.sl-sidebar { transition: width 200ms cubic-bezier(.23,1,.32,1), min-width 200ms cubic-bezier(.23,1,.32,1); }
+.sl-sidebar__workspace { align-items: center; border-bottom: 1px solid var(--border); display: flex; gap: 4px; padding: 12px; }
+.sl-sidebar__collapse-toggle {
+  align-items: center; background: transparent; border: 0; border-radius: 7px;
+  color: var(--dim); cursor: pointer; display: flex; flex: 0 0 auto; height: 28px;
+  justify-content: center; padding: 0; width: 28px;
+}
+.sl-sidebar__collapse-toggle:hover { background: var(--surface2); color: var(--text); }
+.sl-sidebar__collapse-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.sl-sidebar__collapse-toggle svg { height: 16px; width: 16px; }
+.sl-sidebar__search-clear {
+  align-items: center; background: transparent; border: 0; border-radius: 4px;
+  color: var(--dim); cursor: pointer; display: flex; flex: 0 0 auto; height: 18px;
+  justify-content: center; padding: 0; width: 18px;
+}
+.sl-sidebar__search-clear:hover { background: var(--surface); color: var(--text); }
+.sl-sidebar__search-clear:focus-visible { outline: 2px solid var(--cyan); outline-offset: 1px; }
+/* Icons-only rail: centre every glyph and drop the label gutter. */
+.sl-sidebar--collapsed .sl-sidebar__workspace { flex-direction: column; gap: 6px; padding: 12px 8px; }
+.sl-sidebar--collapsed .sl-sidebar__workspace-button { justify-content: center; padding: 4px; }
+.sl-sidebar--collapsed .sl-sidebar__nav { padding: 8px 4px; }
+.sl-sidebar--collapsed .sl-sidebar__link { justify-content: center; gap: 0; padding: 7px 0; }
+.sl-sidebar--collapsed .sl-sidebar__selection { left: 4px; right: 4px; }
 .sl-sidebar__workspace-button { align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--text); display: flex; gap: 10px; padding: 6px; text-align: left; width: 100%; }
 .sl-sidebar__workspace-button:hover { background: var(--surface2); }
 .sl-sidebar__workspace-copy { flex: 1; min-width: 0; }
@@ -208,7 +230,10 @@ select option { background: var(--surface); }
 }
 @media (max-width: 900px) {
   .sl-sidebar { width: 224px !important; min-width: 224px !important; }
+  /* The narrow-viewport override is !important, so the collapsed rail has to
+     out-specify it or collapsing would silently do nothing below 900px. */
+  .sl-sidebar--collapsed { width: 64px !important; min-width: 64px !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sl-sidebar__link, .sl-filter-chip { transition: none !important; }
+  .sl-sidebar, .sl-sidebar__link, .sl-filter-chip { transition: none !important; }
 }

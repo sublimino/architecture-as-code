@@ -197,6 +197,99 @@ describe('PixelLoader', () => {
       })
       expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('2.3s')
     })
+
+    it('says so on the grid, so a host can assert it without reading nine cells', () => {
+      render(<PixelLoader label="Churning" />)
+      expect(screen.getByTestId('pixel-loader-grid')).toHaveAttribute('data-motion', 'static')
+    })
+
+    it('freezes at sm as well', () => {
+      render(<PixelLoader label="Churning" size="sm" />)
+      expect(cells().every(c => c.dataset.animated === 'false')).toBe(true)
+    })
+  })
+
+  // LoadingState's inline variant is a 12px line of text beside a heading.
+  // The panel-sized loader does not fit in one, and shrinking only the grid
+  // leaves a 4px block against a 13px label looking like a mistake.
+  describe('size', () => {
+    it('defaults to md, and md is the rendering Instructor Controls already ships', () => {
+      render(<PixelLoader label="Churning" />)
+      expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'md')
+      expect(cells()[0].style.width).toBe('4px')
+      expect(screen.getByTestId('pixel-loader-label').style.fontSize).toBe('13px')
+      expect(screen.getByTestId('pixel-loader-elapsed').style.fontSize).toBe('12px')
+    })
+
+    it('scales the whole thing down at sm, not just the grid', () => {
+      render(<PixelLoader label="Churning" size="sm" />)
+      expect(screen.getByTestId('pixel-loader')).toHaveAttribute('data-size', 'sm')
+      expect(cells()[0].style.width).toBe('3px')
+      expect(cells()[0].style.height).toBe('3px')
+      expect(screen.getByTestId('pixel-loader-label').style.fontSize).toBe('12px')
+      expect(screen.getByTestId('pixel-loader-elapsed').style.fontSize).toBe('11px')
+    })
+
+    it('is the same loader at sm — nine cells, same wavefront, same clock', () => {
+      render(<PixelLoader label="Churning" size="sm" />)
+      const all = cells()
+      expect(all).toHaveLength(9)
+      expect(all.every(c => c.dataset.animated === 'true')).toBe(true)
+
+      act(() => {
+        vi.advanceTimersByTime(1_800)
+      })
+      expect(screen.getByTestId('pixel-loader-elapsed')).toHaveTextContent('1.8s')
+    })
+  })
+
+  // A host that is already a live region has to be able to switch this one
+  // off. Nesting two makes a screen reader read the same sentence twice.
+  describe('embedding in a host that already announces', () => {
+    it('owns a live region by default, because standalone nothing else will', () => {
+      render(<PixelLoader label="Churning" />)
+      const root = screen.getByTestId('pixel-loader')
+      expect(root).toHaveAttribute('role', 'status')
+      expect(root).toHaveAttribute('aria-live', 'polite')
+    })
+
+    it('drops both role and aria-live when announce is false', () => {
+      const { container } = render(<PixelLoader label="Churning" announce={false} />)
+      const root = screen.getByTestId('pixel-loader')
+      expect(root).not.toHaveAttribute('role')
+      expect(root).not.toHaveAttribute('aria-live')
+      expect(container.querySelectorAll('[aria-live]')).toHaveLength(0)
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('keeps the grid and the figure hidden either way', () => {
+      render(<PixelLoader label="Churning" announce={false} />)
+      expect(screen.getByTestId('pixel-loader-grid')).toHaveAttribute('aria-hidden', 'true')
+      expect(screen.getByTestId('pixel-loader-elapsed')).toHaveAttribute('aria-hidden', 'true')
+    })
+
+    it('still shows the label when silent — the host announces it, the eye reads it', () => {
+      render(<PixelLoader label="Loading agents…" announce={false} />)
+      expect(screen.getByTestId('pixel-loader-label')).toHaveTextContent('Loading agents…')
+    })
+
+    it('lets the host keep its own testid for the label', () => {
+      render(<PixelLoader label="Loading agents…" labelTestId="loading-state-message" />)
+      expect(screen.getByTestId('loading-state-message')).toHaveTextContent('Loading agents…')
+      expect(screen.queryByTestId('pixel-loader-label')).not.toBeInTheDocument()
+    })
+
+    it('is phrasing content, so it is legal inside a host <span>', () => {
+      // LoadingState's inline variant is a <span>. A <div> in a <span> is
+      // invalid nesting that browsers paper over inconsistently.
+      render(<PixelLoader label="Churning" />)
+      expect(screen.getByTestId('pixel-loader').tagName).toBe('SPAN')
+    })
+  })
+
+  it('states on the grid whether it is moving', () => {
+    render(<PixelLoader label="Churning" />)
+    expect(screen.getByTestId('pixel-loader-grid')).toHaveAttribute('data-motion', 'animated')
   })
 
   it('defines the keyframes it references', () => {

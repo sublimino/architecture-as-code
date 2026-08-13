@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import ErrorState, { isAuthError, redirectToLogin } from './ErrorState'
+import PixelLoader from './PixelLoader'
 
 // One status indicator for every surface in the dashboard that waits on an
 // event. Four phases, and the fourth one is the point: `idle` means "never
@@ -69,32 +70,11 @@ function useElapsedTicker(stamp: number | null): number {
   return tick
 }
 
-const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
-
-function readsReducedMotion(): boolean {
-  try {
-    return window.matchMedia(REDUCED_MOTION_QUERY).matches
-  } catch {
-    // No matchMedia (older jsdom, exotic embed) — assume motion is fine.
-    return false
-  }
-}
-
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(readsReducedMotion)
-  useEffect(() => {
-    let mq: MediaQueryList
-    try {
-      mq = window.matchMedia(REDUCED_MOTION_QUERY)
-    } catch {
-      return
-    }
-    const onChange = (e: MediaQueryListEvent) => setReduced(e.matches)
-    mq.addEventListener?.('change', onChange)
-    return () => mq.removeEventListener?.('change', onChange)
-  }, [])
-  return reduced
-}
+// The reduced-motion hook that used to live here is gone, not lost: the only
+// thing that read it was the spinning `Indicator`, and the `loading` phase no
+// longer draws one. PixelLoader owns motion now, including freezing its grid
+// under `prefers-reduced-motion` while the elapsed figure keeps counting —
+// which is strictly more than the dot did, since the dot just stopped.
 
 function buildMessage(
   status: LoadPhase,
@@ -146,8 +126,6 @@ export default function LoadingState({
   testId = 'loading-state',
   style,
 }: LoadingStateProps) {
-  const reducedMotion = usePrefersReducedMotion()
-
   // Stamped on the transition into a terminal phase, so a caller that owns no
   // timestamp of its own still gets a truthful "…12s ago".
   const [stamps, setStamps] = useState<{ success: number | null; error: number | null }>({
@@ -184,6 +162,28 @@ export default function LoadingState({
     ? ({ role: 'alert' as const })
     : ({ role: 'status' as const, 'aria-live': 'polite' as const })
 
+  // The waiting pattern: a cycling grid, the message, and a live elapsed
+  // figure. A dot that spins tells an operator the page is alive and nothing
+  // else; forty seconds into a slow query the only question worth answering is
+  // "how long has this been going", and this answers it.
+  //
+  // `announce={false}` because the element above is already the live region —
+  // see PixelLoader's `announce` prop. It takes over `${testId}-message`, so
+  // the message is still one element with one testid and callers see no change.
+  //
+  // No `startedAt`: this is mounted on entry to `loading` and unmounted on
+  // exit, so mount time is exactly when the wait began, and a second load
+  // starts a fresh figure without anyone having to stamp it.
+  const waiting = (
+    <PixelLoader
+      size={variant === 'block' ? 'md' : 'sm'}
+      announce={false}
+      label={message}
+      labelTestId={`${testId}-message`}
+      testId={`${testId}-loader`}
+    />
+  )
+
   if (variant === 'block') {
     if (isError) {
       return (
@@ -215,10 +215,16 @@ export default function LoadingState({
           ...style,
         }}
       >
-        <Indicator status={status} reducedMotion={reducedMotion} size={22} />
-        <p data-testid={`${testId}-message`} style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>
-          {message}
-        </p>
+        {status === 'loading' ? (
+          waiting
+        ) : (
+          <>
+            <Indicator status={status} size={22} />
+            <p data-testid={`${testId}-message`} style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>
+              {message}
+            </p>
+          </>
+        )}
       </div>
     )
   }
@@ -240,8 +246,14 @@ export default function LoadingState({
         ...style,
       }}
     >
-      <Indicator status={status} reducedMotion={reducedMotion} size={12} />
-      <span data-testid={`${testId}-message`}>{message}</span>
+      {status === 'loading' ? (
+        waiting
+      ) : (
+        <>
+          <Indicator status={status} size={12} />
+          <span data-testid={`${testId}-message`}>{message}</span>
+        </>
+      )}
       {isError && error && (
         <>
           <span aria-hidden="true">—</span>
@@ -290,45 +302,22 @@ export default function LoadingState({
 }
 
 /**
- * Purely decorative — aria-hidden, because the sibling text is what carries
- * the meaning. Under reduced motion the ring stops spinning and becomes a
- * solid dot; the "Loading…" text still says what is happening.
+ * The settled-phase dot: idle, success, error. Purely decorative and
+ * aria-hidden, because the sibling text is what carries the meaning.
+ *
+ * It draws no `loading` case any more and takes no reduced-motion argument.
+ * Both are gone because the spinning ring they existed for is gone — a
+ * `loading` phase renders PixelLoader instead, which handles its own motion.
+ * Leaving the branch in place would have left a second, unreachable answer to
+ * "what does loading look like" for the next person to find and believe.
  */
-function Indicator({
-  status,
-  reducedMotion,
-  size,
-}: {
-  status: LoadPhase
-  reducedMotion: boolean
-  size: number
-}) {
+function Indicator({ status, size }: { status: LoadPhase; size: number }) {
   const base: CSSProperties = {
     width: size,
     height: size,
     borderRadius: '50%',
     flexShrink: 0,
     display: 'inline-block',
-  }
-
-  if (status === 'loading') {
-    if (reducedMotion) {
-      return <span aria-hidden="true" data-testid="loading-indicator" data-motion="static" style={{ ...base, background: 'var(--cyan)' }} />
-    }
-    return (
-      <span
-        aria-hidden="true"
-        data-testid="loading-indicator"
-        data-motion="spin"
-        className="loading-spinner"
-        style={{
-          ...base,
-          border: `${Math.max(2, Math.round(size / 7))}px solid var(--border-subtle)`,
-          borderTopColor: 'var(--cyan)',
-          boxSizing: 'border-box',
-        }}
-      />
-    )
   }
 
   const fill =

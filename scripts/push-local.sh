@@ -26,14 +26,82 @@ SIGNING_CONFIG="${SIGNING_CONFIG:-${COSIGN_KEY%/*}/signing-config.json}"
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
 PORT_FORWARD_PID=$!
 TEMP_FLEET_DIR=""
+TRUSTED_PUB=""
 
 cleanup() {
   kill "${PORT_FORWARD_PID}" 2>/dev/null || true
   if [[ -n "${TEMP_FLEET_DIR}" ]]; then
     rm -rf "${TEMP_FLEET_DIR}"
   fi
+  if [[ -n "${TRUSTED_PUB}" ]]; then
+    rm -f "${TRUSTED_PUB}"
+  fi
 }
 trap cleanup EXIT
+
+# The key the CLUSTER trusts, which is the only opinion that decides whether a
+# push is usable. Written to a temp file because `cosign verify --key` takes a
+# path. Empty when there is no cluster to ask.
+TRUSTED_PUB="$(mktemp)"
+if ! kubectl -n flux-system get secret cosign-pub \
+     -o jsonpath='{.data.cosign\.pub}' 2>/dev/null | base64 -d > "${TRUSTED_PUB}" \
+   || ! [ -s "${TRUSTED_PUB}" ]; then
+  rm -f "${TRUSTED_PUB}"
+  TRUSTED_PUB=""
+fi
+
+# Refuse to touch the shared registry with a key the cluster will not accept.
+#
+# `.keys/` is gitignored, so it is per-checkout, while the kind cluster and the
+# zot registry are shared across every checkout and worktree. `make signing-keys`
+# is idempotent WITHIN a checkout but generates a fresh keypair for each new one.
+# So bootstrapping the cluster from one worktree and pushing from another signs
+# artifacts with a key nothing in the cluster trusts.
+#
+# That failure is expensive to read because cosign reports a signature made by an
+# untrusted key with the same words it uses for an artifact that was never signed:
+# "no matching signatures were found". On 2026-08-13 that sent an investigation
+# after the signature STORAGE FORMAT — referrers vs legacy `.sig` tags — while the
+# artifact was signed correctly all along, just by the wrong key.
+#
+# This runs before the first push on purpose. Discovering the mismatch afterwards
+# means the shared registry already holds an artifact the cluster refuses, and
+# `crane tag ... latest` has already moved `latest` onto it — which is precisely
+# how ocirepository/flux-system got pinned to a stale revision.
+assert_signing_key_is_trusted() {
+  local local_pub="${COSIGN_KEY%.key}.pub"
+
+  if [[ -z "${TRUSTED_PUB}" ]]; then
+    echo "note: no flux-system/cosign-pub secret readable; skipping trust preflight" >&2
+    return 0
+  fi
+  if [[ ! -f "${local_pub}" ]]; then
+    echo "FATAL: ${local_pub} not found; run 'make signing-keys' first" >&2
+    return 1
+  fi
+
+  if ! diff -q "${TRUSTED_PUB}" "${local_pub}" >/dev/null 2>&1; then
+    cat >&2 <<EOF
+FATAL: refusing to push. This checkout's signing key is not the key the cluster trusts.
+
+  cluster flux-system/cosign-pub : $(sha256sum < "${TRUSTED_PUB}" | cut -c1-16)
+  local  ${local_pub} : $(sha256sum < "${local_pub}" | cut -c1-16)
+
+Everything signed with the local key would be rejected by Flux as
+"no matching signatures were found", which reads as unsigned rather than
+as signed-by-the-wrong-key.
+
+.keys/ is gitignored and therefore per-checkout, so the cluster was almost
+certainly bootstrapped from a different checkout or worktree. Either:
+
+  * copy that checkout's .keys/cosign.{key,pub} into this one, or
+  * re-point the cluster at this key and re-push every artifact:
+      kubectl -n flux-system create secret generic cosign-pub \\
+        --from-file=cosign.pub=${local_pub} --dry-run=client -o yaml | kubectl apply -f -
+EOF
+    return 1
+  fi
+}
 
 wait_reachable "http://localhost:5001/v2/" 90
 
@@ -51,16 +119,24 @@ push_and_sign() {
     --key "${COSIGN_KEY}" \
     --signing-config "${SIGNING_CONFIG}" \
     --allow-insecure-registry \
-    --registry-referrers-mode=legacy \
     "${REGISTRY}/${repo}@${digest}"
   crane tag --insecure "${REGISTRY}/${repo}@${digest}" latest
-  # Fail loudly if the signature did not land on this exact digest. A racey
-  # re-push (or a signing error) otherwise leaves `latest` pointing at an
-  # unsigned digest that Flux silently refuses to verify — the failure mode
-  # that stalled every signalloom OCIRepository. Verify with flags proven to
-  # find the legacy referrer signature this push just created.
+
+  # Fail loudly if the signature did not land on this exact digest, or landed in
+  # a form or under a key the cluster will not accept.
+  #
+  # This deliberately verifies with the CLUSTER's public key rather than
+  # "${COSIGN_KEY%.key}.pub". Verifying with the public half of the key we just
+  # signed with is unfalsifiable — it can only pass, so it certifies nothing
+  # about the consumer. That tautology is why this script printed "all artifacts
+  # pushed and signed" while ocirepository/flux-system sat at Ready=False.
+  #
+  # When no cluster is reachable the local pub key is the only reference
+  # available, so it is still worth asserting the signature exists on this
+  # digest; the trust question is simply deferred to the preflight above.
+  local verify_key="${TRUSTED_PUB:-${COSIGN_KEY%.key}.pub}"
   COSIGN_PASSWORD="" cosign verify \
-    --key "${COSIGN_KEY%.key}.pub" \
+    --key "${verify_key}" \
     --insecure-ignore-tlog=true \
     --allow-insecure-registry \
     "${REGISTRY}/${repo}@${digest}" >/dev/null \
@@ -177,6 +253,8 @@ push_osramp() {
 push_olly() {
   push_and_sign "olly/olly-replica" "olly-replica/components"
 }
+
+assert_signing_key_is_trusted
 
 case "${mode}" in
   fleet) push_fleet ;;

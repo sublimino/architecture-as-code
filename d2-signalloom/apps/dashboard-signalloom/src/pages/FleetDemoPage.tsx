@@ -267,7 +267,7 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
         </p>
         <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 8px', lineHeight: 1.55 }}>
           The figure on the right prices that exposure. <strong style={{ color: 'var(--text)' }}>ALE</strong> is
-          Annual Loss Expectancy, what this fleet is modeled to cost in a typical year;
+          Annual Loss Expectancy, what this fleet is modeled to cost in a typical year;{' '}
           <strong style={{ color: 'var(--text)' }}>VaR95</strong> is the bad year that only 1 in 20 exceeds.
           Both come from a FAIR simulation over the agents currently deployed and recompute on
           every poll, so stunning an agent moves a number a board recognizes rather than lighting

@@ -315,7 +315,13 @@ function readsReducedMotion(): boolean {
   }
 }
 
-function usePrefersReducedMotion(): boolean {
+/**
+ * Exported so a second component does not have to grow a fourth copy of this
+ * (FleetTopology and FleetRiskGauge each carry an inline one already). The
+ * live `change` subscription is the part worth sharing: a preference toggled
+ * after mount has to stop the animation, and a one-shot read never does.
+ */
+export function usePrefersReducedMotion(): boolean {
   const [reduced, setReduced] = useState(readsReducedMotion)
   useEffect(() => {
     let mq: MediaQueryList

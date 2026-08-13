@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { colors } from '../styles/tokens'
 import HelpHint from './HelpHint'
 import PixelLoader from './PixelLoader'
+import StreamingLogBlock, { stripAnsi } from './StreamingLogBlock'
 import { useAuth0 } from '../auth/oidc'
 import { invalidateSuperCredState } from '../api/supercredSource'
 import {
@@ -106,16 +107,6 @@ const MAX_DRAIN_READS = 20
 /** Lines of output kept on screen when a run fails. */
 const LOG_TAIL_LINES = 12
 
-// The lifecycle scripts color terminal output with ANSI sequences. A browser
-// preformatted block renders those bytes literally, so remove them only when
-// displaying logs; raw runner bytes and offsets remain unchanged.
-// eslint-disable-next-line no-control-regex -- \u001B IS the escape byte this regex strips from runner log output; matching it literally is the point
-const ANSI_SGR = /\u001B\[[0-?]*[ -/]*[@-~]/g
-
-function displayLog(log: string): string {
-  return log.replace(ANSI_SGR, '')
-}
-
 async function recordStunAudit(token: string): Promise<void> {
   const response = await fetch('/api/agents/agent-cardvault/stun', {
     method: 'POST',
@@ -145,8 +136,11 @@ function runStartedAt(run: DemoRunView | null): number | undefined {
   return Number.isNaN(ms) ? undefined : ms
 }
 
+// stripAnsi is imported rather than kept here: the streaming block has to
+// strip the same escape bytes, and two copies of that regex is two places for
+// the runner's colour convention to drift out of agreement with the display.
 function logTail(log: string): string {
-  return displayLog(log).split('\n').filter(line => line.trim() !== '').slice(-LOG_TAIL_LINES).join('\n')
+  return stripAnsi(log).split('\n').filter(line => line.trim() !== '').slice(-LOG_TAIL_LINES).join('\n')
 }
 
 interface Props {
@@ -424,6 +418,16 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
       ? 'Resetting the demo'
       : `Phase ${activeRun?.step_id ?? '?'}${runningStep ? ` · ${runningStep.title}` : ''}`
 
+  // What the log block's header names. Present tense is wrong here in a way it
+  // is not for the in-flight indicator above: this header outlives the run, so
+  // "Resetting the demo" would still be claiming a teardown is under way
+  // minutes after it finished. The status word beside it carries the tense.
+  const logTitle = activeRun
+    ? activeRun.kind === 'reset'
+      ? 'Reset'
+      : `Phase ${activeRun.step_id}${runningStep ? ` · ${runningStep.title}` : ''}`
+    : undefined
+
   return (
     <>
       {/* Phase status + where to look — rendered for every role */}
@@ -683,17 +687,22 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
             </div>
           )}
 
+          {/* The RAW log goes in, escape bytes and all — the block strips them
+              for display and hands the untouched string to its Copy button,
+              which is the one artefact an instructor actually wants off this
+              screen when a phase fails. `running` drives only the caret; the
+              lines themselves appear when their chunk lands and never before. */}
           {log !== '' && (
-            <pre
-              data-testid="supercred-run-log"
-              style={{
-                marginTop: 12, padding: '10px 12px', borderRadius: 6, maxHeight: 260, overflow: 'auto',
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                fontSize: 11, lineHeight: 1.5, whiteSpace: 'pre-wrap', color: 'var(--text)',
-              }}
-            >
-              {displayLog(log)}
-            </pre>
+            <StreamingLogBlock
+              testId="supercred-run-log"
+              label="Run log"
+              title={logTitle}
+              status={activeRun?.status}
+              statusTone={activeRun ? RUN_STATUS_COLORS[activeRun.status] ?? 'var(--muted)' : undefined}
+              log={log}
+              streaming={running}
+              style={{ marginTop: 12 }}
+            />
           )}
 
           {error && (

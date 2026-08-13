@@ -29,6 +29,7 @@ import {
   isRunFailure,
   makeCommandForStep,
   resetDemo,
+  sseLogStreamEnabled,
   startDemoRun,
   streamDemoRunLog,
   type DemoRunLogChunk,
@@ -99,16 +100,35 @@ const RUN_STATUS_COLORS: Record<string, string> = {
   cancelled: colors.amber,
 }
 
-/**
- * How often an in-flight run is re-read.
- *
- * This is the transport of record. The SSE stream below is faster and is used
- * whenever the runner will serve it, but the poll is the one that needs no
- * negotiation to recover — it sends its cursor with every read, so it survives
- * a dropped connection, a buffering proxy and a runner image that predates
- * /stream, all without the instructor being told anything happened.
- */
+/** How often an in-flight run's STATUS is re-read. Fast enough to feel live. */
 const POLL_MS = 500
+
+/**
+ * How long a log read may block waiting for output before answering empty.
+ *
+ * This is the transport of record and it is not a compromise: the response
+ * comes back within milliseconds of the script printing, so it is as live as a
+ * stream, while remaining an ordinary short HTTP response that no proxy,
+ * compressor or tunnel can silently sit on. Chosen against the 300s
+ * `proxy_read_timeout` on the `/demo-api/` nginx location — three seconds
+ * leaves two orders of magnitude of headroom, so the boring failure (the
+ * deadline passes, an empty chunk comes back, the loop re-arms) is the only
+ * one available.
+ */
+const LOG_WAIT_SECONDS = 3
+
+/**
+ * Floor between two log reads when the runner answered immediately.
+ *
+ * Only reachable against a runner image that predates `wait` and therefore
+ * drops it: an unknown query parameter is not an error, so the read returns at
+ * once with nothing in it and an unpaced loop would spin hot. 300ms rather
+ * than the old 500ms because the loop is now self-rescheduling — it cannot
+ * issue a read while one is outstanding, so the request stacking that caused
+ * the 2026-08-03 duplication is structurally impossible and the interval no
+ * longer has to be conservative enough to outrun a slow round trip.
+ */
+const LOG_IDLE_FLOOR_MS = 300
 
 /** Bound on the post-run log drain, so a runner that never reports eof cannot spin. */
 const MAX_DRAIN_READS = 20
@@ -328,22 +348,86 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   const running = isRunActive(activeRun)
 
   /**
-   * Follow the log over SSE for as long as the runner will serve it.
+   * Read the log with a waiting request, re-issuing as each one returns.
    *
-   * One attempt per run, and that is deliberate: the effect's dependencies are
-   * all stable for the lifetime of a run, so a stream that 404s (an older
-   * runner image), breaks, or diverges from the cursor is not retried — the
-   * poll below simply keeps doing what it was already doing. Retrying would
-   * turn an endpoint that does not exist into a reconnect loop for the length
-   * of a phase.
-   *
-   * Nothing here is user-visible on failure. There is no action an instructor
-   * could take, and the log arrives either way; the only difference is latency.
-   * Every chunk goes through `applyLogChunk`, so the exact-offset guard that
-   * fixed the 2026-08-03 duplication covers this transport too.
+   * This is the live path. A self-rescheduling loop rather than a setInterval,
+   * and that difference is the point: the old interval fired every 500ms
+   * whether or not the previous read had come back, so any read slower than
+   * the interval overlapped the next one, both sent the same offset, and the
+   * server honestly returned the same bytes twice — the 2026-08-03 duplicated
+   * reset banner. A loop that only issues a read when the last one has landed
+   * cannot stack requests at all. `applyLogChunk` still guards every chunk,
+   * because `drainLog` and the opt-in stream are also writers.
    */
   useEffect(() => {
     if (!running || !runId) return
+    let stopped = false
+    const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
+    void (async () => {
+      while (!stopped) {
+        // The opt-in stream, once proven live, owns the log. Yield to it and
+        // keep checking, so the moment it stops — watchdog, break, divergence
+        // — this loop is already the one reading.
+        if (streamLiveRef.current) {
+          await sleep(LOG_IDLE_FLOOR_MS)
+          continue
+        }
+        const startedAt = Date.now()
+        try {
+          const chunk = await fetchDemoRunLog(
+            runId, offsetRef.current, await getAccessTokenSilently(), LOG_WAIT_SECONDS,
+          )
+          if (stopped) return
+          // Progress means bytes that actually reached the screen. A read can
+          // fail to make progress two ways and both must be paced: an empty
+          // chunk (a runner that ignored `wait` and answered at once, since an
+          // unknown query parameter is not an error), or a chunk `applyLogChunk`
+          // refused because it did not start at the cursor — a straggler from
+          // `drainLog` or the opt-in stream. Pacing on "nothing new appeared"
+          // rather than on "the chunk was empty" is what stops a refused chunk
+          // becoming a hot loop; a runner that honours `wait` makes progress
+          // every time and therefore never sleeps.
+          const advanced = applyLogChunk(chunk) && chunk.chunk !== ''
+          if (!advanced) {
+            const elapsed = Date.now() - startedAt
+            if (elapsed < LOG_IDLE_FLOOR_MS) await sleep(LOG_IDLE_FLOOR_MS - elapsed)
+          }
+        } catch {
+          // The run status poll below is the authoritative account of what
+          // happened; a failed log read is not worth a banner. Pace and retry.
+          if (stopped) return
+          await sleep(LOG_IDLE_FLOOR_MS)
+        }
+      }
+    })()
+
+    return () => {
+      stopped = true
+    }
+  }, [running, runId, applyLogChunk, getAccessTokenSilently])
+
+  /**
+   * Follow the log over SSE — only when this browser has explicitly asked for it.
+   *
+   * Off by default. The waiting read above is what an instructor gets, because
+   * it cannot fail the way a stream fails: a buffering intermediary accepts an
+   * SSE connection, raises no error, and then delivers nothing until the run
+   * ends, which is a blank log on stage with no signal that anything is wrong.
+   * This path exists so the streaming pattern can be exercised and judged, and
+   * it carries a first-byte watchdog precisely because the failure it guards
+   * against is silent.
+   *
+   * One attempt per run, deliberately: the effect's dependencies are stable for
+   * a run's lifetime, so a stream that 404s, breaks, starves or diverges from
+   * the cursor is not retried. The loop above simply carries on.
+   *
+   * Every chunk goes through `applyLogChunk`, so the exact-offset guard covers
+   * this transport too — and it is what makes the handover safe in both
+   * directions if a waiting read is still outstanding when a frame lands.
+   */
+  useEffect(() => {
+    if (!running || !runId || !sseLogStreamEnabled()) return
     const controller = new AbortController()
     let stopped = false
     void (async () => {
@@ -386,20 +470,18 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
     }
   }, [running, runId, applyLogChunk, getAccessTokenSilently])
 
+  // The run's STATUS only. The log is read by the waiting loop above, which
+  // paces itself against the runner rather than against a clock — leaving this
+  // interval to do the one job it is actually good at: noticing, within half a
+  // second, that the run has reached a terminal state.
   useEffect(() => {
     if (!running || !runId) return
     let stopped = false
     const timer = setInterval(() => {
       void (async () => {
         try {
-          const [run, chunk] = await Promise.all([
-            fetchDemoRun(runId, await getAccessTokenSilently()),
-            streamLiveRef.current
-              ? Promise.resolve(null)
-              : fetchDemoRunLog(runId, offsetRef.current, await getAccessTokenSilently()).catch(() => null),
-          ])
+          const run = await fetchDemoRun(runId, await getAccessTokenSilently())
           if (stopped) return
-          if (chunk) applyLogChunk(chunk)
           if (!isRunActive(run)) {
             if (run.step_id === '4' && run.status === 'succeeded') {
               // Phase 4 is not complete until the transactional audit record

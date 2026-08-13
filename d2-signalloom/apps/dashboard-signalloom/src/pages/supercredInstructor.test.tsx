@@ -111,6 +111,12 @@ interface RunnerFixture {
   agents?: ReturnType<typeof cardvault>[]
   /** A live SSE body for GET /runs/{id}/stream. Absent means the route 404s. */
   sse?: SseServer
+  /**
+   * A runner that HOLDS each log read until the test releases it, the way the
+   * real `wait` parameter does. Absent means the scripted `pollLogs` answer
+   * immediately, which is what a runner image without `wait` does.
+   */
+  logServer?: LongPollLog
 }
 
 /**
@@ -216,6 +222,7 @@ function mockRunner(fixture: RunnerFixture = {}) {
       return streamingResponse(fixture.sse)
     }
     if (url.startsWith('/demo-api/runs/') && url.includes('/log')) {
+      if (fixture.logServer) return respond(await fixture.logServer.handle(url))
       return respond(pollLogs.length > 1 ? pollLogs.shift() : pollLogs[0])
     }
     if (url.startsWith('/demo-api/runs/')) {
@@ -757,15 +764,16 @@ describe('the run log streams in incrementally', () => {
     }
   })
 })
-
-// ─── Live streaming ───────────────────────────────────────────────────────────
+// ─── Live log delivery ────────────────────────────────────────────────────────
 
 /**
  * Every distinct thing the block has displayed, in order.
  *
  * The tests above this one assert the log's FINAL content, and that is exactly
- * how a transport that delivered nothing at all until the process exited passed
- * every one of them. What an instructor is watching for is the intermediate
+ * how a producer that emitted nothing at all until the process exited passed
+ * every one of them. Those mocks encoded the contract the backend was
+ * violating, which is how the component stayed provably correct while the
+ * feature was provably broken. What an instructor watches is the intermediate
  * states, so those are what gets recorded and asserted here.
  */
 function recordRenderStates(el: HTMLElement) {
@@ -788,13 +796,43 @@ function linesShown(state: string): number {
   return ['one', 'two', 'three'].filter(word => state.includes(`] ${word}`)).length
 }
 
-describe('the log renders as it streams, not when the run ends', () => {
-  it('shows each line the moment its frame lands', async () => {
+/**
+ * The server side of a waiting log read.
+ *
+ * `GET /log?offset=N&wait=S` holds the request open until output arrives, so
+ * the fixture holds it too: a read is answered only when the test emits, which
+ * is what makes the panel's TIMING observable instead of just its final text.
+ * It also makes request stacking visible — `outstanding` counts reads the
+ * server is still holding.
+ */
+function longPollLog() {
+  const held: ((chunk: DemoRunLogChunk) => void)[] = []
+  const requested: string[] = []
+  const settle = () => new Promise(resolve => setTimeout(resolve, 0))
+  return {
+    /** Called by the fetch mock; resolves when the test emits. */
+    handle(url: string): Promise<DemoRunLogChunk> {
+      requested.push(url)
+      return new Promise(resolve => held.push(resolve))
+    },
+    requests: () => [...requested],
+    outstanding: () => held.length,
+    async emit(chunk: Partial<DemoRunLogChunk>) {
+      held.shift()?.(logChunk({ eof: false, ...chunk }))
+      await settle()
+    },
+  }
+}
+
+type LongPollLog = ReturnType<typeof longPollLog>
+
+describe('the log arrives as it is produced, not when the run ends', () => {
+  it('shows each line the moment its read returns', async () => {
     // Offsets chain exactly, because that is what applyLogChunk demands of
-    // both transports: 16 bytes, 16 bytes, 18 bytes.
-    const sse = sseServer()
+    // every transport: 16 bytes, 16 bytes, 18 bytes.
+    const server = longPollLog()
     mockRunner({
-      sse,
+      logServer: server,
       startResponse: runView({ step_id: '1', status: 'running' }),
       pollRuns: [runView({ status: 'running' })],
     })
@@ -807,21 +845,17 @@ describe('the log renders as it streams, not when the run ends', () => {
     await waitFor(() => expect(screen.getByTestId('supercred-run-log-waiting')).toBeInTheDocument())
     expect(block).not.toHaveTextContent('] one')
 
-    await sse.send({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
+    await server.emit({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
     await waitFor(() => expect(block).toHaveTextContent('] one'))
     // The load-bearing negative: the second line is not on screen yet, so this
-    // cannot be the final state being asserted after the fact.
+    // cannot be a final state being asserted after the fact.
     expect(block).not.toHaveTextContent('] two')
 
-    // A keepalive is not output and must not change a single pixel.
-    await sse.keepalive()
-    expect(block).not.toHaveTextContent('] two')
-
-    await sse.send({ offset: 16, next_offset: 32, chunk: '[supercred] two\n' })
+    await server.emit({ offset: 16, next_offset: 32, chunk: '[supercred] two\n' })
     await waitFor(() => expect(block).toHaveTextContent('] two'))
     expect(block).not.toHaveTextContent('] three')
 
-    await sse.send({ offset: 32, next_offset: 50, chunk: '[supercred] three\n' })
+    await server.emit({ offset: 32, next_offset: 50, chunk: '[supercred] three\n' })
     await waitFor(() => expect(block).toHaveTextContent('] three'))
 
     const counts = recorder.stop().map(linesShown)
@@ -834,12 +868,74 @@ describe('the log renders as it streams, not when the run ends', () => {
     }
   })
 
+  it('asks the runner to hold the read open', async () => {
+    const server = longPollLog()
+    mockRunner({
+      logServer: server,
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(server.requests()).not.toHaveLength(0))
+    // Both parameters, in that order: the cursor the runner must resume from,
+    // and how long it may block before answering empty.
+    expect(server.requests()[0]).toMatch(/\/log\?offset=0&wait=\d+$/)
+  })
+
+  it('never issues a read while one is still outstanding', async () => {
+    // The old setInterval fired whether or not the previous read had come back,
+    // so any read slower than the interval overlapped the next one, both sent
+    // the same offset, and the server honestly returned the same bytes twice —
+    // the duplicated reset banner of 2026-08-03. A waiting read is slower than
+    // any interval by design, so the loop must reschedule itself instead.
+    const server = longPollLog()
+    mockRunner({
+      logServer: server,
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(server.outstanding()).toBe(1))
+    // Several old poll intervals' worth of time, with the read still held.
+    await new Promise(resolve => setTimeout(resolve, 1600))
+    expect(server.outstanding()).toBe(1)
+    expect(server.requests()).toHaveLength(1)
+  }, 10000)
+
+  it('does not spin against a runner that ignores the wait parameter', async () => {
+    // An older image drops an unknown query parameter rather than failing on
+    // it, so every read returns at once with nothing in it. Unpaced, that is a
+    // hot loop that pins a CPU for the length of a phase.
+    mockRunner({
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' })],
+      pollLogs: [logChunk({ offset: 0, next_offset: 0, chunk: '', eof: false })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await new Promise(resolve => setTimeout(resolve, 1500))
+    const reads = demoApiCalls(c => c.url.includes('/log?offset=')).length
+    // Paced at the 300ms floor: ~5 in 1.5s. Ten is generous headroom for a slow
+    // CI box; a thousand is the failure this is guarding against.
+    expect(reads).toBeLessThan(10)
+    expect(reads).toBeGreaterThan(1)
+  }, 10000)
+
   it('mounts the log surface when the run starts, saying it is waiting', async () => {
     // Before this, the block appeared only once the first byte landed, so a
     // slow first phase left the instructor with every control greyed out and
     // nothing else on screen — indistinguishable from a panel that has hung.
-    const sse = sseServer()
-    mockRunner({ sse, startResponse: runView({ status: 'running' }), pollRuns: [runView({ status: 'running' })] })
+    const server = longPollLog()
+    mockRunner({
+      logServer: server,
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' })],
+    })
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
 
@@ -849,12 +945,97 @@ describe('the log renders as it streams, not when the run ends', () => {
     // rows, no invented timestamp, no progress figure.
     expect(screen.queryAllByTestId('supercred-run-log-line')).toHaveLength(0)
   })
+})
 
-  it('falls back to polling when the runner has no stream endpoint at all', async () => {
-    // An older runner image serves /log and 404s /stream. The instructor is
-    // told nothing, because there is nothing they could do and the log still
-    // arrives — the only difference is latency.
+// ─── The opt-in SSE transport ─────────────────────────────────────────────────
+
+/**
+ * A working `localStorage`, because this runner's global is a methodless stub
+ * (Node's built-in Web Storage shadows jsdom's implementation — see
+ * ThemeToggle.test.tsx, which hit the same thing).
+ *
+ * Worth noting what the unpatched environment proves on its own: every test
+ * outside this block runs against a `localStorage` whose `getItem` throws, and
+ * they all take the polling path. That is `sseLogStreamEnabled`'s catch doing
+ * its job — a browser that cannot answer the question has not opted in.
+ */
+function installLocalStorage(): Storage {
+  const store = new Map<string, string>()
+  const mock: Storage = {
+    getItem: key => (store.has(key) ? (store.get(key) as string) : null),
+    setItem: (key, value) => void store.set(key, String(value)),
+    removeItem: key => void store.delete(key),
+    clear: () => store.clear(),
+    key: index => Array.from(store.keys())[index] ?? null,
+    get length() {
+      return store.size
+    },
+  }
+  Object.defineProperty(window, 'localStorage', { value: mock, configurable: true, writable: true })
+  return mock
+}
+
+/** Ask this browser for the streaming transport, the way an operator would. */
+function optInToSse() {
+  installLocalStorage().setItem('signalloom.logTransport', 'sse')
+}
+
+describe('the SSE log stream is opt-in and never the default', () => {
+  afterEach(() => {
+    installLocalStorage()
+  })
+
+  it('does not open a stream unless this browser asked for one', async () => {
+    // The default has to be provably the waiting read. An SSE connection that
+    // an intermediary buffers raises no error and delivers nothing, so a panel
+    // that opened one by accident would fail silently on stage.
+    const server = longPollLog()
     mockRunner({
+      logServer: server,
+      startResponse: runView({ status: 'running' }),
+      pollRuns: [runView({ status: 'running' })],
+    })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    await waitFor(() => expect(server.requests()).not.toHaveLength(0))
+    await new Promise(resolve => setTimeout(resolve, 600))
+    expect(demoApiCalls(c => c.url.includes('/stream'))).toHaveLength(0)
+  })
+
+  it('streams the log when the browser has opted in', async () => {
+    optInToSse()
+    const sse = sseServer()
+    mockRunner({ sse, startResponse: runView({ status: 'running' }), pollRuns: [runView({ status: 'running' })] })
+    await readyPanel()
+    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
+
+    const block = await screen.findByTestId('supercred-run-log')
+    await waitFor(() => expect(demoApiCalls(c => c.url.includes('/stream'))).not.toHaveLength(0))
+    await sse.send({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
+    await waitFor(() => expect(block).toHaveTextContent('] one'))
+    expect(block).not.toHaveTextContent('] two')
+
+    // A keepalive is not output and must not change a single pixel.
+    await sse.keepalive()
+    expect(block).not.toHaveTextContent('] two')
+
+    await sse.send({ offset: 16, next_offset: 32, chunk: '[supercred] two\n' })
+    await waitFor(() => expect(block).toHaveTextContent('] two'))
+  })
+
+  it('gives up on a stream that opens and then delivers nothing', async () => {
+    // THE failure mode. A buffering intermediary — nginx with its default
+    // proxy_buffering, a Gateway compressor, ngrok, venue wifi — accepts the
+    // connection, answers the headers, raises no error of any kind, and holds
+    // every byte until the run ends. Waiting for `onerror` means waiting
+    // forever with a blank log in front of a room, so the watchdog times the
+    // first byte instead and hands the log back to the read that cannot fail
+    // this way.
+    optInToSse()
+    const sse = sseServer()
+    mockRunner({
+      sse,
       startResponse: runView({ status: 'running' }),
       pollRuns: [runView({ status: 'running' }), runView({ status: 'succeeded', exit_code: 0 })],
       pollLogs: [
@@ -866,63 +1047,50 @@ describe('the log renders as it streams, not when the run ends', () => {
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
 
-    await waitFor(() => expect(screen.getByTestId('supercred-run-log')).toHaveTextContent('] two'), {
-      timeout: 4000,
-    })
-    // The stream was genuinely attempted and genuinely refused — otherwise this
-    // would pass just as well on a panel that had no SSE path at all.
-    expect(demoApiCalls(c => c.url.includes('/stream'))).not.toHaveLength(0)
-    expect(screen.queryByTestId('supercred-run-control-error')).toBeNull()
-  })
+    // The stream is opened and then starved: the fixture never pushes a frame.
+    await waitFor(() => expect(demoApiCalls(c => c.url.includes('/stream'))).not.toHaveLength(0))
 
-  it('picks the log up from the poll when the stream breaks mid-phase', async () => {
+    const block = await screen.findByTestId('supercred-run-log')
+    await waitFor(() => expect(block).toHaveTextContent('] two'), { timeout: 8000 })
+    expect(screen.queryByTestId('supercred-run-control-error')).toBeNull()
+  }, 15000)
+
+  it('picks the log up from the read when the stream breaks mid-phase', async () => {
     // A proxy timeout or a runner restart kills the connection with the phase
-    // still running. The poll sends its cursor with every read, so it resumes
-    // at the exact byte the stream stopped at: no gap, and no line repeated.
+    // still running. The read sends its cursor every time, so it resumes at the
+    // exact byte the stream stopped at: no gap, and no line repeated.
+    optInToSse()
     const sse = sseServer()
+    const server = longPollLog()
     mockRunner({
       sse,
+      logServer: server,
       startResponse: runView({ status: 'running' }),
-      pollRuns: [runView({ status: 'running' }), runView({ status: 'succeeded', exit_code: 0 })],
-      pollLogs: [
-        logChunk({ offset: 16, next_offset: 32, chunk: '[supercred] two\n', eof: false }),
-        logChunk({ offset: 32, next_offset: 32, chunk: '', eof: true }),
-      ],
+      pollRuns: [runView({ status: 'running' })],
     })
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
 
     const block = await screen.findByTestId('supercred-run-log')
+    // A read was already outstanding at offset 0 when the stream delivered the
+    // same bytes — the two transports genuinely overlap for one request, and
+    // this is the case the exact-offset guard was written for.
+    await waitFor(() => expect(server.outstanding()).toBe(1))
     await sse.send({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
     await waitFor(() => expect(block).toHaveTextContent('] one'))
     await sse.fail()
 
-    await waitFor(() => expect(block).toHaveTextContent('] two'), { timeout: 4000 })
+    // The runner answers the stale request with what it asked for: offset 0,
+    // the bytes already on screen. Discarding it is the whole invariant.
+    await server.emit({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
+    await waitFor(() => expect(server.requests()).toHaveLength(2))
+    expect(server.requests()[1]).toContain('offset=16')
+
+    await server.emit({ offset: 16, next_offset: 32, chunk: '[supercred] two\n' })
+    await waitFor(() => expect(block).toHaveTextContent('] two'), { timeout: 8000 })
     expect(occurrences(block.textContent ?? '', '] one')).toBe(1)
     expect(screen.queryByTestId('supercred-run-control-error')).toBeNull()
-  })
-
-  it('leaves the log to one transport at a time', async () => {
-    // Both transports are safe to DISPLAY — applyLogChunk guarantees that —
-    // but they are not safe to interleave. A poll response landing between two
-    // frames advances the cursor past where the stream is, every later frame
-    // is refused, and the stream silently stops contributing. So while the
-    // stream is live, the poll reads the run and not the log.
-    const sse = sseServer()
-    mockRunner({ sse, startResponse: runView({ status: 'running' }), pollRuns: [runView({ status: 'running' })] })
-    await readyPanel()
-    await userEvent.click(await screen.findByTestId('supercred-run-step-1'))
-
-    const block = await screen.findByTestId('supercred-run-log')
-    await sse.send({ offset: 0, next_offset: 16, chunk: '[supercred] one\n' })
-    await waitFor(() => expect(block).toHaveTextContent('] one'))
-
-    // Long enough for several poll ticks to have fired.
-    await new Promise(resolve => setTimeout(resolve, 1600))
-    expect(demoApiCalls(c => c.url.includes('/log?offset='))).toHaveLength(0)
-    expect(demoApiCalls(c => c.url.includes('/demo-api/runs/run-1') && !c.url.includes('/log') && !c.url.includes('/stream')))
-      .not.toHaveLength(0)
-  }, 10000)
+  }, 15000)
 })
 
 // ─── Failure reporting ────────────────────────────────────────────────────────

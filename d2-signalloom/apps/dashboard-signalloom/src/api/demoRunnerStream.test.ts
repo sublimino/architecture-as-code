@@ -105,7 +105,7 @@ describe('SSE framing', () => {
 
 interface Recorded {
   url: string
-  headers: HeadersInit | undefined
+  headers: Record<string, string> | undefined
   signal: AbortSignal | null | undefined
 }
 
@@ -151,7 +151,7 @@ type ControllableStream = ReturnType<typeof controllableStream>
 function mockStreamFetch(opts: { stream?: ControllableStream; status?: number }) {
   const status = opts.status ?? 200
   globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    calls.push({ url: String(input), headers: init?.headers, signal: init?.signal })
+    calls.push({ url: String(input), headers: init?.headers as Record<string, string> | undefined, signal: init?.signal })
     // Real fetch errors the body stream when the signal fires; the transport
     // relies on that to stop, so the mock has to reproduce it.
     init?.signal?.addEventListener('abort', () => {
@@ -257,6 +257,53 @@ describe('streamDemoRunLog', () => {
       .rejects.toThrow(/cursor/i)
     await stream.push(logFrame({ offset: 40, next_offset: 50, chunk: 'out of step\n' }))
     await rejects
+  })
+
+  it('gives up on a connection that opens and then delivers nothing', async () => {
+    // The failure this transport is demoted for. A buffering intermediary
+    // accepts the connection, answers the headers, and emits no error of any
+    // kind while holding every byte until the response completes. There is no
+    // event to listen for, so the only detector available is a clock.
+    const stream = controllableStream()
+    mockStreamFetch({ stream })
+
+    const seen: string[] = []
+    await expect(
+      streamDemoRunLog('run-1', 0, { onChunk: c => { seen.push(c.chunk); return true } }, undefined, undefined, 50),
+    ).rejects.toThrow(/buffering/i)
+    expect(seen).toEqual([])
+  })
+
+  it('does not start the watchdog clock again once bytes are flowing', async () => {
+    // A phase can be quiet for minutes between kubectl calls. The watchdog
+    // answers "did this connection ever work", not "has output stopped" —
+    // rearming it would tear down a healthy stream during a slow step.
+    const stream = controllableStream()
+    mockStreamFetch({ stream })
+
+    const seen: string[] = []
+    const done = streamDemoRunLog(
+      'run-1', 0, { onChunk: c => { seen.push(c.chunk); return true } }, undefined, undefined, 60,
+    )
+    await stream.push(logFrame({ offset: 0, next_offset: 6, chunk: 'first\n' }))
+    await new Promise(resolve => setTimeout(resolve, 120))
+    await stream.push(logFrame({ offset: 6, next_offset: 13, chunk: 'second\n' }))
+    await stream.close()
+    await done
+
+    expect(seen).toEqual(['first\n', 'second\n'])
+  })
+
+  it('sends the ngrok header, which is the other thing EventSource cannot do', async () => {
+    // The published demo runs through ngrok's free tier, which serves an
+    // interstitial to any request without this header.
+    const stream = controllableStream()
+    mockStreamFetch({ stream })
+    const done = streamDemoRunLog('run-1', 0, { onChunk: () => true }, 'demo-token')
+    await stream.close()
+    await done
+
+    expect(calls[0].headers).toMatchObject({ 'ngrok-skip-browser-warning': 'true' })
   })
 
   it('stops reading when the caller aborts', async () => {

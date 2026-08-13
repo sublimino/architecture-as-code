@@ -413,7 +413,11 @@ export default function RbacExplorerPage() {
           {/* Escalation findings — correlated server-side from AFM's Z3 engine */}
           {data.escalations.length > 0 && (
             <Section title="Escalation Findings" hint={`${data.escalations.length} findings`}>
-              <Table headers={['Subject', 'Type', 'Risk', 'Detail']}>
+              <Table headers={['Subject', 'Type', {
+                label: 'Risk',
+                testId: 'rbac-escalation-risk-help',
+                help: 'How much damage this path allows if someone walks it — derived by the analyser from what the subject could actually reach, not from a severity field a human typed in. A finding is a route that exists, not a breach that happened.',
+              }, 'Detail']}>
                 {data.escalations.slice(0, 20).map((finding, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={td}><code style={{ fontSize: 12, color: 'var(--violet)' }}>{finding.subjectDisplay ?? finding.subject}</code></td>
@@ -464,7 +468,11 @@ export default function RbacExplorerPage() {
 
           {/* Roles table */}
           <Section title="Roles" hint={`${nsFilter === 'all' ? 'all namespaces' : nsFilter} · ${filteredRoles.length} roles`}>
-            <Table headers={['Name', 'Scope', 'Namespace', 'Rules', 'Verbs', 'Findings']}>
+            <Table headers={['Name', 'Scope', 'Namespace', 'Rules', {
+              label: 'Verbs',
+              testId: 'rbac-roles-verbs-help',
+              help: 'The actions this role permits. Verbs shown in red are the ones that let whoever holds the role change the cluster or take more power in it — create, delete, patch, update, bind, escalate, impersonate, or the wildcard.',
+            }, 'Findings']}>
               {filteredRoles.slice(0, 30).map((r, i) => {
                 const verbs = new Set<string>()
                 r.rules.forEach(rule => rule.verbs.forEach(v => verbs.add(v)))

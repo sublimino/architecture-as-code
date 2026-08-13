@@ -123,3 +123,35 @@ describe('FleetRiskGauge', () => {
     expect(aleEl.textContent).toContain('2.5M')
   })
 })
+
+// "ALE" and "VaR95" are the two numbers a bank executive is asked to act on and
+// the two pieces of jargon nothing on the page defines. Fake timers are in
+// force for the whole file, so these drive the hint with fireEvent rather than
+// userEvent, which waits on real timers.
+describe('FleetRiskGauge explains its own jargon', () => {
+  it('defines ALE and VaR95 in plain English behind a keyboard-reachable "?"', () => {
+    render(<FleetRiskGauge ale={847000} var95={1200000} trend="up" />)
+
+    const hint = screen.getByTestId('fleet-risk-help')
+    expect(hint).toHaveAccessibleName('What these two money figures mean')
+    act(() => { hint.focus() })
+    expect(document.activeElement).toBe(hint)
+
+    const tooltip = screen.getByRole('tooltip')
+    expect(tooltip).toHaveTextContent('Annual Loss Expectancy')
+    // VaR95 is the one an executive is most likely to misread as a cap rather
+    // than a percentile, so the hint must express it as a frequency.
+    expect(tooltip.textContent).toMatch(/1 year in 20/i)
+    expect(hint.getAttribute('aria-describedby')).toBe(tooltip.id)
+  })
+
+  it('mutes the surrounding live region so the tooltip is not announced twice', () => {
+    render(<FleetRiskGauge ale={100000} var95={500000} trend="stable" />)
+
+    // The gauge card is aria-live="polite" so a changing figure is announced.
+    // Opening a tooltip inside it also changes the region, which would read the
+    // whole explanation out a second time on top of aria-describedby.
+    const muted = screen.getByTestId('fleet-risk-help').closest('[aria-live]')
+    expect(muted?.getAttribute('aria-live')).toBe('off')
+  })
+})

@@ -266,10 +266,18 @@ function emitKeyValue(key: string, value: YamlValue | undefined, depth: number, 
  * Generate a unique cluster import ID: `signalloom-{compact-ISO}-{random4}`
  * e.g. `signalloom-20260803T143022-a7f2`
  */
+/**
+ * Marks a cluster in AFM as one WE pushed.
+ *
+ * Shared by the id generator and by `selectMostRecentImport`, so the embed
+ * cannot start looking for a prefix the generator no longer emits.
+ */
+export const IMPORT_ID_PREFIX = 'signalloom-'
+
 export function generateImportId(now = new Date()): string {
   const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '')
   const rand = Math.random().toString(16).slice(2, 6).padEnd(4, '0')
-  return `signalloom-${stamp}-${rand}`
+  return `${IMPORT_ID_PREFIX}${stamp}-${rand}`
 }
 
 /**
@@ -332,4 +340,40 @@ export function emitYaml(value: unknown): string {
   }
 
   throw new Error(`Unsupported YAML value type: ${typeof value}`)
+}
+
+/**
+ * Which cluster the embedded AFM dashboard should open on.
+ *
+ * The iframe used to load `/dashboard/` with no query string. AFM selects
+ * NOTHING by default on a fresh session — verified against the live instance:
+ * a fresh context on `/dashboard/` renders no `Cluster:` label at all, while
+ * `/dashboard/?cluster=<id>` renders `Cluster: SignalLoom Import ...`. So every
+ * import landed correctly in AFM and was simply never shown, which reads as
+ * "the send did not work".
+ *
+ * `?cluster=` is the ONLY spelling AFM accepts — `cluster_id`, `clusterId` and
+ * `c` were each probed against a fresh session and selected nothing.
+ *
+ * Recency comes from the id, not from list order: `generateImportId` emits
+ * `signalloom-<YYYYMMDDTHHMMSS>-<rand>`, and that stamp sorts lexicographically
+ * in the same order it sorts chronologically. Sorting beats "last in the array"
+ * because the AFM list endpoint promises no ordering.
+ */
+export function selectMostRecentImport(
+  clusters: ReadonlyArray<{ id: string; name?: string }>,
+): string | null {
+  if (clusters.length === 0) return null
+  const imports = clusters
+    .filter((c) => c.id.startsWith(IMPORT_ID_PREFIX))
+    .sort((a, b) => b.id.localeCompare(a.id))
+  if (imports.length > 0) return imports[0].id
+  // No SignalLoom import yet: fall back to the host cluster so the embed shows
+  // something real rather than an empty frame.
+  return (clusters.find((c) => c.id === 'local') ?? clusters[0]).id
+}
+
+/** Build the embed URL for AFM, selecting one cluster. */
+export function afmDashboardUrl(clusterId: string | null, base = '/dashboard/'): string {
+  return clusterId ? `${base}?cluster=${encodeURIComponent(clusterId)}` : base
 }

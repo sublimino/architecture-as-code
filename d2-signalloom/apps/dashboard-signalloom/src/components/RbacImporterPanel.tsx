@@ -42,7 +42,7 @@ async function readClusterRbac(clusterId: string): Promise<RBACData> {
   }
 }
 
-export default function RbacImporterPanel() {
+export default function RbacImporterPanel({ onImported }: { onImported?: (clusterId: string) => void } = {}) {
   const [clusters, setClusters] = useState<ClusterMeta[]>([])
   const [selectedClusterId, setSelectedClusterId] = useState('')
   const [selectedNamespace, setSelectedNamespace] = useState('all')
@@ -321,7 +321,11 @@ export default function RbacImporterPanel() {
 
     try {
       await postClusterImport(payload)
-      setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM` })
+      setSendFeedback({ tone: 'success', message: `Sent ${payload.id} to AFM — showing it below` })
+      // Tell the page which cluster to show. Without this the import lands in
+      // AFM correctly and stays invisible, which is indistinguishable from a
+      // failed send.
+      onImported?.(payload.id)
       queueSendReset()
     } catch (sendError: unknown) {
       setSendFeedback({

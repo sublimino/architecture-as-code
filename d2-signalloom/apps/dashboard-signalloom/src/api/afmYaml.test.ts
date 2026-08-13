@@ -18,7 +18,7 @@
 import { describe, expect, it } from 'vitest'
 import type { RBACData } from './afmApi'
 import { deriveNamespaces, parseClusterList, parseRbacData } from './afmApi'
-import { convertRbacToAfmImport, emitYaml, generateImportId, generateImportName } from './afmYaml'
+import { afmDashboardUrl, convertRbacToAfmImport, emitYaml, generateImportId, generateImportName, selectMostRecentImport } from './afmYaml'
 
 // ── Minimal YAML parser (test-only) ────────────────────────────────────────
 
@@ -738,5 +738,58 @@ describe('emitYaml quoting', () => {
     const value = convertRbacToAfmImport(awkward, { id: 'local', name: 'Cluster: primary' }, 'all')
 
     expect(roundTrip(value)).toEqual(value)
+  })
+})
+
+// The embed used to load `/dashboard/` bare. Verified against the live AFM:
+// a fresh session on `/dashboard/` selects NOTHING (no `Cluster:` label at
+// all), while `/dashboard/?cluster=<id>` selects it. So imports were arriving
+// intact and were simply never displayed — indistinguishable, on screen, from
+// a send that failed. `cluster_id`, `clusterId` and `c` were each probed
+// against a fresh session and selected nothing; `cluster` is the only spelling.
+describe('choosing which cluster the AFM embed opens on', () => {
+  const c = (id: string) => ({ id })
+
+  it('prefers the most recent SignalLoom import, not the list order', () => {
+    // Deliberately shuffled: the AFM list endpoint promises no ordering.
+    const clusters = [
+      c('local'),
+      c('signalloom-20260813T000839-6026'),
+      c('prod'),
+      c('signalloom-20260811T090000-aaaa'),
+      c('signalloom-20260812T235959-ffff'),
+    ]
+    expect(selectMostRecentImport(clusters)).toBe('signalloom-20260813T000839-6026')
+  })
+
+  it('falls back to the host cluster when nothing has been imported yet', () => {
+    expect(selectMostRecentImport([c('prod'), c('local')])).toBe('local')
+  })
+
+  it('falls back to the first cluster when there is no host cluster either', () => {
+    expect(selectMostRecentImport([c('prod'), c('demo')])).toBe('prod')
+  })
+
+  it('returns null for an empty list rather than inventing a cluster', () => {
+    expect(selectMostRecentImport([])).toBeNull()
+  })
+
+  it('recognises ids from the generator, so the prefix cannot drift apart', () => {
+    const id = generateImportId(new Date('2026-08-13T00:08:39Z'))
+    expect(selectMostRecentImport([c('local'), c(id)])).toBe(id)
+  })
+
+  it('builds the one query spelling AFM honours', () => {
+    expect(afmDashboardUrl('signalloom-1')).toBe('/dashboard/?cluster=signalloom-1')
+    // Not cluster_id / clusterId / c — those select nothing.
+    expect(afmDashboardUrl('signalloom-1')).not.toContain('cluster_id=')
+  })
+
+  it('omits the query entirely when there is no cluster to show', () => {
+    expect(afmDashboardUrl(null)).toBe('/dashboard/')
+  })
+
+  it('escapes the id so an odd cluster name cannot break the URL', () => {
+    expect(afmDashboardUrl('a b&c')).toBe('/dashboard/?cluster=a%20b%26c')
   })
 })

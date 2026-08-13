@@ -117,11 +117,21 @@ setup() {
 
 @test "stale deployment reports commit distance when the baked ref is a real commit" {
 	export MARKER_SOURCE_ID="0000000000000000000000000000000000000000000000000000000000000bad"
-	# Three commits before HEAD, so the guard should say "3 commits behind HEAD".
 	export MARKER_GIT_REF="$(git -C "$root" rev-parse --short HEAD~3)"
+	# Derived, not hard-coded. `HEAD~3` is three FIRST-PARENT steps back, which
+	# equals three commits only on a linear history — and this branch merges
+	# constantly. The guard counts with `rev-list --count`, so the moment a merge
+	# commit lands, `HEAD~3` is three steps but five commits, and a test asserting
+	# the literal "3" goes red against a guard that is behaving correctly. That is
+	# exactly what happened: this test passed on its author's branch and failed the
+	# moment the branch was merged down.
+	local expected
+	expected="$(git -C "$root" rev-list --count "${MARKER_GIT_REF}..HEAD")"
 	run "$script" supercred-demo-runner
 	[ "$status" -eq 1 ]
-	[[ "$output" == *"3 commits behind HEAD"* ]]
+	[[ "$output" == *"${expected} commits behind HEAD"* ]]
+	# The distance must be real, not a placeholder the guard prints regardless.
+	[ "$expected" -ge 3 ]
 }
 
 @test "image with no build marker is drift, not a pass" {

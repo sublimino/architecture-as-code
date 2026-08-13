@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
-import ErrorState from './ErrorState'
+import ErrorState, { isAuthError, redirectToLogin } from './ErrorState'
 
 // One status indicator for every surface in the dashboard that waits on an
 // event. Four phases, and the fourth one is the point: `idle` means "never
@@ -248,12 +248,27 @@ export default function LoadingState({
           {/* --text, not --error: see the colour note at the top of this file.
               The separator lives outside this span so the reason is the whole
               of its element's text and stays findable by exact string. */}
-          <span data-testid={`${testId}-reason`} style={{ color: 'var(--text)' }}>
-            {error}
+          <span data-testid={`${testId}-reason`} title={isAuthError(error) ? error : undefined} style={{ color: 'var(--text)' }}>
+            {isAuthError(error) ? 'your session has expired' : error}
           </span>
         </>
       )}
-      {isError && onRetry && (
+      {/* A 401 cannot be retried — the request was refused, not lost. Offer the
+          only action that can actually resolve it. */}
+      {isError && error && isAuthError(error) && (
+        <button
+          type="button"
+          data-testid={`${testId}-login`}
+          onClick={redirectToLogin}
+          style={{
+            background: 'none', border: 'none', padding: 0, font: 'inherit',
+            color: 'var(--text)', textDecoration: 'underline', cursor: 'pointer',
+          }}
+        >
+          Log in
+        </button>
+      )}
+      {isError && onRetry && !(error && isAuthError(error)) && (
         <button
           type="button"
           onClick={onRetry}

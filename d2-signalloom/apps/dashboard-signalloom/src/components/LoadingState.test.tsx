@@ -259,3 +259,36 @@ describe('theming — no dead tokens, no bare hex', () => {
     expect(code).not.toMatch(/(?:color|background|border(?:Color|Left)?)\s*:\s*['"]#[0-9a-fA-F]{3,8}/)
   })
 })
+
+// The inline variant renders its own Retry rather than going through
+// ErrorState, so the 401 rule has to be applied in both places or the fix
+// covers only half the app. /network-tests was still offering Retry on a 401
+// after ErrorState alone was fixed.
+describe('an expired session in the inline variant', () => {
+  it('offers Log in instead of Retry on a 401', () => {
+    const onRetry = vi.fn()
+    render(
+      <LoadingState
+        status="error"
+        error="Request failed with status code 401"
+        onRetry={onRetry}
+        testId="inline"
+      />,
+    )
+    expect(screen.getByTestId('inline-login')).toHaveTextContent('Log in')
+    expect(screen.queryByRole('button', { name: /^retry$/i })).not.toBeInTheDocument()
+  })
+
+  it('replaces the axios text but keeps it reachable', () => {
+    render(<LoadingState status="error" error="Request failed with status code 401" testId="inline" />)
+    expect(screen.getByTestId('inline-reason')).toHaveTextContent('your session has expired')
+    expect(screen.getByTitle('Request failed with status code 401')).toBeInTheDocument()
+  })
+
+  it('still offers Retry for a failure retrying could fix', () => {
+    const onRetry = vi.fn()
+    render(<LoadingState status="error" error="Request failed with status code 503" onRetry={onRetry} testId="inline" />)
+    expect(screen.getByRole('button', { name: /^retry$/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('inline-login')).not.toBeInTheDocument()
+  })
+})

@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
-import Sidebar from './Sidebar'
+import Sidebar, { NAV, SIDEBAR_COLLAPSED_STORAGE_KEY } from './Sidebar'
 import { AppContext } from '../App'
 import { api } from '../api/client'
+import { installMemoryStorage } from '../test-utils/memoryStorage'
 import type { TenantSettingsResponse } from '../types/api'
 
 // The superadmin block only renders for a superadmin-eligible identity (see
@@ -309,5 +311,205 @@ describe('Sidebar keyboard shortcuts', () => {
 
     expect(screen.getByRole('link', { name: /Agents/ })).toHaveAttribute('aria-current', 'page')
     expect(screen.queryByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
+  })
+})
+
+describe('Sidebar iconography', () => {
+  // The regression this guards: four Governance routes once shared the
+  // 'compliance' glyph and the two RBAC routes shared 'rbac', so a collapsed
+  // icon-only rail was ambiguous. Asserting on the data, not the pixels, is
+  // what actually stops the duplication creeping back in.
+  it('gives every nav item a distinct icon kind', () => {
+    const kinds = NAV.map(({ icon }) => icon)
+    expect(new Set(kinds).size).toBe(kinds.length)
+  })
+
+  describe('rendered glyphs', () => {
+    beforeEach(() => {
+      authMock.user = { name: 'demo-user', email: 'demo-user@signalloom.local' }
+    })
+
+    afterEach(() => {
+      authMock.user = { ...DEFAULT_USER }
+    })
+
+    it('renders a unique svg for every nav link, superadmin block included', async () => {
+      vi.mocked(api.settings).mockResolvedValue(makeSettings())
+      renderSidebar({ superadmin: true })
+      await screen.findByRole('link', { name: 'Agents' })
+
+      const glyphs = screen.getAllByRole('link').map((link) => link.querySelector('svg')?.innerHTML)
+      expect(glyphs).toHaveLength(NAV.length)
+      expect(glyphs.every(Boolean)).toBe(true)
+      expect(new Set(glyphs).size).toBe(glyphs.length)
+    })
+  })
+})
+
+describe('Sidebar collapse', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  it('collapses to an icon-only rail and expands again', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    const toggle = screen.getByTestId('sidebar-collapse-toggle')
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Workspace')).toBeInTheDocument()
+
+    await user.click(toggle)
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    // Section headings, workspace copy and the search box all go away…
+    expect(screen.queryByText('Workspace')).not.toBeInTheDocument()
+    expect(screen.queryByText('Agent governance workspace')).not.toBeInTheDocument()
+    expect(screen.queryByRole('textbox', { name: 'Quick search navigation' })).not.toBeInTheDocument()
+
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByText('Workspace')).toBeInTheDocument()
+  })
+
+  it('keeps every collapsed link named and hoverable', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+
+    // The label is still in the accessibility tree, just visually hidden.
+    const agents = screen.getByRole('link', { name: 'Agents' })
+    expect(agents).toHaveAttribute('title', 'Agents')
+    expect(agents.querySelector('.sr-only')).toHaveTextContent('Agents')
+    expect(agents.querySelector('.sl-sidebar__link-label')).toBeNull()
+    expect(agents.querySelector('svg')).toBeInTheDocument()
+  })
+
+  it('round-trips the collapsed state through localStorage', async () => {
+    const user = userEvent.setup()
+    const { unmount } = renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+    expect(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY)).toBe('true')
+    unmount()
+
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    expect(screen.getByTestId('sidebar-collapse-toggle')).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('defaults to expanded when localStorage throws', async () => {
+    Object.defineProperty(globalThis, 'localStorage', {
+      get() { throw new Error('storage disabled') },
+      configurable: true,
+    })
+
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    expect(screen.getByTestId('sidebar-collapse-toggle')).toHaveAttribute('aria-expanded', 'true')
+
+    installMemoryStorage()
+  })
+
+  it('reopens and focuses quick search when "/" is pressed while collapsed', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+
+    fireEvent.keyDown(window, { key: '/' })
+
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+    await waitFor(() => expect(search).toHaveFocus())
+  })
+
+  it('keeps number-key navigation working while collapsed', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    await screen.findByRole('link', { name: 'Agents' })
+    await user.click(screen.getByTestId('sidebar-collapse-toggle'))
+
+    fireEvent.keyDown(window, { key: '3' })
+
+    await waitFor(() =>
+      expect(screen.getByRole('link', { name: /^Compliance$/ })).toHaveAttribute('aria-current', 'page')
+    )
+  })
+})
+
+describe('Sidebar quick-search clearing', () => {
+  beforeEach(() => {
+    installMemoryStorage()
+    vi.mocked(api.settings).mockResolvedValue(makeSettings())
+  })
+
+  it('shows the clear button only once the query is non-empty', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    expect(screen.queryByTestId('sidebar-search-clear')).not.toBeInTheDocument()
+
+    await user.type(search, 'aud')
+    expect(screen.getByTestId('sidebar-search-clear')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Clear search' })).toBeInTheDocument()
+  })
+
+  it('clears the query and returns focus to the input', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    await user.type(search, 'audit')
+    expect(screen.queryByRole('link', { name: 'Agents' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByTestId('sidebar-search-clear'))
+
+    expect(search).toHaveValue('')
+    expect(search).toHaveFocus()
+    expect(screen.queryByTestId('sidebar-search-clear')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
+  })
+
+  it('clears the query when Escape is pressed inside the input', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    await user.type(search, 'audit')
+    await user.keyboard('{Escape}')
+
+    expect(search).toHaveValue('')
+    expect(search).toHaveFocus()
+    expect(screen.getByRole('link', { name: 'Agents' })).toBeInTheDocument()
+  })
+
+  it('blurs the input when Escape is pressed on an already-empty query', async () => {
+    const user = userEvent.setup()
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    await user.click(search)
+    expect(search).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(search).not.toHaveFocus()
+  })
+
+  it('leaves the global "/" and digit shortcuts untouched', async () => {
+    renderSidebar()
+    const search = await screen.findByRole('textbox', { name: 'Quick search navigation' })
+
+    fireEvent.keyDown(window, { key: '/' })
+    expect(search).toHaveFocus()
+
+    // Digits typed inside the search box must filter, never navigate.
+    fireEvent.keyDown(search, { key: '3' })
+    expect(screen.getByRole('link', { name: /^Compliance$/ })).not.toHaveAttribute('aria-current', 'page')
   })
 })

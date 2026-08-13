@@ -136,13 +136,48 @@ describe('CryptographyPage', () => {
     expect(screen.getByText('Forged service-account replay was rejected')).toBeInTheDocument()
   })
 
+  // Now rendered through the shared ErrorState, so the headline and the detail
+  // are one message rather than two elements — matched on substring for that
+  // reason, not because the wording got vaguer. The Retry is new: a failed
+  // fetch used to be a dead end with nothing to press.
   it('shows an accurate "unreachable" message when the proof service call fails', async () => {
     cryptoSpy.mockRejectedValueOnce(new Error('network error'))
     renderPage()
     await waitFor(() => {
-      expect(screen.getByText('Workload-identity proof service unreachable')).toBeInTheDocument()
+      expect(screen.getByTestId('crypto-proofs-outcome')).toBeInTheDocument()
     })
+    const outcome = screen.getByTestId('crypto-proofs-outcome')
+    expect(outcome).toHaveTextContent('Workload-identity proof service unreachable')
+    // The diagnostic chain survived the move into ErrorState.
+    expect(outcome).toHaveTextContent('fake-integration-proxy')
+    expect(outcome).toHaveTextContent('bao-spire-negative-proof')
     expect(screen.queryByText(/API in development/)).not.toBeInTheDocument()
+  })
+
+  it('offers a retry on an unreachable proof service, and re-asks when pressed', async () => {
+    cryptoSpy.mockRejectedValueOnce(new Error('network error'))
+    renderPage()
+    const retry = await screen.findByTestId('error-retry')
+
+    const callsBefore = cryptoSpy.mock.calls.length
+    fireEvent.click(retry)
+    await waitFor(() => expect(cryptoSpy.mock.calls.length).toBeGreaterThan(callsBefore))
+    // The second call succeeds through the demo fixtures, so the panel recovers.
+    await waitFor(() => {
+      expect(screen.getByText('Dashboard workload exchanged SPIFFE identity for OpenBao access')).toBeInTheDocument()
+    })
+  })
+
+  it('does not dress a healthy zero as a failure', async () => {
+    cryptoSpy.mockResolvedValueOnce({ tenant_id: 'demo-tenant', proofs: [] })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('No workload-identity proofs reported')).toBeInTheDocument()
+    })
+    // EmptyState, not ErrorState: nothing failed, so there is nothing to retry
+    // and no "Failed to load".
+    expect(screen.queryByTestId('error-retry')).toBeNull()
+    expect(screen.queryByText('Failed to load')).toBeNull()
   })
 
   it('shows an accurate "no proofs reported" message when the API succeeds with zero proofs', async () => {
@@ -166,6 +201,48 @@ describe('CryptographyPage', () => {
     }
     // PQC-ready/hybrid ciphers have no EOL.
     expect(table.getAllByText('None').length).toBeGreaterThan(0)
+  })
+
+  // The local Pill this page used to carry built its fill with
+  // `hex(colors.tealLoom, 0.12)`, and `colors.tealLoom` is the string
+  // `var(--teal)` — so the background computed to `var(--teal)1f`, which is not
+  // a colour and was dropped by the parser. Every badge on the page rendered
+  // with no fill in all three themes, and the only visible symptom was slightly
+  // thin-looking text, which is why it went unnoticed. StatusBadge's
+  // color-mix-based tint is the fix.
+  describe('badges get an actual fill', () => {
+    it('tints a CA-status badge instead of emitting an unparseable colour', () => {
+      renderPage()
+      const badge = screen.getByText('renewing', { selector: '.tag' })
+
+      expect(badge.style.background).toContain('color-mix')
+      expect(badge.style.background).toContain('var(--cyan)')
+      // The exact shape of the old defect: a token with an alpha suffix glued on.
+      expect(badge.getAttribute('style')).not.toMatch(/var\(--[a-z-]+\)[0-9a-f]{2}/)
+    })
+
+    it('leaves no alpha-suffixed token anywhere on the page', () => {
+      const { container } = renderPage()
+      const broken = [...container.querySelectorAll<HTMLElement>('[style]')]
+        .map((el) => el.getAttribute('style') ?? '')
+        .filter((style) => /var\(--[a-z0-9-]+\)[0-9a-f]{2}\b/i.test(style))
+
+      expect(broken).toEqual([])
+    })
+
+    it('renders the crypto statuses through StatusBadge with their own colours', () => {
+      renderPage()
+      const expected: Record<string, string> = {
+        active: 'var(--teal)', renewing: 'var(--cyan)', expiring: 'var(--amber)',
+        ready: 'var(--teal)', hybrid: 'var(--cyan)', classical: 'var(--amber)',
+        degraded: 'var(--amber)',
+      }
+      for (const [status, color] of Object.entries(expected)) {
+        const badges = screen.getAllByText(status, { selector: '.tag' })
+        expect(badges.length, status).toBeGreaterThan(0)
+        expect(badges[0].style.color, status).toBe(color)
+      }
+    })
   })
 
   it('makes the Key exchange column click through to the matching Algorithm Inventory row', () => {

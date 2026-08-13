@@ -261,6 +261,120 @@ describe('HelpHint', () => {
     expect(tip.getAttribute('style')).not.toContain('var(--error)')
   })
 
+  // The deformation this guards against: every `th` in the codebase carries
+  // `{ textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace:
+  // 'nowrap', fontWeight: 600 }`, and all four of those properties inherit. The
+  // hint is a DOM descendant of the header even though the tooltip paints
+  // `position: fixed`, so before the reset a header hint rendered its sentence
+  // in bold letter-spaced capitals on one unwrappable line, and the "?" itself
+  // sat off-centre in its circle from the trailing 0.05em.
+  //
+  // Asserted on the declared inline styles rather than getComputedStyle:
+  // measured, jsdom does not propagate inherited properties at all — a button
+  // inside an uppercase `th` reports `textTransform: "none"` and the tooltip
+  // reports `""` whether or not the fix is present, so a computed-style
+  // assertion here would pass against the broken component too.
+  describe('is immune to the typography of whatever contains it', () => {
+    const HEADER_TYPOGRAPHY = {
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      whiteSpace: 'nowrap',
+      fontWeight: 600,
+      fontStyle: 'italic',
+      fontSize: 11,
+    } as const
+
+    /** The same hint, standalone and inside a real uppercase table header. */
+    async function renderBothContexts() {
+      const user = userEvent.setup()
+      const { unmount } = render(
+        <HelpHint label="What Selectors means" testId="loose">
+          What SPIRE checks about a running pod before it will hand that pod an identity.
+        </HelpHint>,
+      )
+      const loose = screen.getByTestId('loose')
+      await user.hover(loose)
+      const looseTip = screen.getByRole('tooltip')
+      const looseStyles = { button: loose.getAttribute('style'), tip: looseTip.getAttribute('style') }
+      unmount()
+
+      render(
+        <table>
+          <thead>
+            <tr>
+              <th style={HEADER_TYPOGRAPHY}>
+                Selectors
+                <HelpHint label="What Selectors means" testId="in-header">
+                  What SPIRE checks about a running pod before it will hand that pod an identity.
+                </HelpHint>
+              </th>
+            </tr>
+          </thead>
+        </table>,
+      )
+      const inHeader = screen.getByTestId('in-header')
+      await user.hover(inHeader)
+      const headerTip = screen.getByRole('tooltip')
+
+      return {
+        loose: looseStyles,
+        header: { button: inHeader.getAttribute('style'), tip: headerTip.getAttribute('style') },
+        headerButton: inHeader,
+        headerTip,
+      }
+    }
+
+    it('renders identically inside an uppercase table header and outside one', async () => {
+      const { loose, header } = await renderBothContexts()
+
+      // Byte-identical, because the component defends itself — no caller has
+      // to. This one is the guard against the other available fix: patching
+      // the ~40 call sites that sit in headers. It would go green there too,
+      // and then the next hint moved into a `th` would be broken again.
+      expect(header.button).toBe(loose.button)
+      expect(header.tip).toBe(loose.tip)
+    })
+
+    it('pins the "?" against an inherited uppercase and letter-spacing', async () => {
+      const { headerButton } = await renderBothContexts()
+
+      expect(headerButton.style.textTransform).toBe('none')
+      expect(headerButton.style.letterSpacing).toBe('normal')
+      // Its own size and weight, not the header's 11px/600.
+      expect(headerButton.style.fontSize).toBe('12px')
+      expect(headerButton.style.fontWeight).toBe('700')
+      expect(headerButton.style.fontStyle).toBe('normal')
+      expect(headerButton.textContent).toBe('?')
+    })
+
+    it('keeps the explanation lower case, unbolded and wrappable inside a header', async () => {
+      const { headerTip } = await renderBothContexts()
+
+      expect(headerTip.style.textTransform).toBe('none')
+      expect(headerTip.style.letterSpacing).toBe('normal')
+      expect(headerTip.style.fontWeight).toBe('400')
+      expect(headerTip.style.fontStyle).toBe('normal')
+      // The one that actually breaks the placement arithmetic: a `nowrap`
+      // inherited from the header runs the sentence out of the measured box.
+      expect(headerTip.style.whiteSpace).toBe('normal')
+      expect(headerTip.textContent).toContain('What SPIRE checks')
+    })
+
+    it('names its own font so a mono cell cannot recast the "?"', async () => {
+      const user = userEvent.setup()
+      render(
+        <code className="mono">
+          <HelpHint label="What this means" testId="in-mono">Explained here.</HelpHint>
+        </code>,
+      )
+
+      const control = screen.getByTestId('in-mono')
+      expect(control.style.fontFamily).toContain('Inter Tight')
+      await user.hover(control)
+      expect(screen.getByRole('tooltip').style.fontFamily).toContain('Inter Tight')
+    })
+  })
+
   it('removes its resize and scroll listeners when it closes', async () => {
     const remove = vi.spyOn(window, 'removeEventListener')
     const user = userEvent.setup()

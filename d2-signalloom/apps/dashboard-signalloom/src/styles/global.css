@@ -54,6 +54,12 @@ button { cursor: pointer; font-family: inherit; transition: all var(--motion-fas
 button:hover:not(:disabled) { transform: translateY(-1px); }
 button:active:not(:disabled) { transform: translateY(0); }
 button:disabled { cursor: not-allowed; opacity: .5; }
+/* Keyboard parity for the ~180 bare <button>s that never take a .btn class and
+   are styled inline at the call site. Without this they fall back to whatever
+   ring the UA supplies, which is unthemed and invisible on the dark palettes.
+   Measured: --cyan against --surface is 7.35 (dark) / 5.12 (light) / 3.99
+   (andy), so the ring clears AA's 3:1 non-text minimum in all three themes. */
+button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
 /* DemoToggle is a bare <button> (unlike ThemeToggle's <select>, which the
    input/select/textarea rule below already gives a focus ring) and is styled
@@ -129,13 +135,50 @@ select option { background: var(--surface); }
   border: none;
   font-size: 13px;
   font-weight: 500;
-  transition: opacity 0.15s;
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease-signature),
+              border-color var(--motion-fast) var(--ease-signature),
+              outline-color var(--motion-fast) var(--ease-signature);
 }
-.btn:hover { opacity: 0.85; }
+
+/* Hover affordance. The old rule was `opacity: 0.85`, which is the wrong
+   signal twice over: dimming a control is the same direction as `:disabled {
+   opacity: .5 }`, so hovering made a live button look *more* disabled, and it
+   applied to disabled buttons too.
+ *
+ * The replacement is an offset accent ring, chosen on measurement rather than
+ * taste. A fill shift via `filter: brightness()` was tried first and rejected:
+ * against the Andy palette the deltas are 1.03 (secondary) and 1.01 (danger)
+ * — the accents are already channel-clipped, so brightening does nothing —
+ * and in Dark it drops btn-danger's white label from 4.83 to 3.71, under AA.
+ * A ring has no such failure mode. --cyan measures 7.35 (dark) / 5.12 (light)
+ * / 3.99 (andy) against --surface, clearing AA's 3:1 for non-text UI in every
+ * theme. `outline-offset: 2px` is load-bearing, not decoration: btn-primary's
+ * fill IS --cyan, so a flush ring would be invisible on it. The 2px gap shows
+ * page colour, and it is that gap the eye reads.
+ *
+ * Hover and :focus-visible share one rule so the keyboard gets exactly the
+ * affordance the mouse gets. `outline` also costs no layout, so nothing
+ * reflows on hover, and no .btn call site sets `outline`, `boxShadow` or
+ * `filter` inline — verified — so no inline style defeats it. */
+.btn:hover:not(:disabled),
+.btn:focus-visible:not(:disabled) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary { background: var(--cyan); color: var(--bg); }
 .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border-subtle); }
 .btn-danger { background: var(--error); color: var(--on-accent); }
+/* Secondary is the one variant whose fill can also move without touching the
+   label's contrast: --surface2 -> --border-subtle measures a 1.41 / 1.65 /
+   1.43 change across the three themes, with --text still at 9.87:1 or better
+   on the hover fill. Primary and danger keep their fill — they are already
+   saturated accents and any shift costs label contrast. */
+.btn-secondary:hover:not(:disabled),
+.btn-secondary:focus-visible:not(:disabled) {
+  background: var(--border-subtle);
+}
 
 .tag {
   display: inline-flex;
@@ -162,14 +205,21 @@ select option { background: var(--surface); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 .sl-sidebar { transition: width 200ms cubic-bezier(.23,1,.32,1), min-width 200ms cubic-bezier(.23,1,.32,1); }
 .sl-sidebar__workspace { align-items: center; border-bottom: 1px solid var(--border); display: flex; gap: 4px; padding: 12px; }
+/* Was a borderless 28px box drawing a --dim glyph, which measures 3.75:1 on
+   --surface — over AA's 3:1 floor for UI, but only just, and with nothing to
+   say it was a control rather than an ornament. --muted takes the glyph to
+   6.95-7.24:1 across the three themes and the resting hairline gives it a
+   button's silhouette at rest, not only under the pointer. */
 .sl-sidebar__collapse-toggle {
-  align-items: center; background: transparent; border: 0; border-radius: 7px;
-  color: var(--dim); cursor: pointer; display: flex; flex: 0 0 auto; height: 28px;
+  align-items: center; background: transparent; border: 1px solid var(--border); border-radius: 7px;
+  color: var(--muted); cursor: pointer; display: flex; flex: 0 0 auto; height: 28px;
   justify-content: center; padding: 0; width: 28px;
 }
-.sl-sidebar__collapse-toggle:hover { background: var(--surface2); color: var(--text); }
+.sl-sidebar__collapse-toggle:hover { background: var(--surface2); border-color: var(--border-subtle); color: var(--text); }
 .sl-sidebar__collapse-toggle:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
-.sl-sidebar__collapse-toggle svg { height: 16px; width: 16px; }
+/* 18px, not 16px: the glyph is now a panel plus a divider plus a chevron, and
+   three features do not survive a 16px box legibly. */
+.sl-sidebar__collapse-toggle svg { height: 18px; width: 18px; }
 .sl-sidebar__search-clear {
   align-items: center; background: transparent; border: 0; border-radius: 4px;
   color: var(--dim); cursor: pointer; display: flex; flex: 0 0 auto; height: 18px;
@@ -189,16 +239,40 @@ select option { background: var(--surface); }
 .sl-sidebar__workspace-title { font-size: 13px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-sidebar__workspace-subtitle { color: var(--dim); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-sidebar__workspace-chevron { color: var(--dim); font-size: 13px; }
-.sl-sidebar__quick-search { align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--dim); display: flex; gap: 7px; height: 32px; margin-top: 9px; padding: 0 8px; }
+/* The row used to declare `margin-top: 9px` and no horizontal margin. Its
+   parent <nav> has no padding of its own — every other block in the rail
+   supplies its own inset (.sl-sidebar__workspace 12px, .sl-sidebar__nav 8px,
+   the footer 8px) — so a stretched column flex child ran the full 268px, edge
+   to edge. Two things then broke. The 7px radius and 1px border sat flush
+   against the rail's own border-right, so the control read as bleeding out of
+   the panel; and :focus-within paints `box-shadow: 0 0 0 2px`, a 2px *outset*
+   ring, which at x = -2 and x = 270 was clipped on both sides by the nav's
+   `overflow: hidden`. The 12px inset matches the workspace block above it and
+   buys the ring 12px of clearance where it had -2.
+
+   The row also had no declared width budget, which is how the clear button
+   came to be added without anyone revisiting it: the magnifier and the <kbd>
+   kept the default `flex-shrink: 1`, so under pressure they squeezed rather
+   than the input. Pinning them at `flex: 0 0 auto` puts every fixed cost in
+   the row on the record and leaves the input — `flex: 1 1 0` with `min-width:
+   0`, so it contributes no intrinsic width — as the only elastic child.
+   sidebarQuickSearchLayout.test.ts holds the arithmetic. */
+.sl-sidebar__quick-search { align-items: center; background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; color: var(--dim); display: flex; gap: 7px; height: 32px; margin: 9px 12px 0; max-width: 100%; padding: 0 8px; }
 .sl-sidebar__quick-search:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 2px var(--cyan-focus); }
-.sl-sidebar__quick-search svg { height: 13px; width: 13px; }
-.sl-sidebar__quick-search input { background: transparent; border: 0; box-shadow: none; flex: 1; min-width: 0; padding: 0; }
+.sl-sidebar__quick-search svg { flex: 0 0 auto; height: 13px; width: 13px; }
+.sl-sidebar__quick-search input { background: transparent; border: 0; box-shadow: none; flex: 1 1 0; min-width: 0; padding: 0; }
+.sl-sidebar__quick-search > kbd { flex: 0 0 auto; }
 .sl-sidebar__quick-search kbd, .sl-sidebar__shortcut { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; color: var(--dim); font-size: 10px; line-height: 16px; min-width: 16px; padding: 0 3px; text-align: center; }
 .sl-sidebar__nav { flex: 1; overflow-y: auto; padding: 8px; position: relative; }
 .sl-sidebar__section-label {
   color: var(--dim); font-size: 10px; font-weight: 700; letter-spacing: .09em;
   padding: 13px 14px 5px; text-transform: uppercase;
 }
+/* Shown when the quick-search filter matches nothing. An empty rail is a dead
+   end — it looks broken rather than filtered, and gives no clue that the fix
+   is to clear the box. */
+.sl-sidebar__empty { color: var(--muted); font-size: 12px; line-height: 1.45; padding: 14px; }
+.sl-sidebar__empty strong { color: var(--text); font-weight: 650; overflow-wrap: anywhere; }
 .sl-sidebar__selection { background: var(--surface2); border-radius: 7px; left: 8px; opacity: .8; pointer-events: none; position: absolute; right: 8px; transition: top 220ms cubic-bezier(.23,1,.32,1), height 220ms cubic-bezier(.23,1,.32,1), opacity 150ms ease; z-index: 0; }
 .sl-sidebar__link { align-items: center; border-radius: 7px; color: var(--muted); display: flex; gap: 9px; min-height: 34px; outline-offset: 2px; padding: 7px 10px; position: relative; text-decoration: none; z-index: 1; }
 .sl-sidebar__link:hover { color: var(--text) !important; text-decoration: none; }
@@ -232,5 +306,8 @@ select option { background: var(--surface); }
   .sl-sidebar--collapsed { width: 64px !important; min-width: 64px !important; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .sl-sidebar, .sl-sidebar__link, .sl-filter-chip { transition: none !important; }
+  /* The hover affordance itself stays — only its animation goes. A reduced
+     motion preference is not a request for less feedback. */
+  .sl-sidebar, .sl-sidebar__link, .sl-filter-chip, .btn, button { transition: none !important; }
+  button:hover:not(:disabled) { transform: none; }
 }

@@ -84,7 +84,14 @@ export interface DataTableProps<T> {
   pageSize?: number
   /** Custom row renderer. Receives the item and its index within the full sorted array. */
   renderRow: (item: T, index: number) => ReactNode
-  /** Optional: hide pagination when data fits in one page. Default true. */
+  /**
+   * Hide the PAGE NAVIGATION — prev/next and "Page 1 of 1" — when everything
+   * fits on one page. Default true.
+   *
+   * Scoped to the navigation, not the footer. The rows-per-page select and the
+   * row count stay either way: see the note above `showFooter` for why the
+   * select in particular can never be conditioned on how much data there is.
+   */
   hidePaginationWhenSinglePage?: boolean
   /** Optional test-id prefix for pagination controls. */
   testIdPrefix?: string
@@ -224,10 +231,25 @@ export default function DataTable<T>({
   // rendering the headers over no rows exactly as it does today.
   const showEmptyState = emptyState != null && sorted.length === 0
 
-  // No pager over an empty state, even when the caller asked for one
+  // TWO QUESTIONS, NOT ONE. "Is there any data at all?" decides the footer —
+  // the row count and the rows-per-page select. "Is there more than one page?"
+  // decides the page navigation inside it.
+  //
+  // They were a single boolean, `sorted.length > pageSize`, and that predicate
+  // reads the select's OWN value. Choosing a size at or above the row count
+  // made it false and unmounted the footer, taking the select down with it:
+  // the control disappeared as a direct consequence of being used, and nothing
+  // short of a reload brought it back. A hidden control is a nuisance; a
+  // control that hides itself is a state the user cannot leave, which is why
+  // this is worth two booleans and a comment. The rule is now absolute — a
+  // control's own value never decides whether that control renders.
+  //
+  // Nothing over an empty state, even when the caller asked for a pager
   // unconditionally: "Page 1 of 1 · No rows" beneath a panel that already says
-  // nothing matched is furniture restating a fact.
-  const showPagination = !showEmptyState && (!hidePaginationWhenSinglePage || sorted.length > pageSize)
+  // nothing matched is furniture restating a fact. Same for zero rows without
+  // an empty state — a size control over nothing controls nothing.
+  const showFooter = !showEmptyState && sorted.length > 0
+  const showPageNav = showFooter && (!hidePaginationWhenSinglePage || totalPages > 1)
 
   return (
     <div>
@@ -293,7 +315,7 @@ export default function DataTable<T>({
         </div>
       )}
 
-      {showPagination && (
+      {showFooter && (
         <div
           style={{
             display: 'flex',
@@ -305,13 +327,11 @@ export default function DataTable<T>({
             flexWrap: 'wrap',
             gap: 8,
           }}
-          data-testid={`${testIdPrefix}-pagination`}
+          data-testid={`${testIdPrefix}-footer`}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span>
-              {sorted.length === 0
-                ? 'No rows'
-                : `${start + 1}–${Math.min(start + pageSize, sorted.length)} of ${sorted.length}`}
+              {`${start + 1}–${Math.min(start + pageSize, sorted.length)} of ${sorted.length}`}
             </span>
             <select
               value={pageSize}
@@ -329,29 +349,36 @@ export default function DataTable<T>({
               ))}
             </select>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 11, padding: '3px 10px' }}
-              disabled={safePage <= 1}
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              data-testid={`${testIdPrefix}-prev`}
+          {/* `-pagination` names exactly the pagination, which is what the
+              callers asserting on it have always meant by it. */}
+          {showPageNav && (
+            <div
+              style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+              data-testid={`${testIdPrefix}-pagination`}
             >
-              Previous
-            </button>
-            <span data-testid={`${testIdPrefix}-page-indicator`}>
-              Page {safePage} of {totalPages}
-            </span>
-            <button
-              className="btn btn-secondary"
-              style={{ fontSize: 11, padding: '3px 10px' }}
-              disabled={safePage >= totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              data-testid={`${testIdPrefix}-next`}
-            >
-              Next
-            </button>
-          </div>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: '3px 10px' }}
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                data-testid={`${testIdPrefix}-prev`}
+              >
+                Previous
+              </button>
+              <span data-testid={`${testIdPrefix}-page-indicator`}>
+                Page {safePage} of {totalPages}
+              </span>
+              <button
+                className="btn btn-secondary"
+                style={{ fontSize: 11, padding: '3px 10px' }}
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                data-testid={`${testIdPrefix}-next`}
+              >
+                Next
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>

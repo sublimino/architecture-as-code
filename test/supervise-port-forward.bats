@@ -410,3 +410,41 @@ start_supervised() {
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"received [${dead_pid}]"* ]]
 }
+
+# ─── Probe noise: the regression that made a healthy run look broken ────────
+
+@test "polling a slow registry does not print curl connection errors" {
+	# `up` probes once a second for up to 30s and `ensure` for up to 60s. With -S,
+	# every one of those seconds printed
+	#
+	#   curl: (7) Failed to connect to localhost port 5001 after 0 ms
+	#
+	# which is the exact string CI emitted the day the forward genuinely died. A
+	# reader cannot tell a slow zot from a dead one, and on a fresh cluster it
+	# appears on every run — so a working build reads as a broken one. The inline
+	# loop this script replaced suppressed it; losing that was a regression.
+	#
+	# This fake mirrors real curl's contract precisely: silent under -f -s, and
+	# speaking only when -S is added. That is what makes the assertion honest — it
+	# goes red the moment -S comes back or the stderr redirect is dropped, rather
+	# than passing because the fake happens to be quiet.
+	cat >"$CURL_BIN" <<-'FAKE'
+		#!/usr/bin/env bash
+		echo "curl $*" >>"$CALL_LOG"
+		[ -e "$SERVING_MARKER" ] && exit 0
+		case " $* " in
+			*" -S "*|*-fsS*) echo "curl: (7) Failed to connect to localhost port 5001 after 0 ms" >&2 ;;
+		esac
+		exit 7
+	FAKE
+	chmod +x "$CURL_BIN"
+
+	run env FAKE_KUBECTL_NEVER_SERVES=1 PF_UP_TIMEOUT=3 \
+		"$script" up "$STATE" registry zot 5001 5000 /v2/ $$
+	[ "$status" -ne 0 ]
+
+	# What a reader SHOULD see: one message naming what to go and look at.
+	[[ "$output" == *"registry/svc/zot"* ]]
+	# What they should NOT see: the poll's own transport errors.
+	[[ "$output" != *"curl: (7)"* ]]
+}

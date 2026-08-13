@@ -148,7 +148,23 @@ load_config() {
 }
 
 probe_endpoint() {
-  "$CURL_BIN" -fsS --max-time "${PF_PROBE_TIMEOUT:-5}" "$(state_endpoint)" >/dev/null
+  # stderr is discarded because this is a POLL, not a verdict. `up` probes once a
+  # second for up to 30s and `ensure` for up to 60s, so with -S every second of a
+  # merely-slow zot printed another
+  #
+  #   curl: (7) Failed to connect to localhost port 5001 after 0 ms
+  #
+  # into the build log. That is the exact string CI emitted the day the forward
+  # really did die, so a reader could not tell a healthy slow start from the
+  # failure this supervisor exists to prevent — and on a fresh cluster it appears
+  # on every single run. The inline loop this replaced suppressed it for the same
+  # reason (`curl ... >/dev/null 2>&1`); dropping that was a regression, not a
+  # deliberate change.
+  #
+  # No diagnosis is lost. Every caller that gives up calls fail(), which names the
+  # namespace, service, local and remote ports and the probe path, and points at
+  # the forward log holding kubectl's own stderr.
+  "$CURL_BIN" -fs --max-time "${PF_PROBE_TIMEOUT:-5}" "$(state_endpoint)" >/dev/null 2>&1
 }
 
 pid_from_file() {

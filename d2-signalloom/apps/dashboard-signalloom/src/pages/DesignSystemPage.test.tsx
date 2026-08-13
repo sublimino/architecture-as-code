@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import DesignSystemPage from './DesignSystemPage'
 
 // The page under test is deliberately provider-free: it imports presentational
@@ -70,11 +70,23 @@ const complexPage = () => screen.getByTestId('ds-datatable-complex-page-indicato
  * Listed as name/role pairs rather than counted, so a failure says which region
  * appeared or vanished instead of just that a number moved.
  *
- * The roster is still seven after the ButtonWait section and the second
- * DataTable specimen, and that is not luck. ButtonWait must not own a region —
- * the button already carries the accessible name and the disabled state — and
- * DataTable never had one. If the real ButtonWait lands with a region inside it,
- * this list is where that shows up, which is the reason it is asserted by name.
+ * The roster was seven after the ButtonWait section and the second DataTable
+ * specimen, and that was not luck. ButtonWait must not own a region — the button
+ * already carries the accessible name and the disabled state — and DataTable
+ * never had one. If the real ButtonWait lands with a region inside it, this list
+ * is where that shows up, which is the reason it is asserted by name.
+ *
+ * The eighth entry is the streaming demo, and it is the one deliberate addition.
+ * The tempting reading of an auto-appending console is that it needs a region
+ * around the log body; that is precisely backwards, because every chunk is a
+ * change and the region would read the whole run out loud line by line. So the
+ * body owns nothing, and a single polite region carries the phase sentence and
+ * only that. It belongs to the LIVE specimen alone: the stalled specimen below
+ * it renders the same component with `announce` left at its default of false,
+ * because a frozen specimen has nothing to announce, and its absence from this
+ * list is the assertion that the default really is off. If a future caller adds
+ * streaming to a page without thinking about it, the default keeps them at zero
+ * regions and this list stays at eight.
  */
 const EXPECTED_LIVE_REGIONS: readonly [testId: string, role: string][] = [
   ['credential-state-revoked', 'status'],
@@ -84,6 +96,7 @@ const EXPECTED_LIVE_REGIONS: readonly [testId: string, role: string][] = [
   ['ds-loadingstate-inline-idle', 'status'],
   ['ds-loadingstate-inline-loading', 'status'],
   ['ds-loadingstate-inline-success', 'status'],
+  ['ds-stream-live-stream-announce', 'status'],
 ]
 
 describe('DesignSystemPage', () => {
@@ -243,6 +256,7 @@ describe('DesignSystemPage', () => {
     'data-table',
     'donut-chart',
     'proof-console',
+    'streaming-proof',
     'credential-state-notice',
     'dash-kit',
     'not-shown',
@@ -381,6 +395,205 @@ describe('DesignSystemPage', () => {
     expect(screen.getByTestId('ds-datatable-complex-count')).toHaveTextContent('0 of 14 shown')
     expect(within(complexTable()).getByText(/Nothing matches that search/i)).toBeInTheDocument()
     expect(within(complexTable()).queryAllByTestId('ds-datatable-complex-row')).toHaveLength(0)
+  })
+
+  // ── DataTable: the toolbar slot and the empty branch ──────────────────────
+  //
+  // The claim these two make is the reason the advanced form is one component
+  // with optional props rather than a second component. Everything else about
+  // the pair is asserted above and did not change.
+
+  it('renders the complex example’s filter controls inside DataTable’s toolbar slot', () => {
+    render(<DesignSystemPage />)
+    const toolbar = within(complexTable()).getByTestId('ds-datatable-complex-toolbar')
+    // Not a cosmetic detail: the search box being INSIDE the component is what
+    // makes the next assertion structurally true rather than a thing the page
+    // has to remember.
+    expect(within(toolbar).getByTestId('ds-datatable-complex-search')).toBeInTheDocument()
+    expect(within(toolbar).getByTestId('ds-datatable-complex-filter-active')).toBeInTheDocument()
+    expect(within(toolbar).getByTestId('ds-datatable-complex-count')).toBeInTheDocument()
+  })
+
+  it('keeps the filter controls on screen when a filter matches nothing', () => {
+    render(<DesignSystemPage />)
+    const search = screen.getByTestId('ds-datatable-complex-search')
+    fireEvent.change(search, { target: { value: 'no-such-agent' } })
+
+    // The bug this prop exists to make impossible: a hand-rolled
+    // `rows.length ? table : empty` ternary takes the search box down with the
+    // table, and the user has no way to undo the filter that emptied it.
+    expect(screen.getByTestId('ds-datatable-complex-toolbar')).toBeInTheDocument()
+    expect(screen.getByTestId('ds-datatable-complex-empty')).toBeInTheDocument()
+    expect(search).toBeInTheDocument()
+
+    // And it is genuinely usable, not merely present.
+    fireEvent.change(search, { target: { value: '' } })
+    expect(screen.queryByTestId('ds-datatable-complex-empty')).not.toBeInTheDocument()
+    expect(complexAgents()).toHaveLength(5)
+  })
+
+  // ── ProofConsole streaming demo ───────────────────────────────────────────
+  //
+  // Fake timers throughout, and started before render so the fixture poller's
+  // interval is captured rather than half of it running for real. The point of
+  // the section is that output ARRIVES over time, so a test that only checks
+  // the finished state would pass against a component that dumped the whole
+  // fixture on mount — which is the exact thing the section must not do, since
+  // it would show a cadence no real implementation has.
+
+  /**
+   * The streamed output only.
+   *
+   * Not the panel: the panel also holds the command (which contains the string
+   * "step 6", so an assertion against it silently passes before a single byte
+   * has arrived) and the status row (whose PixelLoader rewrites an elapsed
+   * figure ten times a second, so nothing about the panel's text is stable).
+   */
+  const liveDetail = () => screen.getByTestId('ds-stream-live-detail')
+  /** Advance by whole poll intervals, inside act so React flushes each one. */
+  const polls = (n: number) => act(() => { vi.advanceTimersByTime(350 * n) })
+
+  describe('streaming demo', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('says on screen that it is simulated and that no backend endpoint exists', () => {
+      render(<DesignSystemPage />)
+      const disclaimer = screen.getByTestId('ds-stream-disclaimer')
+      // Three separate claims, because a reader deciding whether to build this
+      // needs all three: that it is fake, that the capability is absent, and
+      // what the real path would actually be.
+      expect(disclaimer).toHaveTextContent(/simulated/i)
+      expect(disclaimer).toHaveTextContent(/no streaming endpoint in this backend/i)
+      expect(disclaimer).toHaveTextContent(/offset polling/i)
+      expect(disclaimer).toHaveTextContent(/fetchDemoRunLog\(runId, offset\)/)
+    })
+
+    it('fills the console chunk by chunk rather than all at once', () => {
+      render(<DesignSystemPage />)
+      // Nothing has been polled yet, so the body is empty. Critically it does
+      // NOT say "(no output)" — that is a verdict, and no verdict is available
+      // while a stream is still open.
+      expect(liveDetail().textContent).toBe('')
+      expect(screen.getByTestId('ds-stream-live-panel')).not.toHaveTextContent('(no output)')
+
+      polls(1)
+      const afterOne = liveDetail().textContent ?? ''
+      expect(afterOne).toContain('[evidence] step 6')
+      expect(afterOne).not.toContain('blast radius contained')
+
+      polls(2)
+      const afterThree = liveDetail().textContent ?? ''
+      // Strictly longer, and the earlier text is still a prefix of it: chunks
+      // append at their offset, they do not replace or reorder what landed.
+      expect(afterThree.length).toBeGreaterThan(afterOne.length)
+      expect(afterThree.startsWith(afterOne)).toBe(true)
+      expect(afterThree).not.toContain('blast radius contained')
+    })
+
+    it('shows the house wait treatment while the stream is open, and only then', () => {
+      render(<DesignSystemPage />)
+      polls(1)
+      expect(screen.getByTestId('ds-stream-live-stream')).toHaveAttribute('data-stream', 'streaming')
+      expect(screen.getByTestId('ds-stream-live-stream-wait')).toBeInTheDocument()
+      // The wait inside the control the user pressed is ButtonWait's job, and
+      // the control is disabled so a second run cannot be started mid-run.
+      expect(screen.getByTestId('ds-stream-replay')).toBeDisabled()
+      expect(screen.getByTestId('ds-stream-replay-wait')).toBeInTheDocument()
+
+      polls(40)
+      expect(screen.queryByTestId('ds-stream-live-stream-wait')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('ds-stream-replay-wait')).not.toBeInTheDocument()
+    })
+
+    it('reaches a completed state holding the whole fixture', () => {
+      render(<DesignSystemPage />)
+      polls(40)
+
+      expect(screen.getByTestId('ds-stream-live-stream')).toHaveAttribute('data-stream', 'complete')
+      expect(screen.getByTestId('ds-stream-live-stream')).toHaveTextContent('Complete')
+      expect(screen.getByTestId('ds-stream-phase')).toHaveTextContent('complete')
+      // Both ends of the fixture, so "complete" means the whole thing arrived
+      // rather than the poller having given up somewhere in the middle.
+      expect(liveDetail()).toHaveTextContent('[evidence] step 6')
+      expect(liveDetail()).toHaveTextContent('3 of 3 platform responses verified')
+    })
+
+    it('stops polling once the stream is complete', () => {
+      render(<DesignSystemPage />)
+      polls(40)
+      const settled = liveDetail().textContent
+
+      // A poller that keeps firing past eof re-appends the tail forever, which
+      // looks fine on a short fixture and is a leak on a long one.
+      polls(40)
+      expect(liveDetail().textContent).toBe(settled)
+    })
+
+    it('replays from an empty console instead of appending to the finished one', () => {
+      render(<DesignSystemPage />)
+      polls(40)
+      const finished = liveDetail().textContent ?? ''
+
+      fireEvent.click(screen.getByTestId('ds-stream-replay'))
+      expect(screen.getByTestId('ds-stream-live-stream')).toHaveAttribute('data-stream', 'streaming')
+      expect(liveDetail().textContent).toBe('')
+
+      polls(40)
+      // Same output, not twice the output.
+      expect(liveDetail().textContent).toBe(finished)
+    })
+
+    it('renders the stalled state with a reason, not just a stream that stopped moving', () => {
+      render(<DesignSystemPage />)
+      const stalled = screen.getByTestId('ds-stream-stalled-stream')
+      expect(stalled).toHaveAttribute('data-stream', 'stalled')
+      // The word, not the colour. A red dot is invisible to a good fraction of
+      // any room and to every printout.
+      expect(stalled).toHaveTextContent('Stopped')
+      expect(screen.getByTestId('ds-stream-stalled-stream-note')).toHaveTextContent(/No output for 45s/)
+      // Partial output is still shown: it is real, it is just not all of it.
+      expect(screen.getByTestId('ds-stream-stalled-detail')).toHaveTextContent('[evidence] step 6')
+      expect(screen.getByTestId('ds-stream-stalled-detail')).not.toHaveTextContent('3 of 3 platform responses')
+    })
+
+    it('never puts the appending log body inside a live region', () => {
+      render(<DesignSystemPage />)
+      polls(3)
+      // The whole a11y argument in one assertion: the thing that changes on
+      // every chunk must not be announced, or a screen reader reads the run
+      // out loud line by line over whatever the user was doing.
+      const body = liveDetail()
+      expect(body.textContent).not.toBe('')
+      expect(body).not.toHaveAttribute('role')
+      expect(body).not.toHaveAttribute('aria-live')
+      expect(body.closest('[aria-live]')).toBeNull()
+      expect(screen.getByTestId('ds-stream-live-panel').querySelector('[aria-live]')).toBeNull()
+      expect(screen.getByTestId('ds-stream-live-stream')).not.toHaveAttribute('aria-live')
+    })
+
+    it('announces the phase from a region that existed before the phase changed', () => {
+      render(<DesignSystemPage />)
+      // Present at the first render, not created on completion: a live region
+      // born at the same instant as its content is announced unreliably or not
+      // at all. This is the assertion that keeps it mounted.
+      const region = screen.getByTestId('ds-stream-live-stream-announce')
+      expect(region).toHaveAttribute('role', 'status')
+      expect(region).toHaveAttribute('aria-live', 'polite')
+      expect(region).toHaveTextContent(/output is still arriving/i)
+
+      polls(40)
+      expect(screen.getByTestId('ds-stream-live-stream-announce')).toBe(region)
+      expect(region).toHaveTextContent(/proof complete/i)
+    })
+
+    it('leaves the stalled specimen with no region of its own', () => {
+      render(<DesignSystemPage />)
+      // `announce` defaults to false, and this is what that default buys: a
+      // caller who adds streaming without thinking about accessibility adds no
+      // regions at all rather than adding a bad one.
+      expect(screen.queryByTestId('ds-stream-stalled-stream-announce')).not.toBeInTheDocument()
+    })
   })
 
   // ── Coverage ledger ───────────────────────────────────────────────────────

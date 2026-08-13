@@ -54,22 +54,69 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
-@test "TEST-1 acceptance uses only Signalloom and shared Gateway forwards" {
+# The spec-name gate may select FORWARDS and nothing else.
+#
+# This assertion used to run every check inside a single `bash -c` with no
+# `set -e`, so only the last command decided the status and every grep above it
+# was dead — it reported green against a script that had already stopped
+# satisfying most of them. Each condition is now its own bats assertion, so a
+# violation names itself.
+@test "TEST-1 acceptance narrows only its forward set" {
   acceptance="$root/scripts/acceptance-test.sh"
-  run bash -c '
-    block="$(sed -n "/if \[\[ \" \\$\* \" == .*signalloom-test-1/,/^else$/p" "$1")"
-    grep -F "fe-signalloom" <<<"$block" >/dev/null
-    grep -F "inf-signalloom" <<<"$block" >/dev/null
-    grep -F "gateway.envoyproxy.io" <<<"$block" >/dev/null
-    test "$(grep -c "start_port_forward" <<<"$block")" -ge 3
-    grep -F "DASHBOARD_URL" <<<"$block" >/dev/null
-    grep -F "SIGNALLOOM_API_URL" <<<"$block" >/dev/null
-    grep -F "SIGNALLOOM_DEX_URL" <<<"$block" >/dev/null
-    ! grep -E "olly-replica|osramp-archivista|namespace/(frontend|backend)" <<<"$block"
-  ' _ "$acceptance"
+  run bash -c 'sed -n "/signalloom-test-1.spec.ts.*then/,/^else/p" "$1"' _ "$acceptance"
   [ "$status" -eq 0 ]
+  [ -n "$output" ]
+
+  # TEST-1 is the slice-isolation harness: signalloom forwards only.
+  [[ "$output" == *"fe-signalloom"* ]]
+  [[ "$output" == *"inf-signalloom"* ]]
+  [[ "$output" != *"olly-replica"* ]]
+  [[ "$output" != *"osramp-archivista"* ]]
+  [[ "$output" != *"kube-prometheus-stack-grafana"* ]]
+
+  # Anything EVERY Dex-authenticating spec needs must live outside this branch.
+  [[ "$output" != *"setup_gateway_forward"* ]]
+  [[ "$output" != *"SIGNALLOOM_API_URL"* ]]
+  [[ "$output" != *"SIGNALLOOM_DEX_URL"* ]]
+
   run grep -F '127.0.0.1:8675' "$root/test/acceptance/signalloom-test-1.spec.ts"
   [ "$status" -ne 0 ]
+}
+
+# CI stage 8b failed 18/18 on both lanes because setup that every spec needs was
+# reachable only through a spec-name allowlist. Adding the next spec to that
+# allowlist would have repeated it, so the invariant worth guarding is that the
+# allowlist cannot grow a second member and cannot acquire shared setup.
+@test "acceptance Gateway setup and Signalloom URLs run for every spec" {
+  acceptance="$root/scripts/acceptance-test.sh"
+
+  # Exactly one branch in the whole script may inspect argv.
+  run grep -cF '$*' "$acceptance"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+
+  # Column 0 is top level in this script; every branch body is indented.
+  run grep -c '^setup_gateway_forward$' "$acceptance"
+  [ "$output" -eq 1 ]
+  run grep -c '^export SIGNALLOOM_API_URL=' "$acceptance"
+  [ "$output" -eq 1 ]
+  run grep -c '^export SIGNALLOOM_DEX_URL=' "$acceptance"
+  [ "$output" -eq 1 ]
+}
+
+# Every Chrome the suite launches must resolve the SNI-only Gateway hostname.
+# Declaring the resolver rule per project made omission the default and cost
+# stage 8b every one of its tests with net::ERR_NAME_NOT_RESOLVED.
+@test "acceptance Playwright resolves the Gateway hostname for every project" {
+  config="$root/test/acceptance/playwright.config.ts"
+  run grep -c 'host-resolver-rules=MAP dashboard.osramp.acme.local' "$config"
+  [ "$status" -eq 0 ]
+  [ "$output" -eq 1 ]
+  # Exactly one launchOptions DECLARATION. Playwright merges `use` shallowly per
+  # key, so a project-level launchOptions replaces the shared one wholesale and
+  # would silently drop the resolver rule again.
+  run grep -cE '^ *launchOptions: \{' "$config"
+  [ "$output" -eq 1 ]
 }
 @test "TEST-1 acceptance preflight validates dashboard readiness semantics" {
   acceptance="$root/scripts/acceptance-test.sh"

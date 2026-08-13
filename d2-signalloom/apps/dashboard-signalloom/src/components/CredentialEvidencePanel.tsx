@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import HelpHint from './HelpHint'
 import {
   EVIDENCE_ENDPOINT,
   evidenceSummary,
@@ -180,8 +181,17 @@ export function CredentialEvidencePanel({
   return (
     <div data-testid="credential-evidence-panel">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Credential Lifecycle</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Credential Lifecycle</h2>
+          {/* The three badges are the subtle part of this card, and the
+              dangerous confusion is "unverified" reading as "absent". The
+              distinction is spelled out here rather than in the rows, because
+              it is one rule that governs every row. */}
+          <HelpHint label="What the three evidence badges mean" testId="evidence-states-help">
+            Each row is one probe run against the cluster just now. Observed means the probe found it. Not present means the probe ran and it was not there — often the correct answer, such as before a stun. Unverified means the probe could not run, so nothing was proved either way; it is not the same as absent.
+          </HelpHint>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {/* Disabled with no rows: the toggle only expands per-step commands,
               so with an empty chain it is inert and reads as a broken button —
               which is exactly how it looked while the endpoint was 500ing.
@@ -205,6 +215,13 @@ export function CredentialEvidencePanel({
               {showAllCommands && steps.length > 0 ? 'Hide commands' : 'Show commands'}
             </button>
           </span>
+          {/* Explains this button AND the per-row "How do we know?", which is
+              the same disclosure scoped to one row. Six identical hints down
+              the rows would be noise; one hint on the control that opens them
+              all is not. */}
+          <HelpHint label="What showing the proof does" testId="evidence-commands-help">
+            Opens the literal command that decided each row, and the raw output it returned, for every row at once. A row’s own “How do we know?” button opens the same proof for that row alone. Paste the command into a terminal to check the platform rather than trust it.
+          </HelpHint>
           <button type="button" data-testid="evidence-refresh" onClick={() => void load()} disabled={loading} style={btn}>
             {loading ? 'Checking…' : 'Re-check'}
           </button>

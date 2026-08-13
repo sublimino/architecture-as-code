@@ -23,6 +23,7 @@
  * // TODO: server-side pagination when API supports it
  */
 import { useState, useMemo, useCallback, useRef, useEffect, type ReactNode, type CSSProperties } from 'react'
+import HelpHint from './HelpHint'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -33,6 +34,13 @@ export interface Column<T> {
   label: string
   /** Whether clicking the header sorts by this column. Default false. */
   sortable?: boolean
+  /**
+   * Plain-English explanation of what this column means, shown behind a "?".
+   *
+   * Only worth setting where the label does not already say it: a "?" that
+   * restates the header is noise. Omit it and no hint renders.
+   */
+  help?: string
 }
 
 type SortDir = 'asc' | 'desc' | null
@@ -180,8 +188,25 @@ export default function DataTable<T>({
                       : undefined
                   }
                 >
-                  {col.label}
-                  {col.sortable && <SortArrow dir={sort.key === col.key ? sort.dir : null} />}
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <span>
+                      {col.label}
+                      {col.sortable && <SortArrow dir={sort.key === col.key ? sort.dir : null} />}
+                    </span>
+                    {col.help && (
+                      // The sort handler lives on the `th`, so a click that
+                      // lands on the "?" would otherwise re-sort the table —
+                      // a surprise mutation from a control that only explains.
+                      <span onClick={(e) => e.stopPropagation()}>
+                        <HelpHint
+                          label={`What ${col.label} means`}
+                          testId={`${testIdPrefix}-help-${col.key}`}
+                        >
+                          {col.help}
+                        </HelpHint>
+                      </span>
+                    )}
+                  </span>
                 </th>
               ))}
             </tr>

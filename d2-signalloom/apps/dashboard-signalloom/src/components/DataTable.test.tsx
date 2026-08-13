@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import DataTable, { type Column } from './DataTable'
 
 interface TestRow {
@@ -232,6 +233,64 @@ describe('DataTable', () => {
     expect(rows.length).toBe(3)
     // alice should sort first (asc), nulls pushed to end
     expect(rows[0].textContent).toContain('alice')
+  })
+
+  // Column help is the mechanism every hinted table on the dashboard rides on,
+  // so it is pinned here once rather than re-proved per page.
+  describe('column help hints', () => {
+    const HELPED: Column<TestRow>[] = [
+      { key: 'name', label: 'Name', sortable: true },
+      { key: 'score', label: 'Score', sortable: true, help: 'Higher is better.' },
+      { key: 'status', label: 'Status' },
+    ]
+
+    it('renders a "?" only for columns that declare help', async () => {
+      const user = userEvent.setup()
+      const { getByRole, queryByRole } = render(
+        <DataTable columns={HELPED} data={makeRows(3)} renderRow={renderRow} testIdPrefix="h" />,
+      )
+
+      // A "?" on every header would be noise; only the column that earns one gets one.
+      expect(queryByRole('button', { name: 'What Name means' })).toBeNull()
+      expect(queryByRole('button', { name: 'What Status means' })).toBeNull()
+
+      const hint = getByRole('button', { name: 'What Score means' })
+      await user.hover(hint)
+      expect(getByRole('tooltip')).toHaveTextContent('Higher is better.')
+    })
+
+    it('is reachable by keyboard and names itself for a screen reader', async () => {
+      const user = userEvent.setup()
+      const { getByRole } = render(
+        <DataTable columns={HELPED} data={makeRows(3)} renderRow={renderRow} testIdPrefix="h" />,
+      )
+
+      const hint = getByRole('button', { name: 'What Score means' })
+      // Tab from the document body: the "?" is the only focusable thing in
+      // this table, so reaching it proves it is not mouse-only.
+      await user.tab()
+      expect(document.activeElement).toBe(hint)
+
+      const tooltip = getByRole('tooltip')
+      expect(hint.getAttribute('aria-describedby')).toBe(tooltip.id)
+    })
+
+    it('does not sort the table when the "?" inside a sortable header is clicked', () => {
+      const data = makeRows(3)
+      const { getByRole, getByText, container } = render(
+        <DataTable columns={HELPED} data={data} renderRow={renderRow} testIdPrefix="h" />,
+      )
+
+      const firstBefore = container.querySelectorAll('tbody tr')[0].textContent
+      // The sort handler lives on the `th`; without stopPropagation this click
+      // would silently re-order the table the viewer is reading.
+      fireEvent.click(getByRole('button', { name: 'What Score means' }))
+      expect(container.querySelectorAll('tbody tr')[0].textContent).toBe(firstBefore)
+
+      // The header itself still sorts — the guard is scoped to the hint.
+      fireEvent.click(getByText('Score'))
+      expect(container.querySelectorAll('tbody tr')[0].textContent).not.toBe(firstBefore)
+    })
   })
 
   it('exports th and td style constants', () => {

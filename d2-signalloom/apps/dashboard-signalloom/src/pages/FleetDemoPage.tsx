@@ -3,6 +3,7 @@ import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import FleetTopology from '../components/fleet/FleetTopology'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
+import HelpHint from '../components/HelpHint'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { FleetTopology as FleetTopologyData } from '../api/fleetApi'
 import {
@@ -358,6 +359,9 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
                 <button data-testid="fleet-stun-btn" onClick={handleStun} disabled={stunLoading} style={{ ...btn(stunLoading), width: 'auto', whiteSpace: 'nowrap' }}>
                   {stunLoading ? 'Stunning...' : 'Stun'}
                 </button>
+                <HelpHint label="What Stun does to the fleet" testId="fleet-stun-help">
+                  Revokes the selected agent’s credentials and marks it stunned, then does the same to every agent that depends on it — that spreading failure is the cascade drawn on the left. The pods keep running; they simply cannot authenticate any more. Recover fleet puts it back.
+                </HelpHint>
               </div>
               <LoadingState
                 status={loadPhase({ loading: stunLoading, error: stunError, loaded: stunLoaded })}
@@ -367,9 +371,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Recover */}
-              <button data-testid="fleet-recover-btn" onClick={handleRecover} disabled={recoverLoading} style={btn(recoverLoading)}>
-                {recoverLoading ? 'Recovering...' : 'Recover Fleet'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button data-testid="fleet-recover-btn" onClick={handleRecover} disabled={recoverLoading} style={btn(recoverLoading)}>
+                  {recoverLoading ? 'Recovering...' : 'Recover Fleet'}
+                </button>
+                <HelpHint label="What Recover fleet does" testId="fleet-recover-help">
+                  Restores credentials to every stunned agent and marks it running again, in dependency order so nothing is brought back before the agent it relies on. It reverses a stun; it does not redeploy anything that was torn down.
+                </HelpHint>
+              </div>
               <LoadingState
                 status={loadPhase({ loading: recoverLoading, error: recoverError, loaded: recoverLoaded })}
                 label="recover"
@@ -378,9 +387,14 @@ export default function FleetDemoPage({ audience = false }: FleetDemoPageProps) 
               />
 
               {/* Reset */}
-              <button data-testid="fleet-reset-btn" onClick={handleReset} disabled={resetLoading} style={btn(resetLoading)}>
-                {resetLoading ? 'Resetting...' : 'Reset Fleet'}
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button data-testid="fleet-reset-btn" onClick={handleReset} disabled={resetLoading} style={btn(resetLoading)}>
+                  {resetLoading ? 'Resetting...' : 'Reset Fleet'}
+                </button>
+                <HelpHint label="What Reset fleet does" testId="fleet-reset-help">
+                  Tears the whole fleet down and returns the estate to empty. Every agent on the diagram goes away, stunned or not, and the risk figure falls to zero because there is nothing left to lose. Deploy fleet builds it again from scratch.
+                </HelpHint>
+              </div>
               <LoadingState
                 status={loadPhase({ loading: resetLoading, error: resetError, loaded: resetLoaded })}
                 label="reset"

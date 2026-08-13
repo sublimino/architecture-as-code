@@ -230,4 +230,41 @@ describe('RbacExplorerPage', () => {
     // namespace-scoped admin role and flux binding must also be present.
     expect(within(rolesSection).getByText('cluster-admin')).toBeInTheDocument()
   })
+  // Two columns here are read wrong by exactly the audiences this page is shown
+  // to. "Risk" reads as an incident rather than a route that exists, and the
+  // red verbs in "Verbs" have no key anywhere on the page saying what red means.
+  describe('the tables explain what a finding and a red verb actually are', () => {
+    it('says a Risk level describes a route that exists, not a breach', async () => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      const hint = screen.getByTestId('rbac-escalation-risk-help')
+      expect(hint).toHaveAccessibleName('What Risk means')
+      await user.hover(hint)
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/not a breach that happened/i)
+    })
+
+    it('gives the red verbs a key, since nothing else on the page has one', async () => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await user.hover(screen.getByTestId('rbac-roles-verbs-help'))
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/red/i)
+      for (const verb of ['escalate', 'impersonate', 'bind']) {
+        expect(tooltip.textContent).toContain(verb)
+      }
+    })
+
+    it('does not hint the headers that already say themselves', async () => {
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      expect(screen.queryByRole('button', { name: 'What Name means' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'What Namespace means' })).toBeNull()
+    })
+  })
 })

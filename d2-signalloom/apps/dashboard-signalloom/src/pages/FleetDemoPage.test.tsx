@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import FleetDemoPage from './FleetDemoPage'
@@ -266,5 +266,70 @@ describe('FleetDemoPage', () => {
     })
     // Should not crash; page still renders.
     expect(screen.getByTestId('fleet-topology-status')).toBeInTheDocument()
+  })
+  // Every one of these three buttons changes a shared cluster and none of them
+  // asks for confirmation. The label says the verb; only the hint says the
+  // blast radius, which is what an instructor needs before pressing it live.
+  describe('the mutating controls say what they will do', () => {
+    it('warns that Stun cascades to dependent agents and is reversible', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      const hint = screen.getByTestId('fleet-stun-help')
+      expect(hint).toHaveAccessibleName('What Stun does to the fleet')
+      act(() => { hint.focus() })
+      expect(document.activeElement).toBe(hint)
+
+      const tooltip = screen.getByRole('tooltip')
+      // The cascade is the whole demo: stunning one agent takes down what
+      // depends on it. A hint that stopped at "revokes credentials" would
+      // understate the blast radius.
+      expect(tooltip.textContent).toMatch(/depends on it/i)
+      expect(tooltip.textContent).toMatch(/cascade/i)
+      expect(tooltip.textContent).toMatch(/Recover fleet/i)
+    })
+
+    it('says Reset fleet destroys everything, not just the stunned agents', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      act(() => { screen.getByTestId('fleet-reset-help').focus() })
+      const tooltip = screen.getByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/stunned or not/i)
+      expect(tooltip.textContent).toMatch(/Deploy fleet/i)
+    })
+
+    it('says Recover only undoes a stun, so it is not confused with redeploying', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      act(() => { screen.getByTestId('fleet-recover-help').focus() })
+      expect(screen.getByRole('tooltip').textContent).toMatch(/does not redeploy/i)
+    })
+
+    it('keeps each hint beside its button rather than stacked under it', async () => {
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-controls')).toBeInTheDocument())
+
+      for (const name of ['reset', 'recover']) {
+        const button = screen.getByTestId(`fleet-${name}-btn`)
+        const hint = screen.getByTestId(`fleet-${name}-help`)
+        // The controls column is vertical; a hint that is a sibling of the
+        // button lands on its own row, detached from what it explains.
+        expect(button.parentElement).toBe(hint.closest('span[style]')?.parentElement)
+        expect(button.parentElement).not.toBe(screen.getByTestId('fleet-controls'))
+      }
+    })
+
+    it('hides every hint from a non-superadmin, along with the controls', async () => {
+      mockSuperadmin.value = false
+      renderPage()
+      await waitFor(() => expect(screen.getByTestId('fleet-demo-page')).toBeInTheDocument())
+
+      expect(screen.queryByTestId('fleet-controls')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('fleet-stun-help')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('fleet-reset-help')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('fleet-recover-help')).not.toBeInTheDocument()
+    })
   })
 })

@@ -288,6 +288,68 @@ describe('CredentialInventoryPage — structure', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('trust-domain')).toHaveTextContent('signalloom.demo'))
   })
+  // The two tables on this page are the ones an executive is asked to read as
+  // evidence, and four of their headers are jargon that the page never expands:
+  // "Selectors", "Kind", "Scope" and "Rotations". A misread here is not
+  // cosmetic — "Rotations: 47" looks like a fault until you know a rising count
+  // IS the control working.
+  describe('the tables explain their own jargon', () => {
+    it('explains what SPIRE checks before it issues an identity', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      const hint = await screen.findByTestId('identity-selectors-help')
+      expect(hint).toHaveAccessibleName('What Selectors means')
+      await user.hover(hint)
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/service account/i)
+      // The consequence, not just the definition: matching is what gates issuance.
+      expect(tooltip.textContent).toMatch(/cannot obtain the credential/i)
+    })
+
+    it('says a rising rotation count is the design, not a fault', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      await user.hover(await screen.findByTestId('credential-inventory-help-rotationCount'))
+      expect(await screen.findByRole('tooltip')).toHaveTextContent('not a fault')
+    })
+
+    it('distinguishes TTL from Expires, which sit next to each other', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      await user.hover(await screen.findByTestId('credential-inventory-help-ttlSeconds'))
+      expect((await screen.findByRole('tooltip')).textContent).toMatch(/Expires is the resulting instant/i)
+    })
+
+    it('names all three credential kinds, so none of them is a bare slug', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      await user.hover(await screen.findByTestId('credential-inventory-help-kind'))
+      const tooltip = await screen.findByRole('tooltip')
+      for (const kind of ['x509-svid', 'openbao-lease', 'service-token']) {
+        expect(tooltip.textContent).toContain(kind)
+      }
+    })
+
+    it('leaves self-evident headers alone rather than blanketing every column', async () => {
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+      await screen.findByTestId('identity-selectors-help')
+
+      // A "?" that restates its label is noise; these four say themselves.
+      expect(screen.queryByTestId('credential-inventory-help-workload')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('credential-inventory-help-issuer')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('credential-inventory-help-status')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('credential-inventory-help-expiresAt')).not.toBeInTheDocument()
+    })
+  })
 })
 
 // ─── The proof behind the provenance banner ─────────────────────────────────

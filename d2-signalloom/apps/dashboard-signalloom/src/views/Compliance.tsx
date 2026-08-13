@@ -11,6 +11,7 @@ import StatusBadge from '../components/StatusBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import OpenFindingsPanel from '../components/OpenFindingsPanel'
 import EmptyState from '../components/EmptyState'
+import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
@@ -31,6 +32,22 @@ const CAT_COLOR: Record<PostureCategory, string> = {
   critical: 'var(--error)',
   pending: 'var(--slate-gray)',
 }
+
+/**
+ * The three columns here that a first-time viewer cannot decode from the label.
+ *
+ * "Last Assessed" earns a hint despite looking obvious: the number beside it is
+ * a snapshot from that moment, not a live reading, and a stale timestamp on a
+ * green row is the single easiest thing to misread on this page.
+ *
+ * The framework columns are deliberately not hinted — their names come from the
+ * API and each already links through to its own detail page.
+ */
+const COLUMN_HELP = {
+  lifecycle: 'Where the agent sits in its governed life: enrolled, active, non-compliant, stunned or retired. Stunned means the platform revoked its credentials — the workload may still be running, but it can no longer authenticate to anything.',
+  postureScore: 'How much of the policy in force this agent satisfies, as a percentage. Higher is better: 80 and above is good, 50 to 79 needs attention, below 50 is critical. It only moves when an assessment runs.',
+  lastAssessed: 'When the score beside it was last computed. This page shows the result of that assessment, not a live reading — an old timestamp means the row may no longer describe the agent.',
+} as const
 
 const CAT_LABEL: Record<PostureCategory, string> = {
   good: 'Good',
@@ -342,8 +359,21 @@ export default function Compliance() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--surface2)', borderBottom: '1px solid var(--border)' }}>
-                {['Agent', 'Lifecycle', 'Posture Score', ...frameworks.map(f => f.name), 'Last Assessed'].map(h => (
-                  <th key={h} style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
+                {[
+                  { label: 'Agent' },
+                  { label: 'Lifecycle', help: COLUMN_HELP.lifecycle, testId: 'compliance-lifecycle-help' },
+                  { label: 'Posture Score', help: COLUMN_HELP.postureScore, testId: 'compliance-posture-help' },
+                  ...frameworks.map(f => ({ label: f.name })),
+                  { label: 'Last Assessed', help: COLUMN_HELP.lastAssessed, testId: 'compliance-assessed-help' },
+                ].map(h => (
+                  <th key={h.label} style={{ padding: '10px 16px', textAlign: 'left', color: 'var(--muted)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
+                    {h.help ? (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        {h.label}
+                        <HelpHint label={`What ${h.label} means`} testId={h.testId}>{h.help}</HelpHint>
+                      </span>
+                    ) : h.label}
+                  </th>
                 ))}
               </tr>
             </thead>

@@ -473,3 +473,53 @@ describe('the card does not overclaim while it is empty', () => {
     expect(screen.getByTestId('evidence-toggle-commands')).toBeDisabled()
   })
 })
+
+// The three badges are the whole epistemic claim of this card, and the
+// dangerous confusion is "unverified" reading as "absent" — a probe that could
+// not run reported as a probe that found nothing. The rows say WHICH state each
+// step is in; only the hint says what the states mean, so it is load-bearing.
+describe('the card explains its own vocabulary', () => {
+  it('spells out the unverified/not-present distinction behind a keyboard-reachable "?"', async () => {
+    const user = userEvent.setup()
+    const fetcher = fetcherFor(payload([step()]))
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    const hint = screen.getByRole('button', { name: 'What the three evidence badges mean' })
+    hint.focus()
+    expect(document.activeElement).toBe(hint)
+
+    await user.hover(hint)
+    const tooltip = await screen.findByRole('tooltip')
+    // Naming all three is the point; naming two of them is the bug.
+    expect(tooltip.textContent).toMatch(/observed/i)
+    expect(tooltip.textContent).toMatch(/not present/i)
+    expect(tooltip.textContent).toMatch(/unverified/i)
+    // And it must say the two are not the same thing, not merely list them.
+    expect(tooltip.textContent).toMatch(/not the same as absent/i)
+  })
+
+  it('explains the proof disclosure once, covering the per-row "How do we know?"', async () => {
+    const user = userEvent.setup()
+    const fetcher = fetcherFor(payload([step()]))
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-1')).toBeInTheDocument())
+
+    await user.hover(screen.getByTestId('evidence-commands-help'))
+    const tooltip = await screen.findByRole('tooltip')
+    expect(tooltip.textContent).toMatch(/How do we know\?/)
+    expect(tooltip.textContent).toMatch(/command/i)
+  })
+
+  it('keeps explaining the badges when the probe failed and no rows rendered', async () => {
+    const user = userEvent.setup()
+    const fetcher = fetcherFor({}, false, 500)
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-error')).toBeInTheDocument())
+
+    // An empty card is exactly when a viewer most needs to know that "nothing
+    // shown" is not "nothing there".
+    await user.hover(screen.getByTestId('evidence-states-help'))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('nothing was proved either way')
+  })
+})

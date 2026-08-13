@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PIXEL LOADER — for work that takes long enough that a spinner stops helping.
@@ -22,6 +22,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 //          are in flight at once — that overlap is the whole look.
 //   Dots   the same wavefront with circular cells.
 //   Orbit  a comet lapping the perimeter on 950ms; the centre cell stays dark.
+//   Loom   the brand mark, woven. Not a 3x3 grid — see LOOM_BARS below.
 //
 // PORTING NOTE. The source was a Next.js + Tailwind component and none of it
 // ran here. `"use client"` is a Next directive with no meaning under Vite.
@@ -44,7 +45,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from
 //      a start stamp instead.
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type PixelLoaderVariant = 'Drive' | 'Dots' | 'Orbit'
+export type PixelLoaderVariant = 'Drive' | 'Dots' | 'Orbit' | 'Loom'
+
+/**
+ * The three that are a 3x3 grid of cells. `Loom` is not, so it is not in
+ * PATTERNS — see LOOM_BARS. Branching beats forcing a diamond of eight bars
+ * into a shape that means "nine cells and a delay each".
+ */
+type GridVariant = Exclude<PixelLoaderVariant, 'Loom'>
 
 /** Chevron wavefront: distance from the left-middle cell, 90ms per column. */
 const CHEVRON: (number | null)[] = Array.from({ length: 9 }, (_, i) => {
@@ -61,12 +69,186 @@ const ORBIT: (number | null)[] = Array.from({ length: 9 }, (_, i) => {
 })
 
 const PATTERNS: Record<
-  PixelLoaderVariant,
+  GridVariant,
   { delays: (number | null)[]; dur: number; round: boolean }
 > = {
   Drive: { delays: CHEVRON, dur: 650, round: false },
   Dots: { delays: CHEVRON, dur: 650, round: true },
   Orbit: { delays: ORBIT, dur: 950, round: false },
+}
+
+// ─── Loom ────────────────────────────────────────────────────────────────────
+//
+// The brand mark is a diamond — a square rotated 45° — woven from interlaced
+// bars, with a hollow square at each of the four corners and one at the
+// centre. Full-size it is roughly two dozen bars crossing over and under each
+// other. That does not survive being drawn at 15px, and it is not what this
+// variant is for; the favicon work already found the same wall and reduced to
+// "the diamond outline plus the crossing strokes".
+//
+// The reduction here is FOUR bars in each direction, evenly spaced. The outer
+// bar of each direction is an edge of the diamond, so the four outermost bars
+// ARE the frame — no separate outline element, the frame is just the weave's
+// selvedge. The two interior bars per direction cross to make a 3x3 lattice,
+// which leaves hollow cells at the four corners and at the centre: the same
+// five holes the real mark has, and a pleasing echo of the 3x3 grid the other
+// three variants draw.
+//
+// Interlacing is real, not implied. At crossing (i, j) the warp passes over
+// iff i + j is even — a plain weave. A bar goes UNDER by having a gap in it at
+// that crossing, expressed as a stroke-dasharray, so whatever is behind shows
+// through. That matters more than it sounds: the alternative (drawing a
+// background-coloured casing under the bar on top) needs to know the page
+// colour, and this loader is embedded by LoadingState on surfaces of at least
+// two different colours across three themes. A hole is a hole in every theme.
+//
+// With four bars a side, each interior bar has exactly one interior crossing
+// where it dips, so each carries exactly one gap and two dash patterns cover
+// all four. Eight bars, one hole each on the inner four.
+//
+// Colour is the brand gradient rather than --text, because the gradient is
+// most of what makes the mark recognisable — a monochrome diamond is just a
+// diamond. Values sampled off public/brand/signal-loom-logo.png.
+
+/** Sampled from the shipped mark: left vertex, top vertex, right vertex. */
+const LOOM_STOPS = ['#7A42B1', '#518EAD', '#37BF9B'] as const
+
+/**
+ * A 24-unit square inside a 40-unit box, rotated 45° about the centre. The
+ * box has to hold the diagonal (24√2 ≈ 33.9) plus the square linecaps that
+ * close the corners (2 units each way): the extreme corner sits 19.8 from the
+ * centre, so 40 fits it with a fifth of a unit to spare.
+ */
+const LOOM_VIEW = 40
+const LOOM_MIN = 8
+const LOOM_MAX = 32
+const LOOM_STROKE = 4
+/** Four bars a side. The first and last are the diamond's frame. */
+const LOOM_LINES = [8, 16, 24, 32]
+/** Gap width at a crossing, and the two dash runs that place one. */
+const LOOM_GAP = 6
+/** Bar length 24: gap centred 8 along, and gap centred 16 along. */
+const LOOM_DASH_NEAR = `5 ${LOOM_GAP} 13`
+const LOOM_DASH_FAR = `13 ${LOOM_GAP} 5`
+
+/** Per-bar offset. Weft trails warp by half a step so the two interleave. */
+const LOOM_STEP = 90
+/** Shorter than the 315ms it takes the front to cross, so two are in flight. */
+const LOOM_DUR = 720
+/** Frozen and un-lit opacity. Higher than the grid's: a mark, not a pixel. */
+const LOOM_DIM = 0.28
+
+interface LoomBar {
+  dir: 'warp' | 'weft'
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  delay: number
+  /** Absent on the frame; the interior bars each dip once. */
+  dash?: string
+  frame: boolean
+}
+
+/**
+ * Warp first, then weft, each in wavefront order. Index 1 is the bar at 16 and
+ * index 2 the bar at 24, so the plain-weave parity (warp over iff i+j even)
+ * puts the warp's dip at the FAR crossing for index 1 and the NEAR one for
+ * index 2, and the weft's the other way round.
+ */
+const LOOM_BARS: LoomBar[] = [
+  ...LOOM_LINES.map((x, i): LoomBar => ({
+    dir: 'warp',
+    x1: x,
+    y1: LOOM_MIN,
+    x2: x,
+    y2: LOOM_MAX,
+    delay: i * LOOM_STEP,
+    dash: i === 1 ? LOOM_DASH_FAR : i === 2 ? LOOM_DASH_NEAR : undefined,
+    frame: i === 0 || i === LOOM_LINES.length - 1,
+  })),
+  ...LOOM_LINES.map((y, j): LoomBar => ({
+    dir: 'weft',
+    x1: LOOM_MIN,
+    y1: y,
+    x2: LOOM_MAX,
+    y2: y,
+    delay: j * LOOM_STEP + LOOM_STEP / 2,
+    dash: j === 1 ? LOOM_DASH_NEAR : j === 2 ? LOOM_DASH_FAR : undefined,
+    frame: j === 0 || j === LOOM_LINES.length - 1,
+  })),
+]
+
+/**
+ * The mark. Rotation is a group transform rather than a CSS transform on the
+ * <svg> so the gradient rotates with it — which is the whole trick for getting
+ * the brand's left-to-right purple→blue→teal onto a shape whose left-to-right
+ * axis is a diagonal in the coordinates the bars are written in. rotate(45)
+ * maps the vector (1, −1) onto +x, so a userSpaceOnUse gradient run from the
+ * bottom-left corner to the top-right one comes out horizontal on screen:
+ * purple at the left vertex, teal at the right, blue over the top. Rotating
+ * the <svg> instead would have carried the gradient round with it and put
+ * purple at the bottom.
+ */
+function LoomMark({ px, frozen }: { px: number; frozen: boolean }) {
+  // Two of these on one page must not share a gradient id — the second
+  // definition would win for both. useId emits colons, which are legal in an
+  // HTML id but not in a CSS identifier, so they come out.
+  const gradientId = `sl-loom-${useId().replace(/:/g, '')}`
+  const mid = LOOM_VIEW / 2
+
+  return (
+    <svg
+      width={px}
+      height={px}
+      viewBox={`0 0 ${LOOM_VIEW} ${LOOM_VIEW}`}
+      fill="none"
+      focusable="false"
+      style={{ display: 'block', overflow: 'visible' }}
+    >
+      <defs>
+        <linearGradient
+          id={gradientId}
+          gradientUnits="userSpaceOnUse"
+          x1={LOOM_MIN}
+          y1={LOOM_MAX}
+          x2={LOOM_MAX}
+          y2={LOOM_MIN}
+        >
+          {LOOM_STOPS.map((colour, i) => (
+            <stop key={colour} offset={`${(i / (LOOM_STOPS.length - 1)) * 100}%`} stopColor={colour} />
+          ))}
+        </linearGradient>
+      </defs>
+
+      <g transform={`rotate(45 ${mid} ${mid})`}>
+        {LOOM_BARS.map((bar, i) => (
+          <line
+            key={i}
+            data-bar={bar.dir}
+            data-loom-frame={bar.frame ? 'true' : 'false'}
+            data-animated={frozen ? 'false' : 'true'}
+            x1={bar.x1}
+            y1={bar.y1}
+            x2={bar.x2}
+            y2={bar.y2}
+            stroke={`url(#${gradientId})`}
+            strokeWidth={LOOM_STROKE}
+            // Square caps close the diamond's corners; the dashed interior
+            // bars need butt caps or each cap would eat 2 of the 6-unit gap.
+            strokeLinecap={bar.dash ? 'butt' : 'square'}
+            strokeDasharray={bar.dash}
+            style={{
+              opacity: LOOM_DIM,
+              ...(frozen
+                ? null
+                : { animation: `sl-loom-weave ${LOOM_DUR}ms ease-in-out ${bar.delay}ms infinite` }),
+            }}
+          />
+        ))}
+      </g>
+    </svg>
+  )
 }
 
 export type PixelLoaderSize = 'sm' | 'md'
@@ -115,6 +297,10 @@ const KEYFRAMES = `
 @keyframes sl-shimmer-text {
   from { background-position: 200% 0; }
   to   { background-position: -200% 0; }
+}
+@keyframes sl-loom-weave {
+  0%, 100% { opacity: ${LOOM_DIM}; }
+  22%      { opacity: 1; }
 }
 `
 
@@ -236,8 +422,13 @@ export default function PixelLoader({
   const elapsedRef = useRef<HTMLSpanElement | null>(null)
   useElapsedText(origin, elapsedRef)
 
-  const { delays, dur, round } = PATTERNS[variant] ?? PATTERNS.Drive
+  const isLoom = variant === 'Loom'
+  const { delays, dur, round } = PATTERNS[variant as GridVariant] ?? PATTERNS.Drive
   const { cell, cellGap, gap, labelPx, elapsedPx } = SIZES[size] ?? SIZES.md
+
+  // The mark takes the grid's own footprint rather than a size of its own, so
+  // swapping variants never moves the label or reflows the line it sits in.
+  const markPx = cell * 3 + cellGap * 2
 
   // See the `announce` prop. Empty when the host already owns a live region.
   const liveProps = announce
@@ -262,14 +453,18 @@ export default function PixelLoader({
         aria-hidden="true"
         data-testid={`${testId}-grid`}
         data-motion={reducedMotion ? 'static' : 'animated'}
-        style={{
-          display: 'grid',
-          gridTemplateColumns: `repeat(3, ${cell}px)`,
-          gap: cellGap,
-          flexShrink: 0,
-        }}
+        style={
+          isLoom
+            ? { display: 'inline-flex', flexShrink: 0, lineHeight: 0 }
+            : {
+                display: 'grid',
+                gridTemplateColumns: `repeat(3, ${cell}px)`,
+                gap: cellGap,
+                flexShrink: 0,
+              }
+        }
       >
-        {delays.map((d, i) => {
+        {isLoom ? <LoomMark px={markPx} frozen={reducedMotion} /> : delays.map((d, i) => {
           const animated = d !== null && !reducedMotion
           return (
             <span

@@ -74,6 +74,33 @@ _ENV_ALLOWLIST = (
     "KUBERNETES_SERVICE_PORT",
 )
 
+# Constants the runner SETS for the child, as opposed to values it forwards from
+# its own environment. These are not part of _ENV_ALLOWLIST because nothing is
+# inherited: no parent value can influence them, so they widen the allowlist
+# boundary by exactly nothing.
+#
+# PYTHONUNBUFFERED is the child half of the streaming fix. Reading the pipe with
+# read1 (see _monitor_run) makes the PARENT hand bytes over the moment they
+# arrive, but it cannot help if the child never wrote them: CPython
+# block-buffers stdout at 8KiB whenever it is not a tty, so any Python step in
+# the demo script's chain would sit on its output until exit and reproduce the
+# original symptom one process further down. Shell builtins write(2) straight
+# through and Go tools (kubectl) do not buffer a pipe, so bash and kubectl need
+# nothing here.
+#
+# There is deliberately no equivalent for a libc-stdio child (a C program
+# block-buffering a pipe). The only environmental lever for that is coreutils'
+# stdbuf, which works by LD_PRELOAD-ing a shim and setting private _STDBUF_*
+# variables -- an implementation detail of another package, injected into a
+# security-relevant fixed environment. If a C binary in the chain ever buffers,
+# the honest fix is stdbuf in the demo script at the call site, where it is
+# visible.
+_CHILD_CONSTANT_ENV = MappingProxyType(
+    {
+        "PYTHONUNBUFFERED": "1",
+    }
+)
+
 
 @dataclass(frozen=True)
 class DemoStep:
@@ -298,6 +325,9 @@ def _child_env() -> dict[str, str]:
         value = os.environ.get(key)
         if value is not None:
             child_env[key] = value
+    # Applied after the allowlist so a forwarded value can never quietly
+    # override a constant the runner depends on.
+    child_env.update(_CHILD_CONSTANT_ENV)
     return child_env
 
 
@@ -385,7 +415,31 @@ def _monitor_run(run: _Run) -> None:
         watchdog.daemon = True
         watchdog.start()
         while True:
-            chunk = proc.stdout.read(8192)
+            # read1, NOT read. This is the difference between a live console and
+            # a console that stays blank for the whole run.
+            #
+            # BufferedReader.read(n) is a fill-EXACTLY-n read: it loops on the
+            # raw pipe until it has n bytes or reaches EOF. Every demo phase
+            # prints a few hundred bytes of banner and then blocks on kubectl
+            # for seconds to minutes, so with read(8192) the first byte reached
+            # run._log only when the child exited and closed the pipe. The
+            # dashboard polls /log every 500ms into a purpose-built streaming
+            # console; it rendered nothing at all for a multi-minute phase and
+            # then filled in one jump.
+            #
+            # read1(n) issues at most one raw read and returns whatever is
+            # already there. Measured against a script printing a line every
+            # 250ms for 3s:
+            #
+            #   read(8192)  -> 1 chunk delivered at 3.01s
+            #   read1(8192) -> 12 chunks at 0.00s, 0.25s, 0.50s ... 2.76s
+            #
+            # Do not "tidy" this back to read(). tests/test_demo_runner_streaming.py
+            # asserts the wall-clock property rather than the final text,
+            # because every assertion of the form "the finished log contains X"
+            # is equally true of the batching behaviour and stayed green
+            # throughout the period this was broken.
+            chunk = proc.stdout.read1(8192)
             if not chunk:
                 break
             _append_log(run, chunk)

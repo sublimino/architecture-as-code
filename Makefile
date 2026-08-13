@@ -249,15 +249,13 @@ preload-snapshot: ## Print the cluster's current upstream base images (redirect 
 
 .PHONY: signalloom-images
 signalloom-images: ## Build and persist local Signal Loom workload images in Zot.
-	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
-	PORT_FORWARD_PID=$$!; \
+	PF_STATE=$$(mktemp -d); \
 	IMAGE_TAR=$$(mktemp); \
-	trap 'kill $$PORT_FORWARD_PID 2>/dev/null || true; rm -f "$$IMAGE_TAR"' EXIT; \
-	for _ in $$(seq 1 60); do \
-		curl -fsS http://localhost:5001/v2/ >/dev/null 2>&1 && break; \
-		sleep 0.5; \
-	done; \
-	curl -fsS http://localhost:5001/v2/ >/dev/null; \
+	trap './scripts/supervise-port-forward.sh down "$$PF_STATE"; rm -rf "$$PF_STATE"; rm -f "$$IMAGE_TAR"' EXIT; \
+	# The three builds below take minutes; a one-shot kubectl port-forward does \
+	# not survive that window reliably, and CI on 2026-08-13 burned a retry \
+	# cycle on curl exit 7 when the registry leg died before the push. \
+	./scripts/supervise-port-forward.sh up "$$PF_STATE" registry zot 5001 5000 /v2/ $$$$; \
 	# Build the two plain workload images in parallel (the dominant cost). The \
 	# dashboard build+sign and all registry pushes stay sequential to avoid \
 	# racing on the single zot port-forward. \
@@ -268,10 +266,12 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	[ $$BUILD_FAIL -eq 0 ] || { echo "signalloom parallel image build failed" >&2; exit 1; }; \
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
 	docker save -o "$$IMAGE_TAR" zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest; \
+	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	crane push --insecure "$$IMAGE_TAR" localhost:5001/acme/images/signalloom/apps/fe-signalloom:latest; \
 	# dashboard image repository literal: signalloom/apps/dashboard-signalloom:latest \
 	# dashboard build context literal: d2-signalloom/apps/dashboard-signalloom \
 	# dashboard kind load literal: kind load docker-image --name $(CLUSTER_NAME) zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/dashboard-signalloom:latest \
+	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	./scripts/build-sign-dashboard.sh; \
 	# kind-load-verified.sh, not `kind load`: on a Docker daemon using the \
 	# containerd image store the loader exits 0 having transferred nothing, and \
@@ -284,15 +284,10 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 
 .PHONY: cpai-images
 cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign sign.
-	kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 & \
-	PORT_FORWARD_PID=$$!; \
+	PF_STATE=$$(mktemp -d); \
 	IMAGE_TAR=$$(mktemp); \
-	trap 'kill $$PORT_FORWARD_PID 2>/dev/null || true; rm -f "$$IMAGE_TAR"' EXIT; \
-	for _ in $$(seq 1 60); do \
-		curl -fsS http://localhost:5001/v2/ >/dev/null 2>&1 && break; \
-		sleep 0.5; \
-	done; \
-	curl -fsS http://localhost:5001/v2/ >/dev/null; \
+	trap './scripts/supervise-port-forward.sh down "$$PF_STATE"; rm -rf "$$PF_STATE"; rm -f "$$IMAGE_TAR"' EXIT; \
+	./scripts/supervise-port-forward.sh up "$$PF_STATE" registry zot 5001 5000 /v2/ $$$$; \
 	docker build -f $(CPAI_CLI_ROOT)/Dockerfile.runtime \
 		-t zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest \
 		$(CPAI_CLI_ROOT); \
@@ -300,10 +295,13 @@ cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign 
 		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
 	docker save -o "$$IMAGE_TAR" \
 		zot.registry.svc.cluster.local:5000/acme/images/cpai/apps/cpai-runtime:latest; \
+	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	crane push --insecure "$$IMAGE_TAR" \
 		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest; \
+	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	DIGEST=$$(crane digest --insecure \
 		localhost:5001/acme/images/cpai/apps/cpai-runtime:latest); \
+	./scripts/supervise-port-forward.sh ensure "$$PF_STATE"; \
 	COSIGN_PASSWORD="" cosign sign --yes \
 		--key $(KEYS_DIR)/cosign.key \
 		--signing-config $(KEYS_DIR)/signing-config.json \
@@ -464,11 +462,15 @@ check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster
 
 .PHONY: demo-signalloom-supercred-images-test
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
-	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats
+	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats test/supervise-port-forward.bats
 
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
 	bats test/kind-load-verified.bats
+
+.PHONY: test-supervise-port-forward
+test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
+	bats test/supervise-port-forward.bats
 
 .PHONY: demo-signalloom-supercred-api-test
 demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).

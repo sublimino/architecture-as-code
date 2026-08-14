@@ -77,6 +77,7 @@ help: ## Display this help.
 	@printf '\n\033[1mDebugging first moves\033[0m\n'
 	@printf '  %s\n' 'make doctor                                  full read-only cluster diagnostic'
 	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
+	@printf '  %s\n' 'make ci-state / ci-state-2                   what the last run DID, and which file says so (local, no gcloud)'
 	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
 	@printf '  %s\n' 'unset SSH_AUTH_SOCK                          before any ad-hoc gcloud compute ssh, or it "times out"'
 	@printf '  %s\n' 'make check-deployed-staleness                is the cluster running THIS tree? (exit 2 = unproven, not a pass)'
@@ -861,7 +862,21 @@ public-test: ## Run acceptance tests against the public ngrok URL.
 
 ##@ CI
 
-CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=ci-reports-2 GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log
+# $(abspath …), not a bare `ci-reports-2`. gcp-ci.sh's DEFAULT report dir is
+# ${REPO_ROOT}/ci-reports — absolute, and anchored to the script, which is what
+# the warm lane gets. Passing a RELATIVE override made the cold lane the only
+# asymmetric one: `ci-reports-2` resolves against the running process's cwd, so
+# the two lanes anchored their reports to different things and `make -C … ci-gcp-2`
+# wrote its reports outside the tree it was testing. That is how
+# /home/andy/src/cp/osramp-demo/ci-reports-2/ came to hold a d574d7d report from
+# a run nobody made there.
+#
+# Third instance of this class in this repo: ../$(KEYS_DIR) at bootstrap-local,
+# AUDIT_ANCHOR_KEYS, and now this. Same treatment, same reason. gcp-ci.sh also
+# anchors a relative value at REPO_ROOT now, so this is belt and braces — the
+# two together mean neither the caller's cwd nor the env var can move the
+# reports. test/ci-path-anchoring.bats derives the guard from this line.
+CI_2_ENV = GCP_CI_VM_NAME=signalloom-ci-2 GCP_CI_LABELS=purpose=signalloom-ci-2,worker=signalloom-ci-2,persistent=true GCP_CI_REMOTE_WORK_DIR=/home/ci/osramp-demo-ci-2 GCP_CI_REMOTE_REPORT_DIR=/home/ci/reports-signalloom-ci-2 GCP_CI_REPORT_DIR=$(abspath ci-reports-2) GCP_CI_REPORT_FILENAME=signalloom-ci-2-report.yaml GCP_CI_PIPELINE_LOG=/home/ci/ci-pipeline-ci-2.log
 
 .PHONY: ci-tools
 ci-tools: ## Install the CI toolchain: pinned pre-built binaries, then setup.sh.
@@ -907,6 +922,23 @@ ci-report-2: ## View VM2's last collected stage summary and report path.
 	@if [ -f ci-reports-2/signalloom-ci-2-report.yaml ]; then \
 		echo "OpenReports: ci-reports-2/signalloom-ci-2-report.yaml"; \
 	fi
+
+# ci-state answers "what happened to the last run?" without gcloud, without the
+# network, and without touching the lock — so it is safe to run while a lane is
+# in flight. It names the report file it read by absolute path, because with a
+# dozen checkouts of this repo each holding their own <checkout>/ci-reports, the
+# data was never the problem: knowing which file was authoritative was.
+#
+# It exits 0 only on PASS. ABORTED, STALE and a run still in flight all exit
+# non-zero, so `make ci-state && deploy` cannot proceed on a non-verdict — make
+# will print "Error 2" for those, which is the point, not a bug.
+.PHONY: ci-state
+ci-state: ## What did the last ci-gcp run do? Names the report file it read. Exit 0 only on PASS.
+	@./scripts/ci/gcp-ci.sh state
+
+.PHONY: ci-state-2
+ci-state-2: ## What did the last ci-gcp-2 run do? Names the report file it read. Exit 0 only on PASS.
+	@$(CI_2_ENV) ./scripts/ci/gcp-ci.sh state
 
 .PHONY: ci-ssh
 ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).
@@ -1033,6 +1065,14 @@ risk-check: ## CI gate: artefacts validate, engine self-checks, results are repr
 .PHONY: test-ci-lock
 test-ci-lock: ## Verify the exclusive CI-VM lock against a fake remote (no VM required).
 	bats test/ci-lock.bats
+
+.PHONY: test-ci-state
+test-ci-state: ## Verify ci-state names its source, dates its claim, and cannot call a non-verdict a pass (no VM required).
+	bats test/ci-state-locality.bats
+
+.PHONY: test-ci-path-anchoring
+test-ci-path-anchoring: ## Verify no CI path variable is relative, in the Makefile source AND in what make expands.
+	bats test/ci-path-anchoring.bats
 
 .PHONY: demo-signalloom-fleet-image demo-signalloom-fleet-up demo-signalloom-fleet-down
 demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.

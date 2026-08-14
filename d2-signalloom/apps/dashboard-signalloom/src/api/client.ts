@@ -28,7 +28,6 @@ import type {
   ReassessmentResponse,
   RevokeCredentialResponse,
   RotateApiKeyResponse,
-  StunAgentRequest,
   StunAgentResponse,
   SupportRequestCreate,
   SupportRequestResponse,
@@ -294,13 +293,21 @@ export const api = {
     transition: (token: string, id: string, body: TransitionRequest) =>
       req<TransitionResponse>(`/agents/${id}/transition`, token, { method: 'POST', data: body }),
 
-    // Record a stun. The SuperCred proxy performs the cluster-side action; this
-    // writes the agent state change and its audit event in one transaction, so
-    // the operator's action reaches the Audit Trail. In demo mode it resolves
-    // to a fixture that appends to the demo activity log instead — same event,
-    // same timeline, no backend.
-    stun: (token: string, id: string, body: StunAgentRequest = {}) =>
-      req<StunAgentResponse>(`/agents/${id}/stun`, token, { method: 'POST', data: body }),
+    // Stun an agent. This endpoint PERFORMS the isolation — it calls the
+    // SuperCred proxy itself to relabel the pod and revoke the lease — and
+    // writes the state change and its audit event in the same transaction.
+    //
+    // No body, by design. The browser used to POST the proxy directly and then
+    // POST here to record what it had done; a closed tab or an expired token
+    // between the two left the cluster mutated with nothing written down. One
+    // call closes that window, and with the server making the proxy call there
+    // is nothing left for the client to supply: actor from the token, target
+    // from the path, everything else from what the server observed.
+    //
+    // In demo mode it resolves to a fixture that appends to the demo activity
+    // log instead — same event, same timeline, no backend.
+    stun: (token: string, id: string) =>
+      req<StunAgentResponse>(`/agents/${id}/stun`, token, { method: 'POST' }),
 
     violations: (token: string, agentId: string) =>
       req<ViolationListResponse>(`/agents/${agentId}/violations`, token),

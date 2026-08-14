@@ -24,6 +24,7 @@ vi.mock('../auth/oidc', () => ({
 
 import SuperCredPage from './SuperCredPage'
 import { api } from '../api/client'
+import type { StunAgentResponse } from '../types/api'
 
 // This file exercises the LIVE proxy path — every test drives a mocked fetch
 // against /supercred-api. Demo-data mode must therefore be off, or discovery is
@@ -51,6 +52,38 @@ interface AgentFixture {
   supercred_target?: string
   stunned_at?: string
   stun_reason?: string
+}
+
+/**
+ * What POST /api/agents/{id}/stun answers with.
+ *
+ * Every field is server-sourced, which is the point: the page passes no body,
+ * so anything rendered from a stun has to come from here. The proxy's wording
+ * sits under `proxy`, apart from what fe-signalloom established itself.
+ */
+function stunResponse(overrides: Partial<StunAgentResponse> = {}): StunAgentResponse {
+  return {
+    agent_id: 'agent-cardvault',
+    from_state: 'active',
+    to_state: 'suspended',
+    actor: 'demo-operator',
+    stunned_at: '2026-08-02T10:00:00Z',
+    proxy: {
+      state: 'stunned',
+      stunned_at: '2026-08-02T10:00:01Z',
+      message: 'Agent agent-cardvault stunned: credentials revoked, state marked as stunned',
+    },
+    event: {
+      id: 'demo-activity-1',
+      timestamp: '2026-08-02T10:00:00Z',
+      event_type: 'agent.stunned',
+      agent_id: 'agent-cardvault',
+      agent_name: 'Cardvault Agent',
+      actor: 'demo-operator',
+      detail: { outcome: 'stunned' },
+    },
+    ...overrides,
+  }
 }
 
 function cardvault(overrides: Partial<AgentFixture> = {}): AgentFixture {
@@ -255,21 +288,26 @@ describe('SuperCredPage', () => {
 
   // ─── Stun ────────────────────────────────────────────────────────────────
 
-  it('passes the agent namespace to the stun call', async () => {
+  // The isolation is performed by POST /api/agents/{id}/stun, which calls the
+  // SuperCred proxy server-side. This asserts the browser does NOT also call
+  // the proxy: it used to, and a surviving copy would relabel the pod and
+  // revoke the lease a second time. The symptom of a double stun is an agent
+  // that ends up stunned, which is indistinguishable from success on screen —
+  // so nothing but this assertion would catch it.
+  it('never calls the proxy itself, so the pod is not stunned twice', async () => {
     const calls = mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
-    await waitFor(() =>
-      expect(
-        calls.some(url => url === `/supercred-api/agents/agent-cardvault/stun?namespace=${FLUX_NS}`),
-      ).toBe(true),
-    )
-    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(/credentials revoked/)
+
+    expect(await screen.findByTestId('supercred-stun-result')).toBeInTheDocument()
+    expect(calls.filter(url => url.includes('/stun'))).toEqual([])
   })
 
   it('shows automated stun actions after stun', async () => {
     mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
     renderPage()
     await refresh()
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
@@ -278,6 +316,39 @@ describe('SuperCredPage', () => {
     expect(actions).toHaveTextContent('SPIFFE SVID rotation blocked')
     expect(actions).toHaveTextContent('deny-all egress')
     expect(actions).toHaveTextContent('audit trail')
+  })
+
+  it("relays the proxy's own wording from where relayed claims live", async () => {
+    mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(
+      stunResponse({ proxy: { state: 'stunned', message: 'lease 7f2a revoked, pod relabelled' } }),
+    )
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+
+    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(
+      /lease 7f2a revoked, pod relabelled/,
+    )
+  })
+
+  // The failure this pins is silent. `message` sits under `proxy`, and reading
+  // it from the top level instead renders `undefined` — which React prints as
+  // an empty string, so the line simply vanishes and no test that only checks
+  // "the result panel appeared" would notice. A proxy that reports nothing has
+  // to produce a sentence too, for the same reason.
+  it('never renders a blank line when the proxy reported nothing', async () => {
+    mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse({ proxy: null }))
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+
+    // Composed from the lifecycle fields the response always carries, so the
+    // operator is told what happened rather than shown a gap.
+    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(
+      /Agent agent-cardvault isolated: active → suspended/,
+    )
   })
 
   it('hides stun button for already-stunned agents', async () => {
@@ -290,9 +361,9 @@ describe('SuperCredPage', () => {
 
   // ─── Stun leaves an audit trace ──────────────────────────────────────────
   //
-  // The proxy call above is the cluster-side action; it writes nothing durable.
-  // These pin down that pressing Stun also records the event that the Audit
-  // Trail reads, and that a recording failure is surfaced rather than swallowed.
+  // One call both isolates the agent and records it. These pin down that the
+  // browser contributes nothing to that record beyond pressing the button, and
+  // that a failed stun is reported as a failed stun.
 
   async function stunOnce() {
     mockFetch({ agents: [cardvault()] })
@@ -301,20 +372,19 @@ describe('SuperCredPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
   }
 
-  it('records an audit event carrying agent, action, actor and outcome', async () => {
-    const spy = vi.spyOn(api.agents, 'stun')
+  it('asks the API to stun the agent and tells it nothing else', async () => {
+    const spy = vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
     await stunOnce()
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(spy).toHaveBeenCalledWith(
-      'test-token',
-      'agent-cardvault',
-      expect.objectContaining({
-        agent_name: 'Cardvault Agent',
-        namespace: FLUX_NS,
-        outcome: 'stunned',
-      }),
-    )
+
+    // Token and target, and that is the whole call. This assertion has been
+    // walked backwards twice: it first asserted `outcome: 'stunned'` was sent,
+    // then locator-only after the narrative fields were removed, and now no
+    // body at all. Asserted on the exact argument list rather than with
+    // objectContaining, because objectContaining is satisfied by a call that
+    // has quietly grown a third argument again.
+    expect(spy.mock.calls[0]).toEqual(['test-token', 'agent-cardvault'])
   })
 
   it('shows the recorded event and points at the Audit Trail', async () => {
@@ -324,22 +394,7 @@ describe('SuperCredPage', () => {
     // file happens to run in — SL_ENV defaults to 'demo' under test today, but
     // a sibling change declaring live mode would otherwise silently reroute
     // this through axios and turn a render assertion into a network failure.
-    vi.spyOn(api.agents, 'stun').mockResolvedValue({
-      agent_id: 'agent-cardvault',
-      from_state: 'active',
-      to_state: 'suspended',
-      actor: 'demo-operator',
-      stunned_at: '2026-08-02T10:00:00Z',
-      event: {
-        id: 'demo-activity-1',
-        timestamp: '2026-08-02T10:00:00Z',
-        event_type: 'agent.stunned',
-        agent_id: 'agent-cardvault',
-        agent_name: 'Cardvault Agent',
-        actor: 'demo-operator',
-        detail: { outcome: 'stunned' },
-      },
-    })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
     await stunOnce()
 
     const recorded = await screen.findByTestId('supercred-stun-event')
@@ -353,38 +408,20 @@ describe('SuperCredPage', () => {
     expect(within(recorded).getByRole('link', { name: /Audit Trail/ })).toHaveAttribute('href', '/audit')
   })
 
-  it('still reports the stun when the audit record fails, and says the record failed', async () => {
-    vi.spyOn(api.agents, 'stun').mockRejectedValue(new Error('audit insert rejected'))
+  // There used to be a test here asserting the page still reported a successful
+  // stun when the audit record failed, and said so in a separate banner. It is
+  // gone because the state it described is now unreachable: the isolation and
+  // its audit row are one call and one transaction, so "stunned but not
+  // recorded" cannot occur. A banner claiming it had could only mislead.
+  it('reports a failed stun as a failure, and shows no result', async () => {
+    vi.spyOn(api.agents, 'stun').mockRejectedValue(new Error('proxy unreachable'))
     await stunOnce()
 
-    // The cluster action succeeded, so the stun result must still stand — telling
-    // the operator the stun failed would invite them to fire it a second time.
-    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(/credentials revoked/)
-    expect(await screen.findByTestId('supercred-stun-event-error')).toHaveTextContent(
-      /audit event could not be recorded/i,
-    )
+    expect(await screen.findByTestId('supercred-error')).toHaveTextContent(/proxy unreachable/)
+    // Nothing happened, so nothing may be shown as having happened — the old
+    // shape could render a stun result next to a recording failure.
+    expect(screen.queryByTestId('supercred-stun-result')).not.toBeInTheDocument()
     expect(screen.queryByTestId('supercred-stun-event')).not.toBeInTheDocument()
-  })
-
-  it('does not record anything when the stun itself fails', async () => {
-    const spy = vi.spyOn(api.agents, 'stun')
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      if (String(input).includes('/stun')) {
-        return { ok: false, status: 502, text: async () => 'proxy unreachable' } as Response
-      }
-      return {
-        ok: true,
-        json: async () => ({ agents: [cardvault()], namespaces: [FLUX_NS] }),
-      } as Response
-    })
-    globalThis.fetch = fetchMock as unknown as typeof fetch
-
-    renderPage()
-    await refresh()
-    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
-
-    expect(await screen.findByTestId('supercred-error')).toHaveTextContent(/Stun failed: 502/)
-    expect(spy).not.toHaveBeenCalled()
   })
 
   // ─── Phase warnings ─────────────────────────────────────────────────────
@@ -646,10 +683,13 @@ describe('SuperCred waits say what is running and for how long', () => {
   })
 
   it('ticks only on the row being stunned, never on every row at once', async () => {
-    const held = gate<Response>()
+    // Held at the API client, not at fetch: the stun is one authenticated call
+    // to POST /api/agents/{id}/stun now, and the browser makes no request to
+    // the proxy to intercept.
+    const held = gate<StunAgentResponse>()
+    vi.spyOn(api.agents, 'stun').mockReturnValue(held.promise)
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input)
-      if (url.includes('/stun')) return held.promise
       if (url.endsWith('/agents')) {
         return okJson({
           agents: [cardvault(), cardvault({ id: 'agent-second', name: 'Second Agent' })],
@@ -673,13 +713,7 @@ describe('SuperCred waits say what is running and for how long', () => {
     // The grid and the figure are decoration; the button carries the name.
     expect(screen.getByRole('button', { name: /stunning/i })).toBeDisabled()
 
-    held.release(okJson({
-      agent_id: 'agent-cardvault',
-      namespace: FLUX_NS,
-      state: 'stunned',
-      stunned_at: '2026-01-01T00:00:00Z',
-      message: 'Agent agent-cardvault stunned: credentials revoked',
-    }))
+    held.release(stunResponse())
 
     await waitFor(() =>
       expect(screen.queryByTestId('supercred-stun-loader-agent-cardvault')).not.toBeInTheDocument(),

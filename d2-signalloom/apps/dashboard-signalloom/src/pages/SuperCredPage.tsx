@@ -8,14 +8,14 @@ import ButtonWait from '../components/ButtonWait'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
-import type { AuditEventResponse } from '../types/api'
+import type { AuditEventResponse, StunAgentResponse } from '../types/api'
 import { isDemoMode } from '../api/demoMode'
 import {
   discoverSuperCredAgents,
   getSimulatedPhase,
+  recordStunResult,
   scanSuperCredAgent,
   setSimulatedPhase,
-  stunSuperCredAgent,
 } from '../api/supercredSource'
 import type { SuperCredPhase } from '../api/supercredTypes'
 
@@ -33,13 +33,6 @@ interface ComplianceResponse {
   compliant: boolean
   results: ComplianceResult[]
   evaluated_at: string
-}
-
-interface StunResponse {
-  agent_id: string
-  state: string
-  stunned_at: string
-  message: string
 }
 
 interface RuntimeAgent {
@@ -247,10 +240,9 @@ export default function SuperCredPage() {
   const [loading, setLoading] = useState(false)
   const [compliance, setCompliance] = useState<ComplianceResponse | null>(null)
   const [scanLoading, setScanLoading] = useState(false)
-  const [stunResult, setStunResult] = useState<StunResponse | null>(null)
+  const [stunResult, setStunResult] = useState<StunAgentResponse | null>(null)
   const [stunLoading, setStunLoading] = useState(false)
   const [stunEvent, setStunEvent] = useState<AuditEventResponse | null>(null)
-  const [stunEventError, setStunEventError] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Which row the in-flight scan or stun belongs to. `scanLoading` and
   // `stunLoading` are page-wide — they disable every row's buttons — so
@@ -298,45 +290,37 @@ export default function SuperCredPage() {
     }
   }, [])
 
+  // One call isolates the agent AND records it.
+  //
+  // This used to be two: the browser POSTed the SuperCred proxy to relabel the
+  // pod and revoke the lease, then POSTed fe-signalloom to write the audit row.
+  // Everything between those two calls was a window in which the cluster was
+  // mutated and nothing was written down — a closed tab, a token expiring
+  // mid-demo (Dex runs storage: memory and regenerates signing keys on every
+  // `make public`, so a 401 there is routine), or simply a failed second
+  // request. The page could report the gap, which is why a "stunned but not
+  // recorded" banner used to live here, but it could not close it.
+  //
+  // `POST /agents/{id}/stun` now calls the proxy itself and commits the state
+  // change with its audit_events row in one transaction, so the window does not
+  // exist to report. That is also why the partial-failure branch is gone rather
+  // than merely unused: with one call there is no state in which the agent is
+  // isolated but unrecorded, so a banner claiming otherwise could only mislead.
   const stunAgent = useCallback(async (agent: RuntimeAgent) => {
     setStunLoading(true)
     setBusyAgentId(agent.id)
     setStunResult(null)
     setStunEvent(null)
-    setStunEventError(null)
     setError(null)
     try {
-      const data = await stunSuperCredAgent(agentPath(agent, 'stun'), agent.id)
+      const token = await getAccessTokenSilently()
+      const data = await api.agents.stun(token, agent.id)
       setStunResult(data)
+      setStunEvent(data.event ?? null)
 
-      // Record the action on the audit trail. The proxy above owns the cluster
-      // side-effect (pod relabel, lease revocation); it has no database, so the
-      // durable record is written here by fe-signalloom, which commits the
-      // lifecycle change and its audit_events row in one transaction. In demo
-      // mode this resolves to a fixture that appends to the demo activity log,
-      // so the same event reaches the same Audit Trail page either way.
-      //
-      // A failed record does NOT fail the stun: the agent is already isolated
-      // in the cluster and reporting failure would invite the operator to press
-      // Stun again. It is surfaced separately and loudly instead — an
-      // enforcement action nobody can account for is exactly what this page
-      // exists to rule out.
-      try {
-        const token = await getAccessTokenSilently()
-        const recorded = await api.agents.stun(token, agent.id, {
-          agent_name: agent.name,
-          namespace: agent.namespace ?? null,
-          reason: data.message ?? 'operator-initiated stun',
-          outcome: data.state ?? 'stunned',
-        })
-        setStunEvent(recorded.event ?? null)
-      } catch (recordErr) {
-        setStunEventError(
-          recordErr instanceof Error
-            ? `Agent was stunned, but the audit event could not be recorded: ${recordErr.message}`
-            : 'Agent was stunned, but the audit event could not be recorded.',
-        )
-      }
+      // Local only — no backend counterpart. Advances the simulated cluster in
+      // demo mode and drops the cached observation so the other pages re-read.
+      recordStunResult()
 
       // Reload agents to reflect new state
       await loadAgents()
@@ -695,7 +679,16 @@ export default function SuperCredPage() {
           border: '1px solid rgba(220,38,38,0.4)', background: 'rgba(220,38,38,0.05)',
         }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: colors.red }}>Agent Stunned</h2>
-          <p style={{ fontSize: 13, marginBottom: 4 }}>{stunResult.message}</p>
+          {/* The proxy's own wording when it gave one, otherwise composed from
+              the lifecycle fields the response always carries. Read from
+              `proxy` rather than the top level because that is where relayed
+              claims live — see StunProxyReport. Display text, so composing it
+              is fine; what must never be composed here is the audit record,
+              and that arrives whole in `event` below. */}
+          <p style={{ fontSize: 13, marginBottom: 4 }}>
+            {stunResult.proxy?.message
+              ?? `Agent ${stunResult.agent_id} isolated: ${stunResult.from_state} → ${stunResult.to_state}`}
+          </p>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Stunned at: {stunResult.stunned_at}</p>
           <div data-testid="supercred-stun-actions" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
             <strong>Automated actions taken:</strong>
@@ -726,14 +719,6 @@ export default function SuperCredPage() {
             </div>
           )}
 
-          {stunEventError && (
-            <div data-testid="supercred-stun-event-error" style={{
-              marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border)',
-              fontSize: 12, color: colors.amber, lineHeight: 1.6,
-            }}>
-              {stunEventError}
-            </div>
-          )}
         </div>
       )}
 

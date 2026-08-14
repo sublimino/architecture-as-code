@@ -162,6 +162,30 @@ export default defineConfig({
       // Four scripted runs of 5-13s each, plus a browser launch and a Bun
       // bundle of the real component tree on first request.
       timeout: 3 * 60_000,
+      // Deliberately NOT `fullyParallel`, and the reason is a defect rather
+      // than a resource — which makes it worth writing down, because on the
+      // resource question this project is the ONE here that could parallelise.
+      // Each of its tests spawns its own `bun harness/server.ts` on `--port 0`:
+      // no cluster, no gateway, no fixed port, no storageState between them.
+      // (Every other project drives the one shared demo cluster, where
+      // concurrency means two runs mutating the same estate — the same reason
+      // those projects set `retries: 0`. Those are not candidates and should
+      // not be made into ones.)
+      //
+      // What actually blocks it is a pre-existing flake in "batched output must
+      // FAIL the progressive-arrival assertions" — measured at 3 failures in 5
+      // consecutive runs against the UNMODIFIED spec, with no concurrency
+      // involved at all. The spec's own header documents the mechanism. Serial
+      // mode currently hides it by a side effect nobody wrote down: a failure
+      // inside a serial group retries THE WHOLE GROUP, so the batch test's
+      // retry re-runs with the streaming test immediately before it, which is
+      // the ordering that makes it pass.
+      //
+      // Measured, this project, three consecutive full runs with `mode:
+      // "serial"` removed and everything else identical: 1 outright red, 2
+      // green only via retry, and wall clock UP from 32s to 41-47s because of
+      // those retries. So there is no speed to be had here until the assertion
+      // is reconciled with the 500ms status poll it contradicts.
       use: {
         ...devices["Desktop Chrome"],
         // NO `channel`, and that is the one deliberate difference from every

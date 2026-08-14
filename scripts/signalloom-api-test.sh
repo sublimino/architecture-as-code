@@ -42,7 +42,12 @@ run_pytest() {
     echo "uv is required to pin the test environment; install uv or set SIGNALLOOM_PYTEST_CMD" >&2
     exit 1
   fi
-  uv run --python 3.12 --with pytest --with pytest-asyncio \
+  # pytest-xdist is required, not optional: src/pytest.ini puts `-n auto` in
+  # addopts, so a run without it dies on "unrecognized arguments: -n". Loud, and
+  # deliberately so — the alternative is an addopts that silently does nothing.
+  # It stays a --with rather than an entry in requirements.txt because that file
+  # is what the Dockerfile pip-installs into the shipping image.
+  uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
     --with-requirements requirements.txt python -m pytest "$@"
 }
 

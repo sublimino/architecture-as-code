@@ -149,7 +149,7 @@
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { test, expect } from "@playwright/test";
+import { test as base, expect } from "@playwright/test";
 import {
   expectDefaultTransport,
   expectFollowsTail,
@@ -167,8 +167,79 @@ import {
   watchTransport,
 } from "./supercred-stream-helpers";
 
-// Serial: each test owns a whole harness process and a whole run, and the
-// harness serialises runs the same way the real runner does.
+/**
+ * Each test owns a whole harness PROCESS and a whole run, so nothing here is
+ * shared between them: `--port 0` means the OS hands each one a different port,
+ * and the run serialisation the comment used to cite is per-process state
+ * inside that harness, not a lock over the machine.
+ *
+ * This file was `test.describe.configure({ mode: "serial" })` and the only
+ * thing that actually required it was a file-level `let harness` that every
+ * test assigned and a single `afterEach` killed — one variable holding one
+ * child, so two tests in flight would leak the first child and tear down the
+ * wrong one. That is a fixture that was written as a global, and serialising
+ * the file hid it rather than fixing it. `startHarness` below is now a
+ * test-scoped fixture that tracks and reaps exactly the children ITS test
+ * started.
+ *
+ * `mode: "serial"` STAYS, and what it is really holding up is named here rather
+ * than left to be rediscovered. It is not protecting the harness — it is
+ * papering over a flake in "batched output must FAIL the progressive-arrival
+ * assertions", via a side effect of serial mode nobody wrote down: when a test
+ * in a serial group fails, Playwright retries THE WHOLE GROUP, so the batch
+ * test's retry re-runs with the streaming test immediately before it. That
+ * ordering is the only thing that makes it pass reliably, and a `retries: 1`
+ * suite reports the result as green.
+ *
+ * The flake itself is pre-existing and has nothing to do with concurrency.
+ * Measured on the UNMODIFIED spec and config, single test selected, five
+ * consecutive runs: three failed. The assertion is
+ *
+ *     expect(Math.max(0, ...samples.filter(s => s.running).map(s => s.lastLine)))
+ *       .toBe(0)
+ *
+ * i.e. zero log lines may be rendered while the run still reads as running. But
+ * the panel learns the run ended over two transports that do not agree
+ * instantly: the log is a long poll that returns the moment bytes exist, while
+ * the status is a 500ms `setInterval` whose own comment in
+ * SuperCredInstructorPanel.tsx says its job is noticing terminality "within
+ * half a second". harness/server.ts is blameless — `run.status === 'running' ?
+ * '' : run.log` makes the SERVER side atomic. So in batch mode all 90 lines
+ * land up to one status tick before the DOM's status text catches up, and
+ * whether the 200ms sampler lands inside that window is a coin flip. A captured
+ * failing timeline, decoded:
+ *
+ *     t=5400   lines=0    status=running
+ *     t=5600   lines=90   status=running     <-- the assertion fires here
+ *     t=5800   lines=90   status=succeeded
+ *
+ * Fixing it means reconciling the assertion with that 500ms lag — most likely
+ * by asserting what "not progressive" actually means (the rendered line count
+ * goes 0 -> 90 in a single step, rather than climbing), which is strictly
+ * stronger than the current check. That is a change to a NEGATIVE CONTROL, the
+ * one test whose whole job is to fail when the shared assertion is loosened, so
+ * it is deliberately not being made in a branch about test parallelism — the
+ * temptation to "fix" it into something that merely goes green is exactly the
+ * failure this test exists to catch.
+ *
+ * Until then: serial, flake named, defect reported. The fixture below is still
+ * worth having on its own — the old `let harness` was a genuine bug waiting for
+ * the first person who removed the serial mode.
+ */
+const test = base.extend<{
+  startHarness: (opts: HarnessOptions) => Promise<Harness>;
+}>({
+  startHarness: async ({}, use, testInfo) => {
+    const started: Harness[] = [];
+    await use(async (opts: HarnessOptions) => {
+      const harness = await launchHarness(testInfo.config.rootDir, opts);
+      started.push(harness);
+      return harness;
+    });
+    for (const harness of started) harness.child.kill("SIGTERM");
+  },
+});
+
 test.describe.configure({ mode: "serial" });
 
 const INSTRUCTOR = '[data-testid="supercred-instructor"]';
@@ -196,6 +267,13 @@ const RUN_LOG_LINE = `[data-testid="${LOG_ID}-line"]`;
 const LINES = 90;
 const INTERVAL_MS = 60;
 
+interface HarnessOptions {
+  mode: "stream" | "batch";
+  lines: number;
+  intervalMs: number;
+  startDelayMs?: number;
+}
+
 interface Harness {
   url: string;
   // `stdio: ["ignore", "pipe", "pipe"]` gives a child with no stdin, which is
@@ -212,17 +290,18 @@ interface Harness {
  * found" — a green-looking exit that names neither file. See the comment on
  * that file's `import.meta.main` block.
  *
- * The path is resolved from `test.info().config.rootDir` rather than from
+ * The path is resolved from the runner config's `rootDir` rather than from
  * `__dirname` or `import.meta.url`, because which of those two exists depends
- * on how the runner transpiled this file, and rootDir is true either way.
+ * on how the runner transpiled this file, and rootDir is true either way. It
+ * arrives as an argument rather than via `test.info()` so this stays callable
+ * from a fixture, which runs outside the test body.
  *
  * Port 0: the OS picks a free one and the server reports it. Every spec in
- * this suite that hardcoded a port eventually collided with a port-forward.
+ * this suite that hardcoded a port eventually collided with a port-forward —
+ * and it is also what lets these tests run concurrently at all.
  */
-async function startHarness(
-  opts: { mode: "stream" | "batch"; lines: number; intervalMs: number; startDelayMs?: number },
-): Promise<Harness> {
-  const script = join(test.info().config.rootDir, "harness", "server.ts");
+async function launchHarness(rootDir: string, opts: HarnessOptions): Promise<Harness> {
+  const script = join(rootDir, "harness", "server.ts");
   const child = spawn(
     "bun",
     [
@@ -263,13 +342,6 @@ async function startHarness(
   return { url, child };
 }
 
-let harness: Harness | null = null;
-
-test.afterEach(() => {
-  harness?.child.kill("SIGTERM");
-  harness = null;
-});
-
 /** Boot the panel against a harness and wait for it to be usable. */
 async function openPanel(
   page: import("@playwright/test").Page,
@@ -289,8 +361,11 @@ async function openPanel(
   await expect(page.locator(RUN_STEP_1)).toBeEnabled({ timeout: 15_000 });
 }
 
-test("a phase's output is rendered as it arrives, not in one frame at the end", async ({ page }) => {
-  harness = await startHarness({ mode: "stream", lines: LINES, intervalMs: INTERVAL_MS });
+test("a phase's output is rendered as it arrives, not in one frame at the end", async ({
+  page,
+  startHarness,
+}) => {
+  const harness = await startHarness({ mode: "stream", lines: LINES, intervalMs: INTERVAL_MS });
   await openPanel(page, harness);
 
   const transport = watchTransport(page);
@@ -320,11 +395,14 @@ test("a phase's output is rendered as it arrives, not in one frame at the end", 
   await expect(page.locator(RUN_LOG)).not.toContainText("\u001B");
 });
 
-test("batched output must FAIL the progressive-arrival assertions", async ({ page }) => {
+test("batched output must FAIL the progressive-arrival assertions", async ({
+  page,
+  startHarness,
+}) => {
   // The negative control. `batch` withholds the log until the run reports
   // terminal — the old runner's behaviour, reproduced deliberately. Everything
   // else about this test is identical to the one above.
-  harness = await startHarness({ mode: "batch", lines: LINES, intervalMs: INTERVAL_MS });
+  const harness = await startHarness({ mode: "batch", lines: LINES, intervalMs: INTERVAL_MS });
   await openPanel(page, harness);
 
   await startLogSampler(page);
@@ -366,10 +444,11 @@ test("batched output must FAIL the progressive-arrival assertions", async ({ pag
 
 test("scrolling up stops new output yanking the view, and scrolling back down re-follows", async ({
   page,
+  startHarness,
 }) => {
   // A longer run: the viewport is manipulated twice mid-flight and each stretch
   // needs enough samples of its own to say anything.
-  harness = await startHarness({ mode: "stream", lines: 150, intervalMs: 80 });
+  const harness = await startHarness({ mode: "stream", lines: 150, intervalMs: 80 });
   await openPanel(page, harness);
 
   const transport = watchTransport(page);
@@ -416,7 +495,10 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   expectDefaultTransport(transport, "the scrolling run");
 });
 
-test("SSE, when explicitly opted into, delivers the same progressive arrival", async ({ page }) => {
+test("SSE, when explicitly opted into, delivers the same progressive arrival", async ({
+  page,
+  startHarness,
+}) => {
   // SECONDARY. The three tests above are the ones that protect the on-stage
   // path; this one proves the opt-in capability works, over the frame contract
   // api/demoRunner.ts actually parses — `event: log` carrying a
@@ -429,7 +511,7 @@ test("SSE, when explicitly opted into, delivers the same progressive arrival", a
   // would leave this case measuring the poll while calling itself SSE. A short
   // silence before the first line parks the waiting read (what `wait` is for)
   // and is what a real script's startup looks like anyway.
-  harness = await startHarness({
+  const harness = await startHarness({
     mode: "stream", lines: LINES, intervalMs: INTERVAL_MS, startDelayMs: 700,
   });
   await openPanel(page, harness, "?logTransport=sse");

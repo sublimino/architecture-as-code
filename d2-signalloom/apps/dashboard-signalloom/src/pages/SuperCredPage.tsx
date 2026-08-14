@@ -321,13 +321,21 @@ export default function SuperCredPage() {
       // Stun again. It is surfaced separately and loudly instead — an
       // enforcement action nobody can account for is exactly what this page
       // exists to rule out.
+      //
+      // What goes in this body is only ever *which workload* — the agent name
+      // and namespace the operator acted on, which the registry cannot derive
+      // because SuperCred agent ids are pod names and resolve to no registry
+      // row. It used to also carry `reason` and `outcome`, and that was the
+      // same defect as the deleted recordStunAudit(): the browser asserting
+      // what happened. `outcome: data.state ?? 'stunned'` would have reported
+      // "stunned" from a fallback the proxy never confirmed, and `reason` was
+      // a message this client composed. The server now supplies both from what
+      // it observed. See auditBoundary.test.ts, which fails if they come back.
       try {
         const token = await getAccessTokenSilently()
         const recorded = await api.agents.stun(token, agent.id, {
           agent_name: agent.name,
           namespace: agent.namespace ?? null,
-          reason: data.message ?? 'operator-initiated stun',
-          outcome: data.state ?? 'stunned',
         })
         setStunEvent(recorded.event ?? null)
       } catch (recordErr) {

@@ -301,20 +301,21 @@ describe('SuperCredPage', () => {
     await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
   }
 
-  it('records an audit event carrying agent, action, actor and outcome', async () => {
+  it('tells the API which workload was stunned, and nothing about the outcome', async () => {
     const spy = vi.spyOn(api.agents, 'stun')
     await stunOnce()
 
     await waitFor(() => expect(spy).toHaveBeenCalledTimes(1))
-    expect(spy).toHaveBeenCalledWith(
-      'test-token',
-      'agent-cardvault',
-      expect.objectContaining({
-        agent_name: 'Cardvault Agent',
-        namespace: FLUX_NS,
-        outcome: 'stunned',
-      }),
-    )
+
+    // Locator only. This used to assert `outcome: 'stunned'` was sent, which
+    // encoded the defect: the browser does not perform the cluster action and
+    // so cannot witness its outcome. Asserted with an exact toEqual rather
+    // than objectContaining, because objectContaining is satisfied by a body
+    // that has quietly grown a `reason` field again.
+    expect(spy).toHaveBeenCalledWith('test-token', 'agent-cardvault', {
+      agent_name: 'Cardvault Agent',
+      namespace: FLUX_NS,
+    })
   })
 
   it('shows the recorded event and points at the Audit Trail', async () => {

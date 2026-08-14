@@ -450,7 +450,16 @@ function auditWithRecordedActivity(): AuditListResponse {
 
 const DEMO_ACTOR = 'demo-operator'
 
-/** POST /agents/{id}/stun — record the event, then answer as the API would. */
+/**
+ * POST /agents/{id}/stun — record the event, then answer as the API would.
+ *
+ * The narrative half of the detail (`reason`, `outcome`) is authored here, not
+ * read off the request, because that is what the real endpoint does. It used
+ * to be `req.outcome ?? 'stunned'`, which quietly made this fixture a worse
+ * liar than the backend it stands in for: whatever the browser claimed came
+ * straight back as though the platform had observed it. A demo whose audit
+ * trail echoes the client teaches exactly the wrong thing about the product.
+ */
 function stunFixture(path: string, body?: unknown): StunAgentResponse {
   const agentId = path.split('/')[2]
   const req = (body ?? {}) as StunAgentRequest
@@ -460,8 +469,8 @@ function stunFixture(path: string, body?: unknown): StunAgentResponse {
     agent_name: req.agent_name ?? agentId,
     actor: DEMO_ACTOR,
     detail: {
-      outcome: req.outcome ?? 'stunned',
-      reason: req.reason ?? 'operator-initiated stun',
+      outcome: 'stunned',
+      reason: 'operator-initiated stun',
       namespace: req.namespace ?? null,
       from_state: 'active',
       to_state: 'suspended',

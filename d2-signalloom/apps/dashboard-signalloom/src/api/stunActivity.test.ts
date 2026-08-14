@@ -23,11 +23,12 @@ import { clearDemoActivity, demoActivityEvents } from './demoActivity'
 
 const TOKEN = 'test-token'
 
+// Locator only. `reason` and `outcome` were removed from StunAgentRequest —
+// the server authors the narrative from what it observed, and the endpoint is
+// extra="forbid", so sending them now fails the request outright.
 const STUN_BODY = {
   agent_name: 'Cardvault Agent',
   namespace: 'fe-signalloom',
-  reason: 'compliance-failure: securityContext not set',
-  outcome: 'stunned',
 }
 
 beforeEach(() => {
@@ -61,7 +62,9 @@ describe('stun activity — demo mode', () => {
     expect(event.agent_id).toBe('agent-cardvault')
     expect(event.agent_name).toBe('Cardvault Agent')
     expect(event.actor).toMatch(/\S/)
-    expect(event.detail).toMatchObject({ outcome: 'stunned' })
+    // Authored by the fixture standing in for the server, not echoed from the
+    // request — STUN_BODY no longer has an `outcome` to echo.
+    expect(event.detail).toMatchObject({ outcome: 'stunned', reason: 'operator-initiated stun' })
     expect(Number.isNaN(Date.parse(event.timestamp))).toBe(false)
   })
 

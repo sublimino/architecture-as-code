@@ -1,10 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo, type CSSProperties } from 'react'
 import { colors } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
 import SuperCredInstructorPanel from '../components/SuperCredInstructorPanel'
 import { CredentialEvidencePanel } from '../components/CredentialEvidencePanel'
 import HelpHint from '../components/HelpHint'
 import ButtonWait from '../components/ButtonWait'
+import DataTable, { type Column } from '../components/DataTable'
+import EmptyState from '../components/EmptyState'
+import LoadingState from '../components/LoadingState'
+import { StatCard } from '../components/DashKit'
 import { useAppContext } from '../App'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
@@ -131,16 +135,135 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
   ]
 }
 
-const CRED_STATUS_COLORS: Record<CredentialStatus, { bg: string; fg: string }> = {
-  pending:  { bg: 'rgba(71,85,105,0.15)', fg: 'var(--muted)' },
-  issued:   { bg: 'rgba(6,182,212,0.12)', fg: 'var(--cyan)' },
-  active:   { bg: 'rgba(16,185,129,0.12)', fg: 'var(--teal)' },
-  rotated:  { bg: 'rgba(139,92,246,0.12)', fg: 'var(--violet)' },
-  revoked:  { bg: 'rgba(220,38,38,0.12)', fg: 'var(--error)' },
-  expired:  { bg: 'rgba(217,119,6,0.12)', fg: 'var(--amber)' },
+// ─── Tables ─────────────────────────────────────────────────────────────────
+//
+// Both tables on this page are `DataTable` with a `toolbar` and an
+// `emptyState`, which is the configuration the Design System page calls
+// "Realistic". The division of labour is that page's, not a local invention:
+// THIS page owns the search box, the chips and the predicate and hands
+// DataTable an already-narrowed array; DataTable owns sorting, paging, the
+// position of the strip — and the one guarantee worth having, that the strip
+// outlives the table when a filter matches nothing. Stacking those by hand
+// (`rows.length === 0 ? <EmptyState/> : <table/>`) takes the control that
+// emptied the table down with it and strands the reader with no way back
+// short of a reload. Mid-demo that is a reload in front of an audience.
+//
+// Column `help` strings are the other half of why these are DataTables. This
+// screen is read at two altitudes at once — a bank executive who needs to know
+// what a scope IS, and an engineer who needs to know which one this is — and a
+// "?" in the header is how one table serves both without a second table.
+
+const CREDENTIAL_COLUMNS: Column<CredentialRecord>[] = [
+  { key: 'id', label: 'Credential ID', sortable: true },
+  {
+    key: 'issuer',
+    label: 'Issuer',
+    sortable: true,
+    help: 'Which authority minted this credential. Three different ones, deliberately: SPIRE proves which workload the pod is, OpenBao mints a database credential from that proof, and the service itself grants the API scope. No shared password exists anywhere in that chain.',
+  },
+  {
+    key: 'scope',
+    label: 'Scope',
+    sortable: true,
+    help: 'Exactly what this credential unlocks, and nothing beyond it. A SPIFFE ID names one workload, an OpenBao path names one database role, an API scope names one endpoint — so a stolen credential buys an attacker one of those, not the estate.',
+  },
+  { key: 'status', label: 'Status', sortable: true },
+  { key: 'issued_at', label: 'Issued', sortable: true },
+  {
+    key: 'expires_at',
+    label: 'Expires',
+    sortable: true,
+    help: 'These expire in minutes, not months. That is what makes revocation instant: there is no long-lived secret to hunt down and rotate, so withdrawing the agent’s identity stops the next exchange from happening at all.',
+  },
+  {
+    key: 'rotation_count',
+    label: 'Rotations',
+    sortable: true,
+    help: 'How many times this credential has been re-minted since the agent started. Routine, not an incident — a chain that rotates is a chain where any single leaked credential is already stale.',
+  },
+]
+
+const COMPLIANCE_COLUMNS: Column<ComplianceResult>[] = [
+  { key: 'check', label: 'Check', sortable: true },
+  { key: 'pass', label: 'Result', sortable: true },
+  {
+    key: 'severity',
+    label: 'Severity',
+    sortable: true,
+    help: 'How much a failure of this check matters. Critical means the control is load-bearing for the credential chain — without it the agent can be made to do something its identity was never meant to allow.',
+  },
+  { key: 'reason', label: 'Reason' },
+]
+
+/** Lifecycle order, so the chips keep one order regardless of what the data holds. */
+const CREDENTIAL_STATUS_ORDER: CredentialStatus[] = [
+  'pending', 'issued', 'active', 'rotated', 'revoked', 'expired',
+]
+
+/** Which compliance rows to show. `all` first, then the two verdicts. */
+const RESULT_FILTERS = ['all', 'pass', 'fail'] as const
+type ResultFilter = (typeof RESULT_FILTERS)[number]
+
+const searchStyle: CSSProperties = {
+  fontSize: 12,
+  padding: '5px 9px',
+  minWidth: 230,
+  color: 'var(--text)',
+  background: 'var(--surface2)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
 }
 
+const countStyle: CSSProperties = { fontSize: 11.5, color: 'var(--muted)' }
 
+/**
+ * One filter chip, in the treatment the Design System page settled on.
+ *
+ * Selected is a tinted fill plus a full-strength border rather than a solid
+ * accent fill: text on solid cyan or amber fails AA in at least one of the
+ * three themes, and this page is projected onto a screen in a room.
+ *
+ * The count is on the chip rather than only in the summary line because the
+ * whole point of a chip that matches nothing is that you can see it will match
+ * nothing before you press it.
+ */
+function FilterChip({
+  label,
+  count,
+  selected,
+  onSelect,
+  testId,
+}: {
+  label: string
+  count: number
+  selected: boolean
+  onSelect: () => void
+  testId: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      data-testid={testId}
+      style={{
+        fontSize: 11.5,
+        padding: '4px 9px',
+        borderRadius: 4,
+        cursor: 'pointer',
+        color: selected ? 'var(--cyan)' : 'var(--muted)',
+        background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+        // Longhands, never the `border` shorthand: mixing the two drops the
+        // shorthand on re-render and leaves a chip with no border mid-switch.
+        borderWidth: 1,
+        borderStyle: 'solid',
+        borderColor: selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)',
+      }}
+    >
+      {label} <span style={{ color: 'var(--dim)' }}>{count}</span>
+    </button>
+  )
+}
 
 // ─── Demo-data mode step controls ───────────────────────────────────────────
 
@@ -249,6 +372,15 @@ export default function SuperCredPage() {
   // without this the progress timer would tick on all of them at once and
   // claim five operations are running when one is.
   const [busyAgentId, setBusyAgentId] = useState<string | null>(null)
+  // Table filters. Purely client-side, and the predicate lives here rather
+  // than inside DataTable on purpose: "search" means different things to the
+  // two tables — a credential is found by its issuer or its scope, a control
+  // by the reason it failed — and a component that owned the word would be
+  // handing both of them one opinion about it.
+  const [credSearch, setCredSearch] = useState('')
+  const [credStatus, setCredStatus] = useState<CredentialStatus | 'all'>('all')
+  const [checkSearch, setCheckSearch] = useState('')
+  const [checkResult, setCheckResult] = useState<ResultFilter>('all')
 
   const loadAgents = useCallback(async () => {
     setLoading(true)
@@ -348,19 +480,87 @@ export default function SuperCredPage() {
 
   // Derive lifecycle and credential data from the first supercred agent
   const activeAgent = agents[0] ?? null
-  const credentialRecords = activeAgent ? buildCredentialRecords(activeAgent) : []
+  const credentialRecords = useMemo(
+    () => (activeAgent ? buildCredentialRecords(activeAgent) : []),
+    [activeAgent],
+  )
 
+  // Chip counts are read off the FULL record set, never the filtered one — a
+  // count that shrinks as you filter tells you about the filter you already
+  // applied instead of the one you are considering. Only statuses the data
+  // actually holds get a chip: five permanently-zero chips are furniture.
+  const credentialStatusCounts = useMemo(() => {
+    const counts = new Map<CredentialStatus, number>()
+    for (const cred of credentialRecords) {
+      counts.set(cred.status, (counts.get(cred.status) ?? 0) + 1)
+    }
+    return counts
+  }, [credentialRecords])
+
+  const visibleCredentials = useMemo(() => {
+    const q = credSearch.trim().toLowerCase()
+    return credentialRecords.filter(cred => {
+      if (credStatus !== 'all' && cred.status !== credStatus) return false
+      if (!q) return true
+      return (
+        cred.id.toLowerCase().includes(q) ||
+        cred.issuer.toLowerCase().includes(q) ||
+        cred.scope.toLowerCase().includes(q)
+      )
+    })
+  }, [credentialRecords, credSearch, credStatus])
+
+  const complianceResults = useMemo(() => compliance?.results ?? [], [compliance])
+
+  const complianceCounts = useMemo(
+    () => ({
+      all: complianceResults.length,
+      pass: complianceResults.filter(r => r.pass).length,
+      fail: complianceResults.filter(r => !r.pass).length,
+    }),
+    [complianceResults],
+  )
+
+  const visibleChecks = useMemo(() => {
+    const q = checkSearch.trim().toLowerCase()
+    return complianceResults.filter(r => {
+      if (checkResult === 'pass' && !r.pass) return false
+      if (checkResult === 'fail' && r.pass) return false
+      if (!q) return true
+      return (
+        r.check.toLowerCase().includes(q) ||
+        r.reason.toLowerCase().includes(q) ||
+        (r.severity ?? 'medium').toLowerCase().includes(q)
+      )
+    })
+  }, [complianceResults, checkSearch, checkResult])
+
+  // The width cap is on the PROSE, not on the page — which is what every other
+  // page carrying a DataTable already does (Credential Inventory, Network
+  // Tests, Cryptography). A page-wide 900px cap was fine for a page of cards
+  // and paragraphs and stopped being fine the moment a seven-column table
+  // moved onto it: the last two columns fell off the right edge into a
+  // horizontal scrollbar nobody in an audience is ever going to discover.
   return (
-    <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
+    <div style={{ margin: '0 auto', padding: '32px 24px' }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>{SUPERCRED_PAGE_TITLE}</h1>
-      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6 }}>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, lineHeight: 1.6, maxWidth: 760 }}>
         Agent identity chain: SPIFFE workload identity → OpenBao secret exchange → credential-based service access.
         Run <code style={code}>make demo-signalloom-supercred-1</code> first.
       </p>
 
       {/* Architecture overview */}
       <div data-testid="supercred-architecture" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Architecture Overview</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Architecture Overview</h2>
+          {/* The two words the rest of this page assumes you already know. An
+              executive in the room needs them before the first table means
+              anything, and an engineer needs the diagram, not a definition —
+              which is exactly the split a hint resolves without a second page. */}
+          <HelpHint label="What SPIFFE and OpenBao do here" testId="supercred-architecture-help">
+            SPIFFE gives each workload a cryptographic identity it cannot forge or lend out — the pod proves what it is rather than presenting a password anyone could steal. OpenBao then exchanges that proof for a credential that lasts minutes and unlocks one named thing. No shared secret exists to leak.
+          </HelpHint>
+        </div>
         <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, margin: '0 0 12px' }}>
           SuperCred demonstrates a zero-trust credential lifecycle for AI agents operating
           within a Kubernetes cluster. Each agent receives a cryptographic workload identity
@@ -404,22 +604,44 @@ export default function SuperCredPage() {
         </div>
       </div>
 
+      {/* Tinted from the tokens rather than a frozen rgba triple, so the
+          banner follows the theme instead of being correct in exactly one of
+          Dark, Light and Andy. The wording is --text and the colour is carried
+          by the border and the fill: --error measures 3.03:1 on --surface in
+          Dark, which is under AA for 13px body text, and an error nobody can
+          read on a projector is the one message that must never be decorative.
+          Same rule as LoadingState and the Design System's own disclaimer. */}
       {error && (
-        <div data-testid="supercred-error" style={{ background: 'rgba(220,38,38,0.1)', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: colors.red, fontSize: 13 }}>
+        <div data-testid="supercred-error" style={{
+          background: 'color-mix(in srgb, var(--error) 10%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--error) 30%, transparent)',
+          borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+          color: 'var(--text)', fontSize: 13,
+        }}>
           {error}
         </div>
       )}
 
       {blockedAgents.length > 0 && (
-        <div data-testid="supercred-phase-warning" style={{ background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.35)', borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: colors.amber, fontSize: 13, lineHeight: 1.6 }}>
+        <div data-testid="supercred-phase-warning" style={{
+          background: 'color-mix(in srgb, var(--amber) 10%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--amber) 35%, transparent)',
+          borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+          color: 'var(--text)', fontSize: 13, lineHeight: 1.6,
+        }}>
           {blockedAgents.map(a => (
             <div key={a.id}>
               <strong>{a.name}</strong> is in phase <code style={code}>{a.phase}</code> — it cannot run.
             </div>
           ))}
-          <div style={{ marginTop: 6 }}>
-            This is usually a missing kind-loaded image. Load them with{' '}
-            <code style={code}>make demo-signalloom-supercred-images</code>.
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 6 }}>
+            <span>
+              This is usually a missing kind-loaded image. Load them with{' '}
+              <code style={code}>make demo-signalloom-supercred-images</code>.
+            </span>
+            <HelpHint label="What a blocked pod phase means" tone="var(--amber)" testId="supercred-phase-help">
+              Kubernetes reports a pod’s phase, and Pending, Failed or Unknown all mean the container never started. Nothing further down this page has been disproved by that — the agent has simply not run, so there is no credential chain to inspect either way.
+            </HelpHint>
           </div>
         </div>
       )}
@@ -434,7 +656,19 @@ export default function SuperCredPage() {
       {/* Load agents */}
       <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
+            {/* One hint on the section rather than one per row: the same
+                explanation repeated down five rows is noise, and the word that
+                needs explaining is the same word every time. Toned to --error
+                because it explains the destructive control beside it.
+                The name deliberately avoids the word "stunning" — the row
+                button carries that as its accessible name while the stun is in
+                flight, and a hint sharing it makes that assertion ambiguous. */}
+            <HelpHint label="What a stun does to an agent" tone="var(--error)" testId="supercred-stun-help">
+              Stunning withdraws the agent’s identity: the OpenBao lease is revoked, its next credential exchange is refused, and network policy stops its egress. It is not a shutdown — the pod keeps running, it simply can no longer prove who it is, so nothing downstream will talk to it. There is no undo.
+            </HelpHint>
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               className="btn btn-primary"
@@ -528,24 +762,39 @@ export default function SuperCredPage() {
             ))}
           </div>
         )}
+        {/* Idle, not empty. LoadingState's fourth phase exists for exactly this
+            distinction and it is the one this card must never lose: "we have
+            not asked yet" and "we asked and the estate is clean" are opposite
+            claims that used to render identically. The sentence naming the
+            control to press stays — the phase says what is true, the sentence
+            says what to do about it. */}
         {agents.length === 0 && !loading && discoveredCount === null && (
-          <p data-testid="supercred-not-loaded" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12 }}>
-            Agents not loaded yet. Click <strong>Refresh Agents</strong> to query the runtime.
-          </p>
+          <div data-testid="supercred-not-loaded" style={{ marginTop: 12 }}>
+            <LoadingState status="idle" label="agents" testId="supercred-agents-load-state" />
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '6px 0 0' }}>
+              Click <strong>Refresh Agents</strong> to query the runtime.
+            </p>
+          </div>
         )}
+        {/* Empty, and a healthy zero rather than a fault: the query succeeded
+            and the answer was nothing, which is what EmptyState is for. The
+            detail underneath is kept verbatim because it is the difference
+            between "nothing is deployed" and "things are deployed and none of
+            them is labelled", and an operator mid-demo needs the label text and
+            the namespaces that were searched, not a kicker. */}
         {agents.length === 0 && !loading && discoveredCount !== null && (
           <div data-testid="supercred-empty-state" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 12, lineHeight: 1.7 }}>
-            {discoveredCount === 0 ? (
-              <p style={{ margin: 0 }}>The proxy returned no runtime agents at all.</p>
-            ) : (
+            <EmptyState
+              kicker={discoveredCount === 0
+                ? 'The proxy returned no runtime agents at all'
+                : `Discovery found ${discoveredCount} runtime agents, but none carries the SuperCred label`}
+              body="Deploy the SuperCred agent with make demo-signalloom-supercred-1."
+            />
+            {discoveredCount > 0 && (
               <p style={{ margin: 0 }}>
-                Discovery found {discoveredCount} runtime agents, but none carries the SuperCred
-                label <code style={code}>signalloom.ai/supercred=true</code>.
+                The label discovery looks for is <code style={code}>signalloom.ai/supercred=true</code>.
               </p>
             )}
-            <p style={{ margin: '6px 0 0' }}>
-              Deploy the SuperCred agent with <code style={code}>make demo-signalloom-supercred-1</code>.
-            </p>
             {namespaces.length > 0 && (
               <p style={{ margin: '6px 0 0' }}>Namespaces searched: {namespaces.join(', ')}</p>
             )}
@@ -564,121 +813,202 @@ export default function SuperCredPage() {
         </div>
       )}
 
-      {/* Credential Status Table */}
+      {/* Credential inventory — DataTable, sortable, searchable, filterable.
+          The status badge is StatusBadge on the `credential` variant rather
+          than a colour map kept here: a credential's `pending` (an exchange in
+          flight) and a compliance `pending` (an assessment nobody ran) are the
+          same word meaning opposite things, and that distinction is already
+          drawn once, in the shared component. */}
       {activeAgent && (
-        <div data-testid="supercred-credentials" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Credential Inventory</h2>
-          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Credential ID</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Issuer</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Scope</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Status</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Issued</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Expires</th>
-                <th style={{ textAlign: 'left', padding: '8px 10px', fontWeight: 600, fontSize: 11 }}>Rotations</th>
+        <section data-testid="supercred-credentials" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Credential Inventory</h2>
+            <HelpHint label="What the Credential Inventory lists" testId="supercred-credentials-help">
+              Every credential this agent currently holds. Three of them, not one login: an identity proving which workload it is, a database credential minted from that proof, and the API scope it may call. They are separate so that revoking one does not require trusting the other two.
+            </HelpHint>
+          </div>
+          <DataTable
+            columns={CREDENTIAL_COLUMNS}
+            data={visibleCredentials}
+            pageSize={10}
+            testIdPrefix="supercred-credentials-table"
+            toolbar={
+              <div
+                role="group"
+                aria-label="Filter the credential inventory"
+                style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+              >
+                <input
+                  type="search"
+                  aria-label="Search credentials by ID, issuer or scope"
+                  placeholder="Search ID, issuer or scope…"
+                  value={credSearch}
+                  onChange={(e) => setCredSearch(e.target.value)}
+                  data-testid="supercred-credentials-search"
+                  style={searchStyle}
+                />
+                <FilterChip
+                  label="all"
+                  count={credentialRecords.length}
+                  selected={credStatus === 'all'}
+                  onSelect={() => setCredStatus('all')}
+                  testId="supercred-credentials-filter-all"
+                />
+                {CREDENTIAL_STATUS_ORDER.filter(s => credentialStatusCounts.has(s)).map(status => (
+                  <FilterChip
+                    key={status}
+                    label={status}
+                    count={credentialStatusCounts.get(status) ?? 0}
+                    selected={credStatus === status}
+                    onSelect={() => setCredStatus(status)}
+                    testId={`supercred-credentials-filter-${status}`}
+                  />
+                ))}
+                <span data-testid="supercred-credentials-count" style={countStyle}>
+                  {visibleCredentials.length} of {credentialRecords.length} shown
+                </span>
+              </div>
+            }
+            emptyState={
+              <EmptyState
+                kicker="No credential matches those filters"
+                body="Clear the search box, or pick a different status — the controls above are still there."
+              />
+            }
+            renderRow={(cred: CredentialRecord) => (
+              <tr key={cred.id} data-testid={`credential-row-${cred.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11 }}>{cred.id}</td>
+                <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11 }}>{cred.issuer}</td>
+                <td style={{ ...DataTable.td, fontSize: 11 }}>{cred.scope}</td>
+                <td style={DataTable.td}>
+                  <StatusBadge
+                    status={cred.status}
+                    variant="credential"
+                    testId={`credential-status-${cred.id}`}
+                  />
+                </td>
+                <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.issued_at ?? '-'}</td>
+                <td style={{ ...DataTable.td, fontSize: 10, color: 'var(--muted)' }}>{cred.expires_at ?? '-'}</td>
+                <td style={{ ...DataTable.td, textAlign: 'center' }}>{cred.rotation_count}</td>
               </tr>
-            </thead>
-            <tbody>
-              {credentialRecords.map(cred => {
-                const sc = CRED_STATUS_COLORS[cred.status]
-                return (
-                  <tr key={cred.id} data-testid={`credential-row-${cred.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11 }}>{cred.id}</td>
-                    <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 11 }}>{cred.issuer}</td>
-                    <td style={{ padding: '8px 10px', fontSize: 11 }}>{cred.scope}</td>
-                    <td style={{ padding: '8px 10px' }}>
-                      <span data-testid={`credential-status-${cred.id}`} style={{
-                        display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-                        fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-                        background: sc.bg, color: sc.fg,
-                      }}>
-                        {cred.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '8px 10px', fontSize: 10, color: 'var(--muted)' }}>{cred.issued_at ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', fontSize: 10, color: 'var(--muted)' }}>{cred.expires_at ?? '-'}</td>
-                    <td style={{ padding: '8px 10px', textAlign: 'center' }}>{cred.rotation_count}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+            )}
+          />
+        </section>
       )}
 
       {/* Compliance results */}
       {compliance && (
-        <div data-testid="supercred-compliance" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+        <section data-testid="supercred-compliance" style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Compliance Scan Results</h2>
             <StatusBadge status={compliance.compliant ? 'compliant' : 'non-compliant'} variant="compliance" />
+            <HelpHint label="What a compliance scan is checking" testId="supercred-compliance-help">
+              Each row is one control evaluated against the running pod just now. A failure does not mean the agent has been attacked — it means a guardrail that would have contained an attack is not in place, which is why the platform can revoke the agent’s credentials rather than wait to find out.
+            </HelpHint>
           </div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
             Agent: {compliance.agent_id} · Evaluated: {compliance.evaluated_at}
           </div>
+          {/* Counted over the WHOLE scan, never over the filtered rows. This
+              line is the verdict the scan reached; the count in the toolbar
+              below is how much of it is currently on screen. Collapsing the two
+              would let a filter silently rewrite the finding, which on this
+              page of all pages is the failure being argued against. */}
           <div data-testid="supercred-compliance-summary" style={{
             display: 'flex', gap: 16, marginBottom: 12, fontSize: 12,
           }}>
             <span style={{ color: colors.tealLoom }}>
-              {compliance.results.filter(r => r.pass).length} passed
+              {complianceCounts.pass} passed
             </span>
             <span style={{ color: colors.red }}>
-              {compliance.results.filter(r => !r.pass).length} failed
+              {complianceCounts.fail} failed
             </span>
             <span style={{ color: 'var(--muted)' }}>
-              {compliance.results.length} total checks
+              {complianceCounts.all} total checks
             </span>
           </div>
-          <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Check</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Result</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Severity</th>
-                <th style={{ textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 12 }}>Reason</th>
+          <DataTable
+            columns={COMPLIANCE_COLUMNS}
+            data={visibleChecks}
+            pageSize={10}
+            testIdPrefix="supercred-compliance-table"
+            toolbar={
+              <div
+                role="group"
+                aria-label="Filter the compliance results"
+                style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+              >
+                <input
+                  type="search"
+                  aria-label="Search compliance checks by name, reason or severity"
+                  placeholder="Search check, reason or severity…"
+                  value={checkSearch}
+                  onChange={(e) => setCheckSearch(e.target.value)}
+                  data-testid="supercred-compliance-search"
+                  style={searchStyle}
+                />
+                {RESULT_FILTERS.map(filter => (
+                  <FilterChip
+                    key={filter}
+                    label={filter}
+                    count={complianceCounts[filter]}
+                    selected={checkResult === filter}
+                    onSelect={() => setCheckResult(filter)}
+                    testId={`supercred-compliance-filter-${filter}`}
+                  />
+                ))}
+                <span data-testid="supercred-compliance-count" style={countStyle}>
+                  {visibleChecks.length} of {complianceResults.length} shown
+                </span>
+              </div>
+            }
+            emptyState={
+              <EmptyState
+                kicker="No check matches those filters"
+                body="Clear the search box, or switch back to all — the scan itself is unchanged, this is only what is on screen."
+              />
+            }
+            renderRow={(r: ComplianceResult) => (
+              <tr key={r.check} data-testid={`compliance-row-${r.check}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 12 }}>{r.check}</td>
+                <td style={DataTable.td}>
+                  <StatusBadge status={r.pass ? 'pass' : 'fail'} variant="compliance" />
+                </td>
+                <td style={DataTable.td}>
+                  {/* Still a coloured word rather than a badge: StatusBadge has
+                      no severity map, and forcing one of the existing variants
+                      would resolve `critical` and `high` through a map that
+                      means something else. Reported rather than worked around
+                      by editing a component ten pages are using right now. */}
+                  <span style={{
+                    fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+                    color: r.severity === 'critical' ? colors.red
+                      : r.severity === 'high' ? colors.amber
+                      : 'var(--muted)',
+                  }}>
+                    {r.severity ?? 'medium'}
+                  </span>
+                </td>
+                <td style={{ ...DataTable.td, fontSize: 12, color: 'var(--muted)', whiteSpace: 'normal' }}>{r.reason}</td>
               </tr>
-            </thead>
-            <tbody>
-              {compliance.results.map(r => (
-                <tr key={r.check} style={{ borderBottom: '1px solid var(--border)' }}>
-                  <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>{r.check}</td>
-                  <td style={{ padding: '8px 12px' }}>
-                    <span style={{
-                      display: 'inline-block', padding: '2px 8px', borderRadius: 4,
-                      fontSize: 11, fontWeight: 600,
-                      background: r.pass ? 'rgba(20,184,166,0.15)' : 'rgba(220,38,38,0.12)',
-                      color: r.pass ? colors.tealLoom : colors.red,
-                    }}>
-                      {r.pass ? 'PASS' : 'FAIL'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '8px 12px' }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-                      color: r.severity === 'critical' ? colors.red
-                        : r.severity === 'high' ? colors.amber
-                        : 'var(--muted)',
-                    }}>
-                      {r.severity ?? 'medium'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '8px 12px', fontSize: 12, color: 'var(--muted)' }}>{r.reason}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            )}
+          />
+        </section>
       )}
 
       {/* Stun result */}
       {stunResult && (
         <div data-testid="supercred-stun-result" className="card" style={{
           padding: '16px 20px', marginBottom: 16,
-          border: '1px solid rgba(220,38,38,0.4)', background: 'rgba(220,38,38,0.05)',
+          border: '1px solid color-mix(in srgb, var(--error) 40%, transparent)',
+          background: 'color-mix(in srgb, var(--error) 5%, transparent)',
         }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: colors.red }}>Agent Stunned</h2>
+          {/* The heading is --text and the red is carried by the border and the
+              fill. --error at 15px is 3.03:1 on --surface in Dark, under AA,
+              and this is the one heading in the demo that the back of the room
+              has to be able to read. Same trade the Design System page made for
+              its "Simulated" tag. */}
+          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: 'var(--text)' }}>Agent Stunned</h2>
           {/* The proxy's own wording when it gave one, otherwise composed from
               the lifecycle fields the response always carries. Read from
               `proxy` rather than the top level because that is where relayed
@@ -691,7 +1021,12 @@ export default function SuperCredPage() {
           </p>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Stunned at: {stunResult.stunned_at}</p>
           <div data-testid="supercred-stun-actions" style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            <strong>Automated actions taken:</strong>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <strong>Automated actions taken:</strong>
+              <HelpHint label="What these four actions mean" tone="var(--error)" testId="supercred-stun-actions-help">
+                A lease is a credential OpenBao issued with an expiry; revoking it invalidates it now rather than at expiry. Blocking SVID rotation stops the agent renewing the identity everything downstream checks. Deny-all egress stops it opening new connections. The observed, probe-by-probe version of these steps is the Credential Lifecycle card above, which runs a command per step and shows you the output.
+              </HelpHint>
+            </span>
             <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
               <li>OpenBao dynamic lease revoked</li>
               <li>SPIFFE SVID rotation blocked</li>
@@ -724,24 +1059,34 @@ export default function SuperCredPage() {
 
       {/* Agent Discovery Summary */}
       {discoveredCount !== null && (
-        <div data-testid="supercred-discovery-summary" className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Discovery Summary</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
-              <div data-testid="discovery-total" style={{ fontSize: 24, fontWeight: 700, color: colors.cyanLoom }}>{discoveredCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Total Agents</div>
+        <section data-testid="supercred-discovery-summary" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Discovery Summary</h2>
+            <HelpHint label="What discovery counted" testId="supercred-discovery-help">
+              Discovery lists every agent running in the namespaces below, then narrows to the ones carrying the SuperCred label. Blocked counts pods Kubernetes never started — they are neither compliant nor non-compliant, because nothing about them has been evaluated.
+            </HelpHint>
+          </div>
+          {/* DashKit's StatCard rather than four hand-rolled tiles: the same
+              four numbers, in the treatment the other dashboards already use,
+              and each one now says what it counted rather than leaving a bare
+              figure under a two-word label. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+            <div data-testid="discovery-total" style={{ display: 'flex', flex: '1 1 180px' }}>
+              <StatCard label="Total Agents" value={String(discoveredCount)} sub="returned by discovery" accent={colors.cyanLoom} />
             </div>
-            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
-              <div data-testid="discovery-supercred" style={{ fontSize: 24, fontWeight: 700, color: colors.tealLoom }}>{agents.length}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>SuperCred</div>
+            <div data-testid="discovery-supercred" style={{ display: 'flex', flex: '1 1 180px' }}>
+              <StatCard label="SuperCred" value={String(agents.length)} sub="carry the supercred label" accent={colors.tealLoom} />
             </div>
-            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
-              <div data-testid="discovery-namespaces" style={{ fontSize: 24, fontWeight: 700, color: colors.irisViolet }}>{namespaces.length}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Namespaces</div>
+            <div data-testid="discovery-namespaces" style={{ display: 'flex', flex: '1 1 180px' }}>
+              <StatCard label="Namespaces" value={String(namespaces.length)} sub="searched" accent={colors.irisViolet} />
             </div>
-            <div style={{ textAlign: 'center', padding: '12px 8px', background: 'var(--surface)', borderRadius: 6 }}>
-              <div data-testid="discovery-blocked" style={{ fontSize: 24, fontWeight: 700, color: blockedAgents.length > 0 ? colors.red : colors.tealLoom }}>{blockedAgents.length}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Blocked</div>
+            <div data-testid="discovery-blocked" style={{ display: 'flex', flex: '1 1 180px' }}>
+              <StatCard
+                label="Blocked"
+                value={String(blockedAgents.length)}
+                sub="cannot run"
+                accent={blockedAgents.length > 0 ? colors.red : colors.tealLoom}
+              />
             </div>
           </div>
           {namespaces.length > 0 && (
@@ -749,7 +1094,7 @@ export default function SuperCredPage() {
               Searched: {namespaces.join(', ')}
             </div>
           )}
-        </div>
+        </section>
       )}
 
       {/* Demo steps guide */}

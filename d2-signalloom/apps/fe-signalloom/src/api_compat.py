@@ -733,6 +733,39 @@ class PreferencesPatchRequest(BaseModel):
         return stripped or None
 
 
+class UserPreferencesResponse(BaseModel):
+    """Preferences belonging to ONE user, not to their tenant.
+
+    Distinct from TenantSettingsResponse, whose scan preferences every user in
+    a tenant shares.  Two people looking at the same fleet can want different
+    display currencies, and one of them changing it must not move the other's
+    figures.
+    """
+
+    display_currency: str
+
+
+class UserPreferencesPatchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    display_currency: str = Field(min_length=3, max_length=3)
+
+    @field_validator("display_currency")
+    @classmethod
+    def _iso4217(cls, value: str) -> str:
+        """Reject anything that is not three uppercase letters.
+
+        Validated here as well as by the CHECK constraint in migration 020
+        because the no-pool path has no database to enforce it, and because a
+        400 naming the field is a better answer than a CheckViolationError
+        surfacing as a 500.  Case is NOT coerced: a client sending 'usd' has a
+        bug worth telling it about rather than papering over.
+        """
+        if not (value.isascii() and value.isalpha() and value.isupper()):
+            raise ValueError("display_currency must be a three-letter uppercase ISO 4217 code")
+        return value
+
+
 class CookiePrefsPatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1162,6 +1195,9 @@ _VIOLATIONS: dict[str, dict[str, dict[str, Any]]] = {}
 _NHI_ACCOUNTS: dict[str, dict[str, dict[str, Any]]] = {}
 _TENANT_FRAMEWORKS: dict[str, list[str]] = {}
 _TENANT_PREFERENCES: dict[str, dict[str, Any]] = {}
+# Per-user display currency for the no-pool path, keyed tenant -> actor.
+# Nested by tenant so _reset_tenant can drop it with the rest.
+_USER_PREFERENCES: dict[str, dict[str, str]] = {}
 _COOKIE_PREFS: dict[str, dict[str, bool]] = {}
 _CONSENT: dict[str, dict[str, Any]] = {}
 # Events recorded by mutating handlers while running without a database, oldest
@@ -1211,6 +1247,7 @@ def reset_tenant_state(tenant_id: str) -> None:
         for store in (
             _AGENTS, _VIOLATIONS, _NHI_ACCOUNTS, _TENANT_FRAMEWORKS,
             _TENANT_PREFERENCES, _COOKIE_PREFS, _CONSENT, _AUDIT_EVENTS,
+            _USER_PREFERENCES,
         ):
             store.pop(tenant_id, None)
 
@@ -1223,6 +1260,16 @@ def _now_iso() -> str:
 # and DEFAULT_PREFERENCES in dashboard-signalloom/src/pages/OnboardingWizard.tsx.
 DEFAULT_SCAN_CADENCE_HOURS = 24
 DEFAULT_ALERT_THRESHOLD = 1
+
+# Must stay in step with the column DEFAULT in migration
+# 020_user_display_currency, DEFAULT_CURRENCY in
+# dashboard-signalloom/src/money/currency.ts, and the demo fixture in
+# dashboard-signalloom/src/api/fakeData.ts. The source figures are GBP and
+# the display default is USD, which is why conversion is on the critical
+# path from the first render rather than a later nicety. If one of the four
+# moves they all move, or a user sees one currency while the audit trail
+# records another.
+DEFAULT_DISPLAY_CURRENCY = "USD"
 
 
 def _default_scan_preferences() -> dict[str, Any]:
@@ -3527,6 +3574,95 @@ async def patch_tenant_preferences(
     # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
     # connection and so must run after the commit to observe the new values.
     return await tenant_settings(tenant_id)
+
+
+@router.get("/user/preferences", response_model=UserPreferencesResponse, responses=ERROR_RESPONSES)
+async def user_preferences(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> UserPreferencesResponse:
+    """The signed-in user's own display preferences.
+
+    No user id in the path: the caller is whoever the bearer token says they
+    are.  That is what makes one user's preference incapable of moving
+    another's figures -- not a permission check that could be got wrong, but
+    the absence of any way to name a different user.
+
+    A caller with no ``platform_users`` row, and a row created before migration
+    020 added the column, both resolve to the documented default.
+    """
+    tenant_id = principal.tenant
+    pool = await _get_pool()
+    if pool is None:
+        with _STORE_LOCK:
+            stored = _USER_PREFERENCES.get(tenant_id, {}).get(principal.actor)
+        return UserPreferencesResponse(display_currency=stored or DEFAULT_DISPLAY_CURRENCY)
+
+    row = await pool.fetchrow(
+        "SELECT display_currency FROM platform_users WHERE tenant_id = $1 AND email = $2",
+        tenant_id, principal.actor,
+    )
+    # No row at all is the ordinary case for a caller who has never been
+    # enrolled in the directory, not an error -- they simply have no saved
+    # preference yet.
+    stored = row["display_currency"] if row is not None else None
+    return UserPreferencesResponse(display_currency=stored or DEFAULT_DISPLAY_CURRENCY)
+
+
+@router.patch("/user/preferences", response_model=UserPreferencesResponse, responses=ERROR_RESPONSES)
+async def patch_user_preferences(
+    body: UserPreferencesPatchRequest,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> UserPreferencesResponse:
+    """Save the caller's display currency, and record that they changed it.
+
+    Audited because a settings change a regulated customer cannot see the
+    history of is a gap, and this one changes what every risk figure on every
+    screen reads as.  The ``detail`` carries the previous value alongside the
+    new one so the trail answers "what did it used to be" without a join
+    against a table that only holds the current value.
+    """
+    tenant_id = principal.tenant
+    actor = principal.actor
+    pool = await _get_pool()
+
+    if pool is None:
+        with _STORE_LOCK:
+            previous = _USER_PREFERENCES.get(tenant_id, {}).get(actor) or DEFAULT_DISPLAY_CURRENCY
+            _USER_PREFERENCES.setdefault(tenant_id, {})[actor] = body.display_currency
+        _record_memory_audit(
+            tenant_id, "user.currency_updated", None, None, actor,
+            {"from": previous, "to": body.display_currency, "email": actor},
+        )
+        return UserPreferencesResponse(display_currency=body.display_currency)
+
+    async with _write(pool) as conn:
+        previous_row = await conn.fetchrow(
+            "SELECT display_currency FROM platform_users WHERE tenant_id = $1 AND email = $2",
+            tenant_id, actor,
+        )
+        previous = (previous_row["display_currency"] if previous_row else None) or DEFAULT_DISPLAY_CURRENCY
+
+        # Upsert rather than update: a caller authenticated against this tenant
+        # may have no directory row yet, and "your preference did not save
+        # because someone never added you to a table you have never heard of"
+        # is not a defensible behaviour. display_name is NOT NULL, so a row
+        # created here is named for the identity that created it.
+        await conn.execute(
+            """INSERT INTO platform_users (tenant_id, email, display_name, display_currency)
+                    VALUES ($1, $2, $3, $4)
+               ON CONFLICT ON CONSTRAINT uq_platform_users_tenant_email
+               DO UPDATE SET display_currency = EXCLUDED.display_currency""",
+            tenant_id, actor, actor, body.display_currency,
+        )
+        # Shares the transaction with the write above: an audit row without its
+        # mutation, or a mutation without its audit row, are both worse than
+        # neither. 007 documents what happens when the two come apart.
+        await _audit_log(
+            conn, tenant_id, "user.currency_updated", None, None, actor,
+            {"from": previous, "to": body.display_currency, "email": actor},
+        )
+
+    return UserPreferencesResponse(display_currency=body.display_currency)
 
 
 @router.post("/support", response_model=SupportRequestResponse, responses=ERROR_RESPONSES)

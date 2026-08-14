@@ -7,10 +7,8 @@ import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { ComplianceCheck, PostureSummary } from '../types/compliance'
-
-function fmtGbp(n: number) {
-  return '£' + n.toLocaleString('en-GB')
-}
+import { useMoney } from '../money/CurrencyContext'
+import ConversionNote from '../components/ConversionNote'
 
 interface ControlSetGroup {
   controlSet: string
@@ -38,6 +36,10 @@ function groupChecks(checks: ComplianceCheck[]): ControlSetGroup[] {
 
 export default function AgentPosturePage() {
   const { getAccessTokenSilently } = useAuth0()
+  // Exposure figures are source-currency amounts converted for display;
+  // `fmt` yields "Unavailable" rather than an unconverted number if no rate
+  // exists, and `conversionNote` states the rate and its effective date.
+  const { fmt, conversionNote } = useMoney()
   const [summary, setSummary] = useState<PostureSummary | null>(null)
   const [checks, setChecks] = useState<ComplianceCheck[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -104,6 +106,7 @@ export default function AgentPosturePage() {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
             olly-sentinel | namespace: default
           </div>
+          <ConversionNote note={conversionNote} testId="posture-conversion-note" />
         </div>
         <StatusBadge status={postureBadgeStatus} variant="compliance" />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{overallPosture}</span>
@@ -129,7 +132,7 @@ export default function AgentPosturePage() {
         />
         <StatCard
           label="Total Exposure"
-          value={fmtGbp(totalExposure)}
+          value={fmt(totalExposure)}
           sub="carried risk from failures"
           accent={totalExposure > 0 ? colors.amber : colors.tealLoom}
         />
@@ -208,8 +211,8 @@ export default function AgentPosturePage() {
                             {c.policyVersion}
                           </span>
                         </td>
-                        <td style={td}>{fmtGbp(c.ale)}</td>
-                        <td style={td}>{fmtGbp(c.var95)}</td>
+                        <td style={td}>{fmt(c.ale)}</td>
+                        <td style={td}>{fmt(c.var95)}</td>
                       </tr>
                     ))}
                   </Table>

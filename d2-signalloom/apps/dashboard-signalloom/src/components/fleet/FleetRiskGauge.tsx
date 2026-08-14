@@ -1,15 +1,23 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import HelpHint from '../HelpHint'
+import { useMoney } from '../../money/CurrencyContext'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
 export interface FleetRiskGaugeProps {
-  /** Annual loss expectancy in GBP. */
+  /**
+   * Annual loss expectancy, in the SOURCE currency (see money/currency.ts).
+   *
+   * Still a bare number: the gauge is handed raw figures by the fleet topology
+   * and converts them for display itself, so callers are not each obliged to
+   * convert before rendering. The currency this ends up shown in comes from the
+   * user's preference, not from this prop.
+   */
   ale: number
-  /** Value at risk, 95th percentile. */
+  /** Value at risk, 95th percentile, in the source currency. */
   var95: number
   trend: 'up' | 'down' | 'stable'
-  /** Previous ALE for delta display. */
+  /** Previous ALE for delta display, in the source currency. */
   previousAle?: number
 }
 
@@ -23,18 +31,18 @@ function riskColour(ale: number): string {
 
 // ── Formatting ──────────────────────────────────────────────────────────────
 
-function formatGBP(value: number): string {
-  if (value >= 1_000_000) {
-    const m = value / 1_000_000
-    return `\u00A3${m % 1 === 0 ? m.toFixed(0) : m.toFixed(1)}M`
-  }
-  return `\u00A3${value.toLocaleString('en-GB')}`
-}
-
-function formatDelta(current: number, previous: number): string {
-  const diff = Math.abs(current - previous)
-  return formatGBP(diff)
-}
+// The hand-rolled formatter that used to live here was
+// `'\u00A3' + value.toLocaleString('en-GB')` with a bespoke "M" suffix above a
+// million. Both assumptions were British-specific and neither survives a second
+// currency: the symbol is not always a prefix, and the abbreviation is a CLDR
+// fact (en-GB writes "\u00A32.5m", en-US writes "$2.5M", de-DE writes "Mio.").
+// Intl already encodes all of it, so formatting now comes from useMoney().
+//
+// The one-million abbreviation THRESHOLD is preserved deliberately \u2014 it is
+// COMPACT_THRESHOLD in money/format.ts \u2014 so this component's only visible
+// change is its currency. A gauge that restyled every figure under a million at
+// the same moment it changed currency would make a visual regression
+// impossible to attribute to either change.
 
 // ── Animated counter ────────────────────────────────────────────────────────
 
@@ -92,6 +100,8 @@ function useAnimatedNumber(target: number): number {
 export default function FleetRiskGauge({ ale, var95, trend, previousAle }: FleetRiskGaugeProps) {
   const displayAle = useAnimatedNumber(ale)
   const colour = riskColour(ale)
+  const { fmt, asOfNote } = useMoney()
+  const money = (value: number) => fmt(value, { compact: true })
 
   const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '\u2014'
   const trendColour = trend === 'up' ? 'var(--error)' : trend === 'down' ? 'var(--teal)' : 'var(--muted)'
@@ -120,7 +130,7 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle }: Fleet
           lineHeight: 1.1,
         }}
       >
-        {formatGBP(displayAle)}
+        {money(displayAle)}
       </div>
 
       {/* Trend indicator + delta */}
@@ -130,14 +140,14 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle }: Fleet
         </span>
         {previousAle !== undefined && trend !== 'stable' && (
           <span data-testid="fleet-risk-delta" style={{ color: 'var(--muted)', fontSize: 13 }}>
-            {formatDelta(ale, previousAle)}
+            {money(Math.abs(ale - previousAle))}
           </span>
         )}
       </div>
 
       {/* VaR 95 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-        <span>VaR95: {formatGBP(var95)}</span>
+        <span>VaR95: {money(var95)}</span>
         {/* aria-live="off" overrides the container's polite region for this
             subtree. Without it the tooltip text is announced twice: once by
             aria-describedby when the "?" takes focus, and again by the live
@@ -149,9 +159,13 @@ export default function FleetRiskGauge({ ale, var95, trend, previousAle }: Fleet
         </span>
       </div>
 
-      {/* Subtitle */}
-      <div style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 4 }}>
+      {/* Subtitle. The as_of suffix appears only when a conversion actually
+          happened — a converted figure with no stated date is one nobody can
+          defend in a review, and that is the whole reason the rate table is
+          checked in rather than fetched. */}
+      <div data-testid="fleet-risk-subtitle" style={{ fontSize: 11, color: 'var(--muted)', textAlign: 'center', marginTop: 4 }}>
         Annual Loss Expectancy (FAIR Monte Carlo)
+        {asOfNote !== null && ` \u00B7 ${asOfNote}`}
       </div>
     </div>
   )

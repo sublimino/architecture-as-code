@@ -23,14 +23,6 @@ import { clearDemoActivity, demoActivityEvents } from './demoActivity'
 
 const TOKEN = 'test-token'
 
-// Locator only. `reason` and `outcome` were removed from StunAgentRequest —
-// the server authors the narrative from what it observed, and the endpoint is
-// extra="forbid", so sending them now fails the request outright.
-const STUN_BODY = {
-  agent_name: 'Cardvault Agent',
-  namespace: 'fe-signalloom',
-}
-
 beforeEach(() => {
   clearDemoActivity()
   request.mockReset()
@@ -47,7 +39,7 @@ describe('stun activity — demo mode', () => {
   })
 
   it('resolves a fixture rather than issuing HTTP', async () => {
-    const res = await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    const res = await api.agents.stun(TOKEN, 'agent-cardvault')
     expect(request).not.toHaveBeenCalled()
     expect(res.agent_id).toBe('agent-cardvault')
     expect(res.to_state).toBe('suspended')
@@ -55,7 +47,7 @@ describe('stun activity — demo mode', () => {
   })
 
   it('records an event carrying timestamp, agent id, action, actor and outcome', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    await api.agents.stun(TOKEN, 'agent-cardvault')
 
     const [event] = demoActivityEvents()
     expect(event.event_type).toBe('agent.stunned')
@@ -72,7 +64,7 @@ describe('stun activity — demo mode', () => {
     const before = await api.audit(TOKEN, { page: 1, limit: 50 })
     const baseline = before.total
 
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    await api.agents.stun(TOKEN, 'agent-cardvault')
 
     const after = await api.audit(TOKEN, { page: 1, limit: 50 })
     expect(after.total).toBe(baseline + 1)
@@ -82,7 +74,7 @@ describe('stun activity — demo mode', () => {
   })
 
   it('keeps the pre-existing fixture events alongside the recorded one', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    await api.agents.stun(TOKEN, 'agent-cardvault')
     const after = await api.audit(TOKEN, { page: 1, limit: 50 })
     expect(after.events.map(e => e.event_type)).toContain('agent.registered')
   })
@@ -93,20 +85,29 @@ describe('stun activity — live mode', () => {
     setDemoMode(false)
   })
 
-  it('POSTs to the fe-signalloom stun endpoint that writes the audit row', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+  it('POSTs to the fe-signalloom stun endpoint that performs and records the stun', async () => {
+    await api.agents.stun(TOKEN, 'agent-cardvault')
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
         url: '/api/agents/agent-cardvault/stun',
         method: 'POST',
-        data: STUN_BODY,
       }),
     )
   })
 
+  it('sends no body, so nothing about the event originates in the browser', async () => {
+    await api.agents.stun(TOKEN, 'agent-cardvault')
+
+    // Asserted on the resolved config rather than via `not.objectContaining`:
+    // the point is that `data` is absent, and an inequality against some
+    // known-bad body would pass the moment a different one was introduced.
+    const [config] = request.mock.calls[0] as [{ data?: unknown }]
+    expect(config.data).toBeUndefined()
+  })
+
   it('carries the bearer token so the audit row is attributed to the tenant', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    await api.agents.stun(TOKEN, 'agent-cardvault')
 
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -116,7 +117,7 @@ describe('stun activity — live mode', () => {
   })
 
   it('records nothing in the demo log — the backend owns the live trace', async () => {
-    await api.agents.stun(TOKEN, 'agent-cardvault', STUN_BODY)
+    await api.agents.stun(TOKEN, 'agent-cardvault')
 
     expect(demoActivityEvents()).toEqual([])
   })

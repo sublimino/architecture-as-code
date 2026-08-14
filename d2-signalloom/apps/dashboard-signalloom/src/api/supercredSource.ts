@@ -14,6 +14,7 @@
 import { isDemoMode, isProductionEnv } from './demoMode'
 import { observationStaleAfter } from './pollInterval'
 import { getSuperCredState, recordObservation, recordScan } from './supercredState'
+import { SIMULATED_DEMO_AGENT } from './supercredTypes'
 import type {
   SuperCredAgentObservation,
   SuperCredDemoState,
@@ -27,19 +28,6 @@ const SUPERCRED_API = '/supercred-api'
 const SIM_KEY = 'sl_supercred_demo_phase'
 
 // ─── Simulated cluster (demo-data mode) ──────────────────────────────────────
-
-const SIM_AGENT: SuperCredAgentObservation = {
-  id: 'agent-cardvault',
-  name: 'Cardvault Agent',
-  namespace: 'fe-signalloom-agents',
-  type: 'Signal Loom Built',
-  framework: 'langchain',
-  model: 'gpt-4o',
-  phase: 'Running',
-  supercred: true,
-  supercred_target: 'cardvault.fe-signalloom-services',
-  created_at: '2026-08-02T09:55:00Z',
-}
 
 /** The `signalloom.ai/state` label the real demo script would have written. */
 const SIM_LABEL: Record<SuperCredPhase, string | null> = {
@@ -84,7 +72,7 @@ function writeSimPhase(phase: SuperCredPhase): void {
 function simulate(phase: SuperCredPhase): SuperCredAgentObservation | null {
   if (phase === 'absent') return null
   return {
-    ...SIM_AGENT,
+    ...SIMULATED_DEMO_AGENT,
     state: SIM_LABEL[phase],
     stunned_at: phase === 'stunned' ? '2026-08-02T10:05:00Z' : null,
     stun_reason: phase === 'stunned' ? 'compliance-failure: securityContext not set' : null,
@@ -288,27 +276,26 @@ export async function scanSuperCredAgent(url: string, agentId: string): Promise<
   return result
 }
 
-/** Stun the agent and force the main pages to re-observe. */
-export async function stunSuperCredAgent(url: string, agentId: string): Promise<StunResponse> {
-  let result: StunResponse
-  if (isDemoMode()) {
-    setSimulatedPhase('stunned')
-    result = {
-      agent_id: agentId,
-      state: 'stunned',
-      stunned_at: new Date().toISOString(),
-      message: `Agent ${agentId} stunned: credentials revoked, state marked as stunned`,
-    }
-  } else {
-    const res = await fetch(url, { method: 'POST' })
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`Stun failed: ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`)
-    }
-    result = (await res.json()) as StunResponse
-  }
+/**
+ * Move the local observation state on after a completed stun.
+ *
+ * stunSuperCredAgent() used to live here and POSTed the proxy directly. That
+ * call is gone: `POST /api/agents/{id}/stun` now performs the cluster action
+ * itself, so a browser-side copy would relabel the pod twice. More to the
+ * point, the two-call shape was the defect — the browser POSTed the proxy, then
+ * POSTed fe-signalloom to record it, and a closed tab or an expired token
+ * between the two left the cluster mutated with nothing written down. One call
+ * has no window to fall through.
+ *
+ * What is left is purely local and has no backend counterpart, which is why it
+ * did not go with the fetch. `setSimulatedPhase` advances the simulated cluster
+ * so Compliance, Risk Exposure and Agent Posture observe the stun in demo mode
+ * (it no-ops outside it), and the invalidation makes every page re-read rather
+ * than serve a cached pre-stun observation. Mirrors recordScanResult below.
+ */
+export function recordStunResult(): void {
+  setSimulatedPhase('stunned')
   invalidateSuperCredState()
-  return result
 }
 
 /**

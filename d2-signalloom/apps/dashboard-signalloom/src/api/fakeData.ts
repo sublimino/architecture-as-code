@@ -32,10 +32,11 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
-import type { StunAgentRequest, StunAgentResponse } from '../types/api'
+import type { StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
+import { simulatedAgentIdentity } from './supercredTypes'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -460,18 +461,21 @@ const DEMO_ACTOR = 'demo-operator'
  * straight back as though the platform had observed it. A demo whose audit
  * trail echoes the client teaches exactly the wrong thing about the product.
  */
-function stunFixture(path: string, body?: unknown): StunAgentResponse {
+function stunFixture(path: string): StunAgentResponse {
   const agentId = path.split('/')[2]
-  const req = (body ?? {}) as StunAgentRequest
+  // Every field is sourced here, none from the request — the endpoint takes no
+  // body. Identity comes from the simulated cluster, which is demo mode's stand
+  // -in for the proxy the live endpoint asks.
+  const identity = simulatedAgentIdentity(agentId)
   const event = recordDemoActivity({
     event_type: 'agent.stunned',
     agent_id: agentId,
-    agent_name: req.agent_name ?? agentId,
+    agent_name: identity?.name ?? agentId,
     actor: DEMO_ACTOR,
     detail: {
       outcome: 'stunned',
       reason: 'operator-initiated stun',
-      namespace: req.namespace ?? null,
+      namespace: identity?.namespace ?? null,
       from_state: 'active',
       to_state: 'suspended',
     },
@@ -657,7 +661,7 @@ const ROUTES: Match[] = [
   // which replaced this branch's static fixtures. The stun route below exists only
   // on feat/supercred-stun-timeline — resolving this hunk to either side alone
   // would have silently dropped one of the two features.
-  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p, body) => stunFixture(p, body) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p) => stunFixture(p) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },

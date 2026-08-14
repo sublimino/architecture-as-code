@@ -18,8 +18,9 @@ import {
   resetSuperCredSource,
   scanSuperCredAgent,
   setSimulatedPhase,
-  stunSuperCredAgent,
+  recordStunResult,
 } from './supercredSource'
+import { simulatedAgentIdentity } from './supercredTypes'
 import { getSuperCredState, resetSuperCredState } from './supercredState'
 import { installMemoryStorage } from '../test-utils/memoryStorage'
 
@@ -363,37 +364,42 @@ describe('scanSuperCredAgent', () => {
   })
 })
 
-describe('stunSuperCredAgent', () => {
+describe('recordStunResult', () => {
   it('advances the simulated cluster to stunned in demo-data mode', async () => {
     setSimulatedPhase('non-compliant')
     await discoverSuperCredAgents()
 
-    const result = await stunSuperCredAgent('/unused', 'agent-cardvault')
-    expect(result.state).toBe('stunned')
+    recordStunResult()
     expect(getSuperCredState().phase).toBe('stunned')
     expect(getSimulatedPhase()).toBe('stunned')
   })
 
-  it('posts to the proxy in live mode and forces a re-observation', async () => {
+  // The regression this pins is a double stun, not a missing one. This module
+  // used to POST /supercred-api/agents/{id}/stun itself; that call now belongs
+  // to POST /api/agents/{id}/stun, which makes it server-side. A browser-side
+  // copy would relabel the pod and revoke the lease a second time, and the
+  // symptom — an agent that ends up stunned — looks exactly like success.
+  it('issues no request of its own, so the pod is not stunned twice', () => {
     demoModeMock.on = false
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        agent_id: 'agent-cardvault', state: 'stunned',
-        stunned_at: '2026-08-02T10:05:00Z', message: 'stunned',
-      }),
-    } as Response)
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
 
-    const result = await stunSuperCredAgent('/supercred-api/agents/agent-cardvault/stun', 'agent-cardvault')
-    expect(fetchSpy).toHaveBeenCalledWith('/supercred-api/agents/agent-cardvault/stun', { method: 'POST' })
-    expect(result.stunned_at).toBe('2026-08-02T10:05:00Z')
+    recordStunResult()
+
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+})
+
+describe('simulatedAgentIdentity', () => {
+  it('reports what the proxy would have told the endpoint about the pod', () => {
+    expect(simulatedAgentIdentity('agent-cardvault')).toEqual({
+      name: 'Cardvault Agent',
+      namespace: 'fe-signalloom-agents',
+    })
   })
 
-  it('surfaces a failed stun rather than pretending it worked', async () => {
-    demoModeMock.on = false
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
-      ok: false, status: 500, text: async () => 'openbao unreachable',
-    } as Response)
-    await expect(stunSuperCredAgent('/x', 'agent-cardvault')).rejects.toThrow(/500/)
+  it('returns null for a pod the simulated cluster does not hold', () => {
+    // Falling back to the raw pod name is honest; inventing a friendly name for
+    // a workload nothing has observed would put a fiction on the audit trail.
+    expect(simulatedAgentIdentity('agent-unknown')).toBeNull()
   })
 })

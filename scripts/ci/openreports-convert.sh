@@ -129,6 +129,11 @@ const stageMap = [
   // separately from 1c because the two answer different questions -- 1c asks
   // whether the tests run, this asks whether the thing under test was built.
   { file: 'stage1d-build-parity.tap', parser: parseTap, source: 'bats-ci-build-parity', category: 'meta' },
+  // 'meta' for the same reason as 1c and 1d: it asserts that a diagnostic tells
+  // the truth about this profile, not anything about the product. Without a row
+  // here the stage would run and its results would be dropped from the report --
+  // which is the silent-degradation shape 1c exists to catch.
+  { file: 'stage1e-node-images.tap', parser: parseTap, source: 'bats-doctor-node-images', category: 'meta' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

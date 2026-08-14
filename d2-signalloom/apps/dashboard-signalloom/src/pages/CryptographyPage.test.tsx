@@ -192,7 +192,12 @@ describe('CryptographyPage', () => {
   it('adds an End of Life column to the Cipher Discovery table, sourced per cipher', () => {
     renderPage()
     const table = sectionFor('Cipher Discovery (PQC)')
-    expect(table.getByRole('columnheader', { name: 'End of life' })).toBeInTheDocument()
+    // Anchored prefix rather than an exact name: the header now carries a
+    // HelpHint, and an explicit aria-label on a descendant button joins the
+    // header's own accessible name — it reads "End of life What End of life
+    // means". The column is still called what it was called; the assertion was
+    // over-specified about what else is allowed to be inside the cell.
+    expect(table.getByRole('columnheader', { name: /^End of life/ })).toBeInTheDocument()
     // Classical key exchange (ECDHE P-256, used by postgres and redis) is flagged with a sourced EOL date.
     const eolBadges = table.getAllByText('EOL 2035')
     expect(eolBadges.length).toBe(2)
@@ -297,5 +302,213 @@ describe('CryptographyPage', () => {
     fireEvent.click(links[0])
 
     expect(targetRow).toHaveAttribute('data-highlighted', 'true')
+  })
+
+  // ── Design-system migration ───────────────────────────────────────────────
+  //
+  // Every table on this page is now a DataTable with a `toolbar` and an
+  // `emptyState`, which is the shape the Design System page calls "Realistic".
+  // The suite below is table-driven on purpose: the point of the migration is
+  // that all six behave IDENTICALLY, and six hand-written near-copies would let
+  // one of them drift without failing anything. A table that forgets its
+  // toolbar, its count, its empty state or its undo fails here by construction.
+
+  interface TableSpec {
+    heading: string
+    prefix: string
+    total: number
+    /** A search that matches exactly one row, and the text proving which. */
+    search: { query: string; rows: number; proof: string }
+    /** A filter chip that narrows, and how many rows survive it. */
+    chip: { name: string; rows: number }
+    /** Accessible names of every HelpHint this table's headers carry. */
+    hints: string[]
+  }
+
+  const TABLES: TableSpec[] = [
+    {
+      heading: 'Cluster Root of Trust',
+      prefix: 'root-of-trust',
+      total: 4,
+      search: { query: 'SPIRE Server', rows: 1, proof: 'SPIRE Server CA' },
+      chip: { name: 'expiring', rows: 1 },
+      hints: ['What Role means', 'What Status means'],
+    },
+    {
+      heading: 'OpenBao Bootstrap',
+      prefix: 'bao-engines',
+      total: 5,
+      search: { query: 'transit', rows: 1, proof: 'transit/envelope' },
+      // Nothing is sealed, so this chip is the one that empties a table on a
+      // page where every other filter has survivors — the empty-state path is
+      // reachable by a real control, not only by a nonsense search.
+      chip: { name: 'sealed', rows: 0 },
+      hints: ['What Type means', 'What Active leases means'],
+    },
+    {
+      heading: 'SPIFFE / SPIRE Bootstrap',
+      prefix: 'spire-svids',
+      total: 5,
+      search: { query: 'legacy-batch', rows: 1, proof: 'legacy-batch-runner' },
+      chip: { name: 'revoked', rows: 1 },
+      hints: ['What SPIFFE ID means', 'What Selector means'],
+    },
+    {
+      heading: 'Cipher Discovery (PQC)',
+      prefix: 'cipher-discovery',
+      total: 6,
+      search: { query: 'postgres', rows: 1, proof: 'postgres (internal)' },
+      chip: { name: 'classical', rows: 2 },
+      hints: ['What Key exchange means', 'What PQC means', 'What End of life means'],
+    },
+    {
+      heading: 'Algorithm Inventory',
+      prefix: 'algo-inventory',
+      total: 9,
+      search: { query: 'Kyber', rows: 1, proof: 'ML-KEM (Kyber)' },
+      chip: { name: 'quantum-vulnerable', rows: 5 },
+      hints: ['What NIST Status means', 'What End of life means', 'What Quantum-safe means'],
+    },
+    {
+      heading: 'OAuth2 / MCP Proxies',
+      prefix: 'proxies',
+      total: 4,
+      search: { query: 'llm-gateway', rows: 1, proof: 'mcp-proxy/llm-gateway' },
+      chip: { name: 'mcp-proxy', rows: 2 },
+      hints: ['What Kind means', 'What Identity provider means', 'What Status means'],
+    },
+  ]
+
+  /** Body rows currently rendered by a table, excluding its header row. */
+  function bodyRowCount(prefix: string): number {
+    // The toolbar and the table are siblings under DataTable's root, so the
+    // toolbar's own test id is the stable way to reach the table it belongs to
+    // — and it keeps working on the empty branch, where there is no table.
+    const toolbar = screen.queryByTestId(`${prefix}-toolbar`)
+    const table = toolbar?.parentElement?.querySelector('table')
+    return table ? table.querySelectorAll('tbody tr').length : 0
+  }
+
+  describe.each(TABLES)('$heading table', (spec) => {
+    it('carries a toolbar, which no table on this page had before', () => {
+      renderPage()
+      expect(screen.getByTestId(`${spec.prefix}-toolbar`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.total} of ${spec.total} shown`,
+      )
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
+    })
+
+    it('narrows the rows when the search box is typed into', () => {
+      renderPage()
+      fireEvent.change(screen.getByTestId(`${spec.prefix}-search`), {
+        target: { value: spec.search.query },
+      })
+
+      expect(bodyRowCount(spec.prefix)).toBe(spec.search.rows)
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.search.rows} of ${spec.total} shown`,
+      )
+      expect(sectionFor(spec.heading).getByText(spec.search.proof)).toBeInTheDocument()
+    })
+
+    it('narrows the rows when a filter chip is pressed', () => {
+      renderPage()
+      const chip = screen.getByTestId(`${spec.prefix}-filter-${spec.chip.name}`)
+      expect(chip).toHaveAttribute('aria-pressed', 'false')
+
+      fireEvent.click(chip)
+
+      expect(chip).toHaveAttribute('aria-pressed', 'true')
+      expect(bodyRowCount(spec.prefix)).toBe(spec.chip.rows)
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.chip.rows} of ${spec.total} shown`,
+      )
+    })
+
+    // The bug DataTable's two props exist to prevent: a hand-rolled
+    // `rows.length ? <Table/> : <EmptyState/>` takes the filter control down
+    // with the table, so the filter that emptied it cannot be undone without a
+    // reload. Asserting the toolbar is STILL THERE is the whole point.
+    it('shows an empty state that the filter can be cleared from', () => {
+      renderPage()
+      const search = screen.getByTestId(`${spec.prefix}-search`)
+      fireEvent.change(search, { target: { value: 'no-such-thing-anywhere' } })
+
+      expect(screen.getByTestId(`${spec.prefix}-empty`)).toBeInTheDocument()
+      expect(bodyRowCount(spec.prefix)).toBe(0)
+      // The undo affordance survived the table it emptied.
+      expect(screen.getByTestId(`${spec.prefix}-toolbar`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-search`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-filter-all`)).toBeInTheDocument()
+
+      fireEvent.change(screen.getByTestId(`${spec.prefix}-search`), { target: { value: '' } })
+
+      expect(screen.queryByTestId(`${spec.prefix}-empty`)).toBeNull()
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
+    })
+
+    it('resets to every row when the "all" chip is pressed', () => {
+      renderPage()
+      fireEvent.click(screen.getByTestId(`${spec.prefix}-filter-${spec.chip.name}`))
+      fireEvent.click(screen.getByTestId(`${spec.prefix}-filter-all`))
+
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
+    })
+
+    it('explains its jargon columns behind a HelpHint reachable by accessible name', () => {
+      renderPage()
+      const table = sectionFor(spec.heading)
+      for (const hint of spec.hints) {
+        const trigger = table.getByRole('button', { name: hint })
+        expect(trigger).toBeInTheDocument()
+
+        // Reachable by keyboard, not hover only — the tooltip has to appear for
+        // someone who never touches a pointer.
+        fireEvent.focus(trigger)
+        const tip = table.getByRole('tooltip')
+        expect(tip.textContent?.length ?? 0).toBeGreaterThan(20)
+        expect(trigger).toHaveAttribute('aria-describedby', tip.id)
+
+        fireEvent.blur(trigger)
+        expect(table.queryByRole('tooltip')).toBeNull()
+      }
+    })
+  })
+
+  it('filters each table independently — narrowing one leaves the others whole', () => {
+    renderPage()
+    fireEvent.change(screen.getByTestId('cipher-discovery-search'), { target: { value: 'postgres' } })
+
+    expect(bodyRowCount('cipher-discovery')).toBe(1)
+    expect(bodyRowCount('algo-inventory')).toBe(9)
+    expect(bodyRowCount('root-of-trust')).toBe(4)
+  })
+
+  // The Recharts PieChart this section used to draw was a charting dependency
+  // carrying a hand-rolled HTML overlay for its centre label and a hand-rolled
+  // legend beneath it. DonutChart is the design system's answer for a single
+  // proportion and needs neither.
+  it('draws PQC coverage with the design system DonutChart, not a charting dependency', () => {
+    const { container } = renderPage()
+    const section = sectionFor('Cipher Discovery (PQC)')
+
+    expect(section.getByText('67%')).toBeInTheDocument()
+    expect(section.getByText('quantum-safe')).toBeInTheDocument()
+    // Legend still names all three segments with their counts.
+    expect(section.getByText(/PQC ready:/)).toHaveTextContent('PQC ready: 2')
+    expect(section.getByText(/Hybrid:/)).toHaveTextContent('Hybrid: 2')
+    expect(section.getByText(/Classical:/)).toHaveTextContent('Classical: 2')
+    // Recharts renders into a .recharts-wrapper; nothing on the page should now.
+    expect(container.querySelector('.recharts-wrapper')).toBeNull()
+  })
+
+  it('explains where the quantum-safe percentage comes from', () => {
+    renderPage()
+    const hint = sectionFor('Cipher Discovery (PQC)').getByRole('button', {
+      name: 'What the quantum-safe percentage counts',
+    })
+    fireEvent.focus(hint)
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/hybrid/i)
   })
 })

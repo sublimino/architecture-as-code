@@ -23,7 +23,9 @@ import { DEFAULT_RATE_TABLE, rateFor, supportedCurrencies } from './rates'
 import { SUPPORTED_CURRENCIES } from './currency'
 
 const CANONICAL = resolve(__dirname, '../../../../../risk/fx/rates.json')
+const CANONICAL_VECTORS = resolve(__dirname, '../../../../../risk/fx/testvectors.json')
 const canonicalPresent = existsSync(CANONICAL)
+const vectorsPresent = existsSync(CANONICAL_VECTORS)
 
 describe('the generated rate table matches the canonical artefact', () => {
   it.skipIf(!canonicalPresent)(
@@ -43,6 +45,22 @@ describe('the generated rate table matches the canonical artefact', () => {
       // Deliberately not silent. A skipped comparison should be visible in the
       // run, not something a reader has to infer from an absence.
       expect(canonicalPresent).toBe(false)
+    },
+  )
+
+  it.skipIf(!vectorsPresent)(
+    'vendors risk/fx/testvectors.json unchanged — conformance must test the real cases',
+    () => {
+      // The vectors are vendored into __fixtures__ so the dashboard suite runs
+      // standalone. A vendored copy that drifts is worse than none:
+      // convert.conformance.test.ts would go green against cases the engine no
+      // longer produces, which reads as agreement and is not.
+      const canonical = JSON.parse(readFileSync(CANONICAL_VECTORS, 'utf8'))
+      const vendored = JSON.parse(
+        readFileSync(resolve(__dirname, '__fixtures__/fxTestVectors.json'), 'utf8'),
+      )
+      expect(vendored.as_of).toBe(canonical.as_of)
+      expect(vendored.cases).toEqual(canonical.cases)
     },
   )
 })

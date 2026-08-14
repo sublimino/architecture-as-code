@@ -134,6 +134,13 @@ const stageMap = [
   // here the stage would run and its results would be dropped from the report --
   // which is the silent-degradation shape 1c exists to catch.
   { file: 'stage1e-node-images.tap', parser: parseTap, source: 'bats-doctor-node-images', category: 'meta' },
+  // 'meta' for the same reason again: it asserts nothing about the product. It
+  // asserts that the artifacts this pipeline leaves behind say which run they
+  // belong to and how it ended -- the guard on the harness reporting honestly
+  // about itself. 1f rather than a second 1e: this and the node-image stage were
+  // written in parallel and both claimed the 1e slot. The suffixes exist to keep
+  // insertion cheap, which only holds while each one names exactly one stage.
+  { file: 'stage1f-ci-terminal-state.tap', parser: parseTap, source: 'bats-ci-terminal-state', category: 'meta' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

@@ -459,6 +459,218 @@ cmd_provision() {
   echo "    Debug SSH:   ./scripts/ci/gcp-ci.sh ssh"
 }
 
+# ── Terminal state that outlives the terminal ────────────────────────
+#
+# Three incidents in one session on 2026-08-13, all the same shape: the state
+# left on disk after a run could not distinguish success from never-having-run.
+#
+#   1. Two lanes aborted before stage 1. Both VMs were suspended by hand to stop
+#      the cost, which is also the SUCCESS state — the script suspends on pass.
+#      "SUSPENDED, ci-reports/ holding only wait-stats.txt" is what you see
+#      after a clean pass whose collection failed, after an abort, and after a
+#      run that never started.
+#   2. A poll read ci-reports/summary.json mid-run and got `5444d45 FAIL 8/12` —
+#      the PREVIOUS round's file, because the new run had not collected yet.
+#   3. A VM status read 14 seconds before the VM was resumed was reported as
+#      "not started". Accurate when taken, wrong on arrival.
+#
+# The fix is that the run writes its own state at every transition, starting
+# before it touches the VM: a RUNNING marker with the commit under test, then a
+# terminal PASS / FAIL / ABORTED / STALE. There is never a window in which
+# summary.json describes a different run than the one you are asking about.
+RUN_COMMIT="unknown"
+RUN_BRANCH="unknown"
+RUN_STARTED_AT=""
+RUN_PHASE="not-started"
+
+# One generation back, out of the way, BEFORE anything can be collected into it.
+# Rotating at collection time (where this used to live) leaves the previous
+# round's summary.json readable for the entire duration of the new run — which
+# is incident 2 exactly.
+rotate_reports() {
+  if [[ -d "$REPORT_DIR" ]] && [[ -n "$(ls -A "$REPORT_DIR" 2>/dev/null)" ]]; then
+    rm -rf "${REPORT_DIR}.prev"
+    mv "$REPORT_DIR" "${REPORT_DIR}.prev"
+    echo "    previous run rotated to $(basename "${REPORT_DIR}").prev"
+  fi
+  mkdir -p "$REPORT_DIR"
+  return 0
+}
+
+# write_run_status <outcome> <phase> [note] [exit_code]
+# Shaped to match the pipeline's own summary.json so one reader handles both.
+write_run_status() {
+  local outcome="$1" phase="$2" note="${3:-}" exit_code="${4:-}"
+  mkdir -p "$REPORT_DIR" 2>/dev/null || return 0
+  local tmp="${REPORT_DIR}/.summary.json.tmp"
+  if jq -n \
+      --arg outcome "$outcome" \
+      --arg phase "$phase" \
+      --arg note "$note" \
+      --arg commit "$RUN_COMMIT" \
+      --arg branch "$RUN_BRANCH" \
+      --arg vm "$VM_NAME" \
+      --arg started_at "$RUN_STARTED_AT" \
+      --arg written_at "$(date -Iseconds)" \
+      --arg exit_code "$exit_code" \
+      '{outcome: $outcome, overall: $outcome, phase: $phase, commit: $commit,
+        branch: $branch, vm: $vm, started_at: $started_at, written_at: $written_at,
+        note: $note}
+       + (if $exit_code == "" then {} else {exit_code: ($exit_code | tonumber)} end)' \
+      >"$tmp" 2>/dev/null; then
+    mv "$tmp" "${REPORT_DIR}/summary.json"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
+# The EXIT trap for `run`. Releases the lock as before, and converts a leftover
+# RUNNING marker into a terminal ABORTED — a run killed between the start marker
+# and the verdict (Ctrl-C, a `exit 2` from the resume path, an OOM) would
+# otherwise leave "RUNNING" on disk forever, which reads as "still going".
+#
+# The explicit `exit "$rc"` is not decoration: under `set -e` an EXIT trap hands
+# its own last exit status to the shell, which is how a run with 8/8 stages
+# green once exited 1. See lock_release's comment and test/ci-lock.bats.
+run_exit_trap() {
+  local rc=$?
+  lock_release || true
+  local outcome=""
+  if [[ -f "${REPORT_DIR}/summary.json" ]]; then
+    outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/summary.json" 2>/dev/null || echo "")"
+  fi
+  if [[ "$outcome" == "RUNNING" ]]; then
+    write_run_status ABORTED "$RUN_PHASE" \
+      "run exited during phase '${RUN_PHASE}' without reaching a verdict; this is an ABORTED run, NOT a test failure" \
+      "$rc"
+  fi
+  exit "$rc"
+}
+
+set_run_phase() {
+  RUN_PHASE="$1"
+  write_run_status RUNNING "$1" "run in flight (pid $$ on $(hostname -s)); this is not a verdict"
+  return 0
+}
+
+# classify_run_outcome <summary-file> <expected-commit> <pipeline-exit>
+# Echoes exactly one of: PASS | FAIL | ABORTED | STALE.
+#
+# The two dishonest readings this exists to stop:
+#   RUNNING  — our own start marker survived collection, i.e. NOTHING came back
+#              from the VM. Absence of a report is an abort, never a pass.
+#   STALE    — the summary on disk names a different commit than the one under
+#              test, so it describes some other run. A green run cannot reach
+#              this branch: the pipeline stamps the commit gcp-ci.sh hands it.
+classify_run_outcome() {
+  local summary="$1" expected_commit="$2" pipeline_exit="$3"
+  [[ -f "$summary" ]] || { echo ABORTED; return 0; }
+
+  local outcome commit
+  outcome="$(jq -r '.outcome // .overall // "UNKNOWN"' "$summary" 2>/dev/null || echo UNKNOWN)"
+  commit="$(jq -r '.commit // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+
+  case "$outcome" in
+    RUNNING|ABORTED|UNKNOWN|"") echo ABORTED; return 0 ;;
+  esac
+
+  if [[ "$expected_commit" != "unknown" && "$commit" != "unknown" \
+        && "$commit" != "$expected_commit" ]]; then
+    echo STALE
+    return 0
+  fi
+
+  # A summary saying PASS does not outrank a non-zero pipeline exit; that pair
+  # means the run died after writing its report, and exiting 0 on it would be
+  # the same lie in a different file. This is the status the script already
+  # exited with, so nothing green changes colour.
+  if [[ "$outcome" == "PASS" ]] && ((pipeline_exit == 0)); then
+    echo PASS
+  else
+    echo FAIL
+  fi
+  return 0
+}
+
+# final_exit_code <verdict> <pipeline-exit>
+# The one place the run's exit status is decided, so the status, the message and
+# the file on disk cannot disagree with each other.
+#
+#   PASS            — 0. Unchanged, and the only path that suspends the VM.
+#   FAIL            — the pipeline's own status, or 1 if it somehow exited 0
+#                     while reporting failures. A report saying FAIL next to a
+#                     green exit is the same lie in a different file.
+#   ABORTED / STALE — the pipeline's own status, or 2 if it exited 0 without
+#                     producing a verdict. Preserves today's behaviour, which
+#                     already promoted a reportless exit 0 to 2.
+final_exit_code() {
+  local verdict="$1" pipeline_exit="$2"
+  case "$verdict" in
+    PASS) echo 0 ;;
+    FAIL) if ((pipeline_exit == 0)); then echo 1; else echo "$pipeline_exit"; fi ;;
+    *)    if ((pipeline_exit == 0)); then echo 2; else echo "$pipeline_exit"; fi ;;
+  esac
+  return 0
+}
+
+# Marks a collected report as belonging to a COMPLETED collection. Without it,
+# a summary.json on disk is indistinguishable from one a previous run left there.
+stamp_collected_summary() {
+  local f="${REPORT_DIR}/summary.json"
+  [[ -f "$f" ]] || return 0
+  local tmp="${REPORT_DIR}/.summary.json.tmp"
+  if jq --arg c "$(date -Iseconds)" --arg vm "$VM_NAME" \
+       '. + {outcome: (.outcome // .overall), collected_at: $c, vm: $vm}' \
+       "$f" >"$tmp" 2>/dev/null; then
+    mv "$tmp" "$f"
+  else
+    rm -f "$tmp"
+  fi
+  return 0
+}
+
+# print_local_run_status [summary-file] [now-epoch]
+# What the report directory says, with the time it says it about — so a reader
+# never has to reach for `gcloud ... lastStartTimestamp` to date a claim.
+print_local_run_status() {
+  local f="${1:-${REPORT_DIR}/summary.json}"
+  local now_epoch="${2:-$(date +%s)}"
+  if [[ ! -f "$f" ]]; then
+    echo "Report:  none collected in $(basename "$(dirname "$f")")/ — no run has finished here."
+    return 0
+  fi
+
+  local outcome commit branch when phase
+  outcome="$(jq -r '.outcome // .overall // "UNKNOWN"' "$f" 2>/dev/null || echo UNKNOWN)"
+  commit="$(jq -r '.commit // "unknown"' "$f" 2>/dev/null || echo unknown)"
+  branch="$(jq -r '.branch // "unknown"' "$f" 2>/dev/null || echo unknown)"
+  phase="$(jq -r '.phase // "unknown"' "$f" 2>/dev/null || echo unknown)"
+  when="$(jq -r '.collected_at // .written_at // .timestamp // "unknown"' "$f" 2>/dev/null || echo unknown)"
+  # The phase only carries information for a run that did not finish; on a PASS
+  # it is noise, and "phase: unknown" next to a verdict reads as doubt about it.
+  local phase_note=""
+  [[ "$phase" != "unknown" && "$outcome" != "PASS" && "$outcome" != "FAIL" ]] && phase_note="phase: ${phase}, "
+  echo "Report:  ${outcome} for ${branch}@${commit} (${phase_note}as of ${when})"
+
+  if [[ "$outcome" == "RUNNING" ]]; then
+    local started="" age=-1 started_epoch
+    started="$(jq -r '.started_at // empty' "$f" 2>/dev/null || echo "")"
+    if [[ -n "$started" ]]; then
+      started_epoch="$(date -d "$started" +%s 2>/dev/null || echo "")"
+      [[ -n "$started_epoch" ]] && age=$(( now_epoch - started_epoch ))
+    fi
+    local fence=$(( 60 * ${TIMEOUT_MINUTES:-180} ))
+    if ((age > fence)); then
+      echo "         that RUNNING marker is ${age}s old, past the ${TIMEOUT_MINUTES:-180}m fence —"
+      echo "         the run that wrote it did not finish. It is NOT a result."
+    else
+      echo "         a run is in flight. RUNNING is not a verdict; wait for it."
+    fi
+  fi
+  return 0
+}
+
 # ── Run (resume → test → collect → suspend) ─────────────────────────
 cmd_run() {
   echo "════════════════════════════════════════════════════════════"
@@ -467,14 +679,27 @@ cmd_run() {
   echo "  Timeout:  ${TIMEOUT_MINUTES}m  |  Observability: ${CI_ENABLE_OBSERVABILITY}"
   echo "════════════════════════════════════════════════════════════"
 
+  # ── Declare the run before touching anything ────────────────────────
+  # Capture the real source identity up front: the VM only ever sees an
+  # untracked tarball and git-inits a throwaway snapshot repo, whose SHA is
+  # meaningless. Everything written into REPORT_DIR from here on is stamped with
+  # it, so no artifact in there can be read as belonging to another run.
+  RUN_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  RUN_BRANCH="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  RUN_STARTED_AT="$(date -Iseconds)"
+  echo "==> Source under test: ${RUN_BRANCH}@${RUN_COMMIT}  (started ${RUN_STARTED_AT})"
+  rotate_reports
+
+  # Armed before the first thing that can fail, for two reasons: a failure
+  # between lock_acquire and push_code would otherwise leave the lock held with
+  # nobody to release it, and a run that dies here would otherwise leave a
+  # RUNNING marker that reads as "still going" forever.
+  trap run_exit_trap EXIT
+  set_run_phase "resuming-vm"
+
   # ── Resume VM if suspended ──
   local status
   status="$(vm_status)"
-
-  # Deliberately declared here rather than at the destructive step: the trap has
-  # to be armed before anything can fail, or a failure between acquire and
-  # push_code leaves the lock held with nobody to release it.
-  trap lock_release EXIT
 
   case "$status" in
     RUNNING)
@@ -521,23 +746,20 @@ cmd_run() {
   # nothing — the damage is already done by then. test/ci-lock.bats asserts
   # this ordering, because it is the kind of thing a later refactor moves.
   echo "==> Claiming the VM..."
+  set_run_phase "claiming-lock"
   lock_acquire
 
   # ── Synchronize the local checkout before every test run ───────────
   # The pipeline validates uncommitted local changes; reusing a previous
   # checkout would silently test stale files and preserve deleted paths.
+  set_run_phase "pushing-code"
   push_code
 
   # ── Run the pipeline via SSH ──
   echo "==> Running pipeline on VM..."
+  set_run_phase "pipeline"
   local pipeline_exit=0
-
-  # Capture the real source identity here — the VM only ever sees an untracked
-  # tarball and git-inits a throwaway snapshot repo, whose SHA is meaningless.
-  local source_commit source_branch
-  source_commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  source_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-  echo "==> Source under test: ${source_branch}@${source_commit}"
+  local source_commit="$RUN_COMMIT" source_branch="$RUN_BRANCH"
 
   local pipeline_command
   printf -v pipeline_command 'cd %q && bash scripts/ci/vm-pipeline.sh' "$REMOTE_WORK_DIR"
@@ -560,19 +782,16 @@ cmd_run() {
 
   # ── Collect reports ──
   echo "==> Collecting reports..."
-  # Rotate the previous run out of the way BEFORE collecting. `tar -xzf`
-  # overwrites only the files present in the archive and leaves everything else
-  # untouched, so a run that aborted before writing reports used to inherit the
-  # previous run's summary.json wholesale — a run that executed zero tests
-  # printed a complete, plausible "5 passed, 3 failed" from stale data, with
-  # only the commit field and file mtimes betraying it. Keep one generation for
-  # comparison rather than deleting, but never let two runs share a directory.
-  if [[ -d "$REPORT_DIR" ]] && [[ -n "$(ls -A "$REPORT_DIR" 2>/dev/null)" ]]; then
-    rm -rf "${REPORT_DIR}.prev"
-    mv "$REPORT_DIR" "${REPORT_DIR}.prev"
-    echo "    previous run rotated to $(basename "${REPORT_DIR}").prev"
-  fi
-  mkdir -p "$REPORT_DIR"
+  set_run_phase "collecting-reports"
+  # The previous run was rotated to ${REPORT_DIR}.prev at run START, not here.
+  # `tar -xzf` overwrites only the files present in the archive and leaves
+  # everything else untouched, so a run that aborted before writing reports used
+  # to inherit the previous run's summary.json wholesale — a run that executed
+  # zero tests printed a complete, plausible "5 passed, 3 failed" from stale
+  # data, with only the commit field and file mtimes betraying it. Rotating here
+  # closed that, but left the previous verdict readable for the whole duration
+  # of the new run, which is how a mid-run poll read `5444d45 FAIL 8/12` off a
+  # round that had already been superseded.
   # The report directory belongs to the restricted `ci` account, while IAP SCP
   # authenticates as the operator account. Package it via sudo first instead of
   # weakening /home/ci permissions just to collect CI artifacts.
@@ -586,28 +805,72 @@ cmd_run() {
     echo "WARNING: Failed to collect report files"
   fi
 
-  if [[ -f "${REPORT_DIR}/summary.json" ]]; then
-    echo ""
-    echo "──── Summary ────"
-    jq . "${REPORT_DIR}/summary.json"
-    echo "──────────────────"
-  else
-    # Say so loudly. A missing summary means the pipeline died before the test
-    # stages ran — a categorically worse outcome than failing tests, and one
-    # that previously presented as silence next to a stale summary.
-    echo "" >&2
-    echo "ERROR: no summary.json was produced — the pipeline did not reach the" >&2
-    echo "       test stages. This is an aborted run, NOT a test failure." >&2
-    echo "       Pipeline log on the VM: ${PIPELINE_LOG}" >&2
-    if [[ -d "${REPORT_DIR}.prev" ]]; then
-      echo "       The previous run's reports are in $(basename "${REPORT_DIR}").prev" >&2
-      echo "       — they describe a DIFFERENT run. Do not read them as this one." >&2
-    fi
-    if ((pipeline_exit == 0)); then
-      echo "       Pipeline exited 0 without producing reports; treating as failure." >&2
-      pipeline_exit=2
-    fi
-  fi
+  # ── Decide once, then say the same thing everywhere ─────────────────
+  local verdict final_exit
+  verdict="$(classify_run_outcome "${REPORT_DIR}/summary.json" "$RUN_COMMIT" "$pipeline_exit")"
+  final_exit="$(final_exit_code "$verdict" "$pipeline_exit")"
+
+  case "$verdict" in
+    PASS|FAIL)
+      stamp_collected_summary
+      echo ""
+      echo "──── Summary ────"
+      jq . "${REPORT_DIR}/summary.json"
+      echo "──────────────────"
+      ;;
+    STALE)
+      # The collected summary names a commit other than the one under test, so
+      # it describes some other run. Reporting its verdict as this run's is the
+      # exact failure this whole change exists to stop.
+      local stale_commit
+      stale_commit="$(jq -r '.commit // "unknown"' "${REPORT_DIR}/summary.json" 2>/dev/null || echo unknown)"
+      echo "" >&2
+      echo "ERROR: the collected summary.json is stamped ${stale_commit}, but this run" >&2
+      echo "       tested ${RUN_COMMIT}. It describes a DIFFERENT run and is not a" >&2
+      echo "       verdict on this one. Treating as ABORTED." >&2
+      # STALE is the diagnosis; ABORTED is what gets recorded, because from the
+      # outside that is what happened — this run produced no verdict of its own.
+      write_run_status ABORTED "$RUN_PHASE" \
+        "collected summary.json was stamped ${stale_commit}, not the ${RUN_COMMIT} under test" \
+        "$final_exit"
+      verdict="ABORTED"
+      ;;
+    ABORTED)
+      # Say so loudly, and leave it in writing. A missing (or RUNNING-only)
+      # summary means the pipeline died before it could report — a categorically
+      # worse outcome than failing tests, and one that used to present as an
+      # empty directory somebody had to interpret.
+      echo "" >&2
+      echo "ERROR: no verdict was produced — the pipeline did not reach the test" >&2
+      echo "       stages. This is an aborted run, NOT a test failure." >&2
+      echo "       Pipeline log on the VM: ${PIPELINE_LOG}" >&2
+      if [[ -d "${REPORT_DIR}.prev" ]]; then
+        echo "       The previous run's reports are in $(basename "${REPORT_DIR}").prev" >&2
+        echo "       — they describe a DIFFERENT run. Do not read them as this one." >&2
+      fi
+      if ((pipeline_exit == 0)); then
+        echo "       Pipeline exited 0 without producing reports; treating as failure." >&2
+      fi
+      # If the pipeline managed to write its own abort record it knows more than
+      # we do — it names the phase it died in and any stages that had already
+      # run. Keep it; only fall back to the local view when nothing came back.
+      local collected_outcome=""
+      if [[ -f "${REPORT_DIR}/summary.json" ]]; then
+        collected_outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/summary.json" 2>/dev/null || echo "")"
+      fi
+      if [[ "$collected_outcome" == "ABORTED" ]]; then
+        stamp_collected_summary
+        echo "       The pipeline recorded the abort itself:" >&2
+        jq -r '"       phase=\(.phase // "unknown") stages_run=\(.total_stages // 0) exit=\(.exit_code // "?")"' \
+          "${REPORT_DIR}/summary.json" >&2 2>/dev/null || true
+      else
+        write_run_status ABORTED "$RUN_PHASE" \
+          "run reached phase '${RUN_PHASE}' and produced no verdict; this is an ABORTED run, NOT a test failure" \
+          "$final_exit"
+      fi
+      echo "       Recorded at ${REPORT_DIR}/summary.json (outcome: ABORTED)." >&2
+      ;;
+  esac
 
   if [[ -f "${REPORT_DIR}/${REPORT_FILENAME}" ]]; then
     echo "OpenReports: ${REPORT_DIR}/${REPORT_FILENAME}"
@@ -623,22 +886,26 @@ cmd_run() {
   lock_release
 
   # ── Suspend on success, leave running on failure for debugging ──
-  if ((pipeline_exit == 0)); then
+  if ((final_exit == 0)); then
     echo "==> PASS — suspending VM to save cost"
     gcloud compute instances suspend "$VM_NAME" \
       --zone="$ZONE" --project="$PROJECT"
     echo "==> VM suspended. Resume with: ./scripts/ci/gcp-ci.sh run"
   else
-    echo "==> FAIL — VM left running for debugging"
+    echo "==> ${verdict} — VM left running for debugging"
     echo "    SSH in:  ./scripts/ci/gcp-ci.sh ssh"
     echo "    Logs:    tail -f /var/log/ci-pipeline.log"
     echo "    Reports: ls ${REMOTE_REPORT_DIR}/"
     echo ""
     echo "    When done, suspend manually:"
     echo "    gcloud compute instances suspend ${VM_NAME} --zone=${ZONE} --project=${PROJECT}"
+    # Suspending is also what a PASS looks like, so the VM's state cannot carry
+    # this verdict. The file can, and it survives the terminal that printed it.
+    echo "    Suspending does not erase this: ${REPORT_DIR}/summary.json records"
+    echo "    outcome=${verdict} for ${RUN_BRANCH}@${RUN_COMMIT}. Read that, not the VM state."
   fi
 
-  exit "$pipeline_exit"
+  exit "$final_exit"
 }
 
 # ── SSH (interactive debugging) ──────────────────────────────────────
@@ -661,9 +928,26 @@ cmd_ssh() {
 
 # ── Status ───────────────────────────────────────────────────────────
 cmd_status() {
-  local status
+  local status observed_at
   status="$(vm_status)"
+  observed_at="$(date -Iseconds)"
   echo "VM: ${VM_NAME} | Project: ${PROJECT} | Zone: ${ZONE} | Status: ${status}"
+
+  # A status with no time beside it is a claim about the past presented as the
+  # present. One was read 14 seconds before the VM was resumed and relayed as
+  # "it has not started". Both lines below are cheap and remove the guesswork:
+  # `observed` dates the claim, `last started` dates the VM's own transition —
+  # which is what an operator was otherwise reaching for gcloud --format to get.
+  echo "Observed: ${observed_at}"
+  local last_start
+  last_start="$(gcloud compute instances describe "$VM_NAME" \
+    --zone="$ZONE" --project="$PROJECT" \
+    --format='value(lastStartTimestamp)' 2>/dev/null || true)"
+  [[ -n "$last_start" ]] && echo "Started:  ${last_start}"
+
+  # SUSPENDED is both the success state and what an operator leaves behind after
+  # killing an aborted run, so it says nothing on its own. The report does.
+  print_local_run_status
 
   # "Is anyone using it?" should be one command, not a ps heuristic — reading
   # the process table was how three collisions were diagnosed AFTER the fact.

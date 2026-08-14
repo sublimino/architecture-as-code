@@ -20,10 +20,17 @@
 #
 # Order matters. An explicit KEYS_DIR wins so the Makefile (which exports it)
 # and any deliberate override are authoritative; git is consulted only when
-# nothing was passed; and the plain relative default is last. That default is
-# not vestigial — gcp-ci.sh tars the tree with --exclude='.git', so a CI VM has
-# no git at all. There it is a single checkout building its own cluster, keys
-# and cluster created together in the same `make up`, so `.keys` is right.
+# nothing was passed; and the plain relative default is last.
+#
+# That last branch almost never fires, and it is important not to believe
+# otherwise. gcp-ci.sh does tar the tree with --exclude='.git' — but
+# vm-pipeline.sh runs `git init` on the VM straight after extracting it, because
+# Kustomize treats .git/ as the security boundary for relative path traversal.
+# So the git branch above fires on CI too, and this returns an ABSOLUTE path
+# there. An earlier version of this comment asserted a CI VM has no git at all;
+# that false premise made a `../$(KEYS_DIR)` concatenation in the Makefile look
+# safe, and it aborted both CI lanes before stage 1. Assume absolute everywhere
+# — see keys_dir_abs() below, and $(abspath …) on the make side.
 
 keys_dir() {
   if [ -n "${KEYS_DIR:-}" ]; then

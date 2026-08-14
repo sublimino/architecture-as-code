@@ -118,6 +118,33 @@ spec:
             # gate on the deployed system.
             - name: API_SUBJECT_TENANTS
               value: '{"CglkZW1vLXVzZXISBWxvY2Fs":"tenant-demo","demo-user":"tenant-demo","CgZ2aWV3ZXISBWxvY2Fs":"tenant-demo","viewer":"tenant-demo"}'
+            # ── Durable audit ───────────────────────────────────────────
+            # Where this pod's privileged-invocation records go. It has no
+            # database and must not acquire one: it is the single workload
+            # that executes privileged scripts against the cluster, and its
+            # NetworkPolicy is written to say what is deliberately absent.
+            # 5432 is absent, and it stays absent — reachability into
+            # Postgres is a large grant to make in exchange for a wider audit
+            # trail, and the blast radius of an RCE in a pod that runs shell
+            # scripts is precisely where that grant costs most.
+            #
+            # So the rows are forwarded over HTTP to fe-signalloom, which
+            # already holds the pool, authenticated with the OPERATOR'S own
+            # bearer token — the one this pod has already validated, from the
+            # same issuer and audience fe-signalloom validates against. No
+            # service credential is minted, stored or rotated for this path.
+            #
+            # Without this variable demo_runner falls back to an in-process
+            # dict that dies with the pod, which is the exact defect the
+            # server-side audit trail replaced. That fallback is unreachable
+            # here on purpose: /readyz returns 503 when this is unset, so a
+            # misconfigured runner never joins its Service and never receives
+            # a privileged call it could not record. The paired egress rule
+            # lives in networkpolicy.yaml; the ingress half is in
+            # apps/fe-signalloom/base/networkpolicy.yaml. All three are
+            # required, and dropping any one of them fails visibly.
+            - name: SIGNALLOOM_AUDIT_SINK_URL
+              value: http://fe-signalloom-api.fe-signalloom.svc.cluster.local:8000
           startupProbe:
             httpGet:
               path: /health

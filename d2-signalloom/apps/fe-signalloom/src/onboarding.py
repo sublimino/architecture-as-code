@@ -47,16 +47,26 @@ from pydantic import BaseModel, Field
 from api_compat import (
     ERROR_RESPONSES,
     APIError,
+    Principal,
     _audit_log,
     _ensure_tenant_settings,
     _get_pool,
     _write,
+    authenticated_principal,
     authenticated_tenant,
 )
 
 router = APIRouter(prefix="/api", tags=["onboarding"])
 
-ACTOR = "onboarding-api"
+# ACTOR = "onboarding-api" used to live here, and was passed to every
+# _audit_log call in this module. So the only durable evidence that a tenant
+# ever finished onboarding -- tenant_onboarding holds terminal state and
+# nothing else -- named a service rather than a person.
+#
+# It survived test_no_audit_call_site_hardcodes_its_actor, which exists for
+# exactly this defect, because that test matches ast.Constant at the call site
+# and a module constant is an ast.Name. One hop of indirection walked through a
+# guard written to stop it.
 
 
 # ─── Wire contract ──────────────────────────────────────────────────────────
@@ -144,7 +154,7 @@ async def _ensure_row(pool: asyncpg.Pool, tenant_id: str) -> asyncpg.Record:
 
 
 async def _terminal_transition(
-    tenant_id: str, status: str, column: str, event_type: str,
+    principal: Principal, status: str, column: str, event_type: str,
 ) -> OnboardingStatusResponse:
     """Move a tenant to a terminal onboarding status, idempotently.
 
@@ -166,6 +176,7 @@ async def _terminal_transition(
     evidence that the transition ever happened. Losing it leaves the product
     asserting a completion it cannot evidence.
     """
+    tenant_id = principal.tenant
     pool = await _get_pool()
     now = datetime.now(timezone.utc)
 
@@ -197,7 +208,10 @@ async def _terminal_transition(
                 event_type=event_type,
                 agent_id=None,
                 agent_name=None,
-                actor=ACTOR,
+                # From the validated token. Principal.actor prefers the email
+                # claim and falls back to the subject, which is honest when Dex
+                # grants no email scope; a constant here was not.
+                actor=principal.actor,
                 detail={"status": status, "at": _iso(now)},
             )
 
@@ -229,16 +243,21 @@ async def onboarding_status(
 
 @router.post("/onboarding/skip", response_model=OnboardingStatusResponse, responses=ERROR_RESPONSES)
 async def onboarding_skip(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    # authenticated_principal, not authenticated_tenant: the tenant resolves
+    # identically -- it is the same dependency one layer down -- and the row
+    # this writes is the only record that the transition happened, so it has to
+    # be able to name who caused it.
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> OnboardingStatusResponse:
-    return await _terminal_transition(tenant_id, "skipped", "skipped_at", "onboarding_skipped")
+    return await _terminal_transition(principal, "skipped", "skipped_at", "onboarding_skipped")
 
 
 @router.post("/onboarding/complete", response_model=OnboardingStatusResponse, responses=ERROR_RESPONSES)
 async def onboarding_complete(
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    # See onboarding_skip: the principal, so the audit row is attributable.
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> OnboardingStatusResponse:
-    return await _terminal_transition(tenant_id, "completed", "completed_at", "onboarding_completed")
+    return await _terminal_transition(principal, "completed", "completed_at", "onboarding_completed")
 
 
 @router.get("/onboarding/state", response_model=OnboardingWizardState, responses=ERROR_RESPONSES)

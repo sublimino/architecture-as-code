@@ -5,6 +5,7 @@ import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AuditEventResponse } from '../types/api'
 import DataTable from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
+import HelpHint from '../components/HelpHint'
 import LoadingState from '../components/LoadingState'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
@@ -212,7 +213,19 @@ export default function AuditTrail() {
   return (
     <div style={{ paddingBottom: 32 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 700 }}>Audit Trail</h1>
+        {/* The hint sits beside the heading, not inside it. Nested in the `h1` it
+            joins the heading's accessible name, so the page announces as "Audit
+            Trail What the Audit Trail records" to a screen reader and stops
+            matching an exact name query. */}
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <h1 style={{ fontSize: 22, fontWeight: 700 }}>Audit Trail</h1>
+          <HelpHint label="What the Audit Trail records" testId="audit-page-help">
+            Every row is written by the part of the system that carried the action out, as it
+            carried it out — nothing here was submitted by a browser. Rows cannot be edited or
+            deleted afterwards; a correction is recorded as a further event rather than by
+            changing the original.
+          </HelpHint>
+        </div>
         <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
           <span style={{ color: 'var(--muted)', fontSize: 13 }}>{total.toLocaleString()} events</span>
           <button
@@ -278,7 +291,17 @@ export default function AuditTrail() {
               { key: 'timestamp', label: 'Timestamp', sortable: true },
               { key: 'event_type', label: 'Event Type', sortable: true },
               { key: 'agent_name', label: 'Agent', sortable: true },
-              { key: 'actor', label: 'Actor', sortable: true },
+              {
+                key: 'actor',
+                label: 'Actor',
+                sortable: true,
+                help:
+                  'Who the server saw make this happen, taken from their sign-in token — '
+                  + 'usually an email address, because that is what the token carries and a '
+                  + 'friendlier name would be one nobody could check it against. '
+                  + '"demo-actor" means that event was recorded before actions were '
+                  + 'attributed, and it names nobody.',
+              },
               { key: 'event_type', label: 'Detail' },
             ]}
             data={events}

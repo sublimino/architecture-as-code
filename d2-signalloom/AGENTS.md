@@ -117,8 +117,41 @@ See `DESIGN.md` in this directory for the full visual guide. Summary:
 6. Add route to `smoke.spec.ts` PAGES array
 7. Rebuild image → rollout restart → restart port-forward
 
+## Adding an Audited Endpoint
+
+**The invariant, which is not negotiable:** an audit event is a side effect of the action
+the API itself performs. It is never content the client supplies, never a record of an
+action performed elsewhere, and never written by a browser. A row records what its writer
+observed, and nothing else. If a front-end action needs auditing, it makes an API request
+and *that* API writes the row.
+
+The corollary that decides the hard cases: **a field that crosses the wire is a field the
+next caller can author.** So the test for a proposed audit field is not "is this useful?"
+but "did the process writing this row observe it?" — if no, it does not go in the row, not
+even as a nullable.
+
+1. Perform the action; if it is a database write, open the transaction.
+2. Write the row from the handler with `actor=principal.actor`, inside that transaction.
+   Never a hardcoded actor — `src/tests/test_audit_event_types.py` fails the build on one.
+3. Where there is no transaction to bind to (a subprocess, a mutated cluster), audit
+   **before** the side effect and say in the code that ordering is the only guarantee.
+4. Claim no outcome you did not observe.
+5. New event type → migration widening the `audit_events` CHECK constraint, **and** both
+   `EVENT_TYPES` and `EVENT_COLORS` in `src/views/AuditTrail.tsx`.
+
+Full statement, with the worked example of getting it wrong: `docs/signalloom/audit-trail.md`.
+
 ## Pitfalls
 
+- **`audit_events` is append-only** (migration 030, `ENABLE ALWAYS` trigger). `UPDATE`,
+  `DELETE` and `TRUNCATE` raise `42501`. Reset via `make demo-signalloom-data-reset` — the
+  only sanctioned destructive path — which lifts the guard and re-arms it in one
+  transaction. It is not a privilege boundary: the app role owns the table and is a
+  superuser, so it stops the application rewriting its own history, not a determined
+  operator.
+- **Risk figures default to USD** while the estate reports GBP, so most figures on screen
+  are converted and carry the FX table's `as_of` date. Per-user setting, see
+  `docs/signalloom/display-currency.md`.
 - **Dex login expects email** (`demo-user@signalloom.local`), not username
 - **`public/` file perms**: must be 644+ (nginx uid 101 → 403 otherwise)
 - **ConsentModal.test.tsx**: 2 pre-existing failures (duplicate text matches) — not a regression

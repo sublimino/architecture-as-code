@@ -429,6 +429,30 @@ def _with_pool(monkeypatch: pytest.MonkeyPatch, pool: FakePostgres) -> FakePostg
         return pool
 
     monkeypatch.setattr(api_compat, "_get_pool", _fake_get_pool)
+
+    # The stun endpoint now PERFORMS the cluster action rather than recording
+    # one the browser performed, so it makes an outbound call to the SuperCred
+    # proxy. This fixture stubs the database and the JWKS client but nothing
+    # outbound, so without this the call leaves the process, hits real DNS and
+    # fails -- and the failure looks like a transaction defect rather than an
+    # unstubbed dependency.
+    #
+    # Stubbed as SUCCESS deliberately. These tests are about the transaction
+    # boundary: that the registry UPDATE and its audit row commit or roll back
+    # together. A stub that failed the cluster action would take the endpoint
+    # down its 502 path and the transaction assertions would never execute --
+    # passing while measuring nothing, which is the failure mode this file's
+    # own subject matter is about.
+    async def _stun_succeeds(_agent_id: str) -> api_compat._ClusterStunObservation:
+        return api_compat._ClusterStunObservation(
+            observed=True,
+            outcome="stunned",
+            namespace="fe-signalloom",
+            proxy_status=200,
+            error=None,
+        )
+
+    monkeypatch.setattr(api_compat, "_perform_cluster_stun", _stun_succeeds)
     return pool
 
 
@@ -662,7 +686,22 @@ def test_stunning_a_pod_with_no_registry_row_still_records_the_event(
 
     assert response.status_code == 200, response.text
     assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.stunned"]
-    assert healthy.committed.audit_events[0]["agent_name"] == "Cardvault Agent"
+    # agent_name is None, and that is the fix rather than a regression.
+    #
+    # This assertion used to require "Cardvault Agent" -- a value that could only
+    # ever have come from the request body, for a pod the registry has never held
+    # a row for. The test below says so in its own words: the subject was
+    # "recoverable only from agent_name, and only because the browser happened to
+    # send one". That is the client authoring the evidence, and the endpoint no
+    # longer accepts it.
+    #
+    # There is nothing truthful to put here instead: the proxy returns an
+    # agent_id and a namespace, not a display name, so the server has never
+    # observed one. Losing a human-readable name for a workload the registry has
+    # never seen is a real cost and an unavoidable one. The subject stays
+    # identifiable through detail.agent_ref, which
+    # test_a_pod_name_row_can_still_say_which_agent_it_was_about guarantees.
+    assert healthy.committed.audit_events[0]["agent_name"] is None
     # No registry row to update, so the audit insert is the whole write -- and
     # it still goes through a transaction rather than an autocommit statement.
     assert healthy.commits == 1

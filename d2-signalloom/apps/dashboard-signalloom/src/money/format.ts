@@ -75,26 +75,59 @@ export function resolveLocale(): string {
   }
 }
 
-function formatterFor(currency: CurrencyCode, locale: string, compact: boolean): Intl.NumberFormat {
+/**
+ * The `Intl` options behind every figure this module renders.
+ *
+ * Exported because the options ARE the behaviour. Which digits a reader sees
+ * is decided here and nowhere else, so a test that hand-copies these options
+ * to build its expected value is not checking this decision — it is restating
+ * it, and it will agree with production even when production is wrong.
+ *
+ * BOTH fraction-digit bounds are pinned on BOTH branches, and that is the
+ * whole reason this function exists. An unset `minimumFractionDigits` is not
+ * "no minimum": ECMA-402 fills it with `min(currencyDigits, maximumFractionDigits)`,
+ * which for a two-decimal currency capped at one digit is a minimum of ONE.
+ * The compact branch used to set only the maximum, and the gap resolved
+ * differently per runtime — minimum 1 on Node 22 / ICU 78.2, minimum 0 on
+ * Node 25.9 / ICU 78.3. The same source rendered `£1.0m` in CI and `£1m` on
+ * the machine the demo is given from, and browsers vary the same way, so this
+ * was a live difference between what a bank saw and what we had reviewed.
+ *
+ * The product decision, stated rather than inherited: whole units where the
+ * fraction is zero, one digit where it is not — `£1m`, `£2.5m`. A trailing
+ * `.0` is not a rounding artefact, it claims a tenth was resolved and came out
+ * zero, which is the same overclaim of precision that keeps pence off the
+ * grouped branch. It lands hardest on the chart axis, where
+ * `compactThreshold: 0` puts every tick through this branch at once.
+ */
+export function moneyFormatOptions(
+  currency: CurrencyCode,
+  compact: boolean,
+): Intl.NumberFormatOptions {
   if (compact) {
-    return new Intl.NumberFormat(locale, {
+    return {
       style: 'currency',
       currency,
       notation: 'compact',
+      minimumFractionDigits: 0,
       maximumFractionDigits: 1,
-    })
+    }
   }
-  return new Intl.NumberFormat(locale, {
+  return {
     style: 'currency',
     currency,
     // Whole units only. Every figure on these surfaces is a risk aggregate
     // where showing cents implies a precision the simulation does not have.
-    // Both bounds are set explicitly: leaving minimumFractionDigits to the
-    // currency default (2 for USD) while capping the maximum at 0 is a
-    // RangeError waiting on a stricter ICU build than the one we run today.
+    // Setting the minimum explicitly also keeps this branch off a RangeError
+    // on a stricter ICU build: a currency default of 2 against a maximum of 0
+    // is a lower bound above its own upper bound.
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  })
+  }
+}
+
+function formatterFor(currency: CurrencyCode, locale: string, compact: boolean): Intl.NumberFormat {
+  return new Intl.NumberFormat(locale, moneyFormatOptions(currency, compact))
 }
 
 /** Format a plain amount in a stated currency. */

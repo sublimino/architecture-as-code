@@ -177,8 +177,15 @@ describe('Fleet risk gauge renders in the user currency', () => {
   it('keeps the one-million abbreviation threshold it already had', async () => {
     renderInProvider(<FleetRiskGauge ale={4_000_000} var95={5_000_000} trend="up" />)
 
+    // Both fraction bounds, as everywhere else in this suite. Capping the
+    // maximum and leaving the minimum to the currency default makes the
+    // expected string a property of the host's ICU rather than of this test —
+    // it resolves to a minimum of 1 on Node 22 and 0 on Node 25.9, so the
+    // oracle itself would render £5.1M or £5.1M here but £1.0M or £1M on the
+    // day someone reaches for a round figure. See money/format.ts.
     const compact = new Intl.NumberFormat('en-US', {
-      style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1,
+      style: 'currency', currency: 'USD', notation: 'compact',
+      minimumFractionDigits: 0, maximumFractionDigits: 1,
     }).format(convert(money(4_000_000, 'GBP'), 'USD', DEFAULT_RATE_TABLE)!.amount)
 
     await waitFor(() => {

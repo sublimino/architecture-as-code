@@ -951,6 +951,7 @@ risk-report: riskctl ## Regenerate the committed report under risk/out/.
 	@./scripts/risk-report.sh
 
 DASHBOARD_RATES_GEN := d2-signalloom/apps/dashboard-signalloom/scripts/generate-rates.ts
+DASHBOARD_VECTORS   := d2-signalloom/apps/dashboard-signalloom/src/money/__fixtures__/fxTestVectors.json
 
 .PHONY: fx
 fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream generated copies.
@@ -968,6 +969,32 @@ fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream gen
 		( cd d2-signalloom/apps/dashboard-signalloom && bun run scripts/generate-rates.ts ); \
 	else \
 		echo "fx: no dashboard generator at $(DASHBOARD_RATES_GEN) — skipping (nothing downstream to regenerate)"; \
+	fi
+	@# Self-check on the generation pipeline: after every generator has run, is every generated
+	@# artefact actually current?
+	@#
+	@# This VERIFIES and FAILS. It deliberately does not repair, and that distinction is the whole
+	@# point. An earlier version of this block copied the file and printed a warning — which meant
+	@# that after it ran, the artefact was correct, the dashboard's staleness test passed, and a
+	@# broken generator survived with nothing but a line of make output against it. A warning in a
+	@# build log is missable; a failing test is not. Repairing the symptom suppressed the louder
+	@# alarm downstream.
+	@#
+	@# It also is not a second writer. The dashboard generator owns the copy; this only asserts the
+	@# generator did what it said. That matters because a generator CAN lie: removing a write while
+	@# leaving its `console.log` in place produces "wrote X" over a write that never happened, which
+	@# is exactly the class of failure this whole branch has been chasing. Verified against a
+	@# deliberately neutered generator.
+	@if [ -f "$(DASHBOARD_RATES_GEN)" ] && [ -f "$(DASHBOARD_VECTORS)" ]; then \
+		if cmp -s risk/fx/testvectors.json "$(DASHBOARD_VECTORS)"; then \
+			echo "fx: generated artefacts verified current"; \
+		else \
+			echo "fx: FAILED — $(DASHBOARD_VECTORS) is stale after generation." >&2; \
+			echo "fx:   $(DASHBOARD_RATES_GEN) reported success but did not vendor" >&2; \
+			echo "fx:   risk/fx/testvectors.json. Do not hand-fix the artefact — fix the generator," >&2; \
+			echo "fx:   or the next edit silently drifts again." >&2; \
+			exit 1; \
+		fi; \
 	fi
 
 .PHONY: risk-check

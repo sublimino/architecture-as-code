@@ -177,7 +177,13 @@ describe('RbacExplorerPage', () => {
 
     await screen.findByTestId('rbac-stats')
     const subjectsSection = screen.getByRole('heading', { name: 'Subjects' }).closest('section') as HTMLElement
-    expect(within(subjectsSection).getByText('escalation')).toBeInTheDocument()
+
+    // Scoped to the row rather than the section, as the admin assertion below
+    // always was: the section now also holds a filter chip labelled
+    // "escalation", and a pill that says nothing about WHICH subject is
+    // flagged is not the thing this test means.
+    const escalationRow = within(subjectsSection).getByText('flux').closest('tr') as HTMLTableRowElement
+    expect(within(escalationRow).getByText('escalation')).toBeInTheDocument()
 
     const adminRow = within(subjectsSection).getByText('system:masters').closest('tr') as HTMLTableRowElement
     expect(within(adminRow).getByText('admin')).toBeInTheDocument()
@@ -237,13 +243,16 @@ describe('RbacExplorerPage', () => {
   // to. "Risk" reads as an incident rather than a route that exists, and the
   // red verbs in "Verbs" have no key anywhere on the page saying what red means.
   describe('the tables explain what a finding and a red verb actually are', () => {
+    // Reached by accessible name rather than test id: DataTable derives both
+    // the name and the id from the column, and the name is the one a speech-input
+    // user actually says. It is also the assertion that keeps failing if a
+    // column is renamed without its hint being reconsidered.
     it('says a Risk level describes a route that exists, not a breach', async () => {
       const user = userEvent.setup()
       render(<RbacExplorerPage />)
       await screen.findByTestId('rbac-stats')
 
-      const hint = screen.getByTestId('rbac-escalation-risk-help')
-      expect(hint).toHaveAccessibleName('What Risk means')
+      const hint = screen.getByRole('button', { name: 'What Risk means' })
       await user.hover(hint)
       const tooltip = await screen.findByRole('tooltip')
       expect(tooltip.textContent).toMatch(/not a breach that happened/i)
@@ -254,20 +263,249 @@ describe('RbacExplorerPage', () => {
       render(<RbacExplorerPage />)
       await screen.findByTestId('rbac-stats')
 
-      await user.hover(screen.getByTestId('rbac-roles-verbs-help'))
+      await user.hover(screen.getByRole('button', { name: 'What Verbs means' }))
       const tooltip = await screen.findByRole('tooltip')
       expect(tooltip.textContent).toMatch(/red/i)
       for (const verb of ['escalate', 'impersonate', 'bind']) {
         expect(tooltip.textContent).toContain(verb)
       }
+      // The wildcard is the one verb the cell deliberately leaves uncoloured
+      // while it grants every red verb, so the key has to say so.
+      expect(tooltip.textContent).toMatch(/wildcard/i)
     })
 
     it('does not hint the headers that already say themselves', async () => {
       render(<RbacExplorerPage />)
       await screen.findByTestId('rbac-stats')
 
-      expect(screen.queryByRole('button', { name: 'What Name means' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'What Namespace means' })).toBeNull()
+      // Scoped to Roles: this is the table the assertion was written against,
+      // and "Namespace" is genuinely not self-evident on Conformance Issues,
+      // where the column renders the literal word "cluster" for a ClusterRole.
+      const rolesSection = screen.getByRole('heading', { name: 'Roles' }).closest('section') as HTMLElement
+      expect(within(rolesSection).queryByRole('button', { name: 'What Name means' })).toBeNull()
+      expect(within(rolesSection).queryByRole('button', { name: 'What Namespace means' })).toBeNull()
+    })
+
+    // The four things a reader of this page has to guess at today, each
+    // reachable by the name a screen reader announces.
+    it.each([
+      ['What Kind means', /ServiceAccount is an in-cluster identity/i],
+      ['What Scope means', /applies in every namespace at once/i],
+      ['What Bound Roles means', /a binding carries its own scope/i],
+      ['What Flags means', /escalation means the analyser found a route/i],
+      ['What the Namespace filter does', /cluster-scoped objects stay listed/i],
+      ['What Shared By means', /pivot point/i],
+    ])('explains %s', async (name, expected) => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await user.hover(screen.getByRole('button', { name }))
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(expected)
+    })
+  })
+
+  // Every table gained a toolbar. The rule for each is the same: the search
+  // narrows its own table and nothing else, the empty state says which nothing
+  // this is, and the control that emptied the table is still on screen.
+  describe('every table filters, and an empty result can be undone', () => {
+    const TABLES = [
+      { name: 'Escalation Findings', prefix: 'rbac-escalations', search: 'rbac-escalations-search', chip: 'rbac-escalations-risk-high', allChip: 'rbac-escalations-risk-all', clear: 'rbac-escalations-clear', match: 'flux' },
+      { name: 'Conformance Issues', prefix: 'rbac-conformance', search: 'rbac-conformance-search', chip: 'rbac-conformance-severity-high', allChip: 'rbac-conformance-severity-all', clear: 'rbac-conformance-clear', match: 'wildcard' },
+      { name: 'Shared-Role Pivot Points', prefix: 'rbac-shared', search: 'rbac-shared-search', chip: 'rbac-shared-privileged-privileged', allChip: 'rbac-shared-privileged-all', clear: 'rbac-shared-clear', match: 'cluster-admin' },
+      { name: 'Roles', prefix: 'rbac-roles', search: 'rbac-roles-search', chip: 'rbac-roles-scope-cluster', allChip: 'rbac-roles-scope-all', clear: 'rbac-roles-clear', match: 'admin' },
+      { name: 'Subjects', prefix: 'subjects', search: 'subjects-search', chip: 'subjects-kind-Group', allChip: 'subjects-kind-all', clear: 'subjects-clear', match: 'flux' },
+    ] as const
+
+    it.each(TABLES)('$name has a toolbar whose search narrows only its own table', async ({ prefix, search }) => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      expect(screen.getByTestId(`${prefix}-toolbar`)).toBeInTheDocument()
+      const total = screen.getByTestId(`${prefix}-count`).textContent?.match(/of (\d+) shown/)?.[1]
+      expect(total).toBeDefined()
+
+      await user.type(screen.getByTestId(search), 'zzz-no-such-thing')
+
+      // Shown goes to nothing; the total after "of" does not move. A headline
+      // figure a search box can change is the failure this page exists to avoid.
+      expect(screen.getByTestId(`${prefix}-count`).textContent).toBe(`0 of ${total} shown`)
+      // And no OTHER table's toolbar moved with it.
+      for (const other of TABLES.filter((t) => t.prefix !== prefix)) {
+        expect(screen.getByTestId(`${other.prefix}-count`).textContent).not.toMatch(/^0 of/)
+      }
+    })
+
+    it.each(TABLES)('$name shows a clearable empty state when nothing matches', async ({ prefix, search, clear }) => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await user.type(screen.getByTestId(search), 'zzz-no-such-thing')
+
+      const empty = await screen.findByTestId(`${prefix}-empty`)
+      expect(empty).toHaveTextContent(/nothing matches those filters/i)
+      // The toolbar outlives the table — this is the whole reason `toolbar` is
+      // a DataTable prop rather than something the page stacks above it.
+      expect(screen.getByTestId(`${prefix}-toolbar`)).toBeInTheDocument()
+
+      await user.click(within(empty).getByTestId(clear))
+      expect(screen.queryByTestId(`${prefix}-empty`)).toBeNull()
+      expect(screen.getByTestId(search)).toHaveValue('')
+    })
+
+    it.each(TABLES)('$name narrows to its chip selection and back', async ({ chip, allChip }) => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      const button = screen.getByTestId(chip)
+      expect(button).toHaveAttribute('aria-pressed', 'false')
+      expect(screen.getByTestId(allChip)).toHaveAttribute('aria-pressed', 'true')
+
+      await user.click(button)
+      expect(button).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByTestId(allChip)).toHaveAttribute('aria-pressed', 'false')
+
+      await user.click(screen.getByTestId(allChip))
+      expect(button).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    // The base fixture has one row in most tables, which can show a chip
+    // SELECTING but not a chip NARROWING. This one has two rows everywhere,
+    // one of which each discriminating chip must exclude.
+    const twoRowFixture = {
+      ...correlatedFixture,
+      escalations: [
+        ...correlatedFixture.escalations,
+        {
+          kind: 'group', subject: 'grp_readers', subject_display: 'Group/readers',
+          escalation_type: 'admin_via_bind', risk_level: 'low', risk_score: 4,
+          summary: 'Group readers can bind itself to a wider role.',
+        },
+      ],
+      conformance: [
+        ...correlatedFixture.conformance,
+        { role_name: 'admin', role_scope: 'Cluster', role_namespace: null, severity: 'low', reason: 'Broad resource match' },
+      ],
+      shared_roles: [
+        ...correlatedFixture.shared_roles,
+        { role_name: 'view', role_scope: 'Cluster', role_namespace: null, shared_by: 9, subjects: ['Group/readers'], privileged_subject_count: 0 },
+      ],
+      roles: [
+        ...correlatedFixture.roles,
+        {
+          name: 'ns-reader', scope: 'Namespace', namespace: 'fe-signalloom', rules: [],
+          conformance_issue_count: 0, shared_by_count: 0, has_privileged_sharing: false,
+        },
+      ],
+    }
+
+    it.each([
+      ['rbac-escalations', 'rbac-escalations-risk-high', '1 of 2 shown'],
+      ['rbac-conformance', 'rbac-conformance-severity-high', '1 of 2 shown'],
+      ['rbac-shared', 'rbac-shared-privileged-privileged', '1 of 2 shown'],
+      ['rbac-roles', 'rbac-roles-scope-namespace', '1 of 3 shown'],
+      ['subjects', 'subjects-kind-Group', '1 of 2 shown'],
+    ])('%s narrows to %s', async (prefix, chip, expected) => {
+      routeFetch({ correlated: () => Promise.resolve(response(true, twoRowFixture)) })
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await user.click(screen.getByTestId(chip))
+      expect(screen.getByTestId(`${prefix}-count`).textContent).toBe(expected)
+    })
+
+    it('narrows subjects by kind without moving the Subjects stat', async () => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      const stats = await screen.findByTestId('rbac-stats')
+
+      const subjectsSection = screen.getByRole('heading', { name: 'Subjects' }).closest('section') as HTMLElement
+      expect(within(subjectsSection).getByText('flux')).toBeInTheDocument()
+
+      await user.click(screen.getByTestId('subjects-kind-Group'))
+
+      expect(within(subjectsSection).queryByText('flux')).toBeNull()
+      expect(within(subjectsSection).getByText('system:masters')).toBeInTheDocument()
+      // The stat cards read the cluster, not the view: the headline still says
+      // 2 subjects while the table below it is showing 1.
+      const subjectsCard = within(stats).getByText('Subjects').parentElement as HTMLElement
+      expect(subjectsCard.textContent).toBe('Subjects21 admins, 1 non-admin')
+    })
+
+    it('filters subjects by the escalation flag, which overlaps with admin', async () => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      await user.click(screen.getByTestId('subjects-flag-escalation'))
+
+      const subjectsSection = screen.getByRole('heading', { name: 'Subjects' }).closest('section') as HTMLElement
+      expect(within(subjectsSection).getByText('flux')).toBeInTheDocument()
+      expect(within(subjectsSection).queryByText('system:masters')).toBeNull()
+    })
+
+    it('counts chips against the source, so a count cannot move as you narrow', async () => {
+      const user = userEvent.setup()
+      render(<RbacExplorerPage />)
+      await screen.findByTestId('rbac-stats')
+
+      const before = screen.getByTestId('subjects-kind-Group').textContent
+      await user.type(screen.getByTestId('subjects-search'), 'flux')
+      expect(screen.getByTestId('subjects-kind-Group').textContent).toBe(before)
+    })
+  })
+
+  // rbac_correlation.py's docstring: "A security dashboard that silently
+  // reports zero escalations when there are three is worse than one that
+  // errors visibly." These two tests are the UI half of that argument — the
+  // same page must look different in the two cases.
+  describe('an unreachable upstream never presents as zero', () => {
+    it('renders no figure at all when AFM is unreachable', async () => {
+      routeFetch({ correlated: () => Promise.resolve(response(false, { error: { code: 'afm_unreachable', message: 'KubeSec-AFM is unreachable' } }, 503)) })
+
+      render(<RbacExplorerPage />)
+
+      await screen.findByTestId('rbac-live-error')
+      expect(screen.queryByTestId('rbac-stats')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('rbac-escalations-empty')).toBeNull()
+      // Nothing anywhere claims a count.
+      expect(screen.queryByText('Escalation Paths')).toBeNull()
+    })
+
+    it('says AFM reported none — not just "0" — when the analysis genuinely found nothing', async () => {
+      routeFetch({
+        correlated: () => Promise.resolve(response(true, { ...correlatedFixture, escalations: [] })),
+      })
+
+      render(<RbacExplorerPage />)
+
+      const stats = await screen.findByTestId('rbac-stats')
+      expect(within(stats).getByText('AFM reported none')).toBeInTheDocument()
+      expect(screen.queryByTestId('rbac-live-error')).toBeNull()
+      // And the reason that zero can be trusted is on the card itself.
+      await userEvent.hover(within(stats).getByRole('button', { name: 'What Escalation Paths counts' }))
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/had AFM been unreachable this panel would not be on screen/i)
+    })
+
+    it('distinguishes an empty cluster from an unreachable one', async () => {
+      routeFetch({ correlated: () => Promise.resolve(response(true, null)) })
+
+      render(<RbacExplorerPage />)
+
+      // Whichever branch a null payload lands in, it must not be the one that
+      // reads as a healthy zero.
+      await waitFor(() => {
+        const noData = screen.queryByTestId('rbac-no-data')
+        const liveError = screen.queryByTestId('rbac-live-error')
+        expect(noData ?? liveError).not.toBeNull()
+      })
+      expect(screen.queryByText('AFM reported none')).toBeNull()
     })
   })
 

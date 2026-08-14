@@ -25,7 +25,7 @@ export type IconKind =
   | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
   | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'topology' | 'designSystem' | 'settings'
+  | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -55,6 +55,9 @@ function NavIcon({ kind }: { kind: IconKind }) {
     // Painter's palette with paint wells — the only organic blob in the set, so
     // it stays legible against the grids and shields around it.
     designSystem: <><path d="M12 3a9 9 0 0 0 0 18 1.6 1.6 0 0 0 1.6-1.6c0-.42-.16-.8-.42-1.08a1.6 1.6 0 0 1 1.18-2.7h1.9A4.74 4.74 0 0 0 21 10.9C21 6.54 16.97 3 12 3Z" /><circle cx="7.5" cy="12.5" r="1.15" /><circle cx="9.5" cy="8.5" r="1.15" /><circle cx="14" cy="7.5" r="1.15" /></>,
+    // A framed window with its top bar filled in — the only glyph in the set
+    // that depicts chrome rather than content, which is what the page is about.
+    designSystemHeaders: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18" /><circle cx="17.5" cy="7.5" r="1" /><path d="M6 7.5h4" /></>,
     settings: <><circle cx="12" cy="12" r="3" /><path d="M19 12a7 7 0 0 0-.1-1.1l2-1.6-2-3.4-2.4 1a7 7 0 0 0-1.9-1.1L14.3 3h-4l-.3 2.8a7 7 0 0 0-1.9 1.1l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.1l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 1.9 1.1l.3 2.8h4l.3-2.8a7 7 0 0 0 1.9-1.1l2.4 1 2-3.4-2-1.6c.1-.3.1-.7.1-1.1Z" /></>,
   }
   return <svg aria-hidden="true" className="sl-sidebar__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[kind]}</svg>
@@ -78,7 +81,11 @@ export const NAV: NavItem[] = [
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', icon: 'supercred', superadminOnly: true },
   { to: '/fleet', label: 'Fleet Demo', section: 'Governance', icon: 'fleet', superadminOnly: true },
   { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
-  { to: '/design-system', label: 'Design System', section: 'Configuration', icon: 'designSystem', superadminOnly: true },
+  // `end` for the same reason /compliance carries it: a NavLink without it
+  // matches its own children, so both this and the Headers entry below would
+  // paint as the active page whenever /design-system/headers is open.
+  { to: '/design-system', label: 'Design System', section: 'Configuration', icon: 'designSystem', end: true, superadminOnly: true },
+  { to: '/design-system/headers', label: 'Design System — Headers', section: 'Configuration', icon: 'designSystemHeaders', superadminOnly: true },
   { to: '/settings', label: 'Settings', section: 'Configuration', icon: 'settings' },
 ]
 

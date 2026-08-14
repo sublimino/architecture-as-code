@@ -63,7 +63,7 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # after a merge: it turns the test green while leaving the database constraint
 # missing an event type. Point it at whichever migration runs LAST, and make
 # that migration enumerate every type.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "011_agent_stunned_event_type.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "012_operational_event_types.sql"
 
 
 EVENT_TYPE_POSITION = 2

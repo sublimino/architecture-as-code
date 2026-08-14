@@ -150,6 +150,44 @@ excluded_suites() {
 	fi
 }
 
+@test "every proof script under test/ is invoked by something" {
+	# The coverage hole has a third shape. Stages 1g/1h close it for .bats files,
+	# but audit-guard-reintroduction-proof.sh is a shell script, so the bats
+	# registry could not see it -- and it was invoked by nothing at all. It is the
+	# only thing in the repository that proves the 12 audit provenance guards
+	# actually fail when their defects are reintroduced, and it costs 7 seconds.
+	#
+	# Checked across BOTH test directories and against every runner, not just the
+	# pipeline, because a script legitimately invoked from a Makefile target is
+	# covered too.
+	local unrun=""
+	for d in "$d2/test" "$repo_root/test"; do
+		[ -d "$d" ] || continue
+		for f in "$d"/*.sh; do
+			[ -e "$f" ] || continue
+			local base
+			base="$(basename "$f")"
+			# Search every runner, ignoring comments and the script's own file.
+			if ! grep -rl --include='*.sh' --include='Makefile' \
+					--exclude="$base" -F "$base" \
+					"$repo_root/scripts" "$repo_root/Makefile" "$d2/Makefile" \
+					"$repo_root/d2-signalloom/test" 2>/dev/null \
+				| grep -q .; then
+				unrun="${unrun}${base} "
+			fi
+		done
+	done
+
+	if [ -n "$unrun" ]; then
+		echo "Proof/test script(s) under test/ that no runner invokes:"
+		echo "  $unrun"
+		echo ""
+		echo "A proof nothing runs proves nothing. Add it to a run_stage in"
+		echo "scripts/ci/vm-pipeline.sh or to a Makefile target."
+		false
+	fi
+}
+
 @test "every repo-root bats suite is invoked by the CI pipeline" {
 	# The other half of the same hole. Root-level test/*.bats are named
 	# individually by scripts/ci/vm-pipeline.sh, so one that is never added is

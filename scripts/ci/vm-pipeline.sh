@@ -526,6 +526,7 @@ run_stage \
   "cd ${WORK_DIR} && bats --tap \
      test/agent-trust-lifecycle.bats test/audit-anchor-keys-path.bats \
      test/bao-spire-proof.bats test/ci-lock.bats \
+     test/ci-path-anchoring.bats test/ci-state-locality.bats \
      test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
      test/deployed-staleness.bats test/flux-dynamic-labels.bats \
      test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
@@ -558,6 +559,28 @@ run_stage \
   "bats registry coverage" \
   "stage1h-bats-registry.tap" \
   "cd ${WORK_DIR} && bats --tap d2-signalloom/test/bats-registry-coverage.bats"
+
+# Stage 1i: Audit-guard reintroduction proof (12 cases)
+#
+# Reintroduces, one at a time, each defect the audit provenance guard exists to
+# catch, and requires the guard to go RED for every one. A guard suite that has
+# never been shown to fail is a suite nobody has tested.
+#
+# It was invoked by NOTHING. Not by this pipeline, not by any Makefile target.
+# It is a shell script rather than a .bats file, so stage 1h's registry guard
+# could not see it either — the coverage hole has a third shape, and one orphan
+# was hiding in it. That orphan happens to be the only thing in the repository
+# that proves the audit guards work at all.
+#
+# It costs SEVEN SECONDS. Measured: `exit=0 elapsed=7s red=12 notfired=0`.
+# There was never a runtime argument for leaving it out.
+#
+# It restores every file it mutates on the way out, including on failure, via
+# its own EXIT trap — verified: `git status` is clean after a run.
+run_stage \
+  "Audit-guard reintroduction proof" \
+  "stage1i-audit-reintroduction.txt" \
+  "cd ${WORK_DIR} && bash d2-signalloom/test/audit-guard-reintroduction-proof.sh"
 
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \

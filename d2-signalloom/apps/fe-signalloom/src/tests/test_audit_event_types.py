@@ -132,6 +132,34 @@ def _resolve_through_callers(
     return found
 
 
+def _caller_expression_for(
+    trees: dict[Path, ast.AST], function_name: str, index: int, keyword: str,
+) -> ast.expr | None:
+    """The expression callers pass into ``function_name``'s parameter.
+
+    ``_resolve_through_callers``'s sibling, returning the AST node instead of a
+    string literal. The actor check needs the node: ``principal.actor`` is an
+    attribute access, not a constant, so a literal-only resolver reports every
+    legitimate call site as unresolvable.
+
+    Returns ``None`` when callers disagree, rather than picking one. Two callers
+    passing different things means the resolution is not a fact, and this file's
+    rule is that an unresolved value is reported rather than guessed at.
+    """
+    found: list[ast.expr] = []
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != function_name:
+                continue
+            argument = _argument_for(node, index, keyword)
+            if argument is not None:
+                found.append(argument)
+    if not found:
+        return None
+    shapes = {ast.unparse(expression) for expression in found}
+    return found[0] if len(shapes) == 1 else None
+
+
 def _extract_event_types() -> tuple[set[str], list[str]]:
     """Every event type reaching ``_audit_log``, and every one that eluded us.
 
@@ -257,6 +285,25 @@ ACTOR_POSITION = 5
 """``_audit_log(executor, tenant_id, event_type, agent_id, agent_name, actor, ...)``."""
 
 
+# Call sites known to record a non-Principal actor, keyed on module and the
+# resolved value. Keyed on the VALUE, not just the location: changing which
+# fabricated name a site records is a new decision and should fail here rather
+# than inherit an exemption written about a different string.
+#
+# ``test_the_actor_exemptions_are_all_still_needed`` deletes these for you by
+# going red the moment a site stops needing one.
+ACTOR_DEFECTS_PENDING_FIX: dict[tuple[str, str], str] = {
+    ("onboarding.py", "onboarding-api"): (
+        "Records the service that wrote the row instead of the human who "
+        "completed onboarding. Both handlers already depend on "
+        "authenticated_tenant, which is authenticated_principal's own wrapper, "
+        "so the Principal is resolved and cached for the request -- the fix is "
+        "to take the dependency and pass principal.actor, with no change to "
+        "which tenant resolves. Owned by the endpoints agent."
+    ),
+}
+
+
 def test_no_audit_call_site_hardcodes_its_actor() -> None:
     """The actor must come from the caller's token, never from a literal.
 
@@ -272,24 +319,141 @@ def test_no_audit_call_site_hardcodes_its_actor() -> None:
     literal reads as a reasonable demo placeholder. Only the aggregate shows
     that a bank's first question -- who did this -- had one answer for every
     row in the product.
+
+    THE HOLE THIS TEST HAD, AND WHAT WAS SITTING IN IT
+    --------------------------------------------------
+    The check was ``isinstance(actor, ast.Constant)``: a literal *at the call
+    site*. ``onboarding.py`` passes ``actor=ACTOR``, and ``ACTOR`` is
+    ``"onboarding-api"``, a module constant declared at line 59. That is an
+    ``ast.Name``, so this test walked straight past it and reported success.
+    Moving one literal behind a constant defeated the guard entirely -- and
+    nobody did that to evade anything, it is just how a tidy person writes it.
+
+    So the audit trail said a *service* completed onboarding. The human who
+    clicked the button was authenticated, resolved, and cached by FastAPI:
+    both handlers depend on ``authenticated_tenant``, which is
+    ``authenticated_principal``'s own wrapper, so the Principal was in scope
+    and thrown away. The record names the thing that wrote the row instead of
+    the thing that took the decision, which is the one question the row exists
+    to answer.
+
+    The rewrite therefore asserts on the RESOLVED value, not on the syntactic
+    category of the expression. A name is followed to its assignment -- local,
+    then enclosing-parameter, then module scope -- and the result must be an
+    attribute access on a Principal. Anything that cannot be resolved FAILS
+    rather than passing, for the reason this file's own docstring gives about
+    event types: an extractor that silently returns less than the truth reads
+    as coverage while providing none.
     """
     trees = {path: ast.parse(path.read_text()) for path in _source_modules()}
     hardcoded: list[str] = []
+    unresolved: list[str] = []
 
     for path, tree in trees.items():
+        module_constants = {
+            target.id: node.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or _called_name(node) != "_audit_log":
                 continue
             actor = _argument_for(node, ACTOR_POSITION, "actor")
-            if isinstance(actor, ast.Constant) and isinstance(actor.value, str):
-                hardcoded.append(f"{path.name}:{node.lineno} -> {actor.value!r}")
+            where = f"{path.name}:{node.lineno}"
+
+            # Follow a bare name one hop, in the order the shapes actually
+            # occur in this tree:
+            #
+            #   1. a local assignment in the enclosing handler
+            #      (`actor = principal.actor` -- patch_user_preferences),
+            #   2. a parameter of the enclosing helper, resolved back to what
+            #      its callers pass (`_db_policy_scan(..., actor)` -- the same
+            #      one-hop trick _extract_event_types uses, and needed for the
+            #      same reason: a helper that receives the value looks like a
+            #      literal-free call site while the literal sits in its caller),
+            #   3. a module constant (`ACTOR = "onboarding-api"`).
+            #
+            # Only the first two can yield a Principal.
+            if isinstance(actor, ast.Name):
+                function = _enclosing_function(tree, node)
+                resolved = None
+                if function is not None:
+                    for statement in ast.walk(function):
+                        if isinstance(statement, ast.Assign) and any(
+                            isinstance(t, ast.Name) and t.id == actor.id
+                            for t in statement.targets
+                        ):
+                            resolved = statement.value
+                            break
+                    if resolved is None:
+                        index = _parameter_index(function, actor.id)
+                        if index is not None:
+                            resolved = _caller_expression_for(
+                                trees, function.name, index, actor.id,
+                            )
+                actor = resolved if resolved is not None else module_constants.get(actor.id, actor)
+
+            if isinstance(actor, ast.Constant):
+                if (path.name, actor.value) not in ACTOR_DEFECTS_PENDING_FIX:
+                    hardcoded.append(f"{where} -> {actor.value!r}")
+            elif isinstance(actor, ast.Attribute) and actor.attr == "actor":
+                continue  # principal.actor -- the token's own identity
+            else:
+                unresolved.append(
+                    f"{where} -> {ast.unparse(actor) if actor is not None else 'MISSING'}"
+                )
 
     assert not hardcoded, (
         f"{len(hardcoded)} _audit_log call site(s) pass a hardcoded actor: "
         f"{hardcoded}. Take it from the request's Principal -- "
         "authenticated_principal is authenticated_tenant's own dependency, so "
         "a handler that only has the tenant can swap to it without changing "
-        "which tenant it resolves."
+        "which tenant it resolves. A module constant is a hardcoded actor with "
+        "a longer name; naming the service that wrote the row does not answer "
+        "who took the decision."
+    )
+    assert not unresolved, (
+        f"{len(unresolved)} _audit_log call site(s) pass an actor this test "
+        f"cannot resolve to principal.actor: {unresolved}. Reported rather than "
+        "skipped -- an unresolved actor is invisible to the assertion above, so "
+        "skipping it would turn this test into decoration. Pass principal.actor "
+        "directly, assign it from the Principal in the handler, or extend the "
+        "resolver."
+    )
+
+
+def test_the_actor_exemptions_are_all_still_needed() -> None:
+    """An exemption that outlives its defect covers whatever moves in next.
+
+    Asserted by re-deriving the resolved actor values rather than by trusting
+    the dict, so a fix that lands elsewhere forces the entry out of this file.
+    """
+    live: set[tuple[str, str]] = set()
+    for path in _source_modules():
+        tree = ast.parse(path.read_text())
+        module_constants = {
+            target.id: node.value
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != "_audit_log":
+                continue
+            actor = _argument_for(node, ACTOR_POSITION, "actor")
+            if isinstance(actor, ast.Name):
+                actor = module_constants.get(actor.id, actor)
+            if isinstance(actor, ast.Constant) and isinstance(actor.value, str):
+                live.add((path.name, actor.value))
+
+    stale = sorted(str(key) for key in ACTOR_DEFECTS_PENDING_FIX if key not in live)
+    assert not stale, (
+        f"ACTOR_DEFECTS_PENDING_FIX names {len(stale)} call site(s) that no "
+        f"longer record a fabricated actor: {stale}. Delete them."
     )
 
 

@@ -136,19 +136,26 @@ const MAX_DRAIN_READS = 20
 /** Lines of output kept on screen when a run fails. */
 const LOG_TAIL_LINES = 12
 
-async function recordStunAudit(token: string): Promise<void> {
-  const response = await fetch('/api/agents/agent-cardvault/stun', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      agent_name: 'Cardvault Agent',
-      namespace: 'fe-signalloom-agents',
-      reason: 'compliance-failure: securityContext not set',
-      outcome: 'stunned',
-    }),
-  })
-  if (!response.ok) throw new Error(`audit endpoint returned HTTP ${response.status}`)
-}
+// recordStunAudit() used to live here. It POSTed the audit event from the
+// browser after phase 4 succeeded, which made the record of a cluster-mutating
+// action contingent on things that have nothing to do with the cluster: a tab
+// staying open, a token staying valid across a Dex restart (routine — Dex runs
+// storage: memory and `make public` restarts it), and the operator using this
+// panel rather than calling the endpoint directly.
+//
+// Worse, it was not a record of what happened but a client-side assertion that
+// it had. agent_name, namespace and reason were string literals in this file,
+// so it would have written "compliance-failure: securityContext not set"
+// whether or not that was the reason.
+//
+// The demo runner now writes the event server-side, before it spawns the
+// process, from what it actually observed: which step, which superadmin
+// principal, when. See _record_privileged_invocation in demo_runner.py.
+//
+// The trail therefore says "superadmin X ran privileged phase 4" rather than
+// "agent stunned". That is less rich and more true; the runner cannot see the
+// pod relabel or the OpenBao lease revocation, which belong to the SuperCred
+// proxy, and claiming them here is what made the old row a fabrication.
 
 /**
  * When a run began, in epoch ms, or undefined if the runner did not say.
@@ -217,7 +224,6 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
   // Log offsets are a stream cursor, not render state — advancing them must not
   // schedule a render, and the poll loop must read the latest value.
   const offsetRef = useRef(0)
-  const auditedStunRunsRef = useRef(new Set<string>())
   /**
    * Whether the SSE stream currently owns the log.
    *
@@ -327,21 +333,17 @@ export default function SuperCredInstructorPanel({ superadmin, onRefreshClients 
 
   const finishRun = useCallback(
     async (run: DemoRunView) => {
-      if (run.step_id === '4' && run.status === 'succeeded' && !auditedStunRunsRef.current.has(run.run_id)) {
-        auditedStunRunsRef.current.add(run.run_id)
-        try {
-          await recordStunAudit(await getAccessTokenSilently())
-        } catch (err) {
-          setError(err instanceof Error ? `Agent was stunned, but its audit event could not be recorded: ${err.message}` : 'Agent was stunned, but its audit event could not be recorded.')
-        }
-      }
+      // No audit call here any more: the runner records the invocation itself,
+      // server-side, so the record no longer depends on this component being
+      // alive to make it. The de-duplication ref that guarded against double
+      // POSTs goes with it — one request now produces exactly one row.
       await drainLog(run.run_id)
       // The run changed the cluster, so every projection above it is stale.
       invalidateSuperCredState()
       await onRefreshClients()
       await loadStatus()
     },
-    [drainLog, getAccessTokenSilently, loadStatus, onRefreshClients],
+    [drainLog, loadStatus, onRefreshClients],
   )
 
   const runId = activeRun?.run_id ?? null

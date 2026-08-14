@@ -547,7 +547,16 @@ describe('the cluster is shared, so controls lock while a run is active', () => 
 // ─── Log streaming ────────────────────────────────────────────────────────────
 
 describe('the run log streams in incrementally', () => {
-  it('records one durable audit event after a successful phase-four run', async () => {
+  it('does not record the audit event from the browser', async () => {
+    // This used to assert the opposite: that the panel POSTs the stun audit
+    // itself after phase four succeeds. That made the record of a
+    // cluster-mutating action contingent on this tab still being open and its
+    // token still valid, and its payload was a hardcoded literal the client
+    // asserted rather than anything the server observed.
+    //
+    // The runner now writes the event server-side before it spawns the
+    // process, so there is nothing for the browser to do — and a POST from
+    // here would be a second, duplicate row.
     mockRunner({
       startResponse: runView({ step_id: '4', status: 'running' }),
       pollRuns: [runView({ step_id: '4', status: 'succeeded', exit_code: 0 })],
@@ -555,8 +564,8 @@ describe('the run log streams in incrementally', () => {
     await readyPanel()
     await userEvent.click(await screen.findByTestId('supercred-run-step-4'))
 
-    await waitFor(() => expect(demoApiCalls(c => c.url === '/api/agents/agent-cardvault/stun')).toHaveLength(1))
-    expect(demoApiCalls(c => c.url === '/api/agents/agent-cardvault/stun')[0].body).toMatchObject({ outcome: 'stunned' })
+    await waitFor(() => expect(demoApiCalls(c => c.url === '/demo-api/runs')).toHaveLength(1))
+    expect(demoApiCalls(c => c.url === '/api/agents/agent-cardvault/stun')).toHaveLength(0)
   })
 
   it('strips terminal color sequences from browser log output', async () => {

@@ -12,9 +12,28 @@ Nothing caught it because the vocabulary lived in two places: string literals in
 006 widened it, and neither noticed that no call site used any of the values.
 
 So this test derives both sides rather than restating either. The literals come
-from the AST of ``api_compat.py``, the permitted values from the migration SQL.
+from the AST of the source, the permitted values from the migration SQL.
 Adding a call site with a new event type fails here instead of 500ing at
 runtime.
+
+Two ways this guard was itself blind, both fixed here:
+
+* **It read only ``api_compat.py``.** ``onboarding.py`` also calls
+  ``_audit_log`` and was invisible to it — so the module carrying the one
+  non-atomic writer was also the module outside the vocabulary check. Modules
+  are now *discovered* by looking for the call, not listed: a third module
+  cannot be added without this guard following it.
+
+* **It only understood literals.** ``onboarding._terminal_transition`` receives
+  its ``event_type`` as a parameter, so a literal-only extractor finds nothing
+  there and reports success. That is the failure mode this file's own docstring
+  warns about — "a guard that misses call sites is worse than no guard because
+  it reads as coverage" — reproduced inside the guard. Parameters are now
+  resolved one hop back to the callers that supply them, and anything that
+  cannot be resolved **fails the run** rather than being quietly skipped.
+
+The second point is the load-bearing one. An extractor that silently returns
+less than the truth turns this file into decoration.
 """
 from __future__ import annotations
 
@@ -23,8 +42,14 @@ import re
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent.parent
-API_COMPAT = SRC_DIR / "api_compat.py"
 MIGRATIONS_DIR = SRC_DIR / "db" / "migrations"
+
+# Undotted types that a call site really does emit. The constraint's other
+# undotted values are retained legacy vocabulary nothing writes, but these two
+# are live: onboarding.py has emitted them since migration 006 and rows exist
+# using them. Renaming them to the dotted convention is a data migration, not a
+# tidy-up, so they are named here rather than quietly exempted by a rule.
+LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 
 # The migration that owns the constraint today. When a later migration widens it
 # again, point this at that file — the test will then track the newer list.
@@ -38,40 +63,120 @@ MIGRATIONS_DIR = SRC_DIR / "db" / "migrations"
 # after a merge: it turns the test green while leaving the database constraint
 # missing an event type. Point it at whichever migration runs LAST, and make
 # that migration enumerate every type.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "011_agent_stunned_event_type.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "012_operational_event_types.sql"
+
+
+EVENT_TYPE_POSITION = 2
+"""``_audit_log(executor, tenant_id, event_type, ...)`` — third positional."""
+
+
+def _source_modules() -> list[Path]:
+    """Every non-test module in the app. Discovered, never listed.
+
+    A hardcoded list is how the previous version missed onboarding.py: the
+    module was added, the list was not, and nothing said so.
+    """
+    return sorted(p for p in SRC_DIR.rglob("*.py") if "tests" not in p.parts)
+
+
+def _called_name(node: ast.Call) -> str | None:
+    func = node.func
+    return func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
+
+
+def _argument_for(node: ast.Call, position: int, keyword: str) -> ast.expr | None:
+    """The argument at ``position``, whether passed positionally or by name."""
+    for kw in node.keywords:
+        if kw.arg == keyword:
+            return kw.value
+    if len(node.args) > position:
+        return node.args[position]
+    return None
+
+
+def _enclosing_function(tree: ast.AST, target: ast.Call) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    best: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.lineno <= target.lineno <= (node.end_lineno or node.lineno):
+            if best is None or node.lineno > best.lineno:
+                best = node
+    return best
+
+
+def _parameter_index(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> int | None:
+    names = [a.arg for a in function.args.args]
+    return names.index(name) if name in names else None
+
+
+def _resolve_through_callers(
+    trees: dict[Path, ast.AST], function_name: str, index: int, keyword: str,
+) -> set[str]:
+    """Literals that any caller passes into ``function_name``'s parameter.
+
+    One hop, deliberately. ``onboarding._terminal_transition`` takes its
+    event_type as an argument and every caller supplies a literal, which is the
+    real pattern here. A general dataflow engine would be a second system to
+    trust; one hop is enough to be exact about the code that exists, and
+    anything deeper is reported unresolved rather than guessed at.
+    """
+    found: set[str] = set()
+    for tree in trees.values():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != function_name:
+                continue
+            argument = _argument_for(node, index, keyword)
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                found.add(argument.value)
+    return found
+
+
+def _extract_event_types() -> tuple[set[str], list[str]]:
+    """Every event type reaching ``_audit_log``, and every one that eluded us.
+
+    Returns ``(resolved, unresolved)``. The second element is the point: a call
+    site whose event type cannot be determined is *reported*, not dropped. An
+    extractor that silently returns less than the truth reads as coverage while
+    providing none — the exact shape of the bug this whole file exists for.
+    """
+    trees = {path: ast.parse(path.read_text()) for path in _source_modules()}
+    resolved: set[str] = set()
+    unresolved: list[str] = []
+
+    for path, tree in trees.items():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != "_audit_log":
+                continue
+
+            argument = _argument_for(node, EVENT_TYPE_POSITION, "event_type")
+            where = f"{path.name}:{node.lineno}"
+
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                resolved.add(argument.value)
+                continue
+
+            # Not a literal. If it names a parameter of the enclosing function,
+            # the callers of that function are where the literals live.
+            if isinstance(argument, ast.Name):
+                function = _enclosing_function(tree, node)
+                index = _parameter_index(function, argument.id) if function else None
+                if function is not None and index is not None:
+                    through = _resolve_through_callers(
+                        trees, function.name, index, argument.id,
+                    )
+                    if through:
+                        resolved |= through
+                        continue
+
+            unresolved.append(where)
+
+    return resolved, unresolved
 
 
 def _emitted_event_types() -> set[str]:
-    """Every literal passed as ``event_type`` to ``_audit_log``.
-
-    Parsed rather than grepped: a regex over source silently misses a call
-    whose arguments wrap differently, and a guard that misses call sites is
-    worse than no guard because it reads as coverage.
-
-    ``_audit_log(executor, tenant_id, event_type, agent_id, control_id, actor,
-    detail)`` — third positional, or the ``event_type`` keyword.
-    """
-    tree = ast.parse(API_COMPAT.read_text())
-    emitted: set[str] = set()
-
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-        if name != "_audit_log":
-            continue
-
-        if len(node.args) >= 3 and isinstance(node.args[2], ast.Constant):
-            value = node.args[2].value
-            if isinstance(value, str):
-                emitted.add(value)
-        for keyword in node.keywords:
-            if keyword.arg == "event_type" and isinstance(keyword.value, ast.Constant):
-                if isinstance(keyword.value.value, str):
-                    emitted.add(keyword.value.value)
-
-    return emitted
+    resolved, _ = _extract_event_types()
+    return resolved
 
 
 def _permitted_event_types() -> set[str]:
@@ -108,10 +213,96 @@ def test_every_emitted_event_type_is_permitted() -> None:
 
 
 def test_emitted_event_types_use_the_dotted_convention() -> None:
-    """Thirteen call sites use ``area.action``; keep new ones consistent."""
-    odd = sorted(t for t in _emitted_event_types() if "." not in t)
+    """Most call sites use ``area.action``; keep new ones consistent.
+
+    The two live undotted names are stated explicitly rather than excused by a
+    pattern. The previous version of this test asserted that no call site emits
+    an undotted type, which was simply untrue — onboarding.py emits two, and
+    the test passed only because it could not see that module.
+    """
+    odd = sorted(
+        t for t in _emitted_event_types()
+        if "." not in t and t not in LIVE_UNDOTTED_EVENT_TYPES
+    )
     assert not odd, (
         f"event types not using the dotted area.action convention: {odd}. "
-        "The undotted names in the constraint are retained legacy values that "
-        "no call site emits."
+        f"The only undotted names still written are {sorted(LIVE_UNDOTTED_EVENT_TYPES)}; "
+        "the rest of the undotted vocabulary in the constraint is retained "
+        "legacy that nothing emits."
     )
+
+
+def test_every_audit_call_sites_event_type_is_resolvable() -> None:
+    """Guards the guard, and is the reason this file was rewritten.
+
+    An ``_audit_log`` call whose event type this extractor cannot determine is
+    a hole in every other assertion here: the type is never checked against the
+    constraint, so it reaches the database unvalidated and raises there instead.
+
+    Failing loudly is the whole design. The alternative — skipping what it
+    cannot parse — is what the previous version did with every parameterised
+    call site, and it read as coverage for as long as nobody looked.
+    """
+    _, unresolved = _extract_event_types()
+    assert not unresolved, (
+        f"{len(unresolved)} _audit_log call site(s) with an event type this test "
+        f"cannot resolve: {unresolved}. Every other assertion in this file is "
+        "blind to them, so they reach the CHECK constraint unvalidated. Either "
+        "pass a literal, or pass it from a caller one hop away, or extend the "
+        "resolver -- but do not leave it unresolved."
+    )
+
+
+ACTOR_POSITION = 5
+"""``_audit_log(executor, tenant_id, event_type, agent_id, agent_name, actor, ...)``."""
+
+
+def test_no_audit_call_site_hardcodes_its_actor() -> None:
+    """The actor must come from the caller's token, never from a literal.
+
+    ``Principal.actor``'s docstring says an unattributable record is "worthless
+    as evidence, so the value has to come from the token rather than from a
+    literal in the handler", and that substituting one "would put a fabricated
+    name in an audit column". Thirty-four occurrences of "demo-actor" said
+    otherwise -- including in two handlers that already held the principal in
+    scope for a NOT NULL business column and passed the literal to the audit
+    row three lines later.
+
+    Stated as a test because it is not visible in review: each individual
+    literal reads as a reasonable demo placeholder. Only the aggregate shows
+    that a bank's first question -- who did this -- had one answer for every
+    row in the product.
+    """
+    trees = {path: ast.parse(path.read_text()) for path in _source_modules()}
+    hardcoded: list[str] = []
+
+    for path, tree in trees.items():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != "_audit_log":
+                continue
+            actor = _argument_for(node, ACTOR_POSITION, "actor")
+            if isinstance(actor, ast.Constant) and isinstance(actor.value, str):
+                hardcoded.append(f"{path.name}:{node.lineno} -> {actor.value!r}")
+
+    assert not hardcoded, (
+        f"{len(hardcoded)} _audit_log call site(s) pass a hardcoded actor: "
+        f"{hardcoded}. Take it from the request's Principal -- "
+        "authenticated_principal is authenticated_tenant's own dependency, so "
+        "a handler that only has the tenant can swap to it without changing "
+        "which tenant it resolves."
+    )
+
+
+def test_the_extractor_sees_more_than_one_module() -> None:
+    """The specific blindness that motivated this rewrite.
+
+    Reading only api_compat.py silently excluded onboarding.py's two event
+    types. Asserting on a known cross-module value keeps the discovery honest:
+    if module scanning regresses to a single file, this goes red.
+    """
+    emitted = _emitted_event_types()
+    assert "onboarding_completed" in emitted, (
+        "onboarding.py's event types are missing -- the extractor is reading "
+        "too few modules, or stopped resolving parameters"
+    )
+    assert "agent.stunned" in emitted, "api_compat.py's event types are missing"

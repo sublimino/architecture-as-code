@@ -50,6 +50,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import api_compat
+import onboarding
 from api_compat import settings
 from db.connection import set_pool_for_testing
 from main import app
@@ -80,6 +81,8 @@ class _State:
     api_keys: list[dict[str, Any]] = field(default_factory=list)
     tenant_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     nhi_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    tenant_onboarding: dict[str, dict[str, Any]] = field(default_factory=dict)
+    support_requests: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AuditInsertRejected(asyncpg.CheckViolationError):
@@ -206,11 +209,14 @@ class FakePostgres:
                     return
             return
         if "UPDATE nhi_discovered_accounts" in query and "'dismissed'" in query:
-            account_uuid, tenant_id = args
+            account_uuid, tenant_id, dismissed_by = args
             account = state.nhi_accounts[str(account_uuid)]
             assert account["tenant_id"] == tenant_id
             account["status"] = "dismissed"
-            account["dismissed_by"] = "demo-actor"
+            # Bound parameter now, not a SQL literal -- so the fake records
+            # whatever the handler actually passed rather than a constant it
+            # would agree with regardless.
+            account["dismissed_by"] = dismissed_by
             return
         if "UPDATE tenant_api_keys" in query and "revoked_at = now()" in query:
             (tenant_id,) = args
@@ -229,6 +235,24 @@ class FakePostgres:
                     "scope": scope,
                     "revealed_by_email": revealed_by_email,
                     "revoked_at": None,
+                },
+            )
+            return
+        if "UPDATE agent_compliance_results" in query:
+            # No rows are seeded, so the refresh is a no-op. The audit row is
+            # what is under test, and it must be written for a scan that
+            # assessed nothing just as much as for one that assessed plenty.
+            return
+        if "INSERT INTO tenant_onboarding" in query:
+            (tenant_id,) = args
+            state.tenant_onboarding.setdefault(
+                tenant_id,
+                {
+                    "tenant_id": tenant_id,
+                    "status": "pending",
+                    "skipped_at": None,
+                    "completed_at": None,
+                    "wizard_state": {},
                 },
             )
             return
@@ -287,6 +311,39 @@ class FakePostgres:
             return {"cnt": sum(1 for a in state.agent_registry if a["tenant_id"] == args[0])}
         if "FROM consent_events" in query:
             return None
+        if "SELECT id FROM tenant_api_keys" in query:
+            tenant_id = args[0]
+            live = [k for k in state.api_keys if k["tenant_id"] == tenant_id and k["revoked_at"] is None]
+            return {"id": uuid.uuid4()} if live else None
+        if "INSERT INTO support_requests" in query:
+            tenant_id, subject, urgency, message, submitted_by = args
+            assert submitted_by, "submitted_by is NOT NULL in support_requests"
+            row = {
+                "id": uuid.uuid4(),
+                "tenant_id": tenant_id,
+                "subject": subject,
+                "urgency": urgency,
+                "message": message,
+                "submitted_by": submitted_by,
+                "submitted_at": None,
+                "clickup_task_id": None,
+            }
+            state.support_requests.append(row)
+            return row
+        # The terminal-transition UPDATE carries its own guard (status <> $2) and
+        # returns the row only when it actually moved, which is what makes
+        # re-skipping idempotent. The fake has to honour that guard or the
+        # idempotence path would never be exercised.
+        if "UPDATE tenant_onboarding" in query and "RETURNING" in query:
+            tenant_id, status, now = args
+            row = state.tenant_onboarding[tenant_id]
+            if row["status"] == status:
+                return None
+            row["status"] = status
+            row["completed_at" if status == "completed" else "skipped_at"] = now
+            return row
+        if "FROM tenant_onboarding" in query:
+            return state.tenant_onboarding.get(args[0])
         raise AssertionError(f"unexpected fetchrow: {query}")
 
     def read_many(self, state: _State, query: str, *args: Any) -> list[dict[str, Any]]:
@@ -611,6 +668,275 @@ def test_stunning_a_pod_with_no_registry_row_still_records_the_event(
     assert healthy.commits == 1
 
 
+def test_a_pod_name_row_can_still_say_which_agent_it_was_about(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """audit_events.agent_id is a UUID column, so a pod name stores NULL.
+
+    _audit_log inserts ``_try_uuid(agent_id)``, and _try_uuid('agent-cardvault')
+    is None. The instructor panel posts exactly that id, so the demo's headline
+    event has always written a row whose subject column is empty -- recoverable
+    only from agent_name, and only because the browser happened to send one.
+
+    detail.agent_ref carries the caller's identifier verbatim so the row is
+    self-describing either way. The column stays a UUID FK: that is the right
+    shape for registry agents, and the payload is the right place for an id
+    that is not one.
+    """
+    client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    event = healthy.committed.audit_events[0]
+    assert event["agent_id"] is None, "a pod name is not a UUID and cannot be stored as one"
+    assert json.loads(event["detail"])["agent_ref"] == "agent-cardvault"
+
+
+def test_a_pod_with_no_registry_row_records_no_transition_it_did_not_make(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """Committing atomically is not the same as committing something true.
+
+    The transaction guarantee above says the row and the state change agree.
+    It says nothing about whether the row's *contents* describe reality. Here
+    there is no registry row, so the ``UPDATE`` is skipped entirely -- and the
+    event still recorded ``from_state: "active"``, ``to_state: "suspended"``.
+    Neither state was read and the second was never written.
+
+    An impeccable transaction around a fabricated payload is the failure this
+    asserts against: it is precisely the shape that reads as trustworthy.
+    """
+    client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert healthy.committed.agent_registry == [], "nothing should have been updated"
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["from_state"] == "unknown"
+    assert detail["to_state"] == "unchanged"
+    assert detail["requested_state"] == "suspended"
+    assert detail["registry_match"] is False
+
+
+# ---------------------------------------------------------------------------
+# onboarding: the terminal transition and its audit are one write
+# ---------------------------------------------------------------------------
+#
+# onboarding.py lives outside api_compat.py and was never covered here, so it
+# kept the exact shape migration 007 was written about: an UPDATE against the
+# pool, then _audit_log(pool, ...) as a second autocommit statement. The tests
+# above pin fifteen writers in api_compat; this file's guarantee simply did not
+# reach across the module boundary.
+#
+# onboarding.py binds `_get_pool` at import (`from api_compat import _get_pool`),
+# so patching api_compat alone leaves it pointing at the real one. Both names
+# have to move or the test silently exercises nothing.
+
+@pytest.fixture
+def onboarding_pool(monkeypatch: pytest.MonkeyPatch, healthy: FakePostgres) -> FakePostgres:
+    monkeypatch.setattr(onboarding, "_get_pool", lambda: _async(healthy))
+    return healthy
+
+
+@pytest.fixture
+def onboarding_audit_rejects(
+    monkeypatch: pytest.MonkeyPatch, audit_rejects: FakePostgres,
+) -> FakePostgres:
+    monkeypatch.setattr(onboarding, "_get_pool", lambda: _async(audit_rejects))
+    return audit_rejects
+
+
+async def _async(value: Any) -> Any:
+    return value
+
+
+def test_completing_onboarding_commits_the_status_and_its_audit_together(
+    client: TestClient, onboarding_pool: FakePostgres,
+) -> None:
+    response = client.post("/api/onboarding/complete", headers=_bearer("tx-pooled"))
+
+    assert response.status_code == 200, response.text
+    assert onboarding_pool.committed.tenant_onboarding["tenant-tx-pooled"]["status"] == "completed"
+    assert [e["event_type"] for e in onboarding_pool.committed.audit_events] == [
+        "onboarding_completed",
+    ]
+
+
+def test_a_rejected_audit_event_leaves_onboarding_incomplete(
+    client: TestClient, onboarding_audit_rejects: FakePostgres,
+) -> None:
+    """A tenant marked onboarded with no record of when is an unanswerable claim.
+
+    "When did this tenant finish onboarding" is exactly the question the status
+    exists to answer, and the audit row is the only durable evidence of the
+    transition -- tenant_onboarding keeps the terminal state, not the history.
+    Letting the status survive a failed audit insert leaves the product asserting
+    a completion it cannot evidence.
+    """
+    response = client.post("/api/onboarding/complete", headers=_bearer("tx-pooled"))
+
+    assert response.status_code == 500, response.text
+    assert onboarding_audit_rejects.committed.tenant_onboarding[
+        "tenant-tx-pooled"
+    ]["status"] == "pending", "the completion survived a failed audit insert"
+    assert onboarding_audit_rejects.committed.audit_events == []
+    assert onboarding_audit_rejects.rollbacks == 1
+
+
+def test_skipping_onboarding_is_covered_by_the_same_guarantee(
+    client: TestClient, onboarding_audit_rejects: FakePostgres,
+) -> None:
+    """Skip and complete are the same code path; both must roll back."""
+    client.post("/api/onboarding/skip", headers=_bearer("tx-pooled"))
+
+    assert onboarding_audit_rejects.committed.tenant_onboarding[
+        "tenant-tx-pooled"
+    ]["status"] == "pending"
+    assert onboarding_audit_rejects.committed.audit_events == []
+
+
+# ---------------------------------------------------------------------------
+# Attribution: an audit row must name the caller, not a constant
+# ---------------------------------------------------------------------------
+#
+# Asserted as "equals the token's identity", never as "is not demo-actor".
+# The negative form passes against any other hardcoded string, which is the
+# same defect wearing a different value.
+
+def test_creating_an_api_key_records_the_caller_who_revealed_it(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """revealed_by_email and the audit row describe the same act.
+
+    The INSERT already took the identity from the token -- Principal.actor
+    exists for it, and the column is NOT NULL because an unattributable key
+    reveal is worthless as evidence. The audit row answered the same question
+    with the constant "demo-actor".
+    """
+    client.post("/api/tenants/tenant-tx-pooled/api-keys/initial", headers=_bearer("tx-pooled"))
+
+    event = healthy.committed.audit_events[0]
+    assert event["event_type"] == "api_key.created"
+    assert event["actor"] == "tx-pooled", "the audit row must name the token subject"
+    # The same value the business column recorded, from the same source.
+    assert healthy.committed.api_keys[0]["revealed_by_email"] == event["actor"]
+
+
+def test_rotating_an_api_key_records_the_caller(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    _seed_live_key(healthy)
+
+    client.post("/api/tenants/tenant-tx-pooled/api-keys/rotate", headers=_bearer("tx-pooled"))
+
+    event = healthy.committed.audit_events[0]
+    assert event["event_type"] == "api_key.rotated"
+    assert event["actor"] == "tx-pooled"
+
+
+# ---------------------------------------------------------------------------
+# policy_compliance_scan: the verdict refresh and the record of it
+# ---------------------------------------------------------------------------
+
+def test_a_policy_scan_records_the_verdict_it_produced(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """A compliance verdict that changes with nothing recording it is the gap.
+
+    The scan moves assessed_at on every control in scope and overwrites the
+    previous verdict in place, so without this row there is no way to say when
+    a control started failing.
+    """
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "fe-signalloom", "frameworks": [], "policyVersion": "v1"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert [e["event_type"] for e in healthy.committed.audit_events] == [
+        "compliance.scan_completed",
+    ]
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["policy_version"] == "v1"
+    assert detail["controls_assessed"] == 0
+    assert healthy.commits == 1
+
+
+def test_a_rejected_audit_event_rolls_back_the_scan_refresh(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    """The refresh must not survive without the record of it."""
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "fe-signalloom", "frameworks": [], "policyVersion": "v1"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.audit_events == []
+    assert audit_rejects.rollbacks == 1
+
+
+# ---------------------------------------------------------------------------
+# create_support_request: the request row and the record of it
+# ---------------------------------------------------------------------------
+
+def test_creating_a_support_request_commits_the_row_and_its_audit_together(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    response = client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "since 09:00"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(healthy.committed.support_requests) == 1
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["support.requested"]
+    assert healthy.commits == 1
+
+
+def test_the_support_audit_row_does_not_copy_the_message_body(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """Free text a customer wrote does not belong on the audit timeline.
+
+    The trail is read by people establishing that a request exists and who
+    raised it. The message may contain anything -- credentials pasted from a
+    log, another customer's name -- and the request row already holds it.
+    Copying it into audit_events would widen who can see it for no gain.
+    """
+    client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "token=sl_live_secret"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert "sl_live_secret" not in json.dumps(detail)
+    assert detail["urgency"] == "high"
+    assert detail["support_request_id"]
+
+
+def test_a_rejected_audit_event_rolls_back_the_support_request(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    response = client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "since 09:00"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.support_requests == []
+    assert audit_rejects.committed.audit_events == []
+
+
 # ---------------------------------------------------------------------------
 # rotate_api_key: two mutations plus an audit, all or nothing
 # ---------------------------------------------------------------------------
@@ -744,7 +1070,7 @@ def test_revoking_credentials_updates_rows_and_audits_in_one_transaction(
     assert response.status_code == 200, response.text
     assert response.json()["tokens_revoked"] == 1
     assert healthy.committed.agent_credentials[0]["revoked_at"] is not None
-    assert healthy.committed.agent_credentials[0]["revoked_by"] == "demo-actor"
+    assert healthy.committed.agent_credentials[0]["revoked_by"] == "tx-pooled"
     assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.credential_revoked"]
     assert healthy.commits == 1
 

@@ -16,7 +16,7 @@ import vectors from './__fixtures__/fxTestVectors.json'
 import { convert, roundHalfAwayFromZero } from './convert'
 import { money } from './money'
 import { minorUnits, type CurrencyCode } from './currency'
-import { rateFor } from './rates'
+import { rateFor, DEFAULT_RATE_TABLE, type RateTable } from './rates'
 
 interface Vector {
   from: string
@@ -52,6 +52,72 @@ describe('FX conformance with the risk engine', () => {
       expect(result?.amount).toBe(converted_rounded)
     },
   )
+})
+
+// ── Is this suite actually testing anything? ────────────────────────────────
+//
+// A conformance suite can pass for the wrong reason. On this branch a test
+// oracle computed its expected value from `rates.USD` — which is 1 under a
+// USD-based table — and so compared a figure against itself and went green on
+// nothing. The model side then found the mirror of it: a Go test whose comment
+// claimed it caught an inverted rate, when a round trip applies a wrong factor
+// and its reciprocal and lands back where it started, so it never could.
+//
+// The defence against both is mutation: break the thing under test on purpose
+// and count how many cases notice. A case that survives a deliberately wrong
+// rate is not testing conversion, whatever its name says.
+describe('the conformance suite is not vacuous', () => {
+  function mutated(kind: 'identity' | 'inverted'): RateTable {
+    const pairs: Record<string, Record<string, number>> = {}
+    for (const [from, row] of Object.entries(DEFAULT_RATE_TABLE.pairs)) {
+      pairs[from] = {}
+      for (const [to, rate] of Object.entries(row)) {
+        pairs[from][to] = kind === 'identity' ? 1 : 1 / rate
+      }
+    }
+    return { ...DEFAULT_RATE_TABLE, pairs }
+  }
+
+  /** Cases that still produce the expected figure despite a broken rate table. */
+  function survivors(kind: 'identity' | 'inverted'): Vector[] {
+    return cases.filter((c) => {
+      const got = convert(money(c.amount, c.from as CurrencyCode), c.to as CurrencyCode, mutated(kind))
+      return got?.amount === c.converted_rounded
+    })
+  }
+
+  // A case can legitimately survive for exactly two reasons, and both are
+  // properties of the case rather than weaknesses in it:
+  //   - from === to, where the rate genuinely is 1
+  //   - amount === 0, where zero times any rate is zero
+  const explainable = (c: Vector) => c.from === c.to || c.amount === 0
+
+  it.each(['identity', 'inverted'] as const)(
+    'every case that survives a %s rate mutation is explainably immune',
+    (kind) => {
+      const unexplained = survivors(kind).filter((c) => !explainable(c))
+      expect(unexplained.map((c) => `${c.amount} ${c.from}->${c.to}`)).toEqual([])
+    },
+  )
+
+  it('kills the large majority of cases under a wrong rate', () => {
+    // 40 of the 48 are cross-currency; 5 of those are zero-amount. So 35 must
+    // die. Asserting a floor rather than the exact number leaves room for the
+    // engine to add cases without this failing spuriously.
+    for (const kind of ['identity', 'inverted'] as const) {
+      const killed = cases.length - survivors(kind).length
+      expect(killed).toBeGreaterThanOrEqual(35)
+    }
+  })
+
+  it('detects an inverted rate specifically — the reciprocal trap', () => {
+    // The failure this branch nearly shipped: base USD read as though it were
+    // base GBP, multiplying by 0.79 where 1.2658 was wanted. A round-trip test
+    // cannot catch this; a fixed expected value can.
+    const inverted = convert(money(1000, 'GBP'), 'USD', mutated('inverted'))
+    const correct = convert(money(1000, 'GBP'), 'USD')
+    expect(inverted?.amount).not.toBe(correct?.amount)
+  })
 })
 
 describe('the rounding rule the vectors are testing', () => {

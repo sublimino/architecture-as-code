@@ -396,10 +396,35 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
   # optional-parameter syntax `body?: unknown, token?: string`, and it would
   # have missed a parameter named anything else that carried a credential.
   # Enumerating what IS there cannot be fooled by either.
-  params="$(grep -oE '[?&][A-Za-z_][A-Za-z0-9_]*=' \
-    "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts" \
+  #
+  # The allowlist is {offset, wait}, and each entry has to earn its place:
+  #   offset — a byte position in the run log. Not a credential.
+  #   wait   — long-poll duration in seconds, added by f39e35d when the waiting
+  #            log moved onto the live transport. Not a credential.
+  # A new parameter appearing here SHOULD fail this test until someone states
+  # why it is safe. That is the point of the allowlist, so keep it explicit
+  # rather than relaxing the comparison.
+  #
+  # Comments are stripped before scanning. Without that, the doc block above
+  # isLiveTransport matched on its own prose — it documents `?logTransport=sse`
+  # as something a HUMAN may put on the page URL, which the client READS via
+  # URLSearchParams and never builds. A guard that fires on its own
+  # documentation gets muted, and a muted security guard is worse than none.
+  # Drop only lines that are ENTIRELY comment — a leading `*` (JSDoc
+  # continuation) or a leading `//`. A range delete from /* to */ was the first
+  # attempt and it swallowed the file: the ranges nest and pair wrongly across a
+  # file with both a leading doc block and inline ones, and the parameter set
+  # came back empty, which would have passed a laxer assertion while checking
+  # nothing at all.
+  params="$(grep -vE '^[[:space:]]*(\*|//|/\*)' \
+      "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts" \
+    | grep -oE '[?&][A-Za-z_][A-Za-z0-9_]*=' \
     | tr -d '?&=' | sort -u | tr '\n' ' ')"
-  [ "$params" = "offset " ]
+  [ "$params" = "offset wait " ] || {
+    echo "query parameters the client builds: [${params}]" >&2
+    echo "expected exactly [offset wait ] — a new one must be justified above" >&2
+    return 1
+  }
 
   # And the token is passed as a header, on every call that carries one.
   run grep -c 'Authorization: `Bearer' "${BATS_TEST_DIRNAME}/../apps/dashboard-signalloom/src/api/demoRunner.ts"

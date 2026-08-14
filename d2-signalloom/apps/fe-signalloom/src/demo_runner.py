@@ -32,7 +32,15 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from api_compat import ERROR_RESPONSES, APIError, Principal, authenticated_tenant
+from api_compat import (
+    ERROR_RESPONSES,
+    APIError,
+    Principal,
+    _audit_log,
+    _get_pool,
+    _record_memory_audit,
+    authenticated_tenant,
+)
 from superadmin import require_superadmin
 
 logger = logging.getLogger(__name__)
@@ -664,6 +672,59 @@ def _start_reset_run() -> _Run:
         return _spawn_run(RESET_STEP_ID, "reset")
 
 
+async def _record_privileged_invocation(
+    principal: Principal, event_type: str, detail: dict[str, Any],
+) -> None:
+    """Record a superadmin invoking a privileged, cluster-mutating control.
+
+    Written BEFORE the process is spawned, and deliberately so. An audit row
+    added on completion is missing from exactly the cases worth investigating:
+    the pod is killed mid-run, the script wedges, the node goes away. The
+    security-relevant fact is that someone with superadmin invoked this against
+    the cluster -- that is true the moment the request is authorised, and it
+    must not be contingent on the run finishing tidily.
+
+    The run_id ties the row to the outcome, which ``GET /api/demo/status``
+    already reports. Recording the exit status here as well would mean either
+    two rows per run or a row that cannot be written until the end; the
+    invocation is the durable half and the one that cannot be reconstructed
+    afterwards.
+
+    Nothing transactional is available: the state change this records is a
+    subprocess and a mutated cluster, not a database row, so there is no write
+    to bind to. Ordering is the guarantee instead -- audit first, spawn second,
+    so a spawn cannot occur without a record, and a failed audit means no run.
+
+    This replaced ``recordStunAudit()`` in SuperCredInstructorPanel.tsx, where
+    the browser POSTed the audit event after a phase succeeded. That made the
+    record contingent on a tab staying open and a token staying valid, and its
+    payload was a hardcoded string the client asserted rather than anything the
+    server observed. What is recorded here is only what the runner actually
+    knows: which step, which principal, when.
+
+    It follows that this row does NOT claim the cluster action succeeded. The
+    relabel and the OpenBao lease revocation belong to the SuperCred proxy,
+    which reports to nobody; naming an outcome here would reintroduce the
+    fabrication in a new place.
+    """
+    pool = await _get_pool()
+    actor = principal.actor
+    if pool is None:
+        _record_memory_audit(
+            principal.tenant, event_type, None, None, actor, detail,
+        )
+        return
+    await _audit_log(
+        pool,
+        tenant_id=principal.tenant,
+        event_type=event_type,
+        agent_id=None,
+        agent_name=None,
+        actor=actor,
+        detail=detail,
+    )
+
+
 def _run_view(run: _Run) -> RunView:
     with run._lock:
         log_bytes = len(run._log)
@@ -994,7 +1055,11 @@ async def start_demo_run(
     request: RunRequest,
     principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> RunView:
-    del principal
+    # Audited before the spawn: a privileged phase must not be able to run
+    # without a record of who asked for it.
+    await _record_privileged_invocation(
+        principal, "demo.phase_run", {"step_id": request.step, "kind": "step"},
+    )
     # _start_step_run may block briefly on the mutation lock; keep it off the
     # event loop so a concurrent reset's cancellation cannot stall other requests.
     return _run_view(await run_in_threadpool(_start_step_run, request.step))
@@ -1159,7 +1224,14 @@ async def stream_demo_run_log(
 async def reset_demo(
     principal: Annotated[Principal, Depends(require_superadmin)],
 ) -> RunView:
-    del principal
+    # The most destructive control in the product: it preempts and cancels
+    # whatever privileged phase is running, then tears the demo down. Its only
+    # history was a per-process dict that dies with the pod.
+    await _record_privileged_invocation(
+        principal,
+        "demo.reset_requested",
+        {"step_id": RESET_STEP_ID, "kind": "reset", "preempts_active_run": True},
+    )
     # Reset waits on process cancellation, so keep the blocking path off the
     # event loop and let other requests stay responsive.
     return _run_view(await run_in_threadpool(_start_reset_run))

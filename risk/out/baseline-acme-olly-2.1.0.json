@@ -594,14 +594,11 @@
     "amount": 26000,
     "currency": "GBP"
   },
-  "Risk": {
-    "Iterations": 200000,
-    "Seed": 20260801,
-    "ALE": 48995.82694396423,
-    "VaR95": 308558.93199856416,
-    "TVaR": 671897.2824562666,
-    "Carried": 772681.8748247065,
-    "RiskLoad": 0.15
+  "Simulation": {
+    "iterations": 200000,
+    "seed": 20260801,
+    "riskLoad": 0.15,
+    "tailDominated": false
   },
   "Exposure": {
     "ale": {

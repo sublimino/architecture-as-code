@@ -87,3 +87,97 @@ with. The loader refuses a magnitude with no provenance and a posture assertion 
 path. Re-calibrate against real incident history before any board, external or underwriter use.
 
 The apparatus is real and reproducible. The inputs are illustrative until someone signs them off.
+
+## Denomination: every amount carries its own currency
+
+Amounts used to be bare numbers with the currency welded into the field *name* —
+`annual_cost_gbp`, `tolerance_gbp`, `per_deny_control_gbp`. A name does not survive a wire, a
+database column or a chart axis, so nothing downstream could convert, and a UI defaulting to USD
+over GBP source data would **relabel** a figure rather than convert it.
+
+Every amount is now `money.Money`, carrying its denomination as data. Each file declares its
+currency once; an individual amount may override it:
+
+```yaml
+currency: GBP                                   # document default
+appetite:
+  tolerance: 25000                              # inherits GBP
+transfer:
+  annual_premium: { amount: 60000, currency: EUR }   # explicitly denominated
+```
+
+Rules that make this safe rather than decorative:
+
+- **A document containing money must declare a currency.** A bare amount with no default is a load
+  error, never a guess.
+- **The old `*_gbp` keys are rejected at load, by name and line.** `yaml.v3` silently ignores keys
+  a struct does not declare, so an unmigrated file would otherwise load every cost as **zero** and
+  understate the figure with no warning.
+- **A missing rate is an error naming the pair**, never a silent `1.0`. A conversion that quietly
+  passes a number through is the failure mode that puts a wrong figure on a slide.
+- **Adding or comparing two denominations is refused**, not merely discouraged. A tolerance test
+  across currencies produces a wrong *verdict*, not just a wrong number.
+
+### Rates: checked in, dated, offline
+
+`risk/fx/rates.yaml` carries an `as_of` date and a base of USD. Same reasoning as the pinned Monte
+Carlo seed: *a number nobody can reproduce is not evidence*. A live FX lookup would make every
+historical report irreproducible and put a network dependency on the critical path of a board
+figure. Updating rates is a reviewed pull request that re-versions the money alongside the policy.
+
+### Rounding, decided once
+
+**Nothing is rounded until it is displayed.** Conversion is a scalar multiply applied across a
+200,000-iteration simulation; rounding inside that loop accumulates and makes two views of the same
+report disagree. Magnitudes are converted **once**, before sampling; presentation rounds **once**,
+at the end, half away from zero, to the currency's minor unit (2 for GBP/USD/EUR, 0 for JPY).
+
+Half away from zero — not Go's default half-to-even — because a compliance figure should match what
+a reader gets with a calculator.
+
+### Where the conversion actually bites
+
+Total Cost of Risk sums control costs (from the **pack**) with residual and premium (from the
+**org**). Those two files can legitimately be denominated differently, so the report resolves
+everything into the institution's own reporting currency *first*. Every threshold test and the tier
+selection are ratios in that one currency, so **no verdict depends on the display currency**:
+
+```bash
+riskctl risk --org acme                  # figures in GBP, the institution's own
+riskctl risk --org acme --currency USD   # same verdicts, converted at the last step
+```
+
+## Territory: a scenario need not be global
+
+A UK-GDPR administrative fine is not a loss a US provider can incur, and pricing it into their
+exposure inflates the number in a way an informed reader will catch. A scenario may scope itself to
+jurisdictions, matched against the institution's existing `metadata.jurisdiction`:
+
+```yaml
+scenarios:
+  - id: SCN-UNAUTH-CHANGE
+    title: Agent lands an unreviewed change in production
+    territories: ["UK"]                  # omit the field, or use ["*"], for global
+    territory_note: UK-GDPR administrative exposure.
+```
+
+Omitting `territories` means **global**, which is what every scenario in the shipped packs is — so
+this axis moves no existing figure until someone deliberately scopes one.
+
+Filtering is **visible, not just applied**. The report prints every scenario with whether it counted
+and *why*, because a total that silently omits scenarios is unexplainable — a reader cannot tell a
+deliberate jurisdictional exclusion from a typo in a scenario ID:
+
+```
+  SCENARIO               COUNTS     TERRITORIES            CONTROLS
+  UNAUTH-CHANGE          NO         [UK]                   AGT-003 AGT-004 AGT-005
+
+  1 of 5 scenarios excluded from the exposure:
+    SCN-UNAUTH-CHANGE — EXCLUDED: institution jurisdiction US is not within the
+      scenario's territories [UK]
+```
+
+Out-of-territory controls are still evaluated for compliance — a control can be unmet whether or not
+the loss it defends can happen locally — but they contribute no money and generate no deltas. An
+institution matching *nothing* is reported explicitly, because a bare zero exposure otherwise reads
+as "no risk" when it means "this pack prices nothing that can happen here".

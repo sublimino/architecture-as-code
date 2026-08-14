@@ -4,6 +4,8 @@ set -euo pipefail
 
 # shellcheck source=scripts/lib/wait.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
+# shellcheck source=scripts/lib/spire-trust-anchor.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/spire-trust-anchor.sh"
 
 readonly BAO_NAMESPACE="${BAO_NAMESPACE:-inf-bao}"
 readonly BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
@@ -76,43 +78,7 @@ register_spire_proof_identity() {
 configure_openbao_jwt_validation() {
   require_command jq
   require_command openssl
-  local bundle x y der public_key public_keys_csv coordinate value jwk
-  local -a jwks public_keys
-  bundle=$(kubectl -n "$BAO_NAMESPACE" exec deployment/spire-server -- \
-    /opt/spire/bin/spire-server bundle show -format spiffe)
-  mapfile -t jwks < <(jq -r '.keys[] | select(.use == "jwt-svid" and .kty == "EC" and .crv == "P-256") | [.x, .y] | @tsv' <<<"$bundle")
-  ((${#jwks[@]} > 0)) || {
-    printf 'SPIRE bundle contains no P-256 JWT-SVID validation key\n' >&2
-    return 1
-  }
-  for jwk in "${jwks[@]}"; do
-    IFS=$'\t' read -r x y <<<"$jwk"
-    der=$(mktemp)
-    {
-      # SubjectPublicKeyInfo header for an uncompressed P-256 public key.
-      printf '\x30\x59\x30\x13\x06\x07\x2a\x86\x48\xce\x3d\x02\x01\x06\x08\x2a\x86\x48\xce\x3d\x03\x01\x07\x03\x42\x00\x04'
-      for coordinate in "$x" "$y"; do
-        value="${coordinate//-/+}"
-        value="${value//_/\/}"
-        case $((${#value} % 4)) in
-          2) value="${value}==" ;;
-          3) value="${value}=" ;;
-        esac
-        printf '%s' "$value" | base64 -d
-      done
-    } >"$der"
-    public_key=$(openssl pkey -pubin -inform DER -in "$der" -outform PEM) || {
-      rm -f "$der"
-      return 1
-    }
-    rm -f "$der"
-    public_keys+=("$public_key")
-  done
-  printf -v public_keys_csv '%s,' "${public_keys[@]}"
-  public_keys_csv="${public_keys_csv%,}"
-  kubectl -n "$BAO_NAMESPACE" exec deployment/openbao -- env \
-    BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN" \
-    bao write auth/jwt/config jwt_validation_pubkeys="$public_keys_csv"
+  sync_openbao_jwt_validation "$BAO_NAMESPACE" "$BAO_ROOT_TOKEN"
 }
 
 bao_up() {

@@ -951,7 +951,6 @@ risk-report: riskctl ## Regenerate the committed report under risk/out/.
 	@./scripts/risk-report.sh
 
 DASHBOARD_RATES_GEN := d2-signalloom/apps/dashboard-signalloom/scripts/generate-rates.ts
-DASHBOARD_VECTORS   := d2-signalloom/apps/dashboard-signalloom/src/money/__fixtures__/fxTestVectors.json
 
 .PHONY: fx
 fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream generated copies.
@@ -969,28 +968,6 @@ fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream gen
 		( cd d2-signalloom/apps/dashboard-signalloom && bun run scripts/generate-rates.ts ); \
 	else \
 		echo "fx: no dashboard generator at $(DASHBOARD_RATES_GEN) — skipping (nothing downstream to regenerate)"; \
-	fi
-	@# The dashboard suite vendors the conformance vectors so it can run standalone. A vendored
-	@# copy that drifts is worse than none: its conformance test goes green against cases the
-	@# engine no longer produces, which READS as agreement and is not. That happened once already,
-	@# when adding per-case `rate_sensitive` silently broke the dashboard's staleness check.
-	@#
-	@# This is a BACKSTOP, not the mechanism. The dashboard's own generator vendors this file, and
-	@# owning it there is right -- it is their tree. So the normal outcome here is "already
-	@# current" and silence. If this step ever has to copy, that is itself the finding: it means
-	@# the generator did not run, and it says so loudly rather than quietly papering over it.
-	@#
-	@# Deliberately not two mechanisms racing: a copy that reports when it was needed degrades
-	@# correctly whether or not the generator handled it, and tells us which world we are in.
-	@if [ -f "$(DASHBOARD_VECTORS)" ]; then \
-		if cmp -s risk/fx/testvectors.json "$(DASHBOARD_VECTORS)"; then \
-			echo "fx: vendored vectors already current"; \
-		else \
-			cp risk/fx/testvectors.json "$(DASHBOARD_VECTORS)"; \
-			echo "fx: WARNING — vendored vectors were STALE and have been refreshed."; \
-			echo "fx:   The dashboard generator should have done this. Check that"; \
-			echo "fx:   $(DASHBOARD_RATES_GEN) still vendors risk/fx/testvectors.json."; \
-		fi; \
 	fi
 
 .PHONY: risk-check

@@ -950,9 +950,25 @@ risk-compare: riskctl ## Same agent, same pack, two institutions — the proport
 risk-report: riskctl ## Regenerate the committed report under risk/out/.
 	@./scripts/risk-report.sh
 
+DASHBOARD_RATES_GEN := d2-signalloom/apps/dashboard-signalloom/scripts/generate-rates.ts
+
 .PHONY: fx
-fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml for non-Go consumers.
+fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream generated copies.
 	@./$(RISKCTL) fx
+	@# The dashboard cannot parse the authored YAML, so it generates a TypeScript copy from
+	@# risk/fx/rates.json. Regenerating it HERE keeps "update the rates" a single command --
+	@# otherwise the two artefacts drift between the edit and whenever someone remembers the
+	@# second step, which is exactly the second-source-of-truth problem this file exists to avoid.
+	@#
+	@# Guarded on existence so this target works on a branch where the dashboard side has not
+	@# landed yet: absent generator means nothing to regenerate, not a broken build. Once merged
+	@# it always runs. The dashboard's own staleness test is the backstop if it is ever skipped.
+	@if [ -f "$(DASHBOARD_RATES_GEN)" ]; then \
+		echo "regenerating dashboard rates from risk/fx/rates.json"; \
+		( cd d2-signalloom/apps/dashboard-signalloom && bun run scripts/generate-rates.ts ); \
+	else \
+		echo "fx: no dashboard generator at $(DASHBOARD_RATES_GEN) — skipping (nothing downstream to regenerate)"; \
+	fi
 
 .PHONY: risk-check
 risk-check: ## CI gate: artefacts validate, engine self-checks, results are reproducible.

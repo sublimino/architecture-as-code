@@ -13,10 +13,11 @@ import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal
+from urllib.parse import quote
 
 import asyncpg
 import httpx
@@ -59,6 +60,24 @@ NETWORK_TESTS_SCAN_URL = os.environ.get(
 TRUST_TOPOLOGY_URL = os.environ.get(
     "TRUST_TOPOLOGY_URL",
     "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/trust-topology",
+)
+#: Base for ``POST {base}/{agent_id}/stun`` on the SuperCred proxy.
+#:
+#: The fifth of these constants and the last endpoint to join them. The stun
+#: used to be issued by the BROWSER, straight at /supercred-api/, with this API
+#: called afterwards to write down what the browser said had happened. Calling
+#: it from here instead is not a new capability -- the same pod already reaches
+#: the same service on the same port for discovery, crypto proofs, network
+#: tests and trust topology, and `network_tests_scan` already POSTs to it.
+#:
+#: An empty value means this deployment has no proxy, which is a real state for
+#: a laptop demo and never a cluster one. The stun then records an outcome of
+#: ``simulated`` with ``cluster_action_observed: false``, so the row says
+#: plainly that nothing was watched rather than implying something was. The
+#: default is the real path; simulation has to be asked for.
+SUPERCRED_STUN_BASE_URL = os.environ.get(
+    "SUPERCRED_STUN_BASE_URL",
+    "http://fake-integration-proxy.inf-signalloom.svc.cluster.local:8080/agents",
 )
 
 # ---------------------------------------------------------------------------
@@ -358,20 +377,55 @@ class AuditListResponse(BaseModel):
 # Defined after AuditEventResponse: StunAgentResponse embeds one, and the point
 # of embedding it is that the caller sees the exact row that was written rather
 # than a paraphrase of it.
-class StunAgentRequest(BaseModel):
-    """Context the dashboard supplies when it records a stun.
+#
+# ``StunAgentRequest`` used to stand here. It was the clearest statement of the
+# defect anywhere in this file, because it said what it was doing out loud:
+# "context the dashboard supplies when it records a stun". The browser sent
+# ``agent_name``, ``namespace``, ``reason`` and -- worst of the four --
+# ``outcome``, the result of an action nothing server-side had checked. The
+# handler copied all of it into ``detail`` and returned it as though the server
+# had established it. A row assembled from the account of the party being
+# audited is not evidence; it is that party's story, filed somewhere
+# authoritative-looking.
+#
+# There is no request model now because there is nothing a caller may
+# contribute. The endpoint performs the cluster action itself and records what
+# it observed, so every field of the row has a server-side source: identity
+# from the token, target from the path, prior state from this database, outcome
+# and namespace from the proxy's own response. A body sent by an older client
+# is ignored rather than rejected -- deliberately, so a dashboard mid-rollout
+# degrades to "its values stop being recorded" rather than "every stun 422s".
+class ProxyStunReport(BaseModel):
+    """What the SuperCred proxy said, kept apart from what we established.
 
-    Every field is optional. The SuperCred proxy performs the cluster-side
-    action and this endpoint records it; if the caller can tell us nothing about
-    what it just did, an event with no context still beats no event at all.
+    Nested rather than flattened alongside the first-party fields, and the
+    reason is the principle rather than taste. This whole change exists so a
+    reader can tell which assertions the writer checked and which came from
+    elsewhere. Flattening merges "fe-signalloom read this under FOR UPDATE"
+    with "the proxy told us this" into one namespace and nobody downstream can
+    separate them again -- which is the property deleting ``reason`` and
+    ``outcome`` from the request was meant to restore. Nesting makes provenance
+    structural instead of tribal knowledge.
+
+    Two practical consequences in its favour: the proxy's payload can change
+    shape without colliding with a first-party field name, and when the proxy
+    later writes its own audit row about the same act, the two are visibly
+    distinct claims rather than one silently overwriting the other.
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    agent_name: str | None = None
-    namespace: str | None = None
-    reason: str | None = None
-    outcome: str | None = None
+    #: False only where no proxy is configured at all -- a laptop demo, never a
+    #: cluster. Every other value here was watched by this process.
+    observed: bool
+    #: The proxy's own word for what it did, or "failed", or "simulated".
+    outcome: str
+    namespace: str | None
+    status: int | None
+    error: str | None
+    #: The proxy's response verbatim, carrying `state`, `stunned_at` and
+    #: `message`, so the dashboard has what it needs without calling the proxy.
+    payload: dict[str, Any]
 
 
 class StunAgentResponse(BaseModel):
@@ -382,6 +436,7 @@ class StunAgentResponse(BaseModel):
     to_state: str
     actor: str
     stunned_at: str
+    proxy: ProxyStunReport
     event: AuditEventResponse
 
 
@@ -2222,23 +2277,181 @@ async def transition_agent(
 
 STUNNED_LIFECYCLE_STATE = "suspended"
 
+#: What the API itself saw when it asked the proxy to isolate an agent.
+#:
+#: ``observed`` is the field that keeps the audit row honest. It is False only
+#: when no proxy is configured at all; every other path -- success, refusal,
+#: timeout -- is something this process watched happen and may therefore
+#: report as fact.
+@dataclass
+class _ClusterStunObservation:
+    observed: bool
+    outcome: str
+    namespace: str | None
+    proxy_status: int | None
+    error: str | None
+    #: The proxy's response verbatim, so the dashboard can read `state`,
+    #: `stunned_at` and `message` without calling the proxy itself. Kept whole
+    #: rather than unpacked: it is one party's payload and it stays in one
+    #: place, which is the same reason it is nested in the response.
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+async def _perform_cluster_stun(agent_id: str) -> _ClusterStunObservation:
+    """Ask the SuperCred proxy to isolate the agent, and watch what happens.
+
+    This is the half that used to belong to the browser. The proxy relabels the
+    pod and revokes the OpenBao lease; issuing the call from here rather than
+    from a tab is what turns the audit row from a transcript of someone else's
+    claim into a record of something this process did.
+
+    It also authenticates the action for the first time. The proxy performs no
+    authentication of its own -- its only access control is a NetworkPolicy --
+    and the dashboard's ``/supercred-api/`` nginx block deliberately does not
+    forward ``Authorization``, unlike the ``/demo-api/`` block below it. Every
+    stun the demo has ever issued was therefore unauthenticated. Routed through
+    this endpoint it is gated on a validated Dex token.
+
+    Errors are returned rather than raised so the caller can audit the failure
+    before deciding what to answer. An attempted isolation that failed is a
+    security-relevant fact and must reach the trail; raising here would lose it.
+    """
+    if not SUPERCRED_STUN_BASE_URL:
+        return _ClusterStunObservation(
+            observed=False, outcome="simulated", namespace=None,
+            proxy_status=None, error=None,
+        )
+
+    # `safe=""` so a pod name can never escape its path segment. SuperCred
+    # agent ids arrive from the caller and are pod names, not UUIDs, so this is
+    # attacker-adjacent input reaching a URL.
+    url = f"{SUPERCRED_STUN_BASE_URL}/{quote(agent_id, safe='')}/stun"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(url)
+    except httpx.HTTPError as exc:
+        logger.warning("stun: SuperCred proxy unreachable", exc_info=True)
+        return _ClusterStunObservation(
+            observed=True, outcome="failed", namespace=None,
+            proxy_status=None, error=str(exc),
+        )
+
+    if response.status_code >= 400:
+        return _ClusterStunObservation(
+            observed=True, outcome="failed", namespace=None,
+            proxy_status=response.status_code, error=response.text[:200],
+        )
+
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    return _ClusterStunObservation(
+        observed=True,
+        # The proxy's own word for what it did. Defaulted only because a 2xx
+        # with no state field still means it acted; the default names the
+        # action, not an assumption about the cluster.
+        outcome=str(payload.get("state") or "stunned"),
+        namespace=payload.get("namespace"),
+        proxy_status=response.status_code,
+        error=None,
+        payload=payload,
+    )
+
+
+def _proxy_report(observation: _ClusterStunObservation) -> ProxyStunReport:
+    """The proxy half of the response, built in one place so it cannot drift.
+
+    Mirrors the ``detail["proxy"]`` block exactly: the row and the caller's
+    copy of it must not be able to disagree about what the proxy said.
+    """
+    return ProxyStunReport(
+        observed=observation.observed,
+        outcome=observation.outcome,
+        namespace=observation.namespace,
+        status=observation.proxy_status,
+        error=observation.error,
+        payload=observation.payload,
+    )
+
+
+def _raise_if_stun_failed(observation: _ClusterStunObservation) -> None:
+    """Turn an observed failure into the caller's answer, after it is recorded.
+
+    Called only once the audit row is committed. A stun that did not take must
+    not return 200 -- the operator would believe an agent was cut off when it
+    is still authenticating -- but the record of the attempt is the thing that
+    must survive, so the error is raised last.
+
+    The proxy's 404 is passed through as a 404: "no such pod" is the caller's
+    problem and a distinct one from "the proxy is broken".
+    """
+    if observation.outcome != "failed":
+        return
+    detail = observation.error or "the SuperCred proxy could not be reached"
+    if observation.proxy_status == 404:
+        raise APIError(404, "not_found", f"Agent not found in the cluster: {detail}")
+    raise APIError(
+        502, "cluster_action_failed",
+        f"The agent was not isolated; the attempt is on the audit trail. {detail}",
+    )
+
 
 @router.post("/agents/{agent_id}/stun", response_model=StunAgentResponse, responses=ERROR_RESPONSES)
 async def stun_agent(
     agent_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
-    body: StunAgentRequest | None = None,
 ) -> StunAgentResponse:
-    """Record an operator isolating an agent.
+    """Isolate an agent, and record what was observed doing so.
 
-    The cluster-side action belongs to the SuperCred proxy -- it relabels the
-    pod and revokes the OpenBao lease -- and that proxy has no database. So the
-    durable half lives here: the lifecycle change and its ``audit_events`` row,
-    written inside one ``_write`` transaction, exactly as ``transition_agent``
-    and ``rotate_api_key`` do. An enforcement action that persisted with no
-    matching audit row is the failure mode migration 007 and ``_write`` exist to
-    rule out, and it is worse for a stun than for anything else: the agent is
-    cut off and nobody can say who did it.
+    This endpoint used to *record* a stun rather than perform one. The browser
+    POSTed to the SuperCred proxy, then called here with its account of what
+    had just happened -- ``agent_name``, ``namespace``, ``reason`` and
+    ``outcome`` -- and this handler wrote that account down. Andy's rule is
+    that an audit event is a side effect of the action the API itself performs:
+    never content the client supplies, never a record of an action performed
+    elsewhere, never written by a browser. That was all three at once.
+
+    So the call moved here. The proxy still owns the cluster-side action --
+    relabelling the pod, revoking the OpenBao lease -- but this process is now
+    the one that asks for it and the one that sees the answer, which is what
+    makes the row a side effect rather than a transcript.
+
+    Three things fall out of that, and the third is the one worth having:
+
+    * Every field of the row has a server-side source. Identity from the token,
+      target from the path, prior state from a ``FOR UPDATE`` read in this
+      database, outcome and namespace from the proxy's own response.
+    * No new reachability was needed. This pod already calls the same service
+      on the same port for discovery, crypto proofs, network tests and trust
+      topology; ``allow-portal-dependencies`` covers it with no podSelector,
+      and a live check from the running pod returns 200.
+    * The stun becomes authenticated. The proxy performs no authentication of
+      its own, and the dashboard's ``/supercred-api/`` nginx block does not
+      forward ``Authorization``, so every stun the demo has issued has been
+      unauthenticated. This route is gated on a validated Dex token. (The
+      browser's direct path to the proxy still exists and still is not; closing
+      it is an nginx and dashboard change, not this one.)
+
+    Ordering, precisely, because it cannot be made atomic. The proxy is called
+    first, because an outcome cannot be recorded before it is observed. The
+    registry ``UPDATE`` and the ``audit_events`` insert then share one
+    ``_write`` transaction, so a rejected audit row still takes the state change
+    with it -- but by then the cluster has already moved. That gap is
+    irreducible in any observe-then-record design and is stated here rather
+    than papered over: the previous version of this comment claimed a guarantee
+    that held only on one branch, and someone checking the invariant found a
+    comment telling them it was fine.
+
+    A failed cluster action is audited too, with ``outcome: "failed"``, and
+    then surfaced as an error. An attempted isolation that did not take is
+    precisely the kind of fact an audit trail exists for, and the registry is
+    deliberately NOT marked suspended in that case -- claiming an agent is
+    isolated when the relabel failed would be the same fabrication in a new
+    place.
 
     ``agent_id`` is deliberately not required to resolve to a registry row.
     SuperCred agent ids are Kubernetes pod names, so the interesting case --
@@ -2272,21 +2485,41 @@ async def stun_agent(
     record of intent, and deliberately not named as an outcome.
     """
     tenant_id = principal.tenant
-    req = body or StunAgentRequest()
-    reason = req.reason or "operator-initiated stun"
-    outcome = req.outcome or "stunned"
     now = _now_iso()
+
+    # The action, before anything is written. Its result is the only source for
+    # `outcome` and `namespace` -- both of which the caller used to supply.
+    observation = await _perform_cluster_stun(agent_id)
+    #: Server-authored, and a constant rather than a message: it records how the
+    #: isolation was initiated, which this process knows, and says nothing about
+    #: why, which it does not. The proxy writes its own reason annotation onto
+    #: the pod; reading it back would be a second call and a second claim.
+    reason = "operator-initiated stun via governance API"
+    outcome = observation.outcome
+    # Only a stun this process watched succeed may move the registry. A failed
+    # relabel that still marked the agent suspended would leave the database
+    # asserting an isolation that never happened.
+    acted = observation.outcome != "failed"
     pool = await _get_pool()
 
     def _detail(from_state: str, *, registry_match: bool) -> dict[str, Any]:
         return {
-            "outcome": outcome,
+            # Everything above `proxy` was established by this process: read
+            # from its own database, taken from the validated token, or decided
+            # here. Everything under `proxy` is another party's account of what
+            # it did, which this process watched it say but did not verify.
+            #
+            # The split is the point of the row. An investigator reading it can
+            # tell which assertions the writer checked without knowing how this
+            # endpoint is wired -- and when the proxy later writes its own row
+            # about the same act, the two are separable claims rather than one
+            # quietly overwriting the other.
             "reason": reason,
-            "namespace": req.namespace,
             "from_state": from_state,
-            # What the registry holds after this call. With no row to update,
-            # nothing moved -- saying so is the whole point of this change.
-            "to_state": STUNNED_LIFECYCLE_STATE if registry_match else "unchanged",
+            # What the registry holds after this call. Two ways for nothing to
+            # have moved, and both must say "unchanged": no row to update, or a
+            # cluster action that failed and so was not allowed to move one.
+            "to_state": STUNNED_LIFECYCLE_STATE if (registry_match and acted) else "unchanged",
             # What was asked for. True either way, and a different claim from
             # what was reached; keeping them apart is what stops the row lying.
             "requested_state": STUNNED_LIFECYCLE_STATE,
@@ -2304,6 +2537,13 @@ async def stun_agent(
             # row should be self-describing regardless of whether its subject
             # happens to be one.
             "agent_ref": agent_id,
+            "proxy": {
+                "observed": observation.observed,
+                "outcome": outcome,
+                "namespace": observation.namespace,
+                "status": observation.proxy_status,
+                "error": observation.error,
+            },
         }
 
     if pool is None:
@@ -2317,8 +2557,11 @@ async def stun_agent(
             # the defect live in the deployment most likely to be running.
             registry_match = agent is not None
             from_state = "unknown" if agent is None else str(agent["lifecycle_state"])
-            agent_name = req.agent_name or (None if agent is None else str(agent["name"]))
-            if agent is not None:
+            # The registry's name, or none. The caller used to be able to
+            # supply one and have it preferred over the database's, which let a
+            # request rename the subject of its own audit record.
+            agent_name = None if agent is None else str(agent["name"])
+            if agent is not None and acted:
                 agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
                 agent["last_transition_at"] = now
                 agent["last_transition_by"] = principal.actor
@@ -2326,6 +2569,7 @@ async def stun_agent(
         event = _record_memory_audit(
             tenant_id, "agent.stunned", agent_id, agent_name, principal.actor, detail,
         )
+        _raise_if_stun_failed(observation)
         return StunAgentResponse(
             agent_id=agent_id,
             from_state=from_state,
@@ -2334,6 +2578,7 @@ async def stun_agent(
             to_state=detail["to_state"],
             actor=principal.actor,
             stunned_at=now,
+            proxy=_proxy_report(observation),
             event=AuditEventResponse(**event),
         )
 
@@ -2364,9 +2609,13 @@ async def stun_agent(
         # branch used to write on every demo run.
         registry_match = row is not None
         from_state = "unknown" if row is None else str(row["lifecycle_state"])
-        agent_name = req.agent_name or (None if row is None else row["name"])
+        # From the registry alone. See the fixture branch above: a
+        # caller-supplied name used to win over the one in the database.
+        agent_name = None if row is None else row["name"]
 
-        if row is not None:
+        # `acted` as well as `row`: a failed relabel must not leave the registry
+        # asserting an isolation the cluster never performed.
+        if row is not None and acted:
             await conn.execute(
                 """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
                    WHERE id = $2 AND tenant_id = $3""",
@@ -2379,6 +2628,11 @@ async def stun_agent(
             detail,
         )
 
+    # After the commit, never before: the failure has to reach the trail first.
+    # Raising at the point of failure would have answered the caller sooner and
+    # left no record of the attempt, which is the wrong half to optimise.
+    _raise_if_stun_failed(observation)
+
     return StunAgentResponse(
         agent_id=agent_id,
         from_state=from_state,
@@ -2387,6 +2641,7 @@ async def stun_agent(
         to_state=detail["to_state"],
         actor=principal.actor,
         stunned_at=now,
+        proxy=_proxy_report(observation),
         # audit_events.id is generated server-side and the insert does not
         # return it; the row the caller sees is otherwise the row that was
         # written. Naming it "pending" is honest about which field is a stand-in.
@@ -2490,15 +2745,51 @@ async def request_reassessment(
     control_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ReassessmentResponse:
+    """Record an operator asking for a control to be reassessed.
+
+    This endpoint dispatches nothing. There is no INSERT, no UPDATE and no
+    outbound call anywhere in it -- no queue, no scheduler, no ClickUp task,
+    which is why ``clickup_task_id`` is a hardcoded ``None`` rather than a
+    lookup. What happens when someone presses the button is that a row is
+    written saying they pressed it.
+
+    That is a defensible thing for an endpoint to do; it was not a defensible
+    thing to leave implicit. Every field here is server-sourced, so the row
+    never breached the rule about client-authored content -- but the other half
+    of the same principle is that a row must not assert what its writer did not
+    observe, and a bare ``compliance.reassess_requested`` invites a reader to
+    conclude a reassessment was scheduled. ``dispatched: False`` says otherwise
+    in the row itself, where the reader is, rather than in this docstring,
+    where they are not.
+
+    The fixture branch used to record nothing at all, which made the deployment
+    most likely to be running the one with no evidence -- the same shape as the
+    demo runner writing its privileged-invocation rows into a dict. Both paths
+    record now.
+
+    If a real reassessment pipeline arrives, ``dispatched`` becomes true and
+    gains the identifier of whatever it was handed to. Until then it is false
+    and says so.
+    """
     tenant_id = principal.tenant
     now = _now_iso()
+    detail = {
+        "control_id": control_id,
+        # Nothing was queued, scheduled or sent. Stated rather than implied by
+        # the absence of a field a reader would have to know to look for.
+        "dispatched": False,
+    }
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
+        _record_memory_audit(
+            tenant_id, "compliance.reassess_requested", agent_id, None,
+            principal.actor, detail,
+        )
     else:
         await _audit_log(
             pool, tenant_id, "compliance.reassess_requested", agent_id, None, principal.actor,
-            {"control_id": control_id},
+            detail,
         )
     return ReassessmentResponse(
         agent_id=agent_id,
@@ -2977,6 +3268,147 @@ async def compliance_export(
     }
 
 
+class PrivilegedInvocationRequest(BaseModel):
+    """What the demo runner may report, and the whole of it.
+
+    Two fields, both drawn from closed sets, and neither of them an audit field
+    in its own right. What is deliberately absent is the list that matters:
+    no ``actor``, no ``event_type``, no ``outcome``, no free-text reason. Those
+    are the load-bearing columns of the row, and a caller that can author them
+    can author the row. They are derived below from the validated token and
+    from ``kind``, never read from this body.
+
+    ``extra="forbid"`` so that a field added to the wire without being added to
+    this model is a 422 rather than a silently ignored claim.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Mirrors ``demo_runner.StepId``. Restated rather than imported because
+    #: ``demo_runner`` imports this module; the duplication is one line and the
+    #: alternative is a cycle. ``test_demo_runner_audit_forwarding`` pins the
+    #: two together.
+    step_id: Literal["1", "2", "3", "4", "5"]
+    kind: Literal["step", "reset"]
+
+
+def _superadmin_principal(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Principal:
+    """``superadmin.require_superadmin``, reachable from this module.
+
+    ``superadmin`` imports ``Principal`` and ``authenticated_principal`` from
+    here, so importing it back at module scope is a cycle. The import is
+    therefore deferred to request time -- the gate itself is unchanged, and
+    lives in exactly one place, which is the property worth protecting.
+    """
+    from superadmin import is_superadmin
+
+    if not is_superadmin(principal):
+        raise APIError(403, "superadmin_required", "Superadmin access is required")
+    return principal
+
+
+@router.post(
+    "/audit/privileged-invocations",
+    response_model=AuditEventResponse,
+    responses=ERROR_RESPONSES,
+    status_code=201,
+)
+async def record_privileged_invocation(
+    body: PrivilegedInvocationRequest,
+    principal: Annotated[Principal, Depends(_superadmin_principal)],
+) -> AuditEventResponse:
+    """Persist a privileged demo invocation on the runner's behalf.
+
+    This is the durable half of the supercred-demo-runner's audit trail, and it
+    exists because that workload has no database and must not be given one.
+    ``demo_runner_main.py`` says why in its own words -- the runner "must not
+    initialise the PostgreSQL pool" -- and its NetworkPolicy is written to the
+    same standard, spelling out what is absent and why. Port 5432 is absent.
+    The runner is the one workload in the slice that executes privileged
+    scripts against the cluster; handing it database reachability in order to
+    widen an audit trail trades the wrong thing away. So the bytes travel over
+    HTTP to the process that already holds the pool, which is this one.
+
+    On the honesty of the row, plainly, because this endpoint is the exception
+    to the rule the rest of the file now follows.
+
+    Everything that identifies the caller is first-party: ``actor`` and
+    ``tenant`` come from a Dex token that THIS process validated, against the
+    same issuer, audience and superadmin allowlist the runner validated it
+    against. Nothing about the identity is taken on trust from the reporter.
+    ``event_type`` and ``preempts_active_run`` are derived here from ``kind``.
+
+    What is not first-party is ``step_id``: only the runner knows which phase
+    it was asked for, and it is constrained to a closed set rather than
+    verified. The row is therefore a record of an authorisation -- a superadmin
+    was authorised, at this time, for this phase -- and not a claim that a
+    script ran or that a cluster changed. That distinction is the same one the
+    stun payload had to learn: ``requested`` is not ``reached``.
+
+    The residual exposure is that a superadmin could call this directly and
+    fabricate an invocation that never happened. That is accepted rather than
+    overlooked: the only callers who can do it are the callers entitled to make
+    the claim true by pressing the button. Closing it properly needs a verified
+    workload identity for the runner -- a projected ServiceAccount token checked
+    by TokenReview, or an OpenBao-issued service credential -- and neither
+    primitive exists in this codebase yet. When one does, this endpoint should
+    require it in addition to the operator's token, not instead of it.
+    """
+    tenant_id = principal.tenant
+    detail: dict[str, Any] = {
+        "step_id": body.step_id,
+        "kind": body.kind,
+        # Reported by the runner, recorded here, observed by neither. Named so
+        # that a reader of this row knows which kind of fact they are holding
+        # without having to know this endpoint exists.
+        "reported_by": "supercred-demo-runner",
+        "observed": False,
+    }
+    if body.kind == "reset":
+        # Derived from `kind`, not accepted from the body: reset is the control
+        # that preempts and cancels whatever phase is running, and that is a
+        # property of the operation rather than something a caller asserts.
+        detail["preempts_active_run"] = True
+
+    pool = await _get_pool()
+    if pool is None:
+        event = _record_memory_audit(
+            tenant_id, "demo.reset_requested" if body.kind == "reset" else "demo.phase_run",
+            None, None, principal.actor, detail,
+        )
+        return AuditEventResponse(**event)
+
+    # Two literal call sites rather than one call with a looked-up name. The
+    # extractor in test_audit_event_types.py resolves an event type only when
+    # it is a literal at the call site or a parameter of the enclosing
+    # function; a dict lookup would land in its `unresolved` list, and that
+    # test's whole point is that an unresolvable call site is reported rather
+    # than quietly dropped from the coverage it claims to provide.
+    async with _write(pool) as conn:
+        if body.kind == "reset":
+            await _audit_log(
+                conn, tenant_id, "demo.reset_requested", None, None, principal.actor, detail,
+            )
+        else:
+            await _audit_log(
+                conn, tenant_id, "demo.phase_run", None, None, principal.actor, detail,
+            )
+
+    return AuditEventResponse(
+        # As in the stun response: the insert does not return the generated id,
+        # and naming the stand-in is better than inventing a plausible one.
+        id=f"{tenant_id}:audit-pending",
+        timestamp=_now_iso(),
+        event_type="demo.reset_requested" if body.kind == "reset" else "demo.phase_run",
+        agent_id=None,
+        agent_name=None,
+        actor=principal.actor,
+        detail=detail,
+    )
+
+
 @router.get("/audit", response_model=AuditListResponse, responses=ERROR_RESPONSES)
 async def audit(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],
@@ -2998,7 +3430,12 @@ async def audit(
                 agent_id=f"{tenant_id}:agent-1",
                 agent_name="Inventory Agent",
                 actor="demo-actor",
-                detail={"source": "mock", "from": from_, "to": to},
+                # Fixed, not the caller's `from_`/`to`. This fixture echoed the
+                # query string back as though it were recorded content -- the
+                # same defect the comment on the fixture below describes being
+                # removed from the other two, which "made a real recorded event
+                # indistinguishable from a fabricated one". This one was missed.
+                detail={"source": "mock"},
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-2",
@@ -3631,7 +4068,13 @@ async def patch_user_preferences(
             _USER_PREFERENCES.setdefault(tenant_id, {})[actor] = body.display_currency
         _record_memory_audit(
             tenant_id, "user.currency_updated", None, None, actor,
-            {"from": previous, "to": body.display_currency, "email": actor},
+            # No "email" key: `actor` is Principal.actor, which IS the email
+            # claim when Dex grants one. Copying it into the JSONB payload
+            # duplicated PII into an append-only column for no gain -- the
+            # column beside it already answers the same question, and
+            # audit_events is precisely where a redundant copy is hardest to
+            # remove later.
+            {"from": previous, "to": body.display_currency},
         )
         return UserPreferencesResponse(display_currency=body.display_currency)
 
@@ -3659,7 +4102,13 @@ async def patch_user_preferences(
         # neither. 007 documents what happens when the two come apart.
         await _audit_log(
             conn, tenant_id, "user.currency_updated", None, None, actor,
-            {"from": previous, "to": body.display_currency, "email": actor},
+            # No "email" key: `actor` is Principal.actor, which IS the email
+            # claim when Dex grants one. Copying it into the JSONB payload
+            # duplicated PII into an append-only column for no gain -- the
+            # column beside it already answers the same question, and
+            # audit_events is precisely where a redundant copy is hardest to
+            # remove later.
+            {"from": previous, "to": body.display_currency},
         )
 
     return UserPreferencesResponse(display_currency=body.display_currency)

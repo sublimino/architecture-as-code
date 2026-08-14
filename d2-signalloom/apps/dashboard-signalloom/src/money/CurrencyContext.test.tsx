@@ -23,6 +23,9 @@ vi.mock('../api/client', () => ({
 import { CurrencyProvider, useMoney, useCurrency } from './CurrencyContext'
 import { DEFAULT_CURRENCY } from './currency'
 import { resetRateTable, setRateTable } from './rates'
+import { convert } from './convert'
+import { money } from './money'
+import { fakeRateTable } from '../test-utils/rateTable'
 
 beforeEach(() => {
   auth.isAuthenticated = true
@@ -34,12 +37,14 @@ beforeEach(() => {
 
 /** Renders one converted figure plus the disclosure line. */
 function Probe() {
-  const { fmt, currency, conversionNote } = useMoney()
+  const { fmtMoney, currency, noteFor } = useMoney()
+  // The probe figure is GBP because the demo estate reports GBP; the source
+  // currency travels with the value rather than being assumed globally.
   return (
     <div>
-      <span data-testid="figure">{fmt(1000, { locale: 'en-GB' })}</span>
+      <span data-testid="figure">{fmtMoney({ amount: 1000, currency: 'GBP' }, { locale: 'en-GB' })}</span>
       <span data-testid="currency">{String(currency)}</span>
-      <span data-testid="note">{conversionNote ?? 'none'}</span>
+      <span data-testid="note">{noteFor('GBP') ?? 'none'}</span>
     </div>
   )
 }
@@ -72,7 +77,7 @@ describe('the default is USD', () => {
     getPrefs.mockResolvedValue({ display_currency: 'USD' })
     renderWith(<Probe />)
     await waitFor(() => expect(screen.getByTestId('currency')).toHaveTextContent('USD'))
-    expect(screen.getByTestId('figure')).toHaveTextContent(intl('USD', 1266))
+    expect(screen.getByTestId('figure')).toHaveTextContent(intl('USD', convert(money(1000, 'GBP'), 'USD')!.amount))
   })
 
   it('shows USD for a row that predates the preference column', async () => {
@@ -81,7 +86,7 @@ describe('the default is USD', () => {
     getPrefs.mockResolvedValue({})
     renderWith(<Probe />)
     await waitFor(() => expect(screen.getByTestId('currency')).toHaveTextContent(DEFAULT_CURRENCY))
-    expect(screen.getByTestId('figure')).toHaveTextContent(intl('USD', 1266))
+    expect(screen.getByTestId('figure')).toHaveTextContent(intl('USD', convert(money(1000, 'GBP'), 'USD')!.amount))
   })
 
   it('falls back to USD rather than trusting a code this build cannot format', async () => {
@@ -106,7 +111,7 @@ describe('a saved preference is applied', () => {
     getPrefs.mockResolvedValue({ display_currency: 'EUR' })
     renderWith(<Probe />)
     await waitFor(() => expect(screen.getByTestId('currency')).toHaveTextContent('EUR'))
-    expect(screen.getByTestId('figure')).toHaveTextContent(intl('EUR', 1174))
+    expect(screen.getByTestId('figure')).toHaveTextContent(intl('EUR', convert(money(1000, 'GBP'), 'EUR')!.amount))
   })
 
   it('survives a reload — the value is read back from the server, not from memory', async () => {
@@ -165,7 +170,7 @@ describe('an unconvertible figure never renders as though it had been converted'
   it('shows the word Unavailable, with no number and no symbol', async () => {
     // A table with no USD row: the user's currency is USD, the figures are GBP,
     // and there is no rate to bridge them.
-    setRateTable({ as_of: '2026-08-01', base: 'GBP', rates: { GBP: 1 } })
+    setRateTable(fakeRateTable({ 'GBP->GBP': 1 }, { as_of: '2026-08-01' }))
     getPrefs.mockResolvedValue({ display_currency: 'USD' })
 
     renderWith(<Probe />)

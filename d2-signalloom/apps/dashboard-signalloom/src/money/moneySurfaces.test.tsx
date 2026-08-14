@@ -47,17 +47,20 @@ import CompliancePolicyPage from '../pages/CompliancePolicyPage'
 import AgentPosturePage from '../pages/AgentPosturePage'
 import FleetRiskGauge from '../components/fleet/FleetRiskGauge'
 import { resetRateTable, setRateTable, DEFAULT_RATE_TABLE } from './rates'
+import { convert } from './convert'
+import { money } from './money'
+import { fakeRateTable } from '../test-utils/rateTable'
 
 // Figures chosen so the converted values are unambiguous and none of them
 // coincides with its own source amount.
 const TOTAL_ALE = 195_500
 const SUMMARY = {
-  totalChecks: 20, passed: 15, failed: 5,
-  totalAle: TOTAL_ALE, totalVar95: 858_000, totalTvar: 1_332_000,
-  totalCarriedGbp: 98_700,
+  totalChecks: 20, passed: 15, failed: 5, currency: 'GBP',
+  totalAle: { amount: TOTAL_ALE, currency: 'GBP' }, totalVar95: { amount: 858_000, currency: 'GBP' }, totalTvar: { amount: 1_332_000, currency: 'GBP' },
+  totalCarried: { amount: 98_700, currency: 'GBP' },
   scanTimestamp: '2026-07-27T12:00:00Z',
   frameworks: [
-    { id: 'eu-ai-act', name: 'EU AI Act', versions: ['v1.0', 'v2.0'], totalControls: 10, passedControls: 7, failedControls: 3, totalExposureGbp: 53_200 },
+    { id: 'eu-ai-act', name: 'EU AI Act', versions: ['v1.0', 'v2.0'], totalControls: 10, passedControls: 7, failedControls: 3, totalExposure: { amount: 53_200, currency: 'GBP' } },
   ],
 }
 
@@ -65,7 +68,7 @@ const CHECKS = [
   {
     framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-3',
     check: 'Data provenance recorded', passed: false, policyVersion: 'v2.0',
-    ale: 12_400, var95: 58_000, tvar: 89_000, carriedGbp: 12_400,
+    ale: { amount: 12_400, currency: 'GBP' }, var95: { amount: 58_000, currency: 'GBP' }, tvar: { amount: 89_000, currency: 'GBP' }, carried: { amount: 12_400, currency: 'GBP' },
     scanTimestamp: '2026-07-27T12:00:00Z', calibrationSource: 'industry-indicative',
   },
 ]
@@ -82,11 +85,18 @@ beforeEach(() => {
 
 /** The oracle: what Intl itself produces for a converted figure. */
 function expectedUsd(sourceGbp: number): string {
-  const rate = DEFAULT_RATE_TABLE.rates.USD as number
+  // pairs.GBP.USD, NOT rates.USD. The table's base is USD, so rates.USD is 1
+  // and rates.GBP is 0.79 — using either directly is the reciprocal trap that
+  // would put every figure out by a factor of 1.6. An earlier draft of this
+  // very helper had it wrong.
+  // Explicitly against the CANONICAL table: this helper is also called from
+  // the unavailable-figure tests, where the active table has been crippled on
+  // purpose and would make the oracle itself return null.
+  const converted = convert(money(sourceGbp, 'GBP'), 'USD', DEFAULT_RATE_TABLE)
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD',
     minimumFractionDigits: 0, maximumFractionDigits: 0,
-  }).format(Math.round(sourceGbp * rate))
+  }).format(converted!.amount)
 }
 
 function expectedGbp(sourceGbp: number): string {
@@ -137,7 +147,7 @@ describe('Policy Compliance renders exposure in the user currency', () => {
     renderInProvider(<CompliancePolicyPage />)
 
     await waitFor(() => {
-      expect(screen.getAllByText(expectedUsd(SUMMARY.totalCarriedGbp)).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(expectedUsd(SUMMARY.totalCarried.amount)).length).toBeGreaterThan(0)
     })
     expect(await screen.findByTestId('policy-conversion-note')).toHaveTextContent(DEFAULT_RATE_TABLE.as_of)
   })
@@ -148,7 +158,7 @@ describe('Agent Posture renders exposure in the user currency', () => {
     renderInProvider(<AgentPosturePage />)
 
     await waitFor(() => {
-      expect(screen.getAllByText(expectedUsd(CHECKS[0].carriedGbp)).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(expectedUsd(CHECKS[0].carried.amount)).length).toBeGreaterThan(0)
     })
     expect(await screen.findByTestId('posture-conversion-note')).toHaveTextContent(DEFAULT_RATE_TABLE.as_of)
   })
@@ -169,7 +179,7 @@ describe('Fleet risk gauge renders in the user currency', () => {
 
     const compact = new Intl.NumberFormat('en-US', {
       style: 'currency', currency: 'USD', notation: 'compact', maximumFractionDigits: 1,
-    }).format(Math.round(4_000_000 * (DEFAULT_RATE_TABLE.rates.USD as number)))
+    }).format(convert(money(4_000_000, 'GBP'), 'USD', DEFAULT_RATE_TABLE)!.amount)
 
     await waitFor(() => {
       expect(screen.getByTestId('fleet-risk-ale').textContent).toBe(compact)
@@ -181,7 +191,7 @@ describe('an unconvertible figure renders as unavailable on every surface', () =
   beforeEach(() => {
     // The user wants USD; the table has no USD row. There is no honest number
     // to show, so no number is shown.
-    setRateTable({ as_of: '2026-08-01', base: 'GBP', rates: { GBP: 1 } })
+    setRateTable(fakeRateTable({ 'GBP->GBP': 1 }, { as_of: '2026-08-01' }))
   })
 
   it('Risk Exposure shows the word Unavailable, not the source number', async () => {

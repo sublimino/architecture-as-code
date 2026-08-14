@@ -13,6 +13,7 @@ import {
 import { money } from './money'
 import { convert } from './convert'
 import { resetRateTable, setRateTable } from './rates'
+import { fakeRateTable } from '../test-utils/rateTable'
 
 afterEach(() => {
   resetRateTable()
@@ -111,12 +112,15 @@ describe('formatConverted — an unconvertible figure never wears the target sym
   it('formats a successful conversion in the target currency', () => {
     const c = convert(money(1000, 'GBP'), 'USD')
     expect(c).not.toBeNull()
-    expect(formatConverted(c, { locale: 'en-GB' })).toBe(intl('en-GB', 'USD', 1266))
+    expect(formatConverted(c, { locale: 'en-GB' })).toBe(intl('en-GB', 'USD', c!.amount))
   })
 
   it('renders the word Unavailable when there is no rate', () => {
-    // A cross-rate the table cannot answer: USD is not the table base.
-    const c = convert(money(1000, 'USD'), 'EUR')
+    // The canonical table answers every pair, so an unconvertible figure needs
+    // a table that genuinely cannot answer — which is what a partial or failed
+    // rate load would look like in production.
+    setRateTable(fakeRateTable({ 'GBP->GBP': 1 }))
+    const c = convert(money(1000, 'GBP'), 'USD')
     expect(c).toBeNull()
     expect(formatConverted(c, { locale: 'en-GB' })).toBe(MONEY_UNAVAILABLE)
   })
@@ -164,7 +168,7 @@ describe('conversion provenance is visible', () => {
   })
 
   it('reports the as_of of whichever table is installed', () => {
-    setRateTable({ as_of: '2027-01-15', base: 'GBP', rates: { GBP: 1, USD: 1.4 } })
+    setRateTable(fakeRateTable({ 'GBP->GBP': 1, 'GBP->USD': 1.4 }, { as_of: '2027-01-15' }))
     const c = convert(money(100, 'GBP'), 'USD')
     expect(formatAsOfNote(c)).toContain('2027-01-15')
   })

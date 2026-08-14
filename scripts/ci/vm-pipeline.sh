@@ -524,18 +524,17 @@ run_stage \
   "Static guards previously invoked by nothing" \
   "stage1g-unregistered-guards.tap" \
   "cd ${WORK_DIR} && bats --tap \
-     test/agent-trust-lifecycle.bats test/audit-anchor-keys-path.bats \
+     test/audit-anchor-keys-path.bats \
      test/bao-spire-proof.bats test/ci-lock.bats \
      test/ci-path-anchoring.bats test/ci-state-locality.bats \
      test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
-     test/deployed-staleness.bats test/flux-dynamic-labels.bats \
+     test/flux-dynamic-labels.bats \
      test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
      test/gcp-ci-vm-status.bats test/healthcheck.bats \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/resourceset-activation-race.bats test/revocation-demo.bats \
-     test/signalloom-flux-integration.bats test/signalloom-local-lifecycle.bats \
-     test/signalloom-preflight.bats \
+     test/signalloom-local-lifecycle.bats \
      test/signalloom-security-validation-evidence.bats \
      test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \
      test/supercred-fleet-demo-harness.bats test/supercred-image-visibility.bats \

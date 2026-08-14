@@ -38,7 +38,21 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               with the image stages, not with the static
 #                               contracts. Verified green in a full checkout (3/3)
 #                               before exclusion; not dropped silently.
-EXCLUDED_BATS = test/dashboard-image.bats
+#
+#   test/supercred-demo.bats  - needs a LIVE policy-engine on localhost:18081.
+#                               Passes locally only because a port-forward from
+#                               earlier work happened to be up. On the CI VM it
+#                               failed at lines 150 and 164 with
+#                               "reachable http://localhost:18081/healthz
+#                               (deadline 10s)" -- 2 of 249 in stage 1. This
+#                               target is the STATIC contract stage; a test that
+#                               needs a running service belongs with the runtime
+#                               stages, which already port-forward for it.
+#                               Its passing locally was an accident of my
+#                               environment, which is its own small lesson: a
+#                               green run on a developer box is not evidence
+#                               about a clean one.
+EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

@@ -109,3 +109,88 @@ func TestGeneratedVectorsAreSelfConsistent(t *testing.T) {
 		}
 	}
 }
+
+// The vector set must not over-claim its own coverage.
+//
+// "48 conformance cases" sounds like 48 checks of the conversion maths. It is not: identity pairs
+// have a genuine rate of 1, and zero amounts are zero times anything, so 13 of them would still
+// pass with the rate lookup completely broken. The generated file states that split so a consumer
+// reading the count is not misled, and this test keeps the statement true.
+//
+// Prompted by the sibling TypeScript implementation, which ran exactly this mutation analysis and
+// independently arrived at the same 35/8/5 split — a useful cross-check that both sides agree on
+// what the vectors prove.
+func TestVectorCoverageIsHonestlyStated(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(root(t), "risk", "fx", "testvectors.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v fxVectors
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := v.Coverage.RateSensitive + v.Coverage.Identity + v.Coverage.ZeroAmount; got != v.Coverage.Total {
+		t.Errorf("coverage categories sum to %d but total is %d", got, v.Coverage.Total)
+	}
+	if v.Coverage.Total != len(v.Cases) {
+		t.Errorf("coverage.total = %d but there are %d cases", v.Coverage.Total, len(v.Cases))
+	}
+
+	// The classification must match the rule, per case — not merely add up.
+	for _, c := range v.Cases {
+		want := c.From != c.To && c.Amount != 0
+		if c.RateSensitive != want {
+			t.Errorf("%v %s->%s: rate_sensitive = %v, want %v", c.Amount, c.From, c.To, c.RateSensitive, want)
+		}
+	}
+
+	// A vector set with no rate-sensitive cases would be entirely structural and would pass with the
+	// conversion maths deleted. Guard the floor rather than an exact count so vectors can be added.
+	if v.Coverage.RateSensitive < 30 {
+		t.Errorf("only %d rate-sensitive cases; the set no longer meaningfully tests conversion",
+			v.Coverage.RateSensitive)
+	}
+}
+
+// Mutation proof, in-repo: every case marked rate-sensitive must actually die if the rate is wrong.
+//
+// A flag claiming a case is rate-sensitive is worth nothing if the case would survive a broken rate
+// — that is precisely the "green on nothing" failure the TypeScript oracle hit. So rather than
+// trusting the flag, this recomputes each case under two mutations and requires a different answer.
+func TestRateSensitiveCasesDieUnderRateMutation(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(root(t), "risk", "fx", "testvectors.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v fxVectors
+	if err := json.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+
+	checked := 0
+	for _, c := range v.Cases {
+		if !c.RateSensitive {
+			// And the converse: a structural case must NOT be claimed to detect a rate error.
+			if c.Amount*1.0 != c.Converted && c.From == c.To {
+				t.Errorf("identity case %v %s->%s does not pass through unchanged", c.Amount, c.From, c.To)
+			}
+			continue
+		}
+		checked++
+		// Mutation 1: every rate forced to 1 (the silent pass-through).
+		if c.Amount == c.Converted {
+			t.Errorf("%v %s->%s is marked rate-sensitive but survives rate=1: converted equals the input",
+				c.Amount, c.From, c.To)
+		}
+		// Mutation 2: the rate inverted (the direction error).
+		if inverted := c.Amount * (1 / c.Rate); inverted == c.Converted {
+			t.Errorf("%v %s->%s is marked rate-sensitive but survives an inverted rate",
+				c.Amount, c.From, c.To)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no rate-sensitive cases were checked; the test is vacuous")
+	}
+	t.Logf("%d rate-sensitive cases verified to die under both rate mutations", checked)
+}

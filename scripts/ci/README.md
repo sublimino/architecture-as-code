@@ -173,8 +173,27 @@ something other than the cause, so the obvious diagnosis is the wrong one.
 
 `gcp-ci.sh run` suspends on pass and deliberately **leaves the VM RUNNING on
 failure** so you can SSH in and investigate. A suspended VM therefore means the
-last run passed. Do not read it as "the run never started" — check
-`ci-reports*/summary.json` for the actual verdict.
+last run passed — *unless someone suspended a failed VM by hand to stop the
+cost*, which is the normal thing to do and produces the identical state.
+
+**The VM's state is not a verdict. Read `ci-reports*/summary.json`, which always
+exists and always says which run it belongs to:**
+
+| `outcome` | Means |
+|-----------|-------|
+| `PASS` | Every stage passed. Also carries `collected_at`. |
+| `FAIL` | Stages ran and some failed. VM left running. |
+| `ABORTED` | The run never reached a verdict. `phase` names how far it got. **Not a test failure.** |
+| `RUNNING` | A run is in flight right now, or was killed without its trap running (compare `started_at` against the 180m fence). **Not a verdict.** |
+
+`commit` and `branch` name the source under test; `written_at` / `collected_at`
+date the claim. The directory is rotated to `ci-reports*.prev` at run **start**,
+so the previous round's verdict is never readable as the current one's — and a
+`summary.json` whose `commit` disagrees with the tree under test is rejected as
+`ABORTED` rather than reported.
+
+`gcp-ci.sh status` prints all of this together with the observation time and the
+VM's `lastStartTimestamp`, so no state has to be dated by hand.
 
 ### `unset SSH_AUTH_SOCK` before any ad-hoc `gcloud compute ssh`
 
@@ -257,13 +276,15 @@ should `return 0` explicitly.
 
 | File | Format | Content |
 |------|--------|---------|
-| `summary.json` | JSON | Overall pass/fail, per-stage results, commit SHA |
+| `summary.json` | JSON | `outcome` (PASS/FAIL/ABORTED/RUNNING), phase, per-stage results, commit SHA, timestamps. Written on every exit path — its absence is itself impossible, so it can be trusted as the verdict |
 | `signalloom-ci-report.yaml` | OpenReports v1alpha1 | All tests as ReportResult entries |
 | `stage1-static.tap` | TAP | BATS static contract results |
 | `stage1b-dashboard-unit.xml` | JUnit XML | vitest dashboard unit + guard suite |
 | `stage2-api.xml` | JUnit XML | pytest API contract results |
 | `stage3-fakes.xml` | JUnit XML | pytest fake integration results |
 | `stage4-dashboard.json` | Go test JSON | Dashboard API ownership results |
+| `stage1e-node-images.tap` | TAP | BATS guard on doctor's node-image expectations |
+| `stage1f-ci-terminal-state.tap` | TAP | BATS guard on this harness reporting honestly about itself |
 | `stage5-harness.tap` | TAP | BATS harness contract results |
 | `stage6-flux.tap` | TAP | Flux convergence results |
 | `stage7-runtime.tap` | TAP | BATS runtime negative results |

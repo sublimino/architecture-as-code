@@ -230,15 +230,35 @@ def test_policy_compliance_compatibility_routes_match_dashboard_contract(client)
     assert frameworks.status_code == 200
     assert summary.status_code == 200
     assert frameworks.json()
+    # The key sets below gained DENOMINATED twins of the *Gbp figures. The change is additive on
+    # purpose: `totalExposureGbp` and `totalCarriedGbp` stay so the dashboard keeps working while
+    # it migrates, and the new `exposure` / `carried` / `currency` fields carry the denomination as
+    # DATA. A currency welded into a field name does not survive a wire, a database column or a
+    # chart axis -- which is how a consumer ends up defaulting its display to USD and relabelling a
+    # GBP figure instead of converting it.
+    #
+    # This assertion is deliberately an exact set rather than a subset check, so that any future
+    # field lands here as a conscious contract decision rather than by accident. Removing a *Gbp
+    # field IS a breaking change and must be coordinated with the dashboard.
     assert set(frameworks.json()[0]) == {
         "id", "name", "versions", "totalControls", "passedControls",
-        "failedControls", "totalExposureGbp",
+        "failedControls", "totalExposureGbp", "exposure",
     }
     assert set(summary.json()) == {
         "totalChecks", "passed", "failed", "totalAle", "totalVar95",
         "totalTvar", "totalCarriedGbp", "scanTimestamp", "frameworks",
+        "carried", "currency",
     }
     assert summary.json()["frameworks"] == frameworks.json()
+
+    # A denominated figure must actually be denominated: a null currency here would mean the new
+    # fields are decoration and a consumer still has nothing to convert from.
+    assert summary.json()["currency"] == "GBP"
+    assert summary.json()["carried"]["currency"] == "GBP"
+    assert frameworks.json()[0]["exposure"]["currency"] == "GBP"
+    # And the twins must agree with the legacy fields they mirror, or the two will drift.
+    assert summary.json()["carried"]["amount"] == summary.json()["totalCarriedGbp"]
+    assert frameworks.json()[0]["exposure"]["amount"] == frameworks.json()[0]["totalExposureGbp"]
 
 
 def test_discovery_detail_reads_persisted_tenant_account(client, monkeypatch):

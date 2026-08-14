@@ -9,6 +9,18 @@
 # admission engine (hub ADR-0007).
 apiVersion: osramp.controlplane.io/v1alpha1
 kind: PolicyPack
+# Document currency. Every bare amount below is denominated in this currency; an amount may override
+# it with the explicit `{ amount: N, currency: XXX }` form. Declared ONCE rather than suffixed onto
+# each of a dozen field names, because twelve `_gbp` suffixes are twelve chances to denominate one
+# line differently by accident — and because a suffix in a field NAME is not carried across a wire,
+# a database column or a chart axis, so nothing downstream could ever convert it.
+#
+# These are the costs of running the CONTROL ENVIRONMENT. They are not necessarily denominated in the
+# same currency as an institution's loss magnitudes (a vendor licence is quoted in the vendor's
+# currency), which is exactly why Total Cost of Risk resolves both into one reporting currency
+# before it adds them up.
+currency: GBP
+
 metadata:
   name: agent-policy
   version: 2.0.0
@@ -53,7 +65,7 @@ controls:
     # Loss event frequency (events/year) with the control at Audit vs at Deny.
     lef_audit:    { min: 0.30, mode: 0.90, max: 2.50 }
     lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
-    annual_cost_gbp: 4000
+    annual_cost: 4000
 
   - id: AGT-002
     title: Model credentials never enter the harness environment or disk
@@ -68,7 +80,7 @@ controls:
       assertion: API key injected at sandbox boundary; absent from evidence bundle and audit trail
     lef_audit:    { min: 0.20, mode: 0.70, max: 2.00 }
     lef_enforced: { min: 0.01, mode: 0.04, max: 0.15 }
-    annual_cost_gbp: 1500
+    annual_cost: 1500
 
   - id: AGT-003
     title: Remediation requires explicit human approval
@@ -84,7 +96,7 @@ controls:
     cel: cel/agt-003-human-approval.yaml
     lef_audit:    { min: 0.80, mode: 2.20, max: 6.00 }
     lef_enforced: { min: 0.02, mode: 0.10, max: 0.40 }
-    annual_cost_gbp: 12000
+    annual_cost: 12000
 
   - id: AGT-004
     title: Applied change shapes are enumerated and closed
@@ -100,7 +112,7 @@ controls:
       assertion: only `go get <module>@<version>` and `vexctl create` are applied; rest ignored+logged
     lef_audit:    { min: 0.40, mode: 1.30, max: 4.00 }
     lef_enforced: { min: 0.01, mode: 0.06, max: 0.25 }
-    annual_cost_gbp: 3000
+    annual_cost: 3000
 
   - id: AGT-005
     title: Agent has no write path to a protected branch
@@ -114,7 +126,7 @@ controls:
       assertion: output lands on remediation/<cve> branch as PR; no agent path to main
     lef_audit:    { min: 0.50, mode: 1.60, max: 5.00 }
     lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
-    annual_cost_gbp: 500
+    annual_cost: 500
 
   - id: AGT-006
     title: Every agent step is Witness-attested
@@ -129,7 +141,7 @@ controls:
       assertion: steps `agent-analysis` and `agent-remediation` run under witness, uploaded to Archivista
     lef_audit:    { min: 0.30, mode: 1.00, max: 3.00 }
     lef_enforced: { min: 0.02, mode: 0.08, max: 0.30 }
-    annual_cost_gbp: 6000
+    annual_cost: 6000
 
   - id: AGT-007
     title: Agent egress is restricted to declared endpoints
@@ -144,7 +156,7 @@ controls:
       assertion: prohibited-actions list forbids contacting systems other than the Anthropic API
     lef_audit:    { min: 0.10, mode: 0.35, max: 1.20 }
     lef_enforced: { min: 0.01, mode: 0.04, max: 0.15 }
-    annual_cost_gbp: 2500
+    annual_cost: 2500
 
   - id: AGT-008
     title: Prompt-injection corpus is evaluated before release
@@ -159,7 +171,7 @@ controls:
       assertion: seed job loads injection payloads and planted fake secrets the safety suite tests against
     lef_audit:    { min: 0.30, mode: 0.90, max: 3.00 }
     lef_enforced: { min: 0.02, mode: 0.08, max: 0.35 }
-    annual_cost_gbp: 9000
+    annual_cost: 9000
 
   - id: AGT-009
     title: Tool invocation is authorised per-tool
@@ -174,7 +186,7 @@ controls:
     cel: cel/agt-009-tool-authz.yaml
     lef_audit:    { min: 0.15, mode: 0.55, max: 2.00 }
     lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
-    annual_cost_gbp: 5000
+    annual_cost: 5000
 
   - id: AGT-010
     title: Agent output passes a guard before leaving the trust boundary
@@ -188,7 +200,7 @@ controls:
       assertion: llm-guard component sits on the response path
     lef_audit:    { min: 0.20, mode: 0.70, max: 2.50 }
     lef_enforced: { min: 0.01, mode: 0.05, max: 0.20 }
-    annual_cost_gbp: 4500
+    annual_cost: 4500
 
   - id: AGT-011
     title: Agent cannot create or modify signing keys or trust anchors
@@ -202,7 +214,7 @@ controls:
       assertion: prohibited-actions list forbids creating or modifying signing keys and trust anchors
     lef_audit:    { min: 0.10, mode: 0.40, max: 1.50 }
     lef_enforced: { min: 0.005, mode: 0.02, max: 0.08 }
-    annual_cost_gbp: 1000
+    annual_cost: 1000
 
   - id: AGT-012
     title: Agent cannot modify the policy or guardrails that govern it
@@ -217,7 +229,7 @@ controls:
       assertion: prohibited-actions list forbids changing policy documents, admission rules, the harness, or the guardrails
     lef_audit:    { min: 0.10, mode: 0.35, max: 1.20 }
     lef_enforced: { min: 0.005, mode: 0.02, max: 0.07 }
-    annual_cost_gbp: 800
+    annual_cost: 800
 
 # Conditional policy — the replacement for exemptions. Applies uniformly to ANY agent meeting the
 # conditions; there is no named carve-out and no expiry date in the body. The residual risk of the
@@ -242,13 +254,13 @@ conditional:
 # false positives, and the engineer-hours spent getting unblocked. A model that omits this term can
 # only ever recommend tightening, which makes it a sales prop rather than a decision instrument.
 enforcement_friction:
-  per_deny_control_gbp: 3500
+  per_deny_control: 3500
   note: >-
     Stipulated from the platform team's unblocking load. Should be replaced with measured
     engineer-hours per gate from the existing CI telemetry before this figure is used externally.
 
 cages:
-  trusted:     { multiplier: 1.00, annual_cost_gbp: 0,     description: full capability }
-  constrained: { multiplier: 0.55, annual_cost_gbp: 8000,  description: throttled, reduced tool grant, tighter rate limits }
-  caged:       { multiplier: 0.25, annual_cost_gbp: 26000, description: sandboxed, read-only tools, heavier guard, eviction priority }
-  denied:      { multiplier: 0.02, annual_cost_gbp: 0,     description: blocked from admission }
+  trusted:     { multiplier: 1.00, annual_cost: 0,     description: full capability }
+  constrained: { multiplier: 0.55, annual_cost: 8000,  description: throttled, reduced tool grant, tighter rate limits }
+  caged:       { multiplier: 0.25, annual_cost: 26000, description: sandboxed, read-only tools, heavier guard, eviction priority }
+  denied:      { multiplier: 0.02, annual_cost: 0,     description: blocked from admission }

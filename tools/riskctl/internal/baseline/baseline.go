@@ -5,19 +5,53 @@
 //
 //	agent posture  x  policy pack   ->  per-control verdict (PASS / FAIL-audited / FAIL-gated)
 //	                                ->  graded enforcement tier (trusted..denied), selected by the £
-//	     x  org risk posture        ->  aggregate annual-loss distribution (FAIR)
+//	     x  org risk posture        ->  territory scoping (which scenarios can be incurred HERE)
+//	                                ->  aggregate annual-loss distribution (FAIR)
 //	                                ->  ALE / VaR95 / TVaR / carried
 //	                                ->  Total Cost of Risk = residual + controls + transfer
-//	                                ->  per-control "what tightening this buys", in pounds
+//	                                ->  per-control "what tightening this buys", in money
+//
+// WHERE CURRENCY CONVERSION HAPPENS, AND WHY IT HAPPENS THERE.
+//
+// The report has ONE reporting currency: the institution's own, from its `currency:` field. Every
+// figure in the report is expressed in it, and every comparison and sum is performed in it. That is
+// not a presentation detail — it is what makes the verdicts sound. Two of the terms in Total Cost of
+// Risk come from different files that may be denominated differently (control run-costs from the
+// PACK, loss magnitudes and the tolerance band from the ORG), and both the tolerance test and the
+// tier selection are threshold comparisons. Comparing 30,000 USD against a 25,000 GBP band answers
+// "yes" when the truth is "no": a wrong VERDICT, not merely a wrong number.
+//
+// So conversion happens at exactly two places, both as early as possible and both exactly once:
+//
+//   - loss magnitude triples are converted into the reporting currency BEFORE they reach the
+//     sampler, so the Monte Carlo runs in a single denomination throughout;
+//   - pack-sourced costs are converted as they are read, before they are summed.
+//
+// Converting the magnitude triple once (three multiplications) rather than each drawn sample
+// (200,000 iterations x N scenarios x Poisson event count) is the difference between three rounding
+// opportunities and hundreds of millions of them. Conversion is a scalar multiply and every FAIR
+// output statistic — mean, percentile, tail mean — is positively homogeneous of degree one in the
+// magnitude, so scaling the inputs and scaling the outputs are the same operation in exact
+// arithmetic. Doing it on the inputs, once, is the version with no accumulation.
+//
+// Nothing is rounded anywhere in this package. Rounding is presentation-only and belongs to the
+// caller. See the money package for that decision and its justification.
+//
+// THE REGRESSION ANCHOR. When the magnitude currency equals the reporting currency the conversion
+// rate is the literal 1.0 and `x * 1.0 == x` bit-exactly in IEEE-754, so the entire GBP->GBP path
+// is byte-identical to the behaviour before currency existed. That is deliberate: it is what makes
+// the existing FAIR expectations a genuine regression test of this change rather than a rewrite.
 package baseline
 
 import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"github.com/acme-co/osramp/tools/riskctl/internal/model"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 )
 
 // Verdict is the per-control outcome of the baseline.
@@ -47,47 +81,145 @@ type ControlResult struct {
 	// EffectiveLEF is the frequency actually fed to the simulation for this control, after
 	// posture, enforcement action and drift are applied (before the cage multiplier).
 	EffectiveLEF model.Triple
+	// InScope is false when this control's loss scenario cannot be incurred in this institution's
+	// jurisdiction. The control is still evaluated and still reported — an out-of-territory control
+	// can still be satisfied or unsatisfied — but it contributes nothing to the exposure.
+	InScope bool
+	// AnnualCost is the control's run cost, converted into the report's currency.
+	AnnualCost money.Money
+}
+
+// ScenarioScope records whether a loss scenario counted toward this institution's exposure, and
+// why. It exists so that territory filtering is VISIBLE rather than merely applied.
+//
+// A total that silently omits scenarios is unexplainable: a reader who knows the pack has five
+// scenarios and sees a number built from three has no way to tell a deliberate jurisdictional
+// exclusion from a bug, a typo in a scenario ID, or a missing magnitude. Every scenario the pack
+// references appears here with its verdict and its reason, included and excluded alike.
+type ScenarioScope struct {
+	Scenario    string
+	Title       string
+	Territories []string
+	Included    bool
+	Reason      string
+	// Controls names the controls that defend this scenario, so an excluded scenario also explains
+	// which controls stopped contributing.
+	Controls []string
+}
+
+// Simulation is the provenance of a run: enough to reproduce the figure, and nothing that carries
+// a denomination. Split out from fair.Result so that the serialised report contains no bare number
+// that means money — see the note on Report.Risk.
+type Simulation struct {
+	Iterations int     `json:"iterations"`
+	Seed       int64   `json:"seed"`
+	RiskLoad   float64 `json:"riskLoad"`
+	// TailDominated reports VaR95 < ALE: most simulated years cost nothing and the whole expected
+	// loss lives in the tail. A risk-financing signal, not an error.
+	TailDominated bool `json:"tailDominated"`
+
+	// Guards counts defensive substitutions the sampler made, accumulated across EVERY simulation
+	// this report ran -- the headline figure, the uncaged pre-pass, each per-control hypothetical
+	// and each tornado leg. A fabricated draw inside a delta calculation is just as much a
+	// fabricated figure as one in the headline, so none of them are excluded from the count.
+	//
+	// Non-zero means some number in this report was invented rather than sampled. See
+	// fair/guards.go. Zero across the shipped estate; asserted by test.
+	Guards fair.Guards `json:"guards"`
+}
+
+// Exposure is the aggregate loss distribution expressed in the report's currency.
+//
+// fair.Result deliberately holds bare float64s: the FAIR engine is currency-agnostic maths that
+// operates on whatever denomination its inputs carried, and giving a distribution sampler opinions
+// about currency would be the wrong place for them. Exposure is the boundary where those numbers
+// acquire the denomination the caller must see, and it is what serialises to JSON.
+type Exposure struct {
+	ALE     money.Money `json:"ale"`
+	VaR95   money.Money `json:"var95"`
+	TVaR    money.Money `json:"tvar"`
+	Carried money.Money `json:"carried"`
 }
 
 // Report is the complete output of a baseline run.
 type Report struct {
-	AgentName    string
-	AgentDisplay string
-	OrgName      string
-	OrgDisplay   string
-	PackName     string
-	PackClaimed  string
+	AgentName     string
+	AgentDisplay  string
+	OrgName       string
+	OrgDisplay    string
+	Jurisdiction  string
+	PackName      string
+	PackClaimed   string
 	PackEvaluated string
 	// Stale is true when the agent claims an older pack version than the one it is evaluated
 	// against — the laggard case.
 	Stale bool
 
+	// Currency is the reporting denomination. Every money figure below is expressed in it.
+	Currency money.Currency
+	// RatesAsOf is the effective date of the rate table consulted, empty if no conversion was
+	// needed. It travels with the report so a reader can tell which table produced the figures.
+	RatesAsOf string
+	// Conversions lists each distinct currency pair converted, with its rate — the working, shown.
+	Conversions []money.Converted
+
+	// CurrencyNote flags a reporting currency that is not the conventional one for the declared
+	// jurisdiction. Advisory, never an error: a UK-domiciled group legitimately reporting in USD is
+	// ordinary. But an institution whose jurisdiction and denomination disagree is worth confirming
+	// deliberately rather than discovering in front of an audience, so the observation goes ON THE
+	// PAGE next to both values instead of staying buried in a YAML file.
+	CurrencyNote string
+
 	Results []ControlResult
+
+	// Scope explains which loss scenarios counted for this institution and which did not.
+	Scope []ScenarioScope
+	// NoApplicableScenarios is true when territory scoping excluded EVERY scenario. The exposure is
+	// then genuinely zero, but a bare zero reads as a verdict ("no risk") when it actually means
+	// "this pack prices nothing that can happen here". Callers must say which.
+	NoApplicableScenarios bool
 
 	Tier           string
 	TierReason     string
 	CageMultiplier float64
-	CageCost       float64
+	CageCost       money.Money
 
-	Risk fair.Result
+	// Risk is the raw, undenominated simulation output.
+	//
+	// DELIBERATELY NOT SERIALISED (`json:"-"`). It holds four bare float64s that mean money — ALE,
+	// VaR95, TVaR, Carried — and emitting them alongside the denominated Exposure would put an
+	// undenominated number under the most obvious key in the document. A consumer reaching for
+	// `Risk.ALE` would get a plausible figure with no currency and nothing to notice, which is the
+	// precise failure this whole change exists to eliminate. Anything crossing a wire reads
+	// Exposure; Simulation carries the reproducibility provenance that used to travel on this
+	// struct. In-process Go callers may still read Risk directly.
+	Risk fair.Result `json:"-"`
+	// Simulation is the reproducibility provenance: how the number was produced, not what it is.
+	// Every field here is dimensionless, so none of it needs a denomination.
+	Simulation Simulation
+	// Exposure is Risk expressed in the reporting currency. This is the money.
+	Exposure Exposure
 
-	ControlSpend  float64 // annual cost of the controls actually in place, plus the cage
-	FrictionSpend float64 // operational cost of gating: blocked deploys, false positives, unblocking
-	TransferSpend float64 // insurance premium
-	TCoR          float64 // residual (carried) + control spend + friction + transfer
+	ControlSpend  money.Money // annual cost of the controls actually in place, plus the cage
+	FrictionSpend money.Money // operational cost of gating: blocked deploys, false positives, unblocking
+	TransferSpend money.Money // insurance premium
+	TCoR          money.Money // residual (carried) + control spend + friction + transfer
 
 	// PremiumRatio is modelled ALE divided by the annual cyber premium. The premium is a third
 	// party's priced view of substantially the same controls, so this is the one genuinely
 	// EXTERNAL calibration anchor available for free. A ratio near 1 means the model agrees with
 	// the market; far from 1 means one of the two is wrong, and saying which is the interesting
 	// conversation.
+	//
+	// Dimensionless by construction: both terms are in the reporting currency, so the ratio is
+	// currency-invariant and means the same thing whichever denomination the report is read in.
 	PremiumRatio float64
 
-	Deltas   []Delta
-	Tornado  []Sensitivity
+	Deltas  []Delta
+	Tornado []Sensitivity
 
-	ToleranceGBP float64
-	Escalations  []string
+	Tolerance   money.Money
+	Escalations []string
 }
 
 // Sensitivity is one row of a one-way tornado analysis: how far the headline number swings when a
@@ -101,25 +233,27 @@ type Report struct {
 // honest invitation to disagree.
 type Sensitivity struct {
 	Scenario string
-	LowALE   float64
-	HighALE  float64
-	SwingGBP float64
+	LowALE   money.Money
+	HighALE  money.Money
+	Swing    money.Money
 	// SharePct is this scenario's share of the total swing across all scenarios.
 	SharePct float64
 }
 
-// Delta answers "what would tightening this control buy?", in pounds per year.
+// Delta answers "what would tightening this control buy?", per year.
 type Delta struct {
 	ControlID string
 	Title     string
-	// BuysGBP is ALE_now - ALE_if_this_control_were_met. The hub's "£ a control buys".
-	BuysGBP float64
-	// CostGBP is the control's annual run cost.
-	CostGBP float64
-	// NetGBP is BuysGBP - CostGBP. Positive means implementing it is cheaper than carrying it.
-	NetGBP float64
-	// AboveTolerance is true when BuysGBP exceeds the institution's tolerance band, which is the
-	// quantitative trigger for promoting the control to the gate.
+	// Buys is ALE_now - ALE_if_this_control_were_met. The hub's "£ a control buys".
+	Buys money.Money
+	// Cost is the control's annual run cost, in the reporting currency.
+	Cost money.Money
+	// Net is Buys - Cost. Positive means implementing it is cheaper than carrying it.
+	Net money.Money
+	// AboveTolerance is true when Buys exceeds the institution's tolerance band, which is the
+	// quantitative trigger for promoting the control to the gate. Both sides of that comparison are
+	// in the reporting currency; a cross-currency comparison here would produce a wrong verdict and
+	// is refused by money.GreaterThan rather than silently performed.
 	AboveTolerance bool
 }
 
@@ -169,23 +303,115 @@ func effectiveLEF(c model.Control, met bool) model.Triple {
 type Options struct {
 	Iterations int
 	Seed       int64
+	// Rates is the checked-in FX table. It may be nil, in which case any conversion between two
+	// different currencies is an error naming the pair — never a silent 1.0. A run whose inputs are
+	// all in one currency needs no table, because same-currency is an identity rather than a
+	// conversion.
+	Rates *money.RateTable
 }
+
+// converter resolves amounts into the report's single reporting currency, recording each distinct
+// pair it touches so the report can show its working.
+type converter struct {
+	target money.Currency
+	rates  *money.RateTable
+	seen   map[string]bool
+	log    []money.Converted
+}
+
+func newConverter(target money.Currency, rates *money.RateTable) *converter {
+	return &converter{target: target, rates: rates, seen: map[string]bool{}}
+}
+
+// rate returns the multiplier from `from` into the reporting currency.
+//
+// Same-currency returns the literal 1.0 without consulting the table at all, which is both correct
+// (it is an identity, not a conversion) and the reason a single-currency estate needs no rate table
+// and reproduces its previous figures bit for bit.
+func (c *converter) rate(from money.Currency, context string) (float64, error) {
+	if from == c.target {
+		return 1.0, nil
+	}
+	if c.rates == nil {
+		return 0, fmt.Errorf("%s: cannot convert %s -> %s because no FX rate table was supplied. "+
+			"A conversion is never silently assumed to be 1.0; load risk/fx/rates.yaml and pass it in",
+			context, from, c.target)
+	}
+	conv, err := c.rates.Convert(money.Money{Amount: 1, Currency: from}, c.target)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", context, err)
+	}
+	if key := string(from) + "->" + string(c.target); !c.seen[key] {
+		c.seen[key] = true
+		c.log = append(c.log, conv)
+	}
+	return conv.Rate, nil
+}
+
+// money converts a single amount into the reporting currency.
+func (c *converter) money(m money.Money, context string) (money.Money, error) {
+	if err := m.Validate(context); err != nil {
+		return money.Money{}, err
+	}
+	r, err := c.rate(m.Currency, context)
+	if err != nil {
+		return money.Money{}, err
+	}
+	if r == 1.0 {
+		return money.Money{Amount: m.Amount, Currency: c.target}, nil
+	}
+	return money.Money{Amount: m.Amount * r, Currency: c.target}, nil
+}
+
+// triple converts all three points of a magnitude triple with a SINGLE rate lookup, so the three
+// points cannot end up scaled by three different numbers and the ordering invariant min <= mode <=
+// max is preserved by construction (a positive scalar is monotone).
+func (c *converter) triple(t model.Triple, from money.Currency, context string) (model.Triple, error) {
+	r, err := c.rate(from, context)
+	if err != nil {
+		return model.Triple{}, err
+	}
+	if r == 1.0 {
+		return t, nil // bit-exact identity: the regression anchor
+	}
+	return model.Triple{Min: t.Min * r, Mode: t.Mode * r, Max: t.Max * r}, nil
+}
+
+// zero returns a zero amount in the reporting currency — never a bare 0.0, which has no
+// denomination and would be silently addable to anything.
+func (c *converter) zero() money.Money { return money.Money{Amount: 0, Currency: c.target} }
 
 // Run produces the complete baseline report.
 func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture, opt Options) (*Report, error) {
+	conv := newConverter(org.Currency, opt.Rates)
+
 	rep := &Report{
 		AgentName:     agent.Metadata.Name,
 		AgentDisplay:  agent.Metadata.DisplayName,
 		OrgName:       org.Metadata.Name,
 		OrgDisplay:    org.Metadata.DisplayName,
+		Jurisdiction:  org.Metadata.Jurisdiction,
 		PackName:      pack.Metadata.Name,
 		PackClaimed:   agent.Claims.Version,
 		PackEvaluated: pack.Metadata.Version,
 		Stale:         agent.Claims.Version != pack.Metadata.Version,
-		ToleranceGBP:  org.Appetite.ToleranceGBP,
+		Currency:      org.Currency,
+		Tolerance:     org.Appetite.Tolerance,
 	}
 
+	// 0. Territory scoping. Decide which loss scenarios this institution can actually incur, before
+	//    anything is priced. A scenario scoped to the UK is not a loss a US provider can suffer, and
+	//    pricing it into their exposure inflates the number in a way an informed reader will catch.
+	inScope, scope, err := scopeScenarios(pack, org)
+	if err != nil {
+		return nil, err
+	}
+	rep.Scope = scope
+
 	// 1. Per-control verdicts, in pack order so output is deterministic.
+	//    Controls are evaluated regardless of territory: an out-of-scope control can still be
+	//    satisfied or unsatisfied, and hiding it would misreport the compliance baseline. Only its
+	//    contribution to the EXPOSURE is suppressed.
 	unmetGated := 0
 	for _, c := range pack.Controls {
 		s, claimed := agent.Met(c.ID)
@@ -204,6 +430,11 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 			unmetGated++
 		}
 
+		cost, err := conv.money(c.AnnualCost, fmt.Sprintf("control %s annual_cost", c.ID))
+		if err != nil {
+			return nil, err
+		}
+
 		rep.Results = append(rep.Results, ControlResult{
 			Control:      c,
 			Verdict:      v,
@@ -211,6 +442,8 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 			Evidence:     s.Evidence,
 			Note:         s.Note,
 			EffectiveLEF: effectiveLEF(c, met),
+			InScope:      inScope[c.Scenario],
+			AnnualCost:   cost,
 		})
 	}
 
@@ -230,11 +463,31 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	}
 
 	eng := &fair.Engine{Iterations: opt.Iterations, Seed: opt.Seed}
+	// Every simulation in this report funnels through runSim so no guard fire can be missed by a
+	// call site someone forgot to instrument.
+	var guards fair.Guards
+	runSim := func(c []fair.Contribution) fair.Result {
+		r := eng.Run(c, org.RiskLoad)
+		guards.Add(r.Guards)
+		return r
+	}
 	if eng.Iterations == 0 {
 		eng.Iterations = fair.DefaultIterations
 	}
 	if eng.Seed == 0 {
 		eng.Seed = fair.DefaultSeed
+	}
+
+	// Magnitudes, converted into the reporting currency ONCE, up front. Everything downstream of
+	// here — every simulation, every hypothetical, every tornado leg — reads this map, so the
+	// conversion cannot be applied twice or inconsistently between two legs of the same comparison.
+	magnitude := map[string]model.Triple{}
+	for id, m := range org.Magnitude {
+		t, err := conv.triple(m.Triple, m.Currency, fmt.Sprintf("magnitude %s", id))
+		if err != nil {
+			return nil, err
+		}
+		magnitude[id] = t
 	}
 
 	// build assembles the simulation inputs, aggregating PER SCENARIO rather than per control.
@@ -260,7 +513,12 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		var order []string
 
 		for _, r := range rep.Results {
-			if _, ok := org.Magnitude[r.Control.Scenario]; !ok {
+			// Out-of-territory scenarios contribute nothing. Their magnitude is not even required
+			// to be declared: an institution should not have to price a loss it cannot incur.
+			if !inScope[r.Control.Scenario] {
+				continue
+			}
+			if _, ok := magnitude[r.Control.Scenario]; !ok {
 				return nil, fmt.Errorf("org %s declares no loss magnitude for scenario %s (needed by control %s)",
 					org.Metadata.Name, r.Control.Scenario, r.Control.ID)
 			}
@@ -288,7 +546,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 				ControlID: a.driverA,
 				Scenario:  sc,
 				LEF:       scale(a.lef, mult),
-				Magnitude: org.Magnitude[sc].Triple,
+				Magnitude: magnitude[sc],
 			})
 		}
 		return out, nil
@@ -300,47 +558,98 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	if err != nil {
 		return nil, err
 	}
-	pre := eng.Run(uncaged, org.RiskLoad)
+	rep.NoApplicableScenarios = len(uncaged) == 0
+	pre := runSim(uncaged)
 
-	tierName, reason := selectTier(pack, unmetGated, pre.ALE, org.Appetite.ToleranceGBP)
+	tierName, reason := selectTier(pack, unmetGated, pre.ALE, org.Appetite.Tolerance.Amount)
+	if rep.NoApplicableScenarios {
+		reason += "; NOTE: territory scoping excluded every loss scenario in this pack, so the residual " +
+			"is zero because nothing here is priced, not because the estate is safe"
+	}
 	cage := pack.Cages[tierName]
 	rep.Tier = tierName
 	rep.TierReason = reason
 	rep.CageMultiplier = cage.Multiplier
-	rep.CageCost = cage.AnnualCost
+	cageCost, err := conv.money(cage.AnnualCost, fmt.Sprintf("cage %s annual_cost", tierName))
+	if err != nil {
+		return nil, err
+	}
+	rep.CageCost = cageCost
 
 	// 4. Final residual with the cage applied.
 	caged, err := build(cage.Multiplier, nil)
 	if err != nil {
 		return nil, err
 	}
-	rep.Risk = eng.Run(caged, org.RiskLoad)
+	rep.Risk = runSim(caged)
 	if err := rep.Risk.SelfCheck(); err != nil {
 		return nil, err
+	}
+	rep.Simulation = Simulation{
+		Iterations:    rep.Risk.Iterations,
+		Seed:          rep.Risk.Seed,
+		RiskLoad:      rep.Risk.RiskLoad,
+		TailDominated: rep.Risk.TailDominated(),
+	}
+	rep.CurrencyNote = currencyNote(org.Metadata.Jurisdiction, org.Currency)
+	rep.Exposure = Exposure{
+		ALE:     money.Money{Amount: rep.Risk.ALE, Currency: conv.target},
+		VaR95:   money.Money{Amount: rep.Risk.VaR95, Currency: conv.target},
+		TVaR:    money.Money{Amount: rep.Risk.TVaR, Currency: conv.target},
+		Carried: money.Money{Amount: rep.Risk.Carried, Currency: conv.target},
 	}
 
 	// 5. Total Cost of Risk = residual you keep + what the controls cost + what gating costs
 	//    operationally + what you transferred.
+	//
+	//    Every term is added through money.Add, which refuses to sum two denominations. The control
+	//    terms originate in the PACK and the residual and transfer terms in the ORG, so this sum is
+	//    precisely where a currency mismatch would otherwise have produced a plausible, wrong, and
+	//    entirely unremarkable-looking board figure.
+	rep.ControlSpend = conv.zero()
+	rep.FrictionSpend = conv.zero()
+	friction, err := conv.money(pack.Friction.PerDenyControl, "enforcement_friction.per_deny_control")
+	if err != nil {
+		return nil, err
+	}
 	for _, r := range rep.Results {
 		if r.Met {
-			rep.ControlSpend += r.Control.AnnualCost
+			if rep.ControlSpend, err = money.Add(rep.ControlSpend, r.AnnualCost); err != nil {
+				return nil, fmt.Errorf("control spend, at %s: %w", r.Control.ID, err)
+			}
 		}
 		// Friction is incurred by every control that GATES, whether or not the agent passes it:
 		// the deploy is blocked, someone investigates, someone unblocks it.
 		if r.Control.Action == model.ActionDeny {
-			rep.FrictionSpend += pack.Friction.PerDenyControlGBP
+			if rep.FrictionSpend, err = money.Add(rep.FrictionSpend, friction); err != nil {
+				return nil, fmt.Errorf("friction spend, at %s: %w", r.Control.ID, err)
+			}
 		}
 	}
-	rep.ControlSpend += cage.AnnualCost
-	rep.TransferSpend = org.Transfer.AnnualPremiumGBP
-	rep.TCoR = rep.Risk.Carried + rep.ControlSpend + rep.FrictionSpend + rep.TransferSpend
-	if org.Transfer.AnnualPremiumGBP > 0 {
-		rep.PremiumRatio = rep.Risk.ALE / org.Transfer.AnnualPremiumGBP
+	if rep.ControlSpend, err = money.Add(rep.ControlSpend, rep.CageCost); err != nil {
+		return nil, fmt.Errorf("control spend, adding the cage: %w", err)
+	}
+	if rep.TransferSpend, err = conv.money(org.Transfer.AnnualPremium, "transfer.annual_premium"); err != nil {
+		return nil, err
+	}
+	if rep.TCoR, err = money.Sum(rep.Exposure.Carried, rep.ControlSpend, rep.FrictionSpend, rep.TransferSpend); err != nil {
+		return nil, fmt.Errorf("total cost of risk: %w", err)
+	}
+	if rep.TransferSpend.Amount > 0 {
+		// Both terms are in the reporting currency, so the ratio is dimensionless and reads the
+		// same whichever denomination the report is rendered in.
+		rep.PremiumRatio = rep.Exposure.ALE.Amount / rep.TransferSpend.Amount
 	}
 
 	// 6. Per-control deltas: what would tightening each unmet control buy?
 	for _, r := range rep.Results {
 		if r.Met {
+			continue
+		}
+		// A control defending a scenario this institution cannot incur buys nothing here, by
+		// construction. Reporting a delta for it would invite spending money to remove a risk that
+		// does not exist in this jurisdiction.
+		if !r.InScope {
 			continue
 		}
 		override := map[string]model.Triple{
@@ -350,24 +659,32 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		if err != nil {
 			return nil, err
 		}
-		res := eng.Run(hyp, org.RiskLoad)
-		buys := rep.Risk.ALE - res.ALE
+		res := runSim(hyp)
+		buys := money.Money{Amount: rep.Risk.ALE - res.ALE, Currency: conv.target}
+		net, err := buys.Sub(r.AnnualCost)
+		if err != nil {
+			return nil, fmt.Errorf("delta for %s: %w", r.Control.ID, err)
+		}
+		above, err := buys.GreaterThan(org.Appetite.Tolerance)
+		if err != nil {
+			return nil, fmt.Errorf("tolerance test for %s: %w", r.Control.ID, err)
+		}
 		d := Delta{
 			ControlID:      r.Control.ID,
 			Title:          r.Control.Title,
-			BuysGBP:        buys,
-			CostGBP:        r.Control.AnnualCost,
-			NetGBP:         buys - r.Control.AnnualCost,
-			AboveTolerance: buys > org.Appetite.ToleranceGBP,
+			Buys:           buys,
+			Cost:           r.AnnualCost,
+			Net:            net,
+			AboveTolerance: above,
 		}
 		rep.Deltas = append(rep.Deltas, d)
 		if d.AboveTolerance && r.Control.Action == model.ActionAudit {
 			rep.Escalations = append(rep.Escalations, fmt.Sprintf(
-				"%s: enforcing buys GBP %.0f/yr against a tolerance band of GBP %.0f — promote audit -> deny",
-				r.Control.ID, buys, org.Appetite.ToleranceGBP))
+				"%s: enforcing buys %s/yr against a tolerance band of %s — promote audit -> deny",
+				r.Control.ID, buys.Round(), org.Appetite.Tolerance.Round()))
 		}
 	}
-	sort.SliceStable(rep.Deltas, func(i, j int) bool { return rep.Deltas[i].BuysGBP > rep.Deltas[j].BuysGBP })
+	sort.SliceStable(rep.Deltas, func(i, j int) bool { return rep.Deltas[i].Buys.Amount > rep.Deltas[j].Buys.Amount })
 
 	// 7. One-way sensitivity. For each scenario, drive its loss magnitude to the bottom and the top
 	//    of the calibrated range while holding every other input still, and record the swing.
@@ -375,6 +692,9 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	var scenarios []string
 	seenScn := map[string]bool{}
 	for _, r := range rep.Results {
+		if !inScope[r.Control.Scenario] {
+			continue
+		}
 		if !seenScn[r.Control.Scenario] {
 			seenScn[r.Control.Scenario] = true
 			scenarios = append(scenarios, r.Control.Scenario)
@@ -387,7 +707,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		}
 		for i := range base {
 			if base[i].Scenario == sc {
-				base[i].Magnitude = pick(org.Magnitude[sc].Triple)
+				base[i].Magnitude = pick(magnitude[sc])
 			}
 		}
 		return base, nil
@@ -404,25 +724,114 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		if err != nil {
 			return nil, err
 		}
-		l := eng.Run(lo, org.RiskLoad)
-		h := eng.Run(hi, org.RiskLoad)
-		s := Sensitivity{Scenario: sc, LowALE: l.ALE, HighALE: h.ALE, SwingGBP: h.ALE - l.ALE}
-		totalSwing += s.SwingGBP
+		l := runSim(lo)
+		h := runSim(hi)
+		s := Sensitivity{
+			Scenario: sc,
+			LowALE:   money.Money{Amount: l.ALE, Currency: conv.target},
+			HighALE:  money.Money{Amount: h.ALE, Currency: conv.target},
+			Swing:    money.Money{Amount: h.ALE - l.ALE, Currency: conv.target},
+		}
+		totalSwing += s.Swing.Amount
 		rep.Tornado = append(rep.Tornado, s)
 	}
 	for i := range rep.Tornado {
 		if totalSwing > 0 {
-			rep.Tornado[i].SharePct = 100 * rep.Tornado[i].SwingGBP / totalSwing
+			rep.Tornado[i].SharePct = 100 * rep.Tornado[i].Swing.Amount / totalSwing
 		}
 	}
-	sort.SliceStable(rep.Tornado, func(i, j int) bool { return rep.Tornado[i].SwingGBP > rep.Tornado[j].SwingGBP })
+	sort.SliceStable(rep.Tornado, func(i, j int) bool { return rep.Tornado[i].Swing.Amount > rep.Tornado[j].Swing.Amount })
 
+	rep.Simulation.Guards = guards
+	rep.Conversions = conv.log
+	if len(conv.log) > 0 && opt.Rates != nil {
+		rep.RatesAsOf = opt.Rates.AsOf
+	}
 	return rep, nil
+}
+
+// scopeScenarios decides which of the pack's loss scenarios this institution can incur, and records
+// the reasoning for every one of them.
+//
+// Only scenarios actually referenced by a control are reported: a scenario nothing defends
+// contributes nothing either way, and listing it would pad the table with noise.
+func scopeScenarios(pack *model.Pack, org *model.OrgRiskPosture) (map[string]bool, []ScenarioScope, error) {
+	jurisdiction := strings.TrimSpace(org.Metadata.Jurisdiction)
+
+	byScenario := map[string][]string{}
+	var order []string
+	for _, c := range pack.Controls {
+		if _, seen := byScenario[c.Scenario]; !seen {
+			order = append(order, c.Scenario)
+		}
+		byScenario[c.Scenario] = append(byScenario[c.Scenario], c.ID)
+	}
+
+	in := map[string]bool{}
+	scope := make([]ScenarioScope, 0, len(order))
+	for _, id := range order {
+		s, ok := pack.Scenario(id)
+		if !ok {
+			// LoadPack already rejects a control referencing an unknown scenario, so this is
+			// unreachable via the loaders. Fail loudly anyway rather than silently treating an
+			// unknown scenario as global and pricing it.
+			return nil, nil, fmt.Errorf("pack %s: control(s) %s reference scenario %q which the pack does not declare",
+				pack.Metadata.Version, strings.Join(byScenario[id], ", "), id)
+		}
+		included := s.AppliesTo(jurisdiction)
+		in[id] = included
+
+		var reason string
+		switch {
+		case s.IsGlobal():
+			reason = "global: applies in every jurisdiction"
+		case included:
+			reason = fmt.Sprintf("institution jurisdiction %s is within the scenario's territories [%s]",
+				jurisdiction, strings.Join(s.Territories, ", "))
+		case jurisdiction == "":
+			reason = fmt.Sprintf("EXCLUDED: scenario is scoped to [%s] and the institution declares no "+
+				"metadata.jurisdiction; an unstated jurisdiction is never assumed to match",
+				strings.Join(s.Territories, ", "))
+		default:
+			reason = fmt.Sprintf("EXCLUDED: institution jurisdiction %s is not within the scenario's "+
+				"territories [%s]", jurisdiction, strings.Join(s.Territories, ", "))
+		}
+		if s.TerritoryNote != "" {
+			reason += " — " + strings.Join(strings.Fields(s.TerritoryNote), " ")
+		}
+
+		scope = append(scope, ScenarioScope{
+			Scenario:    id,
+			Title:       s.Title,
+			Territories: s.Territories,
+			Included:    included,
+			Reason:      reason,
+			Controls:    byScenario[id],
+		})
+	}
+	return in, scope, nil
+}
+
+// ExcludedScenarios returns the scenarios territory scoping removed from the exposure. Callers use
+// it to state the omission explicitly rather than leaving a reader to infer it from a total.
+func (r *Report) ExcludedScenarios() []ScenarioScope {
+	var out []ScenarioScope
+	for _, s := range r.Scope {
+		if !s.Included {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // selectTier picks the graded-enforcement rung. Unmet gate-controls are the trigger; the £ against
 // the institution's tolerance band chooses how far down the agent drops. Deny is the bottom rung,
 // not the only rung: "least trusted, most expensive to run".
+//
+// Both arguments are amounts in the reporting currency, so the ratio is dimensionless and the tier
+// an agent lands in does not depend on which currency the report is rendered in. That invariance is
+// the point: an enforcement verdict that changed when you switched the display currency would be
+// indefensible.
 func selectTier(pack *model.Pack, unmetGated int, residualALE, tolerance float64) (string, string) {
 	if unmetGated == 0 {
 		return "trusted", "all gate-action controls satisfied"
@@ -444,4 +853,40 @@ func pow(x, y float64) float64 {
 		return 0
 	}
 	return math.Pow(x, y)
+}
+
+// conventionalCurrency maps a jurisdiction to the currency an institution there would ordinarily
+// report in. Deliberately short: only the jurisdictions this estate actually uses plus the obvious
+// majors. An unlisted jurisdiction produces no note rather than a guess.
+var conventionalCurrency = map[string]money.Currency{
+	"UK": "GBP", "GB": "GBP", "US": "USD", "JP": "JPY", "CH": "CHF", "CA": "CAD",
+	"AU": "AUD", "SG": "SGD", "IN": "INR", "ZA": "ZAR", "SE": "SEK", "NO": "NOK",
+	"DK": "DKK", "AE": "AED", "HK": "HKD",
+	"DE": "EUR", "FR": "EUR", "ES": "EUR", "IT": "EUR", "NL": "EUR", "IE": "EUR",
+}
+
+// currencyNote returns an advisory when an institution's reporting currency is not the conventional
+// one for its jurisdiction.
+//
+// This is NOT a validation error and must never become one. A UK-domiciled group reporting in USD,
+// or a European subsidiary reporting in its parent's currency, is entirely ordinary. The point is
+// narrower: an institution whose declared jurisdiction and declared denomination disagree is a fact
+// a reader should see stated, next to both values, so it is a deliberate choice rather than
+// something discovered live by the first person who reads the file.
+//
+// The concrete case in this repository is risk/org/ludlow-health.yaml — a US healthcare provider
+// pricing HIPAA and state-AG loss classes, with every amount denominated in GBP.
+func currencyNote(jurisdiction string, cur money.Currency) string {
+	j := strings.ToUpper(strings.TrimSpace(jurisdiction))
+	if j == "" || cur == "" {
+		return ""
+	}
+	want, known := conventionalCurrency[j]
+	if !known || want == cur {
+		return ""
+	}
+	return fmt.Sprintf("institution is domiciled in %s but reports in %s (%s would be conventional). "+
+		"Not an error — reporting in a non-domestic currency is ordinary — but confirm it is deliberate: "+
+		"every figure below is %s, and a reader who assumes %s will be wrong by the exchange rate",
+		j, cur, want, cur, want)
 }

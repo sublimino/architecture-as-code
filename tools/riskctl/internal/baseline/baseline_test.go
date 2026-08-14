@@ -57,8 +57,10 @@ func TestReportIsDeterministic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Money is a comparable struct (float64 + string), so != checks the amount AND the denomination.
+	// A report that produced the right number in the wrong currency would fail here too.
 	if r1.Risk.ALE != r2.Risk.ALE || r1.TCoR != r2.TCoR || r1.Tier != r2.Tier {
-		t.Fatalf("report not deterministic:\n first ALE=%.4f TCoR=%.4f tier=%s\nsecond ALE=%.4f TCoR=%.4f tier=%s",
+		t.Fatalf("report not deterministic:\n first ALE=%.4f TCoR=%v tier=%s\nsecond ALE=%.4f TCoR=%v tier=%s",
 			r1.Risk.ALE, r1.TCoR, r1.Tier, r2.Risk.ALE, r2.TCoR, r2.Tier)
 	}
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 )
 
 // Wire format types
@@ -22,6 +23,15 @@ type ComplianceScanRequest struct {
 	Frameworks    []string       `json:"frameworks"`
 	Manifest      map[string]any `json:"manifest"`
 }
+
+// reportingCurrency denominates every figure this service reports.
+//
+// It is a constant rather than a config knob for now, and that is a deliberate, temporary choice:
+// the loss magnitudes baked into policy/frameworks/ are GBP-calibrated, so making the OUTPUT
+// currency configurable without also redenominating those inputs would relabel figures rather than
+// convert them -- the precise failure this change exists to prevent. Point this at a real per-tenant
+// setting only together with per-tenant calibration data.
+const reportingCurrency money.Currency = "GBP"
 
 type ComplianceScanResult struct {
 	Framework         string  `json:"framework"`
@@ -36,14 +46,30 @@ type ComplianceScanResult struct {
 	CarriedGBP        float64 `json:"carriedGbp"`
 	ScanTimestamp     string  `json:"scanTimestamp"`
 	CalibrationSource string  `json:"calibrationSource"`
+
+	// Currency denominates ale, var95, tvar and carriedGbp above.
+	//
+	// The four numeric fields are retained under their existing names so the dashboard keeps
+	// working while it migrates; `carriedGbp` in particular is now a MISNOMER whenever this
+	// service is configured for another currency, which is exactly why the denomination has to
+	// travel as data rather than in a field name. New consumers should read `carried` and
+	// `currency` and treat the *Gbp field as deprecated.
+	Currency money.Currency `json:"currency"`
+	// Carried is CarriedGBP with its denomination attached. Same number, self-describing.
+	Carried money.Money `json:"carried"`
 }
 
 type ComplianceSummary struct {
-	TotalControls  int     `json:"totalControls"`
-	Passed         int     `json:"passed"`
-	Failed         int     `json:"failed"`
-	TotalExposure  float64 `json:"totalExposureGbp"`
-	ScanTimestamp  string  `json:"scanTimestamp,omitempty"`
+	TotalControls int     `json:"totalControls"`
+	Passed        int     `json:"passed"`
+	Failed        int     `json:"failed"`
+	TotalExposure float64 `json:"totalExposureGbp"`
+	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
+
+	// Currency denominates totalExposureGbp. See the note on ComplianceScanResult.
+	Currency money.Currency `json:"currency"`
+	// Exposure is totalExposureGbp with its denomination attached.
+	Exposure money.Money `json:"exposure"`
 }
 
 // complianceHandler holds framework data and scan state.
@@ -128,6 +154,8 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 					VaR95:             roundTo2(risk.VaR95),
 					TVaR:              roundTo2(risk.TVaR),
 					CarriedGBP:        roundTo2(risk.CarriedGBP),
+					Currency:          reportingCurrency,
+					Carried:           money.Money{Amount: roundTo2(risk.CarriedGBP), Currency: reportingCurrency},
 					ScanTimestamp:     now,
 					CalibrationSource: "industry-indicative",
 				})
@@ -166,7 +194,7 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 	results := ch.lastResults
 	ch.mu.RUnlock()
 
-	summary := ComplianceSummary{}
+	summary := ComplianceSummary{Currency: reportingCurrency}
 	if len(results) > 0 {
 		summary.ScanTimestamp = results[0].ScanTimestamp
 		for _, r := range results {
@@ -179,6 +207,7 @@ func (ch *complianceHandler) handleSummary(w http.ResponseWriter, r *http.Reques
 			}
 		}
 	}
+	summary.Exposure = money.Money{Amount: summary.TotalExposure, Currency: reportingCurrency}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

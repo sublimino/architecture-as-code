@@ -1,0 +1,59 @@
+# Foreign exchange rate table — checked in, dated, offline.
+#
+# WHY THIS IS A FILE AND NOT AN API CALL.
+#
+# The FAIR engine pins its Monte Carlo seed because "a number nobody can reproduce is not evidence"
+# (d2-signalloom/apps/policy-engine/fair/fair.go). A live FX lookup would undo that in one line: the
+# same command, the same inputs and the same seed would return a different figure tomorrow, every
+# historical report would become irreproducible, and a tool whose entire pitch is that it runs
+# offline with no cluster, no network and no API key would acquire a network dependency on the
+# critical path of a board number.
+#
+# So the rates are data in the repository. Changing them is a reviewed pull request that re-versions
+# the money alongside the policy, exactly as changing a loss magnitude re-versions the risk. The
+# `as_of` date travels with every converted figure, so a reader can always tell which table produced
+# the number in front of them.
+#
+# HOW TO UPDATE.
+#
+#   1. Set `as_of` to the date the rates were observed, not the date you edited the file.
+#   2. Update `source` to name where they came from, precisely enough for a reviewer to re-fetch.
+#   3. Keep `base: USD` and `USD: 1.0`. The loader rejects a base that is not exactly 1.0, because
+#      a base rate of anything else silently scales every cross rate in the table.
+#   4. Re-run `riskctl risk --org acme` and diff the report. Any movement in a GBP-denominated
+#      figure means something was wrong, since GBP->GBP does not consult this table at all.
+#
+# HONESTY NOTE, matching the one on risk/org/*.yaml. These are ROUNDED REFERENCE RATES adequate for
+# a demonstration estate. They are not a dealt rate, not a mid-market close from a named venue, and
+# not suitable for settlement or for a financial statement. An institution running this for real
+# should replace this file with its own treasury rates and its own revaluation policy — which is
+# precisely why the rates live in a file it can own rather than in code it would have to fork.
+
+as_of: 2026-08-01
+base: USD
+source: >-
+  Rounded reference mid-market rates for demonstration use. Replace with your treasury's own rate
+  feed and revaluation date before any external, board or regulatory use.
+
+# Units of each currency per 1 USD.
+#
+# Read it as: "one US dollar buys this much". GBP: 0.79 means one dollar buys 79 pence, so a
+# GBP amount converts to USD by DIVIDING by 0.79 (equivalently multiplying by rates[USD]/rates[GBP]).
+# The loader computes every cross rate that way, through the base, so there is exactly one number
+# per currency to review rather than one per pair.
+rates:
+  USD: 1.0
+  GBP: 0.79
+  EUR: 0.92
+  CHF: 0.88
+  JPY: 155.0
+  CAD: 1.37
+  AUD: 1.52
+  SEK: 10.60
+  NOK: 10.90
+  DKK: 6.86
+  SGD: 1.34
+  HKD: 7.81
+  INR: 84.0
+  ZAR: 18.20
+  AED: 3.67

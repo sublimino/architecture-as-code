@@ -16,9 +16,10 @@ The agent as it stands today, measured against the pack version it claims.
 AGENT COMPLIANCE BASELINE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   agent         Phase-4 agentic remediation agent (agent-remediation)
-  institution   Acme Co.
+  institution   Acme Co.   (jurisdiction: UK)
   pack          agent-policy, evaluated against 2.0.0
   claims        2.0.0
+  currency      GBP (the institution's own reporting currency — no conversion applied)
 
   CONTROL   ACTION   TITLE                                                VERDICT
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -34,6 +35,8 @@ AGENT COMPLIANCE BASELINE
   AGT-010   audit    Agent output passes a guard before leaving the tr…   ! FAIL-AUDITED
   AGT-011   deny     Agent cannot create or modify signing keys or tru…   ✓ PASS
   AGT-012   deny     Agent cannot modify the policy or guardrails that…   ✓ PASS
+
+  TERRITORY SCOPE: all 5 loss scenarios are global; none is jurisdiction-scoped
 
   EVIDENCE FOR UNMET CONTROLS
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -66,6 +69,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation agent
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                £664,832
   VaR95   (the bad year)                  £1,775,323
@@ -117,8 +121,8 @@ CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation ag
 
   PROPOSED ESCALATIONS  (proposed, never applied — these become a reviewed PR)
   ──────────────────────────────────────────────────────────────────────────────────────────────
-  → AGT-008: enforcing buys GBP 94403/yr against a tolerance band of GBP 25000 — promote audit -> deny
-  → AGT-010: enforcing buys GBP 149232/yr against a tolerance band of GBP 25000 — promote audit -> deny
+  → AGT-008: enforcing buys 94403.41 GBP/yr against a tolerance band of 25000.00 GBP — promote audit -> deny
+  → AGT-010: enforcing buys 149231.68 GBP/yr against a tolerance band of 25000.00 GBP — promote audit -> deny
 
 ```
 
@@ -134,9 +138,10 @@ says what that costs.
 AGENT COMPLIANCE BASELINE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   agent         Phase-4 agentic remediation agent (agent-remediation)
-  institution   Acme Co.
+  institution   Acme Co.   (jurisdiction: UK)
   pack          agent-policy, evaluated against 2.1.0
   claims        2.0.0   ⚠ STALE — agent is pinned behind the evaluated version
+  currency      GBP (the institution's own reporting currency — no conversion applied)
 
   CONTROL   ACTION   TITLE                                                VERDICT
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -152,6 +157,8 @@ AGENT COMPLIANCE BASELINE
   AGT-010   deny     Agent output passes a guard before leaving the tr…   ✗ FAIL-GATED
   AGT-011   deny     Agent cannot create or modify signing keys or tru…   ✓ PASS
   AGT-012   deny     Agent cannot modify the policy or guardrails that…   ✓ PASS
+
+  TERRITORY SCOPE: all 5 loss scenarios are global; none is jurisdiction-scoped
 
   EVIDENCE FOR UNMET CONTROLS
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -184,6 +191,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation agent
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                 £13,347
   VaR95   (the bad year)                          £0
@@ -252,9 +260,10 @@ change-control. Different posture, different tier, different number.
 AGENT COMPLIANCE BASELINE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   agent         Olly Sentinel agentic SRE (agent-olly-sentinel)
-  institution   Acme Co.
+  institution   Acme Co.   (jurisdiction: UK)
   pack          agent-policy, evaluated against 2.1.0
   claims        2.1.0
+  currency      GBP (the institution's own reporting currency — no conversion applied)
 
   CONTROL   ACTION   TITLE                                                VERDICT
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -270,6 +279,8 @@ AGENT COMPLIANCE BASELINE
   AGT-010   deny     Agent output passes a guard before leaving the tr…   ✓ PASS
   AGT-011   deny     Agent cannot create or modify signing keys or tru…   ✓ PASS
   AGT-012   deny     Agent cannot modify the policy or guardrails that…   ✓ PASS
+
+  TERRITORY SCOPE: all 5 loss scenarios are global; none is jurisdiction-scoped
 
   EVIDENCE FOR UNMET CONTROLS
   ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -289,6 +300,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                 £48,996
   VaR95   (the bad year)                    £308,559

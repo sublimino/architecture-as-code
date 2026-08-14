@@ -16,6 +16,13 @@
 # triple must be re-calibrated against Acme's own incident history and signed off by risk.
 apiVersion: osramp.controlplane.io/v1alpha1
 kind: OrgRiskPosture
+# Reporting currency. Every bare amount below is denominated in this currency, and every figure in
+# this institution's report is expressed in it. An individual magnitude may override it with the
+# explicit `{ amount: N, currency: XXX }` form; costs sourced from the policy pack are converted into
+# this currency before they are summed. Conversion uses risk/fx/rates.yaml — checked in and dated, so
+# the figure reproduces tomorrow rather than moving with a live rate feed.
+currency: GBP
+
 metadata:
   name: acme
   displayName: Acme Co.
@@ -38,9 +45,9 @@ regimes:
       class for cardholder-data loss scenarios.
 
 # Risk appetite. The tolerance band is what turns a number into a verdict: a control whose
-# enforcement buys more than `tolerance_gbp` of annualised loss reduction should be at the gate.
+# enforcement buys more than `appetite.tolerance` of annualised loss reduction should be at the gate.
 appetite:
-  tolerance_gbp: 25000
+  tolerance: 25000
   note: >-
     Acme accepts up to GBP 25k of annualised expected loss per control before enforcement escalation
     is justified by the number rather than by a timer or an opinion.
@@ -51,9 +58,9 @@ risk_load: 0.15
 # Insurance / risk transfer. One of the four risk-financing moves (avoid, reduce, transfer, retain),
 # so the model can weigh buying cover against buying a control.
 transfer:
-  annual_premium_gbp: 48000
-  retention_gbp: 100000
-  limit_gbp: 5000000
+  annual_premium: 48000
+  retention: 100000
+  limit: 5000000
   note: Cyber policy. Underwriter prices substantially the same controls this pack enforces.
 
 # Loss magnitude per scenario, in GBP per event.

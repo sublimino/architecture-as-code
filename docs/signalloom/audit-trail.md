@@ -150,8 +150,9 @@ condition an authorised caller can satisfy is a condition an attacker can satisf
 
 ## Detection: transparency anchoring
 
-`audit_anchor/README.md` is the reference and it states the limits well. Read it there
-rather than trusting a paraphrase; what follows is only the shape and the entry points.
+`d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md` is the reference and it
+states the limits well. Read it there rather than trusting a paraphrase; what follows is
+only the shape and the entry points.
 
 ```bash
 make audit-anchor-checkpoint   # publish a signed checkpoint over the trail
@@ -204,7 +205,7 @@ mirror-image failures.
 |-------|-------|
 | Append-only rationale, measured | `d2-signalloom/apps/fe-signalloom/src/db/migrations/030_audit_events_append_only.sql` |
 | Sanctioned reset | `d2-signalloom/apps/fe-signalloom/src/db/data-reset.sql` |
-| Anchoring, in full | `audit_anchor/README.md` |
+| Anchoring, in full | `d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md` |
 | The one writer | `_audit_log()` in `d2-signalloom/apps/fe-signalloom/src/api_compat.py` |
 | Privileged invocations | `_record_privileged_invocation()` in `.../src/demo_runner.py` |
 | Guard tests | `.../src/tests/test_audit_event_types.py`, `test_audit_append_only.py` |

@@ -5,8 +5,9 @@ a restatement of a feature name, it is a bad answer and should be replaced.
 
 Deeper references: [`docs/signalloom/audit-trail.md`](signalloom/audit-trail.md),
 [`docs/signalloom/display-currency.md`](signalloom/display-currency.md),
-`audit_anchor/README.md`, and the comment blocks in the migrations and scripts named
-below — those are the source of truth and they are more careful than this file.
+`d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md`, and the comment blocks in
+the migrations and scripts named below — those are the source of truth and they are more
+careful than this file.
 
 ---
 
@@ -107,8 +108,9 @@ If the chain is empty it reports `proves_anything: false` and says so in words, 
 "intact" over zero checkpoints is precisely the overclaim the component exists to avoid.
 
 `make audit-anchor-tamper-demo` demonstrates the detection against the real table rather
-than asserting it. Full statement of limits in `audit_anchor/README.md` — read that one
-rather than this summary.
+than asserting it. Full statement of limits in
+`d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md` — read that one rather than
+this summary.
 
 ### Why does the stun audit row not say whether the agent was actually stunned?
 

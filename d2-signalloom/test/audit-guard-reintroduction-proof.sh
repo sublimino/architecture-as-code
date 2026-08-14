@@ -58,9 +58,54 @@ trap cleanup EXIT
 
 cp "$GUARD" "$SNAPSHOT/guard.py"
 
+# `-o addopts=` neutralises whatever src/pytest.ini asks for.
+#
+# That ini gained `-n auto --dist worksteal` when the suite was parallelised.
+# This harness runs with PYTEST_DISABLE_PLUGIN_AUTOLOAD=1, so pytest-xdist is
+# not loaded, so `-n` and `--dist` are UNRECOGNISED ARGUMENTS and pytest exits
+# on a usage error before collecting anything. No test ran, therefore no
+# `E AssertionError` line appeared, therefore every single case reported
+# "GUARD DID NOT FIRE — this check is decoration" and the harness announced
+# that all 12 audit guards were decoration.
+#
+# A five-times speedup silently converted this proof into an alarm that fires
+# constantly and means nothing. The message it produced was the most alarming
+# one available -- indistinguishable, to a reader, from every audit-integrity
+# guard having genuinely rotted.
+#
+# Parallelism is irrelevant here anyway: each case runs one file and wants a
+# deterministic single process. Overriding addopts is narrower than pinning the
+# plugin, and stays correct whatever else lands in that ini later.
 run() {
-  ( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 python3 -m pytest "$1" -q 2>&1 ) \
+  ( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
+      python3 -m pytest -o addopts= "$1" -q 2>&1 ) \
     | grep -E "^E +AssertionError" | head -2
+}
+
+# Did pytest actually execute the guard, or did it fail to start?
+#
+# The defect above was invisible because `run()` returns empty for BOTH "the
+# guard ran and did not fire" and "pytest never ran at all", and verdict()
+# reported the second as the first. That is the same conflation
+# check-deployed-staleness.sh exists to avoid: "verified matching" and "cannot
+# verify" are different answers and must not share an exit path.
+#
+# Called once before any case, so a broken invocation aborts loudly instead of
+# being reported twelve times as a security finding.
+assert_pytest_can_run() {
+  local out
+  out="$( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
+            python3 -m pytest -o addopts= --collect-only -q "$GUARD" 2>&1 )" || true
+  if ! grep -qE "test|collected" <<<"$out"; then
+    printf 'FATAL: pytest cannot even collect %s — this harness cannot report\n' "$GUARD"
+    printf 'anything about the guards until that is fixed. Output:\n%s\n' "$out"
+    exit 2
+  fi
+  if grep -qE "unrecognized arguments|ERROR: usage" <<<"$out"; then
+    printf 'FATAL: pytest rejected its own arguments, so no case below would run.\n'
+    printf 'Every case would print "GUARD DID NOT FIRE" and mean nothing. Output:\n%s\n' "$out"
+    exit 2
+  fi
 }
 
 case_start() { printf '\n=== %s\n' "$1"; restore; }
@@ -75,6 +120,10 @@ verdict() {
 }
 
 patch_py() { python3 -c "$1"; }
+
+# Assert the mechanism before testing it. Everything below is meaningless if
+# pytest cannot start, and the failure looks exactly like a real finding.
+assert_pytest_can_run
 
 # --------------------------------------------------------------------------
 case_start "CASE 1  a client-supplied field reaches an audit write (new site)"

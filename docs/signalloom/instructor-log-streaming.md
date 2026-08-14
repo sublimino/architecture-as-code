@@ -86,4 +86,4 @@ cannot see that. See [`audit-trail.md`](audit-trail.md).
 |-------|----------------|
 | `test/acceptance/supercred-log-streaming.spec.ts` | live cluster; the log renders while the script is still running |
 | `test/acceptance/supercred-log-streaming-harness.spec.ts` | harness; three cases on the default transport, a fourth opting into SSE and asserting the *same* temporal behaviour |
-| `dashboard-signalloom/src/pages/supercredInstructor.test.tsx` | panel behaviour, including that the browser writes no audit event |
+| `d2-signalloom/apps/dashboard-signalloom/src/pages/supercredInstructor.test.tsx` | panel behaviour, including that the browser writes no audit event |

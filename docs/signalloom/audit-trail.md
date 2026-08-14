@@ -195,7 +195,7 @@ mirror-image failures.
    effect succeeded, do not claim it did.
 4. If the event type is new, widen the `audit_events` CHECK constraint in a migration and
    add the type to `EVENT_TYPES` **and** `EVENT_COLORS` in
-   `dashboard-signalloom/src/views/AuditTrail.tsx`. A type missing from the first cannot
+   `d2-signalloom/apps/dashboard-signalloom/src/views/AuditTrail.tsx`. A type missing from the first cannot
    be filtered; missing from the second it renders grey; missing from the migration,
    `src/tests/test_audit_event_types.py` fails.
 

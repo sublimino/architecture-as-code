@@ -29,6 +29,27 @@ rather than remembering what it started.
 4. Follow each phase's **Show this on →** link to the customer page where that
    phase's effect lands: 1 → Agents, 2 → Credential Inventory, 3 → Compliance,
    4 → Agents, 5 → Audit Trail.
+
+   > **What the Audit Trail shows for a phase, since 2026-08-14.** A row reading
+   > `demo.phase_run` and naming the operator from their token — not
+   > `agent.stunned`. The browser used to POST an `agent.stunned` row itself, and
+   > that has been removed: it was contingent on the tab staying open, and its
+   > agent name, namespace and reason were string literals, so it asserted one
+   > fixed reason whichever actually applied. The scripted phase does its relabel
+   > and revocation directly against the cluster and never calls the stun API, so
+   > nothing writes `agent.stunned` during the demo.
+   >
+   > Two consequences on stage. The row is **grey and cannot be filtered by
+   > type**, because `demo.phase_run` is not yet in `EVENT_TYPES`/`EVENT_COLORS`
+   > in `AuditTrail.tsx` — known drift, tracked in that file's own comment. And
+   > the line to say is "a named superadmin ran the privileged phase", not "the
+   > agent was stunned" — the record deliberately claims no outcome, because the
+   > runner cannot see the relabel or the OpenBao revocation. That is a better
+   > beat than it sounds: it names a real operator, where most rows in the
+   > product still read `demo-actor`.
+   >
+   > The visible stun evidence is unaffected — it is on **Agents**, at step 5
+   > below, which reads cluster state. See [`audit-trail.md`](audit-trail.md).
 5. At phase 4, stop talking and let the second window do the work. It shows
    **STUNNED — CREDENTIALS REVOKED** with the reason and a timestamp, on its own
    poll interval (`LIVE_POLL_MS`, `src/api/pollInterval.ts`). Nobody reloads

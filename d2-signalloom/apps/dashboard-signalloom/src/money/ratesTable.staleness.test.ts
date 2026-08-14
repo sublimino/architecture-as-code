@@ -61,6 +61,10 @@ describe('the generated rate table matches the canonical artefact', () => {
       )
       expect(vendored.as_of).toBe(canonical.as_of)
       expect(vendored.cases).toEqual(canonical.cases)
+      // `coverage` states how many cases can actually detect a wrong rate.
+      // It arrived after the first vendoring and the copy went stale, which is
+      // how this guard earned its keep — regenerate with `make fx`.
+      expect(vendored.coverage).toEqual(canonical.coverage)
     },
   )
 })

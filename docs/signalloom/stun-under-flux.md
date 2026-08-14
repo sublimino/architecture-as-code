@@ -3,6 +3,21 @@
 > Status: design research, 2026-08-03. Grounded in the live `kind-osramp` cluster, the
 > `supercred-demo` scripts, and `Proposal — Signal Loom Agent Security Platform (2026-Q3)`
 > § *Feature Architecture — 20 Capability Areas*, area 4.
+>
+> **Dated record — read as of its date, not as current design.** Its analysis of Flux
+> friction by response mode has not been contradicted. Two things around it have moved,
+> and neither is a correction to the argument below:
+>
+> * **The audit half has changed and is settled.** The browser no longer writes an audit
+>   event for a stun. It used to (`recordStunAudit()` in `SuperCredInstructorPanel.tsx`),
+>   with the agent name, namespace and reason as string literals — so the row asserted a
+>   reason regardless of which one applied. The server now records the privileged
+>   *invocation* instead, from the token, before spawning, and deliberately claims no
+>   outcome, because the process writing the row cannot observe the relabel or the lease
+>   revocation. See [`audit-trail.md`](audit-trail.md).
+> * **The stun API shape is a known post-demo item** as of 2026-08-14 — not designed, not
+>   scheduled here. Do not take any request or response shape from this document, and do
+>   not read the absence of a description as a description.
 
 ## Executive summary
 

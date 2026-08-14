@@ -72,11 +72,14 @@ help: ## Display this help.
 	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/cluster-debugging.md'  'Cluster/registry faults + probes that lie'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'TESTING.md'                 'Which suites exist and what actually runs'
 	@printf '  \033[36m%-34s\033[0m %s\n' 'd2-agent-trust/AGENTS.md'   'SPIFFE trust slice + its Pitfalls section'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/FAQ.md'               'Answers to what people actually ask'
+	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/signalloom/audit-trail.md' 'Who writes an audit row, and the rule that decides'
 	@printf '\n\033[1mDebugging first moves\033[0m\n'
 	@printf '  %s\n' 'make doctor                                  full read-only cluster diagnostic'
 	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
 	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
 	@printf '  %s\n' 'unset SSH_AUTH_SOCK                          before any ad-hoc gcloud compute ssh, or it "times out"'
+	@printf '  %s\n' 'make check-deployed-staleness                is the cluster running THIS tree? (exit 2 = unproven, not a pass)'
 	@printf '\n'
 
 ##@ Signal Loom preflight

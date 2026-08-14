@@ -169,8 +169,70 @@ Do not rely on personal shell aliases such as `kpo` or `klog`: this repository
 does not provide them. Use the portable commands above in agent instructions,
 runbooks, and CI investigations.
 
+## Is the running code the code you tested?
+
+Every suite on this page tests the **source tree**. None of them, on its own, tells you
+anything about the code answering requests in the cluster. That gap has cost a full
+verification cycle once and it is now a gate:
+
+```bash
+make check-deployed-staleness                          # every instrumented workload
+./scripts/check-deployed-staleness.sh supercred-demo-runner   # one workload
+```
+
+The make target takes no arguments; name a single workload by calling the script
+directly.
+
+Read the exit code rather than the prose, because two of the three outcomes are failures
+and they mean different things:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | **Verified fresh.** Every checked workload was reached, its build fingerprint was read out of the running container, and it matched the working tree. A positive proof, not an absence of evidence. |
+| `1` | **Drift.** At least one workload is provably running something other than the working tree, or is not deployed at all. |
+| `2` | **Cannot verify.** The question was not answered — no `kubectl`, no reachable cluster, no running pod, or the readback failed. |
+
+Exit 2 is deliberately not 0. A guard that reports OK when it could not reach the cluster
+manufactures confidence, and manufactured confidence is the precise failure this script
+exists to remove — so it must not reintroduce it in its own implementation. Treat "cannot
+verify" as untested.
+
+**What went wrong, that this exists to catch.** On 2026-08-13 a streaming fix landed
+across 22 commits and was verified by 315 backend tests, 1,657 dashboard tests and a
+browser harness. It was reported as working. It was not: `supercred-demo-runner` had been
+running for 3h56m with the old read still in `demo_runner.py`, and the
+`dashboard-signalloom` bundle contained none of the fix. Every test was green, and every
+one of them tested the source tree. The gap was not a missing assertion inside any one
+test — it was a missing *category* of assertion. This is the second instance of the class;
+the first is that `scripts/acceptance-test.sh` does not rebuild, so a dashboard source fix
+stays invisible to a spec until somebody rebuilds and rolls.
+
+Two things to know when reading its output. It compares a content fingerprint baked in at
+build time and read back out of the running container's filesystem — not a tag, git SHA or
+image digest, for reasons argued in `scripts/lib/source-id.sh`. And a pass names the
+workloads it checked rather than claiming "all clear", because only instrumented workloads
+are covered: `fe-signalloom`, `fleet-manager`, `cardvault`, `policy-engine` and the AFM
+backend are built from this repo, carry no build marker yet, and are **not** covered.
+
+`make test-deployed-staleness` exercises the guard itself against a fake `kubectl`,
+including that it cannot pass vacuously. No cluster required.
+
 ## Other test suites
 
+- Deployed-vs-source guard: `make test-deployed-staleness`
+  (drives `scripts/check-deployed-staleness.sh` against a fake `kubectl` via
+  `KUBECTL_BIN`, covering the failure paths a healthy cluster never exercises;
+  no cluster)
+- Audit-anchor unit suite: `make audit-anchor-test`
+  (canonical serialisation, checkpoint envelope, verifier verdicts; no cluster)
+- Audit-anchor tamper proof: `make audit-anchor-tamper-demo`
+  (writes real rows, anchors them, tampers, shows the verifier go red and
+  recover; cleans up after itself; **needs a cluster**)
+- Audit-anchor key-path guard: `bats test/audit-anchor-keys-path.bats`
+  (an absolute `KEYS_DIR` must survive both a path join and a `cd`; no cluster)
+- FX artefact currency: `make fx`
+  (regenerates, then fails if any generated copy is stale after generation;
+  no cluster)
 - OSRAMP application suite: `make test`
 - SignalLoom topology validation: `d2-signalloom/test/validate-topology.sh`
 - SignalLoom topology BATS suite: `bats d2-signalloom/test/topology.bats`

@@ -633,6 +633,246 @@ describe('SuperCredPage', () => {
   })
 })
 
+// ─── Filtering ──────────────────────────────────────────────────────────────
+//
+// Both tables are `DataTable` with a `toolbar` and an `emptyState`. The filter
+// state and the predicate live in the page; DataTable owns the chrome. What
+// these pin is the pair of properties that combination exists to guarantee:
+// a filter genuinely narrows the rows, and a filter that matches nothing can
+// still be undone — the toolbar renders on the empty branch, so the control
+// that emptied the table is still on screen. Composed by hand
+// (`rows.length ? <table/> : <EmptyState/>`) the controls vanish with the rows
+// and the only way back is a reload, which mid-demo happens in front of an
+// audience.
+
+describe('the credential inventory narrows, and can always be un-narrowed', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function loadInventory(agent: AgentFixture = cardvault()) {
+    mockFetch({ agents: [agent] })
+    renderPage()
+    await refresh()
+    return screen.findByTestId('supercred-credentials')
+  }
+
+  it('narrows to the credentials matching the search', async () => {
+    await loadInventory()
+    await userEvent.type(screen.getByTestId('supercred-credentials-search'), 'openbao')
+
+    expect(screen.getByTestId('credential-row-cred-agent-cardvault-openbao')).toBeInTheDocument()
+    expect(screen.queryByTestId('credential-row-cred-agent-cardvault-spiffe')).not.toBeInTheDocument()
+    expect(screen.getByTestId('supercred-credentials-count')).toHaveTextContent('1 of 3 shown')
+  })
+
+  it('narrows to one lifecycle status when its chip is pressed', async () => {
+    // A stunned agent is the only state where the three credentials differ:
+    // two revoked and one expired. A filter demonstrated on three identical
+    // rows demonstrates nothing.
+    await loadInventory(stunnedCardvault())
+    await userEvent.click(screen.getByTestId('supercred-credentials-filter-expired'))
+
+    expect(screen.getByTestId('credential-row-cred-agent-cardvault-service')).toBeInTheDocument()
+    expect(screen.queryByTestId('credential-row-cred-agent-cardvault-spiffe')).not.toBeInTheDocument()
+    expect(screen.getByTestId('supercred-credentials-count')).toHaveTextContent('1 of 3 shown')
+  })
+
+  it('offers a chip only for a status the inventory actually holds', async () => {
+    await loadInventory()
+    // Three active credentials, so `expired` and `revoked` would be chips that
+    // can only ever empty the table. Furniture, and worse than furniture: a
+    // control whose only outcome is a dead end.
+    expect(screen.getByTestId('supercred-credentials-filter-active')).toBeInTheDocument()
+    expect(screen.queryByTestId('supercred-credentials-filter-expired')).not.toBeInTheDocument()
+  })
+
+  it('keeps the search box on screen when nothing matches, and clears from there', async () => {
+    await loadInventory()
+    const search = screen.getByTestId('supercred-credentials-search')
+    await userEvent.type(search, 'no-such-credential')
+
+    expect(screen.getByTestId('supercred-credentials-table-empty')).toHaveTextContent(/No credential matches/i)
+    expect(screen.queryByTestId('credential-row-cred-agent-cardvault-spiffe')).not.toBeInTheDocument()
+    // The whole point of the toolbar slot: the control that emptied the table
+    // is still rendered, so the reader is not stranded.
+    expect(screen.getByTestId('supercred-credentials-table-toolbar')).toBeInTheDocument()
+
+    await userEvent.clear(screen.getByTestId('supercred-credentials-search'))
+    expect(await screen.findByTestId('credential-row-cred-agent-cardvault-spiffe')).toBeInTheDocument()
+    expect(screen.queryByTestId('supercred-credentials-table-empty')).not.toBeInTheDocument()
+  })
+})
+
+describe('the compliance results narrow without rewriting the scan', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function scan() {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Compliance Scan/ }))
+    return screen.findByTestId('supercred-compliance')
+  }
+
+  it('narrows to the failures when the fail chip is pressed', async () => {
+    await scan()
+    await userEvent.click(screen.getByTestId('supercred-compliance-filter-fail'))
+
+    expect(screen.getByText('security-context-present')).toBeInTheDocument()
+    expect(screen.getByText('network-policy-exists')).toBeInTheDocument()
+    expect(screen.queryByText('resource-limits-set')).not.toBeInTheDocument()
+  })
+
+  it('narrows to the checks matching the search', async () => {
+    await scan()
+    await userEvent.type(screen.getByTestId('supercred-compliance-search'), 'NetworkPolicy')
+
+    // Matched on the REASON, not the check name — an operator reading a finding
+    // searches for the words they just read, which are in the explanation.
+    expect(screen.getByText('network-policy-exists')).toBeInTheDocument()
+    expect(screen.queryByText('security-context-present')).not.toBeInTheDocument()
+  })
+
+  it('still reports the whole scan while only part of it is on screen', async () => {
+    await scan()
+    await userEvent.click(screen.getByTestId('supercred-compliance-filter-pass'))
+
+    // The verdict is a property of the scan. A filter changes what is visible
+    // and must never change what was found — a summary that followed the
+    // filter would let a click turn two failures into none, on the page whose
+    // entire argument is that a claim has to survive being checked.
+    const summary = screen.getByTestId('supercred-compliance-summary')
+    expect(summary).toHaveTextContent('1 passed')
+    expect(summary).toHaveTextContent('2 failed')
+    expect(summary).toHaveTextContent('3 total checks')
+    expect(screen.getByTestId('supercred-compliance-count')).toHaveTextContent('1 of 3 shown')
+  })
+
+  it('keeps the filter chips on screen when nothing matches, and clears from there', async () => {
+    await scan()
+    await userEvent.type(screen.getByTestId('supercred-compliance-search'), 'no-such-control')
+
+    expect(screen.getByTestId('supercred-compliance-table-empty')).toHaveTextContent(/No check matches/i)
+    expect(screen.getByTestId('supercred-compliance-table-toolbar')).toBeInTheDocument()
+
+    await userEvent.clear(screen.getByTestId('supercred-compliance-search'))
+    expect(await screen.findByText('security-context-present')).toBeInTheDocument()
+    expect(screen.queryByTestId('supercred-compliance-table-empty')).not.toBeInTheDocument()
+  })
+})
+
+// ─── Tooltips ───────────────────────────────────────────────────────────────
+//
+// This page is read at two altitudes at once. An executive needs to know what
+// a scope IS; an engineer needs to know which one this is. A hint is how one
+// screen serves both without a second screen, which is only true while every
+// hint is actually reachable — a "?" whose accessible name nobody can find is
+// a hint that exists for sighted mouse users and no one else. Each one is
+// asserted by accessible name, and by the sentence it opens.
+
+describe('SuperCred explains its own jargon', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** Open one hint by its accessible name and hand back the tooltip. */
+  async function openHint(name: string): Promise<HTMLElement> {
+    const affordance = screen.getByRole('button', { name })
+    await userEvent.hover(affordance)
+    const tip = screen.getByRole('tooltip')
+    await userEvent.unhover(affordance)
+    return tip
+  }
+
+  it('explains SPIFFE and OpenBao where the architecture first names them', async () => {
+    mockFetch({ agents: [] })
+    renderPage()
+    expect(await openHint('What SPIFFE and OpenBao do here')).toHaveTextContent(/cryptographic identity/i)
+  })
+
+  it('explains what a stun does, beside the control that does it', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    const tip = await openHint('What a stun does to an agent')
+    expect(tip).toHaveTextContent(/lease is revoked/i)
+    // Never "it shuts the agent down" — the pod keeps running, which is the
+    // part an audience reliably gets wrong.
+    expect(tip).toHaveTextContent(/pod keeps running/i)
+  })
+
+  it('explains a blocked pod phase without implying the chain was disproved', async () => {
+    mockFetch({ agents: [cardvault({ phase: 'Pending' })] })
+    renderPage()
+    await refresh()
+    await screen.findByTestId('supercred-phase-warning')
+    expect(await openHint('What a blocked pod phase means')).toHaveTextContent(/has simply not run/i)
+  })
+
+  it('explains every credential column whose header does not say it', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await screen.findByTestId('supercred-credentials')
+
+    expect(await openHint('What the Credential Inventory lists')).toHaveTextContent(/Three of them, not one login/i)
+    expect(await openHint('What Issuer means')).toHaveTextContent(/No shared password/i)
+    expect(await openHint('What Scope means')).toHaveTextContent(/one endpoint/i)
+    expect(await openHint('What Expires means')).toHaveTextContent(/minutes, not months/i)
+    expect(await openHint('What Rotations means')).toHaveTextContent(/Routine, not an incident/i)
+  })
+
+  it('explains what discovery counted, including what Blocked means', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await screen.findByTestId('supercred-discovery-summary')
+    expect(await openHint('What discovery counted')).toHaveTextContent(/neither compliant nor non-compliant/i)
+  })
+
+  it('explains the compliance scan and its severity column', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Compliance Scan/ }))
+    await screen.findByTestId('supercred-compliance')
+
+    expect(await openHint('What a compliance scan is checking')).toHaveTextContent(/does not mean the agent has been attacked/i)
+    expect(await openHint('What Severity means')).toHaveTextContent(/load-bearing/i)
+  })
+
+  it('explains the four stun actions, and points at the observed version of them', async () => {
+    mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+    await screen.findByTestId('supercred-stun-result')
+
+    // The list beside this hint is four static claims with no probe behind
+    // them. The hint does not dress them up as evidence — it names where the
+    // evidence actually is, which is the card that runs a command per step.
+    expect(await openHint('What these four actions mean')).toHaveTextContent(/Credential Lifecycle card above/i)
+  })
+})
+
 // ─── Waiting ────────────────────────────────────────────────────────────────
 //
 // A control that is merely disabled tells the room nothing. Mid-demo the only

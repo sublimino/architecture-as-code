@@ -724,3 +724,69 @@ describe('the card explains its own vocabulary', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent('nothing was proved either way')
   })
 })
+
+// ─── Three states, asserted as a triple ─────────────────────────────────────
+//
+// observed / absent / unavailable are three different claims: the probe found
+// it, the probe ran and it was not there, the probe could not run at all. The
+// existing tests above check them in pairs, which is one assertion short of
+// the property that matters — a pair can hold while a third quietly renders
+// like one of the other two. So this asserts all three at once, on the same
+// card, and it asserts distinctness in BOTH channels: the wording, which is
+// what a screen reader and a projector carry, and the treatment, which is what
+// the room reads at a glance. A tick-and-cross rewrite of this card would pass
+// every pairwise test above and fail every one of these.
+//
+// The last one is the debugger's half of the same contract. A row that could
+// not be checked still has to show the command that failed to check it —
+// hiding it turns "we could not look" into "trust us", which is the position
+// this whole page exists to argue against.
+
+describe('observed, absent and unavailable never collapse into two', () => {
+  const threeStates = () =>
+    payload([
+      step({ step: 1, state: 'observed', summary: 'Agent pod is running and ready' }),
+      step({ step: 2, state: 'absent', summary: 'No stun annotation on the pod' }),
+      step({ step: 3, state: 'unavailable', summary: 'The cluster could not be reached' }),
+    ])
+
+  async function renderThree() {
+    const fetcher = fetcherFor(threeStates())
+    render(<CredentialEvidencePanel fetcher={fetcher as unknown as typeof fetch} />)
+    await waitFor(() => expect(screen.getByTestId('evidence-step-3')).toBeInTheDocument())
+  }
+
+  it('gives each of the three its own wording', async () => {
+    await renderThree()
+    const words = [1, 2, 3].map((n) => screen.getByTestId(`evidence-state-${n}`).textContent?.trim())
+    expect(words).toEqual(['observed', 'not present', 'unverified'])
+    expect(new Set(words).size).toBe(3)
+  })
+
+  it('gives each of the three its own visual treatment', async () => {
+    await renderThree()
+    const styles = [1, 2, 3].map((n) => screen.getByTestId(`evidence-state-${n}`).getAttribute('style'))
+    expect(styles.every((s) => s && s.length > 0)).toBe(true)
+    expect(new Set(styles).size).toBe(3)
+  })
+
+  it('counts the three separately rather than scoring two of them as one', async () => {
+    await renderThree()
+    // `unavailable` is never folded into either neighbour: not into observed,
+    // which would invent progress, and not into absent, which would report a
+    // finding the probe never reached.
+    expect(screen.getByTestId('evidence-provenance')).toHaveTextContent(
+      '1 observed · 1 not present · 1 unverified',
+    )
+  })
+
+  it('still shows the literal command behind the row that could not be checked', async () => {
+    const user = userEvent.setup()
+    await renderThree()
+    await user.click(screen.getByTestId('evidence-disclose-3'))
+
+    expect(screen.getByTestId('evidence-console-3')).toHaveTextContent(
+      'kubectl -n fe-signalloom-agents get pod -l signalloom.ai/supercred=true',
+    )
+  })
+})

@@ -579,7 +579,12 @@ run_stage \
 run_stage \
   "Audit-guard reintroduction proof" \
   "stage1i-audit-reintroduction.txt" \
-  "cd ${WORK_DIR} && bash d2-signalloom/test/audit-guard-reintroduction-proof.sh"
+  "cd ${WORK_DIR} && \
+   echo \"proof-script: \$(ls -l d2-signalloom/test/audit-guard-reintroduction-proof.sh 2>&1)\" && \
+   echo \"python3: \$(command -v python3 || echo MISSING) \$(python3 -V 2>&1)\" && \
+   echo \"pytest: \$(python3 -m pytest --version 2>&1 | head -1)\" && \
+   bash d2-signalloom/test/audit-guard-reintroduction-proof.sh; \
+   rc=\$?; echo \"proof-exit=\$rc\"; exit \$rc"
 
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \

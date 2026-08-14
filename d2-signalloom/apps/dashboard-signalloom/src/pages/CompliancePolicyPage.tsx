@@ -8,10 +8,8 @@ import StatusBadge, { tint } from '../components/StatusBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import type { FrameworkSummary, PostureSummary } from '../types/compliance'
-
-function fmtGbp(n: number) {
-  return '£' + n.toLocaleString('en-GB')
-}
+import { useMoney } from '../money/CurrencyContext'
+import ConversionNote from '../components/ConversionNote'
 
 function fmtPct(n: number, d: number) {
   if (d === 0) return '—'
@@ -41,6 +39,10 @@ function VersionPill({ version, status }: { version: string; status: 'satisfied'
 
 export default function CompliancePolicyPage() {
   const { getAccessTokenSilently } = useAuth0()
+  // Exposure figures are source-currency amounts converted for display;
+  // `fmt` yields "Unavailable" rather than an unconverted number if no rate
+  // exists, and `conversionNote` states the rate and its effective date.
+  const { fmtMoney, noteFor } = useMoney()
   const [summary, setSummary] = useState<PostureSummary | null>(null)
   const [frameworks, setFrameworks] = useState<FrameworkSummary[]>([])
   const [scanning, setScanning] = useState(false)
@@ -96,6 +98,7 @@ export default function CompliancePolicyPage() {
               Last scan: {fmtTimestamp(summary.scanTimestamp)}
             </div>
           )}
+          <ConversionNote note={summary ? noteFor(summary.currency) : null} testId="policy-conversion-note" />
         </div>
         <button className="btn btn-primary" onClick={handleScan} disabled={scanning}>
           {scanning ? 'Scanning...' : 'Scan Now'}
@@ -118,7 +121,7 @@ export default function CompliancePolicyPage() {
           <StatCard label="Total Checks" value={String(summary.totalChecks)} sub={`${summary.passed} passed`} accent={colors.cyanLoom} />
           <StatCard label="Passed" value={String(summary.passed)} sub={fmtPct(summary.passed, summary.totalChecks)} accent={colors.tealLoom} />
           <StatCard label="Failed" value={String(summary.failed)} sub={fmtPct(summary.failed, summary.totalChecks)} accent={summary.failed > 0 ? colors.red : colors.tealLoom} />
-          <StatCard label="Total Exposure" value={fmtGbp(summary.totalCarriedGbp)} sub="carried risk" accent={summary.totalCarriedGbp > 0 ? colors.amber : colors.tealLoom} />
+          <StatCard label="Total Exposure" value={fmtMoney(summary.totalCarried)} sub="carried risk" accent={summary.totalCarried.amount > 0 ? colors.amber : colors.tealLoom} />
         </div>
       )}
 
@@ -141,7 +144,7 @@ export default function CompliancePolicyPage() {
                   })}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                  {fw.passedControls}/{fw.totalControls} controls passing ({coverage}%) | {fmtGbp(fw.totalExposureGbp)} exposure
+                  {fw.passedControls}/{fw.totalControls} controls passing ({coverage}%) | {fmtMoney(fw.totalExposure)} exposure
                 </div>
               </div>
             )
@@ -190,7 +193,7 @@ export default function CompliancePolicyPage() {
                 />
                 {' '}{fmtPct(fw.passedControls, fw.totalControls)}
               </td>
-              <td style={td}>{fmtGbp(fw.totalExposureGbp)}</td>
+              <td style={td}>{fmtMoney(fw.totalExposure)}</td>
             </tr>
           ))}
         </Table>

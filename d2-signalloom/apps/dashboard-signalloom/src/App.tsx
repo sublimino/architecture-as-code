@@ -9,6 +9,7 @@ import DemoToggle from './components/DemoToggle'
 import ThemeToggle from './components/ThemeToggle'
 import KeyboardShortcutsOverlay from './components/KeyboardShortcutsOverlay'
 import SetupBanner from './components/onboarding/SetupBanner'
+import { CurrencyProvider } from './money/CurrencyContext'
 import { api } from './api/client'
 import { connectorsApi } from './api/connectorsClient'
 import { onboardingApi } from './api/onboardingClient'
@@ -294,6 +295,11 @@ export default function App() {
       connectedProviderCount, totalProviderCount,
       needsOnboarding, refreshOnboardingState,
     }}>
+      {/* Wraps the whole tree, not just the risk pages. Every surface that
+          shows money must resolve the same user preference — a figure in one
+          currency beside a figure in another, both unlabelled, is worse than
+          either alone. */}
+      <CurrencyProvider>
       <DemoToggle />
       <ThemeToggle />
 
@@ -367,6 +373,7 @@ export default function App() {
           </div>
         </main>
       </div>
+      </CurrencyProvider>
     </AppContext.Provider>
   )
 }

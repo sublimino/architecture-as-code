@@ -536,3 +536,21 @@ export interface PlatformUsersResponse {
   users: PlatformUser[]
   total: number
 }
+
+// ─── Per-user preferences ───────────────────────────────────────────────────
+
+/**
+ * Preferences that belong to ONE user, not to their tenant.
+ *
+ * Distinct from TenantSettingsResponse's scan preferences, which every user in
+ * a tenant shares. Two people looking at the same fleet can want different
+ * display currencies, and one of them changing it must not move the other's
+ * numbers.
+ *
+ * `display_currency` is typed as string rather than CurrencyCode because this
+ * is the wire shape: the server may hold a code this build cannot format, and
+ * the narrowing happens at the boundary in CurrencyProvider rather than here.
+ */
+export interface UserPreferencesResponse {
+  display_currency: string
+}

@@ -605,4 +605,207 @@ describe('RbacAnalysisPage', () => {
       expect(await screen.findByTestId('add-cluster-success')).toHaveTextContent(/staging-eu/i)
     })
   })
+
+  // Every noun this page uses is a formal-methods RBAC term, and not one of
+  // them means what an English reader would guess: "escalation" sounds like a
+  // severity, "collusion" sounds like an accusation, and "min-cut" sounds like
+  // nothing at all. Until these hints there was no explanation of any of it
+  // anywhere on the page.
+  describe('the RBAC vocabulary is explained where it is used', () => {
+    const HINTS = [
+      ['rbac-hint-escalation', 'What privilege escalation means'],
+      ['rbac-hint-collusion', 'What collusion means'],
+      ['rbac-hint-mincut', 'What min-cut remediation means'],
+      ['rbac-hint-afm-status', 'What the AFM status line means'],
+      ['rbac-hint-add-cluster', 'What Add Cluster does'],
+    ] as const
+
+    it.each(HINTS)('%s is a named, keyboard-reachable affordance', async (testId, name) => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      const hint = screen.getByTestId(testId)
+      // A real <button>, so it is in the tab order and opens on focus — a hint
+      // that only answers a mouse is not an explanation, it is a decoration.
+      expect(hint.tagName).toBe('BUTTON')
+      expect(hint).toHaveAccessibleName(name)
+    })
+
+    it('names the wildcard verb as the edge an escalation path is usually built from', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.hover(screen.getByTestId('rbac-hint-escalation'))
+
+      // The three things nobody can infer from the word "escalation": that it
+      // is a chain rather than a single bad grant, what the chain is built out
+      // of, and that the question being answered is who can become admin.
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip).toHaveTextContent(/cluster-admin/i)
+      expect(tooltip).toHaveTextContent(/wildcard verb/i)
+      expect(tooltip).toHaveTextContent(/whole chain, not the single grant/i)
+    })
+
+    it('says what makes collusion invisible to a per-identity review', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.hover(screen.getByTestId('rbac-hint-collusion'))
+
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip).toHaveTextContent(/harmless alone/i)
+      // The load-bearing half: this is the class of finding that reviewing one
+      // ServiceAccount at a time cannot produce, which is why a solver is here.
+      expect(tooltip).toHaveTextContent(/audit of one identity at a time cannot find/i)
+    })
+
+    it('says min-cut ranks what to revoke and does not bless what survives', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.hover(screen.getByTestId('rbac-hint-mincut'))
+
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip).toHaveTextContent(/smallest set of role bindings/i)
+      expect(tooltip).toHaveTextContent(/not a claim that whatever survives the cut is safe/i)
+    })
+
+    it('refuses to let "AFM connected" be read as "a cluster was analysed"', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.hover(screen.getByTestId('rbac-hint-afm-status'))
+
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip).toHaveTextContent(/answered 200/i)
+      // A health route that is up is not an analysis that ran. A page that let
+      // those two read alike would be showing a green light for a silence.
+      expect(tooltip).toHaveTextContent(/does not mean any cluster has been analysed/i)
+    })
+
+    it('says Add Cluster reaches no backend, which its label implies the opposite of', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      await userEvent.hover(screen.getByTestId('rbac-hint-add-cluster'))
+
+      expect(await screen.findByRole('tooltip')).toHaveTextContent(/No request is sent to AFM/i)
+    })
+
+    it('leaves the cluster count string exactly what it was', async () => {
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      // The status hint is a SIBLING of the count, not a child. A "?" inside
+      // would land in the count's own textContent, and every assertion in this
+      // file that reads the count would silently be reading the affordance too.
+      expect(screen.getByTestId('cluster-count').textContent).toBe('Host Cluster')
+      expect(screen.getByTestId('cluster-count'))
+        .not.toContainElement(screen.getByTestId('rbac-hint-afm-status'))
+    })
+  })
+
+  describe('Reload reports itself in the control that was pressed', () => {
+    it('carries a ButtonWait while the probe is in flight, then gives the label back', async () => {
+      // The mount probe must succeed so the page renders; only the reload probe
+      // is held open, which is the window this test exists to look at.
+      const deferred: { resolve?: (r: Response) => void } = {}
+      let healthCalls = 0
+      routeFetch({
+        health: () => {
+          healthCalls += 1
+          if (healthCalls === 1) return Promise.resolve(response(true))
+          return new Promise<Response>((resolve) => { deferred.resolve = resolve })
+        },
+      })
+
+      render(<RbacAnalysisPage />)
+      await screen.findByText(/afm connected/i)
+
+      const reload = screen.getByTestId('afm-reload-btn')
+      // Idle: the visible word IS the accessible name. WCAG 2.5.3 — a speech
+      // user has to be able to say what they can see.
+      expect(reload).toHaveAccessibleName('Reload')
+      expect(reload).not.toBeDisabled()
+
+      // A delta, not a total: the importer panel loads /afm/clusters on mount
+      // as well, so the absolute count is not this page's to assert.
+      const clustersBefore = requestedUrls().filter(url => url === '/afm/clusters').length
+
+      await userEvent.click(reload)
+
+      await waitFor(() => {
+        expect(screen.getByTestId('afm-reload-wait-grid')).toBeInTheDocument()
+      })
+      expect(reload).toBeDisabled()
+      expect(reload).toHaveAttribute('aria-busy', 'true')
+      // ButtonWait deletes the visible text, so it has to supply the name
+      // itself — a control that goes anonymous while busy is worse than one
+      // that never said anything.
+      expect(reload).toHaveAccessibleName('Reloading')
+
+      deferred.resolve?.(response(true))
+
+      await waitFor(() => {
+        expect(reload).toHaveAccessibleName('Reload')
+      })
+      expect(reload).not.toBeDisabled()
+      expect(screen.queryByTestId('afm-reload-wait-grid')).not.toBeInTheDocument()
+      // Exactly the two probes the page always made: one on mount, one on the
+      // press. The wait is a report on requests, not a new one — the press
+      // still issues the same health/clusters pair and nothing else.
+      expect(healthCalls).toBe(2)
+      expect(requestedUrls().filter(url => url === '/afm/clusters').length)
+        .toBe(clustersBefore + 1)
+    })
+
+    it('leaves the button alone for the probe on mount, which nobody pressed', async () => {
+      const deferred: { resolve?: (r: Response) => void } = {}
+      routeFetch({ health: () => new Promise<Response>((resolve) => { deferred.resolve = resolve }) })
+
+      render(<RbacAnalysisPage />)
+
+      const reload = await screen.findByTestId('afm-reload-btn')
+      // A wait belongs to the control the reader used. The mount probe is the
+      // page's own business and borrowing this button to narrate it would make
+      // the button unpressable for a second every time the page opened.
+      expect(reload).toHaveAccessibleName('Reload')
+      expect(reload).not.toBeDisabled()
+      expect(screen.queryByTestId('afm-reload-wait-grid')).not.toBeInTheDocument()
+
+      deferred.resolve?.(response(true))
+      await screen.findByText(/afm connected/i)
+    })
+  })
+
+  describe('the mode banners take their colour from the theme', () => {
+    it('tints the demo banner from var(--amber) rather than a frozen literal', async () => {
+      isDemoMode.mockReturnValue(true)
+
+      render(<RbacAnalysisPage />)
+
+      const notice = await screen.findByTestId('demo-mode-notice')
+      // It carried rgba(245,158,11,…) — the Dark theme's amber, pinned. The
+      // text on it is var(--amber), which does follow the theme, so under Light
+      // and Andy the fill and the text it was tinting were two different hues
+      // by construction rather than by accident.
+      expect(notice.style.background).toContain('var(--amber)')
+      expect(notice.style.borderColor).toContain('var(--amber)')
+      expect(notice.style.background).not.toMatch(/rgba?\(/)
+    })
+
+    it('tints the live-mode banner from var(--cyan) the same way', async () => {
+      render(<RbacAnalysisPage />)
+
+      const notice = await screen.findByTestId('host-cluster-indicator')
+      expect(notice.style.background).toContain('var(--cyan)')
+      expect(notice.style.borderColor).toContain('var(--cyan)')
+      expect(notice.style.background).not.toMatch(/rgba?\(/)
+      // Longhands rather than the `border` shorthand, per the lesson recorded
+      // in HelpHint: jsdom cannot read a shorthand carrying a custom property,
+      // so the shorthand form would make the tint untestable outside a browser
+      // — which is exactly how the frozen literals survived this long.
+      expect(notice.style.borderStyle).toBe('solid')
+    })
+  })
 })

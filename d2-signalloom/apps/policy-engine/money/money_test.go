@@ -97,8 +97,20 @@ func TestConvertNeitherSideIsBase(t *testing.T) {
 // is the identity. In IEEE-754 double it is two multiplications and two divisions, each of which can
 // introduce at most half an ulp of relative error -- so the accumulated relative error is bounded at
 // a few ulps, i.e. of order 1e-15. We assert 1e-9 relative, six orders of magnitude of headroom,
-// because the purpose of the test is to catch a WRONG rate direction (which shows up as a factor of
-// ~1.6, not as 1e-15), not to police the last bit of the mantissa.
+// because the purpose is to police float noise, not the last bit of the mantissa.
+//
+// WHAT THIS TEST DOES NOT CATCH -- stated because an earlier version of this comment claimed the
+// opposite, and a mutation test disproved it. A round trip CANNOT detect an inverted rate
+// direction: if Rate returns r_a/r_b everywhere instead of r_b/r_a, the trip applies the wrong
+// factor and then its reciprocal, and still lands exactly back on the original. Inverting twice is
+// the identity. Verified by mutating Rate to `rf / rt` -- this test stays green.
+//
+// Direction is caught by TestConvertCrossRateViaBase and TestConvertNeitherSideIsBase, which assert
+// against independently hand-computed values (1000/0.79, 500*0.92/0.79) rather than against
+// anything the implementation produced. That distinction matters: the sibling TypeScript
+// implementation had a test oracle that reached for rates["USD"], which is 1.0 in a USD-based
+// table, so it silently compared a figure against itself and went green on nothing. An oracle
+// derived from the thing under test is not an oracle.
 //
 // Note this tolerance holds only because Convert does NOT round. Rounding to minor units mid-trip
 // would bound the error at half a penny scaled by the rate instead -- see TestRoundIsPresentationOnly.

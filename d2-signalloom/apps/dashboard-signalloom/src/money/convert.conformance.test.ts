@@ -26,9 +26,26 @@ interface Vector {
   converted: number
   converted_rounded: number
   minor_units: number
+  /**
+   * Whether this case can detect a wrong rate at all.
+   *
+   * Emitted by the engine's generator. False for identity pairs (the rate
+   * genuinely is 1) and for zero amounts (zero times any rate is zero) — both
+   * are properties of the case, not weaknesses in it, but neither is a test of
+   * conversion.
+   */
+  rate_sensitive: boolean
+}
+
+interface Coverage {
+  total: number
+  rate_sensitive: number
+  identity: number
+  zero_amount: number
 }
 
 const cases = vectors.cases as Vector[]
+const coverage = vectors.coverage as Coverage
 
 describe('FX conformance with the risk engine', () => {
   it('ships a non-trivial number of cases — an empty file must not read as a pass', () => {
@@ -86,27 +103,50 @@ describe('the conformance suite is not vacuous', () => {
     })
   }
 
-  // A case can legitimately survive for exactly two reasons, and both are
-  // properties of the case rather than weaknesses in it:
+  // `rate_sensitive` is the engine's own classification and is authoritative
+  // here, so the two sides cannot hold different ideas of what a survivor
+  // means. It is still cross-checked below: a flag nobody verifies is the same
+  // shape of trust that produced the green-on-nothing oracle.
+  //
+  // A case is insensitive for exactly two reasons, both properties of the case
+  // rather than weaknesses in it:
   //   - from === to, where the rate genuinely is 1
   //   - amount === 0, where zero times any rate is zero
-  const explainable = (c: Vector) => c.from === c.to || c.amount === 0
+  const derivedSensitive = (c: Vector) => c.from !== c.to && c.amount !== 0
+
+  it('agrees with the engine about which cases can detect a wrong rate', () => {
+    const disagreements = cases
+      .filter((c) => c.rate_sensitive !== derivedSensitive(c))
+      .map((c) => `${c.amount} ${c.from}->${c.to} flagged rate_sensitive=${c.rate_sensitive}`)
+    expect(disagreements).toEqual([])
+  })
+
+  it('publishes coverage totals that describe the cases actually shipped', () => {
+    // A coverage block claiming 35 rate-sensitive cases over a file containing
+    // 34 is the file over-claiming again, one layer up.
+    expect(coverage.total).toBe(cases.length)
+    expect(coverage.rate_sensitive).toBe(cases.filter((c) => c.rate_sensitive).length)
+    expect(coverage.identity).toBe(cases.filter((c) => c.from === c.to).length)
+    expect(coverage.zero_amount).toBe(
+      cases.filter((c) => c.amount === 0 && c.from !== c.to).length,
+    )
+  })
 
   it.each(['identity', 'inverted'] as const)(
-    'every case that survives a %s rate mutation is explainably immune',
+    'every case surviving a %s rate mutation is one the engine marked insensitive',
     (kind) => {
-      const unexplained = survivors(kind).filter((c) => !explainable(c))
+      const unexplained = survivors(kind).filter((c) => c.rate_sensitive)
       expect(unexplained.map((c) => `${c.amount} ${c.from}->${c.to}`)).toEqual([])
     },
   )
 
-  it('kills the large majority of cases under a wrong rate', () => {
-    // 40 of the 48 are cross-currency; 5 of those are zero-amount. So 35 must
-    // die. Asserting a floor rather than the exact number leaves room for the
-    // engine to add cases without this failing spuriously.
+  it('kills exactly the rate-sensitive cases under a wrong rate', () => {
+    // The expected count comes from the artefact rather than a literal, so the
+    // engine can add or reclassify cases without a spurious failure here — and
+    // a drop in real coverage surfaces instead of passing quietly.
     for (const kind of ['identity', 'inverted'] as const) {
       const killed = cases.length - survivors(kind).length
-      expect(killed).toBeGreaterThanOrEqual(35)
+      expect(killed).toBe(coverage.rate_sensitive)
     }
   })
 

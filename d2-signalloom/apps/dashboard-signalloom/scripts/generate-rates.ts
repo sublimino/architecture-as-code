@@ -23,7 +23,9 @@ import { fileURLToPath } from 'node:url'
 
 const here = dirname(fileURLToPath(import.meta.url))
 export const CANONICAL_RATES = resolve(here, '../../../../risk/fx/rates.json')
+export const CANONICAL_VECTORS = resolve(here, '../../../../risk/fx/testvectors.json')
 const OUTPUT = resolve(here, '../src/money/ratesTable.generated.ts')
+const VECTORS_OUTPUT = resolve(here, '../src/money/__fixtures__/fxTestVectors.json')
 
 export function render(rawJson: string): string {
   const table = JSON.parse(rawJson) as {
@@ -63,4 +65,12 @@ if (import.meta.main) {
   const raw = readFileSync(CANONICAL_RATES, 'utf8')
   writeFileSync(OUTPUT, render(raw))
   console.log(`wrote ${OUTPUT} from ${CANONICAL_RATES}`)
+
+  // The conformance vectors are vendored verbatim so the dashboard suite runs
+  // standalone. Copied by the same command that regenerates the rate table:
+  // when the engine changed the vectors, `make fx` regenerated the table and
+  // left the vectors stale, so the staleness guard fired on a drift the
+  // sanctioned command could not fix. One command, both artefacts.
+  writeFileSync(VECTORS_OUTPUT, readFileSync(CANONICAL_VECTORS, 'utf8'))
+  console.log(`wrote ${VECTORS_OUTPUT} from ${CANONICAL_VECTORS}`)
 }

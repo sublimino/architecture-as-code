@@ -487,6 +487,15 @@ function stunFixture(path: string): StunAgentResponse {
     actor: DEMO_ACTOR,
     stunned_at: event.timestamp,
     event,
+    // Kept in the same nested shape the live endpoint uses, so demo and live
+    // render through one path. Flattening it here would make demo mode the
+    // only place where a relayed claim is indistinguishable from a first-party
+    // one, which is the exact distinction the nesting exists to preserve.
+    proxy: {
+      state: 'stunned',
+      stunned_at: event.timestamp,
+      message: `Agent ${agentId} stunned: credentials revoked, state marked as stunned`,
+    },
   }
 }
 

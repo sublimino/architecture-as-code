@@ -680,11 +680,13 @@ export default function SuperCredPage() {
         }}>
           <h2 style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: colors.red }}>Agent Stunned</h2>
           {/* The proxy's own wording when it gave one, otherwise composed from
-              the lifecycle fields the response always carries. Display text, so
-              composing it is fine — what must never be composed here is the
-              audit record, and that arrives whole in `event` below. */}
+              the lifecycle fields the response always carries. Read from
+              `proxy` rather than the top level because that is where relayed
+              claims live — see StunProxyReport. Display text, so composing it
+              is fine; what must never be composed here is the audit record,
+              and that arrives whole in `event` below. */}
           <p style={{ fontSize: 13, marginBottom: 4 }}>
-            {stunResult.message
+            {stunResult.proxy?.message
               ?? `Agent ${stunResult.agent_id} isolated: ${stunResult.from_state} → ${stunResult.to_state}`}
           </p>
           <p style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>Stunned at: {stunResult.stunned_at}</p>

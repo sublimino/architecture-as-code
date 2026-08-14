@@ -69,7 +69,81 @@ export WAIT_STAT_FILE="${WAIT_STAT_FILE:-${REPORT_DIR}/wait-stats.txt}"
 rm -rf "$REPORT_DIR"
 mkdir -p "$REPORT_DIR"
 
+# ── The terminal state has to describe itself ────────────────────────
+#
+# A run that died before stage 1 left no summary.json at all, so the report
+# directory said nothing about what happened. "Reports present, no summary" is
+# what you see after an abort, after a pass whose collection failed, and after a
+# run that never started — three different outcomes, one indistinguishable
+# artifact. On 2026-08-13 that ambiguity was read as a pass twice in one
+# session, and the only thing that separated the cases was a gcloud timestamp
+# query nobody should have to reach for.
+#
+# Every exit path now leaves a machine-readable verdict behind. PIPELINE_PHASE
+# records how far the run got; the trap writes ONLY when the real summary is
+# absent, so a completed run — pass or fail — is reported exactly as before.
+#
+# Deliberately jq-free: setup.sh installs jq further down this file, so the
+# early-abort case is precisely the one where jq is missing. Hand-rolled
+# escaping keeps the writer dependency-free.
+PIPELINE_PHASE="startup"
+
+json_str() {
+  local s="${1-}"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  printf '"%s"' "$s"
+}
+
+write_terminal_summary() {
+  local rc="$1"
+  # A summary already on disk is the run's own verdict. Never overwrite it.
+  [[ -f "${REPORT_DIR}/summary.json" ]] && return 0
+  mkdir -p "$REPORT_DIR" 2>/dev/null || return 0
+
+  # stage_results is declared below and may not exist yet; the `+` expansion is
+  # the only form that is safe under `set -u` for an unset array.
+  local -a done_stages=()
+  if [[ -n "${stage_results[*]+set}" ]]; then done_stages=("${stage_results[@]}"); fi
+  local stages_json="[]"
+  if ((${#done_stages[@]} > 0)); then
+    stages_json="[$(IFS=,; printf '%s' "${done_stages[*]}")]"
+  fi
+  local total="${#done_stages[@]}" failed="${failures:-0}"
+  local passed=$(( total - failed ))
+  ((passed < 0)) && passed=0
+
+  {
+    printf '{\n'
+    printf '  "outcome": "ABORTED",\n'
+    printf '  "overall": "ABORTED",\n'
+    printf '  "phase": %s,\n' "$(json_str "$PIPELINE_PHASE")"
+    printf '  "exit_code": %d,\n' "$rc"
+    printf '  "timestamp": %s,\n' "$(json_str "$(date -Iseconds)")"
+    printf '  "commit": %s,\n' "$(json_str "${CI_SOURCE_COMMIT:-unknown}")"
+    printf '  "branch": %s,\n' "$(json_str "${CI_SOURCE_BRANCH:-unknown}")"
+    printf '  "note": %s,\n' "$(json_str "the pipeline exited during phase '${PIPELINE_PHASE}' without reaching the report stage — this is an ABORTED run, NOT a test result")"
+    printf '  "total_stages": %d,\n' "$total"
+    printf '  "passed": %d,\n' "$passed"
+    printf '  "failed": %d,\n' "$failed"
+    printf '  "stages": %s\n' "$stages_json"
+    printf '}\n'
+  } >"${REPORT_DIR}/summary.json" 2>/dev/null || true
+  return 0
+}
+
+on_pipeline_exit() {
+  local rc=$?
+  write_terminal_summary "$rc" || true
+  # An EXIT trap hands its own last exit status to the shell, which is how a run
+  # with 8/8 stages green once exited 1 (see lock_release in gcp-ci.sh). Exit
+  # with the status the script actually asked for, explicitly.
+  exit "$rc"
+}
+trap on_pipeline_exit EXIT
+
 # ── Pull latest code (or use SCP'd code) ─────────────────────────────
+PIPELINE_PHASE="pull-code"
 echo "==> [1/7] Pulling latest code..."
 if [[ ! -d "$WORK_DIR" ]]; then
   echo "ERROR: No code at ${WORK_DIR}. Clone via deploy key or SCP the repo." >&2
@@ -118,6 +192,7 @@ sudo chmod a+w /usr/local/bin 2>/dev/null || true
 # find crane already on PATH and skip it, so the only `go install` compiles left
 # are govulncheck and vexctl. Reverse the order and setup.sh compiles crane
 # from source before the pinned binary would ever have been considered.
+PIPELINE_PHASE="install-tools"
 echo "==> Ensuring CI tools (pinned pre-built binaries)..."
 bash ./scripts/ci/install-ci-tools.sh
 
@@ -148,6 +223,7 @@ echo "==> Installing Playwright ffmpeg helper (pinned to test/acceptance)..."
 )
 
 # ── Tear down any existing cluster ───────────────────────────────────
+PIPELINE_PHASE="clean-cluster"
 echo "==> [2/7] Cleaning previous cluster..."
 make teardown 2>/dev/null || true
 
@@ -156,6 +232,7 @@ make teardown 2>/dev/null || true
 # target expects OSRAMP-demo ResourceSets (policies, infra) that the
 # signalloom-only path doesn't create until later. signalloom-local.sh
 # has its own dependency waits.
+PIPELINE_PHASE="create-cluster"
 echo "==> [3/7] Creating Kind cluster + Zot + Flux..."
 make cluster
 retry 3 make registry
@@ -167,6 +244,7 @@ retry 3 kubectl -n flux-system wait kustomization/flux-system --for=condition=re
 kubectl -n flux-system wait kustomization/tenants --for=condition=ready --timeout=10m 2>/dev/null || true
 
 # ── Build and push containers ────────────────────────────────────────
+PIPELINE_PHASE="build-images"
 echo "==> [4/7] Building containers → local Zot..."
 retry 3 make push-local-signalloom
 retry 3 make signalloom-spire-helper
@@ -189,6 +267,7 @@ retry 3 make signalloom-images
 retry 3 make demo-signalloom-supercred-images
 
 # ── Activate Flux tenants ────────────────────────────────────────────
+PIPELINE_PHASE="activate-tenants"
 echo "==> [5/7] Activating Flux tenants..."
 SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   echo "WARNING: signalloom-local.sh up exited non-zero — attempting direct ResourceSet activation"
@@ -236,6 +315,7 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 }
 
 # ── Run 10-stage test suite ───────────────────────────────────────────
+PIPELINE_PHASE="tests"
 echo "==> [6/7] Running 10-stage test suite..."
 
 failures=0
@@ -384,6 +464,27 @@ run_stage \
   "stage1e-node-images.tap" \
   "cd ${WORK_DIR} && bats --tap test/node-images.bats"
 
+# Stage 1f: The harness reporting honestly about itself (BATS TAP)
+#
+# 1f rather than a second 1e: this stage and the node-image stage above were
+# written in parallel and both took the next free suffix. The suffix convention
+# only keeps insertion cheap while each suffix names exactly one stage, and
+# openreports-convert.sh keys on the FILE, so two stages sharing a number is
+# ambiguity waiting to be resolved wrongly by whoever touches this next.
+#
+# What it guards is the terminal state THIS FILE and gcp-ci.sh leave behind: an
+# aborted run must announce itself in a file, and a report must never be
+# readable as describing a run it does not describe. Those are the two failures
+# that on 2026-08-13 were twice nearly reported as passes.
+#
+# It runs here, with the other static guards, because it needs no cluster and
+# takes ~2s — and because a guard on how the pipeline reports should not itself
+# depend on 25 minutes of the pipeline succeeding first.
+run_stage \
+  "CI terminal-state honesty" \
+  "stage1f-ci-terminal-state.tap" \
+  "cd ${WORK_DIR} && bats --tap test/ci-terminal-state.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \
@@ -500,6 +601,7 @@ run_stage \
 printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"
 
 # ── Generate OpenReports + summary ───────────────────────────────────
+PIPELINE_PHASE="report"
 echo "==> [7/7] Generating OpenReports report..."
 bash "${WORK_DIR}/scripts/ci/openreports-convert.sh" "$REPORT_DIR" "$REPORT_FILENAME"
 
@@ -511,6 +613,12 @@ node -e "
     timestamp: new Date().toISOString(),
     commit: '${CI_SOURCE_COMMIT:-$(git -C ${WORK_DIR} rev-parse --short HEAD)}',
     branch: '${CI_SOURCE_BRANCH:-$(git -C ${WORK_DIR} rev-parse --abbrev-ref HEAD)}',
+    // \`outcome\` is the field a reader should branch on: it is the only one that
+    // can also say ABORTED (written by write_terminal_summary above when the
+    // pipeline never reached this line). \`overall\` is kept identical to what it
+    // has always been so nothing that reads it changes meaning.
+    outcome: stages.every(s => s.status === 'pass') ? 'PASS' : 'FAIL',
+    phase: 'report',
     overall: stages.every(s => s.status === 'pass') ? 'PASS' : 'FAIL',
     total_stages: stages.length,
     passed: stages.filter(s => s.status === 'pass').length,

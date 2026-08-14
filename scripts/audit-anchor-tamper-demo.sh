@@ -30,7 +30,18 @@ DSN="${DATABASE_URL:-postgresql://signalloom:signalloom@${PGHOST}:${PGPORT}/sign
 PYTHON="${PYTHON:-python3}"
 SRC="d2-signalloom/apps/fe-signalloom/src"
 ANCHOR_DIR="${AUDIT_ANCHOR_DIR:-$(mktemp -d)/audit-anchors}"
-KEYS_DIR="${KEYS_DIR:-.keys}"
+
+# shellcheck source=scripts/lib/keys.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
+# Absolute, resolved once, against the repo root we just cd'd to. The anchor()
+# helper below runs from a subdirectory, so a relative key path would resolve
+# against that subdirectory -- and the previous version of this script simply
+# concatenated the repo root onto whatever KEYS_DIR held, which turned an
+# absolute value into /repo/root/home/andy/.../.keys/witness.pem. It only ever
+# worked because this worktree happened to contain its own .keys, and .keys is
+# per-checkout by design, so an absolute KEYS_DIR from the Makefile is the
+# NORMAL case rather than the exotic one.
+KEYS_ABS="$(keys_dir_abs "$(pwd)")"
 
 export AUDIT_ANCHOR_DIR="${ANCHOR_DIR}"
 
@@ -70,20 +81,31 @@ PYEOF
 anchor() {
   ( cd "${SRC}" && AUDIT_ANCHOR_DIR="${ANCHOR_DIR}" "${PYTHON}" -m audit_anchor \
       --dsn "${DSN}" \
-      --private-key "${OLDPWD}/${KEYS_DIR}/witness.pem" \
-      --public-key "${OLDPWD}/${KEYS_DIR}/witness-pub.pem" \
+      --private-key "${KEYS_ABS}/witness.pem" \
+      --public-key "${KEYS_ABS}/witness-pub.pem" \
       --tenant-scope "${TENANT}" "$@" )
 }
 
 # ── Signing key ───────────────────────────────────────────────────────────────
 # The same ed25519 key scripts/attested-test.sh signs Archivista attestations
 # with, generated the same way `make signing-keys` generates it.
-if [ ! -f "${KEYS_DIR}/witness.pem" ]; then
-  banner "generating ${KEYS_DIR}/witness.pem"
-  mkdir -p "${KEYS_DIR}"
-  openssl genpkey -algorithm ed25519 -out "${KEYS_DIR}/witness.pem"
-  openssl pkey -in "${KEYS_DIR}/witness.pem" -pubout -out "${KEYS_DIR}/witness-pub.pem"
+if [ ! -f "${KEYS_ABS}/witness.pem" ]; then
+  banner "generating ${KEYS_ABS}/witness.pem"
+  mkdir -p "${KEYS_ABS}"
+  openssl genpkey -algorithm ed25519 -out "${KEYS_ABS}/witness.pem"
+  openssl pkey -in "${KEYS_ABS}/witness.pem" -pubout -out "${KEYS_ABS}/witness-pub.pem"
 fi
+
+# Fail before touching the database. A key that cannot be read is a setup
+# error, and there is no reason to discover it only after writing audit rows
+# that then have to be cleaned up. Printing the resolved path is not decoration:
+# the bug this preflight exists alongside was a path the script REPORTED
+# correctly and PASSED incorrectly, so the resolved value is stated once, here,
+# and every later invocation is built from the same variable.
+echo "signing keys: ${KEYS_ABS}"
+for key in "${KEYS_ABS}/witness.pem" "${KEYS_ABS}/witness-pub.pem"; do
+  [ -f "${key}" ] || { echo "signing key not found: ${key}" >&2; exit 1; }
+done
 
 # ── 1. Seed ───────────────────────────────────────────────────────────────────
 banner "1. writing audit rows for ${TENANT}"

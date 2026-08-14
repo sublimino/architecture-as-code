@@ -699,21 +699,30 @@ attested-test: ## Run the test suite under witness, storing evidence in Archivis
 AUDIT_ANCHOR_SRC := d2-signalloom/apps/fe-signalloom/src
 AUDIT_ANCHOR_PY  ?= python3
 
+# Every recipe below cd's into the package directory, so the key paths MUST be
+# absolute before the cd happens. KEYS_DIR is absolute in a worktree (the
+# git-common-dir branch) but plain '.keys' in a single checkout and on a CI VM
+# that has no git at all -- and there the relative form would resolve against
+# $(AUDIT_ANCHOR_SRC) rather than the repo root. $(abspath) anchors a relative
+# value to make's working directory and leaves an already-absolute one alone,
+# which is the whole of the fix on this side.
+AUDIT_ANCHOR_KEYS = $(abspath $(KEYS_DIR))
+
 .PHONY: audit-anchor-checkpoint
 audit-anchor-checkpoint: signing-keys ## Publish a signed checkpoint over the audit trail.
 	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
-		--private-key $(KEYS_DIR)/witness.pem \
-		--public-key $(KEYS_DIR)/witness-pub.pem checkpoint
+		--private-key $(AUDIT_ANCHOR_KEYS)/witness.pem \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem checkpoint
 
 .PHONY: audit-anchor-verify
 audit-anchor-verify: ## Verify the audit trail against its anchors (exit 2 = DIVERGED).
 	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
-		--public-key $(KEYS_DIR)/witness-pub.pem verify
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem verify
 
 .PHONY: audit-anchor-show
 audit-anchor-show: ## List the published audit-trail anchors.
 	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
-		--public-key $(KEYS_DIR)/witness-pub.pem show
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem show
 
 .PHONY: audit-anchor-tamper-demo
 audit-anchor-tamper-demo: ## Prove the audit verifier detects a real tamper (writes and cleans up its own rows).

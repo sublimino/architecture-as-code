@@ -94,23 +94,21 @@ check_resourcesets() {
   fi
 }
 
+# The expected set is derived from what the cluster actually references, not
+# from a list kept here. This used to be a seven-element constant of OSRAMP and
+# Olly images; the signalloom-only path never builds any of them, so it reported
+# "7 image(s) missing" on every run that path made, pass or fail, and named
+# none of them. See scripts/check-node-images.sh for the full account.
 check_images_loaded() {
-  local missing=0
-  local images=("listener:dev" "processor:dev" "olly-sentinel:dev" "olly-authz:dev"
-    "olly-tenant-app:dev" "olly-elk-mcp:dev" "olly-stubs:dev")
-  local crictl_output
-  crictl_output=$(docker exec osramp-control-plane crictl images 2>/dev/null || true)
-
-  for img in "${images[@]}"; do
-    if ! echo "${crictl_output}" | grep -q "${img%%:*}.*${img##*:}"; then
-      missing=$((missing + 1))
-    fi
-  done
-
-  if [ "${missing}" -eq 0 ]; then
-    ok "All required images loaded in kind node"
+  local out rc=0
+  out="$("$(dirname "$0")/check-node-images.sh" 2>&1)" || rc=$?
+  # Line 1 is the headline; anything after it names an image and the workload
+  # waiting on it.
+  if [ "${rc}" -eq 0 ]; then
+    ok "${out%%$'\n'*}"
   else
-    warn "${missing} image(s) missing from kind node — run: make images"
+    warn "${out%%$'\n'*}"
+    printf '%s\n' "${out}" | tail -n +2 | sed 's/^/      /'
   fi
 }
 

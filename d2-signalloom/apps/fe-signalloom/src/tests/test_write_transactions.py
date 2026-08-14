@@ -82,6 +82,7 @@ class _State:
     tenant_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     nhi_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
     tenant_onboarding: dict[str, dict[str, Any]] = field(default_factory=dict)
+    support_requests: list[dict[str, Any]] = field(default_factory=list)
 
 
 class AuditInsertRejected(asyncpg.CheckViolationError):
@@ -302,6 +303,21 @@ class FakePostgres:
             return {"cnt": sum(1 for a in state.agent_registry if a["tenant_id"] == args[0])}
         if "FROM consent_events" in query:
             return None
+        if "INSERT INTO support_requests" in query:
+            tenant_id, subject, urgency, message, submitted_by = args
+            assert submitted_by, "submitted_by is NOT NULL in support_requests"
+            row = {
+                "id": uuid.uuid4(),
+                "tenant_id": tenant_id,
+                "subject": subject,
+                "urgency": urgency,
+                "message": message,
+                "submitted_by": submitted_by,
+                "submitted_at": None,
+                "clickup_task_id": None,
+            }
+            state.support_requests.append(row)
+            return row
         # The terminal-transition UPDATE carries its own guard (status <> $2) and
         # returns the row only when it actually moved, which is what makes
         # re-skipping idempotent. The fake has to honour that guard or the
@@ -769,6 +785,61 @@ def test_skipping_onboarding_is_covered_by_the_same_guarantee(
         "tenant-tx-pooled"
     ]["status"] == "pending"
     assert onboarding_audit_rejects.committed.audit_events == []
+
+
+# ---------------------------------------------------------------------------
+# create_support_request: the request row and the record of it
+# ---------------------------------------------------------------------------
+
+def test_creating_a_support_request_commits_the_row_and_its_audit_together(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    response = client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "since 09:00"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert len(healthy.committed.support_requests) == 1
+    assert [e["event_type"] for e in healthy.committed.audit_events] == ["support.requested"]
+    assert healthy.commits == 1
+
+
+def test_the_support_audit_row_does_not_copy_the_message_body(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """Free text a customer wrote does not belong on the audit timeline.
+
+    The trail is read by people establishing that a request exists and who
+    raised it. The message may contain anything -- credentials pasted from a
+    log, another customer's name -- and the request row already holds it.
+    Copying it into audit_events would widen who can see it for no gain.
+    """
+    client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "token=sl_live_secret"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert "sl_live_secret" not in json.dumps(detail)
+    assert detail["urgency"] == "high"
+    assert detail["support_request_id"]
+
+
+def test_a_rejected_audit_event_rolls_back_the_support_request(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    response = client.post(
+        "/api/support",
+        json={"subject": "Scan is stuck", "urgency": "high", "message": "since 09:00"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.support_requests == []
+    assert audit_rejects.committed.audit_events == []
 
 
 # ---------------------------------------------------------------------------

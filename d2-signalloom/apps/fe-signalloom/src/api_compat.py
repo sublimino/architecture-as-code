@@ -3457,11 +3457,24 @@ async def create_support_request(
     # ``submitted_by`` is NOT NULL and was omitted.  A support request with no
     # requester is unanswerable, so the caller's own identity is the value --
     # taken from the token, not from a literal.
-    row = await pool.fetchrow(
-        """INSERT INTO support_requests (tenant_id, subject, urgency, message, submitted_by)
-           VALUES ($1, $2, $3, $4, $5) RETURNING *""",
-        tenant_id, body.subject, body.urgency, body.message, principal.actor,
-    )
+    #
+    # The insert and its audit row share one transaction. The request row is
+    # itself evidence -- who asked for what, and when -- but nothing recorded
+    # that it had been created, so the audit trail was silent about a customer
+    # raising an issue. The message body is deliberately NOT copied into the
+    # detail: it is free text a customer may put anything in, and the audit
+    # trail is read by people who need to know that a request exists, not what
+    # was said in it. The request row holds the content.
+    async with _write(pool) as conn:
+        row = await conn.fetchrow(
+            """INSERT INTO support_requests (tenant_id, subject, urgency, message, submitted_by)
+               VALUES ($1, $2, $3, $4, $5) RETURNING *""",
+            tenant_id, body.subject, body.urgency, body.message, principal.actor,
+        )
+        await _audit_log(
+            conn, tenant_id, "support.requested", None, None, principal.actor,
+            {"support_request_id": str(row["id"]), "urgency": body.urgency},
+        )
     return SupportRequestResponse(
         id=str(row["id"]),
         subject=row["subject"],

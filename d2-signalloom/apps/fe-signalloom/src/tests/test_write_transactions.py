@@ -611,6 +611,60 @@ def test_stunning_a_pod_with_no_registry_row_still_records_the_event(
     assert healthy.commits == 1
 
 
+def test_a_pod_name_row_can_still_say_which_agent_it_was_about(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """audit_events.agent_id is a UUID column, so a pod name stores NULL.
+
+    _audit_log inserts ``_try_uuid(agent_id)``, and _try_uuid('agent-cardvault')
+    is None. The instructor panel posts exactly that id, so the demo's headline
+    event has always written a row whose subject column is empty -- recoverable
+    only from agent_name, and only because the browser happened to send one.
+
+    detail.agent_ref carries the caller's identifier verbatim so the row is
+    self-describing either way. The column stays a UUID FK: that is the right
+    shape for registry agents, and the payload is the right place for an id
+    that is not one.
+    """
+    client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    event = healthy.committed.audit_events[0]
+    assert event["agent_id"] is None, "a pod name is not a UUID and cannot be stored as one"
+    assert json.loads(event["detail"])["agent_ref"] == "agent-cardvault"
+
+
+def test_a_pod_with_no_registry_row_records_no_transition_it_did_not_make(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """Committing atomically is not the same as committing something true.
+
+    The transaction guarantee above says the row and the state change agree.
+    It says nothing about whether the row's *contents* describe reality. Here
+    there is no registry row, so the ``UPDATE`` is skipped entirely -- and the
+    event still recorded ``from_state: "active"``, ``to_state: "suspended"``.
+    Neither state was read and the second was never written.
+
+    An impeccable transaction around a fabricated payload is the failure this
+    asserts against: it is precisely the shape that reads as trustworthy.
+    """
+    client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert healthy.committed.agent_registry == [], "nothing should have been updated"
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["from_state"] == "unknown"
+    assert detail["to_state"] == "unchanged"
+    assert detail["requested_state"] == "suspended"
+    assert detail["registry_match"] is False
+
+
 # ---------------------------------------------------------------------------
 # rotate_api_key: two mutations plus an audit, all or nothing
 # ---------------------------------------------------------------------------

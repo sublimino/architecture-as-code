@@ -198,6 +198,59 @@ def test_stunning_a_pod_the_registry_does_not_know_still_records(client: TestCli
     assert event["detail"]["agent_ref"] == "agent-cardvault"
 
 
+def test_an_unresolved_pod_records_no_state_it_did_not_observe(
+    client: TestClient,
+) -> None:
+    """The row must not name a transition that did not happen.
+
+    ``agent-cardvault`` is a pod name, so it never resolves to a store entry.
+    Nothing is read and nothing is updated -- yet the event used to record
+    ``from_state: "active"`` and ``to_state: "suspended"``, asserting a
+    transition between two states of which neither was observed and the second
+    of which was never reached.
+
+    That is worse than recording nothing. A missing row prompts the question;
+    this row answers it wrongly, and it is the demo's headline event. The panel
+    hardcodes ``agent-cardvault``, so this is the branch every run takes.
+
+    What is true and worth recording: a stun was requested, against an id the
+    registry does not hold, and the registry state is therefore unchanged.
+    """
+    response = client.post(
+        "/api/agents/agent-cardvault/stun",
+        json={"agent_name": "Cardvault Agent"},
+        headers=_bearer(),
+    )
+
+    detail = response.json()["event"]["detail"]
+    assert detail["from_state"] == "unknown", (
+        "recorded a prior state for an agent it never read"
+    )
+    assert detail["to_state"] == "unchanged", (
+        "claimed a transition that no update performed"
+    )
+    # What was asked for is still worth keeping -- it is simply not the same
+    # claim as what was observed, and the two must not be conflated.
+    assert detail["requested_state"] == "suspended"
+    assert detail["registry_match"] is False
+
+
+def test_a_resolved_agent_still_records_the_states_it_did_observe(
+    client: TestClient,
+) -> None:
+    """The positive control for the test above.
+
+    Making the unresolved case honest is only worth anything if the resolved
+    case still records the real transition -- otherwise the fix has bought
+    truthfulness by making the record useless.
+    """
+    detail = _stun(client).json()["event"]["detail"]
+
+    assert detail["from_state"] == "active"
+    assert detail["to_state"] == "suspended"
+    assert detail["registry_match"] is True
+
+
 # ---------------------------------------------------------------------------
 # The event is readable on the timeline
 # ---------------------------------------------------------------------------

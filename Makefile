@@ -28,10 +28,16 @@ CLUSTER_NAME ?= osramp
 # any linked worktree, and to its own from the main checkout. On the main
 # checkout this is exactly the old value, so that path is unchanged.
 #
-# The fallback matters: gcp-ci.sh:322 tars the tree with --exclude='.git', so on
-# a CI VM there is no git at all. There it is a single checkout building its own
-# cluster, keys and cluster born together in the same `make up`, so the plain
-# relative default is already correct.
+# The relative fallback almost never fires, and it is important not to believe
+# otherwise. gcp-ci.sh:322 does tar the tree with --exclude='.git' — but
+# vm-pipeline.sh:91-95 runs `git init` on the VM immediately after extracting it,
+# because Kustomize treats .git/ as the security boundary for relative path
+# traversal and rejects ../base/ refs without one. So the git branch below fires
+# on CI too, and KEYS_DIR is absolute there as well.
+#
+# An earlier version of this comment claimed the opposite. That false premise is
+# what made ../$(KEYS_DIR) at the bootstrap-local line look safe, and it aborted
+# both CI lanes. The fallback is for a genuinely git-less tree only.
 GIT_COMMON_DIR := $(shell git rev-parse --git-common-dir 2>/dev/null)
 KEYS_DIR ?= $(if $(GIT_COMMON_DIR),$(abspath $(GIT_COMMON_DIR)/..)/.keys,.keys)
 export KEYS_DIR
@@ -196,7 +202,14 @@ push-local-agent-trust: ## Push only signed Agent Trust manifests to the local r
 
 .PHONY: bootstrap-local
 bootstrap-local: ## Bootstrap Flux syncing from the in-cluster registry.
-	$(MAKE) -C d2-osramp-fleet bootstrap-local COSIGN_PUB=../$(KEYS_DIR)/cosign.pub
+	# $(abspath …), not ../$(KEYS_DIR): the sub-make runs -C d2-osramp-fleet, and
+	# the `../` that used to walk back to the repo root silently produced
+	# ..//home/ci/osramp-demo/.keys/cosign.pub once KEYS_DIR became absolute in
+	# 72d0166. That aborted BOTH CI lanes before stage 1, and the assertion it
+	# tripped tells you to run `make signing-keys` — which had already succeeded
+	# two minutes earlier. Same treatment as AUDIT_ANCHOR_KEYS at the bottom of
+	# this file; guarded by test/keys-dir-path-safety.bats.
+	$(MAKE) -C d2-osramp-fleet bootstrap-local COSIGN_PUB=$(abspath $(KEYS_DIR))/cosign.pub
 
 .PHONY: flux-bootstrap
 flux-bootstrap: bootstrap-local ## Phase 2 alias: bootstrap the sole Flux control plane.

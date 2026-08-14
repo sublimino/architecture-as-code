@@ -67,10 +67,20 @@ if (import.meta.main) {
   console.log(`wrote ${OUTPUT} from ${CANONICAL_RATES}`)
 
   // The conformance vectors are vendored verbatim so the dashboard suite runs
-  // standalone. Copied by the same command that regenerates the rate table:
-  // when the engine changed the vectors, `make fx` regenerated the table and
-  // left the vectors stale, so the staleness guard fired on a drift the
-  // sanctioned command could not fix. One command, both artefacts.
+  // standalone, and they are MACHINE-MAINTAINED. Never hand-edit
+  // src/money/__fixtures__/fxTestVectors.json — regenerate it here.
+  //
+  // This file has already drifted once. The engine added a per-case
+  // `rate_sensitive` field and a `coverage` block; `make fx` regenerated the
+  // rate table but not the vectors, so the vendored copy silently stopped
+  // matching and the staleness guard fired on a drift the sanctioned command
+  // could not fix. Copying both artefacts from the one command is what closed
+  // that: one command, both artefacts, no second writer.
+  //
+  // Why it matters that this stays exact rather than "close enough": a drifted
+  // copy is worse than no copy, because convert.conformance.test.ts would go
+  // green against cases the engine no longer produces. That READS as agreement
+  // with the engine and is not.
   writeFileSync(VECTORS_OUTPUT, readFileSync(CANONICAL_VECTORS, 'utf8'))
   console.log(`wrote ${VECTORS_OUTPUT} from ${CANONICAL_VECTORS}`)
 }

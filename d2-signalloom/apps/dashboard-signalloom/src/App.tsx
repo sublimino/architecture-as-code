@@ -49,6 +49,7 @@ const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
+const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
 
 export interface ApiKeyRevealData {
   key: string
@@ -367,6 +368,7 @@ export default function App() {
                     the Sidebar decides whether to render the link, the route
                     stays registered and reachable by URL like every other one. */}
                 <Route path="/design-system" element={<ProtectedRoute><DesignSystemPage /></ProtectedRoute>} />
+                <Route path="/design-system/headers" element={<ProtectedRoute><DesignSystemHeadersPage /></ProtectedRoute>} />
                 <Route path="*" element={<Navigate to="/agents" replace />} />
               </Routes>
             </Suspense>

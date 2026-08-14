@@ -179,9 +179,9 @@ def test_the_outcome_and_namespace_come_from_the_proxy(
 
     detail = _stun(client).json()["event"]["detail"]
 
-    assert detail["outcome"] == "stunned"
-    assert detail["namespace"] == "fe-signalloom-agents"
-    assert detail["cluster_action_observed"] is True
+    assert detail["proxy"]["outcome"] == "stunned"
+    assert detail["proxy"]["namespace"] == "fe-signalloom-agents"
+    assert detail["proxy"]["observed"] is True
     assert detail["from_state"] == "active"
     assert detail["to_state"] == "suspended"
 
@@ -206,12 +206,64 @@ def test_a_stun_records_an_attributable_event(client: TestClient) -> None:
     # The token subject, not a constant. Asserted positively: "is not
     # demo-actor" would pass against any other hardcoded string.
     assert event["actor"] == "stun"
-    assert event["detail"]["outcome"] == "stunned"
+    assert event["detail"]["proxy"]["outcome"] == "stunned"
 
 
 # ---------------------------------------------------------------------------
 # The API performs the action it audits
 # ---------------------------------------------------------------------------
+
+def test_the_proxys_account_is_nested_and_not_flattened(
+    client: TestClient, proxy: _FakeProxy,
+) -> None:
+    """The contract the dashboard codes against, pinned.
+
+    Flattening would merge what this API established with what the proxy said
+    into one namespace, and nothing downstream could separate them again --
+    which is the property that deleting the client's ``reason`` and ``outcome``
+    was meant to restore.
+
+    Asserted as a test because the failure mode is silent: a dashboard reading
+    a flat field that moved under ``proxy`` renders ``undefined`` in display
+    text and nothing raises. A 422 at least shouts; this would not.
+    """
+    proxy.observation = api_compat._ClusterStunObservation(
+        observed=True, outcome="stunned", namespace="fe-signalloom",
+        proxy_status=200, error=None,
+        payload={"state": "stunned", "stunned_at": "2026-01-01T00:00:00Z",
+                 "message": "credentials revoked"},
+    )
+
+    body = _stun(client).json()
+
+    # First-party: established here, from the token, the path and this database.
+    assert set(body) >= {"agent_id", "from_state", "to_state", "actor", "stunned_at"}
+    # Second-hand: everything the proxy said, in one place and only there.
+    assert body["proxy"]["payload"]["message"] == "credentials revoked"
+    assert body["proxy"]["observed"] is True
+    for leaked in ("outcome", "namespace", "state", "message", "cluster_action_observed"):
+        assert leaked not in body, f"{leaked} leaked out of the proxy namespace"
+
+
+def test_the_audit_detail_splits_provenance_the_same_way(
+    client: TestClient,
+) -> None:
+    """The row and the response make the same distinction, for the same reason.
+
+    An investigator reading a stored row should be able to tell which
+    assertions the writer checked without knowing how this endpoint is wired.
+    """
+    detail = _stun(client).json()["event"]["detail"]
+
+    # Established by this process.
+    assert detail["from_state"] == "active"
+    assert detail["registry_match"] is True
+    assert detail["reason"] == "operator-initiated stun via governance API"
+    # Reported to it.
+    assert detail["proxy"]["outcome"] == "stunned"
+    for leaked in ("outcome", "namespace", "cluster_action_observed", "proxy_status"):
+        assert leaked not in detail, f"{leaked} sits outside the proxy namespace"
+
 
 def test_the_api_calls_the_proxy_itself(client: TestClient, proxy: _FakeProxy) -> None:
     """The whole point of the redesign, stated once and directly.
@@ -248,8 +300,8 @@ def test_a_failed_cluster_action_is_recorded_and_then_reported(
         "/api/audit", params={"type": "agent.stunned"}, headers=_bearer(),
     ).json()["events"]
     assert len(recorded) == 1, "a failed isolation left no trace"
-    assert recorded[0]["detail"]["outcome"] == "failed"
-    assert recorded[0]["detail"]["proxy_status"] == 502
+    assert recorded[0]["detail"]["proxy"]["outcome"] == "failed"
+    assert recorded[0]["detail"]["proxy"]["status"] == 502
 
 
 def test_a_failed_cluster_action_leaves_the_agent_unsuspended(
@@ -305,8 +357,8 @@ def test_a_deployment_with_no_proxy_records_that_nothing_was_watched(
 
     assert response.status_code == 200, response.text
     detail = response.json()["event"]["detail"]
-    assert detail["outcome"] == "simulated"
-    assert detail["cluster_action_observed"] is False
+    assert detail["proxy"]["outcome"] == "simulated"
+    assert detail["proxy"]["observed"] is False
 
 
 def test_the_agent_is_left_suspended(client: TestClient) -> None:

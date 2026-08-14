@@ -13,7 +13,7 @@ import threading
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from typing import Annotated, Any, Literal
@@ -395,6 +395,39 @@ class AuditListResponse(BaseModel):
 # and namespace from the proxy's own response. A body sent by an older client
 # is ignored rather than rejected -- deliberately, so a dashboard mid-rollout
 # degrades to "its values stop being recorded" rather than "every stun 422s".
+class ProxyStunReport(BaseModel):
+    """What the SuperCred proxy said, kept apart from what we established.
+
+    Nested rather than flattened alongside the first-party fields, and the
+    reason is the principle rather than taste. This whole change exists so a
+    reader can tell which assertions the writer checked and which came from
+    elsewhere. Flattening merges "fe-signalloom read this under FOR UPDATE"
+    with "the proxy told us this" into one namespace and nobody downstream can
+    separate them again -- which is the property deleting ``reason`` and
+    ``outcome`` from the request was meant to restore. Nesting makes provenance
+    structural instead of tribal knowledge.
+
+    Two practical consequences in its favour: the proxy's payload can change
+    shape without colliding with a first-party field name, and when the proxy
+    later writes its own audit row about the same act, the two are visibly
+    distinct claims rather than one silently overwriting the other.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: False only where no proxy is configured at all -- a laptop demo, never a
+    #: cluster. Every other value here was watched by this process.
+    observed: bool
+    #: The proxy's own word for what it did, or "failed", or "simulated".
+    outcome: str
+    namespace: str | None
+    status: int | None
+    error: str | None
+    #: The proxy's response verbatim, carrying `state`, `stunned_at` and
+    #: `message`, so the dashboard has what it needs without calling the proxy.
+    payload: dict[str, Any]
+
+
 class StunAgentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -403,11 +436,7 @@ class StunAgentResponse(BaseModel):
     to_state: str
     actor: str
     stunned_at: str
-    #: What the proxy reported, so the dashboard no longer needs to call it
-    #: directly to learn the outcome. Null when this deployment has no proxy.
-    namespace: str | None
-    outcome: str
-    cluster_action_observed: bool
+    proxy: ProxyStunReport
     event: AuditEventResponse
 
 
@@ -2261,6 +2290,11 @@ class _ClusterStunObservation:
     namespace: str | None
     proxy_status: int | None
     error: str | None
+    #: The proxy's response verbatim, so the dashboard can read `state`,
+    #: `stunned_at` and `message` without calling the proxy itself. Kept whole
+    #: rather than unpacked: it is one party's payload and it stays in one
+    #: place, which is the same reason it is nested in the response.
+    payload: dict[str, Any] = field(default_factory=dict)
 
 
 async def _perform_cluster_stun(agent_id: str) -> _ClusterStunObservation:
@@ -2324,6 +2358,23 @@ async def _perform_cluster_stun(agent_id: str) -> _ClusterStunObservation:
         namespace=payload.get("namespace"),
         proxy_status=response.status_code,
         error=None,
+        payload=payload,
+    )
+
+
+def _proxy_report(observation: _ClusterStunObservation) -> ProxyStunReport:
+    """The proxy half of the response, built in one place so it cannot drift.
+
+    Mirrors the ``detail["proxy"]`` block exactly: the row and the caller's
+    copy of it must not be able to disagree about what the proxy said.
+    """
+    return ProxyStunReport(
+        observed=observation.observed,
+        outcome=observation.outcome,
+        namespace=observation.namespace,
+        status=observation.proxy_status,
+        error=observation.error,
+        payload=observation.payload,
     )
 
 
@@ -2453,16 +2504,17 @@ async def stun_agent(
 
     def _detail(from_state: str, *, registry_match: bool) -> dict[str, Any]:
         return {
-            "outcome": outcome,
+            # Everything above `proxy` was established by this process: read
+            # from its own database, taken from the validated token, or decided
+            # here. Everything under `proxy` is another party's account of what
+            # it did, which this process watched it say but did not verify.
+            #
+            # The split is the point of the row. An investigator reading it can
+            # tell which assertions the writer checked without knowing how this
+            # endpoint is wired -- and when the proxy later writes its own row
+            # about the same act, the two are separable claims rather than one
+            # quietly overwriting the other.
             "reason": reason,
-            "namespace": observation.namespace,
-            # Whether this row's outcome was watched or merely configured away.
-            # False only where no proxy exists at all, which is a laptop demo
-            # and never a cluster; a reader can tell the two apart without
-            # knowing which deployment produced the row.
-            "cluster_action_observed": observation.observed,
-            "proxy_status": observation.proxy_status,
-            "proxy_error": observation.error,
             "from_state": from_state,
             # What the registry holds after this call. Two ways for nothing to
             # have moved, and both must say "unchanged": no row to update, or a
@@ -2485,6 +2537,13 @@ async def stun_agent(
             # row should be self-describing regardless of whether its subject
             # happens to be one.
             "agent_ref": agent_id,
+            "proxy": {
+                "observed": observation.observed,
+                "outcome": outcome,
+                "namespace": observation.namespace,
+                "status": observation.proxy_status,
+                "error": observation.error,
+            },
         }
 
     if pool is None:
@@ -2519,9 +2578,7 @@ async def stun_agent(
             to_state=detail["to_state"],
             actor=principal.actor,
             stunned_at=now,
-            namespace=observation.namespace,
-            outcome=outcome,
-            cluster_action_observed=observation.observed,
+            proxy=_proxy_report(observation),
             event=AuditEventResponse(**event),
         )
 
@@ -2584,9 +2641,7 @@ async def stun_agent(
         to_state=detail["to_state"],
         actor=principal.actor,
         stunned_at=now,
-        namespace=observation.namespace,
-        outcome=outcome,
-        cluster_action_observed=observation.observed,
+        proxy=_proxy_report(observation),
         # audit_events.id is generated server-side and the insert does not
         # return it; the row the caller sees is otherwise the row that was
         # written. Naming it "pending" is honest about which field is a stand-in.

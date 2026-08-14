@@ -141,6 +141,37 @@ const stageMap = [
   // written in parallel and both claimed the 1e slot. The suffixes exist to keep
   // insertion cheap, which only holds while each one names exactly one stage.
   { file: 'stage1f-ci-terminal-state.tap', parser: parseTap, source: 'bats-ci-terminal-state', category: 'meta' },
+  // 1g/1h/1i: the suites that used to run nowhere, and the guards that keep
+  // them running. 'meta' for 1h and 1i and 'contract' for 1g -- 1g asserts
+  // things about the product (RBAC, images, flux substitution, port-forward
+  // supervision), whereas 1h and 1i assert that the harness is honest about
+  // what it ran. That distinction is why 1g's results belong in the product
+  // categories of the report and the other two do not.
+  //
+  // These three entries are not decoration. `CITERM every TAP stage report is
+  // registered in the stage map` in test/ci-terminal-state.bats failed on the
+  // CI VM the moment stage 1g was added without this line -- a stage whose
+  // report is unmapped still RUNS, and its results are silently dropped from
+  // the OpenReports artifact, so the run goes green having reported less than
+  // it tested. Precisely the shape of defect stage 1g exists to end, reappearing
+  // one layer up in the reporting.
+  { file: 'stage1g-unregistered-guards.tap', parser: parseTap, source: 'bats-previously-unrun-guards', category: 'contract' },
+  { file: 'stage1h-bats-registry.tap', parser: parseTap, source: 'bats-registry-coverage', category: 'meta' },
+  //
+  // Stage 1i (audit-guard reintroduction proof) is deliberately NOT mapped.
+  // Its output is prose -- "RED as required" / "GUARD DID NOT FIRE" -- not TAP
+  // and not JUnit, so any parser here would match nothing and contribute ZERO
+  // rows while looking configured. That is the junit-reporter defect
+  // playwright.config.ts documents: a missing input degrading to nothing rather
+  // than to an error, and the suite staying green having reported less than it
+  // tested. An entry that parses nothing is worse than no entry, because it
+  // reads as coverage.
+  //
+  // The stage still gates the pipeline: run_stage records its pass/fail and
+  // exit code in summary.json regardless of whether anything here parses it, so
+  // a guard that stops firing still fails the run. If per-case rows are wanted
+  // in OpenReports later, the fix is to make the proof emit TAP and rename it
+  // .tap -- not to point a parser at prose.
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

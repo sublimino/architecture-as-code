@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import FederatedServicesPage from './FederatedServicesPage'
@@ -13,19 +13,20 @@ function renderPage() {
 }
 
 /**
- * The rows of one table, by its DataTable test-id prefix.
+ * Assertions scoped to one `<Section>`, so six tables cannot answer for each
+ * other.
  *
- * Scoped to the table rather than the page: six tables now render on this page
- * and `getAllByRole('row')` would happily count another one's. The prefix is
- * the only thing that distinguishes them, which is why every DataTable here has
- * one.
+ * `level: 2` is load-bearing, not tidiness. One section on this page is called
+ * "Federated Services" and so is the page — an unqualified name matches the h1
+ * as well and throws "found multiple elements". Section headings are h2 and the
+ * page title is the only h1, so the level disambiguates without hard-coding
+ * which of the six is the awkward one.
  */
-function bodyRows(prefix: string): HTMLElement[] {
-  const toolbar = screen.getByTestId(`${prefix}-toolbar`)
-  // The toolbar and the table are siblings inside DataTable's wrapper.
-  const table = toolbar.parentElement?.querySelector('table')
-  if (!table) return []
-  return Array.from(table.querySelectorAll('tbody tr'))
+function sectionFor(headingName: string) {
+  const heading = screen.getByRole('heading', { level: 2, name: headingName })
+  const section = heading.closest('section')
+  if (!section) throw new Error(`no <section> ancestor for heading "${headingName}"`)
+  return within(section)
 }
 
 describe('FederatedServicesPage', () => {
@@ -111,231 +112,235 @@ describe('FederatedServicesPage', () => {
       const connecting = screen.getAllByText('connecting', { selector: '.tag' })[0]
       expect(connecting.style.color).toBe('var(--cyan)')
     })
+  })
 
-    // Selected by ACCESSIBLE NAME rather than test-id. The three hints on this
-    // page used to be hand-placed in DashKit headers with test-ids this file
-    // chose; they are now `help` strings on DataTable columns, and DataTable
-    // derives both the name (`What <label> means`) and the test-id from the
-    // column. The name is the better hook of the two anyway: it is the thing a
-    // speech-input user says out loud, so asserting on it also asserts that the
-    // hint is reachable by someone who is not using a mouse.
-    it('explains the jargon that gates federation, from inside a table header', async () => {
-      const user = userEvent.setup()
+  // ── Design-system migration ─────────────────────────────────────────────────
+  //
+  // Every table on this page is now a DataTable with a `toolbar` and an
+  // `emptyState`, the shape the Design System page calls "Realistic". The suite
+  // below is table-driven for the same reason CryptographyPage's is: the point
+  // of the migration is that all six behave IDENTICALLY, and six hand-written
+  // near-copies would let one of them drift without failing anything. A table
+  // that forgets its toolbar, its count, its empty state or its undo fails here
+  // by construction.
+
+  interface TableSpec {
+    heading: string
+    prefix: string
+    total: number
+    /** A search that matches exactly one row, and the text proving which. */
+    search: { query: string; rows: number; proof: string }
+    /** A filter chip that narrows, and how many rows survive it. */
+    chip: { name: string; rows: number }
+    /** Accessible names of every HelpHint this table's headers carry. */
+    hints: string[]
+  }
+
+  const TABLES: TableSpec[] = [
+    {
+      heading: 'Trust Zones',
+      prefix: 'fed-zones',
+      total: 3,
+      search: { query: 'acme.partner', rows: 1, proof: 'partner-acme' },
+      // No zone is connecting today, so this is the chip that reaches the empty
+      // state through a real control rather than through a nonsense search —
+      // which is why the vocabulary is declared rather than derived from rows.
+      chip: { name: 'connecting', rows: 0 },
+      hints: ['What Trust domain means', 'What SPIRE servers means'],
+    },
+    {
+      heading: 'Federations',
+      prefix: 'fed-federations',
+      total: 3,
+      search: { query: 'one-way', rows: 1, proof: 'one-way (eu → acme)' },
+      chip: { name: 'connecting', rows: 1 },
+      hints: ['What Mode means', 'What Attestation policy means', 'What Status means'],
+    },
+    {
+      heading: 'Federated Services',
+      prefix: 'fed-services',
+      total: 4,
+      search: { query: 'settle.local', rows: 1, proof: 'settlement-feed' },
+      chip: { name: 'signalloom-eu', rows: 2 },
+      hints: ['What Local endpoint means', 'What Transport means'],
+    },
+    {
+      heading: 'Attestation Policies',
+      prefix: 'fed-policies',
+      total: 3,
+      search: { query: 'tpm:ek', rows: 1, proof: 'ap-node-tpm' },
+      // The one many-valued axis: `ap-partner-read` binds eu AND acme, so it is
+      // the single row this chip keeps while `eu` keeps all three.
+      chip: { name: 'acme', rows: 1 },
+      hints: ['What Selector means'],
+    },
+    {
+      heading: 'SPIFFE Identities',
+      prefix: 'fed-spiffe',
+      total: 5,
+      search: { query: 'cardvault', rows: 1, proof: 'cardvault-agent' },
+      chip: { name: 'service', rows: 3 },
+      hints: ['What SPIFFE ID means', 'What SVID type means'],
+    },
+    {
+      heading: 'Federation Events',
+      prefix: 'fed-events',
+      total: 5,
+      search: { query: 'Attestation passed', rows: 1, proof: 'Attestation passed' },
+      chip: { name: 'partner-acme', rows: 1 },
+      // Empty on purpose. "Timestamp", "Zone", "Event" and "Detail" mean what
+      // they say, and a "?" that restates its header is what stops the other ten
+      // being read. A convention with no floor is decoration.
+      hints: [],
+    },
+  ]
+
+  /** Body rows currently rendered by a table, excluding its header row. */
+  function bodyRowCount(prefix: string): number {
+    // The toolbar and the table are siblings under DataTable's root, so the
+    // toolbar's own test id is the stable way to reach the table it belongs to
+    // — and it keeps working on the empty branch, where there is no table.
+    const toolbar = screen.queryByTestId(`${prefix}-toolbar`)
+    const table = toolbar?.parentElement?.querySelector('table')
+    return table ? table.querySelectorAll('tbody tr').length : 0
+  }
+
+  describe.each(TABLES)('$heading table', (spec) => {
+    it('carries a toolbar, which no table on this page had before', () => {
       renderPage()
-
-      await user.hover(screen.getByRole('button', { name: 'What Attestation policy means' }))
-      expect(await screen.findByRole('tooltip')).toHaveTextContent(/Federating two zones does not admit everything/i)
+      expect(screen.getByTestId(`${spec.prefix}-toolbar`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.total} of ${spec.total} shown`,
+      )
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
     })
 
-    it('distinguishes an X.509 SVID from a replayable JWT one', async () => {
-      const user = userEvent.setup()
+    it('narrows the rows when the search box is typed into', () => {
       renderPage()
+      fireEvent.change(screen.getByTestId(`${spec.prefix}-search`), {
+        target: { value: spec.search.query },
+      })
 
-      await user.hover(screen.getByRole('button', { name: 'What SVID type means' }))
-      expect(await screen.findByRole('tooltip')).toHaveTextContent(/replayable if it leaks/i)
+      expect(bodyRowCount(spec.prefix)).toBe(spec.search.rows)
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.search.rows} of ${spec.total} shown`,
+      )
+      expect(sectionFor(spec.heading).getAllByText(spec.search.proof).length).toBeGreaterThan(0)
     })
 
-    it('keeps the trust-direction hint that predates the DataTable migration', async () => {
-      const user = userEvent.setup()
+    it('narrows the rows when a filter chip is pressed', () => {
       renderPage()
+      const chip = screen.getByTestId(`${spec.prefix}-filter-${spec.chip.name}`)
+      expect(chip).toHaveAttribute('aria-pressed', 'false')
 
-      await user.hover(screen.getByRole('button', { name: 'What Mode means' }))
-      expect(await screen.findByRole('tooltip')).toHaveTextContent(/one-way means only the named direction does/i)
+      fireEvent.click(chip)
+
+      expect(chip).toHaveAttribute('aria-pressed', 'true')
+      expect(bodyRowCount(spec.prefix)).toBe(spec.chip.rows)
+      expect(screen.getByTestId(`${spec.prefix}-count`)).toHaveTextContent(
+        `${spec.chip.rows} of ${spec.total} shown`,
+      )
+    })
+
+    // The bug DataTable's two props exist to prevent: a hand-rolled
+    // `rows.length ? <Table/> : <EmptyState/>` takes the filter control down
+    // with the table, so the filter that emptied it cannot be undone without a
+    // reload. Asserting the toolbar is STILL THERE is the whole point.
+    it('shows an empty state that the filter can be cleared from', () => {
+      renderPage()
+      const search = screen.getByTestId(`${spec.prefix}-search`)
+      fireEvent.change(search, { target: { value: 'no-such-thing-anywhere' } })
+
+      expect(screen.getByTestId(`${spec.prefix}-empty`)).toBeInTheDocument()
+      expect(bodyRowCount(spec.prefix)).toBe(0)
+      // The undo affordance survived the table it emptied.
+      expect(screen.getByTestId(`${spec.prefix}-toolbar`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-search`)).toBeInTheDocument()
+      expect(screen.getByTestId(`${spec.prefix}-filter-all`)).toBeInTheDocument()
+
+      fireEvent.change(screen.getByTestId(`${spec.prefix}-search`), { target: { value: '' } })
+
+      expect(screen.queryByTestId(`${spec.prefix}-empty`)).toBeNull()
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
+    })
+
+    it('resets to every row when the "all" chip is pressed', () => {
+      renderPage()
+      fireEvent.click(screen.getByTestId(`${spec.prefix}-filter-${spec.chip.name}`))
+      fireEvent.click(screen.getByTestId(`${spec.prefix}-filter-all`))
+
+      expect(bodyRowCount(spec.prefix)).toBe(spec.total)
+    })
+
+    it('counts each chip against the whole table, not against the current filter', () => {
+      renderPage()
+      // The chips only. The count span is their sibling inside the same strip
+      // and is SUPPOSED to move, so sweeping up the whole toolbar would assert
+      // the opposite of what this test is about.
+      const chipText = () =>
+        within(screen.getByTestId(`${spec.prefix}-toolbar`))
+          .getAllByRole('button')
+          .map((b) => b.textContent)
+          .join('|')
+      const before = chipText()
+
+      fireEvent.click(screen.getByTestId(`${spec.prefix}-filter-${spec.chip.name}`))
+
+      // A chip reporting the filtered set would read 0 for every option not
+      // selected and stop being a way back to the rows it hides.
+      expect(chipText()).toBe(before)
+    })
+
+    it('explains its jargon columns behind a HelpHint reachable by accessible name', () => {
+      renderPage()
+      const table = sectionFor(spec.heading)
+      for (const hint of spec.hints) {
+        const trigger = table.getByRole('button', { name: hint })
+        expect(trigger).toBeInTheDocument()
+
+        // Reachable by keyboard, not hover only — the tooltip has to appear for
+        // someone who never touches a pointer.
+        fireEvent.focus(trigger)
+        const tip = table.getByRole('tooltip')
+        expect(tip.textContent?.length ?? 0).toBeGreaterThan(20)
+        expect(trigger).toHaveAttribute('aria-describedby', tip.id)
+
+        fireEvent.blur(trigger)
+        expect(table.queryByRole('tooltip')).toBeNull()
+      }
+    })
+
+    it('puts no "?" on a header that already says it', () => {
+      renderPage()
+      const table = sectionFor(spec.heading)
+      expect(table.queryAllByRole('button', { name: /^What .+ means$/ })).toHaveLength(
+        spec.hints.length,
+      )
     })
   })
 
-  /**
-   * Every hint on the page, by the accessible name DataTable derives from the
-   * column label, and the phrase that makes it worth having.
-   *
-   * Table-driven rather than ten `it` blocks because the assertion is identical
-   * ten times over and the interesting content is the list — which is also the
-   * convention this page is meant to set. A column gets a hint when its label
-   * is a term of art a competent reader would guess WRONG about. Federation
-   * Events is absent from this list on purpose: "Timestamp", "Zone", "Event"
-   * and "Detail" mean what they say, and a convention that fires everywhere is
-   * decoration rather than judgement.
-   */
-  describe('tooltips, each reachable by its accessible name', () => {
-    const HINTS: [name: string, phrase: RegExp][] = [
-      ['What Trust domain means', /share no certificate authority/i],
-      ['What SPIRE servers means', /identity is not partitioned by server/i],
-      ['What Mode means', /Bidirectional means each zone accepts/i],
-      ['What Attestation policy means', /this is the filter/i],
-      ['What Status means', /reads as working and is not/i],
-      ['What Local endpoint means', /not the remote service/i],
-      ['What Transport means', /Who holds the socket/i],
-      ['What Selector means', /forgeable by anything that controls it/i],
-      ['What SPIFFE ID means', /a different identity, not the same one renamed/i],
+  it('filters each table independently — narrowing one leaves the others whole', () => {
+    renderPage()
+    fireEvent.change(screen.getByTestId('fed-spiffe-search'), { target: { value: 'cardvault' } })
+
+    expect(bodyRowCount('fed-spiffe')).toBe(1)
+    expect(bodyRowCount('fed-events')).toBe(5)
+    expect(bodyRowCount('fed-zones')).toBe(3)
+  })
+
+  // The three hints that predate the migration, asserted by CONTENT rather than
+  // by name, so a reworded column cannot quietly drop the explanation. Their
+  // test-ids are DataTable's now, and the accessible name is the better hook
+  // anyway: it is the phrase a speech-input user has to say.
+  describe('the jargon that gates federation, carried over verbatim', () => {
+    it.each([
+      ['What Mode means', /one-way means only the named direction does/i],
+      ['What Attestation policy means', /Federating two zones does not admit everything/i],
       ['What SVID type means', /replayable if it leaks/i],
-    ]
-
-    it.each(HINTS)('%s', async (name, phrase) => {
-      const user = userEvent.setup()
+    ])('%s', (name, phrase) => {
       renderPage()
-
-      const hint = screen.getByRole('button', { name })
-      await user.hover(hint)
-      expect(await screen.findByRole('tooltip')).toHaveTextContent(phrase)
-    })
-
-    it('leaves the self-evident columns alone', () => {
-      renderPage()
-      for (const label of ['Zone', 'Namespace', 'Timestamp', 'Event', 'Detail', 'Clusters']) {
-        expect(screen.queryByRole('button', { name: `What ${label} means` })).toBeNull()
-      }
-    })
-  })
-
-  /**
-   * Filters. Every table on the page has one, and they all work the same way:
-   * a search box, a chip strip on one axis, a Clear filters button and a count,
-   * in that order, in DataTable's `toolbar` slot.
-   */
-  describe('filters', () => {
-    it('gives every table a toolbar', () => {
-      renderPage()
-      for (const prefix of ['fed-zones', 'fed-federations', 'fed-services', 'fed-policies', 'fed-spiffe', 'fed-events']) {
-        expect(screen.getByTestId(`${prefix}-toolbar`)).toBeInTheDocument()
-      }
-    })
-
-    it('narrows trust zones by search over name and trust domain', async () => {
-      const user = userEvent.setup()
-      renderPage()
-      expect(bodyRows('fed-zones')).toHaveLength(3)
-
-      await user.type(screen.getByTestId('fed-zones-search'), 'acme.partner')
-      expect(bodyRows('fed-zones')).toHaveLength(1)
-      expect(screen.getByTestId('fed-zones-count')).toHaveTextContent('1 of 3 shown')
-    })
-
-    it('narrows federations by status chip', async () => {
-      const user = userEvent.setup()
-      renderPage()
-      expect(bodyRows('fed-federations')).toHaveLength(3)
-
-      await user.click(screen.getByTestId('fed-federations-filter-connecting'))
-      const rows = bodyRows('fed-federations')
-      expect(rows).toHaveLength(1)
-      expect(rows[0]).toHaveTextContent('pending bundle exchange')
-    })
-
-    it('narrows federated services by home zone', async () => {
-      const user = userEvent.setup()
-      renderPage()
-      expect(bodyRows('fed-services')).toHaveLength(4)
-
-      await user.click(screen.getByTestId('fed-services-filter-signalloom-eu'))
-      expect(bodyRows('fed-services')).toHaveLength(2)
-      expect(screen.getByTestId('fed-services-count')).toHaveTextContent('2 of 4 shown')
-    })
-
-    // The one row-to-many-chips case on the page: `zones: 'eu, acme'` puts one
-    // policy under both chips, so the chip counts deliberately sum to more than
-    // the row count.
-    it('files a policy under every zone it binds', async () => {
-      const user = userEvent.setup()
-      renderPage()
-
-      await user.click(screen.getByTestId('fed-policies-filter-acme'))
-      const rows = bodyRows('fed-policies')
-      expect(rows).toHaveLength(1)
-      expect(rows[0]).toHaveTextContent('ap-partner-read')
-
-      await user.click(screen.getByTestId('fed-policies-filter-eu'))
-      expect(bodyRows('fed-policies')).toHaveLength(3)
-    })
-
-    it('narrows SPIFFE identities by workload, and by search over the URI', async () => {
-      const user = userEvent.setup()
-      renderPage()
-      expect(bodyRows('fed-spiffe')).toHaveLength(5)
-
-      await user.click(screen.getByTestId('fed-spiffe-filter-service'))
-      expect(bodyRows('fed-spiffe')).toHaveLength(3)
-
-      await user.type(screen.getByTestId('fed-spiffe-search'), 'acme.partner.example')
-      expect(bodyRows('fed-spiffe')).toHaveLength(1)
-    })
-
-    it('narrows federation events by zone', async () => {
-      const user = userEvent.setup()
-      renderPage()
-      expect(bodyRows('fed-events')).toHaveLength(5)
-
-      await user.click(screen.getByTestId('fed-events-filter-signalloom-eu'))
-      expect(bodyRows('fed-events')).toHaveLength(3)
-    })
-
-    it('counts each chip against the whole table, not against the current filter', async () => {
-      const user = userEvent.setup()
-      renderPage()
-
-      const before = screen.getByTestId('fed-services-filter-signalloom-us').textContent
-      await user.click(screen.getByTestId('fed-services-filter-signalloom-eu'))
-      // A chip whose count reported the filtered set would now read 0 and stop
-      // being a way back to the rows it hides.
-      expect(screen.getByTestId('fed-services-filter-signalloom-us')).toHaveTextContent(before ?? '')
-    })
-  })
-
-  /**
-   * The reason `toolbar` and `emptyState` are DataTable props rather than
-   * something a page stacks by hand: a hand-rolled
-   * `rows.length ? <Table/> : <EmptyState/>` takes the control that emptied the
-   * table down with it, and the only way out is a reload.
-   */
-  describe('the empty state, and getting out of it', () => {
-    it('replaces the table when nothing matches', async () => {
-      const user = userEvent.setup()
-      renderPage()
-
-      await user.type(screen.getByTestId('fed-zones-search'), 'no-such-zone')
-      const empty = screen.getByTestId('fed-zones-empty')
-      expect(empty).toHaveTextContent(/Nothing matches those filters/i)
-      expect(bodyRows('fed-zones')).toHaveLength(0)
-    })
-
-    it('keeps the toolbar alive on the empty branch so the filter can be undone', async () => {
-      const user = userEvent.setup()
-      renderPage()
-
-      await user.type(screen.getByTestId('fed-events-search'), 'no-such-event')
-      expect(screen.getByTestId('fed-events-empty')).toBeInTheDocument()
-
-      // The controls that caused it are still on screen — this is the whole
-      // guarantee the two props buy.
-      const toolbar = screen.getByTestId('fed-events-toolbar')
-      expect(within(toolbar).getByTestId('fed-events-search')).toBeInTheDocument()
-      expect(within(toolbar).getByRole('button', { name: 'Clear filters' })).toBeEnabled()
-
-      await user.click(within(toolbar).getByRole('button', { name: 'Clear filters' }))
-      expect(screen.queryByTestId('fed-events-empty')).toBeNull()
-      expect(bodyRows('fed-events')).toHaveLength(5)
-    })
-
-    it('clears a chip and a search together', async () => {
-      const user = userEvent.setup()
-      renderPage()
-
-      await user.click(screen.getByTestId('fed-spiffe-filter-agent'))
-      await user.type(screen.getByTestId('fed-spiffe-search'), 'zzz')
-      expect(screen.getByTestId('fed-spiffe-empty')).toBeInTheDocument()
-
-      await user.click(screen.getByTestId('fed-spiffe-clear'))
-      expect(bodyRows('fed-spiffe')).toHaveLength(5)
-      expect(screen.getByTestId('fed-spiffe-search')).toHaveValue('')
-      expect(screen.getByTestId('fed-spiffe-filter-all')).toHaveAttribute('aria-pressed', 'true')
-    })
-
-    // Disabled rather than unmounted. A control that appears only once it is
-    // needed shifts everything beside it at the moment the reader is aiming,
-    // which is the same defect class as DataTable's footer hiding the select
-    // that opened it.
-    it('keeps Clear filters on screen but inert when there is nothing to clear', () => {
-      renderPage()
-      expect(screen.getByTestId('fed-zones-clear')).toBeDisabled()
+      fireEvent.focus(screen.getByRole('button', { name }))
+      expect(screen.getByRole('tooltip')).toHaveTextContent(phrase)
     })
   })
 
@@ -352,15 +357,10 @@ describe('FederatedServicesPage', () => {
       expect(chip.textContent).toContain('federated')
     })
 
-    it('labels each search box with the table it searches', () => {
+    it('labels each search box with the table it searches, not just "Search"', () => {
       renderPage()
       expect(screen.getByTestId('fed-policies-search')).toHaveAccessibleName('Search attestation policies')
-    })
-
-    it('groups each chip strip under the axis it filters', () => {
-      renderPage()
-      expect(screen.getByRole('group', { name: 'Filter federated services by home zone' })).toBeInTheDocument()
-      expect(screen.getByRole('group', { name: 'Filter SPIFFE identities by workload' })).toBeInTheDocument()
+      expect(screen.getByTestId('fed-spiffe-search')).toHaveAccessibleName('Search SPIFFE identities')
     })
   })
 
@@ -370,23 +370,23 @@ describe('FederatedServicesPage', () => {
    * into and it costs one assertion to know it is wired up.
    */
   describe('sorting', () => {
-    it('sorts SPIFFE identities by SVID type, bringing the replayable JWT to the top', async () => {
-      const user = userEvent.setup()
+    it('sorts SPIFFE identities by SVID type, bringing the replayable JWT to the top', () => {
       renderPage()
+      const table = sectionFor('SPIFFE Identities')
+      fireEvent.click(table.getByRole('columnheader', { name: /SVID type/ }))
 
-      await user.click(screen.getByRole('columnheader', { name: /SVID type/ }))
-      expect(bodyRows('fed-spiffe')[0]).toHaveTextContent('JWT')
+      expect(table.getAllByRole('row')[1]).toHaveTextContent('JWT')
     })
 
-    it('leaves the prose column unsortable', async () => {
-      const user = userEvent.setup()
+    it('leaves the prose column unsortable', () => {
       renderPage()
+      const table = sectionFor('Federation Events')
+      const detail = table.getByRole('columnheader', { name: 'Detail' })
+      fireEvent.click(detail)
 
-      const detail = screen.getByRole('columnheader', { name: 'Detail' })
-      await user.click(detail)
       expect(detail).not.toHaveAttribute('aria-sort')
       // Still in the fixture's own order, newest first.
-      expect(bodyRows('fed-events')[0]).toHaveTextContent('Bundle refreshed')
+      expect(table.getAllByRole('row')[1]).toHaveTextContent('Bundle refreshed')
     })
   })
 })

@@ -20,6 +20,26 @@
  *  6. every claim on the page can be traced to a command, and the demo path
  *     says plainly that nothing was measured rather than dressing a fixture
  *     up as a probe.
+ *
+ * Since the design-system migration, three more:
+ *
+ *  7. every one of the four tables narrows — by search box and by facet chip —
+ *     and the figure beside the chips reports the narrowing honestly;
+ *  8. a filter that matches nothing leaves a visible way back. This is the
+ *     defect DataTable's `toolbar` + `emptyState` pair exists to prevent: a
+ *     hand-rolled `rows.length ? table : empty` ternary unmounts the control
+ *     that caused the empty result. Asserted by finding the search box AND a
+ *     Clear filters button on the empty branch, and by pressing the latter;
+ *  9. every explanatory "?" is reachable by its accessible name, section by
+ *     section. Several tables carry a "Risk" column, so these queries are
+ *     scoped to a section rather than to the page — an unscoped one would
+ *     match three buttons and pass or fail for the wrong reason.
+ *
+ * A note on scoping generally, because it cost this project seven vacuous CI
+ * assertions: every sidebar nav label is also a page heading, so
+ * `getByText(...).first()` finds the nav link and passes against a page that
+ * rendered nothing. Everything below goes through a role-scoped heading, or a
+ * testid, or a section resolved from one of those.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -83,6 +103,50 @@ const LIVE_ANALYSIS = {
       scope: 'cluster-wide',
       gained_permission: { verb: '*', resource: 'all', namespace: 'cluster' },
       risk: { level: 'high', score: 70 },
+      evidence: { shell: [], documents: [] },
+      trace: {},
+    },
+  ],
+  group_escalations: [],
+}
+
+/**
+ * A live analysis with several single-subject escalations at different risks.
+ *
+ * The demo fixtures declare none at all — both runs are pure collusion — so
+ * the Privilege Escalation Paths table cannot be filtered in demo mode at any
+ * size of test. This is the smallest fixture that lets that table be exercised
+ * the same way the other three are: three subjects, three escalation types,
+ * three risk levels, one of each.
+ */
+const RICH_ANALYSIS = {
+  schema_version: '3.4.0',
+  metadata: { subjects: ['sa:prod/api', 'sa:prod/worker', 'sa:prod/backup'] },
+  single_escalations: [
+    {
+      subject: 'sa:prod/api',
+      escalation_type: 'admin_via_impersonation',
+      scope: 'cluster-wide',
+      gained_permission: { verb: '*', resource: 'all', namespace: 'cluster' },
+      risk: { level: 'critical', score: 90 },
+      evidence: { shell: [], documents: [] },
+      trace: {},
+    },
+    {
+      subject: 'sa:prod/worker',
+      escalation_type: 'bind_via_escalate',
+      scope: 'namespace/apps',
+      gained_permission: { verb: 'create', resource: 'rolebindings', namespace: 'apps' },
+      risk: { level: 'high', score: 70 },
+      evidence: { shell: [], documents: [] },
+      trace: {},
+    },
+    {
+      subject: 'sa:prod/backup',
+      escalation_type: 'secret_read',
+      scope: 'namespace/kube-system',
+      gained_permission: { verb: 'get', resource: 'secrets', namespace: 'kube-system' },
+      risk: { level: 'medium', score: 40 },
       evidence: { shell: [], documents: [] },
       trace: {},
     },
@@ -158,6 +222,31 @@ function statCardValue(label: string): string {
   if (!card) throw new Error(`StatCard "${label}" is not inside a .card element.`)
   const value = within(card as HTMLElement).getByText(/^\d+$/)
   return value.textContent ?? ''
+}
+
+/**
+ * The `<section>` a named table lives in.
+ *
+ * Resolved from the section's own H2 rather than from a text match. Three of
+ * the four tables carry a "Risk" column and every one carries a page-size
+ * select, so nearly every query below has to be scoped to one table or it is
+ * asking the page a question the page cannot answer unambiguously.
+ */
+function sectionFor(heading: string): HTMLElement {
+  const h2 = screen.getByRole('heading', { level: 2, name: heading })
+  const section = h2.closest('section')
+  if (!section) throw new Error(`Heading "${heading}" is not inside a <section>.`)
+  return section as HTMLElement
+}
+
+/** Body rows of a table, header row dropped. No proof console is open in these tests. */
+function bodyRows(heading: string): HTMLElement[] {
+  return within(sectionFor(heading)).queryAllByRole('row').slice(1)
+}
+
+/** The first cell of every body row — enough to identify which findings survived a filter. */
+function firstCells(heading: string): string[] {
+  return bodyRows(heading).map(row => within(row).getAllByRole('cell')[0]?.textContent ?? '')
 }
 
 beforeEach(() => {
@@ -494,5 +583,250 @@ describe('CollusionAccessPage — live mode', () => {
       expect(screen.queryByTestId('collusion-fatal-error')).not.toBeInTheDocument()
     })
     expect(await screen.findAllByText('sa:prod/api')).not.toHaveLength(0)
+  })
+})
+
+describe('CollusionAccessPage — table filters', () => {
+  it('narrows Collusion Pairs by risk chip, and the chip counts describe the whole run', async () => {
+    renderPage()
+
+    // The counts on the chips are computed against every row, not against
+    // whatever the search box left — a chip that reported the effect of its
+    // neighbour would be unusable for deciding whether to press it.
+    expect(screen.getByTestId('group-escalations-filter-all')).toHaveTextContent('all 4')
+    expect(screen.getByTestId('group-escalations-filter-critical')).toHaveTextContent('critical 1')
+    expect(screen.getByTestId('group-escalations-filter-high')).toHaveTextContent('high 2')
+    expect(screen.getByTestId('group-escalations-filter-medium')).toHaveTextContent('medium 1')
+
+    await userEvent.click(screen.getByTestId('group-escalations-filter-critical'))
+
+    expect(bodyRows('Collusion Pairs')).toHaveLength(1)
+    expect(firstCells('Collusion Pairs')).toEqual(['group:dev-eu, sa:ci/runner'])
+    expect(screen.getByTestId('group-escalations-count')).toHaveTextContent('1 of 4 shown')
+    // The stat card counts the run, not the filter. Filtering is a view over
+    // the findings; it must never look like findings went away.
+    expect(statCardValue('Collusion pairs')).toBe('4')
+  })
+
+  it('narrows Collusion Pairs by search across members, actor and permission', async () => {
+    renderPage()
+
+    await userEvent.type(screen.getByTestId('group-escalations-search'), 'analysts')
+
+    expect(firstCells('Collusion Pairs')).toEqual(['group:analysts, sa:data/etl'])
+    expect(screen.getByTestId('group-escalations-count')).toHaveTextContent('1 of 4 shown')
+  })
+
+  it('narrows Shared-Role Pivot Points by its derived risk chip', async () => {
+    renderPage()
+
+    // "low" here is the page's own derivation — a pivot nobody privileged
+    // shares — and the chip has to agree with the Pill in the row.
+    await userEvent.click(screen.getByTestId('shared-roles-filter-low'))
+
+    expect(firstCells('Shared-Role Pivot Points')).toEqual(['role:pv-manager'])
+    expect(screen.getByTestId('shared-roles-count')).toHaveTextContent('1 of 3 shown')
+  })
+
+  it('narrows Shared-Role Pivot Points by role and by privileged subject', async () => {
+    renderPage()
+
+    const search = screen.getByTestId('shared-roles-search')
+    await userEvent.type(search, 'secret')
+    expect(firstCells('Shared-Role Pivot Points')).toEqual(['role:secret-reader'])
+
+    await userEvent.clear(search)
+    // A subject name, not a role name — the privileged-subjects column is
+    // searchable too, which is how you answer "where can this identity pivot".
+    await userEvent.type(search, 'sa:ci/runner')
+    expect(firstCells('Shared-Role Pivot Points')).toEqual(['role:flux-reconciler'])
+  })
+
+  it('narrows Remediation Priorities by search, and offers a kind chip per kind present', async () => {
+    renderPage()
+
+    expect(screen.getByTestId('guards-filter-all')).toHaveTextContent('all 4')
+    expect(screen.getByTestId('guards-filter-group')).toHaveTextContent('group 4')
+    // Every demo guard is a group guard, so no "single" chip is offered. A chip
+    // that always reads zero is a control that cannot do anything.
+    expect(screen.queryByTestId('guards-filter-single')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByTestId('guards-search'), 'secret-reader')
+
+    expect(firstCells('Remediation Priorities')).toEqual(['Split role:secret-reader per namespace'])
+    expect(screen.getByTestId('guards-count')).toHaveTextContent('1 of 4 shown')
+  })
+
+  it('leaves a way back when a filter matches nothing — the toolbar survives the empty branch', async () => {
+    renderPage()
+
+    await userEvent.type(screen.getByTestId('group-escalations-search'), 'no-such-subject')
+
+    expect(screen.getByTestId('group-escalations-filtered-empty')).toBeInTheDocument()
+    expect(bodyRows('Collusion Pairs')).toHaveLength(0)
+    // The whole point of passing `toolbar` and `emptyState` together: the
+    // control that emptied the table is still on screen to undo it.
+    expect(screen.getByTestId('group-escalations-search')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('group-escalations-clear-filters'))
+
+    expect(screen.queryByTestId('group-escalations-filtered-empty')).not.toBeInTheDocument()
+    expect(bodyRows('Collusion Pairs')).toHaveLength(4)
+    expect(screen.getByTestId('group-escalations-search')).toHaveValue('')
+  })
+
+  it('clearing from the empty panel resets the chip as well as the search box', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByTestId('shared-roles-filter-low'))
+    await userEvent.type(screen.getByTestId('shared-roles-search'), 'flux')
+    // low + "flux" is empty: the flux pivot is high, the low pivot is pv-manager.
+    expect(screen.getByTestId('shared-roles-filtered-empty')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByTestId('shared-roles-clear-filters'))
+
+    expect(bodyRows('Shared-Role Pivot Points')).toHaveLength(3)
+    expect(screen.getByTestId('shared-roles-filter-all')).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('distinguishes an honest zero from a filter that matched nothing', async () => {
+    renderPage()
+
+    // The aggregate has no single-subject findings at all. That panel says so
+    // in its own words and offers no Clear filters button, because there is no
+    // filter to clear and offering one would suggest the rows are hidden.
+    expect(screen.getByTestId('single-escalations-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('single-escalations-filtered-empty')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('single-escalations-search')).not.toBeInTheDocument()
+
+    await userEvent.type(screen.getByTestId('guards-search'), 'no-such-fix')
+    expect(screen.getByTestId('guards-filtered-empty')).toBeInTheDocument()
+    expect(screen.queryByTestId('guards-empty')).not.toBeInTheDocument()
+  })
+
+  it('drops the filters on a run change, so a stale chip cannot blank the new run', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByTestId('group-escalations-filter-medium'))
+    expect(bodyRows('Collusion Pairs')).toHaveLength(1)
+
+    // The prod run has no medium finding; carrying the chip over would show
+    // four empty tables with no visible cause.
+    await userEvent.selectOptions(screen.getByTestId('collusion-run-select'), 'demo-run-prod-eu-1')
+
+    expect(screen.getByTestId('group-escalations-filter-all')).toHaveAttribute('aria-pressed', 'true')
+    expect(bodyRows('Collusion Pairs')).toHaveLength(2)
+  })
+
+  it('names the strip and the box inside it differently, so one utterance selects one control', () => {
+    renderPage()
+
+    const section = within(sectionFor('Collusion Pairs'))
+    expect(section.getByRole('group', { name: 'Filter collusion pairs' })).toBeInTheDocument()
+    expect(section.getByRole('searchbox', { name: 'Search collusion pairs' })).toBeInTheDocument()
+  })
+
+  it('sorts a column on demand — the capability the hand-rolled table never had', async () => {
+    renderPage()
+
+    const risk = within(sectionFor('Collusion Pairs')).getByRole('columnheader', { name: /Risk/ })
+    // Ascending is alphabetical and happens to match the arrival order, so the
+    // assertion is on the second click, where the order genuinely differs.
+    await userEvent.click(risk)
+    await userEvent.click(risk)
+
+    expect(firstCells('Collusion Pairs')[0]).toBe('group:analysts, sa:data/etl')
+    expect(risk).toHaveAttribute('aria-sort', 'descending')
+  })
+})
+
+describe('CollusionAccessPage — Privilege Escalation Paths filters', () => {
+  beforeEach(() => {
+    isDemoMode.mockReturnValue(false)
+    routeLiveFetch({ latest: () => Promise.resolve(response(true, RICH_ANALYSIS)) })
+  })
+
+  it('narrows by risk chip', async () => {
+    renderPage()
+
+    expect(await screen.findByTestId('single-escalations-filter-all')).toHaveTextContent('all 3')
+
+    await userEvent.click(screen.getByTestId('single-escalations-filter-medium'))
+
+    expect(firstCells('Privilege Escalation Paths')).toEqual(['sa:prod/backup'])
+    expect(screen.getByTestId('single-escalations-count')).toHaveTextContent('1 of 3 shown')
+  })
+
+  it('narrows by search over subject, escalation type, scope and gained permission', async () => {
+    renderPage()
+
+    const search = await screen.findByTestId('single-escalations-search')
+
+    await userEvent.type(search, 'impersonation')
+    expect(firstCells('Privilege Escalation Paths')).toEqual(['sa:prod/api'])
+
+    await userEvent.clear(search)
+    await userEvent.type(search, 'kube-system')
+    expect(firstCells('Privilege Escalation Paths')).toEqual(['sa:prod/backup'])
+  })
+
+  it('keeps a row\'s proof addressed to that row after a filter reorders the table', async () => {
+    renderPage()
+
+    // sa:prod/backup is index 2 in the unfiltered array. Filtering it to the
+    // only visible row must not turn it into "single-0" — the proof key is the
+    // finding's identity, not its position on screen.
+    await userEvent.click(await screen.findByTestId('single-escalations-filter-medium'))
+    await userEvent.click(screen.getByTestId('collusion-proof-single-2'))
+
+    expect(screen.getByTestId('collusion-console-single-2')).toHaveTextContent('subject: sa:prod/backup')
+  })
+})
+
+describe('CollusionAccessPage — explanations', () => {
+  it('names the two concepts the page assumes its reader already has', async () => {
+    renderPage()
+
+    expect(screen.getByRole('button', { name: 'What collusion means' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'What bounded model checking means' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'What the Run selector offers' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'What showing the proof does' })).toBeInTheDocument()
+
+    // Reachable is not enough — it has to say something. HelpHint opens on focus.
+    await userEvent.click(screen.getByRole('button', { name: 'What collusion means' }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/cannot reach a privileged role on their own/i)
+  })
+
+  it('explains every column whose header does not already say it', () => {
+    renderPage()
+
+    const expected: [string, string[]][] = [
+      ['Collusion Pairs', ['Group', 'Primary actor', 'Primary gain', 'Collaborator gains', 'Risk', 'Proof']],
+      ['Shared-Role Pivot Points', ['Role', 'Shared by', 'Privileged subjects', 'Risk']],
+      ['Remediation Priorities', ['Fix', 'Kind', 'Participants', 'Would block']],
+    ]
+
+    for (const [heading, columns] of expected) {
+      const section = within(sectionFor(heading))
+      for (const column of columns) {
+        expect(
+          section.getByRole('button', { name: `What ${column} means` }),
+          `${heading} › ${column}`,
+        ).toBeInTheDocument()
+      }
+    }
+  })
+
+  it('explains the two facet rows whose chip labels are not self-describing', () => {
+    renderPage()
+
+    // "high"/"low" on the pivot table is this page's own derivation, and
+    // "single"/"group" on the guards table is a distinction the word alone
+    // does not carry. The two risk rows whose levels come straight from AFM
+    // get no hint — the column header's "?" already covers them.
+    expect(within(sectionFor('Shared-Role Pivot Points')).getByTestId('shared-roles-facet-help'))
+      .toHaveAttribute('aria-label', 'What risk means')
+    expect(within(sectionFor('Remediation Priorities')).getByTestId('guards-facet-help'))
+      .toHaveAttribute('aria-label', 'What kind means')
   })
 })

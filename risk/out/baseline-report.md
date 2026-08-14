@@ -69,6 +69,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation agent
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                £664,832
   VaR95   (the bad year)                  £1,775,323
@@ -190,6 +191,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Phase-4 agentic remediation agent
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                 £13,347
   VaR95   (the bad year)                          £0
@@ -298,6 +300,7 @@ AGENT COMPLIANCE BASELINE
 CASH VALUE OF RISK EXPOSURE — Acme Co. carrying Olly Sentinel agentic SRE
 ────────────────────────────────────────────────────────────────────────────────────────────────
   Monte Carlo: 200000 iterations, seed 20260801 (fixed — rerun reproduces to the pound)
+  Sampler guards: none fired — every drawn value was sampled, not substituted
 
   ALE     (the average year)                 £48,996
   VaR95   (the bad year)                    £308,559

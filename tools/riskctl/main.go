@@ -351,6 +351,19 @@ func printCurrencyProvenance(r *baseline.Report, d *display) {
 		fmt.Printf("                ↳ %s converted to %s at %.6f, rates as of %s\n",
 			c.Source.Currency, c.Currency, c.Rate, c.AsOf)
 	}
+	printCurrencyNote(r)
+}
+
+// printCurrencyNote puts a jurisdiction/denomination mismatch ON THE PAGE, next to both values.
+//
+// The alternative is that it stays buried in a YAML file until the first sharp reader notices it
+// live. Advisory wording throughout: reporting in a non-domestic currency is ordinary, and this must
+// read as "confirm this is deliberate", never as "this is wrong".
+func printCurrencyNote(r *baseline.Report) {
+	if r.CurrencyNote == "" {
+		return
+	}
+	fmt.Printf("                ⓘ %s\n", wrap(r.CurrencyNote, 78, "                  "))
 }
 
 // printScope makes territory filtering visible. A total that silently omits scenarios is
@@ -491,8 +504,10 @@ func printRisk(r *baseline.Report, d *display) {
 	fmt.Printf("\n%s\n", rule(96))
 	fmt.Printf("CASH VALUE OF RISK EXPOSURE — %s carrying %s\n", r.OrgDisplay, r.AgentDisplay)
 	fmt.Printf("%s\n", rule(96))
-	fmt.Printf("  Monte Carlo: %d iterations, seed %d (fixed — rerun reproduces to the pound)\n\n",
-		r.Risk.Iterations, r.Risk.Seed)
+	fmt.Printf("  Monte Carlo: %d iterations, seed %d (fixed — rerun reproduces to the pound)\n",
+		r.Simulation.Iterations, r.Simulation.Seed)
+	printGuards(r)
+	fmt.Printf("\n")
 
 	fmt.Printf("  ALE     (the average year)          %14s\n", d.s(r.Exposure.ALE))
 	fmt.Printf("  VaR95   (the bad year)              %14s\n", d.s(r.Exposure.VaR95))
@@ -576,6 +591,26 @@ func printRisk(r *baseline.Report, d *display) {
 		}
 	}
 	fmt.Println()
+}
+
+// printGuards surfaces any defensive substitution the sampler made.
+//
+// The sampler contains guards that return a fabricated value rather than hang when handed
+// pathological input. They are unreachable for well-formed triples — measured at zero fires across
+// 16 million draws on the shipped estate — but "unreachable" is a property of the loader's
+// validation, not of the maths, and a silent fabricated figure is the same class of defect as a
+// currency conversion silently assuming a rate of 1.0. If one ever fires, the reader finds out here
+// rather than never.
+func printGuards(r *baseline.Report) {
+	if !r.Simulation.Guards.Fired() {
+		fmt.Printf("  Sampler guards: none fired — every drawn value was sampled, not substituted\n")
+		return
+	}
+	fmt.Printf("\n  ⚠ SAMPLER GUARDS FIRED — DO NOT USE THESE FIGURES EXTERNALLY\n  %s\n", rule(94))
+	for _, line := range strings.Split(r.Simulation.Guards.Explain(), "\n") {
+		fmt.Printf("  %s\n", line)
+	}
+	fmt.Printf("  %s\n", rule(94))
 }
 
 func printCompare(a, b *baseline.Report, d *display) {

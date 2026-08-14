@@ -11,6 +11,7 @@
   "Currency": "GBP",
   "RatesAsOf": "",
   "Conversions": null,
+  "CurrencyNote": "",
   "Results": [
     {
       "Control": {
@@ -598,7 +599,13 @@
     "iterations": 200000,
     "seed": 20260801,
     "riskLoad": 0.15,
-    "tailDominated": false
+    "tailDominated": false,
+    "guards": {
+      "shapeClamped": 0,
+      "midpointSubstituted": 0,
+      "gammaNonFinite": 0,
+      "poissonLoopCapped": 0
+    }
   },
   "Exposure": {
     "ale": {

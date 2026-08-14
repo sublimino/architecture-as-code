@@ -474,3 +474,71 @@ func TestShippedEstateIsSingleCurrencyAndGlobal(t *testing.T) {
 		}
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+// Jurisdiction / denomination coherence — advisory, and it must stay advisory.
+// ─────────────────────────────────────────────────────────────────────────────────────────────
+
+// The concrete case: risk/org/ludlow-health.yaml is a US healthcare provider pricing HIPAA loss
+// classes with every amount in GBP. That is held deliberately (changing it moves every figure in
+// `riskctl compare`), so the requirement is that the inconsistency is VISIBLE on the report rather
+// than buried in a YAML file where the first person to notice it is in the audience.
+func TestMismatchedJurisdictionAndCurrencyIsFlagged(t *testing.T) {
+	rep := run(t, testPack("GBP", []string{model.Global}), testOrg("us-co", "US", "GBP"), rates())
+
+	if rep.CurrencyNote == "" {
+		t.Fatal("a US institution reporting in GBP produced no note; the incoherence stays invisible")
+	}
+	for _, want := range []string{"US", "GBP", "USD"} {
+		if !strings.Contains(rep.CurrencyNote, want) {
+			t.Errorf("note %q does not mention %q", rep.CurrencyNote, want)
+		}
+	}
+	// It must read as an advisory, not a verdict. A false alarm phrased as an error trains people
+	// to ignore it, and reporting in a non-domestic currency is genuinely ordinary.
+	if !strings.Contains(rep.CurrencyNote, "Not an error") {
+		t.Errorf("note reads as a failure rather than a prompt to confirm: %q", rep.CurrencyNote)
+	}
+	// And it must never block the run.
+	if rep.TCoR.Amount <= 0 || rep.Tier == "" {
+		t.Fatal("the advisory suppressed a real report")
+	}
+}
+
+func TestMatchingJurisdictionAndCurrencyIsSilent(t *testing.T) {
+	for _, c := range []struct{ juris, cur string }{
+		{"UK", "GBP"}, {"US", "USD"}, {"DE", "EUR"}, {"FR", "EUR"},
+	} {
+		rep := run(t, testPack(money.Currency(c.cur), []string{model.Global}),
+			testOrg("x", c.juris, money.Currency(c.cur)), rates())
+		if rep.CurrencyNote != "" {
+			t.Errorf("%s/%s produced a spurious note: %q", c.juris, c.cur, rep.CurrencyNote)
+		}
+	}
+	// An unknown jurisdiction must produce no note rather than a guess -- a false positive here
+	// is worse than silence, because it trains the reader to skip the line.
+	rep := run(t, testPack("GBP", []string{model.Global}), testOrg("x", "ZZ", "GBP"), rates())
+	if rep.CurrencyNote != "" {
+		t.Errorf("unknown jurisdiction ZZ guessed a conventional currency: %q", rep.CurrencyNote)
+	}
+	// So must an institution that declares no jurisdiction at all.
+	rep = run(t, testPack("GBP", []string{model.Global}), testOrg("x", "", "GBP"), rates())
+	if rep.CurrencyNote != "" {
+		t.Errorf("unstated jurisdiction produced a note: %q", rep.CurrencyNote)
+	}
+}
+
+// Guard counts must reach the report, and must be zero for a well-formed run. If a future data
+// change makes the sampler substitute a value, this goes red rather than the figure quietly
+// becoming part-fabricated.
+func TestSamplerGuardsAreReportedAndCleanOnGoodData(t *testing.T) {
+	rep := run(t, testPack("GBP", []string{model.Global}), testOrg("uk-co", "UK", "GBP"), rates())
+	if rep.Simulation.Guards.Fired() {
+		t.Fatalf("guards fired on well-formed input:\n%s", rep.Simulation.Guards.Explain())
+	}
+	// The accumulator must cover every simulation the report ran, not just the headline one --
+	// a fabricated draw inside a delta is just as much a fabricated figure.
+	if len(rep.Deltas) == 0 || len(rep.Tornado) == 0 {
+		t.Fatal("test is vacuous: the report ran no hypotheticals to accumulate guards from")
+	}
+}

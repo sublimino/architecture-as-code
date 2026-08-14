@@ -33,6 +33,7 @@ COMMANDS
   baseline   per-control compliance verdicts for an agent, with evidence
   risk       the cash value: ALE / VaR95 / TVaR / Total Cost of Risk, plus what each control buys
   compare    the same agent and the same pack against two institutions
+  fx         regenerate the JSON FX artefacts non-Go consumers read (--check to verify)
 
 FLAGS
   --root      repository root holding risk/ (default: auto-detected)
@@ -73,10 +74,11 @@ func main() {
 	iters := fs.Int("iters", fair.DefaultIterations, "Monte Carlo iterations")
 	displayCur := fs.String("currency", "", "ISO 4217 code to display figures in")
 	ratesPath := fs.String("rates", "", "FX rate table (default <root>/risk/fx/rates.yaml)")
+	fxCheck := fs.Bool("check", false, "fx: verify the generated artefacts are current instead of writing them")
 	asJSON := fs.Bool("json", false, "emit JSON")
 
 	switch cmd {
-	case "baseline", "risk", "compare":
+	case "baseline", "risk", "compare", "fx":
 		_ = fs.Parse(os.Args[2:])
 	case "-h", "--help", "help":
 		fmt.Print(usage)
@@ -90,6 +92,13 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
+	if cmd == "fx" {
+		if err := runFX(r, *fxCheck); err != nil {
+			fatal(err)
+		}
+		return
+	}
+
 	// The rate table is loaded up front, always. It is small, it is local, and loading it eagerly
 	// means a missing or malformed table is reported before any figure is computed rather than
 	// halfway through a report. A table that is simply absent is not fatal on its own: a run whose

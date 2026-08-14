@@ -358,6 +358,32 @@ run_stage \
   "stage1d-build-parity.tap" \
   "cd ${WORK_DIR} && bats --tap test/ci-build-parity.bats"
 
+# Stage 1e: Node-image expectations (BATS TAP)
+#
+# Numbered 1e for the reason 1b, 1c and 1d were: openreports-convert.sh maps
+# report FILES to parsers by name, so an inserted stage costs nothing as long as
+# the existing filenames stay put.
+#
+# What it guards is a diagnostic rather than a build: doctor's image check used
+# to compare the node against a seven-element constant of OSRAMP and Olly
+# images. This file deliberately skips the OSRAMP-demo ResourceSets, so on this
+# path all seven are absent BY DESIGN and doctor reported "7 image(s) missing"
+# on every run it made — green ones included. A lane agent read that constant as
+# a variable during a genuinely failing run and built arithmetic on it; the
+# number had been identical in the passing run an hour earlier.
+#
+# scripts/check-node-images.sh now derives the expected set from the images
+# deployed workloads actually reference, so the profile is observed rather than
+# declared, and the second defect — a whole-line regex that let a repo from one
+# column meet a tag from another — is a columnar comparison.
+#
+# bats and coreutils only: no cluster, no docker, no network, ~1s. It sits with
+# 1b, 1c and 1d because its fakes need nothing the VM has to build first.
+run_stage \
+  "Doctor node-image expectations" \
+  "stage1e-node-images.tap" \
+  "cd ${WORK_DIR} && bats --tap test/node-images.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

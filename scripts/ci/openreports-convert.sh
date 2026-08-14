@@ -124,6 +124,11 @@ const stageMap = [
   // asserts nothing about the product -- it asserts that the other stages run
   // what they claim to run.
   { file: 'stage1c-acceptance-coverage.tap', parser: parseTap, source: 'bats-acceptance-coverage', category: 'meta' },
+  // Also 'meta': it asserts that stage [4/7] builds everything
+  // demo-signalloom-up builds, not anything about the product. Reported
+  // separately from 1c because the two answer different questions -- 1c asks
+  // whether the tests run, this asks whether the thing under test was built.
+  { file: 'stage1d-build-parity.tap', parser: parseTap, source: 'bats-ci-build-parity', category: 'meta' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

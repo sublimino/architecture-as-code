@@ -171,6 +171,22 @@ echo "==> [4/7] Building containers → local Zot..."
 retry 3 make push-local-signalloom
 retry 3 make signalloom-spire-helper
 retry 3 make signalloom-images
+# supercred-demo-runner/base is an unconditional member of
+# apps/fe-signalloom/base/kustomization.yaml, so the activation below DEPLOYS
+# it whether or not anything built it. Nothing here did, and because the
+# workload carries a bare `supercred-demo-runner:local` tag with
+# imagePullPolicy: IfNotPresent, containerd resolved it to docker.io/library
+# and the kubelet reported
+#   unexpected media type text/html ... : not found
+# — a registry error for a missing build step.
+#
+# One missing line, three red stages ~40 minutes in: 6b refused (correctly) to
+# certify a workload it could not read, and 8 and 8b failed on the preflight
+# that calls 6b with every one of their own tests passing. Makefile:429 fixed
+# this in demo-signalloom-up; this file hand-copies that recipe and did not get
+# the fix. scripts/check-ci-build-parity.sh (stage 1d) now derives the
+# comparison so the next copy cannot drift silently.
+retry 3 make demo-signalloom-supercred-images
 
 # ── Activate Flux tenants ────────────────────────────────────────────
 echo "==> [5/7] Activating Flux tenants..."
@@ -312,6 +328,35 @@ run_stage \
   "Acceptance-spec coverage registry" \
   "stage1c-acceptance-coverage.tap" \
   "cd ${WORK_DIR} && bats --tap test/acceptance-spec-coverage.bats"
+
+# Stage 1d: CI build parity (BATS TAP)
+#
+# Numbered 1d for the reason 1b and 1c were: openreports-convert.sh maps report
+# FILES to parsers by name, so an inserted stage costs nothing as long as the
+# existing filenames stay put.
+#
+# What it guards is this file, like 1c does — but stage [4/7] rather than the
+# stage list. This file cannot call `make demo-signalloom-up`, so it hand-copies
+# the recipe (see the "Use individual targets" comment above), and a copy drifts.
+# It has drifted twice. The second time cost a whole lane: one missing
+# `make demo-signalloom-supercred-images` left supercred-demo-runner in
+# ImagePullBackOff, stage 6b correctly refused to certify a workload it could not
+# read, and stages 8 and 8b failed on the preflight that calls 6b with all 29 of
+# their own tests passing. Three red stages, no failing test, ~40 minutes in.
+#
+# scripts/check-ci-build-parity.sh derives the comparison from the Makefile
+# recipe and from this file rather than checking a list, because a list is the
+# same artefact as the copy: it drifts the moment someone edits one and not the
+# other. Deliberate omissions live in its allowlist with a reason, and the
+# allowlist is itself checked for entries that have gone stale or dead.
+#
+# bats and coreutils only: no cluster, no docker, no network, ~1s. It sits here
+# with 1b and 1c, ahead of the ~25 minutes of cluster work it protects — the
+# failure it catches is otherwise unreachable until stage 6b.
+run_stage \
+  "CI build parity with demo-signalloom-up" \
+  "stage1d-build-parity.tap" \
+  "cd ${WORK_DIR} && bats --tap test/ci-build-parity.bats"
 
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \

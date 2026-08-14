@@ -33,6 +33,13 @@ readonly PROJECT="${GCP_CI_PROJECT:-cp-dev-ajm}"
 readonly REGION="europe-west2"
 readonly ZONE="europe-west2-a"
 readonly VM_NAME="${GCP_CI_VM_NAME:-signalloom-ci}"
+# Deliberately NOT derived from VM_NAME. The VPC, subnet, router and NAT are
+# SHARED by both CI VMs, so signalloom-ci-2 lives on signalloom-ci's network.
+# What stops `GCP_CI_VM_NAME=signalloom-ci-2 gcp-ci.sh destroy` from taking the
+# shared network down with the instance is cmd_destroy's early return: for any
+# VM_NAME other than exactly `signalloom-ci` it deletes the instance and
+# returns, and the network teardown below that is unreachable. This note exists
+# because the hardcoded name here reads as a bug until you find that guard.
 readonly VPC_NAME="signalloom-ci"
 readonly SUBNET_NAME="signalloom-ci-subnet"
 readonly ROUTER_NAME="${VPC_NAME}-router"

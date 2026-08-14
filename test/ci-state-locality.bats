@@ -206,6 +206,14 @@ spawn_live() {
 @test "CISTATE a RUNNING marker whose process is gone is ABORTED, not in-flight" {
 	# This is the stranded marker the fix exists for. It must not be able to
 	# claim a run is in flight when the run is dead.
+	#
+	# The only way to reach this state in production is SIGKILL: `trap
+	# run_exit_trap EXIT` is armed before the VM is touched, and bash runs an
+	# EXIT trap on TERM, INT and HUP as well as on a normal exit (verified — and
+	# timeout(1) sends TERM first, so even the outer fence converts the marker).
+	# SIGKILL cannot be caught by anyone, so `timeout -k` past its grace period,
+	# an OOM kill or `kill -9` leaves RUNNING on disk forever. Impossible is not
+	# on the menu; self-evident is, and this is it.
 	sleep 60 </dev/null >/dev/null 2>&1 3>&- &
 	local dead=$!
 	kill "$dead" 2>/dev/null

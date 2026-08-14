@@ -234,6 +234,48 @@ flight. It prints:
 It exits 0 only on `PASS`; `FAIL`, `ABORTED`, `STALE` and in-flight all exit
 non-zero, so `make ci-state && <next step>` cannot proceed on a non-verdict.
 
+#### Two separate ways a report lands in the wrong checkout
+
+They look identical from the outside and neither one explains the other, so both
+had to be fixed:
+
+**Writing.** `CI_2_ENV` set `GCP_CI_REPORT_DIR=ci-reports-2` — a *relative*
+value, where the warm lane used gcp-ci.sh's absolute script-anchored default.
+A relative value resolves against the cwd of the process that reads it, so the
+cold lane's reports followed the caller around while the warm lane's did not.
+That asymmetry is how `/home/andy/src/cp/osramp-demo/ci-reports-2/` came to hold
+a report from a run nobody made there. Fixed at both ends: `$(abspath …)` in
+CI_2_ENV, and gcp-ci.sh anchors a relative override at `REPO_ROOT` so a
+hand-typed `GCP_CI_REPORT_DIR=…` cannot reintroduce it. Guarded by
+`test/ci-path-anchoring.bats`, which derives from the Makefile rather than from
+a remembered list of paths — the third instance of this class in this repo, after
+`../$(KEYS_DIR)` and `AUDIT_ANCHOR_KEYS`.
+
+**Reading.** Independent of the above, and it bites agents hardest: a shell that
+has not `cd`-ed anywhere starts in the *main checkout*, not in the worktree the
+work is happening in. So `ls ci-reports/` or `jq . ci-reports/summary.json`
+typed without an explicit path reads the main checkout's reports no matter which
+worktree you believe you are in. This is why a lane agent could see a report its
+own worktree had never produced under `ci-reports/` — the *absolute* one, which
+the writing bug above provably cannot move. **Never read a report by relative
+path.** `make ci-state` prints the absolute path it read for exactly this
+reason.
+
+#### A `RUNNING` marker can only be stranded by SIGKILL
+
+`gcp-ci.sh run` arms `trap run_exit_trap EXIT` before it touches the VM, and
+bash runs an EXIT trap on SIGTERM, SIGINT and SIGHUP as well as on a normal
+exit — verified, not assumed. `timeout(1)` sends SIGTERM first, so even the
+outer fence converts the marker to `ABORTED`. The one signal that bypasses it is
+SIGKILL, which no handler can catch: `timeout -k` after its grace period, an
+OOM kill, or `kill -9`. Such a run leaves `RUNNING` on disk forever.
+
+Making that impossible is not available. Making it self-evident is: the marker
+records `pid` and `host` as fields, and `ci-state` checks whether that process
+is still alive. Gone means `ABORTED` and says so. Do not add a heartbeat to
+`written_at` — a timestamp cannot separate a slow run from a dead one, and the
+pid already can.
+
 ### `unset SSH_AUTH_SOCK` before any ad-hoc `gcloud compute ssh`
 
 With an agent loaded, `gcloud compute ssh` fails with `agent refused operation`.

@@ -6,6 +6,8 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 readonly repo_root
 # shellcheck disable=SC1091 # resolved relative to this script at runtime
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
+# shellcheck disable=SC1091 # resolved relative to this script at runtime
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/spire-trust-anchor.sh"
 
 readonly resource_set="agent-trust"
 readonly flux_namespace="flux-system"
@@ -247,6 +249,12 @@ POLICY
           user_claim=sub policies=agent-trust-acme-payments token_ttl=5m token_max_ttl=5m token_period=0 token_type=batch >/dev/null
       done
     '
+  # A role bound to the right SPIFFE subject is useless if OpenBao cannot verify
+  # the signature on the SVID presenting it. SPIRE rotates its JWT signing key
+  # on the CA schedule, so the validation keys are part of the identity plane and
+  # are re-derived here on every up — not copied once at cluster bootstrap.
+  require_command openssl
+  sync_openbao_jwt_validation "$bao_namespace" "$bao_token"
   identity_configured=true
 }
 
@@ -322,6 +330,15 @@ verify_identity_plane() {
   kubectl -n "$bao_namespace" exec deployment/openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$bao_token" \
     bao policy read agent-trust-acme-payments >/dev/null
+  # Everything above proves WHOSE identity the role admits. None of it proves
+  # OpenBao can still check the signature, and on 2026-08-14 that is exactly what
+  # broke: SPIRE rotated its JWT signing key, auth/jwt/config kept the snapshot
+  # taken at bring-up, and openbao-planner and planner-triage-a2a failed every
+  # five minutes for three and a half hours with every assertion above green.
+  # Asserted, never repaired — a gate that silently fixes what it measures
+  # reports success for a demo that was broken until the gate ran.
+  require_command openssl
+  assert_openbao_accepts_spire_jwt_keys "$bao_namespace" "$bao_token"
 }
 
 verify() {

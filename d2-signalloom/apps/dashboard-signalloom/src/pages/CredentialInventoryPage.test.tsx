@@ -336,17 +336,21 @@ describe('CredentialInventoryPage — structure', () => {
     await waitFor(() => expect(screen.getByTestId('trust-domain')).toHaveTextContent('signalloom.demo'))
   })
   // The two tables on this page are the ones an executive is asked to read as
-  // evidence, and four of their headers are jargon that the page never expands:
-  // "Selectors", "Kind", "Scope" and "Rotations". A misread here is not
-  // cosmetic — "Rotations: 47" looks like a fault until you know a rising count
-  // IS the control working.
+  // evidence, and their headers are jargon that the page never expands:
+  // "Selectors", "Kind", "Scope", "Rotations", "Source" and "State". A misread
+  // here is not cosmetic — "Rotations: 47" looks like a fault until you know a
+  // rising count IS the control working, and "pending" reads as "starting up"
+  // when it means "this identity was never registered at all".
+  //
+  // Reached by ACCESSIBLE NAME, not only by test id: a hint a screen reader or
+  // a speech-input user cannot address is a hint that is not there for them.
   describe('the tables explain their own jargon', () => {
     it('explains what SPIRE checks before it issues an identity', async () => {
       const user = userEvent.setup()
       mockAgentFetch({ agents: [cardvaultPod()] })
       renderPage()
 
-      const hint = await screen.findByTestId('identity-selectors-help')
+      const hint = await screen.findByTestId('identity-help-selectors')
       expect(hint).toHaveAccessibleName('What Selectors means')
       await user.hover(hint)
       const tooltip = await screen.findByRole('tooltip')
@@ -385,17 +389,328 @@ describe('CredentialInventoryPage — structure', () => {
       }
     })
 
+    it('says pending means never registered, not still starting up', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      const hint = await screen.findByRole('button', { name: 'What State means' })
+      await user.hover(hint)
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/no SVID was ever issued/i)
+      // The misreading it exists to prevent, named outright.
+      expect(tooltip.textContent).toMatch(/not a workload that is about to start/i)
+    })
+
+    it('says which provenance was measured and which is only declared', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      const hint = await screen.findByRole('button', { name: 'What Source means' })
+      await user.hover(hint)
+      const tooltip = await screen.findByRole('tooltip')
+      for (const value of ['live', 'config', 'demo']) {
+        expect(tooltip.textContent).toContain(value)
+      }
+      expect(tooltip.textContent).toMatch(/only a live row was measured/i)
+    })
+
+    // The 15-minute boundary is invisible knowledge that also decides a colour
+    // twelve rows further down. It is explained where the number is stated —
+    // the Expires header stays bare, per the rule asserted below.
+    it('explains the 15-minute threshold where the figure is, not on the Expires header', async () => {
+      const user = userEvent.setup()
+      mockAgentFetch({ agents: [cardvaultPod()] })
+      renderPage()
+
+      const hint = await screen.findByRole('button', { name: 'What expiring within 15m means' })
+      await user.hover(hint)
+      const tooltip = await screen.findByRole('tooltip')
+      expect(tooltip.textContent).toMatch(/turns the Expires column amber/i)
+      expect(tooltip.textContent).toMatch(/not a fault/i)
+    })
+
     it('leaves self-evident headers alone rather than blanketing every column', async () => {
       mockAgentFetch({ agents: [cardvaultPod()] })
       renderPage()
-      await screen.findByTestId('identity-selectors-help')
+      await screen.findByTestId('identity-help-selectors')
 
       // A "?" that restates its label is noise; these four say themselves.
       expect(screen.queryByTestId('credential-inventory-help-workload')).not.toBeInTheDocument()
       expect(screen.queryByTestId('credential-inventory-help-issuer')).not.toBeInTheDocument()
       expect(screen.queryByTestId('credential-inventory-help-status')).not.toBeInTheDocument()
       expect(screen.queryByTestId('credential-inventory-help-expiresAt')).not.toBeInTheDocument()
+      // Source is a slug on the identities table, where it separates measured
+      // from declared, and a plain restatement on the credentials table where
+      // the row's own badge already carries a title. Only the first earns a "?".
+      expect(screen.queryByTestId('credential-inventory-help-provenance')).not.toBeInTheDocument()
     })
+  })
+})
+
+// ─── Filtering ──────────────────────────────────────────────────────────────
+//
+// Both tables carry the same three controls in DataTable's `toolbar` slot:
+// search, the lifecycle select, the provenance select. The two properties worth
+// asserting are that each one actually narrows its own table, and that a filter
+// matching nothing is always undoable — the second is the bug the slot exists
+// to prevent, and it is invisible until someone filters to zero.
+
+describe('CredentialInventoryPage — filtering', () => {
+  const identityRows = () => screen.queryAllByTestId(/^identity-row-/)
+  const credentialRows = () => screen.queryAllByTestId(/^credential-row-/)
+
+  it('puts both tables\' filters in the shared toolbar slot', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await screen.findByTestId('identity-row-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent')
+
+    // DataTable renders these; a hand-stacked strip above the table would not
+    // produce them, which is what makes this an assertion and not a tautology.
+    expect(screen.getByTestId('identity-toolbar')).toBeInTheDocument()
+    expect(screen.getByTestId('credential-inventory-toolbar')).toBeInTheDocument()
+  })
+
+  // ── Workload Identities ──────────────────────────────────────────────────
+
+  it('narrows the identities by free-text search', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    await user.type(screen.getByTestId('identity-search'), 'cardvault')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+    expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
+    expect(screen.getByTestId('identity-count')).toHaveTextContent('1 of 2 identities shown')
+  })
+
+  it('searches every identity column the reader can see, not just the name', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    // A selector value — visible in the table, and in no other field.
+    await user.type(screen.getByTestId('identity-search'), 'sa:cardvault-agent')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+  })
+
+  it('narrows the identities by state', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    await user.selectOptions(screen.getByTestId('identity-state-filter'), 'revoked')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+    expect(identityRows()[0]).toHaveTextContent(/revoked/i)
+  })
+
+  it('narrows the identities by source, which is the measured/declared split', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    await user.selectOptions(screen.getByTestId('identity-source-filter'), 'live')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+    expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
+
+    await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+    expect(identityRows()[0]).toHaveTextContent('fe-signalloom')
+  })
+
+  it('offers an identity empty state that says which zero this is, and undoes itself', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    await user.type(screen.getByTestId('identity-search'), 'no-such-workload')
+    await waitFor(() => expect(identityRows()).toHaveLength(0))
+
+    // Recoverable, and worded as such — never confused with the discovery call
+    // having genuinely found nothing.
+    expect(screen.getByTestId('identity-empty')).toHaveTextContent('No identity matches those filters')
+    expect(screen.queryByText('No workload identities found')).toBeNull()
+
+    // The control that emptied the table outlived it, which is the whole
+    // reason the toolbar is a DataTable prop rather than markup above it.
+    const clear = screen.getByRole('button', { name: 'Clear filters' })
+    await user.click(clear)
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    expect(screen.queryByTestId('identity-empty')).toBeNull()
+  })
+
+  it('clears every identity control at once, not just the one last touched', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    await user.type(screen.getByTestId('identity-search'), 'cardvault')
+    await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
+    await waitFor(() => expect(identityRows()).toHaveLength(0))
+
+    await user.click(screen.getByTestId('identity-count-clear'))
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    expect(screen.getByTestId('identity-search')).toHaveValue('')
+    expect(screen.getByTestId('identity-source-filter')).toHaveValue('all')
+  })
+
+  it('hides the clear control only while nothing is filtered', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(identityRows()).toHaveLength(2))
+
+    expect(screen.queryByTestId('identity-count-clear')).toBeNull()
+    await user.selectOptions(screen.getByTestId('identity-state-filter'), 'active')
+    expect(screen.getByTestId('identity-count-clear')).toBeInTheDocument()
+  })
+
+  // ── Credentials ──────────────────────────────────────────────────────────
+
+  it('narrows the credentials by free-text search', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
+    await waitFor(() => expect(credentialRows()).toHaveLength(3))
+    expect(screen.getByTestId('credential-count')).toHaveTextContent('3 of 6 credentials shown')
+  })
+
+  // Found by writing this suite: searching "cardvault" returns FOUR of the six
+  // rows, not three, because `cardvault.inf-signalloom` is the issuer of every
+  // service token on the page including fe-signalloom's. That is the search
+  // working — the issuer is a column the reader can see, and a search that
+  // ignored it would quietly hide the one row that names who minted it.
+  it('searches the issuer, so a downstream service finds every token it minted', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    await user.type(screen.getByTestId('credential-search'), 'cardvault.inf-signalloom')
+    await waitFor(() => expect(credentialRows()).toHaveLength(2))
+    expect(credentialRows().every((r) => /service-token/.test(r.textContent ?? ''))).toBe(true)
+  })
+
+  it('narrows the credentials by kind, which is a column with no select of its own', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    await user.type(screen.getByTestId('credential-search'), 'openbao-lease')
+    await waitFor(() => expect(credentialRows()).toHaveLength(2))
+  })
+
+  it('narrows the credentials by source', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    await user.selectOptions(screen.getByTestId('credential-source-filter'), 'live')
+    await waitFor(() => expect(credentialRows()).toHaveLength(3))
+    expect(credentialRows().every((r) => /cardvault/.test(r.textContent ?? ''))).toBe(true)
+  })
+
+  it('offers a credential empty state that undoes itself', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    await user.type(screen.getByTestId('credential-search'), 'no-such-credential')
+    await waitFor(() => expect(credentialRows()).toHaveLength(0))
+    expect(screen.getByTestId('credential-inventory-empty')).toHaveTextContent('No credential matches those filters')
+
+    await user.click(screen.getByTestId('credential-count-clear'))
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+  })
+
+  it('combines the status select with search rather than letting one win', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
+    renderPage()
+    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+
+    // Stunned revokes cardvault's three; fe-signalloom's three stay active.
+    await user.selectOptions(screen.getByTestId('credential-status-filter'), 'revoked')
+    await waitFor(() => expect(credentialRows()).toHaveLength(3))
+
+    // `fe-signalloom-api`, not `fe-signalloom` — the cardvault SVID's scope is
+    // `…/ns/fe-signalloom-agents/sa/cardvault-agent`, which contains the
+    // shorter string, so the loose term would have matched a revoked row and
+    // made this assertion pass for the wrong reason.
+    await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
+    // Revoked AND fe-signalloom-api is empty — an AND, not a last-one-wins.
+    await waitFor(() => expect(credentialRows()).toHaveLength(0))
+  })
+
+  // ── The invariant that makes filtering safe ──────────────────────────────
+
+  // A filter asks what to LOOK at. It must never be readable as a claim that
+  // the rest of the estate stopped existing, so the headline counts, the
+  // unregistered banner and the proof console all keep reading the full set.
+  it('narrows the tables without moving the summary counts or the warning', async () => {
+    const user = userEvent.setup()
+    mockAgentFetch({ agents: [cardvaultPod({ id: 'agent-dennis', name: 'Dennis', service_account: 'default', supercred: false })] })
+    renderPage()
+    await screen.findByTestId('unregistered-warning')
+    // Both config entries plus the discovered `default`-SA pod = 3 workloads.
+    await waitFor(() => expect(screen.getByTestId('summary-workloads')).toHaveTextContent('3'))
+
+    await user.type(screen.getByTestId('identity-search'), 'fe-signalloom/sa/fe-signalloom')
+    await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+
+    expect(screen.getByTestId('summary-workloads')).toHaveTextContent('3')
+    expect(screen.getByTestId('summary-total')).toHaveTextContent('9')
+    // The unregistered workload is filtered out of the table and still warned about.
+    expect(screen.getByTestId('unregistered-warning')).toHaveTextContent('sa/default')
+  })
+})
+
+// ─── Accessible names ───────────────────────────────────────────────────────
+//
+// WCAG 2.5.3 "Label in Name": an explicit aria-label REPLACES the visible
+// label, so it has to contain it or a speech-input user saying the word they
+// can see reaches nothing. components/sidebarLabelInName.test.tsx asserts this
+// for the rail; the toolbar selects added here are the same shape of control.
+
+describe('CredentialInventoryPage — label in name', () => {
+  it('keeps every toolbar select addressable by the word printed beside it', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await screen.findByTestId('identity-search')
+
+    const labelled: Array<[string, string]> = [
+      ['identity-state-filter', 'State'],
+      ['identity-source-filter', 'Source'],
+      ['credential-status-filter', 'Status'],
+      ['credential-source-filter', 'Source'],
+    ]
+    for (const [testId, visible] of labelled) {
+      const name = screen.getByTestId(testId).getAttribute('aria-label') ?? ''
+      expect(name.toLowerCase()).toContain(visible.toLowerCase())
+    }
+  })
+
+  it('groups each toolbar so its controls announce what they filter', async () => {
+    mockAgentFetch({ agents: [cardvaultPod()] })
+    renderPage()
+    await screen.findByTestId('identity-search')
+
+    expect(screen.getByRole('group', { name: 'Filter workload identities' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Filter credentials' })).toBeInTheDocument()
   })
 })
 

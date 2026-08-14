@@ -168,12 +168,23 @@ export interface RevokeCredentialResponse {
 // endpoint owns the RECORD of it: the agent's lifecycle state and the audit
 // event, written in one transaction. The response echoes the audit row so the
 // caller can show the trace it just created without a second round trip.
+//
+// The body carries locator only. `reason` and `outcome` used to live here and
+// were removed: the browser is not a witness to what it just asked another
+// service to do, so anything it says about the outcome is a claim, not an
+// observation. `outcome` in particular was populated from a client-side
+// fallback, so a proxy that reported nothing still produced a confident
+// "stunned" in the audit detail. The server authors both fields now.
+//
+// Keeping them out of the type is the second lock: the endpoint's Pydantic
+// model is `extra="forbid"`, so re-adding them here would not merely restore a
+// bad record — it would 422 the whole request and the audit row would never be
+// written at all. auditBoundary.test.ts is the first lock.
 export interface StunAgentRequest {
+  /** Which workload was acted on. Not derivable server-side: SuperCred agent
+   *  ids are pod names, so they resolve to no registry row. */
   agent_name?: string | null
   namespace?: string | null
-  reason?: string | null
-  /** What actually happened — 'stunned' on success. Recorded in the event detail. */
-  outcome?: string | null
 }
 
 export interface StunAgentResponse {

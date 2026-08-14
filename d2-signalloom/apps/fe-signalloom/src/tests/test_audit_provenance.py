@@ -73,9 +73,28 @@ from __future__ import annotations
 
 import ast
 import re
+from functools import lru_cache
 from pathlib import Path
 
 from tests.test_audit_event_types import _called_name, _source_modules
+
+
+@lru_cache(maxsize=None)
+def _parsed(path: Path) -> ast.Module:
+    """Parse once per module per session.
+
+    Not premature. ``api_compat.py`` is ~154 KB and several helpers here call
+    ``_writer_parameters()``, which walks every module; without this the suite
+    re-parsed it hundreds of times and this file took 60 seconds on its own. A
+    guard slow enough to be irritating is a guard somebody excludes from the
+    default run, and an excluded guard is the same as no guard.
+    """
+    return ast.parse(path.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=1)
+def _modules() -> tuple[Path, ...]:
+    return tuple(_source_modules())
 
 SRC_DIR = Path(__file__).resolve().parent.parent
 DASHBOARD_SRC = (
@@ -111,10 +130,44 @@ def _sql_writes(sql: str) -> bool:
     return _MUTATION_IN_CTE.search(statement) is not None
 
 
+def _sql_literal(node: ast.expr | None) -> str | None:
+    """The SQL text of a query argument, including f-strings.
+
+    ``ast.Constant`` is not enough, and the gap is not theoretical.
+    ``test_write_transactions._is_mutating_call`` requires a ``Constant`` and
+    therefore cannot see ``onboarding.py:183``:
+
+        await conn.fetchrow(
+            f'''UPDATE tenant_onboarding
+                   SET status = $2, {column} = $3
+                 WHERE tenant_id = $1 AND status <> $2
+             RETURNING *''', ...)
+
+    That is an ``ast.JoinedStr``, so the only mutating statement in the module
+    is invisible to the atomicity guard -- in the module whose own docstring
+    records having *already* been missed once by that file, for a different
+    reason (it read only ``api_compat.py``). Two independent blind spots, same
+    module, same guard.
+
+    The interpolated parts are dropped and the literal parts joined. The
+    fragment that produces is not valid SQL, but the leading keyword survives,
+    and the leading keyword is the whole question.
+    """
+    if isinstance(node, ast.Constant):
+        return str(node.value)
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            part.value for part in node.values
+            if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Writer signatures, derived rather than restated
 # ---------------------------------------------------------------------------
 
+@lru_cache(maxsize=1)
 def _writer_parameters() -> dict[str, list[str]]:
     """Positional parameter names of each audit writer, read from its ``def``.
 
@@ -130,8 +183,8 @@ def _writer_parameters() -> dict[str, list[str]]:
     parameter, this follows; it cannot drift out of step with the code it reads.
     """
     parameters: dict[str, list[str]] = {}
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -142,8 +195,8 @@ def _writer_parameters() -> dict[str, list[str]]:
 
 def _audit_calls() -> list[tuple[Path, ast.AST, ast.Call]]:
     out: list[tuple[Path, ast.AST, ast.Call]] = []
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and _called_name(node) in AUDIT_WRITERS:
                 out.append((path, tree, node))
@@ -355,9 +408,8 @@ def _persisted_fields(
             continue
         if not (isinstance(node.func, ast.Attribute) and node.func.attr in DB_METHODS):
             continue
-        if not node.args or not isinstance(node.args[0], ast.Constant):
-            continue
-        if not _sql_writes(str(node.args[0].value)):
+        sql = _sql_literal(node.args[0]) if node.args else None
+        if sql is None or not _sql_writes(sql):
             continue
         for parameter in [*node.args[1:], *(k.value for k in node.keywords)]:
             persisted |= _client_fields(parameter, roots)
@@ -451,13 +503,14 @@ ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
 }
 
 
+@lru_cache(maxsize=1)
 def _client_supplied_violations() -> list[tuple[tuple[str, str, str, str], str]]:
     """Every request-body field reaching an audit write without being persisted."""
     order = _writer_parameters()
     violations: list[tuple[tuple[str, str, str, str], str]] = []
 
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         models = _request_model_names(tree)
         if not models:
             continue
@@ -585,8 +638,8 @@ def test_the_analysis_is_not_vacuous_against_the_real_tree() -> None:
     a fix.
     """
     resolving: set[str] = set()
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         models = _request_model_names(tree)
         for function in ast.walk(tree):
             if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -668,14 +721,15 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
 # it, and it reads as one.
 AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
     ("api_compat.py", "network_tests_scan"): (
+        "RULED AUDIT-WORTHY; the event is not written yet. "
         "POST /network-tests/scan fires an active network reachability probe "
-        "at the cluster through the integration proxy and records nothing. My "
-        "reading is that it IS audit-worthy -- an operator-initiated active "
-        "probe is exactly the class of action a regulator asks about, and the "
-        "handler has the Principal in scope already. But it is an endpoints "
-        "call to make, not a guard's, and the honest state today is that "
-        "nobody has made it. Resolve by adding the event or by moving this "
-        "entry to NOT_AUDIT_WORTHY with the argument for silence."
+        "at the cluster through the integration proxy and records nothing. An "
+        "operator-initiated active scan is exactly the class of action a "
+        "regulated customer expects a record of, and the handler can reach the "
+        "Principal already -- it currently takes authenticated_tenant, which is "
+        "authenticated_principal's own wrapper. Owned by the endpoints agent. "
+        "Delete this entry when the event lands; do NOT move it to "
+        "NOT_AUDIT_WORTHY, that question has been answered."
     ),
 }
 
@@ -722,22 +776,24 @@ def _reaches_an_audit_writer(name: str, table: dict[str, ast.AST], depth: int = 
     return False
 
 
+@lru_cache(maxsize=1)
 def _function_table() -> dict[str, ast.AST]:
     table: dict[str, ast.AST] = {}
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 table.setdefault(node.name, node)
     return table
 
 
+@lru_cache(maxsize=1)
 def _mutating_routes() -> list[tuple[str, str, str, str, bool]]:
     """``(module, handler, verb, path, audited)`` for every mutating route."""
     table = _function_table()
     routes = []
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         for node in ast.walk(tree):
             if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -834,10 +890,11 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
 }
 
 
+@lru_cache(maxsize=1)
 def _volatile_audit_sites() -> dict[tuple[str, str], int]:
     sites: dict[tuple[str, str], int] = {}
-    for path in _source_modules():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path in _modules():
+        tree = _parsed(path)
         for function in ast.walk(tree):
             if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
@@ -883,7 +940,220 @@ def test_the_volatile_site_inventory_has_no_stale_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. The browser does not write the audit trail
+# 4. The audit write is coupled to the action it records
+# ---------------------------------------------------------------------------
+#
+# WHAT THIS SECTION CAN AND CANNOT CHECK -- READ THIS BEFORE TRUSTING IT
+# ---------------------------------------------------------------------
+# The invariant has two halves and only one of them is decidable here.
+#
+#   Decidable: does the audit row commit with the state change (same
+#   connection, same transaction), and does the handler perform any observable
+#   action at all. Both are structural properties of the syntax.
+#
+#   NOT decidable: whether the row records what the server OBSERVED rather than
+#   what it was TOLD. A handler that launders a client value through a variable
+#   the server also writes satisfies every check in this file. There is no AST
+#   analysis that fixes that -- it is a semantic property of the values, not a
+#   shape in the tree.
+#
+# This is stated here rather than papered over because the alternative is worse
+# than the gap. A check that reads as covering semantics it cannot cover is the
+# same defect as a comment crediting a test with coverage it lacks, and this
+# codebase has been bitten by that repeatedly -- test_audit_event_types.py read
+# one module while claiming to read the source, then understood only literals
+# while claiming to resolve call sites. Naming the boundary is worth more than
+# extending the check until it looks complete.
+#
+# So: `test_no_client_supplied_field_reaches_an_audit_write` narrows the gap to
+# "a laundered value must at least have been persisted", which is a real
+# constraint and not nothing. It is not proof the row is true. Reviewers still
+# have to read stun-shaped handlers, and that requirement does not go away
+# because a suite is green.
+
+# Audit writes whose action is real but is not a database write. Each entry
+# must say what the action IS and what makes the record trustworthy without a
+# transaction to bind to.
+#
+# The distinction this dict draws is the one the invariant turns on. "The
+# handler performs no database write" has two completely different causes:
+# the action happened somewhere this process can still vouch for (a subprocess
+# it spawned), or the action did not happen at all and the row is a claim about
+# elsewhere. Only the first is legitimate, and only a human can tell them apart,
+# so each one is written down.
+RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
+    ("demo_runner.py", "_record_privileged_invocation"): (
+        "LEGITIMATE. The state change is a subprocess and a mutated cluster, "
+        "not a row, so there is no transaction to bind to. Ordering is the "
+        "guarantee instead: audit first, spawn second, so a spawn cannot occur "
+        "without a record and a failed audit means no run. Note what it does "
+        "NOT claim -- it records which step, which principal, when, and "
+        "deliberately not an outcome, because the SuperCred proxy performs the "
+        "cluster half and reports to nobody. (Its durability is a separate "
+        "defect; see KNOWN_VOLATILE_AUDIT_SITES.)"
+    ),
+    ("api_compat.py", "request_reassessment"): (
+        "DEFECT, not a design. This handler performs no action whatsoever -- "
+        "no INSERT, no UPDATE, no outbound call, no subprocess. It writes "
+        "'compliance.reassess_requested' and returns "
+        "status='reassessment_requested' with clickup_task_id=None, having "
+        "requested nothing of anything. The audit row asserts an event that "
+        "occurs nowhere in the system, which is the purest form of the "
+        "violation this file exists for: the stun endpoint at least narrates "
+        "something a real proxy did. Owned by the endpoints agent."
+    ),
+}
+
+
+def _mutating_receivers(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """Receiver names (``conn``, ``pool``) of every mutating statement."""
+    receivers = set()
+    for node in ast.walk(function):
+        if not isinstance(node, ast.Call):
+            continue
+        if not (isinstance(node.func, ast.Attribute) and node.func.attr in DB_METHODS):
+            continue
+        sql = _sql_literal(node.args[0]) if node.args else None
+        if sql is None or not _sql_writes(sql):
+            continue
+        receivers.add(
+            node.func.value.id if isinstance(node.func.value, ast.Name) else "?"
+        )
+    return receivers
+
+
+def _audit_executors(function: ast.FunctionDef | ast.AsyncFunctionDef) -> set[str]:
+    """What each audit write in ``function`` is issued against."""
+    order = _writer_parameters()
+    executors = set()
+    for node in ast.walk(function):
+        if not (isinstance(node, ast.Call) and _called_name(node) in AUDIT_WRITERS):
+            continue
+        if _called_name(node) == "_record_memory_audit":
+            executors.add("(memory)")
+            continue
+        expression = _argument_named(node, "executor", order["_audit_log"])
+        executors.add(ast.unparse(expression) if expression is not None else "?")
+    return executors
+
+
+@lru_cache(maxsize=1)
+def _auditing_functions() -> list[tuple[str, str, set[str], set[str]]]:
+    """``(module, function, audit executors, mutating receivers)``."""
+    out = []
+    for path in _modules():
+        tree = _parsed(path)
+        for function in ast.walk(tree):
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            executors = _audit_executors(function)
+            if executors:
+                out.append(
+                    (path.name, function.name, executors, _mutating_receivers(function)),
+                )
+    return out
+
+
+def test_the_transaction_check_reads_every_module_and_every_sql_shape() -> None:
+    """Guards the guard against the two blind spots it was written to close.
+
+    ``test_write_transactions`` covers this property well for ``api_compat.py``
+    and is not duplicated here. What it cannot see is asserted on directly:
+
+    * it parses ``API_COMPAT`` only, so ``onboarding.py`` and
+      ``demo_runner.py`` are outside it entirely, and
+    * ``_is_mutating_call`` requires an ``ast.Constant``, so an f-string query
+      is not a write as far as it is concerned.
+
+    ``onboarding._terminal_transition`` is behind both at once. Asserted on the
+    resolved receiver, so a regression in either shows up as a wrong value
+    rather than an empty result.
+    """
+    found = {(module, name): receivers for module, name, _, receivers in _auditing_functions()}
+
+    assert ("onboarding.py", "_terminal_transition") in found, (
+        "onboarding._terminal_transition is not being discovered -- module "
+        "discovery has regressed to a single file, which is the blind spot "
+        "test_audit_event_types.py already had to fix once"
+    )
+    assert found[("onboarding.py", "_terminal_transition")] == {"conn"}, (
+        f"onboarding._terminal_transition's UPDATE resolves to "
+        f"{found[('onboarding.py', '_terminal_transition')]}, expected {{'conn'}}. "
+        "Its query is an f-string; if this is empty, _sql_literal has stopped "
+        "reading ast.JoinedStr and every f-string write in the tree is now "
+        "invisible to this file."
+    )
+
+
+def test_an_audit_write_shares_the_connection_of_the_write_it_records() -> None:
+    """One transaction, one connection -- across every module, not just one.
+
+    A statement issued against the pool inside an open ``_write()`` block runs
+    on a different connection and silently escapes the transaction, so the
+    receiver is compared, not merely the presence of the helper.
+    """
+    split = []
+    for module, name, executors, receivers in _auditing_functions():
+        if not receivers:
+            continue  # no state change here; the check below owns that case
+        # (memory) is the fixture path and has no transaction by construction.
+        durable = {e for e in executors if e != "(memory)"}
+        if durable and durable != receivers:
+            split.append(
+                f"{module}:{name} audits against {sorted(durable)} but writes "
+                f"through {sorted(receivers)}"
+            )
+    assert not split, (
+        f"{len(split)} handler(s) write their audit row outside the transaction "
+        f"that carries the change it describes:\n  " + "\n  ".join(sorted(split)) + "\n\n"
+        "Every statement in the unit of work must use the connection yielded by "
+        "_write(). A pool statement inside the block is a different connection "
+        "and commits on its own, which is the failure migration 007 and _write "
+        "exist to rule out: the business write lands, the audit row does not."
+    )
+
+
+def test_an_audit_write_with_no_action_behind_it_is_declared() -> None:
+    """An audit row must describe something this process actually did.
+
+    "The handler performs no database write" has two very different causes: the
+    action was real but lives outside the database (a spawned subprocess), or
+    there was no action and the row is a claim about somewhere else. The first
+    is legitimate and the second is the violation this file is named for, and
+    they are indistinguishable from the syntax -- so each one is written down.
+    """
+    undeclared = [
+        f"{module}:{name}"
+        for module, name, _, receivers in _auditing_functions()
+        if not receivers and (module, name) not in RECORDS_A_NON_DATABASE_ACTION
+    ]
+    assert not undeclared, (
+        f"{len(undeclared)} function(s) write an audit event without performing "
+        f"any database write:\n  " + "\n  ".join(sorted(undeclared)) + "\n\n"
+        "Either this records an action that really happened outside the "
+        "database -- in which case add it to RECORDS_A_NON_DATABASE_ACTION "
+        "saying what the action is and what makes the record trustworthy "
+        "without a transaction -- or it is an endpoint whose only job is to "
+        "record something that happened elsewhere, which is exactly what an "
+        "audit event must never be."
+    )
+
+
+def test_the_non_database_action_declarations_are_all_still_needed() -> None:
+    live = {(module, name) for module, name, _, r in _auditing_functions() if not r}
+    stale = sorted(
+        f"{module}:{name}"
+        for module, name in RECORDS_A_NON_DATABASE_ACTION
+        if (module, name) not in live
+    )
+    assert not stale, (
+        f"RECORDS_A_NON_DATABASE_ACTION names {len(stale)} function(s) that now "
+        f"perform a database write: {stale}. Remove them."
+    )
+
+
+# ---------------------------------------------------------------------------
+# 5. The browser does not write the audit trail
 # ---------------------------------------------------------------------------
 
 # A mutating request from the dashboard whose path is an audit route. Written

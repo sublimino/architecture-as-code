@@ -107,6 +107,18 @@ type ScenarioScope struct {
 	Controls []string
 }
 
+// Simulation is the provenance of a run: enough to reproduce the figure, and nothing that carries
+// a denomination. Split out from fair.Result so that the serialised report contains no bare number
+// that means money — see the note on Report.Risk.
+type Simulation struct {
+	Iterations int     `json:"iterations"`
+	Seed       int64   `json:"seed"`
+	RiskLoad   float64 `json:"riskLoad"`
+	// TailDominated reports VaR95 < ALE: most simulated years cost nothing and the whole expected
+	// loss lives in the tail. A risk-financing signal, not an error.
+	TailDominated bool `json:"tailDominated"`
+}
+
 // Exposure is the aggregate loss distribution expressed in the report's currency.
 //
 // fair.Result deliberately holds bare float64s: the FAIR engine is currency-agnostic maths that
@@ -156,9 +168,20 @@ type Report struct {
 	CageMultiplier float64
 	CageCost       money.Money
 
-	// Risk is the raw, undenominated simulation output. Prefer Exposure for anything a human reads.
-	Risk fair.Result
-	// Exposure is Risk expressed in the reporting currency.
+	// Risk is the raw, undenominated simulation output.
+	//
+	// DELIBERATELY NOT SERIALISED (`json:"-"`). It holds four bare float64s that mean money — ALE,
+	// VaR95, TVaR, Carried — and emitting them alongside the denominated Exposure would put an
+	// undenominated number under the most obvious key in the document. A consumer reaching for
+	// `Risk.ALE` would get a plausible figure with no currency and nothing to notice, which is the
+	// precise failure this whole change exists to eliminate. Anything crossing a wire reads
+	// Exposure; Simulation carries the reproducibility provenance that used to travel on this
+	// struct. In-process Go callers may still read Risk directly.
+	Risk fair.Result `json:"-"`
+	// Simulation is the reproducibility provenance: how the number was produced, not what it is.
+	// Every field here is dimensionless, so none of it needs a denomination.
+	Simulation Simulation
+	// Exposure is Risk expressed in the reporting currency. This is the money.
 	Exposure Exposure
 
 	ControlSpend  money.Money // annual cost of the controls actually in place, plus the cage
@@ -537,6 +560,12 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	rep.Risk = eng.Run(caged, org.RiskLoad)
 	if err := rep.Risk.SelfCheck(); err != nil {
 		return nil, err
+	}
+	rep.Simulation = Simulation{
+		Iterations:    rep.Risk.Iterations,
+		Seed:          rep.Risk.Seed,
+		RiskLoad:      rep.Risk.RiskLoad,
+		TailDominated: rep.Risk.TailDominated(),
 	}
 	rep.Exposure = Exposure{
 		ALE:     money.Money{Amount: rep.Risk.ALE, Currency: conv.target},

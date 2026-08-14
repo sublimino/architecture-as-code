@@ -24,7 +24,7 @@ import {
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { DEFAULT_CURRENCY, isCurrencyCode, type CurrencyCode } from './currency'
-import { sourceMoney, type Converted, type Money } from './money'
+import type { Converted, Money } from './money'
 import { convert } from './convert'
 import {
   formatConverted,
@@ -139,23 +139,24 @@ export interface MoneyRenderer {
   /** The currency figures are being shown in. */
   currency: CurrencyCode | null
   /**
-   * Format a source-currency amount for display.
+   * Format a money value in the user's currency.
    *
-   * Returns MONEY_UNAVAILABLE when no rate exists. This is the drop-in
-   * replacement for the old `fmtGbp(n)` at every call site.
+   * Returns MONEY_UNAVAILABLE when no rate exists. The argument is a `Money`
+   * rather than a bare number because the source currency travels with the
+   * data — it is per-org and cannot be assumed. See types/compliance.ts for
+   * the constant this replaced and why it was a coincidence.
    */
-  fmt: (amount: number, options?: FormatOptions) => string
-  /** The same, for a value that already knows its own currency. */
   fmtMoney: (m: Money, options?: FormatOptions) => string
   /** The Converted behind a figure, for callers that need the working. */
-  convertAmount: (amount: number) => Converted | null
+  convertMoney: (m: Money) => Converted | null
   /**
-   * Provenance line for the surface: rate and effective date, or null when
-   * nothing was converted and there is therefore nothing to disclose.
+   * Provenance line for a document reported in `sourceCurrency`: the rate and
+   * its effective date, or null when nothing was converted and there is
+   * therefore nothing to disclose.
    */
-  conversionNote: string | null
+  noteFor: (sourceCurrency: CurrencyCode) => string | null
   /** Short form of the same, for dense surfaces. */
-  asOfNote: string | null
+  asOfFor: (sourceCurrency: CurrencyCode) => string | null
 }
 
 /**
@@ -175,31 +176,25 @@ export function useMoney(): MoneyRenderer {
 
   return useMemo(() => {
     const target = currency
-    const convertAmount = (amount: number): Converted | null => {
-      const src = sourceMoney(amount)
-      // No provider: show the figure in its own currency, unconverted.
-      return convert(src, target ?? src.currency)
-    }
+    // No provider mounted: show each figure in its own currency, unconverted.
+    // The only truthful answer without a user preference — see the file header.
+    const convertMoney = (m: Money): Converted | null => convert(m, target ?? m.currency)
 
-    // Every figure on a surface shares one source and one target currency, so
-    // one probe answers whether a disclosure line is needed at all.
-    const probe = convertAmount(0)
+    // One probe per source currency answers whether a disclosure line is needed,
+    // since every figure in a document shares its currency.
+    const probe = (source: CurrencyCode): Converted | null =>
+      convert({ amount: 0, currency: source }, target ?? source)
 
     return {
       currency: target,
-      fmt: (amount, options) => formatConverted(convertAmount(amount), options),
-      fmtMoney: (m, options) => formatConverted(convert(m, target ?? m.currency), options),
-      convertAmount,
-      conversionNote: formatConversionNote(probe),
-      asOfNote: formatAsOfNote(probe),
+      fmtMoney: (m, options) => formatConverted(convertMoney(m), options),
+      convertMoney,
+      noteFor: (source) => formatConversionNote(probe(source)),
+      asOfFor: (source) => formatAsOfNote(probe(source)),
     }
   }, [currency])
 }
 
-/**
- * The setting itself, for the Settings surface. Also declares demand, so
- * opening Settings loads the saved value even though no figure is on screen.
- */
 export function useCurrency(): CurrencyCtx {
   const ctx = useContext(CurrencyContext)
   const { ensureLoaded } = ctx

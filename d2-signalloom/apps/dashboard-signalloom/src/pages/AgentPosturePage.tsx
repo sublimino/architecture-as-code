@@ -8,6 +8,8 @@ import StatusBadge, { tint } from '../components/StatusBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { ComplianceCheck, PostureSummary } from '../types/compliance'
 import { useMoney } from '../money/CurrencyContext'
+import { sumMoney } from '../money/money'
+import { MONEY_UNAVAILABLE } from '../money/format'
 import ConversionNote from '../components/ConversionNote'
 
 interface ControlSetGroup {
@@ -39,7 +41,7 @@ export default function AgentPosturePage() {
   // Exposure figures are source-currency amounts converted for display;
   // `fmt` yields "Unavailable" rather than an unconverted number if no rate
   // exists, and `conversionNote` states the rate and its effective date.
-  const { fmt, conversionNote } = useMoney()
+  const { fmtMoney, noteFor } = useMoney()
   const [summary, setSummary] = useState<PostureSummary | null>(null)
   const [checks, setChecks] = useState<ComplianceCheck[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -78,7 +80,11 @@ export default function AgentPosturePage() {
   const frameworkNames = useMemo(() => [...new Set(checks.map((c) => c.framework))], [checks])
 
   const passedCount = filteredChecks.filter((c) => c.passed).length
-  const totalExposure = filteredChecks.reduce((s, c) => s + c.carriedGbp, 0)
+  // Summed in the SOURCE currency and converted once at render. Converting
+  // each row and adding the rounded results would produce a total that does not
+  // equal its own visible parts. Null on a mixed-currency list rather than
+  // adding numbers that are not the same kind of thing.
+  const totalExposure = sumMoney(filteredChecks.map((c) => c.carried), summary?.currency ?? 'GBP')
 
   const overallPosture = summary
     ? summary.failed === 0 ? 'COMPLIANT' : summary.failed <= 3 ? 'PARTIAL' : 'NON-COMPLIANT'
@@ -106,7 +112,7 @@ export default function AgentPosturePage() {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
             olly-sentinel | namespace: default
           </div>
-          <ConversionNote note={conversionNote} testId="posture-conversion-note" />
+          <ConversionNote note={summary ? noteFor(summary.currency) : null} testId="posture-conversion-note" />
         </div>
         <StatusBadge status={postureBadgeStatus} variant="compliance" />
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{overallPosture}</span>
@@ -132,9 +138,9 @@ export default function AgentPosturePage() {
         />
         <StatCard
           label="Total Exposure"
-          value={fmt(totalExposure)}
+          value={totalExposure ? fmtMoney(totalExposure) : MONEY_UNAVAILABLE}
           sub="carried risk from failures"
-          accent={totalExposure > 0 ? colors.amber : colors.tealLoom}
+          accent={(totalExposure?.amount ?? 0) > 0 ? colors.amber : colors.tealLoom}
         />
       </div>
 
@@ -211,8 +217,8 @@ export default function AgentPosturePage() {
                             {c.policyVersion}
                           </span>
                         </td>
-                        <td style={td}>{fmt(c.ale)}</td>
-                        <td style={td}>{fmt(c.var95)}</td>
+                        <td style={td}>{fmtMoney(c.ale)}</td>
+                        <td style={td}>{fmtMoney(c.var95)}</td>
                       </tr>
                     ))}
                   </Table>

@@ -21,6 +21,7 @@ import type {
   TenantSettingsResponse,
 } from '../types/api'
 import type { FrameworkSummary, PostureSummary } from '../types/compliance'
+import { money } from '../money/money'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -66,13 +67,14 @@ const basePosture: PostureResponse = {
 }
 
 const baseFrameworks: FrameworkSummary[] = [
-  { id: 'eu-ai-act', name: 'EU AI Act', versions: ['v2.0', 'v2.1'], totalControls: 10, passedControls: 7, failedControls: 3, totalExposureGbp: 53200 },
-  { id: 'nist-800-53', name: 'NIST 800-53', versions: ['v2.0', 'v2.1'], totalControls: 10, passedControls: 8, failedControls: 2, totalExposureGbp: 45500 },
+  { id: 'eu-ai-act', name: 'EU AI Act', versions: ['v2.0', 'v2.1'], totalControls: 10, passedControls: 7, failedControls: 3, totalExposure: money(53200, 'GBP') },
+  { id: 'nist-800-53', name: 'NIST 800-53', versions: ['v2.0', 'v2.1'], totalControls: 10, passedControls: 8, failedControls: 2, totalExposure: money(45500, 'GBP') },
 ]
 
 const basePolicySummary: PostureSummary = {
   totalChecks: 20, passed: 15, failed: 5,
-  totalAle: 195500, totalVar95: 858000, totalTvar: 1332000, totalCarriedGbp: 98700,
+  currency: 'GBP',
+  totalAle: money(195500, 'GBP'), totalVar95: money(858000, 'GBP'), totalTvar: money(1332000, 'GBP'), totalCarried: money(98700, 'GBP'),
   scanTimestamp: '2026-07-27T12:00:00Z',
   frameworks: baseFrameworks,
 }
@@ -298,7 +300,7 @@ describe('projectPolicySummary — Policy Compliance stat cards', () => {
 
   it('spikes carried exposure at step 3 and contains it at step 4', () => {
     const carriedAt = (phase: SuperCredPhase) =>
-      projectPolicySummary(basePolicySummary, stateAt(phase)).totalCarriedGbp
+      projectPolicySummary(basePolicySummary, stateAt(phase)).totalCarried.amount
 
     expect(carriedAt('credentialed')).toBe(98700)
     expect(carriedAt('non-compliant')).toBe(98700 + carriedGbp('non-compliant'))
@@ -311,8 +313,10 @@ describe('projectPolicySummary — Policy Compliance stat cards', () => {
     const evaluatedAle = SUPERCRED_CONTROLS
       .filter((c) => c.group === 'governance')
       .reduce((s, c) => s + c.ale, 0)
+    // Money, not a bare number: the projection adds SuperCred magnitudes into
+    // a denominated total, and the currency must survive the addition.
     expect(projectPolicySummary(basePolicySummary, stateAt('deployed')).totalAle)
-      .toBe(195500 + evaluatedAle)
+      .toEqual({ amount: 195500 + evaluatedAle, currency: 'GBP' })
   })
 
   it('keeps per-framework totals summing to the estate totals', () => {
@@ -320,10 +324,10 @@ describe('projectPolicySummary — Policy Compliance stat cards', () => {
       const s = projectPolicySummary(basePolicySummary, stateAt(phase))
       const fwControls = s.frameworks.reduce((n, f) => n + f.totalControls, 0)
       const fwPassed = s.frameworks.reduce((n, f) => n + f.passedControls, 0)
-      const fwExposure = s.frameworks.reduce((n, f) => n + f.totalExposureGbp, 0)
+      const fwExposure = s.frameworks.reduce((n, f) => n + f.totalExposure.amount, 0)
       expect(fwControls).toBe(s.totalChecks)
       expect(fwPassed).toBe(s.passed)
-      expect(fwExposure).toBe(s.totalCarriedGbp)
+      expect(fwExposure).toBe(s.totalCarried.amount)
     }
   })
 })
@@ -389,7 +393,7 @@ describe('projectPolicyScan — Agent Posture check rows and Risk Exposure aggre
   it('carries per-check exposure that sums to the aggregate', () => {
     for (const phase of LIVE_PHASES) {
       const { checks } = projectPolicyScan(baseScan, stateAt(phase))
-      const sum = checks.reduce((s, c) => s + c.carriedGbp, 0)
+      const sum = checks.reduce((s, c) => s + c.carried.amount, 0)
       expect(sum).toBe(carriedGbp(phase))
     }
   })

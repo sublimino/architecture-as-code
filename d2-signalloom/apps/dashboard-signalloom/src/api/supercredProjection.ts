@@ -15,8 +15,10 @@
 //      fixture object is handed out repeatedly in demo-data mode and an
 //      in-place edit would compound on every poll.
 
+import { money, type Money } from '../money/money'
 import {
   carriedGbp,
+  SUPERCRED_CURRENCY,
   complianceTally,
   controlCarriedGbp,
   controlStatus,
@@ -234,13 +236,29 @@ function toCheck(control: SuperCredControl, state: SuperCredDemoState): Complian
     check: `${CHECK_PREFIX}${control.name}`,
     passed: controlStatus(control, state.phase) === 'pass',
     policyVersion: POLICY_VERSION,
-    ale: control.ale,
-    var95: control.var95,
-    tvar: control.tvar,
-    carriedGbp: controlCarriedGbp(control, state.phase),
+    ale: money(control.ale, SUPERCRED_CURRENCY),
+    var95: money(control.var95, SUPERCRED_CURRENCY),
+    tvar: money(control.tvar, SUPERCRED_CURRENCY),
+    carried: money(controlCarriedGbp(control, state.phase), SUPERCRED_CURRENCY),
     scanTimestamp: state.observedAt ?? new Date().toISOString(),
     calibrationSource: CALIBRATION,
   }
+}
+
+/**
+ * Add a bare SuperCred magnitude to a denominated total.
+ *
+ * The SuperCred control set is authored entirely in SUPERCRED_CURRENCY, so a
+ * document reported in anything else cannot absorb these numbers: adding them
+ * would silently produce a total that is neither currency. In that case the
+ * base figure is returned untouched — the projection declines to contribute
+ * rather than corrupting the total, and the SuperCred rows still appear as
+ * their own denominated checks.
+ */
+function addInSourceCurrency(base: Money | undefined, delta: number): Money {
+  if (base === undefined) return money(delta, SUPERCRED_CURRENCY)
+  if (base.currency !== SUPERCRED_CURRENCY) return base
+  return money(base.amount + delta, base.currency)
 }
 
 /** The SuperCred checks that have been evaluated at the current phase. */
@@ -259,8 +277,10 @@ function projectFrameworkSummary(fw: FrameworkSummary, state: SuperCredDemoState
     totalControls: fw.totalControls + mine.length,
     passedControls: fw.passedControls + passed,
     failedControls: fw.failedControls + (mine.length - passed),
-    totalExposureGbp:
-      fw.totalExposureGbp + mine.reduce((s, c) => s + controlCarriedGbp(c, state.phase), 0),
+    totalExposure: addInSourceCurrency(
+      fw.totalExposure,
+      mine.reduce((s, c) => s + controlCarriedGbp(c, state.phase), 0),
+    ),
   }
 }
 
@@ -287,12 +307,12 @@ export function projectPolicySummary(base: PostureSummary, state: SuperCredDemoS
     failed: Number(base.failed ?? 0) + (evaluated.length - passed),
     // Inherent risk accrues for every evaluated control, passing or failing —
     // matching how the baseline fixtures aggregate ALE across all checks.
-    totalAle: Number(base.totalAle ?? 0) + evaluated.reduce((s, c) => s + c.ale, 0),
-    totalVar95: Number(base.totalVar95 ?? 0) + evaluated.reduce((s, c) => s + c.var95, 0),
-    totalTvar: Number(base.totalTvar ?? 0) + evaluated.reduce((s, c) => s + c.tvar, 0),
+    totalAle: addInSourceCurrency(base.totalAle, evaluated.reduce((s, c) => s + c.ale, 0)),
+    totalVar95: addInSourceCurrency(base.totalVar95, evaluated.reduce((s, c) => s + c.var95, 0)),
+    totalTvar: addInSourceCurrency(base.totalTvar, evaluated.reduce((s, c) => s + c.tvar, 0)),
     // Carried (residual) risk only accrues for failures, and drops to the
     // containment residual once the agent is stunned.
-    totalCarriedGbp: Number(base.totalCarriedGbp ?? 0) + carriedGbp(state.phase),
+    totalCarried: addInSourceCurrency(base.totalCarried, carriedGbp(state.phase)),
     frameworks,
   } as PostureSummary
 }

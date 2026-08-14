@@ -17,15 +17,56 @@
  * exist. The union plus `isCurrencyCode` is the only thing standing between a
  * bad code and a number on an executive's screen.
  */
-export type CurrencyCode = 'USD' | 'GBP' | 'EUR'
+export type CurrencyCode =
+  | 'AED' | 'AUD' | 'CAD' | 'CHF' | 'DKK' | 'EUR' | 'GBP' | 'HKD'
+  | 'INR' | 'JPY' | 'NOK' | 'SEK' | 'SGD' | 'USD' | 'ZAR'
 
-/** Selection order in the Settings dropdown. */
-export const SUPPORTED_CURRENCIES: readonly CurrencyCode[] = ['USD', 'GBP', 'EUR']
+/**
+ * Selection order in the Settings dropdown.
+ *
+ * The four the product actually reports in lead; the rest follow alphabetically.
+ * This list must stay a subset of the pairs matrix in risk/fx/rates.json — a
+ * currency offered here with no rate renders every figure as Unavailable, which
+ * is honest but useless. ratesTable.staleness.test.ts asserts the containment.
+ */
+export const SUPPORTED_CURRENCIES: readonly CurrencyCode[] = [
+  'USD', 'GBP', 'EUR', 'JPY',
+  'AED', 'AUD', 'CAD', 'CHF', 'DKK', 'HKD', 'INR', 'NOK', 'SEK', 'SGD', 'ZAR',
+]
 
 export const CURRENCY_LABELS: Record<CurrencyCode, string> = {
-  USD: 'US Dollar',
-  GBP: 'Pound Sterling',
+  AED: 'UAE Dirham',
+  AUD: 'Australian Dollar',
+  CAD: 'Canadian Dollar',
+  CHF: 'Swiss Franc',
+  DKK: 'Danish Krone',
   EUR: 'Euro',
+  GBP: 'Pound Sterling',
+  HKD: 'Hong Kong Dollar',
+  INR: 'Indian Rupee',
+  JPY: 'Japanese Yen',
+  NOK: 'Norwegian Krone',
+  SEK: 'Swedish Krona',
+  SGD: 'Singapore Dollar',
+  USD: 'US Dollar',
+  ZAR: 'South African Rand',
+}
+
+/**
+ * How many decimal places this currency's minor unit has.
+ *
+ * Read from `Intl` rather than a hand-kept table: it already encodes that JPY
+ * has NO minor unit, and rendering a yen figure as ¥196203.00 prints a quantity
+ * of money that cannot exist. The conformance vectors in risk/fx/testvectors.json
+ * carry `minor_units` per case and this function is checked against all of them.
+ */
+export function minorUnits(currency: CurrencyCode): number {
+  // `maximumFractionDigits` is optional in the DOM typings but is always
+  // populated for style:'currency'. Two is the ISO 4217 default for the vast
+  // majority of codes, so it is the honest fallback if a runtime omits it.
+  return new Intl.NumberFormat('en', { style: 'currency', currency })
+    .resolvedOptions()
+    .maximumFractionDigits ?? 2
 }
 
 /**
@@ -40,17 +81,6 @@ export const CURRENCY_LABELS: Record<CurrencyCode, string> = {
  * constant have to move together.
  */
 export const DEFAULT_CURRENCY: CurrencyCode = 'USD'
-
-/**
- * The currency the checked-in risk figures are natively denominated in.
- *
- * Every `ale` / `var95` / `tvar` / `carriedGbp` number in the fixtures and in
- * the policy-engine output is GBP. Naming it once here means a money value that
- * arrives as a bare `number` can be lifted into a `Money` without each call
- * site restating the assumption — and when the source data stops being GBP,
- * this constant is the thing that fails loudly rather than a dozen literals.
- */
-export const SOURCE_CURRENCY: CurrencyCode = 'GBP'
 
 export function isCurrencyCode(value: unknown): value is CurrencyCode {
   return typeof value === 'string' && (SUPPORTED_CURRENCIES as readonly string[]).includes(value)

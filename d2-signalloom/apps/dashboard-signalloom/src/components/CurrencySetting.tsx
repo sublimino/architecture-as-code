@@ -9,14 +9,23 @@
 
 import { useCallback, useState } from 'react'
 import { useCurrency, useMoney } from '../money/CurrencyContext'
-import { CURRENCY_LABELS, SUPPORTED_CURRENCIES, isCurrencyCode } from '../money/currency'
+import { CURRENCY_LABELS, SUPPORTED_CURRENCIES, isCurrencyCode, type CurrencyCode } from '../money/currency'
 
 /** The figure used to preview the chosen format. Arbitrary but memorable. */
 const PREVIEW_AMOUNT = 1_284_000
 
+/**
+ * The currency the preview figure is quoted in.
+ *
+ * The demo estate reports in GBP, so previewing from GBP shows the conversion
+ * the user will actually see. Named here rather than assumed globally: the
+ * reporting currency is per-org and travels with each payload.
+ */
+const PREVIEW_SOURCE: CurrencyCode = 'GBP'
+
 export default function CurrencySetting() {
   const { currency, setCurrency, loading, error } = useCurrency()
-  const { fmt, conversionNote } = useMoney()
+  const { fmtMoney, noteFor } = useMoney()
   const [saving, setSaving] = useState(false)
 
   const onChange = useCallback(
@@ -59,7 +68,7 @@ export default function CurrencySetting() {
             what will be shown there — including whether the figure could be
             converted at all. */}
         <p data-testid="settings-currency-preview" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, marginBottom: 0 }}>
-          Figures will look like <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmt(PREVIEW_AMOUNT)}</span>
+          Figures will look like <span style={{ fontWeight: 600, color: 'var(--text)' }}>{fmtMoney({ amount: PREVIEW_AMOUNT, currency: PREVIEW_SOURCE })}</span>
         </p>
 
         {error !== null && (
@@ -77,9 +86,9 @@ export default function CurrencySetting() {
         {/* The rate and its effective date, on the surface where the choice is
             made. A converted figure whose date the user has never been shown is
             one they cannot defend when asked where it came from. */}
-        {conversionNote !== null && (
+        {noteFor(PREVIEW_SOURCE) !== null && (
           <p data-testid="settings-currency-rate" style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-            {conversionNote}
+            {noteFor(PREVIEW_SOURCE)}
           </p>
         )}
         <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>

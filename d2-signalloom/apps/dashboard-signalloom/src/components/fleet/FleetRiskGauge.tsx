@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react'
 import HelpHint from '../HelpHint'
 import { useMoney } from '../../money/CurrencyContext'
+import type { CurrencyCode } from '../../money/currency'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -19,6 +20,15 @@ export interface FleetRiskGaugeProps {
   trend: 'up' | 'down' | 'stable'
   /** Previous ALE for delta display, in the source currency. */
   previousAle?: number
+  /**
+   * The currency these figures are denominated in.
+   *
+   * Defaults to GBP because the fleet topology endpoint does not yet report a
+   * currency — the ONE place that assumption still lives, named here so it is
+   * visible rather than buried in a shared constant. When the topology grows a
+   * currency field this default goes and the prop becomes required.
+   */
+  currency?: CurrencyCode
 }
 
 // ── Colour boundaries ───────────────────────────────────────────────────────
@@ -97,11 +107,12 @@ function useAnimatedNumber(target: number): number {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function FleetRiskGauge({ ale, var95, trend, previousAle }: FleetRiskGaugeProps) {
+export default function FleetRiskGauge({ ale, var95, trend, previousAle, currency = 'GBP' }: FleetRiskGaugeProps) {
   const displayAle = useAnimatedNumber(ale)
   const colour = riskColour(ale)
-  const { fmt, asOfNote } = useMoney()
-  const money = (value: number) => fmt(value, { compact: true })
+  const { fmtMoney, asOfFor } = useMoney()
+  const money = (value: number) => fmtMoney({ amount: value, currency }, { compact: true })
+  const asOfNote = asOfFor(currency)
 
   const trendIcon = trend === 'up' ? '\u25B2' : trend === 'down' ? '\u25BC' : '\u2014'
   const trendColour = trend === 'up' ? 'var(--error)' : trend === 'down' ? 'var(--teal)' : 'var(--muted)'

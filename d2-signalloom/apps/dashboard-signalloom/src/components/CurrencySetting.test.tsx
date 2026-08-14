@@ -16,6 +16,9 @@ vi.mock('../api/client', () => ({
 import CurrencySetting from './CurrencySetting'
 import { CurrencyProvider } from '../money/CurrencyContext'
 import { DEFAULT_RATE_TABLE, resetRateTable, setRateTable } from '../money/rates'
+import { convert } from '../money/convert'
+import { money } from '../money/money'
+import { fakeRateTable } from '../test-utils/rateTable'
 
 beforeEach(() => {
   auth.isAuthenticated = true
@@ -63,9 +66,11 @@ describe('the currency control', () => {
     await waitFor(() => {
       // 1,284,000 GBP at the checked-in rate, formatted by Intl rather than by
       // a symbol this component pastes on the front.
+      // pairs.GBP.USD via convert(), not rates.USD — under a USD-based table
+      // rates.USD is 1, and reaching for it is the reciprocal trap.
       const expected = new Intl.NumberFormat('en-US', {
         style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0,
-      }).format(Math.round(1_284_000 * (DEFAULT_RATE_TABLE.rates.USD as number)))
+      }).format(convert(money(1_284_000, 'GBP'), 'USD', DEFAULT_RATE_TABLE)!.amount)
       expect(preview).toHaveTextContent(expected)
     })
   })
@@ -98,7 +103,7 @@ describe('the currency control', () => {
   })
 
   it('previews Unavailable when the chosen currency cannot be converted to', async () => {
-    setRateTable({ as_of: '2026-08-01', base: 'GBP', rates: { GBP: 1 } })
+    setRateTable(fakeRateTable({ 'GBP->GBP': 1 }, { as_of: '2026-08-01' }))
     renderSetting()
     const preview = await screen.findByTestId('settings-currency-preview')
     await waitFor(() => expect(preview).toHaveTextContent('Unavailable'))

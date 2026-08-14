@@ -13,6 +13,7 @@
 // drop-capabilities. All three fail when the pod has no securityContext.
 
 import type { SuperCredPhase } from './supercredTypes'
+import type { CurrencyCode } from '../money/currency'
 
 export type ControlStatus = 'pass' | 'fail' | 'pending'
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
@@ -281,6 +282,15 @@ export function postureScore(phase: SuperCredPhase): number | null {
   if (denominator === 0) return null
   return Math.round((100 * passWeight) / denominator)
 }
+
+/**
+ * The currency every SuperCred control's magnitude is authored in.
+ *
+ * These are hand-calibrated constants in this file, all sterling. Named so the
+ * projection can refuse to add them to a document reported in another currency
+ * rather than adding two different kinds of number — see projectPolicySummary.
+ */
+export const SUPERCRED_CURRENCY: CurrencyCode = 'GBP'
 
 /**
  * Carried (residual) risk in GBP for a single control at this phase.

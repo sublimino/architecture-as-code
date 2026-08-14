@@ -36,6 +36,7 @@ import type {
   TransitionRequest,
   TransitionResponse,
   TrustTopologyResponse,
+  UserPreferencesResponse,
   ViolationListResponse,
 } from '../types/api'
 import type {
@@ -469,6 +470,21 @@ export const api = {
       req<CookiePreferencesResponse>('/cookie-preferences', token, {
         method: 'PATCH',
         data: { analytics },
+      }),
+  },
+
+  // Per-user, not per-tenant: the caller is identified by the bearer token, so
+  // there is no user id in the path. A tenant-scoped path would let one user
+  // move another's figures, which is the bug this shape prevents by
+  // construction rather than by a permission check.
+  userPreferences: {
+    get: (token: string) =>
+      req<UserPreferencesResponse>('/user/preferences', token),
+
+    patchCurrency: (token: string, displayCurrency: string) =>
+      req<UserPreferencesResponse>('/user/preferences', token, {
+        method: 'PATCH',
+        data: { display_currency: displayCurrency },
       }),
   },
 }

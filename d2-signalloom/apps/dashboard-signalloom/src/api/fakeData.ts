@@ -275,6 +275,58 @@ function transitionAgent(path: string, body: unknown): TransitionResponse | unde
 
 export function resetFakeData(): void {
   demoAgents = buildInitialAgents()
+  demoDisplayCurrency = null
+}
+
+// ─── Per-user display currency (demo) ──────────────────────────────────────────
+//
+// Demo mode has no database, but the currency preference still has to survive a
+// reload — a setting that resets when you refresh is not a setting. The live
+// path persists to platform_users.display_currency; this is its demo
+// counterpart, backed by localStorage the same way the theme and sidebar
+// preferences already are.
+//
+// Reads and writes are guarded: Node's built-in localStorage is inert without
+// --localstorage-file and private-mode browsers throw on write, so an
+// unguarded call here would take down every demo request that touches it.
+
+/** localStorage key for the demo-mode currency preference. */
+export const DEMO_CURRENCY_STORAGE_KEY = 'signalloom.displayCurrency'
+
+/** In-memory cache so a blocked localStorage still holds the value per session. */
+let demoDisplayCurrency: string | null = null
+
+function readDemoCurrency(): string {
+  if (demoDisplayCurrency !== null) return demoDisplayCurrency
+  try {
+    const stored = localStorage.getItem(DEMO_CURRENCY_STORAGE_KEY)
+    if (stored) {
+      demoDisplayCurrency = stored
+      return stored
+    }
+  } catch {
+    // Storage blocked — fall through to the documented default.
+  }
+  // Matches DEFAULT_CURRENCY in money/currency.ts and the column DEFAULT in
+  // migration 020. All three have to say USD or a user sees one currency and
+  // the audit trail records another.
+  return 'USD'
+}
+
+function writeDemoCurrency(body: unknown): { display_currency: string } {
+  const next = (body as { display_currency?: unknown })?.display_currency
+  if (typeof next !== 'string') {
+    // Echo the current value rather than storing rubbish. The client narrows
+    // whatever comes back, so a bad write cannot move the display.
+    return { display_currency: readDemoCurrency() }
+  }
+  demoDisplayCurrency = next
+  try {
+    localStorage.setItem(DEMO_CURRENCY_STORAGE_KEY, next)
+  } catch {
+    // Storage blocked — the choice stays session-only.
+  }
+  return { display_currency: next }
 }
 
 const reassessment: ReassessmentResponse = {
@@ -628,6 +680,9 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/consent\/accept$/), data: () => consentAccept },
   { method: 'GET', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
   { method: 'PATCH', test: re(/^\/cookie-preferences$/), data: () => cookiePrefs },
+  // per-user preferences
+  { method: 'GET', test: re(/^\/user\/preferences$/), data: () => ({ display_currency: readDemoCurrency() }) },
+  { method: 'PATCH', test: re(/^\/user\/preferences$/), data: (_p, body) => writeDemoCurrency(body) },
   // health
   { method: 'GET', test: re(/^\/health\/crypto$/), data: () => cryptoHealth },
   // network tests (netassert)
@@ -638,7 +693,7 @@ const ROUTES: Match[] = [
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  31 base + 2 network-tests + 3 compliance-policy = 36 */
+ *  33 base + 2 user-preferences + 2 network-tests + 3 compliance-policy = 39 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 function cleanPath(path: string): string {

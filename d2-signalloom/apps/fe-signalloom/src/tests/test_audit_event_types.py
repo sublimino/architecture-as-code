@@ -253,6 +253,46 @@ def test_every_audit_call_sites_event_type_is_resolvable() -> None:
     )
 
 
+ACTOR_POSITION = 5
+"""``_audit_log(executor, tenant_id, event_type, agent_id, agent_name, actor, ...)``."""
+
+
+def test_no_audit_call_site_hardcodes_its_actor() -> None:
+    """The actor must come from the caller's token, never from a literal.
+
+    ``Principal.actor``'s docstring says an unattributable record is "worthless
+    as evidence, so the value has to come from the token rather than from a
+    literal in the handler", and that substituting one "would put a fabricated
+    name in an audit column". Thirty-four occurrences of "demo-actor" said
+    otherwise -- including in two handlers that already held the principal in
+    scope for a NOT NULL business column and passed the literal to the audit
+    row three lines later.
+
+    Stated as a test because it is not visible in review: each individual
+    literal reads as a reasonable demo placeholder. Only the aggregate shows
+    that a bank's first question -- who did this -- had one answer for every
+    row in the product.
+    """
+    trees = {path: ast.parse(path.read_text()) for path in _source_modules()}
+    hardcoded: list[str] = []
+
+    for path, tree in trees.items():
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or _called_name(node) != "_audit_log":
+                continue
+            actor = _argument_for(node, ACTOR_POSITION, "actor")
+            if isinstance(actor, ast.Constant) and isinstance(actor.value, str):
+                hardcoded.append(f"{path.name}:{node.lineno} -> {actor.value!r}")
+
+    assert not hardcoded, (
+        f"{len(hardcoded)} _audit_log call site(s) pass a hardcoded actor: "
+        f"{hardcoded}. Take it from the request's Principal -- "
+        "authenticated_principal is authenticated_tenant's own dependency, so "
+        "a handler that only has the tenant can swap to it without changing "
+        "which tenant it resolves."
+    )
+
+
 def test_the_extractor_sees_more_than_one_module() -> None:
     """The specific blindness that motivated this rewrite.
 

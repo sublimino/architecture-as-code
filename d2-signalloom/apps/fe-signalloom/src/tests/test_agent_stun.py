@@ -126,7 +126,9 @@ def test_stunning_an_agent_returns_the_audit_event_it_recorded(client: TestClien
     event = body["event"]
     assert event["event_type"] == "agent.stunned"
     assert event["agent_id"] == AGENT_ID
-    assert event["actor"] == "demo-actor"
+    # The token subject, not a constant. Asserted positively: "is not
+    # demo-actor" would pass against any other hardcoded string.
+    assert event["actor"] == "stun"
     assert event["timestamp"]
 
 
@@ -153,7 +155,9 @@ def test_a_stun_with_no_body_still_records_an_attributable_event(client: TestCli
     assert response.status_code == 200, response.text
     event = response.json()["event"]
     assert event["event_type"] == "agent.stunned"
-    assert event["actor"] == "demo-actor"
+    # The token subject, not a constant. Asserted positively: "is not
+    # demo-actor" would pass against any other hardcoded string.
+    assert event["actor"] == "stun"
     assert event["detail"]["outcome"] == "stunned"
 
 

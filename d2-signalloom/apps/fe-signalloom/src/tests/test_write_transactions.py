@@ -209,11 +209,14 @@ class FakePostgres:
                     return
             return
         if "UPDATE nhi_discovered_accounts" in query and "'dismissed'" in query:
-            account_uuid, tenant_id = args
+            account_uuid, tenant_id, dismissed_by = args
             account = state.nhi_accounts[str(account_uuid)]
             assert account["tenant_id"] == tenant_id
             account["status"] = "dismissed"
-            account["dismissed_by"] = "demo-actor"
+            # Bound parameter now, not a SQL literal -- so the fake records
+            # whatever the handler actually passed rather than a constant it
+            # would agree with regardless.
+            account["dismissed_by"] = dismissed_by
             return
         if "UPDATE tenant_api_keys" in query and "revoked_at = now()" in query:
             (tenant_id,) = args
@@ -1067,7 +1070,7 @@ def test_revoking_credentials_updates_rows_and_audits_in_one_transaction(
     assert response.status_code == 200, response.text
     assert response.json()["tokens_revoked"] == 1
     assert healthy.committed.agent_credentials[0]["revoked_at"] is not None
-    assert healthy.committed.agent_credentials[0]["revoked_by"] == "demo-actor"
+    assert healthy.committed.agent_credentials[0]["revoked_by"] == "tx-pooled"
     assert [e["event_type"] for e in healthy.committed.audit_events] == ["agent.credential_revoked"]
     assert healthy.commits == 1
 

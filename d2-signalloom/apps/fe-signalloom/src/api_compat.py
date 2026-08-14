@@ -1884,8 +1884,9 @@ async def trust_topology(
 @router.post("/agents", response_model=AgentResponse, responses=ERROR_RESPONSES)
 async def create_agent(
     body: AgentCreateRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AgentResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -1923,7 +1924,7 @@ async def create_agent(
                 tenant_id, body.name, body.name, body.type, body.owner,
             )
             compliance = await _compliance_summary_for_agent(conn, row["id"])
-            await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, "demo-actor", {"source": "api"})
+            await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, principal.actor, {"source": "api"})
     except asyncpg.exceptions.UniqueViolationError:
         # agent_registry.name carries a UNIQUE constraint. Creating an agent with
         # a name already in use is a caller error, not a server fault, and it
@@ -1938,8 +1939,9 @@ async def create_agent(
 @router.post("/agents/{agent_id}/credentials", response_model=IssueCredentialResponse, responses=ERROR_RESPONSES)
 async def issue_agent_credential(
     agent_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> IssueCredentialResponse:
+    tenant_id = principal.tenant
     token = f"demo.{secrets.token_urlsafe(18)}"
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     issued_at = _now_iso()
@@ -1972,7 +1974,7 @@ async def issue_agent_credential(
                 tenant_id, agent_uuid, token_hash, expires_at,
             )
             await _audit_log(
-                conn, tenant_id, "agent.credential_issued", agent_id, name, "demo-actor",
+                conn, tenant_id, "agent.credential_issued", agent_id, name, principal.actor,
                 {"expires_at": expires_at_iso},
             )
     return IssueCredentialResponse(
@@ -1987,8 +1989,9 @@ async def issue_agent_credential(
 @router.post("/agents/{agent_id}/credentials/revoke", response_model=RevokeCredentialResponse, responses=ERROR_RESPONSES)
 async def revoke_agent_credential(
     agent_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> RevokeCredentialResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -1998,7 +2001,7 @@ async def revoke_agent_credential(
             for credential in _AGENT_CREDENTIALS[tenant_id].get(agent_id, []):
                 if credential["revoked_at"] is None:
                     credential["revoked_at"] = _now_iso()
-                    credential["revoked_by"] = "demo-actor"
+                    credential["revoked_by"] = principal.actor
                     tokens_revoked += 1
         return RevokeCredentialResponse(
             agent_id=agent_id,
@@ -2016,11 +2019,11 @@ async def revoke_agent_credential(
                     RETURNING 1
                )
                SELECT COUNT(*)::int AS tokens_revoked FROM revoked""",
-            tenant_id, agent_uuid, "demo-actor",
+            tenant_id, agent_uuid, principal.actor,
         )
         tokens_revoked = 0 if row is None else int(row["tokens_revoked"])
         await _audit_log(
-            conn, tenant_id, "agent.credential_revoked", agent_id, agent_name, "demo-actor",
+            conn, tenant_id, "agent.credential_revoked", agent_id, agent_name, principal.actor,
             {"tokens_revoked": tokens_revoked},
         )
     return RevokeCredentialResponse(
@@ -2062,8 +2065,9 @@ async def get_agent(
 async def transition_agent(
     agent_id: str,
     body: TransitionRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TransitionResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     now = _now_iso()
 
@@ -2076,13 +2080,13 @@ async def transition_agent(
                 agent = _synth_agent(tenant_id, agent_id)
             agent["lifecycle_state"] = body.to_state
             agent["last_transition_at"] = now
-            agent["last_transition_by"] = "demo-actor"
+            agent["last_transition_by"] = principal.actor
             _AGENTS[tenant_id][agent_id] = agent
         return TransitionResponse(
             agent_id=agent_id,
             from_state=from_state,
             to_state=body.to_state,
-            actor="demo-actor",
+            actor=principal.actor,
             reason=body.reason,
             timestamp=now,
         )
@@ -2093,7 +2097,7 @@ async def transition_agent(
             agent_id=agent_id,
             from_state="registered",
             to_state=body.to_state,
-            actor="demo-actor",
+            actor=principal.actor,
             reason=body.reason,
             timestamp=now,
         )
@@ -2117,14 +2121,14 @@ async def transition_agent(
             )
 
         await _audit_log(
-            conn, tenant_id, "agent.transitioned", agent_id, agent_name, "demo-actor",
+            conn, tenant_id, "agent.transitioned", agent_id, agent_name, principal.actor,
             {"from_state": from_state, "to_state": body.to_state, "reason": body.reason},
         )
     return TransitionResponse(
         agent_id=agent_id,
         from_state=from_state,
         to_state=body.to_state,
-        actor="demo-actor",
+        actor=principal.actor,
         reason=body.reason,
         timestamp=now,
     )
@@ -2136,7 +2140,7 @@ STUNNED_LIFECYCLE_STATE = "suspended"
 @router.post("/agents/{agent_id}/stun", response_model=StunAgentResponse, responses=ERROR_RESPONSES)
 async def stun_agent(
     agent_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
     body: StunAgentRequest | None = None,
 ) -> StunAgentResponse:
     """Record an operator isolating an agent.
@@ -2181,6 +2185,7 @@ async def stun_agent(
     proxy, which reports back to nobody. ``requested_state`` is therefore a
     record of intent, and deliberately not named as an outcome.
     """
+    tenant_id = principal.tenant
     req = body or StunAgentRequest()
     reason = req.reason or "operator-initiated stun"
     outcome = req.outcome or "stunned"
@@ -2230,10 +2235,10 @@ async def stun_agent(
             if agent is not None:
                 agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
                 agent["last_transition_at"] = now
-                agent["last_transition_by"] = "demo-actor"
+                agent["last_transition_by"] = principal.actor
         detail = _detail(from_state, registry_match=registry_match)
         event = _record_memory_audit(
-            tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor", detail,
+            tenant_id, "agent.stunned", agent_id, agent_name, principal.actor, detail,
         )
         return StunAgentResponse(
             agent_id=agent_id,
@@ -2241,7 +2246,7 @@ async def stun_agent(
             # The response is the caller's copy of the row. If they disagree,
             # one of them is wrong, so it reads its value from the same detail.
             to_state=detail["to_state"],
-            actor="demo-actor",
+            actor=principal.actor,
             stunned_at=now,
             event=AuditEventResponse(**event),
         )
@@ -2284,7 +2289,7 @@ async def stun_agent(
 
         detail = _detail(from_state, registry_match=registry_match)
         await _audit_log(
-            conn, tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor",
+            conn, tenant_id, "agent.stunned", agent_id, agent_name, principal.actor,
             detail,
         )
 
@@ -2294,7 +2299,7 @@ async def stun_agent(
         # Same detail the row was built from, so the response cannot drift from
         # what was committed.
         to_state=detail["to_state"],
-        actor="demo-actor",
+        actor=principal.actor,
         stunned_at=now,
         # audit_events.id is generated server-side and the insert does not
         # return it; the row the caller sees is otherwise the row that was
@@ -2305,7 +2310,7 @@ async def stun_agent(
             event_type="agent.stunned",
             agent_id=agent_id,
             agent_name=agent_name,
-            actor="demo-actor",
+            actor=principal.actor,
             detail=detail,
         ),
     )
@@ -2356,8 +2361,9 @@ async def get_agent_violations(
 @router.post("/agents/violations/{violation_id}/acknowledge", responses=ERROR_RESPONSES)
 async def acknowledge_violation(
     violation_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -2367,7 +2373,7 @@ async def acknowledge_violation(
             if violation is None:
                 violation = _seed_unknown_violation(tenant_id, violation_id)
             violation["status"] = "acknowledged"
-            violation["acknowledged_by"] = "demo-actor"
+            violation["acknowledged_by"] = principal.actor
             violation["acknowledged_at"] = now
         return {"status": "acknowledged"}
 
@@ -2377,12 +2383,16 @@ async def acknowledge_violation(
 
     async with _write(pool) as conn:
         await conn.execute(
-            """UPDATE agent_violations SET status = 'acknowledged', acknowledged_by = 'demo-actor', acknowledged_at = now()
+            # acknowledged_by is a bound parameter, not a SQL literal. It
+            # answers the same question as the audit row beside it, so the two
+            # must not disagree -- and a literal in SQL is the easiest place
+            # for a fabricated name to hide.
+            """UPDATE agent_violations SET status = 'acknowledged', acknowledged_by = $3, acknowledged_at = now()
                WHERE id = $1 AND tenant_id = $2""",
-            v_uuid, tenant_id,
+            v_uuid, tenant_id, principal.actor,
         )
         await _audit_log(
-            conn, tenant_id, "violation.acknowledged", None, None, "demo-actor",
+            conn, tenant_id, "violation.acknowledged", None, None, principal.actor,
             {"violation_id": violation_id},
         )
     return {"status": "acknowledged"}
@@ -2392,15 +2402,16 @@ async def acknowledge_violation(
 async def request_reassessment(
     agent_id: str,
     control_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ReassessmentResponse:
+    tenant_id = principal.tenant
     now = _now_iso()
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
     else:
         await _audit_log(
-            pool, tenant_id, "compliance.reassess_requested", agent_id, None, "demo-actor",
+            pool, tenant_id, "compliance.reassess_requested", agent_id, None, principal.actor,
             {"control_id": control_id},
         )
     return ReassessmentResponse(
@@ -2408,7 +2419,7 @@ async def request_reassessment(
         control_id=control_id,
         status="reassessment_requested",
         reassessment_requested_at=now,
-        reassessment_requested_by="demo-actor",
+        reassessment_requested_by=principal.actor,
         clickup_task_id=None,
     )
 
@@ -2713,8 +2724,14 @@ async def _db_policy_scan(
     pool: asyncpg.Pool,
     tenant_id: str,
     request: PolicyScanRequest,
+    actor: str,
 ) -> PolicyScanResponse:
-    """Refresh and project persisted tenant compliance assessments."""
+    """Refresh and project persisted tenant compliance assessments.
+
+    ``actor`` is threaded from the handler rather than defaulted here. A
+    default would be a literal in a helper -- the same defect one level down,
+    and harder to see.
+    """
     async with _write(pool) as conn:
         await conn.execute(
             """UPDATE agent_compliance_results r
@@ -2776,7 +2793,7 @@ async def _db_policy_scan(
         # in agent_compliance_results, and a row per control would make the
         # timeline unreadable on a tenant with a real framework loaded.
         await _audit_log(
-            conn, tenant_id, "compliance.scan_completed", None, None, "demo-actor",
+            conn, tenant_id, "compliance.scan_completed", None, None, actor,
             {
                 "frameworks": request.frameworks,
                 "policy_version": request.policyVersion,
@@ -2798,8 +2815,9 @@ async def _db_policy_scan(
 )
 async def policy_compliance_scan(
     request: PolicyScanRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> PolicyScanResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         raise APIError(
@@ -2807,7 +2825,7 @@ async def policy_compliance_scan(
             "database_unavailable",
             "Policy scanning requires the compliance database",
         )
-    return await _db_policy_scan(pool, tenant_id, request)
+    return await _db_policy_scan(pool, tenant_id, request, principal.actor)
 
 
 @router.get(
@@ -3146,8 +3164,9 @@ async def nhi_discovered(
 @router.post("/nhi/discovered/{account_id}/enroll", responses=ERROR_RESPONSES)
 async def enroll_nhi_account(
     account_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -3170,15 +3189,16 @@ async def enroll_nhi_account(
                WHERE id = $1 AND tenant_id = $2""",
             a_uuid, tenant_id,
         )
-        await _audit_log(conn, tenant_id, "nhi.enrolled", None, None, "demo-actor", {"account_id": account_id})
+        await _audit_log(conn, tenant_id, "nhi.enrolled", None, None, principal.actor, {"account_id": account_id})
     return {"account_id": account_id, "status": "enrollment_requested"}
 
 
 @router.post("/nhi/discovered/{account_id}/dismiss", responses=ERROR_RESPONSES)
 async def dismiss_nhi_account(
     account_id: str,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -3189,7 +3209,7 @@ async def dismiss_nhi_account(
                 account = _seed_unknown_account(tenant_id, account_id)
             account["status"] = "dismissed"
             account["dismissed_at"] = now
-            account["dismissed_by"] = "demo-actor"
+            account["dismissed_by"] = principal.actor
             account["changes_since_dismissal"] = False
             account["previous_risk_flags"] = list(account["findings"])
         return {"account_id": account_id, "status": "dismissed"}
@@ -3205,12 +3225,12 @@ async def dismiss_nhi_account(
     async with _write(pool) as conn:
         await conn.execute(
             """UPDATE nhi_discovered_accounts
-               SET status = 'dismissed', dismissed_at = now(), dismissed_by = 'demo-actor',
+               SET status = 'dismissed', dismissed_at = now(), dismissed_by = $3,
                    changes_since_dismissal = 'false'::jsonb, previous_risk_flags = findings
                WHERE id = $1 AND tenant_id = $2""",
-            a_uuid, tenant_id,
+            a_uuid, tenant_id, principal.actor,
         )
-        await _audit_log(conn, tenant_id, "nhi.dismissed", None, None, "demo-actor", {"account_id": account_id})
+        await _audit_log(conn, tenant_id, "nhi.dismissed", None, None, principal.actor, {"account_id": account_id})
     return {"account_id": account_id, "status": "dismissed"}
 
 
@@ -3395,8 +3415,9 @@ async def tenant_users(
 @router.patch("/tenant/settings/frameworks", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
 async def patch_tenant_frameworks(
     body: FrameworksPatchRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TenantSettingsResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -3411,7 +3432,7 @@ async def patch_tenant_frameworks(
             json.dumps(list(body.selected_frameworks)), tenant_id,
         )
         await _audit_log(
-            conn, tenant_id, "tenant.frameworks_updated", None, None, "demo-actor",
+            conn, tenant_id, "tenant.frameworks_updated", None, None, principal.actor,
             {"selected_frameworks": body.selected_frameworks},
         )
     # Re-fetch via the GET handler, OUTSIDE the transaction: it acquires its own
@@ -3422,8 +3443,9 @@ async def patch_tenant_frameworks(
 @router.patch("/tenant/settings/preferences", response_model=TenantSettingsResponse, responses=ERROR_RESPONSES)
 async def patch_tenant_preferences(
     body: PreferencesPatchRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TenantSettingsResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -3446,7 +3468,7 @@ async def patch_tenant_preferences(
             body.preferred_scan_cadence_hours, body.alert_email, body.alert_threshold, tenant_id,
         )
         await _audit_log(
-            conn, tenant_id, "tenant.preferences_updated", None, None, "demo-actor",
+            conn, tenant_id, "tenant.preferences_updated", None, None, principal.actor,
             {
                 "preferred_scan_cadence_hours": body.preferred_scan_cadence_hours,
                 "alert_email": body.alert_email,
@@ -3679,8 +3701,9 @@ async def consent_status(
 @router.post("/consent/accept", response_model=ConsentAcceptResponse, responses=ERROR_RESPONSES)
 async def accept_consent(
     body: ConsentAcceptRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ConsentAcceptResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     now = _now_iso()
 
@@ -3703,15 +3726,21 @@ async def accept_consent(
 
     async with _write(pool) as conn:
         await conn.execute(
+            # user_email comes from the token. It was the SQL literal
+            # 'demo@signalloom.local', so every consent record in the database
+            # named the same fictional person -- in the column that answers
+            # "who consented", on the record a regulator is most likely to ask
+            # for. A consent event attributed to nobody real is not consent.
             """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
                                             cookie_preferences, b2b_warranty_accepted)
-               VALUES ($1, 'demo@signalloom.local', now(), $2::jsonb, $3::jsonb, $4)""",
+               VALUES ($1, $5, now(), $2::jsonb, $3::jsonb, $4)""",
             tenant_id,
             json.dumps(dict(body.document_versions)),
             json.dumps(body.cookie_preferences.model_dump()),
             body.b2b_warranty_accepted,
+            principal.actor,
         )
-        await _audit_log(conn, tenant_id, "consent.accepted", None, None, "demo-actor", {"document_versions": dict(body.document_versions)})
+        await _audit_log(conn, tenant_id, "consent.accepted", None, None, principal.actor, {"document_versions": dict(body.document_versions)})
     return ConsentAcceptResponse(
         accepted=True,
         accepted_at=now,
@@ -3753,8 +3782,9 @@ async def get_cookie_preferences(
 @router.patch("/cookie-preferences", response_model=CookiePreferencesResponse, responses=ERROR_RESPONSES)
 async def patch_cookie_preferences(
     body: CookiePrefsPatchRequest,
-    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> CookiePreferencesResponse:
+    tenant_id = principal.tenant
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
@@ -3768,14 +3798,16 @@ async def patch_cookie_preferences(
 
     async with _write(pool) as conn:
         await conn.execute(
+            # Same fix as accept_consent: the requester, not a literal.
             """INSERT INTO consent_events (tenant_id, user_email, accepted_at, document_versions,
                                             cookie_preferences, b2b_warranty_accepted)
-               VALUES ($1, 'demo@signalloom.local', now(), '{"tos":"2026-01","privacy":"2026-01"}'::jsonb,
+               VALUES ($1, $3, now(), '{"tos":"2026-01","privacy":"2026-01"}'::jsonb,
                        $2::jsonb, false)""",
             tenant_id,
             json.dumps({"strictly_necessary": True, "analytics": body.analytics}),
+            principal.actor,
         )
-        await _audit_log(conn, tenant_id, "cookie.preferences_updated", None, None, "demo-actor", {"analytics": body.analytics})
+        await _audit_log(conn, tenant_id, "cookie.preferences_updated", None, None, principal.actor, {"analytics": body.analytics})
     return CookiePreferencesResponse(
         cookie_preferences=CookiePreferences(strictly_necessary=True, analytics=body.analytics),
     )

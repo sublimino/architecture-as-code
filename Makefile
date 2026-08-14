@@ -871,7 +871,20 @@ RISK_AGENT   ?= agent-remediation
 RISK_PACK    ?= 2.0.0
 RISK_ORG     ?= acme
 RISK_WITH    ?= ludlow-health
-RISK_GOFLAGS := GOFLAGS=-mod=mod GOPROXY=off
+# -buildvcs=false is deliberate, not a workaround for a broken checkout.
+#
+# Go's VCS stamping shells out to git and fails with "error obtaining VCS status: exit status 128"
+# whenever the build runs inside a git WORKTREE — reproducible on a pristine repo, nothing to do
+# with this code, and the message points at VCS rather than at the build. Worktrees are a
+# first-class workflow here, so a build that only works in the primary checkout is a build that
+# breaks for half the people running it.
+#
+# Turning it off is also the correct setting on its own merits. Nothing in this repository reads
+# the build stamp (no debug.ReadBuildInfo anywhere), and the stamp embeds the commit hash and a
+# dirty flag — so with it ON the binary bytes change when unrelated files are touched. These
+# targets already declare themselves hermetic and offline (GOPROXY=off, -mod=mod); a fingerprint
+# that moves with irrelevant git state works directly against that.
+RISK_GOFLAGS := GOFLAGS='-mod=mod -buildvcs=false' GOPROXY=off
 
 .PHONY: riskctl
 riskctl: ## Build the riskctl binary (offline, vendored).
@@ -893,6 +906,10 @@ risk-compare: riskctl ## Same agent, same pack, two institutions — the proport
 .PHONY: risk-report
 risk-report: riskctl ## Regenerate the committed report under risk/out/.
 	@./scripts/risk-report.sh
+
+.PHONY: fx
+fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml for non-Go consumers.
+	@./$(RISKCTL) fx
 
 .PHONY: risk-check
 risk-check: ## CI gate: artefacts validate, engine self-checks, results are reproducible.

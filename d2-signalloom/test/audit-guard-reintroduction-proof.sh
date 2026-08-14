@@ -58,6 +58,28 @@ trap cleanup EXIT
 
 cp "$GUARD" "$SNAPSHOT/guard.py"
 
+# How to invoke pytest.
+#
+# The harness used a bare `python3 -m pytest`, which is the ONLY thing in this
+# repository that assumes a system-wide pytest. Every CI stage uses
+# `uv run --with pytest ...` instead, and the CI VM has no system pytest at all:
+#
+#   pytest: /usr/bin/python3: No module named pytest
+#
+# So on the VM the guard could never run, every case reported "GUARD DID NOT
+# FIRE", and the stage emitted a ZERO-BYTE report -- while passing 12/12 in 7s
+# on any developer box with pytest installed. Invisible locally by construction.
+#
+# Prefer uv, matching the rest of CI; fall back to python3 -m pytest so a
+# machine without uv still works.
+pytest_cmd() {
+  if command -v uv >/dev/null 2>&1; then
+    printf 'uv run --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
+  else
+    printf 'python3 -m pytest'
+  fi
+}
+
 # `-o addopts=` neutralises whatever src/pytest.ini asks for.
 #
 # That ini gained `-n auto --dist worksteal` when the suite was parallelised.
@@ -78,7 +100,7 @@ cp "$GUARD" "$SNAPSHOT/guard.py"
 # plugin, and stays correct whatever else lands in that ini later.
 run() {
   ( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
-      python3 -m pytest -o addopts= "$1" -q 2>&1 ) \
+      $(pytest_cmd) -o addopts= "$1" -q 2>&1 ) \
     | grep -E "^E +AssertionError" | head -2
 }
 
@@ -108,7 +130,7 @@ assert_pytest_can_run() {
   # whatever the reason.
   local out rc
   out="$( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
-            python3 -m pytest -o addopts= -q "$GUARD" 2>&1 )"
+            $(pytest_cmd) -o addopts= -q "$GUARD" 2>&1 )"
   rc=$?
   if [ "$rc" -ne 0 ]; then
     printf 'FATAL: the guard does not pass on an UNMODIFIED tree (pytest exit %s).\n' "$rc"

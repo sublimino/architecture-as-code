@@ -74,3 +74,48 @@ export const EMPTY_SUPERCRED_STATE: SuperCredDemoState = {
   scan: null,
   observedAt: null,
 }
+
+/**
+ * The one agent the simulated cluster holds in demo-data mode.
+ *
+ * Lives here, in a module that imports nothing, because two very different
+ * consumers need the same answer and neither may depend on the other:
+ * supercredSource builds its simulated observations from it, and fakeData's
+ * stunFixture reads the identity off it when recording a demo audit event —
+ * standing in for the proxy reply the live endpoint gets.
+ *
+ * It was briefly exported from supercredSource instead, which made fakeData
+ * import that module. Nothing about the runtime broke, but it silently broke
+ * *testing*: with that edge present, supercredSource resolved a different
+ * instance of ./demoMode from the one `vi.mock` had replaced, so every live-mode
+ * test in supercredSource.test.ts ran against real demo mode and 48 tests
+ * failed with 'absent' phases and zero fetches. A leaf module has no such
+ * effect, and the single source of truth is what stops the demo audit trail
+ * naming a different agent from the demo cluster.
+ */
+export const SIMULATED_DEMO_AGENT: SuperCredAgentObservation = {
+  id: 'agent-cardvault',
+  name: 'Cardvault Agent',
+  namespace: 'fe-signalloom-agents',
+  type: 'Signal Loom Built',
+  framework: 'langchain',
+  model: 'gpt-4o',
+  phase: 'Running',
+  supercred: true,
+  supercred_target: 'cardvault.fe-signalloom-services',
+  created_at: '2026-08-02T09:55:00Z',
+}
+
+/**
+ * Identity the proxy would report for a pod, in demo mode.
+ *
+ * Null for an id the simulated cluster does not hold, so the caller falls back
+ * to the raw pod name rather than inventing an identity for a workload nothing
+ * has observed.
+ */
+export function simulatedAgentIdentity(
+  agentId: string,
+): { name: string; namespace: string | null } | null {
+  if (agentId !== SIMULATED_DEMO_AGENT.id) return null
+  return { name: SIMULATED_DEMO_AGENT.name, namespace: SIMULATED_DEMO_AGENT.namespace ?? null }
+}

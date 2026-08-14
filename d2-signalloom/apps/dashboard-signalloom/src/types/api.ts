@@ -169,23 +169,17 @@ export interface RevokeCredentialResponse {
 // event, written in one transaction. The response echoes the audit row so the
 // caller can show the trace it just created without a second round trip.
 //
-// The body carries locator only. `reason` and `outcome` used to live here and
-// were removed: the browser is not a witness to what it just asked another
-// service to do, so anything it says about the outcome is a claim, not an
-// observation. `outcome` in particular was populated from a client-side
-// fallback, so a proxy that reported nothing still produced a confident
-// "stunned" in the audit detail. The server authors both fields now.
+// There is deliberately no StunAgentRequest. The endpoint takes no body at all:
+// actor comes from the validated token, the target from the path, the prior
+// state from the server's own locking read, and namespace and outcome from the
+// proxy's reply to the call the *server* makes. Nothing is sourced from the
+// browser, so there is nothing for the browser to get wrong or to lie about.
 //
-// Keeping them out of the type is the second lock: the endpoint's Pydantic
-// model is `extra="forbid"`, so re-adding them here would not merely restore a
-// bad record — it would 422 the whole request and the audit row would never be
-// written at all. auditBoundary.test.ts is the first lock.
-export interface StunAgentRequest {
-  /** Which workload was acted on. Not derivable server-side: SuperCred agent
-   *  ids are pod names, so they resolve to no registry row. */
-  agent_name?: string | null
-  namespace?: string | null
-}
+// It briefly carried `agent_name` and `namespace` as locator after `reason` and
+// `outcome` were removed as narrative. Those went too once the endpoint started
+// performing the cluster action rather than recording someone else's: the proxy
+// resolves a pod name to its namespace on its own, so the client had nothing
+// left to contribute. auditBoundary.test.ts fails if a body reappears.
 
 export interface StunAgentResponse {
   agent_id: string
@@ -196,6 +190,15 @@ export interface StunAgentResponse {
   actor: string
   stunned_at: string
   event: AuditEventResponse
+  /** What the SuperCred proxy reported back to the endpoint that called it.
+   *  Optional because it is the proxy's wording, and the proxy can fail to
+   *  supply one — the page composes display text from the fields above rather
+   *  than rendering a blank line. Display only; nothing here is the audit
+   *  record, which travels in `event`. */
+  message?: string | null
+  /** The pod label the proxy observed after relabelling. Cluster vocabulary,
+   *  distinct from the lifecycle `to_state` above. */
+  state?: string | null
 }
 
 export interface TransitionRequest {

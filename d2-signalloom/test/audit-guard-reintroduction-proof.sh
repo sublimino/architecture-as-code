@@ -90,12 +90,35 @@ verdict "$(run tests/test_audit_provenance.py)"
 
 # --------------------------------------------------------------------------
 case_start "CASE 2  widening a KNOWN violation (per-field keying, not per-handler)"
+# Rewritten 2026-08-14, same reason as CASE 9: this used to delete one of the
+# four stun exemptions to prove the dict keys per FIELD rather than per handler,
+# and the stun fix removed the block it cut into.
+#
+# It now works the other way round -- add a SECOND violating field to a handler
+# that already has one exempted. If the dict keyed per handler, the existing
+# entry would cover the new field and nothing would fire. That tests the same
+# property from the opposite direction and does not depend on there being more
+# than one exemption for any given handler.
 patch_py '
 import pathlib
-p = pathlib.Path("'"$GUARD"'"); s = p.read_text()
-a = s.index("            (\n                \"detail\", \"outcome\",")
-b = s.index("            (\n                \"detail\", \"reason\",")
-p.write_text(s[:a] + s[b:])
+# Two edits: introduce a violation, then exempt a DIFFERENT field on the SAME
+# handler. If the dict keyed per handler, that exemption would swallow the
+# violation and nothing would fire.
+src = pathlib.Path("'"$SRC"'/api_compat.py"); s = src.read_text()
+old = "\"agent.created\", str(row[\"id\"]), body.name, principal.actor, {\"source\": \"api\"})"
+assert old in s, "CASE 2 source anchor missing"
+new = "\"agent.created\", str(row[\"id\"]), body.name, principal.actor, {\"source\": \"api\", \"note\": body.description})"
+src.write_text(s.replace(old, new, 1))
+
+g = pathlib.Path("'"$GUARD"'"); t = g.read_text()
+anchor = "ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {"
+assert anchor in t, "CASE 2 guard anchor missing"
+g.write_text(t.replace(anchor, anchor + """
+    ("api_compat.py", "create_agent", "detail", "name"): (
+        "CASE 2 probe: exempts a DIFFERENT field on the same handler as the "
+        "injected violation. If this silences the violation, the dict keys per "
+        "handler and one accepted field grants an amnesty to every other."
+    ),""", 1))
 '
 verdict "$(run tests/test_audit_provenance.py)"
 
@@ -199,19 +222,33 @@ p.write_text(s.replace(old, new, 1))
 verdict "$(run tests/test_audit_provenance.py)"
 
 # --------------------------------------------------------------------------
-case_start "CASE 9  a stale exemption (fixing stun must FORCE its entries out)"
+case_start "CASE 9  a stale exemption must FORCE its own removal"
+# Rewritten 2026-08-14. This case used to patch api_compat.py to SIMULATE the
+# stun fix, so that the four stun exemptions went stale. The stun fix has since
+# landed for real and those entries are gone, which broke the case outright --
+# it searched for source that no longer exists.
+#
+# That is the case doing its job and then outliving its target, and it is worth
+# recording rather than quietly repointing: a proof anchored to one handler's
+# source shape has a shelf life measured in fixes. Anchoring instead to the
+# exemption dict itself tests the same property -- an entry that no longer
+# describes a violation must fail -- and cannot rot when a handler changes,
+# because a non-violating call site is what it asserts about.
 patch_py '
 import pathlib
-p = pathlib.Path("'"$SRC"'/api_compat.py"); s = p.read_text()
-before = s
-s = s.replace("    reason = req.reason or \"operator-initiated stun\"\n    outcome = req.outcome or \"stunned\"\n",
-              "    reason = \"operator-initiated stun\"\n    outcome = \"stunned\"\n", 1)
-s = s.replace("            \"namespace\": req.namespace,\n", "            \"namespace\": None,\n", 1)
-s = s.replace("            agent_name = req.agent_name or (None if agent is None else str(agent[\"name\"]))\n",
-              "            agent_name = None if agent is None else str(agent[\"name\"])\n", 1)
-s = s.replace("        agent_name = req.agent_name or (None if row is None else row[\"name\"])\n",
-              "        agent_name = None if row is None else row[\"name\"]\n", 1)
-assert s != before, "CASE 9 anchors missing"
+p = pathlib.Path("'"$GUARD"'"); s = p.read_text()
+anchor = "ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {"
+assert anchor in s, "CASE 9 anchor missing"
+# acknowledge_violation takes no request body at all -- it performs its own
+# UPDATE and sources the actor from the principal. Exempting it is therefore
+# exempting a call site that cannot violate, which is exactly the shape of a
+# stale entry left behind after a fix.
+s = s.replace(anchor, anchor + """
+    ("api_compat.py", "acknowledge_violation", "detail", "reason"): (
+        "CASE 9 probe: an exemption for a handler that accepts no client "
+        "content at all. If this passes, a real exemption can outlive the "
+        "defect it described and go on covering whatever moves in behind it."
+    ),""", 1)
 p.write_text(s)
 '
 verdict "$(run tests/test_audit_provenance.py)"

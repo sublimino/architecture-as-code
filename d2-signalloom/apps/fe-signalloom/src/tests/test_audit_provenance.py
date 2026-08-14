@@ -49,25 +49,47 @@ against is a check that reads as coverage while providing none.
 *Decidable, and decided here:* whether a value that reaches an audit write can
 be traced syntactically to a request body; whether the handler also persists
 that same field; whether a mutating route reaches an audit writer at all;
+whether the audit row is issued against the same connection as the change it
+describes; whether a handler audits while performing no observable action;
 whether an audit writer has a non-durable branch; whether the browser posts to
 an audit-recording route.
 
-*Not decidable, and deliberately not pretended:* whether a recorded value is
-*true*. A handler that launders a client value through a variable the server
-also writes will pass ``test_no_client_supplied_field_reaches_an_audit_write``,
-and no amount of AST work fixes that -- it is a semantic property. The
-persistence test below narrows the gap (a laundered value must at least have
-been written to a business table, which is a real constraint) but does not
-close it. Reviewers still have to read stun-shaped handlers.
+THREE THINGS THIS FILE CANNOT SEE
+---------------------------------
+Meet them here rather than by finding a case that slips through. A green run
+means these three were not checked, not that they are fine.
 
-Also out of reach: the five cluster-mutating routes in
-``d2-signalloom/apps/fleet-manager/main.go`` -- ``/fleet/deploy``,
-``/fleet/stun/``, ``/fleet/scan``, ``/fleet/recover``, ``/fleet/reset``. The
-string "audit" does not appear in that service. ``/fleet/stun/`` is the
-endpoint that actually performs the enforcement action that
-``POST /agents/{id}/stun`` narrates, so the system currently audits the
-narration and not the act. A Python AST guard cannot see Go; this is recorded
-here so the omission is deliberate and findable rather than an oversight.
+1. **Whether a recorded value is true.** A handler that launders a client value
+   through a variable the server also writes passes
+   ``test_no_client_supplied_field_reaches_an_audit_write``. No AST analysis
+   fixes this -- it is a property of values, not a shape in the tree. The
+   persistence rule narrows it to "a laundered value must at least have been
+   written to a business table", which is a real constraint and not nothing,
+   but it is not proof. Reviewers still have to read stun-shaped handlers, and
+   that requirement does not go away because a suite is green.
+
+2. **Anything written in Go.** ``d2-signalloom/apps/fleet-manager/main.go``
+   registers five cluster-mutating routes -- ``/fleet/deploy``,
+   ``/fleet/stun/``, ``/fleet/scan``, ``/fleet/recover``, ``/fleet/reset`` --
+   and the string "audit" does not appear anywhere in that service.
+   ``/fleet/stun/`` is the endpoint that actually performs the enforcement
+   action that ``POST /agents/{id}/stun`` merely narrates, so the system audits
+   the narration and not the act. A Python AST guard cannot see Go. Recorded so
+   the omission is deliberate and findable rather than an oversight.
+
+3. **A persisted-but-sensitive field, which is permitted here by design.** The
+   rule is "client content may reach an audit row if the handler also persisted
+   it", so copying a field the handler stored always passes -- including one
+   that should not be on the audit timeline at all. ``body.message`` on a
+   support request is the live example: it is persisted to
+   ``support_requests``, so this file would allow it into ``detail``, and it
+   may contain credentials pasted from a log or another customer's name.
+   ``test_write_transactions.test_the_support_audit_row_does_not_copy_the_
+   message_body`` is the complementary cover, asserting on the stored row that
+   the body does not appear. The two rules are deliberately different in kind:
+   this file asks where a value came from, that one asks whether a specific
+   value belongs. Neither generalises into the other, and this one was not
+   stretched into a PII check it could not honestly perform.
 """
 from __future__ import annotations
 

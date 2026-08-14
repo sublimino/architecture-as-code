@@ -245,7 +245,10 @@ def test_the_audit_event_carries_the_old_and_new_values_and_the_actor(client: Te
     assert latest["actor"] == "curr-audit"
     assert latest["detail"]["from"] == "GBP"
     assert latest["detail"]["to"] == "EUR"
-    assert latest["detail"]["email"] == "curr-audit"
+    # No "email" in the payload. The actor column above already carries it --
+    # Principal.actor IS the email claim when Dex grants one -- and a second
+    # copy inside an append-only JSONB column duplicated PII for no gain.
+    assert "email" not in latest["detail"]
 
 
 def test_the_first_change_records_the_default_as_the_previous_value(client: TestClient) -> None:
@@ -332,7 +335,10 @@ def test_the_audited_email_comes_from_the_token_and_cannot_be_supplied(client: T
         headers=_bearer("curr-audit"),
     )
     latest = _currency_events("tenant-curr-audit")[-1]
-    assert latest["detail"]["email"] == "curr-audit"
+    # Asserted on `actor`, which is where the identity lives now. The payload's
+    # duplicate copy of it has been removed; what this test is actually about
+    # -- that the identity comes from the token and never from the body -- is
+    # unchanged, and the "appears nowhere" assertion below is what proves it.
     assert latest["actor"] == "curr-audit"
     assert "someone.else@bank.example" not in str(latest)
 

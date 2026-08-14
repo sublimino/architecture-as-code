@@ -2763,6 +2763,28 @@ async def _db_policy_scan(
             )
             for row in rows
         ]
+
+        # Inside the same transaction as the UPDATE it describes, so the
+        # recorded pass/fail counts are the ones this scan actually produced.
+        # Audited because a compliance verdict changing with nothing recording
+        # that it changed is the gap this product exists to close: assessed_at
+        # moves on every control in scope, and the previous verdict is
+        # overwritten in place, so without this row there is no way to say when
+        # a control started failing or who asked.
+        #
+        # The counts are recorded, not the per-control detail -- the detail is
+        # in agent_compliance_results, and a row per control would make the
+        # timeline unreadable on a tenant with a real framework loaded.
+        await _audit_log(
+            conn, tenant_id, "compliance.scan_completed", None, None, "demo-actor",
+            {
+                "frameworks": request.frameworks,
+                "policy_version": request.policyVersion,
+                "controls_assessed": len(checks),
+                "controls_passed": sum(check.passed for check in checks),
+                "controls_failed": sum(not check.passed for check in checks),
+            },
+        )
     return PolicyScanResponse(
         checks=checks,
         summary=_policy_scan_summary(checks, request.policyVersion),

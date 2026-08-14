@@ -235,6 +235,11 @@ class FakePostgres:
                 },
             )
             return
+        if "UPDATE agent_compliance_results" in query:
+            # No rows are seeded, so the refresh is a no-op. The audit row is
+            # what is under test, and it must be written for a scan that
+            # assessed nothing just as much as for one that assessed plenty.
+            return
         if "INSERT INTO tenant_onboarding" in query:
             (tenant_id,) = args
             state.tenant_onboarding.setdefault(
@@ -785,6 +790,50 @@ def test_skipping_onboarding_is_covered_by_the_same_guarantee(
         "tenant-tx-pooled"
     ]["status"] == "pending"
     assert onboarding_audit_rejects.committed.audit_events == []
+
+
+# ---------------------------------------------------------------------------
+# policy_compliance_scan: the verdict refresh and the record of it
+# ---------------------------------------------------------------------------
+
+def test_a_policy_scan_records_the_verdict_it_produced(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """A compliance verdict that changes with nothing recording it is the gap.
+
+    The scan moves assessed_at on every control in scope and overwrites the
+    previous verdict in place, so without this row there is no way to say when
+    a control started failing.
+    """
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "fe-signalloom", "frameworks": [], "policyVersion": "v1"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 200, response.text
+    assert [e["event_type"] for e in healthy.committed.audit_events] == [
+        "compliance.scan_completed",
+    ]
+    detail = json.loads(healthy.committed.audit_events[0]["detail"])
+    assert detail["policy_version"] == "v1"
+    assert detail["controls_assessed"] == 0
+    assert healthy.commits == 1
+
+
+def test_a_rejected_audit_event_rolls_back_the_scan_refresh(
+    client: TestClient, audit_rejects: FakePostgres,
+) -> None:
+    """The refresh must not survive without the record of it."""
+    response = client.post(
+        "/api/compliance/policy/scan",
+        json={"namespace": "fe-signalloom", "frameworks": [], "policyVersion": "v1"},
+        headers=_bearer("tx-pooled"),
+    )
+
+    assert response.status_code == 500, response.text
+    assert audit_rejects.committed.audit_events == []
+    assert audit_rejects.rollbacks == 1
 
 
 # ---------------------------------------------------------------------------

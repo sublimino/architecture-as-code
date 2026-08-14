@@ -2156,6 +2156,30 @@ async def stun_agent(
     UUID lookup would drop. When the id does resolve, the state change and the
     event commit together; when it does not, the event is still written, with
     the raw id preserved in ``detail.agent_ref``.
+
+    That second case must record what was *observed*, not what was intended.
+    It previously recorded ``from_state: "active"`` and
+    ``to_state: "suspended"`` for an id that resolved to nothing: no row was
+    read, so no prior state was known, and no ``UPDATE`` ran, so no new state
+    was reached. The row asserted a transition between two states of which
+    neither had been seen. The transaction around it was impeccable, which is
+    what made it dangerous -- a fabricated payload that reads as trustworthy is
+    worse than a missing row, because a missing row prompts the question and
+    this one answered it wrongly.
+
+    It was also the only branch the demo ever took: the instructor panel posts
+    the literal id ``agent-cardvault``, which is not a UUID.
+
+    So the payload now separates the three claims that were being conflated:
+    ``requested_state`` is what the caller asked for, ``from_state`` is what
+    was read (or ``"unknown"``), and ``to_state`` is what the registry holds
+    afterwards (or ``"unchanged"``). ``registry_match`` says plainly which of
+    the two shapes a reader is looking at.
+
+    What this endpoint still cannot tell you is whether the *cluster* action
+    succeeded -- the relabel and the lease revocation belong to the SuperCred
+    proxy, which reports back to nobody. ``requested_state`` is therefore a
+    record of intent, and deliberately not named as an outcome.
     """
     req = body or StunAgentRequest()
     reason = req.reason or "operator-initiated stun"
@@ -2163,13 +2187,31 @@ async def stun_agent(
     now = _now_iso()
     pool = await _get_pool()
 
-    def _detail(from_state: str) -> dict[str, Any]:
+    def _detail(from_state: str, *, registry_match: bool) -> dict[str, Any]:
         return {
             "outcome": outcome,
             "reason": reason,
             "namespace": req.namespace,
             "from_state": from_state,
-            "to_state": STUNNED_LIFECYCLE_STATE,
+            # What the registry holds after this call. With no row to update,
+            # nothing moved -- saying so is the whole point of this change.
+            "to_state": STUNNED_LIFECYCLE_STATE if registry_match else "unchanged",
+            # What was asked for. True either way, and a different claim from
+            # what was reached; keeping them apart is what stops the row lying.
+            "requested_state": STUNNED_LIFECYCLE_STATE,
+            "registry_match": registry_match,
+            # The caller's identifier, verbatim, and load-bearing rather than
+            # decorative: ``_audit_log`` puts ``_try_uuid(agent_id)`` into
+            # ``audit_events.agent_id``, which is a UUID column, so a pod name
+            # like agent-cardvault stores NULL there. Without this field the
+            # row could not say which agent it was about at all -- and since
+            # the instructor panel posts a pod name, that is every row the
+            # demo has ever written.
+            #
+            # Kept in the JSON payload rather than widening the column: the
+            # UUID foreign key is the right shape for registry agents, and a
+            # row should be self-describing regardless of whether its subject
+            # happens to be one.
             "agent_ref": agent_id,
         }
 
@@ -2177,19 +2219,28 @@ async def stun_agent(
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
             agent = _AGENTS[tenant_id].get(agent_id)
-            from_state = "active" if agent is None else str(agent["lifecycle_state"])
+            # "unknown", not "active": no entry was found, so no prior state
+            # was observed. The fixture path fabricated this exactly as the
+            # pooled path did, and it is the path the demo serves with no
+            # database configured -- fixing one and not the other would leave
+            # the defect live in the deployment most likely to be running.
+            registry_match = agent is not None
+            from_state = "unknown" if agent is None else str(agent["lifecycle_state"])
             agent_name = req.agent_name or (None if agent is None else str(agent["name"]))
             if agent is not None:
                 agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
                 agent["last_transition_at"] = now
                 agent["last_transition_by"] = "demo-actor"
+        detail = _detail(from_state, registry_match=registry_match)
         event = _record_memory_audit(
-            tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor", _detail(from_state),
+            tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor", detail,
         )
         return StunAgentResponse(
             agent_id=agent_id,
             from_state=from_state,
-            to_state=STUNNED_LIFECYCLE_STATE,
+            # The response is the caller's copy of the row. If they disagree,
+            # one of them is wrong, so it reads its value from the same detail.
+            to_state=detail["to_state"],
             actor="demo-actor",
             stunned_at=now,
             event=AuditEventResponse(**event),
@@ -2197,9 +2248,19 @@ async def stun_agent(
 
     agent_uuid = _try_uuid(agent_id)
 
-    # The read, the update and the audit insert share one transaction, so the
-    # from_state recorded is the state the update actually moved away from --
-    # and a rejected audit row takes the state change down with it.
+    # The read, the update and the audit insert share one transaction, and a
+    # rejected audit row takes the state change down with it.
+    #
+    # The rest of that guarantee is conditional, and this comment used to state
+    # it as though it were not: "the from_state recorded is the state the update
+    # actually moved away from". True when the id resolves. When it does not,
+    # there is no read to take a state from and no update to move away from --
+    # which is why the fabricated active -> suspended row survived. Someone
+    # checking the invariant found a comment telling them it held.
+    #
+    # So, precisely: when `row is not None`, from_state is the state read under
+    # FOR UPDATE and to_state is the state written. When it is None, both are
+    # recorded as unobserved, because that is what they are.
     async with _write(pool) as conn:
         row = None
         if agent_uuid is not None:
@@ -2207,7 +2268,11 @@ async def stun_agent(
                 "SELECT lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
                 agent_uuid, tenant_id,
             )
-        from_state = "active" if row is None else str(row["lifecycle_state"])
+        # No row means nothing was read, so there is no prior state to name.
+        # Guessing one produced the fabricated active -> suspended record this
+        # branch used to write on every demo run.
+        registry_match = row is not None
+        from_state = "unknown" if row is None else str(row["lifecycle_state"])
         agent_name = req.agent_name or (None if row is None else row["name"])
 
         if row is not None:
@@ -2217,15 +2282,18 @@ async def stun_agent(
                 STUNNED_LIFECYCLE_STATE, agent_uuid, tenant_id,
             )
 
+        detail = _detail(from_state, registry_match=registry_match)
         await _audit_log(
             conn, tenant_id, "agent.stunned", agent_id, agent_name, "demo-actor",
-            _detail(from_state),
+            detail,
         )
 
     return StunAgentResponse(
         agent_id=agent_id,
         from_state=from_state,
-        to_state=STUNNED_LIFECYCLE_STATE,
+        # Same detail the row was built from, so the response cannot drift from
+        # what was committed.
+        to_state=detail["to_state"],
         actor="demo-actor",
         stunned_at=now,
         # audit_events.id is generated server-side and the insert does not
@@ -2238,7 +2306,7 @@ async def stun_agent(
             agent_id=agent_id,
             agent_name=agent_name,
             actor="demo-actor",
-            detail=_detail(from_state),
+            detail=detail,
         ),
     )
 

@@ -50,6 +50,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
 import api_compat
+import onboarding
 from api_compat import settings
 from db.connection import set_pool_for_testing
 from main import app
@@ -80,6 +81,7 @@ class _State:
     api_keys: list[dict[str, Any]] = field(default_factory=list)
     tenant_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     nhi_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    tenant_onboarding: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 class AuditInsertRejected(asyncpg.CheckViolationError):
@@ -232,6 +234,19 @@ class FakePostgres:
                 },
             )
             return
+        if "INSERT INTO tenant_onboarding" in query:
+            (tenant_id,) = args
+            state.tenant_onboarding.setdefault(
+                tenant_id,
+                {
+                    "tenant_id": tenant_id,
+                    "status": "pending",
+                    "skipped_at": None,
+                    "completed_at": None,
+                    "wizard_state": {},
+                },
+            )
+            return
         raise AssertionError(f"unexpected execute: {query}")
 
     def read_one(self, state: _State, query: str, *args: Any) -> dict[str, Any] | None:
@@ -287,6 +302,20 @@ class FakePostgres:
             return {"cnt": sum(1 for a in state.agent_registry if a["tenant_id"] == args[0])}
         if "FROM consent_events" in query:
             return None
+        # The terminal-transition UPDATE carries its own guard (status <> $2) and
+        # returns the row only when it actually moved, which is what makes
+        # re-skipping idempotent. The fake has to honour that guard or the
+        # idempotence path would never be exercised.
+        if "UPDATE tenant_onboarding" in query and "RETURNING" in query:
+            tenant_id, status, now = args
+            row = state.tenant_onboarding[tenant_id]
+            if row["status"] == status:
+                return None
+            row["status"] = status
+            row["completed_at" if status == "completed" else "skipped_at"] = now
+            return row
+        if "FROM tenant_onboarding" in query:
+            return state.tenant_onboarding.get(args[0])
         raise AssertionError(f"unexpected fetchrow: {query}")
 
     def read_many(self, state: _State, query: str, *args: Any) -> list[dict[str, Any]]:
@@ -663,6 +692,83 @@ def test_a_pod_with_no_registry_row_records_no_transition_it_did_not_make(
     assert detail["to_state"] == "unchanged"
     assert detail["requested_state"] == "suspended"
     assert detail["registry_match"] is False
+
+
+# ---------------------------------------------------------------------------
+# onboarding: the terminal transition and its audit are one write
+# ---------------------------------------------------------------------------
+#
+# onboarding.py lives outside api_compat.py and was never covered here, so it
+# kept the exact shape migration 007 was written about: an UPDATE against the
+# pool, then _audit_log(pool, ...) as a second autocommit statement. The tests
+# above pin fifteen writers in api_compat; this file's guarantee simply did not
+# reach across the module boundary.
+#
+# onboarding.py binds `_get_pool` at import (`from api_compat import _get_pool`),
+# so patching api_compat alone leaves it pointing at the real one. Both names
+# have to move or the test silently exercises nothing.
+
+@pytest.fixture
+def onboarding_pool(monkeypatch: pytest.MonkeyPatch, healthy: FakePostgres) -> FakePostgres:
+    monkeypatch.setattr(onboarding, "_get_pool", lambda: _async(healthy))
+    return healthy
+
+
+@pytest.fixture
+def onboarding_audit_rejects(
+    monkeypatch: pytest.MonkeyPatch, audit_rejects: FakePostgres,
+) -> FakePostgres:
+    monkeypatch.setattr(onboarding, "_get_pool", lambda: _async(audit_rejects))
+    return audit_rejects
+
+
+async def _async(value: Any) -> Any:
+    return value
+
+
+def test_completing_onboarding_commits_the_status_and_its_audit_together(
+    client: TestClient, onboarding_pool: FakePostgres,
+) -> None:
+    response = client.post("/api/onboarding/complete", headers=_bearer("tx-pooled"))
+
+    assert response.status_code == 200, response.text
+    assert onboarding_pool.committed.tenant_onboarding["tenant-tx-pooled"]["status"] == "completed"
+    assert [e["event_type"] for e in onboarding_pool.committed.audit_events] == [
+        "onboarding_completed",
+    ]
+
+
+def test_a_rejected_audit_event_leaves_onboarding_incomplete(
+    client: TestClient, onboarding_audit_rejects: FakePostgres,
+) -> None:
+    """A tenant marked onboarded with no record of when is an unanswerable claim.
+
+    "When did this tenant finish onboarding" is exactly the question the status
+    exists to answer, and the audit row is the only durable evidence of the
+    transition -- tenant_onboarding keeps the terminal state, not the history.
+    Letting the status survive a failed audit insert leaves the product asserting
+    a completion it cannot evidence.
+    """
+    response = client.post("/api/onboarding/complete", headers=_bearer("tx-pooled"))
+
+    assert response.status_code == 500, response.text
+    assert onboarding_audit_rejects.committed.tenant_onboarding[
+        "tenant-tx-pooled"
+    ]["status"] == "pending", "the completion survived a failed audit insert"
+    assert onboarding_audit_rejects.committed.audit_events == []
+    assert onboarding_audit_rejects.rollbacks == 1
+
+
+def test_skipping_onboarding_is_covered_by_the_same_guarantee(
+    client: TestClient, onboarding_audit_rejects: FakePostgres,
+) -> None:
+    """Skip and complete are the same code path; both must roll back."""
+    client.post("/api/onboarding/skip", headers=_bearer("tx-pooled"))
+
+    assert onboarding_audit_rejects.committed.tenant_onboarding[
+        "tenant-tx-pooled"
+    ]["status"] == "pending"
+    assert onboarding_audit_rejects.committed.audit_events == []
 
 
 # ---------------------------------------------------------------------------

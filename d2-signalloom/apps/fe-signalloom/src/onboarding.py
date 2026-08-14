@@ -50,6 +50,7 @@ from api_compat import (
     _audit_log,
     _ensure_tenant_settings,
     _get_pool,
+    _write,
     authenticated_tenant,
 )
 
@@ -152,6 +153,18 @@ async def _terminal_transition(
     and a double-clicked button must not rewrite that answer. The guard is in
     SQL (``WHERE status <> $1``) rather than a read-then-write in Python, so two
     concurrent requests cannot both pass a check and race on the update.
+
+    The UPDATE and its audit insert share one ``_write`` transaction. They used
+    to be two statements against the pool, and every pool statement is its own
+    autocommit — so a rejected audit row left the tenant marked completed with
+    nothing recording when. That is the precise failure migration 007 was
+    written about; it was fixed across api_compat.py and missed here, because
+    this module sits outside the file ``test_write_transactions.py`` covered.
+
+    It matters more here than the shape suggests: ``tenant_onboarding`` holds
+    only the terminal state, so the ``audit_events`` row is the sole durable
+    evidence that the transition ever happened. Losing it leaves the product
+    asserting a completion it cannot evidence.
     """
     pool = await _get_pool()
     now = datetime.now(timezone.utc)
@@ -165,29 +178,38 @@ async def _terminal_transition(
             return _status_from(row)
 
     await _ensure_row(pool, tenant_id)
-    updated = await pool.fetchrow(
-        f"""UPDATE tenant_onboarding
-               SET status = $2, {column} = $3
-             WHERE tenant_id = $1 AND status <> $2
-         RETURNING *""",
-        tenant_id, status, now,
-    )
+
+    async with _write(pool) as conn:
+        updated = await conn.fetchrow(
+            f"""UPDATE tenant_onboarding
+                   SET status = $2, {column} = $3
+                 WHERE tenant_id = $1 AND status <> $2
+             RETURNING *""",
+            tenant_id, status, now,
+        )
+        # No row came back: the guard held, nothing moved, and an audit row for
+        # a transition that did not happen would be a fabrication of exactly
+        # the kind this trail is supposed to be free of.
+        if updated is not None:
+            await _audit_log(
+                conn,
+                tenant_id=tenant_id,
+                event_type=event_type,
+                agent_id=None,
+                agent_name=None,
+                actor=ACTOR,
+                detail={"status": status, "at": _iso(now)},
+            )
+
     if updated is None:
-        # Already in this status — return the existing row untouched.
+        # Already in this status — return the existing row untouched. Read
+        # after the block, not inside it: a read taken on the transaction's
+        # connection could not see anything another request had committed.
         existing = await pool.fetchrow(
             "SELECT * FROM tenant_onboarding WHERE tenant_id = $1", tenant_id,
         )
         return _status_from(existing)
 
-    await _audit_log(
-        pool,
-        tenant_id=tenant_id,
-        event_type=event_type,
-        agent_id=None,
-        agent_name=None,
-        actor=ACTOR,
-        detail={"status": status, "at": _iso(now)},
-    )
     return _status_from(updated)
 
 

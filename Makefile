@@ -77,6 +77,7 @@ help: ## Display this help.
 	@printf '\n\033[1mDebugging first moves\033[0m\n'
 	@printf '  %s\n' 'make doctor                                  full read-only cluster diagnostic'
 	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
+	@printf '  %s\n' 'make ci-state / ci-state-2                   what the last run DID, and which file says so (local, no gcloud)'
 	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
 	@printf '  %s\n' 'unset SSH_AUTH_SOCK                          before any ad-hoc gcloud compute ssh, or it "times out"'
 	@printf '  %s\n' 'make check-deployed-staleness                is the cluster running THIS tree? (exit 2 = unproven, not a pass)'
@@ -907,6 +908,23 @@ ci-report-2: ## View VM2's last collected stage summary and report path.
 	@if [ -f ci-reports-2/signalloom-ci-2-report.yaml ]; then \
 		echo "OpenReports: ci-reports-2/signalloom-ci-2-report.yaml"; \
 	fi
+
+# ci-state answers "what happened to the last run?" without gcloud, without the
+# network, and without touching the lock — so it is safe to run while a lane is
+# in flight. It names the report file it read by absolute path, because with a
+# dozen checkouts of this repo each holding their own <checkout>/ci-reports, the
+# data was never the problem: knowing which file was authoritative was.
+#
+# It exits 0 only on PASS. ABORTED, STALE and a run still in flight all exit
+# non-zero, so `make ci-state && deploy` cannot proceed on a non-verdict — make
+# will print "Error 2" for those, which is the point, not a bug.
+.PHONY: ci-state
+ci-state: ## What did the last ci-gcp run do? Names the report file it read. Exit 0 only on PASS.
+	@./scripts/ci/gcp-ci.sh state
+
+.PHONY: ci-state-2
+ci-state-2: ## What did the last ci-gcp-2 run do? Names the report file it read. Exit 0 only on PASS.
+	@$(CI_2_ENV) ./scripts/ci/gcp-ci.sh state
 
 .PHONY: ci-ssh
 ci-ssh: ## SSH into the CI VM for debugging (resumes if suspended).

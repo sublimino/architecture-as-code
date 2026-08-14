@@ -27,7 +27,7 @@ run_stage "static topology, Gateway, probes, Dex, and policy contracts" \
   env LC_ALL=C LANG=C make -C d2-signalloom test
 run_stage "API contracts and persistence" \
   bash -c 'cd d2-signalloom/apps/fe-signalloom/src && \
-    uv run --python 3.12 --with pytest --with pytest-asyncio \
+    uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
       --with-requirements requirements.txt python -m pytest tests -q'
 run_stage "deterministic fake integrations" \
   env PYTHONPATH=d2-signalloom/apps/fake-integration-proxy \

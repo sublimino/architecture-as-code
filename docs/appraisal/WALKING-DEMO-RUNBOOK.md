@@ -1,5 +1,22 @@
 # Walking Demo Runbook — Signal Loom Dashboard in OSRAMP
 
+> **PARTIALLY SUPERSEDED, 2026-08-14.** Written 2026-07-28, when the API shim was not yet
+> at contract and the demo could not be walked. That gap closed on 2026-07-28 (see the
+> banner on `APPRAISAL.md`), so the "known gaps" below no longer describe reality and the
+> walk needs no preconditions from `APPRAISAL.md`. The bring-up and reach paths are still
+> broadly right and are why this file is kept rather than deleted; the corrections are
+> marked inline. Anything about who is building what "tonight" refers to July 2026 and
+> should be read as historical.
+>
+> For what the four screens now do, read
+> [`../signalloom/audit-trail.md`](../signalloom/audit-trail.md) (Audit Trail),
+> [`../signalloom/display-currency.md`](../signalloom/display-currency.md) (Settings →
+> Currency), and [`../FAQ.md`](../FAQ.md).
+>
+> **Before you believe any of this walked:** `make check-deployed-staleness`. The pods may
+> be older than the code you just built — see `TESTING.md` § *Is the running code the code
+> you tested?*.
+
 > Grounded against the root `Makefile`, `gateway-route.yaml`, `dex.yaml`, and the Dex-login work ISA.
 > Two reach paths exist; **Path 1 (single-origin, port 5173)** is the one the parallel Dex-login process is building — prefer it. Path 2 (Envoy gateway :18443) is the fallback.
 
@@ -41,18 +58,42 @@ echo '127.0.0.1 dashboard.osramp.acme.local' | sudo tee -a /etc/hosts
 # open: https://dashboard.osramp.acme.local:18443/   (accept self-signed cert first)
 ```
 
-## The walk (after contract items 1-3 in APPRAISAL.md land)
+## The walk
+
+> The "(after contract items 1-3 in APPRAISAL.md land)" qualifier this heading used to
+> carry is spent — they landed on 2026-07-28 and all 28 endpoints serve live data. The
+> per-step "needs X shape" notes are likewise historical and are kept only so the shapes
+> are named somewhere.
+
 1. Land → login (`demo-user`/`password`) → dashboard shell renders.
 2. **Agents** → list shows tenant-demo agents (needs `AgentListResponse` shape).
 3. **Compliance** → summary + posture + frameworks (needs `/compliance/summary`, `/compliance/posture`, `/frameworks`).
 4. **Audit Trail** → events table (needs `AuditListResponse` shape w/ `timestamp`).
 5. **Settings** → tenant settings (needs `/tenant/settings` path + `TenantSettingsResponse`).
+
+Two things on this walk have changed materially since it was written and will read as
+faults if you are not expecting them:
+
+* **Audit Trail rows name an email address, or `demo-actor`.** Both are correct. The
+  actor comes from the validated token, and the rows still reading `demo-actor` are writers
+  not yet converted. See [`../signalloom/audit-trail.md`](../signalloom/audit-trail.md).
+* **Risk and exposure figures default to USD** while the demo estate reports in GBP, so
+  most figures on the walk are converted and carry a rate date beside them. Settings →
+  Currency changes it, per user. See
+  [`../signalloom/display-currency.md`](../signalloom/display-currency.md).
+
+The "do not click" list below is from July 2026 and has not been re-verified; treat it as a
+hint about where to be careful rather than a current statement of what 404s.
 Do **not** click: Agent detail/register, Onboarding/connectors, Redeem invite, NHI, api-key rotate (still 404).
 
 ## Known gaps / missing targets (flag before the demo)
+
+> **Stale as written.** The two entries struck through below were closed on 2026-07-28.
+> The remaining two have not been re-verified since July 2026.
+
 - **No human-facing "open dashboard" Make target** — only Playwright's `acceptance-test.sh` sets up :18443 and tears it down on exit. Port-forward manually (above).
-- **`api_compat.py` not yet at contract** — Agents/Compliance/Audit/Settings will render blank/error until APPRAISAL.md items 1-3 land. This is the remaining work.
-- **Image race** — ensure only ONE process rebuilds/pushes `dashboard-signalloom` tonight.
+- ~~**`api_compat.py` not yet at contract** — Agents/Compliance/Audit/Settings will render blank/error until APPRAISAL.md items 1-3 land.~~ **Closed 2026-07-28.** All 28 endpoints serve live data from PostgreSQL.
+- ~~**Image race** — ensure only ONE process rebuilds/pushes `dashboard-signalloom` tonight.~~ Referred to a specific July 2026 evening. The general point survives: coordinate before rebuilding a shared image, and run `make check-deployed-staleness` afterwards to prove which build is actually serving.
 - **Connectors** — keep `VITE_CONNECTORS_API_MODE=mock`; live mode 404s (no `/api/connectors*` server; PR #19 unmerged).
 
 ## First-render probe (the honest "it walks" test)

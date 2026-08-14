@@ -8,6 +8,7 @@
 // that is merely local is the one people would assume travels.
 
 import { useCallback, useState } from 'react'
+import HelpHint from './HelpHint'
 import { useCurrency, useMoney } from '../money/CurrencyContext'
 import { CURRENCY_LABELS, SUPPORTED_CURRENCIES, isCurrencyCode, type CurrencyCode } from '../money/currency'
 
@@ -49,6 +50,12 @@ export default function CurrencySetting() {
       <div>
         <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>
           Display Currency
+          <HelpHint label="What Display Currency changes" testId="settings-currency-help">
+            Changes only how figures are shown to you. The underlying risk data is unchanged,
+            and this setting is saved against your account rather than your team&apos;s. Figures
+            are converted using a rate table shipped with this release, so the date beside a
+            converted figure tells you which rates produced it.
+          </HelpHint>
         </div>
         <select
           data-testid="settings-currency"

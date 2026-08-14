@@ -109,4 +109,18 @@ describe('the currency control', () => {
     await waitFor(() => expect(preview).toHaveTextContent('Unavailable'))
     expect(preview.textContent).not.toMatch(/[$€]/)
   })
+
+  // The two misreadings this control invites: that changing it restates the
+  // underlying risk data, and that the figures are converted at a live rate.
+  // Both are answered on the control rather than in a document.
+  it('says it changes presentation only, and that the rates ship with the release', async () => {
+    const user = userEvent.setup()
+    renderSetting()
+
+    await user.hover(await screen.findByTestId('settings-currency-help'))
+
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent).toContain('underlying risk data is unchanged')
+    expect(tip.textContent).toContain('rate table shipped with this release')
+  })
 })

@@ -53,6 +53,45 @@ beforeEach(() => {
   global.URL.revokeObjectURL = vi.fn()
 })
 
+// The two questions this page reliably prompts, answered on the page rather than
+// in a document nobody reading a table has open. Asserted on the copy, not merely
+// on the presence of a hint, because a "?" that explains nothing is the failure
+// mode worth catching.
+describe('AuditTrail — explains itself', () => {
+  it('says rows are written by the server and cannot be altered', async () => {
+    const user = userEvent.setup()
+    render(<AuditTrail />)
+
+    await user.hover(screen.getByTestId('audit-page-help'))
+
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent).toContain('nothing here was submitted by a browser')
+    expect(tip.textContent).toContain('cannot be edited or')
+  })
+
+  it('leaves the heading name alone, so the hint is not announced as part of it', async () => {
+    render(<AuditTrail />)
+
+    // A HelpHint nested inside the `h1` joins its accessible name. Guarded here
+    // because the fix is invisible in the rendered page and trivially undone.
+    expect(
+      await screen.findByRole('heading', { level: 1, name: 'Audit Trail' }),
+    ).toBeInTheDocument()
+  })
+
+  it('explains what the Actor column holds, including demo-actor', async () => {
+    const user = userEvent.setup()
+    render(<AuditTrail />)
+
+    await waitFor(() => expect(screen.getByText('agent-one')).toBeInTheDocument())
+    await user.hover(screen.getByTestId('audit-help-actor'))
+
+    const tip = await screen.findByRole('tooltip')
+    expect(tip.textContent).toContain('sign-in token')
+    expect(tip.textContent).toContain('demo-actor')
+  })
+})
+
 describe('AuditTrail — CSV export', () => {
   it('exports CSV using the current filters', async () => {
     const user = userEvent.setup()

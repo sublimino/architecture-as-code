@@ -396,6 +396,32 @@ class ComplianceSummaryResponse(BaseModel):
     posture_score: float | None
 
 
+#: The denomination every monetary figure this API reports is expressed in.
+#:
+#: A constant rather than a per-tenant setting for now, and deliberately so: the risk calibration
+#: data behind these figures is GBP-denominated, so making the OUTPUT currency configurable without
+#: also redenominating the INPUTS would relabel figures rather than convert them. Conversion for
+#: display belongs to the consumer, against the checked-in dated table in ``risk/fx/rates.yaml``.
+REPORTING_CURRENCY = "GBP"
+
+
+class MoneyResponse(BaseModel):
+    """An amount with its denomination attached.
+
+    Mirrors the Go ``money.Money`` wire shape in
+    ``d2-signalloom/apps/policy-engine/money``. It exists because a currency welded into a FIELD
+    NAME (``totalExposureGbp``) does not survive a wire, a database column or a chart axis, so a
+    consumer defaulting its display to USD would relabel a GBP figure rather than convert it.
+
+    ``currency`` is an ISO 4217 alphabetic code.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    amount: float
+    currency: str = Field(min_length=3, max_length=3, pattern=r"^[A-Z]{3}$")
+
+
 class PolicyFrameworkSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -406,6 +432,11 @@ class PolicyFrameworkSummaryResponse(BaseModel):
     passedControls: int
     failedControls: int
     totalExposureGbp: int
+    # Denominated twin of totalExposureGbp. Additive on purpose: the *Gbp fields stay until every
+    # consumer has migrated, because a breaking rename would take the dashboard down mid-flight.
+    # New consumers should read `exposure` and treat `totalExposureGbp` as deprecated -- its name
+    # is a lie the moment a tenant reports in anything other than sterling.
+    exposure: MoneyResponse | None = None
 
 
 class PolicySummaryResponse(BaseModel):
@@ -418,6 +449,10 @@ class PolicySummaryResponse(BaseModel):
     totalVar95: int
     totalTvar: int
     totalCarriedGbp: int
+    # Denominated twin of totalCarriedGbp; see PolicyFrameworkSummaryResponse.exposure.
+    carried: MoneyResponse | None = None
+    # The denomination of totalAle / totalVar95 / totalTvar / totalCarriedGbp above.
+    currency: str | None = None
     scanTimestamp: str
     frameworks: list[PolicyFrameworkSummaryResponse]
 
@@ -443,6 +478,10 @@ class PolicyComplianceCheck(BaseModel):
     var95: int
     tvar: int
     carriedGbp: int
+    # Denominated twin of carriedGbp; see PolicyFrameworkSummaryResponse.exposure.
+    carried: MoneyResponse | None = None
+    # The denomination of ale / var95 / tvar / carriedGbp above.
+    currency: str | None = None
     scanTimestamp: str
     calibrationSource: str
 
@@ -2682,6 +2721,9 @@ async def _policy_framework_summaries(
                 # The governance API has no risk-calculation data plane. Zero states
                 # that no exposure value is available; it does not fabricate fixture risk.
                 totalExposureGbp=0,
+                # Zero still needs a denomination: a bare 0 is addable to anything, and a consumer
+                # that later sums it against a real figure must be able to see they agree.
+                exposure=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
             )
         )
     return summaries
@@ -2704,6 +2746,7 @@ def _policy_scan_summary(
             passedControls=sum(check.passed for check in framework_checks),
             failedControls=sum(not check.passed for check in framework_checks),
             totalExposureGbp=0,
+            exposure=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
         )
         for (framework_id, framework_name), framework_checks in checks_by_framework.items()
     ]
@@ -2715,6 +2758,8 @@ def _policy_scan_summary(
         totalVar95=0,
         totalTvar=0,
         totalCarriedGbp=0,
+        carried=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+        currency=REPORTING_CURRENCY,
         scanTimestamp=max((check.scanTimestamp for check in checks), default=_now_iso()),
         frameworks=frameworks,
     )
@@ -2775,6 +2820,8 @@ async def _db_policy_scan(
                 var95=0,
                 tvar=0,
                 carriedGbp=0,
+                carried=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+                currency=REPORTING_CURRENCY,
                 scanTimestamp=_ts(row["assessed_at"]) or _now_iso(),
                 calibrationSource="not-calculated",
             )
@@ -2863,6 +2910,8 @@ async def policy_compliance_summary(
         totalVar95=0,
         totalTvar=0,
         totalCarriedGbp=0,
+        carried=MoneyResponse(amount=0, currency=REPORTING_CURRENCY),
+        currency=REPORTING_CURRENCY,
         scanTimestamp=max(assessed_at, default=_now_iso()),
         frameworks=await _policy_framework_summaries(tenant_id),
     )

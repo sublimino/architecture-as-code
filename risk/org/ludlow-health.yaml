@@ -15,6 +15,13 @@
 # external use.
 apiVersion: osramp.controlplane.io/v1alpha1
 kind: OrgRiskPosture
+# Reporting currency. Every bare amount below is denominated in this currency, and every figure in
+# this institution's report is expressed in it. An individual magnitude may override it with the
+# explicit `{ amount: N, currency: XXX }` form; costs sourced from the policy pack are converted into
+# this currency before they are summed. Conversion uses risk/fx/rates.yaml — checked in and dated, so
+# the figure reproduces tomorrow rather than moving with a live rate feed.
+currency: GBP
+
 metadata:
   name: ludlow-health
   displayName: Ludlow Health
@@ -36,7 +43,7 @@ regimes:
       State breach-notification statutes and multi-state AG settlements. Anchor class for the tail.
 
 appetite:
-  tolerance_gbp: 6000
+  tolerance: 6000
   note: >-
     Ludlow's tolerance is roughly a quarter of Acme's. A narrower band means enforcement escalation
     is justified by a much smaller loss reduction — which is why the same control gates here and
@@ -45,9 +52,9 @@ appetite:
 risk_load: 0.25
 
 transfer:
-  annual_premium_gbp: 210000
-  retention_gbp: 500000
-  limit_gbp: 20000000
+  annual_premium: 210000
+  retention: 500000
+  limit: 20000000
   note: >-
     Cyber and medical-professional cover. The premium differential against Acme is itself external
     validation of the magnitude differential below — an underwriter prices the same controls.

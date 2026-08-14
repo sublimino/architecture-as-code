@@ -2,7 +2,10 @@ module github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-e
 
 go 1.24
 
-require github.com/google/cel-go v0.30.0
+require (
+	github.com/google/cel-go v0.30.0
+	gopkg.in/yaml.v3 v3.0.1
+)
 
 require (
 	cel.dev/expr v0.25.1 // indirect

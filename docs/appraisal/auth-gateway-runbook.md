@@ -1,5 +1,30 @@
 # Appraisal — In-cluster Auth, Gateway Routing, Demo Runbook
 
+> **SUPERSEDED, 2026-08-14. Retained as a dated record of the migration path — do not
+> action the verdicts below.**
+>
+> This is a read-only appraisal of the cluster as it stood on **2026-07-27**, and its
+> headline finding is no longer true. **Auth works.** The dashboard authenticates against
+> the in-cluster Dex issuer, and the API validates those tokens; blockers A and B below
+> were closed, along with the rest of the contract gap, on 2026-07-28 — see the banner on
+> `APPRAISAL.md`.
+>
+> That matters beyond "the demo logs in now". The Dex token is where `actor` on an audit
+> row comes from (`Principal.actor`), so the trust chain this document describes as never
+> wired together is the thing attribution now rests on. For the current state read
+> [`../signalloom/audit-trail.md`](../signalloom/audit-trail.md) and
+> [`../signalloom/dex-oidc-design.md`](../signalloom/dex-oidc-design.md).
+>
+> The **gateway routing** analysis (§ 2) has not been contradicted and is still the
+> clearest account of why same-origin `/api` holds. That, and the reasoning trail, are why
+> this file is kept rather than deleted.
+>
+> The absolute paths below point into a July 2026 worktree that no longer exists, and
+> making them repository-relative is not enough to rescue them: `src/auth/Auth0Provider.tsx`
+> is gone, along with every trace of `VITE_AUTH0_*`. That directory now holds `oidc.tsx`,
+> `ProtectedRoute.tsx` and `superadmin.ts`. Treat every file reference below as naming a
+> file that has since been replaced.
+
 Scope: bring the SignalLoom React dashboard up in the Kind cluster. Read-only appraisal.
 Root: `/home/andy/src/cp/osramp-demo/worktrees/signalloom-d2-v2.0.0/governor/worktrees/signalloom-d2-v2.5.0/governor/`
 Date: 2026-07-27.

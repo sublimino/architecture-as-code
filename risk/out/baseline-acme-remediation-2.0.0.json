@@ -3,10 +3,15 @@
   "AgentDisplay": "Phase-4 agentic remediation agent",
   "OrgName": "acme",
   "OrgDisplay": "Acme Co.",
+  "Jurisdiction": "UK",
   "PackName": "agent-policy",
   "PackClaimed": "2.0.0",
   "PackEvaluated": "2.0.0",
   "Stale": false,
+  "Currency": "GBP",
+  "RatesAsOf": "",
+  "Conversions": null,
+  "CurrencyNote": "",
   "Results": [
     {
       "Control": {
@@ -30,7 +35,10 @@
           "mode": 0.05,
           "max": 0.2
         },
-        "AnnualCost": 4000
+        "AnnualCost": {
+          "amount": 4000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -40,6 +48,11 @@
         "min": 0.01,
         "mode": 0.05,
         "max": 0.2
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 4000,
+        "currency": "GBP"
       }
     },
     {
@@ -64,7 +77,10 @@
           "mode": 0.04,
           "max": 0.15
         },
-        "AnnualCost": 1500
+        "AnnualCost": {
+          "amount": 1500,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -74,6 +90,11 @@
         "min": 0.01,
         "mode": 0.04,
         "max": 0.15
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 1500,
+        "currency": "GBP"
       }
     },
     {
@@ -98,7 +119,10 @@
           "mode": 0.1,
           "max": 0.4
         },
-        "AnnualCost": 12000
+        "AnnualCost": {
+          "amount": 12000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -108,6 +132,11 @@
         "min": 0.02,
         "mode": 0.1,
         "max": 0.4
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 12000,
+        "currency": "GBP"
       }
     },
     {
@@ -132,7 +161,10 @@
           "mode": 0.06,
           "max": 0.25
         },
-        "AnnualCost": 3000
+        "AnnualCost": {
+          "amount": 3000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -142,6 +174,11 @@
         "min": 0.01,
         "mode": 0.06,
         "max": 0.25
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 3000,
+        "currency": "GBP"
       }
     },
     {
@@ -166,7 +203,10 @@
           "mode": 0.05,
           "max": 0.2
         },
-        "AnnualCost": 500
+        "AnnualCost": {
+          "amount": 500,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -176,6 +216,11 @@
         "min": 0.01,
         "mode": 0.05,
         "max": 0.2
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 500,
+        "currency": "GBP"
       }
     },
     {
@@ -200,7 +245,10 @@
           "mode": 0.08,
           "max": 0.3
         },
-        "AnnualCost": 6000
+        "AnnualCost": {
+          "amount": 6000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -210,6 +258,11 @@
         "min": 0.02,
         "mode": 0.08,
         "max": 0.3
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 6000,
+        "currency": "GBP"
       }
     },
     {
@@ -234,7 +287,10 @@
           "mode": 0.04,
           "max": 0.15
         },
-        "AnnualCost": 2500
+        "AnnualCost": {
+          "amount": 2500,
+          "currency": "GBP"
+        }
       },
       "Verdict": "FAIL-AUDITED",
       "Met": false,
@@ -244,6 +300,11 @@
         "min": 0.1,
         "mode": 0.35,
         "max": 1.2
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 2500,
+        "currency": "GBP"
       }
     },
     {
@@ -268,7 +329,10 @@
           "mode": 0.08,
           "max": 0.35
         },
-        "AnnualCost": 9000
+        "AnnualCost": {
+          "amount": 9000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "FAIL-AUDITED",
       "Met": false,
@@ -278,6 +342,11 @@
         "min": 0.3,
         "mode": 0.9,
         "max": 3
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 9000,
+        "currency": "GBP"
       }
     },
     {
@@ -302,7 +371,10 @@
           "mode": 0.05,
           "max": 0.2
         },
-        "AnnualCost": 5000
+        "AnnualCost": {
+          "amount": 5000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "FAIL-AUDITED",
       "Met": false,
@@ -312,6 +384,11 @@
         "min": 0.15,
         "mode": 0.55,
         "max": 2
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 5000,
+        "currency": "GBP"
       }
     },
     {
@@ -336,7 +413,10 @@
           "mode": 0.05,
           "max": 0.2
         },
-        "AnnualCost": 4500
+        "AnnualCost": {
+          "amount": 4500,
+          "currency": "GBP"
+        }
       },
       "Verdict": "FAIL-AUDITED",
       "Met": false,
@@ -346,6 +426,11 @@
         "min": 0.2,
         "mode": 0.7,
         "max": 2.5
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 4500,
+        "currency": "GBP"
       }
     },
     {
@@ -370,7 +455,10 @@
           "mode": 0.02,
           "max": 0.08
         },
-        "AnnualCost": 1000
+        "AnnualCost": {
+          "amount": 1000,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -380,6 +468,11 @@
         "min": 0.005,
         "mode": 0.02,
         "max": 0.08
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 1000,
+        "currency": "GBP"
       }
     },
     {
@@ -404,7 +497,10 @@
           "mode": 0.02,
           "max": 0.07
         },
-        "AnnualCost": 800
+        "AnnualCost": {
+          "amount": 800,
+          "currency": "GBP"
+        }
       },
       "Verdict": "PASS",
       "Met": true,
@@ -414,101 +510,296 @@
         "min": 0.005,
         "mode": 0.02,
         "max": 0.07
+      },
+      "InScope": true,
+      "AnnualCost": {
+        "amount": 800,
+        "currency": "GBP"
       }
     }
   ],
+  "Scope": [
+    {
+      "Scenario": "SCN-SECRET-EXFIL",
+      "Title": "Agent leaks a credential or secret into logs, evidence, or an outbound call",
+      "Territories": [
+        "*"
+      ],
+      "Included": true,
+      "Reason": "global: applies in every jurisdiction",
+      "Controls": [
+        "AGT-001",
+        "AGT-002",
+        "AGT-007",
+        "AGT-010"
+      ]
+    },
+    {
+      "Scenario": "SCN-UNAUTH-CHANGE",
+      "Title": "Agent lands an unreviewed change in production",
+      "Territories": [
+        "*"
+      ],
+      "Included": true,
+      "Reason": "global: applies in every jurisdiction",
+      "Controls": [
+        "AGT-003",
+        "AGT-004",
+        "AGT-005"
+      ]
+    },
+    {
+      "Scenario": "SCN-SUPPLY-TAMPER",
+      "Title": "Agent introduces an unverified or tampered artefact into the supply chain",
+      "Territories": [
+        "*"
+      ],
+      "Included": true,
+      "Reason": "global: applies in every jurisdiction",
+      "Controls": [
+        "AGT-006"
+      ]
+    },
+    {
+      "Scenario": "SCN-INJECTION-ACT",
+      "Title": "Injected instruction in ingested data causes the agent to act adversarially",
+      "Territories": [
+        "*"
+      ],
+      "Included": true,
+      "Reason": "global: applies in every jurisdiction",
+      "Controls": [
+        "AGT-008",
+        "AGT-009"
+      ]
+    },
+    {
+      "Scenario": "SCN-TRUST-SUBVERT",
+      "Title": "Agent alters the trust anchors or the policy that governs it",
+      "Territories": [
+        "*"
+      ],
+      "Included": true,
+      "Reason": "global: applies in every jurisdiction",
+      "Controls": [
+        "AGT-011",
+        "AGT-012"
+      ]
+    }
+  ],
+  "NoApplicableScenarios": false,
   "Tier": "trusted",
   "TierReason": "all gate-action controls satisfied",
   "CageMultiplier": 1,
-  "CageCost": 0,
-  "Risk": {
-    "Iterations": 200000,
-    "Seed": 20260801,
-    "ALE": 664831.6065735241,
-    "VaR95": 1775322.9017877148,
-    "TVaR": 2238355.5869303416,
-    "Carried": 2574108.9249698925,
-    "RiskLoad": 0.15
+  "CageCost": {
+    "amount": 0,
+    "currency": "GBP"
   },
-  "ControlSpend": 28800,
-  "FrictionSpend": 28000,
-  "TransferSpend": 48000,
-  "TCoR": 2678908.9249698925,
+  "Simulation": {
+    "iterations": 200000,
+    "seed": 20260801,
+    "riskLoad": 0.15,
+    "tailDominated": false,
+    "guards": {
+      "shapeClamped": 0,
+      "midpointSubstituted": 0,
+      "gammaNonFinite": 0,
+      "poissonLoopCapped": 0
+    }
+  },
+  "Exposure": {
+    "ale": {
+      "amount": 664831.6065735241,
+      "currency": "GBP"
+    },
+    "var95": {
+      "amount": 1775322.9017877148,
+      "currency": "GBP"
+    },
+    "tvar": {
+      "amount": 2238355.5869303416,
+      "currency": "GBP"
+    },
+    "carried": {
+      "amount": 2574108.9249698925,
+      "currency": "GBP"
+    }
+  },
+  "ControlSpend": {
+    "amount": 28800,
+    "currency": "GBP"
+  },
+  "FrictionSpend": {
+    "amount": 28000,
+    "currency": "GBP"
+  },
+  "TransferSpend": {
+    "amount": 48000,
+    "currency": "GBP"
+  },
+  "TCoR": {
+    "amount": 2678908.9249698925,
+    "currency": "GBP"
+  },
   "PremiumRatio": 13.850658470281752,
   "Deltas": [
     {
       "ControlID": "AGT-010",
       "Title": "Agent output passes a guard before leaving the trust boundary",
-      "BuysGBP": 149231.67688058864,
-      "CostGBP": 4500,
-      "NetGBP": 144731.67688058864,
+      "Buys": {
+        "amount": 149231.67688058864,
+        "currency": "GBP"
+      },
+      "Cost": {
+        "amount": 4500,
+        "currency": "GBP"
+      },
+      "Net": {
+        "amount": 144731.67688058864,
+        "currency": "GBP"
+      },
       "AboveTolerance": true
     },
     {
       "ControlID": "AGT-008",
       "Title": "Prompt-injection corpus is evaluated before release",
-      "BuysGBP": 94403.40783613373,
-      "CostGBP": 9000,
-      "NetGBP": 85403.40783613373,
+      "Buys": {
+        "amount": 94403.40783613373,
+        "currency": "GBP"
+      },
+      "Cost": {
+        "amount": 9000,
+        "currency": "GBP"
+      },
+      "Net": {
+        "amount": 85403.40783613373,
+        "currency": "GBP"
+      },
       "AboveTolerance": true
     },
     {
       "ControlID": "AGT-007",
       "Title": "Agent egress is restricted to declared endpoints",
-      "BuysGBP": 0,
-      "CostGBP": 2500,
-      "NetGBP": -2500,
+      "Buys": {
+        "amount": 0,
+        "currency": "GBP"
+      },
+      "Cost": {
+        "amount": 2500,
+        "currency": "GBP"
+      },
+      "Net": {
+        "amount": -2500,
+        "currency": "GBP"
+      },
       "AboveTolerance": false
     },
     {
       "ControlID": "AGT-009",
       "Title": "Tool invocation is authorised per-tool",
-      "BuysGBP": 0,
-      "CostGBP": 5000,
-      "NetGBP": -5000,
+      "Buys": {
+        "amount": 0,
+        "currency": "GBP"
+      },
+      "Cost": {
+        "amount": 5000,
+        "currency": "GBP"
+      },
+      "Net": {
+        "amount": -5000,
+        "currency": "GBP"
+      },
       "AboveTolerance": false
     }
   ],
   "Tornado": [
     {
       "Scenario": "SCN-SECRET-EXFIL",
-      "LowALE": 403443.95204140025,
-      "HighALE": 1464124.7520413937,
-      "SwingGBP": 1060680.7999999933,
+      "LowALE": {
+        "amount": 403443.95204140025,
+        "currency": "GBP"
+      },
+      "HighALE": {
+        "amount": 1464124.7520413937,
+        "currency": "GBP"
+      },
+      "Swing": {
+        "amount": 1060680.7999999933,
+        "currency": "GBP"
+      },
       "SharePct": 42.66930992948827
     },
     {
       "Scenario": "SCN-INJECTION-ACT",
-      "LowALE": 433855.6171305313,
-      "HighALE": 1437782.4921305259,
-      "SwingGBP": 1003926.8749999946,
+      "LowALE": {
+        "amount": 433855.6171305313,
+        "currency": "GBP"
+      },
+      "HighALE": {
+        "amount": 1437782.4921305259,
+        "currency": "GBP"
+      },
+      "Swing": {
+        "amount": 1003926.8749999946,
+        "currency": "GBP"
+      },
       "SharePct": 40.38620004804242
     },
     {
       "Scenario": "SCN-SUPPLY-TAMPER",
-      "LowALE": 610493.7728758574,
-      "HighALE": 871732.3728758501,
-      "SwingGBP": 261238.59999999264,
+      "LowALE": {
+        "amount": 610493.7728758574,
+        "currency": "GBP"
+      },
+      "HighALE": {
+        "amount": 871732.3728758501,
+        "currency": "GBP"
+      },
+      "Swing": {
+        "amount": 261238.59999999264,
+        "currency": "GBP"
+      },
       "SharePct": 10.509166177935313
     },
     {
       "Scenario": "SCN-TRUST-SUBVERT",
-      "LowALE": 642134.2769722546,
-      "HighALE": 748562.6769722616,
-      "SwingGBP": 106428.40000000701,
+      "LowALE": {
+        "amount": 642134.2769722546,
+        "currency": "GBP"
+      },
+      "HighALE": {
+        "amount": 748562.6769722616,
+        "currency": "GBP"
+      },
+      "Swing": {
+        "amount": 106428.40000000701,
+        "currency": "GBP"
+      },
       "SharePct": 4.281426028358275
     },
     {
       "Scenario": "SCN-UNAUTH-CHANGE",
-      "LowALE": 655117.2289619653,
-      "HighALE": 708659.1789619732,
-      "SwingGBP": 53541.95000000787,
+      "LowALE": {
+        "amount": 655117.2289619653,
+        "currency": "GBP"
+      },
+      "HighALE": {
+        "amount": 708659.1789619732,
+        "currency": "GBP"
+      },
+      "Swing": {
+        "amount": 53541.95000000787,
+        "currency": "GBP"
+      },
       "SharePct": 2.153897816175719
     }
   ],
-  "ToleranceGBP": 25000,
+  "Tolerance": {
+    "amount": 25000,
+    "currency": "GBP"
+  },
   "Escalations": [
-    "AGT-008: enforcing buys GBP 94403/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny",
-    "AGT-010: enforcing buys GBP 149232/yr against a tolerance band of GBP 25000 — promote audit -\u003e deny"
+    "AGT-008: enforcing buys 94403.41 GBP/yr against a tolerance band of 25000.00 GBP — promote audit -\u003e deny",
+    "AGT-010: enforcing buys 149231.68 GBP/yr against a tolerance band of 25000.00 GBP — promote audit -\u003e deny"
   ]
 }

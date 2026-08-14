@@ -9,13 +9,38 @@
 //
 // Multiplying one pack by two org files is what makes "same control, two institutions, opposite
 // verdict" arithmetic rather than opinion.
+//
+// TWO AXES WERE ADDED TO THAT SPLIT: DENOMINATION AND TERRITORY.
+//
+// Denomination. Every amount in these files used to be a bare float64 with the currency welded into
+// the field NAME — annual_cost_gbp, tolerance_gbp, per_deny_control_gbp. A name is not carried
+// across a wire, a database column or a chart axis, so nothing downstream could convert, and a UI
+// defaulting to USD over GBP source data would relabel the figure rather than convert it. Every
+// amount is now a money.Money that carries its own currency as DATA. See package money for the
+// rounding decision and for why the rates are a checked-in dated file rather than an API call.
+//
+// The two halves of the model can legitimately be denominated differently: a control's run cost is
+// a property of the CONTROL ENVIRONMENT (a vendor licence, quoted in the vendor's currency) while a
+// loss magnitude is a property of the INSTITUTION (quoted in the currency it reports in). Total Cost
+// of Risk sums both. That sum is the exact place a currency mismatch would silently corrupt a board
+// figure, so the report resolves everything into one declared reporting currency first. See
+// baseline.Run.
+//
+// Territory. A loss scenario is not always global. A UK-GDPR administrative fine is not a loss an
+// American provider can incur, and pricing it into their exposure inflates the number in a way an
+// informed reader will catch. A scenario may therefore scope itself to named jurisdictions, matched
+// against the institution's EXISTING metadata.jurisdiction field. Scenarios that declare no
+// territories are global, which is what every scenario in the shipped packs is — so this axis
+// changes no existing figure until someone deliberately scopes one.
 package model
 
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,7 +51,15 @@ import (
 // This is an alias for the shared engine's RiskTriple, not a copy. The policy-engine service and
 // this CLI read the same triples through the same sampler, so the two surfaces cannot drift apart
 // on what a number means.
+//
+// A Triple is deliberately UNDENOMINATED. It is used for two different quantities: loss event
+// frequency, which is a dimensionless rate per year and has no currency, and loss magnitude, which
+// does. Magnitude therefore carries its currency on the enclosing Magnitude struct rather than here,
+// so a frequency triple cannot accidentally acquire a denomination it has no business having.
 type Triple = fair.RiskTriple
+
+// Global is the territory wildcard: a scenario that applies to every institution.
+const Global = "*"
 
 // Evidence cites the artefact in the repository that substantiates a control or an assertion.
 // A control without evidence is a hope; the loader rejects it.
@@ -45,16 +78,16 @@ const (
 
 // Control is one policy in the pack.
 type Control struct {
-	ID          string   `yaml:"id"`
-	Title       string   `yaml:"title"`
-	Scenario    string   `yaml:"scenario"`
-	Action      Action   `yaml:"action"`
-	Rationale   string   `yaml:"rationale"`
-	Evidence    Evidence `yaml:"evidence"`
-	CEL         string   `yaml:"cel"`
-	LEFAudit    Triple   `yaml:"lef_audit"`
-	LEFEnforced Triple   `yaml:"lef_enforced"`
-	AnnualCost  float64  `yaml:"annual_cost_gbp"`
+	ID          string      `yaml:"id"`
+	Title       string      `yaml:"title"`
+	Scenario    string      `yaml:"scenario"`
+	Action      Action      `yaml:"action"`
+	Rationale   string      `yaml:"rationale"`
+	Evidence    Evidence    `yaml:"evidence"`
+	CEL         string      `yaml:"cel"`
+	LEFAudit    Triple      `yaml:"lef_audit"`
+	LEFEnforced Triple      `yaml:"lef_enforced"`
+	AnnualCost  money.Money `yaml:"annual_cost"`
 }
 
 // Conditional is a "you may X if C" branch — the replacement for the exemption. It relaxes a
@@ -72,15 +105,67 @@ type Conditional struct {
 // Multiplier scales loss event frequency; AnnualCost is the run-cost of the cage, which lands in
 // Total Cost of Risk.
 type Cage struct {
-	Multiplier  float64 `yaml:"multiplier"`
-	AnnualCost  float64 `yaml:"annual_cost_gbp"`
-	Description string  `yaml:"description"`
+	Multiplier  float64     `yaml:"multiplier"`
+	AnnualCost  money.Money `yaml:"annual_cost"`
+	Description string      `yaml:"description"`
 }
 
 // Scenario is a named loss scenario the controls act upon.
+//
+// Territories scopes the scenario to the jurisdictions where it can actually be incurred. It is
+// matched against OrgRiskPosture.Metadata.Jurisdiction, the field that already existed — a parallel
+// concept would have meant two answers to "where is this institution" and eventually two different
+// answers.
+//
+//	territories: ["*"]            global; applies to every institution (the default)
+//	territories: ["UK"]           applies only where jurisdiction is UK
+//	territories: ["UK","DE","FR"] applies in any of the named jurisdictions
+//
+// Omitting the field means global. That is the permissive default on purpose: it is the behaviour
+// every existing pack already had, so adding this axis moves no existing number. Scoping is an
+// affirmative act by an author who knows the scenario is not universal.
 type Scenario struct {
-	ID    string `yaml:"id"`
-	Title string `yaml:"title"`
+	ID          string   `yaml:"id"`
+	Title       string   `yaml:"title"`
+	Territories []string `yaml:"territories"`
+	// TerritoryNote records WHY the scenario is scoped, for the same reason magnitudes carry
+	// provenance: an unexplained exclusion is indistinguishable from an oversight.
+	TerritoryNote string `yaml:"territory_note"`
+}
+
+// IsGlobal reports whether the scenario applies everywhere.
+func (s Scenario) IsGlobal() bool {
+	if len(s.Territories) == 0 {
+		return true
+	}
+	for _, t := range s.Territories {
+		if strings.TrimSpace(t) == Global {
+			return true
+		}
+	}
+	return false
+}
+
+// AppliesTo reports whether this scenario can be incurred by an institution in the given
+// jurisdiction. Comparison is case-insensitive and whitespace-trimmed: "uk" and "UK" naming
+// different things would be a data trap, not a feature.
+func (s Scenario) AppliesTo(jurisdiction string) bool {
+	if s.IsGlobal() {
+		return true
+	}
+	j := strings.ToUpper(strings.TrimSpace(jurisdiction))
+	if j == "" {
+		// An institution that does not say where it is cannot match a scoped scenario. The scenario
+		// is excluded rather than assumed, and baseline.Run surfaces that as an explicit reason —
+		// silence must never read as a match.
+		return false
+	}
+	for _, t := range s.Territories {
+		if strings.ToUpper(strings.TrimSpace(t)) == j {
+			return true
+		}
+	}
+	return false
 }
 
 // EnforcementFriction is the operational cost of gating, as opposed to the cost of running a
@@ -90,8 +175,8 @@ type Scenario struct {
 // rather than a decision instrument. With it, the tool is able to say "do not bother — this control
 // costs more than it buys", which is the output that earns it credibility.
 type EnforcementFriction struct {
-	PerDenyControlGBP float64 `yaml:"per_deny_control_gbp"`
-	Note              string  `yaml:"note"`
+	PerDenyControl money.Money `yaml:"per_deny_control"`
+	Note           string      `yaml:"note"`
 }
 
 // Pack is a complete versioned policy pack — what a semver git tag resolves to.
@@ -105,6 +190,11 @@ type Pack struct {
 		Description string   `yaml:"description"`
 		Changes     []string `yaml:"changes"`
 	} `yaml:"metadata"`
+	// Currency is the document default denomination for every bare amount in this file. Declaring
+	// it once beats repeating it against each of a dozen control costs, which is a dozen chances to
+	// denominate one line differently by accident. A file containing money and no currency is a load
+	// error, never a guess.
+	Currency    money.Currency      `yaml:"currency"`
 	Scenarios   []Scenario          `yaml:"scenarios"`
 	Controls    []Control           `yaml:"controls"`
 	Conditional []Conditional       `yaml:"conditional"`
@@ -120,6 +210,16 @@ func (p *Pack) Control(id string) (Control, bool) {
 		}
 	}
 	return Control{}, false
+}
+
+// Scenario returns the scenario with the given ID.
+func (p *Pack) Scenario(id string) (Scenario, bool) {
+	for _, s := range p.Scenarios {
+		if s.ID == id {
+			return s, true
+		}
+	}
+	return Scenario{}, false
 }
 
 // Satisfaction is one posture assertion: does this agent meet this control, and what proves it.
@@ -173,9 +273,14 @@ func (a *AgentPosture) Elected(id string) bool {
 // Magnitude is the loss magnitude for one scenario at one institution, with its calibration
 // provenance. Provenance is mandatory: an unsourced number is not reviewable, and an unreviewable
 // number is the binary lie in a different costume.
+//
+// Currency denominates all three points of the triple. It defaults to the org file's document
+// currency; a scenario priced in a different currency from the rest of the file may state its own,
+// and baseline.Run converts it into the reporting currency before it reaches the sampler.
 type Magnitude struct {
-	Triple     Triple `yaml:"triple"`
-	Provenance string `yaml:"provenance"`
+	Triple     Triple         `yaml:"triple"`
+	Currency   money.Currency `yaml:"currency"`
+	Provenance string         `yaml:"provenance"`
 }
 
 // Regime is a regulatory regime in force at the institution.
@@ -191,23 +296,28 @@ type OrgRiskPosture struct {
 	APIVersion string `yaml:"apiVersion"`
 	Kind       string `yaml:"kind"`
 	Metadata   struct {
-		Name         string `yaml:"name"`
-		DisplayName  string `yaml:"displayName"`
-		Sector       string `yaml:"sector"`
+		Name        string `yaml:"name"`
+		DisplayName string `yaml:"displayName"`
+		Sector      string `yaml:"sector"`
+		// Jurisdiction is matched against Scenario.Territories. It predates this change and is
+		// reused rather than duplicated.
 		Jurisdiction string `yaml:"jurisdiction"`
 		Description  string `yaml:"description"`
 	} `yaml:"metadata"`
-	Regimes  []Regime `yaml:"regimes"`
+	// Currency is this institution's REPORTING currency: the denomination every figure in its
+	// report is expressed in, and the document default for bare amounts in this file.
+	Currency money.Currency `yaml:"currency"`
+	Regimes  []Regime       `yaml:"regimes"`
 	Appetite struct {
-		ToleranceGBP float64 `yaml:"tolerance_gbp"`
-		Note         string  `yaml:"note"`
+		Tolerance money.Money `yaml:"tolerance"`
+		Note      string      `yaml:"note"`
 	} `yaml:"appetite"`
 	RiskLoad float64 `yaml:"risk_load"`
 	Transfer struct {
-		AnnualPremiumGBP float64 `yaml:"annual_premium_gbp"`
-		RetentionGBP     float64 `yaml:"retention_gbp"`
-		LimitGBP         float64 `yaml:"limit_gbp"`
-		Note             string  `yaml:"note"`
+		AnnualPremium money.Money `yaml:"annual_premium"`
+		Retention     money.Money `yaml:"retention"`
+		Limit         money.Money `yaml:"limit"`
+		Note          string      `yaml:"note"`
 	} `yaml:"transfer"`
 	Magnitude map[string]Magnitude `yaml:"magnitude"`
 }
@@ -217,10 +327,59 @@ func load(path string, into any) error {
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+	if err := rejectLegacyCurrencyKeys(b, path); err != nil {
+		return err
+	}
 	if err := yaml.Unmarshal(b, into); err != nil {
 		return fmt.Errorf("parse %s: %w", path, err)
 	}
 	return nil
+}
+
+// rejectLegacyCurrencyKeys fails loudly on the pre-Money field names.
+//
+// This guard is not tidiness. yaml.v3 silently ignores keys the target struct does not declare, so
+// an unmigrated file carrying `annual_cost_gbp: 4000` would load cleanly with AnnualCost at ZERO —
+// every control silently free, Total Cost of Risk understated, and no error anywhere. That is
+// precisely the class of silent wrong number this whole change exists to eliminate, so the loader
+// names the offending key and the file rather than absorbing it.
+func rejectLegacyCurrencyKeys(b []byte, path string) error {
+	var root yaml.Node
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return nil // let the real unmarshal report the syntax error, with its better message
+	}
+	var found []string
+	var walk func(n *yaml.Node)
+	walk = func(n *yaml.Node) {
+		if n == nil {
+			return
+		}
+		if n.Kind == yaml.MappingNode {
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k := n.Content[i]
+				if lower := strings.ToLower(k.Value); strings.HasSuffix(lower, "_gbp") ||
+					strings.HasSuffix(lower, "_usd") || strings.HasSuffix(lower, "_eur") {
+					found = append(found, fmt.Sprintf("line %d: %s", k.Line, k.Value))
+				}
+				walk(n.Content[i+1])
+			}
+			return
+		}
+		for _, c := range n.Content {
+			walk(c)
+		}
+	}
+	walk(&root)
+	if len(found) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%s: currency-suffixed field name(s) are no longer supported — %s.\n"+
+		"  Amounts now carry their denomination as data. Declare `currency: GBP` once at the top of\n"+
+		"  the document and rename the key without its suffix (annual_cost_gbp -> annual_cost), or\n"+
+		"  denominate the amount explicitly as { amount: N, currency: XXX }.\n"+
+		"  This is an error rather than a silently ignored key because ignoring it would load the\n"+
+		"  amount as zero and understate the figure with no warning",
+		path, strings.Join(found, "; "))
 }
 
 // LoadPack reads and validates a policy pack.
@@ -235,12 +394,31 @@ func LoadPack(path string) (*Pack, error) {
 	if len(p.Controls) == 0 {
 		return nil, fmt.Errorf("%s: pack declares no controls", path)
 	}
+	if p.Currency != "" {
+		if err := p.Currency.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: top-level currency: %w", path, err)
+		}
+	}
 	seen := map[string]bool{}
 	scenarios := map[string]bool{}
-	for _, s := range p.Scenarios {
+	for i, s := range p.Scenarios {
+		if scenarios[s.ID] {
+			return nil, fmt.Errorf("%s: duplicate scenario id %s", path, s.ID)
+		}
 		scenarios[s.ID] = true
+		// Normalise the absent case to the explicit wildcard so every consumer sees one shape and
+		// nobody has to remember that "empty means global".
+		if len(s.Territories) == 0 {
+			p.Scenarios[i].Territories = []string{Global}
+		}
+		for _, t := range p.Scenarios[i].Territories {
+			if strings.TrimSpace(t) == "" {
+				return nil, fmt.Errorf("%s: scenario %s declares an empty territory; use %q for global",
+					path, s.ID, Global)
+			}
+		}
 	}
-	for _, c := range p.Controls {
+	for i, c := range p.Controls {
 		if seen[c.ID] {
 			return nil, fmt.Errorf("%s: duplicate control id %s", path, c.ID)
 		}
@@ -267,6 +445,11 @@ func LoadPack(path string) (*Pack, error) {
 			return nil, fmt.Errorf("%s: control %s claims enforcement raises frequency (%g > %g); a control that makes things worse is a modelling error",
 				path, c.ID, c.LEFEnforced.Mode, c.LEFAudit.Mode)
 		}
+		m, err := c.AnnualCost.Resolve(p.Currency, fmt.Sprintf("%s: control %s annual_cost", path, c.ID))
+		if err != nil {
+			return nil, err
+		}
+		p.Controls[i].AnnualCost = m
 	}
 	for _, cd := range p.Conditional {
 		if _, ok := p.Control(cd.Relaxes); !ok {
@@ -280,7 +463,18 @@ func LoadPack(path string) (*Pack, error) {
 		if cage.Multiplier <= 0 {
 			return nil, fmt.Errorf("%s: cage %s has non-positive multiplier %g", path, name, cage.Multiplier)
 		}
+		m, err := cage.AnnualCost.Resolve(p.Currency, fmt.Sprintf("%s: cage %s annual_cost", path, name))
+		if err != nil {
+			return nil, err
+		}
+		cage.AnnualCost = m
+		p.Cages[name] = cage
 	}
+	fr, err := p.Friction.PerDenyControl.Resolve(p.Currency, path+": enforcement_friction.per_deny_control")
+	if err != nil {
+		return nil, err
+	}
+	p.Friction.PerDenyControl = fr
 	return &p, nil
 }
 
@@ -307,8 +501,31 @@ func LoadOrgRiskPosture(path string) (*OrgRiskPosture, error) {
 	if err := load(path, &o); err != nil {
 		return nil, err
 	}
-	if o.Appetite.ToleranceGBP <= 0 {
-		return nil, fmt.Errorf("%s: appetite.tolerance_gbp must be > 0; without a tolerance band a number cannot become a verdict", path)
+	if o.Currency == "" {
+		return nil, fmt.Errorf("%s: institution declares no `currency:`; it is the reporting denomination for "+
+			"every figure in its report and cannot be inferred", path)
+	}
+	if err := o.Currency.Validate(); err != nil {
+		return nil, fmt.Errorf("%s: top-level currency: %w", path, err)
+	}
+	tol, err := o.Appetite.Tolerance.Resolve(o.Currency, path+": appetite.tolerance")
+	if err != nil {
+		return nil, err
+	}
+	o.Appetite.Tolerance = tol
+	if o.Appetite.Tolerance.Amount <= 0 {
+		return nil, fmt.Errorf("%s: appetite.tolerance must be > 0; without a tolerance band a number cannot become a verdict", path)
+	}
+	for name, m := range map[string]*money.Money{
+		"transfer.annual_premium": &o.Transfer.AnnualPremium,
+		"transfer.retention":      &o.Transfer.Retention,
+		"transfer.limit":          &o.Transfer.Limit,
+	} {
+		r, err := m.Resolve(o.Currency, path+": "+name)
+		if err != nil {
+			return nil, err
+		}
+		*m = r
 	}
 	if len(o.Magnitude) == 0 {
 		return nil, fmt.Errorf("%s: no loss magnitudes declared", path)
@@ -320,6 +537,12 @@ func LoadOrgRiskPosture(path string) (*OrgRiskPosture, error) {
 		if m.Provenance == "" {
 			return nil, fmt.Errorf("%s: magnitude %s has no provenance; an unsourced number is not reviewable", path, id)
 		}
+		if m.Currency == "" {
+			m.Currency = o.Currency
+		} else if err := m.Currency.Validate(); err != nil {
+			return nil, fmt.Errorf("%s: magnitude %s: %w", path, id, err)
+		}
+		o.Magnitude[id] = m
 	}
 	return &o, nil
 }

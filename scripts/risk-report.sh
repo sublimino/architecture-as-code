@@ -19,7 +19,8 @@ REPORT="${OUT_DIR}/baseline-report.md"
 
 if [[ ! -x "${RISKCTL}" ]]; then
   echo "risk-report: building riskctl" >&2
-  GOFLAGS=-mod=mod GOPROXY=off go build -C tools/riskctl -o "${RISKCTL}" .
+  # -buildvcs=false: see the note on RISK_GOFLAGS in the Makefile.
+  GOFLAGS='-mod=mod -buildvcs=false' GOPROXY=off go build -C tools/riskctl -o "${RISKCTL}" .
 fi
 
 mkdir -p "${OUT_DIR}"

@@ -32,10 +32,11 @@ import type {
   ViolationListResponse,
 } from '../types/api'
 
-import type { StunAgentRequest, StunAgentResponse } from '../types/api'
+import type { StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
+import { simulatedAgentIdentity } from './supercredTypes'
 
 const TENANT = 'tenant-demo'
 const NOW = '2026-07-27T12:00:00Z'
@@ -450,19 +451,31 @@ function auditWithRecordedActivity(): AuditListResponse {
 
 const DEMO_ACTOR = 'demo-operator'
 
-/** POST /agents/{id}/stun — record the event, then answer as the API would. */
-function stunFixture(path: string, body?: unknown): StunAgentResponse {
+/**
+ * POST /agents/{id}/stun — record the event, then answer as the API would.
+ *
+ * The narrative half of the detail (`reason`, `outcome`) is authored here, not
+ * read off the request, because that is what the real endpoint does. It used
+ * to be `req.outcome ?? 'stunned'`, which quietly made this fixture a worse
+ * liar than the backend it stands in for: whatever the browser claimed came
+ * straight back as though the platform had observed it. A demo whose audit
+ * trail echoes the client teaches exactly the wrong thing about the product.
+ */
+function stunFixture(path: string): StunAgentResponse {
   const agentId = path.split('/')[2]
-  const req = (body ?? {}) as StunAgentRequest
+  // Every field is sourced here, none from the request — the endpoint takes no
+  // body. Identity comes from the simulated cluster, which is demo mode's stand
+  // -in for the proxy the live endpoint asks.
+  const identity = simulatedAgentIdentity(agentId)
   const event = recordDemoActivity({
     event_type: 'agent.stunned',
     agent_id: agentId,
-    agent_name: req.agent_name ?? agentId,
+    agent_name: identity?.name ?? agentId,
     actor: DEMO_ACTOR,
     detail: {
-      outcome: req.outcome ?? 'stunned',
-      reason: req.reason ?? 'operator-initiated stun',
-      namespace: req.namespace ?? null,
+      outcome: 'stunned',
+      reason: 'operator-initiated stun',
+      namespace: identity?.namespace ?? null,
       from_state: 'active',
       to_state: 'suspended',
     },
@@ -474,6 +487,15 @@ function stunFixture(path: string, body?: unknown): StunAgentResponse {
     actor: DEMO_ACTOR,
     stunned_at: event.timestamp,
     event,
+    // Kept in the same nested shape the live endpoint uses, so demo and live
+    // render through one path. Flattening it here would make demo mode the
+    // only place where a relayed claim is indistinguishable from a first-party
+    // one, which is the exact distinction the nesting exists to preserve.
+    proxy: {
+      state: 'stunned',
+      stunned_at: event.timestamp,
+      message: `Agent ${agentId} stunned: credentials revoked, state marked as stunned`,
+    },
   }
 }
 
@@ -648,7 +670,7 @@ const ROUTES: Match[] = [
   // which replaced this branch's static fixtures. The stun route below exists only
   // on feat/supercred-stun-timeline — resolving this hunk to either side alone
   // would have silently dropped one of the two features.
-  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p, body) => stunFixture(p, body) },
+  { method: 'POST', test: re(/^\/agents\/[^/]+\/stun$/), data: (p) => stunFixture(p) },
   { method: 'GET', test: re(/^\/agents\/[^/]+\/violations$/), data: () => violations },
   { method: 'POST', test: re(/^\/agents\/violations\/[^/]+\/acknowledge$/), data: () => ({ status: 'acknowledged' }) },
   { method: 'POST', test: re(/^\/agents\/[^/]+\/compliance\/[^/]+\/reassess$/), data: () => reassessment },

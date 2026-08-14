@@ -168,12 +168,42 @@ export interface RevokeCredentialResponse {
 // endpoint owns the RECORD of it: the agent's lifecycle state and the audit
 // event, written in one transaction. The response echoes the audit row so the
 // caller can show the trace it just created without a second round trip.
-export interface StunAgentRequest {
-  agent_name?: string | null
-  namespace?: string | null
-  reason?: string | null
-  /** What actually happened — 'stunned' on success. Recorded in the event detail. */
-  outcome?: string | null
+//
+// There is deliberately no StunAgentRequest. The endpoint takes no body at all:
+// actor comes from the validated token, the target from the path, the prior
+// state from the server's own locking read, and namespace and outcome from the
+// proxy's reply to the call the *server* makes. Nothing is sourced from the
+// browser, so there is nothing for the browser to get wrong or to lie about.
+//
+// It briefly carried `agent_name` and `namespace` as locator after `reason` and
+// `outcome` were removed as narrative. Those went too once the endpoint started
+// performing the cluster action rather than recording someone else's: the proxy
+// resolves a pod name to its namespace on its own, so the client had nothing
+// left to contribute. auditBoundary.test.ts fails if a body reappears.
+
+/**
+ * What the SuperCred proxy told the endpoint, kept apart from what the endpoint
+ * established itself.
+ *
+ * The nesting is the point, and it is the same principle that removed `reason`
+ * and `outcome` from the request: a reader has to be able to tell which claims
+ * the writer verified and which it is relaying. Flattening these into the
+ * response would merge "fe-signalloom read this under FOR UPDATE" with "the
+ * proxy said this" into one namespace, and nothing afterwards could separate
+ * them. Note `stunned_at` appears on both — deliberately. One is when the
+ * record was committed, the other when the pod was relabelled, and they are
+ * different facts asserted by different writers.
+ *
+ * Wholly optional: the proxy can fail to report, and a response that omits
+ * this is still a valid record of a committed stun.
+ */
+export interface StunProxyReport {
+  /** The pod label the proxy observed after relabelling. Cluster vocabulary,
+   *  distinct from the lifecycle `to_state` below. */
+  state?: string | null
+  stunned_at?: string | null
+  /** The proxy's own wording. Display only — the audit record is `event`. */
+  message?: string | null
 }
 
 export interface StunAgentResponse {
@@ -185,6 +215,7 @@ export interface StunAgentResponse {
   actor: string
   stunned_at: string
   event: AuditEventResponse
+  proxy?: StunProxyReport | null
 }
 
 export interface TransitionRequest {

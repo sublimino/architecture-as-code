@@ -180,12 +180,13 @@ def _hermetic_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # returned 500. Tier 1 is hermetic by contract; it must guarantee that rather
     # than inherit whatever is in the ambient environment.
     #
-    # Resetting both globals matters as much as blanking the DSN: _pool survives
-    # between tests in a session, so a pool built before this fixture ran would
-    # still be handed out.
+    # Resetting the pool globals matters as much as blanking the DSN: _pool
+    # survives between tests in a session, so a pool built before this fixture
+    # ran would still be handed out.
     monkeypatch.setattr(settings, "database_url", "")
     monkeypatch.setattr(api_compat, "_pool", None)
-    monkeypatch.setattr(api_compat, "_pool_init_attempted", False)
+    monkeypatch.setattr(api_compat, "_pool_mode", api_compat.PoolMode.UNKNOWN)
+    monkeypatch.setattr(api_compat, "_pool_retry_after", 0.0)
 
     def reject_external_network(*_args: Any, **_kwargs: Any) -> None:
         raise AssertionError("external network access is forbidden in contract tests")

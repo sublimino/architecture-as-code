@@ -2745,15 +2745,51 @@ async def request_reassessment(
     control_id: str,
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ReassessmentResponse:
+    """Record an operator asking for a control to be reassessed.
+
+    This endpoint dispatches nothing. There is no INSERT, no UPDATE and no
+    outbound call anywhere in it -- no queue, no scheduler, no ClickUp task,
+    which is why ``clickup_task_id`` is a hardcoded ``None`` rather than a
+    lookup. What happens when someone presses the button is that a row is
+    written saying they pressed it.
+
+    That is a defensible thing for an endpoint to do; it was not a defensible
+    thing to leave implicit. Every field here is server-sourced, so the row
+    never breached the rule about client-authored content -- but the other half
+    of the same principle is that a row must not assert what its writer did not
+    observe, and a bare ``compliance.reassess_requested`` invites a reader to
+    conclude a reassessment was scheduled. ``dispatched: False`` says otherwise
+    in the row itself, where the reader is, rather than in this docstring,
+    where they are not.
+
+    The fixture branch used to record nothing at all, which made the deployment
+    most likely to be running the one with no evidence -- the same shape as the
+    demo runner writing its privileged-invocation rows into a dict. Both paths
+    record now.
+
+    If a real reassessment pipeline arrives, ``dispatched`` becomes true and
+    gains the identifier of whatever it was handed to. Until then it is false
+    and says so.
+    """
     tenant_id = principal.tenant
     now = _now_iso()
+    detail = {
+        "control_id": control_id,
+        # Nothing was queued, scheduled or sent. Stated rather than implied by
+        # the absence of a field a reader would have to know to look for.
+        "dispatched": False,
+    }
     pool = await _get_pool()
     if pool is None:
         _ensure_seeded(tenant_id)
+        _record_memory_audit(
+            tenant_id, "compliance.reassess_requested", agent_id, None,
+            principal.actor, detail,
+        )
     else:
         await _audit_log(
             pool, tenant_id, "compliance.reassess_requested", agent_id, None, principal.actor,
-            {"control_id": control_id},
+            detail,
         )
     return ReassessmentResponse(
         agent_id=agent_id,
@@ -3394,7 +3430,12 @@ async def audit(
                 agent_id=f"{tenant_id}:agent-1",
                 agent_name="Inventory Agent",
                 actor="demo-actor",
-                detail={"source": "mock", "from": from_, "to": to},
+                # Fixed, not the caller's `from_`/`to`. This fixture echoed the
+                # query string back as though it were recorded content -- the
+                # same defect the comment on the fixture below describes being
+                # removed from the other two, which "made a real recorded event
+                # indistinguishable from a fabricated one". This one was missed.
+                detail={"source": "mock"},
             ),
             AuditEventResponse(
                 id=f"{tenant_id}:audit-2",
@@ -4027,7 +4068,13 @@ async def patch_user_preferences(
             _USER_PREFERENCES.setdefault(tenant_id, {})[actor] = body.display_currency
         _record_memory_audit(
             tenant_id, "user.currency_updated", None, None, actor,
-            {"from": previous, "to": body.display_currency, "email": actor},
+            # No "email" key: `actor` is Principal.actor, which IS the email
+            # claim when Dex grants one. Copying it into the JSONB payload
+            # duplicated PII into an append-only column for no gain -- the
+            # column beside it already answers the same question, and
+            # audit_events is precisely where a redundant copy is hardest to
+            # remove later.
+            {"from": previous, "to": body.display_currency},
         )
         return UserPreferencesResponse(display_currency=body.display_currency)
 
@@ -4055,7 +4102,13 @@ async def patch_user_preferences(
         # neither. 007 documents what happens when the two come apart.
         await _audit_log(
             conn, tenant_id, "user.currency_updated", None, None, actor,
-            {"from": previous, "to": body.display_currency, "email": actor},
+            # No "email" key: `actor` is Principal.actor, which IS the email
+            # claim when Dex grants one. Copying it into the JSONB payload
+            # duplicated PII into an append-only column for no gain -- the
+            # column beside it already answers the same question, and
+            # audit_events is precisely where a redundant copy is hardest to
+            # remove later.
+            {"from": previous, "to": body.display_currency},
         )
 
     return UserPreferencesResponse(display_currency=body.display_currency)

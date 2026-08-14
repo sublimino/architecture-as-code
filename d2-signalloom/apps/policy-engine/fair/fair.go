@@ -67,6 +67,10 @@ type RiskResult struct {
 	// further control spend, because you are no longer buying down a frequency anyone can feel.
 	// It is exactly the shape an underwriter prices.
 	TailDominated bool `json:"tailDominated"`
+
+	// Guards counts defensive substitutions made during this run. Non-zero means at least one
+	// value was fabricated rather than sampled -- see guards.go. Additive: it changes no figure.
+	Guards Guards `json:"guards"`
 }
 
 // Simulate runs a seeded Monte Carlo simulation combining loss magnitude and event frequency
@@ -96,14 +100,15 @@ func SimulateWithLoad(loss, freq RiskTriple, seed uint64, riskLoad float64) Risk
 	}
 
 	rng := rand.New(rand.NewPCG(seed, seed^0xdeadbeef))
+	g := &Guards{}
 
 	annualLosses := make([]float64, iterations)
 	for i := range iterations {
-		f := samplePERT(rng, freq)
+		f := samplePERTCounted(rng, freq, g)
 		if f < 0 {
 			f = 0
 		}
-		l := samplePERT(rng, loss)
+		l := samplePERTCounted(rng, loss, g)
 		if l < 0 {
 			l = 0
 		}
@@ -137,6 +142,7 @@ func SimulateWithLoad(loss, freq RiskTriple, seed uint64, riskLoad float64) Risk
 		TVaR:          tvar,
 		CarriedGBP:    tvar * (1 + riskLoad),
 		TailDominated: var95 < ale,
+		Guards:        *g,
 	}
 }
 
@@ -163,6 +169,10 @@ type Result struct {
 	TVaR       float64 // mean of the tail beyond VaR95
 	Carried    float64 // TVaR with the risk load applied
 	RiskLoad   float64
+
+	// Guards counts defensive substitutions made during this run. Non-zero means at least one
+	// value was fabricated rather than sampled -- see guards.go. Additive: it changes no figure.
+	Guards Guards
 }
 
 // SelfCheck asserts the ordering invariants that must hold for any well-formed loss distribution.
@@ -222,16 +232,17 @@ func (e *Engine) Run(contribs []Contribution, riskLoad float64) Result {
 		seed = DefaultSeed
 	}
 	rng := rand.New(rand.NewPCG(uint64(seed), uint64(seed)^0xdeadbeef))
+	g := &Guards{}
 
 	losses := make([]float64, iters)
 	for i := range iters {
 		var total float64
 		// Fixed iteration order over the slice — never a map — so draws align run to run.
 		for _, c := range contribs {
-			lambda := samplePERT(rng, c.LEF)
-			n := poisson(rng, lambda)
+			lambda := samplePERTCounted(rng, c.LEF, g)
+			n := poissonCounted(rng, lambda, g)
 			for k := 0; k < n; k++ {
-				total += samplePERT(rng, c.Magnitude)
+				total += samplePERTCounted(rng, c.Magnitude, g)
 			}
 		}
 		losses[i] = total
@@ -264,6 +275,7 @@ func (e *Engine) Run(contribs []Contribution, riskLoad float64) Result {
 		TVaR:       tvar,
 		Carried:    tvar * (1 + riskLoad),
 		RiskLoad:   riskLoad,
+		Guards:     *g,
 	}
 }
 
@@ -305,6 +317,14 @@ func percentile(sorted []float64, p float64) float64 {
 // rather than returning a bad number. Symmetric triples like (0.1, 0.5, 0.9) are entirely ordinary
 // to write by hand, and this package is reachable over HTTP. See regression_test.go.
 func samplePERT(rng *rand.Rand, t RiskTriple) float64 {
+	return samplePERTCounted(rng, t, nil)
+}
+
+// samplePERTCounted is samplePERT with optional guard instrumentation. g may be nil.
+//
+// The guard branches are UNCHANGED — the only additions are the counter increments. See guards.go
+// for why these substitutions are counted rather than removed or promoted to errors.
+func samplePERTCounted(rng *rand.Rand, t RiskTriple, g *Guards) float64 {
 	span := t.Max - t.Min
 	if span <= 0 {
 		return t.Min
@@ -313,14 +333,23 @@ func samplePERT(rng *rand.Rand, t RiskTriple) float64 {
 	beta := 1 + 4*(t.Max-t.Mode)/span
 	if alpha <= 0 || math.IsNaN(alpha) {
 		alpha = 1
+		if g != nil {
+			g.ShapeClamped++
+		}
 	}
 	if beta <= 0 || math.IsNaN(beta) {
 		beta = 1
+		if g != nil {
+			g.ShapeClamped++
+		}
 	}
 
-	x := gammaVariate(rng, alpha)
-	y := gammaVariate(rng, beta)
+	x := gammaVariateCounted(rng, alpha, g)
+	y := gammaVariateCounted(rng, beta, g)
 	if x+y == 0 || math.IsNaN(x) || math.IsNaN(y) {
+		if g != nil {
+			g.MidpointSubstituted++
+		}
 		return t.Min + 0.5*span
 	}
 	return t.Min + span*(x/(x+y))
@@ -332,7 +361,15 @@ func samplePERT(rng *rand.Rand, t RiskTriple) float64 {
 // Guarded against non-finite shape: the caller should never pass one, but an unbounded rejection
 // loop in an HTTP-reachable code path is not an acceptable failure mode.
 func gammaVariate(rng *rand.Rand, shape float64) float64 {
+	return gammaVariateCounted(rng, shape, nil)
+}
+
+// gammaVariateCounted is gammaVariate with optional guard instrumentation. g may be nil.
+func gammaVariateCounted(rng *rand.Rand, shape float64, g *Guards) float64 {
 	if math.IsNaN(shape) || math.IsInf(shape, 0) || shape <= 0 {
+		if g != nil {
+			g.GammaNonFinite++
+		}
 		return 0
 	}
 	if shape < 1 {
@@ -341,7 +378,7 @@ func gammaVariate(rng *rand.Rand, shape float64) float64 {
 		for u == 0 {
 			u = rng.Float64()
 		}
-		return gammaVariate(rng, shape+1) * math.Pow(u, 1.0/shape)
+		return gammaVariateCounted(rng, shape+1, g) * math.Pow(u, 1.0/shape)
 	}
 
 	d := shape - 1.0/3.0
@@ -372,6 +409,14 @@ func gammaVariate(rng *rand.Rand, shape float64) float64 {
 // method for small lambda and a normal approximation above the threshold where Knuth's loop
 // becomes expensive.
 func poisson(rng *rand.Rand, lambda float64) int {
+	return poissonCounted(rng, lambda, nil)
+}
+
+// poissonCounted is poisson with optional guard instrumentation. g may be nil.
+//
+// Note the lambda <= 0 case is NOT counted: "no rate means no events" is correct semantics, not a
+// substitution. Only the loop cap fabricates a value.
+func poissonCounted(rng *rand.Rand, lambda float64, g *Guards) int {
 	if lambda <= 0 || math.IsNaN(lambda) {
 		return 0
 	}
@@ -386,6 +431,9 @@ func poisson(rng *rand.Rand, lambda float64) int {
 			}
 			k++
 			if k > 1000 {
+				if g != nil {
+					g.PoissonLoopCapped++
+				}
 				return k
 			}
 		}

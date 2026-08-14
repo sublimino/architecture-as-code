@@ -117,6 +117,15 @@ type Simulation struct {
 	// TailDominated reports VaR95 < ALE: most simulated years cost nothing and the whole expected
 	// loss lives in the tail. A risk-financing signal, not an error.
 	TailDominated bool `json:"tailDominated"`
+
+	// Guards counts defensive substitutions the sampler made, accumulated across EVERY simulation
+	// this report ran -- the headline figure, the uncaged pre-pass, each per-control hypothetical
+	// and each tornado leg. A fabricated draw inside a delta calculation is just as much a
+	// fabricated figure as one in the headline, so none of them are excluded from the count.
+	//
+	// Non-zero means some number in this report was invented rather than sampled. See
+	// fair/guards.go. Zero across the shipped estate; asserted by test.
+	Guards fair.Guards `json:"guards"`
 }
 
 // Exposure is the aggregate loss distribution expressed in the report's currency.
@@ -153,6 +162,13 @@ type Report struct {
 	RatesAsOf string
 	// Conversions lists each distinct currency pair converted, with its rate — the working, shown.
 	Conversions []money.Converted
+
+	// CurrencyNote flags a reporting currency that is not the conventional one for the declared
+	// jurisdiction. Advisory, never an error: a UK-domiciled group legitimately reporting in USD is
+	// ordinary. But an institution whose jurisdiction and denomination disagree is worth confirming
+	// deliberately rather than discovering in front of an audience, so the observation goes ON THE
+	// PAGE next to both values instead of staying buried in a YAML file.
+	CurrencyNote string
 
 	Results []ControlResult
 
@@ -447,6 +463,14 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	}
 
 	eng := &fair.Engine{Iterations: opt.Iterations, Seed: opt.Seed}
+	// Every simulation in this report funnels through runSim so no guard fire can be missed by a
+	// call site someone forgot to instrument.
+	var guards fair.Guards
+	runSim := func(c []fair.Contribution) fair.Result {
+		r := eng.Run(c, org.RiskLoad)
+		guards.Add(r.Guards)
+		return r
+	}
 	if eng.Iterations == 0 {
 		eng.Iterations = fair.DefaultIterations
 	}
@@ -535,7 +559,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		return nil, err
 	}
 	rep.NoApplicableScenarios = len(uncaged) == 0
-	pre := eng.Run(uncaged, org.RiskLoad)
+	pre := runSim(uncaged)
 
 	tierName, reason := selectTier(pack, unmetGated, pre.ALE, org.Appetite.Tolerance.Amount)
 	if rep.NoApplicableScenarios {
@@ -557,7 +581,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	if err != nil {
 		return nil, err
 	}
-	rep.Risk = eng.Run(caged, org.RiskLoad)
+	rep.Risk = runSim(caged)
 	if err := rep.Risk.SelfCheck(); err != nil {
 		return nil, err
 	}
@@ -567,6 +591,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		RiskLoad:      rep.Risk.RiskLoad,
 		TailDominated: rep.Risk.TailDominated(),
 	}
+	rep.CurrencyNote = currencyNote(org.Metadata.Jurisdiction, org.Currency)
 	rep.Exposure = Exposure{
 		ALE:     money.Money{Amount: rep.Risk.ALE, Currency: conv.target},
 		VaR95:   money.Money{Amount: rep.Risk.VaR95, Currency: conv.target},
@@ -634,7 +659,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		if err != nil {
 			return nil, err
 		}
-		res := eng.Run(hyp, org.RiskLoad)
+		res := runSim(hyp)
 		buys := money.Money{Amount: rep.Risk.ALE - res.ALE, Currency: conv.target}
 		net, err := buys.Sub(r.AnnualCost)
 		if err != nil {
@@ -699,8 +724,8 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 		if err != nil {
 			return nil, err
 		}
-		l := eng.Run(lo, org.RiskLoad)
-		h := eng.Run(hi, org.RiskLoad)
+		l := runSim(lo)
+		h := runSim(hi)
 		s := Sensitivity{
 			Scenario: sc,
 			LowALE:   money.Money{Amount: l.ALE, Currency: conv.target},
@@ -717,6 +742,7 @@ func Run(pack *model.Pack, agent *model.AgentPosture, org *model.OrgRiskPosture,
 	}
 	sort.SliceStable(rep.Tornado, func(i, j int) bool { return rep.Tornado[i].Swing.Amount > rep.Tornado[j].Swing.Amount })
 
+	rep.Simulation.Guards = guards
 	rep.Conversions = conv.log
 	if len(conv.log) > 0 && opt.Rates != nil {
 		rep.RatesAsOf = opt.Rates.AsOf
@@ -827,4 +853,40 @@ func pow(x, y float64) float64 {
 		return 0
 	}
 	return math.Pow(x, y)
+}
+
+// conventionalCurrency maps a jurisdiction to the currency an institution there would ordinarily
+// report in. Deliberately short: only the jurisdictions this estate actually uses plus the obvious
+// majors. An unlisted jurisdiction produces no note rather than a guess.
+var conventionalCurrency = map[string]money.Currency{
+	"UK": "GBP", "GB": "GBP", "US": "USD", "JP": "JPY", "CH": "CHF", "CA": "CAD",
+	"AU": "AUD", "SG": "SGD", "IN": "INR", "ZA": "ZAR", "SE": "SEK", "NO": "NOK",
+	"DK": "DKK", "AE": "AED", "HK": "HKD",
+	"DE": "EUR", "FR": "EUR", "ES": "EUR", "IT": "EUR", "NL": "EUR", "IE": "EUR",
+}
+
+// currencyNote returns an advisory when an institution's reporting currency is not the conventional
+// one for its jurisdiction.
+//
+// This is NOT a validation error and must never become one. A UK-domiciled group reporting in USD,
+// or a European subsidiary reporting in its parent's currency, is entirely ordinary. The point is
+// narrower: an institution whose declared jurisdiction and declared denomination disagree is a fact
+// a reader should see stated, next to both values, so it is a deliberate choice rather than
+// something discovered live by the first person who reads the file.
+//
+// The concrete case in this repository is risk/org/ludlow-health.yaml — a US healthcare provider
+// pricing HIPAA and state-AG loss classes, with every amount denominated in GBP.
+func currencyNote(jurisdiction string, cur money.Currency) string {
+	j := strings.ToUpper(strings.TrimSpace(jurisdiction))
+	if j == "" || cur == "" {
+		return ""
+	}
+	want, known := conventionalCurrency[j]
+	if !known || want == cur {
+		return ""
+	}
+	return fmt.Sprintf("institution is domiciled in %s but reports in %s (%s would be conventional). "+
+		"Not an error — reporting in a non-domestic currency is ordinary — but confirm it is deliberate: "+
+		"every figure below is %s, and a reader who assumes %s will be wrong by the exchange rate",
+		j, cur, want, cur, want)
 }

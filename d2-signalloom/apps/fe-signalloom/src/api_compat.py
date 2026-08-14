@@ -2977,6 +2977,147 @@ async def compliance_export(
     }
 
 
+class PrivilegedInvocationRequest(BaseModel):
+    """What the demo runner may report, and the whole of it.
+
+    Two fields, both drawn from closed sets, and neither of them an audit field
+    in its own right. What is deliberately absent is the list that matters:
+    no ``actor``, no ``event_type``, no ``outcome``, no free-text reason. Those
+    are the load-bearing columns of the row, and a caller that can author them
+    can author the row. They are derived below from the validated token and
+    from ``kind``, never read from this body.
+
+    ``extra="forbid"`` so that a field added to the wire without being added to
+    this model is a 422 rather than a silently ignored claim.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Mirrors ``demo_runner.StepId``. Restated rather than imported because
+    #: ``demo_runner`` imports this module; the duplication is one line and the
+    #: alternative is a cycle. ``test_demo_runner_audit_forwarding`` pins the
+    #: two together.
+    step_id: Literal["1", "2", "3", "4", "5"]
+    kind: Literal["step", "reset"]
+
+
+def _superadmin_principal(
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> Principal:
+    """``superadmin.require_superadmin``, reachable from this module.
+
+    ``superadmin`` imports ``Principal`` and ``authenticated_principal`` from
+    here, so importing it back at module scope is a cycle. The import is
+    therefore deferred to request time -- the gate itself is unchanged, and
+    lives in exactly one place, which is the property worth protecting.
+    """
+    from superadmin import is_superadmin
+
+    if not is_superadmin(principal):
+        raise APIError(403, "superadmin_required", "Superadmin access is required")
+    return principal
+
+
+@router.post(
+    "/audit/privileged-invocations",
+    response_model=AuditEventResponse,
+    responses=ERROR_RESPONSES,
+    status_code=201,
+)
+async def record_privileged_invocation(
+    body: PrivilegedInvocationRequest,
+    principal: Annotated[Principal, Depends(_superadmin_principal)],
+) -> AuditEventResponse:
+    """Persist a privileged demo invocation on the runner's behalf.
+
+    This is the durable half of the supercred-demo-runner's audit trail, and it
+    exists because that workload has no database and must not be given one.
+    ``demo_runner_main.py`` says why in its own words -- the runner "must not
+    initialise the PostgreSQL pool" -- and its NetworkPolicy is written to the
+    same standard, spelling out what is absent and why. Port 5432 is absent.
+    The runner is the one workload in the slice that executes privileged
+    scripts against the cluster; handing it database reachability in order to
+    widen an audit trail trades the wrong thing away. So the bytes travel over
+    HTTP to the process that already holds the pool, which is this one.
+
+    On the honesty of the row, plainly, because this endpoint is the exception
+    to the rule the rest of the file now follows.
+
+    Everything that identifies the caller is first-party: ``actor`` and
+    ``tenant`` come from a Dex token that THIS process validated, against the
+    same issuer, audience and superadmin allowlist the runner validated it
+    against. Nothing about the identity is taken on trust from the reporter.
+    ``event_type`` and ``preempts_active_run`` are derived here from ``kind``.
+
+    What is not first-party is ``step_id``: only the runner knows which phase
+    it was asked for, and it is constrained to a closed set rather than
+    verified. The row is therefore a record of an authorisation -- a superadmin
+    was authorised, at this time, for this phase -- and not a claim that a
+    script ran or that a cluster changed. That distinction is the same one the
+    stun payload had to learn: ``requested`` is not ``reached``.
+
+    The residual exposure is that a superadmin could call this directly and
+    fabricate an invocation that never happened. That is accepted rather than
+    overlooked: the only callers who can do it are the callers entitled to make
+    the claim true by pressing the button. Closing it properly needs a verified
+    workload identity for the runner -- a projected ServiceAccount token checked
+    by TokenReview, or an OpenBao-issued service credential -- and neither
+    primitive exists in this codebase yet. When one does, this endpoint should
+    require it in addition to the operator's token, not instead of it.
+    """
+    tenant_id = principal.tenant
+    detail: dict[str, Any] = {
+        "step_id": body.step_id,
+        "kind": body.kind,
+        # Reported by the runner, recorded here, observed by neither. Named so
+        # that a reader of this row knows which kind of fact they are holding
+        # without having to know this endpoint exists.
+        "reported_by": "supercred-demo-runner",
+        "observed": False,
+    }
+    if body.kind == "reset":
+        # Derived from `kind`, not accepted from the body: reset is the control
+        # that preempts and cancels whatever phase is running, and that is a
+        # property of the operation rather than something a caller asserts.
+        detail["preempts_active_run"] = True
+
+    pool = await _get_pool()
+    if pool is None:
+        event = _record_memory_audit(
+            tenant_id, "demo.reset_requested" if body.kind == "reset" else "demo.phase_run",
+            None, None, principal.actor, detail,
+        )
+        return AuditEventResponse(**event)
+
+    # Two literal call sites rather than one call with a looked-up name. The
+    # extractor in test_audit_event_types.py resolves an event type only when
+    # it is a literal at the call site or a parameter of the enclosing
+    # function; a dict lookup would land in its `unresolved` list, and that
+    # test's whole point is that an unresolvable call site is reported rather
+    # than quietly dropped from the coverage it claims to provide.
+    async with _write(pool) as conn:
+        if body.kind == "reset":
+            await _audit_log(
+                conn, tenant_id, "demo.reset_requested", None, None, principal.actor, detail,
+            )
+        else:
+            await _audit_log(
+                conn, tenant_id, "demo.phase_run", None, None, principal.actor, detail,
+            )
+
+    return AuditEventResponse(
+        # As in the stun response: the insert does not return the generated id,
+        # and naming the stand-in is better than inventing a plausible one.
+        id=f"{tenant_id}:audit-pending",
+        timestamp=_now_iso(),
+        event_type="demo.reset_requested" if body.kind == "reset" else "demo.phase_run",
+        agent_id=None,
+        agent_name=None,
+        actor=principal.actor,
+        detail=detail,
+    )
+
+
 @router.get("/audit", response_model=AuditListResponse, responses=ERROR_RESPONSES)
 async def audit(
     tenant_id: Annotated[str, Depends(authenticated_tenant)],

@@ -11,8 +11,8 @@ import (
 	"github.com/google/cel-go/cel"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/fair"
-	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/frameworks"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/policy-engine/money"
 )
 
 // Wire format types
@@ -60,11 +60,11 @@ type ComplianceScanResult struct {
 }
 
 type ComplianceSummary struct {
-	TotalControls  int     `json:"totalControls"`
-	Passed         int     `json:"passed"`
-	Failed         int     `json:"failed"`
-	TotalExposure  float64 `json:"totalExposureGbp"`
-	ScanTimestamp  string  `json:"scanTimestamp,omitempty"`
+	TotalControls int     `json:"totalControls"`
+	Passed        int     `json:"passed"`
+	Failed        int     `json:"failed"`
+	TotalExposure float64 `json:"totalExposureGbp"`
+	ScanTimestamp string  `json:"scanTimestamp,omitempty"`
 
 	// Currency denominates totalExposureGbp. See the note on ComplianceScanResult.
 	Currency money.Currency `json:"currency"`

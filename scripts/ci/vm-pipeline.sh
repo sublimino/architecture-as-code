@@ -485,6 +485,80 @@ run_stage \
   "stage1f-ci-terminal-state.tap" \
   "cd ${WORK_DIR} && bats --tap test/ci-terminal-state.bats"
 
+# Stage 1g: Static guards that no runner previously invoked (BATS TAP)
+#
+# Numbered 1g for the reason 1b-1f were: openreports-convert.sh maps report
+# FILES to parsers by name, so an inserted stage costs nothing as long as the
+# existing filenames stay put.
+#
+# WHY THIS STAGE EXISTS. Measured across the tree before it was added: 68 .bats
+# suites present, 35 executed by a runner, **33 never executed by anything**.
+# All 33 passed. They were not broken, they were unasked -- written, reviewed,
+# committed, several of them documented as the guard for a thing, and providing
+# exactly zero regression protection because no runner named them. Among them
+# dashboard-route-collisions.bats, which TESTING.md, AGENTS.md and two docs all
+# describe as THE enforcement mechanism for nginx prefix/SPA route collisions;
+# and deployed-staleness.bats, keys-dir-path-safety.bats and
+# audit-anchor-keys-path.bats, all three written within the last 115 commits.
+#
+# This is stage 1c's defect in a second runner. 1c exists because a Playwright
+# spec matching no project's testMatch is silently skipped -- exit 0, no warning
+# -- and four specs hid that way. The bats suite had the identical hole: a
+# hand-maintained list in d2-signalloom/Makefile and hand-maintained run_stage
+# lines here, both of which omit by default. The guard was invented for one
+# runner and never carried across to the other.
+#
+# Two halves, and it needs both: d2-signalloom/Makefile now GLOBS test/*.bats so
+# a new suite runs unless deliberately opted out, and
+# d2-signalloom/test/bats-registry-coverage.bats (stage 1h) fails when a suite
+# is unrun, when an opt-out has no reason, and -- importantly -- when the glob
+# itself is replaced by a hand list again. Asserting only the outcome would pass
+# happily against a tree that no longer contains the mechanism.
+#
+# All 29 below were verified green standalone before being added here. They are
+# static: no cluster, no docker, no network. supercred-images.bats is NOT in the
+# list -- it exceeded a 90s standalone budget without failing, so it belongs
+# with the image stages rather than in a fast gate; it is declared in the
+# guard's ledger with that reason rather than silently dropped.
+run_stage \
+  "Static guards previously invoked by nothing" \
+  "stage1g-unregistered-guards.tap" \
+  "cd ${WORK_DIR} && bats --tap \
+     test/agent-trust-lifecycle.bats test/audit-anchor-keys-path.bats \
+     test/bao-spire-proof.bats test/ci-lock.bats \
+     test/cosign-signing-consistency.bats test/demo-lifecycle.bats \
+     test/deployed-staleness.bats test/flux-dynamic-labels.bats \
+     test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
+     test/gcp-ci-vm-status.bats test/healthcheck.bats \
+     test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
+     test/kind-config-heredoc.bats test/kind-load-verified.bats \
+     test/resourceset-activation-race.bats test/revocation-demo.bats \
+     test/signalloom-flux-integration.bats test/signalloom-local-lifecycle.bats \
+     test/signalloom-preflight.bats \
+     test/signalloom-security-validation-evidence.bats \
+     test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \
+     test/supercred-fleet-demo-harness.bats test/supercred-image-visibility.bats \
+     test/supercred-state.bats test/supervise-port-forward.bats \
+     test/zot-cache.bats"
+
+# Stage 1h: bats registry coverage (BATS TAP)
+#
+# The fixed point. Stage 1g is itself a hand-maintained list, and a
+# hand-maintained list is the artefact that caused this whole problem -- it omits
+# by default and drifts the moment someone adds a suite. This stage is what makes
+# 1g's list self-correcting: it fails when a .bats file exists that neither the
+# d2-signalloom glob nor this file invokes.
+#
+# It is the direct analogue of stage 1c for bats, and it registers itself: it
+# lives in d2-signalloom/test/ and is therefore covered by the same glob it
+# asserts, so it cannot go unrun without failing.
+#
+# bats, sed and coreutils only: no cluster, no network, ~1s.
+run_stage \
+  "bats registry coverage" \
+  "stage1h-bats-registry.tap" \
+  "cd ${WORK_DIR} && bats --tap d2-signalloom/test/bats-registry-coverage.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

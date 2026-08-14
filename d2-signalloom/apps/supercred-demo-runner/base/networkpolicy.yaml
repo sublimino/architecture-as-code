@@ -39,15 +39,26 @@ spec:
         - protocol: TCP
           port: 8000
 ---
-# Egress: DNS, and the kube-apiserver. That is the entire list.
+# Egress: DNS, Dex JWKS, the kube-apiserver, and the audit sink. That is the
+# entire list.
 #
-# Note what is NOT here: the runner needs no direct egress to policy-engine in
-# inf-signalloom, even though step 3 POSTs to its /api/v1/evaluate endpoint.
-# That call goes through `kubectl port-forward svc/policy-engine 18081:8081`
-# (L258) and then to http://localhost:18081, so the traffic leaves this pod as
-# an API-server connection and arrives at policy-engine from the apiserver,
-# not from here. Adding a policy-engine egress rule would grant reachability
-# the demo never uses.
+# Note what is NOT here, and what is now: the runner needs no direct egress to
+# policy-engine in inf-signalloom, even though step 3 POSTs to its
+# /api/v1/evaluate endpoint. That call goes through `kubectl port-forward
+# svc/policy-engine 18081:8081` (L258) and then to http://localhost:18081, so
+# the traffic leaves this pod as an API-server connection and arrives at
+# policy-engine from the apiserver, not from here. Adding a policy-engine
+# egress rule would grant reachability the demo never uses.
+#
+# Postgres in inf-signalloom is also NOT here, and that is a decision rather
+# than an omission. The privileged-invocation audit rows this pod produces have
+# to reach a database, and the direct route -- a DSN and a 5432 rule -- was
+# rejected. This is the one workload that executes privileged shell scripts
+# against the cluster; database reachability is the grant whose blast radius is
+# largest here, and widening an audit trail is not worth buying it. The rows go
+# to fe-signalloom over the HTTP rule below instead, carrying the operator's
+# own already-validated token, so the pod gains reachability to one in-namespace
+# service on one port and no new credential at all.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -93,6 +104,27 @@ spec:
       ports:
         - protocol: TCP
           port: 5556
+    # The audit sink: fe-signalloom's compatibility API, same namespace, the
+    # service the dashboard's own /api/ block proxies to. POST
+    # /api/audit/privileged-invocations, one call per privileged phase run or
+    # reset, before the script is spawned.
+    #
+    # This is the egress half of a pair. The ingress half is the runner rule in
+    # allow-dashboard-to-api-ingress (apps/fe-signalloom/base/networkpolicy.yaml),
+    # and the URL is SIGNALLOOM_AUDIT_SINK_URL in deployment.yaml. Removing any
+    # one of the three does NOT silently break the demo the way the SuperCred
+    # pair does: the forward fails, _record_privileged_invocation refuses to
+    # spawn, and the operator gets a 503 naming audit_unavailable. Failing the
+    # privileged control is the intended behaviour -- a phase that cannot be
+    # recorded does not run -- but it means a dropped rule presents as "the
+    # demo stopped working", so check this rule before the script.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8000
     # kube-apiserver. Every kubectl call the demo makes, plus the port-forward
     # tunnel, rides this. Both ports are required for the same reason
     # allow-netassert-runner-egress lists both: kindnet evaluates service

@@ -271,6 +271,24 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: dashboard-signalloom
+        # The SuperCred demo runner, for POST /api/audit/privileged-invocations
+        # and nothing else. That workload owns no database by design, so the
+        # audit rows for the privileged phases it drives are forwarded here to
+        # the process that holds the pool, rather than by giving a pod that
+        # executes shell scripts against the cluster its own route to Postgres.
+        #
+        # It presents the operator's own Dex token, which this API validates
+        # independently -- the runner is a transport for the record, not an
+        # authority over it, and the superadmin gate is applied again on this
+        # side. A NetworkPolicy cannot scope an ingress rule to one path, so
+        # the narrowing that matters is done at the endpoint: it is superadmin
+        # -gated and accepts two values from closed sets.
+        #
+        # Ingress half of a pair; the egress half and the URL live in
+        # apps/supercred-demo-runner/base/{networkpolicy,deployment}.yaml.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: supercred-demo-runner
       ports:
         - protocol: TCP
           port: 8000

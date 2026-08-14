@@ -27,7 +27,8 @@ from types import MappingProxyType
 from typing import Annotated, Any, AsyncIterator, Literal, Mapping, cast
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Query
+import httpx
+from fastapi import APIRouter, Depends, Header, Query
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -50,6 +51,20 @@ _ENV_EVIDENCE_SCRIPT = "SUPERCRED_EVIDENCE_SCRIPT"
 _ENV_CWD = "SUPERCRED_DEMO_CWD"
 _ENV_TIMEOUT = "SUPERCRED_DEMO_TIMEOUT_SECONDS"
 _ENV_CANCEL_GRACE = "SUPERCRED_DEMO_CANCEL_GRACE_SECONDS"
+#: Base URL of the process that holds the audit database.
+#:
+#: Empty means this process has no durable sink. That is a legitimate state for
+#: a test or a no-database demo and an illegitimate one for a deployed runner,
+#: so ``/readyz`` in demo_runner_main.py refuses to report ready when it is
+#: empty and no local pool exists. A misconfigured runner then never receives
+#: traffic, rather than accepting privileged calls and recording them nowhere.
+_ENV_AUDIT_SINK = "SIGNALLOOM_AUDIT_SINK_URL"
+_AUDIT_SINK_PATH = "/api/audit/privileged-invocations"
+#: Short. The record is written before the spawn, so this timeout is on the
+#: critical path of a privileged control -- but a slow sink must fail the call
+#: rather than hold the operator's request open indefinitely, and a failure
+#: here is a refusal to run, which is the safe direction.
+_AUDIT_SINK_TIMEOUT_SECONDS = 5.0
 
 _DEFAULT_TIMEOUT_SECONDS = 900
 _DEFAULT_CANCEL_GRACE_SECONDS = 10
@@ -672,8 +687,31 @@ def _start_reset_run() -> _Run:
         return _spawn_run(RESET_STEP_ID, "reset")
 
 
+def _audit_sink_url() -> str:
+    """Base URL of the durable audit sink, or empty when there is none."""
+    return os.environ.get(_ENV_AUDIT_SINK, "").strip().rstrip("/")
+
+
+async def _post_audit_sink(
+    url: str, *, json: dict[str, Any], headers: dict[str, str],
+) -> None:
+    """POST the invocation to fe-signalloom, raising on anything but success.
+
+    Separated from its caller so tests can substitute it. It raises rather than
+    returning a status because every non-2xx answer means the same thing to the
+    caller -- no row was written -- and collapsing them here keeps the
+    fail-closed decision in one place.
+    """
+    async with httpx.AsyncClient(timeout=_AUDIT_SINK_TIMEOUT_SECONDS) as client:
+        response = await client.post(url, json=json, headers=headers)
+    response.raise_for_status()
+
+
 async def _record_privileged_invocation(
-    principal: Principal, event_type: str, detail: dict[str, Any],
+    principal: Principal,
+    event_type: str,
+    detail: dict[str, Any],
+    authorization: str | None = None,
 ) -> None:
     """Record a superadmin invoking a privileged, cluster-mutating control.
 
@@ -706,22 +744,101 @@ async def _record_privileged_invocation(
     relabel and the OpenBao lease revocation belong to the SuperCred proxy,
     which reports to nobody; naming an outcome here would reintroduce the
     fabrication in a new place.
+
+    Where the row goes, and why it stopped going nowhere
+    ----------------------------------------------------
+    This function used to end at ``_record_memory_audit`` whenever
+    ``_get_pool()`` returned None, and in the deployed runner it returned None
+    on every call: ``demo_runner_main.py`` mounts this router precisely so the
+    workload "must not initialise the PostgreSQL pool", and the Deployment
+    carries no database configuration of any kind. So every privileged phase
+    run and every reset went into a module-level dict in the pod that the demo
+    restarts -- the per-process history this mechanism was built to replace,
+    reintroduced one layer down. The test suite could not see it because those
+    tests mount ``main:app``, where this router and ``api_compat``'s in-memory
+    store share a process and the store is therefore present.
+
+    The fix is not a database connection here. The runner is the one workload
+    that executes privileged scripts against the cluster, and its NetworkPolicy
+    is written tightly enough to explain in comments what is deliberately
+    absent; 5432 is absent. Reachability into Postgres is a large thing to
+    grant this pod in exchange for a wider audit trail. Instead the record is
+    forwarded to fe-signalloom, which already holds the pool, authenticated
+    with the operator's own bearer token -- the same token this process has
+    just validated, from the same issuer and for the same audience
+    fe-signalloom validates against, so no new credential is minted or stored.
+
+    Only ``step_id`` and ``kind`` travel. ``actor``, ``event_type`` and the
+    rest are re-derived at the far end from the token, because a field that
+    crosses the wire is a field the next caller could author.
+
+    Three paths, in order of preference:
+
+    1. A local pool -- fe-signalloom's own copy of this router. Writes directly.
+    2. A configured sink -- the deployed runner. Forwards, and **fails closed**:
+       an unreachable sink raises, the handler never reaches the spawn, and the
+       operator gets a 503 instead of an unrecorded privileged run. That
+       preserves the property the audit-before-spawn ordering was chosen for.
+       Swallowing the error would keep the ordering and lose the guarantee.
+    3. Neither -- tests and the no-database demo. Records in memory and says so
+       at WARNING. A deployed runner cannot reach this branch quietly:
+       ``/readyz`` refuses readiness when there is no pool and no sink, so the
+       pod never receives traffic in that state.
     """
-    pool = await _get_pool()
     actor = principal.actor
-    if pool is None:
-        _record_memory_audit(
-            principal.tenant, event_type, None, None, actor, detail,
+    pool = await _get_pool()
+    if pool is not None:
+        await _audit_log(
+            pool,
+            tenant_id=principal.tenant,
+            event_type=event_type,
+            agent_id=None,
+            agent_name=None,
+            actor=actor,
+            detail=detail,
         )
         return
-    await _audit_log(
-        pool,
-        tenant_id=principal.tenant,
-        event_type=event_type,
-        agent_id=None,
-        agent_name=None,
-        actor=actor,
-        detail=detail,
+
+    sink = _audit_sink_url()
+    if sink:
+        if not authorization:
+            # Unreachable through the routes -- both are superadmin-gated, so a
+            # validated bearer got us here. Treated as a failure rather than
+            # asserted away because the failure mode of guessing wrong is an
+            # unauthenticated forward that 401s and is then swallowed.
+            logger.error("privileged invocation not forwarded: no bearer token to present")
+            raise APIError(
+                503, "audit_unavailable",
+                "The privileged invocation could not be recorded, so it was not started.",
+            )
+        try:
+            await _post_audit_sink(
+                f"{sink}{_AUDIT_SINK_PATH}",
+                json={"step_id": detail["step_id"], "kind": detail["kind"]},
+                headers={"Authorization": authorization},
+            )
+        except Exception as exc:
+            # Deliberately broad. Every way this can fail -- connection refused,
+            # DNS, timeout, 4xx, 5xx -- means the same thing to the caller: no
+            # row was written. Narrowing it to httpx's hierarchy would let an
+            # unanticipated error through as a silent success, which is the
+            # exact defect being fixed.
+            logger.error(
+                "privileged invocation not recorded, refusing to start it: %s", exc,
+                exc_info=True,
+            )
+            raise APIError(
+                503, "audit_unavailable",
+                "The privileged invocation could not be recorded, so it was not started.",
+            ) from exc
+        return
+
+    logger.warning(
+        "no audit pool and no %s configured: recording %s in memory, which does not "
+        "survive this process", _ENV_AUDIT_SINK, event_type,
+    )
+    _record_memory_audit(
+        principal.tenant, event_type, None, None, actor, detail,
     )
 
 
@@ -1054,11 +1171,19 @@ async def credential_chain_evidence(
 async def start_demo_run(
     request: RunRequest,
     principal: Annotated[Principal, Depends(require_superadmin)],
+    # Taken raw as well as validated: `Principal` carries the identity but not
+    # the token, and a pool-less runner has to present the token itself to the
+    # audit sink. Nothing authorises off this header -- `require_superadmin`
+    # has already decided that from the validated claims.
+    authorization: Annotated[str | None, Header()] = None,
 ) -> RunView:
     # Audited before the spawn: a privileged phase must not be able to run
-    # without a record of who asked for it.
+    # without a record of who asked for it. This raises 503 rather than
+    # returning if the record cannot be made durable, so the ordering is a
+    # guarantee and not merely a sequence.
     await _record_privileged_invocation(
         principal, "demo.phase_run", {"step_id": request.step, "kind": "step"},
+        authorization,
     )
     # _start_step_run may block briefly on the mutation lock; keep it off the
     # event loop so a concurrent reset's cancellation cannot stall other requests.
@@ -1223,14 +1348,18 @@ async def stream_demo_run_log(
 @router.post("/reset", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)
 async def reset_demo(
     principal: Annotated[Principal, Depends(require_superadmin)],
+    # As in start_demo_run: forwarded to the audit sink, never authorised from.
+    authorization: Annotated[str | None, Header()] = None,
 ) -> RunView:
     # The most destructive control in the product: it preempts and cancels
     # whatever privileged phase is running, then tears the demo down. Its only
-    # history was a per-process dict that dies with the pod.
+    # history was a per-process dict that dies with the pod, and in the deployed
+    # runner that dict was the only place it ever went.
     await _record_privileged_invocation(
         principal,
         "demo.reset_requested",
         {"step_id": RESET_STEP_ID, "kind": "reset", "preempts_active_run": True},
+        authorization,
     )
     # Reset waits on process cancellation, so keep the blocking path off the
     # event loop and let other requests stay responsive.

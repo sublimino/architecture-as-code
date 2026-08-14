@@ -424,7 +424,7 @@ def test_pooled_path_writes_an_audit_event(
     events = [e for e in pool.audit_events if e["event_type"] == "tenant.preferences_updated"]
     assert len(events) == 1
     assert events[0]["tenant_id"] == "tenant-prefs-pooled"
-    assert events[0]["actor"] == "demo-actor"
+    assert events[0]["actor"] == "prefs-pooled"
     assert events[0]["detail"] == {
         "preferred_scan_cadence_hours": 12,
         "alert_email": "audit@signalloom.local",

@@ -130,7 +130,7 @@ See the invariant in [`docs/signalloom/audit-trail.md`](signalloom/audit-trail.m
 
 Three places need it and they fail differently, which is why this comes up:
 
-* missing from `EVENT_COLORS` in `dashboard-signalloom/src/views/AuditTrail.tsx` → renders
+* missing from `EVENT_COLORS` in `d2-signalloom/apps/dashboard-signalloom/src/views/AuditTrail.tsx` → renders
   grey;
 * missing from `EVENT_TYPES` in the same file → cannot be filtered at all;
 * missing from the `audit_events` CHECK constraint → the write fails and

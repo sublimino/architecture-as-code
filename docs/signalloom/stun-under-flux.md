@@ -15,8 +15,9 @@
 >   *invocation* instead, from the token, before spawning, and deliberately claims no
 >   outcome, because the process writing the row cannot observe the relabel or the lease
 >   revocation. See [`audit-trail.md`](audit-trail.md).
-> * **The stun API shape is being redesigned** as of 2026-08-14 and is not settled. Do not
->   take any request or response shape from this document.
+> * **The stun API shape is a known post-demo item** as of 2026-08-14 — not designed, not
+>   scheduled here. Do not take any request or response shape from this document, and do
+>   not read the absence of a description as a description.
 
 ## Executive summary
 

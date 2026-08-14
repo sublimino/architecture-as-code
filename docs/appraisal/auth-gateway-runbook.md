@@ -19,8 +19,11 @@
 > clearest account of why same-origin `/api` holds. That, and the reasoning trail, are why
 > this file is kept rather than deleted.
 >
-> The absolute paths below point into a July 2026 worktree that no longer exists. Read them
-> as repository-relative.
+> The absolute paths below point into a July 2026 worktree that no longer exists, and
+> making them repository-relative is not enough to rescue them: `src/auth/Auth0Provider.tsx`
+> is gone, along with every trace of `VITE_AUTH0_*`. That directory now holds `oidc.tsx`,
+> `ProtectedRoute.tsx` and `superadmin.ts`. Treat every file reference below as naming a
+> file that has since been replaced.
 
 Scope: bring the SignalLoom React dashboard up in the Kind cluster. Read-only appraisal.
 Root: `/home/andy/src/cp/osramp-demo/worktrees/signalloom-d2-v2.0.0/governor/worktrees/signalloom-d2-v2.5.0/governor/`

@@ -28,9 +28,9 @@ and the one that is merely local is the one people would assume travels.
 |-------|-------|
 | Storage | `user_preferences` (migration `020_user_preferences.sql`) |
 | Audit event type | migration `021_user_currency_event_type.sql` |
-| The control | `dashboard-signalloom/src/components/CurrencySetting.tsx` |
-| Formatting and conversion | `dashboard-signalloom/src/money/` |
-| Provenance line | `dashboard-signalloom/src/components/ConversionNote.tsx` |
+| The control | `d2-signalloom/apps/dashboard-signalloom/src/components/CurrencySetting.tsx` |
+| Formatting and conversion | `d2-signalloom/apps/dashboard-signalloom/src/money/` |
+| Provenance line | `d2-signalloom/apps/dashboard-signalloom/src/components/ConversionNote.tsx` |
 | Authored rates | `risk/fx/rates.yaml` |
 | Generated rates | `risk/fx/rates.json`, `risk/fx/testvectors.json` |
 
@@ -86,7 +86,7 @@ rates" a single step; splitting it means the two artefacts drift between the edi
 whenever somebody remembers the second one.
 
 After every generator has run, `make fx` compares `risk/fx/testvectors.json` against the
-vendored copy at `dashboard-signalloom/src/money/__fixtures__/fxTestVectors.json` and
+vendored copy at `d2-signalloom/apps/dashboard-signalloom/src/money/__fixtures__/fxTestVectors.json` and
 **fails** if they differ:
 
 ```
@@ -106,6 +106,34 @@ On a branch where the dashboard side has not landed, the step is skipped rather 
 failing: an absent generator means nothing downstream to regenerate, not a broken build.
 The dashboard's own staleness test is the backstop if it is ever skipped when it should
 not have been.
+
+## If you consume the policy-engine payload
+
+One trap, and it is a live one rather than a hypothetical. `ComplianceResult`
+(`d2-signalloom/apps/policy-engine/compliance.go`) still carries these four bare numbers:
+
+```
+"ale", "var95", "tvar", "carriedGbp"
+```
+
+`carriedGbp` is **a misnomer whenever the service is configured for anything but GBP**.
+The name says GBP; the value is in whatever `currency` says. The names are retained only so
+the dashboard keeps working while it migrates, and the field is deprecated.
+
+**New consumers should read `carried` and `currency`.** `carried` is the same number with
+its denomination attached, and `currency` denominates all four of the bare fields above.
+
+This is the concrete illustration of the rule `risk/README.md` states more generally — a
+denomination has to travel as **data**, not in a field name, because a name cannot be
+checked, converted, or made wrong by configuration without anyone noticing. `carriedGbp`
+is what that mistake looks like once it has shipped and acquired consumers: the cost of
+removing it is now other people's code, which is why it is deprecated in place rather than
+renamed. `tools/riskctl/internal/baseline/wire_test.go` guards the riskctl side against
+the same family of legacy names (`BuysGBP`, `CostGBP`, `NetGBP`, `SwingGBP`,
+`ToleranceGBP`, `CarriedGBP`) coming back.
+
+Design proposals predating the currency work — `docs/multi-agent-supercred-proposal.md`
+among them — specify `carriedGbp` and "Carried GBP" as display copy. Read those as dated.
 
 ## Reading a report
 

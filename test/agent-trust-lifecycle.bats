@@ -54,6 +54,21 @@ if [[ "$*" == *'sh -ec'* && "$*" == *'bao token renew'* ]]; then
   exit 2
 fi
 if [[ "$*" == *'get pod -l app.kubernetes.io/name=spire-server -o jsonpath='* ]]; then printf 'spire-server-0'; fi
+# The trust anchor: SPIRE's live JWT-SVID keys, and the keys OpenBao will accept
+# a signature from. Real P-256 material, because verify canonicalises both sides
+# through openssl and a placeholder would fail for the wrong reason.
+# AGENT_TRUST_FAKE_ROTATED_JWT_KEY reproduces the 2026-08-14 outage exactly:
+# SPIRE signs with a key OpenBao's bring-up snapshot never saw.
+if [[ "$*" == *'spire-server bundle show -format spiffe'* ]]; then
+  at_jwks='{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"UpawTyaemo3XLu2reqdiHkJq8LBHhNJvd1TXaHkp42g","y":"gchYAtHh1VMr-IQZFLnxVGzWpooTAGi6RrjTcZU_1VE"}'
+  if [[ "${AGENT_TRUST_FAKE_ROTATED_JWT_KEY:-0}" == 1 ]]; then
+    at_jwks="$at_jwks"',{"use":"jwt-svid","kty":"EC","crv":"P-256","x":"UxSKjHKNP8uZl8SOkYfSUMzNJ-tnRzmWFHuvRjtlgpM","y":"vUgmUjuFcmSfXsQ65CqdihUBGRnXPR79Gsn7jIRqSVo"}'
+  fi
+  printf '{"keys":[%s]}\n' "$at_jwks"
+fi
+if [[ "$*" == *'bao read -format=json auth/jwt/config'* ]]; then
+  printf '%s\n' '{"data":{"jwt_validation_pubkeys":["-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEUpawTyaemo3XLu2reqdiHkJq8LBH\nhNJvd1TXaHkp42iByFgC0eHVUyv4hBkUufFUbNamihMAaLpGuNNxlT/VUQ==\n-----END PUBLIC KEY-----"]}}'
+fi
 # Must echo the SELECTORS, not just an Entry ID. verify asserts k8s:ns/k8s:sa
 # because those are the workload-attestation property; a fixture that returns a
 # bare "Entry ID" would let the selector assertions pass against a response that
@@ -284,6 +299,41 @@ line_number() {
     AGENT_TRUST_FAKE_UNBOUND_ROLE=1 "$root/scripts/agent-trust-local.sh" verify
   [ "$status" -ne 0 ]
   [[ "$output" == *"not bound to its SPIFFE subject"* ]]
+}
+
+# The binding assertions above answer "whose identity is this role for". They
+# cannot answer "can OpenBao still check the signature", and that is the gap this
+# closes. On 2026-08-14 SPIRE rotated its JWT signing key, auth/jwt/config kept
+# the snapshot taken at bring-up, and openbao-planner and planner-triage-a2a
+# failed every five minutes for three and a half hours while the SPIRE selectors,
+# bound_subject, bound_audiences and token lifetime all stayed exactly right.
+# Both sides are derived from the artefacts that decide — SPIRE's live bundle and
+# OpenBao's live config — so this cannot be satisfied by a stale expectation.
+@test "a rotated SPIRE JWT signing key OpenBao does not hold fails verification" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    AGENT_TRUST_FAKE_ROTATED_JWT_KEY=1 "$root/scripts/agent-trust-local.sh" verify
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot validate the JWT-SVIDs SPIRE is signing now"* ]]
+  [[ "$output" == *"rotated its JWT signing key"* ]]
+}
+
+@test "an unrotated trust anchor passes verification" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_CNI=kindnet \
+    "$root/scripts/agent-trust-local.sh" verify
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"cannot validate the JWT-SVIDs"* ]]
+}
+
+# Two derivations of "the same key" would drift the way the snapshot did, so the
+# writer and the gate must share one.
+@test "the identity plane sync and the verification gate share one derivation" {
+  grep -Fq 'sync_openbao_jwt_validation' "$root/scripts/agent-trust-local.sh"
+  grep -Fq 'sync_openbao_jwt_validation' "$root/scripts/demo-lifecycle.sh"
+  grep -Fq 'assert_openbao_accepts_spire_jwt_keys' "$root/scripts/agent-trust-local.sh"
+  # The JWK->DER conversion exists once, in the shared library, not in either caller.
+  run grep -c 'SubjectPublicKeyInfo header' "$root/scripts/lib/spire-trust-anchor.sh"
+  [ "$output" -eq 1 ]
+  ! grep -Fq 'SubjectPublicKeyInfo header' "$root/scripts/demo-lifecycle.sh"
 }
 
 @test "the planner pod lookup excludes probe pods it would otherwise collide with" {

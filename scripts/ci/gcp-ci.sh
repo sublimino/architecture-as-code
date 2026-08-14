@@ -563,6 +563,21 @@ write_run_status() {
 # The explicit `exit "$rc"` is not decoration: under `set -e` an EXIT trap hands
 # its own last exit status to the shell, which is how a run with 8/8 stages
 # green once exited 1. See lock_release's comment and test/ci-lock.bats.
+#
+# `$?` alone is not enough to exit on, though, and this is the mirror image of
+# that bug rather than a repeat of it. bash runs this trap on SIGINT, SIGTERM
+# and SIGHUP as well as on a normal exit, and on a signal `$?` is 0 — the shell
+# was not running a failing command, it was told to die. Exiting on that 0 wrote
+# ABORTED into summary.json and then reported success: a Ctrl-C'd `make ci-gcp`
+# that every wrapper and `&&` chain reads as a clean pass. (SIGTERM and SIGHUP
+# happen to be masked, because bash re-raises them and the process reports
+# 143/129 regardless; SIGINT is honoured, so Ctrl-C — the likeliest of the three
+# — was the live hole. The file recorded `exit_code: 0` on all of them.)
+#
+# So the status comes from the verdict this trap just wrote, not from `$?`, and
+# it comes from final_exit_code — the one place the run's exit status is decided
+# — so the trap and cmd_run cannot drift apart. An abort with no failure of its
+# own is 2 there; an abort that inherited a real status keeps it.
 run_exit_trap() {
   local rc=$?
   lock_release || true
@@ -570,11 +585,24 @@ run_exit_trap() {
   if [[ -f "${REPORT_DIR}/summary.json" ]]; then
     outcome="$(jq -r '.outcome // ""' "${REPORT_DIR}/summary.json" 2>/dev/null || echo "")"
   fi
-  if [[ "$outcome" == "RUNNING" ]]; then
-    write_run_status ABORTED "$RUN_PHASE" \
-      "run exited during phase '${RUN_PHASE}' without reaching a verdict; this is an ABORTED run, NOT a test failure" \
-      "$rc"
-  fi
+  case "$outcome" in
+    RUNNING)
+      # The fallback is not decoration either: this runs while the shell is
+      # dying, and a status writer that itself fails must still not leave an
+      # abort looking like a pass. 2 is what final_exit_code would have said.
+      rc="$(final_exit_code ABORTED "$rc" 2>/dev/null || echo 2)"
+      write_run_status ABORTED "$RUN_PHASE" \
+        "run exited during phase '${RUN_PHASE}' without reaching a verdict; this is an ABORTED run, NOT a test failure" \
+        "$rc"
+      ;;
+    ABORTED)
+      # cmd_run already recorded the abort (the STALE branch does exactly this)
+      # and knows more about it than we do, so its record stands untouched. Only
+      # the status needs correcting, for a signal landing in the window between
+      # that write and `exit "$final_exit"`.
+      rc="$(final_exit_code ABORTED "$rc" 2>/dev/null || echo 2)"
+      ;;
+  esac
   exit "$rc"
 }
 

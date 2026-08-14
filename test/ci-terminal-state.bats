@@ -437,6 +437,7 @@ read_status() {
 		printf 'RUN_COMMIT=fb79dfb\nRUN_BRANCH=b\nRUN_STARTED_AT=t\nRUN_PHASE=pipeline\n'
 		lift "$gcp" write_run_status
 		lift "$gcp" lock_release
+		lift "$gcp" final_exit_code
 		lift "$gcp" run_exit_trap
 		printf 'trap run_exit_trap EXIT\nexit 2\n'
 	} >"$probe"
@@ -457,6 +458,7 @@ read_status() {
 		printf 'RUN_COMMIT=fb79dfb\nRUN_BRANCH=b\nRUN_STARTED_AT=t\nRUN_PHASE=report\n'
 		lift "$gcp" write_run_status
 		lift "$gcp" lock_release
+		lift "$gcp" final_exit_code
 		lift "$gcp" run_exit_trap
 		printf 'trap run_exit_trap EXIT\nexit 0\n'
 	} >"$probe"
@@ -464,6 +466,171 @@ read_status() {
 	[ "$status" -eq 0 ]
 	run jq -r '.outcome' "$report_dir/summary.json"
 	[ "$output" = "PASS" ]
+}
+
+# ─── Killed runs: the status and the file must say the same thing ───────────
+#
+# The two tests above drive the trap through `exit N`, where `$?` at trap entry
+# carries the status the script asked for. A SIGNAL does not work like that:
+# bash runs the EXIT trap, but `$?` is 0, because the shell was not executing a
+# failing command when it was told to die. The trap therefore recorded ABORTED
+# and exited on that 0 — the file and the status disagreeing, which is what
+# final_exit_code exists to prevent, failing toward "everything is fine".
+#
+# Measured here on 2026-08-14, bash 5.x, so the tests below assert what bash
+# actually does rather than what it is assumed to do:
+#
+#   SIGTERM / SIGHUP — the trap runs, then bash RE-RAISES the signal, so the
+#                      process reports 143 / 129 whatever the trap exits with.
+#                      The trap's chosen status never reaches the caller.
+#   SIGINT           — the trap runs and its `exit` status IS the process's.
+#                      This is the reachable hole: Ctrl-C on `make ci-gcp` wrote
+#                      ABORTED and exited 0. An operator's most ordinary action.
+#
+# Both are covered. Asserting only the SIGTERM case would have gone green on the
+# broken code, since 143 is already non-zero.
+
+# Drives the REAL trap under a REAL signal and leaves the process's status in
+# $probe_status. The subject is killed BY PID — never by pattern, which on this
+# harness matches the shell issuing the kill.
+signal_probe() {
+	local sig="$1" marker="$2" omit="${3:-}"
+	printf '%s\n' "$marker" >"$report_dir/summary.json"
+	local probe="$BATS_TEST_TMPDIR/signal-probe.sh"
+	local ready="$BATS_TEST_TMPDIR/probe-armed"
+	rm -f "$ready"
+	{
+		printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+		printf 'REPORT_DIR=%q\nVM_NAME=signalloom-ci\nGCP_CI_HOLDS_LOCK=0\n' "$report_dir"
+		printf 'RUN_COMMIT=fb79dfb\nRUN_BRANCH=b\nRUN_STARTED_AT=t\nRUN_PHASE=pipeline\n'
+		lift "$gcp" write_run_status
+		lift "$gcp" lock_release
+		# Omitted on purpose by one test below, to prove the trap still refuses to
+		# exit 0 when the function it asks for is not there to answer.
+		[ "$omit" = "no-final-exit-code" ] || lift "$gcp" final_exit_code
+		lift "$gcp" run_exit_trap
+		# Armed, THEN blocked: a fixed sleep before the kill races the trap's
+		# installation, and a probe signalled before the trap is armed dies
+		# silently with the marker untouched — a green test proving nothing.
+		printf 'trap run_exit_trap EXIT\ntouch %q\nsleep 10\n' "$ready"
+	} >"$probe"
+
+	bash "$probe" >/dev/null 2>&1 &
+	local pid=$! waited=0
+	while [ ! -f "$ready" ] && [ "$waited" -lt 100 ]; do
+		sleep 0.05
+		waited=$((waited + 1))
+	done
+	[ -f "$ready" ] || {
+		kill "$pid" 2>/dev/null || true
+		echo "probe never armed its trap" >&2
+		return 1
+	}
+	kill -"$sig" "$pid"
+	probe_status=0
+	wait "$pid" || probe_status=$?
+	return 0
+}
+
+@test "CITERM a run interrupted with Ctrl-C does not exit 0 while its report says ABORTED" {
+	# The headline defect. `make ci-gcp`, Ctrl-C, exit 0 — a killed run that any
+	# wrapper, CI step or `&&` chain reads as a clean success, with ABORTED
+	# sitting in the file next to it.
+	signal_probe INT '{"outcome":"RUNNING","commit":"fb79dfb","phase":"pipeline"}'
+	run jq -r '.outcome' "$report_dir/summary.json"
+	[ "$output" = "ABORTED" ]
+	[ "$probe_status" -ne 0 ]
+	# Not merely non-zero: the same number the file records, so a reader of
+	# either one reaches the same conclusion.
+	run jq -r '.exit_code' "$report_dir/summary.json"
+	[ "$output" = "$probe_status" ]
+	# The status an abort with no failure of its own is worth, per final_exit_code.
+	[ "$probe_status" -eq 2 ]
+}
+
+@test "CITERM a run killed by SIGTERM records the abort with a non-zero status" {
+	# bash re-raises SIGTERM after the trap, so the process reports 143 no matter
+	# what the trap exits with — the caller was never going to be lied to here.
+	# The FILE was: it recorded `ABORTED` with `exit_code: 0`, the same lie in the
+	# same place, waiting for anyone who reads the report instead of the status.
+	signal_probe TERM '{"outcome":"RUNNING","commit":"fb79dfb","phase":"pipeline"}'
+	run jq -r '.outcome' "$report_dir/summary.json"
+	[ "$output" = "ABORTED" ]
+	[ "$probe_status" -ne 0 ]
+	run jq -r '.exit_code' "$report_dir/summary.json"
+	[ "$output" != "0" ]
+	[ "$output" = "2" ]
+}
+
+@test "CITERM an abort recorded before the signal is still not exited 0" {
+	# The window between cmd_run writing its own ABORTED (the STALE branch does
+	# exactly this) and reaching `exit "$final_exit"`. A signal landing in there
+	# finds a terminal marker rather than RUNNING, so a guard written only for
+	# RUNNING would step past it and exit 0 on a report that says ABORTED.
+	signal_probe INT '{"outcome":"ABORTED","commit":"fb79dfb","phase":"collect"}'
+	[ "$probe_status" -ne 0 ]
+	run jq -r '.outcome' "$report_dir/summary.json"
+	[ "$output" = "ABORTED" ]
+}
+
+@test "CITERM a PASS on disk is still exited 0 when a signal arrives" {
+	# The other direction, and the one that costs money if it is wrong: a run
+	# that finished and passed must not be turned red by a signal arriving during
+	# its own teardown. Only a non-terminal or aborted report may raise the status.
+	signal_probe INT '{"outcome":"PASS","commit":"fb79dfb","passed":12}'
+	[ "$probe_status" -eq 0 ]
+	run jq -r '.outcome' "$report_dir/summary.json"
+	[ "$output" = "PASS" ]
+}
+
+@test "CITERM the trap keeps a failing run's own exit status instead of overwriting it" {
+	# ABORTED must not flatten every death to 2. A run that died with 1, or with
+	# timeout's 124, is more informative than the generic abort code, and
+	# final_exit_code already says so — this proves the trap asks it rather than
+	# hardcoding a number of its own.
+	printf '{"outcome":"RUNNING","commit":"fb79dfb","phase":"pipeline"}\n' \
+		>"$report_dir/summary.json"
+	local probe="$BATS_TEST_TMPDIR/trap-124-probe.sh"
+	{
+		printf '#!/usr/bin/env bash\nset -euo pipefail\n'
+		printf 'REPORT_DIR=%q\nVM_NAME=signalloom-ci\nGCP_CI_HOLDS_LOCK=0\n' "$report_dir"
+		printf 'RUN_COMMIT=fb79dfb\nRUN_BRANCH=b\nRUN_STARTED_AT=t\nRUN_PHASE=pipeline\n'
+		lift "$gcp" write_run_status
+		lift "$gcp" lock_release
+		lift "$gcp" final_exit_code
+		lift "$gcp" run_exit_trap
+		printf 'trap run_exit_trap EXIT\nexit 124\n'
+	} >"$probe"
+	run bash "$probe"
+	[ "$status" -eq 124 ]
+	run jq -r '.exit_code' "$report_dir/summary.json"
+	[ "$output" = "124" ]
+}
+
+@test "CITERM the trap decides its status with final_exit_code, not a second rule" {
+	# There is one place the run's exit status is decided. A trap that grew its
+	# own `if ((rc == 0)); then rc=2; fi` would pass every test above — it behaves
+	# identically today — and drift from the normal path the first time either
+	# changed.
+	#
+	# COMMENTS ARE STRIPPED FIRST, and that is the whole point: the first version
+	# of this test matched the function body as one string, and the trap's own
+	# comment says "final_exit_code" in prose. It went green against a mutant that
+	# had inlined the rule, because a comment is not a call. Mutation testing
+	# caught it; the grep -v is the fix.
+	local body
+	body="$(sed -n '/^run_exit_trap() {/,/^}/p' "$gcp" | grep -v '^[[:space:]]*#')"
+	[[ "$body" == *"final_exit_code "* ]]
+}
+
+@test "CITERM the trap still refuses to exit 0 if final_exit_code cannot answer" {
+	# A status writer must never be the thing that fails a run — but it must not
+	# be the thing that PASSES one either. If the helper is renamed away from
+	# under the trap, the fallback holds the invariant: an abort is not a success.
+	signal_probe INT '{"outcome":"RUNNING","commit":"fb79dfb","phase":"pipeline"}' no-final-exit-code
+	[ "$probe_status" -ne 0 ]
+	run jq -r '.outcome' "$report_dir/summary.json"
+	[ "$output" = "ABORTED" ]
 }
 
 @test "CITERM a failed run still leaves the VM running for debugging" {

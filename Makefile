@@ -951,6 +951,7 @@ risk-report: riskctl ## Regenerate the committed report under risk/out/.
 	@./scripts/risk-report.sh
 
 DASHBOARD_RATES_GEN := d2-signalloom/apps/dashboard-signalloom/scripts/generate-rates.ts
+DASHBOARD_VECTORS   := d2-signalloom/apps/dashboard-signalloom/src/money/__fixtures__/fxTestVectors.json
 
 .PHONY: fx
 fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream generated copies.
@@ -968,6 +969,15 @@ fx: riskctl ## Regenerate risk/fx/*.json from rates.yaml, and any downstream gen
 		( cd d2-signalloom/apps/dashboard-signalloom && bun run scripts/generate-rates.ts ); \
 	else \
 		echo "fx: no dashboard generator at $(DASHBOARD_RATES_GEN) — skipping (nothing downstream to regenerate)"; \
+	fi
+	@# The dashboard suite vendors the conformance vectors so it can run standalone. A vendored
+	@# copy that drifts is worse than none: its conformance test goes green against cases the
+	@# engine no longer produces, which READS as agreement and is not. Refreshing it here means
+	@# the copy cannot outlive an edit to the generator -- which it already did once, when adding
+	@# per-case `rate_sensitive` silently broke the dashboard's staleness check.
+	@if [ -f "$(DASHBOARD_VECTORS)" ]; then \
+		cp risk/fx/testvectors.json "$(DASHBOARD_VECTORS)"; \
+		echo "refreshed $(DASHBOARD_VECTORS)"; \
 	fi
 
 .PHONY: risk-check

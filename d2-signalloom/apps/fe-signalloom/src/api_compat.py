@@ -1,8 +1,10 @@
 """Authenticated, tenant-scoped compatibility API for the local D2 dashboard."""
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
+import enum
 import hashlib
 import itertools
 import json
@@ -10,6 +12,7 @@ import logging
 import os
 import secrets
 import threading
+import time
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -1026,44 +1029,147 @@ def authenticated_tenant(
 
 
 # ---------------------------------------------------------------------------
-# asyncpg connection pool (lazy-init, graceful fallback to fixtures)
+# asyncpg connection pool (lazy-init, fail-closed on audited writes)
 # ---------------------------------------------------------------------------
+#
+# This pool is the gate between an audited service and an unaudited one, so the
+# two ways it can hand back "no pool" must never be conflated:
+#
+#   FIXTURE_MODE  no DSN is configured. A deliberate, permanent choice -- the
+#                 demo estate runs this way and audits into ``_AUDIT_EVENTS``
+#                 through ``_record_memory_audit``. Latching is correct; there
+#                 is nothing to retry.
+#   UNAVAILABLE   a DSN *is* configured but the connect failed. Transient by
+#                 assumption. Retried after a bounded backoff, and audited
+#                 mutations fail closed with 503 in the meantime (see
+#                 ``_require_pool``).
+#
+# The previous implementation had a single ``_pool_init_attempted`` flag that it
+# set *before* the connect attempt, which made one transient blip at first use
+# permanent for the life of the process, and guarded the critical section with a
+# ``threading.Lock`` -- which excludes threads, not coroutines. The holder awaits
+# ``create_pool``, yields, and every other concurrent first-caller reads the
+# already-set flag and gets ``None`` while the pool is being built perfectly
+# well. That was a fail-open race on every cold start under load.
+
+
+class PoolMode(enum.Enum):
+    """Why ``_get_pool`` is or is not handing back a pool."""
+
+    UNKNOWN = "unknown"          # not yet determined
+    READY = "ready"              # pool exists
+    FIXTURE_MODE = "fixture_mode"  # deliberate: no DSN configured
+    UNAVAILABLE = "unavailable"  # transient: DSN set, connect failed
+
+
+# Overridable so tests never sleep, and so an operator can tune retry pressure
+# against a recovering database without a code change.
+POOL_RETRY_BACKOFF_SECONDS: float = 5.0
 
 _pool: asyncpg.Pool | None = None
-_pool_init_attempted: bool = False
-_pool_lock = threading.Lock()
+_pool_mode: PoolMode = PoolMode.UNKNOWN
+_pool_retry_after: float = 0.0
+
+# Created lazily, per event loop. An ``asyncio.Lock`` binds to the loop that
+# first awaits it and raises "is bound to a different event loop" if reused from
+# another, which a module-level singleton would hit the moment anything runs a
+# second loop (every ``asyncio.run`` in the test suite, for one). Rebinding is
+# safe because the check-and-create below contains no await, so it cannot be
+# interleaved within a loop.
+_pool_lock: asyncio.Lock | None = None
+_pool_lock_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _loop_pool_lock() -> asyncio.Lock:
+    global _pool_lock, _pool_lock_loop
+    loop = asyncio.get_running_loop()
+    if _pool_lock is None or _pool_lock_loop is not loop:
+        _pool_lock = asyncio.Lock()
+        _pool_lock_loop = loop
+    return _pool_lock
+
+
+def _pool_unobtainable() -> bool:
+    """True when a cached decision means there is no point trying to connect."""
+    if _pool_mode is PoolMode.FIXTURE_MODE:
+        return True
+    return _pool_mode is PoolMode.UNAVAILABLE and time.monotonic() < _pool_retry_after
 
 
 async def _get_pool() -> asyncpg.Pool | None:
-    """Return the shared asyncpg pool, or None if DB is unconfigured/unavailable."""
-    global _pool, _pool_init_attempted
+    """Return the shared asyncpg pool, or None if DB is unconfigured/unavailable.
+
+    Callers on *read* paths may treat ``None`` as "serve fixtures". Callers on
+    audited *mutation* paths must go through ``_require_pool`` instead, which
+    turns an unreachable-but-configured database into a 503 rather than a
+    silently unaudited write.
+    """
+    global _pool, _pool_mode, _pool_retry_after
     if _pool is not None:
         return _pool
-    if _pool_init_attempted:
+    if _pool_unobtainable():
         return None
-    with _pool_lock:
+
+    async with _loop_pool_lock():
+        # Re-checked under the lock: a coroutine that queued behind the winner
+        # must see the pool the winner built, not start a second one.
         if _pool is not None:
             return _pool
-        if _pool_init_attempted:
+        if _pool_unobtainable():
             return None
-        _pool_init_attempted = True
+
         dsn = settings.database_url
         if not dsn:
+            # Definitive. Latched, because there is no transient component to a
+            # configuration that names no database.
+            _pool_mode = PoolMode.FIXTURE_MODE
             logger.info("database_url is empty; running in fixture mode")
             return None
         try:
             _pool = await asyncpg.create_pool(
                 dsn, min_size=2, max_size=10, command_timeout=10,
             )
-            logger.info("asyncpg pool created successfully")
-            return _pool
         except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as exc:
-            logger.warning("Failed to create asyncpg pool, falling back to fixtures: %s", exc)
+            # NOT latched. The state is recorded so concurrent callers do not
+            # stampede a database that is already struggling, but it expires --
+            # a blip at first use must not leave the process permanently
+            # unaudited, which is only recoverable by a restart.
+            _pool_mode = PoolMode.UNAVAILABLE
+            _pool_retry_after = time.monotonic() + POOL_RETRY_BACKOFF_SECONDS
+            logger.warning(
+                "Failed to create asyncpg pool (retrying in %.1fs; audited writes "
+                "will 503 until then): %s",
+                POOL_RETRY_BACKOFF_SECONDS, exc,
+            )
             return None
+        _pool_mode = PoolMode.READY
+        logger.info("asyncpg pool created successfully")
+        return _pool
 
 
-# We need asyncio for the TimeoutError reference above
-import asyncio  # noqa: E402
+async def _require_pool(what: str) -> asyncpg.Pool | None:
+    """Pool gate for audited mutation paths.
+
+    Returns the pool, or ``None`` when the deployment is deliberately in fixture
+    mode -- where the in-memory audit twin applies and the mutation is still
+    recorded. Raises 503 when a DSN is configured but unreachable, because in
+    that deployment the audit trail lives in Postgres and a business write with
+    no audit row is worse than no write at all.
+
+    ``None`` from ``_get_pool`` alone cannot carry that distinction, which is
+    why every mutating handler must call this rather than testing the pool for
+    None itself.
+    """
+    pool = await _get_pool()
+    if pool is not None:
+        return pool
+    if not settings.database_url:
+        return None
+    raise APIError(
+        503,
+        "database_unavailable",
+        f"{what} requires the audit database, which is currently unreachable",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2028,7 +2134,7 @@ async def create_agent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> AgentResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Registering an agent")
     if pool is None:
         _ensure_seeded(tenant_id)
         now = _now_iso()
@@ -2087,7 +2193,7 @@ async def issue_agent_credential(
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     issued_at = _now_iso()
     expires_at, expires_at_iso = _credential_expiry()
-    pool = await _get_pool()
+    pool = await _require_pool("Issuing a credential")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -2133,7 +2239,7 @@ async def revoke_agent_credential(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> RevokeCredentialResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Revoking a credential")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -2209,7 +2315,7 @@ async def transition_agent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TransitionResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Transitioning an agent")
     now = _now_iso()
 
     if pool is None:
@@ -2500,7 +2606,7 @@ async def stun_agent(
     # relabel that still marked the agent suspended would leave the database
     # asserting an isolation that never happened.
     acted = observation.outcome != "failed"
-    pool = await _get_pool()
+    pool = await _require_pool("Stunning an agent")
 
     def _detail(from_state: str, *, registry_match: bool) -> dict[str, Any]:
         return {
@@ -2705,7 +2811,7 @@ async def acknowledge_violation(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Acknowledging a violation")
     if pool is None:
         _ensure_seeded(tenant_id)
         now = _now_iso()
@@ -2779,7 +2885,7 @@ async def request_reassessment(
         # the absence of a field a reader would have to know to look for.
         "dispatched": False,
     }
-    pool = await _get_pool()
+    pool = await _require_pool("Requesting a reassessment")
     if pool is None:
         _ensure_seeded(tenant_id)
         _record_memory_audit(
@@ -3372,7 +3478,7 @@ async def record_privileged_invocation(
         # property of the operation rather than something a caller asserts.
         detail["preempts_active_run"] = True
 
-    pool = await _get_pool()
+    pool = await _require_pool("Recording a privileged invocation")
     if pool is None:
         event = _record_memory_audit(
             tenant_id, "demo.reset_requested" if body.kind == "reset" else "demo.phase_run",
@@ -3700,7 +3806,7 @@ async def enroll_nhi_account(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Enrolling a discovered account")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -3732,7 +3838,7 @@ async def dismiss_nhi_account(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> dict[str, str]:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Dismissing a discovered account")
     if pool is None:
         _ensure_seeded(tenant_id)
         now = _now_iso()
@@ -3951,7 +4057,7 @@ async def patch_tenant_frameworks(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TenantSettingsResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Changing tenant frameworks")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -3979,7 +4085,7 @@ async def patch_tenant_preferences(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> TenantSettingsResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Changing tenant preferences")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:
@@ -4060,7 +4166,7 @@ async def patch_user_preferences(
     """
     tenant_id = principal.tenant
     actor = principal.actor
-    pool = await _get_pool()
+    pool = await _require_pool("Changing user preferences")
 
     if pool is None:
         with _STORE_LOCK:
@@ -4120,7 +4226,7 @@ async def create_support_request(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> SupportRequestResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Filing a support request")
     if pool is None:
         _ensure_seeded(tenant_id)
         support_id = f"{tenant_id}:support-{secrets.token_hex(4)}"
@@ -4171,7 +4277,7 @@ async def create_initial_api_key(
     key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
-    pool = await _get_pool()
+    pool = await _require_pool("Minting an initial API key")
     if pool is None:
         _ensure_seeded(tenant_id)
     else:
@@ -4237,7 +4343,7 @@ async def rotate_api_key(
     key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
-    pool = await _get_pool()
+    pool = await _require_pool("Rotating an API key")
     if pool is None:
         _ensure_seeded(tenant_id)
     else:
@@ -4338,7 +4444,7 @@ async def accept_consent(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> ConsentAcceptResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Recording consent")
     now = _now_iso()
 
     if pool is None:
@@ -4419,7 +4525,7 @@ async def patch_cookie_preferences(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> CookiePreferencesResponse:
     tenant_id = principal.tenant
-    pool = await _get_pool()
+    pool = await _require_pool("Changing cookie preferences")
     if pool is None:
         _ensure_seeded(tenant_id)
         with _STORE_LOCK:

@@ -257,8 +257,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # producing ConnectionDoesNotExistError, "Event loop is closed", and
     # "another operation is in progress" rather than any real assertion failure.
     # Clearing the globals makes each test build its own pool on its own loop.
+    #
+    # The creation lock needs no reset here: api_compat builds it lazily per
+    # running loop precisely because an asyncio.Lock binds to the loop that
+    # first awaits it, which is the same hazard this comment describes.
     monkeypatch.setattr(api_compat, "_pool", None)
-    monkeypatch.setattr(api_compat, "_pool_init_attempted", False)
+    monkeypatch.setattr(api_compat, "_pool_mode", api_compat.PoolMode.UNKNOWN)
+    monkeypatch.setattr(api_compat, "_pool_retry_after", 0.0)
 
     # Block external network, but NOT the database this tier exists to exercise.
     #

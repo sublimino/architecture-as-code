@@ -93,17 +93,28 @@ run() {
 # Called once before any case, so a broken invocation aborts loudly instead of
 # being reported twelve times as a security finding.
 assert_pytest_can_run() {
-  local out
+  # The strong form: run the guard UNMUTATED and require it to PASS.
+  #
+  # The first version of this preflight only asked whether pytest could
+  # *collect*, and that was not enough. On the CI VM collection succeeded and
+  # all twelve cases still reported "GUARD DID NOT FIRE", because a test that
+  # ERRORS (a missing import, an unavailable dependency) emits no
+  # "E AssertionError" line either -- and run() cannot tell an error from a
+  # guard that stayed quiet. A weaker check in the same shape as the defect it
+  # was written to catch.
+  #
+  # Requiring a clean green baseline collapses every one of those cases: if the
+  # guard cannot pass on an unmodified tree, nothing below it means anything,
+  # whatever the reason.
+  local out rc
   out="$( cd "$SRC" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 timeout 300 \
-            python3 -m pytest -o addopts= --collect-only -q "$GUARD" 2>&1 )" || true
-  if ! grep -qE "test|collected" <<<"$out"; then
-    printf 'FATAL: pytest cannot even collect %s — this harness cannot report\n' "$GUARD"
-    printf 'anything about the guards until that is fixed. Output:\n%s\n' "$out"
-    exit 2
-  fi
-  if grep -qE "unrecognized arguments|ERROR: usage" <<<"$out"; then
-    printf 'FATAL: pytest rejected its own arguments, so no case below would run.\n'
-    printf 'Every case would print "GUARD DID NOT FIRE" and mean nothing. Output:\n%s\n' "$out"
+            python3 -m pytest -o addopts= -q "$GUARD" 2>&1 )"
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    printf 'FATAL: the guard does not pass on an UNMODIFIED tree (pytest exit %s).\n' "$rc"
+    printf 'Every case below would report "GUARD DID NOT FIRE" and mean nothing,\n'
+    printf 'because run() cannot distinguish a quiet guard from one that never ran.\n'
+    printf 'Fix the baseline first. Output:\n%s\n' "$out"
     exit 2
   fi
 }
@@ -119,7 +130,24 @@ verdict() {
   fi
 }
 
-patch_py() { python3 -c "$1"; }
+# Every case's patch already asserts its anchors, but NOTHING CHECKED THE EXIT
+# CODE. This script is not `set -e`, so a failed assert printed a traceback and
+# execution carried on -- the case then ran against an UNMUTATED file, the guard
+# correctly stayed quiet because there was nothing to find, and the harness
+# reported "GUARD DID NOT FIRE — this check is decoration".
+#
+# So the single most alarming message this tool can produce was reachable from a
+# stale string anchor. The asserts were the mechanism; nobody read their verdict.
+patch_py() {
+  if ! python3 -c "$1"; then
+    printf '\n  *** PATCH FAILED TO APPLY — this case did not test anything ***\n'
+    printf '  The anchor assert above says which one. A case whose mutation never\n'
+    printf '  landed reports "GUARD DID NOT FIRE" for a reason that has nothing to\n'
+    printf '  do with the guard.\n'
+    FAILURES=$((FAILURES + 1))
+    return 1
+  fi
+}
 
 # Assert the mechanism before testing it. Everything below is meaningless if
 # pytest cannot start, and the failure looks exactly like a real finding.

@@ -32,11 +32,36 @@
  * source object, and what the page actually received back. Proofs are built
  * from data this page already holds; nothing is asserted that was not fetched.
  *
- * TODO: migrate tables to DataTable for client-side pagination and sorting
- * (4 tables: Escalation Paths, Collusion Pairs, Shared-Role Pivots, Remediation)
+ * ── The four tables ────────────────────────────────────────────────────────
+ *
+ * All four are now `DataTable` — the shared component — rather than DashKit's
+ * `Table`, which is a `thead`/`tbody` wrapper and nothing else. What that buys,
+ * and why each part of it is worth having on THIS page specifically:
+ *
+ *   - SORTING. The aggregate flattens every cluster into one list in whatever
+ *     order the clusters were discovered, so "show me the critical findings
+ *     first" was previously a manual scan. Risk is the column that matters and
+ *     it is one click away.
+ *   - PAGINATION. A real cluster's escalation count is not two. The demo
+ *     fixtures fit on one page and the pager hides itself; a live rollup will
+ *     not, and the page should not have to grow a scroll region for it.
+ *   - THE TOOLBAR SLOT. Each table carries a search box and a facet chip row,
+ *     and the page — not DataTable — owns the predicate. See `narrow` below.
+ *     The slot's real value is stated in DataTable's own header: a hand-rolled
+ *     `rows.length ? <Table/> : <Empty/>` ternary takes the filter control down
+ *     with the table, stranding the operator with a filter they cannot clear.
+ *     Passing `toolbar` and `emptyState` together makes that unbuildable, and
+ *     the empty branch here carries a "Clear filters" button as well.
+ *
+ * Row keys are the finding's index in the UNFILTERED array, not its position in
+ * whatever the sort and the filter left. A proof console is addressed by that
+ * key, and keying off the rendered position would open the third row's proof
+ * under the first row the moment anyone sorted the table.
  */
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
-import { StatCard, Section, Table, Pill, td } from '../components/DashKit'
+import { StatCard, Section, Pill } from '../components/DashKit'
+import DataTable, { type Column } from '../components/DataTable'
+import EmptyState from '../components/EmptyState'
 import LoadingState from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
@@ -62,6 +87,12 @@ const AGGREGATE_ID = 'aggregate'
 /** Distinguishes a cluster selection from a job id, which is an opaque string. */
 const CLUSTER_PREFIX = 'cluster:'
 const DEMO_FIXTURE_PATH = 'd2-signalloom/apps/dashboard-signalloom/src/api/afmDemoFixtures.ts'
+
+/** The unfiltered facet. A literal so the chip row and the predicate cannot disagree. */
+const ALL_FACET = 'all'
+
+/** Rows per page, the same on all four tables — see the header note on uniformity. */
+const PAGE_SIZE = 10
 
 const PHASES = [
   { n: 'Phase 1', title: 'Admin & self-escalation removal', body: 'Drop subjects who are already cluster-admin or can self-escalate via the escalate verb — they have no incentive to collude.' },
@@ -290,6 +321,433 @@ function liveGuardsProof(clusterId: string, clusterName: string, guards: Guard[]
   }
 }
 
+// ── Table rows ────────────────────────────────────────────────────────────
+//
+// DataTable sorts by `item[column.key]`, so each row is FLAT: the columns it
+// can sort on are primitives sitting directly on the row, and anything the
+// cell needs but nobody sorts by (the proofs) rides alongside. The alternative
+// — handing it `Sourced<SingleEscalation>` — gives it two keys, `finding` and
+// `proofs`, and sorting by either is meaningless.
+//
+// These are PRESENTATION shapes. Every field is a string this page already
+// rendered, produced by the same helper it already used; no figure is derived,
+// combined or re-ordered on the way in.
+
+interface SingleRow {
+  /** Index in the unfiltered array. Addresses the proof console — see the header. */
+  key: string
+  subject: string
+  escalationType: string
+  scope: string
+  gained: string
+  risk: string
+  proofs: Proof[]
+}
+
+interface GroupRow {
+  key: string
+  group: string
+  primaryActor: string
+  primaryGain: string
+  collaboratorGains: string
+  risk: string
+  proofs: Proof[]
+}
+
+interface PivotRow {
+  key: string
+  role: string
+  /** Numeric so the column sorts by size rather than by the string "10" < "4". */
+  sharedBy: number
+  sharedByLabel: string
+  privileged: string
+  risk: string
+}
+
+interface GuardRow {
+  key: string
+  name: string
+  kind: string
+  participants: string
+  wouldBlock: string
+}
+
+// ── Filtering ─────────────────────────────────────────────────────────────
+//
+// The predicate lives here, not in DataTable, and that division is the point
+// DataTable's own header makes: what differs between a filtered table and a
+// plain one is the predicate, and the predicate is the one part that can never
+// be shared. Each table below names the fields its search box looks at.
+
+/** A chip in a facet row: the value, what it reads as, and how many rows carry it. */
+interface Facet {
+  value: string
+  label: string
+  count: number
+}
+
+function narrow<T>(
+  rows: T[],
+  search: string,
+  facet: string,
+  fields: (row: T) => string[],
+  facetOf: (row: T) => string,
+): T[] {
+  const q = search.trim().toLowerCase()
+  return rows.filter(row => {
+    if (facet !== ALL_FACET && facetOf(row) !== facet) return false
+    if (q === '') return true
+    return fields(row).some(field => field.toLowerCase().includes(q))
+  })
+}
+
+/**
+ * Worst first, and only the levels that occur.
+ *
+ * Derived from the rows rather than declared, so a level AFM invents tomorrow
+ * gets a chip instead of being silently unfilterable — and a level absent from
+ * this run does not get a chip that always reads zero. `RISK_ORDER` puts the
+ * ones we do know in severity order; anything unrecognised sorts after them,
+ * alphabetically, rather than being dropped.
+ */
+const RISK_ORDER = ['critical', 'high', 'medium', 'low', 'unknown']
+
+function severityRank(value: string): number {
+  const at = RISK_ORDER.indexOf(value)
+  return at === -1 ? RISK_ORDER.length : at
+}
+
+function facetsOf<T>(rows: T[], facetOf: (row: T) => string, rank: (value: string) => number): Facet[] {
+  const counts = new Map<string, number>()
+  rows.forEach(row => {
+    const value = facetOf(row)
+    counts.set(value, (counts.get(value) ?? 0) + 1)
+  })
+  const values = Array.from(counts.keys())
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+  return [
+    { value: ALL_FACET, label: ALL_FACET, count: rows.length },
+    ...values.map(value => ({ value, label: value, count: counts.get(value) ?? 0 })),
+  ]
+}
+
+/** Facets with no severity meaning — guard kinds — sort alphabetically. */
+function flatRank(): number {
+  return 0
+}
+
+// ── Filter chrome ─────────────────────────────────────────────────────────
+//
+// One strip, four tables, identical markup. Ten pages are being migrated in
+// parallel and a filter that looks slightly different on each of them is the
+// thing that makes a product read as four products, so the shape here is
+// copied from the Design System's "Realistic — the shape AgentsPage needs"
+// specimen rather than invented.
+//
+// The selected chip is a TINTED FILL plus a full-strength border, never a solid
+// accent fill: text on solid cyan or amber fails AA in at least one of Dark,
+// Light and Andy, and the same reasoning is written out on the specimen.
+//
+// ONE DELIBERATE DEPARTURE FROM THE SPECIMEN, measured rather than preferred.
+// The specimen renders the facet label and the per-chip count in `--dim`. That
+// is 3.07:1 on `--surface2` in Dark, and 2.51:1 once the selected chip's cyan
+// tint is underneath it — an AA failure on the digit that is the entire reason
+// the chip is worth pressing. `--muted` is the same grey family at the same
+// visual weight, and its worst case across Dark, Light and Andy and across both
+// chip states is 4.66:1. Two shades of grey apart; one of them is legible.
+//
+// The specimen carries the same defect, so this wants fixing there rather than
+// in ten pages independently — raised with the lead rather than patched into a
+// shared component mid-migration.
+
+const searchInputStyle: CSSProperties = {
+  fontSize: 12,
+  padding: '5px 9px',
+  minWidth: 230,
+  color: 'var(--text)',
+  background: 'var(--surface2)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+}
+
+function chipStyle(selected: boolean): CSSProperties {
+  return {
+    fontSize: 11.5,
+    padding: '4px 9px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    color: selected ? 'var(--cyan)' : 'var(--muted)',
+    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+    border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
+  }
+}
+
+function FilterStrip({
+  id,
+  subject,
+  placeholder,
+  search,
+  onSearch,
+  facetLabel,
+  facets,
+  facet,
+  onFacet,
+  shown,
+  total,
+  hint,
+}: {
+  id: string
+  /**
+   * What this strip filters, in the plural — "escalation paths".
+   *
+   * One noun, two names: the strip is "Filter escalation paths" and the box
+   * inside it is "Search escalation paths". Giving both the same name puts two
+   * differently-shaped controls under one utterance for a speech-input user.
+   */
+  subject: string
+  placeholder: string
+  search: string
+  onSearch: (next: string) => void
+  facetLabel: string
+  facets: Facet[]
+  facet: string
+  onFacet: (next: string) => void
+  shown: number
+  total: number
+  /** What the facet column actually means, where the chip labels alone do not say it. */
+  hint?: string
+}) {
+  return (
+    <div
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+      role="group"
+      aria-label={`Filter ${subject}`}
+    >
+      <input
+        type="search"
+        aria-label={`Search ${subject}`}
+        placeholder={placeholder}
+        value={search}
+        onChange={event => onSearch(event.target.value)}
+        data-testid={`${id}-search`}
+        style={searchInputStyle}
+      />
+      <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>{facetLabel}</span>
+      {hint && (
+        <HelpHint label={`What ${facetLabel} means`} testId={`${id}-facet-help`}>
+          {hint}
+        </HelpHint>
+      )}
+      {facets.map(option => {
+        const selected = facet === option.value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onFacet(option.value)}
+            aria-pressed={selected}
+            data-testid={`${id}-filter-${option.value}`}
+            style={chipStyle(selected)}
+          >
+            {option.label} <span style={{ color: 'var(--muted)' }}>{option.count}</span>
+          </button>
+        )
+      })}
+      <span data-testid={`${id}-count`} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+        {shown} of {total} shown
+      </span>
+    </div>
+  )
+}
+
+/**
+ * How far up into EmptyState's own bottom padding the Clear button sits.
+ *
+ * EmptyState is a centred panel with `padding: 60px 24px` and no action slot,
+ * so a button appended after it lands 60px below the sentence it answers and
+ * reads as belonging to the next thing on the page. This pulls it back to
+ * roughly the panel's internal gap. It is a deliberate coupling to a number in
+ * EmptyState.tsx; the clean fix is an action slot on EmptyState itself, which
+ * is a shared component and not this page's to change.
+ */
+const EMPTY_ACTION_PULL_UP = -32
+
+/**
+ * The panel a filter that matched nothing leaves behind.
+ *
+ * The way back sits beside EmptyState rather than inside it. That button is not
+ * a convenience: the toolbar above stays mounted (DataTable guarantees that
+ * much), but clearing two controls to undo one mistake is a worse answer than
+ * clearing both at once, from where the mistake is visible.
+ */
+function FilteredEmpty({ id, onClear }: { id: string; onClear: () => void }) {
+  return (
+    <div data-testid={`${id}-filtered-empty`}>
+      <EmptyState
+        kicker="Nothing matches these filters"
+        body="Every finding in this run is still here — the search box or the chip above is hiding them."
+      />
+      <div style={{ display: 'flex', justifyContent: 'center', marginTop: EMPTY_ACTION_PULL_UP, marginBottom: 12 }}>
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={onClear}
+          data-testid={`${id}-clear-filters`}
+          style={{ fontSize: 12, padding: '5px 12px' }}
+        >
+          Clear filters
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/** The honest zero: the run really did report nothing here. Not a filter artefact. */
+function NoFindings({ testId, kicker, body }: { testId: string; kicker: string; body: string }) {
+  return (
+    <div data-testid={testId}>
+      <EmptyState kicker={kicker} body={body} />
+    </div>
+  )
+}
+
+// ── Columns ───────────────────────────────────────────────────────────────
+//
+// `help` is set only where the header does not already say it — DataTable's
+// own note on the prop, and the rule that keeps a "?" from becoming furniture.
+// The bar used here: would a competent engineer who has never met KubeSec-AFM
+// read this header and know what the cell under it is claiming? "Subject" and
+// "Role" pass. "Scope", "Primary gain" and "Shared by" do not.
+
+const SINGLE_COLUMNS: Column<SingleRow>[] = [
+  {
+    key: 'subject',
+    label: 'Subject',
+    sortable: true,
+    help: 'The identity the escalation belongs to — a user, a group, or a service account, in AFM\'s kind:namespace/name notation.',
+  },
+  {
+    key: 'escalationType',
+    label: 'Escalation type',
+    sortable: true,
+    help: 'Which mechanism AFM proved reaches the higher privilege: binding creation, the escalate verb, impersonation, and so on.',
+  },
+  {
+    key: 'scope',
+    label: 'Scope',
+    sortable: true,
+    help: 'How far the gained privilege reaches. Cluster-wide is every namespace at once; a namespace scope is confined to that one.',
+  },
+  {
+    key: 'gained',
+    label: 'Gained permission',
+    sortable: true,
+    help: 'The verb and resource the subject ends up holding that it was never granted — the actual prize at the end of the path.',
+  },
+  {
+    key: 'risk',
+    label: 'Risk',
+    sortable: true,
+    help: 'AFM\'s own severity for the path. Sorts worst-first on the first click, so the findings that matter surface without a scan.',
+  },
+  {
+    key: 'proofs',
+    label: 'Proof',
+    help: 'Opens the literal command that returns this row\'s source object, and what the page received back. Nothing here is asserted that was not fetched.',
+  },
+]
+
+const GROUP_COLUMNS: Column<GroupRow>[] = [
+  {
+    key: 'group',
+    label: 'Group',
+    sortable: true,
+    help: 'The set of subjects that must cooperate. Neither of them can reach the goal role alone — that is what makes this collusion rather than an escalation path.',
+  },
+  {
+    key: 'primaryActor',
+    label: 'Primary actor',
+    sortable: true,
+    help: 'The subject that ends up holding the escalated privilege. The rest of the group supplies permissions it does not keep.',
+  },
+  {
+    key: 'primaryGain',
+    label: 'Primary gain',
+    sortable: true,
+    help: 'What the primary actor walks away with once the group has exchanged permissions.',
+  },
+  {
+    key: 'collaboratorGains',
+    label: 'Collaborator gains',
+    help: 'What each of the other subjects picks up along the way. Often nothing — a collaborator can be useful without profiting.',
+  },
+  {
+    key: 'risk',
+    label: 'Risk',
+    sortable: true,
+    help: 'AFM\'s own severity for the joint path, scored on what the group reaches together rather than on any one member.',
+  },
+  {
+    key: 'proofs',
+    label: 'Proof',
+    help: 'Opens the literal command that returns this row\'s source object, and what the page received back. Nothing here is asserted that was not fetched.',
+  },
+]
+
+const PIVOT_COLUMNS: Column<PivotRow>[] = [
+  {
+    key: 'role',
+    label: 'Role',
+    sortable: true,
+    help: 'The role two or more subjects both hold. It is the shared surface through which permissions can move between them.',
+  },
+  {
+    key: 'sharedBy',
+    label: 'Shared by',
+    sortable: true,
+    help: 'How many subjects hold this role. The more of them there are, the more pairs of colluders it can connect.',
+  },
+  {
+    key: 'privileged',
+    label: 'Privileged subjects',
+    sortable: true,
+    help: 'Which of the sharers already hold elevated privilege. A pivot with none of them is a shared role; a pivot with one is a route to it.',
+  },
+  {
+    key: 'risk',
+    label: 'Risk',
+    sortable: true,
+    help: 'Derived on this page, not returned by AFM: high when at least one sharer is privileged, low when none is.',
+  },
+]
+
+const GUARD_COLUMNS: Column<GuardRow>[] = [
+  {
+    key: 'name',
+    label: 'Fix',
+    sortable: true,
+    help: 'A TraceGuard — the RBAC change AFM proposes, generated from the trace it proved rather than from a rule of thumb.',
+  },
+  {
+    key: 'kind',
+    label: 'Kind',
+    sortable: true,
+    help: 'Whether the guard closes a single-subject escalation or a collusion path involving several.',
+  },
+  {
+    key: 'participants',
+    label: 'Participants',
+    sortable: true,
+    help: 'The subjects on the path this fix cuts. Applying it changes what these identities can do.',
+  },
+  {
+    key: 'wouldBlock',
+    label: 'Would block',
+    sortable: true,
+    help: 'Whether AFM re-ran the model check with this guard applied and confirmed the path closes. Pending means it has not been verified.',
+  },
+]
+
 export default function CollusionAccessPage() {
   const [demo, setDemo] = useState(isDemoMode())
   const [clusters, setClusters] = useState<ClusterMeta[]>([])
@@ -301,6 +759,36 @@ export default function CollusionAccessPage() {
   const [isLoadingList, setIsLoadingList] = useState(false)
   const [isLoadingView, setIsLoadingView] = useState(false)
   const [openProof, setOpenProof] = useState<Record<string, boolean>>({})
+
+  // Per-table filter state. Four tables, one search + one facet each; the
+  // predicate for every one of them is `narrow` below.
+  const [singleSearch, setSingleSearch] = useState('')
+  const [singleRisk, setSingleRisk] = useState(ALL_FACET)
+  const [groupSearch, setGroupSearch] = useState('')
+  const [groupRisk, setGroupRisk] = useState(ALL_FACET)
+  const [pivotSearch, setPivotSearch] = useState('')
+  const [pivotRisk, setPivotRisk] = useState(ALL_FACET)
+  const [guardSearch, setGuardSearch] = useState('')
+  const [guardKind, setGuardKind] = useState(ALL_FACET)
+
+  /**
+   * Filters belong to the run they were typed against.
+   *
+   * "critical" is a live selection on one cluster and matches nothing on the
+   * next, so carrying a filter across a run change hands the operator four
+   * empty tables and no obvious cause. Cleared on every selection change and
+   * on the demo/live flip, for the same reason `openProof` is.
+   */
+  const clearAllFilters = useCallback(() => {
+    setSingleSearch('')
+    setSingleRisk(ALL_FACET)
+    setGroupSearch('')
+    setGroupRisk(ALL_FACET)
+    setPivotSearch('')
+    setPivotRisk(ALL_FACET)
+    setGuardSearch('')
+    setGuardKind(ALL_FACET)
+  }, [])
 
   useEffect(() => subscribeDemoMode(setDemo), [])
 
@@ -530,6 +1018,7 @@ export default function CollusionAccessPage() {
   // Initial load + reload whenever the demo/live toggle flips.
   useEffect(() => {
     setOpenProof({})
+    clearAllFilters()
     if (demo) {
       setFatalError(null)
       setRunError(null)
@@ -576,6 +1065,7 @@ export default function CollusionAccessPage() {
     // A console left open across a selection change would show the previous
     // view's proof beside the new view's row.
     setOpenProof({})
+    clearAllFilters()
 
     if (nextId === AGGREGATE_ID) {
       if (demo) {
@@ -626,6 +1116,74 @@ export default function CollusionAccessPage() {
     ]
   }, [view])
 
+  // ── Rows, then filtered rows ──────────────────────────────────────────
+  // Two steps on purpose: the facet counts and the "n of m shown" figure are
+  // both computed against the FULL set, so a chip never reports the effect of
+  // the search box sitting next to it.
+
+  const singleRows = useMemo<SingleRow[]>(() => (view?.singleEscalations ?? []).map(({ finding, proofs }, i) => ({
+    key: `single-${i}`,
+    subject: finding.subject,
+    escalationType: finding.escalationType,
+    scope: finding.scope,
+    gained: permissionLabel(finding.gainedPermission),
+    risk: riskLevel(finding.risk),
+    proofs,
+  })), [view])
+
+  const groupRows = useMemo<GroupRow[]>(() => (view?.groupEscalations ?? []).map(({ finding, proofs }, i) => ({
+    key: `group-${i}`,
+    group: finding.group.join(', '),
+    primaryActor: finding.primaryActor,
+    primaryGain: permissionLabel(finding.primaryGain),
+    collaboratorGains: finding.collaboratorGains
+      .map(c => `${c.subject}: ${permissionLabel(c.permission)}`)
+      .join('; ') || '—',
+    risk: riskLevel(finding.risk),
+    proofs,
+  })), [view])
+
+  const pivotRows = useMemo<PivotRow[]>(() => (view?.sharedRoles ?? []).map((p, i) => ({
+    key: `${p.role}-${i}`,
+    role: p.role,
+    sharedBy: p.sharedBy,
+    sharedByLabel: `${p.sharedBy} subject${p.sharedBy === 1 ? '' : 's'}`,
+    privileged: p.privilegedSubjects.join(', ') || '—',
+    // The same derivation the Pill has always shown, lifted out so the chip
+    // row and the cell cannot disagree about what "high" means here.
+    risk: p.privilegedSubjects.length > 0 ? 'high' : 'low',
+  })), [view])
+
+  const guardRows = useMemo<GuardRow[]>(() => (view?.guards ?? []).map((g, i) => ({
+    key: `${g.name}-${i}`,
+    name: g.name,
+    kind: g.kind,
+    participants: g.participants.join(', ') || '—',
+    wouldBlock: g.wouldBlock ? 'active' : 'pending',
+  })), [view])
+
+  const singleFacets = useMemo(() => facetsOf(singleRows, r => r.risk, severityRank), [singleRows])
+  const groupFacets = useMemo(() => facetsOf(groupRows, r => r.risk, severityRank), [groupRows])
+  const pivotFacets = useMemo(() => facetsOf(pivotRows, r => r.risk, severityRank), [pivotRows])
+  const guardFacets = useMemo(() => facetsOf(guardRows, r => r.kind, flatRank), [guardRows])
+
+  const singleShown = useMemo(
+    () => narrow(singleRows, singleSearch, singleRisk, r => [r.subject, r.escalationType, r.scope, r.gained], r => r.risk),
+    [singleRows, singleSearch, singleRisk],
+  )
+  const groupShown = useMemo(
+    () => narrow(groupRows, groupSearch, groupRisk, r => [r.group, r.primaryActor, r.primaryGain, r.collaboratorGains], r => r.risk),
+    [groupRows, groupSearch, groupRisk],
+  )
+  const pivotShown = useMemo(
+    () => narrow(pivotRows, pivotSearch, pivotRisk, r => [r.role, r.privileged], r => r.risk),
+    [pivotRows, pivotSearch, pivotRisk],
+  )
+  const guardShown = useMemo(
+    () => narrow(guardRows, guardSearch, guardKind, r => [r.name, r.participants, r.wouldBlock], r => r.kind),
+    [guardRows, guardSearch, guardKind],
+  )
+
   /** The "How do we know?" affordance on its own — the console it opens is rendered by the caller. */
   function ProofButton({ id, proofs }: { id: string; proofs: Proof[] }) {
     if (proofs.length === 0) return null
@@ -663,13 +1221,27 @@ export default function CollusionAccessPage() {
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Collusion &amp; Access</h1>
       <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 18, maxWidth: 780 }}>
         Formal-methods RBAC analysis from ControlPlane <strong style={{ color: 'var(--text)' }}>KubeSec-AFM</strong> (KTP
-        with King&apos;s College London) — bounded model checking for privilege escalation and multi-subject
-        collusion, with TraceGuard remediation.
+        with King&apos;s College London) — <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          bounded model checking
+          <HelpHint label="What bounded model checking means" testId="collusion-bmc-help">
+            An exhaustive search of every sequence of RBAC operations up to a fixed length. Within that
+            bound the answer is a proof rather than a sample: if it finds no path, none exists in that
+            many steps. It says nothing about longer ones.
+          </HelpHint>
+        </span> for privilege escalation and <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          multi-subject collusion
+          <HelpHint label="What collusion means" testId="collusion-concept-help">
+            Two or more identities that cannot reach a privileged role on their own, but can if they
+            cooperate — one grants, the other uses. Nothing here is a breach; it is a route that exists
+            in the RBAC configuration whether or not anyone has walked it.
+          </HelpHint>
+        </span>, with TraceGuard remediation.
       </p>
 
       {demo && (
         <div style={{
-          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)',
+          background: 'color-mix(in srgb, var(--amber) 8%, transparent)',
+          border: '1px solid color-mix(in srgb, var(--amber) 25%, transparent)',
           borderRadius: 6, padding: '8px 14px', marginBottom: 16, fontSize: 12, color: 'var(--amber)',
         }}>
           Demo mode — fixed, offline collusion/escalation data across two sample runs. Switch to live mode
@@ -711,7 +1283,8 @@ export default function CollusionAccessPage() {
           Three altitudes on the same KubeSec-AFM data. The aggregate rolls every cluster up. A cluster
           entry is that cluster&apos;s latest completed analysis — the same selection the KubeSec-AFM
           dashboard and RBAC Explorer offer, so the results match across all three pages. A run entry is
-          one specific historical job.
+          one specific historical job. Changing it clears the table filters, which belonged to the run
+          you were looking at.
         </HelpHint>
         {isLoadingList && <LoadingState status="loading" label="AFM runs" testId="collusion-list-loading" />}
         {isLoadingView && <LoadingState status="loading" label="run" testId="collusion-run-loading" />}
@@ -719,7 +1292,8 @@ export default function CollusionAccessPage() {
 
       {!demo && fatalError && (
         <div data-testid="collusion-fatal-error" style={{
-          border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)',
+          border: '1px solid color-mix(in srgb, var(--error) 35%, transparent)',
+          background: 'color-mix(in srgb, var(--error) 8%, transparent)',
           borderRadius: 8, padding: '16px 20px', marginBottom: 20, fontSize: 13, color: 'var(--text)',
         }}>
           <div style={{ fontWeight: 600, marginBottom: 6, color: 'var(--error)' }}>KubeSec-AFM is not reachable</div>
@@ -779,89 +1353,189 @@ export default function CollusionAccessPage() {
           </Section>
 
           <Section title="Privilege Escalation Paths" hint={`${view.label} — single-subject findings`}>
-            {view.singleEscalations.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)' }} data-testid="single-escalations-empty">
-                No single-subject escalation paths found in this run.
-              </div>
-            ) : (
-              <Table headers={['Subject', 'Escalation type', 'Scope', 'Gained permission', 'Risk', 'Proof']}>
-                {view.singleEscalations.map(({ finding: e, proofs }, i) => (
-                  <ProofRow key={i} id={`single-${i}`} span={6} proofs={proofs} open={openProof[`single-${i}`] === true}>
-                    <td style={{ ...td, fontWeight: 500 }}>{e.subject}</td>
-                    <td style={td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{e.escalationType}</code></td>
-                    <td style={{ ...td, color: 'var(--muted)' }}>{e.scope}</td>
-                    <td style={td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{permissionLabel(e.gainedPermission)}</code></td>
-                    <td style={td}><Pill label={riskLevel(e.risk)} /></td>
-                    <td style={td}><ProofButton id={`single-${i}`} proofs={proofs} /></td>
-                  </ProofRow>
-                ))}
-              </Table>
-            )}
+            <DataTable
+              columns={SINGLE_COLUMNS}
+              data={singleShown}
+              pageSize={PAGE_SIZE}
+              testIdPrefix="single-escalations-table"
+              toolbar={singleRows.length === 0 ? undefined : (
+                <FilterStrip
+                  id="single-escalations"
+                  subject="escalation paths"
+                  placeholder="Search subject, type, scope or permission…"
+                  search={singleSearch}
+                  onSearch={setSingleSearch}
+                  facetLabel="risk"
+                  facets={singleFacets}
+                  facet={singleRisk}
+                  onFacet={setSingleRisk}
+                  shown={singleShown.length}
+                  total={singleRows.length}
+                />
+              )}
+              emptyState={singleRows.length === 0 ? (
+                <NoFindings
+                  testId="single-escalations-empty"
+                  kicker="No single-subject escalation paths found in this run."
+                  body="AFM model-checked the RBAC graph and proved no subject reaches a higher privilege on its own."
+                />
+              ) : (
+                <FilteredEmpty
+                  id="single-escalations"
+                  onClear={() => { setSingleSearch(''); setSingleRisk(ALL_FACET) }}
+                />
+              )}
+              renderRow={(row: SingleRow) => (
+                <ProofRow key={row.key} id={row.key} span={SINGLE_COLUMNS.length} proofs={row.proofs} open={openProof[row.key] === true}>
+                  <td style={{ ...DataTable.td, fontWeight: 500 }}>{row.subject}</td>
+                  <td style={DataTable.td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{row.escalationType}</code></td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.scope}</td>
+                  <td style={DataTable.td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{row.gained}</code></td>
+                  <td style={DataTable.td}><Pill label={row.risk} /></td>
+                  <td style={DataTable.td}><ProofButton id={row.key} proofs={row.proofs} /></td>
+                </ProofRow>
+              )}
+            />
           </Section>
 
           <Section title="Collusion Pairs" hint={`${view.label} — subjects that jointly escalate`}>
-            {view.groupEscalations.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)' }} data-testid="group-escalations-empty">
-                No collusion (multi-subject) escalation paths found in this run.
-              </div>
-            ) : (
-              <Table headers={['Group', 'Primary actor', 'Primary gain', 'Collaborator gains', 'Risk', 'Proof']}>
-                {view.groupEscalations.map(({ finding: g, proofs }, i) => (
-                  <ProofRow key={i} id={`group-${i}`} span={6} proofs={proofs} open={openProof[`group-${i}`] === true}>
-                    <td style={{ ...td, fontWeight: 500, whiteSpace: 'normal' }}>{g.group.join(', ')}</td>
-                    <td style={td}>{g.primaryActor}</td>
-                    <td style={td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{permissionLabel(g.primaryGain)}</code></td>
-                    <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal' }}>
-                      {g.collaboratorGains.map(c => `${c.subject}: ${permissionLabel(c.permission)}`).join('; ') || '—'}
-                    </td>
-                    <td style={td}><Pill label={riskLevel(g.risk)} /></td>
-                    <td style={td}><ProofButton id={`group-${i}`} proofs={proofs} /></td>
-                  </ProofRow>
-                ))}
-              </Table>
-            )}
+            <DataTable
+              columns={GROUP_COLUMNS}
+              data={groupShown}
+              pageSize={PAGE_SIZE}
+              testIdPrefix="group-escalations-table"
+              toolbar={groupRows.length === 0 ? undefined : (
+                <FilterStrip
+                  id="group-escalations"
+                  subject="collusion pairs"
+                  placeholder="Search a member, actor or permission…"
+                  search={groupSearch}
+                  onSearch={setGroupSearch}
+                  facetLabel="risk"
+                  facets={groupFacets}
+                  facet={groupRisk}
+                  onFacet={setGroupRisk}
+                  shown={groupShown.length}
+                  total={groupRows.length}
+                />
+              )}
+              emptyState={groupRows.length === 0 ? (
+                <NoFindings
+                  testId="group-escalations-empty"
+                  kicker="No collusion (multi-subject) escalation paths found in this run."
+                  body="No group of subjects in this cluster can combine their permissions to reach a role none of them holds."
+                />
+              ) : (
+                <FilteredEmpty
+                  id="group-escalations"
+                  onClear={() => { setGroupSearch(''); setGroupRisk(ALL_FACET) }}
+                />
+              )}
+              renderRow={(row: GroupRow) => (
+                <ProofRow key={row.key} id={row.key} span={GROUP_COLUMNS.length} proofs={row.proofs} open={openProof[row.key] === true}>
+                  <td style={{ ...DataTable.td, fontWeight: 500, whiteSpace: 'normal' }}>{row.group}</td>
+                  <td style={DataTable.td}>{row.primaryActor}</td>
+                  <td style={DataTable.td}><code style={{ color: 'var(--amber)', fontSize: 12 }}>{row.primaryGain}</code></td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal' }}>{row.collaboratorGains}</td>
+                  <td style={DataTable.td}><Pill label={row.risk} /></td>
+                  <td style={DataTable.td}><ProofButton id={row.key} proofs={row.proofs} /></td>
+                </ProofRow>
+              )}
+            />
           </Section>
 
           <Section title="Shared-Role Pivot Points" hint="where permissions move between colluders">
-            {view.sharedRoles.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>No shared-role pivots reported for this run.</div>
-            ) : (
-              <>
-                <Table headers={['Role', 'Shared by', 'Privileged subjects', 'Risk']}>
-                  {view.sharedRoles.map((p, i) => (
-                    <tr key={`${p.role}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{p.role}</code></td>
-                      <td style={{ ...td, color: 'var(--muted)' }}>{p.sharedBy} subject{p.sharedBy === 1 ? '' : 's'}</td>
-                      <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal' }}>{p.privilegedSubjects.join(', ') || '—'}</td>
-                      <td style={td}><Pill label={p.privilegedSubjects.length > 0 ? 'high' : 'low'} /></td>
-                    </tr>
-                  ))}
-                </Table>
-                {/* One source per cluster covers the whole table, so the proof
-                    sits on the section rather than repeating down the rows. */}
-                <Disclosure id="shared-roles" proofs={view.sharedRolesProofs} />
-              </>
-            )}
+            <DataTable
+              columns={PIVOT_COLUMNS}
+              data={pivotShown}
+              pageSize={PAGE_SIZE}
+              testIdPrefix="shared-roles-table"
+              toolbar={pivotRows.length === 0 ? undefined : (
+                <FilterStrip
+                  id="shared-roles"
+                  subject="shared-role pivots"
+                  placeholder="Search a role or a privileged subject…"
+                  search={pivotSearch}
+                  onSearch={setPivotSearch}
+                  facetLabel="risk"
+                  facets={pivotFacets}
+                  facet={pivotRisk}
+                  onFacet={setPivotRisk}
+                  shown={pivotShown.length}
+                  total={pivotRows.length}
+                  hint="Derived on this page rather than returned by AFM: high when at least one sharer of the role is already privileged, low when none is."
+                />
+              )}
+              emptyState={pivotRows.length === 0 ? (
+                <NoFindings
+                  testId="shared-roles-empty"
+                  kicker="No shared-role pivots reported for this run."
+                  body="No role in this cluster is held by enough subjects to act as an exchange point between them."
+                />
+              ) : (
+                <FilteredEmpty
+                  id="shared-roles"
+                  onClear={() => { setPivotSearch(''); setPivotRisk(ALL_FACET) }}
+                />
+              )}
+              renderRow={(row: PivotRow) => (
+                <tr key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={DataTable.td}><code style={{ color: 'var(--violet)', fontSize: 12 }}>{row.role}</code></td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.sharedByLabel}</td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal' }}>{row.privileged}</td>
+                  <td style={DataTable.td}><Pill label={row.risk} /></td>
+                </tr>
+              )}
+            />
+            {/* One source per cluster covers the whole table, so the proof
+                sits on the section rather than repeating down the rows. */}
+            {pivotRows.length > 0 && <Disclosure id="shared-roles" proofs={view.sharedRolesProofs} />}
           </Section>
 
           <Section title="Remediation Priorities" hint={view.guardsCaption}>
-            {view.guards.length === 0 ? (
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>No TraceGuard fixes available for this run.</div>
-            ) : (
-              <>
-                <Table headers={['Fix', 'Kind', 'Participants', 'Would block']}>
-                  {view.guards.map((g, i) => (
-                    <tr key={`${g.name}-${i}`} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td, whiteSpace: 'normal', color: 'var(--text)' }}>{g.name}</td>
-                      <td style={{ ...td, color: 'var(--muted)' }}>{g.kind}</td>
-                      <td style={{ ...td, color: 'var(--muted)', whiteSpace: 'normal' }}>{g.participants.join(', ') || '—'}</td>
-                      <td style={td}><Pill label={g.wouldBlock ? 'active' : 'pending'} /></td>
-                    </tr>
-                  ))}
-                </Table>
-                <Disclosure id="guards" proofs={view.guardsProofs} />
-              </>
-            )}
+            <DataTable
+              columns={GUARD_COLUMNS}
+              data={guardShown}
+              pageSize={PAGE_SIZE}
+              testIdPrefix="guards-table"
+              toolbar={guardRows.length === 0 ? undefined : (
+                <FilterStrip
+                  id="guards"
+                  subject="remediation fixes"
+                  placeholder="Search a fix or a participant…"
+                  search={guardSearch}
+                  onSearch={setGuardSearch}
+                  facetLabel="kind"
+                  facets={guardFacets}
+                  facet={guardKind}
+                  onFacet={setGuardKind}
+                  shown={guardShown.length}
+                  total={guardRows.length}
+                  hint="Whether the guard closes a single-subject escalation or a collusion path involving several."
+                />
+              )}
+              emptyState={guardRows.length === 0 ? (
+                <NoFindings
+                  testId="guards-empty"
+                  kicker="No TraceGuard fixes available for this run."
+                  body="AFM generates a guard from a proven trace, so no findings means nothing to remediate."
+                />
+              ) : (
+                <FilteredEmpty
+                  id="guards"
+                  onClear={() => { setGuardSearch(''); setGuardKind(ALL_FACET) }}
+                />
+              )}
+              renderRow={(row: GuardRow) => (
+                <tr key={row.key} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ ...DataTable.td, whiteSpace: 'normal', color: 'var(--text)' }}>{row.name}</td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.kind}</td>
+                  <td style={{ ...DataTable.td, color: 'var(--muted)', whiteSpace: 'normal' }}>{row.participants}</td>
+                  <td style={DataTable.td}><Pill label={row.wouldBlock} /></td>
+                </tr>
+              )}
+            />
+            {guardRows.length > 0 && <Disclosure id="guards" proofs={view.guardsProofs} />}
           </Section>
         </>
       )}

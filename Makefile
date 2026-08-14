@@ -511,6 +511,14 @@ check-flux-dynamic-labels-test: ## Unit-test the dynamic-label guard (no cluster
 demo-signalloom-supercred-images-test: ## Unit-test the supercred image build/load guard and node-image shim (no cluster required).
 	bats test/supercred-images.bats test/supercred-crictl-shim.bats test/kind-load-verified.bats test/supervise-port-forward.bats test/deployed-staleness.bats
 
+.PHONY: check-ci-build-parity
+check-ci-build-parity: ## Fail if CI omits a build step demo-signalloom-up runs (no cluster required).
+	./scripts/check-ci-build-parity.sh
+
+.PHONY: test-ci-build-parity
+test-ci-build-parity: ## Verify the CI build-parity guard against fixture recipes, including that it cannot pass vacuously (no cluster required).
+	bats test/ci-build-parity.bats
+
 .PHONY: test-kind-load-verified
 test-kind-load-verified: ## Verify the kind image-load guard against fake docker/kind clients (no cluster required).
 	bats test/kind-load-verified.bats

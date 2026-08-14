@@ -100,16 +100,46 @@ def build_statement(checkpoint: Checkpoint) -> dict:
     }
 
 
+def _read_key(path, kind: str) -> bytes:
+    """Read a key file, reporting the RESOLVED absolute path when it is missing.
+
+    Reporting the resolved path rather than the argument is what makes a
+    mis-joined path self-diagnosing. The shipped bug in the tamper demo passed
+
+        /tmp/osramp-wt/<worktree>/home/andy/src/cp/osramp-demo/.keys/witness.pem
+
+    -- a repo root with an absolute path concatenated onto it, the leading slash
+    swallowed. Printed in full it is instantly obvious; described as "key not
+    found" it is a twenty-minute hunt. Path handling for these arguments is
+    otherwise deliberately plain: an absolute path is honoured as absolute and a
+    relative one resolves against the working directory, which is what
+    pathlib already does and what callers expect.
+    """
+    resolved = Path(path).expanduser()
+    try:
+        return resolved.read_bytes()
+    except FileNotFoundError:
+        raise AnchorError(
+            f"{kind} key not found at {resolved.absolute()}"
+            + (f" (requested as {path})" if str(resolved) != str(path) else "")
+            + "\n  .keys/ is gitignored and therefore per-checkout, so a fresh worktree "
+            "has none.\n  Generate one with `make signing-keys`, or point KEYS_DIR at "
+            "the checkout that holds it."
+        ) from None
+    except IsADirectoryError:
+        raise AnchorError(f"{kind} key path {resolved.absolute()} is a directory") from None
+
+
 def load_private_key(path):
     from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-    return load_pem_private_key(Path(path).read_bytes(), password=None)
+    return load_pem_private_key(_read_key(path, "private"), password=None)
 
 
 def load_public_key(path):
     from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
-    return load_pem_public_key(Path(path).read_bytes())
+    return load_pem_public_key(_read_key(path, "public"))
 
 
 def key_id(public_key) -> str:

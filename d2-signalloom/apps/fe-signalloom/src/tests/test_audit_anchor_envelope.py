@@ -20,6 +20,8 @@ from audit_anchor.anchor import (
     build_statement,
     checkpoint_from_envelope,
     key_id,
+    load_private_key,
+    load_public_key,
     pae,
     sign_envelope,
     verify_envelope,
@@ -265,6 +267,78 @@ def test_archivista_round_trips(stub_archivista, keypair):
         key=lambda cp: cp.index,
     )
     assert [cp.index for cp in recovered] == [0, 1, 2]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Key file paths
+#
+# The CLI is invoked from inside the package directory, so key arguments are
+# routinely absolute and routinely point outside the repository -- .keys/ is
+# gitignored and therefore per-checkout, so a worktree's keys usually live in
+# the main checkout. A shipped bug joined an absolute KEYS_DIR onto the repo
+# root and swallowed its leading slash; the shell side is covered by
+# test/audit-anchor-keys-path.bats, and these lock the Python side, which must
+# honour an absolute path as absolute.
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+def _write_keypair(directory):
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+        PublicFormat,
+    )
+
+    directory.mkdir(parents=True, exist_ok=True)
+    private = ed25519.Ed25519PrivateKey.generate()
+    (directory / "witness.pem").write_bytes(
+        private.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+    )
+    (directory / "witness-pub.pem").write_bytes(
+        private.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo)
+    )
+    return directory
+
+
+def test_keys_load_from_an_absolute_path_outside_the_repository(tmp_path):
+    # tmp_path is an absolute path outside the repo -- the case that was broken.
+    keys = _write_keypair(tmp_path / "elsewhere" / ".keys")
+    assert keys.is_absolute()
+    private = load_private_key(str(keys / "witness.pem"))
+    public = load_public_key(str(keys / "witness-pub.pem"))
+    checkpoint = _checkpoint()
+    assert checkpoint_from_envelope(
+        sign_envelope(build_statement(checkpoint), private), public
+    ) == checkpoint
+
+
+def test_an_absolute_key_path_is_not_reinterpreted_relative_to_the_cwd(tmp_path, monkeypatch):
+    keys = _write_keypair(tmp_path / "elsewhere" / ".keys")
+    elsewhere = tmp_path / "some" / "other" / "cwd"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+    assert load_private_key(str(keys / "witness.pem")) is not None
+
+
+def test_a_missing_key_names_the_resolved_absolute_path(tmp_path):
+    """The error is the operator's first contact with a broken setup, and a
+    mis-joined path is only self-diagnosing if it is printed in full."""
+    missing = tmp_path / "absent" / "witness.pem"
+    with pytest.raises(AnchorError) as excinfo:
+        load_private_key(str(missing))
+    message = str(excinfo.value)
+    assert str(missing) in message
+    assert "make signing-keys" in message
+    assert "KEYS_DIR" in message
+
+
+def test_a_missing_key_does_not_raise_a_bare_oserror(tmp_path):
+    """main() reports AnchorError cleanly; a raw OSError escaping would print a
+    traceback at someone who has merely mistyped a path."""
+    with pytest.raises(AnchorError):
+        load_public_key(str(tmp_path / "nope.pem"))
 
 
 def test_archivista_publish_surfaces_an_unreachable_server(keypair):

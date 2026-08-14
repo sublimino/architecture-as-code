@@ -124,6 +124,22 @@ Selected by `ARCHIVISTA_URL` / `AUDIT_ANCHOR_DIR`; the CLI always prints which
 store it used, because a checkpoint anchored to a transparency log and one
 anchored to a local directory are not the same evidence.
 
+### Where the signing key lives
+
+`.keys/` is gitignored and therefore **per-checkout**, while the cluster it
+signs for is shared — so a worktree normally has no keys of its own and reaches
+the main checkout's. The Makefile resolves this through `--git-common-dir`
+(`scripts/lib/keys.sh`), which means `KEYS_DIR` is usually an **absolute path
+outside the current working tree**, and every consumer must honour it as
+absolute.
+
+Two mirror-image ways to get that wrong, both of which shipped and are now
+covered by `test/audit-anchor-keys-path.bats`: joining an absolute `KEYS_DIR`
+onto a base swallows its leading slash, and passing a relative one through a
+`cd` resolves it against the wrong directory. Use `keys_dir_abs` from
+`scripts/lib/keys.sh` in shell, and `$(abspath $(KEYS_DIR))` in make before any
+recipe changes directory.
+
 ## What this proves — and what it does not
 
 **It detects modification and deletion of anchored rows.** Proven live, not

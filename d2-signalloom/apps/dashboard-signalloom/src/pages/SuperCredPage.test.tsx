@@ -58,8 +58,8 @@ interface AgentFixture {
  * What POST /api/agents/{id}/stun answers with.
  *
  * Every field is server-sourced, which is the point: the page passes no body,
- * so anything rendered from a stun has to come from here. `message` is the
- * proxy's own wording, relayed by the endpoint that called it.
+ * so anything rendered from a stun has to come from here. The proxy's wording
+ * sits under `proxy`, apart from what fe-signalloom established itself.
  */
 function stunResponse(overrides: Partial<StunAgentResponse> = {}): StunAgentResponse {
   return {
@@ -68,8 +68,11 @@ function stunResponse(overrides: Partial<StunAgentResponse> = {}): StunAgentResp
     to_state: 'suspended',
     actor: 'demo-operator',
     stunned_at: '2026-08-02T10:00:00Z',
-    message: 'Agent agent-cardvault stunned: credentials revoked, state marked as stunned',
-    state: 'stunned',
+    proxy: {
+      state: 'stunned',
+      stunned_at: '2026-08-02T10:00:01Z',
+      message: 'Agent agent-cardvault stunned: credentials revoked, state marked as stunned',
+    },
     event: {
       id: 'demo-activity-1',
       timestamp: '2026-08-02T10:00:00Z',
@@ -313,6 +316,39 @@ describe('SuperCredPage', () => {
     expect(actions).toHaveTextContent('SPIFFE SVID rotation blocked')
     expect(actions).toHaveTextContent('deny-all egress')
     expect(actions).toHaveTextContent('audit trail')
+  })
+
+  it("relays the proxy's own wording from where relayed claims live", async () => {
+    mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(
+      stunResponse({ proxy: { state: 'stunned', message: 'lease 7f2a revoked, pod relabelled' } }),
+    )
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+
+    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(
+      /lease 7f2a revoked, pod relabelled/,
+    )
+  })
+
+  // The failure this pins is silent. `message` sits under `proxy`, and reading
+  // it from the top level instead renders `undefined` — which React prints as
+  // an empty string, so the line simply vanishes and no test that only checks
+  // "the result panel appeared" would notice. A proxy that reports nothing has
+  // to produce a sentence too, for the same reason.
+  it('never renders a blank line when the proxy reported nothing', async () => {
+    mockFetch({ agents: [cardvault()] })
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse({ proxy: null }))
+    renderPage()
+    await refresh()
+    await userEvent.click(await screen.findByRole('button', { name: /Stun Agent/ }))
+
+    // Composed from the lifecycle fields the response always carries, so the
+    // operator is told what happened rather than shown a gap.
+    expect(await screen.findByTestId('supercred-stun-result')).toHaveTextContent(
+      /Agent agent-cardvault isolated: active → suspended/,
+    )
   })
 
   it('hides stun button for already-stunned agents', async () => {

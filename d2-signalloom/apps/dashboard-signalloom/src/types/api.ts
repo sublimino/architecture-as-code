@@ -181,6 +181,31 @@ export interface RevokeCredentialResponse {
 // resolves a pod name to its namespace on its own, so the client had nothing
 // left to contribute. auditBoundary.test.ts fails if a body reappears.
 
+/**
+ * What the SuperCred proxy told the endpoint, kept apart from what the endpoint
+ * established itself.
+ *
+ * The nesting is the point, and it is the same principle that removed `reason`
+ * and `outcome` from the request: a reader has to be able to tell which claims
+ * the writer verified and which it is relaying. Flattening these into the
+ * response would merge "fe-signalloom read this under FOR UPDATE" with "the
+ * proxy said this" into one namespace, and nothing afterwards could separate
+ * them. Note `stunned_at` appears on both — deliberately. One is when the
+ * record was committed, the other when the pod was relabelled, and they are
+ * different facts asserted by different writers.
+ *
+ * Wholly optional: the proxy can fail to report, and a response that omits
+ * this is still a valid record of a committed stun.
+ */
+export interface StunProxyReport {
+  /** The pod label the proxy observed after relabelling. Cluster vocabulary,
+   *  distinct from the lifecycle `to_state` below. */
+  state?: string | null
+  stunned_at?: string | null
+  /** The proxy's own wording. Display only — the audit record is `event`. */
+  message?: string | null
+}
+
 export interface StunAgentResponse {
   agent_id: string
   from_state: string
@@ -190,15 +215,7 @@ export interface StunAgentResponse {
   actor: string
   stunned_at: string
   event: AuditEventResponse
-  /** What the SuperCred proxy reported back to the endpoint that called it.
-   *  Optional because it is the proxy's wording, and the proxy can fail to
-   *  supply one — the page composes display text from the fields above rather
-   *  than rendering a blank line. Display only; nothing here is the audit
-   *  record, which travels in `event`. */
-  message?: string | null
-  /** The pod label the proxy observed after relabelling. Cluster vocabulary,
-   *  distinct from the lifecycle `to_state` above. */
-  state?: string | null
+  proxy?: StunProxyReport | null
 }
 
 export interface TransitionRequest {

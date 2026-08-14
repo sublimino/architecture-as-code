@@ -216,6 +216,62 @@ p.write_text(s)
 '
 verdict "$(run tests/test_audit_provenance.py)"
 
+# --------------------------------------------------------------------------
+case_start "CASE 10  audit row written outside the transaction carrying the change"
+patch_py '
+import pathlib
+p = pathlib.Path("'"$SRC"'/api_compat.py"); s = p.read_text()
+old = """        await _audit_log(
+            conn, tenant_id, "violation.acknowledged", None, None, principal.actor,"""
+new = """        await _audit_log(
+            pool, tenant_id, "violation.acknowledged", None, None, principal.actor,"""
+assert old in s, "CASE 10 anchor missing"
+p.write_text(s.replace(old, new, 1))
+'
+verdict "$(run tests/test_audit_provenance.py)"
+
+# --------------------------------------------------------------------------
+case_start "CASE 11  a new endpoint whose only job is to record something elsewhere"
+patch_py '
+import pathlib
+p = pathlib.Path("'"$SRC"'/api_compat.py"); s = p.read_text()
+anchor = "@router.get(\"/audit\", response_model=AuditListResponse, responses=ERROR_RESPONSES)"
+add = """@router.post("/agents/{agent_id}/record-external-action")
+async def record_external_action(
+    agent_id: str,
+    principal: Annotated[Principal, Depends(authenticated_principal)],
+) -> dict[str, str]:
+    pool = await _get_pool()
+    if pool is not None:
+        await _audit_log(
+            pool, principal.tenant, "agent.transitioned", agent_id, None,
+            principal.actor, {"note": "performed by another service"},
+        )
+    return {"status": "recorded"}
+
+
+"""
+assert anchor in s, "CASE 11 anchor missing"
+p.write_text(s.replace(anchor, add + anchor, 1))
+'
+verdict "$(run tests/test_audit_provenance.py)"
+
+# --------------------------------------------------------------------------
+case_start "CASE 12  losing f-string SQL (the blind spot test_write_transactions has)"
+patch_py '
+import pathlib
+p = pathlib.Path("'"$GUARD"'"); s = p.read_text()
+old = """    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            part.value for part in node.values
+            if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        )
+"""
+assert old in s, "CASE 12 anchor missing"
+p.write_text(s.replace(old, "", 1))
+'
+verdict "$(run tests/test_audit_provenance.py)"
+
 restore
 printf '\n=== tree restored\n'
 git -C "$REPO_ROOT" status --porcelain "${PRODUCTION_FILES[@]}" | sed 's/^/  /' || true

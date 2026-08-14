@@ -282,7 +282,7 @@ export function resetFakeData(): void {
 //
 // Demo mode has no database, but the currency preference still has to survive a
 // reload — a setting that resets when you refresh is not a setting. The live
-// path persists to platform_users.display_currency; this is its demo
+// path persists to user_preferences.display_currency; this is its demo
 // counterpart, backed by localStorage the same way the theme and sidebar
 // preferences already are.
 //

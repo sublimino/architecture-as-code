@@ -115,9 +115,10 @@ def _currency_events(tenant_id: str) -> list[dict[str, Any]]:
 def test_a_user_who_has_never_chosen_gets_usd(client: TestClient) -> None:
     """The documented default, for a caller with no stored preference.
 
-    Also the answer for a platform_users row created before migration 020 added
-    the column: the column DEFAULT covers the pooled path, and the ``or``
-    fallback in the handler covers a row that predates it or does not exist.
+    Also the answer for a user with no user_preferences row at all, which is
+    every user until the first time they change something: the column DEFAULT
+    covers the pooled path and the ``or`` fallback in the handler covers the
+    missing row.
     """
     response = client.get("/api/user/preferences", headers=_bearer("curr-fresh"))
 
@@ -126,7 +127,7 @@ def test_a_user_who_has_never_chosen_gets_usd(client: TestClient) -> None:
 
 
 def test_the_default_matches_the_constant_the_frontend_and_migration_share(client: TestClient) -> None:
-    # Four places say USD: this constant, the column DEFAULT in migration 020,
+    # Four places say USD: this constant, the user_preferences column DEFAULT,
     # DEFAULT_CURRENCY in money/currency.ts and the demo fixture in fakeData.ts.
     # A user seeing one currency while the audit trail records another is the
     # failure this guards.
@@ -306,6 +307,34 @@ def test_a_rejected_change_leaves_the_stored_value_alone(client: TestClient) -> 
     assert client.get(
         "/api/user/preferences", headers=_bearer("curr-invalid"),
     ).json()["display_currency"] == "EUR"
+
+
+def test_the_audited_email_comes_from_the_token_and_cannot_be_supplied(client: TestClient) -> None:
+    """The actor on an audit row must be the authenticated caller, always.
+
+    A client-supplied identity would let anyone write an audit row attributing
+    a change to somebody else, which is worse than no audit row at all: it is
+    evidence that actively misleads.  ``extra="forbid"`` on the request model
+    means the attempt is rejected rather than ignored, so a client trying it
+    finds out.
+    """
+    attempt = client.patch(
+        "/api/user/preferences",
+        json={"display_currency": "EUR", "email": "someone.else@bank.example"},
+        headers=_bearer("curr-audit"),
+    )
+    assert attempt.status_code == 422, attempt.text
+
+    # And a legitimate change records the principal, never a client value.
+    client.patch(
+        "/api/user/preferences",
+        json={"display_currency": "EUR"},
+        headers=_bearer("curr-audit"),
+    )
+    latest = _currency_events("tenant-curr-audit")[-1]
+    assert latest["detail"]["email"] == "curr-audit"
+    assert latest["actor"] == "curr-audit"
+    assert "someone.else@bank.example" not in str(latest)
 
 
 def test_an_unknown_field_is_rejected_rather_than_silently_dropped(client: TestClient) -> None:

@@ -740,6 +740,85 @@ describe('CollusionAccessPage — table filters', () => {
   })
 })
 
+// ── The two regions that present rows and columns and are still not tables ──
+//
+// Re-swept the page for row-and-column regions rendered outside DataTable,
+// since a grep for `<table>` misses DashKit and div-based ones. Every array
+// this page renders into layout is now a DataTable except three: the run
+// selector's <option> list (a select, not a table), the StatCard strip, and
+// the Analysis Phases grid. The last two are card grids that could be read as
+// three-column tables, and both stay as they are.
+//
+// The reasons are pinned as tests rather than comments because in both cases
+// the intuitive conclusion is the wrong one, and a later reader "finishing the
+// migration" would break something specific.
+
+describe('CollusionAccessPage — Analysis Phases is the method, not the findings', () => {
+  it('offers no filter, because a filter here would let the analysis under-report itself', () => {
+    renderPage()
+
+    const phases = within(sectionFor('Analysis Phases'))
+
+    // Phase 2 IS the collusion check. A run with zero collusion pairs already
+    // looks, to a non-expert, like collusion was never examined — and the only
+    // thing on the page that says otherwise is this card. A control that can
+    // hide it lets "we checked and found nothing" render identically to "we
+    // never checked", on a page whose entire contract is that every claim
+    // carries its source. That is the same defect class as a filter under a
+    // warning banner, and it is worse here: it hides the method, not a row.
+    expect(phases.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(phases.queryByRole('group')).not.toBeInTheDocument()
+    expect(phases.getByText('Collusion escalation')).toBeInTheDocument()
+  })
+
+  it('says the same thing for every run, because it describes the engine and not the data', async () => {
+    renderPage()
+
+    const titles = () => within(sectionFor('Analysis Phases'))
+      .getAllByText(/Admin & self-escalation removal|Impersonation check|Collusion escalation/)
+      .map(node => node.textContent)
+    const before = titles()
+    expect(before).toHaveLength(3)
+
+    // PHASES is a module constant. Not fetched, not per-cluster, not switched
+    // by demo mode — so drilling from the aggregate into a single run must not
+    // move it. If this ever fails, the phases became data and the verdict above
+    // has to be revisited.
+    await userEvent.selectOptions(screen.getByTestId('collusion-run-select'), 'demo-run-staging-1')
+
+    expect(titles()).toEqual(before)
+  })
+})
+
+describe('CollusionAccessPage — the stat strip counts the run, never the filter', () => {
+  it('holds every figure steady while all four tables are filtered to nothing', async () => {
+    renderPage()
+
+    const figures = () => ({
+      subjects: statCardValue('Subjects analysed'),
+      escalations: statCardValue('Escalation paths'),
+      pairs: statCardValue('Collusion pairs'),
+      pivots: statCardValue('Pivot roles'),
+      fixes: statCardValue('Priority fixes'),
+    })
+    const before = figures()
+    expect(before).toEqual({ subjects: '8', escalations: '0', pairs: '4', pivots: '3', fixes: '4' })
+
+    await userEvent.type(screen.getByTestId('group-escalations-search'), 'zzz')
+    await userEvent.type(screen.getByTestId('shared-roles-search'), 'zzz')
+    await userEvent.type(screen.getByTestId('guards-search'), 'zzz')
+
+    // Three tables now say nothing matched. The strip is a claim about the
+    // run — "this cluster has 4 collusion pairs" — and a filter is a view over
+    // that claim, never a revision of it. A strip that tracked the filters
+    // would report findings as having gone away because someone typed in a box.
+    expect(screen.getByTestId('group-escalations-filtered-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('shared-roles-filtered-empty')).toBeInTheDocument()
+    expect(screen.getByTestId('guards-filtered-empty')).toBeInTheDocument()
+    expect(figures()).toEqual(before)
+  })
+})
+
 describe('CollusionAccessPage — Privilege Escalation Paths filters', () => {
   beforeEach(() => {
     isDemoMode.mockReturnValue(false)

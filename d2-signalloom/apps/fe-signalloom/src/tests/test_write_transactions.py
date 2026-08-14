@@ -308,6 +308,10 @@ class FakePostgres:
             return {"cnt": sum(1 for a in state.agent_registry if a["tenant_id"] == args[0])}
         if "FROM consent_events" in query:
             return None
+        if "SELECT id FROM tenant_api_keys" in query:
+            tenant_id = args[0]
+            live = [k for k in state.api_keys if k["tenant_id"] == tenant_id and k["revoked_at"] is None]
+            return {"id": uuid.uuid4()} if live else None
         if "INSERT INTO support_requests" in query:
             tenant_id, subject, urgency, message, submitted_by = args
             assert submitted_by, "submitted_by is NOT NULL in support_requests"
@@ -790,6 +794,45 @@ def test_skipping_onboarding_is_covered_by_the_same_guarantee(
         "tenant-tx-pooled"
     ]["status"] == "pending"
     assert onboarding_audit_rejects.committed.audit_events == []
+
+
+# ---------------------------------------------------------------------------
+# Attribution: an audit row must name the caller, not a constant
+# ---------------------------------------------------------------------------
+#
+# Asserted as "equals the token's identity", never as "is not demo-actor".
+# The negative form passes against any other hardcoded string, which is the
+# same defect wearing a different value.
+
+def test_creating_an_api_key_records_the_caller_who_revealed_it(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    """revealed_by_email and the audit row describe the same act.
+
+    The INSERT already took the identity from the token -- Principal.actor
+    exists for it, and the column is NOT NULL because an unattributable key
+    reveal is worthless as evidence. The audit row answered the same question
+    with the constant "demo-actor".
+    """
+    client.post("/api/tenants/tenant-tx-pooled/api-keys/initial", headers=_bearer("tx-pooled"))
+
+    event = healthy.committed.audit_events[0]
+    assert event["event_type"] == "api_key.created"
+    assert event["actor"] == "tx-pooled", "the audit row must name the token subject"
+    # The same value the business column recorded, from the same source.
+    assert healthy.committed.api_keys[0]["revealed_by_email"] == event["actor"]
+
+
+def test_rotating_an_api_key_records_the_caller(
+    client: TestClient, healthy: FakePostgres,
+) -> None:
+    _seed_live_key(healthy)
+
+    client.post("/api/tenants/tenant-tx-pooled/api-keys/rotate", headers=_bearer("tx-pooled"))
+
+    event = healthy.committed.audit_events[0]
+    assert event["event_type"] == "api_key.rotated"
+    assert event["actor"] == "tx-pooled"
 
 
 # ---------------------------------------------------------------------------

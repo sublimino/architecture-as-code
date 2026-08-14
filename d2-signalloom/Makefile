@@ -24,8 +24,21 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@# inverts the default so a new suite runs unless someone opts it out, and
 	@# test/bats-registry-coverage.bats fails on an opt-out with no reason -- and
 	@# on any attempt to replace this glob with a list again.
+	@# `-f -` with one pattern per line, NOT `grep -vxF "$(EXCLUDED_BATS)"`.
+	@# That earlier form worked with a single exclusion and silently stopped
+	@# working the moment a second was added: the variable expands to
+	@# "test/a.bats test/b.bats" on ONE line, which -xF matches against no
+	@# filename at all, so BOTH exclusions became no-ops. It was invisible
+	@# locally, because the suite it was meant to exclude happened to pass on my
+	@# box -- a port-forward from earlier work was still up. It failed on the CI
+	@# VM, twice, in two different stages.
+	@#
+	@# Same shape as everything else this guard family exists for: a mechanism
+	@# that silently does nothing, in a place where doing nothing looks like
+	@# success. The exclusion list is verified as actually applied by
+	@# test/bats-registry-coverage.bats.
 	@if command -v bats >/dev/null 2>&1; then \
-		bats $$(ls test/*.bats | grep -vxF "$(EXCLUDED_BATS)"); \
+		bats $$(ls test/*.bats | grep -vxF -f <(printf '%s\n' $(EXCLUDED_BATS))); \
 	fi
 
 # Suites deliberately not run by `make test`, each with its reason. Asserted

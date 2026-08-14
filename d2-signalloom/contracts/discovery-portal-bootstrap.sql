@@ -1417,6 +1417,268 @@ END $body$;
 COMMIT;
 -- END 012_operational_event_types.sql
 
+-- BEGIN 020_user_preferences.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 020 — per-user preferences, and the first of them: display currency
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- Every risk figure in the product is GBP at source and shown in the user's
+-- chosen currency, defaulting to USD. That makes the preference part of what a
+-- number on screen MEANS, so it has to be stored, not inferred.
+--
+-- ── Why a table, and not a column on platform_users ─────────────────────────
+--
+-- This is the FIRST per-user setting SignalLoom has ever had. platform_users
+-- holds role, status, department and title — directory identity, nothing a user
+-- chooses — and there is no existing preference storage to extend. So this
+-- migration is not following a precedent, it is setting one, and it is written
+-- for the settings that come after it rather than for this one alone.
+--
+-- A column on platform_users is cheaper today. It was the first design, and it
+-- was reversed for three reasons:
+--
+--   1. The cheap-today argument was weaker than it looked. The case FOR a
+--      column was that `NOT NULL DEFAULT 'USD'` makes the default a matter of
+--      DDL, with no application fallback to forget. That turns out not to hold
+--      here: a caller authenticated against this tenant may legitimately have
+--      NO platform_users row at all — the directory is populated separately —
+--      so the handler needs an application-level default for the missing-row
+--      case regardless. Having paid that cost either way, the column buys much
+--      less than it appeared to.
+--
+--   2. Cohesion. platform_users is the user DIRECTORY. Display preferences are
+--      not directory data, and a column per preference grows a wide table that
+--      mixes who someone is with how they like their screen. There are already
+--      three browser-local per-user preferences in the dashboard (theme,
+--      sidebar collapsed, load times) that will each want a home here, so
+--      "the next one" is not hypothetical.
+--
+--   3. There is an exact structural precedent, and it is not platform_users.
+--      tenant_settings (004) is a typed, scoped settings table for the TENANT.
+--      This is its per-user twin: same shape, same idea, different scope.
+--
+-- Note what this is NOT: a generic key/value EAV table. Columns are typed and
+-- constrained, so display_currency can carry a CHECK — which a TEXT `value`
+-- column shared by every setting could never do. Each new preference is a
+-- column here, which is a migration, which is the point: a preference worth
+-- storing is worth declaring.
+--
+-- ── Keyed on the token identity, not on directory membership ────────────────
+--
+-- (tenant_id, user_email) rather than a foreign key to platform_users(id).
+-- A user who can authenticate can hold a preference, whether or not anyone has
+-- added them to the directory. An FK would make "your setting did not save
+-- because you are absent from a table you have never heard of" a real
+-- behaviour, and it is not a defensible one.
+--
+-- user_email holds Principal.actor — the email claim when Dex issues one, the
+-- subject when it does not. Same convention as tenant_api_keys.revealed_by_email.
+--
+-- ── Scope ───────────────────────────────────────────────────────────────────
+--
+-- PER-USER, deliberately. Two people looking at the same fleet can want
+-- different display currencies, and one of them changing it must not move the
+-- other's board pack. The failure mode is not hypothetical: patch_cookie_
+-- preferences currently stores a per-user cookie choice tenant-scoped, so one
+-- user's preference silently overwrites everyone else's. That is what happens
+-- when a user-scoped setting is bolted onto tenant-scoped storage, and this
+-- table exists so the next one does not have to be.
+--
+-- 'USD' must agree with DEFAULT_DISPLAY_CURRENCY in api_compat.py,
+-- DEFAULT_CURRENCY in dashboard-signalloom/src/money/currency.ts, and the demo
+-- fixture in dashboard-signalloom/src/api/fakeData.ts. If one moves they all
+-- move, or a user sees one currency while the audit trail records another.
+--
+-- Idempotent: CREATE TABLE IF NOT EXISTS + guarded trigger creation, the same
+-- shape as 008.
+
+BEGIN;
+
+CREATE TABLE IF NOT EXISTS public.user_preferences (
+    id                UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id         TEXT        NOT NULL DEFAULT 'tenant-demo',
+    -- Principal.actor: the email claim, or the subject when the token carries
+    -- no email. Named for the common case, like revealed_by_email.
+    user_email        TEXT        NOT NULL,
+
+    -- ISO 4217 alphabetic codes are exactly three uppercase letters. The
+    -- constraint is on the SHAPE rather than an enumeration of codes: which
+    -- currencies the UI offers is a frontend concern, and a migration to add
+    -- CHF to a database list would be ceremony. What must never land is a
+    -- lowercase code, an empty string, or a stray symbol — Intl does not
+    -- reject unknown currency codes, it RENDERS them, so a bad value that
+    -- reaches storage reaches the screen looking like real money.
+    display_currency  VARCHAR(3)  NOT NULL DEFAULT 'USD'
+                                  CHECK (display_currency ~ '^[A-Z]{3}$'),
+
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT uq_user_preferences_tenant_email UNIQUE (tenant_id, user_email)
+);
+
+CREATE INDEX IF NOT EXISTS idx_user_preferences_tenant
+    ON public.user_preferences (tenant_id);
+
+DROP TRIGGER IF EXISTS set_user_preferences_updated_at ON public.user_preferences;
+CREATE TRIGGER set_user_preferences_updated_at
+    BEFORE UPDATE ON public.user_preferences
+    FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+COMMIT;
+-- END 020_user_preferences.sql
+
+-- BEGIN 021_user_currency_event_type.sql
+-- ══════════════════════════════════════════════════════════════════════════════
+-- 021 — admit 'user.currency_updated'
+-- ══════════════════════════════════════════════════════════════════════════════
+--
+-- PATCH /api/user/preferences records a user changing the currency every risk
+-- figure on every screen is displayed in. A settings change a regulated
+-- customer cannot see the history of is a gap, and this one changes what the
+-- numbers in a board pack read as.
+--
+-- The detail carries {from, to, email} so the trail answers who changed it and
+-- what it used to be, without a join against a table that only ever holds the
+-- current value.
+--
+-- 'user.currency_updated' is 21 characters; audit_events.event_type is
+-- VARCHAR(30).
+--
+-- ── The union, and why this file is dangerous ───────────────────────────────
+--
+-- event_type is a CHECK constraint rather than an enum, so widening it means
+-- DROPPING AND RECREATING it with the ENTIRE vocabulary enumerated. The last
+-- such migration to run wins outright: any type it omits is rejected from then
+-- on, and because the audit insert shares a transaction with the mutation it
+-- records, the rejection rolls back the business write and returns 500. Nothing
+-- fails at migration time or at API startup — it fails the first time a user
+-- presses the button.
+--
+-- 011 carries a long comment about exactly this: 010 and 011 were authored in
+-- parallel, each enumerating a vocabulary that omitted the other's new type,
+-- and renumbering alone did not fix it because ordering does not merge lists.
+--
+-- This file was written under the same conditions. Migrations 012-019 are
+-- reserved for concurrent audit-coverage work that this author could not read.
+-- If any of them adds an event type, IT MUST BE ADDED TO THE LIST BELOW — this
+-- file runs last and its list is the one that survives. The reviewer merging
+-- these branches owns that check; the test named below is what catches it.
+--
+-- Rather than leave that to the merge, the four types that work introduces were
+-- obtained from the team lead and frozen: they are enumerated below under their
+-- own heading even though nothing on this branch emits them. A superset costs
+-- nothing and a subset is invisible until a user presses a button, so the
+-- asymmetry decides it.
+--
+-- tests/test_audit_event_types.py derives its expectations from the AST of
+-- api_compat.py and compares them against CONSTRAINT_MIGRATION, which this
+-- change repoints at this file. A type emitted by a call site and missing here
+-- fails that test rather than 500ing in production — which is the whole reason
+-- the test parses the source instead of trusting a hand-maintained list.
+--
+-- NB: no quote characters in this prose. test_audit_event_types.py parses
+-- quoted literals out of this file, so a quoted event name in a comment is
+-- captured as if it were part of the vocabulary.
+--
+-- Same guarded drop-and-recreate shape as 006, 007, 009 and 011: the guard keys
+-- on a value unique to this migration so re-running is a no-op.
+
+BEGIN;
+
+DO $body$
+DECLARE
+  constraint_name TEXT;
+BEGIN
+  SELECT con.conname INTO constraint_name
+    FROM pg_constraint con
+    JOIN pg_class rel ON rel.oid = con.conrelid
+    JOIN pg_namespace nsp ON nsp.oid = rel.relnamespace
+   WHERE nsp.nspname = 'public'
+     AND rel.relname = 'audit_events'
+     AND con.contype = 'c'
+     AND pg_get_constraintdef(con.oid) LIKE '%event_type%'
+   LIMIT 1;
+
+  -- Already widened by this migration? Leave it alone.
+  IF constraint_name IS NOT NULL
+     AND pg_get_constraintdef((
+           SELECT con.oid FROM pg_constraint con
+             JOIN pg_class rel ON rel.oid = con.conrelid
+            WHERE rel.relname = 'audit_events' AND con.conname = constraint_name
+         )) NOT LIKE '%user.currency_updated%'
+  THEN
+    EXECUTE format('ALTER TABLE public.audit_events DROP CONSTRAINT %I', constraint_name);
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+     WHERE rel.relname = 'audit_events'
+       AND con.contype = 'c'
+       AND pg_get_constraintdef(con.oid) LIKE '%user.currency_updated%'
+  ) THEN
+    ALTER TABLE public.audit_events
+      ADD CONSTRAINT audit_events_event_type_check
+      CHECK (event_type IN (
+        -- Written by _audit_log() and _record_memory_audit() in api_compat.py.
+        -- Keep in step with tests/test_audit_event_types.py, which derives its
+        -- expectations from the source rather than from this list.
+        'agent.created',
+        'agent.credential_issued',
+        'agent.credential_revoked',
+        'agent.stunned',
+        'agent.transitioned',
+        'api_key.created',
+        'api_key.rotated',
+        'compliance.reassess_requested',
+        -- ── Carried from the concurrent audit-coverage work (012-019) ───────
+        -- Not emitted by any call site on THIS branch. They are enumerated
+        -- here because this migration runs last and its list is the one that
+        -- survives: omitting a type the other branch emits would make every
+        -- one of its writes raise CheckViolationError, rolling back the
+        -- mutation it shares a transaction with. A superset is harmless; a
+        -- subset is silent until someone presses the button.
+        --
+        -- Frozen by the team lead as of 2026-08-14. Any rename comes through
+        -- them before it lands, so this list can be treated as stable.
+        'compliance.scan_completed',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'support.requested',
+        -- ───────────────────────────────────────────────────────────────────
+        'consent.accepted',
+        'cookie.preferences_updated',
+        'nhi.dismissed',
+        'nhi.enrolled',
+        'tenant.frameworks_updated',
+        'tenant.preferences_updated',
+        -- New in this migration. Per-user, deliberately not tenant-scoped: the
+        -- tenant type above already exists and conflating the two would make a
+        -- personal display choice look like a tenant-wide policy change.
+        'user.currency_updated',
+        'violation.acknowledged',
+        -- Retained from 004, 006, 007 and 011. No call site emits these, but
+        -- dropping them would break any environment holding rows that use them.
+        'enrollment',
+        'state_transition',
+        'violation_detected',
+        'compliance_check',
+        'token_issued',
+        'token_refused',
+        'tenant_created',
+        'user_provisioned',
+        'directory_connected',
+        'discovery_enroll_requested',
+        'onboarding_completed',
+        'onboarding_skipped'
+      ));
+  END IF;
+END $body$;
+
+COMMIT;
+-- END 021_user_currency_event_type.sql
+
 -- BEGIN 030_audit_events_append_only.sql
 -- ══════════════════════════════════════════════════════════════════════════════
 -- 030 — make public.audit_events append-only

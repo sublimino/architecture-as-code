@@ -5,11 +5,13 @@ import {
   formatConverted,
   formatConversionNote,
   formatAsOfNote,
+  moneyFormatOptions,
   resolveLocale,
   MONEY_UNAVAILABLE,
   FALLBACK_LOCALE,
   COMPACT_THRESHOLD,
 } from './format'
+import type { CurrencyCode } from './currency'
 import { money } from './money'
 import { convert } from './convert'
 import { resetRateTable, setRateTable } from './rates'
@@ -24,13 +26,29 @@ afterEach(() => {
 // literal. A hardcoded "$1,266" would be wrong in two separate ways at once —
 // en-GB renders US dollars as "US$", and the grouping separator is locale
 // dependent — and the test would then be asserting the bug.
-function intl(locale: string, currency: string, value: number, opts: Intl.NumberFormatOptions = {}) {
+//
+// The oracle states EVERY option, and takes a compact flag rather than an
+// options bag. It used to take a bag and spread its own
+// `minimumFractionDigits: 0` underneath it, so every compact expectation
+// carried a minimum that production never passed. On an ICU which fills an
+// unset minimum with 1, the two sides rendered different figures — `£1m` here
+// against `£1.0m` there — and the assertion could not report it as anything
+// more useful than a string mismatch. The two sides were not comparing like
+// with like.
+//
+// Note what the fix is NOT: this helper does not import production's options.
+// An oracle derived from the thing it checks agrees with that thing even when
+// it is wrong, which trades one blind spot for another. The defect was
+// incompleteness, not divergence — an option left unset is an option ICU
+// chooses — so both sides now state every bound, and a genuine disagreement
+// between them is a signal about this code rather than about the host.
+function intl(locale: string, currency: CurrencyCode, value: number, compact = false) {
   return new Intl.NumberFormat(locale, {
     style: 'currency',
     currency,
+    ...(compact ? { notation: 'compact' as const } : {}),
     minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-    ...opts,
+    maximumFractionDigits: compact ? 1 : 0,
   }).format(value)
 }
 
@@ -78,7 +96,7 @@ describe('formatAmount — compact notation', () => {
   // the abbreviated form and is shorter than the grouped one.
   it('abbreviates at or above the threshold', () => {
     const out = formatAmount(2_500_000, 'GBP', { locale: 'en-GB', compact: true })
-    expect(out).toBe(intl('en-GB', 'GBP', 2_500_000, { notation: 'compact', maximumFractionDigits: 1 }))
+    expect(out).toBe(intl('en-GB', 'GBP', 2_500_000, true))
     expect(out).toMatch(/2[.,]5/)
     expect(out.length).toBeLessThan(intl('en-GB', 'GBP', 2_500_000).length)
   })
@@ -92,13 +110,100 @@ describe('formatAmount — compact notation', () => {
 
   it('treats the threshold itself as compact', () => {
     const out = formatAmount(COMPACT_THRESHOLD, 'GBP', { locale: 'en-GB', compact: true })
-    expect(out).toBe(intl('en-GB', 'GBP', COMPACT_THRESHOLD, { notation: 'compact', maximumFractionDigits: 1 }))
+    expect(out).toBe(intl('en-GB', 'GBP', COMPACT_THRESHOLD, true))
     expect(out.length).toBeLessThan(intl('en-GB', 'GBP', COMPACT_THRESHOLD).length)
   })
 
   it('abbreviates USD compactly with the US$ marker intact', () => {
     const out = formatAmount(3_164_500, 'USD', { locale: 'en-GB', compact: true })
-    expect(out).toBe(intl('en-GB', 'USD', 3_164_500, { notation: 'compact', maximumFractionDigits: 1 }))
+    expect(out).toBe(intl('en-GB', 'USD', 3_164_500, true))
+  })
+})
+
+// The digits of a rendered figure, with symbol, separators and suffix stripped.
+// "£1m" -> "1", "£1.0m" -> "10", "2,5 Mio. €" -> "25". Comparing digits rather
+// than strings asks what the figure SAYS while staying indifferent to how a
+// locale spells it.
+const digitsOf = (rendered: string) => rendered.replace(/\D/g, '')
+
+describe('compact digits are decided here, not by whichever ICU is running', () => {
+  // The oracle above cannot see this class of defect. It is handed the same
+  // options production uses, so a wrong option is wrong on both sides of the
+  // comparison and the assertion passes. These cases state the product
+  // decision as digits instead: what a reader should see, on any runtime.
+  //
+  // Three locales because the suffix, the decimal separator and the symbol
+  // placement all move, and none of them is the thing under test.
+  const locales = ['en-GB', 'en-US', 'de-DE']
+
+  it('renders a whole million as a whole number, never as a resolved tenth', () => {
+    // The regression: "£1.0m". A trailing zero is not a rounding artefact, it
+    // is a claim that the tenth was computed and came out zero.
+    for (const locale of locales) {
+      const out = formatAmount(COMPACT_THRESHOLD, 'GBP', { locale, compact: true })
+      expect(digitsOf(out)).toBe('1')
+    }
+  })
+
+  it('keeps a genuine fractional part — 2.5m must not flatten to 2m', () => {
+    // The opposite failure, and the reason the fix is a MINIMUM of zero rather
+    // than a maximum of zero: dropping the .5 here loses half a million pounds
+    // off a figure a bank is reading.
+    for (const locale of locales) {
+      const out = formatAmount(2_500_000, 'GBP', { locale, compact: true })
+      expect(digitsOf(out)).toBe('25')
+    }
+  })
+
+  it('rounds to a single fractional digit rather than dropping or keeping more', () => {
+    for (const locale of locales) {
+      const out = formatAmount(3_164_500, 'USD', { locale, compact: true })
+      expect(digitsOf(out)).toBe('32')
+    }
+  })
+
+  // The assertions above catch the defect on a runtime that HAS it. These
+  // catch the shape of it on every runtime, including the one where it is
+  // invisible: an option we left for ICU to fill in is an option ICU gets to
+  // decide, and the two ICUs we run decided differently.
+  const shapes: Array<[CurrencyCode, boolean]> = [
+    ['GBP', true],
+    ['GBP', false],
+    ['USD', true],
+    ['USD', false],
+    ['EUR', true],
+    ['EUR', false],
+  ]
+
+  it.each(shapes)('states both fraction bounds for %s (compact=%s)', (currency, compact) => {
+    const opts = moneyFormatOptions(currency, compact)
+    expect(opts.minimumFractionDigits).toBeDefined()
+    expect(opts.maximumFractionDigits).toBeDefined()
+    expect(opts.minimumFractionDigits).toBeLessThanOrEqual(opts.maximumFractionDigits!)
+  })
+
+  it.each(shapes)('resolves to exactly the bounds it asked for: %s (compact=%s)', (currency, compact) => {
+    // Asked-for and resolved agreeing is the property that makes the rendered
+    // string a fact about this file rather than about the host. Where they
+    // disagree, ICU is supplying a default we never chose.
+    const opts = moneyFormatOptions(currency, compact)
+    for (const locale of locales) {
+      const resolved = new Intl.NumberFormat(locale, opts).resolvedOptions()
+      expect(resolved.minimumFractionDigits).toBe(opts.minimumFractionDigits)
+      expect(resolved.maximumFractionDigits).toBe(opts.maximumFractionDigits)
+    }
+  })
+
+  it('renders round axis ticks without a trailing zero', () => {
+    // RiskExposurePage passes compactThreshold: 0, so EVERY axis tick takes
+    // the compact branch — including the small round numbers a tick generator
+    // produces. This is the surface where a spurious ".0" appears on every
+    // label at once.
+    const ticks = [0, 50_000, 250_000, 1_000_000, 4_000_000]
+    const shown = ticks.map((v) =>
+      digitsOf(formatAmount(v, 'GBP', { locale: 'en-GB', compact: true, compactThreshold: 0 })),
+    )
+    expect(shown).toEqual(['0', '50', '250', '1', '4'])
   })
 })
 

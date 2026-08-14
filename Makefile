@@ -690,6 +690,49 @@ test-cosign-signing-consistency: ## Assert every cosign sign call site agrees an
 attested-test: ## Run the test suite under witness, storing evidence in Archivista.
 	./scripts/attested-test.sh
 
+# ── Audit-trail transparency anchoring ────────────────────────────────────────
+# Checkpoints over public.audit_events, signed with the same .keys/witness.pem
+# attested-test.sh uses, published to Archivista when ARCHIVISTA_URL is set and
+# answering, otherwise to AUDIT_ANCHOR_DIR. Read-only against the audit table.
+# See d2-signalloom/apps/fe-signalloom/src/audit_anchor/README.md for what this
+# proves and, more to the point, what it does not.
+AUDIT_ANCHOR_SRC := d2-signalloom/apps/fe-signalloom/src
+AUDIT_ANCHOR_PY  ?= python3
+
+# Every recipe below cd's into the package directory, so the key paths MUST be
+# absolute before the cd happens. KEYS_DIR is absolute in a worktree (the
+# git-common-dir branch) but plain '.keys' in a single checkout and on a CI VM
+# that has no git at all -- and there the relative form would resolve against
+# $(AUDIT_ANCHOR_SRC) rather than the repo root. $(abspath) anchors a relative
+# value to make's working directory and leaves an already-absolute one alone,
+# which is the whole of the fix on this side.
+AUDIT_ANCHOR_KEYS = $(abspath $(KEYS_DIR))
+
+.PHONY: audit-anchor-checkpoint
+audit-anchor-checkpoint: signing-keys ## Publish a signed checkpoint over the audit trail.
+	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		--private-key $(AUDIT_ANCHOR_KEYS)/witness.pem \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem checkpoint
+
+.PHONY: audit-anchor-verify
+audit-anchor-verify: ## Verify the audit trail against its anchors (exit 2 = DIVERGED).
+	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem verify
+
+.PHONY: audit-anchor-show
+audit-anchor-show: ## List the published audit-trail anchors.
+	cd $(AUDIT_ANCHOR_SRC) && $(AUDIT_ANCHOR_PY) -m audit_anchor \
+		--public-key $(AUDIT_ANCHOR_KEYS)/witness-pub.pem show
+
+.PHONY: audit-anchor-tamper-demo
+audit-anchor-tamper-demo: ## Prove the audit verifier detects a real tamper (writes and cleans up its own rows).
+	KEYS_DIR=$(KEYS_DIR) PYTHON=$(AUDIT_ANCHOR_PY) ./scripts/audit-anchor-tamper-demo.sh
+
+.PHONY: audit-anchor-test
+audit-anchor-test: ## Run the audit-anchor unit tests (no cluster required).
+	cd $(AUDIT_ANCHOR_SRC) && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+		$(AUDIT_ANCHOR_PY) -m pytest -q tests/test_audit_anchor_*.py
+
 .PHONY: olly-test
 olly-test: ## Run the olly-replica bats suite (enrichment loop end to end).
 	$(MAKE) -C olly-replica test

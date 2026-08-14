@@ -40,3 +40,33 @@ keys_dir() {
 
   printf '.keys'
 }
+
+# keys_dir_abs BASE — keys_dir(), forced absolute against BASE.
+#
+# keys_dir() returns whichever of three sources answered, and they do not agree
+# about absoluteness: an exported KEYS_DIR is whatever the caller set, the
+# git-common-dir branch is always absolute, and the CI fallback is the relative
+# '.keys'. A caller that changes directory before using the result therefore has
+# to handle both, and every one that forgets breaks in one of two mirror-image
+# ways:
+#
+#   * joining an ABSOLUTE value onto a base produces the nonsense path
+#     /repo/root/home/andy/src/cp/osramp-demo/.keys/witness.pem -- the leading
+#     slash is swallowed by the concatenation. This is what the audit-anchor
+#     tamper demo did, and it only ever worked because that worktree happened to
+#     contain its own .keys.
+#   * passing a RELATIVE value through after `cd` into a subdirectory resolves
+#     it against the subdirectory instead of the repo root.
+#
+# Absolute wins outright; relative is anchored to BASE. Callers that never
+# change directory can keep using keys_dir() unchanged -- push-local.sh,
+# admission-demo.sh, revocation-demo.sh and build-sign-dashboard.sh all do, and
+# none of them are touched by this.
+keys_dir_abs() {
+  local base="${1:-$PWD}" dir
+  dir="$(keys_dir)"
+  case "${dir}" in
+    /*) printf '%s' "${dir}" ;;
+    *)  printf '%s/%s' "${base%/}" "${dir}" ;;
+  esac
+}

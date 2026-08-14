@@ -454,55 +454,41 @@ def _persisted_fields(
 # when a fix lands, its entry here goes red and has to be deleted. An exemption
 # cannot outlive the defect it was written for.
 ACCEPTED_CLIENT_SUPPLIED_FIELDS: dict[tuple[str, str, str, str], str] = {
-    # ---- POST /agents/{id}/stun -- four fields, two paths, one defect -------
+    # ---- POST /agents/{id}/stun -- REMOVED 2026-08-14, defect fixed ---------
     #
-    # The endpoints agent is reshaping this handler. Listed rather than left
-    # red so the suite is mergeable while that work is in flight; the entries
-    # are the specification of what has to go.
+    # Four entries lived here: detail.outcome, detail.reason, detail.namespace
+    # and agent_name. They are gone because the handler stopped being a place
+    # the browser told what to write down and started performing the cluster
+    # action itself, so every field now has a server-side source -- identity
+    # from the token, target from the path, prior state from its own FOR UPDATE
+    # read, outcome and namespace from the proxy's own response.
     #
-    # Both the pooled path and the fixture path are named. They are the same
-    # bug written twice, and fixing one and not the other would leave the
-    # defect live in the deployment most likely to be running -- the demo has
-    # no database configured, so the fixture path is the one that serves.
-    **{
-        (module_handler[0], module_handler[1], argument, field): reason
-        for module_handler in [("api_compat.py", "stun_agent")]
-        for argument, field, reason in [
-            (
-                "detail", "outcome",
-                "The sharpest of the four. The client asserts the OUTCOME of a "
-                "cluster action this process did not perform, and it defaults "
-                "to the success value 'stunned'. The handler's own docstring "
-                "concedes it 'cannot tell you whether the cluster action "
-                "succeeded' -- the SuperCred proxy does the relabel and the "
-                "OpenBao lease revocation and reports to nobody. A success "
-                "claim sourced from the party who benefits from it is not "
-                "evidence.",
-            ),
-            (
-                "detail", "reason",
-                "Free-text narrative invented by the caller. Nothing validates "
-                "it, nothing else stores it, and it reads on the audit page as "
-                "though the server established it.",
-            ),
-            (
-                "detail", "namespace",
-                "Client-supplied location for the action. The server never "
-                "looks in that namespace, so the row records where the caller "
-                "said it happened.",
-            ),
-            (
-                "agent_name", "agent_name",
-                "The worst of the four for evidential purposes, and the "
-                "quietest. `req.agent_name or row['name']` places the client "
-                "AHEAD of the server: when the registry read under FOR UPDATE "
-                "returned the real name, a caller-supplied one still wins. "
-                "That is client-controlled identity of the audit subject, "
-                "overriding a direct observation sitting in a local variable "
-                "one line above.",
-            ),
-        ]
-    },
+    # `StunAgentRequest` was deleted outright rather than trimmed. A body that
+    # exists only to be ignored is an invitation to start honouring it again.
+    #
+    # This block is left as a comment rather than deleted silently because the
+    # test that emptied it is the point: `test_the_accepted_list_has_no_stale_entries`
+    # named all four the moment the fix landed and refused to pass until they
+    # were removed. An exemption cannot outlive its defect.
+    #
+    # ---- POST /api/audit/privileged-invocations ----------------------------
+    ("api_compat.py", "record_privileged_invocation", "event_type", "kind"): (
+        "ACCEPTED, and the one entry in this dict that is a design rather than "
+        "a defect awaiting a fix. `kind` selects between 'demo.phase_run' and "
+        "'demo.reset_requested' -- a two-valued closed set, validated by the "
+        "request model, not free text the caller composes.\n\n"
+        "It is client-supplied because it has to be: the runner is the only "
+        "process that knows which privileged control it is about to invoke, "
+        "and it cannot be absorbed into this API because that pod exists to "
+        "carry kubectl and the repo scripts, which this one does not. The "
+        "honest handling is not to pretend the value was observed here -- the "
+        "row carries `reported_by: supercred-demo-runner` and `observed: "
+        "False` alongside it, so the provenance travels with the claim.\n\n"
+        "Note what is NOT taken from the wire: actor and tenant come from the "
+        "forwarded token, and `preempts_active_run` is derived from `kind` "
+        "here rather than accepted from the body, because it is a property of "
+        "the operation and not something a caller should be able to assert."
+    ),
     # ---- POST /agents/{id}/transition --------------------------------------
     ("api_compat.py", "transition_agent", "detail", "reason"): (
         "Materially weaker than the stun case and listed separately so it is "
@@ -902,12 +888,27 @@ KNOWN_VOLATILE_AUDIT_SITES: dict[tuple[str, str], str] = {
         "Fixture path for per-user display currency with no database."
     ),
     ("demo_runner.py", "_record_privileged_invocation"): (
-        "KNOWN DEFECT, not an accepted design. The deployed runner pod has no "
-        "database configured, so this is not a fallback there -- it is the only "
-        "path, and the runner's audit trail is entirely volatile in production. "
-        "The endpoints agent owns the fix. Listed so the guard runs green "
-        "against today's tree while the reintroduction check stays live; remove "
-        "this entry when the runner gets a pool."
+        "Fixture path only, and no longer the production path. The runner now "
+        "forwards to POST /api/audit/privileged-invocations on fe-signalloom "
+        "with the operator's own token, and demo_runner_main.py's /readyz "
+        "refuses to report ready when neither a sink URL nor a local pool is "
+        "configured -- so a deployed runner never joins its Service rather than "
+        "accepting privileged calls and recording them nowhere. What remains "
+        "here serves tests and the no-database demo."
+    ),
+    ("api_compat.py", "record_privileged_invocation"): (
+        "The receiving half of the same path. No pool means fixture mode, in "
+        "which every audit writer in this module is volatile; this one is not "
+        "special. In a deployed fe-signalloom the pool exists, which is the "
+        "case the runner's readiness probe is asserting on the other side."
+    ),
+    ("api_compat.py", "request_reassessment"): (
+        "Fixture path for the no-database demo, same as its siblings. Its "
+        "separate defect -- claiming a reassessment had been requested when "
+        "nothing was queued -- was fixed by recording `dispatched: False` in "
+        "both paths rather than by removing the row, because an operator "
+        "pressing the control is itself worth a record even when the platform "
+        "does nothing with it."
     ),
 }
 
@@ -1015,14 +1016,35 @@ RECORDS_A_NON_DATABASE_ACTION: dict[tuple[str, str], str] = {
         "defect; see KNOWN_VOLATILE_AUDIT_SITES.)"
     ),
     ("api_compat.py", "request_reassessment"): (
-        "DEFECT, not a design. This handler performs no action whatsoever -- "
-        "no INSERT, no UPDATE, no outbound call, no subprocess. It writes "
-        "'compliance.reassess_requested' and returns "
-        "status='reassessment_requested' with clickup_task_id=None, having "
-        "requested nothing of anything. The audit row asserts an event that "
-        "occurs nowhere in the system, which is the purest form of the "
-        "violation this file exists for: the stun endpoint at least narrates "
-        "something a real proxy did. Owned by the endpoints agent."
+        "LEGITIMATE now, and it was a defect when this entry was written. The "
+        "handler still performs no INSERT, UPDATE, outbound call or subprocess "
+        "-- but the row no longer claims one did. It records `dispatched: "
+        "False`, so what it asserts is exactly what happened: an operator "
+        "pressed a control and the platform queued nothing. That is worth a "
+        "record. The original defect was not the absence of an action, it was "
+        "a row and a response asserting `reassessment_requested` while nothing "
+        "had been requested of anything."
+    ),
+    ("api_compat.py", "record_privileged_invocation"): (
+        "LEGITIMATE. The receiving half of the runner's forward. The action is "
+        "a subprocess spawn in another pod, so there is no row here to bind a "
+        "transaction to -- the runner holds the ordering guarantee (audit "
+        "first, spawn second, a failed forward means no run) and this endpoint "
+        "holds the durability.\n\n"
+        "What makes it trustworthy without a transaction is that it does not "
+        "pretend to be a first-party observation. The row carries "
+        "`reported_by: supercred-demo-runner` and `observed: False`, so a "
+        "reader knows which grade of evidence they are holding without needing "
+        "to know this endpoint exists. Everything else is re-derived here: the "
+        "actor and tenant from the forwarded token, the event type from `kind` "
+        "against a closed set, `preempts_active_run` from the operation rather "
+        "than from the body.\n\n"
+        "This is the deliberate asymmetry with the stun. The API absorbed the "
+        "stun because it COULD -- the proxy call is one HTTP request on a path "
+        "fe-signalloom already uses. It cannot absorb the runner: that pod "
+        "exists precisely because it carries kubectl and the repo scripts, "
+        "which the API pod does not. So the actor stays where it is and only "
+        "the storage moves. Structural, not convenient."
     ),
 }
 

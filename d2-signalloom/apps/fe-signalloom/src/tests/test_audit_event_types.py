@@ -292,16 +292,22 @@ ACTOR_POSITION = 5
 #
 # ``test_the_actor_exemptions_are_all_still_needed`` deletes these for you by
 # going red the moment a site stops needing one.
-ACTOR_DEFECTS_PENDING_FIX: dict[tuple[str, str], str] = {
-    ("onboarding.py", "onboarding-api"): (
-        "Records the service that wrote the row instead of the human who "
-        "completed onboarding. Both handlers already depend on "
-        "authenticated_tenant, which is authenticated_principal's own wrapper, "
-        "so the Principal is resolved and cached for the request -- the fix is "
-        "to take the dependency and pass principal.actor, with no change to "
-        "which tenant resolves. Owned by the endpoints agent."
-    ),
-}
+#: Empty, and it should stay that way.
+#:
+#: It held one entry: onboarding.py passing `actor=ACTOR` where
+#: `ACTOR = "onboarding-api"`, so every `onboarding_completed` and
+#: `onboarding_skipped` row named a service rather than the person. That
+#: mattered more than the count suggested -- `tenant_onboarding` holds only
+#: terminal state, so the audit row was the sole durable evidence the
+#: transition happened, and it could not name anybody.
+#:
+#: Fixed 2026-08-14: both routes take `authenticated_principal` and pass
+#: `principal.actor`. `test_the_actor_exemptions_are_all_still_needed` named
+#: the entry the moment it stopped being true and refused to pass until it was
+#: deleted -- which is the property this dict exists for. A declared defect
+#: that survives its own fix is worse than an undeclared one, because it goes
+#: on covering whatever moves into its place.
+ACTOR_DEFECTS_PENDING_FIX: dict[tuple[str, str], str] = {}
 
 
 def test_no_audit_call_site_hardcodes_its_actor() -> None:

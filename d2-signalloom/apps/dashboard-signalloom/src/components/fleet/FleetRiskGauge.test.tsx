@@ -117,10 +117,49 @@ describe('FleetRiskGauge', () => {
     expect(gauge).toHaveAttribute('role', 'status')
   })
 
-  it('formats millions correctly', () => {
+  // This assertion used to read `toContain('2.5M')`, with a capital M, and it
+  // passed for a reason that had nothing to do with the component: jsdom
+  // reports navigator.language as en-US, and compact notation is uppercase in
+  // American English but LOWERCASE in British English — en-GB renders £2.5m,
+  // and de-DE renders "2,5 Mio.". The suite was therefore asserting one
+  // locale's spelling while the product's users are British, and would have
+  // gone red on an ICU update or the day the test environment reported a
+  // different locale, with nothing wrong in the component.
+  //
+  // Fixed the way the money tests already assert: against Intl's own output,
+  // and against the PROPERTY that matters — the figure is abbreviated rather
+  // than grouped in full — instead of against a spelling.
+  it('abbreviates millions rather than grouping them in full', () => {
     render(<FleetRiskGauge ale={2500000} var95={4000000} trend="up" />)
-    const aleEl = screen.getByTestId('fleet-risk-ale')
-    expect(aleEl.textContent).toContain('2.5M')
+    const shown = screen.getByTestId('fleet-risk-ale').textContent ?? ''
+
+    const locale = navigator.language || 'en-GB'
+    const options: Intl.NumberFormatOptions = { style: 'currency', currency: 'GBP' }
+    const abbreviated = new Intl.NumberFormat(locale, {
+      ...options, notation: 'compact', maximumFractionDigits: 1,
+    }).format(2500000)
+    const grouped = new Intl.NumberFormat(locale, {
+      ...options, minimumFractionDigits: 0, maximumFractionDigits: 0,
+    }).format(2500000)
+
+    expect(shown).toBe(abbreviated)
+    expect(shown).not.toBe(grouped)
+    expect(shown.length).toBeLessThan(grouped.length)
+    // The magnitude is still legible whichever locale is in force.
+    expect(shown).toMatch(/2[.,]5/)
+  })
+
+  it('groups figures below a million in full, keeping the existing threshold', () => {
+    render(<FleetRiskGauge ale={847000} var95={900000} trend="up" />)
+    const shown = screen.getByTestId('fleet-risk-ale').textContent ?? ''
+
+    const locale = navigator.language || 'en-GB'
+    expect(shown).toBe(
+      new Intl.NumberFormat(locale, {
+        style: 'currency', currency: 'GBP',
+        minimumFractionDigits: 0, maximumFractionDigits: 0,
+      }).format(847000),
+    )
   })
 })
 

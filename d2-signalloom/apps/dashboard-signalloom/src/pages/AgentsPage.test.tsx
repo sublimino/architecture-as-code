@@ -77,7 +77,7 @@ describe('AgentsPage — Compliance Scan', () => {
   it('calls compliancePolicy.scan and shows scanning state on click', async () => {
     const scanResult = {
       checks: [],
-      summary: { totalChecks: 0, passed: 0, failed: 0, totalAle: 0, totalVar95: 0, totalTvar: 0, totalCarriedGbp: 0, scanTimestamp: '2026-08-01T00:00:00Z', frameworks: [] },
+      summary: { totalChecks: 0, passed: 0, failed: 0, currency: 'GBP', totalAle: { amount: 0, currency: 'GBP' }, totalVar95: { amount: 0, currency: 'GBP' }, totalTvar: { amount: 0, currency: 'GBP' }, totalCarried: { amount: 0, currency: 'GBP' }, scanTimestamp: '2026-08-01T00:00:00Z', frameworks: [] },
     }
     ;(api.compliancePolicy.scan as ReturnType<typeof vi.fn>).mockResolvedValue(scanResult)
 
@@ -91,7 +91,7 @@ describe('AgentsPage — Compliance Scan', () => {
   it('shows last scanned timestamp after a successful scan', async () => {
     const scanResult = {
       checks: [],
-      summary: { totalChecks: 0, passed: 0, failed: 0, totalAle: 0, totalVar95: 0, totalTvar: 0, totalCarriedGbp: 0, scanTimestamp: '2026-08-01T12:00:00Z', frameworks: [] },
+      summary: { totalChecks: 0, passed: 0, failed: 0, currency: 'GBP', totalAle: { amount: 0, currency: 'GBP' }, totalVar95: { amount: 0, currency: 'GBP' }, totalTvar: { amount: 0, currency: 'GBP' }, totalCarried: { amount: 0, currency: 'GBP' }, scanTimestamp: '2026-08-01T12:00:00Z', frameworks: [] },
     }
     ;(api.compliancePolicy.scan as ReturnType<typeof vi.fn>).mockResolvedValue(scanResult)
 

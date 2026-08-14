@@ -11,6 +11,7 @@ import { LOAD_TIMES_OPTIONS, setLoadTimes, useLoadTimes, type LoadTimesSetting }
 import ApiKeyRotateModal from '../components/ApiKeyRotateModal'
 import ConfirmDialog from '../components/ConfirmDialog'
 import ProviderLogo from '../components/onboarding/ProviderLogo'
+import CurrencySetting from '../components/CurrencySetting'
 import { useAppContext } from '../App'
 
 const POLL_MS = 15 * 60 * 1000
@@ -626,6 +627,14 @@ export default function Settings() {
             </p>
           </div>
         </div>
+      </SectionCard>
+
+      {/* Currency
+          Separate from Display above because the durability differs: Load
+          Times is browser-local, this is saved against the user and audited.
+          One heading over both would imply the same of each. */}
+      <SectionCard title="Currency">
+        <CurrencySetting />
       </SectionCard>
 
       {/* Account */}

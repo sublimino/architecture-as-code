@@ -8,41 +8,81 @@ import type {
   FrameworkSummary,
   PostureSummary,
 } from '../types/compliance'
+import type { CurrencyCode } from '../money/currency'
+import { money, sumMoney, type Money } from '../money/money'
 
 const NOW = '2026-07-27T12:00:00Z'
 const CALIBRATION = 'industry-indicative'
 
+/**
+ * The reporting currency of this demo document.
+ *
+ * One org, one reporting currency — the engine emits `doc.Currency` per ORG,
+ * so mixing denominations inside a single scan would misrepresent what the
+ * payload can actually look like. Multi-currency rendering is exercised in
+ * fakeComplianceData.test.ts, which builds documents in other currencies and a
+ * deliberately mixed one, rather than by making the shipped demo confusing.
+ */
+const DEMO_CURRENCY: CurrencyCode = 'GBP'
+
+/**
+ * The fixture rows as authored: bare numbers, all in DEMO_CURRENCY.
+ *
+ * Denominated in one place by `denominate()` below rather than repeating
+ * `{ amount, currency }` twenty-two times, which would bury the numbers the
+ * fixture exists to state.
+ */
+type RawCheck = Omit<ComplianceCheck, 'ale' | 'var95' | 'tvar' | 'carried'> & {
+  ale: number
+  var95: number
+  tvar: number
+  carried: number
+}
+
+function denominate(c: RawCheck): ComplianceCheck {
+  return {
+    ...c,
+    ale: money(c.ale, DEMO_CURRENCY),
+    var95: money(c.var95, DEMO_CURRENCY),
+    tvar: money(c.tvar, DEMO_CURRENCY),
+    carried: money(c.carried, DEMO_CURRENCY),
+  }
+}
+
+/** Zero exposure in this document's currency. */
+const noExposure = (): Money => money(0, DEMO_CURRENCY)
+
 // ─── EU AI Act Controls ─────────────────────────────────────────────────────
 
-const EU_AI_ACT_CHECKS: ComplianceCheck[] = [
-  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-1', check: 'Model card published', passed: true, policyVersion: 'v2.1', ale: 8200, var95: 34000, tvar: 52000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-2', check: 'Decision explanation logged', passed: true, policyVersion: 'v2.1', ale: 6100, var95: 28000, tvar: 45000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-3', check: 'Data provenance recorded', passed: false, policyVersion: 'v2.0', ale: 12400, var95: 58000, tvar: 89000, carriedGbp: 12400, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-1', check: 'Kill switch operational', passed: true, policyVersion: 'v2.1', ale: 15800, var95: 72000, tvar: 110000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-2', check: 'Human-in-the-loop enforced', passed: true, policyVersion: 'v2.1', ale: 9500, var95: 41000, tvar: 63000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-3', check: 'Override audit trail', passed: false, policyVersion: 'v2.0', ale: 18700, var95: 85000, tvar: 130000, carriedGbp: 18700, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-1', check: 'Risk assessment documented', passed: true, policyVersion: 'v2.1', ale: 7300, var95: 31000, tvar: 48000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-2', check: 'Bias testing complete', passed: true, policyVersion: 'v2.1', ale: 11200, var95: 49000, tvar: 76000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-3', check: 'Incident response plan', passed: true, policyVersion: 'v1.0', ale: 5600, var95: 24000, tvar: 38000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'EU AI Act', controlSet: 'Data Governance', control: 'AID-1', check: 'Training data catalogue', passed: false, policyVersion: 'v2.0', ale: 22100, var95: 98000, tvar: 155000, carriedGbp: 22100, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+const EU_AI_ACT_CHECKS: RawCheck[] = [
+  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-1', check: 'Model card published', passed: true, policyVersion: 'v2.1', ale: 8200, var95: 34000, tvar: 52000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-2', check: 'Decision explanation logged', passed: true, policyVersion: 'v2.1', ale: 6100, var95: 28000, tvar: 45000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Transparency', control: 'AIT-3', check: 'Data provenance recorded', passed: false, policyVersion: 'v2.0', ale: 12400, var95: 58000, tvar: 89000, carried: 12400, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-1', check: 'Kill switch operational', passed: true, policyVersion: 'v2.1', ale: 15800, var95: 72000, tvar: 110000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-2', check: 'Human-in-the-loop enforced', passed: true, policyVersion: 'v2.1', ale: 9500, var95: 41000, tvar: 63000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Human Oversight', control: 'AIO-3', check: 'Override audit trail', passed: false, policyVersion: 'v2.0', ale: 18700, var95: 85000, tvar: 130000, carried: 18700, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-1', check: 'Risk assessment documented', passed: true, policyVersion: 'v2.1', ale: 7300, var95: 31000, tvar: 48000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-2', check: 'Bias testing complete', passed: true, policyVersion: 'v2.1', ale: 11200, var95: 49000, tvar: 76000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Risk Management', control: 'AIR-3', check: 'Incident response plan', passed: true, policyVersion: 'v1.0', ale: 5600, var95: 24000, tvar: 38000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'EU AI Act', controlSet: 'Data Governance', control: 'AID-1', check: 'Training data catalogue', passed: false, policyVersion: 'v2.0', ale: 22100, var95: 98000, tvar: 155000, carried: 22100, scanTimestamp: NOW, calibrationSource: CALIBRATION },
 ]
 
 // ─── NIST 800-53 Controls ───────────────────────────────────────────────────
 
-const NIST_CHECKS: ComplianceCheck[] = [
-  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-1', check: 'Access policy defined', passed: true, policyVersion: 'v2.1', ale: 9800, var95: 42000, tvar: 65000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-2', check: 'Account management', passed: true, policyVersion: 'v2.1', ale: 7200, var95: 30000, tvar: 47000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-3', check: 'Enforcement mechanism', passed: false, policyVersion: 'v2.0', ale: 14300, var95: 64000, tvar: 98000, carriedGbp: 14300, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-1', check: 'Audit policy defined', passed: true, policyVersion: 'v2.1', ale: 6400, var95: 27000, tvar: 42000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-2', check: 'Auditable events identified', passed: true, policyVersion: 'v2.1', ale: 8100, var95: 35000, tvar: 54000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-3', check: 'Content of audit records', passed: true, policyVersion: 'v1.0', ale: 5200, var95: 22000, tvar: 34000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-1', check: 'Protection policy defined', passed: true, policyVersion: 'v2.1', ale: 11500, var95: 50000, tvar: 78000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-7', check: 'Boundary protection', passed: false, policyVersion: 'v2.0', ale: 31200, var95: 142000, tvar: 218000, carriedGbp: 31200, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-8', check: 'Transmission confidentiality', passed: true, policyVersion: 'v2.1', ale: 8900, var95: 38000, tvar: 59000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
-  { framework: 'NIST 800-53', controlSet: 'Identification & Auth', control: 'IA-1', check: 'I&A policy defined', passed: true, policyVersion: 'v2.1', ale: 7600, var95: 33000, tvar: 51000, carriedGbp: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+const NIST_CHECKS: RawCheck[] = [
+  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-1', check: 'Access policy defined', passed: true, policyVersion: 'v2.1', ale: 9800, var95: 42000, tvar: 65000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-2', check: 'Account management', passed: true, policyVersion: 'v2.1', ale: 7200, var95: 30000, tvar: 47000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Access Control', control: 'AC-3', check: 'Enforcement mechanism', passed: false, policyVersion: 'v2.0', ale: 14300, var95: 64000, tvar: 98000, carried: 14300, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-1', check: 'Audit policy defined', passed: true, policyVersion: 'v2.1', ale: 6400, var95: 27000, tvar: 42000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-2', check: 'Auditable events identified', passed: true, policyVersion: 'v2.1', ale: 8100, var95: 35000, tvar: 54000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Audit & Accountability', control: 'AU-3', check: 'Content of audit records', passed: true, policyVersion: 'v1.0', ale: 5200, var95: 22000, tvar: 34000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-1', check: 'Protection policy defined', passed: true, policyVersion: 'v2.1', ale: 11500, var95: 50000, tvar: 78000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-7', check: 'Boundary protection', passed: false, policyVersion: 'v2.0', ale: 31200, var95: 142000, tvar: 218000, carried: 31200, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'System & Comms Protection', control: 'SC-8', check: 'Transmission confidentiality', passed: true, policyVersion: 'v2.1', ale: 8900, var95: 38000, tvar: 59000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
+  { framework: 'NIST 800-53', controlSet: 'Identification & Auth', control: 'IA-1', check: 'I&A policy defined', passed: true, policyVersion: 'v2.1', ale: 7600, var95: 33000, tvar: 51000, carried: 0, scanTimestamp: NOW, calibrationSource: CALIBRATION },
 ]
 
-const ALL_CHECKS = [...EU_AI_ACT_CHECKS, ...NIST_CHECKS]
+const ALL_CHECKS: ComplianceCheck[] = [...EU_AI_ACT_CHECKS, ...NIST_CHECKS].map(denominate)
 
 // ─── olly-sentinel partial compliance ───────────────────────────────────────
 
@@ -58,7 +98,7 @@ const OLLY_CHECKS_V1: ComplianceCheck[] = ALL_CHECKS.map((c) => ({
   check: `[olly-sentinel] ${c.check}`,
   policyVersion: 'v1.0',
   passed: true, // fully compliant at v1.0
-  carriedGbp: 0,
+  carried: noExposure(),
 }))
 
 // ─── Summaries ──────────────────────────────────────────────────────────────
@@ -75,7 +115,7 @@ function summariseFramework(id: string, name: string, checks: ComplianceCheck[])
     totalControls: fwChecks.length,
     passedControls: passed,
     failedControls: failed,
-    totalExposureGbp: fwChecks.reduce((s, c) => s + c.carriedGbp, 0),
+    totalExposure: sumMoney(fwChecks.map((c) => c.carried), DEMO_CURRENCY) ?? noExposure(),
   }
 }
 
@@ -85,10 +125,11 @@ function buildPostureSummary(checks: ComplianceCheck[]): PostureSummary {
     totalChecks: checks.length,
     passed,
     failed: checks.length - passed,
-    totalAle: checks.reduce((s, c) => s + c.ale, 0),
-    totalVar95: checks.reduce((s, c) => s + c.var95, 0),
-    totalTvar: checks.reduce((s, c) => s + c.tvar, 0),
-    totalCarriedGbp: checks.reduce((s, c) => s + c.carriedGbp, 0),
+    currency: DEMO_CURRENCY,
+    totalAle: sumMoney(checks.map((c) => c.ale), DEMO_CURRENCY) ?? noExposure(),
+    totalVar95: sumMoney(checks.map((c) => c.var95), DEMO_CURRENCY) ?? noExposure(),
+    totalTvar: sumMoney(checks.map((c) => c.tvar), DEMO_CURRENCY) ?? noExposure(),
+    totalCarried: sumMoney(checks.map((c) => c.carried), DEMO_CURRENCY) ?? noExposure(),
     scanTimestamp: checks[0]?.scanTimestamp ?? NOW,
     frameworks: [
       summariseFramework('eu-ai-act', 'EU AI Act', checks),
@@ -104,7 +145,7 @@ const FRAMEWORK_LIST: FrameworkSummary[] = POSTURE_SUMMARY.frameworks
 
 function checksForVersion(version: string): ComplianceCheck[] {
   if (version === 'v1.0') {
-    return ALL_CHECKS.map((c) => ({ ...c, policyVersion: 'v1.0', passed: true, carriedGbp: 0 }))
+    return ALL_CHECKS.map((c) => ({ ...c, policyVersion: 'v1.0', passed: true, carried: noExposure() }))
   }
   if (version === 'v2.0') {
     return ALL_CHECKS // mix of pass/fail as defined
@@ -114,7 +155,7 @@ function checksForVersion(version: string): ComplianceCheck[] {
     ...c,
     policyVersion: 'v2.1',
     passed: c.policyVersion === 'v2.1' ? c.passed : true,
-    carriedGbp: c.policyVersion === 'v2.1' ? c.carriedGbp : 0,
+    carried: c.policyVersion === 'v2.1' ? c.carried : noExposure(),
   }))
 }
 
@@ -155,4 +196,4 @@ export const COMPLIANCE_POLICY_ROUTES: Match[] = [
 ]
 
 // Re-export raw data for tests and other consumers
-export { ALL_CHECKS, OLLY_CHECKS_V2, OLLY_CHECKS_V1, POSTURE_SUMMARY, FRAMEWORK_LIST, checksForVersion }
+export { ALL_CHECKS, OLLY_CHECKS_V2, OLLY_CHECKS_V1, POSTURE_SUMMARY, FRAMEWORK_LIST, checksForVersion, DEMO_CURRENCY, buildPostureSummary }

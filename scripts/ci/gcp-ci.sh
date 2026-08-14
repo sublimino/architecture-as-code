@@ -50,7 +50,19 @@ readonly SECRET_NAME="signalloom-deploy-key"
 # fence would have killed healthy runs; the value is the ceiling for a WEDGED
 # run, not a target. Enforced on the iap_ssh invocation below via timeout(1).
 readonly TIMEOUT_MINUTES="${CI_TIMEOUT_MINUTES:-180}"
-readonly REPORT_DIR="${GCP_CI_REPORT_DIR:-${REPO_ROOT}/ci-reports}"
+# A relative GCP_CI_REPORT_DIR — the Makefile's CI_2_ENV passes `ci-reports-2` —
+# used to resolve against the CALLER's cwd, so the identical command wrote its
+# reports to a different directory depending on where you were standing when you
+# typed it. Reports belong to the checkout whose scripts ran, not to whatever
+# happened to be $PWD, so a relative value is anchored at REPO_ROOT. Everything
+# downstream (including `state`) then prints an absolute path, which is the
+# whole point: the data was never wrong, knowing which file it was in was.
+_gcp_ci_report_dir="${GCP_CI_REPORT_DIR:-ci-reports}"
+case "$_gcp_ci_report_dir" in
+  /*) readonly REPORT_DIR="$_gcp_ci_report_dir" ;;
+  *)  readonly REPORT_DIR="${REPO_ROOT}/${_gcp_ci_report_dir}" ;;
+esac
+unset _gcp_ci_report_dir
 readonly REMOTE_REPORT_DIR="${GCP_CI_REMOTE_REPORT_DIR:-/home/ci/reports}"
 readonly REMOTE_WORK_DIR="${GCP_CI_REMOTE_WORK_DIR:-/home/ci/osramp-demo}"
 readonly REPORT_FILENAME="${GCP_CI_REPORT_FILENAME:-signalloom-ci-report.yaml}"
@@ -499,6 +511,13 @@ rotate_reports() {
 
 # write_run_status <outcome> <phase> [note] [exit_code]
 # Shaped to match the pipeline's own summary.json so one reader handles both.
+#
+# pid, host and origin are structured fields, not prose. The note has carried
+# "run in flight (pid N on host)" since the marker was introduced, and on
+# 2026-08-14 a reader looked at a RUNNING marker two minutes old, could not
+# check whether pid N was still alive, and reasonably concluded the run was
+# stranded — while it was in fact mid-pipeline. A fact buried in a sentence is a
+# fact no tool can act on. `state` reads these three and answers the question.
 write_run_status() {
   local outcome="$1" phase="$2" note="${3:-}" exit_code="${4:-}"
   mkdir -p "$REPORT_DIR" 2>/dev/null || return 0
@@ -513,8 +532,12 @@ write_run_status() {
       --arg started_at "$RUN_STARTED_AT" \
       --arg written_at "$(date -Iseconds)" \
       --arg exit_code "$exit_code" \
+      --arg pid "$$" \
+      --arg host "$(hostname -s 2>/dev/null || echo unknown)" \
+      --arg origin "${REPO_ROOT:-unknown}" \
       '{outcome: $outcome, overall: $outcome, phase: $phase, commit: $commit,
         branch: $branch, vm: $vm, started_at: $started_at, written_at: $written_at,
+        pid: ($pid | tonumber), host: $host, origin: $origin,
         note: $note}
        + (if $exit_code == "" then {} else {exit_code: ($exit_code | tonumber)} end)' \
       >"$tmp" 2>/dev/null; then
@@ -616,12 +639,22 @@ final_exit_code() {
 
 # Marks a collected report as belonging to a COMPLETED collection. Without it,
 # a summary.json on disk is indistinguishable from one a previous run left there.
+#
+# `origin` is stamped here as well as in write_run_status because collection
+# OVERWRITES summary.json with the VM's copy, which knows nothing about the
+# checkout that asked for the run. This repo now has a dozen checkouts and the
+# reports live at <checkout>/ci-reports; without the origin field, a report
+# directory rsynced, copied or simply left behind by an older run in a DIFFERENT
+# checkout reads exactly like one this checkout produced.
 stamp_collected_summary() {
   local f="${REPORT_DIR}/summary.json"
   [[ -f "$f" ]] || return 0
   local tmp="${REPORT_DIR}/.summary.json.tmp"
   if jq --arg c "$(date -Iseconds)" --arg vm "$VM_NAME" \
-       '. + {outcome: (.outcome // .overall), collected_at: $c, vm: $vm}' \
+       --arg origin "${REPO_ROOT:-unknown}" \
+       --arg host "$(hostname -s 2>/dev/null || echo unknown)" \
+       '. + {outcome: (.outcome // .overall), collected_at: $c, vm: $vm,
+             origin: $origin, host: $host}' \
        "$f" >"$tmp" 2>/dev/null; then
     mv "$tmp" "$f"
   else
@@ -668,6 +701,255 @@ print_local_run_status() {
       echo "         a run is in flight. RUNNING is not a verdict; wait for it."
     fi
   fi
+  return 0
+}
+
+# ── Is the run that wrote this marker still alive? ───────────────────
+#
+# The RUNNING marker has always carried its pid and host — in the note, as
+# prose. On 2026-08-14 a reader found a RUNNING marker in the main checkout,
+# saw no run they had started, and concluded it was stranded. It was not: two
+# `gcp-ci.sh run` processes were mid-pipeline from that very directory. The
+# marker was honest and the reader had no way to check it, which is the same
+# class of defect as the ambiguity it replaced — just moved into the reader.
+#
+# Nothing here is a heartbeat. A timestamp cannot separate a slow run from a
+# dead one; a pid can, and it costs one stat.
+
+# proc_start_epoch <pid> — when that pid started, epoch seconds. Empty if no
+# such process exists.
+proc_start_epoch() {
+  local pid="$1" lstart
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+  lstart="$(ps -o lstart= -p "$pid" 2>/dev/null || true)"
+  [[ -n "$lstart" ]] || return 0
+  date -d "$lstart" +%s 2>/dev/null || true
+}
+
+# marker_process_state <pid> <host> <started_at>
+# Echoes exactly one of: LIVE | GONE | RECYCLED | ELSEWHERE | UNKNOWN.
+marker_process_state() {
+  local pid="$1" host="$2" started_at="$3"
+  local me; me="$(hostname -s 2>/dev/null || echo unknown)"
+
+  [[ "$pid" =~ ^[0-9]+$ ]] || { echo UNKNOWN; return 0; }
+  if [[ -n "$host" && "$host" != "null" && "$host" != "unknown" && "$host" != "$me" ]]; then
+    echo ELSEWHERE
+    return 0
+  fi
+
+  local proc_epoch
+  proc_epoch="$(proc_start_epoch "$pid")"
+  [[ -n "$proc_epoch" ]] || { echo GONE; return 0; }
+
+  # A live pid alone proves nothing. Pids are recycled, and an old marker naming
+  # a number some unrelated process now holds would read as "still running"
+  # forever — the failure mode this whole file exists to prevent, reintroduced
+  # by the fix for it. A run's own process cannot have started AFTER the marker
+  # it wrote, so a later start time means a different process wearing the same
+  # number. The 60s of slack is for clock granularity, not for a fresh run.
+  local started_epoch=""
+  if [[ -n "$started_at" && "$started_at" != "null" ]]; then
+    started_epoch="$(date -d "$started_at" +%s 2>/dev/null || true)"
+  fi
+  if [[ -n "$started_epoch" ]] && ((proc_epoch > started_epoch + 60)); then
+    echo RECYCLED
+    return 0
+  fi
+  echo LIVE
+  return 0
+}
+
+# ── Reports are per-checkout, so a checkout can hold a foreign answer ─
+#
+# REPORT_DIR is <checkout>/ci-reports, and this repo now has a dozen checkouts.
+# That locality is correct — two lanes running concurrently in two worktrees
+# must not share a directory — but it means the OBVIOUS place to look is not
+# necessarily the place that ran. On 2026-08-14 the main checkout's
+# ci-reports-2/summary.json said `d574d7d PASS 11/11` from the previous day
+# while the run everyone cared about had finished in a lane worktree an hour
+# earlier. Two agents saw that artefact independently and each assumed their own
+# tooling was misreading.
+
+# summary_epoch <summary-file> — the time the report itself claims, epoch
+# seconds. Deliberately not mtime: mtime records whatever last touched the file,
+# so a copy, an rsync or a tar extraction re-dates a report it did not produce.
+summary_epoch() {
+  local f="$1" ts
+  [[ -f "$f" ]] || return 0
+  ts="$(jq -r '.collected_at // .written_at // .timestamp // empty' "$f" 2>/dev/null || true)"
+  [[ -n "$ts" ]] || return 0
+  date -d "$ts" +%s 2>/dev/null || true
+}
+
+# newer_sibling_reports <report-dir> [our-epoch]
+# Prints "<epoch>\t<summary-path>" for every OTHER checkout of this repo holding
+# a same-named report directory whose report is newer than ours.
+#
+# This is the half that provenance alone cannot cover. The stale artefact in the
+# main checkout was honest about its origin — main really did produce it — and
+# was still the wrong answer. Only comparing across checkouts says so.
+#
+# `git worktree list` is the enumerator rather than a filesystem walk because it
+# is exactly the set of checkouts of THIS repo, it includes the main checkout,
+# and it cannot wander into an unrelated tree.
+newer_sibling_reports() {
+  local dir="$1" ours="${2:-}"
+  local base line path candidate epoch
+  base="$(basename "$dir")"
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) path="${line#worktree }" ;;
+      *) continue ;;
+    esac
+    [[ -d "$path" ]] || continue
+    # -ef compares device+inode, so a symlinked path to our own checkout is not
+    # mistaken for a sibling.
+    [[ "$path" -ef "$REPO_ROOT" ]] && continue
+    candidate="${path}/${base}/summary.json"
+    [[ -f "$candidate" ]] || continue
+    epoch="$(summary_epoch "$candidate")"
+    [[ -n "$epoch" ]] || continue
+    if [[ -z "$ours" ]] || ((epoch > ours)); then
+      printf '%s\t%s\n' "$epoch" "$candidate"
+    fi
+  done < <(git -C "$REPO_ROOT" worktree list --porcelain 2>/dev/null || true)
+  return 0
+}
+
+# ── What happened to the last run? ───────────────────────────────────
+#
+# The last mile: one local, network-free command a cold reader can run to find
+# out what the last run did, WITHOUT having to know which of a dozen checkouts
+# is authoritative. It answers with an absolute path first, because that is the
+# question that was actually unanswered.
+cmd_state() {
+  local summary="${REPORT_DIR}/summary.json"
+  local head_commit head_branch me
+  head_commit="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  head_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  me="$(hostname -s 2>/dev/null || echo unknown)"
+
+  echo "Report:   ${summary}"
+  echo "Checkout: ${REPO_ROOT}  (HEAD ${head_branch}@${head_commit})"
+
+  local ours_epoch
+  ours_epoch="$(summary_epoch "$summary")"
+
+  if [[ ! -f "$summary" ]]; then
+    echo "Verdict:  NONE — that file does not exist, so no run has finished in this checkout."
+    print_sibling_reports "$ours_epoch"
+    echo "Exit:     2 (no verdict here)"
+    return 2
+  fi
+
+  local raw commit branch vm phase started_at when pid host origin
+  local passed failed total exit_code
+  raw="$(jq -r '.outcome // .overall // "UNKNOWN"' "$summary" 2>/dev/null || echo UNKNOWN)"
+  commit="$(jq -r '.commit // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+  branch="$(jq -r '.branch // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+  vm="$(jq -r '.vm // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+  phase="$(jq -r '.phase // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+  started_at="$(jq -r '.started_at // empty' "$summary" 2>/dev/null || true)"
+  when="$(jq -r '.collected_at // .written_at // .timestamp // "unknown"' "$summary" 2>/dev/null || echo unknown)"
+  pid="$(jq -r '.pid // empty' "$summary" 2>/dev/null || true)"
+  host="$(jq -r '.host // empty' "$summary" 2>/dev/null || true)"
+  origin="$(jq -r '.origin // empty' "$summary" 2>/dev/null || true)"
+  passed="$(jq -r '.passed // empty' "$summary" 2>/dev/null || true)"
+  failed="$(jq -r '.failed // empty' "$summary" 2>/dev/null || true)"
+  total="$(jq -r '.total_stages // empty' "$summary" 2>/dev/null || true)"
+  exit_code="$(jq -r '.exit_code // 0' "$summary" 2>/dev/null || echo 0)"
+  [[ "$exit_code" =~ ^-?[0-9]+$ ]] || exit_code=0
+
+  # The verdict comes from the same classifier the run itself uses. Re-deriving
+  # it here would be a second opinion, and two opinions is the disease.
+  local verdict final
+  verdict="$(classify_run_outcome "$summary" "$head_commit" "$exit_code")"
+  final="$(final_exit_code "$verdict" "$exit_code")"
+
+  case "$raw" in
+    RUNNING)
+      # classify_run_outcome calls this ABORTED and it is right to: a marker
+      # with no verdict is not a result, whichever way it got there. But
+      # "ABORTED" and "still going" are different things to a human standing in
+      # front of it, and the pid is what tells them apart.
+      local pstate
+      pstate="$(marker_process_state "$pid" "$host" "$started_at")"
+      case "$pstate" in
+        LIVE)
+          echo "Verdict:  RUNNING — a run is IN FLIGHT. Not a verdict; wait for it."
+          echo "          pid ${pid} on ${host} is alive and was started with this marker."
+          ;;
+        GONE)
+          echo "Verdict:  ABORTED — the marker says RUNNING, but pid ${pid} on ${host} is gone."
+          echo "          The run that wrote it died without reaching a verdict. That is neither"
+          echo "          a pass nor a test failure, and this file is not a result."
+          ;;
+        RECYCLED)
+          echo "Verdict:  ABORTED — the marker says RUNNING and pid ${pid} exists, but that"
+          echo "          process started after the marker was written, so it is a different"
+          echo "          process reusing the number. The run itself is gone."
+          ;;
+        ELSEWHERE)
+          echo "Verdict:  RUNNING — written on '${host}', and this is '${me}'. Whether pid"
+          echo "          ${pid} is still running cannot be checked from here; check on ${host}."
+          ;;
+        *)
+          echo "Verdict:  RUNNING — no usable pid recorded, so liveness cannot be checked."
+          echo "          A marker written before pid stamping, or by an older gcp-ci.sh."
+          ;;
+      esac
+      echo "          Phase reached: ${phase}"
+      ;;
+    *)
+      echo "Verdict:  ${verdict}"
+      if [[ "$verdict" == "STALE" ]]; then
+        echo "          The report is stamped ${commit}, but HEAD here is ${head_commit}."
+        echo "          It describes a DIFFERENT commit and is not a verdict on this tree."
+      fi
+      ;;
+  esac
+
+  echo "Run:      ${branch}@${commit} on ${vm}"
+  if [[ -n "$total" && "$total" != "null" ]]; then
+    echo "Stages:   ${passed:-0} passed, ${failed:-0} failed, of ${total}"
+  else
+    echo "Stages:   none recorded"
+  fi
+  echo "When:     ${when}"
+
+  # Provenance: a report that names a different checkout was not produced here,
+  # whatever directory you found it in.
+  if [[ -z "$origin" || "$origin" == "null" || "$origin" == "unknown" ]]; then
+    echo "Origin:   not recorded (written before origin stamping) — provenance unknown"
+  elif [[ -d "$origin" && "$origin" -ef "$REPO_ROOT" ]]; then
+    echo "Origin:   this checkout"
+  else
+    echo "Origin:   ${origin} — a DIFFERENT checkout produced this report"
+  fi
+
+  print_sibling_reports "$ours_epoch"
+
+  if [[ -f "${REPORT_DIR}/${REPORT_FILENAME}" ]]; then
+    echo "Full:     ${REPORT_DIR}/${REPORT_FILENAME}"
+  fi
+  echo "Exit:     ${final}"
+  return "$final"
+}
+
+# print_sibling_reports [our-epoch] — the "somewhere else knows more" line.
+# Newest first, so "read that one" points at exactly one thing.
+print_sibling_reports() {
+  local ours="${1:-}" found=0 epoch path
+  while IFS=$'\t' read -r epoch path; do
+    [[ -n "$path" ]] || continue
+    if ((found == 0)); then
+      echo "NEWER ELSEWHERE — another checkout of this repo holds a more recent report:"
+      found=1
+    fi
+    printf '          %s  (%s)\n' "$path" "$(date -d "@${epoch}" -Iseconds 2>/dev/null || echo "$epoch")"
+  done < <(newer_sibling_reports "$REPORT_DIR" "$ours" | sort -rn)
+  ((found == 1)) && echo "          Read the top one, or re-run here. This directory is not the whole story."
   return 0
 }
 
@@ -1020,9 +1302,12 @@ case "${1:-run}" in
                rm -f "$LOCK_SHIM" ;;
   ssh)         cmd_ssh ;;
   status)      cmd_status ;;
+  # Local, network-free, and safe to run while a lane is in flight: it reads
+  # files and one process table entry, and touches neither gcloud nor the lock.
+  state)       cmd_state ;;
   destroy)     cmd_destroy ;;
   *)
-    echo "Usage: $0 {lock|provision|run|push-code|ssh|status|destroy}" >&2
+    echo "Usage: $0 {lock|provision|run|push-code|ssh|status|state|destroy}" >&2
     exit 1
     ;;
 esac

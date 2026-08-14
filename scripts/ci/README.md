@@ -91,6 +91,12 @@ make ci-provision
 # Run tests (resumes VM, runs pipeline, suspends on pass)
 make ci-gcp
 
+# What did the last run DO? Local, network-free, safe to run mid-run.
+# Names the report file it read by absolute path, flags a report belonging to
+# another commit or another checkout, and exits 0 only on PASS.
+make ci-state
+make ci-state-2
+
 # View last report
 make ci-report
 
@@ -194,6 +200,39 @@ so the previous round's verdict is never readable as the current one's — and a
 
 `gcp-ci.sh status` prints all of this together with the observation time and the
 VM's `lastStartTimestamp`, so no state has to be dated by hand.
+
+### Reports are per-checkout, so the obvious directory can hold a foreign answer
+
+`REPORT_DIR` is `<checkout>/ci-reports`, and this repo routinely has a dozen
+checkouts — the main one plus a worktree per agent. That locality is correct:
+two lanes running concurrently must not share a report directory. It also means
+**the obvious place to look is not necessarily the place that ran.** On
+2026-08-14 the main checkout's `ci-reports-2/summary.json` said `d574d7d PASS
+11/11` from the previous day while the run everyone cared about had finished an
+hour earlier in a lane worktree. That artefact was honest — main did produce it —
+and was still the wrong answer.
+
+`make ci-state` is the answer to "what happened to the last run?". It is local,
+touches neither gcloud nor the lock, and is safe to run while a lane is in
+flight. It prints:
+
+- the **absolute path** of the report file it read, and the checkout + HEAD it
+  read it from — the data was never the problem, knowing which file was
+  authoritative was;
+- the verdict, from the same `classify_run_outcome` the run itself uses, so
+  there is never a second opinion. `STALE` when the report names another commit;
+- for a `RUNNING` marker, whether the process that wrote it is **still alive**,
+  by checking the recorded `pid` and `host`. A marker whose process is gone is
+  reported as `ABORTED`, and a live pid that started *after* the marker is
+  reported as a recycled number, not as a run;
+- `origin`, the checkout that produced the report, so a copied or inherited
+  directory cannot pass as a local one;
+- `NEWER ELSEWHERE`, naming any other checkout of this repo holding a fresher
+  report — compared on the time the report *claims*, not file mtime, because
+  mtime is re-dated by any copy.
+
+It exits 0 only on `PASS`; `FAIL`, `ABORTED`, `STALE` and in-flight all exit
+non-zero, so `make ci-state && <next step>` cannot proceed on a non-verdict.
 
 ### `unset SSH_AUTH_SOCK` before any ad-hoc `gcloud compute ssh`
 

@@ -182,6 +182,14 @@ runbooks, and CI investigations.
   declaration is cross-checked against `playwright.config.ts`, the `Makefile`
   and `scripts/ci/vm-pipeline.sh` in both directions; needs `python3`, no
   cluster — runs as CI stage 1c)
+- CI build parity: `make test-ci-build-parity`, or `make check-ci-build-parity`
+  to check the tree directly
+  (`scripts/ci/vm-pipeline.sh` cannot call `make demo-signalloom-up`, so it
+  hand-copies the recipe body; the guard derives the `$(MAKE)` steps from that
+  recipe and the `make` invocations from the pipeline and fails when one is
+  omitted, runs after the deploy, or is exempted by a stale entry. Deliberate
+  omissions live in the script's allowlist with a reason; needs `bats`, no
+  cluster — runs as CI stage 1d)
 - Dashboard route-collision check: `bats d2-signalloom/test/dashboard-route-collisions.bats`
   (no nginx proxy prefix may shadow a SPA route in `App.tsx` or sit under a
   gateway path routed away from the dashboard; needs `yq`, no cluster)

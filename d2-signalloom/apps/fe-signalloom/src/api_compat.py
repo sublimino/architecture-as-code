@@ -3558,7 +3558,12 @@ async def create_initial_api_key(
                    VALUES ($1, $2, $3, $4, $5)""",
                 tenant_id, key_hash, key[:14], _API_KEY_SCOPE_STORED, principal.actor,
             )
-            await _audit_log(conn, tenant_id, "api_key.created", None, None, "demo-actor", {"prefix_hint": key[:14]})
+            # principal.actor, not a literal. The INSERT two lines above
+            # already records this exact value in revealed_by_email, for the
+            # reason Principal.actor's docstring gives: an unattributable key
+            # reveal is worthless as evidence. The audit row is the same claim
+            # about the same act, so it cannot be answered with a constant.
+            await _audit_log(conn, tenant_id, "api_key.created", None, None, principal.actor, {"prefix_hint": key[:14]})
 
     return InitialApiKeyResponse(
         key=key,
@@ -3596,7 +3601,7 @@ async def rotate_api_key(
                    VALUES ($1, $2, $3, $4, $5)""",
                 tenant_id, key_hash, key[:14], _API_KEY_SCOPE_STORED, principal.actor,
             )
-            await _audit_log(conn, tenant_id, "api_key.rotated", None, None, "demo-actor", {"prefix_hint": key[:14]})
+            await _audit_log(conn, tenant_id, "api_key.rotated", None, None, principal.actor, {"prefix_hint": key[:14]})
 
     return RotateApiKeyResponse(
         key=key,

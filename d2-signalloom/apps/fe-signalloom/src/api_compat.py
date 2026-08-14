@@ -1262,7 +1262,7 @@ DEFAULT_SCAN_CADENCE_HOURS = 24
 DEFAULT_ALERT_THRESHOLD = 1
 
 # Must stay in step with the column DEFAULT in migration
-# 020_user_display_currency, DEFAULT_CURRENCY in
+# 020_user_preferences, DEFAULT_CURRENCY in
 # dashboard-signalloom/src/money/currency.ts, and the demo fixture in
 # dashboard-signalloom/src/api/fakeData.ts. The source figures are GBP and
 # the display default is USD, which is why conversion is on the critical
@@ -3587,8 +3587,8 @@ async def user_preferences(
     another's figures -- not a permission check that could be got wrong, but
     the absence of any way to name a different user.
 
-    A caller with no ``platform_users`` row, and a row created before migration
-    020 added the column, both resolve to the documented default.
+    A caller with no ``user_preferences`` row -- which is every caller until
+    they first change something -- resolves to the documented default.
     """
     tenant_id = principal.tenant
     pool = await _get_pool()
@@ -3598,12 +3598,12 @@ async def user_preferences(
         return UserPreferencesResponse(display_currency=stored or DEFAULT_DISPLAY_CURRENCY)
 
     row = await pool.fetchrow(
-        "SELECT display_currency FROM platform_users WHERE tenant_id = $1 AND email = $2",
+        "SELECT display_currency FROM user_preferences WHERE tenant_id = $1 AND user_email = $2",
         tenant_id, principal.actor,
     )
-    # No row at all is the ordinary case for a caller who has never been
-    # enrolled in the directory, not an error -- they simply have no saved
-    # preference yet.
+    # No row is the ordinary case, not an error: a row is written the first time
+    # the user changes something, so its absence means "never chosen" rather
+    # than "lost".
     stored = row["display_currency"] if row is not None else None
     return UserPreferencesResponse(display_currency=stored or DEFAULT_DISPLAY_CURRENCY)
 
@@ -3637,22 +3637,22 @@ async def patch_user_preferences(
 
     async with _write(pool) as conn:
         previous_row = await conn.fetchrow(
-            "SELECT display_currency FROM platform_users WHERE tenant_id = $1 AND email = $2",
+            "SELECT display_currency FROM user_preferences WHERE tenant_id = $1 AND user_email = $2",
             tenant_id, actor,
         )
         previous = (previous_row["display_currency"] if previous_row else None) or DEFAULT_DISPLAY_CURRENCY
 
-        # Upsert rather than update: a caller authenticated against this tenant
-        # may have no directory row yet, and "your preference did not save
-        # because someone never added you to a table you have never heard of"
-        # is not a defensible behaviour. display_name is NOT NULL, so a row
-        # created here is named for the identity that created it.
+        # Upsert: the row is created on first change rather than provisioned
+        # with the user, so almost every first write lands here as an INSERT.
+        # Keyed on the identity in the token, not on directory membership -- a
+        # caller who can authenticate can hold a preference whether or not
+        # anyone has added them to platform_users.
         await conn.execute(
-            """INSERT INTO platform_users (tenant_id, email, display_name, display_currency)
-                    VALUES ($1, $2, $3, $4)
-               ON CONFLICT ON CONSTRAINT uq_platform_users_tenant_email
+            """INSERT INTO user_preferences (tenant_id, user_email, display_currency)
+                    VALUES ($1, $2, $3)
+               ON CONFLICT ON CONSTRAINT uq_user_preferences_tenant_email
                DO UPDATE SET display_currency = EXCLUDED.display_currency""",
-            tenant_id, actor, actor, body.display_currency,
+            tenant_id, actor, body.display_currency,
         )
         # Shares the transaction with the write above: an audit row without its
         # mutation, or a mutation without its audit row, are both worse than

@@ -34,6 +34,12 @@
 -- file runs last and its list is the one that survives. The reviewer merging
 -- these branches owns that check; the test named below is what catches it.
 --
+-- Rather than leave that to the merge, the four types that work introduces were
+-- obtained from the team lead and frozen: they are enumerated below under their
+-- own heading even though nothing on this branch emits them. A superset costs
+-- nothing and a subset is invisible until a user presses a button, so the
+-- asymmetry decides it.
+--
 -- tests/test_audit_event_types.py derives its expectations from the AST of
 -- api_compat.py and compares them against CONSTRAINT_MIGRATION, which this
 -- change repoints at this file. A type emitted by a call site and missing here
@@ -95,6 +101,21 @@ BEGIN
         'api_key.created',
         'api_key.rotated',
         'compliance.reassess_requested',
+        -- ── Carried from the concurrent audit-coverage work (012-019) ───────
+        -- Not emitted by any call site on THIS branch. They are enumerated
+        -- here because this migration runs last and its list is the one that
+        -- survives: omitting a type the other branch emits would make every
+        -- one of its writes raise CheckViolationError, rolling back the
+        -- mutation it shares a transaction with. A superset is harmless; a
+        -- subset is silent until someone presses the button.
+        --
+        -- Frozen by the team lead as of 2026-08-14. Any rename comes through
+        -- them before it lands, so this list can be treated as stable.
+        'compliance.scan_completed',
+        'demo.phase_run',
+        'demo.reset_requested',
+        'support.requested',
+        -- ───────────────────────────────────────────────────────────────────
         'consent.accepted',
         'cookie.preferences_updated',
         'nhi.dismissed',

@@ -29,13 +29,15 @@ export const CURRENCY_LABELS: Record<CurrencyCode, string> = {
 }
 
 /**
- * What a user sees before they have ever chosen, and what a `platform_users`
- * row created before the preference column existed resolves to.
+ * What a user sees before they have ever chosen, which is also what a user with
+ * no `user_preferences` row at all resolves to — and that is every user until
+ * the first time they change something.
  *
  * USD despite the source data being GBP: this is a deliberate product call, and
  * it is the reason conversion is on the critical path from the very first
  * render rather than a later nicety. Migration 020 sets the same value as the
- * column DEFAULT, so the database and this constant have to move together.
+ * `user_preferences.display_currency` DEFAULT, so the database and this
+ * constant have to move together.
  */
 export const DEFAULT_CURRENCY: CurrencyCode = 'USD'
 

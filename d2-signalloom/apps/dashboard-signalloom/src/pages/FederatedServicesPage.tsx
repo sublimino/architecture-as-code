@@ -33,14 +33,21 @@
  * getting it wrong costs nothing. Uniformity is the deliverable: every table on
  * this page filters the same way, in the same order, with the same undo.
  *
+ * The shape of that strip is CryptographyPage's, deliberately and to the
+ * character — same `FilterBar` props, same chip styling, same `NoMatch` wording,
+ * same `useFilter` signature — because it got here first and ten pages that each
+ * invented their own good idea would be nine pages of drift. One widening, named
+ * at `useFilter`: `chipOf` may return a list, for the single table on this page
+ * whose rows belong to more than one chip at once.
+ *
  * What has NOT changed: no data, no fetch (there is still none), no route, no
  * copy on any row. The arrays below are byte-for-byte the ones that were here.
  */
-import { useCallback, useMemo, useState, type CSSProperties } from 'react'
+import { useMemo, useState, type CSSProperties } from 'react'
 import { StatCard, Section } from '../components/DashKit'
 import DataTable, { type Column } from '../components/DataTable'
 import EmptyState from '../components/EmptyState'
-import StatusBadge from '../components/StatusBadge'
+import StatusBadge, { tint } from '../components/StatusBadge'
 import { ProofConsole, type Proof } from '../components/ProofConsole'
 
 // ── Data ────────────────────────────────────────────────────────────────────
@@ -261,207 +268,52 @@ const EVENT_COLUMNS: Column<FederationEvent>[] = [
   { key: 'detail', label: 'Detail' },
 ]
 
-// ── Filtering ───────────────────────────────────────────────────────────────
+// ── Filtering ────────────────────────────────────────────────────────────────
+//
+// Six tables, one strip, matching CryptographyPage. Every table here is a
+// DataTable in the shape the Design System page calls "Realistic": a `toolbar`
+// slot carrying the controls and an `emptyState` for the filter that matches
+// nothing. The page still owns the state and the predicate — DataTable reads
+// neither and is handed an already-narrowed array — which is exactly why the
+// strip itself can be shared here without sharing an opinion about what
+// "search" means.
+//
+// FilterBar is local to this file rather than a component, deliberately, and
+// deliberately NOT shared with CryptographyPage's identically-named one. What
+// it standardises is layout and wording across six sibling tables on ONE page;
+// the moment a second page wants it, the predicate argument starts growing
+// options and it becomes the thing DataTable's header comment warns against.
+// The predicates stay per-table, as they must — "search" means a trust domain
+// here and a SPIFFE path three sections down.
 
-/**
- * How one table is searched and faceted.
- *
- * Module-level constants rather than literals at the call site: `useTableFilter`
- * memoises on the spec, and an object rebuilt every render would recompute the
- * chip options on every keystroke.
- *
- * `facet` returns a LIST because a row can sit on several values of one axis —
- * an attestation policy binds two zones and belongs under both chips. Every
- * other table returns one, which is the same code path with one element.
- */
-interface FilterSpec<T> {
-  /** Fields the search box matches, case-insensitively, as substrings. */
-  search: (row: T) => string[]
-  /** Which chip values this row belongs to. */
-  facet: (row: T) => string[]
-}
+/** The chip that clears the categorical filter. Present on every table. */
+const ALL = 'all'
 
-interface TableFilter<T> {
-  query: string
-  setQuery: (value: string) => void
-  selected: string
-  setSelected: (value: string) => void
-  /** Already narrowed — this is what goes to DataTable's `data`. */
-  rows: T[]
-  /** Chip values, `all` first. */
-  options: string[]
-  /** Row count per chip, against the FULL source rather than the narrowed one. */
+interface FilterBarProps {
+  /**
+   * What this strip filters, phrased to complete "Search …" and "Filter …".
+   *
+   * It is the accessible name of the search box and of the group, so it has to
+   * name the table rather than describe the control: six boxes all called
+   * "Search" are six controls a speech-input user cannot tell apart.
+   */
+  name: string
+  testIdPrefix: string
+  placeholder: string
+  search: string
+  onSearch: (value: string) => void
+  chips: readonly string[]
   counts: Record<string, number>
-  /** Whether anything is currently narrowing the table. */
-  active: boolean
-  clear: () => void
+  active: string
+  onChip: (chip: string) => void
+  shown: number
   total: number
 }
 
-const ALL = 'all'
-
-function useTableFilter<T>(source: T[], spec: FilterSpec<T>): TableFilter<T> {
-  const [query, setQuery] = useState('')
-  const [selected, setSelected] = useState(ALL)
-
-  // First-appearance order, not alphabetical, so the chip strip and the table
-  // below it read in the same order.
-  const options = useMemo(() => {
-    const seen: string[] = []
-    for (const row of source) {
-      for (const value of spec.facet(row)) {
-        if (!seen.includes(value)) seen.push(value)
-      }
-    }
-    return [ALL, ...seen]
-  }, [source, spec])
-
-  // Counts are of the source, not of `rows`. A chip that reported its count
-  // after its own filter had been applied would read "1" for whichever chip is
-  // selected and "0" for every other one — the strip would stop being a map of
-  // the data and become an echo of the click.
-  const counts = useMemo(() => {
-    const out: Record<string, number> = { [ALL]: source.length }
-    for (const option of options) {
-      if (option === ALL) continue
-      out[option] = source.filter((row) => spec.facet(row).includes(option)).length
-    }
-    return out
-  }, [source, spec, options])
-
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return source.filter((row) => {
-      if (selected !== ALL && !spec.facet(row).includes(selected)) return false
-      if (!q) return true
-      return spec.search(row).some((field) => field.toLowerCase().includes(q))
-    })
-  }, [source, spec, query, selected])
-
-  const clear = useCallback(() => {
-    setQuery('')
-    setSelected(ALL)
-  }, [])
-
-  return {
-    query,
-    setQuery,
-    selected,
-    setSelected,
-    rows,
-    options,
-    counts,
-    active: query.trim() !== '' || selected !== ALL,
-    clear,
-    total: source.length,
-  }
-}
-
-const ZONE_FILTER: FilterSpec<TrustZone> = {
-  search: (z) => [z.name, z.domain],
-  facet: (z) => [z.status],
-}
-
-const FEDERATION_FILTER: FilterSpec<Federation> = {
-  search: (f) => [f.left, f.right, f.mode, f.policy],
-  facet: (f) => [f.status],
-}
-
-const SERVICE_FILTER: FilterSpec<FederatedService> = {
-  search: (s) => [s.service, s.endpoint, s.transport],
-  facet: (s) => [s.home],
-}
-
-const POLICY_FILTER: FilterSpec<AttestationPolicy> = {
-  search: (p) => [p.name, p.selector],
-  // A policy binds several zones, so it appears under each of them. Split on
-  // the same comma the cell displays, so a reader can see why a row matched.
-  facet: (p) => p.zones.split(',').map((z) => z.trim()).filter(Boolean),
-}
-
-const SPIFFE_FILTER: FilterSpec<SpiffeIdentity> = {
-  search: (s) => [s.uri, s.ns, s.sa],
-  facet: (s) => [s.workload],
-}
-
-const EVENT_FILTER: FilterSpec<FederationEvent> = {
-  search: (e) => [e.event, e.detail, e.ts],
-  // Zone, not severity. `severity` is on the data and on no column, and a chip
-  // strip that removes rows on a property the reader cannot see anywhere in the
-  // table is a filter they have no way to reason about.
-  facet: (e) => [e.zone],
-}
-
-// ── Toolbar ─────────────────────────────────────────────────────────────────
-
-/**
- * `minWidth: 230` is the Design System specimen's, kept so the six strips on
- * this page and the ten pages migrating alongside it line up. Every placeholder
- * below is written to FIT that box at 12px — the first drafts named all three
- * searched fields and Chrome clipped two of them mid-word ("…or trans"), which
- * reads as a rendering fault rather than as a hint. A placeholder that names two
- * of the three fields is a shorter promise; one that is visibly cut off is a
- * broken-looking control.
- */
-const searchStyle: CSSProperties = {
-  fontSize: 12,
-  padding: '5px 9px',
-  minWidth: 230,
-  color: 'var(--text)',
-  background: 'var(--surface2)',
-  border: '1px solid var(--border)',
-  borderRadius: 4,
-}
-
-/**
- * Selected is a tinted fill plus a full-strength border, never a solid accent
- * fill — text on solid amber or cyan fails AA in at least one of the three
- * themes. Copied from the Design System's DataTable specimen rather than
- * re-derived, so the ten pages migrating in parallel land on one chip.
- */
-function chipStyle(selected: boolean): CSSProperties {
-  return {
-    fontSize: 11.5,
-    padding: '4px 9px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    color: selected ? 'var(--cyan)' : 'var(--muted)',
-    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
-    border: `1px solid ${selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)'}`,
-  }
-}
-
-/**
- * The strip above every table on this page, in a fixed order: search, chips,
- * clear, count.
- *
- * The order is the convention and it is not arbitrary. Search first because it
- * is the control a reader reaches for without being prompted; chips next
- * because they are a map of the data as much as a control, and reading them
- * costs nothing; clear next because it undoes everything to its left; the count
- * last because it is the OUTCOME of all three and belongs after its causes.
- *
- * Clear is always rendered and merely disabled when there is nothing to clear.
- * A control that appears only once it is needed moves everything beside it at
- * the exact moment the reader is aiming at something — and DataTable's own
- * footer carries a comment about the neighbouring version of this bug, where a
- * control's own value decided whether that control rendered.
- */
-function FilterToolbar<T>({
-  name,
-  facetLabel,
-  placeholder,
-  filter,
-  testIdPrefix,
-}: {
-  /** Names the table inside the control labels: "Search federations". */
-  name: string
-  /** What the chips filter on: "status", "home zone". */
-  facetLabel: string
-  placeholder: string
-  filter: TableFilter<T>
-  testIdPrefix: string
-}) {
+function FilterBar({
+  name, testIdPrefix, placeholder, search, onSearch,
+  chips, counts, active, onChip, shown, total,
+}: FilterBarProps) {
   return (
     <div
       style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
@@ -471,62 +323,186 @@ function FilterToolbar<T>({
       <input
         type="search"
         aria-label={`Search ${name}`}
+        // Every placeholder on this page is written to FIT this 230px box at
+        // 12px. The first drafts named all three searched fields and Chrome
+        // clipped two of them mid-word ("…or trans"), which reads as a
+        // rendering fault rather than as a hint.
         placeholder={placeholder}
-        value={filter.query}
-        onChange={(e) => filter.setQuery(e.target.value)}
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
         data-testid={`${testIdPrefix}-search`}
-        style={searchStyle}
+        style={{
+          fontSize: 12, padding: '5px 9px', minWidth: 230,
+          color: 'var(--text)', background: 'var(--surface2)',
+          border: '1px solid var(--border)', borderRadius: 4,
+        }}
       />
-      <div
-        style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
-        role="group"
-        aria-label={`Filter ${name} by ${facetLabel}`}
-      >
-        {filter.options.map((option) => {
-          const selected = filter.selected === option
-          return (
-            <button
-              key={option}
-              type="button"
-              onClick={() => filter.setSelected(option)}
-              aria-pressed={selected}
-              data-testid={`${testIdPrefix}-filter-${option}`}
-              style={chipStyle(selected)}
-            >
-              {/* No aria-label: the accessible name is the visible text, which
-                  is what a speech-input user can actually say. The surrounding
-                  group supplies the "by status" the chip itself omits. */}
-              {option} <span style={{ color: 'var(--dim)' }}>{filter.counts[option]}</span>
-            </button>
-          )
-        })}
-      </div>
-      <button
-        type="button"
-        className="btn btn-secondary"
-        onClick={filter.clear}
-        disabled={!filter.active}
-        data-testid={`${testIdPrefix}-clear`}
-        style={{ fontSize: 11.5, padding: '4px 9px' }}
-      >
-        Clear filters
-      </button>
+      {chips.map((chip) => {
+        const selected = chip === active
+        return (
+          <button
+            key={chip}
+            type="button"
+            onClick={() => onChip(chip)}
+            aria-pressed={selected}
+            data-testid={`${testIdPrefix}-filter-${chip}`}
+            style={{
+              fontSize: 11.5, padding: '4px 9px', borderRadius: 4, cursor: 'pointer',
+              // Tinted fill plus a full-strength border, never a solid accent
+              // fill: text on solid amber or cyan fails AA in at least one of
+              // the three themes. Copied from the Design System's specimen so
+              // the selected chip reads the same here as it does there.
+              color: selected ? 'var(--cyan)' : 'var(--muted)',
+              background: selected ? tint('var(--cyan)', 0.12) : 'var(--surface2)',
+              // Longhands, not the `border` shorthand: a shorthand carrying a
+              // color-mix() is unreadable to jsdom, which would put the whole
+              // selected/unselected distinction beyond a test's reach.
+              borderWidth: 1,
+              borderStyle: 'solid',
+              borderColor: selected ? tint('var(--cyan)', 0.45) : 'var(--border)',
+            }}
+          >
+            {/* No aria-label: the accessible name is the visible text, which is
+                what a speech-input user can actually say. */}
+            {chip} <span style={{ color: 'var(--dim)' }}>{counts[chip]}</span>
+          </button>
+        )
+      })}
       <span data-testid={`${testIdPrefix}-count`} style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-        {filter.rows.length} of {filter.total} shown
+        {shown} of {total} shown
       </span>
     </div>
   )
 }
 
-/** The same panel under every table, naming the two controls that emptied it. */
-function NothingMatched({ facetLabel }: { facetLabel: string }) {
+/**
+ * What a table shows when the filters match nothing.
+ *
+ * A separate wording from a healthy zero on purpose — no table on this page
+ * ever legitimately has no rows, so an empty table here is always something the
+ * reader just did, and the body says how to undo it. The toolbar is still above
+ * it, because DataTable renders the toolbar on the empty branch too.
+ */
+function NoMatch({ what }: { what: string }) {
   return (
     <EmptyState
       kicker="Nothing matches those filters"
-      body={`Clear the search box, choose a different ${facetLabel}, or use Clear filters above.`}
+      body={`Clear the search box or choose a different ${what} — the controls above stay put when the table empties.`}
     />
   )
 }
+
+/**
+ * Search-and-chip state over a fixed array.
+ *
+ * `chipOf` and `matches` must be module-scope constants; a predicate rebuilt in
+ * render re-runs the memo on every keystroke in an unrelated table.
+ *
+ * ONE WIDENING of CryptographyPage's signature, and only one: `chipOf` may
+ * return a LIST as well as a single value. Every table on that page had a row
+ * sitting on exactly one chip; Attestation Policies here binds several zones at
+ * once (`zones: 'eu, acme'`) and honestly belongs under both. Returning an
+ * array is the same code path with more than one element, and the five
+ * single-valued call sites below are byte-identical to the ones over there.
+ */
+function useFilter<T>(
+  rows: readonly T[],
+  chipOf: (row: T) => string | readonly string[],
+  matches: (row: T, query: string) => boolean,
+) {
+  const [search, setSearch] = useState('')
+  const [chip, setChip] = useState<string>(ALL)
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    return rows.filter((row) => {
+      if (chip !== ALL && !chipsOf(row, chipOf).includes(chip)) return false
+      if (!q) return true
+      return matches(row, q)
+    })
+  }, [rows, chip, search, chipOf, matches])
+
+  return { search, setSearch, chip, setChip, filtered }
+}
+
+/** Normalises `chipOf`'s single-or-list return to the list the callers want. */
+function chipsOf<T>(row: T, chipOf: (row: T) => string | readonly string[]): readonly string[] {
+  const value = chipOf(row)
+  return typeof value === 'string' ? [value] : value
+}
+
+/**
+ * Row counts per chip, for the badge on each chip. Fixed data, so computed once.
+ *
+ * Counted against the WHOLE table rather than the current result. A chip that
+ * reported the filtered set would read 0 for every option not selected and stop
+ * being a way back to the rows it hides.
+ */
+function chipCounts<T>(
+  rows: readonly T[],
+  chips: readonly string[],
+  chipOf: (row: T) => string | readonly string[],
+) {
+  return Object.fromEntries(
+    chips.map((chip) => [
+      chip,
+      chip === ALL ? rows.length : rows.filter((r) => chipsOf(r, chipOf).includes(chip)).length,
+    ]),
+  ) as Record<string, number>
+}
+
+// ── Predicates and chip vocabularies ─────────────────────────────────────────
+//
+// Declared rather than derived from the rows. A vocabulary taken from today's
+// data can only ever offer chips that match something, which quietly removes
+// the one control that reaches the empty state — see `connecting` on Trust
+// Zones, a real state of the Status column that no zone is in right now.
+
+const ZONE_CHIPS = ['all', 'active', 'connecting'] as const
+const zoneChip = (z: TrustZone) => z.status
+const zoneMatches = (z: TrustZone, q: string) =>
+  z.name.toLowerCase().includes(q) || z.domain.toLowerCase().includes(q)
+
+const FEDERATION_CHIPS = ['all', 'federated', 'connecting'] as const
+const federationChip = (f: Federation) => f.status
+const federationMatches = (f: Federation, q: string) =>
+  f.left.toLowerCase().includes(q) || f.right.toLowerCase().includes(q)
+  || f.mode.toLowerCase().includes(q) || f.policy.toLowerCase().includes(q)
+
+const SERVICE_CHIPS = ['all', 'signalloom-eu', 'signalloom-us', 'partner-acme'] as const
+const serviceChip = (s: FederatedService) => s.home
+const serviceMatches = (s: FederatedService, q: string) =>
+  s.service.toLowerCase().includes(q) || s.endpoint.toLowerCase().includes(q)
+  || s.transport.toLowerCase().includes(q)
+
+const POLICY_CHIPS = ['all', 'eu', 'us', 'acme'] as const
+/** The one many-valued axis on the page: a policy binds several zones and files
+ *  under each. Split on the same comma the cell displays, so a reader can see
+ *  why a row matched. Chip counts therefore sum to more than the row count. */
+const policyChip = (p: AttestationPolicy) => p.zones.split(',').map((z) => z.trim()).filter(Boolean)
+const policyMatches = (p: AttestationPolicy, q: string) =>
+  p.name.toLowerCase().includes(q) || p.selector.toLowerCase().includes(q)
+
+const SPIFFE_CHIPS = ['all', 'dashboard', 'agent', 'service'] as const
+const spiffeChip = (s: SpiffeIdentity) => s.workload
+const spiffeMatches = (s: SpiffeIdentity, q: string) =>
+  s.uri.toLowerCase().includes(q) || s.ns.toLowerCase().includes(q) || s.sa.toLowerCase().includes(q)
+
+const EVENT_CHIPS = ['all', 'signalloom-eu', 'signalloom-us', 'partner-acme'] as const
+/** Zone, not severity. `severity` is on the data and on no column, and a chip
+ *  strip that removes rows on a property the reader cannot see anywhere in the
+ *  table is a filter they have no way to reason about. */
+const eventChip = (e: FederationEvent) => e.zone
+const eventMatches = (e: FederationEvent, q: string) =>
+  e.event.toLowerCase().includes(q) || e.detail.toLowerCase().includes(q)
+  || e.ts.toLowerCase().includes(q)
+
+const ZONE_COUNTS = chipCounts(TRUST_ZONES, ZONE_CHIPS, zoneChip)
+const FEDERATION_COUNTS = chipCounts(FEDERATIONS, FEDERATION_CHIPS, federationChip)
+const SERVICE_COUNTS = chipCounts(FEDERATED_SERVICES, SERVICE_CHIPS, serviceChip)
+const POLICY_COUNTS = chipCounts(POLICIES, POLICY_CHIPS, policyChip)
+const SPIFFE_COUNTS = chipCounts(SPIFFE_IDS, SPIFFE_CHIPS, spiffeChip)
+const EVENT_COUNTS = chipCounts(FEDERATION_EVENTS, EVENT_CHIPS, eventChip)
 
 /**
  * What produced this page — which is nothing, and it has to say so.
@@ -571,12 +547,12 @@ export default function FederatedServicesPage() {
   const activeFed = FEDERATED_SERVICES.filter((s) => s.status === 'active').length
   const [proofOpen, setProofOpen] = useState(false)
 
-  const zones = useTableFilter(TRUST_ZONES, ZONE_FILTER)
-  const federations = useTableFilter(FEDERATIONS, FEDERATION_FILTER)
-  const services = useTableFilter(FEDERATED_SERVICES, SERVICE_FILTER)
-  const policies = useTableFilter(POLICIES, POLICY_FILTER)
-  const identities = useTableFilter(SPIFFE_IDS, SPIFFE_FILTER)
-  const events = useTableFilter(FEDERATION_EVENTS, EVENT_FILTER)
+  const zones = useFilter(TRUST_ZONES, zoneChip, zoneMatches)
+  const federations = useFilter(FEDERATIONS, federationChip, federationMatches)
+  const services = useFilter(FEDERATED_SERVICES, serviceChip, serviceMatches)
+  const policies = useFilter(POLICIES, policyChip, policyMatches)
+  const identities = useFilter(SPIFFE_IDS, spiffeChip, spiffeMatches)
+  const events = useFilter(FEDERATION_EVENTS, eventChip, eventMatches)
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -631,19 +607,25 @@ export default function FederatedServicesPage() {
       <Section title="Trust Zones" hint="each a SPIFFE trust domain">
         <DataTable
           columns={ZONE_COLUMNS}
-          data={zones.rows}
+          data={zones.filtered}
           pageSize={10}
           testIdPrefix="fed-zones"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="trust zones"
-              facetLabel="status"
-              placeholder="Search zone or trust domain…"
-              filter={zones}
               testIdPrefix="fed-zones"
+              placeholder="Search zone or trust domain…"
+              search={zones.search}
+              onSearch={zones.setSearch}
+              chips={ZONE_CHIPS}
+              counts={ZONE_COUNTS}
+              active={zones.chip}
+              onChip={zones.setChip}
+              shown={zones.filtered.length}
+              total={TRUST_ZONES.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="status" />}
+          emptyState={<NoMatch what="status" />}
           renderRow={(z: TrustZone) => (
             <tr key={z.name} style={rowStyle}>
               <td style={nameCell}>{z.name}</td>
@@ -659,19 +641,25 @@ export default function FederatedServicesPage() {
       <Section title="Federations" hint="trust relationships between zones">
         <DataTable
           columns={FEDERATION_COLUMNS}
-          data={federations.rows}
+          data={federations.filtered}
           pageSize={10}
           testIdPrefix="fed-federations"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="federations"
-              facetLabel="status"
-              placeholder="Search zone, mode or policy…"
-              filter={federations}
               testIdPrefix="fed-federations"
+              placeholder="Search zone, mode or policy…"
+              search={federations.search}
+              onSearch={federations.setSearch}
+              chips={FEDERATION_CHIPS}
+              counts={FEDERATION_COUNTS}
+              active={federations.chip}
+              onChip={federations.setChip}
+              shown={federations.filtered.length}
+              total={FEDERATIONS.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="status" />}
+          emptyState={<NoMatch what="status" />}
           renderRow={(f: Federation, i: number) => (
             <tr key={`${f.left}-${f.right}-${i}`} style={rowStyle}>
               <td style={nameCell}>{f.left}</td>
@@ -687,19 +675,25 @@ export default function FederatedServicesPage() {
       <Section title="Federated Services" hint="local endpoint → remote-zone workload">
         <DataTable
           columns={SERVICE_COLUMNS}
-          data={services.rows}
+          data={services.filtered}
           pageSize={10}
           testIdPrefix="fed-services"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="federated services"
-              facetLabel="home zone"
-              placeholder="Search service or endpoint…"
-              filter={services}
               testIdPrefix="fed-services"
+              placeholder="Search service or endpoint…"
+              search={services.search}
+              onSearch={services.setSearch}
+              chips={SERVICE_CHIPS}
+              counts={SERVICE_COUNTS}
+              active={services.chip}
+              onChip={services.setChip}
+              shown={services.filtered.length}
+              total={FEDERATED_SERVICES.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="home zone" />}
+          emptyState={<NoMatch what="home zone" />}
           renderRow={(s: FederatedService) => (
             <tr key={s.service} style={rowStyle}>
               <td style={nameCell}>{s.service}</td>
@@ -716,19 +710,25 @@ export default function FederatedServicesPage() {
       <Section title="Attestation Policies" hint="who is allowed to federate">
         <DataTable
           columns={POLICY_COLUMNS}
-          data={policies.rows}
+          data={policies.filtered}
           pageSize={10}
           testIdPrefix="fed-policies"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="attestation policies"
-              facetLabel="bound zone"
-              placeholder="Search policy or selector…"
-              filter={policies}
               testIdPrefix="fed-policies"
+              placeholder="Search policy or selector…"
+              search={policies.search}
+              onSearch={policies.setSearch}
+              chips={POLICY_CHIPS}
+              counts={POLICY_COUNTS}
+              active={policies.chip}
+              onChip={policies.setChip}
+              shown={policies.filtered.length}
+              total={POLICIES.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="bound zone" />}
+          emptyState={<NoMatch what="bound zone" />}
           renderRow={(p: AttestationPolicy) => (
             <tr key={p.name} style={rowStyle}>
               <td style={DataTable.td}><code style={policyCodeStyle}>{p.name}</code></td>
@@ -742,19 +742,25 @@ export default function FederatedServicesPage() {
       <Section title="SPIFFE Identities" hint="SVIDs issued by the trust fabric">
         <DataTable
           columns={SPIFFE_COLUMNS}
-          data={identities.rows}
+          data={identities.filtered}
           pageSize={10}
           testIdPrefix="fed-spiffe"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="SPIFFE identities"
-              facetLabel="workload"
-              placeholder="Search SPIFFE ID or namespace…"
-              filter={identities}
               testIdPrefix="fed-spiffe"
+              placeholder="Search SPIFFE ID or namespace…"
+              search={identities.search}
+              onSearch={identities.setSearch}
+              chips={SPIFFE_CHIPS}
+              counts={SPIFFE_COUNTS}
+              active={identities.chip}
+              onChip={identities.setChip}
+              shown={identities.filtered.length}
+              total={SPIFFE_IDS.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="workload" />}
+          emptyState={<NoMatch what="workload" />}
           renderRow={(s: SpiffeIdentity) => (
             <tr key={s.uri} style={rowStyle}>
               <td style={DataTable.td}>
@@ -772,19 +778,25 @@ export default function FederatedServicesPage() {
       <Section title="Federation Events" hint="recent trust fabric activity">
         <DataTable
           columns={EVENT_COLUMNS}
-          data={events.rows}
+          data={events.filtered}
           pageSize={10}
           testIdPrefix="fed-events"
           toolbar={
-            <FilterToolbar
+            <FilterBar
               name="federation events"
-              facetLabel="zone"
-              placeholder="Search event or detail…"
-              filter={events}
               testIdPrefix="fed-events"
+              placeholder="Search event or detail…"
+              search={events.search}
+              onSearch={events.setSearch}
+              chips={EVENT_CHIPS}
+              counts={EVENT_COUNTS}
+              active={events.chip}
+              onChip={events.setChip}
+              shown={events.filtered.length}
+              total={FEDERATION_EVENTS.length}
             />
           }
-          emptyState={<NothingMatched facetLabel="zone" />}
+          emptyState={<NoMatch what="zone" />}
           renderRow={(e: FederationEvent, i: number) => (
             <tr key={`${e.ts}-${i}`} style={rowStyle}>
               <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11.5, color: 'var(--muted)' }}>{e.ts.replace('T', ' ').replace('Z', '')}</td>

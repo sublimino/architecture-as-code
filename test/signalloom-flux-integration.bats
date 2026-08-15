@@ -63,7 +63,7 @@ setup() {
 @test "optional observability profile changes only the generated fleet artifact" {
   push="$repo_root/scripts/push-local.sh"
 
-  grep -Fq 'ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-true}"' "$push"
+  grep -Fq 'ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"' "$push"
   grep -Fq 'TEMP_FLEET_DIR="$(mktemp -d)"' "$push"
   grep -Fq 'infra/monitoring|d2-infra/components/monitoring' "$push"
   grep -Fq 'infra/trivy-system|d2-infra/components/trivy-system' "$push"

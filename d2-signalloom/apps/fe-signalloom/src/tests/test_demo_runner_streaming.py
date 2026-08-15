@@ -274,6 +274,68 @@ def test_a_burst_larger_than_the_read_size_is_captured_byte_for_byte(
     assert captured == _EXPECTED_BURST
 
 
+def test_log_cap_sets_the_truncated_flag() -> None:
+    """A log that exceeds ``_LOG_CAP_BYTES`` MUST report ``truncated = True``.
+
+    The mutation this test was written to catch: suppressing the
+    ``_log_truncated = True`` assignments in ``_append_log`` (both of them).
+    Before this test existed, that mutation passed 40 streaming tests — the flag
+    could be silently set to ``False`` forever and nothing noticed, which means a
+    consumer relying on it to show a "log was truncated" indicator had no signal.
+
+    The test uses the stubbed pipe to inject a payload larger than the cap in a
+    single read, then verifies three things:
+      1. The truncated flag is True.
+      2. The captured log is exactly ``_LOG_CAP_BYTES`` long (not longer, not
+         shorter — the cap is a limit, not a budget).
+      3. The run still reaches ``succeeded`` (truncation is not an error).
+    """
+    cap = demo_runner._LOG_CAP_BYTES
+    # Payload: cap + 1024 bytes, so the second branch of _append_log fires.
+    oversized = b"X" * (cap + 1024)
+    run = _run_with_stubbed_pipe([oversized, b""])
+
+    demo_runner._monitor_run(run)
+
+    with run._lock:
+        captured = bytes(run._log)
+        truncated = run._log_truncated
+
+    assert truncated, (
+        "_log_truncated is False after a payload larger than _LOG_CAP_BYTES — "
+        "the flag can be silently suppressed and no downstream consumer knows "
+        "the log was capped"
+    )
+    assert len(captured) == cap, (
+        f"captured {len(captured)} bytes, expected exactly {cap}"
+    )
+    assert run.status == "succeeded"
+    assert run.exit_code == 0
+
+
+def test_log_cap_truncated_flag_on_incremental_overflow() -> None:
+    """Same invariant as above, but the cap is hit across multiple reads.
+
+    This catches the first branch of ``_append_log`` (``remaining <= 0``) which
+    fires when a LATER chunk arrives after the cap was already reached.
+    """
+    cap = demo_runner._LOG_CAP_BYTES
+    # Two chunks: the first fills exactly to the cap, the second is dropped.
+    chunk1 = b"Y" * cap
+    chunk2 = b"Z" * 512
+    run = _run_with_stubbed_pipe([chunk1, chunk2, b""])
+
+    demo_runner._monitor_run(run)
+
+    with run._lock:
+        captured = bytes(run._log)
+        truncated = run._log_truncated
+
+    assert truncated
+    assert len(captured) == cap
+    assert captured == chunk1
+
+
 # A phase that leaves a grandchild holding the log pipe and then exits. Nothing
 # in scripts/supercred-demo.sh does this today -- its one background command
 # (kubectl port-forward, line 302) redirects both streams to /dev/null, so it

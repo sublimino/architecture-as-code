@@ -157,7 +157,7 @@ For the normal fast loop, keep the cluster running: `make up` creates the shared
 
 `make up` composes only foundation targets (`make help` lists them): `cluster`, `registry` (Zot), `signing-keys` (a local cosign key pair plus a witness key), `push-local-foundation` (the fleet and shared infrastructure), `bootstrap-local` (Flux Operator with a FluxInstance that verifies signatures against the local public key), `wait`, and `healthcheck`. Demo images, workloads, and secrets are activated only by their corresponding `demo-*-up` command. Nothing reaches the cluster unsigned, even locally.
 
-For a faster local foundation without monitoring or Trivy, run `ENABLE_OBSERVABILITY=false make up`. The default is `true`; this mode packages a local-only fleet artifact without those tenants, while preserving their installer sources and Flux Operator management.
+Observability (kube-prometheus-stack + trivy-system) is **off by default** — these tenants are not dependencies of any demo slice and dominate cluster build time. Opt in with `ENABLE_OBSERVABILITY=true make up`. The CI pipeline also defaults to off (`CI_ENABLE_OBSERVABILITY=false`); this mode packages a local-only fleet artifact without those tenants, while preserving their installer sources and Flux Operator management.
 
 There is also a shortcut that skips GitOps entirely for tight inner-loop work on the services: `make -C d2-osramp-apps local-dev` applies the manifests directly with kustomize.
 

@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
 
 mode="${1:-all}"
-ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-true}"
+ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
 # shellcheck source=scripts/lib/keys.sh

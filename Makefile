@@ -48,8 +48,11 @@ D2_BAO_ROOT ?= /home/andy/src/cp/d2-bao-apps
 SIGNALLOOM_INTEGRATION_BRANCH ?= integration/signalloom-d2-v2.5.0
 CPAI_CLI_ROOT ?= /home/andy/src/cp/cpai-cli
 ZOT_CACHE_DIR ?= .cache/zot
-# Set false for a fast local foundation without monitoring or Trivy.
-ENABLE_OBSERVABILITY ?= true
+# Observability (kube-prometheus-stack + trivy-system) is OFF by default.
+# These tenants are not dependencies of any demo slice and dominate cluster
+# build time (~3 minutes of reconciliation waits). Opt in explicitly:
+#   ENABLE_OBSERVABILITY=true make up
+ENABLE_OBSERVABILITY ?= false
 export ENABLE_OBSERVABILITY
 
 .PHONY: up

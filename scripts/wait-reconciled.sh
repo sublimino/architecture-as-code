@@ -14,7 +14,7 @@ resources=(
   Kustomization/ingress/infra-configs
 )
 
-if [[ "${ENABLE_OBSERVABILITY:-true}" == "true" ]]; then
+if [[ "${ENABLE_OBSERVABILITY:-false}" == "true" ]]; then
   resources+=(
     Kustomization/monitoring/infra-controllers
     Kustomization/monitoring/infra-configs

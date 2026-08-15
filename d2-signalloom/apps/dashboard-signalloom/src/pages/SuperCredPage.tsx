@@ -153,6 +153,44 @@ function buildCredentialRecords(agent: RuntimeAgent): CredentialRecord[] {
 // what a scope IS, and an engineer who needs to know which one this is — and a
 // "?" in the header is how one table serves both without a second table.
 
+/**
+ * The agent list, which was a div-based list of records and is a fleet table.
+ *
+ * It reads as a card list because it usually holds one row, and that is exactly
+ * how it stayed hand-rolled while every other fleet view in the product moved
+ * to DataTable: one row hides the absence of sorting and filtering. Discovery
+ * can return any number, and the actions column is the demo's own control
+ * surface, so it belongs in the same table the rest of the estate is shown in.
+ *
+ * `Actions` keys off `id` because Column<T> keys must name a field — it is not
+ * sortable, and nothing reads the key except the sort handler it never calls.
+ */
+const AGENT_COLUMNS: Column<RuntimeAgent>[] = [
+  { key: 'name', label: 'Agent', sortable: true },
+  { key: 'state', label: 'State', sortable: true },
+  {
+    key: 'phase',
+    label: 'Phase',
+    sortable: true,
+    help: 'What Kubernetes says about the pod itself. Running means the container started — it says nothing about whether the agent is compliant, which is the next column along and a different question entirely.',
+  },
+  {
+    key: 'namespace',
+    label: 'Namespace',
+    sortable: true,
+    help: 'Where the pod was found. Discovery follows the agent rather than requiring a fixed location, because Flux can relocate it between deployments.',
+  },
+  { key: 'model', label: 'Model', sortable: true },
+  { key: 'framework', label: 'Framework', sortable: true },
+  {
+    key: 'supercred_target',
+    label: 'Target',
+    sortable: true,
+    help: 'The service this agent exchanges its credentials to reach. It is the thing that would be exposed if the agent were compromised, which is what makes revoking the chain worth doing.',
+  },
+  { key: 'id', label: 'Actions' },
+]
+
 const CREDENTIAL_COLUMNS: Column<CredentialRecord>[] = [
   { key: 'id', label: 'Credential ID', sortable: true },
   {
@@ -377,6 +415,8 @@ export default function SuperCredPage() {
   // two tables — a credential is found by its issuer or its scope, a control
   // by the reason it failed — and a component that owned the word would be
   // handing both of them one opinion about it.
+  const [agentSearch, setAgentSearch] = useState('')
+  const [agentState, setAgentState] = useState<string>('all')
   const [credSearch, setCredSearch] = useState('')
   const [credStatus, setCredStatus] = useState<CredentialStatus | 'all'>('all')
   const [checkSearch, setCheckSearch] = useState('')
@@ -477,6 +517,29 @@ export default function SuperCredPage() {
 
   const blockedAgents = agents.filter(isBlocked)
   const code = { background: 'var(--surface)', padding: '2px 6px', borderRadius: 3, fontSize: 12 }
+
+  // Agent-table filters. Chip set is built from the states discovery actually
+  // returned rather than from the lifecycle vocabulary, because an agent's
+  // runtime state is whatever the proxy reports and this page does not own
+  // that list. Insertion order is first-seen, which is discovery order.
+  const agentStateCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const agent of agents) {
+      const state = agent.state ?? 'unknown'
+      counts.set(state, (counts.get(state) ?? 0) + 1)
+    }
+    return counts
+  }, [agents])
+
+  const visibleAgents = useMemo(() => {
+    const q = agentSearch.trim().toLowerCase()
+    return agents.filter(agent => {
+      if (agentState !== 'all' && (agent.state ?? 'unknown') !== agentState) return false
+      if (!q) return true
+      return [agent.name, agent.namespace, agent.model, agent.framework, agent.type, agent.supercred_target]
+        .some(field => field?.toLowerCase().includes(q))
+    })
+  }, [agents, agentSearch, agentState])
 
   // Derive lifecycle and credential data from the first supercred agent
   const activeAgent = agents[0] ?? null
@@ -653,8 +716,10 @@ export default function SuperCredPage() {
 
       <DemoStepControls onAdvance={loadAgents} />
 
-      {/* Load agents */}
-      <div className="card" style={{ padding: '16px 20px', marginBottom: 16 }}>
+      {/* Load agents. A section rather than a card, because DataTable brings
+          its own frame and a card inside a card draws two borders around one
+          table — the same reason the two tables below this are sections. */}
+      <section style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>SuperCred Agents</h2>
@@ -688,78 +753,139 @@ export default function SuperCredPage() {
             </HelpHint>
           </div>
         </div>
+        {/* Rendered only when discovery actually returned SuperCred agents, so
+            DataTable's `emptyState` below can mean exactly one thing: a filter
+            matched nothing. The two "no agents at all" branches underneath keep
+            their own conditions — an estate with nothing in it and a filter
+            hiding everything are different sentences and must not share one. */}
         {agents.length > 0 && (
           <div style={{ marginTop: 12 }}>
-            {agents.map(agent => (
-              <div key={agent.id} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '10px 0', borderBottom: '1px solid var(--border)',
-              }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                    <span style={{ fontWeight: 600, fontSize: 14 }}>{agent.name}</span>
-                    <StatusBadge status={agent.state ?? 'unknown'} />
-                    {agent.type && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{agent.type}</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                    {agent.namespace && (
-                      <span data-testid={`agent-namespace-${agent.id}`}>Namespace: {agent.namespace} · </span>
+            <DataTable
+              columns={AGENT_COLUMNS}
+              data={visibleAgents}
+              pageSize={10}
+              testIdPrefix="supercred-agents-table"
+              toolbar={
+                <div
+                  role="group"
+                  aria-label="Filter the SuperCred agents"
+                  style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+                >
+                  <input
+                    type="search"
+                    aria-label="Search agents by name, namespace or model"
+                    placeholder="Search name, namespace or model…"
+                    value={agentSearch}
+                    onChange={(e) => setAgentSearch(e.target.value)}
+                    data-testid="supercred-agents-search"
+                    style={searchStyle}
+                  />
+                  <FilterChip
+                    label="all"
+                    count={agents.length}
+                    selected={agentState === 'all'}
+                    onSelect={() => setAgentState('all')}
+                    testId="supercred-agents-filter-all"
+                  />
+                  {[...agentStateCounts.keys()].map(state => (
+                    <FilterChip
+                      key={state}
+                      label={state}
+                      count={agentStateCounts.get(state) ?? 0}
+                      selected={agentState === state}
+                      onSelect={() => setAgentState(state)}
+                      testId={`supercred-agents-filter-${state}`}
+                    />
+                  ))}
+                  <span data-testid="supercred-agents-count" style={countStyle}>
+                    {visibleAgents.length} of {agents.length} shown
+                  </span>
+                </div>
+              }
+              emptyState={
+                <EmptyState
+                  kicker="No agent matches those filters"
+                  body="Clear the search box, or pick a different state — discovery still found the agents, this is only what is on screen."
+                />
+              }
+              renderRow={(agent: RuntimeAgent) => (
+                <tr key={agent.id} data-testid={`agent-row-${agent.id}`} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={DataTable.td}>
+                    <div style={{ fontWeight: 600 }}>{agent.name}</div>
+                    {agent.type && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace' }}>{agent.type}</div>
                     )}
-                    {agent.phase && <span>Phase: {agent.phase} · </span>}
-                    {agent.model && <span>Model: {agent.model} · </span>}
-                    {agent.framework && <span>Framework: {agent.framework} · </span>}
-                    {agent.supercred_target && <span>Target: {agent.supercred_target}</span>}
-                    {agent.stunned_at && <span style={{ color: colors.red }}> · Stunned: {agent.stunned_at}</span>}
-                    {agent.stun_reason && <span style={{ color: colors.red }}> ({agent.stun_reason})</span>}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {/* Both row buttons carry the same min-width so the pair is
-                      one stable block: the row must not re-flow when a label
-                      is swapped for a wait, and both must stay put while the
-                      figure counts. */}
-                  <button
-                    className="btn btn-secondary"
-                    style={{
-                      fontSize: 11, padding: '4px 10px', minWidth: ROW_BUTTON_W,
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    }}
-                    onClick={() => runComplianceScan(agent)}
-                    disabled={scanLoading}
-                  >
-                    {scanLoading && busyAgentId === agent.id
-                      ? (
-                        <ButtonWait
-                          testId={`supercred-scan-loader-${agent.id}`}
-                          label="Compliance scan running"
-                        />
-                      )
-                      : 'Compliance Scan'}
-                  </button>
-                  {agent.state !== 'stunned' && (
-                    <button
-                      className="btn btn-secondary"
-                      style={{
-                        fontSize: 11, padding: '4px 10px', color: colors.red, borderColor: colors.red,
-                        minWidth: ROW_BUTTON_W,
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      }}
-                      onClick={() => stunAgent(agent)}
-                      disabled={stunLoading}
-                    >
-                      {stunLoading && busyAgentId === agent.id
-                        ? (
-                          <ButtonWait
-                            testId={`supercred-stun-loader-${agent.id}`}
-                            label="Stunning agent"
-                          />
-                        )
-                        : 'Stun Agent'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+                  </td>
+                  <td style={DataTable.td}>
+                    <StatusBadge status={agent.state ?? 'unknown'} />
+                    {/* Kept beside the state rather than in a column of its own:
+                        a stun reason only exists for a stunned agent, so a column
+                        for it would be empty on every row that is running. */}
+                    {agent.stunned_at && (
+                      <div style={{ fontSize: 11, color: colors.red }}>Stunned: {agent.stunned_at}</div>
+                    )}
+                    {agent.stun_reason && (
+                      <div style={{ fontSize: 11, color: colors.red }}>{agent.stun_reason}</div>
+                    )}
+                  </td>
+                  <td style={DataTable.td}>{agent.phase ?? '—'}</td>
+                  {/* The testid stays on the cell it always named. The word
+                      "Namespace:" moved into the column header, where a table
+                      puts it. */}
+                  <td data-testid={`agent-namespace-${agent.id}`} style={DataTable.td}>{agent.namespace ?? '—'}</td>
+                  <td style={DataTable.td}>{agent.model ?? '—'}</td>
+                  <td style={DataTable.td}>{agent.framework ?? '—'}</td>
+                  <td style={{ ...DataTable.td, fontFamily: 'monospace', fontSize: 11 }}>{agent.supercred_target ?? '—'}</td>
+                  <td style={DataTable.td}>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      {/* Both row buttons carry the same min-width so the pair is
+                          one stable block: the row must not re-flow when a label
+                          is swapped for a wait, and both must stay put while the
+                          figure counts. */}
+                      <button
+                        className="btn btn-secondary"
+                        style={{
+                          fontSize: 11, padding: '4px 10px', minWidth: ROW_BUTTON_W,
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                        onClick={() => runComplianceScan(agent)}
+                        disabled={scanLoading}
+                      >
+                        {scanLoading && busyAgentId === agent.id
+                          ? (
+                            <ButtonWait
+                              testId={`supercred-scan-loader-${agent.id}`}
+                              label="Compliance scan running"
+                            />
+                          )
+                          : 'Compliance Scan'}
+                      </button>
+                      {agent.state !== 'stunned' && (
+                        <button
+                          className="btn btn-secondary"
+                          style={{
+                            fontSize: 11, padding: '4px 10px', color: colors.red, borderColor: colors.red,
+                            minWidth: ROW_BUTTON_W,
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          }}
+                          onClick={() => stunAgent(agent)}
+                          disabled={stunLoading}
+                        >
+                          {stunLoading && busyAgentId === agent.id
+                            ? (
+                              <ButtonWait
+                                testId={`supercred-stun-loader-${agent.id}`}
+                                label="Stunning agent"
+                              />
+                            )
+                            : 'Stun Agent'}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            />
           </div>
         )}
         {/* Idle, not empty. LoadingState's fourth phase exists for exactly this
@@ -800,7 +926,7 @@ export default function SuperCredPage() {
             )}
           </div>
         )}
-      </div>
+      </section>
 
       {/* Credential Lifecycle — observed evidence, not asserted progress.
           The previous card derived all six steps from `!!agent.id` and printed

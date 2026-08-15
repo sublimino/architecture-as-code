@@ -612,23 +612,32 @@ describe('SuperCredPage', () => {
 
   // ─── Agent detail rendering ─────────────────────────────────────────────
 
+  // These two used to locate the row by climbing the DOM from the namespace
+  // element — `nsEl.closest('div').parentElement` — and assert on "Framework:
+  // langchain", the inline label the old div-based list printed beside every
+  // value. Both facts about the markup rather than about the page: the agent
+  // list is a DataTable now, the labels live in the column headers where a
+  // table puts them, and a locator that walks two levels up from a cell breaks
+  // on any restructure. The claim is unchanged — this row shows this agent's
+  // framework and model — and it is now scoped by the row's own test id.
+
   it('shows framework and model when present', async () => {
     mockFetch({ agents: [cardvault()] })
     renderPage()
     await refresh()
-    // Agent namespace test-id is unique to the agent row
-    const nsEl = await screen.findByTestId('agent-namespace-agent-cardvault')
-    const row = nsEl.closest('div')!.parentElement!
-    expect(row).toHaveTextContent('Framework: langchain')
-    expect(row).toHaveTextContent('Model: gpt-4')
+    const row = await screen.findByTestId('agent-row-agent-cardvault')
+    expect(row).toHaveTextContent('langchain')
+    expect(row).toHaveTextContent('gpt-4')
+    // The labels are still on screen, once each, as column headers.
+    expect(screen.getByRole('columnheader', { name: /Framework/ })).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /Model/ })).toBeInTheDocument()
   })
 
   it('shows stun reason for stunned agents', async () => {
     mockFetch({ agents: [stunnedCardvault()] })
     renderPage()
     await refresh()
-    const nsEl = await screen.findByTestId('agent-namespace-agent-cardvault')
-    const row = nsEl.closest('div')!.parentElement!
+    const row = await screen.findByTestId('agent-row-agent-cardvault')
     expect(row).toHaveTextContent('non-compliant securityContext')
   })
 })
@@ -644,6 +653,79 @@ describe('SuperCredPage', () => {
 // (`rows.length ? <table/> : <EmptyState/>`) the controls vanish with the rows
 // and the only way back is a reload, which mid-demo happens in front of an
 // audience.
+
+describe('the agent list narrows, and can always be un-narrowed', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  async function twoAgents() {
+    mockFetch({
+      agents: [cardvault(), cardvault({ id: 'agent-second', name: 'Second Agent', state: 'stunned', model: 'claude-opus-4' })],
+    })
+    renderPage()
+    await refresh()
+    return screen.findByTestId('agent-row-agent-cardvault')
+  }
+
+  it('narrows to the agents matching the search', async () => {
+    await twoAgents()
+    await userEvent.type(screen.getByTestId('supercred-agents-search'), 'claude')
+
+    // Matched on the model, which is the field an operator actually scans for
+    // when the question is "which of these is the one running the new model".
+    expect(screen.getByTestId('agent-row-agent-second')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-row-agent-cardvault')).not.toBeInTheDocument()
+    expect(screen.getByTestId('supercred-agents-count')).toHaveTextContent('1 of 2 shown')
+  })
+
+  it('narrows to one runtime state when its chip is pressed', async () => {
+    await twoAgents()
+    await userEvent.click(screen.getByTestId('supercred-agents-filter-stunned'))
+
+    expect(screen.getByTestId('agent-row-agent-second')).toBeInTheDocument()
+    expect(screen.queryByTestId('agent-row-agent-cardvault')).not.toBeInTheDocument()
+  })
+
+  it('keeps the controls on screen when nothing matches, and clears from there', async () => {
+    await twoAgents()
+    await userEvent.type(screen.getByTestId('supercred-agents-search'), 'no-such-agent')
+
+    const empty = screen.getByTestId('supercred-agents-table-empty')
+    expect(empty).toHaveTextContent(/No agent matches/i)
+    // Says the estate is unchanged and only the screen is narrowed — an empty
+    // agent table mid-demo otherwise reads as "the deploy went away".
+    expect(empty).toHaveTextContent(/discovery still found the agents/i)
+    expect(screen.getByTestId('supercred-agents-table-toolbar')).toBeInTheDocument()
+
+    await userEvent.clear(screen.getByTestId('supercred-agents-search'))
+    expect(await screen.findByTestId('agent-row-agent-cardvault')).toBeInTheDocument()
+  })
+
+  it('does not confuse a filter matching nothing with an estate holding nothing', async () => {
+    await twoAgents()
+    await userEvent.type(screen.getByTestId('supercred-agents-search'), 'no-such-agent')
+
+    // The two "no agents" branches are keyed on discovery, not on the filter,
+    // so neither may appear because a search box has text in it.
+    expect(screen.queryByTestId('supercred-empty-state')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('supercred-not-loaded')).not.toBeInTheDocument()
+  })
+
+  it('still offers both row actions from inside the table', async () => {
+    await twoAgents()
+    // The demo's own control surface moved into a table cell; it did not
+    // change. Two scan buttons, and a stun button only on the row that is not
+    // already stunned.
+    expect(screen.getAllByRole('button', { name: /Compliance Scan/ })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: /Stun Agent/ })).toHaveLength(1)
+  })
+})
 
 describe('the credential inventory narrows, and can always be un-narrowed', () => {
   beforeEach(() => {
@@ -824,6 +906,21 @@ describe('SuperCred explains its own jargon', () => {
     await refresh()
     await screen.findByTestId('supercred-phase-warning')
     expect(await openHint('What a blocked pod phase means')).toHaveTextContent(/has simply not run/i)
+  })
+
+  it('explains every agent column whose header does not say it', async () => {
+    mockFetch({ agents: [cardvault()] })
+    renderPage()
+    await refresh()
+    await screen.findByTestId('agent-row-agent-cardvault')
+
+    // Phase, Namespace and Target carry meaning their one-word headers do not.
+    // Agent, State, Model and Framework do not get one — a "?" that restates
+    // the header is noise, which is the rule this page is following rather
+    // than a count it is hitting.
+    expect(await openHint('What Phase means')).toHaveTextContent(/says nothing about whether the agent is compliant/i)
+    expect(await openHint('What Namespace means')).toHaveTextContent(/Flux can relocate it/i)
+    expect(await openHint('What Target means')).toHaveTextContent(/would be exposed if the agent were compromised/i)
   })
 
   it('explains every credential column whose header does not say it', async () => {

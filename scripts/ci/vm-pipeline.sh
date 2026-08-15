@@ -586,6 +586,26 @@ run_stage \
    bash d2-signalloom/test/audit-guard-reintroduction-proof.sh; \
    rc=\$?; echo \"proof-exit=\$rc\"; exit \$rc"
 
+# Stage 1j: CI report integrity (BATS TAP)
+#
+# Asserts the CI reporting chain is internally consistent: every structured
+# report the pipeline produces is mapped in the converter, no converter entry
+# uses the wrong parser for its file format, and no entry names a file the
+# pipeline does not produce. A missing or mismatched entry means results are
+# silently dropped or contribute zero rows while looking configured.
+#
+# Also asserts test-count floors: the minimum number of tests each suite must
+# execute to prove the runner actually ran. The floor for pytest is 500 (current
+# 594), vitest is 1800 (current 2099), Go is 30 (current 45), bats d2 is 200
+# (current ~234). A count at or near the floor means the runner is broken, not
+# that the code is wrong.
+#
+# bats and grep only: no cluster, no network, no docker, ~1s.
+run_stage \
+  "CI report integrity" \
+  "stage1j-ci-report-integrity.tap" \
+  "cd ${WORK_DIR} && bats --tap test/ci-report-integrity.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

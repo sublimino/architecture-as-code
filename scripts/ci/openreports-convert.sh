@@ -157,6 +157,7 @@ const stageMap = [
   // one layer up in the reporting.
   { file: 'stage1g-unregistered-guards.tap', parser: parseTap, source: 'bats-previously-unrun-guards', category: 'contract' },
   { file: 'stage1h-bats-registry.tap', parser: parseTap, source: 'bats-registry-coverage', category: 'meta' },
+  { file: 'stage1j-ci-report-integrity.tap', parser: parseTap, source: 'ci-report-integrity', category: 'meta' },
   //
   // Stage 1i (audit-guard reintroduction proof) is deliberately NOT mapped.
   // Its output is prose -- "RED as required" / "GUARD DID NOT FIRE" -- not TAP

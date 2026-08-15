@@ -238,11 +238,22 @@ excluded_suites() {
 	# condition or a fix to the assumption it makes about its environment. They
 	# are named here rather than deleted so that "we know about these four" is a
 	# checkable statement rather than folklore.
+	#
+	#   test-count-floor.bats     - runs ALL four test suites (pytest, vitest, Go,
+	#                               bats) end to end and asserts minimum counts.
+	#                               That makes it an ~80s heavyweight that
+	#                               duplicates the work of stages 1b, 2, 4, and
+	#                               the d2 test, so it belongs as a local pre-push
+	#                               gate, not inside a pipeline that already runs
+	#                               those same suites and times out at 900s per
+	#                               stage. Its value is the FLOOR assertion, not
+	#                               the running of the suites themselves.
 	local root_excluded="supercred-images.bats
 agent-trust-lifecycle.bats
 deployed-staleness.bats
 signalloom-flux-integration.bats
-signalloom-preflight.bats"
+signalloom-preflight.bats
+test-count-floor.bats"
 
 	for f in "$repo_root"/test/*.bats; do
 		[ -e "$f" ] || continue

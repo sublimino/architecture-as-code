@@ -670,6 +670,17 @@ run_stage \
      d2-signalloom/test/runtime.bats \
      d2-signalloom/test/test-1-runtime.bats"
 
+# Stage 7b: Adversarial API surface probes (BATS TAP)
+#
+# 15 hostile probes against the live Gateway: unauthenticated mutations, forged
+# JWTs, path traversal, null bytes, oversized bodies/headers, CRLF injection,
+# information leakage, and endpoint health. These need the cluster and the
+# Gateway port-forward, so they sit here alongside the other runtime stages.
+run_stage \
+  "Adversarial API surface probes" \
+  "stage7b-adversarial.tap" \
+  "cd ${WORK_DIR} && bats --tap test/api-adversarial.bats"
+
 # Stage 8: Browser journey (Playwright → JUnit XML)
 run_stage \
   "Dex and complete dashboard journey matrix" \

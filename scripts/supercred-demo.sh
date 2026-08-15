@@ -42,11 +42,18 @@ AGENT_POD_NAMESPACE="$NAMESPACE_AGENTS"
 # this script authored at the moment it printed them.
 #
 # UTC, with an explicit Z. This script runs from a terminal in Europe/London
-# and from inside the demo-runner pod, whose image sets no TZ and is therefore
-# UTC — local time would render one instant two ways with nothing on the line
-# to say which was which. It also matches the UTC that step 4 already writes
-# into the signalloom.ai/stunned-at annotation, so the log line and the
-# artefact it produced agree.
+# and from inside the demo-runner pod, and the same instant would otherwise
+# print two ways with nothing on the line to say which. It also matches the UTC
+# that step 4 already writes into the signalloom.ai/stunned-at annotation, so
+# the log line and the artefact it produced agree.
+#
+# The `TZ=UTC` prefix is LOAD-BEARING — do not drop it on the reasoning that
+# the runner's child environment has no TZ anyway. glibc falls back to
+# /etc/localtime when TZ is unset, so on a developer's machine
+# `env -i bash -c 'printf "%(%H:%M:%S)T" -1'` prints BST, not UTC. Setting it
+# here at the point of use also keeps this off demo_runner.py's _ENV_ALLOWLIST:
+# a TZ inherited from the parent would be silently starved on exactly the
+# dashboard-invoked path that matters, and print local time in a terminal.
 #
 # Seconds, not milliseconds. These lines bracket kubectl calls and rollout
 # waits that are seconds to minutes apart, and the things worth correlating

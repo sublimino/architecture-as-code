@@ -655,6 +655,45 @@ describe('CredentialInventoryPage — filtering', () => {
     await waitFor(() => expect(credentialRows()).toHaveLength(0))
   })
 
+  // ── The unregistered warning is NOT a view of a filter ───────────────────
+
+  // Worth pinning because it is a trap: "unregistered" and "pending" look
+  // interchangeable and are not. `deriveEntriesFromAgents` ranks revocation
+  // above pending — a stunned pod that was never registered comes back
+  // `state: 'revoked'`, `registered: false` — so `State = pending` silently
+  // omits it. The warning banner enumerates `!registered`, which no single
+  // select on this table reproduces. Anyone tempted to delete the banner and
+  // point the reader at a filter instead would drop exactly this row: an
+  // unregistered workload that was ALSO cut off, which is the pairing an
+  // operator most needs to see.
+  it('lists an unregistered workload in the warning that no single state filter isolates', async () => {
+    const user = userEvent.setup()
+    const stunnedUnregistered = cardvaultPod({
+      id: 'agent-dennis', name: 'Dennis', service_account: 'default',
+      supercred: false, state: 'stunned',
+    })
+    mockAgentFetch({ agents: [stunnedUnregistered] })
+    renderPage()
+
+    const warning = await screen.findByTestId('unregistered-warning')
+    expect(warning).toHaveTextContent('sa/default')
+
+    // It is in the warning, and it is NOT pending.
+    await user.selectOptions(screen.getByTestId('identity-state-filter'), 'pending')
+    await waitFor(() => expect(identityRows()).toHaveLength(0))
+
+    // It is revoked, because being stunned outranks never having been asked for.
+    await user.selectOptions(screen.getByTestId('identity-state-filter'), 'revoked')
+    await waitFor(() => expect(identityRows()).toHaveLength(1))
+    expect(identityRows()[0]).toHaveAttribute(
+      'data-testid',
+      'identity-row-spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/default',
+    )
+
+    // And the warning never moved while the table was being narrowed.
+    expect(screen.getByTestId('unregistered-warning')).toHaveTextContent('sa/default')
+  })
+
   // ── The invariant that makes filtering safe ──────────────────────────────
 
   // A filter asks what to LOOK at. It must never be readable as a claim that

@@ -670,6 +670,22 @@ export default function CredentialInventoryPage() {
             SVID, and the workload holds no credential this platform can rotate or revoke. Register
             the identity, or move the workload onto a service account that has one.
           </div>
+          {/* Stays a list, and is the one region on this page that does not get
+              a filter. It presents two fields per item, so it LOOKS like a
+              third table, but it is an enumeration inside a warning and the
+              difference decides the answer: the heading above states a count,
+              and a filter under it could shrink the list while the count held,
+              so a security finding would under-report itself on screen. That
+              is the failure mode this whole page is written against.
+
+              Nor is it redundant with the Workload Identities table's filters,
+              which was the tempting reason to drop it. This list enumerates
+              `!registered`, and no single select up there reproduces that set:
+              revocation outranks pending in `deriveEntriesFromAgents`, so a
+              stunned pod that was never registered reads `revoked`, not
+              `pending`. That pod — unregistered AND cut off — is the one an
+              operator most needs, and a filter would be the thing that hid it.
+              Guarded by a test of the same name. */}
           <ul style={{ margin: '8px 0 0', paddingLeft: 18, color: 'var(--muted)', fontSize: 12 }}>
             {unregistered.map((entry) => (
               <li key={entry.spiffeId} data-testid={`unregistered-${entry.spiffeId}`}>

@@ -836,6 +836,86 @@ register KIND-COMMAND-SUBSTITUTION supplychain bats test/kind-config-heredoc.bat
 	'no command substitution in the heredoc' \
 	"scripts/create-kind-cluster.sh" 'not ok' mut_kind_command_substitution
 
+# ── Foreign-edit detection: content hashes, never mtimes ────────────────────
+#
+# This exists because the harness's operator misread the tree and reported it.
+#
+# During a run, `test/cosign-signing-consistency.bats` was observed with a fresh
+# mtime and a 47-line working-tree diff. That was read as "a second agent is
+# editing my worktree", stated as fact, and escalated. It was wrong, and the
+# reasoning that produced it was the exact move this whole round exists to stamp
+# out: an inference presented as a measurement.
+#
+# Two things make that misread easy, and both are properties of this tool:
+#
+#   * A mutation harness writes files constantly and by design. It runs in the
+#     one condition where "this file just changed" carries no information at all.
+#   * mtime is not evidence either way. `cp -p` PRESERVES timestamps, so a
+#     restore leaves mtime untouched — measured: a full --only SIGN-BY-TAG run
+#     changed neither the guard's nor the target's mtime. A harness that judged
+#     foreignness by mtime would therefore miss its own writes AND flag
+#     everyone else's.
+#
+# So the question "did something other than me change this file?" is answered
+# from CONTENT, against a baseline taken before the first mutation, and split
+# against the harness's own write log:
+#
+#   UNRESTORED  the harness wrote this path and failed to put it back. Its bug.
+#   FOREIGN     the harness never wrote this path and it changed anyway. Someone
+#               or something else did, and every verdict touching it is suspect.
+#
+# Never diagnose a foreign edit from a timestamp. Diagnose it from a hash, or say
+# you do not know.
+declare -a WATCH_PATHS=() WATCH_HASHES=()
+FOREIGN=0
+
+hash_of() {
+	if [ -e "$1" ]; then sha256sum "$1" | cut -d' ' -f1; else printf 'ABSENT'; fi
+}
+
+watch_baseline() {
+	local i p q seen
+	for i in "${!C_ID[@]}"; do
+		for p in "${C_GUARD[$i]}" "${C_TARGET[$i]}"; do
+			if [ -z "$p" ]; then continue; fi
+			seen=0
+			for q in "${WATCH_PATHS[@]}"; do
+				if [ "$q" = "$p" ]; then seen=1; fi
+			done
+			if [ "$seen" -eq 1 ]; then continue; fi
+			WATCH_PATHS+=("$p")
+			WATCH_HASHES+=("$(hash_of "$p")")
+		done
+	done
+}
+
+# Returns 0 when the tree is as it was, 1 when anything moved.
+watch_verify() {
+	local i p q want now wrote rc=0
+	for i in "${!WATCH_PATHS[@]}"; do
+		p="${WATCH_PATHS[$i]}"
+		want="${WATCH_HASHES[$i]}"
+		now="$(hash_of "$p")"
+		if [ "$want" = "$now" ]; then continue; fi
+		wrote=no
+		for q in "${SNAP_PATHS[@]}"; do
+			if [ "$q" = "$p" ]; then wrote=yes; fi
+		done
+		if [ "$wrote" = yes ]; then
+			printf '  UNRESTORED  %s\n' "$p"
+			printf '              the harness wrote this and did not put it back. Harness bug.\n'
+			DIRTY_TREE=1
+		else
+			printf '  FOREIGN     %s\n' "$p"
+			printf '              the harness never wrote this path, and it changed anyway.\n'
+			printf '              baseline %s... now %s...\n' "${want:0:16}" "${now:0:16}"
+			FOREIGN=$((FOREIGN + 1))
+		fi
+		rc=1
+	done
+	return $rc
+}
+
 # ── The engine ──────────────────────────────────────────────────────────────
 
 record_unknown() {
@@ -1155,6 +1235,43 @@ ok 2 should be filtered out' '^not ok|^# ' 5 '      | ')"
 		ST-SH-MISSING self sh "$fix/no-such-guard.sh" '' \
 		"$fix/target.txt" 'forbidden token' st_mut_real
 
+	# ── The foreign-edit detector must actually fire, and must not over-fire ──
+	#
+	# Both directions matter. A detector that never reports is the vacuous check
+	# this file exists to ban; a detector that reports the harness's OWN writes as
+	# foreign recreates the false alarm it was built to prevent.
+	local fw="$fix/foreign.txt" fo="$fix/ours.txt"
+	printf 'original\n' >"$fw"
+	printf 'original\n' >"$fo"
+	local sv_paths=("${WATCH_PATHS[@]}") sv_hashes=("${WATCH_HASHES[@]}")
+	local sv_snap=("${SNAP_PATHS[@]}") sv_keys=("${SNAP_KEYS[@]}") sv_foreign=$FOREIGN sv_dirty=$DIRTY_TREE
+	WATCH_PATHS=("$fw" "$fo"); WATCH_HASHES=("$(hash_of "$fw")" "$(hash_of "$fo")")
+	SNAP_PATHS=("$fo"); SNAP_KEYS=("ignored")   # we "wrote" $fo, never touched $fw
+	FOREIGN=0; DIRTY_TREE=0
+	printf 'edited by someone else\n' >"$fw"    # foreign: not in our write log
+	printf 'we changed this\n' >"$fo"           # ours: in our write log
+	watch_verify >/dev/null 2>&1 || true
+	SELFTEST_N=$((SELFTEST_N + 1))
+	if [ "$FOREIGN" -eq 1 ] && [ "$DIRTY_TREE" -eq 1 ]; then
+		printf '  ok    %-52s -> FOREIGN=1 UNRESTORED=1\n' "foreign edit detected, own write not misfiled"
+	else
+		printf '  FAIL  %-52s -> FOREIGN=%s DIRTY=%s (expected 1 and 1)\n' \
+			"foreign-edit detector" "$FOREIGN" "$DIRTY_TREE"
+		rc=1
+	fi
+	# And it must stay silent on a quiet tree.
+	WATCH_PATHS=("$fw"); WATCH_HASHES=("$(hash_of "$fw")"); SNAP_PATHS=(); FOREIGN=0; DIRTY_TREE=0
+	SELFTEST_N=$((SELFTEST_N + 1))
+	if watch_verify >/dev/null 2>&1 && [ "$FOREIGN" -eq 0 ]; then
+		printf '  ok    %-52s -> silent\n' "no false alarm when nothing changed"
+	else
+		printf '  FAIL  %-52s -> FOREIGN=%s\n' "foreign detector fired on an unchanged tree" "$FOREIGN"
+		rc=1
+	fi
+	WATCH_PATHS=("${sv_paths[@]}"); WATCH_HASHES=("${sv_hashes[@]}")
+	SNAP_PATHS=("${sv_snap[@]}"); SNAP_KEYS=("${sv_keys[@]}")
+	FOREIGN=$sv_foreign; DIRTY_TREE=$sv_dirty
+
 	# Restore proof: every fixture file is byte-identical after all of that.
 	if [ "$(cat "$fix/target.txt")" = "clean content" ]; then
 		SELFTEST_N=$((SELFTEST_N + 1))
@@ -1264,6 +1381,17 @@ fi
 # Record the working-tree state so the restore claim is evidence, not assertion.
 TREE_BEFORE="$(git status --porcelain 2>/dev/null | sort)"
 
+# Content baseline for every guard and target, taken before the first mutation.
+# This is what separates "the harness wrote it" from "something else did" at the
+# end of the run, without ever consulting a timestamp.
+watch_baseline
+if [ "${#WATCH_PATHS[@]}" -eq 0 ]; then
+	printf 'FATAL: the foreign-edit baseline covers ZERO paths — it would report a\n'
+	printf 'clean tree no matter what happened to it.\n'
+	exit 2
+fi
+printf 'watching: %s guard/target path(s) by content hash\n' "${#WATCH_PATHS[@]}"
+
 RAN=0
 for i in "${!C_ID[@]}"; do
 	if [ -n "$ONLY" ] && ! printf '%s' "${C_ID[$i]}" | grep -qE "$ONLY"; then
@@ -1288,6 +1416,9 @@ printf '  of which UNCLASSIFIED : %s   no control registered; blind spot vs deco
 printf 'UNKNOWN            : %s   <-- harness could not run these; neither pass nor fail\n' "$UNKNOWN"
 
 printf '\n--- restore proof ---\n'
+if watch_verify; then
+	printf 'all %s watched path(s) hash identical to their pre-run baseline.\n' "${#WATCH_PATHS[@]}"
+fi
 if [ "$TREE_BEFORE" = "$TREE_AFTER" ]; then
 	printf 'git status is byte-identical before and after. Tree restored.\n'
 else
@@ -1319,6 +1450,16 @@ if [ "${#FINDINGS[@]}" -gt 0 ]; then
 	printf '               drawing any conclusion about this guard at all.\n'
 fi
 
+if [ "$FOREIGN" -ne 0 ]; then
+	printf '\n%s watched path(s) changed during the run and this harness did not write\n' "$FOREIGN"
+	printf 'them. Something else did. Every verdict above that touched one of those\n'
+	printf 'paths was measured against a tree nobody has a record of, so none of them\n'
+	printf 'are safe to quote. Re-run on a quiet tree.\n'
+	printf '\nNote what this does NOT say: it names the paths and the hashes, and it\n'
+	printf 'does not name a culprit. "A second agent is editing my worktree" has been\n'
+	printf 'asserted here once already on weaker evidence than this, and it was wrong.\n'
+	exit 5
+fi
 if [ "$DIRTY_TREE" -ne 0 ]; then
 	printf '\nThe harness did not restore the tree. Nothing it reported can be trusted\n'
 	printf 'until that is fixed, and the working tree needs inspecting by hand.\n'

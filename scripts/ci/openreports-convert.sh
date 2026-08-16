@@ -158,6 +158,21 @@ const stageMap = [
   { file: 'stage1g-unregistered-guards.tap', parser: parseTap, source: 'bats-previously-unrun-guards', category: 'contract' },
   { file: 'stage1h-bats-registry.tap', parser: parseTap, source: 'bats-registry-coverage', category: 'meta' },
   { file: 'stage1j-ci-report-integrity.tap', parser: parseTap, source: 'ci-report-integrity', category: 'meta' },
+  // 1k asserts a property of the product's manifests -- that every RBAC binding
+  // resolves to a ServiceAccount and a Role that exist -- so it is 'contract'
+  // alongside 1g, not 'meta'.
+  { file: 'stage1k-rbac-subjects.tap', parser: parseTap, source: 'bats-rbac-subject-resolution', category: 'contract' },
+  //
+  // Stage 1m (vocabulary seam mutation proof) is deliberately NOT mapped, for
+  // the identical reason as 1i below: its output is prose -- "ok <label>" plus a
+  // quoted AssertionError -- not TAP and not JUnit. Pointing a parser at it
+  // would contribute ZERO rows while reading as configured coverage, which is
+  // worse than no entry. It is named stage1m-*.txt rather than .tap precisely so
+  // `every TAP stage report is registered in the stage map` in
+  // test/ci-terminal-state.bats does not demand an entry that could only lie.
+  //
+  // The stage still gates the pipeline: run_stage records its pass/fail in
+  // summary.json regardless, so a guard that stops firing still fails the run.
   //
   // Stage 1i (audit-guard reintroduction proof) is deliberately NOT mapped.
   // Its output is prose -- "RED as required" / "GUARD DID NOT FIRE" -- not TAP

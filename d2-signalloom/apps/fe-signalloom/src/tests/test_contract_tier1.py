@@ -17,6 +17,8 @@ from typing import Any
 
 import httpx
 import jwt
+import uuid
+
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
@@ -270,6 +272,36 @@ def test_contract_shape_matches_consumer(client: TestClient, endpoint: tuple) ->
     """For each API endpoint: call it, assert 2xx, validate against the consumer contract model."""
     method, path, body, contract_model, _desc = endpoint
     headers = _bearer(_token_for("alice"))
+
+    # The transition case owns its agent.
+    #
+    # It used to POST {"to_state": "active"} at the SEEDED agent, which is
+    # already `active`, so it only ever passed when some earlier test had moved
+    # that agent off `active` first. VALID_TRANSITIONS has no active->active
+    # edge, so the endpoint answers 409 and this contract case failed with
+    # "Cannot transition from 'active' to 'active'".
+    #
+    # It survived because api_compat's tenant stores are module-level and
+    # xdist's worksteal scheduler puts tests from different FILES in the same
+    # worker process: whether this case saw a suspended agent or an active one
+    # depended entirely on what had run beside it. It passed locally, failed on
+    # the CI VM, and flipped when an unrelated fix in test_agent_stun.py changed
+    # which state that suite left behind.
+    #
+    # A freshly created agent is `registered`, and registered->active is a valid
+    # edge, so this case now asserts the response SHAPE -- which is all a
+    # contract test is for -- without depending on anything else having run.
+    if path.endswith("/transition"):
+        created = client.post(
+            "/api/agents",
+            json={"name": f"contract-transition-{uuid.uuid4().hex[:8]}",
+                  "type": "custom", "owner": "contract@signalloom.local"},
+            headers=headers,
+        )
+        assert created.status_code in (200, 201), (
+            f"transition-case setup failed: {created.status_code} {created.text}"
+        )
+        path = f"/api/agents/{created.json()['id']}/transition"
 
     if method == "GET":
         response = client.get(path, headers=headers)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"hash/fnv"
 	"log/slog"
+	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -254,6 +255,27 @@ func checkSeed(id string) uint64 {
 	return h.Sum64()
 }
 
+// roundTo2 quantises v to two decimal places, rounding halves away from zero.
+//
+// The previous implementation, `float64(int(v*100+0.5))/100`, had three defects:
+//
+//  1. For negative values, int() truncates toward zero, giving the wrong answer at every
+//     rounding boundary (e.g. -2.675 → -2.67 instead of -2.68).
+//  2. NaN silently became -9.22e16 (MinInt64/100) — a plausible-looking number.
+//  3. ±Inf became the same -9.22e16 — also a plausible-looking number.
+//
+// The fix: pass non-finite values through unchanged (so they surface downstream rather than
+// being silently fabricated), and use math.Abs + sign restoration to round negative values
+// correctly.
 func roundTo2(v float64) float64 {
-	return float64(int(v*100+0.5)) / 100
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return v
+	}
+	sign := 1.0
+	abs := v
+	if v < 0 {
+		sign = -1.0
+		abs = -v
+	}
+	return sign * math.Floor(abs*100+0.5) / 100
 }

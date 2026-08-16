@@ -208,10 +208,13 @@ export default function DataTable<T>({
       const aVal = a[key]
       const bVal = b[key]
 
-      // Handle nullish
-      if (aVal == null && bVal == null) return 0
-      if (aVal == null) return dir
-      if (bVal == null) return -dir
+      // Handle nullish and NaN — push missing values to the end regardless of
+      // sort direction so they never interleave with real data.
+      const aNull = aVal == null || (typeof aVal === 'number' && Number.isNaN(aVal))
+      const bNull = bVal == null || (typeof bVal === 'number' && Number.isNaN(bVal))
+      if (aNull && bNull) return 0
+      if (aNull) return 1   // a goes last, always
+      if (bNull) return -1  // b goes last, always
 
       // Numeric comparison
       if (typeof aVal === 'number' && typeof bVal === 'number') {

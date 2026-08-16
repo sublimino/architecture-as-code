@@ -116,6 +116,16 @@ EOF
 @test "IMGVIS the shim still fails closed on an argv it does not understand" {
   # Pre-existing guarantee that must survive this change: a shim exiting 0 for
   # an unhandled command turns the whole verify step into a gate that passes.
+  #
+  # `[ "$status" -ne 0 ]` alone did not test that. `bash "$shim"` on a missing
+  # or unreadable file exits 127/126, and a moved shim would have satisfied this
+  # test forever while proving nothing about fail-closed behaviour. Assert the
+  # subject exists, then assert the SPECIFIC refusal the shim implements.
+  [ -f "$shim" ]
+
   run bash "$shim" images --format '{{.Repository}}'
-  [ "$status" -ne 0 ]
+  # unsupported() exits 1 after naming the argv on stderr. 127 (not found) and
+  # 126 (not executable) are different findings and must not read as a pass.
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"unsupported docker argv"* ]]
 }

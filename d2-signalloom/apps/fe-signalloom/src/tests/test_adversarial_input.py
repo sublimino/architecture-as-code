@@ -110,10 +110,12 @@ class TestUnboundedStrings:
 
     def test_transition_overlong_reason(self, client):
         """TransitionRequest.reason has no max_length."""
+        # Use suspended (valid: active -> suspended) so we test the reason field,
+        # not the transition graph.
         resp = client.post(
             "/api/agents/tenant-a:agent-1/transition",
             headers=AUTH(),
-            json={"to_state": "active", "reason": "X" * 100_000},
+            json={"to_state": "suspended", "reason": "X" * 100_000},
         )
         assert resp.status_code in (200, 422)
 

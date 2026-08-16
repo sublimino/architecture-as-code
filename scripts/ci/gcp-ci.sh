@@ -808,6 +808,70 @@ marker_process_state() {
 # earlier. Two agents saw that artefact independently and each assumed their own
 # tooling was misreading.
 
+# archive_run_reports — keep a per-run copy so the next run cannot destroy it.
+#
+# The comment above documents that a checkout can hold a FOREIGN answer. It does
+# not stop the worse case: a run's artefacts being overwritten by the NEXT run
+# in the same checkout, which destroys the only evidence of an intermittent
+# failure.
+#
+# That happened on 2026-08-16. A pytest stage failed on one test; by the time
+# the failure was investigated, a concurrent session's run had replaced
+# ci-reports/ with its own PASSING artefacts at a different commit. The
+# .prev rotation is one level deep, so the second overwrite took the evidence
+# with it. The failing assertion is simply gone, and a flake nobody can
+# diagnose is a flake nobody can fix.
+#
+# Cheap insurance: after collection, copy the whole directory to
+# ci-reports/runs/<commit>-<utc>/. ci-reports/* itself is untouched, so every
+# existing consumer -- `make ci-report`, openreports-convert.sh, the bats guards
+# -- reads exactly what it read before.
+#
+# Named from the run's OWN commit and its collection time, so the directory says
+# which run it belongs to without anyone consulting mtime; mtime records
+# whatever last touched a file, which is the trap summary_epoch below exists to
+# avoid.
+archive_run_reports() {
+  local dest_root="${REPORT_DIR}/runs"
+  local stamp commit
+  commit="${RUN_COMMIT:-unknown}"
+  stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+
+  # VM_NAME, because hot and cold lanes are the real concurrency axis: they run
+  # the same commit at the same moment on signalloom-ci and signalloom-ci-2.
+  #
+  # And a uniquifier, because the first version of this function keyed on
+  # commit+second alone -- so two archives in the same second landed on the same
+  # path and the second silently overwrote the first. An archive function whose
+  # own failure mode is "one run's evidence destroyed by another" would have
+  # been a very short-lived joke.
+  local base="${dest_root}/${commit}-${VM_NAME:-vm}-${stamp}"
+  local dest="$base" n=1
+  while [ -e "$dest" ]; do
+    dest="${base}.${n}"
+    n=$((n + 1))
+  done
+
+  mkdir -p "$dest" 2>/dev/null || { echo "WARNING: could not create ${dest}"; return 0; }
+  # `runs` is excluded from its own copy, or each archive nests the last.
+  if ! (cd "$REPORT_DIR" && find . -maxdepth 1 -mindepth 1 ! -name runs \
+        -exec cp -a {} "$dest/" \; ) 2>/dev/null; then
+    echo "WARNING: could not archive this run's reports to ${dest}"
+    return 0
+  fi
+  echo "    run archived to ${dest#"$REPO_ROOT"/}"
+
+  # Keep the last 20. Unbounded growth would be its own defect, and a silent
+  # cap would be worse -- say what was dropped.
+  local -a old
+  mapfile -t old < <(ls -1d "${dest_root}"/*/ 2>/dev/null | sort | head -n -20)
+  if ((${#old[@]} > 0)); then
+    echo "    pruning $((${#old[@]})) archived run(s) beyond the last 20"
+    rm -rf "${old[@]}"
+  fi
+  return 0
+}
+
 # summary_epoch <summary-file> — the time the report itself claims, epoch
 # seconds. Deliberately not mtime: mtime records whatever last touched the file,
 # so a copy, an rsync or a tar extraction re-dates a report it did not produce.
@@ -1120,6 +1184,7 @@ cmd_run() {
     && tar -xzf "${REPORT_DIR}/$(basename "$report_archive")" -C "$REPORT_DIR"; then
     rm -f "${REPORT_DIR}/$(basename "$report_archive")"
     iap_ssh "rm -f $(printf '%q' "$report_archive")" >/dev/null 2>&1 || true
+    archive_run_reports
   else
     echo "WARNING: Failed to collect report files"
   fi

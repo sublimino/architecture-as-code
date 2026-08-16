@@ -414,7 +414,10 @@ read_status() {
 	local body marker_line status_line trap_line
 	body="$(awk '/^cmd_run\(\)/{f=1} f{print} f&&/^}/{exit}' "$gcp")"
 	marker_line="$(printf '%s\n' "$body" | grep -n 'set_run_phase' | head -1 | cut -d: -f1)"
-	status_line="$(printf '%s\n' "$body" | grep -n 'status="\$(vm_status)"' | head -1 | cut -d: -f1)"
+	# The VM query may be inline (`status="$(vm_status)"`) or delegated to a
+	# helper (`ensure_vm_ssh_ready`). Either is the first thing that talks to
+	# the VM, and the marker must precede it.
+	status_line="$(printf '%s\n' "$body" | grep -n 'vm_status\|ensure_vm_ssh_ready' | head -1 | cut -d: -f1)"
 	# The trap is what turns that marker into a terminal state if the run dies.
 	# Unwired, every function below still works and nothing else notices.
 	trap_line="$(printf '%s\n' "$body" | grep -n 'trap run_exit_trap EXIT' | head -1 | cut -d: -f1)"

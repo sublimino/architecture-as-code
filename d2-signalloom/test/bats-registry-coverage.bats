@@ -59,6 +59,49 @@ excluded_suites() {
 	sed -n 's/^EXCLUDED_BATS[[:space:]]*=[[:space:]]*//p' "$d2_makefile" | tr ' ' '\n' | grep -v '^$' || true
 }
 
+# Every directory in the repo that holds .bats suites — DISCOVERED, not listed.
+#
+# The first version of this file hard-coded `for d in "$d2/test" "$repo_root/test"`,
+# which is the identical defect it was written to end, one level up: a
+# hand-maintained list that omits by default. It covered 74 suites and was blind
+# to six more —
+#
+#   d2-osramp-apps/test/  3      olly-replica/test/  1      d2-cpai/test/  2
+#
+# — so an orphaned suite in any of those three directories could never be
+# reported, by the guard whose entire job is reporting orphaned suites. Found
+# when an agent working on d2-osramp-apps/test/osramp.bats noted in passing that
+# "the whole suite currently runs nowhere in CI"; nothing in the tree contradicted
+# it, because nothing in the tree was looking.
+#
+# Discovery closes it permanently: a new test directory is covered the moment it
+# exists, with nobody remembering to add it here.
+# test_helper/ is excluded because it holds VENDORED libraries (bats-assert,
+# bats-support) that ship their own 9-suite test directory. Those are upstream's
+# tests of upstream's code; demanding this repo's CI invoke them would be a
+# false positive that teaches people to widen the allowlist.
+#
+# A plain glob, not `compgen -G`: the first draft used compgen and returned
+# EMPTY under bats, which made `[ -n "$dirs" ]` fail. That failure was the good
+# outcome — the mechanism assertion caught its own discovery being broken. Had
+# the assertion not been there, an empty list would have made every check below
+# pass over zero directories: a guard against vacuous passes, passing vacuously.
+bats_dirs() {
+	# Root computed here rather than inherited from setup(), so the function is
+	# self-contained and cannot silently return nothing because a caller's
+	# variable was unset — which is precisely how the first draft failed.
+	local root="${1:-$repo_root}"
+	[ -n "$root" ] || return 1
+	find "$root" -type d -name test \
+		-not -path '*/node_modules/*' \
+		-not -path '*/.git/*' \
+		-not -path '*/.worktrees/*' \
+		-not -path '*/test_helper/*' 2>/dev/null \
+	| while IFS= read -r d; do
+		if ls "$d"/*.bats >/dev/null 2>&1; then printf '%s\n' "$d"; fi
+	done
+}
+
 @test "the d2-signalloom Makefile still GLOBS its bats suites" {
 	# Mechanism-presence check. If someone replaces the glob with an explicit
 	# list, every other assertion here could still pass while the hole reopens.
@@ -153,33 +196,67 @@ excluded_suites() {
 @test "every proof script under test/ is invoked by something" {
 	# The coverage hole has a third shape. Stages 1g/1h close it for .bats files,
 	# but audit-guard-reintroduction-proof.sh is a shell script, so the bats
-	# registry could not see it -- and it was invoked by nothing at all. It is the
-	# only thing in the repository that proves the 12 audit provenance guards
-	# actually fail when their defects are reintroduced, and it costs 7 seconds.
+	# registry could not see it -- and it was invoked by nothing at all. It is
+	# the only thing in the repository that proves the 12 audit provenance
+	# guards actually fail when their defects are reintroduced, and it costs 7
+	# seconds.
 	#
-	# Checked across BOTH test directories and against every runner, not just the
-	# pipeline, because a script legitimately invoked from a Makefile target is
-	# covered too.
-	local unrun=""
-	for d in "$d2/test" "$repo_root/test"; do
-		[ -d "$d" ] || continue
+	# Test directories are DISCOVERED, not listed. The first version named two
+	# -- "$d2/test" and "$repo_root/test" -- which is the identical defect this
+	# file exists to end, one level up: a hand-maintained list that omits by
+	# default. It covered 74 suites and was blind to 9 more across FOUR other
+	# directories (d2-osramp-apps, olly-replica, d2-cpai, d2-agent-trust, plus
+	# d2-k8s-afm), so an orphan in any of them could never be reported by the
+	# guard whose whole job is reporting orphans.
+	#
+	# NOTE: there is deliberately NO `-not -path '*/.worktrees/*'` here, and that
+	# omission cost an hour. The canonical worktree home is
+	# ~/src/.worktrees/<repo>/<branch>, so when this suite runs from inside a
+	# worktree -- which is how every agent in this project works -- the repo root
+	# ITSELF contains ".worktrees", and that exclusion matched every directory
+	# under it. find returned nothing, `dirs` was empty, and the check reported
+	# only that its own mechanism was broken.
+	#
+	# It would have passed in the main checkout and found nothing in any
+	# worktree: a guard that works exactly where nobody runs it. The exclusion
+	# was also pointless -- find is rooted at the repo root and cannot reach a
+	# sibling worktree from there.
+	#
+	# test_helper/ is skipped: it holds VENDORED bats-assert/bats-support, which
+	# ship their own test directory. Those are upstream's tests of upstream's
+	# code, and demanding CI run them would be a false positive that teaches
+	# people to widen allowlists.
+	local root="$repo_root"
+	[ -n "$root" ]
+
+	local dirs
+	dirs="$(find "$root" -type d -name test -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/test_helper/*' 2>/dev/null)"
+
+	# Assert the mechanism: discovery finding nothing would make every assertion
+	# below pass over an empty set -- a guard against vacuous passes, passing
+	# vacuously. This assertion already earned its place once, catching a first
+	# draft whose `compgen -G` returned empty under bats.
+	[ -n "$dirs" ]
+
+	local unrun="" d f base
+	for d in $dirs; do
 		for f in "$d"/*.sh; do
 			[ -e "$f" ] || continue
-			local base
 			base="$(basename "$f")"
-			# Search every runner, ignoring comments and the script's own file.
+			# Search every runner, ignoring comments and the script's own file,
+			# because a script legitimately invoked from a Makefile target is
+			# covered too -- it need not be a CI stage.
 			if ! grep -rl --include='*.sh' --include='Makefile' \
 					--exclude="$base" -F "$base" \
-					"$repo_root/scripts" "$repo_root/Makefile" "$d2/Makefile" \
-					"$repo_root/d2-signalloom/test" 2>/dev/null \
+					"$root/scripts" "$root/Makefile" "$root/d2-signalloom" 2>/dev/null \
 				| grep -q .; then
-				unrun="${unrun}${base} "
+				unrun="${unrun}${f#$root/} "
 			fi
 		done
 	done
 
 	if [ -n "$unrun" ]; then
-		echo "Proof/test script(s) under test/ that no runner invokes:"
+		echo "Proof/test script(s) that no runner invokes:"
 		echo "  $unrun"
 		echo ""
 		echo "A proof nothing runs proves nothing. Add it to a run_stage in"

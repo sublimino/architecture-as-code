@@ -191,7 +191,7 @@ function registerAgent(body: unknown): AgentResponse {
     type: input.type,
     owner: input.owner,
     tenant_id: TENANT,
-    lifecycle_state: 'draft',
+    lifecycle_state: 'registered',
     last_transition_at: createdAt,
     last_transition_by: 'demo-user',
     eu_ai_act_risk_class: 'minimal',

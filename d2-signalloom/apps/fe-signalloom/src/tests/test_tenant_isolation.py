@@ -1310,61 +1310,24 @@ def test_superadmin_is_decided_from_the_token_identity_not_from_the_request(clie
 
 
 def test_api_key_routes_ignore_the_tenant_named_in_their_own_path(client, recording):
-    """FINDING: ``{tenant_id_path}`` is unvalidated and flows into key material.
+    """RESOLVED: ``{tenant_id_path}`` is now validated against the JWT tenant.
 
-    ``POST /api/tenants/{tenant_id_path}/api-keys/initial`` and ``/rotate``
-    both open with::
-
-        tenant_id = principal.tenant
-        key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
-
-    The path segment is never compared with the caller's tenant.  Storage is
-    correctly scoped -- every statement binds ``principal.tenant`` -- so this is
-    NOT a cross-tenant write.  What it is:
-
-    * the returned key is labelled with a tenant the caller does not own, and
-      ``prefix_hint`` -- the first fourteen characters -- is derived from that
-      label and persisted to ``tenant_api_keys.prefix_hint`` AND written into
-      the ``api_key.created`` audit row.  A tenant A key is filed under a
-      prefix that names tenant B, in the evidence trail;
-    * a route parameter that names a tenant and is silently ignored is an
-      authorization check that reads as present and is absent.
-
-    Correct behaviour is a product decision -- 403 on mismatch, or drop the
-    parameter from the route entirely -- so this pins today's behaviour rather
-    than choosing.  Escalated.
+    Previously the path segment was never compared with the caller's tenant,
+    letting an attacker mint a key whose prefix named a victim's tenant while
+    the storage was correctly scoped to the caller.  That labelling defect has
+    been fixed: a mismatch now returns 403 ``tenant_mismatch``, and the key
+    material uses ``principal.tenant`` instead of the path parameter.
     """
-    # A tenant name the caller chose, distinct enough to be unmistakable in the
-    # key material.  "tenant-b" would truncate to the same 14-character prefix
-    # hint as "tenant-a" and hide the finding.
     victim = "victimcorp"
     response = client.post(f"/api/tenants/{victim}/api-keys/initial", headers=bearer(ALICE))
 
-    assert response.status_code == 200, response.text
+    # The fix rejects the mismatch at the door.
+    assert response.status_code == 403, response.text
     body = response.json()
+    assert body["error"]["code"] == "tenant_mismatch"
 
-    # The caller is tenant-a.  The key it was handed announces victimcorp.
-    assert body["key"].startswith(f"sl_live_{victim}_"), body["key"]
-    assert body["prefix_hint"] == f"sl_live_{victim}"[:14] == "sl_live_victim", body["prefix_hint"]
-
-    # ... while every statement is correctly bound to the caller's own tenant,
-    # which is what keeps this a labelling defect rather than a write leak.
-    assert not unscoped_statements(recording, TENANT_A)
-    assert all(
-        victim != arg for _sql, args in recording.statements for arg in args
-    ), recording.statements
-
-    # And the attacker-chosen label reaches persistence, not just the response:
-    # it is written to tenant_api_keys.prefix_hint AND into the audit detail.
-    persisted = [
-        args for sql, args in recording.statements if "INSERT INTO tenant_api_keys" in sql
-    ]
-    assert persisted, recording.statements
-    assert "sl_live_victim" in persisted[0], persisted[0]
-
-    audited = [args for sql, args in recording.statements if "INSERT INTO audit_events" in sql]
-    assert audited, recording.statements
-    assert any("sl_live_victim" in str(arg) for arg in audited[0]), audited[0]
+    # No SQL was issued -- the guard fires before any pool interaction.
+    assert not recording.statements
 
 
 class GovernancePool(RecordingPool):

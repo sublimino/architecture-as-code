@@ -134,14 +134,25 @@ export function convert(
   target: CurrencyCode,
   table?: RateTable,
 ): Converted | null {
+  // A non-finite source amount is not money — it is a computation error upstream.
+  // Returning null forces the caller to render "Unavailable" rather than producing
+  // a Converted with NaN that passes the null check and enters arithmetic.
+  if (!Number.isFinite(m.amount)) return null
+
   const lookup = rateFor(m.currency, target, table)
   if (lookup === null) return null
+
+  const raw = m.amount * lookup.rate
+  // The multiplication can overflow to ±Infinity for extreme values (e.g. a very
+  // large amount times a very large rate). An infinite converted amount is not a
+  // figure anyone can use — return null so the caller renders "Unavailable".
+  if (!Number.isFinite(raw)) return null
 
   return {
     // Rounded to the TARGET currency's minor units, once, at the end. Not to
     // whole units: that is a display choice the formatter makes, and baking it
     // in here would round twice and lose the defensible value.
-    amount: roundHalfAwayFromZero(m.amount * lookup.rate, minorUnits(target)),
+    amount: roundHalfAwayFromZero(raw, minorUnits(target)),
     currency: target,
     source: m,
     rate: lookup.rate,

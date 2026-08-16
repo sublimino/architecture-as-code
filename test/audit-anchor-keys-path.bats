@@ -94,8 +94,17 @@ setup() {
 # ── The demo script ───────────────────────────────────────────────────────────
 
 @test "the demo script never concatenates a base onto KEYS_DIR" {
-	run grep -n 'OLDPWD}/${KEYS_DIR}' "$repo/scripts/audit-anchor-tamper-demo.sh"
-	[ "$status" -ne 0 ]
+	local demo="$repo/scripts/audit-anchor-tamper-demo.sh"
+	# Assert the subject exists before reading a pass out of grep's silence. If
+	# the script is renamed or moved, grep exits 2 and `-ne 0` reports the
+	# forbidden pattern as absent -- a pass earned by scanning nothing.
+	[ -f "$demo" ]
+
+	run grep -n 'OLDPWD}/${KEYS_DIR}' "$demo"
+	# Exactly 1, not merely non-zero. grep reserves 1 for "ran fine, selected no
+	# lines" and 2 for "something went wrong", and those are different findings.
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
 }
 
 @test "the demo script resolves keys through the shared helper" {

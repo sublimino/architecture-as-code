@@ -1,0 +1,40 @@
+# Deliberate exceptions to scripts/check-vacuous-assertions.sh.
+#
+# Format, one per line:
+#
+#   RULE | path-relative-to-repo-root | anchor text | reason
+#
+# The anchor is a text snippet from the offending line (or, for the bats body
+# rules VAC003/VAC005/VAC006, from the `@test "..."` header). It is text rather
+# than a line number on purpose: a line number rots on the next edit anywhere
+# above it, which trains people to renumber the allowlist without rereading the
+# entry. Text anchoring fails when the line is genuinely gone and survives when
+# it merely moved.
+#
+# Three things make an entry FAIL THE BUILD, all of them exit 1:
+#
+#   * the path no longer exists
+#   * the anchor text is no longer in that file
+#   * the entry suppresses nothing
+#
+# The last is the sharpest. An exception for a finding that no longer occurs
+# reads as "reviewed and accepted" while describing nothing, and it silently
+# pre-approves whatever reoccupies that name later. If the code it excused has
+# been fixed, delete the line — that is the whole contract.
+#
+# An entry is a written-down decision. If you cannot state the reason in a
+# clause, the finding is not an exception; it is a defect you have not fixed yet.
+#
+# ── Entries ─────────────────────────────────────────────────────────────────
+#
+# There are none. Every finding from the first run over this tree was a true
+# positive and was fixed, not excused:
+#
+#   test/audit-anchor-keys-path.bats     grep "must not match" tests that passed
+#   test/ci-installer-privileges.bats    on a missing file (grep exit 2 reads as
+#   test/ci-lock.bats                    "pattern absent" under `-ne 0`)
+#   test/supercred-image-visibility.bats a fail-closed test that `bash $shim`
+#                                        would have satisfied with exit 127
+#   d2-osramp-apps/test/osramp.bats      two `run verify` lines and no status
+#                                        check: green whether NATS was up, down,
+#                                        or the cluster unreachable

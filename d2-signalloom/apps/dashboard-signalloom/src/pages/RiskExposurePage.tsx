@@ -9,6 +9,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import type { PostureSummary } from '../types/compliance'
 import { useMoney } from '../money/CurrencyContext'
 import { scaleMoney } from '../money/money'
+import { MONEY_UNAVAILABLE } from '../money/format'
 import ConversionNote from '../components/ConversionNote'
 
 /** Simulate a loss-exceedance curve from aggregate risk numbers. */
@@ -185,9 +186,9 @@ export default function RiskExposurePage() {
             {summary.frameworks.map((fw) => (
               <tr key={fw.id} style={{ borderBottom: '1px solid var(--border)' }}>
                 <td style={td}>{fw.name}</td>
-                <td style={td}>{fmtMoney(scaleMoney(summary.totalAle, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0))}</td>
-                <td style={td}>{fmtMoney(scaleMoney(summary.totalVar95, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0))}</td>
-                <td style={td}>{fmtMoney(scaleMoney(summary.totalTvar, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0))}</td>
+                <td style={td}>{(() => { const s = scaleMoney(summary.totalAle, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
+                <td style={td}>{(() => { const s = scaleMoney(summary.totalVar95, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
+                <td style={td}>{(() => { const s = scaleMoney(summary.totalTvar, fw.totalControls > 0 ? fw.totalControls / summary.totalChecks : 0); return s ? fmtMoney(s) : MONEY_UNAVAILABLE })()}</td>
                 <td style={td}>{fmtMoney(fw.totalExposure)}</td>
               </tr>
             ))}

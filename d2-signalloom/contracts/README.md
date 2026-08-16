@@ -1,6 +1,6 @@
-# Signalloom contracts
+# Signal Loom contracts
 
-This directory holds committed cross-component contracts, including the
-source-derived `discovery-portal-bootstrap.sql` artifact. The drift check
-regenerates and compares that artifact. No generated database state or
-production credential belongs in this directory.
+Cross-component contracts, including the source-derived
+`discovery-portal-bootstrap.sql` artifact. The drift check regenerates
+and compares that artifact. Do not store generated database state or
+production credentials in this directory.

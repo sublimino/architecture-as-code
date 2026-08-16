@@ -1,6 +1,5 @@
-# Signalloom infrastructure components
+# Signal Loom infrastructure components
 
-`inf-bao` owns the bounded OpenBao/SPIRE slice. `inf-signalloom` owns the
-local PostgreSQL, Redis, MinIO, and fake integration proxy slice. Component
-roots provide controller/config split and local overlay entry points. Workload
-manifests are present under their owning component roots.
+`inf-bao` owns the OpenBao and SPIRE slice. `inf-signalloom` owns
+PostgreSQL, Redis, MinIO, and the fake integration proxy. Each component
+root has a controller/config split with local overlay entry points.

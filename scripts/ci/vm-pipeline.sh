@@ -586,6 +586,55 @@ run_stage \
    bash d2-signalloom/test/audit-guard-reintroduction-proof.sh; \
    rc=\$?; echo \"proof-exit=\$rc\"; exit \$rc"
 
+# Stage 1k: RBAC subject and roleRef resolution (BATS TAP)
+#
+# A RoleBinding naming a ServiceAccount that does not exist is legal. The API
+# server stores it, Flux marks it Ready, and it grants nothing. Same for a
+# roleRef pointing at a Role nobody created. The only symptom is a 403 on a call
+# that should have been allowed, which in this estate mostly surfaces as fewer
+# results rather than as an error — the agent discovery proxy shipped exactly
+# that defect.
+#
+# Derives both sides from the manifests, INCLUDING objects nested inside Flux
+# ResourceSet spec.resources[]. That nesting is not a detail: a top-level-only
+# scan sees 2 Roles where there are 13 and reports a false positive against
+# Role/fe-signalloom-health-reader.
+#
+# The suite also injects drift into fixture repos and requires the checker to
+# exit non-zero, so it cannot decay into a checker that scans nothing.
+#
+# python3 + PyYAML and git only: no cluster, no network, ~2s.
+run_stage \
+  "RBAC subject resolution" \
+  "stage1l-rbac-subjects.tap" \
+  "cd ${WORK_DIR} && bats --tap test/rbac-subject-resolution.bats"
+
+# Stage 1m: Vocabulary seam guard mutation proof (11 cases)
+#
+# The same argument as stage 1i, for the dashboard/API/database vocabulary
+# guards. Injects each defect those guards exist to catch — an emitted event
+# type with no filter option, a filter matching nothing the API emits, a
+# lifecycle state the constraint forbids, a stale allowlist entry — and requires
+# a RED test for every one, then requires recovery on restore.
+#
+# Two of those assertions were red against live code when written (21 of 22
+# emitted audit event types had no filter; every agent is created in a state the
+# fleet view could not select). The other nine were green from the first run,
+# which is precisely the condition under which a guard that can never fail looks
+# identical to one that works.
+#
+# Restores every mutated file through an EXIT trap, by cp from a backup rather
+# than `git checkout --`, so an interrupted run cannot leave a defect behind or
+# delete uncommitted work. Verified: `git status` is clean after a run.
+#
+# python3 + pytest only: no cluster, no network, ~12s.
+run_stage \
+  "Vocabulary seam mutation proof" \
+  "stage1m-seam-mutation-proof.txt" \
+  "cd ${WORK_DIR} && \
+   bash d2-signalloom/test/seam-guard-mutation-proof.sh; \
+   rc=\$?; echo \"proof-exit=\$rc\"; exit \$rc"
+
 # Stage 1j: CI report integrity (BATS TAP)
 #
 # Asserts the CI reporting chain is internally consistent: every structured

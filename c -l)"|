@@ -1,3 +1,0 @@
-	local dirs
-	echo "DBG repo_root=[$repo_root]"
-	echo "DBG findcount=$(find "$repo_root" -type d -name test 2>/dev/null 

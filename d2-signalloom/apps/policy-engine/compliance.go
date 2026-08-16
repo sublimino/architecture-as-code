@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"hash/fnv"
 	"log/slog"
-	"math"
 	"net/http"
 	"sync"
 	"time"
@@ -151,12 +150,12 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 					Check:             cwc.Check.ID,
 					Passed:            passed,
 					PolicyVersion:     req.PolicyVersion,
-					ALE:               roundTo2(risk.ALE),
-					VaR95:             roundTo2(risk.VaR95),
-					TVaR:              roundTo2(risk.TVaR),
-					CarriedGBP:        roundTo2(risk.CarriedGBP),
+					ALE:               roundMoney(risk.ALE, reportingCurrency),
+					VaR95:             roundMoney(risk.VaR95, reportingCurrency),
+					TVaR:              roundMoney(risk.TVaR, reportingCurrency),
+					CarriedGBP:        roundMoney(risk.CarriedGBP, reportingCurrency),
 					Currency:          reportingCurrency,
-					Carried:           money.Money{Amount: roundTo2(risk.CarriedGBP), Currency: reportingCurrency},
+					Carried:           money.Money{Amount: roundMoney(risk.CarriedGBP, reportingCurrency), Currency: reportingCurrency},
 					ScanTimestamp:     now,
 					CalibrationSource: "industry-indicative",
 				})
@@ -255,27 +254,23 @@ func checkSeed(id string) uint64 {
 	return h.Sum64()
 }
 
-// roundTo2 quantises v to two decimal places, rounding halves away from zero.
+// roundMoney quantises a risk figure for display in the given currency using decimal-string
+// rounding (half away from zero, on the shortest decimal representation), matching the
+// money package exactly.
 //
-// The previous implementation, `float64(int(v*100+0.5))/100`, had three defects:
+// WHY THIS REPLACED roundTo2. The original function had two defects beyond the three that
+// had already been patched (negative truncation, NaN→0, Inf→MinInt64):
 //
-//  1. For negative values, int() truncates toward zero, giving the wrong answer at every
-//     rounding boundary (e.g. -2.675 → -2.67 instead of -2.68).
-//  2. NaN silently became -9.22e16 (MinInt64/100) — a plausible-looking number.
-//  3. ±Inf became the same -9.22e16 — also a plausible-looking number.
+//  4. CURRENCY-BLIND. It hardcoded 2 decimal places regardless of the currency. JPY has 0
+//     minor units; BHD has 3. Rounding ¥12345.67 to 2dp prints a quantity of yen that
+//     cannot exist — and 2dp is wrong for BHD/KWD/OMR/TND/JOD/LYD/IQD too.
+//  5. BINARY-FLOAT ROUNDING. math.Floor(abs*100+0.5)/100 operates on the IEEE 754 binary
+//     representation, not the decimal the reader sees. The nearest double to 1.005 is
+//     1.00499..., so the old function rounded to 1.00 while money.roundHalfAwayFromZero
+//     rounds to 1.01 — a penny difference on the same screen from the same number.
 //
-// The fix: pass non-finite values through unchanged (so they surface downstream rather than
-// being silently fabricated), and use math.Abs + sign restoration to round negative values
-// correctly.
-func roundTo2(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return v
-	}
-	sign := 1.0
-	abs := v
-	if v < 0 {
-		sign = -1.0
-		abs = -v
-	}
-	return sign * math.Floor(abs*100+0.5) / 100
+// The fix is to stop reimplementing rounding altogether and use money.Money.Round(), which
+// respects the currency's minor-unit exponent and operates on the decimal string.
+func roundMoney(v float64, c money.Currency) float64 {
+	return money.Money{Amount: v, Currency: c}.Round().Amount
 }

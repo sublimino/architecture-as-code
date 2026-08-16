@@ -304,6 +304,44 @@ class RevokeCredentialResponse(BaseModel):
     tokens_revoked: int
 
 
+# ---------------------------------------------------------------------------
+# Lifecycle state machine — the vocabulary and the transition graph
+# ---------------------------------------------------------------------------
+#
+# Must stay in step with:
+#   - DB CHECK constraint in migration 009_agent_lifecycle_states.sql
+#   - VALID_NEXT_STATES in dashboard-signalloom/src/pages/AgentDetailPage.tsx
+#
+# The DB constraint is the backstop; this is the gate that turns a violation
+# into a 400 with a message the caller can act on, instead of a 500 from a
+# CHECK failure that names the constraint but not the vocabulary.
+
+VALID_LIFECYCLE_STATES: frozenset[str] = frozenset({
+    "registered",
+    "enrolled",
+    "active",
+    "suspended",
+    "revoked",
+    "decommissioned",
+})
+
+#: The transition graph.  Keys are from-states; values are the set of states
+#: reachable from that state.  A state absent as a key is a terminal state
+#: (no outbound transitions).  The graph is deliberately one-directional for
+#: revoked/decommissioned: once an agent reaches a terminal state, re-activation
+#: requires a new registration, not a transition — the audit trail must not
+#: show a decommissioned agent silently coming back to life.
+VALID_TRANSITIONS: dict[str, frozenset[str]] = {
+    "registered": frozenset({"enrolled", "active", "suspended", "revoked", "decommissioned"}),
+    "enrolled":   frozenset({"active", "suspended", "revoked", "decommissioned"}),
+    "active":     frozenset({"suspended", "revoked", "decommissioned"}),
+    "suspended":  frozenset({"active", "revoked", "decommissioned"}),
+    # Terminal states: no outbound transitions.
+    "revoked":        frozenset(),
+    "decommissioned": frozenset(),
+}
+
+
 class TransitionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2430,6 +2468,35 @@ async def get_agent(
     return _agent_response_from_row(row, compliance)
 
 
+def _validate_transition(from_state: str, to_state: str) -> None:
+    """Reject invalid lifecycle transitions with a 400 the caller can act on.
+
+    Two checks, in order:
+      1. Is ``to_state`` a recognised lifecycle state at all?
+      2. Is the ``from_state`` -> ``to_state`` edge in the transition graph?
+
+    Without this, an invalid state reaches the DB CHECK constraint and surfaces
+    as a 500 that names the constraint but not the vocabulary — noted in
+    migration 009 as a known gap.
+    """
+    if to_state not in VALID_LIFECYCLE_STATES:
+        raise APIError(
+            400,
+            "invalid_state",
+            f"'{to_state}' is not a valid lifecycle state. "
+            f"Valid states: {', '.join(sorted(VALID_LIFECYCLE_STATES))}",
+        )
+    allowed = VALID_TRANSITIONS.get(from_state)
+    if allowed is not None and to_state not in allowed:
+        raise APIError(
+            409,
+            "invalid_transition",
+            f"Cannot transition from '{from_state}' to '{to_state}'. "
+            f"Valid targets from '{from_state}': "
+            f"{', '.join(sorted(allowed)) if allowed else '(terminal state — no transitions)'}",
+        )
+
+
 @router.post("/agents/{agent_id}/transition", response_model=TransitionResponse, responses=ERROR_RESPONSES)
 async def transition_agent(
     agent_id: str,
@@ -2445,6 +2512,7 @@ async def transition_agent(
         with _STORE_LOCK:
             agent = _AGENTS[tenant_id].get(agent_id)
             from_state = "registered" if agent is None else str(agent["lifecycle_state"])
+            _validate_transition(from_state, body.to_state)
             if agent is None:
                 agent = _synth_agent(tenant_id, agent_id)
             agent["lifecycle_state"] = body.to_state
@@ -2462,6 +2530,9 @@ async def transition_agent(
 
     agent_uuid = _try_uuid(agent_id)
     if agent_uuid is None:
+        # Non-UUID id with a database: no registry row exists, so from_state is
+        # "registered". Validate the transition before responding.
+        _validate_transition("registered", body.to_state)
         return TransitionResponse(
             agent_id=agent_id,
             from_state="registered",
@@ -2481,6 +2552,7 @@ async def transition_agent(
         )
         from_state = "registered" if row is None else row["lifecycle_state"]
         agent_name = None if row is None else row["name"]
+        _validate_transition(from_state, body.to_state)
 
         if row is not None:
             await conn.execute(
@@ -2790,6 +2862,7 @@ async def stun_agent(
             # request rename the subject of its own audit record.
             agent_name = None if agent is None else str(agent["name"])
             if agent is not None and acted:
+                _validate_transition(from_state, STUNNED_LIFECYCLE_STATE)
                 agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
                 agent["last_transition_at"] = now
                 agent["last_transition_by"] = principal.actor
@@ -2844,6 +2917,7 @@ async def stun_agent(
         # `acted` as well as `row`: a failed relabel must not leave the registry
         # asserting an isolation the cluster never performed.
         if row is not None and acted:
+            _validate_transition(from_state, STUNNED_LIFECYCLE_STATE)
             await conn.execute(
                 """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
                    WHERE id = $2 AND tenant_id = $3""",

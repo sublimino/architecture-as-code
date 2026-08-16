@@ -413,13 +413,24 @@ function FrameworkControlsSection({ results, onReassess }: {
 }
 
 // ─── Lifecycle transitions (mirrors agent_registry VALID_TRANSITIONS) ─────────
-// Source of truth: services/agent_registry/routers/lifecycle.py
+// Source of truth: api_compat.py VALID_TRANSITIONS + migration 009_agent_lifecycle_states.sql
 // Transitions are operator-mediated: the direct POST /agents/{id}/transition is
 // Entra-only and the api-gateway proxy returns 403 for dashboard (customer) users.
 // So the dashboard submits a *request* via the /support channel for an operator
 // to action — it does NOT call the transition endpoint directly.
+//
+// Must stay in step with VALID_TRANSITIONS in api_compat.py. The API now
+// validates to_state against this graph, so a mismatch means the dashboard
+// offers a transition the API will reject (or hides one the API would accept).
 
 const VALID_NEXT_STATES: Record<string, { state: string; label: string }[]> = {
+  // 'registered' is the initial state from POST /api/agents and _synth_agent.
+  // Without this entry, registered agents show no transition options in the UI
+  // and the user is stuck.
+  registered: [
+    { state: 'enrolled', label: 'Enrolled (enroll)' },
+    { state: 'active', label: 'Active (activate)' },
+  ],
   enrolled: [{ state: 'active', label: 'Active (activate)' }],
   active: [
     { state: 'suspended', label: 'Suspended (suspend)' },
@@ -429,7 +440,9 @@ const VALID_NEXT_STATES: Record<string, { state: string; label: string }[]> = {
     { state: 'active', label: 'Active (reinstate)' },
     { state: 'revoked', label: 'Revoked (decommission)' },
   ],
+  // Terminal states: no outbound transitions.
   revoked: [],
+  decommissioned: [],
 }
 
 // ─── Request Transition Modal ─────────────────────────────────────────────────

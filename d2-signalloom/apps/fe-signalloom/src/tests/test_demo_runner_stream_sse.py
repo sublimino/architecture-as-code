@@ -600,17 +600,28 @@ def test_abandoned_clients_do_not_accumulate(
             # this test exists to observe, and fail intermittently against a
             # perfectly correct server.
             stream_lines = response.iter_lines()
+            # How long the FIRST line took is the number that separates the two
+            # readings here, and it is not recoverable from the counter alone.
+            awaited_first_line_from = time.monotonic()
             first_line = next(stream_lines)
+            first_line_after = time.monotonic() - awaited_first_line_from
+            probe.note(
+                f"cycle {cycle}: first line arrived {first_line_after:.3f}s after the "
+                "request; the script emits its first tick within ~0.25s of starting"
+            )
             assert first_line.startswith("event:"), probe.explain(
                 f"cycle {cycle}: the stream's first line is an SSE event",
                 f"it was {first_line!r}",
             )
-            assert demo_runner._open_log_streams == 1, probe.explain(
+            open_now = demo_runner._open_log_streams
+            assert open_now == 1, probe.explain(
                 f"cycle {cycle}: exactly one stream registered once a frame has arrived",
-                f"_open_log_streams was {demo_runner._open_log_streams}. Above 1 means "
-                "the previous cycle's generator has not finished unwinding yet, which "
-                "on a contended box is lag rather than a leak -- compare the load and "
-                "involuntary-switch numbers below.",
+                f"_open_log_streams was {open_now}. ZERO means the generator had already "
+                "unwound by the time the first line reached us -- it only reached us at "
+                "EOF, so the stream was batching rather than pushing. ABOVE ONE means "
+                "the previous cycle's generator has not finished unwinding yet, which on "
+                "a contended box is lag rather than a leak; weigh it against the load "
+                "and involuntary-switch numbers below.",
             )
             # Leaving the with-block closes the response: the browser tab shutting.
 

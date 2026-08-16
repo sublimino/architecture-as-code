@@ -125,6 +125,17 @@ def _delta(new: float, old: float) -> Any:
     return _safe(lambda: new - old)
 
 
+def _secs(value: Any) -> str:
+    """Seconds to three places, passing through whatever `_safe` substituted."""
+    return f"{value:.3f}" if isinstance(value, (int, float)) else str(value)
+
+
+def _loads(load: Any) -> str:
+    if isinstance(load, tuple) and all(isinstance(item, (int, float)) for item in load):
+        return "(" + ", ".join(f"{item:.2f}" for item in load) + ")"
+    return str(load)
+
+
 def _frame_line(frame: Any, t0: float) -> str:
     """One timeline row: when it landed relative to the probe, and what it was."""
     at = getattr(frame, "at", None)
@@ -240,7 +251,7 @@ class Probe:
         if observed:
             lines.append(f"observed  : {observed}")
         lines += [
-            f"elapsed   : {wall}s of wall clock since the probe opened",
+            f"elapsed   : {_secs(wall)}s of wall clock since the probe opened",
             _RULE,
             f"frames    : {len(frames)} total"
             + (f" -- {breakdown}" if breakdown else " -- none"),
@@ -253,8 +264,9 @@ class Probe:
             _RULE,
             f"xdist     : worker={worker_id()} of {worker_count()} workers",
             f"host      : cpus={os.cpu_count()} usable={_usable_cpus()}",
-            f"loadavg   : at probe start {self.start.load} -> now {now.load}",
-            f"cpu       : {cpu}s consumed (self+children) across {wall}s of wall clock",
+            f"loadavg   : at probe start {_loads(self.start.load)} -> now {_loads(now.load)}",
+            f"cpu       : {_secs(cpu)}s consumed (self+children) across "
+            f"{_secs(wall)}s of wall clock",
             f"switches  : voluntary +{_delta(now.voluntary, self.start.voluntary)}  "
             f"involuntary +{_delta(now.involuntary, self.start.involuntary)}"
             "   (involuntary = preempted by the scheduler)",
@@ -263,10 +275,14 @@ class Probe:
             lines += [_RULE, *[f"note      : {note}" for note in self._notes]]
         lines += [
             _RULE,
-            "reading   : frames present but late/bunched, load above the cpu count,",
-            "            a large involuntary delta, wall >> cpu  =>  STARVED BY LOAD.",
-            "            frames absent or all landing at EOF, load below the cpu",
-            "            count, small involuntary delta  =>  STREAMING BROKEN.",
+            # Deliberately does NOT offer "wall >> cpu" as a signal: these
+            # scripts sleep by design, so wall dwarfs cpu on a perfectly
+            # healthy run too and reading anything into it would be a trap.
+            "reading   : STARVED BY LOAD -- load average above the cpu count, a large",
+            "            involuntary delta, and frames that all DID arrive, just late",
+            "            or bunched. STREAMING BROKEN -- frames missing, or every frame",
+            "            landing at the same instant at EOF, while load sits below the",
+            "            cpu count and the involuntary delta is small.",
             _HEAVY,
         ]
         return "\n".join(lines)

@@ -2862,6 +2862,7 @@ async def stun_agent(
             # request rename the subject of its own audit record.
             agent_name = None if agent is None else str(agent["name"])
             if agent is not None and acted:
+                _validate_transition(from_state, STUNNED_LIFECYCLE_STATE)
                 agent["lifecycle_state"] = STUNNED_LIFECYCLE_STATE
                 agent["last_transition_at"] = now
                 agent["last_transition_by"] = principal.actor
@@ -2916,6 +2917,7 @@ async def stun_agent(
         # `acted` as well as `row`: a failed relabel must not leave the registry
         # asserting an isolation the cluster never performed.
         if row is not None and acted:
+            _validate_transition(from_state, STUNNED_LIFECYCLE_STATE)
             await conn.execute(
                 """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
                    WHERE id = $2 AND tenant_id = $3""",

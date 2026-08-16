@@ -25,6 +25,7 @@ from api_compat import (
     reset_tenant_state,
     settings,
 )
+import api_compat as _api_compat_module
 from db.connection import set_pool_for_testing
 from main import app
 
@@ -300,4 +301,86 @@ class TestDoubleTransition:
         # suspended -> suspended is not in the graph — no self-transitions
         assert resp.status_code == 409, (
             f"Double transition should be rejected, got {resp.status_code}: {resp.text}"
+        )
+
+
+# =========================================================================
+# 6. Stun handler must respect the transition graph
+# =========================================================================
+
+@pytest.fixture
+def stun_client(monkeypatch):
+    """Client with SUPERCRED_STUN_BASE_URL cleared so the simulated path runs
+    (no actual network call) and acted=True, exercising the state-change code."""
+    monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
+    monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
+    monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
+    monkeypatch.setattr(settings, "api_jwks_url", "https://issuer.test/keys")
+    monkeypatch.setattr(settings, "api_subject_tenants", {"alice": "tenant-a"})
+    monkeypatch.setattr(_api_compat_module, "_jwk_client", lambda _url: _TestJWKClient())
+    monkeypatch.setattr(_api_compat_module, "SUPERCRED_STUN_BASE_URL", "")
+
+    set_pool_for_testing(_ReadyPool())
+    reset_tenant_state("tenant-a")
+
+    with TestClient(app, raise_server_exceptions=False) as tc:
+        yield tc
+
+
+def _stun(client, agent_id: str):
+    return client.post(
+        f"/api/agents/{agent_id}/stun",
+        headers=AUTH(),
+    )
+
+
+class TestStunRespectsTransitionGraph:
+    """The stun handler sets lifecycle_state to 'suspended'. Before the fix,
+    it did not call _validate_transition, so a revoked or decommissioned agent
+    could be stunned back to 'suspended' -- violating the terminal-state
+    invariant and silently resurrecting a dead agent."""
+
+    def test_stun_revoked_agent_rejected(self, stun_client):
+        """A revoked agent cannot be stunned back to suspended."""
+        # Move to revoked (terminal state)
+        resp = _transition(stun_client, TENANT_AGENT, "revoked")
+        assert resp.status_code == 200, f"Setup failed: {resp.text}"
+
+        # Stun must not resurrect it
+        resp = _stun(stun_client, TENANT_AGENT)
+        assert resp.status_code == 409, (
+            f"Stun should reject revoked agent, got {resp.status_code}: {resp.text}"
+        )
+
+    def test_stun_decommissioned_agent_rejected(self, stun_client):
+        """A decommissioned agent cannot be stunned back to suspended."""
+        resp = _transition(stun_client, TENANT_AGENT, "decommissioned")
+        assert resp.status_code == 200, f"Setup failed: {resp.text}"
+
+        resp = _stun(stun_client, TENANT_AGENT)
+        assert resp.status_code == 409, (
+            f"Stun should reject decommissioned agent, got {resp.status_code}: {resp.text}"
+        )
+
+    def test_stun_active_agent_succeeds(self, stun_client):
+        """An active agent can be stunned (active -> suspended is valid)."""
+        resp = _stun(stun_client, TENANT_AGENT)
+        assert resp.status_code == 200, (
+            f"Stun of active agent should succeed, got {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert body["from_state"] == "active"
+        assert body["to_state"] == "suspended"
+
+    def test_stun_already_suspended_rejected(self, stun_client):
+        """Stunning an already-suspended agent is a self-transition
+        (suspended -> suspended) and must be rejected."""
+        # First stun: active -> suspended
+        resp = _stun(stun_client, TENANT_AGENT)
+        assert resp.status_code == 200
+
+        # Second stun: suspended -> suspended (self-transition, not in graph)
+        resp = _stun(stun_client, TENANT_AGENT)
+        assert resp.status_code == 409, (
+            f"Double stun should be rejected, got {resp.status_code}: {resp.text}"
         )

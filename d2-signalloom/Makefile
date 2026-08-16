@@ -65,7 +65,19 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               environment, which is its own small lesson: a
 #                               green run on a developer box is not evidence
 #                               about a clean one.
-EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats
+#
+#   test/supercred-demo-api.bats - port-forwards svc/dex and
+#                               svc/dashboard-signalloom in setup() and drives
+#                               the demo runner over HTTP. It is a RUNTIME
+#                               suite that the stage-1 glob was pulling into the
+#                               STATIC contract stage, where no port-forward
+#                               exists. It passed on the warm CI VM and failed
+#                               on the cold one (curl exit 56, then
+#                               `wait_tcp 127.0.0.1:15557` timing out) -- the
+#                               warm pass was timing luck, not a property.
+#                               Moved to stage 7, which runs after Flux has
+#                               converged; NOT dropped.
+EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

@@ -136,10 +136,22 @@ export function formatAmount(
   currency: CurrencyCode,
   options: FormatOptions = {},
 ): string {
+  // Non-finite values (NaN, Infinity, -Infinity) are not money and must never
+  // reach Intl.NumberFormat, which renders them as currency-prefixed garbage
+  // ("£NaN", "£∞") — plausible-looking strings that a reader cannot tell apart
+  // from a formatting artefact. Returning MONEY_UNAVAILABLE makes the absence
+  // of a figure visually distinct from a real zero.
+  if (!Number.isFinite(amount)) return MONEY_UNAVAILABLE
+
+  // Negative zero is an IEEE 754 artefact, not a financial fact. Intl renders
+  // it as "-£0" which implies a direction that does not exist; normalising to
+  // positive zero removes the misleading sign.
+  const safeAmount = Object.is(amount, -0) ? 0 : amount
+
   const locale = options.locale ?? resolveLocale()
   const threshold = options.compactThreshold ?? COMPACT_THRESHOLD
-  const compact = (options.compact ?? false) && Math.abs(amount) >= threshold
-  return formatterFor(currency, locale, compact).format(amount)
+  const compact = (options.compact ?? false) && Math.abs(safeAmount) >= threshold
+  return formatterFor(currency, locale, compact).format(safeAmount)
 }
 
 /** Format a `Money` in its own currency — no conversion implied. */

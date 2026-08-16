@@ -16,11 +16,21 @@ import LoadingState from '../components/LoadingState'
 const POLL_MS = LIVE_POLL_MS
 const LIMIT = 50
 
-// The undotted values are the legacy vocabulary retained by migration 007; the
-// dotted ones are what api_compat._audit_log() actually writes today. Only
-// 'agent.stunned' is listed from the dotted set so far — filtering for an
-// enforcement action is the one the operator reaches for first. Closing the
-// rest of the drift is a separate change.
+// The dotted values are what api_compat._audit_log() writes today; the undotted
+// ones are the legacy vocabulary retained by migration 007 for environments
+// holding historical rows.
+//
+// This list used to carry 'agent.stunned' plus the ten legacy values and
+// nothing else, so 21 of the 22 event types the API emits had no filter option
+// and ten of the eleven options on offer matched nothing the API can produce.
+// An operator filtering the audit trail for a credential revoke found no way to
+// ask, and one filtering for 'violation_detected' got an empty table that was
+// indistinguishable from a quiet period.
+//
+// Both lists are now checked against the emitted set by
+// fe-signalloom/src/tests/test_dashboard_audit_vocabulary.py, which derives the
+// API side from the AST of _audit_log()'s call sites rather than restating it.
+// Adding an emitted event type without adding it here fails that test.
 //
 // Adding a type here has a non-obvious test consequence, which two of us have
 // now paid for independently: every entry also renders as an <option> in the
@@ -34,15 +44,50 @@ const LIMIT = 50
 // type the backend emits also needs a migration widening the audit_events
 // CHECK constraint, or tests/test_audit_event_types.py fails.
 const EVENT_TYPES = [
-  'agent.stunned',
+  // Emitted by the API today.
+  'agent.created', 'agent.transitioned', 'agent.stunned',
+  'agent.credential_issued', 'agent.credential_revoked',
+  'violation.acknowledged',
+  'compliance.reassess_requested', 'compliance.scan_completed',
+  'api_key.created', 'api_key.rotated',
+  'nhi.enrolled', 'nhi.dismissed',
+  'tenant.frameworks_updated', 'tenant.preferences_updated',
+  'user.currency_updated', 'consent.accepted', 'cookie.preferences_updated',
+  'support.requested',
+  'onboarding_completed', 'onboarding_skipped',
+  'demo.phase_run', 'demo.reset_requested',
+  // Legacy vocabulary from migration 007. No call site emits these, but rows
+  // using them may exist in long-lived environments, so they stay filterable.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused', 'tenant_created', 'user_provisioned',
   'directory_connected', 'discovery_enroll_requested',
 ]
 
 const EVENT_COLORS: Record<string, string> = {
-  // Isolating an agent is the most severe action the platform takes on its own.
+  // Enforcement and trust withdrawal are the most severe actions the platform
+  // takes on its own, so they carry the error colour.
   'agent.stunned': 'var(--error)',
+  'agent.credential_revoked': 'var(--error)',
+  'agent.created': 'var(--teal)',
+  'agent.transitioned': 'var(--violet)',
+  'agent.credential_issued': 'var(--cyan)',
+  'violation.acknowledged': 'var(--amber)',
+  'compliance.reassess_requested': 'var(--cyan)',
+  'compliance.scan_completed': 'var(--cyan)',
+  'api_key.created': 'var(--teal)',
+  'api_key.rotated': 'var(--cyan)',
+  'nhi.enrolled': 'var(--teal)',
+  'nhi.dismissed': 'var(--amber)',
+  'tenant.frameworks_updated': 'var(--violet)',
+  'tenant.preferences_updated': 'var(--violet)',
+  'user.currency_updated': 'var(--violet)',
+  'consent.accepted': 'var(--teal)',
+  'cookie.preferences_updated': 'var(--violet)',
+  'support.requested': 'var(--amber)',
+  onboarding_completed: 'var(--teal)',
+  onboarding_skipped: 'var(--amber)',
+  'demo.phase_run': 'var(--violet)',
+  'demo.reset_requested': 'var(--amber)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

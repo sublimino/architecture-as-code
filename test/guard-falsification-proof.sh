@@ -67,8 +67,35 @@
 #                 spot and decoration were not told apart. FINDING, but the
 #                 finding is "nobody has measured this yet" — never quoted as
 #                 evidence that a guard is dead.
+#   UNFAITHFUL    the mutation changed the target and injected NO violation of
+#                 the property. A defect in THIS FILE. No verdict is filed about
+#                 the guard, because none was earned.
 #   UNKNOWN       the harness could not run the case. Never counted as either a
 #                 pass or a finding.
+#
+# ── The fifth verdict, and why it had to exist ──────────────────────────────
+#
+# UNFAITHFUL was added after a verdict from this harness was proven wrong and
+# the guard it accused turned out to be innocent.
+#
+# SIGN-BY-TAG mutated a `cosign sign` call by ADDING an image reference beside
+# the digest that was already there. Every phase passed: the anchor matched, the
+# file changed, the checksum moved, the tree restored. The guard stayed green
+# and the harness printed "GUARD DID NOT FIRE". But the harness had proof only
+# that it had EDITED A FILE. Whether it had injected a DEFECT was never checked.
+#
+# That is this file's own catalogue, one level up: a check that runs, reports
+# confidently, and measured nothing. Shipped by the tool built to find it.
+#
+# Every case therefore carries a PROPERTY ORACLE — an independent statement of
+# the property that reports how many units violate it. It must read 0 on a clean
+# tree and >= 1 once the mutation lands. A mutation that cannot move it injected
+# nothing, and gets this verdict instead of an accusation. A case with no oracle
+# cannot produce a finding at all, and the registry refuses to start without one.
+#
+# Two verdicts that look identical from outside — "the guard is blind" and "my
+# mutation was a no-op" — have opposite repairs. Confusing them gets a working
+# guard rewritten, which is strictly worse than leaving it alone.
 #
 # The third and fourth verdicts were added because the first real run of this
 # file got it wrong. It printed "GUARD DID NOT FIRE — THIS CHECK IS DECORATION"
@@ -133,15 +160,35 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
 SNAPSHOT_DIR="$(mktemp -d)"
+
+# Diagnostics travel through a FILE, not through a shell variable.
+#
+# oracle_count and selected_test_count are both called as `v="$(fn ...)"`, and a
+# command substitution runs in a SUBSHELL. A global assigned in there is
+# discarded when the subshell exits, so the first version of both functions set
+# a rich explanation that the caller could never read — every diagnostic came
+# out empty, and the reason for an UNKNOWN was silently blank in exactly the
+# situation the reason exists for. Verified:
+#
+#     $ bash -c 'E=""; f(){ E="set inside"; printf "42"; }; v="$(f)"; echo "[$E]"'
+#     []
+#
+# One file, written by the callee and read by the caller, crosses that boundary.
+ERR_CHANNEL="${SNAPSHOT_DIR}/last-error.txt"
+err_set() { printf '%s' "$1" >"$ERR_CHANNEL"; }
+err_get() { cat "$ERR_CHANNEL" 2>/dev/null; }
+err_clear() { : >"$ERR_CHANNEL"; }
 FIRED=0
 NOT_FIRED=0        # total findings = BLIND + DECOR + UNCLASSIFIED
 BLIND=0
 DECOR=0
 UNCLASSIFIED=0
 UNKNOWN=0
+UNFAITHFUL=0       # mutations that injected no defect. A HARNESS bug, never a finding.
 DIRTY_TREE=0
 declare -a FINDINGS=()
 declare -a UNKNOWNS=()
+declare -a UNFAITHFULS=()
 
 # ── Snapshot and restore ────────────────────────────────────────────────────
 #
@@ -351,14 +398,30 @@ run_guard() {
 # so a stale test name in the registry below is indistinguishable from a guard
 # that works — until this returns 0 and the case is reported UNKNOWN.
 selected_test_count() {
-	local kind="$1" file="$2" filter="$3" n
+	local kind="$1" file="$2" filter="$3" n rc=0
+	err_clear
 	case "$kind" in
 		bats)
+			# `|| n=0` used to swallow the exit status here, so a bats that
+			# CRASHED — too old for --count, missing from the VM image, a broken
+			# libexec — was reported as "filter selected ZERO tests", which reads
+			# as a stale test name in this registry. Two very different repairs,
+			# and the wrong one sends someone editing a filter that was correct.
+			# The CI VM produced eight could-not-run verdicts that the local tree
+			# does not produce at all, so attributing them correctly is the
+			# difference between a diagnosis and a guess.
 			if [ -n "$filter" ]; then
-				n="$(timeout 120 bats --count --filter "$filter" "$file" 2>/dev/null)" || n=0
+				n="$(timeout 120 bats --count --filter "$filter" "$file" 2>&1)" || rc=$?
 			else
-				n="$(timeout 120 bats --count "$file" 2>/dev/null)" || n=0
+				n="$(timeout 120 bats --count "$file" 2>&1)" || rc=$?
 			fi
+			if [ "$rc" -ne 0 ]; then
+				err_set "bats --count itself failed (exit $rc): ${n}"
+				n=0
+			fi
+			case "$n" in
+				''|*[!0-9]*) err_set "bats --count printed a non-integer: ${n}"; n=0 ;;
+			esac
 			;;
 		sh)
 			# A script is one unit with no filter, so the bats zero-selection trap
@@ -387,12 +450,31 @@ selected_test_count() {
 # false alarm this harness exists to avoid.
 
 declare -a C_ID=() C_CAT=() C_KIND=() C_GUARD=() C_FILTER=() C_TARGET=() C_SIG=() C_MUT=()
-declare -a C_CTRL=()
+declare -a C_CTRL=() C_ORACLE=()
 
 register() {
 	C_ID+=("$1"); C_CAT+=("$2"); C_KIND+=("$3"); C_GUARD+=("$4")
 	C_FILTER+=("$5"); C_TARGET+=("$6"); C_SIG+=("$7"); C_MUT+=("$8")
-	C_CTRL+=("")   # no control mutation unless register_control follows
+	C_CTRL+=("")     # no control mutation unless register_control follows
+	C_ORACLE+=("")   # attached by attach_oracle below; MANDATORY, gated at startup
+}
+
+# attach_oracle <case-id> <oracle-fn>
+#
+# Attaches a PROPERTY ORACLE by id rather than by position. By id deliberately:
+# the oracles were added to a registry several people edit concurrently, and an
+# `attach` that has to sit immediately after its `register` turns every new
+# oracle into a diff against somebody else's case. Keyed lookup means the whole
+# oracle layer lives in one block and touches no existing registration line.
+attach_oracle() {
+	local id="$1" fn="$2" i found=0
+	for i in "${!C_ID[@]}"; do
+		if [ "${C_ID[$i]}" = "$id" ]; then C_ORACLE[$i]="$fn"; found=1; fi
+	done
+	if [ "$found" -eq 0 ]; then
+		printf 'FATAL: attach_oracle names an unregistered case: %s\n' "$id" >&2
+		exit 2
+	fi
 }
 
 # register_control <mutation-fn>
@@ -496,9 +578,23 @@ mut_cosign_sign_by_tag() {
 	# and the sign, leaving the signature on a digest nobody serves. This is the
 	# flux-system stall's neighbour — a signature that exists but not where the
 	# consumer looks.
+	#
+	# `cosign sign` takes MULTIPLE image references, so this signs the moving tag
+	# AND the digest. The tag half carries the full defect: the signature lands
+	# wherever :signed points at that instant, and a concurrent push moves it.
+	#
+	# The reference used is the tag this script pushed four lines earlier and
+	# already has in hand. The earlier version of this mutation injected
+	# "${REGISTRY}/demo:latest" — a variable that does not exist in this file,
+	# under `set -euo pipefail`. That models a crash, not a signing defect, and a
+	# mutation whose injected code could never ship is not evidence about
+	# anything. Verified by hand on 2026-08-16: the guard is green under BOTH
+	# forms, so the finding does not depend on this correction — but the
+	# correction is what makes the finding quotable.
 	py_sub "scripts/admission-demo.sh" \
-		'COSIGN_PASSWORD="" cosign sign --yes --key "${KEYS_DIR}/cosign.key" \' \
-		'COSIGN_PASSWORD="" cosign sign --yes --key "${KEYS_DIR}/cosign.key" "${REGISTRY}/demo:latest" \'
+		'  "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"' \
+		'  "${REGISTRY_HOST}/acme/images/listener:signed" \
+  "${REGISTRY_HOST}/acme/images/listener@${SIGNED_DIGEST}"'
 }
 register SIGN-BY-TAG supplychain bats test/cosign-signing-consistency.bats \
 	'every cosign sign call site signs by digest, never by tag' \
@@ -853,6 +949,508 @@ register KIND-COMMAND-SUBSTITUTION supplychain bats test/kind-config-heredoc.bat
 	'no command substitution in the heredoc' \
 	"scripts/create-kind-cluster.sh" 'not ok' mut_kind_command_substitution
 
+# ── Property oracles: is the injected defect actually a defect? ─────────────
+#
+# This layer exists because a verdict from this harness was proven wrong, and
+# the guard it accused was innocent.
+#
+# SIGN-BY-TAG mutated `cosign sign` by ADDING an image reference next to the
+# digest that was already there. The guard asks whether the invocation carries a
+# digest; it still did, so it stayed green, and the harness printed
+# "GUARD DID NOT FIRE". Every phase had passed: the anchor matched, the file
+# changed, the checksum moved, the tree restored. The harness had proof that it
+# had edited a file and no proof whatsoever that it had injected a DEFECT.
+#
+# That is the same shape as every entry in this file's own catalogue — a check
+# that runs, reports success, and measured nothing — committed by the tool built
+# to find it. "The bytes changed" is not "the property is violated".
+#
+# So each case now carries an ORACLE: an independent statement of the property,
+# over the target, that prints how many units VIOLATE it.
+#
+#   clean tree      the oracle MUST print 0. Otherwise the property does not
+#                   hold at baseline, the case is measuring something else, and
+#                   the verdict is UNKNOWN rather than a finding.
+#   after mutation  the oracle MUST print >= 1. If it does not, the mutation
+#                   injected no defect, and the case is UNFAITHFUL — a HARNESS
+#                   bug, reported in its own category and never as a guard that
+#                   failed to fire. That distinction is the entire point: the
+#                   two are indistinguishable from the outside and they have
+#                   opposite repairs.
+#
+# On circularity, which is the obvious objection. An oracle that greps for the
+# string the mutation just injected would call every mutation faithful and prove
+# nothing — the vacuous-check shape again, one level up. Two things stop it:
+#
+#   1. Each oracle is written as the PROPERTY, over the target file, and never
+#      mentions the injected literal. assert_oracles_are_not_tautologies()
+#      enforces that mechanically at startup by diffing the injected text
+#      against the oracle's own source.
+#   2. The oracle answers "is the defect really present here", derived directly
+#      and locally. The guard answers "does a tree-wide scan still FIND it".
+#      Those differ exactly where this repository keeps getting hurt — a correct
+#      checker pointed at nothing — so they are not the same question and their
+#      disagreement is informative.
+#
+# Oracles are deliberately re-derived rather than sharing the guards' helper
+# functions. An oracle that calls the guard's own collector cannot disagree with
+# the guard, and disagreement is the only thing it is for.
+
+orc_rbac_dangling_sa() {
+	ORC_FILE="$FLEET_TENANT" python3 - <<-'PY'
+		import os, re, pathlib
+		src = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		# A SUBJECT is a list item: "- kind: ServiceAccount" then "name:".
+		subs = re.findall(r'-\s+kind:\s*ServiceAccount\s*\n\s*name:\s*(\S+)', src)
+		# A DECLARATION is a mapping whose metadata carries the name.
+		#
+		# The first version of this oracle collected EVERY `name:` in the fleet as
+		# a declaration, which counts each subject as its own declaration — so the
+		# renamed subject resolved to the typo it had just become and the oracle
+		# reported zero violations for the exact defect it was written to detect.
+		# It was caught by the baseline gate demanding 0 on a clean tree and then
+		# >=1 after the mutation, which is the whole argument for having the gate.
+		declared = set()
+		for root in ("d2-osramp-fleet", "d2-signalloom", "d2-osramp-apps", "olly-replica"):
+		    rp = pathlib.Path(root)
+		    if not rp.is_dir():
+		        continue
+		    for p in rp.rglob("*.yaml"):
+		        try:
+		            txt = p.read_text()
+		        except OSError:
+		            continue
+		        for m in re.finditer(r'(?<!-\s)\bkind:\s*ServiceAccount\s*\n\s*metadata:\s*\n((?:\s+\S.*\n)+)', txt):
+		            nm = re.search(r'^\s*name:\s*(\S+)', m.group(1), re.M)
+		            if nm:
+		                declared.add(nm.group(1))
+		        for m in re.finditer(r'metadata:\s*\{\s*name:\s*([^,}\s]+)', txt):
+		            declared.add(m.group(1))
+		# Kubernetes creates `default` in every namespace; no manifest declares it.
+		# Named, never pattern-matched — "looks built-in" is not something an
+		# oracle should be guessing at.
+		declared.add("default")
+		print(sum(1 for s in subs if s not in declared))
+	PY
+}
+
+orc_rbac_discovery() {
+	ORC_FILE="d2-signalloom/apps/fake-integration-proxy/server.py" python3 - <<-'PY'
+		import os, re, pathlib, subprocess
+		src = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		m = re.search(r'DEFAULT_AGENT_DISCOVERY_NAMESPACES\s*=\s*\(([^)]*)\)', src)
+		nss = re.findall(r'"([^"]+)"', m.group(1)) if m else []
+		granted = subprocess.run(
+		    ["grep", "-rl", "-e", "kind: Role", "--include=*.yaml", "d2-signalloom"],
+		    capture_output=True, text=True).stdout.split()
+		bad = 0
+		for ns in nss:
+		    if not any(ns in pathlib.Path(f).read_text() for f in granted):
+		        bad += 1
+		print(bad)
+	PY
+}
+
+# Fold `cosign sign` invocations in a file into single logical lines.
+# Deliberately re-derived here rather than reusing the guard's awk: an oracle
+# that shares the guard's collector cannot disagree with it, and disagreement
+# is the only thing it is for.
+_cosign_invocations() {
+	ORC_FILE="$1" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		txt = re.sub(r'(?m)#.*$', '', txt)
+		txt = txt.replace("\\\n", " ")
+		for line in txt.split("\n"):
+		    if re.search(r'cosign\s+sign(\s|$)', line):
+		        print(re.sub(r'\s+', ' ', line.strip()))
+	PY
+}
+
+orc_sign_referrers() {
+	local n=0 line
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		case "$line" in *registry-referrers-mode*) n=$((n + 1)) ;; esac
+	done <<< "$(_cosign_invocations "scripts/push-local.sh")"
+	printf '%s' "$n"
+}
+
+# Every IMAGE REFERENCE argument of every `cosign sign` invocation must be a
+# digest reference. Note "every", not "at least one": an invocation carrying a
+# digest AND a tag signs the tag too, and the tag can move under a concurrent
+# push. Positional arguments only — flag values such as --key "${KEYS_DIR}/…"
+# contain a slash and are not image references.
+orc_sign_by_tag() {
+	ORC_FILE="scripts/admission-demo.sh" python3 - <<-'PY'
+		import os, re, pathlib, shlex
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		txt = re.sub(r'(?m)#.*$', '', txt).replace("\\\n", " ")
+		VALUE_FLAGS = {"--key", "--signing-config", "--output", "--cert", "--certificate"}
+		bad = 0
+		for line in txt.split("\n"):
+		    if not re.search(r'cosign\s+sign(\s|$)', line):
+		        continue
+		    try:
+		        toks = shlex.split(line, posix=False)
+		    except ValueError:
+		        continue
+		    skip = False
+		    for t in toks[toks.index("sign") + 1:] if "sign" in toks else []:
+		        if skip:
+		            skip = False
+		            continue
+		        if t.startswith("-"):
+		            if t.split("=")[0] in VALUE_FLAGS and "=" not in t:
+		                skip = True
+		            continue
+		        ref = t.strip('"\'')
+		        if "/" not in ref:
+		            continue
+		        if "@" not in ref:          # a tag reference, or a bare name
+		            bad += 1
+		print(bad)
+	PY
+}
+
+# Reuse the guard-independent nginx location parser for the authz oracles.
+_nginx_matrix() {
+	ORC_FILE="$NGINX_CONF" python3 - <<-'PY'
+		import os, re, pathlib
+		src = re.sub(r'#[^\n]*', '', pathlib.Path(os.environ["ORC_FILE"]).read_text())
+		depth, stack, out = 0, [], []
+		for line in src.split("\n"):
+		    m = re.search(r'location\s+([^\s{]+)\s*{', line)
+		    if m and 'limit_except' not in line:
+		        stack.append([m.group(1), depth, []])
+		    elif stack:
+		        stack[-1][2].append(line)
+		    depth += line.count('{') - line.count('}')
+		    while stack and depth <= stack[-1][1]:
+		        prefix, _, body = stack.pop()
+		        text = "\n".join(body)
+		        fwd = bool(re.search(r'proxy_set_header\s+Authorization\s+\$http_authorization', text))
+		        le = re.search(r'limit_except\s+([A-Z\s]+)\{([^}]*)\}', text)
+		        denied = bool(le and re.search(r'deny\s+all', le.group(2))
+		                      and set(le.group(1).split()) <= {'GET', 'HEAD', 'OPTIONS'})
+		        if 'proxy_pass' in text:
+		            out.append("%s\t%d\t%d" % (prefix, fwd, denied))
+		print("\n".join(out))
+	PY
+}
+
+# Locations that neither forward Authorization nor deny mutation, minus the
+# ones this repository has written down as a deliberate decision.
+_NGINX_DECLARED_UNGUARDED='/dex/ /dashboard/ /afm/ /clusters /metrics/ /health /jobs /webhooks/'
+
+orc_authz_unguarded() {
+	local n=0 prefix fwd denied
+	while IFS=$'\t' read -r prefix fwd denied; do
+		[ -n "$prefix" ] || continue
+		[ "$fwd" = "0" ] && [ "$denied" = "0" ] || continue
+		case " $_NGINX_DECLARED_UNGUARDED " in *" $prefix "*) continue ;; esac
+		n=$((n + 1))
+	done <<< "$(_nginx_matrix)"
+	printf '%s' "$n"
+}
+
+orc_authz_supercred() {
+	local prefix fwd denied
+	while IFS=$'\t' read -r prefix fwd denied; do
+		if [ "$prefix" = "/supercred-api/" ]; then
+			[ "$denied" = "1" ] && printf '0' || printf '1'
+			return 0
+		fi
+	done <<< "$(_nginx_matrix)"
+	printf '1'   # the block is gone entirely: also a violation
+}
+
+orc_route_collision() {
+	ORC_NGINX="$NGINX_CONF" ORC_APP="d2-signalloom/apps/dashboard-signalloom/src/App.tsx" python3 - <<-'PY'
+		import os, re, pathlib
+		src = pathlib.Path(os.environ["ORC_NGINX"]).read_text()
+		proxy = set()
+		for m in re.finditer(r'location\s+(=\s*)?(\S+)\s*\{', src):
+		    path, start = m.group(2), m.end()
+		    depth, i = 1, start
+		    while i < len(src) and depth:
+		        depth += (src[i] == "{") - (src[i] == "}")
+		        i += 1
+		    if "proxy_pass" not in src[start:i] or path == "/":
+		        continue
+		    seg = path.lstrip("/").split("/")[0]
+		    if seg:
+		        proxy.add(seg)
+		spa = set()
+		for path in re.findall(r'path="([^"]+)"', pathlib.Path(os.environ["ORC_APP"]).read_text()):
+		    if not path.startswith("/") or path == "/":
+		        continue
+		    seg = path.lstrip("/").split("/")[0]
+		    if seg and not seg.startswith(":"):
+		        spa.add(seg)
+		print(len(proxy & spa))
+	PY
+}
+
+orc_keys_concat() {
+	local n
+	n="$(grep -vE '^[[:space:]]*#' Makefile | grep -cE '[^ 	="'"'"'(]/\$\(KEYS_DIR\)' || true)"
+	printf '%s' "${n:-0}"
+}
+
+# ---- CI report integrity: derive both sides independently of the guard -----
+_pipeline_structured() {
+	ORC_FILE="$PIPELINE" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		out = set()
+		for m in re.findall(r'(?:--junit-xml=|--outputFile=|JUNIT_OUTPUT_FILE=|-o\s+)\S*?([A-Za-z0-9._-]+\.(?:xml|json))', txt):
+		    out.add(m)
+		print("\n".join(sorted(out)))
+	PY
+}
+_pipeline_all_outputs() {
+	ORC_FILE="$PIPELINE" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		print("\n".join(sorted(set(re.findall(r'([A-Za-z0-9._-]+\.(?:txt|tap|json|xml))', txt)))))
+	PY
+}
+_converter_mapped() {
+	ORC_FILE="$CONVERTER" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		print("\n".join(re.findall(r"^\s*\{\s*file:\s*'([^']+)'", txt, re.M)))
+	PY
+}
+
+orc_ci_orphan_report() {
+	local n=0 f mapped
+	mapped="$(_converter_mapped)"
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		grep -qxF "$f" <<< "$mapped" && continue
+		grep -q "deliberately NOT mapped" "$CONVERTER" && grep -B3 -A3 'deliberately NOT mapped' "$CONVERTER" | grep -qF "$f" && continue
+		n=$((n + 1))
+	done <<< "$(_pipeline_structured)"
+	printf '%s' "$n"
+}
+
+orc_ci_stale_entry() {
+	local n=0 f produced
+	produced="$(_pipeline_all_outputs)"
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		grep -qxF "$f" <<< "$produced" || n=$((n + 1))
+	done <<< "$(_converter_mapped)"
+	printf '%s' "$n"
+}
+
+orc_ci_parser_mismatch() {
+	ORC_FILE="$CONVERTER" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		want = {"parseTap": ".tap", "parseJunitXml": ".xml", "parseGoJson": ".json"}
+		bad = 0
+		for f, p in re.findall(r"file:\s*'([^']+)'[^}]*?parser:\s*(\w+)", txt):
+		    if p in want and not f.endswith(want[p]):
+		        bad += 1
+		print(bad)
+	PY
+}
+
+orc_ci_relative_path() {
+	local n
+	n="$(grep -vE '^[[:space:]]*#' Makefile \
+		| grep -oE 'GCP_CI_[A-Z_]*(DIR|PATH|ROOT)=[^ 	]*' \
+		| grep -cvE '=(/|\$\(abspath|\$\(CURDIR\)|\$\{CURDIR\})' || true)"
+	printf '%s' "${n:-0}"
+}
+
+orc_ci_unpinned() {
+	local n
+	n="$(grep -E '^[A-Z_]+_VERSION="' scripts/ci/install-ci-tools.sh \
+		| sed -E 's/^[A-Z_]+_VERSION="([^"]*)".*/\1/' \
+		| grep -cvE '^[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+	printf '%s' "${n:-0}"
+}
+
+# ---- meta -----------------------------------------------------------------
+_ROOT_BATS_EXCLUDED='supercred-images.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats'
+
+orc_meta_unreg_suite() {
+	local n=0 f base body
+	body="$(sed 's/#.*//' "$PIPELINE")"
+	for f in test/*.bats; do
+		[ -e "$f" ] || continue
+		base="$(basename "$f")"
+		case " $_ROOT_BATS_EXCLUDED " in *" $base "*) continue ;; esac
+		grep -qF "$base" <<< "$body" || n=$((n + 1))
+	done
+	printf '%s' "$n"
+}
+
+# A proof script is invoked when some runner names it on a line that is not a
+# comment. Derived here from the shape of the property, not from the guard.
+orc_meta_uninvoked_proof() {
+	local n=0 f base hit
+	for f in test/*.sh; do
+		[ -e "$f" ] || continue
+		base="$(basename "$f")"
+		hit=0
+		while IFS= read -r cand; do
+			[ -n "$cand" ] || continue
+			[ "$(basename "$cand")" = "$base" ] && continue
+			if grep -vE '^[[:space:]]*#' "$cand" 2>/dev/null | grep -qF "$base"; then hit=1; break; fi
+		done < <(grep -rl --include='*.sh' --include='Makefile' -F "$base" \
+				scripts Makefile d2-signalloom 2>/dev/null)
+		[ "$hit" -eq 1 ] || n=$((n + 1))
+	done
+	printf '%s' "$n"
+}
+
+orc_meta_unreg_spec() {
+	local n=0 f base reg="test/acceptance/SPEC-REGISTRY.tsv"
+	[ -f "$reg" ] || { printf '0'; return 0; }
+	for f in test/acceptance/*.spec.ts; do
+		[ -e "$f" ] || continue
+		base="$(basename "$f")"
+		grep -qF "$base" "$reg" || n=$((n + 1))
+	done
+	printf '%s' "$n"
+}
+
+# Test files that invoke kubectl's in-container run verb, beyond what the
+# guard's allowlist records for them. The allowlist is re-read from the guard's
+# data, not its logic.
+orc_meta_exec_probe() {
+	ORC_VERB="$(exec_verb)" python3 - <<-'PY'
+		import os, re, pathlib, subprocess
+		verb = os.environ["ORC_VERB"]
+		guard = pathlib.Path("test/no-exec-probes-in-tests.bats").read_text()
+		allow = {}
+		for line in guard.split("\n"):
+		    m = re.match(r'^\s*([A-Za-z0-9._/-]+)\|(\d+)\|', line)
+		    if m:
+		        allow[m.group(1)] = int(m.group(2))
+		files = subprocess.run(
+		    ["find", ".", "-name", ".git", "-prune", "-o", "-name", ".claude", "-prune",
+		     "-o", "-name", ".worktrees", "-prune", "-o", "-name", "node_modules",
+		     "-prune", "-o", "-name", "*.bats", "-print", "-o",
+		     "-path", "./*/test/*.sh", "-print", "-o", "-path", "./test/*.sh", "-print"],
+		    capture_output=True, text=True).stdout.split()
+		pat = re.compile(r'kubectl(\s+[^\s;|&]+){0,6}\s+\b%s\b' % verb)
+		bad = 0
+		for f in sorted(set(x[2:] for x in files if x.startswith("./"))):
+		    try:
+		        txt = pathlib.Path(f).read_text()
+		    except OSError:
+		        continue
+		    hits = 0
+		    for line in txt.split("\n"):
+		        line = re.sub(r'^\s*#.*', '', line)
+		        line = re.sub(r'^\s*@test\s*"[^"]*"', '@test', line)
+		        if pat.search(line):
+		            hits += 1
+		    if hits == 0:
+		        continue
+		    if allow.get(f) != hits:
+		        bad += 1
+		print(bad)
+	PY
+}
+
+orc_kind_cmdsub() {
+	ORC_FILE="scripts/create-kind-cluster.sh" python3 - <<-'PY'
+		import os, re, pathlib
+		txt = pathlib.Path(os.environ["ORC_FILE"]).read_text()
+		body = re.search(r"<<[ ]?EOF\n(.*?)\nEOF", txt, re.S)
+		seg = body.group(1) if body else ""
+		print(len(re.findall(r'\$\(', seg)) + len(re.findall(r'`', seg)))
+	PY
+}
+
+# Build steps in the demo-signalloom-up recipe that the CI pipeline does not
+# actually invoke.
+#
+# The first version of this oracle shelled out to check-ci-build-parity.sh —
+# which IS the guard for CI-BUILD-PARITY-SCRIPT. An oracle that runs the guard
+# agrees with the guard by construction, including in its blind spots, so it
+# reported "no violation" for a step the pipeline had genuinely stopped
+# building and the case was filed as an unfaithful mutation. A guard cannot be
+# its own oracle; that is a tautology with extra steps.
+orc_ci_build_parity() {
+	python3 - <<-'PY'
+		import re, pathlib
+		mk = pathlib.Path("Makefile").read_text()
+		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+		# Written-down decisions, mirrored from the checker's ALLOWED list: one is
+		# runtime-only, one needs a source tree absent from the CI VM.
+		ALLOWED = {"netassert-runner-image", "demo-signalloom-afm-up"}
+
+		steps, inrecipe = [], False
+		for line in mk.split("\n"):
+		    if line.startswith("demo-signalloom-up:"):
+		        inrecipe = True
+		        continue
+		    if not inrecipe:
+		        continue
+		    if not line.startswith("\t"):
+		        if line.strip():
+		            break
+		        continue
+		    body = re.sub(r'^\t+[@+-]*', '', line)
+		    if body.lstrip().startswith("#"):
+		        continue
+		    m = re.search(r'\$\(MAKE\)[ \t]+([A-Za-z0-9_][A-Za-z0-9_.-]*)', body)
+		    if m:
+		        steps.append(m.group(1))
+
+		# Comments are stripped from the pipeline before looking for invocations,
+		# and that IS the property: a step named only inside a comment is built by
+		# nothing. An oracle that skipped this would inherit the guard's blind spot
+		# instead of measuring it.
+		code = "\n".join(re.sub(r'#.*$', '', ln) for ln in pipe.split("\n"))
+		missing = 0
+		for s in steps:
+		    if s in ALLOWED:
+		        continue
+		    if not re.search(r'\bmake[ \t]+(-[A-Za-z]+[ \t]+)*%s\b' % re.escape(s), code):
+		        missing += 1
+		print(missing)
+	PY
+}
+
+# ── Every case must have an oracle ──────────────────────────────────────────
+#
+# Attached by id, so this block is the only place the oracle layer touches.
+attach_oracle RBAC-DANGLING-SA                  orc_rbac_dangling_sa
+attach_oracle RBAC-DISCOVERY-UNGRANTED          orc_rbac_discovery
+attach_oracle SIGN-REFERRERS-MODE               orc_sign_referrers
+attach_oracle SIGN-BY-TAG                       orc_sign_by_tag
+attach_oracle AUTHZ-NEW-UNGUARDED-LOCATION      orc_authz_unguarded
+attach_oracle AUTHZ-SUPERCRED-MUTATION-REOPENED orc_authz_supercred
+attach_oracle AUTHZ-ROUTE-COLLISION             orc_route_collision
+attach_oracle KEYS-DIR-CONCAT                   orc_keys_concat
+attach_oracle CI-ORPHAN-REPORT                  orc_ci_orphan_report
+attach_oracle CI-STALE-CONVERTER-ENTRY          orc_ci_stale_entry
+attach_oracle CI-PARSER-MISMATCH                orc_ci_parser_mismatch
+attach_oracle CI-RELATIVE-PATH                  orc_ci_relative_path
+attach_oracle CI-UNPINNED-VERSION               orc_ci_unpinned
+attach_oracle META-UNREGISTERED-SUITE           orc_meta_unreg_suite
+# Both proof-script cases assert the SAME property — "no proof script under
+# test/ is uninvoked" — and differ only in how the orphan is disguised. One
+# oracle, two mutations, which is the correct shape: the property is the thing
+# with one definition.
+attach_oracle META-UNINVOKED-PROOF              orc_meta_uninvoked_proof
+attach_oracle META-PROOF-COMMENT-ONLY           orc_meta_uninvoked_proof
+attach_oracle META-UNREGISTERED-SPEC            orc_meta_unreg_spec
+attach_oracle META-EXEC-PROBE                   orc_meta_exec_probe
+attach_oracle META-ALLOWLIST-COUNT-DRIFT        orc_meta_exec_probe
+attach_oracle CI-BUILD-PARITY-REAL              orc_ci_build_parity
+attach_oracle CI-BUILD-PARITY-SCRIPT            orc_ci_build_parity
+attach_oracle KIND-COMMAND-SUBSTITUTION         orc_kind_cmdsub
+
 # ── Foreign-edit detection: content hashes, never mtimes ────────────────────
 #
 # This exists because the harness's operator misread the tree and reported it.
@@ -941,17 +1539,76 @@ record_unknown() {
 	printf '  UNKNOWN   %s\n' "$2"
 }
 
+record_unfaithful() {
+	UNFAITHFUL=$((UNFAITHFUL + 1))
+	UNFAITHFULS+=("$1 — $2")
+	printf '  *** UNFAITHFUL MUTATION — HARNESS BUG, NOT A GUARD FINDING ***\n'
+	printf '      %s\n' "$2"
+}
+
+# oracle_count <oracle-fn> — how many units violate the property right now.
+#
+# Prints the integer on stdout and returns non-zero when the oracle could not
+# produce one. An oracle that crashes must never be read as "zero violations":
+# that is the silent-empty-scan defect, and it would convert a broken oracle
+# into a confident "this mutation injected nothing".
+oracle_count() {
+	local fn="$1" out
+	err_clear
+	out="$("$fn" 2>&1)" || { err_set "oracle exited non-zero: ${out}"; return 1; }
+	case "$out" in
+		''|*[!0-9]*) err_set "oracle printed a non-integer: ${out}"; return 1 ;;
+	esac
+	printf '%s' "$out"
+}
+
+# null_edit <path> — change the bytes of a file without changing its meaning.
+#
+# The generic anti-vacuity probe for oracles. An oracle that answers "did this
+# file change?" rather than "is the property violated?" would call every
+# mutation faithful, including one that injects nothing — the vacuous-check
+# shape rebuilt inside the tool built to hunt it. A trailing newline moves the
+# checksum and violates no property in any format this registry targets, so an
+# oracle that reports a violation after one is measuring the wrong thing.
+#
+# What this does NOT catch, stated plainly rather than left to be assumed: an
+# oracle that greps for the exact literal its mutation injects. That oracle is
+# silent on a null edit and still proves nothing. A token-diff check against the
+# oracle's own source was built for it and then removed — it fired on the
+# legitimate case where the oracle covers more of the property than the guard
+# NAMES, which is precisely the blind-spot detection that matters most here. A
+# check that cries wolf on its most valuable case gets suppressed, so it is not
+# shipped. The residual defence is review, and this paragraph is the brief for
+# it: an oracle must state the PROPERTY, never the injection.
+null_edit() {
+	[ -e "$1" ] || return 1
+	printf '\n' >>"$1"
+}
+
 prove() {
-	local id="$1" cat="$2" kind="$3" guard="$4" filter="$5" target="$6" sig="$7" mut="$8" ctrl="${9:-}"
+	local id="$1" cat="$2" kind="$3" guard="$4" filter="$5" target="$6" sig="$7" mut="$8" ctrl="${9:-}" oracle="${10:-}"
 
 	printf '\n=== %-32s [%s]\n' "$id" "$cat"
 	printf '    guard  : %s\n' "$guard"
 	printf '    filter : %s\n' "${filter:-<whole suite>}"
 	printf '    target : %s\n' "$target"
+	printf '    oracle : %s\n' "${oracle:-<NONE>}"
 
 	# -- Phase 0: the guard file must exist. ---------------------------------
 	if [ ! -f "$guard" ]; then
 		record_unknown "$id" "guard file does not exist: $guard"
+		return 0
+	fi
+
+	# -- Phase 0b: no oracle, no verdict. ------------------------------------
+	# A case without a property oracle cannot tell "the guard is blind" from "my
+	# mutation injected nothing", and those have opposite repairs. It is allowed
+	# to run and it is not allowed to produce a finding. The startup gate makes
+	# this unreachable for registered cases; it stays because the self-test
+	# drives prove() directly, and because a gate with no enforcement behind it
+	# is the shape this whole file is about.
+	if [ -z "$oracle" ]; then
+		record_unknown "$id" "NO PROPERTY ORACLE registered — a green guard here cannot be told apart from a mutation that injected no defect, so no verdict is filed"
 		return 0
 	fi
 
@@ -961,7 +1618,12 @@ prove() {
 	local nsel
 	nsel="$(selected_test_count "$kind" "$guard" "$filter")"
 	if ! [ "$nsel" -ge 1 ] 2>/dev/null; then
-		record_unknown "$id" "filter selected ZERO tests (bats exits 0 on an empty selection, so this would otherwise read as a guard that never fires)"
+		SEL_ERR="$(err_get)"
+		if [ -n "$SEL_ERR" ]; then
+			record_unknown "$id" "the test COUNTER failed, so selection was never measured — $SEL_ERR. This is a TOOLING fault, not a stale filter: do not go editing the filter."
+		else
+			record_unknown "$id" "filter selected ZERO tests (bats exits 0 on an empty selection, so this would otherwise read as a guard that never fires). The filter names no test in this suite — check for a renamed test."
+		fi
 		return 0
 	fi
 	printf '    selects: %s test(s)\n' "$nsel"
@@ -977,10 +1639,43 @@ prove() {
 		return 0
 	fi
 
+	# -- Phase 2b: the property must HOLD before anything is injected. -------
+	# If the oracle already reports violations on an unmutated tree, then either
+	# the tree genuinely violates the property (in which case the guard being
+	# green is the story, and it is not this case's story) or the oracle is
+	# wrong. Either way nothing measured below means what it appears to.
+	local base_viol
+	if ! base_viol="$(oracle_count "$oracle")"; then
+		record_unknown "$id" "the property oracle ($oracle) could not be evaluated on a clean tree — $(err_get)"
+		return 0
+	fi
+	if [ "$base_viol" -ne 0 ]; then
+		record_unknown "$id" "the property oracle ($oracle) reports $base_viol violation(s) BEFORE any mutation — the property does not hold at baseline, so a red guard below would not be evidence of detection"
+		return 0
+	fi
+
 	# -- Phase 3: mutate, and prove the mutation landed. ---------------------
 	snapshot "$target"
 	local pre_sum post_sum
 	pre_sum="$( [ -e "$target" ] && sha256sum "$target" | cut -d' ' -f1 || printf 'ABSENT' )"
+
+	# -- Phase 2c: the oracle must not answer "did the file change?" ---------
+	# Only meaningful for a target that already exists; the create-an-orphan
+	# cases have nothing to null-edit and are skipped explicitly rather than
+	# silently, so a skip cannot be mistaken for a pass.
+	if null_edit "$target"; then
+		local null_viol
+		if ! null_viol="$(oracle_count "$oracle")"; then
+			record_unknown "$id" "the property oracle ($oracle) could not be evaluated after a null edit — $(err_get)"
+			restore_all
+			return 0
+		fi
+		restore_all
+		if [ "$null_viol" -ne 0 ]; then
+			record_unfaithful "$id" "the property oracle ($oracle) reports $null_viol violation(s) after a NULL EDIT (one appended newline) to $target. It is detecting change, not defect, so it would bless a mutation that injects nothing. Fix the ORACLE. No verdict filed."
+			return 0
+		fi
+	fi
 
 	if ! "$mut"; then
 		record_unknown "$id" "MUTATION FAILED TO APPLY (anchor missing) — this case tested nothing; the message above says which anchor"
@@ -994,6 +1689,24 @@ prove() {
 		restore_all
 		return 0
 	fi
+
+	# -- Phase 3b: the mutation must have injected an ACTUAL DEFECT. ---------
+	# The checksum above proves only that bytes moved. This is the assertion
+	# that was missing when SIGN-BY-TAG added a second image reference beside a
+	# digest that was still there, violated nothing, and got a working guard
+	# reported as one that does not fire.
+	local mut_viol
+	if ! mut_viol="$(oracle_count "$oracle")"; then
+		record_unknown "$id" "the property oracle ($oracle) could not be evaluated after mutation — $(err_get)"
+		restore_all
+		return 0
+	fi
+	if [ "$mut_viol" -eq 0 ]; then
+		record_unfaithful "$id" "$mut changed $target but the property oracle ($oracle) still reports 0 violations. The mutation injected no defect, so the guard had nothing to catch. FIX THE MUTATION — this is NOT evidence about the guard, and it is not filed as any kind of guard verdict."
+		restore_all
+		return 0
+	fi
+	printf '    injected: %s property violation(s), confirmed by %s\n' "$mut_viol" "$oracle"
 
 	# -- Phase 4: the guard must now go red, for the RIGHT reason. -----------
 	run_guard "$kind" "$guard" "$filter"
@@ -1012,8 +1725,16 @@ prove() {
 		# A finding — but WHICH finding is not yet known. Quote the observed green
 		# output first, because that is the evidence and it is true regardless of
 		# how the case classifies below.
-		printf '  *** GUARD DID NOT FIRE ***\n'
-		printf '      the defect was present and the guard exited 0. Observed output:\n'
+		# The banner used to read "*** GUARD DID NOT FIRE ***" here, printed
+		# BEFORE the classification below had run. So a guard that turned out to
+		# be live with one narrow gap was announced under the same headline as a
+		# guard that does nothing, and the summary counted both as "did not
+		# fire". That is how this tool acquired a reputation for crying wolf —
+		# and a tool that cries wolf gets suppressed rather than heeded, which is
+		# the documented fate of this repository's migration-idempotency guard.
+		# The verdict is now named only once, after it is known.
+		printf '  GUARD STAYED GREEN on a confirmed defect (%s violation(s) injected).\n' "$mut_viol"
+		printf '      classifying. Observed output:\n'
 		show "$mutated_output" '' 20 '      | '
 
 		# No control registered: say so, and do NOT claim decoration. "Did not
@@ -1040,6 +1761,17 @@ prove() {
 		c_post="$( [ -e "$target" ] && sha256sum "$target" | cut -d' ' -f1 || printf 'ABSENT' )"
 		if [ "$c_pre" = "$c_post" ]; then
 			record_unknown "$id" "positive control exited 0 but changed nothing — cannot classify this finding"
+			restore_all
+			return 0
+		fi
+		# The control gets the same faithfulness test as the mutation. A control
+		# that injects no defect goes green for the honest reason, and would then
+		# be read as "the guard missed the blunt form too" — manufacturing a
+		# DECORATION verdict against a working guard out of nothing but a bad
+		# control. That is the original defect wearing a different hat.
+		local ctrl_viol
+		if ! ctrl_viol="$(oracle_count "$oracle")" || [ "$ctrl_viol" -eq 0 ]; then
+			record_unfaithful "$id" "the POSITIVE CONTROL ($ctrl) changed $target but the property oracle ($oracle) reports ${ctrl_viol:-no readable count} violation(s) — the control injects no defect, so this finding cannot be classified and none is filed. $(err_get)"
 			restore_all
 			return 0
 		fi
@@ -1100,9 +1832,13 @@ self_test() {
 	SELFTEST_N=0
 	fix="$(mktemp -d)"
 
-	# A guard that is pure decoration: it never looks at its target.
+	# A guard that is pure decoration: its NAME claims the property and its body
+	# never looks at the target. Named after the property on purpose — that is
+	# the real-world shape (a check called "no FORBIDDEN tokens" that checks
+	# nothing), and it also keeps the tautology check honest, since a token the
+	# guard itself names is the property's vocabulary and not a smuggled answer.
 	cat >"$fix/decoration.bats" <<-'BATS'
-		@test "decoration guard that never looks at anything" {
+		@test "decoration guard: no FORBIDDEN or SNEAKY token (checks nothing)" {
 			[ 1 -eq 1 ]
 		}
 	BATS
@@ -1139,7 +1875,7 @@ self_test() {
 
 	expect() {   # <expected-verdict> <label> ... runs prove() and checks counters
 		local want="$1" label="$2"; shift 2
-		local f0=$FIRED b0=$BLIND d0=$DECOR c0=$UNCLASSIFIED u0=$UNKNOWN got
+		local f0=$FIRED b0=$BLIND d0=$DECOR c0=$UNCLASSIFIED u0=$UNKNOWN x0=$UNFAITHFUL got
 		prove "$@" >/dev/null 2>&1 || true
 		# The specific counters are tested BEFORE NOT_FIRED, because NOT_FIRED is
 		# a total that every finding kind also increments. Testing it first would
@@ -1150,6 +1886,7 @@ self_test() {
 		elif [ "$BLIND"        -gt "$b0" ]; then got=BLIND
 		elif [ "$DECOR"        -gt "$d0" ]; then got=DECOR
 		elif [ "$UNCLASSIFIED" -gt "$c0" ]; then got=UNCLASSIFIED
+		elif [ "$UNFAITHFUL"   -gt "$x0" ]; then got=UNFAITHFUL
 		elif [ "$UNKNOWN"      -gt "$u0" ]; then got=UNKNOWN
 		else got=NOTHING; fi
 		SELFTEST_N=$((SELFTEST_N + 1))
@@ -1167,7 +1904,38 @@ self_test() {
 	st_mut_wrongred(){ py_sub "$fix/target.txt" 'clean content' 'FORBIDDEN content'; }
 	# A defect the real guard genuinely does not look for. Paired with st_mut_real
 	# as the control, this is a guard with a blind spot rather than a dead one.
-	st_mut_sneaky()  { py_sub "$fix/target.txt" 'clean content' 'sneaky content'; }
+	st_mut_sneaky()  { py_sub "$fix/target.txt" 'clean content' 'SNEAKY content'; }
+	# Changes the file and violates NOTHING. This is the SIGN-BY-TAG shape, and
+	# before the oracle layer it was indistinguishable from a dead guard: the
+	# anchor matched, the checksum moved, the guard stayed green, and the harness
+	# announced that the guard did not fire.
+	st_mut_harmless(){ py_sub "$fix/target.txt" 'clean content' 'perfectly fine content'; }
+
+	# The property, stated independently of any guard: the target carries no
+	# banned token. The real guard only ever looks for one of the two.
+	st_oracle() {
+		local n=0 line
+		while IFS= read -r line; do
+			case "$line" in *FORBIDDEN*|*SNEAKY*) n=$((n + 1)) ;; esac
+		done <"$fix/target.txt"
+		printf '%s' "$n"
+	}
+	# An oracle that answers "did this file change?" instead of "is the property
+	# violated?" — here by counting blank lines, so ANY edit trips it, including
+	# one that injects nothing. This is the lazy shape the null-edit probe
+	# exists to reject, and it would otherwise certify every mutation as
+	# faithful and hand back confident nonsense about every guard.
+	st_oracle_change_detector() {
+		local n=0 line
+		while IFS= read -r line; do
+			[ -n "$line" ] || n=$((n + 1))
+		done <"$fix/target.txt"
+		printf '%s' "$n"
+	}
+	# An oracle that cannot produce a number. Must never be read as "zero".
+	st_oracle_broken() { printf 'not a number'; }
+	# An oracle for a property that is already violated before anything is done.
+	st_oracle_dirty()  { printf '2'; }
 
 	printf '=== harness self-test =======================================\n'
 
@@ -1193,37 +1961,71 @@ ok 2 should be filtered out' '^not ok|^# ' 5 '      | ')"
 		rc=1
 	fi
 
+	# The diagnostic channel must survive a command substitution. It did not:
+	# oracle_count and selected_test_count are both invoked as `v="$(fn)"`, so a
+	# global set inside them died with the subshell and every UNKNOWN came out
+	# with a blank reason — the one field an operator reads to tell a broken
+	# guard from a broken VM. A blank reason under a correct verdict is the same
+	# defect as blank evidence under a correct headline, which this file already
+	# caught once in show().
+	SELFTEST_N=$((SELFTEST_N + 1))
+	err_clear
+	st_probe_err() { err_set "diagnostic from inside a subshell"; printf '0'; }
+	local st_probe_out
+	st_probe_out="$(st_probe_err)"      # the exact shape that lost the message
+	if [ "$(err_get)" = "diagnostic from inside a subshell" ] && [ "$st_probe_out" = "0" ]; then
+		printf '  ok    %-52s -> reason survived\n' "diagnostic crosses the \$( ) subshell boundary"
+	else
+		printf '  FAIL  %-52s -> got %q\n' "diagnostic LOST crossing \$( )" "$(err_get)"
+		rc=1
+	fi
+	# And the real caller must populate it too, or the channel is plumbed to
+	# nothing: a working pipe with no writer reports exactly like a broken one.
+	SELFTEST_N=$((SELFTEST_N + 1))
+	err_clear
+	st_probe_bad() { printf 'not-an-integer'; }
+	if oracle_count st_probe_bad >/dev/null 2>&1; then
+		printf '  FAIL  %-52s -> accepted a non-integer as a count\n' "oracle_count rejects a non-integer"
+		rc=1
+	elif case "$(err_get)" in *"non-integer"*) true ;; *) false ;; esac; then
+		printf '  ok    %-52s -> reason recorded\n' "oracle_count explains a non-integer count"
+	else
+		printf '  FAIL  %-52s -> reason was %q\n' "oracle_count rejected silently" "$(err_get)"
+		rc=1
+	fi
+	err_clear
+
 	expect FIRED     "a real guard detects its defect" \
 		ST-REAL self bats "$fix/real.bats" 'real guard rejects' \
-		"$fix/target.txt" 'forbidden token|not ok' st_mut_real
+		"$fix/target.txt" 'forbidden token|not ok' st_mut_real "" st_oracle
 
 	expect UNCLASSIFIED "a finding with NO control is UNCLASSIFIED, not decoration" \
 		ST-DECOR self bats "$fix/decoration.bats" 'decoration guard' \
-		"$fix/target.txt" 'not ok' st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle
 
 	expect UNKNOWN   "a mutation whose anchor is missing is UNKNOWN" \
 		ST-BADANCHOR self bats "$fix/real.bats" 'real guard rejects' \
-		"$fix/target.txt" 'not ok' st_mut_badanchor
+		"$fix/target.txt" 'not ok' st_mut_badanchor "" st_oracle
 
 	expect UNKNOWN   "a mutation that changes nothing is UNKNOWN" \
 		ST-NOOP self bats "$fix/real.bats" 'real guard rejects' \
-		"$fix/target.txt" 'not ok' st_mut_noop
+		"$fix/target.txt" 'not ok' st_mut_noop "" st_oracle
 
 	expect UNKNOWN   "a filter selecting zero tests is UNKNOWN, not green" \
 		ST-ZEROSEL self bats "$fix/real.bats" 'NO_SUCH_TEST_NAME_XYZ' \
-		"$fix/target.txt" 'not ok' st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle
 
 	expect UNKNOWN   "a guard red at baseline is UNKNOWN" \
 		ST-REDBASE self bats "$fix/redbase.bats" 'red before any mutation' \
-		"$fix/target.txt" 'not ok' st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle
 
 	expect UNKNOWN   "a missing guard file is UNKNOWN" \
 		ST-NOGUARD self bats "$fix/does-not-exist.bats" 'anything' \
-		"$fix/target.txt" 'not ok' st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle
 
 	expect UNKNOWN   "red for an unexpected reason is UNKNOWN, not FIRED" \
 		ST-WRONGRED self bats "$fix/real.bats" 'real guard rejects' \
-		"$fix/target.txt" 'a signature that will never appear' st_mut_wrongred
+		"$fix/target.txt" 'a signature that will never appear' st_mut_wrongred "" st_oracle
 
 	# ── The classification the first real run got wrong ─────────────────────
 	#
@@ -1234,23 +2036,56 @@ ok 2 should be filtered out' '^not ok|^# ' 5 '      | ')"
 
 	expect BLIND     "guard missed the subtle defect but caught the control" \
 		ST-BLIND self bats "$fix/real.bats" 'real guard rejects' \
-		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_real st_oracle
 
 	expect DECOR     "guard missed the control too — decoration, now measured" \
 		ST-DECOR-CTRL self bats "$fix/decoration.bats" 'decoration guard' \
-		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_real
+		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_real st_oracle
 
 	expect UNKNOWN   "a control whose anchor is missing cannot classify -> UNKNOWN" \
 		ST-CTRLBAD self bats "$fix/decoration.bats" 'decoration guard' \
-		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_badanchor
+		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_badanchor st_oracle
 
 	expect FIRED     "the sh guard kind runs and detects its defect" \
 		ST-SH self sh "$fix/real-guard.sh" '' \
-		"$fix/target.txt" 'forbidden token' st_mut_real
+		"$fix/target.txt" 'forbidden token' st_mut_real "" st_oracle
 
 	expect UNKNOWN   "an unreadable sh guard is UNKNOWN, never a pass" \
 		ST-SH-MISSING self sh "$fix/no-such-guard.sh" '' \
-		"$fix/target.txt" 'forbidden token' st_mut_real
+		"$fix/target.txt" 'forbidden token' st_mut_real "" st_oracle
+
+	# ── The verdict this harness could not previously reach ─────────────────
+	#
+	# These are the reason the oracle layer exists. Before it, the four cases
+	# below were INDISTINGUISHABLE from a guard that does not fire: the anchor
+	# matched, the file changed, the checksum moved, the guard stayed green, and
+	# the harness announced a finding against a guard that had done nothing
+	# wrong. That is what happened to SIGN-BY-TAG, and a real guard nearly got
+	# rewritten on the strength of it.
+
+	expect UNFAITHFUL "a mutation that changes bytes but violates nothing" \
+		ST-UNFAITHFUL self bats "$fix/real.bats" 'real guard rejects' \
+		"$fix/target.txt" 'not ok' st_mut_harmless "" st_oracle
+
+	expect UNFAITHFUL "a CONTROL that changes bytes but violates nothing" \
+		ST-CTRL-UNFAITHFUL self bats "$fix/decoration.bats" 'decoration guard' \
+		"$fix/target.txt" 'not ok' st_mut_sneaky st_mut_harmless st_oracle
+
+	expect UNFAITHFUL "an oracle that fires on a NULL EDIT is rejected" \
+		ST-NULLEDIT self bats "$fix/real.bats" 'real guard rejects' \
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle_change_detector
+
+	expect UNKNOWN   "an oracle that cannot produce a number is never read as zero" \
+		ST-ORACLE-BROKEN self bats "$fix/real.bats" 'real guard rejects' \
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle_broken
+
+	expect UNKNOWN   "a property already violated at baseline yields no verdict" \
+		ST-ORACLE-DIRTY self bats "$fix/real.bats" 'real guard rejects' \
+		"$fix/target.txt" 'not ok' st_mut_real "" st_oracle_dirty
+
+	expect UNKNOWN   "a case with NO oracle cannot produce a finding" \
+		ST-NO-ORACLE self bats "$fix/decoration.bats" 'decoration guard' \
+		"$fix/target.txt" 'not ok' st_mut_real "" ""
 
 	# ── The foreign-edit detector must actually fire, and must not over-fire ──
 	#
@@ -1323,8 +2158,16 @@ ok 2 should be filtered out' '^not ok|^# ' 5 '      | ')"
 
 	rm -rf "$fix"
 	SNAP_PATHS=(); SNAP_KEYS=()
+	# EVERY counter the self-test touched, or its verdicts leak into the real
+	# run. UNFAITHFUL and UNFAITHFULS were missed when they were added, and the
+	# three self-test cases carried straight into the summary: 22 cases ran and
+	# 25 verdicts were reported. It surfaced only because the accounting check
+	# below compares the two — without it, three fabricated harness findings
+	# would have been filed against the estate, which is the same shape as
+	# quoting a verdict nobody measured.
 	FIRED=0; NOT_FIRED=0; UNKNOWN=0; FINDINGS=(); UNKNOWNS=()
 	BLIND=0; DECOR=0; UNCLASSIFIED=0
+	UNFAITHFUL=0; UNFAITHFULS=()
 
 	printf '=============================================================\n'
 	if [ "$rc" -ne 0 ]; then
@@ -1365,6 +2208,34 @@ done
 if [ "${#C_ID[@]}" -eq 0 ]; then
 	printf 'FATAL: the case registry is EMPTY. A falsification harness with no cases\n'
 	printf 'passes vacuously, which is the precise defect it exists to detect.\n'
+	exit 2
+fi
+
+# Every case MUST carry a property oracle, and that oracle must exist as a
+# function. This is the gate that makes an unfaithful mutation impossible to add
+# QUIETLY: a new case without an oracle does not run and report "guard did not
+# fire", it refuses to start and says why. Enforced here rather than inside
+# register() so the message can name every offender in one pass instead of
+# failing on whichever happened to be edited first.
+MISSING_ORACLE=""
+for i in "${!C_ID[@]}"; do
+	if [ -z "${C_ORACLE[$i]}" ]; then
+		MISSING_ORACLE="${MISSING_ORACLE}  ${C_ID[$i]} (no attach_oracle line)
+"
+	elif ! declare -F "${C_ORACLE[$i]}" >/dev/null 2>&1; then
+		MISSING_ORACLE="${MISSING_ORACLE}  ${C_ID[$i]} (oracle '${C_ORACLE[$i]}' is not a defined function)
+"
+	fi
+done
+if [ -n "$MISSING_ORACLE" ]; then
+	printf 'FATAL: case(s) registered without a usable property oracle:\n'
+	printf '%s' "$MISSING_ORACLE"
+	printf '\nAn oracle states the property INDEPENDENTLY of the guard and reports how\n'
+	printf 'many units violate it. Without one, a case can prove that it edited a file\n'
+	printf 'and cannot prove that it injected a DEFECT — so a guard that stays green\n'
+	printf 'gets reported as broken when the mutation was the broken thing. That has\n'
+	printf 'already happened here (SIGN-BY-TAG, 2026-08-16), and the accused guard was\n'
+	printf 'correct. Add `attach_oracle <ID> <fn>` to the oracle block.\n'
 	exit 2
 fi
 
@@ -1417,7 +2288,7 @@ for i in "${!C_ID[@]}"; do
 	RAN=$((RAN + 1))
 	prove "${C_ID[$i]}" "${C_CAT[$i]}" "${C_KIND[$i]}" "${C_GUARD[$i]}" \
 	      "${C_FILTER[$i]}" "${C_TARGET[$i]}" "${C_SIG[$i]}" "${C_MUT[$i]}" \
-	      "${C_CTRL[$i]}"
+	      "${C_CTRL[$i]}" "${C_ORACLE[$i]}"
 done
 
 restore_all
@@ -1430,7 +2301,27 @@ printf 'guard DID NOT FIRE : %s   <-- findings\n' "$NOT_FIRED"
 printf '  of which BLIND SPOT   : %s   guard IS live; control went red, this shape slipped through\n' "$BLIND"
 printf '  of which DECORATION   : %s   guard stayed green even for the blunt control\n' "$DECOR"
 printf '  of which UNCLASSIFIED : %s   no control registered; blind spot vs decoration not measured\n' "$UNCLASSIFIED"
+printf 'UNFAITHFUL MUTATION: %s   <-- HARNESS bug: injected no defect. No verdict filed.\n' "$UNFAITHFUL"
 printf 'UNKNOWN            : %s   <-- harness could not run these; neither pass nor fail\n' "$UNKNOWN"
+
+# The accounting must be complete. Every case that ran landed in exactly one
+# bucket, and if the buckets do not sum to the number of cases run then a case
+# fell through prove() without a verdict — which reads, from the summary alone,
+# exactly like a case that passed.
+ACCOUNTED=$((FIRED + NOT_FIRED + UNFAITHFUL + UNKNOWN))
+MISCOUNTED=0
+if [ "$ACCOUNTED" -ne "$RAN" ]; then
+	printf '\n*** ACCOUNTING ERROR: %s case(s) ran but %s verdict(s) were recorded.\n' \
+		"$RAN" "$ACCOUNTED"
+	printf 'Either a case reached no verdict, or a verdict was counted twice. Both are\n'
+	printf 'fatal to the report: an unrecorded case reads exactly like a passing one,\n'
+	printf 'and a double-counted one invents a finding against a guard nobody measured.\n'
+	# Its OWN flag. Folding this into DIRTY_TREE reported "the harness did not
+	# restore the tree" directly underneath a restore proof stating that all 31
+	# watched paths were byte-identical — two contradictory claims in one run,
+	# which is how a real tree-corruption warning stops being believed.
+	MISCOUNTED=1
+fi
 
 printf '\n--- restore proof ---\n'
 if watch_verify; then
@@ -1448,9 +2339,28 @@ else
 	DIRTY_TREE=1
 fi
 
+if [ "${#UNFAITHFULS[@]}" -gt 0 ]; then
+	printf '\n--- UNFAITHFUL MUTATIONS (defects in THIS HARNESS, not in any guard) ---\n'
+	printf '%s\n' "${UNFAITHFULS[@]}" | sed 's/^/  /'
+	printf '\nEach of these edited its target and injected no violation of the property.\n'
+	printf 'The guard had nothing to detect, so nothing was learned about the guard.\n'
+	printf 'Fix the MUTATION. Never widen or rewrite a guard on the strength of one of\n'
+	printf 'these — the accusation was never made.\n'
+fi
+
 if [ "${#UNKNOWNS[@]}" -gt 0 ]; then
-	printf '\n--- UNKNOWN (reported as neither pass nor finding) ---\n'
+	printf '\n--- UNKNOWN: could not be run (NEITHER a pass NOR a finding) ---\n'
 	printf '%s\n' "${UNKNOWNS[@]}" | sed 's/^/  /'
+	printf '\n%s of %s case(s) produced no measurement. Those guards are UNPROVEN by\n' \
+		"$UNKNOWN" "$RAN"
+	printf 'this run: nothing here says they work and nothing here says they do not.\n'
+	printf 'An UNKNOWN that persists is a case quietly contributing nothing, which is\n'
+	printf 'the same shape as the dead guards this harness exists to find. The count\n'
+	printf 'is expected to be ZERO; every entry above needs a cause, not a shrug.\n'
+	printf '\nCauses seen on the CI VM but not locally are usually environmental — a\n'
+	printf 'tool missing from the VM image, or a guard that is red there at baseline.\n'
+	printf 'The reason text above distinguishes those; read it before assuming a\n'
+	printf 'guard regressed.\n'
 fi
 
 if [ "${#FINDINGS[@]}" -gt 0 ]; then
@@ -1482,13 +2392,41 @@ if [ "$DIRTY_TREE" -ne 0 ]; then
 	printf 'until that is fixed, and the working tree needs inspecting by hand.\n'
 	exit 4
 fi
-if [ "$NOT_FIRED" -gt 0 ]; then
-	printf '\n%s guard(s) failed to fire (%s blind spot, %s decoration, %s unclassified).\n' \
-		"$NOT_FIRED" "$BLIND" "$DECOR" "$UNCLASSIFIED"
-	exit 1
-fi
+# Exit codes are checked in order of what has to be fixed FIRST, but every
+# condition is PRINTED regardless of which one owns the exit status. The
+# previous ordering returned 1 for "a guard did not fire" and never printed the
+# "N cases could not be run" line at all when both were true — so on the CI VM,
+# where both were true, the eight unrunnable cases were represented in the final
+# verdict by nothing. A condition that decides nothing must still be said out
+# loud; silence about it is how "could not run" drifts into meaning "fine".
+EXIT_CODE=0
 if [ "$UNKNOWN" -gt 0 ]; then
-	printf '\n%s case(s) could not be run. That is not a pass — fix them.\n' "$UNKNOWN"
-	exit 3
+	printf '\n%s case(s) could not be run. That is NOT a pass — those guards are\n' "$UNKNOWN"
+	printf 'unproven, and the count is expected to be zero. Fix them.\n'
+	EXIT_CODE=3
+fi
+if [ "$NOT_FIRED" -gt 0 ]; then
+	printf '\n%s guard(s) stayed green on a CONFIRMED defect (%s blind spot, %s decoration,\n' \
+		"$NOT_FIRED" "$BLIND" "$DECOR"
+	printf '%s unclassified). Each injection was verified by its property oracle, so the\n' "$UNCLASSIFIED"
+	printf 'defect was really there in every case counted here.\n'
+	EXIT_CODE=1
+fi
+if [ "$UNFAITHFUL" -gt 0 ]; then
+	printf '\n%s mutation(s) injected no defect. That is a defect in THIS FILE. Until it\n' "$UNFAITHFUL"
+	printf 'is fixed those cases test nothing, and no guard has been accused of anything.\n'
+	EXIT_CODE=6
+fi
+# Assigned LAST so it wins. These conditions are printed in ascending order of
+# how fundamental they are and the exit status is the deepest one, because a run
+# whose verdicts do not add up cannot be trusted to have counted the shallower
+# problems correctly either.
+if [ "$MISCOUNTED" -ne 0 ]; then
+	printf '\nThe verdict count does not match the case count, so this run is void\n'
+	printf 'regardless of what any individual verdict above says.\n'
+	EXIT_CODE=7
+fi
+if [ "$EXIT_CODE" -ne 0 ]; then
+	exit $EXIT_CODE
 fi
 printf '\nAll %s cases red as required, and the tree is clean.\n' "$RAN"

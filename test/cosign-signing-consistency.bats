@@ -125,6 +125,34 @@ collect_sign_invocations() {
       echo "signs something that is not a digest reference: ${line}"
       false
     }
+    # A digest SOMEWHERE on the line is not the same claim as "no tag is signed".
+    #
+    # The check above passes as soon as one digest reference appears, so adding a
+    # SECOND, tag-style image argument beside the digest slipped through -- and
+    # that is a real defect, not a hypothetical: cosign signs every reference it
+    # is given, so the tag signature is created just the same, and the tag can
+    # move under a concurrent push exactly as this test's own comment warns.
+    #
+    # Found by test/guard-falsification-proof.sh, which registered it as a BLIND
+    # SPOT after its positive control proved the guard was otherwise live. Its
+    # first report of this case said GUARD DID NOT FIRE -- "decoration" -- which
+    # was false and sent me to "fix" a guard that was working; the oracle that
+    # confirms the injected defect is really present is what turned a false
+    # accusation into this true, narrower one.
+    #
+    # An image argument is a bare (unflagged) token containing a registry-ish
+    # path and a `:tag` suffix, with no `@` digest on it.
+    local tagref
+    tagref="$(printf '%s\n' "${line}" | tr ' ' '\n' \
+      | tr -d '\042\047' \
+      | grep -vE '^-' \
+      | grep -E '[A-Za-z0-9_}$)/-]+/[A-Za-z0-9_}$)./-]+:[A-Za-z0-9_.${}-]+$' \
+      | grep -v '@' || true)"
+    if [ -n "${tagref}" ]; then
+      echo "signs a TAG reference alongside a digest: ${tagref}"
+      echo "  in: ${line}"
+      false
+    fi
   done <<< "$(echo "$output" | grep 'cosign sign')"
 }
 

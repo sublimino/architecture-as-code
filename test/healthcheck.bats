@@ -18,6 +18,23 @@ if [[ "${KUBECTL_STATE:-healthy}" == not-ready && "$*" == *"wait --for=condition
   exit 1
 fi
 
+# A `get ... -o json` must return a plausible object list, not silence.
+#
+# This stub used to print nothing and exit 0 for every query. healthcheck.sh
+# calls check-flux-substitution.sh, which now distinguishes "verified clean"
+# from "could not verify" and exits 2 when it scans ZERO objects -- so the
+# silent stub made healthcheck fail, correctly, on the grounds that nothing had
+# been examined. The stub was the thing at fault: a real cluster answers this
+# query with objects, and a mock that answers with silence is not modelling the
+# system, it is modelling an outage.
+#
+# One object, with no ${VAR} tokens in its spec, so the substitution guard has
+# something real to find nothing wrong with.
+if [[ "$*" == *"-o json"* ]]; then
+  printf '%s\n' '{"items":[{"kind":"OCIRepository","metadata":{"name":"stub","namespace":"flux-system"},"spec":{"ref":{"tag":"v1.0.0"},"url":"oci://registry/stub"}}]}'
+  exit 0
+fi
+
 exit 0
 SCRIPT
   chmod +x "$bin/kubectl"

@@ -148,12 +148,18 @@ FINDINGS="${WORK}/findings.tsv" # rule \t file \t line \t anchor \t message \t e
 
 collect() {
 	local root="$1"
+	# `|| true` is safe ONLY because the next assertion (file count > 0) catches
+	# an empty result. find exits non-zero when it hits an unreadable directory,
+	# even with `-prune`, and under `set -e` that kills the whole script — which
+	# the trap cleans up, producing zero-byte output and exit 1.
+	# That is indistinguishable from "findings present", and is the same
+	# confusion this script's own header warns about.
 	find "$root" \
 		\( -name .git -o -name node_modules -o -name test_helper -o -name vendor \
 		-o -name .venv -o -name dist -o -name .terraform -o -name ci-reports \) -prune -o \
 		-type f \( -name '*.bats' -o -name '*.sh' -o -name '*.bash' \
 		-o -name '*.yaml' -o -name '*.yml' -o -name 'Makefile' -o -name '*.mk' \) \
-		-print 2>/dev/null
+		-print 2>/dev/null || true
 }
 
 declare -a ROOTS=()

@@ -676,7 +676,7 @@ run_stage \
   "Exec-probe ban in test files" \
   "stage1k-exec-probe-ban.tap" \
   "cd ${WORK_DIR} && bats --tap test/no-exec-probes-in-tests.bats"
-# Stage 1m: Vacuous-assertion lint
+# Stage 1o: Vacuous-assertion lint
 #
 # Item 3 on the leverage-ordered fix list in Andy's silent-failure note:
 # "Lint for vacuous assertions -- observedGeneration >= 0, --for=condition=ready
@@ -699,10 +699,10 @@ run_stage \
 # Static: bash, grep and python3 only. No cluster, no network.
 run_stage \
   "Vacuous-assertion lint" \
-  "stage1m-vacuous-assertions.txt" \
+  "stage1o-vacuous-assertions.txt" \
   "cd ${WORK_DIR} && ./scripts/check-vacuous-assertions.sh"
 
-# Stage 1n: the vacuous lint's own falsification suite
+# Stage 1p: the vacuous lint's own falsification suite
 #
 # The lint is itself a check, so it is held to the rule it enforces: these 39
 # tests inject each vacuous shape and require the lint to report it, then
@@ -710,7 +710,7 @@ run_stage \
 # it exists to ban.
 run_stage \
   "Vacuous-assertion lint falsification" \
-  "stage1n-vacuous-lint-proof.tap" \
+  "stage1p-vacuous-lint-proof.tap" \
   "cd ${WORK_DIR} && bats --tap test/vacuous-assertions.bats"
 
 # Stage 2: API contracts (pytest → JUnit XML)

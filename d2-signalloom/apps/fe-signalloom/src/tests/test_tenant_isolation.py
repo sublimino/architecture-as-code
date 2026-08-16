@@ -46,12 +46,13 @@ import socket
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Annotated, Any
 
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from fastapi import Depends
 from fastapi.testclient import TestClient
 from types import SimpleNamespace
 
@@ -622,15 +623,101 @@ def test_a_tenant_reads_its_own_agent_through_the_same_fake(client, two_tenant_d
     assert response.json()["tenant_id"] == TENANT_A
 
 
-def test_addressing_another_tenants_agent_does_not_return_it(client, two_tenant_db):
+def _attack_read_foreign_agent(target_client: TestClient) -> str:
+    """The attack, as one function, so the open target and the real target are
+    provably hit by the SAME code.  Two call sites that merely look alike are
+    not a control -- the whole failure mode here is an attack that silently
+    stopped attacking."""
+    return target_client.get(f"/api/agents/{BOB_AGENT_ID}", headers=bearer(ALICE)).text
+
+
+@pytest.fixture
+def deliberately_open_target(client, two_tenant_db):
+    """A route with the tenant predicate omitted, over the SAME two-tenant data.
+
+    Depends on ``client`` for its settings monkeypatches (issuer, audience,
+    JWKS, subject map), not for the app.  Found the hard way: without it the
+    open target rejected the bearer token with 401 and "leaked" nothing, which
+    is precisely the false all-clear this control exists to expose -- an attack
+    that fails to authenticate looks identical to an attack that was blocked.
+
+    "Attack blocked" and "attack hit nothing" are the same observation from
+    outside.  A stale fixture, an empty store, a typo in the agent id -- each
+    produces a clean, fast, entirely convincing "no leak" from an attack that
+    never had a target.  This fixture is the target that MUST leak: if the
+    attack cannot breach a route with no filter at all, then its silence
+    against the real route says nothing about the real route.
+
+    Deliberately not a mutation of ``api_compat``: this runs in the same
+    process, in the same test, in the same run as the negative case, so the
+    control cannot be skipped or drift out of date the way an out-of-band
+    mutation run can.
+    """
+    from fastapi import APIRouter, FastAPI
+
+    open_router = APIRouter(prefix="/api")
+
+    @open_router.get("/agents/{agent_id}")
+    async def leaky_get_agent(
+        agent_id: str,
+        tenant_id: Annotated[str, Depends(api_compat.authenticated_tenant)],
+    ) -> dict[str, Any]:
+        # The defect, written out: authenticated, tenant resolved, tenant
+        # ignored. This is precisely `agent_by_id_tenant_filter`.
+        pool = await api_compat._get_pool()
+        row = await pool.fetchrow(
+            "SELECT * FROM agent_registry WHERE id = $1", uuid.UUID(agent_id)
+        )
+        if row is None:
+            return {"found": False}
+        return {"found": True, "name": row["name"], "tenant_id": row["tenant_id"],
+                "owner": row["owner"]}
+
+    open_app = FastAPI()
+    open_app.include_router(open_router)
+    api_compat.install_api_exception_handlers(open_app)
+    with TestClient(open_app, raise_server_exceptions=False) as open_client:
+        yield open_client
+
+
+def test_the_attack_succeeds_against_a_deliberately_open_target(deliberately_open_target):
+    """POSITIVE CONTROL for every cross-tenant assertion in this file.
+
+    Proves, in-run, that the attack is capable of extracting another tenant's
+    row when nothing stops it.  If this test ever goes green-by-failing-to-leak,
+    every "does not return it" assertion below it is worthless and must be
+    treated as unproven rather than as passing.
+    """
+    body = _attack_read_foreign_agent(deliberately_open_target)
+
+    assert "Bob Payroll Agent" in body, body
+    assert TENANT_B in body, body
+    assert "owner@tenant-b.test" in body, body
+
+
+def test_addressing_another_tenants_agent_does_not_return_it(
+    client, two_tenant_db, deliberately_open_target
+):
     """Tenant A must not receive tenant B's agent row.
 
-    Falsified by: agent_by_id_tenant_filter.  With that mutation this returns
-    ``"Bob Payroll Agent"`` and ``owner@tenant-b.test`` with HTTP 200.
-    """
-    response = client.get(f"/api/agents/{BOB_AGENT_ID}", headers=bearer(ALICE))
+    Takes ``deliberately_open_target`` as a parameter so the positive control
+    is executed inside THIS test, not merely somewhere in the file.  A control
+    in a sibling test can be deselected, skipped or renamed away; one in the
+    same function cannot be, and the assertion below is only meaningful given
+    that the attack has just been shown to work.
 
-    body = response.text
+    Falsified by: agent_by_id_tenant_filter.  With that mutation the real route
+    answers exactly as the open one does here.
+    """
+    # First: the attack works. Same function, same data, same process.
+    leaked = _attack_read_foreign_agent(deliberately_open_target)
+    assert "Bob Payroll Agent" in leaked, (
+        "the attack extracted nothing even from a route with no tenant filter, "
+        "so the negative result below proves nothing"
+    )
+
+    # Then: it does not work against the shipped route.
+    body = _attack_read_foreign_agent(client)
     assert "Bob Payroll Agent" not in body, body
     assert TENANT_B not in body, body
     assert "owner@tenant-b.test" not in body, body
@@ -795,6 +882,45 @@ def test_a_well_formed_token_validates_so_the_rejections_below_mean_something(jw
     claims = validate_jwt(token_for(ALICE))
     assert claims["sub"] == ALICE
     assert claims["aud"] == AUDIENCE
+
+
+def test_the_forgeries_would_authenticate_against_a_verifier_that_did_not_check(jwt_env):
+    """POSITIVE CONTROL for the forgery block: the forgeries are real forgeries.
+
+    A rejected token proves the server refused something.  It does not prove
+    the server refused an ATTACK -- a token mangled by a bug in the test helper
+    is also refused, identically, and leaves the control untested while looking
+    thoroughly tested.  This is the token-layer twin of
+    ``test_the_attack_succeeds_against_a_deliberately_open_target``: decode each
+    forgery with verification off, which is what a permissive server does, and
+    show it carries exactly the claims an attacker wanted.
+
+    If a forgery below stops decoding to ``sub == alice``, the corresponding
+    rejection test is measuring a malformed string, not an attack.
+    """
+    forgeries = {
+        "alg-none": f"{_seg({'alg': 'none', 'typ': 'JWT', 'kid': 'test-key'})}."
+        f"{_seg({'iss': ISSUER, 'aud': AUDIENCE, 'azp': AZP, 'sub': ALICE, 'iat': 1, 'exp': 2 ** 31})}.AA",
+        "hs256-pem": _hs256_token(
+            {"iss": ISSUER, "aud": AUDIENCE, "azp": AZP, "sub": ALICE, "exp": 2 ** 31},
+            PUBLIC_KEY_PEM,
+        ),
+        "foreign-signature": token_for(ALICE, signing_key=FOREIGN_KEY),
+        "expired": token_for(ALICE, lifetime=-10),
+        "wrong-aud": token_for(ALICE, audience="other-api"),
+        "wrong-iss": token_for(ALICE, issuer="https://attacker.test/dex"),
+    }
+
+    for label, token in forgeries.items():
+        claims = jwt.decode(
+            token,
+            options={"verify_signature": False, "verify_exp": False, "verify_aud": False},
+            algorithms=["RS256", "HS256", "none"],
+        )
+        # The payload is intact and says what the attacker wanted it to say.
+        assert claims["sub"] == ALICE, f"{label}: forgery does not even claim to be alice"
+        # And the server must still have refused it.
+        assert _reason(token), label
 
 
 def test_alg_none_is_rejected_by_the_algorithm_check_not_by_a_parse_error(jwt_env):
@@ -1392,6 +1518,138 @@ def test_rbac_correlation_routes_are_not_tenant_scoped_at_all(client, monkeypatc
     # The caller's tenant reached neither upstream request.
     assert "/clusters/tenant-b-prod-cluster/rbac" in captured
     assert not any(TENANT_A in path for path in captured), captured
+
+
+# ---------------------------------------------------------------------------
+# Proof of liveness -- asserted at collection time
+# ---------------------------------------------------------------------------
+#
+# MERGE HAZARD this defends against. This branch and its siblings all land on
+# `feat/signal-loop-and-bootstrap-refactor`. The silent failure there is not a
+# conflict in a test FILE -- those are loud. It is a conflict in test
+# SELECTION: `pytest.ini`, a `conftest.py`, a bats glob or a Makefile target
+# list resolved to one side. Both sets of spec files remain on disk; only one
+# set is collected. The run is green, exit 0, no warning, and an adversarial
+# suite that is not collected is indistinguishable from an adversarial suite
+# that found nothing.
+#
+# For a suite whose entire purpose is to fail when something is wrong, GREEN IS
+# THE SUSPICIOUS STATE. So the count and the names are declared here and checked
+# against what pytest actually collected.
+#
+# Verified empirically rather than assumed: under `-n auto --dist worksteal`
+# (this repo's default addopts) every xdist worker's `session.items` holds the
+# FULL collected set -- measured, one worker, whole suite: `WORKER=gw15 SEES=82`.
+# So the equality below is valid under the default invocation and not only
+# under `-n0`.
+
+#: Every distinct attack in this file. Parametrised cases are counted from the
+#: tables that generate them rather than restated, so the two cannot drift.
+ATTACK_MANIFEST: frozenset[str] = frozenset({
+    # harness integrity
+    "test_the_tenant_owned_table_list_is_derived_and_non_empty",
+    "test_the_route_sweep_covers_every_authenticated_api_route",
+    "test_the_attack_succeeds_against_a_deliberately_open_target",
+    "test_the_forgeries_would_authenticate_against_a_verifier_that_did_not_check",
+    "test_a_well_formed_token_validates_so_the_rejections_below_mean_something",
+    "test_a_tenant_reads_its_own_agent_through_the_same_fake",
+    "test_every_declared_attack_case_was_actually_collected",
+    # tenant isolation
+    "test_every_database_statement_is_bound_to_the_callers_tenant",
+    "test_addressing_another_tenants_agent_does_not_return_it",
+    "test_listing_agents_returns_only_the_callers_own",
+    "test_unknown_agent_id_is_answered_with_a_synthesised_agent_not_a_404",
+    "test_credential_routes_fail_closed_on_an_id_the_caller_does_not_own",
+    "test_the_privileged_invocation_sink_writes_the_callers_own_tenant",
+    # token forgery
+    "test_alg_none_is_rejected_by_the_algorithm_check_not_by_a_parse_error",
+    "test_an_rs256_token_resigned_hs256_with_the_public_key_is_rejected",
+    "test_the_decode_allowlist_is_rs256_only_even_if_the_header_check_is_passed",
+    "test_each_claim_forgery_is_refused_by_the_check_it_targets",
+    "test_every_rejection_looks_identical_on_the_wire",
+    "test_aud_is_verified_and_a_dashboard_audienced_token_cannot_reach_the_api",
+    "test_a_tenant_claim_in_the_token_is_never_the_authorisation_decision",
+    "test_an_unmapped_subject_is_refused_rather_than_defaulted",
+    # privilege escalation
+    "test_privileged_routes_refuse_an_ordinary_authenticated_caller",
+    "test_privileged_routes_get_past_the_gate_for_a_real_superadmin",
+    "test_superadmin_is_decided_from_the_token_identity_not_from_the_request",
+    # findings, pinned
+    "test_api_key_routes_ignore_the_tenant_named_in_their_own_path",
+    "test_compliance_frameworks_reads_governance_tables_without_a_tenant_filter",
+    "test_the_policy_scan_path_does_filter_the_same_governance_tables",
+    "test_rbac_correlation_routes_are_not_tenant_scoped_at_all",
+    "test_demo_runs_are_a_global_singleton_readable_by_every_tenant",
+})
+
+#: Parametrised expansions, derived so adding a route updates this by itself
+#: while SHRINKING a sweep is still caught.
+PARAMETRISED_CASES: dict[str, int] = {
+    "test_every_database_statement_is_bound_to_the_callers_tenant": len(DB_ROUTES),
+    "test_privileged_routes_refuse_an_ordinary_authenticated_caller": len(SUPERADMIN_ROUTES),
+    "test_privileged_routes_get_past_the_gate_for_a_real_superadmin": len(SUPERADMIN_ROUTES),
+    "test_each_claim_forgery_is_refused_by_the_check_it_targets": 10,
+}
+
+#: Floors, so a table that is emptied by a bad merge cannot satisfy the
+#: derivation above by making both sides zero.
+MINIMUM_SWEEP_SIZES = {"DB_ROUTES": 30, "SUPERADMIN_ROUTES": 6}
+
+
+def test_every_declared_attack_case_was_actually_collected(request):
+    """The suite must prove it ran, not merely report that it passed.
+
+    Three ways this file can silently stop protecting anything, all of which
+    exit 0:
+
+    1. a merge drops it from collection entirely (caught by the sibling bats
+       guard, ``d2-signalloom/test/authz-suite-liveness.bats`` -- a test inside
+       an uncollected file cannot report its own absence);
+    2. a merge or an edit removes individual attacks (caught here, by name);
+    3. a sweep table is emptied or truncated, so the parametrised attacks
+       collapse to nothing while their test function still exists and still
+       passes (caught here, by count and by floor).
+    """
+    # The tables that generate the sweeps must not have been hollowed out.
+    assert len(DB_ROUTES) >= MINIMUM_SWEEP_SIZES["DB_ROUTES"], len(DB_ROUTES)
+    assert len(SUPERADMIN_ROUTES) >= MINIMUM_SWEEP_SIZES["SUPERADMIN_ROUTES"], len(
+        SUPERADMIN_ROUTES
+    )
+
+    collected = [
+        item for item in request.session.items
+        if item.nodeid.rsplit("::", 1)[0].endswith("test_tenant_isolation.py")
+    ]
+    # Assert the mechanism found something before asserting over it.
+    assert collected, (
+        "no items from this file are visible in the session -- the liveness "
+        "check itself is not working, so its verdict means nothing"
+    )
+
+    by_function: dict[str, int] = {}
+    for item in collected:
+        by_function[item.nodeid.rsplit("::", 1)[1].split("[", 1)[0]] = (
+            by_function.get(item.nodeid.rsplit("::", 1)[1].split("[", 1)[0], 0) + 1
+        )
+
+    missing = ATTACK_MANIFEST - by_function.keys()
+    assert not missing, (
+        "declared attack cases were NOT collected -- this suite is reporting "
+        "green while not running them:\n  " + "\n  ".join(sorted(missing))
+    )
+
+    undeclared = by_function.keys() - ATTACK_MANIFEST
+    assert not undeclared, (
+        "attack cases exist that are not in ATTACK_MANIFEST. Add them, so the "
+        "manifest keeps being a true statement of what this suite covers:\n  "
+        + "\n  ".join(sorted(undeclared))
+    )
+
+    for name, expected in PARAMETRISED_CASES.items():
+        assert by_function[name] == expected, (
+            f"{name} collected {by_function[name]} cases, expected {expected} -- "
+            "a sweep table has changed size"
+        )
 
 
 def test_demo_runs_are_a_global_singleton_readable_by_every_tenant(client, monkeypatch):

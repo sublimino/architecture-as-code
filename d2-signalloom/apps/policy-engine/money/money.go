@@ -192,6 +192,16 @@ func (m *Money) UnmarshalYAML(n *yaml.Node) error {
 		if err != nil {
 			return fmt.Errorf("line %d: %q is not a number and not an {amount, currency} mapping", n.Line, n.Value)
 		}
+		// ParseFloat accepts "NaN", "nan", "Inf", "+Inf", "-Inf" — all valid IEEE 754 but not
+		// money. YAML's own float tokens (.nan, .inf) are caught by ParseFloat's dot rejection,
+		// but the unquoted strings NaN and Inf slip through because yaml.v3 tags them as !!str
+		// while ParseFloat happily parses the token. Reject them here at the boundary rather
+		// than carrying a non-finite amount into sums and threshold comparisons where IEEE 754
+		// comparison semantics produce wrong verdicts (NaN <= 0 is false, so a NaN tolerance
+		// passes the positivity check and divides the residual ALE into NaN).
+		if !isUsableAmount(v) {
+			return fmt.Errorf("line %d: %q is not a usable monetary amount (NaN and Inf are not money)", n.Line, n.Value)
+		}
 		m.Amount = v
 		m.Currency = ""
 		return nil
@@ -203,6 +213,11 @@ func (m *Money) UnmarshalYAML(n *yaml.Node) error {
 	}
 	if err := n.Decode(&raw); err != nil {
 		return fmt.Errorf("line %d: %w", n.Line, err)
+	}
+	// The mapping form can also carry NaN/Inf via `amount: .nan` (tag !!float, decoded by
+	// yaml.v3's own float parser which accepts .nan/.inf natively).
+	if !isUsableAmount(raw.Amount) {
+		return fmt.Errorf("line %d: amount is %g; NaN and Inf are not money", n.Line, raw.Amount)
 	}
 	m.Amount = raw.Amount
 	m.Currency = raw.Currency

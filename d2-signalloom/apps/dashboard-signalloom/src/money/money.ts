@@ -55,6 +55,12 @@ export function isConverted(value: Money | Converted): value is Converted {
  * null as unavailable, exactly as they do a missing rate. An empty list is 0 in
  * `fallback`, since "no findings" genuinely is zero exposure.
  *
+ * Also returns null when any amount is non-finite (NaN, ±Infinity). A NaN in a
+ * sum propagates silently through IEEE 754 arithmetic, and the result — NaN
+ * wearing a currency code — passes every null check downstream. The Go Sum()
+ * rejects non-finite amounts with an error; this is the TS equivalent. An
+ * overflow (finite + finite → Infinity) is caught the same way.
+ *
  * Summing happens in the SOURCE currency and the total is converted once — see
  * the header of convert.ts for why the reverse accumulates error.
  */
@@ -65,8 +71,11 @@ export function sumMoney(items: readonly Money[], fallback: CurrencyCode): Money
   let total = 0
   for (const item of items) {
     if (item.currency !== currency) return null
+    if (!Number.isFinite(item.amount)) return null
     total += item.amount
   }
+  // The sum of finite values can overflow to Infinity.
+  if (!Number.isFinite(total)) return null
   return { amount: total, currency }
 }
 
@@ -76,7 +85,15 @@ export function sumMoney(items: readonly Money[], fallback: CurrencyCode): Money
  * Used for pro-rating a total across frameworks. Deliberately does NOT round:
  * the single rounding happens at conversion, so an intermediate rounding here
  * would be the double-round convert.ts warns about.
+ *
+ * Returns null when the factor or the amount is non-finite, or when the product
+ * overflows to ±Infinity. A NaN factor silently corrupts the amount without any
+ * downstream guard catching it — the Money type is structurally valid but
+ * semantically garbage.
  */
-export function scaleMoney(m: Money, factor: number): Money {
-  return { amount: m.amount * factor, currency: m.currency }
+export function scaleMoney(m: Money, factor: number): Money | null {
+  if (!Number.isFinite(m.amount) || !Number.isFinite(factor)) return null
+  const result = m.amount * factor
+  if (!Number.isFinite(result)) return null
+  return { amount: result, currency: m.currency }
 }

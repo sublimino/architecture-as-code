@@ -34,6 +34,11 @@ export interface FleetRiskGaugeProps {
 // ── Colour boundaries ───────────────────────────────────────────────────────
 
 function riskColour(ale: number): string {
+  // NaN fails every < comparison and would fall through to var(--error),
+  // making "unknown risk" display as maximum risk — misleading. A non-finite
+  // ALE is not a risk level; it is a missing value, so it gets the neutral
+  // muted colour.
+  if (!Number.isFinite(ale)) return 'var(--muted)'
   if (ale < 50_000) return 'var(--teal)'
   if (ale < 500_000) return 'var(--amber)'
   return 'var(--error)'

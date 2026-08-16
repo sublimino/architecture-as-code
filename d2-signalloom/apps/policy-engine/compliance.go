@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,20 +112,42 @@ func (ch *complianceHandler) handleScan(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
+	// Pre-flight: reject unknown frameworks before doing any work. A scan that
+	// silently ignores every requested framework and returns an empty 200 is the
+	// exact "two things that must agree, with nothing checking that they do"
+	// pattern: the caller believes it asked for a SOC-2 scan, the server believes
+	// it ran one, and neither has any results to show for it.
+	available, err := frameworks.ListFrameworks(ch.policyRoot)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to list frameworks: " + err.Error()})
+		return
+	}
+
+	var unknown []string
+	for _, fwID := range req.Frameworks {
+		if _, ok := available[fwID]; !ok {
+			unknown = append(unknown, fwID)
+		}
+	}
+	if len(unknown) == len(req.Frameworks) {
+		// ALL requested frameworks are unknown — this is always an error.
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "none of the requested frameworks exist: " + strings.Join(unknown, ", "),
+		})
+		return
+	}
+
 	now := time.Now().UTC().Format(time.RFC3339)
 	var results []ComplianceScanResult
 
 	for _, fwID := range req.Frameworks {
-		// Determine the version to load: use the framework's own version directory.
-		// We scan all available versions and use the one matching policyVersion tags.
-		available, err := frameworks.ListFrameworks(ch.policyRoot)
-		if err != nil {
-			slog.Error("listing frameworks", "error", err)
-			continue
-		}
 		versions, ok := available[fwID]
 		if !ok || len(versions) == 0 {
-			slog.Warn("framework not found", "framework", fwID)
+			slog.Warn("framework not found, skipping", "framework", fwID)
 			continue
 		}
 

@@ -50,6 +50,10 @@ LOCK_HOLDER="${CI_LOCK_HOLDER:-$(id -un 2>/dev/null || echo unknown)@$(hostname 
 # Identifies THIS invocation, so release cannot remove a lock someone else took
 # after ours expired and was stolen.
 LOCK_TOKEN="${CI_LOCK_TOKEN:-${LOCK_HOLDER}:$$}"
+# Retry parameters for the transport-failure path. Tests override these to avoid
+# sleeping in a tight loop; production uses the defaults (3 attempts, 1s base).
+LOCK_RETRY_MAX="${CI_LOCK_RETRY_MAX:-3}"
+LOCK_RETRY_DELAY="${CI_LOCK_RETRY_DELAY:-1}"
 REMOTE_EXEC="${CI_LOCK_REMOTE_EXEC:-}"
 
 die() { printf 'ci-lock: %s\n' "$*" >&2; exit 2; }
@@ -165,6 +169,69 @@ cmd_acquire() {
   record="$(read_lock)" || rc=$?
   if [ "$rc" -ne 0 ]; then
     die "cannot reach the VM to read the lock — refusing to assume it is free"
+  fi
+
+  # ─── Transport-failure retry ──────────────────────────────────────────────
+  #
+  # read_lock returned 0 with an empty record: the lock is FREE. But the mkdir
+  # above failed — its SSH never ran (return 255 from a VM still booting, a
+  # flaky IAP tunnel, etc.). The combination is conclusive: nobody holds the
+  # lock, but we could not create it because the transport was down.
+  #
+  # The transport just worked (read_lock succeeded), so retry the mkdir with a
+  # short bounded backoff. If the retry succeeds, acquire normally. If it
+  # fails but read_lock still shows free, tell the operator what actually
+  # happened — never say "the CI VM is in use" when nobody is using it.
+  if [ -z "$record" ]; then
+    local attempt
+    for attempt in $(seq 1 "$LOCK_RETRY_MAX"); do
+      sleep "$((LOCK_RETRY_DELAY * attempt))"  # linear backoff, bounded
+      if remote "mkdir '${LOCK_PATH}' 2>/dev/null && echo ACQUIRED" | grep -q ACQUIRED; then
+        write_holder "$reason"
+        echo "ci-lock: acquired by ${LOCK_HOLDER} (retry ${attempt}/${LOCK_RETRY_MAX})"
+        return 0
+      fi
+      # Re-read: someone may have acquired between our attempts.
+      rc=0
+      record="$(read_lock)" || rc=$?
+      if [ "$rc" -ne 0 ]; then
+        die "cannot reach the VM to read the lock — refusing to assume it is free"
+      fi
+      if [ -n "$record" ]; then
+        # Someone else acquired the lock while we were retrying. Fall through
+        # to the normal held-lock path below with their record.
+        break
+      fi
+    done
+    # Exhausted retries and the lock is still free but we cannot create it.
+    # Two explanations remain:
+    #   (a) The lock directory exists but has no holder file — half-written
+    #       state from a crash during acquire. This is a lock, not free.
+    #   (b) SSH transport is genuinely flaky for mkdir while read_lock works.
+    # Distinguish by probing whether the directory exists.
+    if [ -z "$record" ]; then
+      local dir_exists=""
+      dir_exists="$(remote "[ -d '${LOCK_PATH}' ] && echo EXISTS || echo ABSENT" 2>/dev/null)" || true
+      if [ "$dir_exists" = "EXISTS" ]; then
+        # The lock directory exists but has no holder file. A crash during
+        # acquire produces this state. It is still a lock — the safe reading
+        # is "held by someone unknown", which is what the REFUSING block
+        # below will produce (holder="", held_since="", age=0).
+        : # fall through to the REFUSING block with empty record fields
+      else
+        cat >&2 <<EOF
+ci-lock: TRANSPORT ERROR — the lock is free but we cannot acquire it.
+
+  The mkdir that creates the lock failed ${LOCK_RETRY_MAX} times, but every
+  read_lock confirmed the lock is free. The SSH transport to the VM is
+  unstable — likely a VM still booting or a flaky IAP tunnel.
+
+  Nobody holds the lock. Wait a moment for the VM to finish booting
+  and try again.
+EOF
+        return 2
+      fi
+    fi
   fi
 
   holder="$(lock_field "$record" 1)"

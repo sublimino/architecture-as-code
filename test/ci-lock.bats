@@ -16,6 +16,9 @@ setup() {
 	export CI_LOCK_REMOTE_EXEC="bash -c"
 	export CI_LOCK_HOLDER="agent-a@host"
 	export CI_LOCK_TOKEN="agent-a@host:111"
+	# Zero-delay retries for test speed; production defaults to 1s base.
+	export CI_LOCK_RETRY_DELAY=0
+	export CI_LOCK_RETRY_MAX=3
 }
 
 # Take the lock as somebody else, optionally aged into the past.
@@ -257,6 +260,150 @@ unreachable_exec() {
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"agent-b@host"* ]]
 	[[ "$output" != *"__CI_LOCK_FREE__"* ]]
+}
+
+# ─── Transport-failure retry (the mkdir/free race) ─────────────────────────
+#
+# On 2026-08-16, a freshly provisioned VM was still booting when the mkdir SSH
+# failed (return 255). read_lock then succeeded and found the lock free, but
+# the code fell through to REFUSING with "an unknown process" for "0s" — a
+# free lock reported as held. The fix retries the mkdir with bounded backoff
+# when read_lock confirms the lock is free.
+
+# A remote boundary that fails the first N calls, then succeeds.
+# Usage: flaky_exec <fail_count>
+flaky_exec() {
+	local fail_count="${1:-1}"
+	cat >"$BATS_TEST_TMPDIR/flaky" <<SHIM
+#!/usr/bin/env bash
+COUNTER_FILE="$BATS_TEST_TMPDIR/flaky-counter"
+count=0
+[ -f "\$COUNTER_FILE" ] && count=\$(cat "\$COUNTER_FILE")
+count=\$((count + 1))
+printf '%s' "\$count" >"\$COUNTER_FILE"
+if [ "\$count" -le "$fail_count" ]; then
+  echo "ERROR: could not reach the instance" >&2
+  exit 255
+fi
+bash -c "\$1"
+SHIM
+	chmod +x "$BATS_TEST_TMPDIR/flaky"
+	printf '0' >"$BATS_TEST_TMPDIR/flaky-counter"
+	export CI_LOCK_REMOTE_EXEC="$BATS_TEST_TMPDIR/flaky"
+}
+
+@test "CILOCK transport fails on mkdir, SSH recovers, lock free → acquired on retry" {
+	# The exact defect: mkdir fails (transport), read_lock succeeds (free),
+	# retry mkdir succeeds → acquired. Must NOT say REFUSING.
+	flaky_exec 1  # first call (mkdir) fails, all subsequent succeed
+	run bash "$script" acquire
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"acquired by agent-a@host"* ]]
+	[[ "$output" == *"retry"* ]]
+	[ -f "$CI_LOCK_PATH/holder" ]
+}
+
+@test "CILOCK transport fails on mkdir, SSH recovers, lock NOW held → refused with real holder" {
+	# mkdir fails (transport), read_lock succeeds and finds it free, but by
+	# the time we retry someone else has taken it. Must REFUSE naming the
+	# real holder, not "an unknown process".
+	flaky_exec 1
+	# After the first call fails, hold_as creates the lock before the retry
+	# mkdir runs. We simulate this by pre-creating the lock — the flaky shim
+	# fails call 1 (the original mkdir), then call 2 (read_lock) succeeds
+	# and finds the lock free, then call 3 (retry mkdir) will fail because
+	# the directory exists, and call 4 (re-read) will find the holder.
+	# Actually: we need the lock to appear between the read_lock and retry.
+	# Simpler: fail only the first call, then let the lock be pre-held.
+	# The first mkdir fails (transport). read_lock succeeds → free.
+	# Then before retry, someone acquires. We can simulate by having the
+	# lock directory exist with a holder file — the retry mkdir will fail
+	# (dir exists), and the re-read will find the holder.
+	#
+	# Reset: the flaky shim fails call 1. After that, bash -c works.
+	# We hold the lock BEFORE running the script — the sequence:
+	# 1. mkdir → flaky fails (call 1)
+	# 2. read_lock → succeeds (call 2), but finds holder → held
+	# This means it goes straight to the existing held-lock path.
+	# That's actually the pre-existing "held lock" case.
+	#
+	# For the retry path: we need read_lock to return free (no lock dir),
+	# then someone creates the lock dir between read_lock and retry mkdir.
+	# Use a shim that creates the lock on call 3 (the first retry mkdir).
+	cat >"$BATS_TEST_TMPDIR/flaky-then-held" <<SHIM
+#!/usr/bin/env bash
+COUNTER_FILE="$BATS_TEST_TMPDIR/flaky-counter2"
+count=0
+[ -f "\$COUNTER_FILE" ] && count=\$(cat "\$COUNTER_FILE")
+count=\$((count + 1))
+printf '%s' "\$count" >"\$COUNTER_FILE"
+if [ "\$count" -eq 1 ]; then
+  # First call: original mkdir — transport failure
+  echo "ERROR: could not reach the instance" >&2
+  exit 255
+fi
+if [ "\$count" -eq 3 ]; then
+  # Third call: first retry mkdir — someone else acquires just before us
+  mkdir -p "$CI_LOCK_PATH"
+  printf 'rival@box|rival@box:999|%s|their job\n' "\$(date +%s)" >"$CI_LOCK_PATH/holder"
+fi
+bash -c "\$1"
+SHIM
+	chmod +x "$BATS_TEST_TMPDIR/flaky-then-held"
+	printf '0' >"$BATS_TEST_TMPDIR/flaky-counter2"
+	export CI_LOCK_REMOTE_EXEC="$BATS_TEST_TMPDIR/flaky-then-held"
+
+	run bash "$script" acquire
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"REFUSING"* ]]
+	[[ "$output" == *"rival@box"* ]]
+	# Must NOT say "an unknown process" — the real holder is known.
+	[[ "$output" != *"an unknown process"* ]]
+}
+
+@test "CILOCK transport fails on mkdir AND read_lock → dies with transport error" {
+	# Both mkdir and read_lock fail: fully unreachable. Must die, not retry.
+	unreachable_exec
+	run bash "$script" acquire
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"cannot reach"* ]]
+	[[ "$output" != *"REFUSING"* ]]
+	[[ "$output" != *"TRANSPORT ERROR"* ]]
+}
+
+@test "CILOCK transport error message for exhausted retries names the real cause" {
+	# mkdir fails every time, but read_lock succeeds every time (free).
+	# After max retries, must say TRANSPORT ERROR, not REFUSING.
+	cat >"$BATS_TEST_TMPDIR/mkdir-always-fails" <<SHIM
+#!/usr/bin/env bash
+# mkdir calls fail (transport), everything else succeeds via bash -c.
+# Detect mkdir by the command containing 'mkdir'.
+if printf '%s' "\$1" | grep -q 'mkdir'; then
+  echo "ERROR: could not reach the instance" >&2
+  exit 255
+fi
+bash -c "\$1"
+SHIM
+	chmod +x "$BATS_TEST_TMPDIR/mkdir-always-fails"
+	export CI_LOCK_REMOTE_EXEC="$BATS_TEST_TMPDIR/mkdir-always-fails"
+
+	run bash "$script" acquire
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"TRANSPORT ERROR"* ]]
+	[[ "$output" == *"free but we cannot acquire"* ]]
+	[[ "$output" != *"REFUSING"* ]]
+	[[ "$output" == *"Nobody holds the lock"* ]]
+}
+
+@test "CILOCK refusal for a REAL lock still names the holder and age" {
+	# Regression guard: the retry logic must not interfere with the normal
+	# held-lock refusal path. Holder name and age must appear.
+	hold_as "agent-b@host" "agent-b@host:222" 600
+	run bash "$script" acquire
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"REFUSING"* ]]
+	[[ "$output" == *"agent-b@host"* ]]
+	[[ "$output" == *"10m"* ]]
 }
 
 # ─── The exit trap must not rewrite the run's verdict ───────────────────────

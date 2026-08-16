@@ -412,6 +412,15 @@ register() {
 #   CI-BUILD-PARITY-REAL subtle: `true # make <step>` (trailing comment)   -> GREEN
 #                        control: delete the invocation line entirely      -> RED
 #
+# CI-BUILD-PARITY-REAL is recorded above as it was MEASURED, not as it stands.
+# That blind spot was real and is now closed: check-ci-build-parity.sh strips
+# trailing comments quote-awarely, and both parity cases FIRE on the subtle
+# mutation as of 2026-08-16. The record stays because the classification is the
+# lesson — the first run called this guard DECORATION and was wrong, and the
+# control is what turned that inference into a measurement and then into a
+# two-line fix. Do not read these two lines as the guard's current behaviour;
+# run the harness for that.
+#
 # Neither guard is decoration. Each is a live guard with a specific blind spot,
 # which is a real finding and a completely different repair. Calling a working
 # guard decoration gets it rewritten; naming the blind spot gets it fixed.
@@ -792,12 +801,20 @@ ctl_ci_build_parity_delete() {
 	# explanatory FULL-LINE comment about the same step in place.
 	#
 	# Measured — this goes RED. That is the whole point: check-ci-build-parity.sh
-	# does strip full-line comments (`grep -vE '^[0-9]+:[[:space:]]*#'`), so a
-	# surviving comment does NOT rescue a deleted step. The subtle mutation above
-	# stays green only because a TRAILING comment on a live line survives that
-	# filter and then `sed -E 's/.*make[[:space:]]+//'` lifts the step name back
-	# out of it. Full-line comments handled, trailing comments not: a narrow,
-	# specific, fixable gap — and emphatically not "the guard does nothing".
+	# does strip full-line comments, so a surviving comment does NOT rescue a
+	# deleted step.
+	#
+	# This control earned its keep. It was what separated "live guard, one narrow
+	# blind spot" from "decoration", and the two repairs are not the same repair:
+	# the first gets a filter widened, the second gets the guard rewritten. The
+	# gap it isolated — full-line comments stripped, TRAILING comments not, so
+	# `sed -E 's/.*make[[:space:]]+//'` lifted the step name back out of dead
+	# text — is closed as of 2026-08-16 by strip_shell_comments() in the guard.
+	# The subtle mutation now goes red on its own, so this control no longer runs
+	# (the harness only reaches a control when the guard stays green). It stays
+	# registered anyway: it is the regression lock on the classification, and a
+	# control that never fires costs nothing while a missing one costs a wrong
+	# verdict.
 	MUT_FILE="$PIPELINE" python3 - <<-'PY'
 		import os, sys, pathlib
 		p = pathlib.Path(os.environ["MUT_FILE"])

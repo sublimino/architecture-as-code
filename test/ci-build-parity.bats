@@ -126,6 +126,54 @@ setup() {
 	[[ "$output" != *"BUILT       build-gamma"* ]]
 }
 
+@test "PARITY a step disabled by a trailing comment does not count as built" {
+	# The gap the falsification harness measured on 2026-08-16. Full-line comments
+	# were already dropped, so `# make build-alpha` did not count as coverage — but
+	# a comment TRAILING a live line survived that filter, and the extractor then
+	# lifted the target name straight back out of the dead text. The guard printed
+	#
+	#   BUILT       demo-signalloom-supercred-images         vm-pipeline.sh:267
+	#
+	# naming, as proof of a build, the exact line that had stopped building.
+	#
+	# `true #` is how a step gets disabled in a hurry — during a bisect, or to skip
+	# one slow build "just for this run". It is the same absent step as a deleted
+	# line, wearing the deleted line's own name.
+	sed -i 's|^retry 3 make build-alpha$|retry 3 true # make build-alpha|' "$fix/pipeline.sh"
+	# Assert the mutation landed. A sed whose pattern misses is a no-op that exits
+	# 0, and the test would then pass against an unmutated fixture.
+	grep -qF 'retry 3 true # make build-alpha' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MISSING"* ]]
+	[[ "$output" == *"build-alpha"* ]]
+	[[ "$output" != *"BUILT       build-alpha"* ]]
+}
+
+@test "PARITY a # that is not a comment does not hide the step beside it" {
+	# The other direction, and the reason the stripper is quote-aware rather than
+	# a cut at the first `#`. `${#arr[@]}` is a length expansion and `"a # b"` is
+	# a string; neither starts a comment. A stripper that treats them as one
+	# deletes live invocations and reports a MISSING that is not there. The real
+	# pipeline holds four `${#...}` expansions today, so this is not hypothetical
+	# — and a guard that cries wolf gets muted, which costs the same as blindness.
+	cat >"$fix/pipeline.sh" <<-'PIPE'
+		#!/usr/bin/env bash
+		make cluster
+		retry 3 make build-alpha
+		echo "stage ${#stage_results[@]} # of many" && retry 3 make build-beta
+		make -C d2-signalloom test
+		retry 3 make build-gamma   # trailing comment beside a live invocation
+		SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+	PIPE
+	run "$script"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"BUILT"*"build-alpha"* ]]
+	[[ "$output" == *"BUILT"*"build-beta"* ]]
+	[[ "$output" == *"BUILT"*"build-gamma"* ]]
+}
+
 @test "PARITY a build step scheduled after the deploy fails as TOO LATE" {
 	# Present but late is not present. The workload is created before its image
 	# exists, which is the same ImagePullBackOff with a later timestamp.
@@ -199,6 +247,34 @@ setup() {
 	[[ "$output" == *"build-alpha"* ]]
 	[[ "$output" == *"build-beta"* ]]
 	[[ "$output" == *"build-gamma"* ]]
+}
+
+@test "PARITY an unreadable pipeline is reported as unchecked, not as total drift" {
+	# "Could not look" and "looked and found nothing" are different answers, and
+	# the second one written over the first is how check-flux-substitution.sh
+	# reported no unsubstituted tokens against no cluster at all.
+	#
+	# Before this, a renamed or moved pipeline produced a full page of MISSING and
+	# the words "CI does not build what it deploys" — a confident diagnosis of a
+	# file the guard had never opened, sending the reader to add build steps to
+	# something that is not there. Note the CONTRAST with the empty-pipeline test
+	# above: a pipeline that exists and builds nothing IS total drift and must
+	# still fail that way. Only absence is unchecked.
+	PIPELINE="$fix/no-such-pipeline.sh" run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"CANNOT READ"* ]]
+	[[ "$output" != *"MISSING"* ]]
+	[[ "$output" != *"CI does not build what it deploys"* ]]
+}
+
+@test "PARITY an unreadable Makefile is reported as unchecked, not as parity" {
+	# Same property on the other input. This path previously surfaced as awk's own
+	# "fatal: cannot open file" and an exit code of 2 — accurate by accident,
+	# because nothing in the guard had decided what should happen.
+	MAKEFILE="$fix/no-such-makefile" run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"CANNOT READ"* ]]
+	[[ "$output" != *"Every build step"* ]]
 }
 
 @test "PARITY --target reaches other bring-up recipes" {

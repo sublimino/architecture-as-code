@@ -36,6 +36,7 @@ package model
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 
@@ -515,6 +516,19 @@ func LoadOrgRiskPosture(path string) (*OrgRiskPosture, error) {
 	o.Appetite.Tolerance = tol
 	if o.Appetite.Tolerance.Amount <= 0 {
 		return nil, fmt.Errorf("%s: appetite.tolerance must be > 0; without a tolerance band a number cannot become a verdict", path)
+	}
+	// risk_load is the percentage markup on TVaR that produces the Carried figure. It must be a
+	// finite non-negative number; NaN or Inf would silently propagate through the multiplication
+	// `tvar * (1 + riskLoad)` and produce a NaN Carried that passes structural checks but is not
+	// a number anyone can use. A negative load would make Carried < TVaR, violating a distribution
+	// identity. YAML parsers accept `.nan` and `.inf` as valid float64 tokens, so the check
+	// belongs here at the input boundary rather than deep in the simulation.
+	if math.IsNaN(o.RiskLoad) || math.IsInf(o.RiskLoad, 0) {
+		return nil, fmt.Errorf("%s: risk_load must be a finite number, got %g", path, o.RiskLoad)
+	}
+	if o.RiskLoad < 0 {
+		return nil, fmt.Errorf("%s: risk_load must be >= 0, got %g; a negative load would make "+
+			"carried risk less than tail risk, which is not a coherent risk posture", path, o.RiskLoad)
 	}
 	for name, m := range map[string]*money.Money{
 		"transfer.annual_premium": &o.Transfer.AnnualPremium,

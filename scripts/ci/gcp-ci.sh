@@ -126,6 +126,28 @@ SHIM
   chmod +x "$LOCK_SHIM"
 }
 
+# wait_for_ssh tests iap_ssh's SSH path, NOT the lock shim's. The shim is a
+# separate gcloud compute ssh invocation (lock_shim above), so proving iap_ssh
+# works does not prove the shim works. This polls the shim itself. Budget is
+# short (15s) because wait_for_ssh already ran — we're catching a narrow window
+# of IAP instability, not a cold boot.
+wait_for_lock_shim_ssh() {
+  local max_attempts=5 interval=3
+  local attempts=0
+  lock_shim
+  while ((attempts < max_attempts)); do
+    if "$LOCK_SHIM" "echo ready" &>/dev/null; then
+      return 0
+    fi
+    ((attempts += 1))
+    sleep "$interval"
+  done
+  echo "ERROR: lock shim cannot reach the VM via SSH — this is a transport failure," >&2
+  echo "       not a lock conflict. The VM may still be stabilising after boot." >&2
+  echo "       wait_for_ssh passed but the lock shim's SSH path is separate." >&2
+  return 2
+}
+
 lock_acquire() {
   if [ "${GCP_CI_SKIP_LOCK:-0}" = "1" ]; then
     echo "==> Lock skipped (GCP_CI_SKIP_LOCK=1) — you are responsible for the collision"
@@ -134,7 +156,7 @@ lock_acquire() {
   local args=(acquire --reason "${GCP_CI_LOCK_REASON:-gcp-ci.sh run}")
   [ "${GCP_CI_FORCE_LOCK:-0}" = "1" ] && args+=(--force)
 
-  lock_shim
+  wait_for_lock_shim_ssh
   if CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" \
      CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
      CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" \
@@ -232,6 +254,50 @@ wait_for_ssh() {
 
   echo "ERROR: VM ${VM_NAME} did not accept SSH within $((max_attempts * interval))s" >&2
   return 2
+}
+
+# Resume the VM if it is not RUNNING and wait for SSH. Used by cmd_run and
+# push-code — extracted so both paths share one implementation.
+ensure_vm_ssh_ready() {
+  local status
+  status="$(vm_status)"
+
+  case "$status" in
+    RUNNING)
+      echo "==> VM is already running"
+      ;;
+    SUSPENDED)
+      echo "==> Resuming suspended VM..."
+      gcloud compute instances resume "$VM_NAME" \
+        --zone="$ZONE" --project="$PROJECT"
+      echo "==> Waiting for SSH to become available..."
+      wait_for_ssh 30 5 || return 2
+      ;;
+    TERMINATED|STOPPED)
+      echo "==> Starting stopped VM..."
+      gcloud compute instances start "$VM_NAME" \
+        --zone="$ZONE" --project="$PROJECT"
+      wait_for_ssh 33 5 || return 2
+      ;;
+    AUTH_REQUIRED)
+      echo "ERROR: gcloud is not authenticated, so the VM's state is UNKNOWN — this is not" >&2
+      echo "       evidence that ${VM_NAME} is missing. Run:  gcloud auth login" >&2
+      return 2
+      ;;
+    QUERY_FAILED)
+      echo "ERROR: could not query ${VM_NAME} (the API call failed for a reason other than" >&2
+      echo "       absence or auth). Its state is UNKNOWN — do NOT provision on this basis." >&2
+      return 2
+      ;;
+    NOT_FOUND)
+      echo "ERROR: VM not found. Run './scripts/ci/gcp-ci.sh provision' first." >&2
+      return 2
+      ;;
+    *)
+      echo "ERROR: VM in unexpected state: ${status}" >&2
+      return 2
+      ;;
+  esac
 }
 
 iap_ssh_interactive() {
@@ -1081,47 +1147,7 @@ cmd_run() {
   set_run_phase "resuming-vm"
 
   # ── Resume VM if suspended ──
-  local status
-  status="$(vm_status)"
-
-  case "$status" in
-    RUNNING)
-      echo "==> VM is already running"
-      ;;
-    SUSPENDED)
-      echo "==> Resuming suspended VM..."
-      gcloud compute instances resume "$VM_NAME" \
-        --zone="$ZONE" --project="$PROJECT"
-      echo "==> Waiting for SSH to become available..."
-      wait_for_ssh 30 5 || exit 2
-      ;;
-    TERMINATED|STOPPED)
-      echo "==> Starting stopped VM..."
-      gcloud compute instances start "$VM_NAME" \
-        --zone="$ZONE" --project="$PROJECT"
-      wait_for_ssh 33 5 || exit 2
-      ;;
-    AUTH_REQUIRED)
-      # Not a VM problem. Saying "not found" here sent an operator to provision a
-      # duplicate of a healthy VM.
-      echo "ERROR: gcloud is not authenticated, so the VM's state is UNKNOWN — this is not" >&2
-      echo "       evidence that ${VM_NAME} is missing. Run:  gcloud auth login" >&2
-      exit 2
-      ;;
-    QUERY_FAILED)
-      echo "ERROR: could not query ${VM_NAME} (the API call failed for a reason other than" >&2
-      echo "       absence or auth). Its state is UNKNOWN — do NOT provision on this basis." >&2
-      exit 2
-      ;;
-    NOT_FOUND)
-      echo "ERROR: VM not found. Run './scripts/ci/gcp-ci.sh provision' first." >&2
-      exit 2
-      ;;
-    *)
-      echo "ERROR: VM in unexpected state: ${status}" >&2
-      exit 2
-      ;;
-  esac
+  ensure_vm_ssh_ready || exit 2
 
   # ── Claim the VM before touching anything ──────────────────────────
   # Must come BEFORE push_code, which does `rm -rf ${REMOTE_WORK_DIR}`, and
@@ -1396,7 +1422,8 @@ case "${1:-run}" in
   run)         cmd_run ;;
   # push-code is destructive on its own (`rm -rf ${REMOTE_WORK_DIR}`), so it
   # takes the lock too rather than being a quiet back door around it.
-  push-code)   trap lock_release EXIT; lock_acquire; push_code ;;
+  push-code)   ensure_vm_ssh_ready || exit 2
+               trap lock_release EXIT; lock_acquire; push_code ;;
   lock)        shift; lock_shim
                CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
                  CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \

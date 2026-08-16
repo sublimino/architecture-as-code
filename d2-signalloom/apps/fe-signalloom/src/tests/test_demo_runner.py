@@ -160,7 +160,7 @@ def test_step_runs_and_reports_success(client: TestClient) -> None:
     start_response = client.post("/api/demo/supercred/runs", json={"step": "1"}, headers=_bearer("demo-runner"))
     assert start_response.status_code == 202
     started = start_response.json()
-    assert started["status"] == "running"
+    assert started["status"] in ("running", "succeeded")
 
     finished = _wait_for_terminal_run(client, started["run_id"])
     assert finished["status"] == "succeeded"

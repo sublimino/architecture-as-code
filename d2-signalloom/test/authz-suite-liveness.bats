@@ -31,7 +31,7 @@ setup() {
 	repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
 	src="$repo_root/d2-signalloom/apps/fe-signalloom/src"
 	suite="$src/tests/test_tenant_isolation.py"
-	: "${UV_CACHE_DIR:=/home/andy/src/.worktrees/.uvcache}"
+	: "${UV_CACHE_DIR:=${TMPDIR:-/tmp}/.uvcache}"
 	export UV_CACHE_DIR
 }
 

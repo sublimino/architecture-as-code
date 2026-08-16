@@ -23,6 +23,7 @@ serves when no database is configured, so it needs no Postgres to run.
 from __future__ import annotations
 
 import socket
+import uuid
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -372,13 +373,41 @@ def test_the_recorded_from_state_is_the_state_the_agent_was_actually_in(
     client: TestClient,
 ) -> None:
     """A from_state guessed rather than read is a fabricated audit record."""
-    client.post(
-        f"/api/agents/{AGENT_ID}/transition",
-        json={"to_state": "registered", "reason": "test setup"},
+    # A FRESH agent, not a transition. VALID_TRANSITIONS makes `registered` an
+    # INITIAL state with no inbound edges, so the `active -> registered` this
+    # test used to attempt is a 409 -- and it ignored the status code, so the
+    # agent stayed `active`, the stun correctly recorded from_state="active",
+    # and the test failed asserting the product FABRICATES AUDIT RECORDS. An
+    # unasserted precondition producing the most alarming reading available.
+    #
+    # Nor can the pre-state be reached any other way: from `active` the only
+    # targets are suspended (which is where the stun itself goes, so stunning
+    # again yields no event) and the two terminal states. The agent has to
+    # START in `registered`, which is exactly what creating one does.
+    created = client.post(
+        "/api/agents",
+        json={
+            "name": f"from-state-probe-{uuid.uuid4().hex[:8]}",
+            "type": "custom",
+            "owner": "probe@signalloom.local",
+        },
         headers=_bearer(),
     )
+    # Assert the precondition. A test whose setup can fail silently reports the
+    # setup's failure as a defect in the thing under test -- which is the whole
+    # reason this test needed rewriting.
+    assert created.status_code in (200, 201), f"agent create failed: {created.status_code} {created.text}"
+    probe_id = created.json()["id"]
+    assert created.json()["lifecycle_state"] == "registered", created.text
 
-    detail = _stun(client).json()["event"]["detail"]
+    response = client.post(
+        f"/api/agents/{probe_id}/stun",
+        json={"reason": "from-state probe"},
+        headers=_bearer(),
+    )
+    assert response.status_code == 200, response.text
+
+    detail = response.json()["event"]["detail"]
     assert detail["from_state"] == "registered"
 
 

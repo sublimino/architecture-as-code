@@ -808,7 +808,8 @@ run_stage \
   "stage7-runtime.tap" \
   "cd ${WORK_DIR} && bats --tap \
      d2-signalloom/test/runtime.bats \
-     d2-signalloom/test/test-1-runtime.bats"
+     d2-signalloom/test/test-1-runtime.bats \
+     d2-signalloom/test/supercred-demo-api.bats"
 
 # Stage 7b: Adversarial API surface probes (BATS TAP)
 #

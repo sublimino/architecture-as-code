@@ -339,6 +339,8 @@ push_code() {
   tarball="$(mktemp "/tmp/osramp-demo-${VM_NAME}.XXXXXX.tar.gz")"
   tar -C "$REPO_ROOT" \
     --exclude='.git' \
+    --exclude='.claude' \
+    --exclude='.worktrees' \
     --exclude='node_modules' \
     --exclude='.cache' \
     --exclude='ci-reports*' \

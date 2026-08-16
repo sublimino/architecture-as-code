@@ -115,9 +115,9 @@ scan_file() {
 test_files() {
 	cd "$repo_root" || return 1
 	{
-		find . -name .git -prune -o -name node_modules -prune -o -name '*.bats' -print
-		find . -name .git -prune -o -name node_modules -prune -o -path './*/test/*.sh' -print
-		find . -name .git -prune -o -path './test/*.sh' -print
+		find . -name .git -prune -o -name .claude -prune -o -name .worktrees -prune -o -name node_modules -prune -o -name '*.bats' -print
+		find . -name .git -prune -o -name .claude -prune -o -name .worktrees -prune -o -name node_modules -prune -o -path './*/test/*.sh' -print
+		find . -name .git -prune -o -name .claude -prune -o -name .worktrees -prune -o -path './test/*.sh' -print
 	} 2>/dev/null | sed 's#^\./##' | sort -u
 }
 

@@ -235,7 +235,7 @@ bats_dirs() {
 	# every result. Under bats that aborted the assignment. `|| true` is safe here
 	# only because the very next line asserts the output is non-empty -- that
 	# assertion is what stops a tolerated exit code from hiding an empty scan.
-	dirs="$(find "$root" \( -name node_modules -o -name .git -o -name test_helper \) -prune -o -type d -name test -print 2>/dev/null || true)"
+	dirs="$(find "$root" \( -name node_modules -o -name .git -o -name test_helper -o -name .claude -o -name .worktrees \) -prune -o -type d -name test -print 2>/dev/null || true)"
 
 	# Assert the mechanism: discovery finding nothing would make every assertion
 	# below pass over an empty set -- a guard against vacuous passes, passing

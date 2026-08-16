@@ -1,0 +1,59 @@
+# Signal Fusion: ingest, correlation and query service for signal observations.
+# Stateless — correlates cross-layer signals and maintains provisional actors.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: signal-ingest
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    app.kubernetes.io/component: signal-fusion
+    app.kubernetes.io/part-of: signalloom
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: signal-ingest
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: signal-ingest
+        app.kubernetes.io/component: signal-fusion
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: signal-ingest
+          image: signal-ingest:local
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8082
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            failureThreshold: 10
+            periodSeconds: 2
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 128Mi

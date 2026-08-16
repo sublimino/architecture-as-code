@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: signal-ingest
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    app.kubernetes.io/component: signal-fusion
+    app.kubernetes.io/part-of: signalloom
+spec:
+  selector:
+    app.kubernetes.io/name: signal-ingest
+  ports:
+    - name: http
+      port: 8082
+      targetPort: http

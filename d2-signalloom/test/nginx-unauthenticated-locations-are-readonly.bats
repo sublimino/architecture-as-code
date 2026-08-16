@@ -224,6 +224,46 @@ declared_unguarded() {
 	fi
 }
 
+@test "every ledger entry is accounted for in the reasons below it" {
+	# The ledger's own docstring says "adding a prefix here is a decision someone
+	# has to write down". Nothing enforced the writing-down half: a ninth prefix
+	# could be added as a ONE-LINE diff to declared_unguarded() and test 2 would
+	# go green again, with no reason recorded anywhere. That is the cheapest
+	# possible way to widen an accepted exposure silently, and it is available to
+	# anyone whose real goal is to get a red build green.
+	#
+	# So require each entry to be named in the commentary that follows the
+	# function. Adding a prefix now costs a sentence explaining it, which is the
+	# thing the review actually needs.
+	# The commentary block: every comment line between the end of the ledger
+	# heredoc and the next @test.
+	local reasons
+	reasons="$(awk '
+		/^\tLEDGER$/            { inledger = 1; next }
+		inledger && /^@test/    { exit }
+		inledger && /^#/        { print }
+	' "$BATS_TEST_FILENAME")"
+	# Assert the mechanism found something before asserting over it: an sed range
+	# that stopped matching would make the loop below vacuous.
+	[ -n "$reasons" ]
+
+	local undocumented=""
+	while read -r prefix; do
+		[ -z "$prefix" ] && continue
+		grep -qF -- "$prefix" <<< "$reasons" || undocumented="${undocumented}${prefix} "
+	done <<< "$(declared_unguarded)"
+
+	if [ -n "$undocumented" ]; then
+		echo "declared_unguarded() names prefix(es) with no stated reason:"
+		echo "  $undocumented"
+		echo ""
+		echo "An accepted exposure with no written reason is not an accepted"
+		echo "exposure, it is an unreviewed one that stopped failing the build."
+		echo "Add the reason to the commentary below declared_unguarded()."
+		false
+	fi
+}
+
 @test "the /supercred-api/ prefix specifically is still mutation-denied" {
 	# The general invariant above is the durable one, but this names the specific
 	# block whose absence was an unauthenticated pod-stun, so a failure says which

@@ -1486,9 +1486,9 @@ def reset_tenant_state(tenant_id: str) -> None:
     """
     with _STORE_LOCK:
         for store in (
-            _AGENTS, _VIOLATIONS, _NHI_ACCOUNTS, _TENANT_FRAMEWORKS,
-            _TENANT_PREFERENCES, _COOKIE_PREFS, _CONSENT, _AUDIT_EVENTS,
-            _USER_PREFERENCES,
+            _AGENTS, _AGENT_CREDENTIALS, _VIOLATIONS, _NHI_ACCOUNTS,
+            _TENANT_FRAMEWORKS, _TENANT_PREFERENCES, _COOKIE_PREFS,
+            _CONSENT, _AUDIT_EVENTS, _USER_PREFERENCES,
         ):
             store.pop(tenant_id, None)
 
@@ -4396,7 +4396,19 @@ async def create_initial_api_key(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> InitialApiKeyResponse:
     tenant_id = principal.tenant
-    key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
+    # The path parameter is untrusted input from the URL. A caller authenticated
+    # as tenant-a must not be able to mint a key whose prefix says tenant-b --
+    # the prefix is part of the key material and its hint, so mismatch would
+    # attribute the credential to the wrong tenant in every log line that
+    # records the prefix. Reject rather than silently substituting, because a
+    # client sending the wrong tenant has a routing bug worth telling it about.
+    if tenant_id_path != tenant_id:
+        raise APIError(
+            403,
+            "tenant_mismatch",
+            "Path tenant does not match the authenticated tenant",
+        )
+    key = f"sl_live_{tenant_id}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
     pool = await _require_pool("Minting an initial API key")
@@ -4462,7 +4474,13 @@ async def rotate_api_key(
     principal: Annotated[Principal, Depends(authenticated_principal)],
 ) -> RotateApiKeyResponse:
     tenant_id = principal.tenant
-    key = f"sl_live_{tenant_id_path}_{secrets.token_urlsafe(18)}"
+    if tenant_id_path != tenant_id:
+        raise APIError(
+            403,
+            "tenant_mismatch",
+            "Path tenant does not match the authenticated tenant",
+        )
+    key = f"sl_live_{tenant_id}_{secrets.token_urlsafe(18)}"
     now = _now_iso()
 
     pool = await _require_pool("Rotating an API key")

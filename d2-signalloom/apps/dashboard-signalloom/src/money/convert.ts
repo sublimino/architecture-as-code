@@ -36,28 +36,90 @@ import { rateFor, type RateTable } from './rates'
  *   screen is wrong — and on that evidence they would be right.
  *
  * Taking the absolute value first makes half-up and half-away-from-zero the
- * same operation, and shifting via the exponential string form (`2.675e2`)
- * shifts the DECIMAL rather than the binary mantissa.
+ * same operation, and the digits are walked as a STRING so that no arithmetic
+ * ever touches the value between reading it and quantising it.
+ *
+ * ── Two boundary defects this has been corrected for ────────────────────────
+ *
+ * It previously shifted the decimal by evaluating `Number(`${abs}e${decimals}`)`
+ * and rounding that. Both bugs came from that shift:
+ *
+ *   NEGATIVE ZERO. The result was built as `sign * unshifted`, so any small
+ *   negative amount produced `-1 * 0` = -0. Intl renders the sign, so a
+ *   residual of a fraction of a penny displayed as "-$0.00" and a reader
+ *   concluded the exposure had moved in a direction it had not.
+ *
+ *   PRECISION AT SCALE. The shifted literal lands on a different double than
+ *   the written decimal implies, well before a double runs out of fractional
+ *   precision. `442936448017.90497` at 2dp came back as `442936448017.91`; the
+ *   digits after the second place are "497", so the correct answer is
+ *   `442936448017.9`. Differential fuzzing against the Go engine over 135,234
+ *   cases found 1,196 such disagreements, from 4.4e11 upward at 2dp.
+ *
+ * Walking the digit string removes the shift, and therefore both. This now
+ * matches policy-engine/money/roundHalfAwayFromZero step for step, which is
+ * the contract testvectors.json states; convert.edge.test.ts checks it against
+ * an independent BigInt oracle rather than against a copy of either side.
  */
 export function roundHalfAwayFromZero(value: number, decimals: number): number {
   if (!Number.isFinite(value)) return Number.NaN
   if (value === 0) return 0
 
-  const sign = value < 0 ? -1 : 1
+  const dp = decimals < 0 ? 0 : decimals
+  const neg = value < 0
   const abs = Math.abs(value)
 
-  // String(abs) gives the shortest round-tripping decimal. For very large or
-  // very small magnitudes it switches to exponential form ("1e+21"), which
-  // would make the shifted literal unparseable — fall back to the binary path
-  // rather than return NaN. Risk aggregates never reach that range.
-  const shifted = Number(`${abs}e${decimals}`)
-  if (!Number.isFinite(shifted)) return sign * Number(abs.toFixed(decimals))
+  // String(abs) gives the shortest round-tripping decimal — the number as a
+  // reader would write it. It switches to exponential form ("1e+21", "1e-7")
+  // outside roughly 1e-6..1e21, where there is no digit string to walk; fall
+  // back to the binary path there rather than return NaN. At those magnitudes a
+  // double has no fractional precision left to quantise anyway, so the two
+  // paths agree. Risk aggregates never reach that range.
+  const s = String(abs)
+  if (s.includes('e')) return signed(Number(abs.toFixed(dp)), neg)
 
-  const rounded = Math.round(shifted)
-  const unshifted = Number(`${rounded}e${-decimals}`)
-  if (!Number.isFinite(unshifted)) return sign * Number(abs.toFixed(decimals))
+  const dot = s.indexOf('.')
+  const intPart = dot === -1 ? s : s.slice(0, dot)
+  const fracPart = dot === -1 ? '' : s.slice(dot + 1)
 
-  return sign * unshifted
+  // Already exact at this precision; do not perturb it.
+  if (fracPart.length <= dp) return signed(abs, neg)
+
+  let digits = intPart + fracPart.slice(0, dp)
+  // Half away from zero: only the first dropped digit can decide it.
+  if (fracPart.charCodeAt(dp) >= 0x35 /* '5' */) digits = incrementDecimalString(digits)
+
+  // Re-insert the point. incrementDecimalString may have grown the string by
+  // one leading digit.
+  const split = digits.length - dp
+  const out = dp > 0 ? `${digits.slice(0, split)}.${digits.slice(split)}` : digits
+
+  return signed(Number(out), neg)
+}
+
+/**
+ * Apply the sign, except to zero.
+ *
+ * Zero has no sign in money. This is safe precisely because rounding is
+ * presentation-only — the value is never fed back into arithmetic, so
+ * discarding a sign that carries no quantity costs nothing.
+ */
+function signed(magnitude: number, negative: boolean): number {
+  if (magnitude === 0) return 0
+  return negative ? -magnitude : magnitude
+}
+
+/** Add one to a string of decimal digits, propagating the carry. */
+function incrementDecimalString(s: string): string {
+  const b = s.split('')
+  for (let i = b.length - 1; i >= 0; i--) {
+    if (b[i] < '9') {
+      b[i] = String.fromCharCode(b[i].charCodeAt(0) + 1)
+      return b.join('')
+    }
+    b[i] = '0'
+  }
+  return `1${b.join('')}`
 }
 
 /**

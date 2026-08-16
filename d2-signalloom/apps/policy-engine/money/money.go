@@ -59,6 +59,7 @@ package money
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strconv"
@@ -222,9 +223,18 @@ func (m Money) Sub(o Money) (Money, error) {
 
 // Sum adds any number of amounts. An empty sum has no denomination to report and is an error, so a
 // caller cannot mistake "nothing to add" for "zero pounds".
+//
+// The seed element is validated explicitly. Every other check this function performs lives inside
+// Add, and Add is only reached from the second element onwards — so a ONE-element sum used to
+// validate nothing at all and hand back `Money{5, ""}` as a legitimate result, while the identical
+// value in a two-element sum was correctly refused. A single-scenario estate is the smallest real
+// estate, not a hypothetical one, and an amount whose denomination is unknown is not money.
 func Sum(ms ...Money) (Money, error) {
 	if len(ms) == 0 {
 		return Money{}, fmt.Errorf("cannot sum zero amounts: the result would have no denomination")
+	}
+	if err := ms[0].Currency.Validate(); err != nil {
+		return Money{}, err
 	}
 	total := ms[0]
 	for _, m := range ms[1:] {
@@ -291,8 +301,9 @@ func (t *RateTable) Validate() error {
 		if err := c.Validate(); err != nil {
 			return fmt.Errorf("rate table (as of %s): %w", t.AsOf, err)
 		}
-		if r <= 0 {
-			return fmt.Errorf("rate table (as of %s): rate for %s is %g; rates must be > 0", t.AsOf, c, r)
+		if !isUsableRate(r) {
+			return fmt.Errorf("rate table (as of %s): rate for %s is %g; rates must be a finite number > 0",
+				t.AsOf, c, r)
 		}
 	}
 	base, ok := t.Rates[t.Base]
@@ -304,6 +315,26 @@ func (t *RateTable) Validate() error {
 			"or every cross-rate is silently scaled", t.AsOf, t.Base, base)
 	}
 	return nil
+}
+
+// isUsableRate reports whether r is a number a figure can be priced with.
+//
+// WHY THIS IS NOT `r > 0` WRITTEN INLINE. It was `r <= 0` inline, in both Validate and Rate, and
+// that guard does not do what its comment said. Every IEEE-754 comparison against NaN is false, so
+// `NaN <= 0` is false and a NaN rate passed both checks; +Inf is not <= 0 either. A table declaring
+// `GBP: .nan` (which yaml.v3 parses happily) therefore loaded without complaint and converted
+// 1,000,000 USD into "NaN GBP" with no error returned.
+//
+// +Inf is worse than it looks, because it does not stay infinite. It is infinite in one direction
+// and ZERO in the other: with GBP quoted at +Inf, Rate(GBP->USD) is 1.0/+Inf = 0, so every GBP
+// exposure prices at exactly 0.00 — a plausible figure, on the reassuring side, with nothing to
+// suggest it was fabricated. That is precisely the failure mode the package comment describes for a
+// silently-assumed rate of 1.0, and it deserved the same treatment.
+//
+// Rejecting at load is the point: the alternative is `json: unsupported value: +Inf` surfacing from
+// json.Marshal several layers downstream, naming neither the currency nor the file.
+func isUsableRate(r float64) bool {
+	return !math.IsNaN(r) && !math.IsInf(r, 0) && r > 0
 }
 
 // Currencies returns the supported codes in sorted order, for deterministic error messages and
@@ -345,11 +376,11 @@ func (t *RateTable) Rate(from, to Currency) (float64, error) {
 			"Add the rate to risk/fx/rates.yaml — a conversion is never silently assumed to be 1.0",
 			from, to, t.AsOf, strings.Join(missing, " or "), joinCurrencies(t.Currencies()))
 	}
-	if rf <= 0 {
+	if !isUsableRate(rf) {
 		return 0, fmt.Errorf("no rate for %s->%s: rate table as of %s quotes %s at %g, which cannot be divided by",
 			from, to, t.AsOf, from, rf)
 	}
-	if rt <= 0 {
+	if !isUsableRate(rt) {
 		return 0, fmt.Errorf("no rate for %s->%s: rate table as of %s quotes %s at %g", from, to, t.AsOf, to, rt)
 	}
 	return rt / rf, nil
@@ -445,6 +476,9 @@ func roundHalfAwayFromZero(v float64, dp int) float64 {
 
 	intPart, fracPart, _ := strings.Cut(s, ".")
 	if len(fracPart) <= dp {
+		if v == 0 {
+			return 0 // normalise -0.0; see the note on negative zero below
+		}
 		return v // already exact at this precision; do not perturb it
 	}
 
@@ -467,6 +501,19 @@ func roundHalfAwayFromZero(v float64, dp int) float64 {
 	f, err := strconv.ParseFloat(out, 64)
 	if err != nil {
 		return v // unreachable for well-formed input; never fabricate a figure
+	}
+
+	// NEGATIVE ZERO. A small negative amount quantises to zero from below, and re-parsing "-0.00"
+	// yields IEEE-754 negative zero, whose sign bit String's %.*f faithfully prints. Money{-0.001,
+	// GBP} therefore rendered as "-0.00 GBP" — a signed figure telling a reader the exposure moved
+	// in a direction it did not, and a value nobody can reproduce with a calculator, which is the
+	// standard this package sets for itself. Zero has no sign in money.
+	//
+	// This is safe precisely because Round is presentation-only (see the package comment): the
+	// value is never fed back into arithmetic, so discarding a sign that carries no quantity costs
+	// nothing. The sign is untouched wherever there IS a quantity to sign: -0.006 still gives -0.01.
+	if f == 0 {
+		return 0
 	}
 	return f
 }

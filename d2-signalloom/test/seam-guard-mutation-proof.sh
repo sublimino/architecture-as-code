@@ -40,9 +40,35 @@ CHECKS=0
 # PYTEST_DISABLE_PLUGIN_AUTOLOAD: a broken third-party libtmux plugin in this
 # environment aborts collection before any test runs. addopts is cleared because
 # pytest.ini requests xdist, which is not always installed for an ad-hoc run.
+# How to invoke pytest.
+#
+# A bare `python3 -m pytest` assumes a system-wide pytest. The CI VM has none --
+# every stage there runs `uv run --with pytest ...` -- so on the VM this harness
+# reported, for six of eleven mutations:
+#
+#   FAIL  emitted type with no filter option is caught
+#         test was not green BEFORE the mutation -- nothing was proved
+#
+# which is the harness being HONEST: its own preflight noticed the baseline was
+# not green and refused to claim a proof. That preflight is the thing worth
+# keeping; without it, "pytest could not run" would have been reported as
+# "the guard did not fire" -- a false security finding, which is exactly what
+# audit-guard-reintroduction-proof.sh emitted before the same fix was applied to
+# it on 2026-08-14.
+#
+# Prefer uv, matching the rest of CI; fall back to python3 for a machine without
+# uv, so an ad-hoc local run still works.
+pytest_cmd() {
+	if command -v uv >/dev/null 2>&1; then
+		printf 'uv run --python 3.12 --with pytest --with pytest-asyncio --quiet python -m pytest'
+	else
+		printf 'python3 -m pytest'
+	fi
+}
+
 run_test() {
 	(cd "$TESTS_DIR" && PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
-		python3 -m pytest "$1" -p no:cacheprovider -o addopts="" -q -k "$2" 2>&1)
+		$(pytest_cmd) "$1" -p no:cacheprovider -o addopts="" -q -k "$2" 2>&1)
 }
 
 backup() { cp "$1" "${BACKUP_DIR}/$(basename "$1").bak"; }

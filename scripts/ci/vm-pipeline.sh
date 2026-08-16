@@ -606,6 +606,43 @@ run_stage \
   "stage1j-ci-report-integrity.tap" \
   "cd ${WORK_DIR} && bats --tap test/ci-report-integrity.bats"
 
+# Stage 1m: Vacuous-assertion lint
+#
+# Item 3 on the leverage-ordered fix list in Andy's silent-failure note:
+# "Lint for vacuous assertions -- observedGeneration >= 0, --for=condition=ready
+# on a Deployment, bats tests whose only assertion is [ \"$status\" -ne 0 ]".
+#
+# The premise, from the same note: "A check that cannot fail is worse than no
+# check, because it reads as coverage." That is not theoretical here --
+# `readyExpr: status.observedGeneration >= 0` gated FIVE Flux dependencies while
+# being trivially true, and had ALREADY been named an anti-pattern in
+# d2-osramp-fleet/AGENTS.md before shipping five times. Documentation without an
+# enforcing test is a suggestion.
+#
+# Six shapes (VAC001-VAC006). It found five real ones on its first run, every
+# one the same family: a bare `[ "$status" -ne 0 ]` on a grep. grep reserves
+# exit 1 for "ran fine, selected nothing" and 2 for "could not run", so `-ne 0`
+# reads a MISSING FILE as "the forbidden pattern is absent" -- a pass earned by
+# scanning nothing. Identical in shape to the cannot-verify/verified-clean
+# conflation fixed in check-flux-substitution.sh at stage 6c.
+#
+# Static: bash, grep and python3 only. No cluster, no network.
+run_stage \
+  "Vacuous-assertion lint" \
+  "stage1m-vacuous-assertions.txt" \
+  "cd ${WORK_DIR} && ./scripts/check-vacuous-assertions.sh"
+
+# Stage 1n: the vacuous lint's own falsification suite
+#
+# The lint is itself a check, so it is held to the rule it enforces: these 39
+# tests inject each vacuous shape and require the lint to report it, then
+# require a clean file to pass. A lint nobody has watched fail is exactly what
+# it exists to ban.
+run_stage \
+  "Vacuous-assertion lint falsification" \
+  "stage1n-vacuous-lint-proof.tap" \
+  "cd ${WORK_DIR} && bats --tap test/vacuous-assertions.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

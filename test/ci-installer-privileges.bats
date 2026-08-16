@@ -26,8 +26,16 @@ setup() {
 @test "setup.sh: no go install targets BIN_DIR directly via GOBIN" {
   # GOBIN="${BIN_DIR}" go install is the precise defect. go install writes the
   # binary itself, so there is no later ${SUDO} mv to rescue it.
+  #
+  # The file check is not ceremony: setup.sh moving or being renamed makes grep
+  # exit 2, and a bare `-ne 0` reads that as "the defect is absent". The test
+  # would then pass forever having read nothing.
+  [ -f "${SETUP_SH}" ]
+
   run grep -n 'GOBIN="\${BIN_DIR}"' "${SETUP_SH}"
-  [ "$status" -ne 0 ]
+  # 1 means "scanned, no match". 2 means "could not scan". Only 1 is a pass.
+  [ "$status" -eq 1 ]
+  [ -z "$output" ]
 }
 
 @test "setup.sh: every go install routes its binary through go_install_bin" {

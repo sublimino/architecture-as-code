@@ -158,8 +158,14 @@ setup() {
   DEBUG_DETIK="true"
   DETIK_CASE_INSENSITIVE_PROPERTIES="true"
 
+  # `run verify ...` with no following status check asserted NOTHING: run
+  # captures the exit code precisely so it cannot fail the test, so this passed
+  # identically whether NATS was running, absent, or the cluster unreachable.
   run verify "'status' is 'running' for pods named 'nats'"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
+
   run verify "there is 1 service named 'nats'"
+  [ "$status" -eq 0 ] || { echo "$output"; false; }
 }
 
 @test "end-to-end NATS listener and processor integration" {

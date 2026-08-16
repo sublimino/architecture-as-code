@@ -297,9 +297,16 @@ unreachable_exec() {
 	# subshell: the memo never hits, each call leaks a temp file, and the
 	# parent's LOCK_SHIM stays empty forever.
 	local gcp="$BATS_TEST_DIRNAME/../scripts/ci/gcp-ci.sh"
+	# A missing gcp-ci.sh makes the first grep exit 2 and emit nothing, so the
+	# second grep exits 1 and the old `-ne 0` passed — on an empty scan. The
+	# pipeline hides the error status of its first stage, which is exactly why
+	# the subject has to be asserted separately.
+	[ -f "$gcp" ]
+
 	# Code only — the comment on lock_shim quotes the broken form on purpose.
 	run bash -c "grep -v '^[[:space:]]*#' '$gcp' | grep -n '\$(lock_shim)'"
-	[ "$status" -ne 0 ]
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
 }
 
 @test "CILOCK an exit trap wired to lock_release preserves a zero exit status" {

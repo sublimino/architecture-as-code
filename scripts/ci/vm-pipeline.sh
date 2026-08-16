@@ -662,6 +662,39 @@ run_stage \
   "stage6b-deployed-staleness.txt" \
   "cd ${WORK_DIR} && make check-deployed-staleness"
 
+# Stage 6c: Flux variable substitution (live objects)
+#
+# Item 5 on the leverage-ordered fix list in Andy's silent-failure note --
+# "move the substitution guard from `make healthcheck` into CI: catch at PR, not
+# deploy" -- and it had never been done. `scripts/check-flux-substitution.sh`
+# was reachable ONLY from `make healthcheck`, which no CI stage invokes, so a
+# literal ${VAR} surviving into live Flux objects passed every CI run there has
+# ever been.
+#
+# What it guards: `postBuild.substituteFrom` is a SILENT NO-OP when a key is
+# missing. The token is left literal, the apply succeeds, and the object is
+# marked Ready=True with nothing retrying. On 2026-08-02 cert-manager, ingress,
+# monitoring and trivy-system all came up with a literal ${ARTIFACT_TAG} in their
+# OCIRepository tag and ran that way for hours while every status field claimed
+# health.
+#
+# Placed here, after stage 6 has converged Flux and before the runtime stages,
+# because it reads LIVE objects -- it is not a static check and cannot run in the
+# 1x gates.
+#
+# NOTE: moving this stage into CI was only worth doing after fixing the guard
+# itself. It swallowed every kubectl failure in `2>/dev/null || true` and then
+# reported "no unsubstituted ${VAR} tokens", so it printed success against NO
+# CLUSTER AT ALL (reproduced: `KUBECONFIG=/nonexistent … ; EXIT=0`). Wiring that
+# version in would have added a green stage that proves nothing -- worse than no
+# stage, because it reads as coverage. It now exits 2 for "cannot verify",
+# separately from 0 for "verified clean", and counts the objects it examined so
+# that scanning nothing cannot report success.
+run_stage \
+  "Flux variable substitution in live objects" \
+  "stage6c-flux-substitution.txt" \
+  "cd ${WORK_DIR} && ./scripts/check-flux-substitution.sh"
+
 # Stage 7: Runtime negatives (BATS TAP)
 run_stage \
   "Gateway, probes, Dex, and NetworkPolicy runtime negatives" \

@@ -158,6 +158,14 @@ const stageMap = [
   { file: 'stage1g-unregistered-guards.tap', parser: parseTap, source: 'bats-previously-unrun-guards', category: 'contract' },
   { file: 'stage1h-bats-registry.tap', parser: parseTap, source: 'bats-registry-coverage', category: 'meta' },
   { file: 'stage1j-ci-report-integrity.tap', parser: parseTap, source: 'ci-report-integrity', category: 'meta' },
+  // 1k bans kubectl exec as a probe in test files. Categorised 'contract'
+  // rather than 'meta' on the same distinction 1g is: it asserts a property of
+  // the tests that guard the product -- specifically that a probe's failure can
+  // be told apart from the property failing -- which is what let a distroless
+  // image silently disarm the cardvault auth test while it stayed green. That
+  // belongs in the product categories of the report, not with the harness
+  // self-checks.
+  { file: 'stage1k-exec-probe-ban.tap', parser: parseTap, source: 'bats-exec-probe-ban', category: 'contract' },
   //
   // Stage 1i (audit-guard reintroduction proof) is deliberately NOT mapped.
   // Its output is prose -- "RED as required" / "GUARD DID NOT FIRE" -- not TAP

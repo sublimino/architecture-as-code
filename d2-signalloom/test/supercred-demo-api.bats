@@ -321,6 +321,35 @@ RUNNER_SA="system:serviceaccount:fe-signalloom:supercred-demo-runner"
   # below the spawn, the caller would still see 403 while the script had
   # already started mutating the cluster.
   after_procs="$(runner_script_processes)"
+
+  # The probe must have produced a NUMBER before its delta means anything.
+  #
+  # runner_script_processes ends in `|| echo unavailable`, so every way the
+  # exec can fail -- the runner image dropping bash, an empty pod name from the
+  # label selector, the pod not ready, an RBAC denial -- returns that same
+  # literal on BOTH sides, and `[ "$after_procs" = "$before_procs" ]` compares
+  # "unavailable" to "unavailable" and passes. The one assertion documented
+  # above as reaching past the status code was the one that silently stopped
+  # reaching anything.
+  #
+  # That is defect-for-defect the distroless wget case this repo already fixed
+  # in supercred-demo.bats: a probe whose failure is indistinguishable from the
+  # property holding. Verified against the live cluster on 2026-08-16 -- the
+  # probe returns "0" today, and returns "unavailable" from both calls the
+  # moment the in-container binary is missing.
+  #
+  # Asserted here rather than inside the helper because the sentinel is the
+  # right thing for the helper to return; trusting it unchecked is the bug.
+  [[ "$before_procs" =~ ^[0-9]+$ ]] || {
+    echo "runner process probe returned '$before_procs', not a count." >&2
+    echo "The delta below cannot be evidence of anything until this reads a" >&2
+    echo "number. See test/no-exec-probes-in-tests.bats for why." >&2
+    false
+  }
+  [[ "$after_procs" =~ ^[0-9]+$ ]] || {
+    echo "runner process probe returned '$after_procs', not a count." >&2
+    false
+  }
   [ "$after_procs" = "$before_procs" ]
 }
 

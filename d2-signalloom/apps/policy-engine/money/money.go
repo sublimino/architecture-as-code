@@ -118,11 +118,23 @@ type Money struct {
 	Currency Currency `json:"currency" yaml:"currency"`
 }
 
+// isUsableAmount reports whether v is a number a monetary operation can use.
+//
+// This is the amount-side analogue of isUsableRate. A NaN or Inf amount is not money — it is a
+// computation error that should be caught at the boundary, not carried silently into a sum or
+// threshold comparison where IEEE 754 comparison semantics produce wrong verdicts.
+func isUsableAmount(v float64) bool {
+	return !math.IsNaN(v) && !math.IsInf(v, 0)
+}
+
 // Validate reports whether this is a usable amount. The context string names the field so the error
 // tells an operator which line of which file to fix.
 func (m Money) Validate(context string) error {
 	if err := m.Currency.Validate(); err != nil {
 		return fmt.Errorf("%s: %w", context, err)
+	}
+	if !isUsableAmount(m.Amount) {
+		return fmt.Errorf("%s: amount is %g; amounts must be a finite number", context, m.Amount)
 	}
 	return nil
 }
@@ -213,7 +225,17 @@ func Add(a, b Money) (Money, error) {
 	if err := a.Currency.Validate(); err != nil {
 		return Money{}, err
 	}
-	return Money{Amount: a.Amount + b.Amount, Currency: a.Currency}, nil
+	if !isUsableAmount(a.Amount) {
+		return Money{}, fmt.Errorf("cannot add: first operand amount is %g; amounts must be finite", a.Amount)
+	}
+	if !isUsableAmount(b.Amount) {
+		return Money{}, fmt.Errorf("cannot add: second operand amount is %g; amounts must be finite", b.Amount)
+	}
+	result := a.Amount + b.Amount
+	if !isUsableAmount(result) {
+		return Money{}, fmt.Errorf("cannot add %s to %s: result overflows to %g", a.String(), b.String(), result)
+	}
+	return Money{Amount: result, Currency: a.Currency}, nil
 }
 
 // Sub subtracts o from m, refusing to mix denominations.
@@ -236,6 +258,9 @@ func Sum(ms ...Money) (Money, error) {
 	if err := ms[0].Currency.Validate(); err != nil {
 		return Money{}, err
 	}
+	if !isUsableAmount(ms[0].Amount) {
+		return Money{}, fmt.Errorf("cannot sum: first amount is %g; amounts must be finite", ms[0].Amount)
+	}
 	total := ms[0]
 	for _, m := range ms[1:] {
 		var err error
@@ -256,6 +281,12 @@ func (m Money) GreaterThan(o Money) (bool, error) {
 	if m.Currency != o.Currency {
 		return false, fmt.Errorf("cannot compare %s with %s: a threshold test across two denominations "+
 			"produces a wrong verdict, not merely a wrong number", m.String(), o.String())
+	}
+	if !isUsableAmount(m.Amount) {
+		return false, fmt.Errorf("cannot compare: first operand amount is %g; amounts must be finite", m.Amount)
+	}
+	if !isUsableAmount(o.Amount) {
+		return false, fmt.Errorf("cannot compare: second operand amount is %g; amounts must be finite", o.Amount)
 	}
 	return m.Amount > o.Amount, nil
 }
@@ -396,6 +427,9 @@ func (t *RateTable) Rate(from, to Currency) (float64, error) {
 func (t *RateTable) Convert(m Money, to Currency) (Converted, error) {
 	if err := m.Currency.Validate(); err != nil {
 		return Converted{}, fmt.Errorf("source amount: %w", err)
+	}
+	if !isUsableAmount(m.Amount) {
+		return Converted{}, fmt.Errorf("source amount: %g is not a finite number", m.Amount)
 	}
 	if err := to.Validate(); err != nil {
 		return Converted{}, fmt.Errorf("target currency: %w", err)

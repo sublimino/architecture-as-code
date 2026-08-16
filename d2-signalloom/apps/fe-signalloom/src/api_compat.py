@@ -791,6 +791,38 @@ class PreferencesPatchRequest(BaseModel):
         return stripped or None
 
 
+#: The display currencies a caller may actually choose.
+#:
+#: WHY A CLOSED SET AND NOT JUST A SHAPE CHECK.  This used to be validated as
+#: "three uppercase ASCII letters", which is 17,576 codes.  The dashboard can
+#: render fifteen -- SUPPORTED_CURRENCIES in
+#: dashboard-signalloom/src/money/currency.ts, which is exactly the currency
+#: list in risk/fx/rates.yaml, because a currency with no rate renders every
+#: figure as Unavailable.
+#:
+#: The gap between those two sets was not a 500 or a crash.  CurrencyContext.tsx
+#: reads the stored preference through ``isCurrencyCode`` and silently falls
+#: back to USD when it does not recognise the value.  So a caller PATCHing
+#: ``ZZZ`` got a 200, the value was persisted, ``user.currency_updated`` was
+#: written to the audit trail -- and the screen carried on showing USD.  That is
+#: the exact failure the comment on DEFAULT_DISPLAY_CURRENCY below warns about:
+#: "a user sees one currency while the audit trail records another".
+#:
+#: Note that ISO 4217 membership is NOT the right test either.  ``XXX`` is a
+#: real ISO assignment meaning "no currency", and ``XAU`` is gold; both are
+#: perfectly valid codes and neither is something this product can price.  The
+#: binding constraint is the rate table, so that is what is enforced.
+#:
+#: Must stay in step with SUPPORTED_CURRENCIES in currency.ts and the rates in
+#: risk/fx/rates.yaml.  tests/test_user_currency_renderable.py parses the
+#: TypeScript and asserts the two sets are equal, so a divergence is a red test
+#: rather than a comment nobody re-read.
+SUPPORTED_DISPLAY_CURRENCIES: frozenset[str] = frozenset({
+    "USD", "GBP", "EUR", "JPY",
+    "AED", "AUD", "CAD", "CHF", "DKK", "HKD", "INR", "NOK", "SEK", "SGD", "ZAR",
+})
+
+
 class UserPreferencesResponse(BaseModel):
     """Preferences belonging to ONE user, not to their tenant.
 
@@ -811,16 +843,28 @@ class UserPreferencesPatchRequest(BaseModel):
     @field_validator("display_currency")
     @classmethod
     def _iso4217(cls, value: str) -> str:
-        """Reject anything that is not three uppercase letters.
+        """Reject anything the dashboard could not actually display.
 
         Validated here as well as by the CHECK constraint in migration 020
         because the no-pool path has no database to enforce it, and because a
         400 naming the field is a better answer than a CheckViolationError
         surfacing as a 500.  Case is NOT coerced: a client sending 'usd' has a
         bug worth telling it about rather than papering over.
+
+        The shape check alone was not enough.  It admitted every three-letter
+        combination, and the fourteen thousand of those with no rate behind them
+        were stored, audited, and then silently ignored by the dashboard, which
+        falls back to USD for a code it does not recognise.  See
+        SUPPORTED_DISPLAY_CURRENCIES for why membership -- not shape, and not
+        ISO 4217 -- is the constraint that matters.
         """
         if not (value.isascii() and value.isalpha() and value.isupper()):
             raise ValueError("display_currency must be a three-letter uppercase ISO 4217 code")
+        if value not in SUPPORTED_DISPLAY_CURRENCIES:
+            raise ValueError(
+                f"display_currency {value!r} is not a currency this product can price. "
+                f"Supported: {', '.join(sorted(SUPPORTED_DISPLAY_CURRENCIES))}"
+            )
         return value
 
 

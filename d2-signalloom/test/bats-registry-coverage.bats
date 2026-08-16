@@ -251,10 +251,30 @@ bats_dirs() {
 			# Search every runner, ignoring comments and the script's own file,
 			# because a script legitimately invoked from a Makefile target is
 			# covered too -- it need not be a CI stage.
-			if ! grep -rl --include='*.sh' --include='Makefile' \
+			# Comment lines are stripped before matching, and that is the whole
+			# point. `grep -rl` alone counted a MENTION as an invocation, so a
+			# proof script could be "run" by writing a sentence about it --
+			# `# NOTE: see test/foo-proof.sh for details` in any runner made
+			# test/foo-proof.sh look invoked. Verified 2026-08-16: an injected
+			# script referenced only from a comment passed this test.
+			#
+			# Test 7 below already stripped comments for exactly this reason,
+			# and this test did not. The same author fixed one and left the
+			# other, which is a good argument for the guard-falsification
+			# harness that caught it -- I could not see it by reading, having
+			# written both.
+			local invoked=0 cand
+			while IFS= read -r cand; do
+				[ -n "$cand" ] || continue
+				[ "$(basename "$cand")" = "$base" ] && continue
+				if grep -vE '^[[:space:]]*#' "$cand" 2>/dev/null | grep -qF "$base"; then
+					invoked=1
+					break
+				fi
+			done < <(grep -rl --include='*.sh' --include='Makefile' \
 					--exclude="$base" -F "$base" \
-					"$root/scripts" "$root/Makefile" "$root/d2-signalloom" 2>/dev/null \
-				| grep -q .; then
+					"$root/scripts" "$root/Makefile" "$root/d2-signalloom" 2>/dev/null)
+			if [ "$invoked" -eq 0 ]; then
 				unrun="${unrun}${f#$root/} "
 			fi
 		done

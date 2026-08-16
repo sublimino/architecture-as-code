@@ -851,6 +851,20 @@ class JWTValidationError(ValueError):
 # ---------------------------------------------------------------------------
 
 
+# Failures that are statements about the database, not about this service.
+# ``PostgresConnectionError`` covers the server going away mid-query;
+# ``InterfaceError`` covers a pool that is closing underneath a caller;
+# ``TimeoutError`` is what ``pool.acquire()`` raises when every connection is
+# checked out, and ``OSError`` covers the socket-level cases (``ConnectionReset``
+# and friends are subclasses).
+_DATABASE_UNREACHABLE: tuple[type[BaseException], ...] = (
+    asyncpg.PostgresConnectionError,
+    asyncpg.InterfaceError,
+    asyncio.TimeoutError,
+    ConnectionError,
+)
+
+
 def _error_response(status_code: int, code: str, message: str) -> JSONResponse:
     body = ErrorResponse(error=ErrorDetail(code=code, message=message))
     return JSONResponse(status_code=status_code, content=body.model_dump())
@@ -879,6 +893,28 @@ def install_api_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def handle_internal_error(_request: Request, exc: Exception) -> JSONResponse:
+        if isinstance(exc, _DATABASE_UNREACHABLE):
+            # The other half of the ``_require_pool`` promise. That gate fails
+            # closed when the pool cannot be *created*; this covers the pool
+            # object outliving the database behind it -- the server restarts,
+            # the connection is reset, or every connection is checked out and
+            # ``acquire()`` times out. All of those reached here as
+            # ``500 internal_error``, which tells whoever is paged that this
+            # service has a bug: the least useful thing to say when the fault is
+            # in Postgres or in capacity, and not a status any client will retry.
+            #
+            # Deliberately narrow. ``asyncpg.PostgresError`` would also catch
+            # NotNull/Check/ForeignKey violations, which mean this service sent
+            # Postgres something it was right to refuse -- relabelling those as
+            # ``database_unavailable`` would blame a healthy database for a bug
+            # here and invite a retry that can never succeed. Guarded by
+            # ``test_a_schema_violation_is_a_server_fault_and_must_not_be_reported_as_an_outage``.
+            logger.warning("database unreachable during request", exc_info=exc)
+            return _error_response(
+                503,
+                "database_unavailable",
+                "The database is currently unreachable",
+            )
         logger.exception("compatibility API request failed", exc_info=exc)
         return _error_response(500, "internal_error", "Internal server error")
 
@@ -1842,19 +1878,49 @@ def _coerce_crypto_kind(value: object) -> Literal["positive", "negative"]:
 
 
 def _coerce_crypto_status(value: object) -> Literal["passed", "failed", "error", "pending"]:
-    return value if value in {"passed", "failed", "error", "pending"} else "pending"
+    """Map an upstream status into the vocabulary, defaulting to ``error``.
+
+    The default used to be ``pending``, which is a claim -- "this check has not
+    run yet" -- that an unparseable value gives no grounds for.  A prover that
+    reported ``"fail"``, ``"FAILED"`` or any other spelling of bad news, whether
+    through version skew or a template typo, had it rewritten into the most
+    reassuring value in the enum.  On a surface whose entire job is attestation,
+    the default has to be the one that means "we could not tell".
+    """
+    return value if value in {"passed", "failed", "error", "pending"} else "error"
 
 
-def _crypto_proof_from_payload(payload: object) -> CryptoProof | None:
+def _unparseable_crypto_proof(payload: object) -> CryptoProof:
+    """Represent a proof that could not be read, rather than discarding it.
+
+    Dropping it produced the most dangerous shape a degraded answer can take:
+    not an empty list, which looks wrong, but a *shorter* list, which looks
+    complete.  Three proofs upstream became a tidy one-proof board with HTTP 200
+    and nothing anywhere recording that two went missing.  Keeping a placeholder
+    keeps the count honest and puts the failure on the board where it belongs.
+    """
+    name = payload.get("name") if isinstance(payload, dict) else None
+    return CryptoProof(
+        name=str(name) if isinstance(name, str) and name else "unparseable-proof",
+        kind="positive",
+        status="error",
+        title="Proof could not be read",
+        description="The crypto prover returned a proof this service could not parse.",
+        expectation="A well-formed proof object",
+        evidence=f"malformed payload of type {type(payload).__name__}",
+    )
+
+
+def _crypto_proof_from_payload(payload: object) -> CryptoProof:
     if not isinstance(payload, dict):
-        return None
+        return _unparseable_crypto_proof(payload)
     name = payload.get("name")
     title = payload.get("title")
     description = payload.get("description")
     expectation = payload.get("expectation")
     evidence = payload.get("evidence")
     if not all(isinstance(field, str) and field for field in (name, title, description, expectation, evidence)):
-        return None
+        return _unparseable_crypto_proof(payload)
     return CryptoProof(
         name=name,
         kind=_coerce_crypto_kind(payload.get("kind")),
@@ -1949,11 +2015,10 @@ async def crypto_health(
         proxy_proofs = payload.get("proofs", [])
         if not isinstance(proxy_proofs, list):
             raise TypeError("crypto health proofs must be a list")
-        proofs = []
-        for proxy_proof in proxy_proofs:
-            proof = _crypto_proof_from_payload(proxy_proof)
-            if proof is not None:
-                proofs.append(proof)
+        # Every upstream entry produces exactly one proof. A malformed one comes
+        # back with status "error" rather than being skipped, so the number of
+        # proofs on the board always matches the number the prover reported.
+        proofs = [_crypto_proof_from_payload(proxy_proof) for proxy_proof in proxy_proofs]
         return CryptoHealthResponse(tenant_id=tenant_id, proofs=proofs)
     except (httpx.HTTPError, ValueError, KeyError, TypeError):
         return CryptoHealthResponse(tenant_id=tenant_id, proofs=[])
@@ -1978,8 +2043,17 @@ async def network_tests(
         # that goes silent needs to read as "unreachable", not as "zero
         # tests configured" — the dashboard's Scan Now button depends on
         # telling those two states apart.
+        # Raised as an APIError, not an HTTPException: the StarletteHTTPException
+        # handler discards ``detail`` for every status it does not special-case
+        # and substitutes "Request failed", so the message built here provably
+        # never reached a caller. A diagnostic that nobody can read is worse than
+        # none, because it reads like coverage.
         logger.warning("network tests: fake-integration-proxy unreachable", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"network test results unavailable: {exc}") from exc
+        raise APIError(
+            502,
+            "upstream_unavailable",
+            f"network test results unavailable: {exc}",
+        ) from exc
 
 
 @router.post("/network-tests/scan", response_model=NetworkTestScanResponse, responses=ERROR_RESPONSES)
@@ -1993,7 +2067,11 @@ async def network_tests_scan(
             payload = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning("network test scan: fake-integration-proxy unreachable", exc_info=True)
-        raise HTTPException(status_code=502, detail=f"could not reach the network test runner: {exc}") from exc
+        raise APIError(
+            502,
+            "upstream_unavailable",
+            f"could not reach the network test runner: {exc}",
+        ) from exc
     # The proxy is the source of truth for the status code — 202 started,
     # 409 already running, 502 the proxy's own upstream failed. Forwarding it
     # unchanged means the "already running" guard against double-submits

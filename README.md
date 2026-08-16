@@ -82,6 +82,8 @@ flowchart TB
   class ART,IMG reg;
 ```
 
+> **Interactive system map.** For a visual overview of all 28 services, their ports, namespaces, and the control/data/identity/GitOps paths between them, see the [isometric system map](docs/system-map/). Serve with `python3 -m http.server 8901 -d docs/system-map`.
+
 ### The ingestion flow, step by step
 
 This is the OSRAMP ingestion data flow as implemented today:
@@ -111,6 +113,7 @@ Local mode keeps the whole model intact without GitHub: `make push-local` pushes
 | `d2-signalloom/` | The Signal Loom slice: dashboard SPA, FastAPI backend, identity plane (`infra/inf-bao`: OpenBao + SPIRE) and its own fleet wiring, reusing the D2 patterns with separate signed OCI artefacts and reconciliation boundaries. See [d2-signalloom/AGENTS.md](d2-signalloom/AGENTS.md). |
 | `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles and enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own. See [d2-agent-trust/AGENTS.md](d2-agent-trust/AGENTS.md). |
 | `olly-replica/` | The Olly Sentinel replica tenant: contracts (versioned JSON schemas), the ELK/Redpanda/Grafana data plane as Flux manifests, seed data with the injection corpus, and scaffolds for the MCP server, stubs, agent, and eval harness. See [olly-replica/README.md](olly-replica/README.md). |
+| `docs/system-map/` | [Interactive isometric system map](docs/system-map/) of the Signal Loom D2 platform. 28 services as shaped 3D buildings with traced control, data, identity, and GitOps paths. Serve with `python3 -m http.server 8901 -d docs/system-map`. |
 | `ui/` + `tools/demo-console/` | The interactive architecture map (plain HTML/CSS/JS) and the Go service that executes its actions with streamed output. |
 | `scripts/` | The orchestration behind the make targets: `setup.sh` (tool install plus full build), local publish and sign, the VEX, promotion, admission, and revocation demos, attested tests, VEX retrieval. |
 | `policy/` | The witness promotion policy generator output and the Kyverno image verification policy. |

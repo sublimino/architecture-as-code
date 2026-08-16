@@ -66,7 +66,18 @@ function ViolationBadge({ status }: { status: string }) {
   return <StatusBadge status={status} variant="violation" />
 }
 
+// Filters this agent's own timeline. It carried only migration 007's undotted
+// vocabulary, none of which any call site emits, so the per-agent view could not
+// filter to a single event the platform actually records about that agent — not
+// its creation, its transitions, its credential issue or revoke, nor its stun.
+//
+// The agent-scoped set is checked against the emitted event types by
+// fe-signalloom/src/tests/test_dashboard_audit_vocabulary.py.
 const EVENT_TYPES = [
+  'agent.created', 'agent.transitioned', 'agent.stunned',
+  'agent.credential_issued', 'agent.credential_revoked',
+  'violation.acknowledged', 'compliance.reassess_requested',
+  // Legacy vocabulary from migration 007, retained for historical rows.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused',
 ]

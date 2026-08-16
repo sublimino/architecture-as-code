@@ -1,8 +1,8 @@
-# fe-signalloom — Signal Loom API Compatibility Layer
+# fe-signalloom: Signal Loom API compatibility layer
 
-The authenticated, tenant-scoped API backend for the Signal Loom Agent-Governance
-dashboard. Originally backed by Azure services (Container Apps, Key Vault, Entra);
-this local D2 variant serves the same API surface from a local Kind cluster using
+Authenticated, tenant-scoped API backend for the Signal Loom agent-governance
+dashboard. Originally backed by Azure services (Container Apps, Key Vault, Entra).
+This local D2 variant serves the same API surface from a local Kind cluster using
 PostgreSQL, Dex OIDC, and in-cluster Kubernetes queries.
 
 ## Architecture
@@ -22,7 +22,7 @@ Dashboard (nginx SPA :8080)
     |                |
     |                +-- httpx --> afm-platform (fe-k8s-afm :8000)
     |                |              RBAC + Z3 escalation/conformance/shared-role
-    |                |              correlation — see rbac_correlation.py and
+    |                |              correlation. See rbac_correlation.py and
     |                |              docs/signalloom/rbac-live-wiring.md
     |                |
     |                +-- fixture fallback (when database_url is empty)
@@ -92,7 +92,7 @@ in version order before the pool is handed out, recording each in
 `schema_migrations` so it runs once, and serialising concurrent replicas behind a
 `pg_advisory_lock`. A failing migration aborts startup rather than serving against
 a half-migrated schema. The generated bootstrap SQL still seeds fresh clusters via
-`/docker-entrypoint-initdb.d` — but that path only fires on an empty data
+`/docker-entrypoint-initdb.d`, but that path only fires on an empty data
 directory, so the runner is what keeps an *existing* database current. Every
 migration must therefore stay idempotent; `tests/test_migrations.py` enforces it.
 
@@ -142,7 +142,7 @@ conformance, shared-role findings) into one response, instead of the
 frontend fetching all four and stitching them together in the browser.
 
 **Fails closed, not open**: unlike `/api/health/crypto`, an unreachable or
-malformed AFM response here returns `503`, not an empty-but-200 payload — a
+malformed AFM response here returns `503`, not an empty-but-200 payload. A
 security-posture endpoint that silently reports "nothing found" because its
 upstream was unreachable is worse than one that errors visibly. See
 `docs/signalloom/rbac-live-wiring.md` for the endpoint contract, the exact
@@ -157,12 +157,12 @@ make demo-signalloom-api-test TIER=integration  # Tier-1 + tier-2 (needs Postgre
 make demo-signalloom-api-test TIER=e2e     # All three tiers (needs full cluster)
 ```
 
-- **Tier 1** — hermetic contract tests (35/35): FastAPI TestClient, fixture fallback,
-  validates response shapes against `tests/contract.py` (36 Pydantic models matching
+- **Tier 1**: hermetic contract tests (35/35). FastAPI TestClient, fixture fallback.
+  Validates response shapes against `tests/contract.py` (36 Pydantic models matching
   the dashboard's `types/api.ts`).
-- **Tier 2** — integration tests: live Postgres (needs `DATABASE_URL`), writes + reads
-  real data, validates round-trip contract fidelity.
-- **Tier 3** — E2E: real Dex token through the dashboard's nginx proxy (needs
+- **Tier 2**: integration tests. Live Postgres (needs `DATABASE_URL`). Writes and reads
+  real data. Validates round-trip contract fidelity.
+- **Tier 3**: end-to-end. Real Dex token through the dashboard's nginx proxy (needs
   `SIGNALLOOM_API_BASE` + `SIGNALLOOM_DEX_EMAIL`/`PASSWORD`).
 
 ## Development

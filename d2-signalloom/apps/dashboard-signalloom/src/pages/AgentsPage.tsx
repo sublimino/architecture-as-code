@@ -450,18 +450,30 @@ function AttentionPanel({ alerts, onAlert }: {
 
 // ─── Governed Tab ────────────────────────────────────────────────────────────
 
-const LIFECYCLE_OPTIONS = ['all', 'active', 'enrolled', 'suspended', 'revoked'] as const
+// 'registered' is the state POST /api/agents hardcodes in its INSERT, so every
+// agent the product creates starts there. It was absent from this list, which
+// meant the fleet view could not filter to a single newly-created agent — they
+// were present in the table and unreachable through the control provided for
+// reaching them.
+//
+// Checked against the lifecycle_state CHECK constraint and against the states
+// api_compat.py actually writes by
+// fe-signalloom/src/tests/test_dashboard_lifecycle_vocabulary.py, which derives
+// both sides rather than restating either.
+const LIFECYCLE_OPTIONS = ['all', 'registered', 'enrolled', 'active', 'suspended', 'revoked'] as const
 
 const LIFECYCLE_LABELS: Record<string, string> = {
   all: 'All states',
-  active: 'Active',
+  registered: 'Registered',
   enrolled: 'Enrolled',
+  active: 'Active',
   suspended: 'Suspended',
   revoked: 'Revoked',
 }
 
 const LIFECYCLE_TOOLTIP: Record<string, string> = {
-  enrolled: 'Registered but not yet activated — cannot authenticate until transitioned to active.',
+  registered: 'Created in the registry and not yet enrolled — no identity has been issued.',
+  enrolled: 'Enrolled with an identity but not yet activated — cannot authenticate until transitioned to active.',
   active: 'Active and authorized to operate.',
   suspended: 'Temporarily suspended — reversible; credentials refused until reinstated.',
   revoked: 'Permanently revoked — terminal state; credentials refused.',

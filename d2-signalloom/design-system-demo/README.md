@@ -1,8 +1,8 @@
 # Signal Loom design-system demo
 
-A standalone, fixture-only React application demonstrating a clearer Signal
-Loom information architecture. It is intentionally separate from
-`apps/dashboard-signalloom`: no cluster, OIDC provider, API, Flux resource, or
+Standalone, fixture-only React application that demonstrates a clearer Signal
+Loom information architecture. Intentionally separate from
+`apps/dashboard-signalloom`. No cluster, OIDC provider, API, Flux resource, or
 production build is required.
 
 ## Run

@@ -111,7 +111,7 @@ PY
 
 echo "--- running pytest with mutation '$MUT' applied ---"
 set +e
-(cd "$SRC_DIR" && UV_CACHE_DIR="${UV_CACHE_DIR:-/home/andy/src/.worktrees/.uvcache}" \
+(cd "$SRC_DIR" && UV_CACHE_DIR="${UV_CACHE_DIR:-${TMPDIR:-/tmp}/.uvcache}" \
   uv run --python 3.12 --with pytest --with pytest-asyncio --with pytest-xdist \
   --with-requirements requirements.txt python -m pytest "$@")
 rc=$?

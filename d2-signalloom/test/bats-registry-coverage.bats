@@ -230,7 +230,12 @@ bats_dirs() {
 	[ -n "$root" ]
 
 	local dirs
-	dirs="$(find "$root" -type d -name test -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/test_helper/*' 2>/dev/null)"
+	# -prune, not -not -path: the filter form still DESCENDS into the pruned trees,
+	# so find hits unreadable directories and exits non-zero even having printed
+	# every result. Under bats that aborted the assignment. `|| true` is safe here
+	# only because the very next line asserts the output is non-empty -- that
+	# assertion is what stops a tolerated exit code from hiding an empty scan.
+	dirs="$(find "$root" \( -name node_modules -o -name .git -o -name test_helper \) -prune -o -type d -name test -print 2>/dev/null || true)"
 
 	# Assert the mechanism: discovery finding nothing would make every assertion
 	# below pass over an empty set -- a guard against vacuous passes, passing

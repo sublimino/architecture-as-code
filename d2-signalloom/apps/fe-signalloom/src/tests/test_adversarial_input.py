@@ -170,8 +170,8 @@ class TestUnboundedStrings:
 # =========================================================================
 
 class TestLifecycleVocabulary:
-    """TransitionRequest.to_state accepts any string. The DB has a CHECK
-    constraint, but fixture mode has none."""
+    """TransitionRequest.to_state is now validated against VALID_LIFECYCLE_STATES.
+    Invalid states are rejected with 400 (invalid_state)."""
 
     @pytest.mark.parametrize("bad_state", [
         "",                      # empty
@@ -183,26 +183,25 @@ class TestLifecycleVocabulary:
         "a" * 10_000,           # overlong
         "registered\x00active",  # null byte
     ])
-    def test_transition_accepts_any_to_state(self, client, bad_state):
-        """Every value is stored without validation in fixture mode."""
+    def test_transition_rejects_invalid_to_state(self, client, bad_state):
+        """Invalid lifecycle states are rejected with 400."""
         resp = client.post(
             "/api/agents/tenant-a:agent-1/transition",
             headers=AUTH(),
             json={"to_state": bad_state, "reason": "adversarial test"},
         )
-        # BUG: All of these are accepted in fixture mode
-        if resp.status_code == 200:
-            body = resp.json()
-            assert body["to_state"] == bad_state, (
-                f"Accepted invalid lifecycle state: {bad_state!r}"
-            )
+        assert resp.status_code == 400, (
+            f"Expected 400 for invalid state {bad_state!r}, got {resp.status_code}: {resp.text}"
+        )
+        body = resp.json()
+        assert body["error"]["code"] == "invalid_state"
 
     def test_empty_reason_accepted(self, client):
         """Reason field has no min_length — empty string is accepted."""
         resp = client.post(
             "/api/agents/tenant-a:agent-1/transition",
             headers=AUTH(),
-            json={"to_state": "active", "reason": ""},
+            json={"to_state": "suspended", "reason": ""},
         )
         assert resp.status_code in (200, 422)
 

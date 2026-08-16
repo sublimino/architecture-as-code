@@ -39,9 +39,16 @@ type RiskTriple struct {
 	Max  float64 `json:"max" yaml:"max"`
 }
 
-// Validate enforces the ordering invariant and non-negativity. An unordered triple is a data
-// error, not a judgement call.
+// Validate enforces the ordering invariant, non-negativity, and finiteness. An unordered
+// triple is a data error, not a judgement call. A non-finite triple is a computation error
+// that produces Inf or NaN loss figures if carried into the simulation.
 func (t RiskTriple) Validate(context string) error {
+	if math.IsNaN(t.Min) || math.IsInf(t.Min, 0) ||
+		math.IsNaN(t.Mode) || math.IsInf(t.Mode, 0) ||
+		math.IsNaN(t.Max) || math.IsInf(t.Max, 0) {
+		return fmt.Errorf("%s: triple values must be finite, got (%g, %g, %g)",
+			context, t.Min, t.Mode, t.Max)
+	}
 	if t.Min < 0 {
 		return fmt.Errorf("%s: min must be >= 0, got %g", context, t.Min)
 	}
@@ -181,6 +188,19 @@ type Result struct {
 // See the note on Simulate: `VaR95 >= ALE` is deliberately NOT asserted, because it is false
 // exactly when the estate is well governed.
 func (r Result) SelfCheck() error {
+	// Non-finite values must be caught first: every IEEE 754 comparison against NaN is false,
+	// so NaN silently passes all of the ordering checks below. A NaN or Inf figure is a
+	// computation error, not a valid loss distribution.
+	for _, pair := range []struct {
+		name string
+		val  float64
+	}{
+		{"ALE", r.ALE}, {"VaR95", r.VaR95}, {"TVaR", r.TVaR}, {"Carried", r.Carried},
+	} {
+		if math.IsNaN(pair.val) || math.IsInf(pair.val, 0) {
+			return fmt.Errorf("self-check failed: %s is %g; all figures must be finite", pair.name, pair.val)
+		}
+	}
 	if !(r.TVaR >= r.VaR95) {
 		return fmt.Errorf("self-check failed: TVaR (%.2f) < VaR95 (%.2f)", r.TVaR, r.VaR95)
 	}
@@ -417,7 +437,7 @@ func poisson(rng *rand.Rand, lambda float64) int {
 // Note the lambda <= 0 case is NOT counted: "no rate means no events" is correct semantics, not a
 // substitution. Only the loop cap fabricates a value.
 func poissonCounted(rng *rand.Rand, lambda float64, g *Guards) int {
-	if lambda <= 0 || math.IsNaN(lambda) {
+	if lambda <= 0 || math.IsNaN(lambda) || math.IsInf(lambda, 0) {
 		return 0
 	}
 	if lambda < 30 {

@@ -713,6 +713,43 @@ run_stage \
   "stage1p-vacuous-lint-proof.tap" \
   "cd ${WORK_DIR} && bats --tap test/vacuous-assertions.bats"
 
+# Stage 1q: guard falsification proof -- prove the guards can actually fail
+#
+# Stage 1o is the STATIC cousin of this stage: it reads assertions and reports
+# the ones whose shape cannot fail. It cannot see a guard that is correctly
+# written and pointed at nothing, and it says so itself -- it is blind to a
+# tautology inside a GENERATED script. That gap is what this stage covers.
+#
+# For each registered guard it mutates the REAL FILE the guard's real-tree
+# assertion reads, requires the guard to go red for the RIGHT reason, restores
+# the bytes and requires green again. Fixture tests like ci-build-parity.bats
+# already prove the CHECKERS can go red; they prove nothing about whether the
+# real-tree assertion is still WIRED to the real tree, which is precisely the
+# check-flux-substitution.sh shape -- a correct checker, pointed at nothing,
+# reporting success.
+#
+# A guard that stays green gets a POSITIVE CONTROL applied before any verdict is
+# printed: a blunter form of the same defect. Control red means a blind spot in a
+# live guard; control green means decoration. The distinction is not cosmetic --
+# the first run of this harness called two working guards "decoration" and both
+# went red under the control. Blind spots get widened, decoration gets rewritten.
+#
+# Exit codes: 0 all red as required; 1 a guard did not fire; 3 a case could not
+# be run (UNKNOWN -- never counted as a pass); 4 the tree was not restored.
+#
+# Output is PROSE, not TAP, so there is deliberately NO entry for it in
+# scripts/ci/openreports-convert.sh. A parseTap entry pointed at prose matches
+# nothing and contributes zero rows while reading as configured -- worse than no
+# entry, and the exact defect stage 1j exists to catch. Stages 1i and 1m are
+# .txt for the same reason.
+#
+# Static: bash, bats, python3 and git only. No cluster, no network. The harness
+# performs reads only against Kubernetes and no registered case invokes kubectl.
+run_stage \
+  "Guard falsification proof" \
+  "stage1q-guard-falsification.txt" \
+  "cd ${WORK_DIR} && ./test/guard-falsification-proof.sh"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

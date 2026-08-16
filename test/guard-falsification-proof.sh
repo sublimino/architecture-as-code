@@ -49,20 +49,42 @@
 # So every case below mutates the REAL FILE the real-tree assertion reads, and
 # requires that assertion to go red.
 #
-# ── Three outcomes, never two ───────────────────────────────────────────────
+# ── Verdicts: never two, and as it turned out never three ───────────────────
 #
 # The defect that produced a false "all twelve audit guards are decoration" was
 # a two-outcome verdict: the harness could not tell "the guard ran and stayed
 # quiet" from "the guard never ran". Those are different answers and they do not
 # share an exit path here.
 #
-#   FIRED      the guard went red, and its output matched the expected signature.
-#   NOT FIRED  the guard stayed green with the defect present. THIS IS A FINDING.
-#   UNKNOWN    the harness could not run the case. Never counted as either.
+#   FIRED         the guard went red, and its output matched the expected
+#                 signature. The check is live for this defect.
+#   BLIND SPOT    the guard stayed green on the injected defect, but went RED on
+#                 the POSITIVE CONTROL — a blunter form of the same defect. The
+#                 guard works and has a specific gap. FINDING. Widen the check.
+#   DECORATION    the guard stayed green on the defect AND on the control. It
+#                 does not fire. FINDING. Rewrite the check.
+#   UNCLASSIFIED  the guard stayed green and no control is registered, so blind
+#                 spot and decoration were not told apart. FINDING, but the
+#                 finding is "nobody has measured this yet" — never quoted as
+#                 evidence that a guard is dead.
+#   UNKNOWN       the harness could not run the case. Never counted as either a
+#                 pass or a finding.
+#
+# The third and fourth verdicts were added because the first real run of this
+# file got it wrong. It printed "GUARD DID NOT FIRE — THIS CHECK IS DECORATION"
+# for two guards. Both statements underneath that headline were true; the
+# headline was false. Re-tested with a blunter mutation, both went red. One
+# mutation can only ever establish "this guard did not catch THIS ONE THING", and
+# the leap from there to "this guard catches nothing" is an inference — the
+# identical over-reach that produced the false "all twelve audit guards are
+# decoration" this harness was built in response to. The control turns the
+# inference back into a measurement.
 #
 # UNKNOWN covers: a baseline that was not green; a --filter that selected ZERO
 # tests; a mutation that did not change the file; a guard that went red for a
-# reason other than the injected defect; a tree that did not recover on restore.
+# reason other than the injected defect; a tree that did not recover on restore;
+# and a positive control that could not be applied, because a finding that cannot
+# be classified must not be filed as though it had been.
 #
 # ── On `bats --filter` selecting nothing ────────────────────────────────────
 #
@@ -237,6 +259,65 @@ py_create() {   # file, text — create a NEW file; asserts it did not exist
 
 GUARD_STATUS=0
 GUARD_OUTPUT=""
+
+# show <text> <grep-ere or ""> <max-lines> <prefix>
+#
+# Display-only output, and NEVER fatal. This function exists because the harness
+# shipped the exact defect it hunts, and only running it found that out.
+#
+# `set -o pipefail` makes a pipeline return the first non-zero status in it. A
+# `grep` that MATCHES NOTHING returns 1. Under `set -e` that combination kills
+# the script. Run 2 of this harness died on
+#
+#     printf '%s\n' "$ctrl_output" | grep -E '^not ok|^# ' | head -3 | sed ...
+#
+# because the last registered case was an `sh`-kind guard whose output is prose
+# and contains no TAP lines at all, so the grep selected nothing. The script
+# exited between the final verdict and the summary block. All 21 verdicts had
+# been computed and NOT ONE was printed — and the exit status was 1, which is
+# this harness's code for "a guard did not fire". A silent death that renders as
+# an ordinary finding is precisely the failure mode being catalogued here, and it
+# stayed invisible for four cases in run 1 only because bats output always
+# happened to contain a matching line.
+#
+# `head` is the second trigger: it closes the pipe once it has its lines, and the
+# upstream `printf` can then take SIGPIPE and report non-zero for the same
+# reason. Both are cosmetic; neither may ever decide a verdict.
+# No sed, no grep, no pipeline — bash builtins only.
+#
+# The first version of this function was `... | grep -E "$pat" | head -n | sed
+# "s|^|$prefix|"`, and it printed NOTHING for every finding in the run that
+# introduced it:
+#
+#     *** GUARD DID NOT FIRE ***
+#         the defect was present and the guard exited 0. Observed output:
+#     sed: -e expression #1, char 13: unknown option to `s'
+#
+# The prefix for indented evidence is "      | ". It contains the `|` that was
+# being used as the s/// delimiter, so sed rejected the expression on every call.
+# The `|| true` added to stop pipefail killing the run then swallowed the failure
+# status too, leaving four findings filed with their evidence silently missing —
+# and the brief for this work says a guard may be reported ONLY with its observed
+# output quoted. A cosmetic helper had quietly deleted the evidence while every
+# verdict above it stayed correct, so the report still read as complete.
+#
+# Two lessons, both already in this file's own catalogue: a wrapper that makes
+# failures non-fatal must not also make them invisible, and a formatter whose
+# argument is interpolated into a mini-language (sed, awk, a regex) breaks on the
+# first argument containing that language's metacharacters. Builtins take no
+# delimiter and cannot be injected into.
+show() {
+	local text="$1" pat="$2" n="$3" prefix="$4" line count=0
+	while IFS= read -r line; do
+		if [ "$count" -ge "$n" ]; then break; fi
+		# bash's own ERE engine: no subprocess, so no pipefail interaction and no
+		# SIGPIPE. `head` closing a pipe early was the other way this died.
+		if [ -n "$pat" ] && ! [[ "$line" =~ $pat ]]; then continue; fi
+		printf '%s%s\n' "$prefix" "$line"
+		count=$((count + 1))
+	done <<< "$text"
+	return 0
+}
 
 # run_guard <kind> <file> <filter>
 #   kind=bats  file is a .bats suite, filter is a --filter regex ("" = whole file)
@@ -795,7 +876,7 @@ prove() {
 	run_guard "$kind" "$guard" "$filter"
 	if [ "$GUARD_STATUS" -ne 0 ]; then
 		record_unknown "$id" "guard was NOT GREEN on an unmutated tree (exit $GUARD_STATUS) — the mutated run below would prove nothing"
-		printf '%s\n' "$GUARD_OUTPUT" | grep -E '^not ok|^# ' | head -5 | sed 's/^/      /'
+		show "$GUARD_OUTPUT" '^not ok|^# ' 5 '      '
 		return 0
 	fi
 
@@ -836,7 +917,7 @@ prove() {
 		# how the case classifies below.
 		printf '  *** GUARD DID NOT FIRE ***\n'
 		printf '      the defect was present and the guard exited 0. Observed output:\n'
-		printf '%s\n' "$mutated_output" | head -20 | sed 's/^/      | /'
+		show "$mutated_output" '' 20 '      | '
 
 		# No control registered: say so, and do NOT claim decoration. "Did not
 		# catch this mutation" is all that was measured.
@@ -876,13 +957,13 @@ prove() {
 			FINDINGS+=("BLIND-SPOT|$id|$guard|$filter|$target")
 			printf '      verdict: BLIND SPOT — the control went RED (exit %s), so this guard\n' "$ctrl_status"
 			printf '      IS live. It has a specific gap, not a missing capability:\n'
-			printf '%s\n' "$ctrl_output" | grep -E '^not ok|^# ' | head -3 | sed 's/^/      | /'
+			show "$ctrl_output" '^not ok|^# ' 3 '      | '
 		else
 			DECOR=$((DECOR + 1))
 			FINDINGS+=("DECORATION|$id|$guard|$filter|$target")
 			printf '      verdict: DECORATION — the control ALSO exited 0. Both the subtle and\n'
 			printf '      the blunt form of this defect passed. Observed control output:\n'
-			printf '%s\n' "$ctrl_output" | head -10 | sed 's/^/      | /'
+			show "$ctrl_output" '' 10 '      | '
 		fi
 		return 0
 	fi
@@ -893,7 +974,7 @@ prove() {
 	# while losing its capability.
 	if ! printf '%s\n' "$mutated_output" | grep -qE "$sig"; then
 		record_unknown "$id" "guard went red (exit $mutated_status) but its output did not match the expected signature /$sig/ — it may be failing for a reason unrelated to the injected defect"
-		printf '%s\n' "$mutated_output" | grep -E '^not ok|^# ' | head -6 | sed 's/^/      | /'
+		show "$mutated_output" '^not ok|^# ' 6 '      | '
 		return 0
 	fi
 
@@ -906,7 +987,7 @@ prove() {
 
 	FIRED=$((FIRED + 1))
 	printf '  RED as required (exit %s), recovered green on restore\n' "$mutated_status"
-	printf '%s\n' "$mutated_output" | grep -E '^not ok' | head -2 | sed 's/^/      | /'
+	show "$mutated_output" '^not ok' 2 '      | '
 	return 0
 }
 
@@ -992,6 +1073,28 @@ self_test() {
 	st_mut_sneaky()  { py_sub "$fix/target.txt" 'clean content' 'sneaky content'; }
 
 	printf '=== harness self-test =======================================\n'
+
+	# show() must actually EMIT. It once printed nothing whatsoever for every
+	# finding in a full run — sed rejected a prefix containing its own delimiter —
+	# while every verdict above it stayed correct. Blank evidence under a correct
+	# headline is indistinguishable from a guard that produced no output, and this
+	# harness is not allowed to report a guard without quoting what it saw.
+	local shown sline n_shown=0
+	shown="$(show 'not ok 1 example failure
+# a detail line
+ok 2 should be filtered out' '^not ok|^# ' 5 '      | ')"
+	while IFS= read -r sline; do
+		case "$sline" in '      | '*) n_shown=$((n_shown + 1)) ;; esac
+	done <<< "$shown"
+	SELFTEST_N=$((SELFTEST_N + 1))
+	if [ "$n_shown" -eq 2 ] && [[ "$shown" == *'not ok 1 example failure'* ]] \
+	   && [[ "$shown" != *'should be filtered out'* ]]; then
+		printf '  ok    %-52s -> 2 prefixed lines\n' "show() emits filtered, prefixed evidence"
+	else
+		printf '  FAIL  %-52s -> %s prefixed line(s): %q\n' \
+			"show() emitted nothing, or lost the prefix/filter" "$n_shown" "$shown"
+		rc=1
+	fi
 
 	expect FIRED     "a real guard detects its defect" \
 		ST-REAL self bats "$fix/real.bats" 'real guard rejects' \

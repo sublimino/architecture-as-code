@@ -606,6 +606,28 @@ run_stage \
   "stage1j-ci-report-integrity.tap" \
   "cd ${WORK_DIR} && bats --tap test/ci-report-integrity.bats"
 
+# Stage 1k: exec-probe ban (BATS TAP)
+#
+# Numbered 1k for the reason 1b through 1j were: openreports-convert.sh maps
+# report FILES to parsers by name, so an inserted stage costs nothing as long
+# as the existing filenames stay put.
+#
+# Bans `kubectl exec` as a probe in test files, outside a reasoned allowlist.
+# The defect it ends is the most dangerous single item in the engineering note
+# on this repo, because it made a SECURITY test pass: cardvault is distroless,
+# so `kubectl exec ... wget` failed with "executable file not found" whether
+# the endpoint demanded auth or served card data to anyone. The assertion was
+# `[ "$status" -ne 0 ]`. Four sibling tests failed visibly for the same reason
+# and were noticed; the auth one passed and was not.
+#
+# Placed with the other static gates, ahead of ~25 minutes of cluster work, for
+# the reason 1b and 1c sit here: bats, find, sed and grep only -- no cluster,
+# no network, no docker, ~2s.
+run_stage \
+  "Exec-probe ban in test files" \
+  "stage1k-exec-probe-ban.tap" \
+  "cd ${WORK_DIR} && bats --tap test/no-exec-probes-in-tests.bats"
+
 # Stage 2: API contracts (pytest → JUnit XML)
 run_stage \
   "API contracts and persistence" \

@@ -196,6 +196,11 @@ const stageMap = [
   // a guard that stops firing still fails the run. If per-case rows are wanted
   // in OpenReports later, the fix is to make the proof emit TAP and rename it
   // .tap -- not to point a parser at prose.
+  // 1n is the vacuous lint's own falsification suite (TAP). 1m, the lint itself,
+  // is deliberately NOT mapped: its output is prose, and a parser matching
+  // nothing contributes zero rows while looking configured. The stage still
+  // gates the run, because run_stage records its exit code either way.
+  { file: 'stage1n-vacuous-lint-proof.tap', parser: parseTap, source: 'bats-vacuous-lint-proof', category: 'meta' },
   { file: 'stage2-api.xml',        parser: parseJunitXml,  source: 'pytest-api-contracts',       category: 'api' },
   { file: 'stage3-fakes.xml',      parser: parseJunitXml,  source: 'pytest-fake-integrations',   category: 'integration' },
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },

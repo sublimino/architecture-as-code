@@ -94,68 +94,62 @@ describe('convert — overflow to non-finite', () => {
 
 // ── scaleMoney — factor validation ───────────────────────────────────────
 
-describe('scaleMoney — non-finite factor', () => {
-  it('silently corrupts when factor is NaN', () => {
-    // BUG: scaleMoney does not validate its factor.
-    const result = scaleMoney(money(1000, 'GBP'), NaN)
-    // The result is {amount: NaN, currency: 'GBP'} — a corrupted Money.
-    if (Number.isNaN(result.amount)) {
-      // This IS the bug: the function silently returns NaN.
-      // We document it as a known finding.
-      expect(result.amount).toBeNaN() // pinning the current behavior
-    }
+describe('scaleMoney — non-finite factor rejection', () => {
+  it('returns null when factor is NaN', () => {
+    expect(scaleMoney(money(1000, 'GBP'), NaN)).toBeNull()
   })
 
-  it('silently corrupts when factor is Infinity', () => {
-    const result = scaleMoney(money(1000, 'GBP'), Infinity)
-    if (!Number.isFinite(result.amount)) {
-      expect(result.amount).toBe(Infinity) // pinning the current behavior
-    }
+  it('returns null when factor is Infinity', () => {
+    expect(scaleMoney(money(1000, 'GBP'), Infinity)).toBeNull()
+  })
+
+  it('returns null when factor is -Infinity', () => {
+    expect(scaleMoney(money(1000, 'GBP'), -Infinity)).toBeNull()
+  })
+
+  it('returns null when amount is NaN', () => {
+    expect(scaleMoney(money(NaN, 'GBP'), 2)).toBeNull()
+  })
+
+  it('returns null when multiplication overflows', () => {
+    expect(scaleMoney(money(Number.MAX_VALUE, 'GBP'), 2)).toBeNull()
   })
 
   it('produces a valid result for a normal factor', () => {
-    const result = scaleMoney(money(1000, 'GBP'), 0.5)
-    expect(result).toEqual({ amount: 500, currency: 'GBP' })
+    expect(scaleMoney(money(1000, 'GBP'), 0.5)).toEqual({ amount: 500, currency: 'GBP' })
   })
 
   it('handles zero factor correctly', () => {
     const result = scaleMoney(money(1000, 'GBP'), 0)
-    expect(result.amount).toBe(0)
-    expect(Object.is(result.amount, -0)).toBe(false)
+    expect(result).not.toBeNull()
+    expect(result!.amount).toBe(0)
   })
 
   it('handles negative factor', () => {
-    const result = scaleMoney(money(1000, 'GBP'), -1)
-    expect(result).toEqual({ amount: -1000, currency: 'GBP' })
+    expect(scaleMoney(money(1000, 'GBP'), -1)).toEqual({ amount: -1000, currency: 'GBP' })
   })
 })
 
 // ── sumMoney — NaN propagation ───────────────────────────────────────────
 
-describe('sumMoney — silent NaN propagation', () => {
-  it('propagates NaN from any position without error', () => {
-    // BUG: sumMoney does not validate amounts. The Go Sum() rejects non-finite
-    // amounts, but the TS sumMoney silently adds them.
+describe('sumMoney — non-finite rejection', () => {
+  it('returns null when any item has NaN amount', () => {
     const items: Money[] = [money(100, 'GBP'), money(NaN, 'GBP'), money(200, 'GBP')]
-    const result = sumMoney(items, 'GBP')
-    // result is {amount: NaN, currency: 'GBP'} — sum of a valid and an invalid amount
-    expect(result).not.toBeNull() // it should arguably be null
-    expect(Number.isNaN(result!.amount)).toBe(true) // pinning the current behavior
+    // NaN must not propagate — the Go Sum() rejects non-finite amounts.
+    expect(sumMoney(items, 'GBP')).toBeNull()
   })
 
-  it('propagates Infinity without error', () => {
-    const items: Money[] = [money(100, 'GBP'), money(Infinity, 'GBP')]
-    const result = sumMoney(items, 'GBP')
-    expect(result).not.toBeNull()
-    expect(result!.amount).toBe(Infinity) // pinning the current behavior
+  it('returns null when any item has Infinity amount', () => {
+    expect(sumMoney([money(100, 'GBP'), money(Infinity, 'GBP')], 'GBP')).toBeNull()
   })
 
-  it('handles overflow to Infinity', () => {
-    const items: Money[] = [money(Number.MAX_VALUE, 'GBP'), money(Number.MAX_VALUE, 'GBP')]
-    const result = sumMoney(items, 'GBP')
-    expect(result).not.toBeNull()
+  it('returns null when the sum overflows to Infinity', () => {
     // MAX_VALUE + MAX_VALUE = Infinity
-    expect(result!.amount).toBe(Infinity) // pinning — should this be null?
+    expect(sumMoney([money(Number.MAX_VALUE, 'GBP'), money(Number.MAX_VALUE, 'GBP')], 'GBP')).toBeNull()
+  })
+
+  it('still sums valid amounts correctly', () => {
+    expect(sumMoney([money(100, 'GBP'), money(200, 'GBP')], 'GBP')).toEqual({ amount: 300, currency: 'GBP' })
   })
 })
 

@@ -174,12 +174,13 @@ describe('sumMoney — adversarial inputs', () => {
     expect(sumMoney(items, 'GBP')).toEqual({ amount: 300, currency: 'GBP' })
   })
 
-  it('propagates NaN from a single item', () => {
+  it('returns null when any item has a NaN amount', () => {
     const items = [money(100, 'GBP'), money(NaN, 'GBP')]
     const result = sumMoney(items, 'GBP')
-    // NaN is a valid number type — sumMoney should handle or propagate it
-    expect(result).not.toBeNull()
-    expect(Number.isNaN(result!.amount)).toBe(true)
+    // NaN in a sum must not propagate silently — the Go Sum() rejects non-finite
+    // amounts with an error, and the TS sumMoney returns null so the caller
+    // renders "Unavailable" rather than a garbage figure.
+    expect(result).toBeNull()
   })
 
   it('handles negative amounts', () => {

@@ -24,6 +24,7 @@
 setup() {
   repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
   overlay="$repo_root/d2-signalloom/apps/fe-signalloom/local"
+  infra_overlay="$repo_root/d2-signalloom/infra/inf-signalloom/configs/local"
   command -v kubectl >/dev/null || skip "kubectl is required to render the overlay"
   command -v jq >/dev/null || skip "jq is required to evaluate label selectors"
   command -v yq >/dev/null || skip "yq is required to convert the render to JSON"
@@ -32,6 +33,12 @@ setup() {
 # render_json emits the whole overlay as a JSON array of objects.
 render_json() {
   kubectl kustomize "$overlay" | yq -o=json -I=0 'select(. != null)' | jq -s '.'
+}
+
+# render_infra_json does the same for the inf-signalloom configs, which hold
+# the ingress side of every cross-namespace path out of fe-signalloom.
+render_infra_json() {
+  kubectl kustomize "$infra_overlay" | yq -o=json -I=0 'select(. != null)' | jq -s '.'
 }
 
 # The jq program below answers one question per workload: is there a policy
@@ -196,4 +203,35 @@ JQ_COVERAGE='
     | select([.from[]? | select(.podSelector.matchLabels["app.kubernetes.io/name"] == "fe-signalloom")] | length > 0)
     | select([.ports[]? | select(.port == 8082)] | length > 0)
   ] | length == 1'
+}
+
+@test "inf-signalloom admits signal-ingest to Postgres, and only to Postgres" {
+  # The third half. signal-ingest -> Postgres crosses a namespace boundary, so
+  # it needs THREE rules, not two: egress from signal-ingest, and ingress at
+  # inf-signalloom. The caller's own egress policy passing every assertion
+  # above while the connection still times out is exactly what happened on the
+  # cluster -- inf-signalloom's allow-dependency-traffic scoped its 5432 rule
+  # to app.kubernetes.io/name=fe-signalloom, which signal-ingest is not.
+  #
+  # Reading either namespace alone shows nothing wrong, which is why this is
+  # asserted rather than reviewed.
+  run render_infra_json
+  [ "$status" -eq 0 ]
+
+  policy="$(echo "$output" | jq '.[] | select(.kind == "NetworkPolicy" and .metadata.name == "allow-dependency-traffic")')"
+  [ -n "$policy" ]
+
+  echo "$policy" | jq -e '[ .spec.ingress[]
+    | select([.from[]?
+        | select(.namespaceSelector.matchLabels["kubernetes.io/metadata.name"] == "fe-signalloom")
+        | select(.podSelector.matchLabels["app.kubernetes.io/name"] == "signal-ingest")] | length > 0)
+    | select([.ports[]? | select(.port == 5432)] | length > 0)
+  ] | length == 1'
+
+  # Least privilege: the signal-ingest rule must not have inherited the
+  # neighbouring rule's Redis and MinIO ports. The service touches neither.
+  echo "$policy" | jq -e '[ .spec.ingress[]
+    | select([.from[]? | select(.podSelector.matchLabels["app.kubernetes.io/name"] == "signal-ingest")] | length > 0)
+    | .ports[]? | select(.port == 6379 or .port == 9000)
+  ] | length == 0'
 }

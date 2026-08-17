@@ -255,6 +255,8 @@ images-afm: ## Build the KubeSec-AFM platform image (RBAC analysis + Z3 + dashbo
 
 .PHONY: images-supercred
 images-supercred: demo-signalloom-supercred-images ## Build the SuperCred demo images (cardvault, policy-engine, cardvault-agent, runner).
+.PHONY: images-signalfusion
+images-signalfusion: demo-signalloom-signalfusion-images ## Build the Signal Fusion images (signal-ingest).
 
 .PHONY: images-helpers
 images-helpers: signalloom-spire-helper netassert-runner-image ## Build the disposable helper images (SPIRE proof, netassert runner).
@@ -446,6 +448,7 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# Always-deployed has to mean always-built; the /demo-api proxy in
 	# dashboard-signalloom/nginx.conf depends on it either way.
 	$(MAKE) demo-signalloom-supercred-images
+	$(MAKE) demo-signalloom-signalfusion-images
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	$(MAKE) demo-signalloom-afm-up
 
@@ -502,6 +505,10 @@ demo-signalloom-api-test: ## Run the consumer-driven contract + integration test
 .PHONY: demo-signalloom-supercred-images
 demo-signalloom-supercred-images: ## Build cardvault, policy-engine, cardvault-agent, runner images + load into kind (verified).
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/supercred-images.sh load
+
+.PHONY: demo-signalloom-signalfusion-images
+demo-signalloom-signalfusion-images: ## Build Signal Fusion images (signal-ingest) + load into kind (verified).
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/signalfusion-images.sh load
 
 .PHONY: demo-signalloom-supercred-runner-image
 demo-signalloom-supercred-runner-image: demo-signalloom-supercred-images ## Build/load the standalone SuperCred demo-runner image via the verified SuperCred image set.

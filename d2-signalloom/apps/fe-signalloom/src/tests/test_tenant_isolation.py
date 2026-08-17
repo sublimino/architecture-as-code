@@ -46,6 +46,7 @@ import socket
 import time
 import uuid
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 import jwt
@@ -509,15 +510,93 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/demo/signalfusion/runs/{run_id}/stream"),  # superadmin; see sweep below
     ("POST", "/api/demo/signalfusion/reset"),             # superadmin; see sweep below
     ("GET", "/api/demo/signalfusion/status"),             # superadmin; see sweep below
-    # Signal fusion -- pure proxy to Go signal-ingest service; no local DB
+    # Signal fusion -- pure proxy to Go signal-ingest service; no local DB.
+    #
+    # The exemption rests on a fact worth stating, because "no local DB" only
+    # explains why the SWEEP cannot test these and not why that is acceptable:
+    # signal-ingest has no tenant model at all. Nothing in its schema carries a
+    # tenant -- ProvisionalActor, EvidenceLink and the observation types have no
+    # such field -- and the only tenant string in its non-test Go is the literal
+    # "tenant-demo", hardcoded in four places (api/handlers.go x3, promote.go).
+    # The store is single-tenant by construction.
+    #
+    # Every route below takes `tenant_id: Annotated[str, Depends(authenticated_tenant)]`
+    # and then never uses it: _proxy() forwards to signal-ingest with no tenant
+    # parameter and no tenant header. That dependency AUTHENTICATES; it does not
+    # scope. The signature reads like tenant scoping, which is precisely how a
+    # reader is misled -- and a linter cannot see it, because a FastAPI
+    # dependency is "used" by being declared.
+    #
+    # That is correct only while signal-ingest stays single-tenant. The moment it
+    # gains a tenant column these routes become a cross-tenant read and must move
+    # into DB_ROUTES with real scoping. test_signal_ingest_has_no_tenant_model
+    # below fails if that day arrives and this list was not revisited.
     ("GET", "/api/signals/observations"),
     ("GET", "/api/signals/actors"),
     ("GET", "/api/signals/actors/{actor_id}"),
     ("GET", "/api/signals/coverage"),
+    ("GET", "/api/signals/store/stats"),
     ("POST", "/api/signals/actors/{actor_id}/promote"),
     ("POST", "/api/signals/correlate"),
     ("POST", "/api/signals/collectors/seed"),
 ]
+
+
+def test_signal_ingest_has_no_tenant_model() -> None:
+    """The /api/signals exemption above is only sound while this holds.
+
+    Those routes are exempt from the tenant sweep because signal-ingest is
+    single-tenant: no type it returns carries a tenant, and its only tenant
+    string is a hardcoded "tenant-demo". The proxy authenticates a real tenant
+    and then discards it.
+
+    If signal-ingest ever gains a tenant column, that exemption silently becomes
+    a cross-tenant read: every authenticated caller would keep receiving every
+    tenant's observations, and no test would notice, because the sweep was told
+    not to look. This fails on that day and sends the reader to the list above.
+
+    Deliberately asserts on the STRUCTS the API returns, not on the word
+    "tenant" anywhere in the tree -- the audit event legitimately carries a
+    tenant_id and must not trip this.
+    """
+    # parents: [0] tests, [1] src, [2] fe-signalloom, [3] apps.
+    #
+    # Not a skip-if-absent: the first draft pointed one level too high, the
+    # directory was not found, and the test SKIPPED -- reporting green while
+    # checking nothing, which is the exact failure mode the assertion below
+    # about an empty glob exists to prevent. If signal-ingest moves, this must
+    # fail loudly so someone repoints it.
+    model_dir = Path(__file__).resolve().parents[3] / "signal-ingest" / "model"
+    assert model_dir.is_dir(), (
+        f"signal-ingest model directory not found at {model_dir}. This test "
+        "guards the /api/signals exemption in NOT_DATABASE_BACKED; if the "
+        "service moved, repoint it rather than deleting it."
+    )
+
+    sources = sorted(p for p in model_dir.glob("*.go") if not p.name.endswith("_test.go"))
+    # Assert the mechanism found something before trusting a pass: an empty
+    # glob would make this test vacuous, which is the failure mode it exists
+    # to prevent elsewhere.
+    assert sources, f"no non-test .go files under {model_dir}; this test would pass vacuously"
+
+    offenders: list[str] = []
+    for path in sources:
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.strip()
+            if stripped.startswith("//"):
+                continue
+            if re.search(r"\btenant", stripped, re.IGNORECASE):
+                offenders.append(f"{path.name}:{lineno}: {stripped}")
+
+    assert not offenders, (
+        "signal-ingest's model now mentions a tenant, so it may no longer be "
+        "single-tenant:\n  "
+        + "\n  ".join(offenders)
+        + "\n\nThe /api/signals routes in NOT_DATABASE_BACKED were exempted from "
+        "the tenant sweep on the assumption that there is nothing to scope. "
+        "Re-read that block: if these responses are now per-tenant, the routes "
+        "must move to DB_ROUTES and _proxy() must forward the caller's tenant."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1533,6 +1612,9 @@ ATTACK_MANIFEST: frozenset[str] = frozenset({
     "test_a_well_formed_token_validates_so_the_rejections_below_mean_something",
     "test_a_tenant_reads_its_own_agent_through_the_same_fake",
     "test_every_declared_attack_case_was_actually_collected",
+    # Guards the NOT_DATABASE_BACKED exemption for /api/signals: those routes
+    # are excused from the sweep only because signal-ingest is single-tenant.
+    "test_signal_ingest_has_no_tenant_model",
     # tenant isolation
     "test_every_database_statement_is_bound_to_the_callers_tenant",
     "test_addressing_another_tenants_agent_does_not_return_it",

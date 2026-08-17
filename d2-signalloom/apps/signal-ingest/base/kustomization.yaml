@@ -1,5 +1,11 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  # networkpolicy.yaml is not optional here. fe-signalloom is a default-deny
+  # namespace, so a workload without one has no egress at all; dropping this
+  # line reproduces the CrashLoopBackOff the policy was written to fix.
+  # test/networkpolicy-coverage.bats fails if any workload in the namespace
+  # loses its egress policy.
+  - networkpolicy.yaml
   - deployment.yaml
   - service.yaml

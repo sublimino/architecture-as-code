@@ -91,6 +91,8 @@ Full reference: [`docs/signalloom/dashboard-superadmin-themes-importer.md`](../d
 | `cd apps/fake-integration-proxy && PYTHONPATH=. python3 -m unittest discover -s test` | proxy discovery (21). **unittest, not pytest**. | ~2s |
 | `bats test/gateway-dashboard.bats` | Envoy Gateway routes (9, needs :18443) | ~3s |
 | `bats test/dex-auth.bats test/dex-runtime.bats` | Dex OIDC contract (6) | ~5s |
+| `cd test/dex-templates && go test ./...` | Dex web templates rendered against the structs Dex actually passes them (11). No cluster. | ~1s |
+| `bats test/dex-config-reload.bats` | Dex restarts when its config OR its templates change (6). No cluster. | ~1s |
 | `bats test/dashboard-image.bats` | Container build + readyz + SPA fallback | ~30s |
 | `bats test/dashboard-supplychain.bats` | SBOM + provenance + signing | ~5s |
 | `cd apps/dashboard-signalloom && bun run test` | vitest unit tests | ~2s |

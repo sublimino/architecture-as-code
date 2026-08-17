@@ -1,12 +1,15 @@
-"""Expose the fixed SuperCred demo steps over HTTP without widening control.
+"""Expose fixed demo steps over HTTP without widening control.
 
-This module exists so the dashboard can drive the five-step SuperCred demo
-without shell access. The threat model is deliberate remote command execution:
-the server is allowed to run one repo-local script against a shared cluster,
-and the only client-controlled input is which of five hardcoded step IDs runs.
-The security boundary is therefore the server-side step allowlist, server-side
-superadmin authorisation on the mutating routes, argv-array spawn, and fixed
-child environment below.
+This module exists so the dashboard can drive demo workflows (SuperCred,
+Signal Fusion) without shell access. The threat model is deliberate remote
+command execution: the server is allowed to run one repo-local script against
+a shared cluster, and the only client-controlled input is which of the
+hardcoded step IDs runs. The security boundary is therefore the server-side
+step allowlist, server-side superadmin authorisation on the mutating routes,
+argv-array spawn, and fixed child environment below.
+
+Multiple demo types share the runner infrastructure. Each type has its own
+step registry, script path, and API prefix under /api/demo/{type}/.
 """
 from __future__ import annotations
 
@@ -185,6 +188,97 @@ StepId = Literal["1", "2", "3", "4", "5"]
 RunStatus = Literal["running", "succeeded", "failed", "cancelled", "timed_out"]
 
 
+# ── Signal Fusion demo configuration ─────────────────────────────────────────
+
+_ENV_SF_SCRIPT = "SIGNALFUSION_DEMO_SCRIPT"
+_ENV_SF_CWD = "SIGNALFUSION_DEMO_CWD"
+
+SIGNAL_FUSION_STEPS: Mapping[str, DemoStep] = MappingProxyType(
+    {
+        "1": DemoStep(
+            step_id="1",
+            title="Inferred",
+            description="Deploy, seed collectors, correlate — surface an actor that no single layer identified.",
+        ),
+        "2": DemoStep(
+            step_id="2",
+            title="Attested",
+            description="Kernel observation — detect the agent that network and application layers cannot see.",
+        ),
+        "3": DemoStep(
+            step_id="3",
+            title="Issued",
+            description="Promote to issued identity, revoke — close the detection gap with accountability.",
+        ),
+    }
+)
+SIGNAL_FUSION_RESET_STEP_ID = "3"
+
+
+@dataclass(frozen=True)
+class DemoConfig:
+    """Configuration for one demo type."""
+    demo_type: str
+    steps: Mapping[str, DemoStep]
+    reset_step_id: str
+    env_script: str
+    env_cwd: str
+    default_script: str
+    label: str
+
+    def script_path(self) -> Path:
+        override = os.environ.get(self.env_script)
+        if override:
+            return Path(override)
+        return _repo_root_for(self.env_cwd) / self.default_script
+
+    def cwd(self) -> Path:
+        return _repo_root_for(self.env_cwd)
+
+    def argv_for(self, step_id: str) -> list[str]:
+        if step_id not in self.steps:
+            raise APIError(422, "unknown_step", f"Unknown {self.label} demo step: {step_id}")
+        return [str(self.script_path()), self.steps[step_id].step_id]
+
+
+def _repo_root_for(env_cwd: str) -> Path:
+    override = os.environ.get(env_cwd)
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parents[4]
+
+
+DEMO_CONFIGS: Mapping[str, DemoConfig] = MappingProxyType(
+    {
+        "supercred": DemoConfig(
+            demo_type="supercred",
+            steps=DEMO_STEPS,
+            reset_step_id=RESET_STEP_ID,
+            env_script=_ENV_SCRIPT,
+            env_cwd=_ENV_CWD,
+            default_script="scripts/supercred-demo.sh",
+            label="SuperCred",
+        ),
+        "signalfusion": DemoConfig(
+            demo_type="signalfusion",
+            steps=SIGNAL_FUSION_STEPS,
+            reset_step_id=SIGNAL_FUSION_RESET_STEP_ID,
+            env_script=_ENV_SF_SCRIPT,
+            env_cwd=_ENV_SF_CWD,
+            default_script="scripts/signalfusion-demo.sh",
+            label="Signal Fusion",
+        ),
+    }
+)
+
+
+def _get_demo_config(demo_type: str) -> DemoConfig:
+    config = DEMO_CONFIGS.get(demo_type)
+    if config is None:
+        raise APIError(400, "unknown_demo_type", f"Unknown demo type: {demo_type}")
+    return config
+
+
 @dataclass
 class _Run:
     run_id: str
@@ -291,6 +385,12 @@ class EvidenceResponse(BaseModel):
 
 class RunRequest(BaseModel):
     step: StepId
+
+
+class GenericRunRequest(BaseModel):
+    """A run request that accepts any step ID string -- validation is done
+    server-side against the demo type's step registry."""
+    step: str
 
 
 class RunView(BaseModel):
@@ -1386,5 +1486,218 @@ async def demo_status(
     )
 
 
+def _build_demo_router(config: DemoConfig) -> APIRouter:
+    """Build a router for a specific demo type.
+
+    The returned router is a complete copy of the SuperCred surface
+    (steps, runs, run detail, log, stream, reset, status) parameterised
+    by the demo config. Internal state (_runs, _active, locks) is shared
+    because all demos mutate the same cluster and must serialise.
+    """
+    demo_router = APIRouter(
+        prefix=f"/api/demo/{config.demo_type}",
+        tags=[f"demo-runner-{config.demo_type}"],
+    )
+
+    @demo_router.get("/steps", response_model=DemoStepsResponse, responses=ERROR_RESPONSES)
+    async def list_steps(
+        tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    ) -> DemoStepsResponse:
+        del tenant_id
+        return DemoStepsResponse(
+            steps=[
+                DemoStepView(step_id=step.step_id, title=step.title, description=step.description)
+                for step in config.steps.values()
+            ]
+        )
+
+    @demo_router.post("/runs", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)
+    async def start_run(
+        request: GenericRunRequest,
+        principal: Annotated[Principal, Depends(require_superadmin)],
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RunView:
+        # Validate step against this demo type's allowlist
+        if request.step not in config.steps:
+            raise APIError(422, "unknown_step", f"Unknown {config.label} demo step: {request.step}")
+        await _record_privileged_invocation(
+            principal,
+            f"demo.{config.demo_type}.phase_run",
+            {"step_id": request.step, "kind": "step"},
+            authorization,
+        )
+        return _run_view(await run_in_threadpool(_start_step_run_for, request.step, config))
+
+    @demo_router.get("/runs/{run_id}", response_model=RunView, responses=ERROR_RESPONSES)
+    async def get_run(
+        run_id: str,
+        tenant_id: Annotated[str, Depends(authenticated_tenant)],
+    ) -> RunView:
+        del tenant_id
+        return _run_view(_get_run_or_404(run_id))
+
+    @demo_router.get("/runs/{run_id}/log", response_model=RunLogResponse, responses=ERROR_RESPONSES)
+    async def get_run_log(
+        run_id: str,
+        principal: Annotated[Principal, Depends(require_superadmin)],
+        offset: int = Query(default=0),
+        wait: float = Query(default=0.0),
+    ) -> RunLogResponse:
+        del principal
+        if offset < 0:
+            raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+        if wait < 0:
+            raise APIError(422, "invalid_log_wait", f"Log wait must be non-negative: {wait}")
+        run = _get_run_or_404(run_id)
+        if wait > 0:
+            if _log_waiters.acquire():
+                try:
+                    await run_in_threadpool(
+                        _wait_for_new_log_bytes, run, offset, min(wait, _MAX_LOG_WAIT_SECONDS)
+                    )
+                finally:
+                    _log_waiters.release()
+        with run._lock:
+            log_bytes = len(run._log)
+            next_offset = min(log_bytes, offset + _LOG_PAGE_BYTES)
+            chunk = bytes(run._log[offset:next_offset])
+            truncated = run._log_truncated
+        more_possible = _more_bytes_possible(run)
+        chunk, _held = _decodable_prefix(chunk, more_bytes_expected=more_possible)
+        next_offset -= len(_held)
+        eof = not more_possible and next_offset == log_bytes
+        return RunLogResponse(
+            run_id=run_id,
+            offset=offset,
+            next_offset=next_offset,
+            chunk=chunk.decode("utf-8", errors="replace"),
+            truncated=truncated,
+            eof=eof,
+        )
+
+    @demo_router.get("/runs/{run_id}/stream", response_class=StreamingResponse, responses=ERROR_RESPONSES)
+    async def stream_run_log(
+        run_id: str,
+        principal: Annotated[Principal, Depends(require_superadmin)],
+        offset: int = Query(default=0),
+    ) -> StreamingResponse:
+        del principal
+        if offset < 0:
+            raise APIError(422, "invalid_log_offset", f"Log offset must be non-negative: {offset}")
+        run = _get_run_or_404(run_id)
+        return StreamingResponse(
+            _iter_run_log_events(run, offset),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    @demo_router.post("/reset", response_model=RunView, responses=ERROR_RESPONSES, status_code=202)
+    async def reset(
+        principal: Annotated[Principal, Depends(require_superadmin)],
+        authorization: Annotated[str | None, Header()] = None,
+    ) -> RunView:
+        await _record_privileged_invocation(
+            principal,
+            f"demo.{config.demo_type}.reset_requested",
+            {"step_id": config.reset_step_id, "kind": "reset", "preempts_active_run": True},
+            authorization,
+        )
+        return _run_view(await run_in_threadpool(_start_reset_run_for, config))
+
+    @demo_router.get("/status", response_model=DemoStatusResponse, responses=ERROR_RESPONSES)
+    async def status(
+        principal: Annotated[Principal, Depends(require_superadmin)],
+    ) -> DemoStatusResponse:
+        del principal
+        with _STATE_LOCK:
+            active_run = _active
+            recent_runs = list(reversed(list(_runs.values())))
+        return DemoStatusResponse(
+            active=_run_view(active_run) if active_run is not None else None,
+            recent=[_run_view(run) for run in recent_runs],
+            script_available=_script_is_available(config.script_path()),
+        )
+
+    return demo_router
+
+
+def _start_step_run_for(step_id: str, config: DemoConfig) -> _Run:
+    """Start a step run using the given demo config's script and CWD."""
+    with _MUTATION_LOCK:
+        with _STATE_LOCK:
+            active_run = _active
+            if active_run is not None and active_run.status == "running":
+                raise APIError(
+                    409,
+                    "demo_run_in_progress",
+                    f"A demo step is already running ({active_run.run_id})",
+                )
+        return _spawn_run_for(step_id, "step", config)
+
+
+def _start_reset_run_for(config: DemoConfig) -> _Run:
+    """Reset using the given demo config's teardown step."""
+    with _MUTATION_LOCK:
+        _cancel_active()
+        return _spawn_run_for(config.reset_step_id, "reset", config)
+
+
+def _spawn_run_for(step_id: str, kind: Literal["step", "reset"], config: DemoConfig) -> _Run:
+    """Spawn a run using a specific demo config's script and CWD."""
+    script = config.script_path()
+    if not _script_is_available(script):
+        raise APIError(503, "demo_script_unavailable", f"{config.label} demo script is unavailable: {script}")
+    cwd = config.cwd()
+    argv = config.argv_for(step_id)
+    try:
+        proc = subprocess.Popen(
+            argv,
+            cwd=str(cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            shell=False,
+            start_new_session=True,
+            env=_child_env(),
+        )
+    except OSError as exc:
+        raise APIError(503, "demo_script_unavailable", f"Failed to start {config.label} demo script {script}: {exc}") from exc
+
+    run_lock = threading.Lock()
+    run = _Run(
+        run_id=uuid4().hex,
+        step_id=step_id,
+        kind=kind,
+        status="running",
+        started_at=_utcnow(),
+        finished_at=None,
+        exit_code=None,
+        error=None,
+        _process=proc,
+        _log=bytearray(),
+        _log_truncated=False,
+        _timed_out=False,
+        _lock=run_lock,
+        _log_changed=threading.Condition(run_lock),
+        _done=threading.Event(),
+    )
+    with _STATE_LOCK:
+        global _active
+        _active = run
+        _runs[run.run_id] = run
+        _evict_finished_runs_locked()
+    thread = threading.Thread(target=_monitor_run, args=(run,), name=f"demo-runner-{run.run_id}", daemon=True)
+    thread.start()
+    return run
+
+
+# Build the Signal Fusion router
+sf_router = _build_demo_router(DEMO_CONFIGS["signalfusion"])
+
+
 def install_demo_runner_api(app: Any) -> None:
     app.include_router(router)
+    app.include_router(sf_router)

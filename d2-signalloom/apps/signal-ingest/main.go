@@ -28,9 +28,17 @@ func main() {
 		port = "8082"
 	}
 
-	// Use in-memory store for PoC. FrostDB is available in the store package
-	// for durable Parquet writes, but the query path is not yet implemented.
-	signalStore := store.NewMemoryStore()
+	// Store selection: set SIGNAL_STORE=frostdb for Parquet-backed durability.
+	// SIGNAL_STORE_DIR controls where Parquet files land (default /tmp/signal-store).
+	// Requires the binary to be built with -tags frostdb.
+	storeType := os.Getenv("SIGNAL_STORE")
+	storeDir := os.Getenv("SIGNAL_STORE_DIR")
+	signalStore, err := store.NewStoreFromEnv(storeType, storeDir)
+	if err != nil {
+		slog.Error("failed to create signal store", "type", storeType, "dir", storeDir, "error", err)
+		os.Exit(1)
+	}
+	slog.Info("signal store initialized", "type", storeType, "dir", storeDir)
 
 	engine, err := correlation.NewEngine(signalStore)
 	if err != nil {

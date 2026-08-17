@@ -257,11 +257,13 @@ describe('the evidence-to-motion contract', () => {
     expect(visual.stale.color).toBe('var(--amber)')
   })
 
-  // Colour cannot be trusted to carry evidence state. The "andy" theme maps
-  // --teal, --violet, --cyan and --amber onto four near-indistinguishable reds,
-  // so a node's border style is the only cue left there -- and the same is true
-  // for a colourblind viewer in any theme. This binds the border style to the
-  // word the legend actually prints, so the two cannot drift apart.
+  // Colour cannot be trusted to carry evidence state: for a colourblind viewer
+  // a node's border style is the only cue left, in any theme. It was once the
+  // only cue for every viewer under "andy", which mapped --teal, --violet,
+  // --cyan and --amber onto four near-indistinguishable reds; that theme has
+  // been rebuilt on the Signal Loom brand ramp, but the rule outlives the
+  // defect that motivated it. This binds the border style to the word the
+  // legend actually prints, so the two cannot drift apart.
   it('backs every evidence colour with a line style the legend names', () => {
     for (const [state, v] of Object.entries(visual)) {
       const named = v.label.toLowerCase()

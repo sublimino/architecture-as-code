@@ -476,12 +476,17 @@ function CopyGlyph({ state }: { state: 'idle' | 'copied' | 'failed' }) {
 // (--text 13.98 → 19.28, --cyan 6.03 → 8.31). --border-subtle rather than
 // --border keeps the block delimited from the card it sits on.
 //
-// RESIDUAL, and it is not fixable here: even on --bg, --error tops out at
-// 4.18:1 in Dark and --cyan / --amber at ~4.1-4.2:1 in Andy — all just under
-// AA. Those are properties of the palettes in themes.ts, shared by every
-// accent-coloured string in the app (ProofConsole, StatusBadge, the phase
-// status chips), and inventing a brighter red here would put a bare hex in an
-// inline style, which is the exact thing cssVarUsage.test.ts exists to stop.
+// RESIDUAL, and it is not fixable here: even on --bg, Dark's --error tops out
+// at 4.18:1, just under AA. That is a property of the palette in themes.ts,
+// shared by every accent-coloured string in the app (ProofConsole,
+// StatusBadge, the phase status chips), and inventing a brighter red here
+// would put a bare hex in an inline style, which is the exact thing
+// cssVarUsage.test.ts exists to stop — the fix belongs in themes.ts or nowhere.
+//
+// The Andy half of this residual is gone. It read "--cyan / --amber at
+// ~4.1-4.2:1 in Andy", and rebuilding that theme on the Signal Loom brand ramp
+// took them to 7.50 and 7.13 against --bg. That is the fix landing where this
+// note said it had to.
 // Nothing in this block encodes meaning in colour ALONE: the markers it
 // colours are the literal text "FAILED:", "Error:" and "✓", which read the
 // same in monochrome.
@@ -530,8 +535,10 @@ const gutter: CSSProperties = {
   flexShrink: 0, minWidth: 28, textAlign: 'right',
   // --muted, not --dim. The numbers exist so a room can be pointed at a line,
   // which only works if the room can read them: --dim is 4.24:1 against --bg
-  // in Dark and 4.41:1 in Andy, both under AA; --muted clears it in all three
-  // (7.87 / 7.58 / 7.37) and is still visibly subordinate to --text.
+  // in Dark, under AA. (Andy's --dim was 4.41 and is 5.57 since that theme was
+  // rebuilt on the brand ramp, but Dark still fails and this is one token for
+  // all three.) --muted clears it in all three (7.87 / 7.58 / 8.88) and is
+  // still visibly subordinate to --text.
   color: 'var(--muted)', fontVariantNumeric: 'tabular-nums', userSelect: 'none',
 }
 
@@ -544,7 +551,7 @@ const content: CSSProperties = {
 
 const waiting: CSSProperties = {
   // --muted, for the same reason the gutter uses it: subordinate to real
-  // output but readable from the back of a room (7.87 / 7.58 / 7.37 against
+  // output but readable from the back of a room (7.87 / 7.58 / 8.88 against
   // --bg across the three themes). Italic so it is visibly not a log line.
   color: 'var(--muted)', fontStyle: 'italic',
 }

@@ -534,6 +534,7 @@ run_stage \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/resourceset-activation-race.bats test/revocation-demo.bats \
+     test/signalfusion-demo.bats \
      test/signalloom-local-lifecycle.bats \
      test/signalloom-security-validation-evidence.bats \
      test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \

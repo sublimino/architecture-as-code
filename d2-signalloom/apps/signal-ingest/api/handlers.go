@@ -3,7 +3,9 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -66,6 +68,21 @@ func (h *Handlers) handleIngestObservations(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Validate every observation before persisting any (atomic reject).
+	for i, o := range observations {
+		// Reject +Inf/-Inf that survived JSON decoding (e.g. 1e999).
+		if math.IsInf(o.Confidence, 0) || math.IsNaN(o.Confidence) {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("observation[%d]: confidence must be a finite number", i))
+			return
+		}
+		if err := o.Validate(); err != nil {
+			writeError(w, http.StatusBadRequest,
+				fmt.Sprintf("observation[%d]: %s", i, err.Error()))
+			return
+		}
+	}
+
 	if err := h.Store.Append(r.Context(), observations); err != nil {
 		slog.Error("append failed", "error", err)
 		writeError(w, http.StatusInternalServerError, "failed to store observations")
@@ -113,6 +130,10 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		n, err := strconv.Atoi(limit)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid 'limit': "+err.Error())
+			return
+		}
+		if n < 0 {
+			writeError(w, http.StatusBadRequest, "limit must be non-negative")
 			return
 		}
 		q.Limit = n

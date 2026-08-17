@@ -31,13 +31,14 @@ describe('demo mode', () => {
     requestMock.mockRejectedValue(new Error('API down'))
   })
 
-  // 39 since the per-user currency work added GET and PATCH /user/preferences.
-  // Previously 37 (feat/supercred-stun-timeline's POST /agents/{id}/stun). This
-  // count is deliberately exact rather than a lower bound — it is the guard
-  // that notices a route silently disappearing in a merge, which is precisely
-  // what nearly happened to the stun route here.
-  it('covers the full 39-route client fixture surface', () => {
-    expect(FAKE_ROUTE_COUNT).toBe(39)
+  // 46 since the signal weave routes were added (observations, actors,
+  // actor/:id, promote, coverage, correlate, collectors/seed = 7 new).
+  // Previously 39 (per-user currency work added GET and PATCH /user/preferences).
+  // This count is deliberately exact rather than a lower bound — it is the
+  // guard that notices a route silently disappearing in a merge, which is
+  // precisely what nearly happened to the stun route here.
+  it('covers the full 46-route client fixture surface', () => {
+    expect(FAKE_ROUTE_COUNT).toBe(46)
   })
 
   // Merge note: this assertion came from feat/supercred-inventory-live, where the

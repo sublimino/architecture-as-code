@@ -34,6 +34,7 @@ import type {
 
 import type { StunAgentResponse } from '../types/api'
 import { COMPLIANCE_POLICY_ROUTES } from './fakeComplianceData'
+import { WEAVE_ROUTES } from './fakeWeaveData'
 import { networkTestsFixture, networkTestsScanFixture } from './fakeNetworkTestsData'
 import { demoActivityEvents, recordDemoActivity } from './demoActivity'
 import { simulatedAgentIdentity } from './supercredTypes'
@@ -712,10 +713,12 @@ const ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/network-tests\/scan$/), data: () => networkTestsScanFixture() },
   // compliance-policy routes (policy-as-versioned-code)
   ...COMPLIANCE_POLICY_ROUTES,
+  // signal weave routes (observations, actors, coverage, correlation, seed)
+  ...WEAVE_ROUTES,
 ]
 
 /** Number of distinct demo routes — asserted by the vitest to match the client surface.
- *  33 base + 2 user-preferences + 2 network-tests + 3 compliance-policy = 39 */
+ *  33 base + 2 user-preferences + 2 network-tests + 3 compliance-policy + 7 weave = 46 */
 export const FAKE_ROUTE_COUNT = ROUTES.length
 
 function cleanPath(path: string): string {

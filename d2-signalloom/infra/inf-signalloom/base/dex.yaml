@@ -140,8 +140,28 @@ spec:
         #     test/dex-config-reload.bats, which recomputes it and fails if it
         #     is stale, so this cannot silently rot the way a hand-maintained
         #     hash normally would.
+        #
+        #   dex-ui-sha  — sha256 of the .html keys of the dex-ui ConfigMap. The
+        #     web templates have EXACTLY the same reload defect as config.yaml,
+        #     and neither annotation above covers them. Dex calls loadWebConfig
+        #     once in newServer (server.go:290) and stores the parsed
+        #     *template.Template on the server struct (server.go:313) — there is
+        #     no watcher and no re-parse. Kubernetes swaps the mounted template
+        #     files underneath the process, nothing in the Deployment changes, no
+        #     rollout fires, and Dex keeps rendering the templates it parsed at
+        #     boot. A fix to a broken template would land in git, land in the
+        #     cluster, and never reach a single user.
+        #
+        #     Scoped to the .html keys ON PURPOSE. styles.css is served by an
+        #     http.FileServer that reads from disk per request, so CSS already
+        #     takes effect live and does not need a restart. Hashing it too would
+        #     make every cosmetic tweak restart Dex, and because storage is
+        #     `type: memory` a restart invalidates every in-flight login — which
+        #     is the single largest source of the error page this hash exists to
+        #     keep working.
         signalloom.ai/dex-origin: ${PUBLIC_ORIGIN:=https://dashboard.osramp.acme.local:30754}
         signalloom.ai/dex-config-sha: "276891c421b48360bd29284aaa786680572cf464087543ca962e249efe3f9cb7"
+        signalloom.ai/dex-ui-sha: "eb11147f7fc82987b22a0d4632a5767fe8767d8ab47880860af3f9abe0643584"
       labels:
         app.kubernetes.io/name: dex
         app.kubernetes.io/part-of: signalloom-demo

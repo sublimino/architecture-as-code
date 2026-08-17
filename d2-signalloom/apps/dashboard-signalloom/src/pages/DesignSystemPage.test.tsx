@@ -68,6 +68,33 @@ function complexAgents(): string[] {
 
 const complexPage = () => screen.getByTestId('ds-datatable-complex-page-indicator')
 
+// ── Query helpers for the super DataTable specimen ───────────────────────────
+//
+// Same re-query-every-call discipline as the complex helpers above, for the same
+// reason. Scoped to the super example's own wrapper so a testid that also exists
+// on the two specimens above it can never satisfy an assertion meant for this one.
+
+const superTable = () => screen.getByTestId('ds-datatable-super-example')
+
+function superHeader(label: string): HTMLElement {
+  const match = within(superTable())
+    .getAllByRole('columnheader')
+    .find((th) => (th.textContent ?? '').trim().startsWith(label))
+  if (!match) throw new Error(`No column header starting with "${label}"`)
+  return match
+}
+
+/** The Service cell of every row currently on screen, in display order. */
+function superServices(): string[] {
+  return within(superTable())
+    .queryAllByTestId('ds-datatable-super-row')
+    .map((row) => row.querySelector('td')?.textContent?.trim() ?? '')
+}
+
+const superCount = () => screen.getByTestId('ds-datatable-super-count')
+const superSearchBox = () => screen.getByTestId('ds-datatable-super-search')
+const superOwnerSelect = () => screen.getByTestId('ds-datatable-super-owner')
+
 /**
  * The live-region roster for the whole page, asserted by name rather than as a
  * ceiling.
@@ -388,16 +415,36 @@ describe('DesignSystemPage', () => {
   // search. Both are asserted, because a page that quietly loses the simple one
   // has lost the comparison that made either of them worth reading.
 
-  it('renders both DataTable examples — minimum viable and realistic', () => {
+  it('renders all three DataTable examples — minimum viable, realistic and super', () => {
     render(<DesignSystemPage />)
     const section = screen.getByTestId('ds-section-data-table')
     const simple = within(section).getByTestId('ds-datatable-simple-example')
     const complex = within(section).getByTestId('ds-datatable-complex-example')
+    const superEx = within(section).getByTestId('ds-datatable-super-example')
 
     expect(within(simple).getAllByRole('columnheader')).toHaveLength(4)
     expect(within(complex).getAllByRole('columnheader')).toHaveLength(7)
+    expect(within(superEx).getAllByRole('columnheader')).toHaveLength(6)
     expect(within(simple).getByTestId('ds-datatable-pagination')).toBeInTheDocument()
     expect(within(complex).getByTestId('ds-datatable-complex-pagination')).toBeInTheDocument()
+    expect(within(superEx).getByTestId('ds-datatable-super-pagination')).toBeInTheDocument()
+  })
+
+  it('reads as a progression — three headings, each stating when to reach for it', () => {
+    render(<DesignSystemPage />)
+    const section = screen.getByTestId('ds-section-data-table')
+    // By testid, so a copy edit to any of the three titles does not break this.
+    // The ORDER is the assertion: a reader scanning down has to meet the minimum
+    // before the realistic and the realistic before the super, or the section
+    // stops being a progression and becomes three unrelated tables.
+    const headings = within(section)
+      .getAllByTestId(/^ds-example-heading-datatable-/)
+      .map((h) => h.getAttribute('data-testid'))
+    expect(headings).toEqual([
+      'ds-example-heading-datatable-simple',
+      'ds-example-heading-datatable-complex',
+      'ds-example-heading-datatable-super',
+    ])
   })
 
   it('puts StatusBadge in the complex example’s cells', () => {
@@ -519,6 +566,221 @@ describe('DesignSystemPage', () => {
     fireEvent.change(search, { target: { value: '' } })
     expect(screen.queryByTestId('ds-datatable-complex-empty')).not.toBeInTheDocument()
     expect(complexAgents()).toHaveLength(5)
+  })
+
+  // ── DataTable: the super specimen ─────────────────────────────────────────
+  //
+  // What this one has to prove that the realistic specimen above does not is
+  // COMPOSITION: two independent facets narrowing the same array, a count that
+  // stays a count of the whole table while they do, and two ways back out of the
+  // state where they compose to nothing. Everything asserted below is a claim the
+  // section's prose makes; a specimen whose prose outruns its behaviour is worse
+  // than no specimen, because the reader copies it.
+
+  it('paginates the super specimen — seven rows a page, three pages, short last one', () => {
+    render(<DesignSystemPage />)
+    expect(superServices()).toHaveLength(7)
+    expect(screen.getByTestId('ds-datatable-super-page-indicator')).toHaveTextContent('Page 1 of 3')
+
+    fireEvent.click(screen.getByTestId('ds-datatable-super-next'))
+    expect(superServices()).toHaveLength(7)
+    fireEvent.click(screen.getByTestId('ds-datatable-super-next'))
+    // 18 over 7 leaves 4 — the arithmetic, not the existence of a button.
+    expect(superServices()).toHaveLength(4)
+    expect(screen.getByTestId('ds-datatable-super-next')).toBeDisabled()
+  })
+
+  it('sorts the super specimen by a clicked header, both directions and both types', () => {
+    render(<DesignSystemPage />)
+    expect(superServices()[0]).toBe('policy-evaluator')
+
+    fireEvent.click(superHeader('Service'))
+    expect(superServices()[0]).toBe('attestation-signer')
+    expect(superHeader('Service')).toHaveAttribute('aria-sort', 'ascending')
+
+    fireEvent.click(superHeader('Service'))
+    expect(superServices()[0]).toBe('trace-sampler')
+    expect(superHeader('Service')).toHaveAttribute('aria-sort', 'descending')
+
+    // Numeric column: a different branch of DataTable's comparator.
+    fireEvent.click(superHeader('Open findings'))
+    fireEvent.click(superHeader('Open findings'))
+    expect(superServices()[0]).toBe('sbom-collector')
+    expect(superHeader('Service')).not.toHaveAttribute('aria-sort')
+  })
+
+  it('narrows the super specimen from the search box', () => {
+    render(<DesignSystemPage />)
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
+
+    fireEvent.change(superSearchBox(), { target: { value: 'spire' } })
+    expect(superCount()).toHaveTextContent('2 of 18 services shown')
+    expect([...superServices()].sort()).toEqual(['cert-renewer', 'credential-rotator'])
+  })
+
+  it('narrows the super specimen from a source chip, and says which is pressed', () => {
+    render(<DesignSystemPage />)
+    fireEvent.click(screen.getByTestId('ds-datatable-super-filter-demo'))
+
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
+    expect(screen.getByTestId('ds-datatable-super-filter-demo')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('ds-datatable-super-filter-all')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('narrows the super specimen from the owner select', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(superOwnerSelect(), { target: { value: 'identity' } })
+
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
+    expect([...superServices()].sort()).toEqual([
+      'bao-unsealer', 'cert-renewer', 'credential-rotator', 'secret-syncer',
+    ])
+  })
+
+  it('composes the two facets with AND, and keeps counting the whole table while it does', () => {
+    render(<DesignSystemPage />)
+    fireEvent.click(screen.getByTestId('ds-datatable-super-filter-config'))
+    expect(superCount()).toHaveTextContent('6 of 18 services shown')
+
+    fireEvent.change(superOwnerSelect(), { target: { value: 'identity' } })
+    // Six are config and four are identity; exactly one is both. An OR would
+    // report nine here, which is the bug this assertion exists for.
+    expect(superCount()).toHaveTextContent('1 of 18 services shown')
+    expect(superServices()).toEqual(['credential-rotator'])
+
+    // And the facet counts did NOT move with the result. A chip reporting the
+    // filtered set reads 0 for every option not selected and stops being a way
+    // back to the rows it is hiding.
+    expect(screen.getByTestId('ds-datatable-super-filter-live')).toHaveTextContent('8')
+    expect(screen.getByTestId('ds-datatable-super-filter-demo')).toHaveTextContent('4')
+  })
+
+  it('shows Clear filters only while something is narrowing the super specimen', () => {
+    render(<DesignSystemPage />)
+    // Conditioned on the OTHER controls, never on its own value and never on the
+    // row count — so using it cannot put the user in a state it has left.
+    expect(screen.queryByTestId('ds-datatable-super-clear')).not.toBeInTheDocument()
+
+    fireEvent.change(superSearchBox(), { target: { value: 'mesh' } })
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
+    fireEvent.click(screen.getByTestId('ds-datatable-super-clear'))
+
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
+    expect(superSearchBox()).toHaveValue('')
+    expect(screen.queryByTestId('ds-datatable-super-clear')).not.toBeInTheDocument()
+  })
+
+  it('resets every control at once, not just the one last touched', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(superSearchBox(), { target: { value: 'mesh' } })
+    fireEvent.click(screen.getByTestId('ds-datatable-super-filter-live'))
+    fireEvent.change(superOwnerSelect(), { target: { value: 'network' } })
+
+    fireEvent.click(screen.getByTestId('ds-datatable-super-clear'))
+    expect(superSearchBox()).toHaveValue('')
+    expect(superOwnerSelect()).toHaveValue('all')
+    expect(screen.getByTestId('ds-datatable-super-filter-all')).toHaveAttribute('aria-pressed', 'true')
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
+  })
+
+  it('reaches the empty state by composing two facets that are each non-empty', () => {
+    render(<DesignSystemPage />)
+    // Four rows are `demo` and six are `platform-eng`; none is both. Neither
+    // facet is empty on its own, which is the case a single-facet specimen
+    // cannot pose and the reason this one carries two.
+    fireEvent.click(screen.getByTestId('ds-datatable-super-filter-demo'))
+    fireEvent.change(superOwnerSelect(), { target: { value: 'platform-eng' } })
+
+    expect(superCount()).toHaveTextContent('0 of 18 services shown')
+    expect(within(superTable()).getByTestId('ds-datatable-super-filtered-empty')).toBeInTheDocument()
+    expect(superServices()).toHaveLength(0)
+    // Nothing over the empty panel: no pager, no rows-per-page control.
+    expect(within(superTable()).queryByTestId('ds-datatable-super-footer')).not.toBeInTheDocument()
+  })
+
+  it('keeps the whole strip alive on the empty branch, and clears from inside the panel', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(superSearchBox(), { target: { value: 'no-such-service' } })
+
+    // Every control survives, because DataTable renders the toolbar outside the
+    // empty ternary. The in-panel button is not redundancy: it is the way back
+    // from where the mistake is visible.
+    const toolbar = within(superTable()).getByTestId('ds-datatable-super-toolbar')
+    expect(within(toolbar).getByTestId('ds-datatable-super-search')).toBeInTheDocument()
+    expect(within(toolbar).getByTestId('ds-datatable-super-filter-live')).toBeInTheDocument()
+    expect(within(toolbar).getByTestId('ds-datatable-super-owner')).toBeInTheDocument()
+    expect(within(toolbar).getByTestId('ds-datatable-super-clear')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('ds-datatable-super-empty-clear'))
+    expect(screen.queryByTestId('ds-datatable-super-filtered-empty')).not.toBeInTheDocument()
+    expect(superServices()).toHaveLength(7)
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
+  })
+
+  it('returns to page 1 when a super facet shrinks the data underneath', () => {
+    render(<DesignSystemPage />)
+    fireEvent.click(screen.getByTestId('ds-datatable-super-next'))
+    expect(screen.getByTestId('ds-datatable-super-page-indicator')).toHaveTextContent('Page 2 of 3')
+
+    fireEvent.click(screen.getByTestId('ds-datatable-super-filter-live'))
+    // Eight live rows over two pages, and on the first of them. Staying on page
+    // 2 is the bug DataTable's usePrevious guard exists to prevent.
+    expect(screen.getByTestId('ds-datatable-super-page-indicator')).toHaveTextContent('Page 1 of 2')
+    expect(superServices()).toHaveLength(7)
+  })
+
+  it('names the super strip and its facet group, and keeps every label inside its accessible name', () => {
+    render(<DesignSystemPage />)
+    const toolbar = within(superTable()).getByTestId('ds-datatable-super-toolbar')
+
+    // The strip is a named group, and the chip vocabulary is a named group
+    // WITHIN it — otherwise a screen reader announces two facets as one list.
+    // Both regexes are anchored: the facet's name is COMPOSED from the strip's,
+    // so it contains it as a prefix and an unanchored query matches both.
+    expect(within(toolbar).getByRole('group', { name: /^filter the super datatable example$/i })).toBeInTheDocument()
+    expect(within(toolbar).getByRole('group', { name: /^filter the super datatable example by source$/i })).toBeInTheDocument()
+
+    // WCAG 2.5.3: an explicit aria-label REPLACES the wrapping label's text, so
+    // it must contain the visible word or a speech-input user saying "Owner"
+    // reaches nothing.
+    const owner = superOwnerSelect()
+    expect(owner.getAttribute('aria-label')?.toLowerCase()).toContain('owner')
+    expect(within(toolbar).getByLabelText(/by owner/i)).toBe(owner)
+  })
+
+  it('builds the super strip from the real DataTableToolbar, in the documented order', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(superSearchBox(), { target: { value: 'mesh' } })
+
+    // The order is search → facets → select → clear → count, and the module
+    // deliberately does NOT enforce it: DataTableToolbar takes children so the
+    // two pages needing a bespoke node mid-strip can have one. Unenforced
+    // conventions drift, so it is asserted here instead, against the specimen
+    // that a migrating page copies. Clear is present because the search box is
+    // narrowing — that is the state where its position matters.
+    const strip = within(superTable()).getByRole('group', { name: /filter the super datatable example$/i })
+    const controls = [...strip.children].map((el) =>
+      el.getAttribute('data-testid')
+      ?? el.querySelector('[data-testid]')?.getAttribute('data-testid')
+      ?? el.tagName.toLowerCase(),
+    )
+    expect(controls).toEqual([
+      'ds-datatable-super-search',
+      'ds-datatable-super-filter-all',
+      'ds-datatable-super-owner',
+      'ds-datatable-super-clear',
+      'ds-datatable-super-count',
+      'ds-datatable-super-help',
+    ])
+  })
+
+  it('badges the super specimen’s Source cell with a variant that actually has a map', () => {
+    render(<DesignSystemPage />)
+    const firstRow = within(superTable()).getAllByTestId('ds-datatable-super-row')[0]
+    // One badge, and it renders the provenance word rather than falling through
+    // StatusBadge's maps to a neutral grey that carries no distinction at all.
+    expect(firstRow.querySelectorAll('.tag')).toHaveLength(1)
+    expect(firstRow).toHaveTextContent('live')
   })
 
   // ── ProofConsole streaming demo ───────────────────────────────────────────

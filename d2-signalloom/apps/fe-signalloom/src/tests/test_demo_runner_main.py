@@ -56,6 +56,16 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
         # surface: a route appearing here without a deliberate edit is
         # exactly what this test exists to catch.
         "/api/demo/supercred/evidence",
+        # Signal Fusion demo runner — same infrastructure, different step
+        # registry and script. Shares the mutation lock and run state with
+        # SuperCred because both mutate the same cluster.
+        "/api/demo/signalfusion/steps",
+        "/api/demo/signalfusion/runs",
+        "/api/demo/signalfusion/runs/{run_id}",
+        "/api/demo/signalfusion/runs/{run_id}/log",
+        "/api/demo/signalfusion/runs/{run_id}/stream",
+        "/api/demo/signalfusion/reset",
+        "/api/demo/signalfusion/status",
         "/health",
         "/readyz",
     }

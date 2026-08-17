@@ -238,7 +238,7 @@ describe('the visual language survives every theme', () => {
   // --cyan-bg and its siblings live only in global.css's :root and are absent
   // from CSS_VAR_NAMES, so applyTheme never rewrites them: they stayed frozen
   // at dark-theme values under Light and "andy". That put teal-cyan fills on
-  // three nodes inside an all-red theme. Anything colour-bearing on this page
+  // three nodes inside a then-all-red theme. Anything colour-bearing on this page
   // has to derive from a token the theme actually switches.
   it('derives every tint from a theme-switched token', () => {
     for (const [state, v] of Object.entries(visual)) {
@@ -253,8 +253,10 @@ describe('the visual language survives every theme', () => {
   })
 
   // Decision is not evidence. In "andy" the allowed and denied strokes are
-  // 1.29:1 apart -- both red -- and a denied edge keeps its evidence dash, so
-  // colour and dash are both spoken for. Decision needs its own channel.
+  // 1.38:1 apart in luminance -- they differ in hue since the Signal Loom
+  // rebuild, but nothing separates them for a viewer reading luminance alone --
+  // and a denied edge keeps its evidence dash, so colour and dash are both
+  // spoken for. Decision needs its own channel.
   it('distinguishes denied edges by stroke shape, not only by colour', () => {
     render(<MemoryRouter><AgentTrustTopologyPage /></MemoryRouter>)
     const canvas = screen.getByTestId('trust-canvas')

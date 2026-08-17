@@ -75,6 +75,21 @@ function isRedFamily(hex: string): boolean {
   return h <= 20 || h >= 340
 }
 
+// Shortest angular distance between two hues, 0-180 degrees.
+function hueDistance(a: string, b: string): number {
+  const d = Math.abs(hue(a) - hue(b)) % 360
+  return d > 180 ? 360 - d : d
+}
+
+// The Signal Loom lattice (public/brand/signal-loom-logo.png) sweeps a
+// continuous violet -> periwinkle -> teal ramp. Sampled with the shading
+// filtered out, its chromatic pixels run 251 -> 230 -> 203 -> 184 -> 168
+// degrees; this band is that ramp with a little tolerance at each end.
+function isBrandHue(hex: string): boolean {
+  const h = hue(hex)
+  return h >= 150 && h <= 275
+}
+
 // This runner's `localStorage` global is a methodless stub (Node's built-in Web
 // Storage shadows jsdom's implementation), so each test gets a real in-memory
 // one. Scoped to this file — the shared test-setup is left alone.
@@ -135,12 +150,40 @@ describe('themes data structure', () => {
     expect(relativeLuminance(THEMES.light['--border-subtle'])).toBeLessThan(0.7)
   })
 
-  it('gives Andy black backgrounds, a red primary accent and light text', () => {
+  it('gives Andy dark backgrounds, a Signal Loom primary accent and light text', () => {
     expect(relativeLuminance(THEMES.andy['--bg'])).toBeLessThan(0.05)
     expect(relativeLuminance(THEMES.andy['--surface'])).toBeLessThan(0.1)
-    expect(isRedFamily(THEMES.andy['--cyan'])).toBe(true)
+    // This replaces an `isRedFamily(--cyan)` assertion that pinned the previous
+    // red-on-black theme. It is the same kind of guard on the same token — a
+    // hue-band assertion on the primary accent — moved to the band the brand
+    // actually occupies, so the token is still pinned rather than freed.
+    expect(isBrandHue(THEMES.andy['--cyan'])).toBe(true)
+    expect(isBrandHue(THEMES.andy['--violet'])).toBe(true)
+    expect(isBrandHue(THEMES.andy['--teal'])).toBe(true)
+    // --error is deliberately the one accent OFF the brand ramp. Red for
+    // failure is semantics, not branding, and this assertion is what stops a
+    // future palette pass from spending it on coherence.
     expect(isRedFamily(THEMES.andy['--error'])).toBe(true)
     expect(relativeLuminance(THEMES.andy['--text'])).toBeGreaterThan(0.8)
+  })
+
+  // The theme this replaced put --cyan, --teal, --violet and --error inside a
+  // 16-degree band — --teal and --error were the same hue to one decimal place
+  // — so four semantic channels rendered as a single colour. trustVisuals.ts,
+  // trustTopology.test.ts and trustCritique.test.tsx all still carry line-style
+  // redundancy written to survive exactly that. This is the guard that stops it
+  // coming back; the redundancy stays regardless, for colour-vision deficiency.
+  it('keeps the Andy accents far enough apart in hue to read as separate channels', () => {
+    const accents = ['--cyan', '--violet', '--teal', '--amber', '--error'] as const
+    for (let i = 0; i < accents.length; i += 1) {
+      for (let j = i + 1; j < accents.length; j += 1) {
+        const [a, b] = [accents[i], accents[j]]
+        expect(
+          hueDistance(THEMES.andy[a], THEMES.andy[b]),
+          `${a} and ${b} are too close in hue to read as separate channels`,
+        ).toBeGreaterThan(25)
+      }
+    }
   })
 })
 

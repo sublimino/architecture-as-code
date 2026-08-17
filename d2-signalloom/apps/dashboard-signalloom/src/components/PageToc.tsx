@@ -38,10 +38,15 @@
  * Contrast, measured against `--bg` in all three themes (Dark / Light / Andy),
  * matching the standard the pages themselves record:
  *
- *   inactive entry   --muted on --bg    7.87 / 7.58 / 7.37   worst 7.37  AAA
- *   active entry     --text  on --bg   19.28 / 17.85 / 19.26 worst 17.85 AAA
- *   active marker    --cyan  on --bg    8.31 /  5.36 /  4.23 worst  4.23 AA-UI
- *   focus ring       --cyan  on --bg    8.31 /  5.36 /  4.23 worst  4.23 AA-UI
+ *   inactive entry   --muted on --bg    7.87 / 7.58 / 8.88   worst 7.58  AAA
+ *   active entry     --text  on --bg   19.28 / 17.85 / 17.49 worst 17.49 AAA
+ *   active marker    --cyan  on --bg    8.31 /  5.36 /  7.50 worst  5.36 AA-UI
+ *   focus ring       --cyan  on --bg    8.31 /  5.36 /  7.50 worst  5.36 AA-UI
+ *
+ * The Andy column moved when that theme was rebuilt on the Signal Loom brand
+ * ramp: the marker was 4.23 against the old red — 1.23 above the 3:1 non-text
+ * floor — and is 7.50 against the brand cyan, so the tightest theme for this
+ * component is now Light at 5.36 rather than Andy.
  *
  * `--dim` was the first choice for the rail's title and is not used: 4.24 at
  * worst, which fails AA for text. `--muted` carries it instead.

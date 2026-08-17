@@ -585,7 +585,7 @@ export default function DesignSystemHeadersPage() {
           </li>
           <li>
             <strong style={{ color: 'var(--text)' }}>The unread count is not white on red.</strong>{' '}
-            <code>--on-accent</code> against <code>--error</code> measures 3.85:1 under the Andy theme and the numeral is
+            <code>--on-accent</code> against <code>--error</code> measures 3.62:1 under the Andy theme and the numeral is
             normal-size text, so it wants 4.5:1 — a red pill with an unreadable number on it is a decoration that looks
             like information. The urgency is carried by a red-tinted surface and a red hairline; the numeral is{' '}
             <code>--text</code>, above 10:1 in every theme.

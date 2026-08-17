@@ -83,24 +83,61 @@ export const THEMES: Record<ThemeName, Record<CssVarName, string>> = {
     '--warning': '#B45309',
     '--on-accent': '#FFFFFF',
   },
-  // Red on black. Red takes over cyan's primary-accent role; the remaining
-  // accents stay inside the warm band so the palette reads as one family.
+  // The Signal Loom brand palette, on an indigo-black ground.
+  //
+  // Derived from public/brand/signal-loom-logo.png rather than invented. The
+  // lattice is 3D-shaded, so sampling it naively returns near-black and
+  // near-white; filtering to genuinely chromatic pixels (HLS saturation >=
+  // 0.25, lightness 0.18-0.78) leaves a hue ramp that sweeps monotonically
+  // across the diamond: 251 -> 230 -> 203 -> 184 -> 168 degrees. Every hue
+  // below is a point on that ramp, so --cyan is literally the logo's cyan
+  // band and not a name that lies.
+  //
+  //   --violet  258deg  the left corner
+  //   --cyan    192deg  the cyan band, and the primary accent
+  //   --teal    162deg  the right corner
+  //   neutrals  228deg  the periwinkle midpoint, at very low lightness, so the
+  //                     chrome carries the brand before any accent is drawn
+  //
+  // This REPLACES a red-on-black theme. That palette had a defect worth
+  // naming, because three files still carry workarounds for it: --cyan,
+  // --teal, --violet and --error were all inside a 16-degree band (--teal and
+  // --error were the same hue to one decimal place), so four semantic channels
+  // rendered as one colour. Worst-case hue separation here is 29.9 degrees.
+  //
+  // Accent luminance is boxed on both sides and the values were solved for,
+  // not chosen. Every accent is used BOTH as text on a dark ground and as a
+  // fill under white --on-accent, and those pull opposite ways: text on
+  // --surface2 (the lightest ground) wants luminance up, white-on-fill wants it
+  // down. Each accent here is the most saturated sRGB colour at its brand hue
+  // that lands inside that box. Measured worst cases: accent-as-text 4.56:1
+  // (--error on --surface2), white-on-fill 2.63:1 (--cyan, against the 2:1
+  // floor tokens.test.ts enforces), --dim on --surface2 4.66:1.
+  //
+  // --error stays red. That is semantics, not branding: red for failure is
+  // reinforced by every OS and every other surface in this product, and
+  // spending it on palette coherence would be a real regression. It is the one
+  // token deliberately off the brand ramp. Its exact value is the deepest red
+  // that still clears 4.5:1 as text, which is what maximises .btn-danger's
+  // white label: that measures 3.62:1, up from 3.00:1 at a lighter red. Still
+  // under AA for a normal-size label — see the note in headers/primitives.tsx,
+  // which refuses white-on-red for the unread pill for exactly this reason.
   andy: {
-    '--bg': '#000000',
-    '--surface': '#0A0A0A',
-    '--surface2': '#161010',
-    '--border': '#2B0F0F',
-    '--border-subtle': '#5A1A1A',
-    '--cyan': '#E10600',
-    '--violet': '#FF4D6D',
-    '--teal': '#FF7A7A',
-    '--amber': '#C2410C',
-    '--error': '#FF1E1E',
-    '--text': '#F5F5F5',
-    '--muted': '#B09292',
-    '--dim': '#8B6B6B',
-    '--slate-gray': '#6B5252',
-    '--warning': '#C2410C',
+    '--bg': '#080A14',
+    '--surface': '#0F1321',
+    '--surface2': '#191E31',
+    '--border': '#262D47',
+    '--border-subtle': '#3C4569',
+    '--cyan': '#00ADD9',
+    '--violet': '#AB86FF',
+    '--teal': '#00A977',
+    '--amber': '#D98A00',
+    '--error': '#FF352E',
+    '--text': '#EFF1F8',
+    '--muted': '#A6ADC9',
+    '--dim': '#7E87A9',
+    '--slate-gray': '#5E678D',
+    '--warning': '#D98A00',
     '--on-accent': '#FFFFFF',
   },
 }

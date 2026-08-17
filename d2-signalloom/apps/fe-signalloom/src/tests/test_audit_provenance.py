@@ -720,6 +720,15 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
         "claim anybody would later need to evidence. The terminal transitions "
         "that do matter (skip, complete) are audited by _terminal_transition."
     ),
+    ("signal_fusion.py", "run_correlation"): (
+        "Correlation is a read-only computation over existing observations. "
+        "It creates provisional actors but does not mutate user-visible state. "
+        "The audit-worthy event is actor promotion, not the correlation run."
+    ),
+    ("signal_fusion.py", "seed_collectors"): (
+        "Seeds fixture observations for the demo estate. Demo-only endpoint "
+        "that writes synthetic data; the observations themselves are the record."
+    ),
 }
 
 # Routes where the audit decision is genuinely open. Deliberately a separate
@@ -728,6 +737,16 @@ NOT_AUDIT_WORTHY: dict[tuple[str, str], str] = {
 # of error this file exists to prevent. An entry here is a debt with a name on
 # it, and it reads as one.
 AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
+    ("signal_fusion.py", "promote_actor"): (
+        "RULED AUDIT-WORTHY; the event is not written yet. "
+        "POST /actors/{actor_id}/promote transitions a provisional actor to "
+        "an issued identity in the agent_registry. That is the highest-stakes "
+        "state change in Signal Fusion — the closing beat of the three-act demo "
+        "and the action a regulator would want evidence of. The Go service owns "
+        "the signal_audit_trail table and will write the event; the Python proxy "
+        "should verify it landed. Delete this entry when the audit write is "
+        "confirmed end-to-end."
+    ),
     ("api_compat.py", "network_tests_scan"): (
         "RULED AUDIT-WORTHY; the event is not written yet. "
         "POST /network-tests/scan fires an active network reachability probe "

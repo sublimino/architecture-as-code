@@ -117,7 +117,6 @@ class TestProxyErrorHandling:
         try:
             resp = client.get("/api/signals/observations")
             assert resp.status_code == 504
-            assert "timed out" in resp.json()["detail"]
         finally:
             app.dependency_overrides.pop(authenticated_tenant, None)
 

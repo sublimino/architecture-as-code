@@ -44,12 +44,13 @@ func TestCorrelation_CrossLayerIdentity(t *testing.T) {
 	if len(actor.EvidenceChain) != 2 {
 		t.Errorf("want 2 evidence links, got %d", len(actor.EvidenceChain))
 	}
-	// Cross-layer suggestive -> actionable (>= 0.5)
-	if actor.Confidence < 0.5 {
-		t.Errorf("cross-layer actor confidence should be >= 0.5, got %f", actor.Confidence)
+	// V2 corroboration rule: cross-layer suggestive without strong/definitive
+	// is capped below actionable (0.49). The actor is correlated but provisional.
+	if actor.Confidence >= 0.5 {
+		t.Errorf("cross-layer suggestive-only must be < 0.5 (corroboration cap), got %f", actor.Confidence)
 	}
-	if actor.Status != model.ActorActionable {
-		t.Errorf("want status actionable, got %s", actor.Status)
+	if actor.Status != model.ActorProvisional {
+		t.Errorf("want status provisional (no strong/definitive corroboration), got %s", actor.Status)
 	}
 }
 
@@ -149,7 +150,12 @@ func TestCorrelation_CredentialChain(t *testing.T) {
 		t.Fatalf("credential chain: want 1 actor, got %d", len(actors))
 	}
 
-	if actors[0].Status != model.ActorActionable {
-		t.Errorf("credential chain should produce actionable status, got %s", actors[0].Status)
+	// V2 corroboration rule: credential chain with only suggestive signals
+	// stays provisional — needs strong/definitive to reach actionable.
+	if actors[0].Status != model.ActorProvisional {
+		t.Errorf("credential chain (suggestive-only) should be provisional, got %s", actors[0].Status)
+	}
+	if actors[0].Confidence >= 0.5 {
+		t.Errorf("credential chain (suggestive-only) confidence must be < 0.5, got %f", actors[0].Confidence)
 	}
 }

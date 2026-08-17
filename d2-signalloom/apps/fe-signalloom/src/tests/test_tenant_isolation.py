@@ -501,6 +501,14 @@ NOT_DATABASE_BACKED: list[tuple[str, str]] = [
     ("GET", "/api/demo/supercred/runs/{run_id}/stream"),  # superadmin; see sweep below
     ("POST", "/api/demo/supercred/reset"),               # superadmin; see sweep below
     ("GET", "/api/demo/supercred/status"),               # superadmin; see sweep below
+    # Signal fusion -- pure proxy to Go signal-ingest service; no local DB
+    ("GET", "/api/signals/observations"),
+    ("GET", "/api/signals/actors"),
+    ("GET", "/api/signals/actors/{actor_id}"),
+    ("GET", "/api/signals/coverage"),
+    ("POST", "/api/signals/actors/{actor_id}/promote"),
+    ("POST", "/api/signals/correlate"),
+    ("POST", "/api/signals/collectors/seed"),
 ]
 
 

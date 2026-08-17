@@ -94,7 +94,9 @@ class TestProxyErrorHandling:
         try:
             resp = client.get("/api/signals/observations")
             assert resp.status_code == 502
-            assert "unreachable" in resp.json()["detail"]
+            body = resp.json()
+            assert body["error"]["code"] == "upstream_unavailable"
+            assert "unreachable" in body["error"]["message"]
         finally:
             app.dependency_overrides.pop(authenticated_tenant, None)
 
@@ -117,6 +119,9 @@ class TestProxyErrorHandling:
         try:
             resp = client.get("/api/signals/observations")
             assert resp.status_code == 504
+            body = resp.json()
+            assert body["error"]["code"] == "upstream_timeout"
+            assert "timed out" in body["error"]["message"]
         finally:
             app.dependency_overrides.pop(authenticated_tenant, None)
 

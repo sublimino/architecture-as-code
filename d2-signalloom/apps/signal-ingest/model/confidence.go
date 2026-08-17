@@ -8,12 +8,23 @@ type ConfidenceResult struct {
 	Chain []string `json:"chain"`
 }
 
+// CorroborationCap is the maximum confidence score when no evidence link
+// has fidelity "strong" or "definitive". This enforces the V2 proposal's
+// hard corroboration rule:
+//
+//	"Fidelity tiers are structural, not additive: no quantity of suggestive
+//	 signals reaches definitive without a corroborating strong or definitive
+//	 signal."
+//
+// The cap is set below the 0.5 actionable threshold so that purely
+// suggestive/circumstantial evidence chains never reach actionable status.
+const CorroborationCap = 0.49
+
 // DeriveConfidence computes an actor confidence from a set of evidence links.
 //
-// Critical invariant: fidelity tiers are structural, not additive.
-//   - No quantity of suggestive/circumstantial signals from the SAME layer
-//     can exceed 0.5 (suggestive ceiling).
-//   - Cross-layer suggestive signals are actionable (0.5-0.8).
+// Critical invariant (V2 proposal): fidelity tiers are structural, not additive.
+//   - No quantity of suggestive/circumstantial signals can reach actionable (0.5)
+//     without a corroborating strong or definitive signal.
 //   - Any strong signal + suggestive = high confidence (0.7-0.9).
 //   - A definitive signal = near-certain (0.9-1.0).
 func DeriveConfidence(evidence []EvidenceLink) ConfidenceResult {
@@ -107,6 +118,16 @@ func DeriveConfidence(evidence []EvidenceLink) ConfidenceResult {
 			score = 0.30
 		}
 		chain = append(chain, "-> circumstantial only: low confidence")
+	}
+
+	// V2 hard corroboration rule: if no evidence link has fidelity "strong"
+	// or "definitive", cap the score below the actionable threshold.
+	// "Fidelity tiers are structural, not additive: no quantity of suggestive
+	//  signals reaches definitive without a corroborating strong or definitive
+	//  signal."
+	if !hasStrong && !hasDefinitive && score > CorroborationCap {
+		chain = append(chain, fmt.Sprintf("-> corroboration cap applied: %.2f -> %.2f (no strong/definitive evidence)", score, CorroborationCap))
+		score = CorroborationCap
 	}
 
 	return ConfidenceResult{Score: score, Chain: chain}

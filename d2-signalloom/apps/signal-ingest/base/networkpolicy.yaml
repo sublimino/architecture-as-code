@@ -1,0 +1,114 @@
+# fe-signalloom runs a default-deny policy with an empty podSelector, so a
+# workload that ships no policy of its own has no egress at all -- not even
+# DNS. signal-ingest shipped none, and the cost was not a clean failure: its
+# DATABASE_URL comes from a secretKeyRef, so the DSN was always set, the
+# Postgres branch was always taken, and the connect to
+# postgresql.inf-signalloom:5432 was DROPPED rather than refused. A dropped SYN
+# is silence, not an error, so main.go's fallback could not fire, the listener
+# was never reached, and the startupProbe killed the container at ~19s --
+# CrashLoopBackOff whose visible symptom pointed at the image, the probes and
+# the securityContext, none of which were at fault.
+#
+# The Go side is now bounded so the same drop degrades instead of hanging.
+# These rules are the other half: they make the reachability legitimate rather
+# than merely survivable.
+#
+# Two policies rather than one, matching supercred-demo-runner, so each
+# direction can be read, and revoked, on its own.
+---
+# Ingress: one caller. fe-signalloom's API pod reaches
+# http://signal-ingest:8082 from src/signal_fusion.py (SIGNAL_INGEST_URL) to
+# proxy the Signal Fusion routes it exposes to the dashboard.
+#
+# The dashboard's nginx is deliberately NOT admitted. It terminates /api/ and
+# forwards to fe-signalloom-api:8000; it has no signal-ingest upstream (see
+# apps/dashboard-signalloom/nginx.conf), so admitting it would grant
+# reachability nothing uses. The gateway is not admitted for the same reason:
+# no HTTPRoute targets this service, and every browser-facing Signal Fusion
+# call arrives through fe-signalloom.
+#
+# There is no intra-namespace `podSelector: {}` rule for health checks. The
+# kubelet's probes are not subject to NetworkPolicy -- the same point
+# supercred-demo-runner's policy makes, and the reason the startup failure was
+# never an ingress problem.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-signal-ingest-ingress
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    app.kubernetes.io/component: signal-fusion
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: signal-ingest
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8082
+---
+# Egress: DNS and Postgres. That is the entire list, and it is short because
+# the service makes no other outbound call -- there is no HTTP client anywhere
+# in apps/signal-ingest, only the server.
+#
+# DNS is listed first because it is the rule whose absence is least obvious.
+# The DSN names postgresql.inf-signalloom.svc.cluster.local; without a
+# resolvable name the 5432 rule below is unreachable and the audit path fails
+# in a way that looks like a database outage rather than a policy gap.
+#
+# Postgres carries the audit trail (signal_audit_trail). Scoped to the
+# postgresql pod rather than the whole of inf-signalloom: the namespace also
+# runs Redis, MinIO, Dex and the fake-integration-proxy, and this workload has
+# business with none of them. That is deliberately tighter than
+# allow-portal-dependencies, which grants the API pod a namespace-wide rule
+# across five ports -- a new workload should not inherit an older policy's
+# breadth just because it is adjacent.
+#
+# Note what is NOT here: no kube-apiserver rule (the service runs no kubectl
+# and holds no ServiceAccount grants), no Dex rule (it validates no tokens --
+# fe-signalloom authenticates the caller before proxying), and no egress to any
+# other tenant namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-signal-ingest-egress
+  labels:
+    app.kubernetes.io/name: signal-ingest
+    app.kubernetes.io/component: signal-fusion
+    app.kubernetes.io/part-of: signalloom
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: signal-ingest
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql
+      ports:
+        - protocol: TCP
+          port: 5432

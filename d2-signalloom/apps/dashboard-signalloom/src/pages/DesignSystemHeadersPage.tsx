@@ -56,6 +56,31 @@ import {
   QuietHeader,
   SituationHeader,
 } from '../components/headers/variants'
+import PageTocLayout, { type TocEntry } from '../components/PageToc'
+
+/**
+ * The on-this-page index, in document order.
+ *
+ * The labels are SHORTER than the headings they point at, which the headings
+ * on this page earn by being sentences — "3 · Operations console — the header
+ * is an instrument panel" is a good heading and a bad nav entry, and a
+ * 232px rail full of four-line links is not an index. What the labels may not
+ * do is say something different: DesignSystemHeadersPage.test.tsx asserts each
+ * one appears verbatim inside the heading it links to, so a shortened label
+ * stays a truthful one and renaming a section without renaming its entry is a
+ * red build.
+ */
+export const DESIGN_SYSTEM_HEADER_SECTIONS: readonly TocEntry[] = [
+  { id: 'deep-linking', title: 'The deep-link contract' },
+  { id: 'command', title: '1 · Command bar' },
+  { id: 'context', title: '2 · Context bar' },
+  { id: 'operations', title: '3 · Operations console' },
+  { id: 'quiet', title: '4 · Quiet header' },
+  { id: 'situation', title: '5 · Situation header' },
+  { id: 'comparison', title: 'The five, on the axes a choice turns on' },
+  { id: 'recommendation', title: 'The recommendation' },
+  { id: 'rules', title: 'What all five obey' },
+]
 
 // ── Layout helpers ───────────────────────────────────────────────────────────
 //
@@ -85,7 +110,10 @@ function Group({
   children: ReactNode
 }) {
   return (
-    <section data-testid={`ds-section-${id}`} style={{ marginBottom: 38 }}>
+    // Same as DesignSystemPage's Group: `id` is the anchor PageToc links to and
+    // observes, `data-testid` is what the suites query, and neither can stand
+    // in for the other.
+    <section id={id} data-testid={`ds-section-${id}`} style={{ marginBottom: 38, scrollMarginTop: 20 }}>
       <h2 data-testid={`ds-heading-${id}`} style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)', margin: '0 0 3px' }}>
         {title}
       </h2>
@@ -278,7 +306,7 @@ export default function DesignSystemHeadersPage() {
   const shallowHref = toHref(SHALLOW_TARGET)
 
   return (
-    <div>
+    <PageTocLayout entries={DESIGN_SYSTEM_HEADER_SECTIONS}>
       <style>{SCOPED_STYLE}</style>
 
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System — Headers</h1>
@@ -573,6 +601,6 @@ export default function DesignSystemHeadersPage() {
           </li>
         </ul>
       </Group>
-    </div>
+    </PageTocLayout>
   )
 }

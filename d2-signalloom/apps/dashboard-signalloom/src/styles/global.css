@@ -57,7 +57,7 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 /* Keyboard parity for the ~180 bare <button>s that never take a .btn class and
    are styled inline at the call site. Without this they fall back to whatever
    ring the UA supplies, which is unthemed and invisible on the dark palettes.
-   Measured: --cyan against --surface is 7.35 (dark) / 5.12 (light) / 3.99
+   Measured: --cyan against --surface is 7.35 (dark) / 5.12 (light) / 7.03
    (andy), so the ring clears AA's 3:1 non-text minimum in all three themes. */
 button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
@@ -142,11 +142,12 @@ select option { background: var(--surface); }
  *
  * The replacement is an offset accent ring, chosen on measurement rather than
  * taste. A fill shift via `filter: brightness()` was tried first and rejected:
- * against the Andy palette the deltas are 1.03 (secondary) and 1.01 (danger)
- * — the accents are already channel-clipped, so brightening does nothing —
+ * against the red Andy palette this replaced the deltas were 1.03 (secondary)
+ * and 1.01 (danger) — those accents were channel-clipped, so brightening did
+ * nothing —
  * and in Dark it drops btn-danger's white label from 4.83 to 3.71, under AA.
  * A ring has no such failure mode. --cyan measures 7.35 (dark) / 5.12 (light)
- * / 3.99 (andy) against --surface, clearing AA's 3:1 for non-text UI in every
+ * / 7.03 (andy) against --surface, clearing AA's 3:1 for non-text UI in every
  * theme. `outline-offset: 2px` is load-bearing, not decoration: btn-primary's
  * fill IS --cyan, so a flush ring would be invisible on it. The 2px gap shows
  * page colour, and it is that gap the eye reads.
@@ -166,7 +167,7 @@ select option { background: var(--surface); }
 .btn-danger { background: var(--error); color: var(--on-accent); }
 /* Secondary is the one variant whose fill can also move without touching the
    label's contrast: --surface2 -> --border-subtle measures a 1.41 / 1.65 /
-   1.43 change across the three themes, with --text still at 9.87:1 or better
+   1.77 change across the three themes, with --text still at 8.28:1 or better
    on the hover fill. Primary and danger keep their fill — they are already
    saturated accents and any shift costs label contrast. */
 .btn-secondary:hover:not(:disabled),
@@ -202,7 +203,7 @@ select option { background: var(--surface); }
 /* Was a borderless 28px box drawing a --dim glyph, which measures 3.75:1 on
    --surface — over AA's 3:1 floor for UI, but only just, and with nothing to
    say it was a control rather than an ornament. --muted takes the glyph to
-   6.95-7.24:1 across the three themes and the resting hairline gives it a
+   6.96-8.32:1 across the three themes and the resting hairline gives it a
    button's silhouette at rest, not only under the pointer. */
 .sl-sidebar__collapse-toggle {
   align-items: center; background: transparent; border: 1px solid var(--border); border-radius: 7px;

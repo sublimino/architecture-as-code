@@ -27,11 +27,16 @@ export type EvidenceVisual = {
    * CSS border-style for node boxes — the DOM equivalent of `dash`.
    *
    * These must stay in step with each other AND with the legend wording,
-   * because colour cannot be relied on to carry evidence state. The "andy"
-   * theme maps --teal, --violet, --cyan and --amber onto four near-identical
-   * reds, so in that theme the ONLY thing distinguishing a modeled node from a
-   * fixture-tested one is dashed-vs-dotted. The same is true for any viewer
-   * with a colour vision deficiency, in every theme.
+   * because colour cannot be relied on to carry evidence state. For any viewer
+   * with a colour vision deficiency, dashed-vs-dotted is the ONLY thing
+   * distinguishing a modeled node from a fixture-tested one, in every theme.
+   *
+   * This used to be true of every viewer under "andy", which mapped --teal,
+   * --violet, --cyan and --amber onto four near-identical reds. That theme has
+   * since been rebuilt on the Signal Loom brand ramp and its accents are now
+   * at least 29.9 degrees apart in hue, but the redundancy stays: it was always
+   * load-bearing for colour vision deficiency, and themes.test.ts now guards
+   * the hue separation independently.
    */
   borderStyle: 'solid' | 'dashed' | 'dotted'
   color: string
@@ -41,8 +46,8 @@ export type EvidenceVisual = {
    * NOT --cyan-bg and friends: those live only in global.css's :root and are
    * absent from CSS_VAR_NAMES, so applyTheme never rewrites them. They stayed
    * frozen at their dark-theme values in every theme -- which put teal-cyan
-   * fills on three nodes in the all-red "andy" theme, and two different cyans
-   * in one component under Light. color-mix on the base tracks the theme.
+   * fills on three nodes in the then-all-red "andy" theme, and two different
+   * cyans in one component under Light. color-mix on the base tracks the theme.
    */
   tint: string
   /** Seconds for one flow cycle. Higher = less convincing, by design. */

@@ -71,6 +71,27 @@ spec:
                 secretKeyRef:
                   name: discovery-portal-database
                   key: DATABASE_URL
+            # The shared discovery-portal-database DSN carries no sslmode, and
+            # the in-cluster Postgres serves plaintext -- fe-signalloom's
+            # psycopg client defaults to sslmode=prefer and silently falls back
+            # to it. lib/pq defaults to sslmode=require instead and hard-fails
+            # with "pq: SSL is not enabled on the server", so the two clients
+            # disagree about the same DSN.
+            #
+            # This was a THIRD defect, hidden behind the startup hang: with the
+            # network path repaired but this unset, the connect gets far enough
+            # to be refused at the TLS negotiation. On the code that shipped it
+            # would have surfaced as db.Ping() returning an error, main.go
+            # falling back to NopWriter, and a 1/1 Running pod auditing nothing.
+            #
+            # Declared here rather than defaulted in Go on purpose. Whether an
+            # audit connection runs without TLS is a posture decision for a
+            # compliance product, and it belongs somewhere an operator reads it
+            # -- not buried in a driver default. pq applies PGSSLMODE with LOWER
+            # precedence than the DSN, so adding sslmode to the secret later
+            # overrides this line rather than fighting it.
+            - name: PGSSLMODE
+              value: disable
           volumeMounts:
             - name: signal-store
               mountPath: /data/signals

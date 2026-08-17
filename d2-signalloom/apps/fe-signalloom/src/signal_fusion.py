@@ -11,10 +11,10 @@ import os
 from typing import Annotated, Any
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 
-from api_compat import Principal, authenticated_principal, authenticated_tenant
+from api_compat import APIError, Principal, authenticated_principal, authenticated_tenant
 
 logger = logging.getLogger(__name__)
 
@@ -32,15 +32,21 @@ async def _proxy(method: str, path: str, **kwargs: Any) -> JSONResponse:
         ) as client:
             resp = await client.request(method, path, **kwargs)
             return JSONResponse(status_code=resp.status_code, content=resp.json())
-    except httpx.ConnectError:
+    except httpx.ConnectError as exc:
         logger.warning("signal-ingest service unreachable at %s", _SIGNAL_INGEST_URL)
-        raise HTTPException(status_code=502, detail="signal-ingest service unreachable")
-    except httpx.TimeoutException:
+        raise APIError(
+            502, "upstream_unavailable", "signal-ingest service unreachable"
+        ) from exc
+    except httpx.TimeoutException as exc:
         logger.warning("signal-ingest request timed out: %s %s", method, path)
-        raise HTTPException(status_code=504, detail="signal-ingest request timed out")
-    except Exception:
+        raise APIError(
+            504, "upstream_timeout", "signal-ingest request timed out"
+        ) from exc
+    except Exception as exc:
         logger.exception("signal-ingest proxy error: %s %s", method, path)
-        raise HTTPException(status_code=502, detail="signal-ingest proxy error")
+        raise APIError(
+            502, "upstream_unavailable", "signal-ingest proxy error"
+        ) from exc
 
 
 @router.get("/observations")

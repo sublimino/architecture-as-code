@@ -739,6 +739,28 @@ AUDIT_DECISION_OWED: dict[tuple[str, str], str] = {
         "Delete this entry when the event lands; do NOT move it to "
         "NOT_AUDIT_WORTHY, that question has been answered."
     ),
+    ("signal_fusion.py", "promote_actor"): (
+        "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
+        "POST /actors/{actor_id}/promote elevates a provisional actor to the "
+        "agent registry -- a material state change that regulated customers "
+        "need a record of. The Go service owns a signal_audit_trail table but "
+        "the Python layer does not yet write its own event. Delete this entry "
+        "when audit lands at either layer."
+    ),
+    ("signal_fusion.py", "run_correlation"): (
+        "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
+        "POST /correlate triggers a correlation engine run that may surface "
+        "new actors or update evidence chains. The Go service owns the audit "
+        "trail; the Python layer does not yet write its own event. Delete this "
+        "entry when audit lands at either layer."
+    ),
+    ("signal_fusion.py", "seed_collectors"): (
+        "RULED AUDIT-WORTHY; proxied to Go signal-ingest. "
+        "POST /collectors/seed populates the signal collectors with initial "
+        "data -- an operator-initiated mutation. The Go service owns the audit "
+        "trail; the Python layer does not yet write its own event. Delete this "
+        "entry when audit lands at either layer."
+    ),
 }
 
 

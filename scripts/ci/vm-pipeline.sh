@@ -265,6 +265,7 @@ retry 3 make signalloom-images
 # the fix. scripts/check-ci-build-parity.sh (stage 1d) now derives the
 # comparison so the next copy cannot drift silently.
 retry 3 make demo-signalloom-supercred-images
+retry 3 make demo-signalloom-signalfusion-images
 
 # ── Activate Flux tenants ────────────────────────────────────────────
 PIPELINE_PHASE="activate-tenants"

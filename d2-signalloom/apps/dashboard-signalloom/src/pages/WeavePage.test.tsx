@@ -147,4 +147,89 @@ describe('WeavePage', () => {
       expect(screen.getByText(String(fakeWeaveData.actors.length))).toBeInTheDocument()
     })
   })
+
+  // ── Coverage honesty: blind-spot content ───────────────────────────────────
+
+  it('renders each blind-spot description text in the coverage panel', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('coverage-panel')).toBeInTheDocument()
+    })
+    for (const bs of fakeWeaveData.coverage.blind_spots) {
+      expect(screen.getByText(bs.description)).toBeInTheDocument()
+    }
+  })
+
+  it('renders the five structural blind spots from fixture data', async () => {
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('coverage-panel')).toBeInTheDocument()
+    })
+    // The fixture has exactly 5 blind spots — one per structural gap
+    expect(fakeWeaveData.coverage.blind_spots).toHaveLength(5)
+    // Each is rendered in the panel
+    const panel = screen.getByTestId('coverage-panel')
+    for (const bs of fakeWeaveData.coverage.blind_spots) {
+      expect(panel).toHaveTextContent(bs.description)
+    }
+  })
+
+  it('shows closeable count matching fixture data', async () => {
+    renderPage()
+    await waitFor(() => {
+      const callout = screen.getByTestId('closeable-callout')
+      const expected = `${fakeWeaveData.coverage.closeable_by_issuance.length} of ${fakeWeaveData.coverage.blind_spots.length}`
+      expect(callout).toHaveTextContent(expected)
+    })
+  })
+
+  // ── Error states ───────────────────────────────────────────────────────────
+
+  it('renders error state when API returns a 502', async () => {
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Request failed with status code 502'))
+    renderPage()
+    await waitFor(() => {
+      const el = screen.getByTestId('weave-load-state')
+      expect(el).toBeInTheDocument()
+      expect(el.getAttribute('data-status')).toBe('error')
+      expect(screen.getByText(/status code 502/i)).toBeInTheDocument()
+    })
+  })
+
+  it('renders error state when API returns a 504', async () => {
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Request failed with status code 504'))
+    renderPage()
+    await waitFor(() => {
+      const el = screen.getByTestId('weave-load-state')
+      expect(el).toBeInTheDocument()
+      expect(el.getAttribute('data-status')).toBe('error')
+      expect(screen.getByText(/status code 504/i)).toBeInTheDocument()
+    })
+  })
+
+  it('does not render a blank page on API failure', async () => {
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Network Error'))
+    mockWeaveApi.getActors.mockRejectedValue(new Error('Network Error'))
+    mockWeaveApi.getCoverage.mockRejectedValue(new Error('Network Error'))
+    renderPage()
+    await waitFor(() => {
+      // The page should show an error state, not be blank
+      const el = screen.getByTestId('weave-load-state')
+      expect(el.getAttribute('data-status')).toBe('error')
+      expect(screen.getByText(/Network Error/i)).toBeInTheDocument()
+    })
+    // The weave-page data-testid should NOT be present when in error state
+    expect(screen.queryByTestId('weave-page')).not.toBeInTheDocument()
+  })
+
+  it('renders error state not blank when coverage call fails', async () => {
+    mockWeaveApi.getCoverage.mockRejectedValue(new Error('Request failed with status code 502'))
+    renderPage()
+    await waitFor(() => {
+      // Should show error, not a blank page
+      const el = screen.getByTestId('weave-load-state')
+      expect(el.getAttribute('data-status')).toBe('error')
+      expect(screen.getByText(/status code 502/i)).toBeInTheDocument()
+    })
+  })
 })

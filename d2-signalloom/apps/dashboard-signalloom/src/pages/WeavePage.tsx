@@ -90,7 +90,7 @@ export default function WeavePage() {
   }
 
   if (error) {
-    return <LoadingState status="error" label={error} />
+    return <LoadingState variant="block" status="error" label="signal data" error={error} testId="weave-load-state" />
   }
 
   const closeableCount = coverage?.closeable_by_issuance.length ?? 0

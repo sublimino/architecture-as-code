@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import { fakeWeaveData } from '../api/fakeWeaveData'
+import { clearSignalSummaryCache } from '../hooks/useSignalSummary'
 
 // Mock useAuth0
 const getAccessTokenSilently = vi.fn().mockResolvedValue('test-token')
@@ -49,6 +51,19 @@ vi.mock('../api/client', () => ({
   },
 }))
 
+const mockWeaveApi = vi.hoisted(() => ({
+  getObservations: vi.fn(),
+  getActors: vi.fn(),
+  getCoverage: vi.fn(),
+  getActor: vi.fn(),
+  promoteActor: vi.fn(),
+  runCorrelation: vi.fn(),
+}))
+
+vi.mock('../api/weaveApi', () => ({
+  weaveApi: mockWeaveApi,
+}))
+
 import AgentPosturePage from './AgentPosturePage'
 
 function renderPage() {
@@ -60,6 +75,13 @@ function renderPage() {
 }
 
 describe('AgentPosturePage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+  })
+
   it('renders the Agent Posture heading', async () => {
     renderPage()
     expect(screen.getByRole('heading', { level: 1, name: 'Agent Posture' })).toBeInTheDocument()
@@ -103,5 +125,82 @@ describe('AgentPosturePage', () => {
   it('renders total exposure stat card', async () => {
     renderPage()
     expect(await screen.findByText('Total Exposure')).toBeInTheDocument()
+  })
+})
+
+describe('AgentPosturePage — Signal Evidence Section', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+  })
+
+  it('renders the Signal Evidence section when signal data is available', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    expect(await screen.findByText('Signal Evidence')).toBeInTheDocument()
+    expect(screen.getByTestId('signal-evidence-section')).toBeInTheDocument()
+  })
+
+  it('renders layer coverage indicators with tooltips', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    await screen.findByText('Signal Evidence')
+    expect(screen.getByText('Layer Coverage')).toBeInTheDocument()
+
+    // Check that layer labels are rendered
+    expect(screen.getByText('Network/Egress')).toBeInTheDocument()
+    expect(screen.getByText('Identity/Auth')).toBeInTheDocument()
+    expect(screen.getByText('Application/SaaS')).toBeInTheDocument()
+    expect(screen.getByText('Endpoint/Host')).toBeInTheDocument()
+    expect(screen.getByText('Behavioural')).toBeInTheDocument()
+  })
+
+  it('shows layer tooltips with correct descriptions', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    await screen.findByText('Signal Evidence')
+
+    const networkLayer = screen.getByText('Network/Egress').closest('[title]')
+    expect(networkLayer).toHaveAttribute('title', expect.stringContaining('Outbound traffic analysis'))
+
+    const identityLayer = screen.getByText('Identity/Auth').closest('[title]')
+    expect(identityLayer).toHaveAttribute('title', expect.stringContaining('Identity and access audit'))
+  })
+
+  it('shows the View Weave button', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    await screen.findByText('Signal Evidence')
+    const btn = screen.getByRole('button', { name: /view weave/i })
+    expect(btn).toBeInTheDocument()
+  })
+
+  it('shows graceful empty state when no observations exist', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    renderPage()
+
+    await screen.findByText('Agent Posture')
+    // The section renders but says no observations yet
+    expect(await screen.findByText('Signal Evidence')).toBeInTheDocument()
+    expect(screen.getByText('No signal observations recorded yet.')).toBeInTheDocument()
+  })
+
+  it('shows graceful message when signal API errors', async () => {
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Service down'))
+    mockWeaveApi.getActors.mockRejectedValue(new Error('Service down'))
+    renderPage()
+
+    await screen.findByText('Agent Posture')
+    expect(await screen.findByText('Signal Evidence')).toBeInTheDocument()
+    expect(screen.getByText(/signal-ingest may be offline/)).toBeInTheDocument()
   })
 })

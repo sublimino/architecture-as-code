@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/api"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
 )
@@ -37,9 +38,27 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Audit writer: use Postgres if DATABASE_URL is set, otherwise NopWriter.
+	var auditWriter audit.AuditWriter
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		pw, err := audit.NewPostgresWriter(dsn)
+		if err != nil {
+			slog.Warn("audit postgres connection failed, falling back to nop", "error", err)
+			auditWriter = audit.NopWriter{}
+		} else {
+			auditWriter = pw
+			defer pw.Close()
+			slog.Info("audit writer connected to postgres")
+		}
+	} else {
+		auditWriter = audit.NopWriter{}
+		slog.Info("no DATABASE_URL set, audit writes disabled")
+	}
+
 	handlers := &api.Handlers{
 		Store:  signalStore,
 		Engine: engine,
+		Audit:  auditWriter,
 	}
 
 	mux := http.NewServeMux()

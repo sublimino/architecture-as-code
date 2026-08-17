@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth0 } from '../auth/oidc'
 import { weaveApi } from '../api/weaveApi'
+import { isDemoMode } from '../api/demoMode'
 import type {
   SignalObservation,
   ProvisionalActor,
@@ -58,6 +59,11 @@ const FIDELITY_SIZES: Record<FidelityTier, number> = {
 
 // ─── Page ────────────────────────────────────────────────────────────────────
 
+/** True when the error message looks like the signal-ingest service is down. */
+function isServiceUnreachable(msg: string): boolean {
+  return /Network Error|ERR_CONNECTION_REFUSED|ECONNREFUSED|upstream_unavailable|status code 502|status code 503/i.test(msg)
+}
+
 export default function WeavePage() {
   const { getAccessTokenSilently } = useAuth0()
 
@@ -67,9 +73,12 @@ export default function WeavePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedActor, setSelectedActor] = useState<ProvisionalActor | null>(null)
+  const [seeding, setSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState<string | null>(null)
 
   const fetchData = useCallback(async () => {
     try {
+      setLoading(true)
       const token = await getAccessTokenSilently()
       const [obs, act, cov] = await Promise.all([
         weaveApi.getObservations(token),
@@ -91,13 +100,53 @@ export default function WeavePage() {
     void fetchData()
   }, [fetchData])
 
+  const handleSeed = useCallback(async () => {
+    try {
+      setSeeding(true)
+      setSeedResult(null)
+      const token = await getAccessTokenSilently()
+      const result = await weaveApi.seedFixtures(token)
+      setSeedResult(`Seeded ${result.seeded} observations. Refreshing...`)
+      // Re-fetch data after seeding
+      await fetchData()
+    } catch (err) {
+      setSeedResult(err instanceof Error ? err.message : 'Seed failed.')
+    } finally {
+      setSeeding(false)
+    }
+  }, [getAccessTokenSilently, fetchData])
+
   if (loading) {
     return <LoadingState status={loadPhase({ loading, error })} label="Loading signal data" />
   }
 
   if (error) {
+    const unreachable = !isDemoMode() && isServiceUnreachable(error)
+
+    if (unreachable) {
+      return (
+        <div data-testid="weave-load-state" data-status="error" style={{ padding: 32 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--error)', marginBottom: 8 }}>
+            Signal Ingest Service Unreachable
+          </h2>
+          <p style={{ fontSize: 13, color: 'var(--text)', lineHeight: 1.6, maxWidth: 560, marginBottom: 16 }}>
+            The signal-ingest service is not responding. Start it with{' '}
+            <code style={{ fontSize: 12, padding: '2px 6px', background: 'var(--surface2)', borderRadius: 4 }}>
+              make signal-ingest-up
+            </code>{' '}
+            or switch to demo mode using the toggle in the sidebar.
+          </p>
+          <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 4 }}>
+            {error}
+          </p>
+        </div>
+      )
+    }
+
     return <LoadingState variant="block" status="error" label="signal data" error={error} testId="weave-load-state" />
   }
+
+  const isEmpty = observations.length === 0 && actors.length === 0
 
   const closeableCount = coverage?.closeable_by_issuance.length ?? 0
   const totalBlindSpots = coverage?.blind_spots.length ?? 0
@@ -122,6 +171,51 @@ export default function WeavePage() {
         <StatCard label="Active Layers" value={String(coverage?.covered_layers.length ?? 0)} sub={`of ${ALL_LAYERS.length} total`} accent="var(--teal)" />
         <StatCard label="Blind Spots" value={String(totalBlindSpots)} sub={`${closeableCount} closeable by issuance`} accent="var(--error)" />
       </div>
+
+      {/* Empty state with seed button */}
+      {isEmpty && (
+        <div
+          className="card"
+          data-testid="weave-empty-state"
+          style={{
+            padding: '32px 24px',
+            textAlign: 'center',
+            marginBottom: 24,
+          }}
+        >
+          <p style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>
+            No signal observations or provisional actors found.
+            {!isDemoMode() && ' The signal-ingest store may be empty.'}
+          </p>
+          {!isDemoMode() && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              <button
+                data-testid="seed-fixtures-btn"
+                disabled={seeding}
+                onClick={() => void handleSeed()}
+                style={{
+                  padding: '8px 20px',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  borderRadius: 'var(--radius-sm, 6px)',
+                  border: 'none',
+                  background: seeding ? 'var(--surface2)' : 'var(--teal)',
+                  color: seeding ? 'var(--muted)' : 'var(--on-accent, #fff)',
+                  cursor: seeding ? 'not-allowed' : 'pointer',
+                  opacity: seeding ? 0.6 : 1,
+                }}
+              >
+                {seeding ? 'Seeding...' : 'Seed Fixtures'}
+              </button>
+              {seedResult && (
+                <p data-testid="seed-result" style={{ fontSize: 12, color: 'var(--muted)', margin: 0 }}>
+                  {seedResult}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Signal Threads Panel */}
       <Section title="Signal Threads" hint="Observations by layer and fidelity">

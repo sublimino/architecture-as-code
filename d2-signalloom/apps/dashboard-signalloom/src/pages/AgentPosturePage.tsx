@@ -1,16 +1,20 @@
 // TODO: migrate tables to DataTable (expandable accordion tables — may need DataTable extension for nested rows)
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '../auth/oidc'
 import { api } from '../api/client'
 import { colors } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
+import SignalBadge from '../components/SignalBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { ComplianceCheck, PostureSummary } from '../types/compliance'
+import type { SignalLayer } from '../api/weaveApi'
 import { useMoney } from '../money/CurrencyContext'
 import { sumMoney } from '../money/money'
 import { MONEY_UNAVAILABLE } from '../money/format'
 import ConversionNote from '../components/ConversionNote'
+import { useSignalSummary } from '../hooks/useSignalSummary'
 
 interface ControlSetGroup {
   controlSet: string
@@ -35,6 +39,145 @@ function groupChecks(checks: ComplianceCheck[]): ControlSetGroup[] {
     controls: Array.from(ctrlMap.entries()).map(([control, checks]) => ({ control, checks })),
   }))
 }
+
+// ─── Layer Tooltip Descriptions ─────────────────────────────────────────────
+
+const LAYER_TOOLTIPS: Record<string, string> = {
+  network_egress: 'Outbound traffic analysis — detects unexpected external communication',
+  identity_authorization: 'Identity and access audit — detects unauthorised service account usage',
+  application_saas: 'SaaS integration monitoring — detects unregistered AI workloads',
+  endpoint_host: 'Host-level detection — detects container filesystem and process anomalies',
+  behavioural: 'Behavioural analysis — detects anomalous request patterns and cadence',
+  cloud_control_plane: 'Cloud API monitoring — detects control plane misuse',
+  protocol: 'Protocol-level analysis — detects non-standard protocol usage',
+}
+
+const LAYER_DISPLAY: Record<string, string> = {
+  network_egress: 'Network/Egress',
+  identity_authorization: 'Identity/Auth',
+  application_saas: 'Application/SaaS',
+  endpoint_host: 'Endpoint/Host',
+  behavioural: 'Behavioural',
+  cloud_control_plane: 'Cloud Control Plane',
+  protocol: 'Protocol',
+}
+
+const LAYER_COLORS: Record<string, string> = {
+  network_egress: 'var(--cyan)',
+  identity_authorization: 'var(--violet)',
+  application_saas: 'var(--teal)',
+  endpoint_host: 'var(--amber)',
+  behavioural: 'var(--error)',
+  cloud_control_plane: 'var(--dim)',
+  protocol: 'var(--dim)',
+}
+
+const DISPLAY_LAYERS: SignalLayer[] = [
+  'network_egress',
+  'identity_authorization',
+  'application_saas',
+  'endpoint_host',
+  'behavioural',
+]
+
+// ─── Signal Evidence Section ────────────────────────────────────────────────
+
+function SignalEvidenceSection() {
+  const navigate = useNavigate()
+  const signal = useSignalSummary()
+
+  if (signal.loading) return null
+  if (signal.error || signal.totalObservations === 0) {
+    return (
+      <Section title="Signal Evidence" hint="cross-layer signal correlation">
+        <div className="card" style={{ padding: '16px 18px' }}>
+          <p style={{ color: 'var(--muted)', fontSize: 13, margin: 0 }}>
+            {signal.error
+              ? 'Signal data currently unavailable — signal-ingest may be offline.'
+              : 'No signal observations recorded yet.'}
+          </p>
+        </div>
+      </Section>
+    )
+  }
+
+  return (
+    <div data-testid="signal-evidence-section">
+    <Section title="Signal Evidence" hint="cross-layer signal correlation">
+      <div className="card" style={{ padding: '16px 18px' }}>
+        {/* Summary row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
+          <SignalBadge
+            observationCount={signal.totalObservations}
+            highestFidelity={signal.highestFidelity!}
+            layerCount={signal.layerCount}
+            onClick={() => navigate('/weave')}
+            testId="posture-signal-badge"
+          />
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {signal.totalActors} provisional actor{signal.totalActors !== 1 ? 's' : ''} under correlation
+          </span>
+          <button
+            className="btn btn-secondary"
+            style={{ fontSize: 11, padding: '4px 10px', marginLeft: 'auto' }}
+            onClick={() => navigate('/weave')}
+            title="View full Signal Weave correlation dashboard"
+          >
+            View Weave
+          </button>
+        </div>
+
+        {/* Layer coverage bar */}
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+            Layer Coverage
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {DISPLAY_LAYERS.map((layer) => {
+              const count = signal.observationsByLayer[layer] ?? 0
+              const isActive = count > 0
+              const layerColor = LAYER_COLORS[layer]
+              return (
+                <span
+                  key={layer}
+                  title={`${LAYER_DISPLAY[layer]}: ${count} observation${count !== 1 ? 's' : ''} — ${LAYER_TOOLTIPS[layer]}`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: isActive
+                      ? `color-mix(in srgb, ${layerColor} 12%, transparent)`
+                      : 'color-mix(in srgb, var(--muted) 8%, transparent)',
+                    color: isActive ? layerColor : 'var(--muted)',
+                    fontWeight: isActive ? 600 : 400,
+                    opacity: isActive ? 1 : 0.6,
+                  }}
+                >
+                  <span style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: '50%',
+                    background: isActive ? layerColor : 'var(--muted)',
+                  }} />
+                  {LAYER_DISPLAY[layer]}
+                  {isActive && (
+                    <span style={{ fontWeight: 700 }}>{count}</span>
+                  )}
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </Section>
+    </div>
+  )
+}
+
+// ─── Main Component ─────────────────────────────────────────────────────────
 
 export default function AgentPosturePage() {
   const { getAccessTokenSilently } = useAuth0()
@@ -228,6 +371,9 @@ export default function AgentPosturePage() {
           })}
         </Section>
       ))}
+
+      {/* Signal Evidence — cross-cutting signal correlation data */}
+      <SignalEvidenceSection />
     </div>
   )
 }

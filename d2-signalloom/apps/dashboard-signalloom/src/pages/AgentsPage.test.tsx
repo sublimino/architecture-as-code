@@ -1,6 +1,6 @@
 /**
- * Tests for compliance scan button, agent registration, and live data wiring
- * on the Agents page.
+ * Tests for compliance scan button, agent registration, live data wiring,
+ * and signal summary panel on the Agents page.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -9,6 +9,8 @@ import { MemoryRouter } from 'react-router-dom'
 import AgentsPage from './AgentsPage'
 import { api } from '../api/client'
 import type { AgentResponse } from '../types/api'
+import { fakeWeaveData } from '../api/fakeWeaveData'
+import { clearSignalSummaryCache } from '../hooks/useSignalSummary'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -33,6 +35,19 @@ vi.mock('../api/client', () => ({
       scan: vi.fn(),
     },
   },
+}))
+
+const mockWeaveApi = vi.hoisted(() => ({
+  getObservations: vi.fn(),
+  getActors: vi.fn(),
+  getCoverage: vi.fn(),
+  getActor: vi.fn(),
+  promoteActor: vi.fn(),
+  runCorrelation: vi.fn(),
+}))
+
+vi.mock('../api/weaveApi', () => ({
+  weaveApi: mockWeaveApi,
 }))
 
 function makeAgent(overrides: Partial<AgentResponse> = {}): AgentResponse {
@@ -63,6 +78,9 @@ function renderPage() {
 describe('AgentsPage — Compliance Scan', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [makeAgent()],
       total: 1,
@@ -114,6 +132,9 @@ describe('AgentsPage — Compliance Scan', () => {
 describe('AgentsPage — Register Agent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
     ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
       agents: [makeAgent()],
       total: 1,
@@ -171,6 +192,9 @@ describe('AgentsPage — Register Agent', () => {
 describe('AgentsPage — Live Data Wiring', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    clearSignalSummaryCache()
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
   })
 
   it('renders agents from the API in the governed tab', async () => {
@@ -321,5 +345,65 @@ describe('AgentsPage — lifecycle tooltip + EU AI Act column', () => {
       'title',
       expect.stringContaining('reversible')
     ))
+  })
+})
+
+describe('AgentsPage — Signal Summary Panel', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    clearSignalSummaryCache()
+    vi.mocked(api.agents.list).mockResolvedValue({
+      agents: [makeAgent()],
+      total: 1,
+    })
+  })
+
+  it('renders the signal summary panel when signal data is available', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    expect(await screen.findByTestId('signal-summary-panel')).toBeInTheDocument()
+    expect(screen.getByTestId('agents-signal-badge')).toBeInTheDocument()
+  })
+
+  it('shows the View Weave button linking to the weave page', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    const btn = await screen.findByRole('button', { name: /view weave/i })
+    expect(btn).toBeInTheDocument()
+    expect(btn).toHaveAttribute('title', 'View full Signal Weave correlation dashboard')
+  })
+
+  it('does not render the signal panel when no observations exist', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    renderPage()
+
+    await screen.findByText('Invoice Bot')
+    expect(screen.queryByTestId('signal-summary-panel')).not.toBeInTheDocument()
+  })
+
+  it('does not render the signal panel when the API errors', async () => {
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Network error'))
+    mockWeaveApi.getActors.mockRejectedValue(new Error('Network error'))
+    renderPage()
+
+    await screen.findByText('Invoice Bot')
+    expect(screen.queryByTestId('signal-summary-panel')).not.toBeInTheDocument()
+  })
+
+  it('shows actor counts when provisional actors exist', async () => {
+    mockWeaveApi.getObservations.mockResolvedValue(fakeWeaveData.observations)
+    mockWeaveApi.getActors.mockResolvedValue(fakeWeaveData.actors)
+    renderPage()
+
+    await screen.findByTestId('signal-summary-panel')
+    // fakeWeaveData has 1 actionable actor
+    expect(screen.getByText('1 actionable')).toBeInTheDocument()
+    // fakeWeaveData has 1 provisional actor
+    expect(screen.getByText('1 provisional')).toBeInTheDocument()
   })
 })

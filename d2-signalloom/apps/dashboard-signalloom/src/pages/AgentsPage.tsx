@@ -10,10 +10,12 @@ import { LIVE_POLL_MS } from '../api/pollInterval'
 import type { AgentResponse } from '../types/api'
 import { colors, donutDefaults } from '../styles/tokens'
 import StatusBadge from '../components/StatusBadge'
+import SignalBadge from '../components/SignalBadge'
 import CredentialStateNotice from '../components/CredentialStateNotice'
 import EmptyState from '../components/EmptyState'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import HelpHint from '../components/HelpHint'
+import { useSignalSummary } from '../hooks/useSignalSummary'
 
 // Watched by the demo audience in a second window — see api/pollInterval.ts.
 const POLL_MS = LIVE_POLL_MS
@@ -729,6 +731,78 @@ function GovernedTab({ agents, loading, loaded, error, onRetry, onReload }: {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
+// ─── Signal Summary Panel ──────────────────────────────────────────────────
+
+function SignalSummaryPanel() {
+  const navigate = useNavigate()
+  const signal = useSignalSummary()
+
+  if (signal.loading || signal.error || signal.totalObservations === 0) return null
+
+  const provisionalCount = signal.actorsByStatus['provisional'] ?? 0
+  const actionableCount = signal.actorsByStatus['actionable'] ?? 0
+
+  return (
+    <div
+      data-testid="signal-summary-panel"
+      className="card"
+      style={{
+        padding: '12px 18px',
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 14,
+        fontSize: 13,
+      }}
+    >
+      <SignalBadge
+        observationCount={signal.totalObservations}
+        highestFidelity={signal.highestFidelity!}
+        layerCount={signal.layerCount}
+        onClick={() => navigate('/weave')}
+        testId="agents-signal-badge"
+      />
+      <span style={{ color: 'var(--muted)', fontSize: 12 }}>
+        across {signal.layerCount} signal layer{signal.layerCount !== 1 ? 's' : ''}
+      </span>
+      {(provisionalCount > 0 || actionableCount > 0) && (
+        <span style={{ color: 'var(--text)', fontSize: 12, marginLeft: 'auto' }}>
+          {actionableCount > 0 && (
+            <span
+              title={`${actionableCount} actor${actionableCount !== 1 ? 's' : ''} with sufficient evidence for investigation`}
+              style={{ color: 'var(--amber)', fontWeight: 600 }}
+            >
+              {actionableCount} actionable
+            </span>
+          )}
+          {actionableCount > 0 && provisionalCount > 0 && (
+            <span style={{ color: 'var(--muted)' }}> · </span>
+          )}
+          {provisionalCount > 0 && (
+            <span
+              title={`${provisionalCount} provisional actor${provisionalCount !== 1 ? 's' : ''} under correlation`}
+              style={{ color: 'var(--muted)' }}
+            >
+              {provisionalCount} provisional
+            </span>
+          )}
+          <span style={{ color: 'var(--muted)' }}> actor{(provisionalCount + actionableCount) !== 1 ? 's' : ''} detected</span>
+        </span>
+      )}
+      <button
+        className="btn btn-secondary"
+        style={{ fontSize: 11, padding: '4px 10px', marginLeft: provisionalCount === 0 && actionableCount === 0 ? 'auto' : undefined }}
+        onClick={() => navigate('/weave')}
+        title="View full Signal Weave correlation dashboard"
+      >
+        View Weave
+      </button>
+    </div>
+  )
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
 export default function AgentsPage() {
   const { getAccessTokenSilently } = useAuth0()
 
@@ -841,6 +915,8 @@ export default function AgentsPage() {
       </div>
 
       <AttentionPanel alerts={alerts} onAlert={() => undefined} />
+
+      <SignalSummaryPanel />
 
       <GovernedTab
         agents={agents}

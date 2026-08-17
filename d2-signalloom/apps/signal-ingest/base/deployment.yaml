@@ -32,6 +32,18 @@ spec:
           ports:
             - name: http
               containerPort: 8082
+          # Startup and liveness use /healthz, which checks nothing external.
+          # Readiness uses /readyz, which verifies the audit backend is
+          # reachable. The split is deliberate: an unreachable database must
+          # take the pod out of the Service (it cannot record what it does),
+          # but must never restart it -- restarting cannot make a database
+          # reachable, and that loop is precisely the failure this deployment
+          # was stuck in before the connect was bounded.
+          #
+          # The 20s this budget allows (periodSeconds 2 x failureThreshold 10)
+          # is the constraint audit.DefaultConnectTimeout is sized against;
+          # TestDefaultConnectTimeout_FitsStartupProbeBudget asserts the
+          # arithmetic, so changing either number in isolation fails the build.
           startupProbe:
             httpGet:
               path: /healthz
@@ -46,6 +58,11 @@ spec:
             httpGet:
               path: /readyz
               port: http
+            # /readyz pings Postgres, bounded by api.readyCheckTimeout (2s).
+            # The default timeoutSeconds of 1 would cut the handler off before
+            # its own bound elapsed, turning a diagnosable 503 body into a
+            # probe timeout. 3s leaves the handler room to answer.
+            timeoutSeconds: 3
           env:
             - name: SIGNAL_STORE_DIR
               value: /data/signals

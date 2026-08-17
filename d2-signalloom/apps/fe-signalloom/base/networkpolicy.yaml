@@ -91,6 +91,26 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # signal_fusion.py calls SIGNAL_INGEST_URL (http://signal-ingest:8082) to
+    # proxy the Signal Fusion routes. Same namespace, so a podSelector with no
+    # namespaceSelector is the whole rule.
+    #
+    # This is the egress half of a pair; the ingress half is
+    # allow-signal-ingest-ingress in apps/signal-ingest/base/networkpolicy.yaml.
+    # Both halves were missing, and neither absence was visible: signal-ingest
+    # never started (no egress of its own, so its boot hung on Postgres and the
+    # startup probe killed it), and signal_fusion.py catches the connect error
+    # and logs "signal-ingest service unreachable" before degrading, so from the
+    # dashboard the feature simply looked empty. Restoring only the ingress half
+    # would leave this drop in place and reproduce exactly that empty result
+    # against a now-healthy pod -- which is the harder version to diagnose.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signal-ingest
+      ports:
+        - protocol: TCP
+          port: 8082
 ---
 # Public exposure is permitted only through the selected gateway namespace;
 # direct cross-namespace access to the portal is denied by default.

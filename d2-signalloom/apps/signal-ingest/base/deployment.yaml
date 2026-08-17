@@ -46,6 +46,17 @@ spec:
             httpGet:
               path: /readyz
               port: http
+          env:
+            - name: SIGNAL_STORE_DIR
+              value: /data/signals
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: discovery-portal-database
+                  key: DATABASE_URL
+          volumeMounts:
+            - name: signal-store
+              mountPath: /data/signals
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -57,3 +68,6 @@ spec:
               memory: 32Mi
             limits:
               memory: 128Mi
+      volumes:
+        - name: signal-store
+          emptyDir: {}

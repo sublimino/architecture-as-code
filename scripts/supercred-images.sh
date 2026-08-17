@@ -21,6 +21,24 @@
 # passes while the image is unusable — which is exactly how this failed silently.
 # `crictl images` reports the CRI's view (unpacked and runnable), so that is the
 # only sound verification and it is what this script uses.
+#
+# ─── …and `crictl images` alone was still not enough ────────────────────────
+#
+# Everything above concerns an image that did not arrive. On 2026-08-17 the
+# worse variant was measured on the live cluster: the image did not arrive AND
+# the node was already holding an OLDER image under the same tag. The check
+# compared name and tag only, so it passed on the stale one, the pipeline exited
+# 0, and the cluster ran a different binary than the one just built.
+#
+# Verification is therefore by IMAGE ID, in scripts/lib/image-identity.sh, which
+# carries the measurement and the reasoning. Two questions, kept apart:
+#
+#   `load`   asks IDENTITY — is the node's image the one we just built. Nothing
+#            else is a verified build.
+#   `verify` asks PRESENCE — can the CRI run an image under this tag. That is
+#            all the demo runner can ask: it reaches the node through
+#            scripts/supercred-crictl-shim.sh, has no docker daemon and so has
+#            no local image to compare against.
 set -euo pipefail
 
 DOCKER_BIN="${DOCKER_BIN:-docker}"
@@ -30,6 +48,8 @@ NODE="${SUPERCRED_NODE:-${CLUSTER_NAME}-control-plane}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/source-id.sh
 source "${REPO_ROOT}/scripts/lib/source-id.sh"
+# shellcheck source=scripts/lib/image-identity.sh
+source "${REPO_ROOT}/scripts/lib/image-identity.sh"
 
 # image-name|build-context|dockerfile (fields after image-name are repo-root
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
@@ -94,10 +114,8 @@ PLATFORM="${SUPERCRED_PLATFORM:-$(host_platform)}"
 # listed all three. awk as the final stage has no early exit, so there is no
 # SIGPIPE and its own status is the pipeline's status.
 image_on_node() {
-  local image="$1"
-  local want="docker.io/library/${image%%:*}:${image##*:}"
-  "$DOCKER_BIN" exec "$NODE" crictl images 2>/dev/null \
-    | awk -v want="$want" '$1":"$2 == want { found = 1 } END { exit !found }'
+  image_identity_invalidate
+  image_identity_present_on_node "$1"
 }
 
 # True when the listing we just read is known to be incomplete, in which case a
@@ -105,45 +123,70 @@ image_on_node() {
 # node.status.images is at the kubelet's --node-status-max-images cap; that
 # list is sorted by size, so small images fall off the end while sitting
 # perfectly happily on the node.
-listing_is_truncated() {
-  "$DOCKER_BIN" exec "$NODE" crictl images 2>&1 >/dev/null \
-    | grep -q "node.status.images is at the kubelet cap"
-}
+listing_is_truncated() { image_identity_listing_is_truncated; }
 
+# verify_images MODE   — MODE is `identity` (default) or `presence`.
+#
+# Exit: 0 PASS, 1 FAIL, 3 COULD-NOT-VERIFY. Three outcomes, never two.
+#
+# ─── Why three, and why 3 is not folded into either neighbour ───────────────
+#
+# Do not fail closed on a listing that cannot answer the question.
+#
+# On 2026-08-03 this gate blocked the entire demo with "images are not all
+# present" against a node whose own `crictl images` listed every one of them:
+# the runner's shim reads node.status.images, which was capped at 50 and
+# size-sorted, so cardvault:local (8.9MB) and policy-engine:local (14.9MB) were
+# missing from the DATA, not from the node.
+#
+# The obvious correction — treat a truncated miss as a pass — is the OTHER
+# defect. On 2026-08-17 a gate that could not tell a fresh image from a stale
+# one assumed fresh and shipped stale. Both directions have now cost a day.
+#
+# So an unanswerable question gets its own answer. 3 mirrors
+# scripts/check-node-images.sh, which uses 3 for "indeterminate" for the same
+# reason. The CALLER decides policy and must say which of the three it got:
+# scripts/supercred-demo.sh's preflight deliberately continues on 3, because a
+# genuinely absent image does not go unnoticed there — the pods run
+# imagePullPolicy: Never, so it surfaces immediately and unmistakably as
+# ErrImageNeverPull on the workload itself, which is a far better error than a
+# preflight guess. That is a decision made in the open, not a gate lying.
 verify_images() {
-  local entry image missing=()
+  local mode="${1:-identity}"
+  local entry image rc failed=() unverified=()
+
+  # One sample of the node for the whole set. Re-reading per image is two
+  # samples of a changing system, which between them can describe a node that
+  # never existed.
+  image_identity_invalidate
+  image_identity_read_node || true
+
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
-    if image_on_node "$image"; then
-      ok "$image present on $NODE"
-    else
-      missing+=("$image")
+    rc=0; image_identity_verify "$image" || rc=$?
+
+    # Presence mode answers the weaker question and says so. It is what the
+    # demo runner asks, and it must not be silently reported as an identity
+    # check that passed.
+    if [ "$mode" = "presence" ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ]; then
+      ok "$image present on $NODE (presence only — identity not checked)"
+      continue
     fi
+
+    case "$rc" in
+      0) ok   "PASS  $IMAGE_IDENTITY_DETAIL" ;;
+      2) warn "COULD-NOT-VERIFY  $IMAGE_IDENTITY_DETAIL"; unverified+=("$image") ;;
+      *) warn "FAIL  $IMAGE_IDENTITY_DETAIL";             failed+=("$image") ;;
+    esac
   done
-  if ((${#missing[@]} > 0)); then
-    # Do not fail closed on a listing that cannot answer the question.
-    #
-    # On 2026-08-03 this gate blocked the entire demo with "images are not all
-    # present" against a node whose own `crictl images` listed every one of
-    # them: the runner's shim reads node.status.images, which was capped at 50
-    # and size-sorted, so cardvault:local (8.9MB) and policy-engine:local
-    # (14.9MB) were missing from the DATA, not from the node.
-    #
-    # Being wrong in this direction is expensive and being wrong in the other
-    # direction is cheap. A genuinely absent image does not go unnoticed -- the
-    # pods run imagePullPolicy: Never, so it surfaces immediately and
-    # unmistakably as ErrImageNeverPull on the workload itself, which is a far
-    # better error than a preflight guess. So when the listing is known
-    # truncated, say so plainly and let the deploy be the judge.
-    if listing_is_truncated; then
-      warn "not visible in $NODE's image list: ${missing[*]}"
-      warn "that list is TRUNCATED (kubelet --node-status-max-images cap), so this"
-      warn "is inconclusive rather than missing — continuing. A genuinely absent"
-      warn "image will fail loudly as ErrImageNeverPull on the workload."
-      return 0
-    fi
-    warn "missing from $NODE: ${missing[*]}"
+
+  if ((${#failed[@]} > 0)); then
+    warn "FAIL on $NODE: ${failed[*]}"
     return 1
+  fi
+  if ((${#unverified[@]} > 0)); then
+    warn "COULD-NOT-VERIFY on $NODE: ${unverified[*]}"
+    return 3
   fi
   return 0
 }
@@ -211,8 +254,15 @@ kind_load_all() {
   local entry names=()
   for entry in "${SUPERCRED_IMAGES[@]}"; do names+=("$(image_name "$entry")"); done
   log "loading into kind cluster $CLUSTER_NAME: ${names[*]}"
-  # Exit status is not trustworthy here — verification below is what decides.
-  "$KIND_BIN" load docker-image --name "$CLUSTER_NAME" "${names[@]}" || true
+  # Exit status is not SUFFICIENT here — this script exists because `kind load`
+  # exits 0 having transferred nothing — but it is not worthless either, and it
+  # used to be thrown away entirely. A load that ANNOUNCED failure before a
+  # mismatch is a different bug report from one that claimed success, and only
+  # one of the two is the silent-no-op defect. Recorded, and reported by the
+  # caller; the identity check below is still what decides.
+  KIND_LOAD_EXIT=0
+  "$KIND_BIN" load docker-image --name "$CLUSTER_NAME" "${names[@]}" || KIND_LOAD_EXIT=$?
+  [ "$KIND_LOAD_EXIT" -eq 0 ] || warn "kind load exited $KIND_LOAD_EXIT"
 }
 
 # Rebuild straight into a docker-archive tarball and import that.
@@ -297,9 +347,19 @@ reload_via_archive() {
   # reader was sent to look at the registry (the bare `:local` tag resolves to
   # docker.io, so the kubelet's message names Docker Hub) instead of at a wait
   # that was simply too short.
-  local waited=0
+  #
+  # The wait is on IDENTITY where identity is knowable. A recovery re-importing
+  # the right image onto a node still holding the wrong one would otherwise
+  # satisfy a presence poll on its very first iteration — against the stale
+  # image it was sent to replace.
+  local waited=0 rc
   while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-90}" ]; do
-    image_on_node "$image" && return 0
+    image_identity_invalidate
+    rc=0; image_identity_verify "$image" || rc=$?
+    [ "$rc" -eq 0 ] && return 0
+    # No local image to compare against is not something waiting will fix, and
+    # presence is then the strongest answer available.
+    [ "$rc" -eq 2 ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ] && return 0
     sleep 1
     waited=$((waited + 1))
   done
@@ -321,31 +381,63 @@ reload_via_archive() {
 load_images() {
   kind_load_all
 
-  local entry image context dockerfile recovered=0
+  local entry image context dockerfile recovered=0 rc
   for entry in "${SUPERCRED_IMAGES[@]}"; do
     image="$(image_name "$entry")"
     context="$(image_context "$entry")"
     dockerfile="$(image_dockerfile "$entry")"
-    if image_on_node "$image"; then
+
+    image_identity_invalidate
+    rc=0; image_identity_verify "$image" || rc=$?
+    [ "$rc" -eq 0 ] && continue
+
+    # A MISMATCH is never recovered from. The node holds a DIFFERENT image under
+    # this tag; re-importing the right one and then reporting success leaves the
+    # loader that dropped the transfer in place, which is exactly how the
+    # 2026-08-17 defect stayed invisible. Verify and fail — verify_images below
+    # is what turns this into a non-zero exit, with both IDs printed.
+    if [ "$IMAGE_IDENTITY_OUTCOME" = "MISMATCH" ]; then
+      warn "$image on $NODE is a DIFFERENT image from the local build — NOT recovering"
       continue
     fi
-    warn "$image did not reach $NODE via kind load — attempting recovery"
+    # Likewise for a question the data cannot answer: recovery on a guess would
+    # churn the node and prove nothing.
+    [ "$rc" -eq 2 ] && continue
+
+    warn "$image did not reach $NODE via kind load (exit ${KIND_LOAD_EXIT:-0}) — attempting recovery"
     reload_via_archive "$image" "$context" "$dockerfile" || true
     recovered=1
   done
   [ "$recovered" -eq 1 ] && log "recovery attempted; re-verifying"
 
-  if ! verify_images; then
-    fail "one or more SuperCred images are not runnable on $NODE.
+  rc=0; verify_images identity || rc=$?
+  case "$rc" in
+    3)
+      warn "COULD-NOT-VERIFY — the node's listing cannot answer whether these images
+       are the ones just built. This is neither a pass nor a failure; no claim is
+       being made about what is running.
+       Inspect with:
+         docker exec $NODE crictl images --no-trunc"
+      exit 3
+      ;;
+    0) : ;;
+    *)
+      fail "one or more SuperCred images on $NODE are absent, or are NOT the image
+       just built locally.
+       Nothing has been repaired. A gate that reloads on a mismatch and then
+       reports success hides the broken loader — which is how a stale binary ran
+       under a green pipeline on 2026-08-17.
        'ctr images ls' can list an image whose layers never transferred, so this
        check uses 'crictl images' instead — a listed-but-unusable image is
-       reported as missing here on purpose.
+       reported as missing here on purpose. Neither command tells you WHICH
+       image; compare the IMAGE ID column against 'docker image inspect'.
        Inspect with:
-         docker exec $NODE crictl images
+         docker exec $NODE crictl images --no-trunc
          docker exec $NODE ctr -n k8s.io images ls
        Then retry:  make demo-signalloom-supercred-images"
-  fi
-  ok "all SuperCred images verified runnable on $NODE"
+      ;;
+  esac
+  ok "PASS — all SuperCred images on $NODE are the images just built locally"
 
   # `supercred-demo-runner` uses imagePullPolicy: IfNotPresent. Loading a new
   # local tag does not replace an already-running pod, so dashboard-triggered
@@ -358,12 +450,39 @@ load_images() {
 
 # ─── Dispatch ───────────────────────────────────────────────────────────────
 
+VERIFY_RC=0
 case "${1:-load}" in
   build)  build_images ;;
   load)   build_images; load_images ;;
-  verify) verify_images || fail "SuperCred images are not all present on $NODE — run: make demo-signalloom-supercred-images" ;;
+  # PRESENCE, not identity. This is the runner's preflight: it reaches the node
+  # through scripts/supercred-crictl-shim.sh with no docker daemon behind it, so
+  # there is no local image to compare against and identity is unanswerable
+  # there by construction. Asking the weaker question and SAYING SO is honest;
+  # asking the stronger one and reporting COULD-NOT-VERIFY on every image would
+  # be noise that trains the reader to ignore the word.
+  verify)
+    verify_images presence || VERIFY_RC=$?
+    case "$VERIFY_RC" in
+      0) ;;
+      3) warn "COULD-NOT-VERIFY — $NODE's image listing cannot answer whether these
+       images are present. Not a pass and not a failure. A genuinely absent
+       image will surface as ErrImageNeverPull on the workload."
+         exit 3 ;;
+      *) fail "SuperCred images are not all present on $NODE — run: make demo-signalloom-supercred-images" ;;
+    esac
+    ;;
+  # The strict form of `verify`, for callers that DO have the local images: is
+  # what the node holds the thing this checkout builds?
+  verify-identity)
+    verify_images identity || VERIFY_RC=$?
+    case "$VERIFY_RC" in
+      0) ;;
+      3) exit 3 ;;
+      *) fail "SuperCred images on $NODE are not the images this checkout builds — run: make demo-signalloom-supercred-images" ;;
+    esac
+    ;;
   *)
-    echo "Usage: $0 {build|load|verify}" >&2
+    echo "Usage: $0 {build|load|verify|verify-identity}" >&2
     exit 1
     ;;
 esac

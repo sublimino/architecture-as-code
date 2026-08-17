@@ -32,19 +32,35 @@ setup() {
 
 # Build a fake `kubectl` whose `get node -o json` returns a node object with a
 # controllable number of images, so the shim can be driven without a cluster.
-fake_kubectl() { # count
-  local count="$1" dir
+#
+# Trailing arguments are extra image references to include verbatim, which is
+# how a test stages "the node really does hold cardvault:local". They are
+# counted towards $count, so `fake_kubectl 50 …` still sits exactly on the
+# kubelet cap and still triggers the truncation warning.
+#
+# `get pods` returns an empty list: the shim's started-container evidence is a
+# second, conclusive source, and letting it answer here would mask whether the
+# node-listing path behaves correctly on its own.
+fake_kubectl() { # count [extra-image-ref...]
+  local count="$1" dir; shift
   dir="$(mktemp -d)"
   cat > "$dir/kubectl" <<EOF
 #!/usr/bin/env bash
+if [ "\$1" = "get" ] && [ "\$2" = "pods" ]; then
+  echo '{"items": []}'
+  exit 0
+fi
 python3 -c '
 import json, sys
 n = int(sys.argv[1])
-imgs = [{"names": ["docker.io/library/img%d:local" % i], "sizeBytes": 1000 + i} for i in range(n)]
-if n >= 3:
+extra = sys.argv[2:]
+imgs = [{"names": [ref], "sizeBytes": 9_000_000} for ref in extra]
+for i in range(n - len(extra)):
+    imgs.append({"names": ["docker.io/library/img%d:local" % i], "sizeBytes": 1000 + i})
+if len(imgs) > 2 and not extra:
     imgs[2]["names"] = None          # the digest-only entry that used to crash it
 print(json.dumps({"status": {"images": imgs}}))
-' "$count"
+' "$count" $(printf '%q ' "$@")
 EOF
   chmod +x "$dir/kubectl"
   echo "$dir"
@@ -90,19 +106,84 @@ EOF
   rm -rf "$dir"
 }
 
-@test "IMGVIS verify_images refuses to fail closed on a truncated listing" {
-  run grep -F 'listing_is_truncated' "$images"
-  [ "$status" -eq 0 ]
-  # The truncated branch must return success, not just warn and fall through.
-  awk '/^verify_images\(\)/,/^}/' "$images" | grep -A6 'if listing_is_truncated' | grep -q 'return 0'
+# ─── Layer 3, exercised rather than grepped ─────────────────────────────────
+#
+# These three used to be two tests that grepped verify_images' source for
+# `return 0` and `warn "missing from $NODE`. That pinned an implementation, not
+# a behaviour: it could not tell a gate that answers correctly from one that
+# merely still contains the right string, and it went red the moment the
+# function was restructured — while saying nothing about whether the
+# restructuring was correct.
+#
+# So they run the REAL shim against the REAL gate now, with only kubectl faked.
+# That also exercises the join between them, which is where the 2026-08-03
+# failure actually lived.
+
+# Drive supercred-images.sh with the real shim standing in for docker.
+run_gate() { # subcommand node-image-count [extra image names...]
+  local sub="$1" count="$2"; shift 2
+  local dir; dir="$(fake_kubectl "$count" "$@")"
+  # DOCKER_BIN is the shim itself: the exact substitution the runner pod makes,
+  # where /usr/local/bin/docker IS scripts/supercred-crictl-shim.sh.
+  run env KUBECTL_BIN="$dir/kubectl" DOCKER_BIN="$shim" SUPERCRED_NODE=somenode \
+    bash "$images" "$sub"
+  rm -rf "$dir"
 }
 
-@test "IMGVIS verify_images still fails when the listing is complete" {
-  # The permissive branch must be reachable ONLY via listing_is_truncated.
-  # Otherwise the gate stops gating anything at all.
-  body="$(awk '/^verify_images\(\)/,/^}/' "$images")"
-  echo "$body" | grep -q 'warn "missing from \$NODE'
-  echo "$body" | grep -qE 'return 1'
+@test "IMGVIS the gate refuses to FAIL CLOSED on a truncated listing" {
+  # 2026-08-03: absent from a capped, size-sorted list is not absent from the
+  # node, and treating it as such blocked the entire demo against a healthy
+  # cluster. Exit 1 here is the regression.
+  run_gate verify 50
+  [ "$status" -ne 1 ]
+}
+
+@test "IMGVIS the gate refuses to PASS on a truncated listing either" {
+  # …and the obvious correction is the other defect. A gate that cannot see
+  # must not claim it looked: on 2026-08-17 a check that could not distinguish
+  # a fresh image from a stale one assumed fresh and shipped stale.
+  #
+  # Exit 3 is COULD-NOT-VERIFY. Neither 0 nor 1 is an honest answer here.
+  run_gate verify 50
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -q "COULD-NOT-VERIFY"
+}
+
+@test "IMGVIS the gate still FAILS when a complete listing omits the images" {
+  # The control. Without it, "truncated means inconclusive" could be
+  # implemented as "absence always means inconclusive" and the gate would have
+  # stopped gating anything at all — which is precisely what the deleted
+  # source-grep test was reaching for, and could not actually check.
+  run_gate verify 10
+  [ "$status" -eq 1 ]
+  echo "$output" | grep -q "FAIL on somenode"
+}
+
+@test "IMGVIS the gate PASSES on presence when a complete listing has them all" {
+  # The fourth corner, so the three above cannot be satisfied by a gate that
+  # simply never passes.
+  # Fully qualified, because that is how the kubelet records them in
+  # node.status.images and how crictl prints them.
+  run_gate verify 10 \
+    docker.io/library/cardvault:local docker.io/library/policy-engine:local \
+    docker.io/library/cardvault-agent:local docker.io/library/supercred-demo-runner:local
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -q "presence only — identity not checked"
+}
+
+@test "IMGVIS the shim's empty ID column cannot masquerade as an identity match" {
+  # The shim reads the API server and has no image ID to report, so it prints
+  # `-`. An implementation that normalised that to "" and compared it against a
+  # local "" would report a perfect match for two things it never looked at.
+  # Same vacuous-pass bug class, re-entering through its own fix.
+  #
+  # Every image IS present here, so presence passes (test above) — and identity
+  # must still refuse to.
+  run_gate verify-identity 10 \
+    docker.io/library/cardvault:local docker.io/library/policy-engine:local \
+    docker.io/library/cardvault-agent:local docker.io/library/supercred-demo-runner:local
+  [ "$status" -eq 3 ]
+  echo "$output" | grep -q "COULD-NOT-VERIFY"
 }
 
 @test "IMGVIS the kind cluster is configured to report every image" {

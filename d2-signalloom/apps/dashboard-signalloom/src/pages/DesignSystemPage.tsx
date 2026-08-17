@@ -274,6 +274,75 @@ const FLEET_STATES = ['all', 'enrolled', 'active', 'suspended', 'revoked'] as co
 /** Posture at or above this renders a passing compliance badge. Presentational only. */
 const POSTURE_PASS_THRESHOLD = 70
 
+/**
+ * Fixture for the third DataTable specimen — the "super" form.
+ *
+ * Wider than FLEET_ROWS on purpose, and in two dimensions rather than one. The
+ * realistic specimen above needs a chip vocabulary and nothing else; this one
+ * needs TWO independent facets (risk and owner) because that is where every
+ * question the migration actually raised lives: how two narrowings compose,
+ * what the counts mean once they do, and how a reader gets back out. A single
+ * facet cannot pose any of those.
+ *
+ * Eighteen rows over a page size of seven, so the last page is a short one and
+ * the pager arithmetic is visible rather than assumed.
+ */
+interface SuperRow {
+  service: string
+  namespace: string
+  owner: string
+  source: string
+  findings: number
+  lastSeen: string
+}
+
+/** Not sorted by anything — a sort you cannot see is not a demonstration. */
+const SUPER_ROWS: SuperRow[] = [
+  { service: 'policy-evaluator', namespace: 'signalloom', owner: 'platform-eng', source: 'live', findings: 2, lastSeen: '12s ago' },
+  { service: 'sbom-collector', namespace: 'supply-chain', owner: 'supply-chain', source: 'demo', findings: 9, lastSeen: '4h ago' },
+  { service: 'ingest-worker', namespace: 'signalloom', owner: 'platform-eng', source: 'live', findings: 0, lastSeen: '3s ago' },
+  { service: 'drift-detector', namespace: 'signalloom', owner: 'platform-eng', source: 'config', findings: 1, lastSeen: '41s ago' },
+  { service: 'attestation-signer', namespace: 'supply-chain', owner: 'supply-chain', source: 'live', findings: 0, lastSeen: '8s ago' },
+  { service: 'credential-rotator', namespace: 'spire', owner: 'identity', source: 'config', findings: 3, lastSeen: 'never' },
+  { service: 'egress-auditor', namespace: 'mesh', owner: 'network', source: 'demo', findings: 7, lastSeen: '2m ago' },
+  { service: 'mesh-probe', namespace: 'mesh', owner: 'network', source: 'live', findings: 0, lastSeen: '5s ago' },
+  { service: 'log-shipper', namespace: 'observability', owner: 'platform-eng', source: 'live', findings: 0, lastSeen: '1s ago' },
+  { service: 'trace-sampler', namespace: 'observability', owner: 'platform-eng', source: 'config', findings: 1, lastSeen: '6s ago' },
+  { service: 'quota-reaper', namespace: 'signalloom', owner: 'platform-eng', source: 'config', findings: 0, lastSeen: '30s ago' },
+  { service: 'cert-renewer', namespace: 'spire', owner: 'identity', source: 'demo', findings: 2, lastSeen: 'never' },
+  { service: 'secret-syncer', namespace: 'openbao', owner: 'identity', source: 'live', findings: 6, lastSeen: '18m ago' },
+  { service: 'image-scanner', namespace: 'supply-chain', owner: 'supply-chain', source: 'config', findings: 4, lastSeen: '22s ago' },
+  { service: 'registry-mirror', namespace: 'supply-chain', owner: 'supply-chain', source: 'live', findings: 1, lastSeen: '3m ago' },
+  { service: 'gateway-proxy', namespace: 'mesh', owner: 'network', source: 'live', findings: 5, lastSeen: '9s ago' },
+  { service: 'dns-sentinel', namespace: 'mesh', owner: 'network', source: 'config', findings: 2, lastSeen: '14s ago' },
+  { service: 'bao-unsealer', namespace: 'openbao', owner: 'identity', source: 'demo', findings: 3, lastSeen: '1h ago' },
+]
+
+const SUPER_COLUMNS: Column<SuperRow>[] = [
+  { key: 'service', label: 'Service', sortable: true },
+  { key: 'namespace', label: 'Namespace', sortable: true },
+  { key: 'owner', label: 'Owner', sortable: true },
+  { key: 'source', label: 'Source', sortable: true, help: 'Where this row came from: live was measured in-cluster, config is declared by a manifest and never observed, demo is a fixture.' },
+  { key: 'findings', label: 'Open findings', sortable: true, help: 'Controls this service currently fails. Zero is a pass, not an absence of data.' },
+  { key: 'lastSeen', label: 'Last seen', sortable: true },
+]
+
+/**
+ * `all` first, then provenance, which is a vocabulary StatusBadge already has a
+ * map for (`variant="provenance"`). Deliberately not a severity scale: severity
+ * words look like a natural fit for a chip row and StatusBadge has no map for
+ * `critical`/`high`/`medium`/`low`, so all four would resolve through its
+ * fall-through to the same neutral grey — a badge that silently stops carrying
+ * the distinction it is there to carry.
+ */
+const SUPER_SOURCES = ['all', 'live', 'config', 'demo'] as const
+
+/** `all` first, then the owning teams. A select rather than five more chips — see the strip's note. */
+const SUPER_OWNERS = ['all', 'platform-eng', 'identity', 'supply-chain', 'network'] as const
+
+/** Seven of eighteen, so there are three pages and the last one is short. */
+const SUPER_PAGE_SIZE = 7
+
 const DONUT_SEGMENTS = [
   { value: 46, color: colors.tealLoom, label: 'Passing' },
   { value: 12, color: colors.amber, label: 'Warning' },
@@ -642,6 +711,168 @@ function ExampleHeading({ id, title, blurb }: { id: string; title: string; blurb
   )
 }
 
+// ── The super DataTable specimen's filter strip ───────────────────────────────
+//
+// Extracted into a component rather than written inline, which is itself part of
+// the specimen: nine pages migrated to `toolbar=` in one day and six of them
+// arrived at exactly this shape independently (see
+// docs/signalloom/datatable-toolbar-survey.md). The one page that left it inline,
+// FleetDemoPage, has the widest strip in the product and 82 unreusable lines.
+//
+// Note what is still NOT in here and never should be: the predicate. This
+// component reads no row and owns no state. It is handed values and callbacks,
+// and the page below hands DataTable an already-narrowed array — the same
+// division the two specimens above make, held at one more level of controls.
+
+/**
+ * Selected is a tinted fill plus a full-strength border, never a solid accent
+ * fill: text on solid amber or cyan fails AA in at least one of the three
+ * themes. This rule is currently pasted into eight files; the survey argues it
+ * is the strongest candidate for a shared `FilterChip`.
+ */
+function superChipStyle(selected: boolean): CSSProperties {
+  return {
+    fontSize: 11.5,
+    padding: '4px 9px',
+    borderRadius: 4,
+    cursor: 'pointer',
+    textTransform: 'capitalize',
+    fontWeight: selected ? 600 : 400,
+    color: selected ? 'var(--cyan)' : 'var(--muted)',
+    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
+    // Longhands, never the `border` shorthand: a shorthand carrying a
+    // color-mix() is unreadable to jsdom, which would put the whole
+    // selected/unselected distinction beyond a test's reach.
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)',
+  }
+}
+
+function SuperToolbar({
+  search, onSearch, source, onSource, sourceCounts, owner, onOwner, ownerCounts,
+  shown, total, narrowed, onClear,
+}: {
+  search: string
+  onSearch: (next: string) => void
+  source: string
+  onSource: (next: (typeof SUPER_SOURCES)[number]) => void
+  sourceCounts: Record<string, number>
+  owner: string
+  onOwner: (next: (typeof SUPER_OWNERS)[number]) => void
+  ownerCounts: Record<string, number>
+  shown: number
+  total: number
+  /** True while the search box, a chip or the select is narrowing the table. */
+  narrowed: boolean
+  onClear: () => void
+}) {
+  return (
+    // A second wrapper inside DataTable's own toolbar div, which already carries
+    // this exact flex row. It exists only to hang `role="group"` and a name on
+    // the strip, and every migrated page has one — eleven identical copies. The
+    // survey's first recommendation is a `toolbarLabel` prop that deletes them.
+    <div
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
+      role="group"
+      aria-label="Filter the super DataTable example"
+    >
+      <input
+        type="search"
+        aria-label="Search the super DataTable example"
+        placeholder="Search service, namespace or owner…"
+        value={search}
+        onChange={(e) => onSearch(e.target.value)}
+        data-testid="ds-datatable-super-search"
+        style={{
+          fontSize: 12,
+          padding: '5px 9px',
+          minWidth: 230,
+          color: 'var(--text)',
+          background: 'var(--surface2)',
+          border: '1px solid var(--border)',
+          borderRadius: 4,
+        }}
+      />
+
+      {/* Its own nested group with its own name, which only RbacExplorerPage
+          does today. A strip carrying two vocabularies under one `role="group"`
+          announces them to a screen reader as one undifferentiated list. */}
+      <div role="group" aria-label="Filter by source" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {SUPER_SOURCES.map((band) => {
+          const selected = source === band
+          return (
+            <button
+              key={band}
+              type="button"
+              onClick={() => onSource(band)}
+              aria-pressed={selected}
+              data-testid={`ds-datatable-super-filter-${band}`}
+              style={superChipStyle(selected)}
+            >
+              {/* No aria-label: the visible text IS the accessible name, so the
+                  two can never disagree and a speech-input user can say it. */}
+              {band} <span style={{ color: 'var(--dim)' }}>{sourceCounts[band]}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* A select rather than five more chips. Two chip rows read as one row of
+          nine controls with no grouping, and global.css already themes every
+          select in the product. The counts sit in the option text because the
+          point of an option that matches nothing is seeing that before you pick
+          it — the same argument as the count on a chip. */}
+      <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
+        Owner
+        {/* An explicit aria-label REPLACES the wrapping label's text as the
+            accessible name, so it has to CONTAIN the visible word or a speech
+            user saying "Owner" reaches nothing. WCAG 2.5.3. */}
+        <select
+          aria-label="Filter the super DataTable example by owner"
+          value={owner}
+          onChange={(e) => onOwner(e.target.value as (typeof SUPER_OWNERS)[number])}
+          data-testid="ds-datatable-super-owner"
+          style={{ fontSize: 12 }}
+        >
+          {SUPER_OWNERS.map((team) => (
+            <option key={team} value={team}>
+              {team === 'all' ? `all owners (${ownerCounts.all})` : `${team} (${ownerCounts[team]})`}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {/* Conditioned on the OTHER controls' values and never on its own, and
+          never on the row count either: an empty result is precisely when this
+          is needed, and DataTable keeps the toolbar above the empty panel so it
+          is still here to click. */}
+      {narrowed && (
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={onClear}
+          data-testid="ds-datatable-super-clear"
+          style={{ fontSize: 11, padding: '4px 10px' }}
+        >
+          Clear filters
+        </button>
+      )}
+
+      <span data-testid="ds-datatable-super-count" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+        {shown} of {total} shown
+      </span>
+
+      <HelpHint label="What the super example's filters do" testId="ds-datatable-super-help">
+        Every control here narrows the array this page hands to DataTable, and nothing else. The
+        counts on the chips and in the select are counts of the whole table, not of what is on
+        screen — a facet reporting the filtered set would read 0 for every option you have not
+        chosen and stop being a way back to the rows it is hiding.
+      </HelpHint>
+    </div>
+  )
+}
+
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DesignSystemPage() {
@@ -698,6 +929,69 @@ export default function DesignSystemPage() {
           state === 'all' ? FLEET_ROWS.length : FLEET_ROWS.filter((row) => row.state === state).length,
         ]),
       ) as Record<(typeof FLEET_STATES)[number], number>,
+    [],
+  )
+
+  // ── The super specimen: two facets and a search box, composed ───────────────
+  //
+  // Three pieces of state rather than one object, because the reset has to be a
+  // single call the user can make from either the strip or the empty panel, and
+  // splitting it is what makes `superNarrowed` a plain readable expression
+  // rather than a comparison against an initial-state literal.
+
+  const [superSearch, setSuperSearch] = useState('')
+  const [superSource, setSuperSource] = useState<(typeof SUPER_SOURCES)[number]>('all')
+  const [superOwner, setSuperOwner] = useState<(typeof SUPER_OWNERS)[number]>('all')
+
+  const superNarrowed = superSearch.trim() !== '' || superSource !== 'all' || superOwner !== 'all'
+
+  const clearSuperFilters = () => {
+    setSuperSearch('')
+    setSuperSource('all')
+    setSuperOwner('all')
+  }
+
+  // AND, not OR: each control narrows what the previous one left. The two
+  // facets are independent, so `demo` + `platform-eng` reaches zero rows even
+  // though four rows are demo and six are platform-eng — that composition is
+  // the state the empty branch below exists for, and it is the reason this
+  // specimen carries two facets rather than one.
+  const superRows = useMemo(() => {
+    const q = superSearch.trim().toLowerCase()
+    return SUPER_ROWS.filter((row) => {
+      if (superSource !== 'all' && row.source !== superSource) return false
+      if (superOwner !== 'all' && row.owner !== superOwner) return false
+      if (!q) return true
+      return (
+        row.service.toLowerCase().includes(q) ||
+        row.namespace.toLowerCase().includes(q) ||
+        row.owner.toLowerCase().includes(q)
+      )
+    })
+  }, [superSearch, superSource, superOwner])
+
+  // Counted against the WHOLE table, never the current result. See the strip's
+  // HelpHint for the argument; the short version is that a facet counting what
+  // survives the other facet reads 0 everywhere and stops being a way back.
+  const superSourceCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        SUPER_SOURCES.map((band) => [
+          band,
+          band === 'all' ? SUPER_ROWS.length : SUPER_ROWS.filter((row) => row.source === band).length,
+        ]),
+      ) as Record<string, number>,
+    [],
+  )
+
+  const superOwnerCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        SUPER_OWNERS.map((team) => [
+          team,
+          team === 'all' ? SUPER_ROWS.length : SUPER_ROWS.filter((row) => row.owner === team).length,
+        ]),
+      ) as Record<string, number>,
     [],
   )
 
@@ -1030,7 +1324,7 @@ export default function DesignSystemPage() {
       <Group
         id="data-table"
         title="DataTable"
-        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Two examples below, because the gap between them is where every question about this component actually lives: the minimum that works, and the configuration a real page needs. Both are the same component. There is no separate filtered variant, and the caveat under them says why."
+        when="More rows than fit on a screen, and the reader needs to sort them. Client-side only — it sorts and paginates the array you hand it, so do not give it ten thousand rows. Columns carrying a help string grow a “?” in the header. Three examples below, read as a progression, because the gaps between them are where every question about this component actually lives: the minimum that works, the configuration a real page needs, and the fullest form the nine migrated superadmin pages converged on. Pick the one your case needs — one filter is the second, two composing facets is the third. All three are the same component. There is no separate filtered variant, and the caveat under them says why."
       >
         <div data-testid="ds-datatable-simple-example">
           <ExampleHeading
@@ -1158,10 +1452,81 @@ export default function DesignSystemPage() {
           />
         </div>
 
+        <div data-testid="ds-datatable-super-example" style={{ marginTop: 30 }}>
+          <ExampleHeading
+            id="datatable-super"
+            title="Super — everything the nine migrated pages do at once"
+            blurb="Reach for this when one facet is not enough. Two independent facets — chips and a select — narrowing together with a search box, so the reader can reach a combination that matches nothing while neither facet is empty on its own. That state is why the rest of it exists: a count of the whole table rather than the result, a Clear filters control that appears only while something is filtered, and a second way out inside the empty panel itself. One filter and the realistic specimen above is the one to copy; this is more strip than most tables earn."
+          />
+          <DataTable
+            columns={SUPER_COLUMNS}
+            data={superRows}
+            pageSize={SUPER_PAGE_SIZE}
+            testIdPrefix="ds-datatable-super"
+            toolbar={
+              <SuperToolbar
+                search={superSearch}
+                onSearch={setSuperSearch}
+                source={superSource}
+                onSource={setSuperSource}
+                sourceCounts={superSourceCounts}
+                owner={superOwner}
+                onOwner={setSuperOwner}
+                ownerCounts={superOwnerCounts}
+                shown={superRows.length}
+                total={SUPER_ROWS.length}
+                narrowed={superNarrowed}
+                onClear={clearSuperFilters}
+              />
+            }
+            emptyState={
+              // The way back appears TWICE, and that is not redundancy. The
+              // strip above survives the empty branch by construction, so the
+              // control is already reachable; this one is reachable from where
+              // the mistake is visible, which is a different thing. Two pages
+              // arrived at it independently — RbacExplorerPage and
+              // CollusionAccessPage — and both had to fight EmptyState with a
+              // negative margin to get there, because EmptyState has no action
+              // slot. That is a missing slot, not a styling preference.
+              <div data-testid="ds-datatable-super-filtered-empty">
+                <EmptyState
+                  kicker="Nothing matches these filters"
+                  body="All eighteen services are still here — the search box, a source chip or the owner select above is hiding them."
+                />
+                <div style={{ display: 'flex', justifyContent: 'center', marginTop: -34, marginBottom: 12 }}>
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={clearSuperFilters}
+                    data-testid="ds-datatable-super-empty-clear"
+                    style={{ fontSize: 12, padding: '5px 12px' }}
+                  >
+                    Clear filters
+                  </button>
+                </div>
+              </div>
+            }
+            renderRow={(row: SuperRow, i: number) => (
+              <tr
+                key={`${row.service}-${i}`}
+                data-testid="ds-datatable-super-row"
+                style={{ borderBottom: '1px solid var(--border)' }}
+              >
+                <td style={DataTable.td}>{row.service}</td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.namespace}</td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.owner}</td>
+                <td style={DataTable.td}><StatusBadge status={row.source} variant="provenance" /></td>
+                <td style={DataTable.td}>{row.findings}</td>
+                <td style={{ ...DataTable.td, color: 'var(--muted)' }}>{row.lastSeen}</td>
+              </tr>
+            )}
+          />
+        </div>
+
         <Caveat>
-          <strong>One component, not two.</strong> The two specimens above differ in configuration, not
-          in kind: same <code>DataTable</code>, and the second one passes two optional props the first
-          one omits. There is no <code>DataTableFiltered</code> and there should not be one. What
+          <strong>One component, not three.</strong> The three specimens above differ in configuration,
+          not in kind: same <code>DataTable</code>, and the second and third pass two optional props the
+          first one omits. There is no <code>DataTableFiltered</code> and there should not be one. What
           genuinely differs between a plain table and a filtered one is the predicate, and the predicate
           is the one thing that can never be shared. AgentsPage searches name, owner and type;
           CredentialInventoryPage filters on a status computed against the clock. A component that owned
@@ -1181,6 +1546,17 @@ export default function DesignSystemPage() {
           cannot get it wrong. Try it: search this example for something that matches nothing. The one
           thing DataTable already owned across that boundary is the page reset, which changes the array
           length under it and returns to page 1 by itself.
+        </Caveat>
+        <Caveat>
+          <strong>And the third one is a report, not an invention.</strong> Nine superadmin pages
+          migrated to <code>toolbar</code> in a single day, each told to keep its strip local so ten
+          agents were not editing one file. They produced six dialects of one idea, and the super
+          specimen is what they agree on: a labelled group, a search box, faceted chips carrying counts
+          of the whole table, a conditional clear, a count, and an empty panel with its own way out.
+          What they do <em>not</em> agree on is the predicate, and two of them had already diverged on
+          its type within the week — which is the evidence for leaving it where it is. The side-by-side
+          comparison, and what <code>DataTable</code> should and should not absorb next, is in{' '}
+          <code>docs/signalloom/datatable-toolbar-survey.md</code>.
         </Caveat>
       </Group>
 

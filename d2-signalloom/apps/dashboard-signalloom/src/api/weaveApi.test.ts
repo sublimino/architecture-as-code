@@ -1,11 +1,129 @@
 /**
  * Tests for the Signal Weave API client.
  *
- * Validates that weaveApi constructs the correct paths and that the demo-mode
- * resolver returns fixture data for every route.
+ * Validates that weaveApi constructs the correct paths, that the demo-mode
+ * resolver returns fixture data for every route, and that live-mode calls
+ * hit the real /api/signals/* endpoints with correct HTTP methods.
  */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { fakeWeaveData } from './fakeWeaveData'
+
+// ─── Live-mode endpoint tests ────────────────────────────────────────────────
+// These verify that weaveApi calls the correct HTTP method + path when demo
+// mode is off. We mock axios and isDemoMode to isolate the HTTP layer.
+
+vi.mock('./demoMode', () => ({
+  isDemoMode: vi.fn(),
+}))
+
+const mockAxiosRequest = vi.fn()
+vi.mock('axios', () => ({
+  default: {
+    create: () => ({ request: mockAxiosRequest }),
+  },
+}))
+
+describe('weaveApi live-mode endpoints', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    const { isDemoMode } = await import('./demoMode')
+    ;(isDemoMode as ReturnType<typeof vi.fn>).mockReturnValue(false)
+    mockAxiosRequest.mockResolvedValue({ data: {} })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('getObservations calls GET /api/signals/observations', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getObservations('tok')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/observations',
+        method: 'GET',
+      }),
+    )
+  })
+
+  it('getObservations appends layer and limit query params', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getObservations('tok', { layer: 'network_egress', limit: 50 })
+    const call = mockAxiosRequest.mock.calls[0][0]
+    expect(call.url).toContain('/api/signals/observations?')
+    expect(call.url).toContain('layer=network_egress')
+    expect(call.url).toContain('limit=50')
+  })
+
+  it('getActors calls GET /api/signals/actors', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getActors('tok')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/actors',
+        method: 'GET',
+      }),
+    )
+  })
+
+  it('getActor calls GET /api/signals/actors/:id', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getActor('tok', 'actor-001')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/actors/actor-001',
+        method: 'GET',
+      }),
+    )
+  })
+
+  it('getCoverage calls GET /api/signals/coverage', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getCoverage('tok')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/coverage',
+        method: 'GET',
+      }),
+    )
+  })
+
+  it('promoteActor calls POST /api/signals/actors/:id/promote', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.promoteActor('tok', 'actor-001')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/actors/actor-001/promote',
+        method: 'POST',
+      }),
+    )
+  })
+
+  it('runCorrelation calls POST /api/signals/correlate', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.runCorrelation('tok')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: '/api/signals/correlate',
+        method: 'POST',
+      }),
+    )
+  })
+
+  it('includes Authorization header with bearer token', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.getActors('my-secret-token')
+    expect(mockAxiosRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: 'Bearer my-secret-token',
+        }),
+      }),
+    )
+  })
+})
+
+// ─── Demo-mode resolver tests ────────────────────────────────────────────────
 
 describe('fakeWeaveData.resolve', () => {
   it('resolves GET /signals/observations', () => {

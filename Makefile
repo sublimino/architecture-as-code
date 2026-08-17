@@ -400,6 +400,34 @@ orbit-approval-configmap: signing-keys ## Publish the PUBLIC orbit approval key 
 test: ## Run the end-to-end bats suite against the running cluster.
 	$(MAKE) -C d2-osramp-apps test
 
+# ─── Signal Fusion / Weave unit tests ───────────────────────────────────────
+# All targets below run offline — no cluster, no network, no API key.
+# The Go tests include FrostDB (build-tag gated) and the full store contract
+# suite. The dashboard tests run vitest with jsdom against the Weave, Signal
+# Fusion, and weaveApi test files.
+
+.PHONY: test-signal-ingest test-signal-ingest-frostdb test-dashboard-weave test-signalfusion-bats test-signal-fusion
+
+test-signal-ingest: ## Run Go signal-ingest unit tests (memory store, model, api, correlation).
+	cd d2-signalloom/apps/signal-ingest && go test ./... -v -count=1
+
+test-signal-ingest-frostdb: ## Run Go signal-ingest tests INCLUDING FrostDB store (requires cgo).
+	cd d2-signalloom/apps/signal-ingest && go test -tags frostdb ./... -v -count=1
+
+test-dashboard-weave: ## Run Weave, Signal Fusion, and weaveApi vitest suites.
+	cd d2-signalloom/apps/dashboard-signalloom && bun install --frozen-lockfile
+	node d2-signalloom/apps/dashboard-signalloom/node_modules/vitest/vitest.mjs run \
+		--root d2-signalloom/apps/dashboard-signalloom \
+		src/pages/WeavePage.test.tsx \
+		src/pages/SignalFusionPage.test.tsx \
+		src/api/weaveApi.test.ts \
+		--reporter=verbose
+
+test-signalfusion-bats: ## Run Signal Fusion structural BATS tests (no cluster required).
+	bats test/signalfusion-demo.bats
+
+test-signal-fusion: test-signal-ingest test-dashboard-weave test-signalfusion-bats ## Run all Signal Fusion / Weave test suites.
+
 ##@ Composable demo lifecycle
 
 .PHONY: demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down

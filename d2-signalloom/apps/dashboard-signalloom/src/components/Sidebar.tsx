@@ -25,7 +25,7 @@ export type IconKind =
   | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
   | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'weave' | 'signalFusion' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
+  | 'weave' | 'signalFusion' | 'signalStore' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -57,6 +57,9 @@ function NavIcon({ kind }: { kind: IconKind }) {
     // Layered signals converging into a prism — multiple input streams fused
     // into a single output, distinct from the interlocking-threads motif above.
     signalFusion: <><path d="M4 7h5l3 5-3 5H4" /><path d="M4 12h8" /><path d="M14 7l4 5-4 5" /><circle cx="19" cy="12" r="2" /></>,
+    // Cylinder with horizontal partition lines — a columnar store, distinct
+    // from the prism (signalFusion) and the woven threads (weave).
+    signalStore: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5" /><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" /></>,
     topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
     // Painter's palette with paint wells — the only organic blob in the set, so
     // it stays legible against the grids and shields around it.
@@ -89,6 +92,7 @@ export const NAV: NavItem[] = [
   { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
   { to: '/weave', label: 'The Weave', section: 'Signal Fusion', icon: 'weave' },
   { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Signal Fusion', icon: 'signalFusion', superadminOnly: true },
+  { to: '/signal-store', label: 'Signal Store', section: 'Signal Fusion', icon: 'signalStore', superadminOnly: true },
   // `end` for the same reason /compliance carries it: a NavLink without it
   // matches its own children, so both this and the Headers entry below would
   // paint as the active page whenever /design-system/headers is open.

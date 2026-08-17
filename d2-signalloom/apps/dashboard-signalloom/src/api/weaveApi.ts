@@ -69,6 +69,16 @@ export interface CoverageStatement {
   deployment_coverage: string
 }
 
+export interface StoreStats {
+  total_observations: number
+  observations_by_layer: Record<string, number>
+  observations_by_fidelity: Record<string, number>
+  actor_count: number
+  actors_by_status: Record<string, number>
+  last_ingestion: string | null
+  store_type: string
+}
+
 // ─── API Responses ───────────────────────────────────────────────────────────
 
 export interface WeaveObservationsResponse {
@@ -104,6 +114,9 @@ export const weaveApi = {
 
   runCorrelation: (token: string) =>
     req<{ status: string }>('/signals/correlate', token, { method: 'POST' }),
+
+  getStoreStats: (token: string) =>
+    req<StoreStats>('/signals/store/stats', token),
 
   seedFixtures: (token: string) =>
     req<{ seeded: number }>('/signals/collectors/seed', token, { method: 'POST' }),

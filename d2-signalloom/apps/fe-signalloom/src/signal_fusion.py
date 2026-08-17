@@ -104,6 +104,14 @@ async def run_correlation(
     return await _proxy("POST", "/api/v1/correlate")
 
 
+@router.get("/store/stats")
+async def get_store_stats(
+    tenant_id: Annotated[str, Depends(authenticated_tenant)],
+) -> JSONResponse:
+    """Get store diagnostics — observation counts, actor stats, store type."""
+    return await _proxy("GET", "/api/v1/store/stats")
+
+
 @router.post("/collectors/seed")
 async def seed_collectors(
     principal: Annotated[Principal, Depends(authenticated_principal)],

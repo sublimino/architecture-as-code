@@ -13,7 +13,7 @@ import ApiKeyRevealModal from './ApiKeyRevealModal'
 export interface NavItem {
   to: string
   label: string
-  section: 'Workspace' | 'Governance' | 'Configuration'
+  section: 'Workspace' | 'Governance' | 'Signal Fusion' | 'Configuration'
   icon: IconKind
   end?: boolean
   superadminOnly?: boolean
@@ -25,7 +25,7 @@ export type IconKind =
   | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
   | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'weave' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
+  | 'weave' | 'signalFusion' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -54,6 +54,9 @@ function NavIcon({ kind }: { kind: IconKind }) {
     // Interlocking threads — three diagonal lines crossing through a shared
     // midpoint, evoking converging signals woven into a single fabric.
     weave: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
+    // Layered signals converging into a prism — multiple input streams fused
+    // into a single output, distinct from the interlocking-threads motif above.
+    signalFusion: <><path d="M4 7h5l3 5-3 5H4" /><path d="M4 12h8" /><path d="M14 7l4 5-4 5" /><circle cx="19" cy="12" r="2" /></>,
     topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
     // Painter's palette with paint wells — the only organic blob in the set, so
     // it stays legible against the grids and shields around it.
@@ -84,7 +87,8 @@ export const NAV: NavItem[] = [
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', icon: 'supercred', superadminOnly: true },
   { to: '/fleet', label: 'Fleet Demo', section: 'Governance', icon: 'fleet', superadminOnly: true },
   { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
-  { to: '/weave', label: 'Signal Weave', section: 'Governance', icon: 'weave' },
+  { to: '/weave', label: 'The Weave', section: 'Signal Fusion', icon: 'weave' },
+  { to: '/signal-fusion', label: 'Signal Fusion Demo', section: 'Signal Fusion', icon: 'signalFusion', superadminOnly: true },
   // `end` for the same reason /compliance carries it: a NavLink without it
   // matches its own children, so both this and the Headers entry below would
   // paint as the active page whenever /design-system/headers is open.

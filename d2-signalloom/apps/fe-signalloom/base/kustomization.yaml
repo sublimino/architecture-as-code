@@ -56,6 +56,10 @@ resources:
   # the signalloom-infra ResourceSet, because this Kustomization's
   # targetNamespace would otherwise relocate those Roles into fe-signalloom.
   - ../../supercred-demo-runner/base
+  # Signal Fusion: ingest, correlation and query service. Same namespace as
+  # fe-signalloom (via targetNamespace on the Flux Kustomization), so the proxy
+  # can reach it at http://signal-ingest:8082 without cross-namespace wiring.
+  - ../../signal-ingest/base
 
 configMapGenerator:
   # netassert-signalloom.yaml here is a committed copy of

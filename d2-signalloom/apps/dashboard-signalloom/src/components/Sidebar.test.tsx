@@ -199,7 +199,8 @@ describe('Sidebar Agent Trust Topology navigation', () => {
     renderSidebar()
 
     const labels = (await screen.findAllByRole('link')).map(link => link.textContent?.replace(/\d+/g, '').trim())
-    expect(labels.indexOf('Agent Trust Topology')).toBe(labels.indexOf('Settings') - 1)
+    expect(labels.indexOf('Signal Weave')).toBe(labels.indexOf('Settings') - 1)
+    expect(labels.indexOf('Agent Trust Topology')).toBe(labels.indexOf('Signal Weave') - 1)
   })
 })
 
@@ -845,11 +846,12 @@ describe('Sidebar Design System nav entry', () => {
     renderSidebar({ superadmin: true })
     await screen.findByRole('link', { name: 'Design System' })
 
-    // 9 is the last digit the nav binds, and it must still land on Settings.
+    // 9 is the last digit the nav binds; Signal Weave is now the 9th
+    // non-superadmin item, so key 9 lands there, not on Settings.
     fireEvent.keyDown(window, { key: '9' })
 
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /^Settings$/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: /^Signal Weave$/ })).toHaveAttribute('aria-current', 'page')
     )
     expect(screen.getByRole('link', { name: 'Design System' })).not.toHaveAttribute('aria-current', 'page')
   })

@@ -47,6 +47,7 @@ const AgentPosturePage = lazy(() => import('./pages/AgentPosturePage'))
 const RiskExposurePage = lazy(() => import('./pages/RiskExposurePage'))
 const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
+const WeavePage = lazy(() => import('./pages/WeavePage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
 const DesignSystemHeadersPage = lazy(() => import('./pages/DesignSystemHeadersPage'))
@@ -356,6 +357,7 @@ export default function App() {
                 <Route path="/collusion-access" element={<ProtectedRoute><CollusionAccessPage /></ProtectedRoute>} />
                 <Route path="/rbac-analysis" element={<ProtectedRoute><RbacAnalysisPage /></ProtectedRoute>} />
                 <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
+                <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
                 <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
                 <Route path="/onboarding" element={<ProtectedRoute exemptFromOnboardingGate><OnboardingWizardPage /></ProtectedRoute>} />

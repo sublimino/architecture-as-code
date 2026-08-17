@@ -25,7 +25,7 @@ export type IconKind =
   | 'discovery' | 'agents' | 'compliance' | 'policies' | 'posture' | 'risk'
   | 'audit' | 'crypto' | 'credentials' | 'federation' | 'access'
   | 'rbacAnalysis' | 'rbacExplorer' | 'network' | 'supercred' | 'fleet'
-  | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
+  | 'weave' | 'topology' | 'designSystem' | 'designSystemHeaders' | 'settings'
 
 function NavIcon({ kind }: { kind: IconKind }) {
   const paths: Record<IconKind, React.ReactNode> = {
@@ -51,6 +51,9 @@ function NavIcon({ kind }: { kind: IconKind }) {
     network: <><path d="M4.5 9.5a11 11 0 0 1 15 0" /><path d="M7.5 12.8a7 7 0 0 1 9 0" /><path d="M10.3 16a3 3 0 0 1 3.4 0" /><path d="M12 19.2h.01" /></>,
     supercred: <><path d="M7 10V7a5 5 0 0 1 10 0v3" /><rect x="5" y="10" width="14" height="10" rx="2" /><path d="M12 14v2" /></>,
     fleet: <><rect x="3" y="5" width="7" height="6" rx="1" /><rect x="14" y="5" width="7" height="6" rx="1" /><rect x="8.5" y="14" width="7" height="6" rx="1" /><path d="M6.5 11v2h5M17.5 11v2h-5" /></>,
+    // Interlocking threads — three diagonal lines crossing through a shared
+    // midpoint, evoking converging signals woven into a single fabric.
+    weave: <><path d="M4 6l16 12" /><path d="M20 6 4 18" /><path d="M12 3v18" /><circle cx="12" cy="12" r="2.5" /></>,
     topology: <><circle cx="6" cy="6" r="2" /><circle cx="18" cy="6" r="2" /><circle cx="12" cy="18" r="2" /><path d="m8 7 3 9M16 7l-3 9M8 6h8" /></>,
     // Painter's palette with paint wells — the only organic blob in the set, so
     // it stays legible against the grids and shields around it.
@@ -81,6 +84,7 @@ export const NAV: NavItem[] = [
   { to: '/supercred', label: 'SuperCredential Demo', section: 'Governance', icon: 'supercred', superadminOnly: true },
   { to: '/fleet', label: 'Fleet Demo', section: 'Governance', icon: 'fleet', superadminOnly: true },
   { to: '/agent-trust-topology', label: 'Agent Trust Topology', section: 'Governance', icon: 'topology' },
+  { to: '/weave', label: 'Signal Weave', section: 'Governance', icon: 'weave' },
   // `end` for the same reason /compliance carries it: a NavLink without it
   // matches its own children, so both this and the Headers entry below would
   // paint as the active page whenever /design-system/headers is open.

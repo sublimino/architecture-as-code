@@ -61,6 +61,7 @@ import { Pill, StatCard, Section as DashSection, Table as DashTable, td as dashT
 import { colors } from '../styles/tokens'
 import { CSS_VAR_NAMES, THEMES, THEME_LABELS, THEME_NAMES, type CssVarName } from '../styles/themes'
 import ButtonWait from '../components/ButtonWait'
+import PageTocLayout, { type TocEntry } from '../components/PageToc'
 
 // ── Loader gallery ───────────────────────────────────────────────────────────
 
@@ -575,6 +576,35 @@ const NOT_SHOWN: { name: string; reason: string }[] = [
 
 // ── Layout helpers ───────────────────────────────────────────────────────────
 
+/**
+ * The on-this-page index, in document order.
+ *
+ * Kept as data rather than derived from the DOM so the rail is right on the
+ * first paint with no measuring pass. That buys a divergence risk — a Group
+ * added below and not added here would be invisible in the index — and
+ * DesignSystemPage.test.tsx spends it: it asserts these ids are exactly the
+ * rendered `ds-section-*` set, in the same order, and that each label appears
+ * in the heading it points at. Adding a Group without adding it here is a red
+ * build, not a quiet omission.
+ */
+export const DESIGN_SYSTEM_SECTIONS: readonly TocEntry[] = [
+  { id: 'tokens', title: 'Colour tokens' },
+  { id: 'pixel-loader', title: 'PixelLoader' },
+  { id: 'button-wait', title: 'ButtonWait' },
+  { id: 'loading-state', title: 'LoadingState' },
+  { id: 'error-state', title: 'ErrorState' },
+  { id: 'empty-state', title: 'EmptyState' },
+  { id: 'status-badge', title: 'StatusBadge' },
+  { id: 'help-hint', title: 'HelpHint' },
+  { id: 'data-table', title: 'DataTable' },
+  { id: 'donut-chart', title: 'DonutChart' },
+  { id: 'proof-console', title: 'ProofConsole' },
+  { id: 'streaming-proof', title: 'ProofConsole streaming demo' },
+  { id: 'credential-state-notice', title: 'CredentialStateNotice' },
+  { id: 'dash-kit', title: 'DashKit' },
+  { id: 'not-shown', title: 'Not shown on this page' },
+]
+
 const cardStyle: CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 6,
@@ -594,7 +624,12 @@ function Group({
   children: ReactNode
 }) {
   return (
-    <section data-testid={`ds-section-${id}`} style={{ marginBottom: 38 }}>
+    // The `id` is the anchor PageToc links to and the handle it observes; the
+    // testid is what the suites query. Both, because an id that tests depend on
+    // is an id nobody can rename, and the point of the anchor is that it is a
+    // published URL. scrollMarginTop keeps the heading clear of the top edge
+    // when something scrolls here.
+    <section id={id} data-testid={`ds-section-${id}`} style={{ marginBottom: 38, scrollMarginTop: 20 }}>
       {/* The heading carries its own testid because a specimen can bring its
           own h2 along — DashKit's Section does — and a query by role alone
           then matches two headings inside one group. */}
@@ -842,7 +877,7 @@ export default function DesignSystemPage() {
   )
 
   return (
-    <div>
+    <PageTocLayout entries={DESIGN_SYSTEM_SECTIONS}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Design System &amp; Component Library</h1>
       <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 0, marginBottom: 26, maxWidth: 820, lineHeight: 1.55 }}>
         Every shared token and every component that can be rendered from fixed props, in one place, so
@@ -1682,6 +1717,6 @@ export default function DesignSystemPage() {
           ))}
         </div>
       </Group>
-    </div>
+    </PageTocLayout>
   )
 }

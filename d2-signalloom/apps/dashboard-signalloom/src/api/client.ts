@@ -199,7 +199,7 @@ function joinInflight<T>(url: string, entry: InflightGet, signal?: AbortSignal):
   })
 }
 
-async function req<T>(
+export async function req<T>(
   path: string,
   token: string,
   config?: { method?: string; data?: unknown; signal?: AbortSignal },

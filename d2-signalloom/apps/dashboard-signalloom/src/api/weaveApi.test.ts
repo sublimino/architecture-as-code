@@ -2,132 +2,111 @@
  * Tests for the Signal Weave API client.
  *
  * Validates that weaveApi constructs the correct paths, that the demo-mode
- * resolver returns fixture data for every route, and that live-mode calls
- * hit the real /api/signals/* endpoints with correct HTTP methods.
+ * resolver returns fixture data for every route via fakeData.ts's resolveFake,
+ * and that live-mode calls go through client.ts's req().
  */
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { fakeWeaveData } from './fakeWeaveData'
+import { resolveFake, hasFakeRoute } from './fakeData'
 
 // ─── Live-mode endpoint tests ────────────────────────────────────────────────
-// These verify that weaveApi calls the correct HTTP method + path when demo
-// mode is off. We mock axios and isDemoMode to isolate the HTTP layer.
+// weaveApi now delegates to req() from client.ts. We mock the req export to
+// verify the correct path + method + token reach it without hitting the network.
 
-vi.mock('./demoMode', () => ({
-  isDemoMode: vi.fn(),
-}))
+const mockReq = vi.fn().mockResolvedValue({})
 
-const mockAxiosRequest = vi.fn()
-vi.mock('axios', () => ({
-  default: {
-    create: () => ({ request: mockAxiosRequest }),
-  },
+vi.mock('./client', () => ({
+  req: (...args: unknown[]) => mockReq(...args),
+  api: {},
 }))
 
 describe('weaveApi live-mode endpoints', () => {
-  beforeEach(async () => {
+  beforeEach(() => {
     vi.clearAllMocks()
-    const { isDemoMode } = await import('./demoMode')
-    ;(isDemoMode as ReturnType<typeof vi.fn>).mockReturnValue(false)
-    mockAxiosRequest.mockResolvedValue({ data: {} })
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('getObservations calls GET /api/signals/observations', async () => {
+  it('getObservations calls req with /signals/observations', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getObservations('tok')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/observations',
-        method: 'GET',
-      }),
-    )
+    expect(mockReq).toHaveBeenCalledWith('/signals/observations', 'tok')
   })
 
   it('getObservations appends layer and limit query params', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getObservations('tok', { layer: 'network_egress', limit: 50 })
-    const call = mockAxiosRequest.mock.calls[0][0]
-    expect(call.url).toContain('/api/signals/observations?')
-    expect(call.url).toContain('layer=network_egress')
-    expect(call.url).toContain('limit=50')
+    const path = mockReq.mock.calls[0][0] as string
+    expect(path).toContain('/signals/observations?')
+    expect(path).toContain('layer=network_egress')
+    expect(path).toContain('limit=50')
   })
 
-  it('getActors calls GET /api/signals/actors', async () => {
+  it('getActors calls req with /signals/actors', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getActors('tok')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/actors',
-        method: 'GET',
-      }),
-    )
+    expect(mockReq).toHaveBeenCalledWith('/signals/actors', 'tok')
   })
 
-  it('getActor calls GET /api/signals/actors/:id', async () => {
+  it('getActor calls req with /signals/actors/:id', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getActor('tok', 'actor-001')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/actors/actor-001',
-        method: 'GET',
-      }),
-    )
+    expect(mockReq).toHaveBeenCalledWith('/signals/actors/actor-001', 'tok')
   })
 
-  it('getCoverage calls GET /api/signals/coverage', async () => {
+  it('getCoverage calls req with /signals/coverage', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getCoverage('tok')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/coverage',
-        method: 'GET',
-      }),
-    )
+    expect(mockReq).toHaveBeenCalledWith('/signals/coverage', 'tok')
   })
 
-  it('promoteActor calls POST /api/signals/actors/:id/promote', async () => {
+  it('promoteActor calls req with POST /signals/actors/:id/promote', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.promoteActor('tok', 'actor-001')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/actors/actor-001/promote',
-        method: 'POST',
-      }),
+    expect(mockReq).toHaveBeenCalledWith(
+      '/signals/actors/actor-001/promote',
+      'tok',
+      { method: 'POST' },
     )
   })
 
-  it('runCorrelation calls POST /api/signals/correlate', async () => {
+  it('runCorrelation calls req with POST /signals/correlate', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.runCorrelation('tok')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        url: '/api/signals/correlate',
-        method: 'POST',
-      }),
+    expect(mockReq).toHaveBeenCalledWith(
+      '/signals/correlate',
+      'tok',
+      { method: 'POST' },
     )
   })
 
-  it('includes Authorization header with bearer token', async () => {
+  it('seedFixtures calls req with POST /signals/collectors/seed', async () => {
+    const { weaveApi } = await import('./weaveApi')
+    await weaveApi.seedFixtures('tok')
+    expect(mockReq).toHaveBeenCalledWith(
+      '/signals/collectors/seed',
+      'tok',
+      { method: 'POST' },
+    )
+  })
+
+  it('passes the token as second argument to req', async () => {
     const { weaveApi } = await import('./weaveApi')
     await weaveApi.getActors('my-secret-token')
-    expect(mockAxiosRequest).toHaveBeenCalledWith(
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer my-secret-token',
-        }),
-      }),
-    )
+    expect(mockReq.mock.calls[0][1]).toBe('my-secret-token')
   })
 })
 
 // ─── Demo-mode resolver tests ────────────────────────────────────────────────
+// Weave routes are now registered in fakeData.ts's ROUTES array via the
+// WEAVE_ROUTES export from fakeWeaveData.ts. These tests verify that
+// resolveFake correctly resolves every weave route.
 
-describe('fakeWeaveData.resolve', () => {
+describe('weave routes in fakeData resolveFake', () => {
   it('resolves GET /signals/observations', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/observations')
+    const result = resolveFake('GET', '/signals/observations')
     expect(result).toBeDefined()
     expect(Array.isArray(result)).toBe(true)
     const observations = result as unknown[]
@@ -135,24 +114,24 @@ describe('fakeWeaveData.resolve', () => {
   })
 
   it('resolves GET /signals/actors', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/actors')
+    const result = resolveFake('GET', '/signals/actors')
     expect(result).toBeDefined()
     expect(Array.isArray(result)).toBe(true)
   })
 
   it('resolves GET /signals/actors/:id', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/actors/actor-shadow-llm-001')
+    const result = resolveFake('GET', '/signals/actors/actor-shadow-llm-001')
     expect(result).toBeDefined()
     expect(typeof result).toBe('object')
   })
 
   it('resolves POST /signals/actors/:id/promote', () => {
-    const result = fakeWeaveData.resolve('POST', '/signals/actors/actor-shadow-llm-001/promote')
+    const result = resolveFake('POST', '/signals/actors/actor-shadow-llm-001/promote')
     expect(result).toEqual({ status: 'promoted' })
   })
 
   it('resolves GET /signals/coverage', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/coverage')
+    const result = resolveFake('GET', '/signals/coverage')
     expect(result).toBeDefined()
     const cov = result as { covered_layers: string[]; blind_spots: unknown[] }
     expect(cov.covered_layers).toContain('network_egress')
@@ -160,23 +139,37 @@ describe('fakeWeaveData.resolve', () => {
   })
 
   it('resolves POST /signals/correlate', () => {
-    const result = fakeWeaveData.resolve('POST', '/signals/correlate')
+    const result = resolveFake('POST', '/signals/correlate')
     expect(result).toEqual({ status: 'correlation_complete' })
   })
 
-  it('returns undefined for unknown routes', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/nonexistent')
+  it('resolves POST /signals/collectors/seed', () => {
+    const result = resolveFake('POST', '/signals/collectors/seed')
+    expect(result).toBeDefined()
+    expect(typeof (result as { seeded: number }).seeded).toBe('number')
+  })
+
+  it('returns undefined for unknown signal routes', () => {
+    const result = resolveFake('GET', '/signals/nonexistent')
     expect(result).toBeUndefined()
   })
 
+  it('hasFakeRoute returns true for weave routes', () => {
+    expect(hasFakeRoute('GET', '/signals/observations')).toBe(true)
+    expect(hasFakeRoute('GET', '/signals/actors')).toBe(true)
+    expect(hasFakeRoute('GET', '/signals/coverage')).toBe(true)
+    expect(hasFakeRoute('POST', '/signals/correlate')).toBe(true)
+    expect(hasFakeRoute('POST', '/signals/collectors/seed')).toBe(true)
+  })
+
   it('strips /api prefix before matching', () => {
-    const result = fakeWeaveData.resolve('GET', '/api/signals/observations')
+    const result = resolveFake('GET', '/api/signals/observations')
     expect(result).toBeDefined()
     expect(Array.isArray(result)).toBe(true)
   })
 
   it('strips query string before matching', () => {
-    const result = fakeWeaveData.resolve('GET', '/signals/observations?layer=network_egress&limit=10')
+    const result = resolveFake('GET', '/signals/observations?layer=network_egress&limit=10')
     expect(result).toBeDefined()
   })
 })

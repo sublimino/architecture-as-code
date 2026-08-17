@@ -19,7 +19,7 @@ import { fakeWeaveData } from '../api/fakeWeaveData'
 // vi.mock is hoisted above imports, so variables it references must be
 // created with vi.hoisted() to exist at that point.
 
-const { getAccessTokenSilently, mockWeaveApi } = vi.hoisted(() => ({
+const { getAccessTokenSilently, mockWeaveApi, mockIsDemoMode } = vi.hoisted(() => ({
   getAccessTokenSilently: vi.fn().mockResolvedValue('test-token'),
   mockWeaveApi: {
     getObservations: vi.fn(),
@@ -27,7 +27,9 @@ const { getAccessTokenSilently, mockWeaveApi } = vi.hoisted(() => ({
     getCoverage: vi.fn(),
     promoteActor: vi.fn(),
     runCorrelation: vi.fn(),
+    seedFixtures: vi.fn(),
   },
+  mockIsDemoMode: vi.fn().mockReturnValue(true),
 }))
 
 vi.mock('../auth/oidc', () => ({
@@ -36,6 +38,10 @@ vi.mock('../auth/oidc', () => ({
 
 vi.mock('../api/weaveApi', () => ({
   weaveApi: mockWeaveApi,
+}))
+
+vi.mock('../api/demoMode', () => ({
+  isDemoMode: mockIsDemoMode,
 }))
 
 function renderPage() {
@@ -230,6 +236,74 @@ describe('WeavePage', () => {
       const el = screen.getByTestId('weave-load-state')
       expect(el.getAttribute('data-status')).toBe('error')
       expect(screen.getByText(/status code 502/i)).toBeInTheDocument()
+    })
+  })
+
+  // ── Live mode: service unreachable ─────────────────────────────────────────
+
+  it('shows service unreachable message when in live mode and signal-ingest is down', async () => {
+    mockIsDemoMode.mockReturnValue(false)
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Network Error'))
+    mockWeaveApi.getActors.mockRejectedValue(new Error('Network Error'))
+    mockWeaveApi.getCoverage.mockRejectedValue(new Error('Network Error'))
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByText('Signal Ingest Service Unreachable')).toBeInTheDocument()
+      expect(screen.getByText(/make signal-ingest-up/)).toBeInTheDocument()
+    })
+  })
+
+  it('shows generic error in demo mode even for network errors', async () => {
+    mockIsDemoMode.mockReturnValue(true)
+    mockWeaveApi.getObservations.mockRejectedValue(new Error('Network Error'))
+    renderPage()
+    await waitFor(() => {
+      const el = screen.getByTestId('weave-load-state')
+      expect(el.getAttribute('data-status')).toBe('error')
+      // Should NOT show the service-specific message in demo mode
+      expect(screen.queryByText('Signal Ingest Service Unreachable')).not.toBeInTheDocument()
+    })
+  })
+
+  // ── Empty state and seed button ────────────────────────────────────────────
+
+  it('shows empty state with seed button in live mode when no data', async () => {
+    mockIsDemoMode.mockReturnValue(false)
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('weave-empty-state')).toBeInTheDocument()
+      expect(screen.getByTestId('seed-fixtures-btn')).toBeInTheDocument()
+    })
+  })
+
+  it('shows empty state without seed button in demo mode', async () => {
+    mockIsDemoMode.mockReturnValue(true)
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('weave-empty-state')).toBeInTheDocument()
+    })
+    expect(screen.queryByTestId('seed-fixtures-btn')).not.toBeInTheDocument()
+  })
+
+  it('calls seedFixtures when seed button is clicked', async () => {
+    mockIsDemoMode.mockReturnValue(false)
+    mockWeaveApi.getObservations.mockResolvedValue([])
+    mockWeaveApi.getActors.mockResolvedValue([])
+    mockWeaveApi.getCoverage.mockResolvedValue(fakeWeaveData.coverage)
+    mockWeaveApi.seedFixtures.mockResolvedValue({ seeded: 8 })
+    renderPage()
+    await waitFor(() => {
+      expect(screen.getByTestId('seed-fixtures-btn')).toBeInTheDocument()
+    })
+    await userEvent.click(screen.getByTestId('seed-fixtures-btn'))
+    await waitFor(() => {
+      expect(mockWeaveApi.seedFixtures).toHaveBeenCalledWith('test-token')
     })
   })
 })

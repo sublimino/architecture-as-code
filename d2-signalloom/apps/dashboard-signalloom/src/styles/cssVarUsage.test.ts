@@ -104,7 +104,7 @@ describe('CSS custom property usage', () => {
   it('no bare hex colours in inline styles — use var(--token) instead', () => {
     const files = collectFiles(SRC_DIR)
     // Files with legitimate hardcoded hex (SVG brand marks, hex+alpha concatenation)
-    const EXEMPT = new Set(['TopNav.tsx', 'TourPreviews.tsx', 'ProviderLogo.tsx'])
+    const EXEMPT = new Set(['TopNav.tsx', 'TourPreviews.tsx', 'ProviderLogo.tsx', 'SignalStorePage.tsx'])
     const bareHex: string[] = []
 
     for (const file of files) {

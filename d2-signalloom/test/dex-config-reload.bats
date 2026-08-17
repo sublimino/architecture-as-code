@@ -24,6 +24,7 @@
 setup() {
   root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
   dex_manifest="$root/d2-signalloom/infra/inf-signalloom/base/dex.yaml"
+  dex_ui_manifest="$root/d2-signalloom/infra/inf-signalloom/base/dex-ui.yaml"
 }
 
 # sha256 of the Secret's config.yaml exactly as authored, before Flux
@@ -37,6 +38,24 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
         print(hashlib.sha256(d['stringData']['config.yaml'].encode()).hexdigest())
         break
 " "$dex_manifest"
+}
+
+# sha256 over the .html keys of the dex-ui ConfigMap, serialised with sorted
+# keys so it is stable. Scoped to templates because Dex parses those once at
+# boot; styles.css is served per-request off disk and needs no restart.
+ui_sha() {
+  python3 -c "
+import yaml, hashlib, json, sys
+for d in yaml.safe_load_all(open(sys.argv[1])):
+    if d and d.get('kind') == 'ConfigMap' and d['metadata']['name'] == 'dex-ui':
+        tpls = {k: v for k, v in d['data'].items() if k.endswith('.html')}
+        if not tpls:
+            sys.exit('dex-ui ConfigMap has no .html keys')
+        print(hashlib.sha256(json.dumps(tpls, sort_keys=True).encode()).hexdigest())
+        break
+else:
+    sys.exit('no ConfigMap named dex-ui')
+" "$dex_ui_manifest"
 }
 
 annotation() {
@@ -68,6 +87,29 @@ for d in yaml.safe_load_all(open(sys.argv[1])):
     echo "  actual:   $actual"
     echo "Set signalloom.ai/dex-config-sha to the actual value, or Dex will keep"
     echo "serving its old in-memory config after this change is applied."
+    return 1
+  fi
+}
+
+@test "DEXRELOAD the ui-sha annotation matches the templates actually shipped" {
+  # The web templates have the identical defect to config.yaml, and neither of
+  # the annotations above covers them. Dex calls loadWebConfig ONCE in newServer
+  # and keeps the parsed *template.Template on the server struct — no watcher,
+  # no re-parse. Kubernetes swaps the mounted files underneath the process and
+  # nothing in the Deployment changes, so no rollout fires.
+  #
+  # This was not hypothetical. error.html rendered {{ .Error }}, a field dex has
+  # never passed it, so every dropped auth request returned a truncated 1.2KB
+  # page whose entire visible text was the word "Error". Fixing the ConfigMap
+  # alone would have shipped that fix to git and to the cluster and to nobody.
+  actual="$(ui_sha)"
+  declared="$(annotation signalloom.ai/dex-ui-sha)"
+  if [ "$actual" != "$declared" ]; then
+    echo "dex-ui templates changed but the rollout annotation was not bumped."
+    echo "  declared: $declared"
+    echo "  actual:   $actual"
+    echo "Set signalloom.ai/dex-ui-sha to the actual value, or Dex will keep"
+    echo "rendering the templates it parsed at boot and your change reaches no one."
     return 1
   fi
 }

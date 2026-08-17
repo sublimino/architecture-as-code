@@ -115,11 +115,40 @@ data:
       </form>
     </div>
     {{ template "footer.html" . }}
+  # Dex passes this template exactly three fields (dex v2.41.1,
+  # server/templates.go:336):
+  #
+  #   ErrType  http.StatusText(code) — "Bad Request", "Internal Server Error"
+  #   ErrMsg   Dex's human-readable description of what actually went wrong
+  #   ReqPath  r.URL.Path, consumed by header.html's {{ url }} calls
+  #
+  # This template used to render {{ .Error }}, which is not one of them. That is
+  # not a blank field: templates.err() writes the 4xx status line and then calls
+  # Execute DIRECTLY, without the writeRecorder guard renderTemplate() uses. So
+  # html/template streamed the header, the panel and the heading, hit the
+  # unknown field, and aborted mid-tag — the client got a truncated 1.2KB page
+  # whose entire visible text was the word "Error", under an HTTP 400.
+  #
+  # Every auth request Dex drops lands here, and storage is `type: memory`, so
+  # every restart of the pod sends every in-flight login to this page. On
+  # 2026-08-17 it cost 20 minutes to establish that a working deployment was
+  # working, because the page could not distinguish an expired login link from a
+  # broken cluster.
+  #
+  # ErrType and ErrMsg are the two halves of the OAuth2 error and nothing more.
+  # No token, no code, no state, no client secret, no upstream hostname and no
+  # stack trace reaches this template — Dex does not put them in the struct.
+  # Keep it that way: this page is served unauthenticated to anyone who can
+  # reach the login URL.
+  #
+  # Guarded by d2-signalloom/test/dex-templates, which executes this template
+  # against a mirror of that struct and fails on any field Dex does not supply.
   error.html: |-
     {{ template "header.html" . }}
     <div class="theme-panel">
-      <h2 class="theme-heading">Error</h2>
-      <div class="dex-error-box">{{ .Error }}</div>
+      <h2 class="theme-heading">{{ .ErrType }}</h2>
+      <p class="sl-subtitle">Sign-in error</p>
+      <div class="dex-error-box">{{ .ErrMsg }}</div>
     </div>
     {{ template "footer.html" . }}
   oob.html: |-

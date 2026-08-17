@@ -10,6 +10,14 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	cd apps/cardvault && go test ./...
 	cd apps/policy-engine && go test ./...
 	cd apps/cardvault-agent && go test ./...
+	@# Executes the Dex web templates against mirrors of the structs Dex passes
+	@# them. Nothing else in this repo ever executes those templates -- they are
+	@# YAML strings mounted into an upstream image -- so a field name Dex does
+	@# not supply was invisible until a user hit the page. error.html rendered
+	@# {{ .Error }}, which dex has never passed it, and because templates.err()
+	@# writes the 4xx status BEFORE Execute and skips the writeRecorder guard,
+	@# the client got a truncated 1.2KB page reading only "Error".
+	cd test/dex-templates && go test ./...
 	@# GLOB, not a hand-maintained list. This line used to name ten .bats files
 	@# explicitly while 32 sat in test/, so 22 suites -- roughly 300 passing
 	@# assertions -- were committed, documented, and never executed by anything.

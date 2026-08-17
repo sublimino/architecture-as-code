@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 )
 
 func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
@@ -14,7 +16,11 @@ func (h *Handlers) handlePromoteActor(w http.ResponseWriter, r *http.Request) {
 	actor, err := h.Engine.PromoteActor(id)
 	if err != nil {
 		slog.Warn("promote failed", "id", id, "error", err)
-		writeError(w, http.StatusNotFound, err.Error())
+		if errors.Is(err, correlation.ErrAlreadyPromoted) {
+			writeError(w, http.StatusConflict, err.Error())
+		} else {
+			writeError(w, http.StatusNotFound, err.Error())
+		}
 		return
 	}
 

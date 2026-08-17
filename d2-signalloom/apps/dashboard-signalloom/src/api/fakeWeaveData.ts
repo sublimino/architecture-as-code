@@ -185,39 +185,28 @@ const coverage: CoverageStatement = {
   deployment_coverage: '5 of 7 signal layers active. 2 layers require additional collector deployment.',
 }
 
-// ─── Demo Resolver ───────────────────────────────────────────────────────────
+// ─── Route matcher type (matches fakeData.ts pattern) ───────────────────────
 
-type WeaveMatch = {
+type Match = {
   method: string
   test: (path: string) => boolean
-  data: () => unknown
+  data: (path: string, body?: unknown) => unknown
 }
 
 const re = (r: RegExp) => (path: string) => r.test(path)
 
-const WEAVE_ROUTES: WeaveMatch[] = [
+export const WEAVE_ROUTES: Match[] = [
   { method: 'GET', test: re(/^\/signals\/observations$/), data: () => observations },
   { method: 'GET', test: re(/^\/signals\/actors$/), data: () => actors },
   { method: 'GET', test: re(/^\/signals\/actors\/[^/]+$/), data: () => actors[0] },
   { method: 'POST', test: re(/^\/signals\/actors\/[^/]+\/promote$/), data: () => ({ status: 'promoted' }) },
   { method: 'GET', test: re(/^\/signals\/coverage$/), data: () => coverage },
   { method: 'POST', test: re(/^\/signals\/correlate$/), data: () => ({ status: 'correlation_complete' }) },
+  { method: 'POST', test: re(/^\/signals\/collectors\/seed$/), data: () => ({ seeded: observations.length }) },
 ]
 
-function cleanPath(path: string): string {
-  return path.replace(/^\/api/, '').split('?')[0]
-}
-
+/** Exposed for tests that need the raw fixture shapes. */
 export const fakeWeaveData = {
-  resolve(method: string, path: string): unknown | undefined {
-    const clean = cleanPath(path)
-    const route = WEAVE_ROUTES.find(
-      (r) => r.method === method.toUpperCase() && r.test(clean),
-    )
-    return route ? route.data() : undefined
-  },
-
-  /** Exposed for tests that need the raw fixture shapes. */
   observations,
   actors,
   coverage,

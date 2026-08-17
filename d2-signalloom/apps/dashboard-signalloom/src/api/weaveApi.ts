@@ -2,10 +2,12 @@
  * Signal Weave API — types and client functions for the signal observation
  * and provisional actor correlation system.
  *
- * In demo mode the client module (client.ts) resolves these routes from
- * fakeWeaveData.ts fixtures. In live mode they hit the signal-ingest service.
+ * All calls go through the shared `req()` from client.ts, which handles demo
+ * mode (via resolveFake / fakeData.ts ROUTES), GET coalescing, cancellation,
+ * and SuperCred projection. The weave fake routes are registered in
+ * fakeData.ts via fakeWeaveData.ts's WEAVE_ROUTES export.
  */
-import { api } from './client'
+import { req } from './client'
 
 // ─── Domain Types ────────────────────────────────────────────────────────────
 
@@ -79,80 +81,30 @@ export interface WeaveActorsResponse {
 
 // ─── Client ──────────────────────────────────────────────────────────────────
 
-/**
- * All weave API calls go through the shared `req()` in client.ts via the
- * exported `api` object — but the signal routes are not yet wired there, so
- * we build thin wrappers that call `req` indirectly. When the routes are added
- * to client.ts's `api` object the signatures stay the same.
- *
- * NOTE: These use the same `req()` function from client.ts which already
- * handles demo mode via `resolveFake()`. The fakeWeaveData.ts module registers
- * its routes in fakeData.ts's ROUTES array.
- */
-
-// We re-export a weaveApi namespace so pages import from one place.
-// Under the hood each function calls the shared req() via the api object,
-// but since the signal routes aren't yet on the api object we import req
-// through a local wrapper that matches the api.* call pattern.
-
-// For now, these functions accept a token and call req() via a dynamic import
-// of the client module's internal function. The simplest correct approach is
-// to add them to the api object directly, but that's a change to client.ts
-// which already has a large surface. Instead we'll call the http instance.
-import axios from 'axios'
-import { isDemoMode } from './demoMode'
-import { fakeWeaveData } from './fakeWeaveData'
-
-const BASE = (import.meta.env.VITE_API_BASE_URL as string) ?? ''
-const http = axios.create({ baseURL: BASE })
-
-function authHeaders(token: string) {
-  return {
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${token}`,
-  }
-}
-
-async function weaveReq<T>(
-  method: string,
-  path: string,
-  token: string,
-): Promise<T> {
-  if (isDemoMode()) {
-    const fake = fakeWeaveData.resolve(method, path)
-    if (fake !== undefined) return fake as T
-    throw new Error(`No demo fixture for ${method} ${path}`)
-  }
-  const url = path.startsWith('/api') ? path : `/api${path}`
-  const res = await http.request<T>({
-    url,
-    method,
-    headers: authHeaders(token),
-  })
-  return res.data
-}
-
 export const weaveApi = {
   getObservations: (token: string, params?: { layer?: string; limit?: number }) => {
     const q = new URLSearchParams()
     if (params?.layer) q.set('layer', params.layer)
     if (params?.limit) q.set('limit', String(params.limit))
     const qs = q.toString()
-    return weaveReq<SignalObservation[]>('GET', `/signals/observations${qs ? `?${qs}` : ''}`, token)
+    return req<SignalObservation[]>(`/signals/observations${qs ? `?${qs}` : ''}`, token)
   },
 
   getActors: (token: string) =>
-    weaveReq<ProvisionalActor[]>('GET', '/signals/actors', token),
+    req<ProvisionalActor[]>('/signals/actors', token),
 
   getActor: (token: string, id: string) =>
-    weaveReq<ProvisionalActor>('GET', `/signals/actors/${id}`, token),
+    req<ProvisionalActor>(`/signals/actors/${id}`, token),
 
   getCoverage: (token: string) =>
-    weaveReq<CoverageStatement>('GET', '/signals/coverage', token),
+    req<CoverageStatement>('/signals/coverage', token),
 
   promoteActor: (token: string, id: string) =>
-    weaveReq<{ status: string }>('POST', `/signals/actors/${id}/promote`, token),
+    req<{ status: string }>(`/signals/actors/${id}/promote`, token, { method: 'POST' }),
 
   runCorrelation: (token: string) =>
-    weaveReq<{ status: string }>('POST', '/signals/correlate', token),
+    req<{ status: string }>('/signals/correlate', token, { method: 'POST' }),
+
+  seedFixtures: (token: string) =>
+    req<{ seeded: number }>('/signals/collectors/seed', token, { method: 'POST' }),
 }

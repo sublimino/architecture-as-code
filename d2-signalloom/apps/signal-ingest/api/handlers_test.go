@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
@@ -59,7 +60,11 @@ func TestIngestObservations(t *testing.T) {
 	_, mux := newTestHandlers(t)
 
 	obs := []model.Observation{
-		{ID: "test-1", Layer: model.LayerNetworkEgress, Source: "test", Description: "test"},
+		{
+			ID: "test-1", Layer: model.LayerNetworkEgress, Source: "test",
+			Description: "test", Fidelity: model.FidelitySuggestive,
+			Timestamp: time.Now().UTC(), Confidence: 0.5, RawEvidenceRef: "ref",
+		},
 	}
 	body, _ := json.Marshal(obs)
 

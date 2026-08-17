@@ -194,13 +194,13 @@ describe('Sidebar Beautiful UI interactions', () => {
 })
 
 describe('Sidebar Agent Trust Topology navigation', () => {
-  it('places Agent Trust Topology immediately before Settings', async () => {
+  it('places Agent Trust Topology before The Weave, with Settings after Signal Fusion entries', async () => {
     vi.mocked(api.settings).mockResolvedValue(makeSettings())
     renderSidebar()
 
     const labels = (await screen.findAllByRole('link')).map(link => link.textContent?.replace(/\d+/g, '').trim())
-    expect(labels.indexOf('Signal Weave')).toBe(labels.indexOf('Settings') - 1)
-    expect(labels.indexOf('Agent Trust Topology')).toBe(labels.indexOf('Signal Weave') - 1)
+    expect(labels.indexOf('The Weave')).toBe(labels.indexOf('Agent Trust Topology') + 1)
+    expect(labels.indexOf('Settings')).toBe(labels.indexOf('The Weave') + 1)
   })
 })
 
@@ -215,6 +215,7 @@ describe('Sidebar superadmin-only nav', () => {
     'RBAC Explorer',
     'Network Tests',
     'SuperCredential Demo',
+    'Signal Fusion Demo',
   ]
 
   beforeEach(() => {
@@ -519,7 +520,7 @@ describe('Sidebar filtered section headings', () => {
   // A section heading is a label for the items beneath it. Filtering used to
   // leave headings — and the superadmin block's dividing rule — printed over
   // nothing, so the rail claimed sections it was no longer showing.
-  const ALL_HEADINGS = ['Workspace', 'Governance', 'Configuration', 'Superadmin']
+  const ALL_HEADINGS = ['Workspace', 'Governance', 'Signal Fusion', 'Configuration', 'Superadmin']
 
   // Scoped to the nav region, not the whole rail: the footer's superadmin
   // toggle is also labelled "Superadmin", and a document-wide text query
@@ -846,12 +847,12 @@ describe('Sidebar Design System nav entry', () => {
     renderSidebar({ superadmin: true })
     await screen.findByRole('link', { name: 'Design System' })
 
-    // 9 is the last digit the nav binds; Signal Weave is now the 9th
+    // 9 is the last digit the nav binds; The Weave is now the 9th
     // non-superadmin item, so key 9 lands there, not on Settings.
     fireEvent.keyDown(window, { key: '9' })
 
     await waitFor(() =>
-      expect(screen.getByRole('link', { name: /^Signal Weave$/ })).toHaveAttribute('aria-current', 'page')
+      expect(screen.getByRole('link', { name: /^The Weave$/ })).toHaveAttribute('aria-current', 'page')
     )
     expect(screen.getByRole('link', { name: 'Design System' })).not.toHaveAttribute('aria-current', 'page')
   })
@@ -873,6 +874,7 @@ describe('Sidebar selection highlight', () => {
     '/network-tests',
     '/supercred',
     '/fleet',
+    '/signal-fusion',
     '/design-system',
   ]
 

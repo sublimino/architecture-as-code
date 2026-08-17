@@ -127,7 +127,7 @@ export function SeverityTag({ severity }: { severity: Severity }) {
  *
  * NOT white-on-red, and that is a deliberate departure from the badge the
  * app's current TopNav draws. `--on-accent` (#FFFFFF everywhere) against
- * `--error` measures 3.85:1 under the Andy theme, and a 11px bold numeral is
+ * `--error` measures 3.62:1 under the Andy theme, and a 11px bold numeral is
  * normal-size text, so it wants 4.5:1. A red pill with an unreadable number on
  * it is a decoration that looks like information.
  *

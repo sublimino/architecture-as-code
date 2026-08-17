@@ -101,13 +101,19 @@ describe('ThemeToggle', () => {
     expect(relativeLuminance(rootVar('--text'))).toBeLessThan(0.1)
   })
 
-  it('applies a dark background and a red accent when Andy is selected', () => {
+  it('applies a dark background and a Signal Loom accent when Andy is selected', () => {
     render(<ThemeToggle />)
     fireEvent.change(toggle(), { target: { value: 'andy' } })
     expect(document.documentElement.getAttribute('data-theme')).toBe('andy')
     expect(relativeLuminance(rootVar('--bg'))).toBeLessThan(0.05)
+    // Was `accentHue <= 20 || accentHue >= 340` — the red band — when Andy was
+    // a red-on-black theme. Andy is now built on the Signal Loom brand ramp
+    // (violet -> periwinkle -> teal, sampled from the logo), so the band moves
+    // with it. Still a hue assertion on the painted --cyan: the point of this
+    // test is that applyTheme really wrote Andy's accent onto the root, and a
+    // check that pinned nothing would not show that.
     const accentHue = hue(rootVar('--cyan'))
-    expect(accentHue <= 20 || accentHue >= 340).toBe(true)
+    expect(accentHue >= 150 && accentHue <= 275).toBe(true)
   })
 
   it('switches without reloading or remounting the control', () => {

@@ -611,10 +611,10 @@ describe('DesignSystemPage', () => {
 
   it('narrows the super specimen from the search box', () => {
     render(<DesignSystemPage />)
-    expect(superCount()).toHaveTextContent('18 of 18 shown')
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
 
     fireEvent.change(superSearchBox(), { target: { value: 'spire' } })
-    expect(superCount()).toHaveTextContent('2 of 18 shown')
+    expect(superCount()).toHaveTextContent('2 of 18 services shown')
     expect([...superServices()].sort()).toEqual(['cert-renewer', 'credential-rotator'])
   })
 
@@ -622,7 +622,7 @@ describe('DesignSystemPage', () => {
     render(<DesignSystemPage />)
     fireEvent.click(screen.getByTestId('ds-datatable-super-filter-demo'))
 
-    expect(superCount()).toHaveTextContent('4 of 18 shown')
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
     expect(screen.getByTestId('ds-datatable-super-filter-demo')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('ds-datatable-super-filter-all')).toHaveAttribute('aria-pressed', 'false')
   })
@@ -631,7 +631,7 @@ describe('DesignSystemPage', () => {
     render(<DesignSystemPage />)
     fireEvent.change(superOwnerSelect(), { target: { value: 'identity' } })
 
-    expect(superCount()).toHaveTextContent('4 of 18 shown')
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
     expect([...superServices()].sort()).toEqual([
       'bao-unsealer', 'cert-renewer', 'credential-rotator', 'secret-syncer',
     ])
@@ -640,12 +640,12 @@ describe('DesignSystemPage', () => {
   it('composes the two facets with AND, and keeps counting the whole table while it does', () => {
     render(<DesignSystemPage />)
     fireEvent.click(screen.getByTestId('ds-datatable-super-filter-config'))
-    expect(superCount()).toHaveTextContent('6 of 18 shown')
+    expect(superCount()).toHaveTextContent('6 of 18 services shown')
 
     fireEvent.change(superOwnerSelect(), { target: { value: 'identity' } })
     // Six are config and four are identity; exactly one is both. An OR would
     // report nine here, which is the bug this assertion exists for.
-    expect(superCount()).toHaveTextContent('1 of 18 shown')
+    expect(superCount()).toHaveTextContent('1 of 18 services shown')
     expect(superServices()).toEqual(['credential-rotator'])
 
     // And the facet counts did NOT move with the result. A chip reporting the
@@ -662,10 +662,10 @@ describe('DesignSystemPage', () => {
     expect(screen.queryByTestId('ds-datatable-super-clear')).not.toBeInTheDocument()
 
     fireEvent.change(superSearchBox(), { target: { value: 'mesh' } })
-    expect(superCount()).toHaveTextContent('4 of 18 shown')
+    expect(superCount()).toHaveTextContent('4 of 18 services shown')
     fireEvent.click(screen.getByTestId('ds-datatable-super-clear'))
 
-    expect(superCount()).toHaveTextContent('18 of 18 shown')
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
     expect(superSearchBox()).toHaveValue('')
     expect(screen.queryByTestId('ds-datatable-super-clear')).not.toBeInTheDocument()
   })
@@ -680,7 +680,7 @@ describe('DesignSystemPage', () => {
     expect(superSearchBox()).toHaveValue('')
     expect(superOwnerSelect()).toHaveValue('all')
     expect(screen.getByTestId('ds-datatable-super-filter-all')).toHaveAttribute('aria-pressed', 'true')
-    expect(superCount()).toHaveTextContent('18 of 18 shown')
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
   })
 
   it('reaches the empty state by composing two facets that are each non-empty', () => {
@@ -691,7 +691,7 @@ describe('DesignSystemPage', () => {
     fireEvent.click(screen.getByTestId('ds-datatable-super-filter-demo'))
     fireEvent.change(superOwnerSelect(), { target: { value: 'platform-eng' } })
 
-    expect(superCount()).toHaveTextContent('0 of 18 shown')
+    expect(superCount()).toHaveTextContent('0 of 18 services shown')
     expect(within(superTable()).getByTestId('ds-datatable-super-filtered-empty')).toBeInTheDocument()
     expect(superServices()).toHaveLength(0)
     // Nothing over the empty panel: no pager, no rows-per-page control.
@@ -714,7 +714,7 @@ describe('DesignSystemPage', () => {
     fireEvent.click(screen.getByTestId('ds-datatable-super-empty-clear'))
     expect(screen.queryByTestId('ds-datatable-super-filtered-empty')).not.toBeInTheDocument()
     expect(superServices()).toHaveLength(7)
-    expect(superCount()).toHaveTextContent('18 of 18 shown')
+    expect(superCount()).toHaveTextContent('18 of 18 services shown')
   })
 
   it('returns to page 1 when a super facet shrinks the data underneath', () => {
@@ -735,8 +735,10 @@ describe('DesignSystemPage', () => {
 
     // The strip is a named group, and the chip vocabulary is a named group
     // WITHIN it — otherwise a screen reader announces two facets as one list.
-    expect(within(toolbar).getByRole('group', { name: /filter the super datatable example/i })).toBeInTheDocument()
-    expect(within(toolbar).getByRole('group', { name: /filter by source/i })).toBeInTheDocument()
+    // Both regexes are anchored: the facet's name is COMPOSED from the strip's,
+    // so it contains it as a prefix and an unanchored query matches both.
+    expect(within(toolbar).getByRole('group', { name: /^filter the super datatable example$/i })).toBeInTheDocument()
+    expect(within(toolbar).getByRole('group', { name: /^filter the super datatable example by source$/i })).toBeInTheDocument()
 
     // WCAG 2.5.3: an explicit aria-label REPLACES the wrapping label's text, so
     // it must contain the visible word or a speech-input user saying "Owner"
@@ -744,6 +746,32 @@ describe('DesignSystemPage', () => {
     const owner = superOwnerSelect()
     expect(owner.getAttribute('aria-label')?.toLowerCase()).toContain('owner')
     expect(within(toolbar).getByLabelText(/by owner/i)).toBe(owner)
+  })
+
+  it('builds the super strip from the real DataTableToolbar, in the documented order', () => {
+    render(<DesignSystemPage />)
+    fireEvent.change(superSearchBox(), { target: { value: 'mesh' } })
+
+    // The order is search → facets → select → clear → count, and the module
+    // deliberately does NOT enforce it: DataTableToolbar takes children so the
+    // two pages needing a bespoke node mid-strip can have one. Unenforced
+    // conventions drift, so it is asserted here instead, against the specimen
+    // that a migrating page copies. Clear is present because the search box is
+    // narrowing — that is the state where its position matters.
+    const strip = within(superTable()).getByRole('group', { name: /filter the super datatable example$/i })
+    const controls = [...strip.children].map((el) =>
+      el.getAttribute('data-testid')
+      ?? el.querySelector('[data-testid]')?.getAttribute('data-testid')
+      ?? el.tagName.toLowerCase(),
+    )
+    expect(controls).toEqual([
+      'ds-datatable-super-search',
+      'ds-datatable-super-filter-all',
+      'ds-datatable-super-owner',
+      'ds-datatable-super-clear',
+      'ds-datatable-super-count',
+      'ds-datatable-super-help',
+    ])
   })
 
   it('badges the super specimen’s Source cell with a variant that actually has a map', () => {

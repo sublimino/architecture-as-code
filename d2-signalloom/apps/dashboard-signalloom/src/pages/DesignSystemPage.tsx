@@ -45,6 +45,14 @@ import EmptyState from '../components/EmptyState'
 import StatusBadge from '../components/StatusBadge'
 import HelpHint from '../components/HelpHint'
 import DataTable, { type Column } from '../components/DataTable'
+import {
+  DataTableToolbar,
+  ToolbarSearch,
+  ToolbarFacet,
+  ToolbarSelect,
+  ToolbarClear,
+  ToolbarCount,
+} from '../components/DataTableToolbar'
 import DonutChart from '../components/DonutChart'
 import { ProofConsole, type Proof, type ProofStreamPhase } from '../components/ProofConsole'
 import type { DemoRunLogChunk } from '../api/demoRunner'
@@ -711,168 +719,6 @@ function ExampleHeading({ id, title, blurb }: { id: string; title: string; blurb
   )
 }
 
-// ── The super DataTable specimen's filter strip ───────────────────────────────
-//
-// Extracted into a component rather than written inline, which is itself part of
-// the specimen: nine pages migrated to `toolbar=` in one day and six of them
-// arrived at exactly this shape independently (see
-// docs/signalloom/datatable-toolbar-survey.md). The one page that left it inline,
-// FleetDemoPage, has the widest strip in the product and 82 unreusable lines.
-//
-// Note what is still NOT in here and never should be: the predicate. This
-// component reads no row and owns no state. It is handed values and callbacks,
-// and the page below hands DataTable an already-narrowed array — the same
-// division the two specimens above make, held at one more level of controls.
-
-/**
- * Selected is a tinted fill plus a full-strength border, never a solid accent
- * fill: text on solid amber or cyan fails AA in at least one of the three
- * themes. This rule is currently pasted into eight files; the survey argues it
- * is the strongest candidate for a shared `FilterChip`.
- */
-function superChipStyle(selected: boolean): CSSProperties {
-  return {
-    fontSize: 11.5,
-    padding: '4px 9px',
-    borderRadius: 4,
-    cursor: 'pointer',
-    textTransform: 'capitalize',
-    fontWeight: selected ? 600 : 400,
-    color: selected ? 'var(--cyan)' : 'var(--muted)',
-    background: selected ? 'color-mix(in srgb, var(--cyan) 12%, transparent)' : 'var(--surface2)',
-    // Longhands, never the `border` shorthand: a shorthand carrying a
-    // color-mix() is unreadable to jsdom, which would put the whole
-    // selected/unselected distinction beyond a test's reach.
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: selected ? 'color-mix(in srgb, var(--cyan) 45%, transparent)' : 'var(--border)',
-  }
-}
-
-function SuperToolbar({
-  search, onSearch, source, onSource, sourceCounts, owner, onOwner, ownerCounts,
-  shown, total, narrowed, onClear,
-}: {
-  search: string
-  onSearch: (next: string) => void
-  source: string
-  onSource: (next: (typeof SUPER_SOURCES)[number]) => void
-  sourceCounts: Record<string, number>
-  owner: string
-  onOwner: (next: (typeof SUPER_OWNERS)[number]) => void
-  ownerCounts: Record<string, number>
-  shown: number
-  total: number
-  /** True while the search box, a chip or the select is narrowing the table. */
-  narrowed: boolean
-  onClear: () => void
-}) {
-  return (
-    // A second wrapper inside DataTable's own toolbar div, which already carries
-    // this exact flex row. It exists only to hang `role="group"` and a name on
-    // the strip, and every migrated page has one — eleven identical copies. The
-    // survey's first recommendation is a `toolbarLabel` prop that deletes them.
-    <div
-      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}
-      role="group"
-      aria-label="Filter the super DataTable example"
-    >
-      <input
-        type="search"
-        aria-label="Search the super DataTable example"
-        placeholder="Search service, namespace or owner…"
-        value={search}
-        onChange={(e) => onSearch(e.target.value)}
-        data-testid="ds-datatable-super-search"
-        style={{
-          fontSize: 12,
-          padding: '5px 9px',
-          minWidth: 230,
-          color: 'var(--text)',
-          background: 'var(--surface2)',
-          border: '1px solid var(--border)',
-          borderRadius: 4,
-        }}
-      />
-
-      {/* Its own nested group with its own name, which only RbacExplorerPage
-          does today. A strip carrying two vocabularies under one `role="group"`
-          announces them to a screen reader as one undifferentiated list. */}
-      <div role="group" aria-label="Filter by source" style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-        {SUPER_SOURCES.map((band) => {
-          const selected = source === band
-          return (
-            <button
-              key={band}
-              type="button"
-              onClick={() => onSource(band)}
-              aria-pressed={selected}
-              data-testid={`ds-datatable-super-filter-${band}`}
-              style={superChipStyle(selected)}
-            >
-              {/* No aria-label: the visible text IS the accessible name, so the
-                  two can never disagree and a speech-input user can say it. */}
-              {band} <span style={{ color: 'var(--dim)' }}>{sourceCounts[band]}</span>
-            </button>
-          )
-        })}
-      </div>
-
-      {/* A select rather than five more chips. Two chip rows read as one row of
-          nine controls with no grouping, and global.css already themes every
-          select in the product. The counts sit in the option text because the
-          point of an option that matches nothing is seeing that before you pick
-          it — the same argument as the count on a chip. */}
-      <label style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6 }}>
-        Owner
-        {/* An explicit aria-label REPLACES the wrapping label's text as the
-            accessible name, so it has to CONTAIN the visible word or a speech
-            user saying "Owner" reaches nothing. WCAG 2.5.3. */}
-        <select
-          aria-label="Filter the super DataTable example by owner"
-          value={owner}
-          onChange={(e) => onOwner(e.target.value as (typeof SUPER_OWNERS)[number])}
-          data-testid="ds-datatable-super-owner"
-          style={{ fontSize: 12 }}
-        >
-          {SUPER_OWNERS.map((team) => (
-            <option key={team} value={team}>
-              {team === 'all' ? `all owners (${ownerCounts.all})` : `${team} (${ownerCounts[team]})`}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      {/* Conditioned on the OTHER controls' values and never on its own, and
-          never on the row count either: an empty result is precisely when this
-          is needed, and DataTable keeps the toolbar above the empty panel so it
-          is still here to click. */}
-      {narrowed && (
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={onClear}
-          data-testid="ds-datatable-super-clear"
-          style={{ fontSize: 11, padding: '4px 10px' }}
-        >
-          Clear filters
-        </button>
-      )}
-
-      <span data-testid="ds-datatable-super-count" style={{ fontSize: 11.5, color: 'var(--muted)' }}>
-        {shown} of {total} shown
-      </span>
-
-      <HelpHint label="What the super example's filters do" testId="ds-datatable-super-help">
-        Every control here narrows the array this page hands to DataTable, and nothing else. The
-        counts on the chips and in the select are counts of the whole table, not of what is on
-        screen — a facet reporting the filtered set would read 0 for every option you have not
-        chosen and stop being a way back to the rows it is hiding.
-      </HelpHint>
-    </div>
-  )
-}
-
 // ── Page ─────────────────────────────────────────────────────────────────────
 
 export default function DesignSystemPage() {
@@ -1455,29 +1301,74 @@ export default function DesignSystemPage() {
         <div data-testid="ds-datatable-super-example" style={{ marginTop: 30 }}>
           <ExampleHeading
             id="datatable-super"
-            title="Super — everything the nine migrated pages do at once"
-            blurb="Reach for this when one facet is not enough. Two independent facets — chips and a select — narrowing together with a search box, so the reader can reach a combination that matches nothing while neither facet is empty on its own. That state is why the rest of it exists: a count of the whole table rather than the result, a Clear filters control that appears only while something is filtered, and a second way out inside the empty panel itself. One filter and the realistic specimen above is the one to copy; this is more strip than most tables earn."
+            title="Super — the shared toolbar, everything at once"
+            blurb="Reach for this when one facet is not enough. Two independent facets — chips and a select — narrowing together with a search box, so the reader can reach a combination that matches nothing while neither facet is empty on its own. That state is why the rest exists: counts of the whole table rather than the result, a Clear filters control that appears only while something is filtered, and a second way out inside the empty panel. Unlike the two above, this strip is NOT hand-rolled: it is components/DataTableToolbar, the module the migration converged on, composed here in the open. One filter and the realistic specimen above is the one to copy; this is more strip than most tables earn."
           />
           <DataTable
             columns={SUPER_COLUMNS}
             data={superRows}
             pageSize={SUPER_PAGE_SIZE}
             testIdPrefix="ds-datatable-super"
+            // The real DataTableToolbar, not a mock-up of one. Composed here in
+            // the specimen rather than hidden behind a local wrapper, because
+            // the composition IS what a migrating page copies — and because the
+            // order below is the convention the module documents but
+            // deliberately does not enforce: search, facets, select, clear,
+            // count. A test asserts it against this specimen.
+            //
+            // Note what is still in this page and not in that module: the three
+            // pieces of state, the predicate, and both count objects. The
+            // toolbar never sees a row.
             toolbar={
-              <SuperToolbar
-                search={superSearch}
-                onSearch={setSuperSearch}
-                source={superSource}
-                onSource={setSuperSource}
-                sourceCounts={superSourceCounts}
-                owner={superOwner}
-                onOwner={setSuperOwner}
-                ownerCounts={superOwnerCounts}
-                shown={superRows.length}
-                total={SUPER_ROWS.length}
-                narrowed={superNarrowed}
-                onClear={clearSuperFilters}
-              />
+              <DataTableToolbar label="Filter the super DataTable example">
+                <ToolbarSearch
+                  label="Search the super DataTable example"
+                  placeholder="Search service, namespace or owner…"
+                  value={superSearch}
+                  onChange={setSuperSearch}
+                  testId="ds-datatable-super-search"
+                />
+                <ToolbarFacet
+                  label="Filter the super DataTable example by source"
+                  value={superSource}
+                  options={SUPER_SOURCES.map((band) => ({ value: band, count: superSourceCounts[band] }))}
+                  onChange={(next) => setSuperSource(next as (typeof SUPER_SOURCES)[number])}
+                  testIdPrefix="ds-datatable-super-filter"
+                />
+                <ToolbarSelect
+                  label="Owner"
+                  subject="the super DataTable example"
+                  value={superOwner}
+                  options={SUPER_OWNERS.map((team) => ({
+                    value: team,
+                    label: team === 'all' ? 'all owners' : team,
+                    count: superOwnerCounts[team],
+                  }))}
+                  onChange={(next) => setSuperOwner(next as (typeof SUPER_OWNERS)[number])}
+                  testId="ds-datatable-super-owner"
+                />
+                <ToolbarClear
+                  active={superNarrowed}
+                  onClear={clearSuperFilters}
+                  testId="ds-datatable-super-clear"
+                />
+                <ToolbarCount
+                  shown={superRows.length}
+                  total={SUPER_ROWS.length}
+                  noun="services"
+                  testId="ds-datatable-super-count"
+                />
+                {/* The exception the children API exists for. Collusion & Access
+                    needs a HelpHint mid-strip and NetworkTests needs a
+                    disclosure after the count; neither had to make the module
+                    grow a prop, because it reads none of what it is given. */}
+                <HelpHint label="What the super example's filters do" testId="ds-datatable-super-help">
+                  Every control here narrows the array this page hands to DataTable, and nothing else.
+                  The counts on the chips and in the select are counts of the whole table, not of what
+                  is on screen — a facet reporting the filtered set would read 0 for every option you
+                  have not chosen and stop being a way back to the rows it is hiding.
+                </HelpHint>
+              </DataTableToolbar>
             }
             emptyState={
               // The way back appears TWICE, and that is not redundancy. The
@@ -1550,12 +1441,25 @@ export default function DesignSystemPage() {
         <Caveat>
           <strong>And the third one is a report, not an invention.</strong> Nine superadmin pages
           migrated to <code>toolbar</code> in a single day, each told to keep its strip local so ten
-          agents were not editing one file. They produced six dialects of one idea, and the super
-          specimen is what they agree on: a labelled group, a search box, faceted chips carrying counts
-          of the whole table, a conditional clear, a count, and an empty panel with its own way out.
-          What they do <em>not</em> agree on is the predicate, and two of them had already diverged on
-          its type within the week — which is the evidence for leaving it where it is. The side-by-side
-          comparison, and what <code>DataTable</code> should and should not absorb next, is in{' '}
+          agents were not editing one file. They produced six dialects of one idea, and{' '}
+          <code>components/DataTableToolbar</code> is what they agree on: a labelled group, a search
+          box, faceted chips in their <em>own</em> named group, a select past five options, a
+          conditional clear, and a count — in that order, for the reasons the module records. It is
+          rendered above rather than mocked up, so what you are looking at is the code that would be
+          rolled across those nine pages.
+        </Caveat>
+        <Caveat>
+          <strong>What it deliberately does not do.</strong> It never sees a row. No{' '}
+          <code>data</code>, no predicate, no <code>searchKeys</code>, no count arithmetic — the page
+          above still owns all three pieces of state, the predicate and both count objects, and still
+          hands <code>DataTable</code> an already-narrowed array. That is not modesty: the two
+          hand-rolled <code>useFilter</code> hooks on Cryptography and Federated Services had already
+          diverged on their <em>type</em> within a week, because a service can sit in several trust
+          zones and a certificate cannot. A toolbar that owned &ldquo;search&rdquo; would need an
+          escape hatch for the callers it did not fit, which is a fork with extra steps. Its own test
+          asserts the absence against its source, because the failure mode is an addition that would
+          pass every behavioural test. The side-by-side comparison, and what <code>DataTable</code>{' '}
+          and <code>EmptyState</code> should absorb next, is in{' '}
           <code>docs/signalloom/datatable-toolbar-survey.md</code>.
         </Caveat>
       </Group>

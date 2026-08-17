@@ -5,6 +5,18 @@
 # layers. `ctr images ls` lists such an image; `crictl images` does not. Any
 # check built on `ctr images ls` therefore passes while the pod sits in
 # ImagePullBackOff.
+#
+# And the second defect, measured on the live cluster 2026-08-17: the image did
+# not arrive AND the node already held an OLDER image under the same tag, so a
+# name-and-tag check passed on the stale one and the pipeline exited 0 with the
+# cluster running a different binary. The fakes below therefore carry IMAGE IDs;
+# they used to print a constant `abc123` in that column, which made every image
+# indistinguishable from every other and put that whole failure mode out of
+# this suite's reach by construction.
+
+# The ID an image "really" has, derived from its reference so the local daemon
+# and the node agree without a shared state file.
+fake_image_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 
 setup() {
 	script="$BATS_TEST_DIRNAME/../scripts/supercred-images.sh"
@@ -23,7 +35,18 @@ setup() {
 	cat >"$bin/docker" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
+		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 		case "$1" in
+		  image)
+		    # docker image inspect --format '{{.Id}}' REF. $DOCKER_MISSING names
+		    # refs the local daemon does NOT hold — the state the demo runner is
+		    # permanently in, since its `docker` is supercred-crictl-shim.sh.
+		    ref="${!#}"
+		    for absent in ${DOCKER_MISSING:-}; do
+		      [ "$absent" = "$ref" ] && { echo "Error: No such image: $ref" >&2; exit 1; }
+		    done
+		    printf 'sha256:%s\n' "$(derive_id "$ref")"
+		    exit 0 ;;
 		  build)
 		    exit "${DOCKER_BUILD_STATUS:-0}" ;;
 		  buildx)
@@ -38,12 +61,18 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
-		        printf 'IMAGE TAG IMAGE-ID SIZE\n'
-		        while IFS= read -r ref; do
+		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
+		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
+		        printf 'IMAGE TAG IMAGE ID SIZE\n'
+		        # A line is `ref` or `ref id`; the second field overrides the
+		        # derived ID, which is how a STALE image is staged.
+		        while IFS=' ' read -r ref id; do
 		          [ -n "$ref" ] || continue
 		          # real crictl reports fully-qualified repos
 		          case "$ref" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          printf '%s %s abc123 10MB\n' "${full%:*}" "${full##*:}"
+		          [ -n "$id" ] || id="$(derive_id "$ref")"
+		          # …and TRUNCATES the IMAGE ID to 13 characters.
+		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
 		        done <"$CRICTL_STATE"
 		        ;;
 		      ctr)
@@ -135,7 +164,7 @@ all_images() {
 
 	run "$script" verify
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"missing from osramp-control-plane: cardvault-agent:local"* ]]
+	[[ "$output" == *"FAIL on osramp-control-plane: cardvault-agent:local"* ]]
 }
 
 @test "verify fails loudly when an image is missing from the node" {
@@ -143,7 +172,7 @@ all_images() {
 
 	run "$script" verify
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"missing from osramp-control-plane: cardvault-agent:local"* ]]
+	[[ "$output" == *"FAIL on osramp-control-plane: cardvault-agent:local"* ]]
 	[[ "$output" == *"make demo-signalloom-supercred-images"* ]]
 }
 
@@ -155,7 +184,7 @@ all_images() {
 
 	run "$script" verify
 	[ "$status" -ne 0 ]
-	[[ "$output" == *"missing from osramp-control-plane: cardvault-agent:local"* ]]
+	[[ "$output" == *"FAIL on osramp-control-plane: cardvault-agent:local"* ]]
 }
 
 @test "load fails loudly when kind load exits 0 having transferred nothing" {
@@ -179,7 +208,7 @@ all_images() {
 	run "$script" load
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"attempting recovery"* ]]
-	[[ "$output" == *"all SuperCred images verified runnable"* ]]
+	[[ "$output" == *"PASS — all SuperCred images on osramp-control-plane are the images just built locally"* ]]
 
 	# Recovery must rebuild straight into an archive, never via the docker store.
 	run grep -c 'buildx build' "$CALL_LOG"

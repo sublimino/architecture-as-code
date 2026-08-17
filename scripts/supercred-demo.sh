@@ -130,11 +130,27 @@ preflight_images() {
   # now lives in supercred-images.sh and uses `crictl images` (the CRI's view of
   # what is actually runnable) so a half-loaded image is reported as missing.
   log "preflight: verifying supercred images are loaded on the node"
-  "${SCRIPT_DIR}/supercred-images.sh" verify \
-    || fail "supercred images missing or unusable on the kind node
+  # Three outcomes, and this caller's policy on each is stated rather than
+  # implied. Exit 3 is COULD-NOT-VERIFY — the node's listing is truncated
+  # (node.status.images is capped at 50 and size-sorted) and simply cannot
+  # answer. Blocking on that halted the entire demo on 2026-08-03 against a node
+  # that held every image. Continuing is safe HERE specifically because the pods
+  # run imagePullPolicy: Never, so a genuinely absent image surfaces
+  # immediately and unmistakably as ErrImageNeverPull on the workload itself.
+  #
+  # That reasoning does not transfer to the build path, which is why
+  # supercred-images.sh `load` treats 3 as a stop rather than a shrug: there,
+  # "we cannot tell whether this is the binary we just built" is the whole
+  # question and there is no later check to fall back on.
+  local rc=0
+  "${SCRIPT_DIR}/supercred-images.sh" verify || rc=$?
+  case "$rc" in
+    0) ok "supercred images present on the node" ;;
+    3) warn "supercred image presence COULD NOT BE VERIFIED (truncated node listing) — continuing; a genuinely absent image will surface as ErrImageNeverPull" ;;
+    *) fail "supercred images missing or unusable on the kind node
        (kind-loaded :local images do not survive a cluster recreate)
-       rebuild + reload them:  make demo-signalloom-supercred-images"
-  ok "supercred images present on the node"
+       rebuild + reload them:  make demo-signalloom-supercred-images" ;;
+  esac
 }
 
 preflight_step1_deployed() {

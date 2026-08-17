@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -22,12 +23,36 @@ type Handlers struct {
 	Store  store.SignalStore
 	Engine *correlation.Engine
 	Audit  audit.AuditWriter
+
+	// AuditReady, when non-nil, is called on every /readyz probe to verify
+	// the audit backend is actually reachable. nil means there is nothing to
+	// verify -- no DATABASE_URL was configured, so audit is deliberately off
+	// and the pod is ready to serve without it.
+	//
+	// This is the visible half of the startup fix. Boot no longer blocks on
+	// Postgres, so a pod whose audit trail is broken now STARTS; without this
+	// hook that pod would report 1/1 Running and look identical to a healthy
+	// one while writing nothing durable. Failing readiness takes it out of
+	// the Service endpoints instead: `kubectl get pods` shows 0/1, which is
+	// the loudest signal available short of crashing, and it stops traffic
+	// reaching a replica that cannot record what it does.
+	AuditReady func(context.Context) error
 }
+
+// readyCheckTimeout bounds the /readyz connectivity check. It must stay under
+// the readinessProbe's own timeoutSeconds (3, in
+// apps/signal-ingest/base/deployment.yaml) so the handler answers with a
+// diagnosable 503 body rather than being cut off mid-check by the kubelet.
+//
+// Bounding this at all is the same lesson as the boot path: a NetworkPolicy
+// drop produces silence, and an unbounded readiness check against silence
+// hangs the probe instead of failing it.
+const readyCheckTimeout = 2 * time.Second
 
 // RegisterRoutes adds all API routes to the mux.
 func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.HandleFunc("GET /readyz", handleReadyz)
+	mux.HandleFunc("GET /readyz", h.handleReadyz)
 	mux.HandleFunc("POST /api/v1/observations", h.handleIngestObservations)
 	mux.HandleFunc("GET /api/v1/observations", h.handleQueryObservations)
 	mux.HandleFunc("GET /api/v1/actors", h.handleListActors)
@@ -49,11 +74,45 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
+// handleHealthz answers liveness: the process is up and the mux is serving.
+// It deliberately checks NOTHING external. Liveness failure means "restart
+// me", and restarting cannot repair an unreachable database -- wiring a
+// dependency in here would turn a Postgres outage into a CrashLoopBackOff,
+// which is the failure this whole change exists to remove.
 func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func handleReadyz(w http.ResponseWriter, _ *http.Request) {
+// handleReadyz answers readiness: the process is up AND can do its job,
+// including recording an audit trail. Readiness failure means "send me no
+// traffic", which is the correct response to an audit backend this replica
+// cannot reach -- for a compliance product, serving requests it cannot record
+// is worse than serving none.
+//
+// The check is live on every probe rather than a boot-time verdict cached in
+// a bool. A cached verdict would be wrong in both directions: it would keep
+// reporting ready after the database went away, and it would keep reporting
+// not-ready long after the database came back, leaving a recovered pod out of
+// the endpoints until someone noticed and restarted it.
+func (h *Handlers) handleReadyz(w http.ResponseWriter, r *http.Request) {
+	if h.AuditReady == nil {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), readyCheckTimeout)
+	defer cancel()
+
+	if err := h.AuditReady(ctx); err != nil {
+		slog.Warn("readiness: audit backend unreachable", "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{
+			"status": "not_ready",
+			"reason": "audit_backend_unreachable",
+			"error":  err.Error(),
+		})
+		return
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 

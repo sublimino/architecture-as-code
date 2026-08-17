@@ -36,6 +36,31 @@ spec:
           port: 6379
         - protocol: TCP
           port: 9000
+    # signal-ingest writes the Signal Fusion audit trail (signal_audit_trail)
+    # to Postgres. It is a SECOND workload in fe-signalloom that needs this
+    # namespace, and the rule above does not cover it: that one is scoped to
+    # app.kubernetes.io/name=fe-signalloom, and signal-ingest carries its own
+    # name label, so its packets were dropped here even once its own egress
+    # policy allowed them out.
+    #
+    # This is the third half of what looked like a two-part pair, and it is the
+    # half that stays hidden longest: the caller's egress rule is present, DNS
+    # resolves, the connection is simply never answered. Reading either
+    # namespace's policies alone shows nothing wrong.
+    #
+    # Postgres only. Deliberately NOT 6379 (Redis) or 9000 (MinIO) -- the
+    # service touches neither, and inheriting the port list above just because
+    # it was adjacent is how an allowlist stops meaning anything.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signal-ingest
+      ports:
+        - protocol: TCP
+          port: 5432
   egress:
     - to:
         - podSelector: {}

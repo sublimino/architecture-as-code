@@ -36,6 +36,7 @@ func (h *Handlers) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/coverage", handleCoverage)
 	mux.HandleFunc("POST /api/v1/correlate", h.handleCorrelate)
 	mux.HandleFunc("POST /api/v1/collectors/seed", h.handleSeed)
+	mux.HandleFunc("GET /api/v1/store/stats", h.handleStoreStats)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -232,6 +233,61 @@ func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"seeded": len(obs),
 	})
+}
+
+// StoreStatsResponse describes the current state of the signal store and engine.
+type StoreStatsResponse struct {
+	TotalObservations    int                `json:"total_observations"`
+	ObservationsByLayer  map[string]int     `json:"observations_by_layer"`
+	ObservationsByFidelity map[string]int   `json:"observations_by_fidelity"`
+	ActorCount           int                `json:"actor_count"`
+	ActorsByStatus       map[string]int     `json:"actors_by_status"`
+	LastIngestion        *time.Time         `json:"last_ingestion"`
+	StoreType            string             `json:"store_type"`
+}
+
+func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
+	// Query all observations from the store.
+	obs, err := h.Store.QueryRange(r.Context(), store.Query{})
+	if err != nil {
+		slog.Error("store stats query failed", "error", err)
+		writeError(w, http.StatusInternalServerError, "failed to query store")
+		return
+	}
+
+	byLayer := make(map[string]int)
+	byFidelity := make(map[string]int)
+	var lastIngestion *time.Time
+
+	for _, o := range obs {
+		byLayer[string(o.Layer)]++
+		byFidelity[string(o.Fidelity)]++
+		if lastIngestion == nil || o.Timestamp.After(*lastIngestion) {
+			t := o.Timestamp
+			lastIngestion = &t
+		}
+	}
+
+	actors := h.Engine.GetActors()
+	byStatus := make(map[string]int)
+	for _, a := range actors {
+		byStatus[string(a.Status)]++
+	}
+
+	// Determine store type from the concrete implementation.
+	storeType := fmt.Sprintf("%T", h.Store)
+
+	resp := StoreStatsResponse{
+		TotalObservations:      len(obs),
+		ObservationsByLayer:    byLayer,
+		ObservationsByFidelity: byFidelity,
+		ActorCount:             len(actors),
+		ActorsByStatus:         byStatus,
+		LastIngestion:          lastIngestion,
+		StoreType:              storeType,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // CoverageResponse describes the signal coverage state.

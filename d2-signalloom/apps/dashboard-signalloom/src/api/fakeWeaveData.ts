@@ -9,6 +9,7 @@ import type {
   SignalObservation,
   ProvisionalActor,
   CoverageStatement,
+  StoreStats,
   SignalLayer,
   FidelityTier,
 } from './weaveApi'
@@ -185,6 +186,29 @@ const coverage: CoverageStatement = {
   deployment_coverage: '5 of 7 signal layers active. 2 layers require additional collector deployment.',
 }
 
+// ─── Store Stats ────────────────────────────────────────────────────────────
+
+const storeStats: StoreStats = {
+  total_observations: observations.length,
+  observations_by_layer: observations.reduce<Record<string, number>>((acc, o) => {
+    acc[o.layer] = (acc[o.layer] || 0) + 1
+    return acc
+  }, {}),
+  observations_by_fidelity: observations.reduce<Record<string, number>>((acc, o) => {
+    acc[o.fidelity] = (acc[o.fidelity] || 0) + 1
+    return acc
+  }, {}),
+  actor_count: actors.length,
+  actors_by_status: actors.reduce<Record<string, number>>((acc, a) => {
+    acc[a.status] = (acc[a.status] || 0) + 1
+    return acc
+  }, {}),
+  last_ingestion: observations.length > 0
+    ? observations.reduce((latest, o) => o.timestamp > latest ? o.timestamp : latest, observations[0].timestamp)
+    : null,
+  store_type: '*store.FrostDBStore',
+}
+
 // ─── Route matcher type (matches fakeData.ts pattern) ───────────────────────
 
 type Match = {
@@ -202,6 +226,7 @@ export const WEAVE_ROUTES: Match[] = [
   { method: 'POST', test: re(/^\/signals\/actors\/[^/]+\/promote$/), data: () => ({ status: 'promoted' }) },
   { method: 'GET', test: re(/^\/signals\/coverage$/), data: () => coverage },
   { method: 'POST', test: re(/^\/signals\/correlate$/), data: () => ({ status: 'correlation_complete' }) },
+  { method: 'GET', test: re(/^\/signals\/store\/stats$/), data: () => storeStats },
   { method: 'POST', test: re(/^\/signals\/collectors\/seed$/), data: () => ({ seeded: observations.length }) },
 ]
 
@@ -210,4 +235,5 @@ export const fakeWeaveData = {
   observations,
   actors,
   coverage,
+  storeStats,
 }

@@ -12,6 +12,25 @@
 #
 # The fakes are deliberately the same shape as test/supercred-images.bats, so
 # the two files can be read together.
+#
+# ─── Why the fakes model IMAGE IDs ──────────────────────────────────────────
+#
+# They used to print a constant `abc123` in the IMAGE ID column. That made every
+# image on the node indistinguishable from every other, so the entire second
+# defect — the node holding a DIFFERENT image under the right tag, measured on
+# the live cluster on 2026-08-17 — was invisible to this suite by construction.
+# A fixture that cannot express the failure cannot test for it.
+#
+# So both sides carry an ID now. The local daemon and the node derive the SAME
+# deterministic ID from the reference unless a test deliberately diverges them,
+# which keeps every existing scenario meaning what it meant. The node's column
+# is truncated to 13 characters, as real crictl truncates it, so the prefix
+# comparison in scripts/lib/image-identity.sh is genuinely exercised rather than
+# assumed.
+
+# The ID an image "really" has, derived from its reference so both sides of the
+# comparison agree without a shared state file.
+fake_image_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 
 setup() {
 	script="$BATS_TEST_DIRNAME/../scripts/kind-load-verified.sh"
@@ -19,8 +38,12 @@ setup() {
 	mkdir -p "$bin"
 
 	# What the fake node reports through crictl — the CRI's view, i.e. what can
-	# actually run. Newline separated refs.
+	# actually run. One ref per line, optionally followed by an IMAGE ID to
+	# override the derived one (that is how a stale image is staged).
 	export CRICTL_STATE="$BATS_TEST_TMPDIR/crictl-images"
+	# The local daemon holds everything by default — the caller has just built
+	# these images. $DOCKER_MISSING names refs it does NOT hold, which is a real
+	# state: a `verify` run from a checkout that never built them.
 	export CALL_LOG="$BATS_TEST_TMPDIR/calls.log"
 	: >"$CRICTL_STATE"
 	: >"$CALL_LOG"
@@ -28,7 +51,19 @@ setup() {
 	cat >"$bin/docker" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
+		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 		case "$1" in
+		  image)
+		    # docker image inspect --format '{{.Id}}' REF
+		    ref="${!#}"
+		    for absent in ${DOCKER_MISSING:-}; do
+		      if [ "$absent" = "$ref" ]; then
+		        echo "Error: No such image: $ref" >&2
+		        exit 1
+		      fi
+		    done
+		    printf 'sha256:%s\n' "$(derive_id "$ref")"
+		    exit 0 ;;
 		  save)
 		    # Materialise the archive so the caller's redirect has something to read.
 		    for ((i = 1; i <= $#; i++)); do
@@ -41,12 +76,16 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
-		        printf 'IMAGE TAG IMAGE-ID SIZE\n'
-		        while IFS= read -r ref; do
+		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
+		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
+		        printf 'IMAGE TAG IMAGE ID SIZE\n'
+		        while IFS=' ' read -r ref id; do
 		          [ -n "$ref" ] || continue
 		          # Real crictl prints fully-qualified repositories.
 		          case "${ref%:*}" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          printf '%s %s abc123 10MB\n' "${full%:*}" "${full##*:}"
+		          # …and TRUNCATES the IMAGE ID to 13 characters.
+		          [ -n "$id" ] || id="$(derive_id "$ref")"
+		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
 		        done <"$CRICTL_STATE"
 		        ;;
 		      ctr)
@@ -92,7 +131,16 @@ setup() {
 @test "KINDLOAD a successful load is verified and does not touch the recovery path" {
 	KIND_LOADS="fake-integration-proxy:dev" run bash "$script" fake-integration-proxy:dev
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"present on testcluster-control-plane"* ]]
+	# Assert the SCRIPT's verdict, and assert the ID it verified against.
+	#
+	# This used to assert `*"present on testcluster-control-plane"*`, which the
+	# fake kind binary satisfied all by itself with its own progress line —
+	# "Image: ... not yet present on node, loading...". The assertion passed
+	# whatever the script concluded, including nothing at all. Same class of
+	# defect as the one under test: a check matching something other than the
+	# thing it names.
+	[[ "$output" == *"PASS"*"are the images built locally"* ]]
+	[[ "$output" == *"$(fake_image_id fake-integration-proxy:dev | cut -c1-13)"* ]]
 	# No archive round-trip when the loader did its job.
 	run grep -c "docker save" "$CALL_LOG"
 	[ "$output" = "0" ]
@@ -174,7 +222,7 @@ setup() {
 	local ref=zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest
 	KIND_LOADS="$ref" run bash "$script" "$ref"
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"present on"* ]]
+	[[ "$output" == *"PASS"*"is the locally built image"* ]]
 	run grep -c "docker save" "$CALL_LOG"
 	[ "$output" = "0" ]
 }
@@ -209,13 +257,126 @@ setup() {
 	KIND_LOAD_STATUS=1 KIND_LOADS="fake-integration-proxy:dev" \
 		run bash "$script" fake-integration-proxy:dev
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"present on"* ]]
+	[[ "$output" == *"PASS"*"is the locally built image"* ]]
+	# The nonzero status is surfaced rather than swallowed — a load that
+	# ANNOUNCED failure is a different bug report from one that claimed success.
+	[[ "$output" == *"kind load exited 1"* ]]
 }
 
 @test "KINDLOAD with no arguments fails with usage rather than loading nothing" {
 	run bash "$script"
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"usage:"* ]]
+}
+
+# ─── Identity, not presence ─────────────────────────────────────────────────
+#
+# Every test below FAILS against the pre-2026-08-17 check, which compared
+# name and tag only:
+#
+#   image_on_node() {
+#     local want="docker.io/library/${image%%:*}:${image##*:}"
+#     "$DOCKER_BIN" exec "$NODE" crictl images 2>/dev/null \
+#       | awk -v want="$want" '$1":"$2 == want { found = 1 } END { exit !found }'
+#   }
+#
+# Under that check the node's tag is present, so it returns 0, so the script
+# exits 0 and reports the build verified. That is the bug, reproduced.
+
+@test "KINDLOAD a STALE image under the right tag is a FAILURE, not a pass" {
+	# The 2026-08-17 defect, in a fixture. The node already holds an image under
+	# `fake-integration-proxy:dev`, and it is NOT the one just built. kind exits
+	# 0 having transferred nothing — KIND_LOADS is empty, so the fake delivers
+	# nothing, exactly as the real loader did.
+	echo "fake-integration-proxy:dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" >"$CRICTL_STATE"
+
+	run bash "$script" fake-integration-proxy:dev
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"DIFFERENT image"* ]]
+	# Both IDs printed, so the reader can act without re-deriving them.
+	[[ "$output" == *"$(fake_image_id fake-integration-proxy:dev)"* ]]
+	[[ "$output" == *"deadbeefdeadb"* ]]
+}
+
+@test "KINDLOAD a stale image is NOT silently repaired" {
+	# The non-negotiable half. A gate that re-imports the right image and then
+	# reports success leaves the broken loader in place and the next person
+	# inherits it — which is how this survived long enough to reach production.
+	# Recovery works in this fixture (CTR_IMPORT_IMAGE is set), so if the script
+	# were willing to repair a mismatch, it would, and it would exit 0.
+	echo "fake-integration-proxy:dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" >"$CRICTL_STATE"
+
+	CTR_IMPORT_IMAGE="fake-integration-proxy:dev" run bash "$script" fake-integration-proxy:dev
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"Nothing has been repaired"* ]]
+	# No archive round-trip was even attempted.
+	run grep -c "docker save" "$CALL_LOG"
+	[ "$output" = "0" ]
+}
+
+@test "KINDLOAD a truncated listing that omits the image is COULD-NOT-VERIFY, not pass and not fail" {
+	# node.status.images is capped at --node-status-max-images (default 50) and
+	# sorted by size, so a small image is absent from the DATA while present on
+	# the node. Guessing FAIL here blocked the whole demo on 2026-08-03;
+	# guessing PASS is the defect this branch exists to close. So: neither.
+	CRICTL_TRUNCATED=1 run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 3 ]
+	[[ "$output" == *"COULD-NOT-VERIFY"* ]]
+	[[ "$output" == *"TRUNCATED"* ]]
+	[[ "$output" != *"PASS —"* ]]
+	# Nothing was repaired on the strength of a listing that could not answer.
+	run grep -c "docker save" "$CALL_LOG"
+	[ "$output" = "0" ]
+}
+
+@test "KINDLOAD an untruncated listing that omits the image is a plain FAILURE" {
+	# The control for the test above. Same absence, trustworthy listing, so the
+	# absence is real and must be reported as such. Without this, "truncated
+	# means inconclusive" could be implemented as "absence always means
+	# inconclusive" and nothing here would notice.
+	CTR_IMPORT_STATUS=1 run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"absent, or are NOT the image built locally"* ]]
+	[[ "$output" != *"COULD-NOT-VERIFY"* ]]
+}
+
+@test "KINDLOAD an ID column with no usable value cannot pass by comparing two blanks" {
+	# scripts/supercred-crictl-shim.sh emits `-` in the IMAGE ID column, because
+	# it reads the API server and has no ID to report. An implementation that
+	# normalised that to "" and compared it against a local "" would report a
+	# perfect match for two things it never looked at — the same vacuous-pass
+	# bug class, re-entering through its own fix.
+	echo "fake-integration-proxy:dev -" >"$CRICTL_STATE"
+	DOCKER_MISSING="fake-integration-proxy:dev" run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 3 ]
+	[[ "$output" == *"COULD-NOT-VERIFY"* ]]
+	[[ "$output" != *"PASS —"* ]]
+}
+
+@test "KINDLOAD a short IMAGE ID is not accepted as an abbreviation" {
+	# A 6-character value is not a truncated sha256, it is noise, and a prefix
+	# comparison against it would match a large family of unrelated images. The
+	# old fakes printed exactly this (`abc123`) in every row.
+	echo "fake-integration-proxy:dev abc123" >"$CRICTL_STATE"
+	run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 3 ]
+	[[ "$output" == *"COULD-NOT-VERIFY"* ]]
+	[[ "$output" == *"no usable IMAGE ID"* ]]
+}
+
+@test "KINDLOAD the node's truncated ID is compared as a PREFIX of the local one" {
+	# crictl prints 13 characters; docker prints 64. Comparing them for equality
+	# would fail every correct build, and comparing them the other way round —
+	# local as a prefix of node — would let a short node value match anything.
+	# The fake truncates to 13, so a green happy path IS this assertion; this
+	# test pins the direction by staging a node ID that is a prefix of a
+	# DIFFERENT image's ID.
+	local other
+	other="$(fake_image_id some-other-image:dev)"
+	echo "fake-integration-proxy:dev $other" >"$CRICTL_STATE"
+	run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"DIFFERENT image"* ]]
 }
 
 @test "KINDLOAD recovery waits for the CRI to adopt the image, rather than checking once" {
@@ -227,18 +388,20 @@ setup() {
 	cat >"$bin/docker" <<-'SLOW'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
+		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
 		case "$1" in
+		  image) printf 'sha256:%s\n' "$(derive_id "${!#}")"; exit 0 ;;
 		  save) for ((i=1;i<=$#;i++)); do [ "${!i}" = "-o" ] && { j=$((i+1)); : >"${!j}"; }; done; exit 0 ;;
 		  exec)
 		    shift; [ "$1" = "-i" ] && shift; shift
 		    case "$1" in
 		      crictl)
-		        printf 'IMAGE TAG IMAGE-ID SIZE\n'
+		        printf 'IMAGE TAG IMAGE ID SIZE\n'
 		        n=$(( $(cat "$BATS_TEST_TMPDIR/polls" 2>/dev/null || echo 0) + 1 ))
 		        echo "$n" >"$BATS_TEST_TMPDIR/polls"
 		        # Absent on the first poll after labelling, present afterwards.
 		        [ -f "$BATS_TEST_TMPDIR/labelled" ] && [ "$n" -gt 2 ] && \
-		          printf 'docker.io/library/slow-image dev abc123 10MB\n'
+		          printf 'docker.io/library/slow-image dev %s 10MB\n' "$(derive_id slow-image:dev | cut -c1-13)"
 		        ;;
 		      ctr)
 		        case "$*" in

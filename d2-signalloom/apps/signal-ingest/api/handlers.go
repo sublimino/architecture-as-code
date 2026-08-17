@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/collectors"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
@@ -18,6 +19,7 @@ import (
 type Handlers struct {
 	Store  store.SignalStore
 	Engine *correlation.Engine
+	Audit  audit.AuditWriter
 }
 
 // RegisterRoutes adds all API routes to the mux.
@@ -152,6 +154,34 @@ func (h *Handlers) handleCorrelate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit: correlation_run
+	detail, _ := json.Marshal(map[string]any{"actors_discovered": len(actors)})
+	if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
+		TenantID:  "tenant-demo",
+		EventType: audit.EventCorrelationRun,
+		Detail:    detail,
+	}); auditErr != nil {
+		slog.Error("audit write failed (correlation_run)", "error", auditErr)
+	}
+
+	// Audit: actor_created for any newly created actors
+	for _, a := range actors {
+		actorDetail, _ := json.Marshal(map[string]any{
+			"actor_id":   a.ID,
+			"confidence": a.Confidence,
+			"status":     a.Status,
+			"evidence":   len(a.EvidenceChain),
+		})
+		if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
+			TenantID:  "tenant-demo",
+			EventType: audit.EventActorCreated,
+			ActorID:   a.ID,
+			Detail:    actorDetail,
+		}); auditErr != nil {
+			slog.Error("audit write failed (actor_created)", "actor", a.ID, "error", auditErr)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"actors_discovered": len(actors),
 		"actors":            actors,
@@ -167,6 +197,17 @@ func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("fixtures seeded", "count", len(obs))
+
+	// Audit: collector_run
+	seedDetail, _ := json.Marshal(map[string]any{"observations_seeded": len(obs)})
+	if auditErr := h.Audit.WriteAuditEvent(r.Context(), audit.Event{
+		TenantID:  "tenant-demo",
+		EventType: audit.EventCollectorRun,
+		Detail:    seedDetail,
+	}); auditErr != nil {
+		slog.Error("audit write failed (collector_run)", "error", auditErr)
+	}
+
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"seeded": len(obs),
 	})

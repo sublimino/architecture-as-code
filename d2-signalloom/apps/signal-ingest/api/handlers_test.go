@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/audit"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/correlation"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/model"
 	"github.com/controlplaneio-in-toto/osramp-demo/d2-signalloom/apps/signal-ingest/store"
@@ -15,12 +17,17 @@ import (
 
 func newTestHandlers(t *testing.T) (*Handlers, *http.ServeMux) {
 	t.Helper()
+	return newTestHandlersWithAudit(t, audit.NewFakeWriter())
+}
+
+func newTestHandlersWithAudit(t *testing.T, aw audit.AuditWriter) (*Handlers, *http.ServeMux) {
+	t.Helper()
 	s := store.NewMemoryStore()
 	e, err := correlation.NewEngine(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &Handlers{Store: s, Engine: e}
+	h := &Handlers{Store: s, Engine: e, Audit: aw}
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	return h, mux
@@ -180,5 +187,76 @@ func TestCorrelate(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Fatalf("correlate: want 200, got %d, body: %s", w.Code, w.Body.String())
+	}
+}
+
+// TestCorrelate_WritesAuditEvents verifies correlation_run and actor_created
+// audit events are emitted when correlation discovers actors.
+func TestCorrelate_WritesAuditEvents(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	h, mux := newTestHandlersWithAudit(t, fake)
+
+	obs := []model.Observation{
+		{ID: "ca-1", Layer: model.LayerNetworkEgress, Source: "src", ActorHint: "audit-bot"},
+		{ID: "ca-2", Layer: model.LayerBehavioural, Source: "src", ActorHint: "audit-bot"},
+	}
+	h.Store.Append(context.Background(), obs)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/correlate", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("correlate: want 200, got %d", w.Code)
+	}
+
+	corrEvents := fake.EventsByType(audit.EventCorrelationRun)
+	if len(corrEvents) != 1 {
+		t.Errorf("want 1 correlation_run event, got %d", len(corrEvents))
+	}
+
+	actorEvents := fake.EventsByType(audit.EventActorCreated)
+	if len(actorEvents) == 0 {
+		t.Error("want at least 1 actor_created event, got 0")
+	}
+}
+
+// TestSeed_WritesCollectorRunAudit verifies seed emits a collector_run event.
+func TestSeed_WritesCollectorRunAudit(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	_, mux := newTestHandlersWithAudit(t, fake)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/collectors/seed", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("seed: want 201, got %d", w.Code)
+	}
+
+	collectorEvents := fake.EventsByType(audit.EventCollectorRun)
+	if len(collectorEvents) != 1 {
+		t.Errorf("want 1 collector_run event, got %d", len(collectorEvents))
+	}
+}
+
+// TestAuditFailure_DoesNotBreakCorrelate verifies fail-open on audit errors.
+func TestAuditFailure_DoesNotBreakCorrelate(t *testing.T) {
+	fake := audit.NewFakeWriter()
+	fake.FailWith = errors.New("connection refused")
+	h, mux := newTestHandlersWithAudit(t, fake)
+
+	obs := []model.Observation{
+		{ID: "af-1", Layer: model.LayerNetworkEgress, Source: "src", ActorHint: "fail-bot"},
+		{ID: "af-2", Layer: model.LayerBehavioural, Source: "src", ActorHint: "fail-bot"},
+	}
+	h.Store.Append(context.Background(), obs)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/correlate", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("correlate should succeed despite audit failure: want 200, got %d", w.Code)
 	}
 }

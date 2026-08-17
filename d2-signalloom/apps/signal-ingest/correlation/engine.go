@@ -237,11 +237,17 @@ func (e *Engine) GetActor(id string) *model.ProvisionalActor {
 	return nil
 }
 
+// ErrAlreadyPromoted is returned when attempting to promote an already-promoted actor.
+var ErrAlreadyPromoted = fmt.Errorf("actor already promoted")
+
 // PromoteActor marks an actor as promoted.
 func (e *Engine) PromoteActor(id string) (*model.ProvisionalActor, error) {
 	actor := e.GetActor(id)
 	if actor == nil {
 		return nil, fmt.Errorf("actor %q not found", id)
+	}
+	if actor.Status == model.ActorPromoted {
+		return nil, ErrAlreadyPromoted
 	}
 	now := time.Now().UTC()
 	actor.Status = model.ActorPromoted

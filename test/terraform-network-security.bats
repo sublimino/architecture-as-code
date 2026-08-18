@@ -1,17 +1,41 @@
 #!/usr/bin/env bats
 #
-# Network and compute security invariants for the Terraform GCP demo platform.
+# Whole-tree security invariants for the Terraform GCP demo platform.
 #
 # Offline. No network, no cloud credentials, no `terraform init`. Under 30s.
+#
+# ─── What belongs in this file, and what no longer does ─────────────────────
+#
+# CONTRACT §7a makes native `terraform test` the primary correctness surface.
+# Anything about the *value* an attribute evaluates to now lives in
+# `terraform/modules/{network,compute}/tests/*.tftest.hcl`, where it is
+# asserted against the configuration Terraform actually computed rather than
+# against the HCL text that produced it. That is a strictly stronger claim: a
+# grep proves the source mentions the IAP range; the tftest proves the firewall
+# rule Terraform would create has exactly that source, after variables, locals
+# and conditionals resolved.
+#
+# What stays here is the class `terraform test` genuinely cannot express:
+#
+#   1. ABSENCE ACROSS THE WHOLE TREE. A plan can only see what it evaluated.
+#      It cannot tell you that no `access_config` exists in any module anywhere
+#      under terraform/, including modules owned by other chunks and modules no
+#      root has wired up yet. That is the merge-time property, and it is the
+#      one that matters most.
+#   2. UNIVERSALS ACROSS THE WHOLE TREE. "Every instance in the repository sets
+#      enable-oslogin" spans F3's demo VM and F5's CI runner. Neither module's
+#      own tftest can see the other.
+#   3. DOCUMENTATION CONTENT, FILE LAYOUT, GIT HYGIENE, and the shape of the
+#      tftest suites themselves — a suite cannot audit its own existence.
 #
 # ─── The failure mode this file is built against ────────────────────────────
 #
 # A guard that greps for a forbidden pattern passes when the file it greps was
 # never written. `grep -q access_config terraform/ || pass` is green on an
 # empty repository, and it stays green if someone deletes the compute module.
-# So every assertion below proves the artefact exists FIRST, and the two
-# mutation tests at the bottom prove the guards can actually fail — a guard
-# that cannot fail is worse than no guard, because it reads as coverage.
+# So every assertion below proves the artefact exists FIRST, and the mutation
+# tests at the bottom prove the guards can actually fail — a guard that cannot
+# fail is worse than no guard, because it reads as coverage.
 #
 # The mutation fixtures come in two flavours deliberately:
 #
@@ -56,10 +80,20 @@ tf_files() {
 	find "$1" -type f -name '*.tf' -not -path '*/.terraform/*' 2>/dev/null | sort
 }
 
+tftest_files() {
+	find "$1" -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' 2>/dev/null | sort
+}
+
 # Strips comment lines so a comment that discusses a forbidden pattern is not
 # mistaken for the pattern itself.
 uncommented() {
 	sed -e 's/[[:space:]]*#.*$//' "$1"
+}
+
+# Git-tracked files under the given paths. Untracked build output is excluded
+# by construction rather than by an exclusion list that goes stale.
+tracked_sources() {
+	git -C "$REPO_ROOT" ls-files -- "$@" | sed "s|^|$REPO_ROOT/|"
 }
 
 # Splits every resource of <type> under <dir> into one file per block in
@@ -69,8 +103,7 @@ uncommented() {
 #
 # Whole-block extraction rather than a fixed `grep -A<n>` window: a window is
 # silently wrong the moment a comment is added inside a resource, and it fails
-# by reporting the guarded attribute absent — a false alarm one day and, if the
-# assertion is ever written the other way round, a false pass the next.
+# by reporting the guarded attribute absent.
 explode_resource_blocks() {
 	local dir="$1" type="$2" outdir="$3" f base
 	mkdir -p "$outdir"
@@ -130,9 +163,9 @@ scan_access_config() {
 # directory also reads whatever `terraform init` left behind — `.terraform/`
 # and `.terraform.lock.hcl` are full of legitimate 64-character provider
 # digests, so the high-entropy heuristic fires on every developer who has run
-# `terraform validate`. That produces a guard people learn to ignore, which is
-# the same as no guard. The caller decides the file list; `tracked_sources`
-# below derives it from git, so only committed source is ever judged.
+# `terraform validate` or `terraform test`. That produces a guard people learn
+# to ignore, which is the same as no guard. The caller decides the file list;
+# `tracked_sources` derives it from git, so only committed source is judged.
 scan_credential_literals() {
 	local found=0 target
 	for target in "$@"; do
@@ -151,14 +184,8 @@ scan_credential_literals() {
 	return "$found"
 }
 
-# Git-tracked files under the given paths. Untracked build output is excluded
-# by construction rather than by an exclusion list that goes stale.
-tracked_sources() {
-	git -C "$REPO_ROOT" ls-files -- "$@" | sed "s|^|$REPO_ROOT/|"
-}
-
 # ---------------------------------------------------------------------------
-# Presence. Everything below depends on these, so they run first.
+# PRESENCE. Everything below depends on these, so they run first (CONTRACT §7).
 # ---------------------------------------------------------------------------
 
 @test "network module directory exists with its required files" {
@@ -200,277 +227,23 @@ tracked_sources() {
 	}
 }
 
-# ---------------------------------------------------------------------------
-# Network: VPC and subnet (ISC-77, ISC-79, ISC-80, ISC-95, ISC-96)
-# ---------------------------------------------------------------------------
-
-@test "every VPC is custom-mode (auto_create_subnetworks = false)" {
-	local networks
-	networks="$(grep -rhc '^resource "google_compute_network"' "$TF_DIR" --include='*.tf' 2>/dev/null | paste -sd+ | bc)"
-	[ "${networks:-0}" -ge 1 ]
-
-	# One `false` setting per network resource, and no `true` anywhere.
-	local false_count
-	false_count="$(grep -rhE '^[[:space:]]*auto_create_subnetworks[[:space:]]*=[[:space:]]*false' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$false_count" -eq "$networks" ]
-
-	run grep -rE '^[[:space:]]*auto_create_subnetworks[[:space:]]*=[[:space:]]*true' "$TF_DIR" --include='*.tf'
-	[ "$status" -ne 0 ]
-}
-
-@test "every subnet enables private_ip_google_access" {
-	local subnets pga
-	subnets="$(grep -rhE '^resource "google_compute_subnetwork"' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$subnets" -ge 1 ]
-	pga="$(grep -rhE '^[[:space:]]*private_ip_google_access[[:space:]]*=[[:space:]]*true' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$pga" -eq "$subnets" ]
-}
-
-@test "every subnet enables VPC flow logs with an explicit sampling config" {
-	local subnets blocks="$BATS_TEST_TMPDIR/subnets" b
-	subnets="$(grep -rhE '^resource "google_compute_subnetwork"' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$subnets" -ge 1 ]
-
-	# Whole-block extraction, not a fixed line window: every subnet resource
-	# must carry a log_config, whatever its length.
-	explode_resource_blocks "$TF_DIR" "google_compute_subnetwork" "$blocks"
-	[ "$(find "$blocks" -name '*.block' | wc -l)" -eq "$subnets" ]
-
-	for b in "$blocks"/*.block; do
-		uncommented "$b" | grep -qE '^[[:space:]]*log_config[[:space:]]*\{' || {
-			echo "subnet without flow logs: $b"
-			cat "$b"
-			return 1
-		}
-	done
-
-	grep -qE 'aggregation_interval[[:space:]]*=' "$NET_DIR/main.tf"
-	grep -qE 'flow_sampling[[:space:]]*=' "$NET_DIR/main.tf"
-
-	# A sampling rate of 0 is flow logs that record nothing. The variable's own
-	# validation must forbid it, or "flow logs enabled" is a claim not a fact.
-	grep -qE 'var\.flow_log_sampling_rate[[:space:]]*>[[:space:]]*0' "$NET_DIR/variables.tf"
-}
-
-@test "exactly one subnet, named from the contract's name_prefix" {
-	# ISC-78. The contract fixes name_prefix = "sl-${environment_key}", so a
-	# name derived from it carries the environment key by construction. A
-	# hardcoded subnet name would collide the moment a second environment is
-	# added — which is the whole premise of the environment map.
-	local subnets
-	subnets="$(grep -cE '^resource "google_compute_subnetwork"' "$NET_DIR/main.tf")"
-	[ "$subnets" -eq 1 ]
-
-	grep -qE '^[[:space:]]*name[[:space:]]*=[[:space:]]*"\$\{var\.name_prefix\}-subnet"' "$NET_DIR/main.tf"
-
-	# Same for the VPC, router and NAT: no resource invents its own scheme.
-	local blocks="$BATS_TEST_TMPDIR/named" b type
-	for type in google_compute_network google_compute_router google_compute_router_nat; do
-		rm -rf "$blocks"
-		explode_resource_blocks "$NET_DIR" "$type" "$blocks"
-		[ "$(find "$blocks" -name '*.block' | wc -l)" -ge 1 ]
-		for b in "$blocks"/*.block; do
-			grep -qE '^[[:space:]]*name[[:space:]]*=[[:space:]]*"\$\{var\.name_prefix\}-' "$b" || {
-				echo "$type does not name itself from var.name_prefix: $b"
-				return 1
-			}
-		done
-	done
-}
-
-@test "machine type and boot disk are variables with documented defaults" {
-	# ISC-113. A default is not documented by existing; the description has to
-	# say why the number is that number.
-	local block
-	block="$(grep -A6 'variable "machine_type"' "$COMPUTE_DIR/variables.tf")"
-	[ -n "$block" ]
-	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*"[a-z0-9-]+"' <<<"$block"
-	grep -qE '^[[:space:]]*description[[:space:]]*=[[:space:]]*".{60,}' <<<"$block"
-
-	block="$(grep -A8 'variable "boot_disk_gb"' "$COMPUTE_DIR/variables.tf")"
-	[ -n "$block" ]
-	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*[0-9]+' <<<"$block"
-	grep -qE '^[[:space:]]*description[[:space:]]*=[[:space:]]*".{60,}' <<<"$block"
-
-	# deletion_protection is deliberately NOT defaulted here: the contract makes
-	# it true for demo and false for ci, and that is a root-level decision. A
-	# module default would let a root forget to pass it and still plan.
-	block="$(grep -A5 'variable "deletion_protection"' "$COMPUTE_DIR/variables.tf")"
-	[ -n "$block" ]
-	run grep -qE '^[[:space:]]*default[[:space:]]*=' <<<"$block"
-	[ "$status" -ne 0 ]
-}
-
-@test "Cloud Router and Cloud NAT exist, and NAT logging is enabled" {
-	grep -qE '^resource "google_compute_router" ' "$NET_DIR/main.tf"
-
-	# The NAT's own block must carry the logging config — asserting `enable =
-	# true` anywhere in main.tf would be satisfied by any other resource.
-	local blocks="$BATS_TEST_TMPDIR/nats" nat
-	explode_resource_blocks "$NET_DIR" "google_compute_router_nat" "$blocks"
-	[ "$(find "$blocks" -name '*.block' | wc -l)" -eq 1 ]
-	nat="$(cat "$blocks"/*.block)"
-
-	grep -qE '^[[:space:]]*log_config[[:space:]]*\{' <<<"$nat"
-	grep -qE '^[[:space:]]*enable[[:space:]]*=[[:space:]]*true' <<<"$nat"
-	grep -qE '^[[:space:]]*filter[[:space:]]*=[[:space:]]*var\.nat_log_filter' <<<"$nat"
-
-	# And the NAT is attached to the router this module created, not to a name
-	# a caller happens to pass in.
-	grep -qE '^[[:space:]]*router[[:space:]]*=[[:space:]]*google_compute_router\.' <<<"$nat"
-}
-
-# ---------------------------------------------------------------------------
-# Network: firewall (ISC-84..ISC-94)
-# ---------------------------------------------------------------------------
-
-@test "no firewall rule allows traffic from or to 0.0.0.0/0 or ::/0" {
-	explode_firewall_rules "$TF_DIR" "$BLOCKS"
-	[ "$(find "$BLOCKS" -name '*.rule' | wc -l)" -ge 5 ]
-	run scan_wide_open_allow "$BLOCKS"
-	[ "$status" -eq 0 ] || {
-		echo "$output"
+@test "instances are actually present to be inspected" {
+	# The instance sweeps below all quantify over "every instance under
+	# terraform/". If that set is empty they are unanimously, vacuously true.
+	local instances
+	instances="$(grep -rhE '^resource "google_compute_instance" ' "$TF_DIR" --include='*.tf' | wc -l)"
+	[ "$instances" -ge 1 ] || {
+		echo "no google_compute_instance resources found anywhere under terraform/"
 		return 1
 	}
 }
 
-@test "the SSH rule's source is exactly the IAP range and nothing else" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "allow_iap_ssh"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-
-	# The source is the local, and the local is exactly the IAP range.
-	grep -qE '^[[:space:]]*source_ranges[[:space:]]*=[[:space:]]*\[local\.iap_range\]' <<<"$rule"
-	grep -qE '^[[:space:]]*iap_range[[:space:]]*=[[:space:]]*"35\.235\.240\.0/20"$' "$NET_DIR/main.tf"
-
-	# One CIDR total in the locals value — no second range smuggled in.
-	local cidrs
-	cidrs="$(grep -E '^[[:space:]]*iap_range[[:space:]]*=' "$NET_DIR/main.tf" |
-		grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' | wc -l)"
-	[ "$cidrs" -eq 1 ]
-
-	# TCP 22 only.
-	grep -qE '^[[:space:]]*protocol[[:space:]]*=[[:space:]]*"tcp"' <<<"$rule"
-	grep -qE '^[[:space:]]*ports[[:space:]]*=[[:space:]]*\["22"\]' <<<"$rule"
-}
-
-@test "the SSH rule is scoped by target service account, not applied VPC-wide" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "allow_iap_ssh"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-	grep -qE '^[[:space:]]*target_(service_accounts|tags)[[:space:]]*=' <<<"$rule"
-}
-
-@test "every ingress allow rule is scoped to a target, never the whole VPC" {
-	explode_firewall_rules "$NET_DIR" "$BLOCKS"
-	local b unscoped=0
-	for b in "$BLOCKS"/*.rule; do
-		uncommented "$b" | grep -qE '^[[:space:]]*allow[[:space:]]*\{' || continue
-		uncommented "$b" | grep -qE '^[[:space:]]*target_(service_accounts|tags)[[:space:]]*=' || {
-			echo "UNSCOPED ALLOW RULE: $b"
-			unscoped=1
-		}
-	done
-	[ "$unscoped" -eq 0 ]
-}
-
-@test "the health-check rule's sources are exactly the two GCP ranges" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "allow_health_checks"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-	grep -qE '^[[:space:]]*source_ranges[[:space:]]*=[[:space:]]*local\.health_check_ranges' <<<"$rule"
-
-	local def
-	def="$(grep -E '^[[:space:]]*health_check_ranges[[:space:]]*=' "$NET_DIR/main.tf")"
-	[ -n "$def" ]
-	grep -q '130\.211\.0\.0/22' <<<"$def"
-	grep -q '35\.191\.0\.0/16' <<<"$def"
-	# Exactly two ranges, so a third cannot be appended unnoticed.
-	[ "$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+' <<<"$def" | wc -l)" -eq 2 ]
-}
-
-@test "the health-check rule opens only the app port, not all ports" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "allow_health_checks"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-	grep -qE '^[[:space:]]*ports[[:space:]]*=[[:space:]]*\[tostring\(var\.app_port\)\]' <<<"$rule"
-	# `protocol = "all"` or an omitted `ports` would open everything.
-	run grep -qE '^[[:space:]]*protocol[[:space:]]*=[[:space:]]*"all"' <<<"$rule"
-	[ "$status" -ne 0 ]
-}
-
-@test "a default-deny ingress rule exists below every allow rule" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "deny_all_ingress"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-	grep -qE '^[[:space:]]*direction[[:space:]]*=[[:space:]]*"INGRESS"' <<<"$rule"
-	grep -qE '^[[:space:]]*deny[[:space:]]*\{' <<<"$rule"
-
-	local deny_priority
-	deny_priority="$(grep -E '^[[:space:]]*priority[[:space:]]*=' <<<"$rule" | grep -oE '[0-9]+' | head -1)"
-	[ "$deny_priority" -ge 65000 ]
-
-	# Every allow rule must sit at a lower (higher-precedence) number, or the
-	# deny would shadow the allows and the demo would be unreachable.
-	explode_firewall_rules "$NET_DIR" "$BLOCKS"
-	local b p
-	for b in "$BLOCKS"/*.rule; do
-		uncommented "$b" | grep -qE '^[[:space:]]*allow[[:space:]]*\{' || continue
-		p="$(uncommented "$b" | grep -E '^[[:space:]]*priority[[:space:]]*=' | grep -oE '[0-9]+' | head -1)"
-		[ -n "$p" ] || {
-			echo "allow rule with no explicit priority: $b"
-			return 1
-		}
-		[ "$p" -lt "$deny_priority" ] || {
-			echo "allow rule $b at priority $p is not above the deny at $deny_priority"
-			return 1
-		}
-	done
-}
-
 # ---------------------------------------------------------------------------
-# Network: egress policy (ISC-90, ISC-91)
-# ---------------------------------------------------------------------------
-
-@test "an explicit default-deny egress rule exists rather than the implied allow-all" {
-	local rule
-	rule="$(grep -A20 'resource "google_compute_firewall" "deny_all_egress"' "$NET_DIR/main.tf")"
-	[ -n "$rule" ]
-	grep -qE '^[[:space:]]*direction[[:space:]]*=[[:space:]]*"EGRESS"' <<<"$rule"
-	grep -qE '^[[:space:]]*deny[[:space:]]*\{' <<<"$rule"
-}
-
-@test "the default-deny egress gate defaults closed" {
-	# The whole point. A variable that defaults open is how "NAT is not egress
-	# control" survives a review.
-	local block
-	block="$(grep -A6 'variable "enable_default_deny_egress"' "$NET_DIR/variables.tf")"
-	[ -n "$block" ]
-	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*true' <<<"$block"
-
-	# And no public-egress allowlist ships pre-populated.
-	block="$(grep -A6 'variable "egress_public_https_destinations"' "$NET_DIR/variables.tf")"
-	[ -n "$block" ]
-	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*\[\][[:space:]]*$' <<<"$block"
-}
-
-@test "the egress policy names each allowed dependency in a comment" {
-	# ISC-91: the list must be documented, not merely present.
-	local comments
-	comments="$(grep -E '^#' "$NET_DIR/main.tf")"
-	grep -qi 'dns' <<<"$comments"
-	grep -qi 'private google access\|googleapis' <<<"$comments"
-	grep -qi 'registr' <<<"$comments"
-	grep -qi 'NAT is not egress control' <<<"$comments"
-
-	# Each documented dependency has a rule behind it.
-	grep -q 'resource "google_compute_firewall" "allow_egress_dns"' "$NET_DIR/main.tf"
-	grep -q 'resource "google_compute_firewall" "allow_egress_google_apis"' "$NET_DIR/main.tf"
-	grep -q 'resource "google_compute_firewall" "allow_egress_public_https"' "$NET_DIR/main.tf"
-}
-
-# ---------------------------------------------------------------------------
-# Compute: VM hardening (ISC-100..ISC-112)
+# ABSENCE ACROSS THE WHOLE TREE
+#
+# The class `terraform test` cannot reach: a plan sees what it evaluated, never
+# what no configuration anywhere contains. These are the merge-time guards, and
+# they deliberately scan all of terraform/, including chunks I do not own.
 # ---------------------------------------------------------------------------
 
 @test "no access_config block appears anywhere under terraform/" {
@@ -484,97 +257,15 @@ tracked_sources() {
 	}
 }
 
-@test "every instance sets enable-oslogin TRUE and blocks project SSH keys" {
-	local instances
-	instances="$(grep -rhE '^resource "google_compute_instance" ' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$instances" -ge 1 ]
-
-	local oslogin blocked
-	oslogin="$(grep -rhE '^[[:space:]]*enable-oslogin[[:space:]]*=[[:space:]]*"TRUE"' "$TF_DIR" --include='*.tf' | wc -l)"
-	blocked="$(grep -rhE '^[[:space:]]*block-project-ssh-keys[[:space:]]*=[[:space:]]*"TRUE"' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$oslogin" -eq "$instances" ]
-	[ "$blocked" -eq "$instances" ]
-
-	# FALSE anywhere is a straight violation, not a count mismatch.
-	run grep -rE '(enable-oslogin|block-project-ssh-keys)[[:space:]]*=[[:space:]]*"FALSE"' "$TF_DIR" --include='*.tf'
-	[ "$status" -ne 0 ]
+@test "no firewall rule anywhere allows traffic from or to 0.0.0.0/0 or ::/0" {
+	explode_firewall_rules "$TF_DIR" "$BLOCKS"
+	[ "$(find "$BLOCKS" -name '*.rule' | wc -l)" -ge 5 ]
+	run scan_wide_open_allow "$BLOCKS"
+	[ "$status" -eq 0 ] || {
+		echo "$output"
+		return 1
+	}
 }
-
-@test "every instance enables all three Shielded VM protections" {
-	local instances
-	instances="$(grep -rhE '^resource "google_compute_instance" ' "$TF_DIR" --include='*.tf' | wc -l)"
-	[ "$instances" -ge 1 ]
-
-	local field count
-	for field in enable_secure_boot enable_vtpm enable_integrity_monitoring; do
-		count="$(grep -rhE "^[[:space:]]*${field}[[:space:]]*=[[:space:]]*true" "$TF_DIR" --include='*.tf' | wc -l)"
-		[ "$count" -eq "$instances" ] || {
-			echo "$field is true on $count of $instances instances"
-			return 1
-		}
-		run grep -rE "^[[:space:]]*${field}[[:space:]]*=[[:space:]]*false" "$TF_DIR" --include='*.tf'
-		[ "$status" -ne 0 ]
-	done
-}
-
-@test "confidential_instance_config is addressed, not silently omitted" {
-	grep -qE '^[[:space:]]*confidential_instance_config[[:space:]]*\{' "$COMPUTE_DIR/main.tf"
-	# If it is off, the reason must be written down.
-	grep -qi 'confidential' "$COMPUTE_DIR/README.md"
-}
-
-@test "no instance uses the default compute service account" {
-	[ "$(tf_files "$TF_DIR" | wc -l)" -ge 4 ]
-	run grep -rE 'developer\.gserviceaccount\.com' "$TF_DIR" --include='*.tf'
-	# The only permitted mention is the validation block that forbids it.
-	if [ "$status" -eq 0 ]; then
-		while IFS= read -r line; do
-			grep -q 'endswith\|error_message' <<<"$line" || {
-				echo "default compute SA referenced: $line"
-				return 1
-			}
-		done <<<"$output"
-	fi
-
-	# And the module must actually take an SA from outside.
-	grep -qE '^[[:space:]]*email[[:space:]]*=[[:space:]]*var\.service_account_email' "$COMPUTE_DIR/main.tf"
-	grep -qE '^[[:space:]]*scopes[[:space:]]*=[[:space:]]*\["cloud-platform"\]' "$COMPUTE_DIR/main.tf"
-}
-
-@test "the instance carries a network tag and declares no preemptibility" {
-	grep -qE '^[[:space:]]*tags[[:space:]]*=[[:space:]]*\[var\.network_tag\]' "$COMPUTE_DIR/main.tf"
-	grep -qE '^[[:space:]]*network_tag[[:space:]]*=[[:space:]]*"sl-\$\{var\.environment_key\}' "$NET_DIR/main.tf"
-	grep -qE '^[[:space:]]*preemptible[[:space:]]*=[[:space:]]*false' "$COMPUTE_DIR/main.tf"
-	grep -qE '^[[:space:]]*deletion_protection[[:space:]]*=[[:space:]]*var\.deletion_protection' "$COMPUTE_DIR/main.tf"
-}
-
-@test "boot disk size and type both come from variables" {
-	grep -qE '^[[:space:]]*size[[:space:]]*=[[:space:]]*var\.boot_disk_gb' "$COMPUTE_DIR/main.tf"
-	grep -qE '^[[:space:]]*type[[:space:]]*=[[:space:]]*var\.boot_disk_type' "$COMPUTE_DIR/main.tf"
-}
-
-@test "both modules export their contracted outputs" {
-	local o
-	for o in network_self_link subnet_self_link network_tag subnet_cidr; do
-		grep -qE "^output \"$o\"" "$NET_DIR/outputs.tf" || {
-			echo "network module missing output $o"
-			return 1
-		}
-	done
-	for o in instance_self_link instance_name internal_ip instance_group_self_link; do
-		grep -qE "^output \"$o\"" "$COMPUTE_DIR/outputs.tf" || {
-			echo "compute module missing output $o"
-			return 1
-		}
-	done
-	# The instance group the edge chunk needs must be real, with a named port.
-	grep -qE '^resource "google_compute_instance_group" ' "$COMPUTE_DIR/main.tf"
-	grep -qE '^[[:space:]]*port[[:space:]]*=[[:space:]]*var\.app_port' "$COMPUTE_DIR/main.tf"
-}
-
-# ---------------------------------------------------------------------------
-# Hygiene (ISC-118, ISC-119)
-# ---------------------------------------------------------------------------
 
 @test "no credential-shaped literal in either module tree or the startup script" {
 	[ -d "$NET_DIR" ] && [ -d "$COMPUTE_DIR" ] && [ -s "$STARTUP" ]
@@ -602,24 +293,6 @@ tracked_sources() {
 	}
 }
 
-@test "no terraform init artifact is committed under either module" {
-	# `.terraform.lock.hcl` is only consulted in a ROOT module; in a shared child
-	# module it is inert and drifts from whatever the roots (F1/F6) actually
-	# lock. Both modules had one committed as a side effect of running
-	# `terraform init -backend=false` in-place to validate. They are removed,
-	# and this assertion stops them coming back — the previous symptom was the
-	# credential scanner drowning in legitimate 64-character provider digests,
-	# which is how a secrets guard becomes something people mute.
-	local artifacts
-	artifacts="$(tracked_sources 'terraform/modules/network' 'terraform/modules/compute' |
-		grep -E '\.terraform\.lock\.hcl$|/\.terraform/' || true)"
-	[ -z "$artifacts" ] || {
-		echo "terraform init artifacts are committed:"
-		echo "$artifacts"
-		return 1
-	}
-}
-
 @test "no developer-machine absolute path is committed in this chunk" {
 	[ -d "$NET_DIR" ] && [ -d "$COMPUTE_DIR" ]
 	run grep -rn '/home/[a-z]' "$NET_DIR" "$COMPUTE_DIR" "${BATS_TEST_FILENAME}" --exclude-dir=.terraform
@@ -630,16 +303,140 @@ tracked_sources() {
 }
 
 # ---------------------------------------------------------------------------
-# Native terraform test hygiene (CONTRACT §7a; ISC-326/327/332/334/347)
+# UNIVERSALS ACROSS THE WHOLE TREE
 #
-# These are text properties of the test files, which is exactly what the
-# contract's own routing table assigns to bats — `terraform test` can assert on
-# the config it evaluated, not on what its own suite does or does not contain.
+# "Every instance in the repository" spans F3's demo VM and F5's CI runner.
+# Neither module's own tftest can see the other, so the cross-chunk quantifier
+# stays here. Each module's tftest asserts the values on its own evaluated
+# config; what these add is that no *other* module drifts from the posture.
 # ---------------------------------------------------------------------------
 
-tftest_files() {
-	find "$1" -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' 2>/dev/null | sort
+@test "every instance under terraform/ sets enable-oslogin and blocks project SSH keys" {
+	local instances
+	instances="$(grep -rhE '^resource "google_compute_instance" ' "$TF_DIR" --include='*.tf' | wc -l)"
+	[ "$instances" -ge 1 ]
+
+	local oslogin blocked
+	oslogin="$(grep -rhE '^[[:space:]]*enable-oslogin[[:space:]]*=[[:space:]]*"TRUE"' "$TF_DIR" --include='*.tf' | wc -l)"
+	blocked="$(grep -rhE '^[[:space:]]*block-project-ssh-keys[[:space:]]*=[[:space:]]*"TRUE"' "$TF_DIR" --include='*.tf' | wc -l)"
+	[ "$oslogin" -eq "$instances" ]
+	[ "$blocked" -eq "$instances" ]
+
+	# FALSE anywhere is a straight violation, not a count mismatch.
+	run grep -rE '(enable-oslogin|block-project-ssh-keys)[[:space:]]*=[[:space:]]*"FALSE"' "$TF_DIR" --include='*.tf'
+	[ "$status" -ne 0 ]
 }
+
+@test "every instance under terraform/ enables all three Shielded VM protections" {
+	local instances
+	instances="$(grep -rhE '^resource "google_compute_instance" ' "$TF_DIR" --include='*.tf' | wc -l)"
+	[ "$instances" -ge 1 ]
+
+	local field count
+	for field in enable_secure_boot enable_vtpm enable_integrity_monitoring; do
+		count="$(grep -rhE "^[[:space:]]*${field}[[:space:]]*=[[:space:]]*true" "$TF_DIR" --include='*.tf' | wc -l)"
+		[ "$count" -eq "$instances" ] || {
+			echo "$field is true on $count of $instances instances"
+			return 1
+		}
+		run grep -rE "^[[:space:]]*${field}[[:space:]]*=[[:space:]]*false" "$TF_DIR" --include='*.tf'
+		[ "$status" -ne 0 ]
+	done
+}
+
+@test "no instance anywhere uses the default compute service account" {
+	[ "$(tf_files "$TF_DIR" | wc -l)" -ge 4 ]
+	run grep -rE 'developer\.gserviceaccount\.com' "$TF_DIR" --include='*.tf'
+	# The only permitted mention is the validation block that forbids it.
+	if [ "$status" -eq 0 ]; then
+		while IFS= read -r line; do
+			grep -q 'endswith\|error_message' <<<"$line" || {
+				echo "default compute SA referenced: $line"
+				return 1
+			}
+		done <<<"$output"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# CONTRACT SURFACE — the outputs siblings wire against
+#
+# Not an evaluated-value property: this is the merge interface. A renamed
+# output breaks F4's edge module at composition time, which no single-module
+# plan can detect.
+# ---------------------------------------------------------------------------
+
+@test "both modules export their contracted outputs" {
+	local o
+	for o in network_self_link subnet_self_link network_tag subnet_cidr; do
+		grep -qE "^output \"$o\"" "$NET_DIR/outputs.tf" || {
+			echo "network module missing output $o"
+			return 1
+		}
+	done
+	for o in instance_self_link instance_name internal_ip instance_group_self_link; do
+		grep -qE "^output \"$o\"" "$COMPUTE_DIR/outputs.tf" || {
+			echo "compute module missing output $o"
+			return 1
+		}
+	done
+}
+
+# ---------------------------------------------------------------------------
+# DOCUMENTATION CONTENT (CONTRACT §7a routes this class to bats)
+# ---------------------------------------------------------------------------
+
+@test "the egress policy names each allowed dependency in a comment" {
+	# ISC-91: the list must be documented, not merely present. The rules
+	# themselves are asserted on evaluated config in the network tftest; what
+	# cannot be asserted there is whether a human wrote down why they exist.
+	local comments
+	comments="$(grep -E '^#' "$NET_DIR/main.tf")"
+	grep -qi 'dns' <<<"$comments"
+	grep -qi 'private google access\|googleapis' <<<"$comments"
+	grep -qi 'registr' <<<"$comments"
+	grep -qi 'NAT is not egress control' <<<"$comments"
+}
+
+@test "the closed egress default is stated loudly in both NOTES.md and the module README" {
+	# The chunk brief's explicit requirement. A variable that quietly defaults
+	# open is how "NAT is not egress control" survives review; a variable that
+	# defaults closed without anyone being told is how the demo mysteriously
+	# fails to pull images. Both documents must say so.
+	local doc
+	for doc in "$REPO_ROOT/NOTES.md" "$NET_DIR/README.md"; do
+		[ -s "$doc" ] || {
+			echo "missing: $doc"
+			return 1
+		}
+		grep -q 'enable_default_deny_egress' "$doc" || {
+			echo "$doc does not name the egress gate variable"
+			return 1
+		}
+		grep -qi 'cannot pull' "$doc" || {
+			echo "$doc does not state the consequence of the closed default"
+			return 1
+		}
+		grep -qi 'NAT is not egress control' "$doc" || {
+			echo "$doc does not name the threat the default exists to close"
+			return 1
+		}
+	done
+}
+
+@test "confidential_instance_config is addressed, not silently omitted" {
+	# ISC-107. The evaluated value is asserted in the compute tftest; the
+	# *reason* it is off can only live in prose.
+	grep -qE '^[[:space:]]*confidential_instance_config[[:space:]]*\{' "$COMPUTE_DIR/main.tf"
+	grep -qi 'confidential' "$COMPUTE_DIR/README.md"
+}
+
+# ---------------------------------------------------------------------------
+# FILE LAYOUT AND TFTEST HYGIENE (CONTRACT §7a; ISC-326/327/332/334/347)
+#
+# A terraform test suite cannot audit its own existence, its own mock_provider
+# block, or whether it only ever asserts failure.
+# ---------------------------------------------------------------------------
 
 @test "both modules ship a native terraform test suite" {
 	# ISC-326, ISC-327.
@@ -697,12 +494,6 @@ tftest_files() {
 
 	for f in "${files[@]}"; do
 		grep -qE '^[[:space:]]*expect_failures' "$f" || continue
-		grep -qE '^[[:space:]]*assert[[:space:]]*\{' "$f" || {
-			echo "$f uses expect_failures but never asserts a positive outcome"
-			return 1
-		}
-		# And the positive run must not itself be an expect_failures run: at
-		# least one `run` block has asserts and no expect_failures.
 		local blocks="$BATS_TEST_TMPDIR/runs" b positive=0
 		rm -rf "$blocks"
 		mkdir -p "$blocks"
@@ -720,6 +511,31 @@ tftest_files() {
 			return 1
 		}
 	done
+}
+
+# ---------------------------------------------------------------------------
+# GIT HYGIENE
+# ---------------------------------------------------------------------------
+
+@test "no terraform init artifact is committed under either module" {
+	# `.terraform.lock.hcl` is only consulted in a ROOT module; in a shared child
+	# module it is inert and drifts from whatever the roots (F1/F6) actually
+	# lock. Both modules had one committed as a side effect of running
+	# `terraform init -backend=false` in-place to validate. They are removed,
+	# and this assertion stops them coming back — the previous symptom was the
+	# credential scanner drowning in legitimate 64-character provider digests,
+	# which is how a secrets guard becomes something people mute.
+	#
+	# `terraform test` needs that init to have run, so the artifacts reappear on
+	# every local run. This is the guard that keeps them out of a commit.
+	local artifacts
+	artifacts="$(tracked_sources 'terraform/modules/network' 'terraform/modules/compute' |
+		grep -E '\.terraform\.lock\.hcl$|/\.terraform/' || true)"
+	[ -z "$artifacts" ] || {
+		echo "terraform init artifacts are committed:"
+		echo "$artifacts"
+		return 1
+	}
 }
 
 # ---------------------------------------------------------------------------
@@ -792,6 +608,40 @@ tftest_files() {
 	cp "$STARTUP" "$broken"
 	printf '%s\n' 'readonly DEPLOY_KEY="AAAAB3NzaC1yc2EAAAADAQABAAABgQCfakefakefake"' >>"$broken"
 	run scan_credential_literals "$broken"
+	[ "$status" -eq 1 ]
+}
+
+# The §7a guards are the newest and least exercised, so they get a mutation
+# check of their own rather than being trusted because they are green.
+check_tftest_dir() {
+	local f
+	for f in "$1"/*.tftest.hcl; do
+		grep -qE '^mock_provider "google" \{' "$f" || return 1
+		if uncommented "$f" | grep -qE '^[[:space:]]*command[[:space:]]*=[[:space:]]*apply'; then
+			return 1
+		fi
+	done
+	return 0
+}
+
+@test "MUTATION (generated): a tftest that applies, or drops its mock, is caught" {
+	local dir="$BATS_TEST_TMPDIR/gen-tftest"
+	mkdir -p "$dir"
+	cp "$NET_DIR/tests"/*.tftest.hcl "$dir/a.tftest.hcl"
+	cp "$COMPUTE_DIR/tests"/*.tftest.hcl "$dir/b.tftest.hcl"
+
+	# Positive control on the faithful copies.
+	run check_tftest_dir "$dir"
+	[ "$status" -eq 0 ]
+
+	sed -i '0,/^  command = plan$/s//  command = apply/' "$dir/a.tftest.hcl"
+	grep -q 'command = apply' "$dir/a.tftest.hcl"
+	run check_tftest_dir "$dir"
+	[ "$status" -eq 1 ]
+
+	cp "$NET_DIR/tests"/*.tftest.hcl "$dir/a.tftest.hcl"
+	sed -i 's/^mock_provider "google" {}$/# removed/' "$dir/b.tftest.hcl"
+	run check_tftest_dir "$dir"
 	[ "$status" -eq 1 ]
 }
 

@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+#
+# Stub `gcloud` for test/terraform-demo-driver.bats.
+#
+# Placed on PATH ahead of the real binary so scripts/gcp-tf/demo-up.sh executes
+# its REAL control flow — resume, deliver, run, collect, classify, verdict —
+# with no cloud access, no credentials and no network.
+#
+# Every invocation is appended to $STUB_GCLOUD_LOG together with the
+# SSH_AUTH_SOCK the caller actually exported. That is what turns the ssh-agent
+# guard and the impersonation guard from greps into behavioural assertions: the
+# log records what the real gcloud would have SEEN, not what the source says.
+#
+# Knobs:
+#   STUB_GCLOUD_LOG    file to append invocations to
+#   STUB_VM_STATE      what `instances describe` reports (default RUNNING)
+#   STUB_PIPELINE_RC   exit code for the remote pipeline invocation (default 0)
+#   STUB_REPORT_SRC    directory tar'd up and handed back as the collected
+#                      report bundle. UNSET means collection FAILS, which is
+#                      how "the run came back with no verdict" is reproduced.
+#   STUB_SCP_UP_RC     exit code for the code-delivery scp (default 0)
+
+log="${STUB_GCLOUD_LOG:-/dev/null}"
+printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
+
+argv="$*"
+
+case "$argv" in
+  *"instances describe"*)
+    printf '%s\n' "${STUB_VM_STATE:-RUNNING}"
+    exit 0
+    ;;
+  *"instances resume"* | *"instances start"* | *"instances suspend"*)
+    printf 'stub-gcloud: instance state change\n'
+    exit 0
+    ;;
+  *"start-iap-tunnel"*)
+    printf 'stub-gcloud: tunnel listening\n'
+    exit "${STUB_TUNNEL_RC:-0}"
+    ;;
+  *"compute scp"*)
+    # The last argument tells upload from download apart: an upload's
+    # destination is `instance:/path`, a download's is a local directory.
+    dest="${*: -1}"
+    src="${*: -2:1}"
+    case "$dest" in
+      *:*)
+        exit "${STUB_SCP_UP_RC:-0}"
+        ;;
+      *)
+        # Collection. Hand back a bundle built from STUB_REPORT_SRC, named
+        # after the archive the caller asked for, because demo-up.sh untars
+        # exactly that basename out of the destination directory.
+        [ -n "${STUB_REPORT_SRC:-}" ] || exit 1
+        [ -d "${STUB_REPORT_SRC}" ] || exit 1
+        remote_path="${src#*:}"
+        tar -C "${STUB_REPORT_SRC}" -czf "${dest%/}/$(basename "$remote_path")" .
+        exit 0
+        ;;
+    esac
+    ;;
+  *"compute ssh"*)
+    case "$argv" in
+      *"echo ready"*) exit 0 ;;
+      *"demo-pipeline"*)
+        printf 'stub-pipeline: stage output line 1\n'
+        printf 'stub-pipeline: stage output line 2\n'
+        exit "${STUB_PIPELINE_RC:-0}"
+        ;;
+      *"-czf"*)
+        # Packaging the remote report directory. Fails when the test has not
+        # provided one, which is the honest model of a pipeline that died
+        # before writing anything.
+        [ -n "${STUB_REPORT_SRC:-}" ] || exit 1
+        exit 0
+        ;;
+      *) exit 0 ;;
+    esac
+    ;;
+esac
+
+exit 0

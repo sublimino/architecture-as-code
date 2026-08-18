@@ -85,9 +85,11 @@ Makefile constant.
 
 | Field | Type | Empty allowed | Source |
 |---|---|---|---|
+| `schema` | string | no | fixed `signalloom.gcp.handoff/v1` |
 | `schema_version` | number | no | fixed `1` |
 | `project_id` | string | no | `.project_id` \|\| `.integration_inputs.project_id` |
 | `environment_key` | string | no | `.target_env` |
+| `env` | string | no | alias of `environment_key`, asserted equal |
 | `region` | string | no | `.target_environment.region` |
 | `zone` | string | no | `.target_environment.zone` |
 | `instance_name` | string | no | `.instance_name` \|\| `.instance_names[env]` \|\| `.compute[env].instance_name` |
@@ -105,7 +107,21 @@ disabled genuinely has none. The key is always present, so consuming code reads
 a field rather than discovering an absent one at runtime. `app_port` is a JSON
 number because the code that reads it compares it to a port.
 
-`schema_version` is `1`. Bump it on any breaking change and tell the consumers.
+`schema` / `schema_version` are `signalloom.gcp.handoff/v1` / `1`. Bump both on
+any breaking change and tell the consumers.
+
+**Convergence with I2-v2-acceptance.** Their reader was written against `schema`,
+`env`, `project`, `instance`, `ip`, `port`, `bucket`, with the fuller spellings
+as fallbacks. Nine of eleven fields already matched a spelling they accept; only
+`env` and `schema` did not, so both are emitted as additive aliases rather than
+either side renaming. `env` is asserted equal to `environment_key` in the suite —
+two spellings of one value drift the moment somebody edits one.
+
+**Correction issued to I2:** they have `access_mode` as `iap | allowlist`. It is
+three-valued — `terraform/environments/variables.tf` validates
+`iap | allowlist | iap_and_allowlist`, and there is a second validation
+requiring a non-empty `iap_members` whenever the mode includes IAP. A reader
+treating it as a two-way switch mishandles the combined mode.
 
 **Failure is silent-proof by construction.** If any non-`hostname` field
 resolves empty, the target exits non-zero, names the field and the output that

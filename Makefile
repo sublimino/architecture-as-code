@@ -1284,6 +1284,13 @@ GCP_TF_IMPERSONATE_ENV = $(if $(strip $(GCP_TF_IMPERSONATE)),GOOGLE_IMPERSONATE_
 GCP_TF_HANDOFF_DIR ?= deploy/gcp
 GCP_TF_HANDOFF_FILE = $(GCP_TF_HANDOFF_DIR)/$(ENV).handoff.json
 
+# The identifier a consumer matches on before trusting the shape. `schema` is
+# the string form the acceptance harness reads; `schema_version` is the integer
+# to compare when the string matches. Both are emitted because two readers were
+# already written against two spellings, and adding a field is cheaper than
+# either of them renaming.
+GCP_TF_HANDOFF_SCHEMA ?= signalloom.gcp.handoff/v1
+
 # --- Discovery, not hand-maintained lists ----------------------------------
 #
 # This repo has already shipped 33 bats suites that no runner executed: all
@@ -1742,6 +1749,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	esac; \
 	jq -n \
 		--argjson schema_version 1 \
+		--arg schema '$(GCP_TF_HANDOFF_SCHEMA)' \
 		--arg project_id "$$project_id" \
 		--arg environment_key "$$environment_key" \
 		--arg region "$$region" \
@@ -1755,7 +1763,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \

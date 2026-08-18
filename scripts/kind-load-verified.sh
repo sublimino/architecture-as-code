@@ -141,8 +141,30 @@ recover_via_archive() {
   # image onto a node still holding the wrong one would otherwise satisfy a
   # presence poll on the very first iteration — against the stale image it was
   # sent to replace.
-  local waited=0 rc
-  while [ "$waited" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}" ]; do
+  # KIND_LOAD_CRI_ADOPT_TIMEOUT bounds ITERATIONS, not seconds, and on a busy
+  # node the two are nowhere near each other. Each iteration costs one `sleep 1`
+  # PLUS two `docker exec` round trips — `crictl images` for presence and
+  # `crictl inspecti` for the diffIDs. Idle, those are milliseconds and 20
+  # checks really is about 20 seconds. On a node that is itself busy adopting
+  # images they dominate, and 20 checks can be minutes of wall clock.
+  #
+  # This mattered. The cold run on 2026-08-18 printed "has not adopted the
+  # recovered image after 20s", the iteration count wearing a seconds suffix,
+  # and the obvious reading — "the 20s timeout is too short" — was wrong. The
+  # repo even supplies corroborating precedent for it: supercred-images.sh:356
+  # runs the same poll at 90 with a comment saying 20 was fitted to a 54MB image.
+  # A controlled experiment on the CI VM then showed the default AND 90 both
+  # PASS on an idle node, because the number in the message had never been the
+  # elapsed time. Report both, so the next person reads a measurement rather
+  # than a unit error.
+  #
+  # Do NOT "fix" this by making the bound wall-clock. Under load a real
+  # 20-second deadline is TIGHTER than 20 checks, so changing the unit would
+  # make the failure MORE likely while looking like a correctness fix. The bound
+  # stays on iterations deliberately; only the reporting changes here.
+  local checks=0 rc started elapsed
+  started="$(date +%s)"
+  while [ "$checks" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}" ]; do
     image_identity_invalidate
     rc=0; image_identity_verify "$image" || rc=$?
     [ "$rc" -eq 0 ] && return 0
@@ -150,9 +172,10 @@ recover_via_archive() {
     # presence is then the strongest answer available.
     [ "$rc" -eq 2 ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ] && return 0
     sleep 1
-    waited=$((waited + 1))
+    checks=$((checks + 1))
   done
-  warn "$image is labelled but the CRI has not adopted the recovered image after ${waited}s"
+  elapsed=$(( $(date +%s) - started ))
+  warn "$image is labelled but the CRI has not adopted the recovered image after ${checks} checks over ${elapsed}s"
   return 1
 }
 

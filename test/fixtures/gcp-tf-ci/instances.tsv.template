@@ -1,0 +1,21 @@
+# Adversarial instance list for the reaper tests. Tab-separated, matching
+#   gcloud compute instances list --format=value(name,zone,labels.ci-lane,lastStartTimestamp,status)
+#
+# @OLD@ and @NEW@ are substituted at test time with timestamps well past and
+# well inside the idle threshold. Comment lines are stripped by the test.
+#
+# The rows are chosen so that each of the reaper's four gates is the ONLY thing
+# standing between a demo or legacy VM and a suspend call:
+#
+#   sl-demo-1-vm      carries ci-lane = demo-1  -> gate 2 (label value) must reject
+#   signalloom-ci     carries a VALID ci-1 label -> gate 3 (name shape) must reject
+#   signalloom-ci-2   carries a VALID ci-2 label -> gate 3 (name shape) must reject
+#   sl-demo-2-runner  name looks lane-shaped     -> gates 2 and 3 must both reject
+#   sl-ci-9-runner    a genuine lane, but young  -> the threshold must reject
+sl-ci-1-runner	europe-west2-a	ci-1	@OLD@	RUNNING
+sl-ci-2-runner	europe-west2-b	ci-2	@OLD@	RUNNING
+sl-demo-1-vm	europe-west2-a	demo-1	@OLD@	RUNNING
+signalloom-ci	europe-west2-a	ci-1	@OLD@	RUNNING
+signalloom-ci-2	europe-west2-a	ci-2	@OLD@	RUNNING
+sl-demo-2-runner	europe-west2-a	demo-2	@OLD@	RUNNING
+sl-ci-9-runner	europe-west2-a	ci-9	@NEW@	RUNNING

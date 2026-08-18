@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Stands in for the remote test suite on the fail path. Exits 3 rather than 1 so
+# a test asserting "non-zero" cannot pass by accident on some other error.
+printf 'stub-tests: 37 passed, 3 failed\n' >&2
+exit 3

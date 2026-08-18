@@ -1,0 +1,14 @@
+resource "google_project_iam_member" "runtime" {
+  project = var.project_id
+  role    = "roles/compute.osLogin"
+  member  = "serviceAccount:${local.runtime_emails["ci-1"]}"
+}
+
+resource "google_iam_workload_identity_pool_provider" "github" {
+  workload_identity_pool_provider_id = "sl-github-oidc"
+  attribute_condition                = "assertion.repository_owner_id == \"123456789012\""
+
+  oidc {
+    issuer_uri = "https://token.actions.githubusercontent.com"
+  }
+}

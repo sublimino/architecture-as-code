@@ -121,15 +121,31 @@ install_docker() {
   export DEBIAN_FRONTEND=noninteractive
 
   install -m 0755 -d /etc/apt/keyrings
+
+  # The distribution is DERIVED from the running image, never assumed. This was
+  # hardcoded to "debian" while the module's image_family default moved to
+  # ubuntu-2404-lts, and a hardcoded distro here does not fail loudly: apt
+  # simply finds no candidate for the codename and the whole docker install
+  # degrades into "Unable to locate package docker-ce" — which reads as a
+  # network or mirror problem rather than as a repository pointing at the wrong
+  # operating system.
+  local distro codename
+  # shellcheck source=/dev/null  # provided by the base image, not by this repo
+  distro="$(. /etc/os-release && echo "$ID")"
+  # shellcheck source=/dev/null  # provided by the base image, not by this repo
+  codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+
+  case "$distro" in
+    debian | ubuntu) ;;
+    *) die "unsupported base image '${distro}': docker packages are published for debian and ubuntu only" ;;
+  esac
+
   curl --fail --silent --show-error --location \
-    https://download.docker.com/linux/debian/gpg \
+    "https://download.docker.com/linux/${distro}/gpg" \
     | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
   chmod a+r /etc/apt/keyrings/docker.gpg
 
-  local codename
-  # shellcheck source=/dev/null  # provided by the base image, not by this repo
-  codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
-  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/debian ${codename} stable" \
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${distro} ${codename} stable" \
     >/etc/apt/sources.list.d/docker.list
 
   apt-get update -qq

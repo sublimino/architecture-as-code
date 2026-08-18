@@ -24,9 +24,9 @@
 #                           registrar, or the certificate never leaves
 #                           PROVISIONING.
 #  4. dns_managed_zone      the pre-existing Cloud DNS zone name (NOT the
-#                           domain). "" disables DNS and certificate wiring
-#                           entirely and the environment is reachable by IP
-#                           over IAP only — a legitimate first-pass choice.
+#                           domain). "" disables only the DNS *record*. The
+#                           certificate and the whole frontend are gated on
+#                           `hostname`, not on this — see the warning below.
 #  5. allowed_ipv4 /        the network allowlist Cloud Armor enforces. This is
 #     allowed_ipv6          the second gate, behind IAP; see the note on
 #                           defence in depth below. 0.0.0.0/0 and ::/0 are
@@ -63,6 +63,12 @@
 # `signalloom-ci` carries a single subnet on 10.0.0.0/24 (scripts/ci/gcp-ci.sh).
 # That estate is not managed by this Terraform and will not be migrated by it;
 # the two must coexist in the same project without a routing conflict.
+#
+# Verified read-only against the first real target project on 2026-08-18: it
+# carries only the auto-mode `default` VPC, whose per-region subnets occupy
+# 10.128.0.0/9 (us-east4's is 10.150.0.0/20). 10.10.0.0/16 is therefore clear of
+# both the auto-mode ranges and the CI estate. The /24s above were chosen before
+# anyone looked; this is the check that they were also correct.
 
 project_id = "CHANGEME-project"
 
@@ -120,18 +126,42 @@ iap_members = [
 ]
 
 # Name of the PRE-EXISTING Cloud DNS managed zone, not the domain. "" disables
-# DNS record and certificate creation for every environment; the load balancer
-# still builds and is reachable by IP. Start here if the domain is not yet
-# delegated — it is reversible, and a certificate stuck in PROVISIONING is not
-# obviously distinguishable from one that will never issue.
+# creation of the DNS *record* only. It does NOT disable the certificate: the
+# certificate, the proxies and the forwarding rules are all gated on `hostname`
+# (modules/edge: `tls_enabled = hostname != ""`, `dns_enabled = hostname != ""
+# && dns_managed_zone != ""`).
+#
+# ─── The combination that surprises people ──────────────────────────────────
+#
+#   hostname = ""     No global address, no certificate, no proxy, no
+#                     forwarding rule. The backend service, the Cloud Armor
+#                     policy and the IAP grant are still created, but NOTHING
+#                     ROUTES TO THEM — `lb_ip_address` outputs "". This is
+#                     fail-closed and it is safe, but it is not "reachable by
+#                     IP over IAP": there is no public entry point at all.
+#
+#   hostname = "demo-1.example.invalid", dns_managed_zone = ""
+#                     The full HTTPS frontend builds — address, managed
+#                     certificate, proxy, forwarding rule, IAP in front — and
+#                     only the DNS record is left to you. Point an A record at
+#                     the reported `lb_ip_address` by hand and the certificate
+#                     leaves PROVISIONING. This is the combination that gives
+#                     "routable, but not publicly accessible" without a Cloud
+#                     DNS zone in the project.
 dns_managed_zone = ""
 
 environments = {
   "demo-1" = {
-    kind         = "demo"
-    subnet_cidr  = "10.10.1.0/24"
-    region       = "europe-west2"
-    zone         = "europe-west2-a"
+    kind        = "demo"
+    subnet_cidr = "10.10.1.0/24"
+
+    # The zone MUST be inside the region. Nothing at plan time checks it:
+    # region and zone are independent strings, so `us-east4` with
+    # `europe-west2-a` produces a clean plan and fails during apply, after the
+    # network and the load balancer already exist. That is the expensive place
+    # to find it, so test/terraform-demo1-bringup.bats asserts the prefix.
+    region       = "us-east4"
+    zone         = "us-east4-a"
     machine_type = "n2-standard-16"
     boot_disk_gb = 200
 

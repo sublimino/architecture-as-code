@@ -80,8 +80,28 @@ suspended_names() {
 @test "GCPTFCI the script never pgreps or pkills a pattern matching itself" {
 	# The Bash tool wraps every command in `bash -c`, so the whole script text is
 	# that shell's cmdline; a pattern matching it kills the caller.
+	#
+	# `[ "$status" -ne 0 ]` alone was vacuous, and test/vacuous-assertions.bats
+	# (VAC003) caught it: grep exits 1 for "no match" — the pass condition — but
+	# exits 2 for "file not found", so the assertion also passed if either script
+	# had been renamed or never written. Both files are proven present first, and
+	# the exit status is pinned to exactly 1 with empty output.
+	[ -f "$script" ]
+	[ -f "$reaper" ]
 	run grep -nE '\b(pgrep|pkill)\b' "$script" "$reaper"
-	[ "$status" -ne 0 ]
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
+}
+
+@test "GCPTFCI MUTATION the pgrep guard fires on a script that has one" {
+	local stage
+	stage="$(mktemp -d)"
+	cp "$script" "$stage/mutant.sh"
+	printf '\npkill -f "some pattern"\n' >>"$stage/mutant.sh"
+	run grep -nE '\b(pgrep|pkill)\b' "$stage/mutant.sh"
+	rm -rf "$stage"
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
 }
 
 @test "GCPTFCI the trap's last statement is an explicit exit of the captured status" {

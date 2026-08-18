@@ -468,10 +468,29 @@ image_identity_verify() {
 
 	IMAGE_IDENTITY_RESULT="FAIL"
 	IMAGE_IDENTITY_OUTCOME="MISMATCH"
+
+	# Compute the divergence BEFORE building the message, and test it separately.
+	#
+	# Inline as `… | grep -m1 … || echo '?'` this was wrong on every mismatch.
+	# `diff` exits 1 whenever the files differ — which is ALWAYS, here, since this
+	# branch is only reached when they do — so under the caller's `set -o pipefail`
+	# (kind-load-verified.sh:62) the substitution's status was 1 even though grep
+	# had matched and printed. Both branches ran, and the message carried a "could
+	# not determine" marker immediately after a perfectly determined answer, on the
+	# exact path that exists to explain the failure.
+	#
+	# Third instance of pipefail rewriting a pipeline's meaning in this file; see
+	# the SIGPIPE notes at the read-node and node-state helpers above.
+	local divergence=""
+	divergence="$(diff <(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS") \
+		<(printf '%s' "$IMAGE_IDENTITY_NODE_DIFFIDS") 2>/dev/null \
+		| grep -m1 -oE '^[0-9]+')" || true
+	[ -n "$divergence" ] || divergence="?"
+
 	IMAGE_IDENTITY_DETAIL="$image on ${NODE:-the node} is a DIFFERENT image from the one built locally
        local rootfs layers  $(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS" | grep -c .)
        node  rootfs layers  $(printf '%s' "$IMAGE_IDENTITY_NODE_DIFFIDS" | grep -c .)
-       first divergence at layer $(diff <(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS") <(printf '%s' "$IMAGE_IDENTITY_NODE_DIFFIDS") 2>/dev/null | grep -m1 -oE '^[0-9]+' || echo '?')
+       first divergence at layer ${divergence}
        The tag is the same and the content is not. \`kind load\` exited without
        transferring, so the node kept the previous build and the workload will
        keep running it — imagePullPolicy IfNotPresent on a bare :local tag never

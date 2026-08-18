@@ -233,8 +233,18 @@ FAIL — these images on $NODE are absent, or are NOT the image built locally:
 
   'ctr images ls' may still list them — it reads the content store, which holds
   the manifest even when no layers arrived. 'crictl images' is the CRI's view
-  and is what kubelet can actually run. Neither can tell you WHICH image;
-  compare the IMAGE ID column against 'docker image inspect'.
+  and is what kubelet can actually run. Neither can tell you WHICH image.
+
+  Do NOT answer that by comparing the IMAGE ID column against 'docker image
+  inspect'. On Docker's containerd image store those are different KINDS of
+  digest — docker reports the manifest/index digest, crictl the config digest —
+  so they disagree for identical images and agree for none. That comparison is
+  the defect that aborted CI in build-images with 0 stages run. 'ctr' agreeing
+  with docker is not a counter-argument: ctr reads the content store, so it
+  agrees about bytes the CRI never adopted.
+
+  Identity is the rootfs diffID list, which lives in the image config and so
+  reads the same on both sides. See scripts/lib/image-identity.sh.
 
   Left unfixed, the pods enter ImagePullBackOff, inf-signalloom/infra-configs
   fails its health check, signalloom-apps never reconciles, and fe-signalloom
@@ -242,10 +252,13 @@ FAIL — these images on $NODE are absent, or are NOT the image built locally:
   Or, worse and silently, the pods keep running the PREVIOUS build:
   imagePullPolicy IfNotPresent on a mutable :local tag never re-pulls.
 
-  Inspect with:
-    docker image inspect --format '{{.Id}}' ${broken[0]}
-    docker exec $NODE crictl images --no-trunc
-    docker exec $NODE ctr -n k8s.io images ls
+  Inspect with — these compare the two sides on the axis that is actually
+  comparable, so their output can be diffed directly:
+    docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' ${broken[0]}
+    docker exec $NODE crictl inspecti ${broken[0]} | jq -r '.info.imageSpec.rootfs.diff_ids[]'
+
+  And for presence only, which is a different question:
+    docker exec $NODE crictl images
 
   Then reload and re-run this script:
     kind load docker-image --name $CLUSTER_NAME ${broken[*]}

@@ -1,0 +1,67 @@
+# Worked input for the first demo environment.
+#
+# Copy to a file OUTSIDE version control (`.tfvars` is gitignored; only
+# `.tfvars.example` is committed) and replace every CHANGEME.
+#
+# Every value below is deliberately unusable as-is:
+#   project_id  "CHANGEME-project"       rejected by PROJECT-RULE-01-PLACEHOLDER
+#   hostname    "*.example.invalid"      RFC 2606 — can never resolve
+#   allowlists  192.0.2.0/24, 198.51.100.0/24   RFC 5737 documentation ranges
+#               2001:db8::/32                   RFC 3849 documentation range
+# A copy that is not edited fails at plan, not in production.
+#
+# Subnet allocation across the estate (each must be a unique RFC1918 /24):
+#   demo-1  10.10.1.0/24
+#   ci-1    10.10.2.0/24
+#   demo-2  10.10.3.0/24     (see demo-1-and-demo-2.tfvars.example)
+#
+# ─── This file is the extensibility proof (ISC-75) ──────────────────────────
+#
+# It is `demo-1.tfvars.example` with a second map entry added and NOTHING else
+# changed. `test/terraform-environment-keys.bats` asserts that literally: it
+# diffs the two files and fails if a single line was deleted or modified rather
+# than added, and it hashes every .tf file in the tree before and after
+# resolving both, proving no Terraform source was touched to gain demo-2.
+#
+# Adding demo-3 is the same operation again: one entry, one free /24, one
+# hostname. There is no per-environment module block to copy, because every
+# module call in main.tf is a single for_each over the resolved map.
+
+project_id = "CHANGEME-project"
+
+environments = {
+  "demo-1" = {
+    kind             = "demo"
+    subnet_cidr      = "10.10.1.0/24"
+    region           = "europe-west2"
+    zone             = "europe-west2-a"
+    machine_type     = "n2-standard-16"
+    boot_disk_gb     = 200
+    hostname         = "demo-1.example.invalid"
+    allowed_ipv4     = ["192.0.2.0/24", "198.51.100.0/24"]
+    allowed_ipv6     = ["2001:db8::/32"]
+    app_port         = 8080
+    deletion_protect = true
+    labels = {
+      tier  = "demo"
+      owner = "CHANGEME-team"
+    }
+  }
+  "demo-2" = {
+    kind             = "demo"
+    subnet_cidr      = "10.10.3.0/24"
+    region           = "europe-west2"
+    zone             = "europe-west2-a"
+    machine_type     = "n2-standard-16"
+    boot_disk_gb     = 200
+    hostname         = "demo-2.example.invalid"
+    allowed_ipv4     = ["192.0.2.0/24"]
+    allowed_ipv6     = ["2001:db8::/32"]
+    app_port         = 8080
+    deletion_protect = false
+    labels = {
+      tier  = "demo"
+      owner = "CHANGEME-team"
+    }
+  }
+}

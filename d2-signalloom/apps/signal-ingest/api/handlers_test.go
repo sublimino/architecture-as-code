@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -263,5 +264,35 @@ func TestAuditFailure_DoesNotBreakCorrelate(t *testing.T) {
 
 	if w.Code != http.StatusOK {
 		t.Errorf("correlate should succeed despite audit failure: want 200, got %d", w.Code)
+	}
+}
+
+// TestQueryObservationsEmptyIsArrayNotNull pins the contract that broke the
+// dashboard: encoding/json marshals a nil slice as `null`, and the Weave page
+// declared the field an array and dereferenced it —
+//
+//	Uncaught TypeError: Cannot read properties of null (reading 'length')
+//
+// Asserting on the decoded Go value would NOT catch this: json.Unmarshal
+// happily decodes both `null` and `[]` into a nil/empty slice, so the test
+// would pass against the broken handler. The assertion has to be on the raw
+// bytes on the wire, which is what the browser actually receives.
+func TestQueryObservationsEmptyIsArrayNotNull(t *testing.T) {
+	_, mux := newTestHandlers(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/observations", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", w.Code)
+	}
+
+	body := strings.TrimSpace(w.Body.String())
+	if body == "null" {
+		t.Fatal("empty observations serialised as `null`; a client that declared this an array will crash on .length")
+	}
+	if body != "[]" {
+		t.Errorf("empty observations: want `[]` on the wire, got %q", body)
 	}
 }

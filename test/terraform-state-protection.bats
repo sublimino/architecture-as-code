@@ -1,8 +1,26 @@
 #!/usr/bin/env bats
 #
-# Verify only the static Terraform configuration that protects the bootstrap
-# state bucket. This suite never runs `terraform plan`, never contacts GCP, and
-# therefore cannot prove the applied bucket still matches the checked-in code.
+# Secondary surface. Per CONTRACT §7a, `terraform/bootstrap/tests/state-bucket.tftest.hcl` is the
+# primary one: it asserts on the attributes Terraform actually evaluated, which a grep over HCL
+# text cannot do. Assertions on `public_access_prevention`, `force_destroy`,
+# `uniform_bucket_level_access` and versioning were moved there and deliberately deleted here
+# rather than kept in both places — a duplicated check drifts, and the weaker of the two is the
+# one that keeps passing.
+#
+# What remains is what a plan structurally cannot see:
+#
+#   * Absence across the whole tree. A plan only sees what it evaluated, so it can never prove
+#     that `allUsers` or `roles/storage.admin` appears in NO file anywhere.
+#   * `lifecycle { prevent_destroy }`. This is a meta-argument, not a resource attribute; it is
+#     not addressable in a plan at all. Verified, not assumed — asserting
+#     `google_storage_bucket.terraform_state.lifecycle[0].prevent_destroy` in a scratch tftest
+#     fails with "Unsupported attribute". bats is the only surface that can check it.
+#   * The absence of a `backend` block, which is a property of the source, not of a plan.
+#   * Backend prefix strings, which live in `-backend-config=` arguments rather than in HCL.
+#   * Roots that do not exist yet, which cannot be planned.
+#
+# This suite never runs `terraform plan`, never contacts GCP, and therefore cannot prove the
+# bucket that actually exists still matches the checked-in code.
 
 setup() {
   REPO_ROOT="$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)"
@@ -198,45 +216,6 @@ guard_state_bucket_prevents_destroy() {
     "prevent_destroy = true missing from lifecycle block: $file"
 }
 
-guard_state_bucket_enforces_public_access_prevention() {
-  local file="$1"
-
-  [ -f "$file" ] || {
-    echo "guard target missing: $file"
-    return 1
-  }
-
-  grep -Eq '^[[:space:]]*public_access_prevention[[:space:]]*=[[:space:]]*"enforced"[[:space:]]*$' "$file" || {
-    echo "public_access_prevention must be the literal value \"enforced\": $file"
-    return 1
-  }
-}
-
-guard_state_bucket_has_versioning_enabled() {
-  local file="$1"
-
-  guard_named_block_contains_literal \
-    "$file" \
-    "versioning" \
-    '^[[:space:]]*enabled[[:space:]]*=[[:space:]]*true[[:space:]]*$' \
-    "versioning block missing from state bucket configuration: $file" \
-    "versioning block does not contain enabled = true: $file"
-}
-
-guard_state_bucket_disables_force_destroy() {
-  local file="$1"
-
-  [ -f "$file" ] || {
-    echo "guard target missing: $file"
-    return 1
-  }
-
-  grep -Eq '^[[:space:]]*force_destroy[[:space:]]*=[[:space:]]*false[[:space:]]*$' "$file" || {
-    echo "force_destroy must be the literal value false: $file"
-    return 1
-  }
-}
-
 guard_bootstrap_has_no_public_principals() {
   local dir="$1"
   local -a tf_files
@@ -399,24 +378,6 @@ guard_environments_backend_prefix_template_is_present() {
     "${BOOTSTRAP_DIR}/main.tf"
 }
 
-@test "fixture broken-public-access stays a faithful mutation" {
-  assert_fixture_is_faithful_copy \
-    "${FIXTURE_DIR}/broken-public-access/main.tf" \
-    "${BOOTSTRAP_DIR}/main.tf"
-}
-
-@test "fixture broken-versioning stays a faithful mutation" {
-  assert_fixture_is_faithful_copy \
-    "${FIXTURE_DIR}/broken-versioning/main.tf" \
-    "${BOOTSTRAP_DIR}/main.tf"
-}
-
-@test "fixture broken-force-destroy stays a faithful mutation" {
-  assert_fixture_is_faithful_copy \
-    "${FIXTURE_DIR}/broken-force-destroy/main.tf" \
-    "${BOOTSTRAP_DIR}/main.tf"
-}
-
 @test "fixture broken-public-principal stays a faithful mutation" {
   assert_fixture_is_faithful_copy \
     "${FIXTURE_DIR}/broken-public-principal/main.tf" \
@@ -466,39 +427,6 @@ guard_environments_backend_prefix_template_is_present() {
   run guard_state_bucket_prevents_destroy "${FIXTURE_DIR}/broken-prevent-destroy/main.tf"
   [ "$status" -ne 0 ]
   [[ "$output" == *"prevent_destroy = true missing"* ]]
-}
-
-@test "state bucket enforces public access prevention" {
-  run guard_state_bucket_enforces_public_access_prevention "${BOOTSTRAP_DIR}/main.tf"
-  [ "$status" -eq 0 ]
-}
-
-@test "MUTATION: public-access guard fails on a broken copy" {
-  run guard_state_bucket_enforces_public_access_prevention "${FIXTURE_DIR}/broken-public-access/main.tf"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"public_access_prevention must be the literal value"* ]]
-}
-
-@test "state bucket enables versioning" {
-  run guard_state_bucket_has_versioning_enabled "${BOOTSTRAP_DIR}/main.tf"
-  [ "$status" -eq 0 ]
-}
-
-@test "MUTATION: versioning guard fails on a broken copy" {
-  run guard_state_bucket_has_versioning_enabled "${FIXTURE_DIR}/broken-versioning/main.tf"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"enabled = true"* ]]
-}
-
-@test "state bucket disables force_destroy" {
-  run guard_state_bucket_disables_force_destroy "${BOOTSTRAP_DIR}/main.tf"
-  [ "$status" -eq 0 ]
-}
-
-@test "MUTATION: force-destroy guard fails on a broken copy" {
-  run guard_state_bucket_disables_force_destroy "${FIXTURE_DIR}/broken-force-destroy/main.tf"
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"force_destroy must be the literal value false"* ]]
 }
 
 @test "bootstrap root declares no public principals" {

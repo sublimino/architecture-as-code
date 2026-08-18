@@ -272,6 +272,30 @@ check_workload() {
 }
 
 main() {
+	# `--list` prints the instrumented workloads and where they live, one
+	# `workload<TAB>namespace` per line, and exits 0.
+	#
+	# It exists so that CALLERS do not have to keep their own copy of this list.
+	# scripts/acceptance-test.sh did keep one — hardcoded to two workloads — and
+	# so never staleness-checked fe-signalloom at all, which is the whole reason
+	# a 25-hour-stale portal served a 404 through a green suite. Adding one entry
+	# to that copy would have fixed the instance and left the mechanism intact
+	# for the next workload; deriving it removes the mechanism.
+	#
+	# Deliberately before the kubectl preflight below: this answers a question
+	# about the REPO, not the cluster, so it must work with no cluster, no
+	# kubectl, and in CI lint stages. Routing it through the preflight would make
+	# callers unable to enumerate workloads precisely when they most need to say
+	# "skipped, no cluster".
+	if [ "${1:-}" = "--list" ]; then
+		local entry w ns c
+		for entry in "${WORKLOAD_TOPOLOGY[@]}"; do
+			IFS='|' read -r w ns c <<<"$entry"
+			printf '%s\t%s\n' "$w" "$ns"
+		done
+		return 0
+	fi
+
 	local requested=("$@")
 	if [ "${#requested[@]}" -eq 0 ]; then
 		mapfile -t requested < <(source_id_workloads)

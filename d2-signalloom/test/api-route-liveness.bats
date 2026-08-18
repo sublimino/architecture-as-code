@@ -294,6 +294,20 @@ probe_portal() {
   curl "${args[@]}" "http://127.0.0.1:${PORTAL_LOCAL_PORT}${path}"
 }
 
+# `<status> <content-type>`, with the body left in $BATS_TEST_TMPDIR/portal-body.
+#
+# The status alone is not evidence that a route served data. An SPA catch-all
+# answers 200 with text/html for any unmatched path, so a route deleted from the
+# API and swallowed by the static handler passes a `[ "$code" = "200" ]` check
+# while the page it backs shows nothing. The content type is what distinguishes
+# "the API answered" from "something answered".
+fetch_portal() {
+  local path="$1" token="${2:-}"
+  local args=(-sS -m 10 -o "$BATS_TEST_TMPDIR/portal-body" -w '%{http_code} %{content_type}')
+  [ -n "$token" ] && args+=(-H "Authorization: Bearer ${token}")
+  curl "${args[@]}" "http://127.0.0.1:${PORTAL_LOCAL_PORT}${path}"
+}
+
 # The RUNNING portal's own route table, read out of the process that will
 # answer the UI's requests. Not the tree's — that is the whole point.
 running_portal_paths() {
@@ -432,6 +446,58 @@ sys.exit(1)' "$path" || missing+=("$path")
       return 1
     }
   done
+
+  # And the answer is JSON of the right shape, not merely a 200.
+  #
+  # A 200 proves something replied. The dashboard's catch-all serves index.html
+  # with text/html for any path it does not recognise, so a route that vanished
+  # from the API and fell through to the static handler would satisfy every
+  # assertion above while the Signal Store page rendered nothing. The content
+  # type separates "the API answered" from "something answered"; the key shape
+  # separates "the API answered" from "the API answered with an empty fallback".
+  local ct
+  read -r code ct <<<"$(fetch_portal /api/signals/store/stats "$TOKEN")"
+  [ "$code" = "200" ]
+  case "$ct" in
+  application/json*) ;;
+  *)
+    echo "/api/signals/store/stats answered 200 with content-type '${ct}'." >&2
+    echo "Not JSON — this is the SPA catch-all or an error page, not the API." >&2
+    return 1
+    ;;
+  esac
+
+  # StoreStats as weaveApi.ts declares it. Asserted on the KEYS, not on values:
+  # a freshly-rolled store legitimately holds zero observations, so requiring
+  # non-zero counts would fail on a correct cluster. A missing key means the
+  # upstream shape changed under the client, which the page cannot survive.
+  python3 - "$BATS_TEST_TMPDIR/portal-body" <<'PY' || return 1
+import json, sys
+
+required = {
+    "total_observations", "observations_by_layer", "observations_by_fidelity",
+    "actor_count", "actors_by_status", "last_ingestion", "store_type",
+}
+try:
+    body = json.load(open(sys.argv[1], encoding="utf-8"))
+except Exception as exc:
+    print(f"store/stats body is not JSON: {exc}", file=sys.stderr)
+    sys.exit(1)
+if not isinstance(body, dict):
+    print(f"store/stats returned {type(body).__name__}, not an object", file=sys.stderr)
+    sys.exit(1)
+missing = required - set(body)
+if missing:
+    print(f"store/stats is missing StoreStats keys: {sorted(missing)}", file=sys.stderr)
+    print(f"got: {sorted(body)}", file=sys.stderr)
+    sys.exit(1)
+# The counts must be numbers. A string or null here renders as NaN on the page
+# and is the shape of a fallback stub rather than a real reading.
+for key in ("total_observations", "actor_count"):
+    if not isinstance(body[key], int):
+        print(f"store/stats {key} is {body[key]!r}, not an integer", file=sys.stderr)
+        sys.exit(1)
+PY
 }
 
 @test "ROUTELIVE the portal still refuses these routes without a token" {

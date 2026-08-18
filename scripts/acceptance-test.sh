@@ -190,8 +190,29 @@ fi
 # this guard's business, but whether a deployed slice is CURRENT is exactly its
 # business. Both failure modes are loud — a stale pod invalidates every
 # assertion below it, and an unverifiable one means we do not know that it does not.
-for _workload in supercred-demo-runner dashboard-signalloom; do
-  if ! kubectl -n fe-signalloom get deployment "${_workload}" &>/dev/null; then
+# The workload list is DERIVED, never written here.
+#
+# It was written here, hardcoded to `supercred-demo-runner dashboard-signalloom`,
+# and the consequence was the third instance of the class this comment block
+# already describes twice: fe-signalloom — the workload that serves /api/signals
+# and every route the dashboard calls — was not in the list, so a 25-hour-stale
+# portal image returned 404 to a live demo while this preflight printed nothing
+# but successes. It was not that the guard was wrong; it was never asked.
+#
+# Adding fe-signalloom to the list would have fixed that one image and left the
+# next workload exposed in exactly the same way. So the list now comes from
+# `check-deployed-staleness.sh --list`, which emits workload and namespace from
+# the single topology that the guard itself checks. A workload instrumented
+# there is staleness-checked here automatically, and the two cannot disagree —
+# test/deployed-staleness.bats asserts that this file contains no hardcoded
+# workload list, so the mechanism cannot quietly come back.
+#
+# The namespace is derived for the same reason: `-n fe-signalloom` was hardcoded
+# too, and happened to be right only because every instrumented workload lives
+# there today.
+while IFS=$'\t' read -r _workload _workload_ns; do
+  [ -n "${_workload}" ] || continue
+  if ! kubectl -n "${_workload_ns}" get deployment "${_workload}" &>/dev/null; then
     echo "    SKIP: ${_workload} staleness check (not deployed)"
     continue
   fi
@@ -207,7 +228,17 @@ for _workload in supercred-demo-runner dashboard-signalloom; do
        echo "           describe this working tree. Detail: make check-deployed-staleness" >&2
        PREFLIGHT_FAILED=1 ;;
   esac
-done
+done < <("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)
+
+# An empty topology would make the loop above a no-op that prints nothing and
+# passes — the same vacuous green this preflight exists to prevent, one level up.
+# `--list` needs no cluster, so there is no legitimate reason for it to be empty.
+if [ -z "$("${SCRIPT_DIR}/check-deployed-staleness.sh" --list)" ]; then
+  echo "    ERROR: no instrumented workloads to staleness-check." >&2
+  echo "           check-deployed-staleness.sh --list returned nothing, so the loop" >&2
+  echo "           above checked NOTHING and said so silently." >&2
+  PREFLIGHT_FAILED=1
+fi
 
 # Advisory only — Grafana backs no assertion in any spec. Gated on the forward
 # existing so a run that never asked for it stops emitting a warning about a

@@ -249,6 +249,100 @@ setup() {
 	[ "$before" = "$(source_id_for supercred-demo-runner)" ]
 }
 
+# ─── The workload registry, and the copies of it that must not exist ───────
+#
+# The guard was never wrong about what it checked. It was wrong about what it
+# was ASKED to check: callers kept their own hardcoded workload lists, and
+# scripts/acceptance-test.sh's list omitted fe-signalloom, so a 25-hour-stale
+# portal served a 404 through a green suite. These tests pin the derivation so
+# the copies cannot come back.
+
+@test "--list emits the topology, and needs no cluster to do it" {
+	# The whole point of deriving is that callers can enumerate workloads before
+	# they know whether a cluster exists — otherwise a no-cluster run cannot tell
+	# "skipped, nothing deployed" from "checked nothing".
+	KUBECTL_BIN=/nonexistent/kubectl run "$script" --list
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+
+	# workload<TAB>namespace on every line, no blanks.
+	local line
+	while IFS= read -r line; do
+		[[ "$line" == *$'\t'* ]] || {
+			echo "not tab-separated: [$line]" >&2
+			return 1
+		}
+		[ -n "${line%%$'\t'*}" ]
+		[ -n "${line##*$'\t'}" ]
+	done <<<"$output"
+
+	# The workload whose absence caused the incident.
+	printf '%s\n' "$output" | grep -q '^fe-signalloom	' || {
+		echo "fe-signalloom is not in the topology" >&2
+		return 1
+	}
+}
+
+@test "the two workload registries cannot disagree" {
+	# WORKLOAD_TOPOLOGY locates a workload; source_id_workloads() decides which
+	# are checked by default. A name in one and not the other is silently inert:
+	# in topology only, it is never checked; in source_id only, it reports "not a
+	# workload this guard knows how to locate" forever. Neither reads as a bug.
+	local from_topology from_sourceid
+	from_topology="$("$script" --list | cut -f1 | sort)"
+	from_sourceid="$(source_id_workloads | sort)"
+	[ "$from_topology" = "$from_sourceid" ] || {
+		echo "registries disagree." >&2
+		echo "WORKLOAD_TOPOLOGY:   $(echo "$from_topology" | tr '\n' ' ')" >&2
+		echo "source_id_workloads: $(echo "$from_sourceid" | tr '\n' ' ')" >&2
+		return 1
+	}
+}
+
+@test "acceptance-test.sh derives its workload list instead of hardcoding one" {
+	# The specific regression: `for _workload in supercred-demo-runner
+	# dashboard-signalloom; do`. Asserting the POSITIVE (it consults --list) as
+	# well as the absence, because a grep for the old literal alone would pass
+	# against a file that had dropped the check altogether.
+	local acceptance="$root/scripts/acceptance-test.sh"
+	grep -q 'check-deployed-staleness.sh" --list' "$acceptance" || {
+		echo "acceptance-test.sh does not derive its workload list from --list" >&2
+		return 1
+	}
+
+	# No `for _workload in <literal names>`. Written as a separate `run` so the
+	# assertion is the test's own line and cannot be neutered by errexit — a bare
+	# `! grep …` mid-test is a no-op in bats, which this repo has been bitten by.
+	run grep -nE 'for +_workload +in +[a-z]' "$acceptance"
+	[ "$status" -ne 0 ] || {
+		echo "acceptance-test.sh hardcodes a workload list again:" >&2
+		echo "$output" >&2
+		return 1
+	}
+
+	# And no hardcoded namespace on the staleness check — it was `-n
+	# fe-signalloom`, correct only by coincidence.
+	run grep -nE 'kubectl -n fe-signalloom get deployment' "$acceptance"
+	[ "$status" -ne 0 ] || {
+		echo "acceptance-test.sh hardcodes the staleness-check namespace:" >&2
+		echo "$output" >&2
+		return 1
+	}
+}
+
+@test "every workload --list names is one the guard can actually check" {
+	# A topology entry for a workload source-id cannot fingerprint is a guard
+	# that reports CANNOT VERIFY forever, which trains people to ignore exit 2.
+	local workload
+	while IFS=$'\t' read -r workload _; do
+		[ -n "$workload" ] || continue
+		source_id_for "$workload" >/dev/null 2>&1 || {
+			echo "topology names $workload, but source_id_for cannot fingerprint it" >&2
+			return 1
+		}
+	done < <("$script" --list)
+}
+
 @test "runner path set is derived from the Dockerfile, not hand-maintained" {
 	# A hand-written list develops blind spots the moment someone adds a COPY.
 	# Every COPY source in the Dockerfile must appear in the fingerprinted set.

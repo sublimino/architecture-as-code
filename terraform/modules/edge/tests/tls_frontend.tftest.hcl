@@ -12,6 +12,13 @@ mock_provider "google" {}
 mock_provider "google-beta" {}
 
 variables {
+  # access_mode is deliberately NOT set here: this file exercises the TLS
+  # frontend under whatever the module's DEFAULT posture is. Every assertion
+  # below is mode-independent (certificates, proxies, redirects, DNS), so
+  # running them against the default costs nothing and buys a standing check
+  # that the shipping posture still builds a complete, correct frontend.
+  # iap_members must be supplied because the default posture requires it.
+  iap_members            = ["user:someone@example.invalid"]
   project_id             = "CHANGEME-project"
   environment_key        = "demo-1"
   name_prefix            = "sl-demo-1"

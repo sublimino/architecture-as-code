@@ -127,6 +127,18 @@ STUB
   export PATH="${STUBDIR}:${PATH}"
 }
 
+teardown() {
+  # gcp-tf-bootstrap is the one target whose root is not redirected by any test:
+  # the assertion is about the DEFAULT path, so it plans against
+  # terraform/bootstrap for real. The stub writes whatever `-out=` names, which
+  # means running this suite leaves a plan file in the working tree. It is
+  # gitignored, but an untracked artefact that appears whenever the tests run is
+  # still noise a reviewer has to explain away.
+  rm -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan"
+}
+
+TF_ROOT_BOOTSTRAP_DEFAULT='terraform/bootstrap'
+
 # Run make from the repo root with the stubs in front of the real binaries.
 run_make() {
   run make -C "${REPO_ROOT}" "$@"
@@ -1106,6 +1118,24 @@ JSON
   # above and hide the documentation too.
   run git -C "${REPO_ROOT}" check-ignore -q deploy/gcp/README.md
   [ "$status" -ne 0 ] || { echo "deploy/gcp/README.md is gitignored"; return 1; }
+}
+
+@test "saved plan files are gitignored and none is tracked" {
+  run git -C "${REPO_ROOT}" check-ignore -q "${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan"
+  [ "$status" -eq 0 ] || { echo "*.tfplan is not gitignored"; return 1; }
+  run bash -c "git -C '${REPO_ROOT}' ls-files -- '*.tfplan'"
+  [ -z "$output" ] || { echo "tracked plan files: ${output}"; return 1; }
+}
+
+@test "running this suite leaves no artefact in the working tree" {
+  # The stub writes whatever `-out=` names, and gcp-tf-bootstrap plans against
+  # the real default root. Without the teardown this suite would deposit a plan
+  # file in terraform/bootstrap/ on every run.
+  run_make gcp-tf-bootstrap
+  [ "$status" -eq 0 ]
+  [ -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan" ]
+  teardown
+  [ ! -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan" ]
 }
 
 @test "no hand-off or deploy-identity file is tracked" {

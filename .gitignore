@@ -112,6 +112,9 @@ deploy/gcp/*.handoff.json
 # One line: the email of the service account Terraform impersonates. The email
 # contains the project id.
 deploy/gcp/deploy-sa
+# Saved plan files. A plan is a binary diff against one specific state serial;
+# committing one invites applying a diff that no longer describes reality.
+*.tfplan
 # Per-environment Terraform data dirs. `.terraform/` above does not match these:
 # each environment gets its own `.terraform-<env>/`, which holds the resolved
 # backend pointer and the saved plan file.

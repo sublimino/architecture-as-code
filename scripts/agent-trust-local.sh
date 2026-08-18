@@ -13,7 +13,6 @@ readonly resource_set="agent-trust"
 readonly flux_namespace="flux-system"
 readonly bao_namespace="inf-bao"
 readonly spire_parent_id="spiffe://signalloom.demo/agent/kind"
-declare -A active_resourceset_inputs=()
 readonly -a owned_namespaces=(
   agent-trust-platform
   agent-trust-tenant-acme-control
@@ -34,17 +33,17 @@ rollback_failed_activation() {
   if [[ "$activation_pending" == true ]]; then
     printf 'Agent Trust activation failed; disabling the ResourceSet\n' >&2
     if [[ "$identity_configured" == true ]]; then cleanup_identity_plane || true; fi
-    # Emptying inputs is no longer a deactivation. tenants/base/agent-trust.yaml
-    # now declares them, so a `kubectl patch` of spec.inputs is drift against a
-    # Flux-owned field that the tenants Kustomization will revert -- the slice
-    # would come straight back. The reconcile annotation is absent from the
-    # source manifest, so Flux does not own it and does not strip it, and the
-    # controller honours it before the build. Set it first, then clear inputs so
-    # the observable spec.inputs state matches what callers already check.
+    # Park the ResourceSet in an off-state the controller actually implements.
+    #
+    # This used to patch spec.inputs to []. That restored INTO the broken state:
+    # flux-operator's BuildResourceSet renders the template once against a nil
+    # map when the input list is empty, so the object did not go quiet, it went
+    # terminally Stalled -- with every namespace it had already created still
+    # present, because a Stalled ResourceSet does not prune. It was never a
+    # rollback. And now that tenants/base/agent-trust.yaml declares the inputs,
+    # writing that field is also drift the tenants Kustomization would revert.
     kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
       fluxcd.controlplane.io/reconcile=disabled --overwrite >/dev/null 2>&1 || true
-    kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge \
-      -p '{"spec":{"inputs":[]}}' >/dev/null 2>&1 || true
     kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
       reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite >/dev/null 2>&1 || true
     if [[ "$a2a_keys_created" == true ]]; then
@@ -67,8 +66,15 @@ suspend_root_reconciliation() {
   if [[ "$fleet_suspended" != true ]]; then
     flux suspend kustomization flux-system -n "$flux_namespace"
   fi
-  # `tenants` owns the ResourceSet manifests. Suspending only flux-system
-  # leaves it free to reconcile the declarative empty inputs during activation.
+  # `tenants` owns the ResourceSet manifests. Suspending only flux-system leaves
+  # it free to reconcile them mid-activation.
+  #
+  # This no longer exists to stop a reconcile from blanking spec.inputs -- the
+  # inputs are declared, so a reconcile now reinforces them. What it still buys
+  # is quiescence for the imperative work `up` does after this point: the
+  # OpenBao/SPIRE identity wiring and the planner/triage rollout restarts. An
+  # in-flight tenants reconcile can trigger a ResourceSet rebuild in the middle
+  # of that, which is a race worth closing even though it is no longer fatal.
   if [[ "$tenants_suspended" != true ]]; then
     flux suspend kustomization tenants -n "$flux_namespace"
   fi
@@ -108,50 +114,44 @@ require_command() {
 }
 
 activate() {
-  local nonce="${AGENT_TRUST_ACTIVATION_NONCE:-$(date -u +%Y%m%dT%H%M%S%N)}"
-  # `down` disables the ResourceSet via the reconcile annotation, which the
-  # controller checks (obj.IsDisabled()) and returns on BEFORE the build.
-  # Clearing it is what actually re-activates the slice; the inputs patch below
-  # is now belt-and-braces, because tenants/base/agent-trust.yaml declares
-  # equivalent inputs and Flux applies them on its own.
+  # Activation is clearing the disable annotation, and nothing else.
+  #
+  # tenants/base/agent-trust.yaml declares spec.inputs, so the flux-system/tenants
+  # Kustomization owns that field and Flux supplies the values unaided. Writing
+  # it here would be drift the reconciler is entitled to revert -- which is the
+  # defect this lifecycle used to have, in reverse.
+  #
+  # `down` and the rollback path park the object with
+  # fluxcd.controlplane.io/reconcile: disabled. The controller checks
+  # obj.IsDisabled() and returns BEFORE the build, so that annotation is the
+  # off-switch and removing it is the on-switch.
+  #
+  # The activationNonce that used to live in the inputs existed only to mutate
+  # the spec enough to force a rebuild. reconcile.fluxcd.io/requestedAt does
+  # that directly, without writing a field this script does not own.
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
-    fluxcd.controlplane.io/reconcile- >/dev/null 2>&1 || true
-  kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge \
-    -p "{\"spec\":{\"inputs\":[{\"activationNonce\":\"${nonce}\",\"artifactSubjectGitRef\":\"local\",\"artifactSubjectWorkflow\":\"local\",\"component\":\"agent-trust\",\"environment\":\"local\",\"tag\":\"latest\",\"tenant\":\"agent-trust-platform\"}]}}"
+    fluxcd.controlplane.io/reconcile-
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 }
 
-snapshot_active_resourcesets() {
-  require_command jq
-  local state name inputs
-  state=$(kubectl -n "$flux_namespace" get resourceset -o json) || {
-    printf 'refusing fleet refresh: cannot read current ResourceSet inputs\n' >&2
-    return 1
-  }
-  while IFS=$'\t' read -r name inputs; do
-    [[ -n "$name" && -n "$inputs" ]] || continue
-    active_resourceset_inputs["$name"]="$inputs"
-  done < <(jq -r --arg excluded "$resource_set" '
-    .items[] | select(.metadata.name != $excluded) |
-    select((.spec.inputs // []) | length > 0) |
-    [.metadata.name, (.spec.inputs | tojson)] | @tsv
-  ' <<<"$state")
-}
-
-restore_active_resourcesets() {
-  local name inputs
-  for name in "${!active_resourceset_inputs[@]}"; do
-    inputs="${active_resourceset_inputs[$name]}"
-    kubectl -n "$flux_namespace" patch "resourceset/${name}" --type merge \
-      -p "{\"spec\":{\"inputs\":${inputs}}}"
-    kubectl -n "$flux_namespace" annotate "resourceset/${name}" \
-      reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
-  done
-  for name in "${!active_resourceset_inputs[@]}"; do
-    wait_flux_ready resourceset "$name" -n "$flux_namespace" 600
-  done
-}
+# snapshot_active_resourcesets / restore_active_resourcesets are gone.
+#
+# They read the sibling ResourceSets' spec.inputs while they were ACTIVE, ran
+# the fleet refresh (which reapplied the declarative `inputs: []`), then patched
+# the captured values back. That is the shape the whole ordering hazard was
+# built around: `up` had to run IMMEDIATELY after signalloom-local.sh with
+# nothing in between, or the snapshot would capture inputs that had already been
+# blanked and restore nothing.
+#
+# tenants/local/signalloom.yaml now declares those inputs, so the fleet refresh
+# reapplies the POPULATED values rather than erasing them. There is nothing left
+# to preserve across a refresh, the ordering constraint is gone, and the restore
+# patch would in any case have been a write to a field the tenants Kustomization
+# owns -- the same drift that caused the original defect.
+#
+# preflight_bao below is what actually gates on the siblings being ready, and it
+# does so by waiting on their status rather than by writing their spec.
 
 preflight_bao() {
   wait_flux_ready resourceset signalloom-infra -n "$flux_namespace" 600
@@ -371,13 +371,14 @@ up() {
   trap rollback_failed_activation ERR
   require_command kubectl
   require_command flux
-  snapshot_active_resourcesets
   refresh_fleet
+  # The refresh used to be destructive: it reapplied `inputs: []` over whatever
+  # signalloom-local.sh had just patched into the sibling ResourceSets, which is
+  # why this function had to snapshot them first and restore them after, and why
+  # it had to run immediately after that script with nothing in between. The
+  # inputs are declared now, so the refresh reapplies the populated values and
+  # there is nothing to preserve across it. That ordering constraint is gone.
   suspend_root_reconciliation
-  # Refresh reapplies declarative empty inputs. Restore only after both owning
-  # reconcilers are suspended, otherwise their in-flight reconciliation can
-  # erase the restored prerequisite inputs before the Bao preflight.
-  restore_active_resourcesets
   preflight_bao
   prepare_a2a_keys
   activation_pending=true
@@ -588,7 +589,6 @@ down() {
   # before building anything.
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     fluxcd.controlplane.io/reconcile=disabled --overwrite
-  kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge -p '{"spec":{"inputs":[]}}'
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
   # Wait on the annotation rather than on spec.inputs. A disabled ResourceSet

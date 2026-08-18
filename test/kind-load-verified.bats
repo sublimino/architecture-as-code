@@ -59,31 +59,22 @@
 # $CONTAINERD_STORE diverges them the way a real containerd-store daemon does,
 # which is the case no fixture in this repo could previously express.
 
-# The ID an image "really" has, derived from its reference so both sides of the
-# comparison agree without a shared state file.
-fake_image_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
-
-# What docker reports as .Id under the containerd image store: the manifest
-# digest. Deliberately unequal to fake_config_id for the same reference.
-fake_manifest_id() { printf 'manifest:%s' "$1" | sha256sum | cut -c1-64; }
-
-# What crictl reports in its IMAGE ID column: the config digest.
-fake_config_id() { printf 'config:%s' "$1" | sha256sum | cut -c1-64; }
-
-# The ordered diffID list — the identity both sides can actually agree on.
-# Order is part of the identity: two images can share a layer set in a
-# different order and are not the same image.
-fake_diffids() {
-	local seed="$1" i
-	for i in 0 1 2; do
-		printf 'sha256:%s\n' "$(printf 'layer%s:%s' "$i" "$seed" | sha256sum | cut -c1-64)"
-	done
-}
+# The three identities, plus the diffID list, now live in one place shared with
+# signalfusion-images.bats and supercred-images.bats. Kept as a local alias so
+# the assertions below still read in this file's own terms.
+fake_image_id() { fake_id_legacy "$1"; }
 
 setup() {
 	script="$BATS_TEST_DIRNAME/../scripts/kind-load-verified.sh"
 	bin="$BATS_TEST_TMPDIR/bin"
 	mkdir -p "$bin"
+
+	# One model of docker and crictl across all three suites that exercise
+	# image-identity.sh. Exported so the fake `docker` written below can source
+	# it, and sourced here so assertions derive the same values the fake does.
+	export FAKE_IMAGE_CLI="$BATS_TEST_DIRNAME/lib/fake-image-cli.bash"
+	# shellcheck source=test/lib/fake-image-cli.bash
+	source "$FAKE_IMAGE_CLI"
 
 	# What the fake node reports through crictl — the CRI's view, i.e. what can
 	# actually run. One ref per line, optionally followed by an IMAGE ID to
@@ -99,61 +90,15 @@ setup() {
 	cat >"$bin/docker" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
-		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
-		manifest_id() { printf 'manifest:%s' "$1" | sha256sum | cut -c1-64; }
-		config_id() { printf 'config:%s' "$1" | sha256sum | cut -c1-64; }
-		diffids() {
-		  local seed="$1" i
-		  for i in 0 1 2; do
-		    printf 'sha256:%s\n' "$(printf 'layer%s:%s' "$i" "$seed" | sha256sum | cut -c1-64)"
-		  done
-		}
-		# The node's view of an image is keyed on the OVERRIDE id when
-		# $CRICTL_STATE carries one — that is how a stale image is staged, and a
-		# stale image must differ in its layers too, not merely in a digest.
-		node_seed() {
-		  local want="$1" ref id full
-		  while IFS=' ' read -r ref id; do
-		    [ -n "$ref" ] || continue
-		    case "${ref%:*}" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		    if [ "$want" = "$ref" ] || [ "$want" = "$full" ]; then
-		      # $CRICTL_DIFFID_SEED_REF stages the ID COLUMN divergent while the
-		      # LAYERS still match — the shape that proves the ID column is not
-		      # consulted for identity at all.
-		      if [ -n "${CRICTL_DIFFID_SEED_REF:-}" ]; then printf '%s' "$ref"; else printf '%s' "${id:-$ref}"; fi
-		      return 0
-		    fi
-		  done <"$CRICTL_STATE"
-		  return 1
-		}
+		# The image-identity surface is shared with signalfusion-images.bats and
+		# supercred-images.bats — see test/lib/fake-image-cli.bash for why one
+		# model rather than three.
+		source "$FAKE_IMAGE_CLI"
 		case "$1" in
 		  image)
-		    # docker image inspect --format '{{.Id}}' REF
-		    # docker image inspect --format '{{json .RootFS.Layers}}' REF
-		    ref="${!#}"
-		    for absent in ${DOCKER_MISSING:-}; do
-		      if [ "$absent" = "$ref" ]; then
-		        echo "Error: No such image: $ref" >&2
-		        exit 1
-		      fi
-		    done
-		    if [[ "$*" == *"RootFS.Layers"* ]]; then
-		      # `{{range .RootFS.Layers}}{{println .}}{{end}}` — newline-separated,
-		      # one sha256: per layer, in order. Deliberately not JSON: the local
-		      # side carries no jq dependency.
-		      [ -n "${DOCKER_NO_LAYERS:-}" ] && exit 0
-		      diffids "$ref"
-		      exit 0
-		    fi
-		    # Under the containerd image store .Id is the MANIFEST digest, which is
-		    # not the config digest crictl prints. Default stays the legacy
-		    # single-ID behaviour so pre-existing tests keep their meaning.
-		    if [ -n "${CONTAINERD_STORE:-}" ]; then
-		      printf 'sha256:%s\n' "$(manifest_id "$ref")"
-		    else
-		      printf 'sha256:%s\n' "$(derive_id "$ref")"
-		    fi
-		    exit 0 ;;
+		    shift
+		    fake_docker_image_cmd "$@"
+		    exit $? ;;
 		  save)
 		    # Materialise the archive so the caller's redirect has something to read.
 		    for ((i = 1; i <= $#; i++)); do
@@ -166,40 +111,9 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
-		        case "$2" in
-		          inspecti)
-		            # `crictl inspecti REF` — the per-image read that carries the
-		            # diffIDs. Absent image is a nonzero exit, as real crictl does.
-		            want="${!#}"
-		            seed="$(node_seed "$want")" || { echo "FATA[0000] no such image \"$want\"" >&2; exit 1; }
-		            [ "${CRICTL_INSPECTI_STATUS:-0}" = 0 ] || exit "${CRICTL_INSPECTI_STATUS}"
-		            if [ -n "${CRICTL_INSPECTI_EMPTY:-}" ]; then
-		              printf '{"status":{},"info":{"imageSpec":{"rootfs":{"type":"layers","diff_ids":[]}}}}\n'
-		              exit 0
-		            fi
-		            printf '{"status":{},"info":{"imageSpec":{"rootfs":{"type":"layers","diff_ids":['
-		            sep=''
-		            if [ -n "${CRICTL_INSPECTI_REVERSE:-}" ]; then order=(tac); else order=(cat); fi
-		            while read -r l; do printf '%s"%s"' "$sep" "$l"; sep=','; done < <(diffids "$seed" | "${order[@]}")
-		            printf ']}}}}\n'
-		            exit 0 ;;
-		        esac
-		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
-		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
-		        printf 'IMAGE TAG IMAGE ID SIZE\n'
-		        while IFS=' ' read -r ref id; do
-		          [ -n "$ref" ] || continue
-		          # Real crictl prints fully-qualified repositories.
-		          case "${ref%:*}" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          # …and TRUNCATES the IMAGE ID to 13 characters. Under the
-		          # containerd store this column is the CONFIG digest, which is a
-		          # different value from the manifest digest docker reports.
-		          if [ -z "$id" ]; then
-		            if [ -n "${CONTAINERD_STORE:-}" ]; then id="$(config_id "$ref")"; else id="$(derive_id "$ref")"; fi
-		          fi
-		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
-		        done <"$CRICTL_STATE"
-		        ;;
+		        shift
+		        fake_crictl_cmd "$@"
+		        exit $? ;;
 		      ctr)
 		        case "$*" in
 		          *"images import"*)

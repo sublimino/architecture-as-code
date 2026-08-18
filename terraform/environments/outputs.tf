@@ -62,3 +62,35 @@ output "integration_inputs" {
   description = "Root-level knobs the commented integration blocks in main.tf will consume. Reviewable before any sibling module exists."
   value       = local.integration_inputs
 }
+
+# ── Hand-off to the test code ───────────────────────────────────────────────
+#
+# The deploy → test hand-off (`make gcp-tf-handoff`) derives every field from
+# `terraform output -json` and REFUSES to write a partial file: a hand-off with
+# a blank field is worse than none, because the suite parses it and then reports
+# on an estate it never reached. These outputs exist so that refusal never has
+# to fire for a healthy environment.
+#
+# Maps keyed by environment key rather than scalars, so a second demo needs no
+# new output block — consistent with the extensibility invariant that adding an
+# environment is a tfvars entry and zero .tf edits.
+
+output "instance_names" {
+  description = "Compute instance name per environment key. Empty for a ci lane, which has no demo VM."
+  value       = { for k, m in module.compute : k => m.instance_name }
+}
+
+output "internal_ips" {
+  description = "Internal IP per environment key. There is deliberately no external IP to publish."
+  value       = { for k, m in module.compute : k => m.internal_ip }
+}
+
+output "instance_group_self_links" {
+  description = "Unmanaged instance group per environment key, consumed by the edge module when a public frontend is enabled."
+  value       = { for k, m in module.compute : k => m.instance_group_self_link }
+}
+
+output "network_self_links" {
+  description = "VPC self-link per environment key."
+  value       = { for k, m in module.network : k => m.network_self_link }
+}

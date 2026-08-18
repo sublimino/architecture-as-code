@@ -113,6 +113,20 @@ verify_identity() {
 # each flag is what it is.
 recover_via_archive() {
   local image="$1"
+
+  # Label-first. The export below moves 0.0 B whenever the content is already on
+  # the node, which on 2026-08-18 was every observed case — the CRI was missing
+  # the label, not the bytes. Try the cheap correct action, and fall through to
+  # the full export only when the content genuinely is not there.
+  #
+  # This cannot mask a failure: image_identity_adopt_if_present returns 0 only
+  # when image_identity_verify PROVES identity afterwards, so a failed adoption
+  # falls through to the expensive path rather than being reported as success.
+  if image_identity_adopt_if_present "$image" "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}"; then
+    log "recovery: content was already on $NODE — labelled it CRI-managed, no re-export needed"
+    return 0
+  fi
+
   local safe tar
   safe="$(printf '%s' "$image" | tr -c 'A-Za-z0-9._-' '_')"
   tar="$(mktemp -t "kind-load-${safe}-XXXXXX.tar")"

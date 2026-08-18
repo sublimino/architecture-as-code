@@ -151,8 +151,12 @@ module "network" {
   runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
   nat_log_filter                = var.nat_log_filter
 
-  # Reviewed per-environment widening; see the tfvars for the rationale.
+  # Reviewed per-environment widening; see the tfvars for the rationale. The
+  # ports travel with the destinations because opening a port and naming a
+  # destination are halves of one decision — a reviewer looking at only one of
+  # them cannot tell what was actually granted.
   egress_public_https_destinations = var.egress_public_https_destinations
+  egress_public_ports              = var.egress_public_ports
 }
 
 # ── 3. compute ── the private hardened VM, demo lanes only.

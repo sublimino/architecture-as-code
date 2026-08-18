@@ -42,6 +42,38 @@ resource "google_compute_instance" "this" {
 
   # Permits machine_type and shielded-config changes to apply by stopping the
   # instance rather than failing the plan.
+  #
+  # This is the mechanism that makes a resize an UPDATE rather than a REPLACE.
+  # machine_type is not a ForceNew attribute in the Google provider, but it
+  # cannot be changed on a running instance either: without this flag the plan
+  # is accepted and the apply fails at the API with "instance must be stopped",
+  # leaving the environment half-applied. With it, the provider stops the
+  # instance, resizes it, and starts it again — the disk, the internal IP, the
+  # instance group membership and everything already on the box survive.
+  #
+  # That matters for the sizing profile specifically: e2-standard-4 →
+  # n2-standard-16 is a change a demo VM is expected to survive, and a rebuild
+  # would take the Kind cluster and the whole deployed estate with it. Confirmed
+  # in the plan by `resizing_the_vm_is_an_update_not_a_replacement` in
+  # tests/compute.tftest.hcl.
+  #
+  # ─── The disk does NOT behave the same way, and the difference bites ──────
+  #
+  # THE MACHINE TYPE IS AN UPDATE. THE BOOT DISK SIZE IS A REPLACEMENT.
+  #
+  # boot_disk.initialize_params is ForceNew in the provider, so changing
+  # boot_disk_gb prints `# forces replacement` on google_compute_instance and
+  # destroys the VM. Confirmed on a real plan against the deployed demo-1
+  # estate: 100 → 200 planned as 1 to add, 2 to change, 1 to destroy.
+  #
+  # This was harmless on the environment where it was found, because the VM
+  # carried nothing yet. It will not be harmless the second time. "Resize the
+  # disk" reads like an in-place operation in every other context — cloud
+  # consoles, LVM, every managed database — and nothing in the variable name
+  # suggests otherwise. Read the plan before applying a disk change to a VM
+  # that has a cluster on it; growing the disk in-place with `gcloud compute
+  # disks resize` plus an online filesystem grow, and then reconciling the
+  # Terraform value, is the non-destructive route.
   allow_stopping_for_update = true
 
   boot_disk {

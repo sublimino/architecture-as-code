@@ -174,9 +174,22 @@ environments = {
     # access_mode = "iap" puts in front of it. Both, not either: IAP answers
     # "who are you", the allowlist answers "and from where". Either alone has a
     # single failure mode that ends with the demo on the open internet.
-    allowed_ipv4     = ["192.0.2.0/24", "198.51.100.0/24"]
-    allowed_ipv6     = ["2001:db8::/32"]
-    app_port         = 8080
+    allowed_ipv4 = ["192.0.2.0/24", "198.51.100.0/24"]
+    allowed_ipv6 = ["2001:db8::/32"]
+
+    # The port the dashboard is actually served on, and it is load-bearing.
+    #
+    # Dex pins its local issuer and its OIDC callback client to 30754 —
+    # `setup_gateway_forward` in scripts/acceptance-test.sh forwards the Envoy
+    # Gateway's dynamic NodePort to exactly that port for this reason. A tunnel
+    # or a backend on any other port reaches the Gateway and then fails the
+    # login redirect, which presents to a user as a broken application rather
+    # than as a port mismatch.
+    #
+    # This one number resolves into three places: modules/network opens it to
+    # the IAP range and to the health-check ranges, and modules/compute makes it
+    # the instance group's named port that the edge backend service resolves.
+    app_port         = 30754
     deletion_protect = true
     labels = {
       tier  = "demo"

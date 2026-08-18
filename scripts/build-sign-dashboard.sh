@@ -78,8 +78,44 @@ fi
 
 wait_reachable "http://localhost:5001/v2/" 90
 
+# ── Why this build needs its own builder ────────────────────────────────────
+#
+# This is the only build in the estate that asks for attestations and an OCI
+# archive, and those two demands are what make it incompatible with the default
+# builder on a current Docker.
+#
+# Docker's default "docker" driver refuses both unless the containerd image
+# store is enabled:
+#
+#   ERROR: failed to build: Attestation is not supported for the docker driver.
+#   Switch to a different driver, or turn on the containerd image store.
+#
+# Turning that store on is not a free choice, because it breaks the OTHER half
+# of the estate: under the containerd image store `kind load` exits 0 having
+# transferred nothing (see Makefile:297 and scripts/kind-load-verified.sh), so
+# every plain `docker build` in signalloom-images reaches the node as a stale
+# image or not at all. There is no setting of that one flag that satisfies both.
+#
+# The resolution is the first branch of Docker's own advice — a different
+# driver — applied HERE ONLY. A `docker-container` builder supports
+# attestations and OCI export regardless of the image store, so the daemon can
+# keep the classic store that `kind load` needs.
+#
+# It must NOT be made the global default. `docker build` is buildx in Docker
+# 23+, so a default docker-container builder silently stops loading plain
+# builds into the daemon: the images build, report success, and never appear in
+# `docker images`. kind-load-verified.sh then compares the node against a stale
+# image and reports a rootfs diffID divergence — a confusing symptom two steps
+# removed from its cause. Keep the scope to this one invocation.
+BUILDX_BUILDER_NAME="${BUILDX_BUILDER_NAME:-signalloom-oci}"
+if ! docker buildx inspect "${BUILDX_BUILDER_NAME}" >/dev/null 2>&1; then
+  echo "creating docker-container builder ${BUILDX_BUILDER_NAME} (attestations + OCI export)"
+  docker buildx create --name "${BUILDX_BUILDER_NAME}" --driver docker-container --bootstrap >/dev/null
+fi
+
 echo "building OCI evidence and runnable image archive for ${IMAGE_REF}"
 docker buildx build \
+  --builder "${BUILDX_BUILDER_NAME}" \
   "${BUILD_FLAGS[@]}" \
   --sbom=true \
   --provenance=mode=max \

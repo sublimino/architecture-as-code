@@ -924,7 +924,7 @@ run_stage \
   "stage8b-smoke.txt" \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
-   ./scripts/acceptance-test.sh smoke.spec.ts"
+   ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
 
 # Write stage results JSON
 printf '%s\n' "${stage_results[@]}" | jq -s '.' > "${REPORT_DIR}/stages.json"

@@ -206,6 +206,17 @@ func (h *Handlers) handleQueryObservations(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// encoding/json marshals a nil slice as `null`, not `[]`. A caller that
+	// declared the field an array then dereferences null and crashes — which is
+	// exactly what the dashboard's Weave page did on an empty result:
+	//   Uncaught TypeError: Cannot read properties of null (reading 'length')
+	// The contract is "a list of observations, possibly empty", so an empty
+	// result must serialise as an empty list. handleListActors below already
+	// does this; the asymmetry was the bug.
+	if obs == nil {
+		obs = []model.Observation{}
+	}
+
 	writeJSON(w, http.StatusOK, obs)
 }
 
@@ -296,13 +307,13 @@ func (h *Handlers) handleSeed(w http.ResponseWriter, r *http.Request) {
 
 // StoreStatsResponse describes the current state of the signal store and engine.
 type StoreStatsResponse struct {
-	TotalObservations    int                `json:"total_observations"`
-	ObservationsByLayer  map[string]int     `json:"observations_by_layer"`
-	ObservationsByFidelity map[string]int   `json:"observations_by_fidelity"`
-	ActorCount           int                `json:"actor_count"`
-	ActorsByStatus       map[string]int     `json:"actors_by_status"`
-	LastIngestion        *time.Time         `json:"last_ingestion"`
-	StoreType            string             `json:"store_type"`
+	TotalObservations      int            `json:"total_observations"`
+	ObservationsByLayer    map[string]int `json:"observations_by_layer"`
+	ObservationsByFidelity map[string]int `json:"observations_by_fidelity"`
+	ActorCount             int            `json:"actor_count"`
+	ActorsByStatus         map[string]int `json:"actors_by_status"`
+	LastIngestion          *time.Time     `json:"last_ingestion"`
+	StoreType              string         `json:"store_type"`
 }
 
 func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
@@ -351,10 +362,10 @@ func (h *Handlers) handleStoreStats(w http.ResponseWriter, r *http.Request) {
 
 // CoverageResponse describes the signal coverage state.
 type CoverageResponse struct {
-	CoveredLayers      []string    `json:"covered_layers"`
-	BlindSpots         []BlindSpot `json:"blind_spots"`
-	CloseableByIssuance []string   `json:"closeable_by_issuance"`
-	DeploymentCoverage string      `json:"deployment_coverage"`
+	CoveredLayers       []string    `json:"covered_layers"`
+	BlindSpots          []BlindSpot `json:"blind_spots"`
+	CloseableByIssuance []string    `json:"closeable_by_issuance"`
+	DeploymentCoverage  string      `json:"deployment_coverage"`
 }
 
 // BlindSpot is a known gap in signal coverage.

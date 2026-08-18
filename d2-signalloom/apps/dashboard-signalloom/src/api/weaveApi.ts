@@ -91,17 +91,38 @@ export interface WeaveActorsResponse {
 
 // ─── Client ──────────────────────────────────────────────────────────────────
 
+/**
+ * Coerce a list-shaped response to an actual array.
+ *
+ * `req<T[]>` is a cast, not a check: TypeScript describes what the server is
+ * *supposed* to send and enforces nothing at runtime. A Go service marshalling
+ * a nil slice emits `null`, which sailed straight through that cast into
+ * component state and produced
+ *
+ *     Uncaught TypeError: Cannot read properties of null (reading 'length')
+ *
+ * on the Weave page whenever the observations query came back empty.
+ *
+ * The service-side fix (signal-ingest now emits `[]`) is the real one and is
+ * where the bad state entered. This is the second line of defence, because the
+ * page is one caching proxy, one gateway error body, or one future service away
+ * from being handed a null again — and the browser should degrade to "empty"
+ * rather than a white screen. Anything that is not an array becomes an empty
+ * array, which is the truthful reading of "no items".
+ */
+const asList = <T>(value: T[] | null | undefined): T[] => (Array.isArray(value) ? value : [])
+
 export const weaveApi = {
-  getObservations: (token: string, params?: { layer?: string; limit?: number }) => {
+  getObservations: async (token: string, params?: { layer?: string; limit?: number }) => {
     const q = new URLSearchParams()
     if (params?.layer) q.set('layer', params.layer)
     if (params?.limit) q.set('limit', String(params.limit))
     const qs = q.toString()
-    return req<SignalObservation[]>(`/signals/observations${qs ? `?${qs}` : ''}`, token)
+    return asList(await req<SignalObservation[] | null>(`/signals/observations${qs ? `?${qs}` : ''}`, token))
   },
 
-  getActors: (token: string) =>
-    req<ProvisionalActor[]>('/signals/actors', token),
+  getActors: async (token: string) =>
+    asList(await req<ProvisionalActor[] | null>('/signals/actors', token)),
 
   getActor: (token: string, id: string) =>
     req<ProvisionalActor>(`/signals/actors/${id}`, token),

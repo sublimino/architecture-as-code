@@ -211,3 +211,40 @@ describe('fakeWeaveData fixture integrity', () => {
     }
   })
 })
+
+describe('list responses are coerced to arrays', () => {
+  // Regression for the crash reported from the deployed bundle:
+  //   Uncaught TypeError: Cannot read properties of null (reading 'length')
+  //   at WeavePage-Cv9_K1nn.js:1:6411
+  // signal-ingest marshalled a nil slice as `null`, req<T[]> cast it without
+  // checking, setObservations(null) landed in state, and WeavePage line 149
+  // (`observations.length === 0 && actors.length === 0`) dereferenced it.
+  it('getObservations returns [] when the service sends null', async () => {
+    mockReq.mockResolvedValueOnce(null)
+    const { weaveApi } = await import('./weaveApi')
+    const result = await weaveApi.getObservations('tok')
+    expect(Array.isArray(result)).toBe(true)
+    expect(result).toEqual([])
+    // The assertion that actually matters: the expression that crashed.
+    expect(() => result.length === 0).not.toThrow()
+  })
+
+  it('getActors returns [] when the service sends null', async () => {
+    mockReq.mockResolvedValueOnce(null)
+    const { weaveApi } = await import('./weaveApi')
+    const result = await weaveApi.getActors('tok')
+    expect(result).toEqual([])
+    expect(() => result.length === 0).not.toThrow()
+  })
+
+  it('getObservations passes a real list through unchanged', async () => {
+    // Paired positive. Without it, a coercion that returned [] for EVERYTHING
+    // would satisfy both tests above while silently emptying the page.
+    const rows = [{ id: 'obs-1' }, { id: 'obs-2' }]
+    mockReq.mockResolvedValueOnce(rows)
+    const { weaveApi } = await import('./weaveApi')
+    const result = await weaveApi.getObservations('tok')
+    expect(result).toHaveLength(2)
+    expect(result).toBe(rows)
+  })
+})

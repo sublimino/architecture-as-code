@@ -17,7 +17,8 @@ Branch `feat/gcp-tf-identity-ci`. Chunk: the cloud identity boundary and the CI 
 | `test/fixtures/terraform/identity/**` | mutation fixtures, `.fixture` suffix, plus a `clean/` control |
 | `test/fixtures/gcp-tf-ci/**` | stub `gcloud`, stub test runners, adversarial instance list, script digests |
 
-Commits: `7feab3c` (modules + tftests), `d02e3ba` (scripts + bats + fixtures + READMEs), and this file.
+Commits: `7feab3c` (modules + tftests), `d02e3ba` (scripts + bats + fixtures + READMEs),
+`d020506` (these notes), `346eeda` (home-path guard fix — finding 3).
 
 ## Verification actually run
 
@@ -89,31 +90,31 @@ carved out; the prohibition is on a developer's machine leaking into a committed
 carve-out has its own test asserting it has not widened into "any home path is fine", and the
 guard is proven to still bite by injecting a leak into a throwaway copy of the tree.
 
-**3. `"idle"` in the reaper means uptime since last start, not keystroke idleness.** That is the
+**4. `"idle"` in the reaper means uptime since last start, not keystroke idleness.** That is the
 honest description and it is documented in the script header. It is the right measure here only
 *because* `gcp-tf-ci.sh` suspends on every completed run, so a lane still RUNNING past the
 threshold is by construction abandoned. If a future change lets lanes stay up legitimately, this
 proxy stops being valid.
 
-**4. `.terraform/` and `.terraform.lock.hcl` are not gitignored anywhere in this repo.** They are
+**5. `.terraform/` and `.terraform.lock.hcl` are not gitignored anywhere in this repo.** They are
 produced by the `terraform init -backend=false` that `terraform test` requires. I removed mine
 before hand-off rather than editing `.gitignore`, which F1 owns. **F1 should add `.terraform/`,
 `.terraform.lock.hcl`, and `*.tfstate*`** — otherwise the first person to run the Make target
 commits a provider binary.
 
-**5. `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` pins `gcp-ci.sh`, `ci-lock.sh`, and
+**6. `test/fixtures/gcp-tf-ci/untouched-scripts.sha256` pins `gcp-ci.sh`, `ci-lock.sh`, and
 `vm-pipeline.sh` (ISC-203).** If any of those is ever legitimately changed, refresh it with
 `sha256sum scripts/ci/gcp-ci.sh scripts/ci/ci-lock.sh scripts/ci/vm-pipeline.sh > test/fixtures/gcp-tf-ci/untouched-scripts.sha256`
 in the same commit. A stale digest reads as tampering.
 
-**6. Mutation fixtures carry a `.fixture` suffix on purpose.** They contain `roles/owner`,
+**7. Mutation fixtures carry a `.fixture` suffix on purpose.** They contain `roles/owner`,
 `google_service_account_key`, `google_project_iam_policy`, `access_config`, and `command = apply`
 — exactly the strings other chunks' whole-tree guards scan for. The suffix keeps them invisible
 to any `*.tf` / `*.tftest.hcl` glob. **A guard that greps every file in the repo regardless of
 extension will still trip on them**; if F1's `terraform-conventions.bats` does that, it needs to
 exclude `test/fixtures/`.
 
-**7. `terraform test` requires `terraform init -backend=false` to have run in the module
+**8. `terraform test` requires `terraform init -backend=false` to have run in the module
 directory first.** F6's Make target must do that for `terraform/modules/identity` and
 `terraform/modules/ci-runner` before invoking `terraform test`, or the target fails on a clean
 checkout.

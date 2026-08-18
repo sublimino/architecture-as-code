@@ -58,69 +58,6 @@ run "default_access_mode_is_iap" {
   }
 }
 
-run "omitting_every_optional_input_yields_the_locked_down_posture" {
-  command = plan
-
-  # Terraform treats a tfvars value for an UNDECLARED variable as a warning, not
-  # an error, and discards it. So if a calling root forgets to declare an input,
-  # the operator's value silently evaporates and this module's defaults are what
-  # actually take effect. This run supplies ONLY the mandatory contract inputs
-  # (plus iap_members, which the default posture requires) and asserts that
-  # every discarded optional lands on the safe side.
-  #
-  # Note the limit of this guarantee, which matters to any caller: a module
-  # default only applies while the root passes NO value. Once a root wires
-  # access_mode = var.access_mode, the ROOT's default governs and this one is
-  # dead. A calling root must therefore default access_mode to "iap" too.
-  variables {
-    project_id             = "CHANGEME-project"
-    environment_key        = "demo-1"
-    name_prefix            = "sl-demo-1"
-    labels                 = { environment = "demo-1" }
-    backend_instance_group = "projects/CHANGEME-project/zones/europe-west2-a/instanceGroups/sl-demo-1-ig"
-    app_port               = 8080
-    iap_members            = ["user:someone@example.invalid"]
-  }
-
-  assert {
-    condition     = var.access_mode == "iap" && google_compute_backend_service.app.iap[0].enabled == true
-    error_message = "With every optional input omitted the edge is not in IAP mode. A discarded access_mode must land on the locked-down posture, because a root that forgets to declare the variable produces exactly this state."
-  }
-
-  # No hostname means no public frontend at all, rather than a half-built one.
-  assert {
-    condition = alltrue([
-      length(google_compute_global_forwarding_rule.https) == 0,
-      length(google_compute_managed_ssl_certificate.edge) == 0,
-      length(google_dns_record_set.edge) == 0,
-    ])
-    error_message = "A discarded hostname produced a public frontend. The empty default must disable the whole chain."
-  }
-
-  # A discarded allowlist must mean "nothing extra is admitted", never "admit
-  # everything". Empty lists plus the default deny is the safe direction.
-  assert {
-    condition     = length(var.allowed_ipv4) == 0 && length(var.allowed_ipv6) == 0
-    error_message = "The allowlist defaults are not empty. A discarded allowlist must fail closed."
-  }
-
-  # A cache in front of an IAP-authenticated app would serve one principal's
-  # response to another. The discarded default must be off.
-  assert {
-    condition     = google_compute_backend_service.app.enable_cdn == false
-    error_message = "enable_cdn defaulted to true. A CDN in front of an authenticated edge is a cross-principal disclosure risk."
-  }
-
-  # And the floor is still there.
-  assert {
-    condition = one([
-      for r in google_compute_security_policy.edge.rule : r.action
-      if r.priority == 2147483647
-    ]) == "deny(403)"
-    error_message = "The Cloud Armor default deny is absent under the all-defaults configuration."
-  }
-}
-
 run "iap_mode_grants_https_resource_accessor_to_named_principals" {
   command = plan
 

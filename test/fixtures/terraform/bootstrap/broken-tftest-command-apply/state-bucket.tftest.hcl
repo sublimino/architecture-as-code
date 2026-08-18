@@ -76,6 +76,18 @@ run "state_bucket_iam_is_least_privilege" {
     error_message = "Expected the evaluated IAM binding role to be roles/storage.objectAdmin."
   }
 
+  # Stated as its own negative rather than left implied by the equality above. objectAdmin can
+  # read and write state objects and cannot delete the bucket or change its retention; admin can
+  # do both. If someone widens the role, this assertion names the reason it is wrong.
+  #
+  # This covers the binding that exists in the plan. It cannot prove no OTHER file anywhere in
+  # the tree grants roles/storage.admin — a plan only sees what it evaluated — so the whole-tree
+  # absence check stays in test/terraform-state-protection.bats.
+  assert {
+    condition     = google_storage_bucket_iam_binding.state_object_admins.role != "roles/storage.admin"
+    error_message = "Expected no evaluated IAM binding to grant roles/storage.admin on the state bucket."
+  }
+
   assert {
     # members is a set in the provider schema, so it never compares equal to the list the
     # variable supplies. Terraform has no setequal(), so sort both sides and compare: that

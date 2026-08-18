@@ -56,15 +56,6 @@ make_fixture() {
 make_fixture broken-prevent-destroy main.tf \
   's/prevent_destroy = true/prevent_destroy = false/'
 
-make_fixture broken-public-access main.tf \
-  's/public_access_prevention    = "enforced"/public_access_prevention    = "inherited"/'
-
-make_fixture broken-versioning main.tf \
-  '/versioning {/,/}/ s/enabled = true/enabled = false/'
-
-make_fixture broken-force-destroy main.tf \
-  's/force_destroy               = false/force_destroy               = true/'
-
 make_fixture broken-public-principal main.tf \
   's/  members = var.state_object_admins/  members = ["allUsers"]/'
 

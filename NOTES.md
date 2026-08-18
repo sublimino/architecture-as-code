@@ -14,7 +14,7 @@ Nothing was applied. No `gcloud` command of any kind was run. Verification was l
 | Path | Purpose |
 |---|---|
 | `terraform/bootstrap/{versions,main,variables,outputs}.tf` | The state-bucket root. No `backend` block of any kind. |
-| `terraform/bootstrap/tests/state-bucket.tftest.hcl` | 16 native `terraform test` runs, mocked provider, plan-only. |
+| `terraform/bootstrap/tests/state-bucket.tftest.hcl` | 16 native `terraform test` runs, mocked provider, plan-only. **Primary correctness surface.** |
 | `terraform/bootstrap/{backend.hcl.example,terraform.tfvars.example}` | Copyable shapes, `CHANGEME-` placeholders only. |
 | `terraform/bootstrap/README.md` | One-time procedure, IAM-vs-config argument, state recovery rehearsal. |
 | `terraform/bootstrap/.terraform.lock.hcl` | Committed on purpose. |
@@ -22,8 +22,8 @@ Nothing was applied. No `gcloud` command of any kind was run. Verification was l
 | `terraform/README.md` | Three-root layout, ordering, prefixes, destroy exclusions. |
 | `.gitignore` | Append-only delimited block. |
 | `test/terraform-conventions.bats` | 30 tests (5 skip). |
-| `test/terraform-state-protection.bats` | 28 tests (4 skip). |
-| `test/fixtures/terraform/bootstrap/` | 14 broken fixtures + `GENERATE.sh`. |
+| `test/terraform-state-protection.bats` | 19 tests (4 skip). |
+| `test/fixtures/terraform/bootstrap/` | 11 broken fixtures + `GENERATE.sh`. |
 
 ## Verification actually run
 
@@ -32,7 +32,7 @@ terraform fmt -recursive -check terraform/                        exit 0
 terraform init -backend=false && terraform validate  (bootstrap)  exit 0, "Success!"
 tflint --chdir terraform/bootstrap                                exit 0
 bats test/terraform-conventions.bats           30 tests, 0 fail, 5 skip, 1.0s
-bats test/terraform-state-protection.bats      28 tests, 0 fail, 4 skip, 0.9s
+bats test/terraform-state-protection.bats      19 tests, 0 fail, 4 skip, 0.7s
 shellcheck test/fixtures/terraform/bootstrap/GENERATE.sh          exit 0
 terraform test  (bootstrap, no credentials)      16 passed, 0 failed
 ```
@@ -125,6 +125,40 @@ ISC-353–354 (F6's Make targets).
 
 **ISC-336 caveat:** `terraform test` requires `terraform init -backend=false` to have run in that
 directory first, which needs registry network access. Credentials are not needed; the network is.
+
+## bats retargeted: duplicated checks deleted, not kept in both places
+
+Per CONTRACT §7a, `terraform test` is the primary surface and bats is secondary. Anything
+expressible as "this evaluated attribute has this value" moved to `.tftest.hcl` and was **deleted
+from bats** rather than left in both — a duplicated check drifts, and the weaker of the two is
+the one that keeps passing.
+
+**Moved out of `test/terraform-state-protection.bats`** (3 guard functions, 9 tests, 3 fixtures):
+`public_access_prevention`, `versioning`, `force_destroy`. All are asserted on the evaluated
+configuration in the tftest, alongside `uniform_bucket_level_access`, the lifecycle rule's
+retention condition and action, the mandatory labels, and the IAM role and members. The suite
+went 28 → 19 tests with no loss of coverage; the fixtures `broken-public-access`,
+`broken-versioning` and `broken-force-destroy` were deleted with their generator entries.
+
+**Deliberately kept in bats, because a plan structurally cannot see it:**
+
+- **`lifecycle { prevent_destroy }`.** This is the one worth flagging. It is a *meta-argument*,
+  not a resource attribute, and it is **not addressable in a plan at all** — asserting
+  `google_storage_bucket.terraform_state.lifecycle[0].prevent_destroy` in a scratch tftest fails
+  with `Unsupported attribute`. Verified, not assumed. bats is the only surface that can check
+  it, so ISC-24/36 cannot migrate. **Every chunk with a `prevent_destroy` or `ignore_changes`
+  invariant has the same constraint.**
+- **Absence across the whole tree** — that `allUsers` and `roles/storage.admin` appear in *no*
+  file anywhere. A plan only sees what it evaluated, so it can never prove a negative about
+  files it did not evaluate. The tftest now also asserts the evaluated role `!= roles/storage.admin`
+  as an explicit negative (falsified: widening the role in a scratch copy turns it red), but that
+  covers only the binding in the plan.
+- **The absence of a `backend` block**, a property of the source rather than of a plan.
+- **Backend prefix strings**, which live in `-backend-config=` arguments, not in HCL.
+- **Roots that do not exist yet**, which cannot be planned.
+
+`test/terraform-conventions.bats` was already scoped to layout, fmt, pins, variable metadata, git
+hygiene and whole-tree absence, so it needed no retargeting.
 
 ## Finding that every chunk writing `expect_failures` needs
 

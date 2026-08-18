@@ -72,6 +72,9 @@ readonly EXIT_NO_HANDOFF=5
 # SSH tunnelling; it carries no web traffic through the load balancer.
 readonly IAP_TCP_RANGE="35.235.240.0/20"
 
+# Probed as its own condition, separately from the application port.
+readonly SSH_PORT="22"
+
 # The v1 estate's fingerprints. Any of these appearing in the handoff or on the
 # command line means someone is pointing the v2 suite at ControlPlane.
 readonly V1_MARKERS=(
@@ -142,6 +145,7 @@ CLOUD_READS_OK=0
 IAP_VERDICT="unknown"
 IAP_LOCAL_PORT=""
 IAP_TUNNEL_PID=""
+IAP_PROBE_TAIL=""
 
 usage() {
   cat <<'USAGE'
@@ -413,7 +417,24 @@ load_handoff() {
   # v1 handoff.
   refuse_v1_estate "$HANDOFF_JSON" "the handoff file ${path}"
 
-  H_ENV="$(hv '.env // .env_key // .environment')"
+  # Schema first. The emitter bumps `schema` and `schema_version` together on any
+  # breaking change, so an unrecognised value means the shape below may not hold.
+  # Announced rather than fatal: the field-by-field reader degrades to UNKNOWN on
+  # anything it cannot find, so a newer schema still produces an honest report
+  # rather than a wrong one.
+  local schema
+  schema="$(hv '.schema')"
+  case "$schema" in
+    "" | "signalloom.gcp.handoff/v1") ;;
+    *)
+      printf '%s: note: handoff declares schema "%s", which this script does not know.\n' \
+        "$SCRIPT_NAME" "$schema" >&2
+      printf '%s: fields it cannot resolve will report UNKNOWN rather than a guess.\n\n' \
+        "$SCRIPT_NAME" >&2
+      ;;
+  esac
+
+  H_ENV="$(hv '.env // .environment_key // .env_key // .environment')"
   H_PROJECT="$(hv '.project // .project_id')"
   H_REGION="$(hv '.region')"
   H_ZONE="$(hv '.zone')"
@@ -593,20 +614,48 @@ check_instance() {
 # Graded from the handoff rather than from the edge, deliberately: this asserts
 # what the estate was DECLARED to be. The tunnel probe below asserts what it
 # does. Both matter, and a disagreement between them is worth seeing.
+# access_mode is a THREE-valued enum, not a boolean. terraform/environments/
+# variables.tf validates exactly:
+#
+#   iap                 IAP authenticates every request. No anonymous path.
+#   allowlist           Cloud Armor IP allowlist ONLY. Coarse exposure control,
+#                       and explicitly NOT authentication.
+#   iap_and_allowlist   Both, and per the variable's own description the
+#                       STRONGEST posture available.
+#
+# Treating this as an either/or switch is a real defect and not a cosmetic one:
+# it fails the strongest configuration. It is also the mode most likely to be in
+# use on a demo estate that is both IAP-gated and IP-restricted, so the wrong
+# answer would show up precisely on the best-configured environment. Caught in
+# review by the agent that owns the emitter.
+#
+# An unrecognised value is UNKNOWN rather than PASS or FAIL. This script cannot
+# grade a posture it does not understand, and guessing in either direction is
+# worse than saying so -- under --strict it still stops the run.
 check_access_mode() {
   local mode="$1"
   case "$mode" in
     "")
-      report UNKNOWN "access mode is IAP" "handoff carries no access_mode"
+      report UNKNOWN "access mode authenticates" "handoff carries no access_mode"
       note "regenerate the handoff: make gcp-tf-handoff"
       ;;
-    iap | IAP)
-      report PASS "access mode is IAP" "access_mode=${mode}"
+    iap)
+      report PASS "access mode authenticates" "access_mode=iap -- IAP in front of the backend"
       ;;
-    *)
-      report FAIL "access mode is IAP" "access_mode=${mode}, not iap"
+    iap_and_allowlist)
+      report PASS "access mode authenticates" \
+        "access_mode=iap_and_allowlist -- IAP plus an IP allowlist, the strongest posture"
+      note "authentication AND coarse exposure control; the allowlist narrows who can even try"
+      ;;
+    allowlist)
+      report FAIL "access mode authenticates" "access_mode=allowlist -- no authentication at all"
       note "SECURITY.md #5: an allowlist says where a request came from, never who sent it"
       note "anything reaching the allowed source address reaches the application unauthenticated"
+      ;;
+    *)
+      report UNKNOWN "access mode authenticates" "unrecognised access_mode: '${mode}'"
+      note "terraform validates exactly: iap, allowlist, iap_and_allowlist"
+      note "this script will not guess a posture it does not understand -- the handoff or the enum has drifted"
       ;;
   esac
   return 0
@@ -745,22 +794,27 @@ check_firewall() {
 # configuration that is already right, and they will find nothing wrong with it,
 # because nothing is. So "denied" is a FAIL and "authorised, nothing listening"
 # is a PASS on the authorisation with an explicit note -- never the same verdict.
-check_iap_tunnel() {
+# The probe itself, shared by the app-port check and the SSH-path check.
+#
+# Sets IAP_VERDICT, IAP_LOCAL_PORT, IAP_TUNNEL_PID and IAP_PROBE_TAIL. Returns
+# non-zero only when the probe exited without saying anything classifiable --
+# the caller decides what each verdict MEANS, because the same three outcomes
+# carry different weight on port 22 than they do on the application port.
+#
+# Leaves the tunnel RUNNING when it comes up, so the caller can use it. Every
+# caller is responsible for tearing it down; cleanup_tunnel() catches the rest.
+iap_probe() {
   local project="$1" instance="$2" zone="$3" port="$4"
   local log rc=0
 
   IAP_VERDICT="unknown"
   IAP_LOCAL_PORT=""
   IAP_TUNNEL_PID=""
-
-  if [ -z "$project" ] || [ -z "$instance" ] || [ -z "$port" ]; then
-    report UNKNOWN "IAP tunnel authorises" "handoff carries no project, instance and/or app port"
-    return 0
-  fi
+  IAP_PROBE_TAIL=""
 
   log="$(mktemp)" || {
-    report UNKNOWN "IAP tunnel authorises" "could not create a temporary file for the probe"
-    return 0
+    IAP_VERDICT="no-tmpfile"
+    return 1
   }
 
   local -a probe=(compute start-iap-tunnel "$instance" "$port"
@@ -768,8 +822,8 @@ check_iap_tunnel() {
   [ -n "$zone" ] && probe+=(--zone "$zone")
 
   # Backgrounded so a tunnel that comes up and STAYS up -- the success case --
-  # does not block for ever. Killed by PID below; never by pattern, because the
-  # pattern would match this script's own command line.
+  # does not block for ever. Torn down by parent PID; never by pattern, because
+  # the pattern would match this script's own command line.
   gcloud_tunnel_probe "${probe[@]}" >"$log" 2>&1 &
   IAP_TUNNEL_PID=$!
 
@@ -777,6 +831,7 @@ check_iap_tunnel() {
   while [ "$waited" -lt "$IAP_PROBE_TIMEOUT" ]; do
     if grep -qE 'Listening on port \[[0-9]+\]' "$log" 2>/dev/null; then
       IAP_VERDICT="listening"
+      IAP_LOCAL_PORT="$(grep -oE 'Listening on port \[[0-9]+\]' "$log" | head -1 | grep -oE '[0-9]+' | head -1)"
       break
     fi
     if grep -qiE '4033|not authoriz|not authoris|permission denied|PERMISSION_DENIED|Error while connecting.*[Ff]orbidden' "$log" 2>/dev/null; then
@@ -796,9 +851,30 @@ check_iap_tunnel() {
     waited=$((waited + 1))
   done
 
+  IAP_PROBE_TAIL="$(tr '\n' ' ' <"$log" | cut -c1-160)"
+  rm -f "$log"
+  return "$rc"
+}
+
+check_iap_tunnel() {
+  local project="$1" instance="$2" zone="$3" port="$4"
+  local rc=0
+
+  if [ -z "$project" ] || [ -z "$instance" ] || [ -z "$port" ]; then
+    IAP_VERDICT="unknown"
+    report UNKNOWN "IAP tunnel authorises" "handoff carries no project, instance and/or app port"
+    return 0
+  fi
+
+  iap_probe "$project" "$instance" "$zone" "$port" || rc=1
+  if [ "$IAP_VERDICT" = "no-tmpfile" ]; then
+    IAP_VERDICT="unknown"
+    report UNKNOWN "IAP tunnel authorises" "could not create a temporary file for the probe"
+    return 0
+  fi
+
   case "$IAP_VERDICT" in
     listening)
-      IAP_LOCAL_PORT="$(grep -oE 'Listening on port \[[0-9]+\]' "$log" | head -1 | grep -oE '[0-9]+' | head -1)"
       report PASS "IAP tunnel authorises" \
         "tunnel to ${instance}:${port} established (local port ${IAP_LOCAL_PORT:-unknown})"
       ;;
@@ -830,9 +906,10 @@ check_iap_tunnel() {
       note "this is a DEPLOY problem, not an access problem. IAM is correct; the app is not running."
       ;;
     *)
+      IAP_VERDICT="unknown"
       if [ "$rc" -ne 0 ]; then
         report UNKNOWN "IAP tunnel authorises" \
-          "the probe exited without a classifiable result: $(tr '\n' ' ' <"$log" | cut -c1-160)"
+          "the probe exited without a classifiable result: ${IAP_PROBE_TAIL}"
       else
         report UNKNOWN "IAP tunnel authorises" \
           "the probe said nothing in ${IAP_PROBE_TIMEOUT}s; neither authorised nor denied was established"
@@ -841,7 +918,81 @@ check_iap_tunnel() {
       ;;
   esac
 
-  rm -f "$log"
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# The SSH path, and the OS Login gap named as its own condition
+# ---------------------------------------------------------------------------
+#
+# Two different things are called "SSH access" here and they fail independently:
+#
+#   1. The IAP TCP tunnel to port 22. Governed by roles/iap.tunnelResourceAccessor
+#      and the IAP firewall rule. This is what an acceptance run can use, and it
+#      works today.
+#   2. OS Login authorisation, which is what `gcloud compute ssh` additionally
+#      requires. For an identity EXTERNAL to the organisation it needs
+#      roles/compute.osLoginExternalUser, which is an ORG-scoped grant -- not a
+#      project one, so no amount of project-level IAM will produce it.
+#
+# The estate is currently in the state where (1) works and (2) does not. That
+# presents as "gcloud compute ssh fails", which reads as a broken VM or a broken
+# tunnel and is neither. Naming it as its own condition is the whole point: a
+# generic access failure sends someone to the wrong layer.
+#
+# Note what this check does NOT do: it never invokes `gcloud compute ssh`. That
+# is a mutating verb, it is refused by both gates, and it would fail here for a
+# reason that has nothing to do with the estate's posture.
+check_ssh_path() {
+  local project="$1" instance="$2" zone="$3"
+  local rc=0
+
+  if [ -z "$project" ] || [ -z "$instance" ]; then
+    report UNKNOWN "SSH path via IAP tunnel" "handoff carries no project and/or instance"
+    return 0
+  fi
+
+  iap_probe "$project" "$instance" "$zone" "$SSH_PORT" || rc=1
+
+  case "$IAP_VERDICT" in
+    listening)
+      report PASS "SSH path via IAP tunnel" \
+        "tcp/${SSH_PORT} reachable through IAP on ${instance}"
+      note "this is the supported path. \`gcloud compute ssh\` is a SEPARATE question:"
+      note "it also needs OS Login authorisation, and an identity external to the org"
+      note "needs roles/compute.osLoginExternalUser -- an ORG-scoped grant, not a project one."
+      note "\`compute ssh\` failing while this line is PASS is that grant, not the estate."
+      ;;
+    denied)
+      if [ "$CLOUD_READS_OK" -eq 0 ]; then
+        report UNKNOWN "SSH path via IAP tunnel" \
+          "the probe was denied, but so was every other read in this run"
+        note "an access problem for the whole run, not a verdict on the SSH path"
+      else
+        report FAIL "SSH path via IAP tunnel" \
+          "PERMISSION DENIED tunnelling to ${instance}:${SSH_PORT}"
+        note "the caller lacks roles/iap.tunnelResourceAccessor, or the IAP firewall rule is missing"
+        note "this is the tunnel, NOT OS Login: the connection never reached sshd"
+      fi
+      ;;
+    authorised-no-listener)
+      report FAIL "SSH path via IAP tunnel" \
+        "AUTHORISED, but nothing is listening on tcp/${SSH_PORT} inside ${instance}"
+      note "IAP is correct; sshd is not running or is bound elsewhere"
+      ;;
+    *)
+      report UNKNOWN "SSH path via IAP tunnel" \
+        "the probe was inconclusive: ${IAP_PROBE_TAIL:-no output in ${IAP_PROBE_TIMEOUT}s}"
+      ;;
+  esac
+
+  # This check owns its tunnel and always tears it down: it runs last, so
+  # nothing downstream needs it.
+  if [ -n "$IAP_TUNNEL_PID" ]; then
+    kill_tree "$IAP_TUNNEL_PID"
+    wait "$IAP_TUNNEL_PID" 2>/dev/null || true
+    IAP_TUNNEL_PID=""
+  fi
   return 0
 }
 
@@ -1100,6 +1251,8 @@ main() {
   check_deploy_sa_bucket_roles "$H_STATE_BUCKET" "$H_DEPLOY_SA" || true
   check_iap_tunnel "$H_PROJECT" "$H_INSTANCE" "$H_ZONE" "$H_APP_PORT" || true
   check_app_port "${H_APP_PORT:-<unset>}" || true
+  # Last, because it opens a second tunnel and owns its teardown.
+  check_ssh_path "$H_PROJECT" "$H_INSTANCE" "$H_ZONE" || true
 
   printf '\n%s: %d pass, %d fail, %d unknown\n' \
     "$SCRIPT_NAME" "$PASS_COUNT" "$FAIL_COUNT" "$UNKNOWN_COUNT"

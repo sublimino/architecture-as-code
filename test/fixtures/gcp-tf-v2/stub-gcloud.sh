@@ -62,8 +62,11 @@ case " $* " in
         # down. Real gcloud spawns children here; a teardown that kills only the
         # wrapper leaves a live IAP tunnel behind on every invocation, which is
         # how an acceptance run becomes something you have to clean up after.
+        # APPENDED, not overwritten: a run opens more than one tunnel (the
+        # application port and port 22), and a pidfile that keeps only the last
+        # one would let an earlier leaked tunnel go unnoticed.
         if [ -n "${STUB_IAP_PIDFILE:-}" ]; then
-          printf '%s\n' "$$" >"${STUB_IAP_PIDFILE}"
+          printf '%s\n' "$$" >>"${STUB_IAP_PIDFILE}"
         fi
         sleep 120
         exit 0

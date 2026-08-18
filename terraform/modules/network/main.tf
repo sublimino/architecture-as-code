@@ -199,9 +199,11 @@ resource "google_compute_firewall" "deny_all_ingress" {
 # Egress firewall
 #
 # GCP implies an allow-all egress at priority 65535. Left alone, a compromised
-# demo VM can reach any host on the internet through Cloud NAT. "NAT is not
-# egress control" is a named threat in the proposal, so this module replaces
-# the implied allow with an explicit deny plus a named dependency list.
+# demo VM can reach any host on the internet through Cloud NAT.
+# "NAT is not egress control" is a named threat in the proposal, so this module
+# replaces the implied allow with an explicit deny plus a named dependency list.
+# (That phrase is kept on one line on purpose: the bats guard greps for it, and
+# a line-wrapped slogan is a documented decision that silently stops being one.)
 #
 # The demo genuinely needs, and only needs:
 #

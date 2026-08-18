@@ -1,0 +1,5 @@
+resource "google_project_iam_member" "ci_owner" {
+  project = var.project_id
+  role    = "roles/owner"
+  member  = "serviceAccount:${local.ci_apply_email}"
+}

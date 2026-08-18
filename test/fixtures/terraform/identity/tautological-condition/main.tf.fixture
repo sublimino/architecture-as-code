@@ -1,0 +1,8 @@
+resource "google_iam_workload_identity_pool_provider" "github" {
+  workload_identity_pool_provider_id = "sl-github-oidc"
+  attribute_condition                = "true"
+
+  oidc {
+    issuer_uri = "https://token.actions.githubusercontent.com"
+  }
+}

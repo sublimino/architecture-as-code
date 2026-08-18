@@ -1,0 +1,3 @@
+resource "google_service_account_key" "ci" {
+  service_account_id = google_service_account.ci_apply.name
+}

@@ -123,6 +123,12 @@ gcloud_ro() {
   local joined=" $* "
   case "$joined" in
     *' describe '* | *' list '* | *' version '*) ;;
+    # print-access-token mints a token from credentials that already exist on
+    # this machine. It creates no cloud resource and changes no cloud state, so
+    # it belongs on the read side of this guard -- and it is the only way to ask
+    # who ADC actually is, which is the question that matters most here because
+    # Terraform authenticates with ADC and not with the CLI login.
+    *' auth application-default print-access-token '*) ;;
     *)
       printf '%s: refusing to run a non-read-only gcloud call: gcloud %s\n' \
         "$SCRIPT_NAME" "$*" >&2
@@ -158,6 +164,77 @@ check_active_account() {
   fi
   report PASS "gcloud active account" "$account"
   ACTIVE_ACCOUNT="$account"
+  return 0
+}
+
+# Terraform does NOT use the gcloud CLI login. It uses Application Default
+# Credentials, which are a SEPARATE grant stored in a separate file, and the two
+# routinely disagree: `gcloud auth login` does not refresh ADC, and ADC survives
+# unchanged when you switch CLI accounts.
+#
+# This check exists because that disagreement is invisible until apply time and
+# then presents as a permission error against the project, which reads as an IAM
+# problem and is an identity problem. Observed on this machine: CLI was
+# sublimino@gmail.com with full access while ADC was a months-old grant for a
+# different account that could not see the project at all.
+#
+# The quota project is reported too. ADC attributes API calls to it, so a quota
+# project pointing somewhere else produces "API not enabled" errors naming a
+# project you are not deploying to.
+check_adc() {
+  local project="$1" token email adc_file quota
+  adc_file="${CLOUDSDK_CONFIG:-$HOME/.config/gcloud}/application_default_credentials.json"
+
+  if [ ! -f "$adc_file" ]; then
+    report FAIL "ADC present" "no application default credentials"
+    fix "gcloud auth application-default login   # SEPARATE from 'gcloud auth login'"
+    return 1
+  fi
+
+  token="$(gcloud_ro auth application-default print-access-token || true)"
+  if [ -z "$token" ]; then
+    report FAIL "ADC usable" "credentials exist but no token could be minted"
+    fix "gcloud auth application-default login"
+    return 1
+  fi
+
+  email="$(curl -s --max-time 15 "https://www.googleapis.com/oauth2/v1/userinfo?access_token=${token}" 2>/dev/null |
+    sed -n 's/.*"email"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  if [ -z "$email" ]; then
+    report UNKNOWN "ADC identity" "token minted but the identity could not be resolved"
+    return 0
+  fi
+
+  if [ -n "${ACTIVE_ACCOUNT:-}" ] && [ "$email" != "$ACTIVE_ACCOUNT" ]; then
+    report FAIL "ADC identity" "ADC is '${email}' but the CLI is '${ACTIVE_ACCOUNT}' -- Terraform will use ADC"
+    fix "gcloud auth application-default login   # then pick ${ACTIVE_ACCOUNT}"
+    return 1
+  fi
+  report PASS "ADC identity" "$email"
+
+  # Reachability under ADC specifically. The CLI check above proves nothing
+  # about this: they are different credentials.
+  local code
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 \
+    -H "Authorization: Bearer ${token}" \
+    "https://cloudresourcemanager.googleapis.com/v1/projects/${project}" 2>/dev/null)"
+  case "$code" in
+  200) report PASS "ADC reaches project" "$project" ;;
+  403 | 404)
+    report FAIL "ADC reaches project" "ADC identity cannot access '${project}' (HTTP ${code})"
+    fix "gcloud auth application-default login   # with an account that can reach ${project}"
+    return 1
+    ;;
+  *) report UNKNOWN "ADC reaches project" "unexpected HTTP ${code} from cloudresourcemanager" ;;
+  esac
+
+  quota="$(sed -n 's/.*"quota_project_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$adc_file" | head -1)"
+  if [ -n "$quota" ] && [ "$quota" != "$project" ]; then
+    report UNKNOWN "ADC quota project" "'${quota}' is not '${project}'; API calls bill and quota there"
+    fix "gcloud auth application-default set-quota-project ${project}"
+  elif [ -n "$quota" ]; then
+    report PASS "ADC quota project" "$quota"
+  fi
   return 0
 }
 
@@ -383,6 +460,7 @@ main() {
     check_active_account || true
     check_project_reachable "$project" || true
     check_apis "$project" || true
+    check_adc "$project" || true
     check_state_bucket "$bucket" || true
     check_dns_zone "$project" "$dns_zone" || true
     check_billing "$project" || true

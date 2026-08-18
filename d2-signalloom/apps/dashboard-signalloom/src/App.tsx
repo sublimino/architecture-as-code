@@ -325,7 +325,38 @@ export default function App() {
 
       <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         {isAuthenticated && <Sidebar />}
-        <main style={{ flex: 1, overflow: 'auto', background: 'var(--bg)' }}>
+        {/* `position: relative` is load-bearing, and the reason is not obvious.
+            `overflow: auto` makes this the app's scroll container, but it does
+            NOT make it the containing block. An absolutely-positioned
+            descendant with no positioned ancestor resolves against the initial
+            containing block instead — which is OUTSIDE this clip, so the clip
+            does not apply to it and its box extends the DOCUMENT's scroll area.
+            The shell above is `height: 100vh; overflow: hidden`, so that
+            document scroll shows up as a SECOND scrollbar which drags the whole
+            UI — sidebar, page and sticky rail alike — off the top of the screen.
+
+            Nothing has to be positioned on purpose for this to bite. The two
+            elements that triggered it are visually-hidden live regions,
+            ProofConsole's `.sr-only` span and ButtonWait's inline twin, and the
+            standard `position: absolute; width: 1px` recipe is the whole cause.
+            They are on other pages too and were harmless there only because
+            those pages are short enough that the span's static position still
+            lands inside the viewport; /design-system is 12620px tall and put
+            one at y=9573, which was the document height to the pixel. So this
+            was a latent shell defect that a long page revealed rather than
+            something that page introduced — and pinning the containing block
+            here closes it for every abspos descendant rather than for the two
+            that happened to surface it.
+
+            `position: fixed` descendants are unaffected (only transform/filter/
+            contain capture those), so the toggles still anchor to the viewport;
+            they carry `zIndex: 4000` and stay above this now-positioned box.
+
+            smoke.spec.ts "has exactly one scroll context" is the guard, and it
+            samples over a window rather than reading once: the live regions
+            mount a beat after the page, so a single measurement taken when the
+            <h1> appears reports the broken page as clean. */}
+        <main style={{ flex: 1, overflow: 'auto', background: 'var(--bg)', position: 'relative' }}>
           {isAuthenticated && needsOnboarding === true && !onboardingGateExempt && (
             <SetupBanner
               connectedCount={connectedProviderCount}

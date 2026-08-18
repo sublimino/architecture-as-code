@@ -59,7 +59,8 @@ The handoff schema I read, with the fallback spellings also accepted:
 | `app_port` | `port` | tunnel probe, app-port check |
 | `state_bucket` | `bucket` | bucket protection, deploy-SA roles |
 | `deploy_sa` | `deploy_service_account` | deploy-SA roles |
-| `access_mode` | — | the IAP-vs-allowlist check |
+| `access_mode` | — | the three-valued posture check |
+| `kind` | — | whether an instance is expected at all (`demo` | `ci`) |
 | `hostname` | — | reporting; `""` is valid |
 
 A field absent under every spelling yields `UNKNOWN` for the checks that need it,
@@ -119,7 +120,7 @@ rather flag the call than quietly make it.
 
 ---
 
-## 2. Three defects the suite found while it was being written
+## 2. Defects found while building this
 
 Recorded because each is a class, not a one-off.
 
@@ -165,6 +166,24 @@ Recorded because each is a class, not a one-off.
    checked the second one. A leak of the first would have gone unnoticed by the
    very test written to catch leaks.
 
+6. **A correct CI hand-off could never have passed `--strict`.** With no way to
+   tell "CI lane, no instance by design" from "demo lane, instance missing",
+   both reported UNKNOWN — and `--strict` exits 3 on any UNKNOWN. So every CI
+   lane would have failed every strict run, permanently, and the fix would have
+   looked like "stop using --strict" rather than "the report cannot express
+   this". Resolved by I1 adding `kind` and by adding a fourth verdict, `N/A`.
+   Fail-closed: only the exact string `ci` is lenient. Four tests pin it,
+   including the demo-lane and unknown-kind negatives with byte-identical blank
+   instance fields.
+
+   I1's observation generalises and is the sharper version of my own: their
+   fixtures carried only `kind: demo` until an hour before this landed. Both
+   suites were green; neither was measuring the third case. A fixture set only
+   ever covers the cases its author imagined, so green says nothing about the
+   case nobody thought of. That is an argument for cross-review between agents
+   holding different halves of a contract, which is exactly what caught both
+   this and the `access_mode` enum.
+
 ## 3. Blockers and open decisions
 
 **Blocker — outside both my chunk and I1's, needs the orchestrator.**
@@ -176,14 +195,24 @@ then `acceptance-v2.sh`) cannot be exercised against the real estate yet. I hit
 the "missing file, run `make gcp-tf-handoff`" path, and running it does not fix
 it. The exact output blocks needed are in `NOTES.md` on I1's branch.
 
-**Open decision — CI lanes have no instance.** There is no compute module for
-`kind = "ci"`, so `instance_name` and `internal_ip` have no meaning for
-`ENV=ci-1`. Somebody needs to decide whether the hand-off is demo-only or
-whether those fields become empty-allowed for CI. Neither I1 nor I have assumed
-one. **My side degrades safely either way**: absent instance fields report
-UNKNOWN with "handoff carries no project and/or instance name" and the run exits
-0 (or 3 under `--strict`), so a CI-lane hand-off produces an honest partial
-report rather than a false pass or a crash.
+**~~Open decision — CI lanes have no instance.~~ RESOLVED.** I1 emits empty
+rather than making the hand-off demo-only, plus a new `kind` field (`demo` |
+`ci`, always present, from `.target_environment.kind`). I consume it: a CI lane
+with blank instance fields now reports `N/A` on the ten instance-dependent
+checks and passes `--strict`, while the state bucket, deploy-SA roles and access
+mode still have to pass. Fixtures: `ci-lane`, `demo-no-instance`,
+`unknown-kind-no-instance`.
+
+**Declined, deliberately — `iap_member_count`.** I1 offered to emit a count so
+this suite could verify "IAP has at least one authorised principal" without
+putting real email addresses in a file that gets copied around. Good instinct on
+the privacy shape, but `conformance.sh` already reads the **live** IAP IAM
+policy and grades it, including the `allUsers` / `allAuthenticatedUsers` case
+that a count cannot see — a count of 1 is equally consistent with one named
+person and with `allAuthenticatedUsers`, which is every Google account on earth.
+A count in the hand-off would be a weaker restatement of a check that already
+exists, and a second source of truth that can drift from the policy it
+describes. Not worth the field.
 
 ## 4. v1 assumption inventory
 

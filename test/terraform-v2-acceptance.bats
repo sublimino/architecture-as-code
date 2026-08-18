@@ -86,7 +86,9 @@ overlay() {
   export STUB_FIXTURE_OVERLAY="${FIXTURES}/$1"
 }
 
-# Count verdict lines of one kind in $output.
+# Count verdict lines of one kind in $output. ANCHORED: an unanchored match
+# would also count the indented note lines beneath a verdict, and "N/A" needs no
+# escaping because '/' carries no special meaning in a POSIX basic regex.
 verdicts() {
   printf '%s\n' "$output" | grep -c "^$1 " || true
 }
@@ -165,7 +167,8 @@ mutate() {
 
   local h
   for h in demo-1 v1-controlplane v1-region-only partial alternate-spellings \
-    stale-ip allowlist-mode iap-and-allowlist bogus-access-mode emitter-shape malformed; do
+    stale-ip allowlist-mode iap-and-allowlist bogus-access-mode emitter-shape \
+    future-schema ci-lane demo-no-instance unknown-kind-no-instance malformed; do
     [ -f "${HANDOFFS}/${h}.handoff.json" ] || { echo "missing handoff ${h}"; return 1; }
   done
 
@@ -635,6 +638,77 @@ mutate() {
     echo "a genuine IAP denial was not a FAIL: ${real_line}"
     return 1
   }
+}
+
+@test "a CI lane reports N/A, not UNKNOWN, and PASSES --strict" {
+  # kind=ci has no compute module, so it has no instance and no app port. That
+  # is the environment working as designed, not a gap in the report.
+  #
+  # This is the bug the field prevents, and it is a real one: folding "nothing
+  # to check" into UNKNOWN means --strict exits 3 on a perfectly correct CI
+  # hand-off, so a CI lane could NEVER pass a strict run. Caught by the agent
+  # that owns the emitter, who added `kind` specifically so this is decidable.
+  run "$ACCEPT" --handoff "${HANDOFFS}/ci-lane.handoff.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts UNKNOWN)" -eq 0 ] || { echo "a CI lane produced UNKNOWNs"; echo "$output"; return 1; }
+  [ "$(verdicts FAIL)" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts 'N/A')" -ge 8 ] || { echo "only $(verdicts 'N/A') N/A lines"; echo "$output"; return 1; }
+  [[ "$output" == *"by design"* ]] || { echo "$output"; return 1; }
+
+  # The checks that ARE meaningful for a CI lane still ran and still passed.
+  # Without this the test would be satisfied by a script that N/A'd everything.
+  [[ "$output" == *"PASS    state bucket protection"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"PASS    deploy SA: objectAdmin only"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"PASS    access mode authenticates"* ]] || { echo "$output"; return 1; }
+
+  # The whole point: strict must not trip on N/A.
+  run "$ACCEPT" --handoff "${HANDOFFS}/ci-lane.handoff.json" --strict
+  [ "$status" -eq 0 ] || {
+    echo "--strict rejected a correct CI hand-off (status ${status})"
+    echo "$output"
+    return 1
+  }
+}
+
+@test "N/A is fail-closed: a demo lane with blank instance fields is UNKNOWN" {
+  # The dangerous shape. If the lenient branch keyed on 'instance is empty'
+  # rather than on kind, a demo environment handed over with two blanks would be
+  # waved through as 'nothing to see here' -- silently not grading the instance
+  # that is supposed to exist.
+  run "$ACCEPT" --handoff "${HANDOFFS}/demo-no-instance.handoff.json"
+  [ "$(verdicts 'N/A')" -eq 0 ] || {
+    echo "a DEMO lane with no instance was treated as not-applicable"
+    echo "$output"
+    return 1
+  }
+  [ "$(verdicts UNKNOWN)" -ge 8 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"kind=demo, which is expected to have an instance"* ]] || { echo "$output"; return 1; }
+
+  # And --strict does trip on it, unlike the CI lane above.
+  run "$ACCEPT" --handoff "${HANDOFFS}/demo-no-instance.handoff.json" --strict
+  [ "$status" -eq 3 ] || { echo "expected 3, got ${status}"; echo "$output"; return 1; }
+}
+
+@test "N/A is fail-closed: an unrecognised kind takes the STRICT path" {
+  # Only the exact string "ci" is lenient. A kind this script has never heard of
+  # must land on the strict side -- the unexpected case must never be the
+  # permissive one.
+  run "$ACCEPT" --handoff "${HANDOFFS}/unknown-kind-no-instance.handoff.json"
+  [ "$(verdicts 'N/A')" -eq 0 ] || {
+    echo "an unrecognised kind was treated as not-applicable"
+    echo "$output"
+    return 1
+  }
+  [ "$(verdicts UNKNOWN)" -ge 8 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"kind=staging, which is expected to have an instance"* ]] || { echo "$output"; return 1; }
+}
+
+@test "a demo lane WITH an instance is unaffected by the kind field" {
+  # The paired positive for all three tests above: kind=demo grades normally.
+  run "$ACCEPT" --handoff "${HANDOFFS}/emitter-shape.handoff.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts 'N/A')" -eq 0 ] || { echo "a full demo lane produced N/A lines"; echo "$output"; return 1; }
+  [ "$(verdicts PASS)" -ge 14 ] || { echo "$output"; return 1; }
 }
 
 @test "a handoff missing most keys reports UNKNOWN rather than guessing a name" {

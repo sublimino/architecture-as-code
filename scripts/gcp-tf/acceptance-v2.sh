@@ -29,11 +29,26 @@
 # that does not exist and report the absence as a clean estate. A key the
 # handoff does not carry produces UNKNOWN, never a guess.
 #
-# Three verdicts, and the difference between the last two is the whole point:
+# Four verdicts, and the differences between them are the whole point:
 #
 #   PASS      checked, and it is as required.
 #   FAIL      checked, and it is NOT as required. The named threat is live.
 #   UNKNOWN   could NOT be checked -- no permission, no resource, no jq, no key.
+#   N/A       there is NOTHING TO CHECK, by design. Not the same as UNKNOWN.
+#
+# N/A exists for exactly one reason and it is not cosmetic. A CI lane
+# (kind = "ci") has no compute module, so it has no instance and no app port --
+# and that is the environment working as designed, not a gap in the report.
+# Folding it into UNKNOWN would mean --strict exits 3 on a perfectly correct CI
+# hand-off, so CI lanes could NEVER pass a strict run. "I could not look",
+# "I looked and it is wrong", and "there is nothing here to look at" are three
+# different facts and the report says which one it means.
+#
+# N/A is fail-closed: ONLY the exact string "ci" takes it. kind = "demo", an
+# absent kind, and any unrecognised value all take the strict path and report
+# UNKNOWN, because the shape that would make this dangerous is a demo
+# environment misclassified as something unfamiliar and handed over with blank
+# instance fields. The unexpected case must never be the permissive one.
 #
 # UNKNOWN is never downgraded to PASS or promoted to FAIL. The single most
 # useful distinction this script draws is inside the IAP check: "the tunnel
@@ -105,6 +120,7 @@ export SSH_AUTH_SOCK=""
 PASS_COUNT=0
 FAIL_COUNT=0
 UNKNOWN_COUNT=0
+NA_COUNT=0
 
 # Populated by load_handoff(). Empty means the handoff did not carry the key,
 # which is a reason for UNKNOWN and never a reason to guess.
@@ -120,6 +136,7 @@ H_STATE_BUCKET=""
 H_DEPLOY_SA=""
 H_ACCESS_MODE=""
 H_HOSTNAME=""
+H_KIND=""
 
 # Set by check_instance() from the instance's own networkInterfaces, so the
 # firewall checks scope to the network the VM is ACTUALLY on rather than to a
@@ -211,6 +228,7 @@ report() {
     PASS) PASS_COUNT=$((PASS_COUNT + 1)) ;;
     FAIL) FAIL_COUNT=$((FAIL_COUNT + 1)) ;;
     UNKNOWN) UNKNOWN_COUNT=$((UNKNOWN_COUNT + 1)) ;;
+    "N/A") NA_COUNT=$((NA_COUNT + 1)) ;;
     *)
       printf '%s: internal error: unknown verdict %s\n' "$SCRIPT_NAME" "$verdict" >&2
       exit "$EXIT_USAGE"
@@ -445,7 +463,25 @@ load_handoff() {
   H_DEPLOY_SA="$(hv '.deploy_sa // .deploy_service_account')"
   H_ACCESS_MODE="$(hv '.access_mode')"
   H_HOSTNAME="$(hv '.hostname')"
+  H_KIND="$(hv '.kind')"
   return 0
+}
+
+# Is this environment expected to HAVE an instance at all?
+#
+# Returns 0 (yes, grade it) for a demo lane, an absent kind, and any value this
+# script does not recognise. Returns 1 (no, it is N/A) ONLY for the exact string
+# "ci", which has no compute module by design.
+#
+# Deliberately fail-closed, mirroring the generator's own relaxation: the
+# dangerous shape is a demo environment carrying an unfamiliar kind and two
+# blank instance fields, so anything unexpected must land on the strict side and
+# report UNKNOWN rather than being waved through as "nothing to see here".
+expects_an_instance() {
+  case "$H_KIND" in
+    ci) return 1 ;;
+    *) return 0 ;;
+  esac
 }
 
 # One field out of the handoff, empty when absent under every accepted spelling.
@@ -462,10 +498,21 @@ check_instance() {
   local items=("instance RUNNING" "no external IP" "Shielded VM" "OS Login enforced" "runtime service account")
   local item raw
 
+  if [ -z "$instance" ] && ! expects_an_instance; then
+    # A CI lane has no compute module. Nothing is missing and nothing failed;
+    # there is simply nothing here to grade.
+    for item in "${items[@]}"; do
+      report "N/A" "$item" "kind=ci: this lane has no instance by design"
+    done
+    return 0
+  fi
   if [ -z "$project" ] || [ -z "$instance" ]; then
     for item in "${items[@]}"; do
       report UNKNOWN "$item" "handoff carries no project and/or instance name"
     done
+    if [ -n "$H_KIND" ]; then
+      note "kind=${H_KIND}, which is expected to have an instance"
+    fi
     note "regenerate the handoff: make gcp-tf-handoff"
     return 0
   fi
@@ -678,6 +725,11 @@ check_firewall() {
     report UNKNOWN "SSH only from IAP range" "handoff carries no project"
     return 0
   fi
+  if [ -z "$INSTANCE_NETWORKS" ] && [ -z "$H_INSTANCE" ] && ! expects_an_instance; then
+    report "N/A" "no 0.0.0.0/0 ingress" "kind=ci: no instance, so no network to scope to"
+    report "N/A" "SSH only from IAP range" "kind=ci: no instance, so no network to scope to"
+    return 0
+  fi
   if [ -z "$INSTANCE_NETWORKS" ]; then
     report UNKNOWN "no 0.0.0.0/0 ingress" "the instance's network could not be determined"
     report UNKNOWN "SSH only from IAP range" "the instance's network could not be determined"
@@ -860,6 +912,11 @@ check_iap_tunnel() {
   local project="$1" instance="$2" zone="$3" port="$4"
   local rc=0
 
+  if [ -z "$instance" ] && ! expects_an_instance; then
+    IAP_VERDICT="not-applicable"
+    report "N/A" "IAP tunnel authorises" "kind=ci: nothing to tunnel to"
+    return 0
+  fi
   if [ -z "$project" ] || [ -z "$instance" ] || [ -z "$port" ]; then
     IAP_VERDICT="unknown"
     report UNKNOWN "IAP tunnel authorises" "handoff carries no project, instance and/or app port"
@@ -947,6 +1004,10 @@ check_ssh_path() {
   local project="$1" instance="$2" zone="$3"
   local rc=0
 
+  if [ -z "$instance" ] && ! expects_an_instance; then
+    report "N/A" "SSH path via IAP tunnel" "kind=ci: no instance to reach"
+    return 0
+  fi
   if [ -z "$project" ] || [ -z "$instance" ]; then
     report UNKNOWN "SSH path via IAP tunnel" "handoff carries no project and/or instance"
     return 0
@@ -1003,6 +1064,9 @@ check_app_port() {
   local port="$1" code
 
   case "$IAP_VERDICT" in
+    not-applicable)
+      report "N/A" "app port responds" "kind=ci: this lane serves no application"
+      ;;
     denied)
       report UNKNOWN "app port responds" "not attempted: the tunnel was refused"
       note "fix the IAP authorisation first; the app may well be fine"
@@ -1227,8 +1291,9 @@ main() {
       "$SCRIPT_NAME" "$env_key" "$H_ENV" "$H_ENV" >&2
   fi
 
-  printf '%s: v2 acceptance for ENV=%s in project %s (%s)\n' \
-    "$SCRIPT_NAME" "${H_ENV:-$env_key}" "${H_PROJECT:-<unknown>}" "${H_REGION:-<no region>}"
+  printf '%s: v2 acceptance for ENV=%s (kind=%s) in project %s (%s)\n' \
+    "$SCRIPT_NAME" "${H_ENV:-$env_key}" "${H_KIND:-unset}" \
+    "${H_PROJECT:-<unknown>}" "${H_REGION:-<no region>}"
   printf '%s: instance %s, app port %s, hostname %s\n' \
     "$SCRIPT_NAME" "${H_INSTANCE:-<unknown>}" "${H_APP_PORT:-<unknown>}" \
     "${H_HOSTNAME:-<none: no DNS name for this environment>}"
@@ -1254,8 +1319,15 @@ main() {
   # Last, because it opens a second tunnel and owns its teardown.
   check_ssh_path "$H_PROJECT" "$H_INSTANCE" "$H_ZONE" || true
 
-  printf '\n%s: %d pass, %d fail, %d unknown\n' \
-    "$SCRIPT_NAME" "$PASS_COUNT" "$FAIL_COUNT" "$UNKNOWN_COUNT"
+  if [ "$NA_COUNT" -gt 0 ]; then
+    printf '\n%s: %d pass, %d fail, %d unknown, %d n/a\n' \
+      "$SCRIPT_NAME" "$PASS_COUNT" "$FAIL_COUNT" "$UNKNOWN_COUNT" "$NA_COUNT"
+    printf '%s: n/a = nothing to check by design (kind=%s), NOT a gap in the report.\n' \
+      "$SCRIPT_NAME" "${H_KIND:-unset}"
+  else
+    printf '\n%s: %d pass, %d fail, %d unknown\n' \
+      "$SCRIPT_NAME" "$PASS_COUNT" "$FAIL_COUNT" "$UNKNOWN_COUNT"
+  fi
 
   if [ "$FAIL_COUNT" -gt 0 ]; then
     printf '%s: NOT ACCEPTED -- each FAIL above names what it re-opens.\n' "$SCRIPT_NAME" >&2

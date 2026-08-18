@@ -10,5 +10,6 @@
   "bucket": "example-sl-tfstate",
   "deploy_service_account": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
   "access_mode": "iap",
-  "hostname": ""
+  "hostname": "",
+  "kind": "demo"
 }

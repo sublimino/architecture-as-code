@@ -12,7 +12,7 @@ Branch `feat/gcp-tf-identity-ci`. Chunk: the cloud identity boundary and the CI 
 | `terraform/modules/ci-runner/tests/ci_runner.tftest.hcl` | 16 runs, mocked providers, plan only |
 | `scripts/ci/gcp-tf-ci.sh` | resume → test → suspend, per lane, suspend from an EXIT trap |
 | `scripts/ci/gcp-tf-reaper.sh` | suspends lanes running past `--idle-minutes`, four gates |
-| `test/terraform-identity.bats` | 30 tests — whole-tree absence properties + 9 mutation fixtures |
+| `test/terraform-identity.bats` | 31 tests — whole-tree absence properties + 9 mutation fixtures |
 | `test/terraform-ci-lifecycle.bats` | 25 tests — fake-client lifecycle and reaper |
 | `test/fixtures/terraform/identity/**` | mutation fixtures, `.fixture` suffix, plus a `clean/` control |
 | `test/fixtures/gcp-tf-ci/**` | stub `gcloud`, stub test runners, adversarial instance list, script digests |
@@ -28,7 +28,7 @@ tflint                                                                   both mo
 terraform test  (identity)                                               24 passed, 0 failed
 terraform test  (ci-runner)                                              16 passed, 0 failed
 shellcheck scripts/ci/gcp-tf-{ci,reaper}.sh                              clean
-bats test/terraform-identity.bats                                        30 passed  (1.0s)
+bats test/terraform-identity.bats                                        31 passed  (1.1s)
 bats test/terraform-ci-lifecycle.bats                                    25 passed  (4.5s)
 ```
 
@@ -78,6 +78,16 @@ therefore produced a process tree that ignored the signal entirely; the run comp
 after its sleep expired and the suspend assertion passed for the wrong reason. The committed test
 runs `setsid --wait` in the **foreground** with the killer in the background, and asserts
 `status == 130` so a non-interrupted run cannot pass.
+
+**3. A guard written as the literal it searches for matched its own source.** The
+"no `/home/andy` in any committed file" check greps a file list that includes the bats file
+holding the pattern, so it fired on itself — indistinguishable, in the output, from a real leak.
+Rewritten to assemble the forbidden path from two literals. Narrowing it then surfaced a second
+point worth knowing: `scripts/ci/gcp-tf-ci.sh` carries `/home/ci/osramp-demo` as the **remote**
+work directory, matching `gcp-ci.sh`'s existing convention. That is legitimate and is explicitly
+carved out; the prohibition is on a developer's machine leaking into a committed file. The
+carve-out has its own test asserting it has not widened into "any home path is fine", and the
+guard is proven to still bite by injecting a leak into a throwaway copy of the tree.
 
 **3. `"idle"` in the reaper means uptime since last start, not keystroke idleness.** That is the
 honest description and it is documented in the script header. It is the right measure here only

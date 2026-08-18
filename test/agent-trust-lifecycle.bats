@@ -456,3 +456,24 @@ print(",".join(bad))
   [[ "$output" == *"signalloom-spire-helper"* ]]
   [[ "$output" != *"push-local-signalloom"* ]]
 }
+
+# The dashboard ships an Agent Trust Topology panel unconditionally, but the
+# ResourceSet that backs it is declared with `inputs: []` and only materialises
+# when this lifecycle patches concrete values into it. `demo-signalloom-up`
+# never did, so every standard bring-up produced a cluster in which none of the
+# six agent-trust-* namespaces existed, the topology collector was refused by
+# RBAC that is itself delivered by the undeployed slice, and the panel fell back
+# to a derived diagram for the entire life of the demo.
+#
+# Shipping a panel whose backing slice the standard bring-up never activates is
+# the defect. Nothing above this line could see it: every other assertion in
+# this file, in d2-agent-trust/test/test_contracts.py and in
+# fake-integration-proxy/test/test_trust_topology.py checks an ARTEFACT --
+# rendered YAML, script text, an injected fetch -- and all of those were correct.
+# None of them checked whether the default lifecycle ever runs the thing.
+@test "the standard Signal Loom bring-up activates the Agent Trust slice its dashboard panel reads" {
+  run make -n demo-signalloom-up
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"agent-trust-local.sh up"* ]]
+  [[ "$output" == *"push-local-agent-trust"* ]]
+}

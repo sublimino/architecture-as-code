@@ -60,6 +60,8 @@ locals {
     project_id                      = var.project_id
     project_number                  = var.project_number
     dns_managed_zone                = var.dns_managed_zone
+    access_mode                     = var.access_mode
+    iap_members                     = var.iap_members
     nat_log_filter                  = var.nat_log_filter
     startup_script_path             = var.startup_script_path
     rate_limit_threshold_per_minute = var.rate_limit_threshold_per_minute
@@ -167,6 +169,8 @@ locals {
 #   labels                          = each.value.labels
 #   hostname                        = each.value.hostname
 #   dns_managed_zone                = var.dns_managed_zone
+#   access_mode                     = var.access_mode
+#   iap_members                     = var.iap_members
 #   backend_instance_group          = module.compute[each.key].instance_group_self_link
 #   app_port                        = each.value.app_port
 #   allowed_ipv4                    = each.value.allowed_ipv4

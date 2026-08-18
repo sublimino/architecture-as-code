@@ -32,21 +32,26 @@ setup() {
 	: >"$CTR_STATE"
 	: >"$CALL_LOG"
 
+	# One model of docker and crictl across all three suites that exercise
+	# image-identity.sh. Exported so the fake `docker` written below can source
+	# it, and sourced here so assertions derive the same values the fake does.
+	export FAKE_IMAGE_CLI="$BATS_TEST_DIRNAME/lib/fake-image-cli.bash"
+	# shellcheck source=test/lib/fake-image-cli.bash
+	source "$FAKE_IMAGE_CLI"
+
 	cat >"$bin/docker" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
-		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+		# The image-identity surface is shared with kind-load-verified.bats and
+		# signalfusion-images.bats — see test/lib/fake-image-cli.bash. $DOCKER_MISSING
+		# names refs the local daemon does NOT hold, the state the demo runner is
+		# permanently in since its `docker` is supercred-crictl-shim.sh.
+		source "$FAKE_IMAGE_CLI"
 		case "$1" in
 		  image)
-		    # docker image inspect --format '{{.Id}}' REF. $DOCKER_MISSING names
-		    # refs the local daemon does NOT hold — the state the demo runner is
-		    # permanently in, since its `docker` is supercred-crictl-shim.sh.
-		    ref="${!#}"
-		    for absent in ${DOCKER_MISSING:-}; do
-		      [ "$absent" = "$ref" ] && { echo "Error: No such image: $ref" >&2; exit 1; }
-		    done
-		    printf 'sha256:%s\n' "$(derive_id "$ref")"
-		    exit 0 ;;
+		    shift
+		    fake_docker_image_cmd "$@"
+		    exit $? ;;
 		  build)
 		    exit "${DOCKER_BUILD_STATUS:-0}" ;;
 		  buildx)
@@ -61,20 +66,11 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
-		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
-		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
-		        printf 'IMAGE TAG IMAGE ID SIZE\n'
-		        # A line is `ref` or `ref id`; the second field overrides the
-		        # derived ID, which is how a STALE image is staged.
-		        while IFS=' ' read -r ref id; do
-		          [ -n "$ref" ] || continue
-		          # real crictl reports fully-qualified repos
-		          case "$ref" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          [ -n "$id" ] || id="$(derive_id "$ref")"
-		          # …and TRUNCATES the IMAGE ID to 13 characters.
-		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
-		        done <"$CRICTL_STATE"
-		        ;;
+		        # A $CRICTL_STATE line is `ref` or `ref id`; the second field
+		        # overrides the derived ID, which is how a STALE image is staged.
+		        shift
+		        fake_crictl_cmd "$@"
+		        exit $? ;;
 		      ctr)
 		        # `images import` promotes the image into the CRI view.
 		        case "$*" in

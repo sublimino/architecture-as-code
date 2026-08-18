@@ -135,14 +135,19 @@ environments = {
     # unreachable by everyone else, because there is nothing listening publicly
     # to reach.
     #
-    # NOTE the port. `allow_iap_ssh` opens TCP **22 only** — not app_port. So a
-    # raw `start-iap-tunnel <vm> 8080` is refused by the firewall. Reach the
-    # app by forwarding over SSH, which does run on 22:
+    # NOTE the port, and note WHICH port. `allow_iap_ssh` opens TCP **22 only**;
+    # the application is opened by a second, separately-named rule,
+    # `allow_iap_app`, on the `app_port` set below and nothing else. So:
+    #
+    #     gcloud compute start-iap-tunnel <instance> 30754 \
+    #       --local-host-port=localhost:30754 --zone us-east4-a
+    #     # then open https://dashboard.osramp.acme.local:30754
+    #
+    # The SSH forward still works and remains the fallback:
     #
     #     gcloud compute ssh <instance> --zone us-east4-a \
     #       --project sl-port-over-sandbox --tunnel-through-iap \
-    #       -- -L 8080:localhost:8080
-    #     # then open http://localhost:8080
+    #       -- -L 30754:localhost:30754
     #
     # Keeping access_mode = "iap" above is still correct: it is the safe
     # default, and it becomes the live web posture the moment a hostname is
@@ -163,7 +168,13 @@ environments = {
     allowed_ipv4 = ["192.0.2.0/24"]
     allowed_ipv6 = ["2001:db8::/32"]
 
-    app_port = 8080
+    # 30754, not 8080, and this is not a preference. Dex pins its local issuer
+    # and its OIDC callback client to 30754 — `setup_gateway_forward` in
+    # scripts/acceptance-test.sh forwards the Envoy Gateway's dynamic NodePort
+    # to exactly that port for this reason. Serve or tunnel on anything else and
+    # the request reaches the Gateway, then fails the login redirect. The user
+    # sees a broken application; nothing anywhere says "wrong port".
+    app_port = 30754
 
     # False, deliberately, and against the .example's `true`. This is a sandbox
     # Andy pays for by the hour; the thing that must stay cheap is tearing it

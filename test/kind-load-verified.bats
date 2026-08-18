@@ -28,9 +28,57 @@
 # comparison in scripts/lib/image-identity.sh is genuinely exercised rather than
 # assumed.
 
+# ─── Why one derived ID was not enough ──────────────────────────────────────
+#
+# Everything above is true and still let the 2026-08-18 defect through, because
+# both sides of the comparison were derived by ONE function from ONE input. The
+# fixture asserted that `docker image inspect --format '{{.Id}}'` and the
+# crictl IMAGE ID column are the same identifier. On a Docker daemon using the
+# containerd image store they are not, and never can be:
+#
+#   docker .Id       the MANIFEST (or index) digest of the image
+#   crictl IMAGE ID  the CONFIG digest
+#
+# Different values for the same image, always. Measured on signalloom-ci
+# (Docker 29.7.1, driver-type io.containerd.snapshotter.v1): a correctly loaded
+# fe-signalloom reported .Id sha256:24b2503b… against crictl f03fa9444ad8…,
+# where f03fa944… is exactly what that build logged as `exporting config`. The
+# guard called a perfect load "a DIFFERENT image" and aborted both CI lanes at
+# phase=build-images with 0 of 27 stages run.
+#
+# Removing the provenance attestation does NOT fix it — .Id is the manifest
+# digest even with no index at all — and the config digest appears nowhere in
+# `docker image inspect` output, so there is no field to read it from either.
+# The comparison has to move to diffIDs, which live in the image config and are
+# therefore the same on both sides whatever the store.
+#
+# So the fakes now model THREE things per image: the manifest digest docker
+# reports, the config digest crictl reports, and the diffIDs both agree on.
+# By default the first two are identical, exactly as before, so every test
+# written against the single-ID fixture keeps meaning what it meant. Setting
+# $CONTAINERD_STORE diverges them the way a real containerd-store daemon does,
+# which is the case no fixture in this repo could previously express.
+
 # The ID an image "really" has, derived from its reference so both sides of the
 # comparison agree without a shared state file.
 fake_image_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+
+# What docker reports as .Id under the containerd image store: the manifest
+# digest. Deliberately unequal to fake_config_id for the same reference.
+fake_manifest_id() { printf 'manifest:%s' "$1" | sha256sum | cut -c1-64; }
+
+# What crictl reports in its IMAGE ID column: the config digest.
+fake_config_id() { printf 'config:%s' "$1" | sha256sum | cut -c1-64; }
+
+# The ordered diffID list — the identity both sides can actually agree on.
+# Order is part of the identity: two images can share a layer set in a
+# different order and are not the same image.
+fake_diffids() {
+	local seed="$1" i
+	for i in 0 1 2; do
+		printf 'sha256:%s\n' "$(printf 'layer%s:%s' "$i" "$seed" | sha256sum | cut -c1-64)"
+	done
+}
 
 setup() {
 	script="$BATS_TEST_DIRNAME/../scripts/kind-load-verified.sh"
@@ -52,9 +100,36 @@ setup() {
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
 		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+		manifest_id() { printf 'manifest:%s' "$1" | sha256sum | cut -c1-64; }
+		config_id() { printf 'config:%s' "$1" | sha256sum | cut -c1-64; }
+		diffids() {
+		  local seed="$1" i
+		  for i in 0 1 2; do
+		    printf 'sha256:%s\n' "$(printf 'layer%s:%s' "$i" "$seed" | sha256sum | cut -c1-64)"
+		  done
+		}
+		# The node's view of an image is keyed on the OVERRIDE id when
+		# $CRICTL_STATE carries one — that is how a stale image is staged, and a
+		# stale image must differ in its layers too, not merely in a digest.
+		node_seed() {
+		  local want="$1" ref id full
+		  while IFS=' ' read -r ref id; do
+		    [ -n "$ref" ] || continue
+		    case "${ref%:*}" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
+		    if [ "$want" = "$ref" ] || [ "$want" = "$full" ]; then
+		      # $CRICTL_DIFFID_SEED_REF stages the ID COLUMN divergent while the
+		      # LAYERS still match — the shape that proves the ID column is not
+		      # consulted for identity at all.
+		      if [ -n "${CRICTL_DIFFID_SEED_REF:-}" ]; then printf '%s' "$ref"; else printf '%s' "${id:-$ref}"; fi
+		      return 0
+		    fi
+		  done <"$CRICTL_STATE"
+		  return 1
+		}
 		case "$1" in
 		  image)
 		    # docker image inspect --format '{{.Id}}' REF
+		    # docker image inspect --format '{{json .RootFS.Layers}}' REF
 		    ref="${!#}"
 		    for absent in ${DOCKER_MISSING:-}; do
 		      if [ "$absent" = "$ref" ]; then
@@ -62,7 +137,22 @@ setup() {
 		        exit 1
 		      fi
 		    done
-		    printf 'sha256:%s\n' "$(derive_id "$ref")"
+		    if [[ "$*" == *"RootFS.Layers"* ]]; then
+		      # `{{range .RootFS.Layers}}{{println .}}{{end}}` — newline-separated,
+		      # one sha256: per layer, in order. Deliberately not JSON: the local
+		      # side carries no jq dependency.
+		      [ -n "${DOCKER_NO_LAYERS:-}" ] && exit 0
+		      diffids "$ref"
+		      exit 0
+		    fi
+		    # Under the containerd image store .Id is the MANIFEST digest, which is
+		    # not the config digest crictl prints. Default stays the legacy
+		    # single-ID behaviour so pre-existing tests keep their meaning.
+		    if [ -n "${CONTAINERD_STORE:-}" ]; then
+		      printf 'sha256:%s\n' "$(manifest_id "$ref")"
+		    else
+		      printf 'sha256:%s\n' "$(derive_id "$ref")"
+		    fi
 		    exit 0 ;;
 		  save)
 		    # Materialise the archive so the caller's redirect has something to read.
@@ -76,6 +166,24 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
+		        case "$2" in
+		          inspecti)
+		            # `crictl inspecti REF` — the per-image read that carries the
+		            # diffIDs. Absent image is a nonzero exit, as real crictl does.
+		            want="${!#}"
+		            seed="$(node_seed "$want")" || { echo "FATA[0000] no such image \"$want\"" >&2; exit 1; }
+		            [ "${CRICTL_INSPECTI_STATUS:-0}" = 0 ] || exit "${CRICTL_INSPECTI_STATUS}"
+		            if [ -n "${CRICTL_INSPECTI_EMPTY:-}" ]; then
+		              printf '{"status":{},"info":{"imageSpec":{"rootfs":{"type":"layers","diff_ids":[]}}}}\n'
+		              exit 0
+		            fi
+		            printf '{"status":{},"info":{"imageSpec":{"rootfs":{"type":"layers","diff_ids":['
+		            sep=''
+		            if [ -n "${CRICTL_INSPECTI_REVERSE:-}" ]; then order=(tac); else order=(cat); fi
+		            while read -r l; do printf '%s"%s"' "$sep" "$l"; sep=','; done < <(diffids "$seed" | "${order[@]}")
+		            printf ']}}}}\n'
+		            exit 0 ;;
+		        esac
 		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
 		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
 		        printf 'IMAGE TAG IMAGE ID SIZE\n'
@@ -83,8 +191,12 @@ setup() {
 		          [ -n "$ref" ] || continue
 		          # Real crictl prints fully-qualified repositories.
 		          case "${ref%:*}" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          # …and TRUNCATES the IMAGE ID to 13 characters.
-		          [ -n "$id" ] || id="$(derive_id "$ref")"
+		          # …and TRUNCATES the IMAGE ID to 13 characters. Under the
+		          # containerd store this column is the CONFIG digest, which is a
+		          # different value from the manifest digest docker reports.
+		          if [ -z "$id" ]; then
+		            if [ -n "${CONTAINERD_STORE:-}" ]; then id="$(config_id "$ref")"; else id="$(derive_id "$ref")"; fi
+		          fi
 		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
 		        done <"$CRICTL_STATE"
 		        ;;
@@ -293,9 +405,14 @@ setup() {
 	run bash "$script" fake-integration-proxy:dev
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"DIFFERENT image"* ]]
-	# Both IDs printed, so the reader can act without re-deriving them.
-	[[ "$output" == *"$(fake_image_id fake-integration-proxy:dev)"* ]]
-	[[ "$output" == *"deadbeefdeadb"* ]]
+	# The evidence a reader needs, in the terms the check now works in. This
+	# used to assert that both IMAGE IDs were printed; identity no longer reads
+	# the crictl ID column at all, so asserting it would pin a value the guard
+	# does not consult — a test passing on something other than the thing it
+	# names, which is the defect class this suite exists for.
+	[[ "$output" == *"local rootfs layers"* ]]
+	[[ "$output" == *"node  rootfs layers"* ]]
+	[[ "$output" == *"first divergence at layer"* ]]
 }
 
 @test "KINDLOAD a stale image is NOT silently repaired" {
@@ -364,19 +481,33 @@ setup() {
 	[[ "$output" == *"no usable IMAGE ID"* ]]
 }
 
-@test "KINDLOAD the node's truncated ID is compared as a PREFIX of the local one" {
-	# crictl prints 13 characters; docker prints 64. Comparing them for equality
-	# would fail every correct build, and comparing them the other way round —
-	# local as a prefix of node — would let a short node value match anything.
-	# The fake truncates to 13, so a green happy path IS this assertion; this
-	# test pins the direction by staging a node ID that is a prefix of a
-	# DIFFERENT image's ID.
-	local other
-	other="$(fake_image_id some-other-image:dev)"
-	echo "fake-integration-proxy:dev $other" >"$CRICTL_STATE"
-	run bash "$script" fake-integration-proxy:dev
-	[ "$status" -eq 1 ]
-	[[ "$output" == *"DIFFERENT image"* ]]
+@test "KINDLOAD the two digest columns are NOT compared against each other" {
+	# Replaces "the node's truncated ID is compared as a PREFIX of the local
+	# one", which encoded the broken assumption and had to go: docker's .Id and
+	# crictl's IMAGE ID are different digest TYPES, so no comparison between
+	# them — prefix, equality or otherwise — can ever be correct.
+	#
+	# The inverse assertion, and the one that catches a reintroduction. The node
+	# advertises an IMAGE ID with nothing whatsoever in common with the local
+	# .Id, while the layers match exactly. Identity comes from the layers, so
+	# this is a PASS. Anyone who reinstates an .Id-vs-IMAGE-ID comparison turns
+	# this red.
+	echo "fake-integration-proxy:dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" >"$CRICTL_STATE"
+
+	CRICTL_DIFFID_SEED_REF=1 run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	[[ "$output" != *"DIFFERENT image"* ]]
+	[[ "$output" == *"PASS"* ]]
+}
+
+@test "KINDLOAD a local image whose diffIDs cannot be read is COULD-NOT-VERIFY" {
+	# NO_LOCAL_DIFFIDS. The local image exists — so this is not NO_LOCAL_IMAGE —
+	# but its layer list comes back empty. Nothing to compare is not agreement,
+	# and an identity check that treats two empty lists as equal passes
+	# vacuously against every image in the estate.
+	DOCKER_NO_LAYERS=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[[ "$output" != *"PASS"* ]]
 }
 
 @test "KINDLOAD recovery waits for the CRI to adopt the image, rather than checking once" {
@@ -389,13 +520,37 @@ setup() {
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
 		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+		diffids() {
+		  local seed="$1" i
+		  for i in 0 1 2; do
+		    printf 'sha256:%s\n' "$(printf 'layer%s:%s' "$i" "$seed" | sha256sum | cut -c1-64)"
+		  done
+		}
 		case "$1" in
-		  image) printf 'sha256:%s\n' "$(derive_id "${!#}")"; exit 0 ;;
+		  image)
+		    if [[ "$*" == *"RootFS.Layers"* ]]; then
+		      diffids "${!#}"; exit 0
+		    fi
+		    printf 'sha256:%s\n' "$(derive_id "${!#}")"; exit 0 ;;
 		  save) for ((i=1;i<=$#;i++)); do [ "${!i}" = "-o" ] && { j=$((i+1)); : >"${!j}"; }; done; exit 0 ;;
 		  exec)
 		    shift; [ "$1" = "-i" ] && shift; shift
 		    case "$1" in
 		      crictl)
+		        # Only `crictl images` counts as a poll. An inspecti read must not
+		        # advance the adoption clock, or the thing under test changes
+		        # meaning the moment the implementation adds a second read.
+		        if [ "$2" = "inspecti" ]; then
+		          n=$(cat "$BATS_TEST_TMPDIR/polls" 2>/dev/null || echo 0)
+		          if [ -f "$BATS_TEST_TMPDIR/labelled" ] && [ "$n" -gt 2 ]; then
+		            printf '{"status":{},"info":{"imageSpec":{"rootfs":{"type":"layers","diff_ids":['
+		            sep=''
+		            while read -r l; do printf '%s"%s"' "$sep" "$l"; sep=','; done < <(diffids slow-image:dev)
+		            printf ']}}}}\n'
+		            exit 0
+		          fi
+		          echo 'FATA[0000] no such image' >&2; exit 1
+		        fi
 		        printf 'IMAGE TAG IMAGE ID SIZE\n'
 		        n=$(( $(cat "$BATS_TEST_TMPDIR/polls" 2>/dev/null || echo 0) + 1 ))
 		        echo "$n" >"$BATS_TEST_TMPDIR/polls"
@@ -417,4 +572,77 @@ setup() {
 	KIND_LOAD_CRI_ADOPT_TIMEOUT=10 run bash "$script" slow-image:dev
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"via archive recovery"* ]]
+}
+
+# ─── The containerd image store: two identifiers, one image ─────────────────
+#
+# Every test below FAILS against the 2026-08-18 check, which compared docker's
+# .Id against the crictl IMAGE ID column. See the header for the measurement.
+# They are the cases the single-derived-ID fixture could not express, so they
+# are the ones that let a false "DIFFERENT image" abort two CI lanes.
+
+@test "KINDLOAD containerd store: a manifest digest and a config digest are the SAME image" {
+	# The regression, in a fixture. The node holds exactly what was just built.
+	# docker reports the manifest digest, crictl reports the config digest, and
+	# a guard that compares those two calls a perfect load a mismatch.
+	CONTAINERD_STORE=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	[[ "$output" != *"DIFFERENT image"* ]]
+	[[ "$output" == *"PASS"* ]]
+}
+
+@test "KINDLOAD containerd store: a STALE image is still caught" {
+	# The other half, and the reason the fix cannot simply be "stop comparing".
+	# The node holds a genuinely different image, so its layers differ too.
+	echo "fake-integration-proxy:dev deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" >"$CRICTL_STATE"
+
+	CONTAINERD_STORE=1 run bash "$script" fake-integration-proxy:dev
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"DIFFERENT image"* ]]
+}
+
+@test "KINDLOAD identity is read from diffIDs, not from a digest column" {
+	# Asserts the MECHANISM, not just the verdict. Both tests above are also
+	# satisfied by a guard that compares nothing at all in the matching case and
+	# gets lucky in the stale one, so without this the suite can go green
+	# against an implementation that quietly dropped the identity check.
+	CONTAINERD_STORE=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	run grep -c "RootFS.Layers" "$CALL_LOG"
+	[ "$output" -ge 1 ]
+	run grep -c "crictl inspecti" "$CALL_LOG"
+	[ "$output" -ge 1 ]
+}
+
+@test "KINDLOAD diffID ORDER is part of the identity" {
+	# Same layer set, different order, is not the same image. A comparison that
+	# sorts or set-matches would pass this and must not.
+	CONTAINERD_STORE=1 CRICTL_INSPECTI_REVERSE=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -ne 0 ]
+	# Naming the verdict, not merely a nonzero exit: a bare status check passes
+	# for ANY failure, including the script not existing, which is the vacuous
+	# shape scripts/check-vacuous-assertions.sh rejects.
+	[[ "$output" == *"DIFFERENT image"* ]]
+}
+
+@test "KINDLOAD an inspecti that fails is COULD-NOT-VERIFY, never a pass" {
+	# Fail-closed on the second sample. Presence comes from the listing and
+	# identity from inspecti; if the identity read errors, the image is present
+	# but unproven. Reporting that as verified would reintroduce the whole
+	# class of defect one level down.
+	CONTAINERD_STORE=1 CRICTL_INSPECTI_STATUS=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[[ "$output" != *"PASS"* ]]
+}
+
+@test "KINDLOAD an inspecti returning no diffIDs is COULD-NOT-VERIFY, never a pass" {
+	# The empty-list variant: the call succeeds and answers nothing. An identity
+	# check that treats "no layers on either side" as equality passes vacuously,
+	# which is the failure mode scripts/check-vacuous-assertions.sh exists for.
+	CONTAINERD_STORE=1 CRICTL_INSPECTI_EMPTY=1 KIND_LOADS="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[[ "$output" != *"PASS"* ]]
 }

@@ -28,6 +28,15 @@ setup_file() {
 	export PREFLIGHT="${REPO_ROOT}/scripts/gcp-tf/preflight.sh"
 	export RUNBOOK="${REPO_ROOT}/terraform/RUNBOOK.md"
 	export FIXTURES="${REPO_ROOT}/test/fixtures/terraform/demo1"
+
+	# The real, apply-ready input. It is NOT under terraform/ and cannot be:
+	# "no .tfvars file is committed under terraform/" in
+	# terraform-environment-keys.bats runs a filesystem `find`, so a real
+	# .tfvars there turns that suite red whether or not it is committed, and
+	# the committed-secrets guard on *.tfvars.example rejects the real IAP
+	# principal because it contains a real domain. See the header of the file
+	# itself for the full reasoning.
+	export REAL_TFVARS="${REPO_ROOT}/deploy/gcp/sl-port-over-sandbox.example.tfvars"
 }
 
 setup() {
@@ -36,6 +45,7 @@ setup() {
 	[ -f "${PREFLIGHT}" ]
 	[ -f "${RUNBOOK}" ]
 	[ -d "${FIXTURES}" ]
+	[ -f "${REAL_TFVARS}" ]
 }
 
 # Strip comments and blank lines. The header of the tfvars example legitimately
@@ -619,4 +629,370 @@ STUB
 	[ -n "$boot" ]
 	[ -n "$env_" ]
 	[ "$boot" != "$env_" ]
+}
+
+# ---------------------------------------------------------------------------
+# us-east4 and the real, apply-ready input
+# ---------------------------------------------------------------------------
+#
+# The estate was written against europe-west2, which was correct for the
+# hand-built CI VM and wrong for the project this actually deploys into. The
+# tests below pin the retarget so nobody copies a europe-west2 example into a
+# us-east4 project, and pin the real input so its apply-ready values cannot
+# quietly rot back into placeholders.
+
+# key<TAB>region<TAB>zone for every environment entry in a tfvars file.
+#
+# Emitted on the ZONE line, which in every file in this tree follows the region
+# line. A file that ordered them the other way would parse as zero pairs rather
+# than as a wrong pair, which is why every caller below asserts a non-zero
+# count before drawing any conclusion from the result.
+env_region_zone() {
+	awk '
+		/^[[:space:]]*"[a-z0-9-]+"[[:space:]]*=[[:space:]]*\{/ {
+			key = $0
+			sub(/^[[:space:]]*"/, "", key)
+			sub(/".*$/, "", key)
+			region = ""
+		}
+		/^[[:space:]]+region[[:space:]]*=/ {
+			region = $0
+			sub(/^.*=[[:space:]]*"/, "", region)
+			sub(/".*$/, "", region)
+		}
+		/^[[:space:]]+zone[[:space:]]*=/ {
+			zone = $0
+			sub(/^.*=[[:space:]]*"/, "", zone)
+			sub(/".*$/, "", zone)
+			if (key != "" && region != "") printf "%s\t%s\t%s\n", key, region, zone
+		}
+	' "$1"
+}
+
+# ---------------------------------------------------------------------------
+# The zone/region coupling, as one reusable predicate.
+#
+# Factored out so the mutation check at the bottom runs the SAME code against a
+# deliberately broken copy. A mutation check that re-implements the assertion
+# proves the re-implementation works, not the guard.
+#
+# Why this is worth a test at all: `region` and `zone` are independent strings
+# and nothing in Terraform compares them. `region = "us-east4"` with
+# `zone = "europe-west2-a"` produces a completely clean plan and fails during
+# apply, once the VPC, the subnet and the load balancer already exist. Apply is
+# the expensive place to discover it and the slow place to unwind it.
+# ---------------------------------------------------------------------------
+assert_zone_in_region() {
+	local file="$1" pairs n bad
+	[ -f "$file" ] || {
+		echo "assert_zone_in_region: no such file: $file" >&2
+		return 1
+	}
+
+	pairs="$(env_region_zone "$file")"
+	n="$(printf '%s' "$pairs" | grep -c . || true)"
+	[ "$n" -ge 1 ] || {
+		echo "no region/zone pairs parsed out of ${file}; this check would be" >&2
+		echo "vacuously true, which reads identical to a clean file." >&2
+		return 1
+	}
+
+	# A GCP zone is its region plus a single-letter suffix. Anything else is a
+	# mismatch, including a zone that merely starts with a similar string.
+	bad="$(printf '%s\n' "$pairs" |
+		awk -F'\t' '$3 !~ "^" $2 "-[a-z]$" { print "  " $1 ": region=" $2 " zone=" $3 }')"
+	[ -z "$bad" ] || {
+		echo "${file} pairs a zone with a region it is not inside:" >&2
+		printf '%s\n' "$bad" >&2
+		echo "This plans cleanly and fails at apply, after the network exists." >&2
+		return 1
+	}
+	return 0
+}
+
+@test "the real apply-ready input exists outside terraform/ and is fmt-clean" {
+	# Presence and parse before any content assertion. And the location is
+	# itself load-bearing: terraform-environment-keys.bats runs
+	# `find terraform/ -name '*.tfvars'` and asserts it is EMPTY, so a real
+	# .tfvars under terraform/ turns that suite red whether or not git tracks
+	# it. If someone "helpfully" moves this file, both suites should say so.
+	case "${REAL_TFVARS}" in
+	*/terraform/*)
+		echo "the real input is under terraform/, where the find-based guard in" >&2
+		echo "terraform-environment-keys.bats will fail on it." >&2
+		return 1
+		;;
+	esac
+
+	run bash -c "find '${REPO_ROOT}/terraform' -name '*.tfvars' -type f"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ] || {
+		echo "a real .tfvars exists under terraform/ and will fail" >&2
+		echo "terraform-environment-keys.bats:" >&2
+		echo "$output" >&2
+		return 1
+	}
+
+	command -v terraform >/dev/null || skip "terraform not on PATH"
+	local dir="${BATS_TEST_TMPDIR}/realfmt"
+	mkdir -p "$dir"
+	cp "${REAL_TFVARS}" "${dir}/real.tfvars"
+	run terraform fmt -check -diff "$dir"
+	[ "$status" -eq 0 ] || {
+		echo "the real input is not canonically formatted or does not parse:" >&2
+		echo "$output" >&2
+		return 1
+	}
+}
+
+@test "the real input targets us-east4 with a zone inside that region" {
+	local body
+	body="$(code_only "${REAL_TFVARS}")"
+
+	printf '%s\n' "$body" | grep -qE '^[[:space:]]+region[[:space:]]*=[[:space:]]*"us-east4"$' || {
+		echo "the real input does not set region = \"us-east4\"." >&2
+		echo "The target project's environment is us-east4; europe-west2 is the" >&2
+		echo "old hand-built CI estate's region." >&2
+		return 1
+	}
+	# Assert no stale region survived anywhere in the configuration.
+	! printf '%s\n' "$body" | grep -q 'europe-west2' || {
+		echo "europe-west2 still appears in the real input's configuration" >&2
+		return 1
+	}
+	assert_zone_in_region "${REAL_TFVARS}"
+}
+
+@test "every committed example also targets us-east4 with a coherent zone" {
+	# The retarget is only useful if it is complete. An example left on
+	# europe-west2 is one copy-paste from an environment built in the wrong
+	# region, which is a full destroy/recreate to correct.
+	local f checked=0
+	for f in "${REPO_ROOT}"/terraform/environments/demo-1.tfvars.example \
+		"${REPO_ROOT}"/terraform/environments/demo-1-and-demo-2.tfvars.example; do
+		[ -f "$f" ] || {
+			echo "missing example: $f" >&2
+			return 1
+		}
+		code_only "$f" | grep -q 'europe-west2' && {
+			echo "$(basename "$f") still configures europe-west2" >&2
+			return 1
+		}
+		code_only "$f" | grep -qE '^[[:space:]]+region[[:space:]]*=[[:space:]]*"us-east4"$' || {
+			echo "$(basename "$f") does not configure us-east4" >&2
+			return 1
+		}
+		assert_zone_in_region "$f"
+		checked=$((checked + 1))
+	done
+
+	# Positive control. A loop that examined nothing reports the same silence
+	# as a loop that examined everything and found it correct.
+	[ "$checked" -eq 2 ] || {
+		echo "expected to check 2 examples, checked ${checked}" >&2
+		return 1
+	}
+}
+
+@test "the real input is apply-ready: IAP, a named principal, no placeholder" {
+	local body
+	body="$(code_only "${REAL_TFVARS}")"
+
+	# Reuses the same posture predicate the examples are held to, so the real
+	# file cannot drift to a weaker posture than the template it came from.
+	assert_iap_posture "${REAL_TFVARS}"
+
+	printf '%s\n' "$body" | grep -qE '^project_id[[:space:]]*=[[:space:]]*"sl-port-over-sandbox"$' || {
+		echo "the real input does not name the real project" >&2
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qE '^project_number[[:space:]]*=[[:space:]]*"[0-9]{6,}"$' || {
+		echo "the real input has no numeric project_number" >&2
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qE '^target_env[[:space:]]*=[[:space:]]*"demo-1"$' || {
+		echo "the real input does not target demo-1" >&2
+		return 1
+	}
+
+	# The inverse of the examples' rule. An example MUST carry CHANGEME; the
+	# real input must carry none, or it is not apply-ready and the operator
+	# discovers that at plan time.
+	! printf '%s\n' "$body" | grep -q 'CHANGEME' || {
+		echo "the real input still contains a CHANGEME placeholder in its" >&2
+		echo "configuration; it is not apply-ready." >&2
+		return 1
+	}
+	! printf '%s\n' "$body" | grep -q 'example\.invalid' || {
+		echo "the real input still contains an example.invalid value" >&2
+		return 1
+	}
+}
+
+@test "the real input names a non-empty, non-wildcard IAP principal" {
+	# The single value that decides whether the demo can be opened at all.
+	# An empty list applies cleanly and locks everyone out including Andy, and
+	# the symptom is a 403 AFTER a successful Google login — which reads like a
+	# broken deploy rather than a missing grant.
+	local members
+	members="$(code_only "${REAL_TFVARS}" |
+		sed -n '/^iap_members[[:space:]]*=[[:space:]]*\[/,/^\]/p' |
+		grep -oE '"[^"]+"' | tr -d '"')"
+
+	[ -n "$members" ] || {
+		echo "iap_members is empty in the real input. IAP with no authorised" >&2
+		echo "principal is a locked door with no key." >&2
+		return 1
+	}
+
+	local m
+	while IFS= read -r m; do
+		[ -n "$m" ] || continue
+		# Same structural rule modules/edge enforces: a bare address grants
+		# nothing, and the two dangerous values carry no prefix at all.
+		[[ "$m" =~ ^(user|group|serviceAccount|domain|principal|principalSet): ]] || {
+			echo "iap_members entry is not a prefixed IAM principal: ${m}" >&2
+			return 1
+		}
+		case "$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')" in
+		*allusers* | *allauthenticatedusers* | *'*'*)
+			echo "iap_members contains a public or wildcard principal: ${m}" >&2
+			return 1
+			;;
+		esac
+	done <<<"$members"
+}
+
+@test "every variable set in the real input is declared by the environments root" {
+	# Terraform treats a value for an UNDECLARED variable in a -var-file as a
+	# warning, not an error: it proceeds, discards the value and takes the
+	# module default. That is how a real input can set access_mode and get an
+	# environment whose access mode nobody chose.
+	#
+	# The existing scan globs terraform/environments/*.tfvars.example only, so
+	# this file — the one that will actually be applied — is outside it.
+	local varfile="${REPO_ROOT}/terraform/environments/variables.tf"
+	[ -f "$varfile" ]
+
+	# Positive control on both sides before comparing.
+	local declared assigned
+	declared="$(declared_variables "$varfile" | wc -l)"
+	[ "$declared" -ge 8 ] || {
+		echo "only ${declared} variables parsed out of variables.tf; parser broken" >&2
+		return 1
+	}
+	assigned="$(tfvars_assignments "${REAL_TFVARS}" | sort -u | wc -l)"
+	[ "$assigned" -ge 5 ] || {
+		echo "only ${assigned} assignments parsed out of the real input; parser broken" >&2
+		return 1
+	}
+
+	local undeclared
+	undeclared="$(undeclared_in "${REAL_TFVARS}" "$varfile")"
+	[ -z "$undeclared" ] || {
+		echo "the real input sets variables the environments root does not" >&2
+		echo "declare. Terraform will WARN and silently discard them:" >&2
+		printf '  %s\n' "$undeclared" >&2
+		return 1
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Mutation checks — prove each new guard can actually go red
+# ---------------------------------------------------------------------------
+
+@test "the zone/region guard fails when a zone is moved out of its region" {
+	local mutated="${BATS_TEST_TMPDIR}/zone-mismatch.tfvars"
+	sed 's/^\([[:space:]]*\)zone\([[:space:]]*\)= "us-east4-a"/\1zone\2= "europe-west2-a"/' \
+		"${REAL_TFVARS}" >"$mutated"
+
+	# A sed whose pattern has drifted applies cleanly and changes nothing, and
+	# the check then runs against an UNMUTATED file and passes — reporting that
+	# the guard works when it was never exercised. Refuse a no-op mutation.
+	if diff -q "${REAL_TFVARS}" "$mutated" >/dev/null; then
+		echo "the mutation changed nothing: its pattern no longer matches the" >&2
+		echo "real input, so this test is measuring nothing." >&2
+		return 1
+	fi
+
+	# Baseline green, then mutation red, with the same predicate in both.
+	assert_zone_in_region "${REAL_TFVARS}" || {
+		echo "the unmutated real input already fails the zone/region guard" >&2
+		return 1
+	}
+	run assert_zone_in_region "$mutated"
+	[ "$status" -ne 0 ] || {
+		echo "the guard passed a zone in a different region from its region." >&2
+		echo "It cannot fail, so it has never been protecting anything." >&2
+		return 1
+	}
+	[[ "$output" == *"not inside"* ]] || {
+		echo "the guard failed for some reason other than the zone mismatch" >&2
+		echo "$output" >&2
+		return 1
+	}
+}
+
+@test "the zone/region guard fails when it can parse nothing" {
+	# The vacuous-pass direction, which is the one that hides. A parser that
+	# returns nothing must be an error, not a silent success.
+	local empty="${BATS_TEST_TMPDIR}/no-environments.tfvars"
+	printf 'project_id = "sl-port-over-sandbox"\n' >"$empty"
+
+	run assert_zone_in_region "$empty"
+	[ "$status" -ne 0 ] || {
+		echo "the guard passed a file containing no region/zone pair at all" >&2
+		return 1
+	}
+	[[ "$output" == *"vacuously true"* ]] || {
+		echo "the guard failed for some reason other than parsing nothing" >&2
+		echo "$output" >&2
+		return 1
+	}
+}
+
+@test "the apply-ready guard fails when the real input reverts to a placeholder" {
+	local mutated="${BATS_TEST_TMPDIR}/placeholder.tfvars"
+	sed 's/"user:sublimino@gmail\.com"/"user:CHANGEME-you@example.invalid"/' \
+		"${REAL_TFVARS}" >"$mutated"
+
+	if diff -q "${REAL_TFVARS}" "$mutated" >/dev/null; then
+		echo "the mutation changed nothing: its pattern no longer matches" >&2
+		return 1
+	fi
+
+	# Positive: the real file has no placeholder in its configuration.
+	! code_only "${REAL_TFVARS}" | grep -q 'CHANGEME\|example\.invalid' || {
+		echo "the unmutated real input already contains a placeholder" >&2
+		return 1
+	}
+	# Negative: the mutant does, and is therefore not apply-ready.
+	code_only "$mutated" | grep -q 'CHANGEME\|example\.invalid' || {
+		echo "the placeholder check cannot see a placeholder that is present." >&2
+		echo "It cannot fail, so it has never been protecting anything." >&2
+		return 1
+	}
+}
+
+@test "the posture guard fails when the real input is flipped to allowlist-only" {
+	# Same predicate the examples are held to, exercised against the file that
+	# will actually be applied.
+	local mutated="${BATS_TEST_TMPDIR}/real-allowlist.tfvars"
+	sed 's/^access_mode = "iap"$/access_mode = "allowlist"/' "${REAL_TFVARS}" >"$mutated"
+
+	if diff -q "${REAL_TFVARS}" "$mutated" >/dev/null; then
+		echo "the mutation changed nothing: its pattern no longer matches" >&2
+		return 1
+	fi
+
+	assert_iap_posture "${REAL_TFVARS}" || {
+		echo "the unmutated real input already fails the posture guard" >&2
+		return 1
+	}
+	run assert_iap_posture "$mutated"
+	[ "$status" -ne 0 ] || {
+		echo "the posture guard passed access_mode = \"allowlist\" on the real" >&2
+		echo "input. An IP allowlist is exposure control, not authentication." >&2
+		return 1
+	}
 }

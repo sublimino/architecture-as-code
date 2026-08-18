@@ -1031,6 +1031,28 @@ JSON
   [ "$(jq -r .deploy_sa "$h")"    = "${SA_EMAIL}" ]
 }
 
+@test "the hand-off carries the agreed schema id and the env alias, and they cannot drift" {
+  # The acceptance harness (chunk I2) was written against `schema` and `env`;
+  # this generator emits `schema_version` and `environment_key`. Emitting both
+  # is cheaper than either side renaming — but two spellings of one value drift
+  # the moment somebody edits one, so the alias is asserted equal to its twin
+  # rather than merely present.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-alias"
+  run make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  h="${hdir}/demo-1.handoff.json"
+  [ -f "$h" ]
+  [ "$(jq -r .schema "$h")" = "signalloom.gcp.handoff/v1" ]
+  [ "$(jq -r .schema_version "$h")" = "1" ]
+  # The alias is the same value, not an independently computed one.
+  [ "$(jq -r .env "$h")" = "$(jq -r .environment_key "$h")" ]
+  [ "$(jq -r .env "$h")" = "demo-1" ]
+}
+
 @test "gcp-tf-handoff accepts an empty hostname and still writes the file" {
   fixture="$(env_fixture demo-1)"
   hdir="${BATS_TEST_TMPDIR}/handoff-nohost"

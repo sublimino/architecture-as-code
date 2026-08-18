@@ -190,9 +190,11 @@ it successfully and reports on an estate it never reached.
 
 | Field | Type | Source | May be empty |
 |---|---|---|---|
-| `schema_version` | number | Fixed at `1`. Bump on any breaking change. | no |
+| `schema` | string | Fixed at `signalloom.gcp.handoff/v1`. Match on this before trusting the shape. | no |
+| `schema_version` | number | Fixed at `1`. Bump both on any breaking change. | no |
 | `project_id` | string | `.project_id` or `.integration_inputs.project_id` | no |
 | `environment_key` | string | `.target_env` | no |
+| `env` | string | Alias of `environment_key`, asserted equal to it. | no |
 | `region` | string | `.target_environment.region` | no |
 | `zone` | string | `.target_environment.zone` | no |
 | `instance_name` | string | `.instance_name`, or `.instance_names[<env>]` | no |
@@ -215,11 +217,22 @@ compares it to a port.
 
 ### Worked example
 
+`access_mode` is a **three**-valued enum — `iap`, `allowlist`, `iap_and_allowlist`
+(see `terraform/environments/variables.tf`). Anything reading it as a boolean
+"IAP or allowlist" will mishandle the combined mode.
+
+`env` and `schema` are aliases carried for a consumer written against those
+spellings. They are additive; `environment_key` and `schema_version` are the
+canonical names. A test asserts `env == environment_key`, so the two cannot
+drift apart.
+
 ```json
 {
+  "schema": "signalloom.gcp.handoff/v1",
   "schema_version": 1,
   "project_id": "CHANGEME-project",
   "environment_key": "demo-1",
+  "env": "demo-1",
   "region": "CHANGEME-region",
   "zone": "CHANGEME-region-a",
   "instance_name": "osramp-demo-1-vm",

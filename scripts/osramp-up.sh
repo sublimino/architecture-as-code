@@ -42,6 +42,16 @@ else
   echo "==> Using default ResourceSet inputs (no saved file found)..."
 fi
 
+# The ResourceSet ships with fluxcd.controlplane.io/reconcile: disabled, which
+# the controller checks (obj.IsDisabled()) and returns on BEFORE building. That
+# is the operator's actual off-switch; `inputs: []` is not one, because an empty
+# input list makes BuildResourceSet render once against a nil map and stall on
+# the first `<< inputs.tenant >>`. Patching inputs without clearing this first
+# is a silent no-op — the patch succeeds and the controller still skips.
+echo "==> Enabling reconciliation for ResourceSet '${RESOURCESET}'..."
+kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  fluxcd.controlplane.io/reconcile-
+
 echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
 kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"

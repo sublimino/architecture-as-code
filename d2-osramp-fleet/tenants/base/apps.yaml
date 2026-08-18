@@ -6,6 +6,28 @@
 # merge`, injecting concrete literal values — that path never goes through
 # envsubst, so it is not subject to the postBuild race documented on
 # tenants/base/infra.yaml and in AGENTS.md "Flux variable substitution".
+#
+# The OSRAMP demo really is opt-in — `make up` finishes by printing "No demos
+# are running" — so unlike signalloom-infra/signalloom-apps/agent-trust this
+# object is NOT given declarative inputs. But `inputs: []` on its own was never
+# a valid off-state: flux-operator renders spec.resources with
+# `Option("missingkey=error")` and, in BuildResourceSet, an empty input list
+# means "render ONCE against a nil map", not "render nothing" —
+#
+#     if len(combinedInputs) == 0 {
+#         object, err := BuildResource(tmpl, nil)
+#
+# so `<< inputs.tenant >>` below became a terminal build failure and this
+# ResourceSet shipped permanently Stalled on every cluster carrying the ghcr
+# overlay (staging, prod-eu, prod-us). The deploy-nothing behaviour this was
+# relying on exists but the controller gates it on `len(obj.Spec.InputsFrom) > 0`.
+#
+# The reconcile annotation is the supported off-switch: the controller checks
+# `obj.IsDisabled()` and returns BEFORE the build, so a disabled ResourceSet
+# neither renders nor stalls. scripts/osramp-up.sh clears it on activation and
+# scripts/resourceset-down.sh restores it on teardown. Nothing about which
+# workloads run has changed — only that "off" is now a state the operator
+# actually implements.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -13,6 +35,7 @@ metadata:
   namespace: flux-system
   annotations:
     fluxcd.controlplane.io/reconcileEvery: "5m"
+    fluxcd.controlplane.io/reconcile: disabled
 spec:
   dependsOn:
     - apiVersion: kustomize.toolkit.fluxcd.io/v1

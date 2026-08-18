@@ -31,6 +31,14 @@ else
   echo "==> Using default ResourceSet inputs (no saved file found)..."
 fi
 
+# The ResourceSet ships disabled via fluxcd.controlplane.io/reconcile, which the
+# controller checks (obj.IsDisabled()) and returns on BEFORE building. Patching
+# inputs without clearing it first is a silent no-op. See the comment on the
+# same line in scripts/osramp-up.sh and the header of tenants/base/olly.yaml.
+echo "==> Enabling reconciliation for ResourceSet '${RESOURCESET}'..."
+kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  fluxcd.controlplane.io/reconcile-
+
 echo "==> Patching ResourceSet '${RESOURCESET}' with inputs..."
 kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   --type merge -p "{\"spec\":{\"inputs\":${INPUTS}}}"

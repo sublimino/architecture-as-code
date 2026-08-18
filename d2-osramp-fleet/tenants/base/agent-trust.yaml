@@ -1,6 +1,37 @@
-# FLUX ENVSUBST: YES — registry settings are substituted by the tenants
-# Kustomization. Inputs are deliberately empty until the explicit lifecycle
-# patches concrete values, avoiding the first-reconcile substitution race.
+# FLUX ENVSUBST: YES — registry settings AND spec.inputs below are substituted
+# by the tenants Kustomization, exactly as in tenants/base/infra.yaml. Both are
+# ordinary string scalars in the same rendered manifest.
+#
+# spec.inputs used to ship as `[]`, with scripts/agent-trust-local.sh patching
+# concrete values in at bring-up. That could not work on a cold cluster, and
+# `inputs: []` was never the inert state it was taken for.
+#
+# flux-operator renders spec.resources with `Option("missingkey=error")` and,
+# in BuildResourceSet, an empty input list does not mean "render nothing" —
+# it means "render ONCE against a nil map":
+#
+#     if len(combinedInputs) == 0 {
+#         object, err := BuildResource(tmpl, nil)
+#
+# so every `<< inputs.tag >>` below became a terminal build failure:
+#
+#     build failed: ... executing "resourceset" at <inputs>:
+#       map has no entry for key "tenant"
+#
+# routed through stallWithTerminalError — Stalled=True, no requeue, no retry.
+# The empty-set-means-deploy-nothing behaviour this file was relying on is real
+# but the controller gates it on `len(obj.Spec.InputsFrom) > 0`; with inputsFrom
+# unset it never applied here.
+#
+# The imperative repair also could not have held: this ResourceSet is delivered
+# by the flux-system/tenants Kustomization, so `kubectl patch` of spec.inputs is
+# drift against a field Flux owns and the reconciler is entitled to revert it.
+# agent-trust-local.sh's snapshot-and-restore dance existed only to survive that
+# revert. Declaring the inputs here removes the race rather than timing it: the
+# object is buildable the moment it is applied, and every later reconcile
+# reinforces the state instead of destroying it.
+#
+# Ordering is left to spec.dependsOn below, which already expresses it.
 #
 # The dedicated agent-trust-flux identity is intentionally separate from
 # inf-bao's Flux identity. Namespace creation cannot be constrained with
@@ -29,7 +60,16 @@ spec:
       namespace: inf-bao
       ready: true
       readyExpr: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
-  inputs: []
+  # One input set: this slice provisions a single platform tenant and its five
+  # subordinate namespaces, all named literally in spec.resources below.
+  # Values match what scripts/agent-trust-local.sh used to patch in; on local
+  # the tokens resolve from flux-runtime-info to latest/local/local.
+  inputs:
+    - tenant: "agent-trust-platform"
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
   resources:
     - apiVersion: v1
       kind: Namespace

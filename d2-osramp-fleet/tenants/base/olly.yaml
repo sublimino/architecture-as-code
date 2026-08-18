@@ -18,6 +18,15 @@
 # merge`, injecting concrete literal values — that path never goes through
 # envsubst, so it is not subject to the postBuild race documented on
 # tenants/base/infra.yaml and in AGENTS.md "Flux variable substitution".
+#
+# Opt-in, same as tenants/base/apps.yaml, and disabled for the same reason: see
+# the long comment there. `inputs: []` alone is not an off-state — flux-operator
+# renders spec.resources with `Option("missingkey=error")` and an empty input
+# list means "render ONCE against a nil map", so `<< inputs.tenant >>` below
+# stalled this object terminally on every cluster carrying the ghcr overlay.
+# The reconcile annotation is checked by `obj.IsDisabled()` before the build,
+# so the operator skips the object entirely. scripts/olly-up.sh clears it on
+# activation; scripts/resourceset-down.sh restores it on teardown.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -25,6 +34,7 @@ metadata:
   namespace: flux-system
   annotations:
     fluxcd.controlplane.io/reconcileEvery: "5m"
+    fluxcd.controlplane.io/reconcile: disabled
 spec:
   dependsOn:
     - apiVersion: kustomize.toolkit.fluxcd.io/v1

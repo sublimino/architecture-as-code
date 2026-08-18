@@ -111,7 +111,19 @@ if [[ "$*" == *'get resourceset -o json'* ]]; then
 fi
 if [[ "${AGENT_TRUST_FAKE_ABSENT:-0}" == 1 && "$*" == *'get namespace agent-trust-'* ]]; then exit 1; fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'metadata.annotations.agent-trust'* ]]; then printf 'true'; fi
-if [[ "$*" == *'get resourceset/agent-trust -o jsonpath='* && "$*" != *'metadata.annotations.agent-trust'* ]]; then printf '[]'; fi
+# Discriminate on the actual jsonpath rather than answering '[]' to every query
+# about this object. The blanket form made any jsonpath the script asked for
+# look like an empty input list, so a wait on the reconcile annotation -- the
+# state `down` now asserts -- silently never matched and spun its full 600s
+# deadline. A fixture that answers a question it was not asked turns a wrong
+# query into a hang, which reads as a broken deadline rather than a broken shim.
+if [[ "$*" == *'get resourceset/agent-trust -o jsonpath='*'fluxcd\.controlplane\.io/reconcile'* ]]; then
+  printf 'disabled'
+elif [[ "$*" == *'get resourceset/agent-trust -o jsonpath={.spec.inputs}'* ]]; then
+  printf '[]'
+elif [[ "$*" == *'get resourceset/agent-trust -o jsonpath='* && "$*" != *'metadata.annotations.agent-trust'* ]]; then
+  printf '[]'
+fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'delete namespace agent-trust-platform'* ]]; then exit 1; fi
 SCRIPT
 cat >"$bin/flux" <<'SCRIPT'
@@ -379,8 +391,14 @@ print(",".join(bad))
     "$root/scripts/agent-trust-local.sh" down
   [ "$status" -eq 0 ]
   [[ "$output" == *"pre-existing inf-bao deployment remains intact"* ]]
+  # Deactivation is the reconcile annotation now. Emptying inputs is retained so
+  # the observable spec.inputs state is unchanged for existing callers, but it is
+  # no longer what stops the slice: tenants/base/agent-trust.yaml declares the
+  # inputs, so spec.inputs is a Flux-owned field that the tenants Kustomization
+  # will revert. Asserting the annotation is asserting the thing that holds.
+  grep -Fq 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile=disabled --overwrite' "$log"
   grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
-  grep -Fq 'get resourceset/agent-trust -o jsonpath={.spec.inputs}' "$log"
+  grep -q 'get resourceset/agent-trust -o jsonpath=.*fluxcd' "$log"
   grep -Fq 'delete namespace agent-trust-platform --ignore-not-found --wait=true' "$log"
   grep -Fq 'delete namespace agent-trust-northstar-investigations --ignore-not-found --wait=true' "$log"
   ! grep -Fq 'delete namespace inf-bao' "$log"
@@ -397,7 +415,8 @@ print(",".join(bad))
 
 @test "ResourceSet uses limited Agent Trust RBAC and signed OCI wiring" {
   resource="$root/d2-osramp-fleet/tenants/base/agent-trust.yaml"
-  grep -Fq 'inputs: []' "$resource"
+  # Was `grep -Fq 'inputs: []'`. That asserted the slice ships unbuildable.
+  grep -Fq 'tenant: "agent-trust-platform"' "$resource"
   grep -Fq 'name: signalloom-infra' "$resource"
   grep -Fq 'namespace: inf-bao' "$resource"
   grep -Fq 'name: agent-trust-flux' "$resource"
@@ -423,12 +442,36 @@ print(",".join(bad))
   ! grep -R -Fq 'activationNonce' "$root/d2-agent-trust/manifests"
 }
 
-@test "local fleet renders inactive Agent Trust with local signature verification" {
+# Was "renders INACTIVE Agent Trust", asserting `.spec.inputs | length == 0`.
+# That assertion was the defect written down as a requirement. `inputs: []` is
+# not an inactive ResourceSet -- flux-operator's BuildResourceSet renders the
+# template ONCE against a nil map when the input list is empty, and with
+# `Option("missingkey=error")` every `<< inputs.tag >>` is then a terminal build
+# failure. The object shipped permanently Stalled, and the script that was
+# supposed to repair it ran behind a readiness gate that could not open until
+# the repair had already happened. Three cold CI runs produced zero of six
+# agent-trust-* namespaces; this test was green through all of them.
+#
+# The completeness invariant now lives in test/resourceset-inputs-declarative.bats,
+# which sweeps every ResourceSet in every overlay. What is asserted here is the
+# narrower fact this test is named for: the local fleet renders an Agent Trust
+# slice that can build, with local signature verification wired to it.
+@test "local fleet renders buildable Agent Trust with local signature verification" {
   rendered="$BATS_TEST_TMPDIR/tenants-local.yaml"
   run "$real_kubectl" kustomize --load-restrictor LoadRestrictionsNone "$root/d2-osramp-fleet/tenants/local"
   [ "$status" -eq 0 ]
   printf '%s\n' "$output" >"$rendered"
-  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | (.spec.inputs | length) == 0' "$rendered"
+  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | (.spec.inputs | length) > 0' "$rendered"
+  [ "$status" -eq 0 ]
+  [ "$output" = "true" ]
+  # Every key the template dereferences has to be present in the input set, not
+  # merely some keys -- a partially-populated input set stalls on exactly the
+  # same error while passing any "is it activated" check.
+  # The parentheses are load-bearing: `and` binds looser than `|` in yq, so
+  # without them only the first has() applies to the input set and the other two
+  # are evaluated against each document root -- false for every document,
+  # including the one being tested.
+  run yq -e 'select(.kind == "ResourceSet" and .metadata.name == "agent-trust") | .spec.inputs[0] | (has("tag") and has("artifactSubjectWorkflow") and has("artifactSubjectGitRef"))' "$rendered"
   [ "$status" -eq 0 ]
   [ "$output" = "true" ]
   # Selected by kind, not by position. This asserted .spec.resources[16] until

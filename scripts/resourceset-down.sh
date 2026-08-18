@@ -60,7 +60,23 @@ elif [ ! -s "${INPUTS_FILE}" ]; then
   printf '%s' "${CURRENT_INPUTS}" > "${INPUTS_FILE}"
 fi
 
-echo "==> Patching ResourceSet '${RESOURCESET}' to empty inputs (stops recreation)..."
+# Emptying inputs alone does not stop recreation, and never did. flux-operator
+# renders spec.resources with `Option("missingkey=error")`, and BuildResourceSet
+# treats an empty input list as "render ONCE against a nil map" rather than
+# "render nothing", so the ResourceSet does not go quiet — it goes Stalled with
+# `map has no entry for key "tenant"`. (The deploy-nothing-and-GC behaviour is
+# real but the controller gates it on `len(obj.Spec.InputsFrom) > 0`.)
+#
+# The supported off-switch is the reconcile annotation, checked by
+# obj.IsDisabled() before the build. Set it FIRST so the controller is already
+# skipping this object by the time the inputs are cleared. Inputs are still
+# emptied afterwards so `demo-*-down` leaves the same observable spec.inputs
+# state the existing checks look for.
+echo "==> Disabling reconciliation for ResourceSet '${RESOURCESET}' (stops recreation)..."
+kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
+  fluxcd.controlplane.io/reconcile=disabled --overwrite
+
+echo "==> Patching ResourceSet '${RESOURCESET}' to empty inputs..."
 kubectl patch resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   --type merge -p '{"spec":{"inputs":[]}}'
 kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \

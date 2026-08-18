@@ -5,13 +5,51 @@
 # FLUX ENVSUBST: YES for signalloom-infra/signalloom-apps' spec.resources —
 # ${REGISTRY_BASE}/${REGISTRY_INSECURE} there are reached by the tenants
 # Kustomization's postBuild.substituteFrom (clusters/local/tenants.yaml ->
-# flux-runtime-info ConfigMap). spec.inputs on both is deliberately empty
-# ([]): `make demo-signalloom-up` (scripts/signalloom-local.sh, see
-# `activate_resourceset`) activates them with `kubectl patch resourceset
-# --type merge`, injecting concrete literal values — that path never goes through
-# envsubst, so it is not subject to the postBuild race documented on
-# tenants/base/infra.yaml and in AGENTS.md "Flux variable substitution".
+# flux-runtime-info ConfigMap).
+#
+# NO for spec.inputs on either. This overlay is local-only, so the values are
+# written as literals rather than ${VAR} tokens — which keeps spec.inputs out
+# of the postBuild first-reconcile race documented on tenants/base/infra.yaml
+# and in AGENTS.md "Flux variable substitution" entirely, instead of relying on
+# the dependsOn that mitigates it. tenants/base/agent-trust.yaml is shared with
+# the ghcr overlay and so does use tokens; this file has no such constraint.
 # signalloom-spire-rbac has no inputs and no ${VAR} tokens at all.
+#
+# spec.inputs on both used to ship as `[]`, activated at bring-up by
+# scripts/signalloom-local.sh `activate_resourceset`. Two things were wrong
+# with that, and only a cluster built from nothing showed either.
+#
+# First, `inputs: []` is not an inert state. flux-operator renders
+# spec.resources with `Option("missingkey=error")`, and BuildResourceSet treats
+# an empty input list as "render ONCE against a nil map", not "render nothing":
+#
+#     if len(combinedInputs) == 0 {
+#         object, err := BuildResource(tmpl, nil)
+#
+# so `<< inputs.tenant >>` below failed the build outright —
+#
+#     build failed: ... executing "resourceset" at <inputs>:
+#       map has no entry for key "tenant"
+#
+# — through stallWithTerminalError, which is Stalled=True with no requeue. The
+# deploy-nothing semantics this idiom assumed do exist, but the controller
+# gates them on `len(obj.Spec.InputsFrom) > 0`, and inputsFrom is unset here.
+#
+# Second, these ResourceSets are delivered by the flux-system/tenants
+# Kustomization, so patching spec.inputs is drift against a Flux-owned field
+# that the reconciler may revert at any point. The activation was racing the
+# reconciler by construction.
+#
+# Together those produced a circular dependency that a warm cluster hides
+# completely, because it still carries the previous run's inputs: the step that
+# populated the inputs sat behind `wait_resourceset signalloom-infra`, and
+# signalloom-infra could not go Ready until the inputs were populated. On a cold
+# cluster the wait consumed its full 600s and the Agent Trust slice — whose
+# dependsOn names signalloom-infra — was never reached at all.
+#
+# Declaring the values here removes the ordering constraint rather than
+# re-timing it. Sequencing is left to spec.dependsOn, which already expresses
+# the same graph the bring-up script was hand-rolling in bash.
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet
 metadata:
@@ -53,8 +91,35 @@ metadata:
   annotations:
     fluxcd.controlplane.io/reconcileEvery: "5m"
 spec:
-  # Signal Loom infrastructure starts only through `make demo-signalloom-up`.
-  inputs: []
+  # Two input sets, one per infrastructure tenant. Byte-identical to the values
+  # scripts/signalloom-local.sh used to patch in, so any caller that still
+  # patches writes exactly what is already here and the operation is inert.
+  #
+  # `appsTenant` is not redundant with `tenant`. The SuperCred runner's
+  # cross-namespace RBAC has to be declared by signalloom-infra — a RoleBinding
+  # created by signalloom-apps trips the kustomize-controller privilege-
+  # escalation dry run, see the long comment further down this file — but its
+  # SUBJECT is a ServiceAccount in the APPS tenant. `tenant` here is inf-bao /
+  # inf-signalloom, so templating the subject off it named a ServiceAccount that
+  # never existed and left the runner with no authority at all, silently,
+  # because RBAC does not validate subjects. Both sets carry the same
+  # appsTenant, and it MUST equal signalloom-apps' `tenant` below;
+  # d2-signalloom/test/supercred-runner-rbac.bats asserts exactly that.
+  inputs:
+    - tenant: "inf-bao"
+      appsTenant: "fe-signalloom"
+      component: "inf-bao"
+      tag: "latest"
+      environment: "local"
+      artifactSubjectWorkflow: "local"
+      artifactSubjectGitRef: "local"
+    - tenant: "inf-signalloom"
+      appsTenant: "fe-signalloom"
+      component: "inf-signalloom"
+      tag: "latest"
+      environment: "local"
+      artifactSubjectWorkflow: "local"
+      artifactSubjectGitRef: "local"
   resources:
     - apiVersion: v1
       kind: Namespace
@@ -847,8 +912,17 @@ spec:
       namespace: inf-signalloom
       ready: true
       readyExpr: status.conditions.filter(e, e.type == 'Ready').all(e, e.status == 'True')
-  # The Signal Loom frontend starts only through `make demo-signalloom-up`.
-  inputs: []
+  # Byte-identical to what scripts/signalloom-local.sh used to patch in. The
+  # dependsOn above — inf-signalloom/infra-configs Ready — is what actually
+  # orders this behind signalloom-infra; the bring-up script's activate-infra,
+  # wait, activate-apps sequence was re-implementing that edge in bash.
+  inputs:
+    - tenant: "fe-signalloom"
+      component: "fe-signalloom"
+      tag: "latest"
+      environment: "fe-signalloom/local"
+      artifactSubjectWorkflow: "local"
+      artifactSubjectGitRef: "local"
   resources:
     - apiVersion: v1
       kind: Namespace

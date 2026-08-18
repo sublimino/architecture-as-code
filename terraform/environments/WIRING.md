@@ -6,7 +6,12 @@ and what has to be true before each one will plan. The point is that integration
 mechanical — a person following this file needs to read no Terraform to do the wiring, only to
 review it afterwards.
 
-The blocks are commented rather than absent because `../modules/{identity,network,compute,edge,ci-runner}`
+One of those five, `module "identity"`, is **not to be uncommented at all** — identity moved to
+`terraform/platform` and this root consumes it read-only through `terraform_remote_state`. The
+reasoning is at the bottom of this file under "Correction"; the ordering table below already
+reflects it, so following the table is sufficient and reading the correction is optional.
+
+The blocks are commented rather than absent because `../modules/{network,compute,edge,ci-runner}`
 are built by chunks F3, F4 and F5 in parallel worktrees and do not exist on this branch. A live
 `module` block pointing at a missing directory makes `terraform init` fail, which would make the
 root un-validatable, which would make `test/terraform-environment-keys.bats` — the only test in
@@ -19,15 +24,59 @@ Uncomment in this order. It is a dependency order, not a preference: each step c
 output of the one before it, and doing them out of order produces a "reference to undeclared
 module" error that reads like a typo rather than like a sequencing mistake.
 
-| # | Block in `main.tf` | Chunk | Uncomment only once | Consumes | Produces for later blocks |
-|---|--------------------|-------|---------------------|----------|---------------------------|
-| 1 | `module "identity"` | F5 | `terraform/modules/identity/` exists | `project_id`, `project_number`, `module.env_contract.environment_keys`, the three `github_*` variables | `runtime_service_account_emails` (map keyed by environment key) |
-| 2 | `module "network"` | F3 | `terraform/modules/network/` exists **and** step 1 is live | `local.target_environments`, `module.identity.runtime_service_account_emails[each.key]` | `subnet_self_link`, `network_tag` |
+| # | Block in `main.tf` | Chunk | Do this only once | Consumes | Produces for later blocks |
+|---|--------------------|-------|-------------------|----------|---------------------------|
+| 1 | `data "terraform_remote_state" "platform"` | F6 owns the producer | the **platform root has been applied** (not merely planned) against `prefix=osramp/platform` | `var.state_bucket_name` | `runtime_service_account_emails` (map keyed by environment key), `dns_managed_zone_name`, `notification_channel_ids` |
+| 2 | `module "network"` | F3 | `terraform/modules/network/` exists **and** step 1 is live | `local.target_environments`, `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]` | `subnet_self_link`, `network_tag` |
 | 3 | `module "compute"` | F3 | `terraform/modules/compute/` exists **and** step 2 is live | step 2's outputs, `var.startup_script_path` | `instance_group_self_link` |
-| 4 | `module "edge"` | F4 | `terraform/modules/edge/` exists **and** step 3 is live | `module.compute[each.key].instance_group_self_link`, `var.dns_managed_zone` | the public LB — nothing downstream |
-| 5 | `module "ci_runner"` | F5 | `terraform/modules/ci-runner/` exists **and** step 2 is live | step 2's outputs, `module.identity.runtime_service_account_emails[each.key]` | nothing downstream |
+| 4 | `module "edge"` | F4 | `terraform/modules/edge/` exists **and** step 3 is live | `module.compute[each.key].instance_group_self_link`, `var.dns_managed_zone`, `var.access_mode`, `var.iap_members` | the LB — nothing downstream |
+| 5 | `module "ci_runner"` | F5 | `terraform/modules/ci-runner/` exists **and** step 2 is live | step 2's outputs, `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]` | nothing downstream |
 
 Steps 4 and 5 are independent of each other; either order works.
+
+**Step 1 is not a code change you can validate your way through.** A
+`terraform_remote_state` data source reads a state object that must already
+exist; there is no plan-time stand-in for it. So the ordering constraint is not
+"uncomment identity first", it is **"apply `terraform/platform` first"** — a
+real apply, against the real bucket, by a human. `terraform/RUNBOOK.md` step 5
+is that apply. Until it has happened, steps 2–5 here cannot produce a plan, and
+the error they produce names a missing output rather than a missing step.
+
+### Two root variables the edge wiring needs, which are not declared yet
+
+`terraform/environments/variables.tf` does **not** currently declare
+`access_mode` or `iap_members`, and `demo-1.tfvars.example` sets both. Terraform
+treats a value for an undeclared variable in a `-var-file` as a *warning*, so
+this does not fail a plan — it silently drops the value and the edge module
+takes its own default. That is the worst available failure mode for a variable
+whose whole job is to decide whether the environment is publicly reachable, so
+declare them before step 4:
+
+```hcl
+variable "access_mode" {
+  description = "Edge reachability. \"iap\" puts Identity-Aware Proxy in front of the backend; \"public\" leaves the Cloud Armor allowlist as the only gate."
+  type        = string
+  default     = "iap"
+
+  validation {
+    condition     = contains(["iap", "public"], var.access_mode)
+    error_message = "access_mode must be \"iap\" or \"public\"."
+  }
+}
+
+variable "iap_members" {
+  description = "IAM principals permitted through IAP, each prefixed user:/group:/serviceAccount:. Ignored when access_mode is \"public\"."
+  type        = list(string)
+  default     = []
+}
+```
+
+They are **root variables, not fields on the `environments` object**, because
+that object type is frozen by CONTRACT §3 — "copy this type verbatim; do not add
+or rename fields". They follow the existing precedent set by
+`rate_limit_threshold_per_minute` and `enable_cdn`: an edge-module input that
+varies by deployment rather than by environment key lives at the root and is
+passed down.
 
 After each step: `terraform init -backend=false && terraform validate && tflint`. Do not batch
 the uncommenting. A single `plan` covering five newly-live modules attributes every error to the
@@ -70,12 +119,15 @@ These are not this chunk's to do, but the wiring is not finished until they are 
    exist, `target_env` narrows the blast radius but does not guarantee that the state file being
    written belongs to the environment named in the tfvars.
 
-2. **`github_owner_id` must be the numeric ID, looked up rather than guessed.** It defaults to
-   `""` in `ci-1.tfvars.example` because a wrong value here silently widens who may assume the CI
-   service accounts. `gh api users/<owner> --jq .id` is read-only and is the intended lookup.
+2. **`github_owner_id` must be the numeric ID, looked up rather than guessed** — and it is now
+   supplied to the **platform** root, not this one, because that is where the workload identity
+   provider lives. It remains declared here (defaulting to `""` in `ci-1.tfvars.example`) only as
+   a pass-through for the CI lane's own wiring. A wrong value silently widens who may assume the
+   CI service accounts. `gh api users/<owner> --jq .id` is read-only and is the intended lookup.
 
-3. **`project_number` must be set** before `identity` goes live; the workload identity pool path
-   is built from it.
+3. **`project_number` must be set on the platform root** before its identity module goes live;
+   the workload identity pool path is built from it. This root's `project_number` variable is
+   informational and may stay `""`.
 
 4. **`dns_managed_zone` must name a pre-existing zone**, or stay `""`. `""` disables DNS record
    creation for every environment, and the edge module still builds — the load balancer simply

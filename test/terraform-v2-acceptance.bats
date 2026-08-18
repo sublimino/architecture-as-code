@@ -165,7 +165,7 @@ mutate() {
 
   local h
   for h in demo-1 v1-controlplane v1-region-only partial alternate-spellings \
-    stale-ip allowlist-mode malformed; do
+    stale-ip allowlist-mode iap-and-allowlist bogus-access-mode emitter-shape malformed; do
     [ -f "${HANDOFFS}/${h}.handoff.json" ] || { echo "missing handoff ${h}"; return 1; }
   done
 
@@ -212,12 +212,13 @@ mutate() {
   [ "$(verdicts UNKNOWN)" -eq 0 ] || { echo "$output"; return 1; }
   # Every control the brief names has to actually be present in the report. A
   # run with three checks would otherwise be "all PASS" too.
-  [ "$(verdicts PASS)" -ge 13 ] || { echo "only $(verdicts PASS) PASS lines"; echo "$output"; return 1; }
+  [ "$(verdicts PASS)" -ge 14 ] || { echo "only $(verdicts PASS) PASS lines"; echo "$output"; return 1; }
   local item
   for item in "instance RUNNING" "no external IP" "Shielded VM" "OS Login enforced" \
     "runtime service account" "handoff describes this estate" "no 0.0.0.0/0 ingress" \
-    "SSH only from IAP range" "access mode is IAP" "IAP tunnel authorises" \
-    "app port responds" "state bucket protection" "deploy SA: objectAdmin only"; do
+    "SSH only from IAP range" "access mode authenticates" "IAP tunnel authorises" \
+    "app port responds" "state bucket protection" "deploy SA: objectAdmin only" \
+    "SSH path via IAP tunnel"; do
     [[ "$output" == *"$item"* ]] || { echo "no check reported for: ${item}"; return 1; }
   done
 }
@@ -234,6 +235,35 @@ mutate() {
   [[ "$output" != *"sl-demo-1-deny-all-ingress"* ]] || { echo "a deny rule was graded as an allow"; echo "$output"; return 1; }
   # storage.admin held by a group that is not the deploy identity.
   [[ "$output" == *"PASS    deploy SA: objectAdmin only"* ]] || { echo "$output"; return 1; }
+}
+
+@test "the emitter's exact shape is consumed with no verdicts lost" {
+  # The literal shape make gcp-tf-handoff writes: project_id, environment_key
+  # AND env, instance_name, app_port as a JSON number, plus state_prefix,
+  # schema_version and generated_at which this script does not read. Extra
+  # fields must be ignored, not fatal.
+  run "$ACCEPT" --handoff "${HANDOFFS}/emitter-shape.handoff.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts FAIL)" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts UNKNOWN)" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(verdicts PASS)" -ge 14 ] || { echo "only $(verdicts PASS) PASS lines"; echo "$output"; return 1; }
+  # The hostname it carries is reported rather than dropped.
+  [[ "$output" == *"demo-1.example.invalid"* ]] || { echo "hostname was not surfaced"; echo "$output"; return 1; }
+}
+
+@test "an unknown schema is announced but still graded field by field" {
+  # The emitter bumps schema and schema_version together on a breaking change.
+  # A newer schema must produce an honest report, not a refusal and not a
+  # silent wrong one -- the field reader already degrades to UNKNOWN on
+  # anything it cannot resolve.
+  run "$ACCEPT" --handoff "${HANDOFFS}/future-schema.handoff.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"does not know"* ]] || { echo "an unknown schema was not announced"; echo "$output"; return 1; }
+  [ "$(verdicts PASS)" -ge 14 ] || { echo "$output"; return 1; }
+
+  # And a known schema says nothing about it.
+  run "$ACCEPT" --handoff "${HANDOFFS}/emitter-shape.handoff.json"
+  [[ "$output" != *"does not know"* ]] || { echo "a known schema was announced anyway"; echo "$output"; return 1; }
 }
 
 @test "the alternate handoff spellings produce the same verdicts as the canonical one" {
@@ -269,6 +299,32 @@ mutate() {
   [[ "$output" == *"FAIL    no 0.0.0.0/0 ingress"* ]] || { echo "$output"; return 1; }
   [[ "$output" == *"sl-demo-1-temporary-debug-open"* ]] || { echo "the failure does not name the rule"; echo "$output"; return 1; }
   [ "$(verdicts FAIL)" -eq 1 ] || { echo "$output"; return 1; }
+}
+
+@test "an EGRESS rule to 0.0.0.0/0 is expected and does NOT fail" {
+  # Direction is load-bearing and the estate now depends on it. Platform egress
+  # is deliberately open: an egress-only allow, TCP 443, 0.0.0.0/0, scoped by
+  # target_service_accounts to the runtime SA. Ingress is unchanged --
+  # deny-all-ingress from 0.0.0.0/0 still stands, IAP SSH only, no external IP.
+  #
+  # A check that ignored direction would report a false FAIL on a healthy
+  # estate, which is worse than having no check: the next real finding gets
+  # read as another false alarm.
+  overlay egress-open-443
+  run "$ACCEPT" --handoff "$H_GOOD"
+  [ "$status" -eq 0 ] || { echo "an open EGRESS rule was graded as a violation"; echo "$output"; return 1; }
+  [[ "$output" == *"PASS    no 0.0.0.0/0 ingress"* ]] || { echo "$output"; return 1; }
+  [[ "$output" != *"sl-demo-1-allow-egress-https"* ]] || {
+    echo "the egress rule was named in a finding"
+    echo "$output"
+    return 1
+  }
+
+  # The paired negative, on the same fixture shape: flip it to INGRESS and it
+  # must fail. Same rule, same ranges, opposite direction, opposite verdict.
+  overlay open-firewall
+  run "$ACCEPT" --handoff "$H_GOOD"
+  [ "$status" -eq 1 ] || { echo "an open INGRESS rule was not graded as a violation"; echo "$output"; return 1; }
 }
 
 @test "a tcp rule with NO ports named is treated as covering 22" {
@@ -315,16 +371,43 @@ mutate() {
   [[ "$output" == *"make gcp-tf-handoff"* ]] || { echo "the failure does not say how to fix it"; echo "$output"; return 1; }
 }
 
-@test "access_mode other than iap FAILs, citing the allowlist threat" {
+@test "access_mode allowlist-only FAILs, citing the allowlist threat" {
   run "$ACCEPT" --handoff "${HANDOFFS}/allowlist-mode.handoff.json"
   [ "$status" -eq 1 ] || { echo "$output"; return 1; }
-  [[ "$output" == *"FAIL    access mode is IAP"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"FAIL    access mode authenticates"* ]] || { echo "$output"; return 1; }
   [[ "$output" == *"SECURITY.md #5"* ]] || { echo "$output"; return 1; }
 
   # Paired positive: the canonical handoff passes the same check, so a script
   # that always failed it would not satisfy both.
   run "$ACCEPT" --handoff "$H_GOOD"
-  [[ "$output" == *"PASS    access mode is IAP"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"PASS    access mode authenticates"* ]] || { echo "$output"; return 1; }
+}
+
+@test "access_mode is a THREE-valued enum: iap_and_allowlist is the strongest, not a failure" {
+  # terraform/environments/variables.tf validates exactly iap | allowlist |
+  # iap_and_allowlist, and its own description calls the combined mode the
+  # strongest posture. An earlier revision here treated access_mode as an
+  # either/or switch and FAILED iap_and_allowlist -- so the best-configured
+  # estate would have been the one that failed. Caught in review by the agent
+  # that owns the emitter.
+  run "$ACCEPT" --handoff "${HANDOFFS}/iap-and-allowlist.handoff.json"
+  [ "$status" -eq 0 ] || { echo "expected 0, got ${status}"; echo "$output"; return 1; }
+  [[ "$output" == *"PASS    access mode authenticates"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"strongest posture"* ]] || { echo "$output"; return 1; }
+  [ "$(verdicts FAIL)" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "an unrecognised access_mode is UNKNOWN, never a guess in either direction" {
+  # Drift between this script and the terraform enum must not silently resolve
+  # to PASS (which would hide a bad posture) or to FAIL (which would block a
+  # good one). --strict still stops the run.
+  run "$ACCEPT" --handoff "${HANDOFFS}/bogus-access-mode.handoff.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"UNKNOWN access mode authenticates"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"iap, allowlist, iap_and_allowlist"* ]] || { echo "$output"; return 1; }
+
+  run "$ACCEPT" --handoff "${HANDOFFS}/bogus-access-mode.handoff.json" --strict
+  [ "$status" -eq 3 ] || { echo "expected 3 under --strict, got ${status}"; echo "$output"; return 1; }
 }
 
 # ---------------------------------------------------------------------------
@@ -414,7 +497,67 @@ mutate() {
   [ "$(verdicts UNKNOWN)" -ge 8 ] || { echo "$output"; return 1; }
   # access mode is read from the handoff, not the cloud, so it still passes --
   # which is correct and worth pinning: a blackout must not erase what is known.
-  [[ "$output" == *"PASS    access mode is IAP"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"PASS    access mode authenticates"* ]] || { echo "$output"; return 1; }
+}
+
+@test "the SSH path names the OS Login gap as its own condition" {
+  # Two things are called "SSH access" and they fail independently: the IAP TCP
+  # tunnel to port 22, and OS Login authorisation, which `gcloud compute ssh`
+  # additionally needs. The live estate is in the state where the tunnel works
+  # and `compute ssh` does not, because the calling identity is external to the
+  # org and roles/compute.osLoginExternalUser is an ORG-scoped grant.
+  #
+  # Reported generically, that reads as a broken VM or a broken tunnel and is
+  # neither. The named condition is what sends the reader to the right layer.
+  run "$ACCEPT" --handoff "$H_GOOD"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"PASS    SSH path via IAP tunnel"* ]] || { echo "$output"; return 1; }
+  [[ "$output" == *"osLoginExternalUser"* ]] || {
+    echo "the OS Login grant is not named anywhere"
+    echo "$output"
+    return 1
+  }
+  [[ "$output" == *"ORG-scoped"* ]] || { echo "the report does not say the grant is org-scoped"; echo "$output"; return 1; }
+}
+
+@test "the SSH path never invokes gcloud compute ssh" {
+  # It is a mutating verb, both gates refuse it, and it would fail here for a
+  # reason that has nothing to do with the estate's posture.
+  run "$ACCEPT" --handoff "$H_GOOD"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ -s "$CALL_LOG" ] || { echo "no calls recorded"; return 1; }
+  ! grep -qE '(^| )compute ssh( |$)' "$CALL_LOG" || {
+    echo "gcloud compute ssh was invoked:"
+    grep -E 'compute ssh' "$CALL_LOG"
+    return 1
+  }
+  # It probed port 22 through the tunnel instead.
+  grep -qE 'start-iap-tunnel .* 22( |$)' "$CALL_LOG" || {
+    echo "port 22 was never probed through the tunnel:"
+    cat "$CALL_LOG"
+    return 1
+  }
+}
+
+@test "SSH denied and SSH with no sshd are different from each other" {
+  # The same three-way discrimination as the app port, on the port that matters
+  # for operator access.
+  export STUB_IAP_MODE=denied
+  run "$ACCEPT" --handoff "$H_GOOD"
+  local denied_line
+  denied_line="$(verdict_line 'SSH path via IAP tunnel')"
+  [[ "$denied_line" == FAIL* ]] || { echo "denied was not a FAIL: ${denied_line}"; return 1; }
+  [[ "$output" == *"never reached sshd"* ]] || { echo "$output"; return 1; }
+
+  export STUB_IAP_MODE=no-listener
+  run "$ACCEPT" --handoff "$H_GOOD"
+  local closed_line
+  closed_line="$(verdict_line 'SSH path via IAP tunnel')"
+  [ "$denied_line" != "$closed_line" ] || {
+    echo "the two SSH outcomes produced an IDENTICAL verdict line: ${denied_line}"
+    return 1
+  }
+  [[ "$output" == *"sshd is not running"* ]] || { echo "$output"; return 1; }
 }
 
 @test "the tunnel is torn down; no probe process survives the run" {
@@ -430,21 +573,29 @@ mutate() {
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 
   # Existence before content: if the stub never recorded a PID, the assertion
-  # below would be vacuously true.
+  # below would be vacuously true. A run opens TWO tunnels -- the application
+  # port and port 22 -- and both must be gone, so the count is asserted too.
   [ -s "$pidfile" ] || { echo "the tunnel stub never recorded its PID; this test proves nothing"; return 1; }
-  local pid
-  pid="$(cat "$pidfile")"
-  [ -n "$pid" ] || { echo "empty pidfile"; return 1; }
+  local n
+  n="$(grep -c . "$pidfile")"
+  [ "$n" -ge 2 ] || { echo "expected at least 2 tunnels to have been opened, saw ${n}"; return 1; }
 
-  # Give the teardown a moment, then insist the process is gone.
-  local waited=0
-  while [ "$waited" -lt 5 ] && kill -0 "$pid" 2>/dev/null; do
-    sleep 1
-    waited=$((waited + 1))
-  done
-  if kill -0 "$pid" 2>/dev/null; then
-    kill -9 "$pid" 2>/dev/null || true
-    echo "the tunnel process ${pid} survived the run"
+  local pid waited survivors=()
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    waited=0
+    while [ "$waited" -lt 5 ] && kill -0 "$pid" 2>/dev/null; do
+      sleep 1
+      waited=$((waited + 1))
+    done
+    if kill -0 "$pid" 2>/dev/null; then
+      survivors+=("$pid")
+      kill -9 "$pid" 2>/dev/null || true
+    fi
+  done <"$pidfile"
+
+  if [ "${#survivors[@]}" -ne 0 ]; then
+    echo "tunnel process(es) survived the run: ${survivors[*]}"
     return 1
   fi
 }

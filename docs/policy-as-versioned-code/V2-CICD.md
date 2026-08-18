@@ -165,12 +165,67 @@ v1 has its own path and is unaffected: `scripts/ci/gcp-ci.sh`.
 | per-environment runtime SA, not the default compute SA | a project-wide shared identity, Editor by default |
 | no `0.0.0.0/0` ingress in the instance's own network | the whole internet reaches the VPC |
 | SSH only from the IAP range `35.235.240.0/20` | SSH is reachable without Identity-Aware Proxy |
-| `access_mode` is `iap` | SECURITY.md #5 — an allowlist says *where* a request came from, never *who* sent it |
+| `access_mode` authenticates | SECURITY.md #5 — an allowlist says *where* a request came from, never *who* sent it |
 | IAP tunnel authorises | see above; three outcomes, three owners |
 | app port responds through the tunnel | the application is down or erroring |
+| SSH path via IAP tunnel | operator access is broken — and see the OS Login note below |
 | state bucket: versioning, UBLA, public-access prevention | state holds resource ids and IAM member lists |
 | deploy SA holds `objectAdmin` **only** on the state bucket | `storage.admin` and the legacy bucket roles can delete the bucket that holds every state version |
 | the handoff still describes this estate | the file is stale; everything above graded a machine that may have been rebuilt |
+
+### `access_mode` is three-valued, not a boolean
+
+`terraform/environments/variables.tf` validates exactly three values, and
+acceptance grades all three:
+
+| Value | Verdict | Why |
+|---|---|---|
+| `iap` | `PASS` | IAP in front of the backend; no anonymous path. |
+| `iap_and_allowlist` | `PASS` | IAP **plus** an IP allowlist. The variable's own description calls this the strongest posture. |
+| `allowlist` | `FAIL` | Cloud Armor IP allowlist only. Coarse exposure control, explicitly not authentication. |
+| anything else | `UNKNOWN` | The enum has drifted. The script will not guess a posture it does not understand. |
+
+Treating this as an either/or switch is a real defect rather than a cosmetic
+one — it fails the *strongest* configuration, and `iap_and_allowlist` is the
+mode most likely in use on a demo estate that is both IAP-gated and
+IP-restricted. So the wrong answer would appear precisely on the
+best-configured environment.
+
+### Ingress and egress are not the same question
+
+Platform egress is deliberately open: an **egress-only** allow, TCP 443, to
+`0.0.0.0/0`, scoped by `target_service_accounts` to the runtime SA. That is
+expected and correct — it is how the VM reaches package repositories and
+`googleapis.com`.
+
+Ingress is unchanged: `deny-all-ingress` from `0.0.0.0/0` still stands, IAP SSH
+from `35.235.240.0/20` only, and no external IP on any instance.
+
+The `no 0.0.0.0/0 ingress` check therefore filters on `direction == "INGRESS"`
+and reads `sourceRanges`, never `destinationRanges`. A check that ignored
+direction would report a false `FAIL` on a healthy estate — which is worse than
+having no check at all, because the next genuine finding gets read as another
+false alarm.
+
+### SSH: two things that fail independently
+
+`gcloud compute ssh` currently fails against the live estate while the raw IAP
+tunnel works. These are two different controls and only one of them is broken:
+
+1. **The IAP TCP tunnel to port 22** — governed by
+   `roles/iap.tunnelResourceAccessor` and the IAP firewall rule. This works, and
+   it is the path acceptance uses.
+2. **OS Login authorisation** — what `gcloud compute ssh` *additionally* needs.
+   The calling identity is external to the organisation, so it requires
+   `roles/compute.osLoginExternalUser`, which is an **org-scoped** grant. No
+   amount of project-level IAM will produce it.
+
+Acceptance reports these as separate named conditions and never invokes
+`gcloud compute ssh` — it is a mutating verb, both gates refuse it, and it would
+fail here for a reason that has nothing to do with the estate's posture. A
+generic "SSH access failed" would send the reader to the wrong layer entirely.
+
+### Everything else
 
 Firewall rules are scoped to the network the instance is **actually attached
 to**, read from the instance itself rather than from a VPC name the script

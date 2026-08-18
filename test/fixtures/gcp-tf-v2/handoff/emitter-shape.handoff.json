@@ -1,0 +1,18 @@
+{
+  "schema": "signalloom.gcp.handoff/v1",
+  "schema_version": 1,
+  "project_id": "example-sl-project",
+  "environment_key": "demo-1",
+  "env": "demo-1",
+  "region": "example-region",
+  "zone": "example-region-a",
+  "instance_name": "sl-demo-1-vm",
+  "internal_ip": "10.20.0.5",
+  "app_port": 8080,
+  "state_bucket": "example-sl-tfstate",
+  "state_prefix": "osramp/environments/demo-1",
+  "deploy_sa": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
+  "access_mode": "iap",
+  "hostname": "demo-1.example.invalid",
+  "generated_at": "2026-08-18T18:40:11Z"
+}

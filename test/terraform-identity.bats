@@ -38,6 +38,37 @@ hcl_lines() {
 		xargs -0 -r grep -hv -e '^[[:space:]]*#' -e '^[[:space:]]*//' || true
 }
 
+# Names every google_compute_firewall block that declares an `allow` and whose source_ranges
+# include a /0. Emits nothing when the tree is clean. Brace depth is tracked so a nested
+# allow{} inside the right block is attributed to that block and not to the file.
+_open_allow_rules() {
+	local dir="${1:-$tf}"
+	find "$dir" -type f -name '*.tf' -not -path '*/.terraform/*' -print0 2>/dev/null |
+		xargs -0 -r awk '
+      function flush() {
+        if (inblock && has_allow && has_open)
+          printf "  %s: %s\n", FILENAME, name
+        inblock = 0; has_allow = 0; has_open = 0; depth = 0; name = ""
+      }
+      { line = $0; sub(/#.*$/, "", line); sub(/\/\/.*$/, "", line) }
+      !inblock && line ~ /resource[[:space:]]+"google_compute_firewall"/ {
+        flush(); inblock = 1
+        n = split(line, parts, "\"")
+        name = parts[4]
+      }
+      inblock {
+        if (line ~ /^[[:space:]]*allow[[:space:]]*\{/) has_allow = 1
+        if (line ~ /source_ranges/ && line ~ /\/0"/) has_open = 1
+        if (open_src && line ~ /\/0"/) has_open = 1
+        open_src = (line ~ /source_ranges[[:space:]]*=[[:space:]]*\[[[:space:]]*$/)
+        before = depth
+        depth += gsub(/\{/, "{", line) - gsub(/\}/, "}", line)
+        if (depth <= 0 && before > 0) flush()
+      }
+      END { flush() }
+    '
+}
+
 # 0 when the pattern is ABSENT from the corpus, 1 when present.
 guard_absent() {
 	local dir="$1" pattern="$2" sfx="${3:-}"
@@ -189,10 +220,54 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 	guard_absent "$tf" "$PAT_ACCESS_CONFIG"
 }
 
-@test "TFID no open CIDR appears in the modules" {
-	local open_cidrs
-	open_cidrs="$(hcl_lines "$tf" "" | grep -cE '0\.0\.0\.0/0|::/0' || true)"
-	[ "$open_cidrs" -eq 0 ]
+# An open CIDR is not forbidden — an open ALLOW is. The default-deny ingress rule and the
+# deny-all egress rule in modules/network both require 0.0.0.0/0 as their range; that is the
+# whole point of them. So does every validation block that rejects 0.0.0.0/0, and every
+# description that names it.
+#
+# The first version of this guard counted the string across the module tree and fired on all
+# three. Counting a token cannot distinguish "allow the internet" from "deny the internet" or
+# from "reject any configuration that allows the internet" — and a guard that cannot tell a
+# violation from the rule forbidding it gets deleted the first time someone is in a hurry.
+#
+# What is actually checked: for each google_compute_firewall block, if it declares `allow` and
+# its source_ranges contain a /0, that is a finding. modules/network's own suite
+# (test/terraform-network-security.bats) owns the deeper per-rule assertions; this is the
+# cross-module sweep that also covers modules no root has wired up yet.
+@test "TFID no firewall rule allows traffic from an open CIDR" {
+	local offenders
+	offenders="$(_open_allow_rules)"
+	[ -z "$offenders" ] || {
+		echo "firewall rules allowing an open CIDR:"
+		echo "$offenders"
+		return 1
+	}
+}
+
+@test "TFID the open-allow guard is not vacuous — it parsed real firewall blocks" {
+	local n
+	n="$(grep -rl 'resource "google_compute_firewall"' "$tf" --include='*.tf' 2>/dev/null | wc -l)"
+	[ "$n" -ge 1 ]
+}
+
+@test "TFID MUTATION an allow rule with an open CIDR is caught" {
+	local stage
+	stage="$(mktemp -d)"
+	cp -a "$tf" "$stage/modules"
+	cat >"$stage/modules/_mutant.tf" <<-'EOF'
+		resource "google_compute_firewall" "mutant" {
+		  name          = "mutant"
+		  network       = "x"
+		  source_ranges = ["0.0.0.0/0"]
+		  allow {
+		    protocol = "tcp"
+		    ports    = ["22"]
+		  }
+		}
+	EOF
+	run _open_allow_rules "$stage/modules"
+	rm -rf "$stage"
+	[ -n "$output" ]
 }
 
 @test "TFID no real project id, domain, or local path is committed" {
@@ -214,6 +289,18 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 			echo "committed developer home path in $f"
 			return 1
 		}
+		# Fixture trees are exempt from the GENERIC check only. broken-absolute-path exists
+		# precisely to contain a home path so the mutation check has something to catch, and
+		# GENERATE.sh carries the synthetic placeholder it writes into that fixture. Neither
+		# is a leak. The $forbidden literal check above still applies everywhere, including
+		# fixtures — a REAL developer path in a fixture is still a leak.
+		#
+		# Note the placeholder is described rather than quoted: writing it out would make this
+		# file match its own guard, which reads exactly like a real finding and is not one.
+		# The same trap is documented above for the $forbidden literal.
+		case "$f" in
+		*/test/fixtures/*) continue ;;
+		esac
 		grep -oE '/home/[a-z][a-z0-9_-]*/' "$f" | grep -qxv '/home/ci/' && {
 			echo "committed absolute home path in $f"
 			return 1

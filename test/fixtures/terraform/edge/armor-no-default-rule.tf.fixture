@@ -1,0 +1,124 @@
+# DELIBERATELY BROKEN FIXTURE -- NOT REAL INFRASTRUCTURE.
+#
+# Extracted verbatim from terraform/modules/edge/main.tf, then mutated to
+# violate exactly one guard in test/terraform-edge-security.bats. It exists to
+# prove that guard can fail. It is named *.tf.fixture, not *.tf, so that no
+# terraform fmt/validate run and no repo-wide *.tf scan ever sees it.
+#
+# MUTATION: the default rule at priority 2147483647 is deleted entirely. With no
+#           default rule the guard has nothing to inspect -- this fixture proves the
+#           guard fails rather than passing vacuously on a missing target.
+
+resource "google_compute_security_policy" "edge" {
+  name        = "${var.name_prefix}-armor"
+  project     = var.project_id
+  type        = "CLOUD_ARMOR"
+  description = "Default-deny edge policy for ${var.environment_key}. Allow rules are generated from the environment allowlist; the default action is deny(403)."
+
+  adaptive_protection_config {
+    layer_7_ddos_defense_config {
+      enable          = true
+      rule_visibility = "STANDARD"
+    }
+  }
+
+  advanced_options_config {
+    log_level    = "VERBOSE"
+    json_parsing = "STANDARD"
+  }
+
+  # --- Preconfigured WAF, evaluated before any allow ---------------------
+  # An allowlisted source is still not trusted to send SQLi or XSS.
+
+  rule {
+    action      = "deny(403)"
+    priority    = local.waf_sqli_priority
+    preview     = false
+    description = "Preconfigured WAF: SQL injection."
+
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('sqli-v33-stable')"
+      }
+    }
+  }
+
+  rule {
+    action      = "deny(403)"
+    priority    = local.waf_xss_priority
+    preview     = false
+    description = "Preconfigured WAF: cross-site scripting."
+
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('xss-v33-stable')"
+      }
+    }
+  }
+
+  # --- Rate-limited allow -------------------------------------------------
+  # Matched on the allowlist, NOT on "*". A rate-limit rule whose match is "*"
+  # with conform_action = "allow" would allow the entire internet under the
+  # threshold and silently defeat the default deny below.
+
+  dynamic "rule" {
+    for_each = local.allow_chunks
+
+    content {
+      action      = "rate_based_ban"
+      priority    = rule.value.rate_priority
+      preview     = false
+      description = "Rate-limited allow for allowlist chunk ${rule.value.key} (${length(rule.value.ranges)} CIDRs)."
+
+      match {
+        versioned_expr = "SRC_IPS_V1"
+
+        config {
+          src_ip_ranges = rule.value.ranges
+        }
+      }
+
+      rate_limit_options {
+        conform_action   = "allow"
+        exceed_action    = "deny(429)"
+        enforce_on_key   = "IP"
+        ban_duration_sec = var.rate_limit_ban_duration_sec
+
+        rate_limit_threshold {
+          count        = var.rate_limit_threshold_per_minute
+          interval_sec = 60
+        }
+
+        ban_threshold {
+          count        = var.rate_limit_threshold_per_minute
+          interval_sec = 60
+        }
+      }
+    }
+  }
+
+  # --- Plain allow fail-safe ---------------------------------------------
+  # Unreachable while the rate-limited rules above exist, and deliberately so:
+  # the source ranges are identical, so deleting a rate-limit rule degrades to
+  # "allowed but unthrottled" instead of "denied". It can never widen exposure.
+
+  dynamic "rule" {
+    for_each = local.allow_chunks
+
+    content {
+      action      = "allow"
+      priority    = rule.value.allow_priority
+      preview     = false
+      description = "Allowlist fail-safe for chunk ${rule.value.key}; identical ranges to priority ${rule.value.rate_priority}."
+
+      match {
+        versioned_expr = "SRC_IPS_V1"
+
+        config {
+          src_ip_ranges = rule.value.ranges
+        }
+      }
+    }
+  }
+
+}

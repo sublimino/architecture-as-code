@@ -106,3 +106,49 @@ sha256 digest abort the bootstrap rather than skipping verification.
 **With the network module's defaults this script will fail at its first download**, because
 public HTTPS egress is denied until an operator names destinations. That failure is
 intentional and loud. See `terraform/modules/network/README.md`.
+
+## Docker socket access, and the error message that lies
+
+The startup script installs Docker; it cannot add the logged-in user to the `docker` group,
+because this VM enforces OS Login and the account does not exist yet. OS Login provisions
+`sa_<numeric-id>` (service account) or `<user>_<domain>` (human) at **first login**, strictly
+later than a startup script. A `usermod` naming a fixed user here would match nobody and
+succeed silently — `scripts/ci/vm-startup.sh` gets away with exactly that line only because
+the v1 CI VM creates a fixed local `ci` user and does not use OS Login.
+
+Measured on a freshly replaced `sl-demo-1-vm`:
+
+```
+$ systemctl is-active docker    -> active
+$ id -nG                        -> sa_102755196918063701885 video
+$ docker info
+permission denied while trying to connect to the docker API at unix:///var/run/docker.sock
+```
+
+**Read the next paragraph before you restart anything.** `scripts/ci/install-ci-tools.sh` then
+exits 1 with `ERROR: Docker daemon is not running`, and `scripts/setup.sh --tools-only` with
+`the docker daemon is not running; start it and rerun`.
+**Both of those messages are wrong about the cause.**
+The daemon is up, enabled and healthy; the caller cannot open its socket. Restarting Docker
+changes nothing and costs a bring-up.
+
+(That sentence is kept on one line on purpose. `terraform-vm-profile.bats` greps for it, and a
+line-wrapped warning is a documented decision that silently stops being one — the same trap
+`modules/network/main.tf` records against its own "NAT is not egress control" slogan.)
+
+Two mechanisms address it, neither of which widens the socket:
+
+1. **`/etc/default/instance_configs.cfg`** — puts newly provisioned OS Login accounts in
+   `docker`. Applied at account creation, so the user's first shell already has the group. No
+   relogin race, no permission change.
+2. **`/etc/profile.d/99-signalloom-docker-group.sh`** — the backstop, for when the guest agent
+   did not apply the group. It `usermod`s the current user and says plainly on the terminal
+   that **the membership applies to the next session**. A login that falls back to this will
+   see the socket error once and succeed after reconnecting.
+
+Setting `SocketMode=0666` on `docker.socket` would remove the relogin caveat and was rejected.
+Docker socket access is root-equivalent — write access is enough to start a privileged
+container that mounts the host filesystem — so `0666` grants root to every local account,
+including an OS Login principal holding plain `roles/compute.osLogin` and no sudo. On an
+environment whose demonstration subject is security posture, that is the first thing a hostile
+reviewer would find, and it buys nothing the two mechanisms above do not already provide.

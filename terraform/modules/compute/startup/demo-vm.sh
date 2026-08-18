@@ -168,6 +168,132 @@ install_kubectl() {
     /usr/local/bin/kubectl
 }
 
+# ---------------------------------------------------------------------------
+# Docker socket access for OS Login users
+#
+# ─── The failure, measured on the running VM ───────────────────────────────
+#
+#   $ systemctl is-active docker   -> active
+#   $ id -nG                       -> sa_102755196918063701885 video
+#   $ docker info
+#   permission denied while trying to connect to the docker API at
+#   unix:///var/run/docker.sock
+#
+# The daemon is up and healthy; the caller simply cannot open the socket.
+# scripts/ci/install-ci-tools.sh then exits 1 with "Docker daemon is not
+# running" and scripts/setup.sh with "the docker daemon is not running; start
+# it and rerun". BOTH MESSAGES ARE WRONG ABOUT THE CAUSE, and someone will act
+# on them and restart a daemon that was never down.
+#
+# ─── Why the obvious fix is dead code here ─────────────────────────────────
+#
+# scripts/ci/vm-startup.sh (the v1 CI VM) solves this with
+# `usermod -aG docker ci`, and that works there because v1 creates a fixed
+# local user. This VM enforces OS Login, so the account is provisioned by the
+# guest agent AT FIRST LOGIN — strictly later than this script — and its name
+# (sa_<numeric-id> for a service account, <user>_<domain> for a human) is not
+# knowable at boot. A `usermod` naming a fixed user here would match nobody,
+# succeed silently, and be exactly the correct-looking line that guards nothing.
+#
+# ─── What was rejected, and why ────────────────────────────────────────────
+#
+# Widening the socket itself (SocketMode=0666 via a docker.socket drop-in, or a
+# world-readable ACL) has no user-name problem and no relogin race, and it was
+# still rejected. Docker socket access is ROOT-EQUIVALENT: anyone who can write
+# that socket can start a privileged container that mounts the host filesystem.
+# 0666 grants that to every local account, including any OS Login principal
+# granted plain roles/compute.osLogin without sudo. On an environment whose
+# entire demonstration subject is security posture, that is the one change a
+# hostile reviewer would open with, and it buys only what the two mechanisms
+# below already provide.
+#
+# ─── What is implemented, in order of preference ───────────────────────────
+#
+#   1. configure_oslogin_groups — tells the guest agent to place newly
+#      provisioned OS Login accounts in `docker`. Applied at ACCOUNT CREATION,
+#      which happens before the user's first shell, so there is no relogin
+#      race and no permission is widened.
+#
+#   2. install_docker_group_selfheal — a /etc/profile.d snippet that adds the
+#      CURRENT user to `docker` if the guest agent did not. This is the
+#      backstop, and its limitation is real and stated out loud below: group
+#      membership applies to the NEXT session, so a login that had to fall back
+#      to this will see the failure once and succeed on reconnect.
+#
+# Both are idempotent and neither embeds a username.
+# ---------------------------------------------------------------------------
+
+configure_oslogin_groups() {
+  local cfg="/etc/default/instance_configs.cfg"
+
+  # The guest agent skips groups that do not exist when the account is
+  # provisioned, so docker must already be present. install_docker runs first
+  # in main(); this ordering is asserted by test/terraform-vm-profile.bats
+  # rather than left to whoever next edits main().
+  if ! getent group docker >/dev/null 2>&1; then
+    log "WARNING: docker group absent; OS Login users will not receive it"
+    return 0
+  fi
+
+  if [[ -f "$cfg" ]] && grep -qE '^groups[[:space:]]*=.*\bdocker\b' "$cfg"; then
+    log "OS Login supplementary groups already include docker"
+    return 0
+  fi
+
+  # Written whole rather than edited in place. The file is absent on a stock
+  # image, and a sed against a file that may not exist is the kind of edit that
+  # reports success having changed nothing.
+  cat >"$cfg" <<'CFG'
+# Managed by the Signal Loom demo VM startup script.
+#
+# `groups` places newly provisioned OS Login accounts in these supplementary
+# groups. docker is the one that matters: without it, every OS Login user gets
+# "permission denied ... /var/run/docker.sock" and the CI tooling misreports it
+# as a stopped daemon. The rest are the guest agent's own defaults, restated
+# because writing this key replaces the default list rather than adding to it.
+[Accounts]
+groups = adm,dip,docker,lxd,plugdev,video
+CFG
+
+  log "configured OS Login supplementary groups to include docker"
+}
+
+install_docker_group_selfheal() {
+  # The backstop for the case where the guest agent did not apply the group.
+  #
+  # Honest about its own limitation: usermod changes the account, not the
+  # session that is already running, so the membership takes effect on the NEXT
+  # login. A first session that had to fall back to this will still fail to
+  # reach the socket. It says so on the terminal rather than leaving the user
+  # to discover it, because "permission denied" plus silence is what produced
+  # the misdiagnosis in the first place.
+  #
+  # Runs `sudo -n` only — never prompts. An OS Login principal without sudo
+  # gets a message naming the exact command an administrator must run, which is
+  # strictly better than a socket error naming nothing.
+  cat >/etc/profile.d/99-signalloom-docker-group.sh <<'PROFILE'
+# shellcheck shell=sh
+# Signal Loom: ensure this OS Login user can reach the Docker socket.
+# Installed by the demo VM startup script. Idempotent; safe to source twice.
+if command -v docker >/dev/null 2>&1 && ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+  if sudo -n usermod -aG docker "$(id -un)" 2>/dev/null; then
+    echo "signalloom: added $(id -un) to the docker group."
+    echo "signalloom: group membership applies to your NEXT session — reconnect"
+    echo "signalloom: before running the pipeline, or docker will report"
+    echo "signalloom: 'permission denied ... /var/run/docker.sock' and the CI"
+    echo "signalloom: tooling will misreport it as a stopped daemon."
+  else
+    echo "signalloom: WARNING - $(id -un) is not in the docker group and this"
+    echo "signalloom: session cannot add it. The Docker daemon is running; the"
+    echo "signalloom: socket is simply unreachable for you. An administrator"
+    echo "signalloom: should run: sudo usermod -aG docker $(id -un)"
+  fi
+fi
+PROFILE
+  chmod 0644 /etc/profile.d/99-signalloom-docker-group.sh
+  log "installed the docker-group self-heal profile snippet"
+}
+
 # Kind's control plane needs more inotify capacity than the Debian default
 # allows once several Signal Loom components are running.
 tune_kernel_for_kind() {
@@ -189,6 +315,12 @@ main() {
 
   install_base_packages
   install_docker
+
+  # Both must follow install_docker: the guest agent skips a group that does
+  # not exist yet, and the self-heal snippet is pointless without a socket.
+  configure_oslogin_groups
+  install_docker_group_selfheal
+
   install_kind
   install_kubectl
   tune_kernel_for_kind

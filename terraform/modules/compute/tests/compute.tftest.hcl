@@ -344,6 +344,19 @@ run "resizing_the_vm_is_an_update_not_a_replacement" {
     condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == var.boot_disk_gb
     error_message = "boot disk size must still track the variable when the machine type changes"
   }
+
+  # Scope note, so this run's NAME is not read as a claim it does not make.
+  # It covers the MACHINE TYPE only. A boot_disk_gb change is ForceNew in the
+  # provider and DOES destroy the instance — confirmed on a real plan against
+  # the deployed demo-1 estate, where 100 → 200 planned 1 to add, 2 to change,
+  # 1 to destroy. An offline mocked plan has no prior state and so cannot
+  # observe either verdict; the distinction is documented at the
+  # allow_stopping_for_update comment in main.tf, and this assertion pins the
+  # source of the value rather than the update semantics.
+  assert {
+    condition     = google_compute_instance.this.allow_stopping_for_update == true
+    error_message = "the stop-and-start mechanism must remain in place for machine-type changes"
+  }
 }
 
 # ---------------------------------------------------------------------------

@@ -90,6 +90,7 @@ SOURCE_ID_MARKER_PATH="${SOURCE_ID_MARKER_PATH:-/etc/osramp-build-id}"
 source_id_context() {
 	case "$1" in
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom' ;;
+	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom' ;;
 	supercred-demo-runner) printf '.' ;;
 	*) return 1 ;;
 	esac
@@ -99,13 +100,14 @@ source_id_context() {
 source_id_dockerfile() {
 	case "$1" in
 	dashboard-signalloom) printf 'd2-signalloom/apps/dashboard-signalloom/Dockerfile' ;;
+	fe-signalloom) printf 'd2-signalloom/apps/fe-signalloom/Dockerfile' ;;
 	supercred-demo-runner) printf 'd2-signalloom/apps/supercred-demo-runner/Dockerfile' ;;
 	*) return 1 ;;
 	esac
 }
 
 source_id_workloads() {
-	printf 'dashboard-signalloom\nsupercred-demo-runner\n'
+	printf 'dashboard-signalloom\nfe-signalloom\nsupercred-demo-runner\n'
 }
 
 # Every context-relative path a Dockerfile COPYs in, plus the Dockerfile itself.
@@ -196,6 +198,31 @@ source_id_for() {
 			--exclude='./dist' \
 			--exclude='./coverage' \
 			-cf - -C "${root}/${context}" . | sha256sum | awk '{print $1}')"
+		;;
+	fe-signalloom)
+		# The whole build context, not a COPY-derived path list.
+		#
+		# The generic branch below resolves each COPY source against the REPO
+		# ROOT, which is only correct when the context IS the repo root (it is,
+		# for supercred-demo-runner). fe-signalloom builds from
+		# d2-signalloom/apps/fe-signalloom and COPYs `src/requirements.txt` and
+		# `src/`, so that branch would look for ${root}/src, not find it, and
+		# return 2 — reporting "cannot verify" forever on a workload that builds
+		# perfectly. Hashing the context wholesale is both correct and a
+		# superset of what the COPY lines name.
+		#
+		# Via source_id_hash_paths so the __pycache__/.pyc/.coverage excludes
+		# apply. That is not hygiene here, it is required: the portal's src/ is
+		# the tree pytest runs against, so without those excludes the
+		# fingerprint moves every time anyone runs the test suite and the guard
+		# reports drift against a deployment that matches. Exactly the failure
+		# documented on that function, which cost this guard its credibility
+		# once already.
+		#
+		# There is no .dockerignore in this context, so the build sees every
+		# file the tar does, minus artefacts Docker would copy but the image
+		# never uses.
+		id="$(source_id_hash_paths "${root}/${context}" .)"
 		;;
 	*)
 		local paths=()

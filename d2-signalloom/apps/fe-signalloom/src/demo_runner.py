@@ -232,6 +232,19 @@ class DemoConfig:
             return Path(override)
         return _repo_root_for(self.env_cwd) / self.default_script
 
+    def optional_script_path(self) -> Path | None:
+        """``script_path`` for callers that are asking, not doing.
+
+        Returns None instead of raising when the root is unknown, so a status
+        query can answer "no script" without turning a reportable state into
+        a failed request.
+        """
+        override = os.environ.get(self.env_script)
+        if override:
+            return Path(override)
+        root = _resolve_repo_root(self.env_cwd)
+        return None if root is None else root / self.default_script
+
     def cwd(self) -> Path:
         return _repo_root_for(self.env_cwd)
 
@@ -241,11 +254,55 @@ class DemoConfig:
         return [str(self.script_path()), self.steps[step_id].step_id]
 
 
-def _repo_root_for(env_cwd: str) -> Path:
+# Depth of this module below the repo root in the source tree:
+# demo_runner.py -> src -> fe-signalloom -> apps -> d2-signalloom -> repo root.
+# This is a fact about the source layout only. The image installs the module
+# flat at /app/demo_runner.py, where the walk has nowhere to go.
+_REPO_ROOT_DEPTH = 4
+
+
+def _resolve_repo_root(env_cwd: str) -> Path | None:
+    """Locate the repo root for a demo, or None if there is no answer.
+
+    Walking up from ``__file__`` only means anything when the module is laid
+    out the way the source tree lays it out. In a container it is installed
+    flat, so there is no repo root above it to find and the honest result is
+    "unknown" — distinct from any particular path.
+
+    Returning None rather than indexing blindly is the whole point: the index
+    used to raise IndexError from inside a request handler, which reached the
+    caller as a 500 and told nobody anything. Keeping "unknown" in the type
+    lets each caller decide what it means for them — a status query reports
+    the script as unavailable, an actual run refuses with a message naming
+    the variable that would fix it.
+    """
     override = os.environ.get(env_cwd)
     if override:
         return Path(override)
-    return Path(__file__).resolve().parents[4]
+    parents = Path(__file__).resolve().parents
+    if len(parents) <= _REPO_ROOT_DEPTH:
+        logger.warning(
+            "demo runner cannot derive a repo root from %s: the module is not "
+            "in a source-tree layout. Set %s to the directory the demo "
+            "scripts are rooted at.",
+            __file__,
+            env_cwd,
+        )
+        return None
+    return parents[_REPO_ROOT_DEPTH]
+
+
+def _repo_root_for(env_cwd: str) -> Path:
+    """The repo root for callers that cannot proceed without one."""
+    root = _resolve_repo_root(env_cwd)
+    if root is None:
+        raise APIError(
+            503,
+            "demo_root_unresolved",
+            f"Demo runner cannot locate the repo root: this deployment must set {env_cwd} "
+            f"to the directory the demo scripts are rooted at.",
+        )
+    return root
 
 
 DEMO_CONFIGS: Mapping[str, DemoConfig] = MappingProxyType(
@@ -422,11 +479,11 @@ class DemoStatusResponse(BaseModel):
 
 
 def _repo_root() -> Path:
-    override = os.environ.get(_ENV_CWD)
-    if override:
-        return Path(override)
-    # demo_runner.py -> src -> fe-signalloom -> apps -> d2-signalloom -> repo root
-    return Path(__file__).resolve().parents[4]
+    # Delegates rather than repeating the walk. This function and
+    # _repo_root_for once held the same parents[4] expression twice, and the
+    # duplicate is precisely why the SuperCred status route kept crashing
+    # after the Signal Fusion one was looked at. One implementation now.
+    return _repo_root_for(_ENV_CWD)
 
 
 def _script_path() -> Path:
@@ -434,6 +491,15 @@ def _script_path() -> Path:
     if override:
         return Path(override)
     return _repo_root() / "scripts" / "supercred-demo.sh"
+
+
+def _optional_script_path() -> Path | None:
+    """``_script_path`` for the status route — None when the root is unknown."""
+    override = os.environ.get(_ENV_SCRIPT)
+    if override:
+        return Path(override)
+    root = _resolve_repo_root(_ENV_CWD)
+    return None if root is None else root / "scripts" / "supercred-demo.sh"
 
 
 def _evidence_script_path() -> Path:
@@ -486,7 +552,12 @@ def _child_env() -> dict[str, str]:
     return child_env
 
 
-def _script_is_available(path: Path) -> bool:
+def _script_is_available(path: Path | None) -> bool:
+    # None means the repo root could not be resolved, so there is no script
+    # path to test. That is not an error here: "unavailable" is the true
+    # answer, and it is the one the dashboard already renders a banner for.
+    if path is None:
+        return False
     return path.is_file() and os.access(path, os.X_OK)
 
 
@@ -1482,7 +1553,7 @@ async def demo_status(
     return DemoStatusResponse(
         active=_run_view(active_run) if active_run is not None else None,
         recent=[_run_view(run) for run in recent_runs],
-        script_available=_script_is_available(_script_path()),
+        script_available=_script_is_available(_optional_script_path()),
     )
 
 
@@ -1618,7 +1689,7 @@ def _build_demo_router(config: DemoConfig) -> APIRouter:
         return DemoStatusResponse(
             active=_run_view(active_run) if active_run is not None else None,
             recent=[_run_view(run) for run in recent_runs],
-            script_available=_script_is_available(config.script_path()),
+            script_available=_script_is_available(config.optional_script_path()),
         )
 
     return demo_router

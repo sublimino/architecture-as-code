@@ -13,6 +13,14 @@ mock_provider "google" {}
 mock_provider "google-beta" {}
 
 variables {
+  # Pinned to "allowlist" deliberately. Every assertion in this file describes
+  # the posture where Cloud Armor's IP allowlist IS the authorisation control --
+  # the 7-rule count, and above all "no allow rule matches *". Those statements
+  # are true of allowlist mode and are supposed to be false of iap mode, where
+  # IAP authorises and Cloud Armor admits all sources to the sign-in boundary.
+  # Naming the mode keeps these assertions meaning what they were written to
+  # mean; iap posture is asserted separately in iap_access.tftest.hcl.
+  access_mode            = "allowlist"
   project_id             = "CHANGEME-project"
   environment_key        = "demo-1"
   name_prefix            = "sl-demo-1"

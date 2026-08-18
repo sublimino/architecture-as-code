@@ -6,6 +6,60 @@ Google-managed certificate, a redirect-only port 80 listener, and a Cloud Armor 
 
 ---
 
+## Access modes — pick the posture, not the plumbing
+
+The module has three postures, selected by `access_mode`. **The default is `iap`**, because a
+variable that defaults to the weaker posture is how the weaker posture reaches production.
+
+| `access_mode` | Who decides access | Use it when |
+|---|---|---|
+| **`iap`** (default) | **Identity-Aware Proxy.** Google authenticates and authorises every request at the edge, before any byte reaches the backend. An unauthenticated visitor gets a Google sign-in page, not the app. Access is `iap_members` — a named list of principals. | You want to route to it without it being public. This is the answer to "I want to be able to reach it, but not have public access so it stays secure." |
+| `allowlist` | **Cloud Armor's IP allowlist**, and nothing else. Coarse exposure control, not authentication. | A genuinely public demo where you only want to narrow the blast radius. |
+| `iap_and_allowlist` | **Both.** IAP authenticates, and Cloud Armor additionally narrows which networks may even reach the sign-in page. | Defence in depth. The strongest posture available, and the one to prefer for anything sensitive. |
+
+### What IAP does that an allowlist cannot
+
+An allowlist answers *where a request came from*. IAP answers *who made it*. Those are different
+questions, and only the second one is access control. IAP issues a signed assertion after a real
+Google sign-in; an allowlist grants a shared network the right to be anyone.
+
+### `allAuthenticatedUsers` is not a restriction
+
+The most dangerous value this module can be given. The word "authenticated" reads as a
+constraint, and in IAP it means **any Google account on earth** — every Gmail address, every
+Workspace tenant. It is functionally public access wearing the vocabulary of access control.
+`allUsers` is the same thing without the disguise. Both are rejected by variable validation, as
+is any wildcard member such as a `principalSet:` ending in `/*`.
+
+### Why `iap` mode does not narrow Cloud Armor by IP
+
+On a global external Application Load Balancer, **Cloud Armor is evaluated before IAP**, against
+the *original client IP*:
+
+> "For a backend service of a global external Application Load Balancer, Cloud Armor evaluation
+> happens first. If Cloud Armor blocks a request, IAP doesn't evaluate the request."
+> — [Integrate with other Google products](https://cloud.google.com/armor/docs/integrating-cloud-armor)
+
+IAP is an inline check at the same Google front end, not an upstream proxy with its own source
+addresses. So in `iap` mode Cloud Armor must admit the clients IAP is going to authenticate; a
+policy that admitted only "Google's IAP range" would return `403` to every real browser and the
+sign-in page would never appear. (`35.235.240.0/20` is the IAP **TCP-forwarding** range, which
+governs the VPC firewall for SSH tunnelling — it carries no web traffic through this load
+balancer.)
+
+The wildcard allow rule in `iap` mode therefore widens **exposure**, not **authorisation**.
+Everything behind it still has to pass IAP. The Cloud Armor default `deny(403)`, the
+preconfigured WAF denies, adaptive protection, and rate limiting are retained in every mode — a
+resource precondition makes a wildcard allow unrepresentable while IAP is off.
+
+### OAuth client
+
+`iap_oauth2_client_id` and `iap_oauth2_client_secret` are empty by default, which selects the
+**IAP-managed OAuth client**: no brand or client to provision by hand, and no client secret in
+tfvars or in state. Set both only when an externally-managed client is genuinely required.
+
+---
+
 ## The one thing to read before using this module
 
 **The IP allowlist is coarse exposure control. It is not authentication.**
@@ -159,6 +213,10 @@ default deny is the only rule. An empty list never means "allow everything".
 | `environment_key` | string | — | `^(demo\|ci)-[1-9][0-9]*$` |
 | `name_prefix` | string | — | `sl-<environment_key>` |
 | `labels` | map(string) | — | mandatory label set from the caller |
+| `access_mode` | string | `"iap"` | `iap` \| `allowlist` \| `iap_and_allowlist`. The safe posture is the default |
+| `iap_members` | list(string) | `[]` | **required non-empty** under any IAP mode; `allUsers`, `allAuthenticatedUsers` and wildcards rejected |
+| `iap_oauth2_client_id` | string | `""` | `""` selects the IAP-managed OAuth client |
+| `iap_oauth2_client_secret` | string (sensitive) | `""` | set with the id or not at all; never commit a real value |
 | `hostname` | string | `""` | `""` disables the whole public frontend |
 | `dns_managed_zone` | string | `""` | `""` disables only the DNS record |
 | `backend_instance_group` | string | — | `instance_group_self_link` from `modules/compute` |
@@ -173,8 +231,10 @@ default deny is the only rule. An empty list never means "allow everything".
 
 ## Outputs
 
-`lb_ip_address`, `certificate_name`, `security_policy_name`, `backend_service_name`.
-The first two are `""` when no public frontend was created.
+`lb_ip_address`, `certificate_name`, `security_policy_name`, `backend_service_name`,
+`access_mode`, `iap_enabled`, `iap_authorised_member_count`.
+The first two are `""` when no public frontend was created. The last three let a caller, a
+runbook, or an acceptance test assert the posture it believes it deployed.
 
 ---
 
@@ -195,11 +255,31 @@ module "edge" {
   backend_instance_group = module.compute.instance_group_self_link
   app_port               = 8080
 
-  # Exposure control only. Authentication is the application's job.
-  allowed_ipv4 = ["192.0.2.0/24", "198.51.100.0/24"]
-  allowed_ipv6 = ["2001:db8::/32"]
+  # access_mode defaults to "iap" — routable, but not public. Named principals
+  # only. Never allUsers or allAuthenticatedUsers: neither is a restriction.
+  iap_members = [
+    "user:someone@example.invalid",
+    "group:demo-viewers@example.invalid",
+  ]
 
   rate_limit_threshold_per_minute = 600
+}
+```
+
+Defence in depth — IAP *and* a network restriction:
+
+```hcl
+module "edge" {
+  source = "../../modules/edge"
+  # ... as above ...
+
+  access_mode = "iap_and_allowlist"
+  iap_members = ["user:someone@example.invalid"]
+
+  # Narrows who can even reach the sign-in page. Exposure control, not
+  # authentication: IAP is what establishes who a caller is.
+  allowed_ipv4 = ["192.0.2.0/24", "198.51.100.0/24"]
+  allowed_ipv6 = ["2001:db8::/32"]
 }
 ```
 

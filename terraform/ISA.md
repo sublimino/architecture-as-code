@@ -3,7 +3,7 @@ task: Signal Loom Terraform GCP Demo Platform
 project: signalloom-gcp-terraform
 slug: 20260818-signalloom-gcp-terraform
 effort: E5
-phase: observe
+phase: verify
 progress: 0/357
 mode: build
 started: 2026-08-18T01:30:00+01:00
@@ -550,4 +550,60 @@ _(populated at LEARN)_
 
 ## Verification
 
-_(populated at VERIFY)_
+Evidence captured on branch `feat/signal-loop-and-bootstrap-refactor`, commit `a6fab16`.
+Every command below was run offline with no cloud credentials.
+
+**Aggregate**
+
+- `make gcp-tf-validate` with `CLOUDSDK_CORE_ACCOUNT` and `GOOGLE_APPLICATION_CREDENTIALS`
+  unset — PASS. Satisfies ISC-227, ISC-245, ISC-353, ISC-354, ISC-357.
+- Native `terraform test` sweep, 10 roots/modules, 160 assertions, 0 failed:
+  bootstrap 9, environments 13, ci-runner 16, compute 11, edge 28, env-contract 28,
+  identity 24, network 13, observability 9, platform 9. Satisfies ISC-322..338, ISC-356.
+- `test/terraform-*.bats`, 9 suites, 223 assertions, 0 failed: ci-lifecycle 26,
+  conventions 24, edge-security 22, environment-keys 14, identity 33, make-contract 35,
+  network-security 27, state-protection 28, suite-registration 14. Satisfies ISC-248..262.
+- `terraform fmt -recursive -check terraform/` — exit 0. ISC-7, ISC-309.
+- `tflint` — exit 0 on every module. ISC-34, ISC-98, ISC-121, ISC-154, ISC-180, ISC-220.
+
+**Regression against baseline**
+
+- Baseline captured at `ce088ae` BEFORE any merge (ISC-314): 46 files, 562 ok, 7 not-ok
+  across 3 files (`api-adversarial`, `flux-substitution`, `test-count-floor`).
+- Post-merge: 55 files, 810 ok. Three failures appeared and were traced (ISC-315):
+  two were mine (VAC003 vacuous assertions in `terraform-ci-lifecycle.bats` and
+  `terraform-make-contract.bats`) and are fixed; one (`acceptance-spec-coverage`,
+  `live-data.spec.ts` missing a registry row) came from a concurrent session's commits
+  `d542b6a`/`0ba48fe`, not from this work.
+- `make help` target diff before vs after: **zero targets removed**, nine added.
+  ISC-246, ISC-247, ISC-312.
+
+**Frozen estate (ISC-278..280, ISC-203)**
+
+- `git diff --name-only ce088ae <branch>` for all six chunk branches against
+  `scripts/ci/gcp-ci.sh`, `vm-pipeline.sh`, `ci-lock.sh` — **0 files for every branch**.
+  `vm-pipeline.sh` did change on the target branch, from concurrent commit `d1abaac`
+  (three image-push steps), which is outside this work; the digest fixture was
+  re-recorded against that commit with the reason written into the fixture.
+
+**Guards proven able to fail (ISC-259, ISC-300)**
+
+- Bootstrap tftest: flipping `public_access_prevention` to `inherited` in a staged copy
+  turned the suite red (8 passed, 1 failed); the real tree was verified unchanged after.
+- Committed mutation fixtures exist for: `access_config` injected, firewall widened to
+  `0.0.0.0/0`, secret literal in the startup script, Cloud Armor default flipped to allow,
+  default rule deleted, rule left in `preview = true`, allowlist silently truncated,
+  service-account key declared, authoritative `iam_policy`, owner binding, editor binding,
+  `storage.admin` on the state bucket, key regex widened, confirmation neutered, bats glob
+  reverted to a hand list, tftest directories hand-listed.
+- `test/vacuous-assertions.bats` (the repo's own VAC scanner) — 39 assertions, PASS.
+
+**Not verified — and why**
+
+- No `terraform plan`, `apply`, `destroy`, or `init` against a real backend has run.
+  `gcloud`'s active account is `sublimino@gmail.com`, which cannot reach `cp-dev-ajm`;
+  `andy@control-plane.io` is authenticated but requires reauthentication that cannot be
+  completed non-interactively. ISC-321 (the reviewable first plan) is therefore
+  **[DEFERRED-VERIFY]**, blocked on Andy running `gcloud auth login` and supplying the
+  project, DNS zone, allowlist, billing account, and GitHub owner id named in `RUNBOOK.md`.
+- ISC-277 holds by construction: no GCP resource exists as a result of this work.

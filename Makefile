@@ -304,7 +304,15 @@ signalloom-images: ## Build and persist local Signal Loom workload images in Zot
 	# Build the two plain workload images in parallel (the dominant cost). The \
 	# dashboard build+sign and all registry pushes stay sequential to avoid \
 	# racing on the single zot port-forward. \
-	docker build -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom & FE_PID=$$!; \
+	# The portal's build identity, so check-deployed-staleness.sh can tell \
+	# whether the running pod is this tree. Assembled by the shared library and \
+	# never by hand: an image built with a fingerprint computed a different way \
+	# compares unequal to a correct deployment and reports drift that is not \
+	# there. If the args come back empty the Dockerfile's `test -n "$$SOURCE_ID"` \
+	# fails the build, rather than silently producing an uncheckable image. \
+	source ./scripts/lib/source-id.sh; \
+	mapfile -t FE_BUILD_ARGS < <(source_id_build_args fe-signalloom); \
+	docker build "$${FE_BUILD_ARGS[@]}" -t zot.registry.svc.cluster.local:5000/acme/images/signalloom/apps/fe-signalloom:latest d2-signalloom/apps/fe-signalloom & FE_PID=$$!; \
 	docker build -t fake-integration-proxy:dev d2-signalloom/apps/fake-integration-proxy & FP_PID=$$!; \
 	docker build -t netassert-controller:dev d2-signalloom/apps/netassert-controller & NC_PID=$$!; \
 	BUILD_FAIL=0; wait $$FE_PID || BUILD_FAIL=1; wait $$FP_PID || BUILD_FAIL=1; wait $$NC_PID || BUILD_FAIL=1; \
@@ -604,6 +612,10 @@ test-supervise-port-forward: ## Verify port-forward supervision against fake kub
 .PHONY: demo-signalloom-supercred-api-test
 demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).
 	bats d2-signalloom/test/supercred-demo-api.bats
+
+.PHONY: demo-signalloom-api-route-liveness
+demo-signalloom-api-route-liveness: ## Assert the RUNNING backends serve every API route the UI calls (cluster required).
+	bats d2-signalloom/test/api-route-liveness.bats
 
 .PHONY: demo-signalloom-supercred-two-window
 demo-signalloom-supercred-two-window: ## Two-browser-context proof that phase 4 stuns the audience window with no reload (cluster required).

@@ -88,9 +88,28 @@ source "${SCRIPT_DIR}/lib/source-id.sh"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 
 # workload|namespace|container
+#
+# ─── Why fe-signalloom is here, and what is still not ───────────────────────
+#
+# It was NOT here until 2026-08-18, and its absence was the whole reason a
+# 25-hour-stale portal image served a 404 to a live demo with every test green.
+# The guard reported VERIFIED FRESH throughout, truthfully, about two other
+# workloads. A guard that answers a narrower question than the one people read
+# off it is the failure mode this script's own header warns about, reproduced
+# one list-entry lower down.
+#
+# signal-ingest is deliberately NOT here, and cannot be. It is
+# gcr.io/distroless/static-debian12 with no shell and no coreutils, so the
+# `kubectl exec … -- sh -c cat` readback below has nothing to execute; adding it
+# would yield CANNOT VERIFY on every run, which is noise that trains people to
+# ignore exit 2. It was the SECOND stale image in that same incident, so the
+# gap is real and is covered elsewhere: test/api-route-liveness.bats asks the
+# question over HTTP, which needs nothing inside the container. If signal-ingest
+# ever gains a shell, it belongs here too.
 WORKLOAD_TOPOLOGY=(
 	"supercred-demo-runner|fe-signalloom|runner"
 	"dashboard-signalloom|fe-signalloom|dashboard"
+	"fe-signalloom|fe-signalloom|discovery-portal"
 )
 
 log() { printf '\033[1;36m[deployed]\033[0m %s\n' "$*"; }
@@ -253,6 +272,30 @@ check_workload() {
 }
 
 main() {
+	# `--list` prints the instrumented workloads and where they live, one
+	# `workload<TAB>namespace` per line, and exits 0.
+	#
+	# It exists so that CALLERS do not have to keep their own copy of this list.
+	# scripts/acceptance-test.sh did keep one — hardcoded to two workloads — and
+	# so never staleness-checked fe-signalloom at all, which is the whole reason
+	# a 25-hour-stale portal served a 404 through a green suite. Adding one entry
+	# to that copy would have fixed the instance and left the mechanism intact
+	# for the next workload; deriving it removes the mechanism.
+	#
+	# Deliberately before the kubectl preflight below: this answers a question
+	# about the REPO, not the cluster, so it must work with no cluster, no
+	# kubectl, and in CI lint stages. Routing it through the preflight would make
+	# callers unable to enumerate workloads precisely when they most need to say
+	# "skipped, no cluster".
+	if [ "${1:-}" = "--list" ]; then
+		local entry w ns c
+		for entry in "${WORKLOAD_TOPOLOGY[@]}"; do
+			IFS='|' read -r w ns c <<<"$entry"
+			printf '%s\t%s\n' "$w" "$ns"
+		done
+		return 0
+	fi
+
 	local requested=("$@")
 	if [ "${#requested[@]}" -eq 0 ]; then
 		mapfile -t requested < <(source_id_workloads)

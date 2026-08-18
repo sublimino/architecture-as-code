@@ -29,6 +29,18 @@ setup() {
 
   # Stub terraform: records argv and the terraform-relevant environment, then
   # exits 0. It never contacts a provider, a backend, or the network.
+  #
+  # It does three things beyond recording, each of which exists because a target
+  # under test consumes terraform's *output*, not just its exit code:
+  #
+  #   plan -out=F   writes F, so `gcp-tf-up`'s "did this run create the plan I am
+  #                 about to apply?" check has something real to decide about.
+  #                 STUB_TF_NO_PLAN_FILE=1 suppresses it and STUB_TF_PLAN_MTIME
+  #                 backdates it, so both halves of that check are reachable.
+  #   show          emits a plan summary line, so the summary step is observable.
+  #   output -json  emits the fixture in STUB_TF_OUTPUT_JSON (or a default that
+  #                 models a fully-wired root), so the hand-off generator has
+  #                 real JSON to derive from.
   cat > "${STUBDIR}/terraform" <<'STUB'
 #!/usr/bin/env bash
 {
@@ -38,7 +50,66 @@ setup() {
   printf 'TF_DATA_DIR:%s\n' "${TF_DATA_DIR-<unset>}"
   printf 'GOOGLE_APPLICATION_CREDENTIALS:%s\n' "${GOOGLE_APPLICATION_CREDENTIALS-<unset>}"
   printf 'CLOUDSDK_CORE_ACCOUNT:%s\n' "${CLOUDSDK_CORE_ACCOUNT-<unset>}"
+  printf 'GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:%s\n' "${GOOGLE_IMPERSONATE_SERVICE_ACCOUNT-<unset>}"
 } >> "${STUB_RECORD}/terraform.log"
+
+stub_chdir=""
+stub_verb=""
+stub_out=""
+stub_json=0
+for a in "$@"; do
+  case "$a" in
+    -chdir=*) stub_chdir="${a#-chdir=}" ;;
+    -out=*)   stub_out="${a#-out=}" ;;
+    -json)    stub_json=1 ;;
+    -*)       ;;
+    *)        [ -z "${stub_verb}" ] && stub_verb="$a" ;;
+  esac
+done
+
+case "${stub_verb}" in
+  plan)
+    if [ -n "${stub_out}" ] && [ "${STUB_TF_NO_PLAN_FILE-0}" != "1" ]; then
+      target="${stub_out}"
+      [ -n "${stub_chdir}" ] && target="${stub_chdir}/${stub_out}"
+      mkdir -p "$(dirname "${target}")"
+      printf 'stub plan: %s\n' "$*" > "${target}"
+      [ -n "${STUB_TF_PLAN_MTIME-}" ] && touch -d "${STUB_TF_PLAN_MTIME}" "${target}"
+    fi
+    ;;
+  show)
+    printf 'Terraform will perform the following actions:\n'
+    printf '\n'
+    printf 'Plan: 3 to add, 0 to change, 0 to destroy.\n'
+    ;;
+  output)
+    if [ "${stub_json}" = "1" ]; then
+      if [ -n "${STUB_TF_OUTPUT_JSON-}" ]; then
+        cat "${STUB_TF_OUTPUT_JSON}"
+      else
+        cat <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "environment_key": "demo-1",
+    "name_prefix": "osramp-demo-1",
+    "region": "us-east4",
+    "zone": "us-east4-a",
+    "app_port": 8080,
+    "hostname": "demo-1.changeme.invalid"
+  } },
+  "integration_inputs": { "value": {
+    "project_id": "changeme-sandbox",
+    "access_mode": "iap"
+  } },
+  "instance_name": { "value": "osramp-demo-1-vm" },
+  "internal_ip": { "value": "10.20.0.7" }
+}
+JSON
+      fi
+    fi
+    ;;
+esac
 exit 0
 STUB
 

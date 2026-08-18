@@ -36,12 +36,17 @@ die() {
   exit 1
 }
 
-# Downloads a file and verifies it against the publisher's own .sha256 sidecar.
+# Downloads a file and verifies it against the publisher's own checksum sidecar.
 # No checksum literal lives in this script: a pinned hash here goes stale at
 # the next version bump and gets deleted rather than updated, which is how
 # verification quietly disappears.
+#
+# The sidecar suffix is an argument because the two publishers disagree:
+# dl.k8s.io serves "<artifact>.sha256", the kind releases serve
+# "<artifact>.sha256sum". Hardcoding either one 404s on the other, and a 404 on
+# the checksum is exactly the case that must abort rather than degrade.
 fetch_verified() {
-  local url="$1" dest="$2" workdir
+  local url="$1" dest="$2" sum_suffix="${3:-.sha256}" workdir
   workdir="$(mktemp -d)"
 
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
@@ -49,12 +54,17 @@ fetch_verified() {
     || die "download failed: ${url}"
 
   curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
-    --output "${workdir}/payload.sha256" "${url}.sha256" \
-    || die "checksum download failed: ${url}.sha256"
+    --output "${workdir}/payload.sum" "${url}${sum_suffix}" \
+    || die "checksum download failed: ${url}${sum_suffix}"
 
+  # Both publishers emit either "<hash>" or "<hash>  <filename>". Stripping all
+  # whitespace and taking the leading 64 hex characters handles both.
   local expected actual
-  expected="$(tr -d '[:space:]' <"${workdir}/payload.sha256" | cut -c1-64)"
+  expected="$(tr -d '[:space:]' <"${workdir}/payload.sum" | cut -c1-64)"
   actual="$(sha256sum "${workdir}/payload" | cut -d' ' -f1)"
+
+  [[ "$expected" =~ ^[0-9a-f]{64}$ ]] \
+    || die "checksum sidecar for ${url} did not contain a sha256 digest"
 
   [[ "$expected" == "$actual" ]] \
     || die "checksum mismatch for ${url}: expected ${expected}, got ${actual}"
@@ -103,7 +113,8 @@ install_kind() {
   log "installing kind ${KIND_VERSION}"
   fetch_verified \
     "https://github.com/kubernetes-sigs/kind/releases/download/${KIND_VERSION}/kind-linux-amd64" \
-    /usr/local/bin/kind
+    /usr/local/bin/kind \
+    ".sha256sum"
 }
 
 install_kubectl() {

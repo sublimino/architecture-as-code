@@ -96,9 +96,12 @@ metadata **in plain text**, readable by anyone holding `compute.instances.get` o
 The instance authenticates to Google APIs through its service account via the metadata server.
 
 It also carries no pinned checksum literals — `kind` and `kubectl` are verified against the
-publishers' own `.sha256` sidecars. A hash pinned in the script goes stale at the next version
+publishers' own checksum sidecars. A hash pinned in the script goes stale at the next version
 bump and gets deleted rather than updated, which is how download verification quietly
-disappears from a bootstrap script.
+disappears from a bootstrap script. The sidecar suffix is an argument to `fetch_verified`
+because the publishers disagree: `dl.k8s.io` serves `<artifact>.sha256`, the kind releases
+serve `<artifact>.sha256sum`. Both a 404 on the sidecar and a sidecar that does not parse as a
+sha256 digest abort the bootstrap rather than skipping verification.
 
 **With the network module's defaults this script will fail at its first download**, because
 public HTTPS egress is denied until an operator names destinations. That failure is

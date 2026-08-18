@@ -62,22 +62,38 @@ uncommented() {
 	sed -e 's/[[:space:]]*#.*$//' "$1"
 }
 
-# Splits every google_compute_firewall resource under <dir> into one file per
-# rule in <outdir>. terraform fmt guarantees a top-level resource block closes
-# with `}` in column 0, and `terraform fmt -check` is enforced separately, so
-# this split is reliable on a formatted tree.
-explode_firewall_rules() {
-	local dir="$1" outdir="$2" f base
+# Splits every resource of <type> under <dir> into one file per block in
+# <outdir>. terraform fmt guarantees a top-level resource block closes with `}`
+# in column 0, and `terraform fmt -check` is enforced separately, so this split
+# is reliable on a formatted tree.
+#
+# Whole-block extraction rather than a fixed `grep -A<n>` window: a window is
+# silently wrong the moment a comment is added inside a resource, and it fails
+# by reporting the guarded attribute absent — a false alarm one day and, if the
+# assertion is ever written the other way round, a false pass the next.
+explode_resource_blocks() {
+	local dir="$1" type="$2" outdir="$3" f base
 	mkdir -p "$outdir"
 	while IFS= read -r f; do
 		[ -n "$f" ] || continue
 		base="$(printf '%s' "${f#"$dir"/}" | tr '/' '_')"
-		awk -v out="$outdir" -v src="$base" '
-			/^resource "google_compute_firewall"/ { inblock = 1; n += 1; file = out "/" src "-" n ".rule" }
+		awk -v out="$outdir" -v src="$base" -v type="$type" '
+			$0 ~ "^resource \"" type "\"" { inblock = 1; n += 1; file = out "/" src "-" n ".block" }
 			inblock { print > file }
 			inblock && /^}[[:space:]]*$/ { inblock = 0 }
 		' "$f"
 	done < <(tf_files "$dir")
+}
+
+# Firewall rules are exploded often enough to deserve a named wrapper. `.rule`
+# rather than `.block` so the two glob namespaces cannot collide in one tmpdir.
+explode_firewall_rules() {
+	local dir="$1" outdir="$2" b
+	explode_resource_blocks "$dir" "google_compute_firewall" "$outdir"
+	for b in "$outdir"/*.block; do
+		[ -e "$b" ] || continue
+		mv "$b" "${b%.block}.rule"
+	done
 }
 
 # VIOLATION SCANNER: a firewall rule that allows traffic from or to anywhere.
@@ -108,23 +124,37 @@ scan_access_config() {
 	return "$found"
 }
 
-# VIOLATION SCANNER: credential-shaped literals.
+# VIOLATION SCANNER: credential-shaped literals in the named FILES.
+#
+# Takes files, not directories, on purpose. A recursive scan of a module
+# directory also reads whatever `terraform init` left behind — `.terraform/`
+# and `.terraform.lock.hcl` are full of legitimate 64-character provider
+# digests, so the high-entropy heuristic fires on every developer who has run
+# `terraform validate`. That produces a guard people learn to ignore, which is
+# the same as no guard. The caller decides the file list; `tracked_sources`
+# below derives it from git, so only committed source is ever judged.
 scan_credential_literals() {
 	local found=0 target
 	for target in "$@"; do
-		[ -e "$target" ] || continue
-		if grep -rInE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' "$target" 2>/dev/null; then found=1; fi
-		if grep -rInE -- 'AKIA[0-9A-Z]{16}' "$target" 2>/dev/null; then found=1; fi
-		if grep -rInE -- '(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}' "$target" 2>/dev/null; then found=1; fi
-		if grep -rInE -- 'AIza[0-9A-Za-z_-]{30,}' "$target" 2>/dev/null; then found=1; fi
+		[ -f "$target" ] || continue
+		if grep -InE -- '-----BEGIN [A-Z ]*PRIVATE KEY-----' "$target" 2>/dev/null; then found=1; fi
+		if grep -InE -- 'AKIA[0-9A-Z]{16}' "$target" 2>/dev/null; then found=1; fi
+		if grep -InE -- '(gh[pousr]|github_pat)_[A-Za-z0-9_]{20,}' "$target" 2>/dev/null; then found=1; fi
+		if grep -InE -- 'AIza[0-9A-Za-z_-]{30,}' "$target" 2>/dev/null; then found=1; fi
 		# Literal assignment to a secret-ish name. Interpolations ($ or var.)
 		# are not literals, so they are excluded.
-		if grep -rInE -- '(password|passwd|secret|token|api_?key|private_key|credential)[[:space:]]*[:=][[:space:]]*"[^"$]{8,}"' "$target" 2>/dev/null; then found=1; fi
+		if grep -InE -- '(password|passwd|secret|token|api_?key|private_key|credential)[[:space:]]*[:=][[:space:]]*"[^"$]{8,}"' "$target" 2>/dev/null; then found=1; fi
 		# A 40+ character unbroken alphanumeric run: base64/hex key material.
 		# Excludes '/' and '.' so URLs and CIDRs do not match.
-		if grep -rInE -- '[A-Za-z0-9+]{40,}' "$target" 2>/dev/null; then found=1; fi
+		if grep -InE -- '[A-Za-z0-9+]{40,}' "$target" 2>/dev/null; then found=1; fi
 	done
 	return "$found"
+}
+
+# Git-tracked files under the given paths. Untracked build output is excluded
+# by construction rather than by an exclusion list that goes stale.
+tracked_sources() {
+	git -C "$REPO_ROOT" ls-files -- "$@" | sed "s|^|$REPO_ROOT/|"
 }
 
 # ---------------------------------------------------------------------------
@@ -197,14 +227,22 @@ scan_credential_literals() {
 }
 
 @test "every subnet enables VPC flow logs with an explicit sampling config" {
-	local subnets logconfigs
+	local subnets blocks="$BATS_TEST_TMPDIR/subnets" b
 	subnets="$(grep -rhE '^resource "google_compute_subnetwork"' "$TF_DIR" --include='*.tf' | wc -l)"
 	[ "$subnets" -ge 1 ]
 
-	# One log_config block per subnet resource.
-	logconfigs="$(grep -rhA12 '^resource "google_compute_subnetwork"' "$TF_DIR" --include='*.tf' |
-		grep -cE '^[[:space:]]*log_config[[:space:]]*\{')"
-	[ "$logconfigs" -eq "$subnets" ]
+	# Whole-block extraction, not a fixed line window: every subnet resource
+	# must carry a log_config, whatever its length.
+	explode_resource_blocks "$TF_DIR" "google_compute_subnetwork" "$blocks"
+	[ "$(find "$blocks" -name '*.block' | wc -l)" -eq "$subnets" ]
+
+	for b in "$blocks"/*.block; do
+		uncommented "$b" | grep -qE '^[[:space:]]*log_config[[:space:]]*\{' || {
+			echo "subnet without flow logs: $b"
+			cat "$b"
+			return 1
+		}
+	done
 
 	grep -qE 'aggregation_interval[[:space:]]*=' "$NET_DIR/main.tf"
 	grep -qE 'flow_sampling[[:space:]]*=' "$NET_DIR/main.tf"
@@ -216,11 +254,21 @@ scan_credential_literals() {
 
 @test "Cloud Router and Cloud NAT exist, and NAT logging is enabled" {
 	grep -qE '^resource "google_compute_router" ' "$NET_DIR/main.tf"
-	grep -qE '^resource "google_compute_router_nat" ' "$NET_DIR/main.tf"
-	# NAT log_config must set enable = true and take its filter from a variable.
-	grep -qA4 '^resource "google_compute_router_nat"' "$NET_DIR/main.tf" <<<"$(cat "$NET_DIR/main.tf")" || true
-	grep -qE '^[[:space:]]*enable[[:space:]]*=[[:space:]]*true' "$NET_DIR/main.tf"
-	grep -qE '^[[:space:]]*filter[[:space:]]*=[[:space:]]*var\.nat_log_filter' "$NET_DIR/main.tf"
+
+	# The NAT's own block must carry the logging config — asserting `enable =
+	# true` anywhere in main.tf would be satisfied by any other resource.
+	local blocks="$BATS_TEST_TMPDIR/nats" nat
+	explode_resource_blocks "$NET_DIR" "google_compute_router_nat" "$blocks"
+	[ "$(find "$blocks" -name '*.block' | wc -l)" -eq 1 ]
+	nat="$(cat "$blocks"/*.block)"
+
+	grep -qE '^[[:space:]]*log_config[[:space:]]*\{' <<<"$nat"
+	grep -qE '^[[:space:]]*enable[[:space:]]*=[[:space:]]*true' <<<"$nat"
+	grep -qE '^[[:space:]]*filter[[:space:]]*=[[:space:]]*var\.nat_log_filter' <<<"$nat"
+
+	# And the NAT is attached to the router this module created, not to a name
+	# a caller happens to pass in.
+	grep -qE '^[[:space:]]*router[[:space:]]*=[[:space:]]*google_compute_router\.' <<<"$nat"
 }
 
 # ---------------------------------------------------------------------------
@@ -481,9 +529,44 @@ scan_credential_literals() {
 
 @test "no credential-shaped literal in either module tree or the startup script" {
 	[ -d "$NET_DIR" ] && [ -d "$COMPUTE_DIR" ] && [ -s "$STARTUP" ]
-	run scan_credential_literals "$NET_DIR" "$COMPUTE_DIR"
+
+	local files
+	mapfile -t files < <(tracked_sources 'terraform/modules/network' 'terraform/modules/compute')
+
+	# Guard the guard. An empty file list makes the scan below trivially clean,
+	# and the startup script — the one file that is stored in instance metadata
+	# in plain text — must be in it by name, not by hope.
+	[ "${#files[@]}" -ge 10 ] || {
+		echo "only ${#files[@]} tracked files scanned; the file list is broken"
+		printf '%s\n' "${files[@]}"
+		return 1
+	}
+	printf '%s\n' "${files[@]}" | grep -q 'startup/demo-vm.sh$' || {
+		echo "the startup script is not in the scanned set"
+		return 1
+	}
+
+	run scan_credential_literals "${files[@]}"
 	[ "$status" -eq 0 ] || {
 		echo "$output"
+		return 1
+	}
+}
+
+@test "no terraform init artifact is committed under either module" {
+	# `.terraform.lock.hcl` is only consulted in a ROOT module; in a shared child
+	# module it is inert and drifts from whatever the roots (F1/F6) actually
+	# lock. Both modules had one committed as a side effect of running
+	# `terraform init -backend=false` in-place to validate. They are removed,
+	# and this assertion stops them coming back — the previous symptom was the
+	# credential scanner drowning in legitimate 64-character provider digests,
+	# which is how a secrets guard becomes something people mute.
+	local artifacts
+	artifacts="$(tracked_sources 'terraform/modules/network' 'terraform/modules/compute' |
+		grep -E '\.terraform\.lock\.hcl$|/\.terraform/' || true)"
+	[ -z "$artifacts" ] || {
+		echo "terraform init artifacts are committed:"
+		echo "$artifacts"
 		return 1
 	}
 }
@@ -546,6 +629,28 @@ scan_credential_literals() {
 	run scan_wide_open_allow "$badblocks"
 	[ "$status" -eq 1 ]
 	[[ "$output" == *"WIDE-OPEN ALLOW RULE"* ]]
+}
+
+@test "MUTATION (generated): a secret literal in the startup script makes the guard fail" {
+	local broken="$BATS_TEST_TMPDIR/gen-secret/demo-vm.sh"
+	mkdir -p "${broken%/*}"
+	cp "$STARTUP" "$broken"
+
+	# Positive control: the faithful copy is clean. Without this, a scanner that
+	# stopped matching entirely would still pass the assertion below by luck.
+	run scan_credential_literals "$broken"
+	[ "$status" -eq 0 ]
+
+	# Two independent shapes, so the test does not hinge on one regex. The
+	# values are synthetic — a fake token pattern and a fake base64 run.
+	printf '%s\n' 'readonly API_TOKEN="ghp_0000000000000000000000000000000000"' >>"$broken"
+	run scan_credential_literals "$broken"
+	[ "$status" -eq 1 ]
+
+	cp "$STARTUP" "$broken"
+	printf '%s\n' 'readonly DEPLOY_KEY="AAAAB3NzaC1yc2EAAAADAQABAAABgQCfakefakefake"' >>"$broken"
+	run scan_credential_literals "$broken"
+	[ "$status" -eq 1 ]
 }
 
 @test "MUTATION (committed fixture): access_config fixture is still broken and still caught" {

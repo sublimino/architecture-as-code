@@ -41,7 +41,21 @@ setup() {
 	repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
 	d2="$repo_root/d2-signalloom"
 	d2_makefile="$d2/Makefile"
-	pipeline="$repo_root/scripts/ci/vm-pipeline.sh"
+	# Runners that invoke repo-root test/*.bats suites. There are now TWO, and
+	# the list has to be a list rather than a single path because the guard's
+	# question is "does ANY runner invoke this suite", not "does the CI lane".
+	#
+	# scripts/ci/vm-pipeline.sh is CI and is frozen. scripts/gcp-tf/demo-pipeline.sh
+	# is the demo bring-up, which runs the same static gates plus its own control-flow
+	# suite. Hard-coding vm-pipeline.sh as THE runner would have made every suite
+	# registered only in the demo pipeline read as unrun — the same
+	# omits-by-default failure this file exists to end, one level up, and it would
+	# have pushed the next person to edit a frozen file to satisfy a guard.
+	pipelines=(
+		"$repo_root/scripts/ci/vm-pipeline.sh"
+		"$repo_root/scripts/gcp-tf/demo-pipeline.sh"
+	)
+	pipeline="${pipelines[0]}"
 }
 
 # The suites `make -C d2-signalloom test` deliberately does not run.
@@ -294,13 +308,26 @@ bats_dirs() {
 	# The other half of the same hole. Root-level test/*.bats are named
 	# individually by scripts/ci/vm-pipeline.sh, so one that is never added is
 	# never run -- exactly the d2-signalloom failure in a second location.
-	[ -f "$pipeline" ]
+	local runner
+	for runner in "${pipelines[@]}"; do
+		[ -f "$runner" ]
+	done
 
-	local pipeline_text unrun=""
+	local pipeline_text="" unrun=""
 	# Strip comments so a suite merely MENTIONED in a comment does not count as
 	# invoked. That distinction matters: several suites are discussed at length
 	# in comments and executed nowhere.
-	pipeline_text="$(sed 's/#.*//' "$pipeline")"
+	#
+	# Both runners are concatenated: a suite invoked by either one is invoked.
+	for runner in "${pipelines[@]}"; do
+		pipeline_text="${pipeline_text}
+$(sed 's/#.*//' "$runner")"
+	done
+	# Assert the mechanism produced text before deciding anything from it. An
+	# empty concatenation would report EVERY root suite as unrun, which fails
+	# loudly — but the reverse mistake (an empty exclusion list passing
+	# vacuously) has happened in this very file, so the habit is cheap.
+	[ -n "${pipeline_text//[[:space:]]/}" ]
 
 	# Root-level suites deliberately not run by the CI pipeline, with the reason.
 	# Same contract as EXCLUDED_BATS: an entry is a written-down decision, and a

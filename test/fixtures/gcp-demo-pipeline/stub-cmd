@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+#
+# One stub, copied under every name test/gcp-demo-pipeline.bats needs on PATH
+# (make, kubectl, bats, bun, bunx, uv, go, node, npx, sudo, curl, nc, sleep).
+#
+# It exists so scripts/gcp-tf/demo-pipeline.sh executes its REAL control flow —
+# phase ordering, retries, the trap, the stage list, the publish step — with no
+# cluster, no docker, no network and no cloud. Every invocation is appended to
+# $STUB_CALL_LOG in order, and the ORDER is most of what the suite asserts: a
+# pipeline whose stage sequencing can only be checked by running it for forty
+# minutes on a VM is a pipeline whose sequencing is never checked.
+#
+# Knobs:
+#   STUB_CALL_LOG      file every invocation is appended to, one line per call
+#   STUB_FAIL_MATCH    extended regex; a matching "<name> <args>" line exits
+#                      STUB_FAIL_RC instead of 0. This is how a specific stage
+#                      or a specific bring-up step is made to fail.
+#   STUB_FAIL_RC       exit code for a match (default 1)
+#   STUB_GATEWAY_SVC   what `kubectl get service -A -l ...` prints. Default is a
+#                      plausible "<namespace> <service>" pair; set it EMPTY to
+#                      simulate a cluster with no Envoy data plane, which is the
+#                      case where there is nothing to publish.
+#
+# `sleep` is stubbed to return immediately so the retry backoff (10s, 20s, 30s)
+# does not turn a failure-injection test into a minute of waiting. Nothing in
+# this suite depends on real elapsed time.
+
+name="$(basename "$0")"
+line="${name} $*"
+printf '%s\n' "$line" >>"${STUB_CALL_LOG:-/dev/null}"
+
+case "$name" in
+  sleep)
+    exit 0
+    ;;
+  kubectl)
+    case "$*" in
+      *"get service -A"*)
+        # publish_gateway reads this with `read -r ns svc`, so an empty value
+        # yields two empty fields and the publish step reports that it has
+        # nothing to hand over.
+        printf '%s\n' "${STUB_GATEWAY_SVC-ingress cluster-envoy}"
+        ;;
+    esac
+    ;;
+esac
+
+if [ -n "${STUB_FAIL_MATCH:-}" ] && printf '%s' "$line" | grep -qE "$STUB_FAIL_MATCH"; then
+  printf 'stub: failing on request: %s\n' "$line" >&2
+  exit "${STUB_FAIL_RC:-1}"
+fi
+
+exit 0

@@ -6,10 +6,10 @@ import { api } from '../api/client'
 import { colors } from '../styles/tokens'
 import { StatCard, Section, Table, td } from '../components/DashKit'
 import StatusBadge, { tint } from '../components/StatusBadge'
-import SignalBadge from '../components/SignalBadge'
+import SignalBadge, { FIDELITY_COLORS, FIDELITY_LABELS } from '../components/SignalBadge'
 import LoadingState, { loadPhase } from '../components/LoadingState'
 import type { ComplianceCheck, PostureSummary } from '../types/compliance'
-import type { SignalLayer } from '../api/weaveApi'
+import type { SignalLayer, FidelityTier } from '../api/weaveApi'
 import { useMoney } from '../money/CurrencyContext'
 import { sumMoney } from '../money/money'
 import { MONEY_UNAVAILABLE } from '../money/format'
@@ -17,6 +17,7 @@ import ConversionNote from '../components/ConversionNote'
 import { useSignalSummary } from '../hooks/useSignalSummary'
 
 interface ControlSetGroup {
+  framework: string
   controlSet: string
   controls: ControlGroup[]
 }
@@ -26,17 +27,33 @@ interface ControlGroup {
   checks: ComplianceCheck[]
 }
 
+/**
+ * Group checks into framework → control set → control.
+ *
+ * Keyed on framework AND control set, not control set alone. A control set name
+ * is only unique WITHIN its framework — "Risk Management" belongs to the EU AI
+ * Act and "Supply Chain Security" to NIS2, and nothing stops a seventh
+ * framework from reusing either. Keying on the name alone silently merged two
+ * regulations into one section and mislabelled every row under it. The
+ * framework is carried on the group so the section can say which one it is;
+ * with six frameworks in the fixture, an unlabelled "Access Control" heading
+ * is not answerable by looking at it.
+ */
 function groupChecks(checks: ComplianceCheck[]): ControlSetGroup[] {
-  const setMap = new Map<string, Map<string, ComplianceCheck[]>>()
+  const setMap = new Map<string, { framework: string; controlSet: string; controls: Map<string, ComplianceCheck[]> }>()
   for (const c of checks) {
-    if (!setMap.has(c.controlSet)) setMap.set(c.controlSet, new Map())
-    const ctrlMap = setMap.get(c.controlSet)!
+    const key = JSON.stringify([c.framework, c.controlSet])
+    if (!setMap.has(key)) {
+      setMap.set(key, { framework: c.framework, controlSet: c.controlSet, controls: new Map() })
+    }
+    const ctrlMap = setMap.get(key)!.controls
     if (!ctrlMap.has(c.control)) ctrlMap.set(c.control, [])
     ctrlMap.get(c.control)!.push(c)
   }
-  return Array.from(setMap.entries()).map(([controlSet, ctrlMap]) => ({
+  return Array.from(setMap.values()).map(({ framework, controlSet, controls }) => ({
+    framework,
     controlSet,
-    controls: Array.from(ctrlMap.entries()).map(([control, checks]) => ({ control, checks })),
+    controls: Array.from(controls.entries()).map(([control, checks]) => ({ control, checks })),
   }))
 }
 
@@ -72,13 +89,37 @@ const LAYER_COLORS: Record<string, string> = {
   protocol: 'var(--dim)',
 }
 
-const DISPLAY_LAYERS: SignalLayer[] = [
+/** Every layer the signal model defines — the denominator for coverage. */
+const ALL_LAYERS: SignalLayer[] = [
+  'network_egress',
+  'identity_authorization',
+  'application_saas',
+  'endpoint_host',
+  'behavioural',
+  'cloud_control_plane',
+  'protocol',
+]
+
+/**
+ * Layers assumed deployed when signal-ingest does not return a coverage
+ * statement. Preserves the behaviour this page had before it asked.
+ */
+const FALLBACK_COVERED_LAYERS: SignalLayer[] = [
   'network_egress',
   'identity_authorization',
   'application_saas',
   'endpoint_host',
   'behavioural',
 ]
+
+const FIDELITY_ORDER: FidelityTier[] = ['definitive', 'strong', 'suggestive', 'circumstantial']
+
+const FIDELITY_TOOLTIPS: Record<FidelityTier, string> = {
+  definitive: 'Attribution follows directly from the evidence — no inference step',
+  strong: 'Attribution requires one inference step from reliable evidence',
+  suggestive: 'Consistent with the hypothesis; other explanations remain open',
+  circumstantial: 'Contextual only — carries no attribution weight on its own',
+}
 
 // ─── Signal Evidence Section ────────────────────────────────────────────────
 
@@ -101,6 +142,22 @@ function SignalEvidenceSection() {
     )
   }
 
+  // Which layers actually have a collector deployed is the service's statement,
+  // not this page's assumption. The hardcoded list is only the fallback for
+  // when signal-ingest does not answer.
+  const coveredLayers = signal.coverage?.covered_layers ?? FALLBACK_COVERED_LAYERS
+  const uncoveredLayers = ALL_LAYERS.filter((l) => !coveredLayers.includes(l))
+
+  const blindSpotsByLayer = new Map<SignalLayer, string[]>()
+  for (const bs of signal.coverage?.blind_spots ?? []) {
+    if (!blindSpotsByLayer.has(bs.layer)) blindSpotsByLayer.set(bs.layer, [])
+    blindSpotsByLayer.get(bs.layer)!.push(bs.description)
+  }
+
+  const actorStatuses = Object.entries(signal.actorsByStatus)
+    .filter(([, n]) => n > 0)
+    .sort(([a], [b]) => a.localeCompare(b))
+
   return (
     <div data-testid="signal-evidence-section">
     <Section title="Signal Evidence" hint="cross-layer signal correlation">
@@ -114,8 +171,19 @@ function SignalEvidenceSection() {
             onClick={() => navigate('/weave')}
             testId="posture-signal-badge"
           />
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-            {signal.totalActors} provisional actor{signal.totalActors !== 1 ? 's' : ''} under correlation
+          {/*
+            Actors are broken down by status rather than summed and labelled
+            "provisional". Of the three actors in the demo estate one is
+            provisional, one is actionable and one is already promoted into the
+            registry — calling all three provisional understates two of them,
+            and the promoted one is precisely the row a reviewer would ask about.
+            `actorsByStatus` was already computed by the hook and discarded here.
+          */}
+          <span style={{ fontSize: 12, color: 'var(--muted)' }} data-testid="posture-actor-breakdown">
+            {signal.totalActors} actor{signal.totalActors !== 1 ? 's' : ''} under correlation
+            {actorStatuses.length > 0 && (
+              <> — {actorStatuses.map(([status, n]) => `${n} ${status}`).join(', ')}</>
+            )}
           </span>
           <button
             className="btn btn-secondary"
@@ -127,20 +195,63 @@ function SignalEvidenceSection() {
           </button>
         </div>
 
+        {/* Fidelity distribution */}
+        <div style={{ marginBottom: 14 }} data-testid="posture-fidelity-distribution">
+          <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+            Evidence Fidelity
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {FIDELITY_ORDER.map((tier) => {
+              const count = signal.observationsByFidelity[tier] ?? 0
+              const color = FIDELITY_COLORS[tier]
+              return (
+                <span
+                  key={tier}
+                  title={`${FIDELITY_LABELS[tier]}: ${count} observation${count !== 1 ? 's' : ''} — ${FIDELITY_TOOLTIPS[tier]}`}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 5,
+                    fontSize: 11,
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    background: count > 0
+                      ? `color-mix(in srgb, ${color} 12%, transparent)`
+                      : 'color-mix(in srgb, var(--muted) 8%, transparent)',
+                    color: count > 0 ? color : 'var(--muted)',
+                    fontWeight: count > 0 ? 600 : 400,
+                    opacity: count > 0 ? 1 : 0.6,
+                  }}
+                >
+                  {FIDELITY_LABELS[tier]}
+                  <span style={{ fontWeight: 700 }}>{count}</span>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+
         {/* Layer coverage bar */}
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
             Layer Coverage
+            <span style={{ textTransform: 'none', letterSpacing: 0, marginLeft: 8, fontWeight: 400 }} data-testid="posture-layer-coverage-ratio">
+              {coveredLayers.length} of {ALL_LAYERS.length} layers instrumented
+            </span>
           </div>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {DISPLAY_LAYERS.map((layer) => {
+            {coveredLayers.map((layer) => {
               const count = signal.observationsByLayer[layer] ?? 0
               const isActive = count > 0
               const layerColor = LAYER_COLORS[layer]
+              // A deployed collector reporting nothing and a collector that was
+              // never deployed are different facts. This pill says "quiet";
+              // the uninstrumented pills below say "blind".
+              const state = isActive ? `${count} observation${count !== 1 ? 's' : ''}` : 'collector deployed, no observations'
               return (
                 <span
                   key={layer}
-                  title={`${LAYER_DISPLAY[layer]}: ${count} observation${count !== 1 ? 's' : ''} — ${LAYER_TOOLTIPS[layer]}`}
+                  title={`${LAYER_DISPLAY[layer]}: ${state} — ${LAYER_TOOLTIPS[layer]}`}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',
@@ -171,6 +282,56 @@ function SignalEvidenceSection() {
             })}
           </div>
         </div>
+
+        {/*
+          Uninstrumented layers, stated rather than omitted.
+          These used to be filtered out of the render entirely, which made
+          "Layer Coverage" read as a complete picture of the model when it was a
+          view of five sevenths of it. A layer with no collector produces no
+          observations and so can never contradict anything on this page — the
+          absence has to be visible or it reads as an all-clear.
+        */}
+        {uncoveredLayers.length > 0 && (
+          <div data-testid="posture-blind-spots">
+            <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6, marginTop: 12 }}>
+              Not Instrumented
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {uncoveredLayers.map((layer) => {
+                const reasons = blindSpotsByLayer.get(layer) ?? []
+                const detail = reasons.length > 0
+                  ? reasons.join(' ')
+                  : 'No collector deployed for this layer — no signal can be observed here.'
+                return (
+                  <span
+                    key={layer}
+                    title={`${LAYER_DISPLAY[layer]}: ${detail}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 5,
+                      fontSize: 11,
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      background: 'transparent',
+                      border: '1px dashed var(--border)',
+                      color: 'var(--muted)',
+                    }}
+                  >
+                    <span style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: '50%',
+                      border: '1px solid var(--muted)',
+                    }} />
+                    {LAYER_DISPLAY[layer]}
+                    <span style={{ fontStyle: 'italic' }}>no collector</span>
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+        )}
       </div>
     </Section>
     </div>
@@ -313,14 +474,18 @@ export default function AgentPosturePage() {
 
       {/* Expandable control sets (Gemara hierarchy) */}
       {grouped.map((csg) => (
-        <Section key={csg.controlSet} title={csg.controlSet} hint={`${csg.controls.length} controls`}>
+        <Section
+          key={`${csg.framework}:${csg.controlSet}`}
+          title={csg.controlSet}
+          hint={`${csg.framework} · ${csg.controls.length} controls`}
+        >
           {csg.controls.map((cg) => {
-            const isExpanded = expandedSets.has(`${csg.controlSet}:${cg.control}`)
+            const isExpanded = expandedSets.has(`${csg.framework}:${csg.controlSet}:${cg.control}`)
             const allPassed = cg.checks.every((c) => c.passed)
             return (
               <div key={cg.control} className="card" style={{ marginBottom: 8, overflow: 'hidden' }}>
                 <button
-                  onClick={() => toggleSet(`${csg.controlSet}:${cg.control}`)}
+                  onClick={() => toggleSet(`${csg.framework}:${csg.controlSet}:${cg.control}`)}
                   style={{
                     width: '100%',
                     display: 'flex',

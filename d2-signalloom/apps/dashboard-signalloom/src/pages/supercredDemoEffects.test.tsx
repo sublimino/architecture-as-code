@@ -74,6 +74,8 @@ vi.mock('../api/client', () => ({
 import { api } from '../api/client'
 import { resolveFake } from '../api/fakeData'
 import { projectResponse } from '../api/supercredProjection'
+import { POSTURE_SUMMARY } from '../api/fakeComplianceData'
+import { carriedGbp } from '../api/supercredControls'
 import type { SuperCredDemoState, SuperCredPhase } from '../api/supercredTypes'
 
 import AgentsPage from './AgentsPage'
@@ -168,10 +170,44 @@ async function findAgentRow(): Promise<HTMLElement> {
   return row
 }
 
-/** Total inherent ALE across the 20 baseline policy checks in fakeComplianceData. */
-const BASELINE_ALE = 227100
-/** Total carried risk across the 5 failing baseline checks. */
-const BASELINE_CARRIED = 98700
+/**
+ * The policy baseline, read from the fixture rather than frozen as a literal.
+ *
+ * These were hardcoded to the totals of a 20-row fixture. Adding a framework to
+ * fakeComplianceData then failed fifteen tests in this file that are not about
+ * the framework list at all — the numbers had stopped describing a relationship
+ * and become a snapshot of one particular fixture size. What this file actually
+ * asserts is that the SuperCred phases move risk ON TOP OF whatever the policy
+ * baseline is, so that is what it now says.
+ */
+const BASELINE_ALE = POSTURE_SUMMARY.totalAle.amount
+const BASELINE_CARRIED = POSTURE_SUMMARY.totalCarried.amount
+
+/** Carried risk at a phase = the policy baseline plus the agent's own exposure. */
+const carriedAt = (phase: SuperCredPhase) => BASELINE_CARRIED + carriedGbp(phase)
+
+const BASELINE_CHECKS = POSTURE_SUMMARY.totalChecks
+const BASELINE_PASSED = POSTURE_SUMMARY.passed
+
+/**
+ * Controls the SuperCred projection ADDS at each phase, over the baseline.
+ *
+ * These are deltas on purpose. The demo story is "each step puts more of the
+ * agent under evaluation, and step 3 puts three of them into failure" — a story
+ * about movement, which a delta states and an absolute total does not. Stated
+ * as totals they silently encoded the fixture's size as well, so they broke on
+ * a change that had nothing to do with the projection.
+ */
+const ADDED_CONTROLS: Record<SuperCredPhase, number> = {
+  absent: 0, deployed: 3, credentialed: 7, 'non-compliant': 10, stunned: 12,
+}
+const ADDED_PASSING: Record<SuperCredPhase, number> = {
+  absent: 0, deployed: 3, credentialed: 7, 'non-compliant': 7, stunned: 9,
+}
+
+/** The "passed/total" string the posture page renders at a phase. */
+const passRatioAt = (phase: SuperCredPhase) =>
+  `${BASELINE_PASSED + ADDED_PASSING[phase]}/${BASELINE_CHECKS + ADDED_CONTROLS[phase]}`
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -336,10 +372,10 @@ describe('/compliance/policies reflects each demo step', () => {
     return statCardValue('Total Checks')
   }
 
-  it('step 0: shows the 20 baseline checks', async () => {
+  it('step 0: shows only the policy baseline checks', async () => {
     wireApiFor('absent')
     renderPage(<CompliancePolicyPage />)
-    expect(await totalChecks()).toBe(20)
+    expect(await totalChecks()).toBe(BASELINE_CHECKS)
   })
 
   it('grows the evaluated check count at every step', async () => {
@@ -350,7 +386,10 @@ describe('/compliance/policies reflects each demo step', () => {
       counts.push(await totalChecks())
       unmount()
     }
-    expect(counts).toEqual([23, 27, 30, 32])
+    expect(counts).toEqual(
+      (['deployed', 'credentialed', 'non-compliant', 'stunned'] as SuperCredPhase[])
+        .map((p) => BASELINE_CHECKS + ADDED_CONTROLS[p]),
+    )
   })
 
   it('step 3 scan: the failed count rises by exactly three', async () => {
@@ -396,21 +435,21 @@ describe('/compliance/posture reflects each demo step', () => {
   it('step 0: shows only the baseline checks', async () => {
     wireApiFor('absent')
     renderPage(<AgentPosturePage />)
-    expect(await screen.findByText('15/20')).toBeInTheDocument()
+    expect(await screen.findByText(passRatioAt('absent'))).toBeInTheDocument()
   })
 
   it('step 2 credential chain: the identity controls appear as passing checks', async () => {
     wireApiFor('credentialed')
     renderPage(<AgentPosturePage />)
-    // 20 baseline + 3 governance + 4 identity = 27, of which 15 + 7 pass.
-    expect(await screen.findByText('22/27')).toBeInTheDocument()
+    // baseline + 3 governance + 4 identity controls, all of them passing.
+    expect(await screen.findByText(passRatioAt('credentialed'))).toBeInTheDocument()
     expect(screen.getByText('Identification & Auth')).toBeInTheDocument()
   })
 
   it('step 3 scan: the three runtime findings land as failing checks', async () => {
     wireApiFor('non-compliant')
     renderPage(<AgentPosturePage />)
-    expect(await screen.findByText('22/30')).toBeInTheDocument()
+    expect(await screen.findByText(passRatioAt('non-compliant'))).toBeInTheDocument()
     expect(screen.getByText('System & Comms Protection')).toBeInTheDocument()
   })
 
@@ -418,22 +457,22 @@ describe('/compliance/posture reflects each demo step', () => {
     wireApiFor('non-compliant')
     renderPage(<AgentPosturePage />)
     await screen.findByText('Total Exposure')
-    // 98,700 baseline + 66,400 carried by the three failing runtime controls.
-    expect(statCardValue('Total Exposure')).toBe(165100)
+    // baseline carried + the exposure of the three failing runtime controls.
+    expect(statCardValue('Total Exposure')).toBe(carriedAt('non-compliant'))
   })
 
   it('step 4 stun: response controls pass and exposure is contained', async () => {
     wireApiFor('stunned')
     renderPage(<AgentPosturePage />)
-    expect(await screen.findByText('24/32')).toBeInTheDocument()
+    expect(await screen.findByText(passRatioAt('stunned'))).toBeInTheDocument()
     // Carried risk falls to the documented containment residual.
-    expect(statCardValue('Total Exposure')).toBe(108660)
+    expect(statCardValue('Total Exposure')).toBe(carriedAt('stunned'))
   })
 
   it('step 5 teardown: the SuperCred control sets disappear', async () => {
     wireApiFor('absent')
     renderPage(<AgentPosturePage />)
-    await screen.findByText('15/20')
+    await screen.findByText(passRatioAt('absent'))
     expect(screen.queryByText(/\[cardvault-agent\]/)).not.toBeInTheDocument()
   })
 })
@@ -465,13 +504,13 @@ describe('/compliance/risk reflects each demo step', () => {
   it('step 3 scan: carried risk jumps by the three failing controls', async () => {
     wireApiFor('non-compliant')
     renderPage(<RiskExposurePage />)
-    expect(await carriedRisk()).toBe(165100)
+    expect(await carriedRisk()).toBe(carriedAt('non-compliant'))
   })
 
   it('step 4 stun: containing the agent visibly reduces carried risk', async () => {
     wireApiFor('stunned')
     renderPage(<RiskExposurePage />)
-    expect(await carriedRisk()).toBe(108660)
+    expect(await carriedRisk()).toBe(carriedAt('stunned'))
   })
 
   it('walks carried risk up then down across the whole demo', async () => {
@@ -482,7 +521,13 @@ describe('/compliance/risk reflects each demo step', () => {
       walk.push(await carriedRisk())
       unmount()
     }
-    expect(walk).toEqual([BASELINE_CARRIED, BASELINE_CARRIED, BASELINE_CARRIED, 165100, 108660])
+    expect(walk).toEqual([
+      carriedAt('absent'),
+      carriedAt('deployed'),
+      carriedAt('credentialed'),
+      carriedAt('non-compliant'),
+      carriedAt('stunned'),
+    ])
   })
 
   it('step 5 teardown: risk returns cleanly to the baseline', async () => {

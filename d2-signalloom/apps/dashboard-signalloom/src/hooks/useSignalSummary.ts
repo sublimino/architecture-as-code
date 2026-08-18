@@ -14,6 +14,7 @@ import type {
   ProvisionalActor,
   SignalLayer,
   FidelityTier,
+  CoverageStatement,
 } from '../api/weaveApi'
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -23,8 +24,27 @@ export interface SignalSummary {
   totalActors: number
   actorsByStatus: Record<string, number>
   observationsByLayer: Partial<Record<SignalLayer, number>>
+  /**
+   * Observation count per fidelity tier.
+   *
+   * `highestFidelity` is a maximum, and a maximum hides its own distribution:
+   * one definitive observation among seven circumstantial ones reports the same
+   * tier as seven definitive ones. Consumers that price the evidence rather
+   * than just badge it need the spread.
+   */
+  observationsByFidelity: Partial<Record<FidelityTier, number>>
   highestFidelity: FidelityTier | null
   layerCount: number
+  /**
+   * The service's own coverage statement — which layers have a collector
+   * deployed and which are blind spots.
+   *
+   * Null when signal-ingest does not answer for it. Coverage degrades
+   * INDEPENDENTLY of observations and actors: it is supplementary to data that
+   * is itself supplementary, so a coverage failure must not blank a section
+   * that has perfectly good observations to show.
+   */
+  coverage: CoverageStatement | null
   observations: SignalObservation[]
   actors: ProvisionalActor[]
   loading: boolean
@@ -70,8 +90,10 @@ const EMPTY: SignalSummary = {
   totalActors: 0,
   actorsByStatus: {},
   observationsByLayer: {},
+  observationsByFidelity: {},
   highestFidelity: null,
   layerCount: 0,
+  coverage: null,
   observations: [],
   actors: [],
   loading: true,
@@ -97,14 +119,29 @@ export function useSignalSummary(): SignalSummary {
       fetchPromise = (async () => {
         try {
           const token = await getAccessTokenSilently()
+
+          // Coverage is fetched alongside but NOT inside the Promise.all: it is
+          // allowed to fail on its own without taking observations and actors
+          // down with it. `Promise.resolve().then()` rather than a bare call so
+          // a synchronous throw lands in the catch too.
+          const coveragePromise = Promise.resolve()
+            .then(() => weaveApi.getCoverage(token))
+            .catch(() => null)
+
           const [observations, actors] = await Promise.all([
             weaveApi.getObservations(token),
             weaveApi.getActors(token),
           ])
+          const coverage = (await coveragePromise) ?? null
 
           const observationsByLayer: Partial<Record<SignalLayer, number>> = {}
           for (const obs of observations) {
             observationsByLayer[obs.layer] = (observationsByLayer[obs.layer] ?? 0) + 1
+          }
+
+          const observationsByFidelity: Partial<Record<FidelityTier, number>> = {}
+          for (const obs of observations) {
+            observationsByFidelity[obs.fidelity] = (observationsByFidelity[obs.fidelity] ?? 0) + 1
           }
 
           const actorsByStatus: Record<string, number> = {}
@@ -119,8 +156,10 @@ export function useSignalSummary(): SignalSummary {
             totalActors: actors.length,
             actorsByStatus,
             observationsByLayer,
+            observationsByFidelity,
             highestFidelity: highestFidelity(observations),
             layerCount: layers.size,
+            coverage,
             observations,
             actors,
             loading: false,

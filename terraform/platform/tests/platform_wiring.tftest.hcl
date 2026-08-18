@@ -15,6 +15,14 @@ variables {
   project_id        = "changeme-project"
   state_bucket_name = "changeme-project-tfstate"
 
+  # Required since the identity module was wired into this root at integration.
+  project_number            = "123456789012"
+  environment_keys          = ["demo-1"]
+  github_owner_id           = "123456789012"
+  github_repository         = "example-org/osramp-demo"
+  github_allowed_ref        = "refs/heads/main"
+  github_apply_workflow_ref = "example-org/osramp-demo/.github/workflows/gcp-apply.yml@refs/heads/main"
+
   notification_emails = ["platform-owner@example.invalid"]
 
   uptime_targets = {

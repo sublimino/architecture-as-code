@@ -30,7 +30,7 @@ run "issuer_uri_is_exactly_the_github_actions_issuer" {
   command = plan
 
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github.oidc[0].issuer_uri == "https://token.actions.githubusercontent.com"
+    condition     = google_iam_workload_identity_pool_provider.github[0].oidc[0].issuer_uri == "https://token.actions.githubusercontent.com"
     error_message = "The OIDC issuer URI must be exactly https://token.actions.githubusercontent.com."
   }
 }
@@ -41,17 +41,17 @@ run "attribute_condition_is_present_and_not_a_tautology" {
   # ISC-159, ISC-160, ISC-165, ISC-350. An absent or `true` condition lets any
   # GitHub repository on earth mint tokens for this project.
   assert {
-    condition     = trimspace(google_iam_workload_identity_pool_provider.github.attribute_condition) != ""
+    condition     = trimspace(google_iam_workload_identity_pool_provider.github[0].attribute_condition) != ""
     error_message = "attribute_condition must be non-empty."
   }
 
   assert {
-    condition     = trimspace(google_iam_workload_identity_pool_provider.github.attribute_condition) != "true"
+    condition     = trimspace(google_iam_workload_identity_pool_provider.github[0].attribute_condition) != "true"
     error_message = "attribute_condition must not be the tautology `true`."
   }
 
   assert {
-    condition     = length(trimspace(google_iam_workload_identity_pool_provider.github.attribute_condition)) > 20
+    condition     = length(trimspace(google_iam_workload_identity_pool_provider.github[0].attribute_condition)) > 20
     error_message = "attribute_condition is implausibly short to be pinning three claims."
   }
 }
@@ -62,27 +62,27 @@ run "attribute_condition_pins_the_immutable_numeric_owner_id" {
   # ISC-161, ISC-162. repository_owner (the string name) is renameable and the
   # freed name is immediately re-registerable by anyone. repository_owner_id is not.
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.repository_owner_id")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.repository_owner_id")
     error_message = "attribute_condition must pin assertion.repository_owner_id, the immutable numeric id."
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, var.github_owner_id)
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, var.github_owner_id)
     error_message = "attribute_condition must contain the configured numeric owner id."
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.repository ==")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.repository ==")
     error_message = "attribute_condition must pin the repository (ISC-163)."
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "assertion.ref ==")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "assertion.ref ==")
     error_message = "attribute_condition must pin an approved ref (ISC-164)."
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, var.github_allowed_ref)
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, var.github_allowed_ref)
     error_message = "attribute_condition must contain the configured allowed ref."
   }
 }
@@ -91,7 +91,7 @@ run "attribute_mapping_exposes_the_id_claim" {
   command = plan
 
   assert {
-    condition     = google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id"
+    condition     = google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.repository_owner_id"] == "assertion.repository_owner_id"
     error_message = "The provider must map the numeric owner id claim through."
   }
 }
@@ -104,12 +104,12 @@ run "wif_member_is_attribute_scoped_not_pool_wide" {
   # ISC-175, ISC-176. principalSet://.../workloadIdentityPools/<pool>/* grants
   # every identity the pool can ever mint.
   assert {
-    condition     = !endswith(google_service_account_iam_member.ci_apply_wif.member, "/*")
+    condition     = !endswith(google_service_account_iam_member.ci_apply_wif[0].member, "/*")
     error_message = "The WIF member must not be the bare pool-wide principalSet wildcard."
   }
 
   assert {
-    condition     = !strcontains(google_service_account_iam_member.ci_apply_wif.member, "workloadIdentityPools/${var.pool_id}/*")
+    condition     = !strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "workloadIdentityPools/${var.pool_id}/*")
     error_message = "The WIF member must not be scoped to the whole pool."
   }
 
@@ -119,17 +119,17 @@ run "wif_member_is_attribute_scoped_not_pool_wide" {
   # workflow-scoped, so the invariant that survives is "scoped by SOME attribute,
   # never pool-wide" — asserted for each member against its own correct scope.
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "/attribute.repository/${var.github_repository}")
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif[0].member, "/attribute.repository/${var.github_repository}")
     error_message = "The plan WIF member must be scoped by the repository attribute."
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "/attribute.job_workflow_ref/")
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "/attribute.job_workflow_ref/")
     error_message = "The apply WIF member must be scoped by job_workflow_ref, which is narrower than the repository."
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "projects/${var.project_number}/")
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "projects/${var.project_number}/")
     error_message = "The principalSet URI must carry the numeric project number, not the project id."
   }
 
@@ -138,12 +138,12 @@ run "wif_member_is_attribute_scoped_not_pool_wide" {
   # passed while the plan/apply boundary did not exist. Inverted, and the
   # positive form now lives in its own run block below.
   assert {
-    condition     = google_service_account_iam_member.ci_plan_wif.member != google_service_account_iam_member.ci_apply_wif.member
+    condition     = google_service_account_iam_member.ci_plan_wif[0].member != google_service_account_iam_member.ci_apply_wif[0].member
     error_message = "The plan and apply principals must differ; identical members mean the read-only identity is a path to the write-capable one."
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "projects/${var.project_number}/")
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif[0].member, "projects/${var.project_number}/")
     error_message = "The plan principalSet URI must carry the numeric project number, not the project id."
   }
 }
@@ -345,7 +345,7 @@ run "accepts_a_numeric_github_owner_id" {
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "987654321098")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "987654321098")
     error_message = "The corrected numeric owner id must be accepted and pinned."
   }
 }
@@ -430,7 +430,7 @@ run "accepts_a_numeric_project_number" {
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "projects/210987654321/")
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "projects/210987654321/")
     error_message = "The corrected numeric project number must be accepted and used in the principalSet URI."
   }
 }
@@ -453,7 +453,7 @@ run "accepts_a_fully_qualified_ref" {
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_condition, "refs/heads/release")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_condition, "refs/heads/release")
     error_message = "The corrected fully-qualified ref must be accepted and pinned."
   }
 }
@@ -517,24 +517,24 @@ run "plan_and_apply_wif_members_are_not_the_same_principal" {
 
   assert {
     condition = (
-      google_service_account_iam_member.ci_plan_wif.member !=
-      google_service_account_iam_member.ci_apply_wif.member
+      google_service_account_iam_member.ci_plan_wif[0].member !=
+      google_service_account_iam_member.ci_apply_wif[0].member
     )
     error_message = "The plan and apply WIF bindings name the same principal, so the read-only plan identity is a path to the write-capable apply identity."
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "attribute.job_workflow_ref/")
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "attribute.job_workflow_ref/")
     error_message = "The apply binding must be scoped to one workflow file, not to the repository."
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "attribute.repository/")
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif[0].member, "attribute.repository/")
     error_message = "The plan binding stays repository-scoped; it is the weaker identity by design."
   }
 
   assert {
-    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.job_workflow_ref"], "assertion.job_workflow_ref")
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github[0].attribute_mapping["attribute.job_workflow_ref"], "assertion.job_workflow_ref")
     error_message = "job_workflow_ref must be mapped on the provider, or the apply principalSet can never match anything."
   }
 }
@@ -557,7 +557,7 @@ run "accepts_a_well_formed_apply_workflow_ref" {
   }
 
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "gcp-apply.yml@refs/heads/main")
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif[0].member, "gcp-apply.yml@refs/heads/main")
     error_message = "the corrected baseline must plan cleanly, or the negative above proves nothing"
   }
 }

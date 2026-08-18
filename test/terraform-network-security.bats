@@ -431,7 +431,13 @@ scan_credential_literals() {
 @test "confidential_instance_config is addressed, not silently omitted" {
 	# ISC-107. The evaluated value is asserted in the compute tftest; the
 	# *reason* it is off can only live in prose.
-	grep -qE '^[[:space:]]*confidential_instance_config[[:space:]]*\{' "$COMPUTE_DIR/main.tf"
+	# Either a plain block or a dynamic one. It became dynamic because declaring
+	# it unconditionally produced a permanent diff on a ForceNew attribute: the
+	# API returns an empty config for a non-confidential VM, so every plan
+	# proposed REPLACING a healthy instance. Found by deploying demo-1, not by
+	# any static assertion. What this guard cares about is that the setting is
+	# addressed rather than silently omitted, and both forms address it.
+	grep -qE '^[[:space:]]*(dynamic[[:space:]]+")?confidential_instance_config("[[:space:]]*)?[[:space:]]*\{' "$COMPUTE_DIR/main.tf"
 	grep -qi 'confidential' "$COMPUTE_DIR/README.md"
 }
 

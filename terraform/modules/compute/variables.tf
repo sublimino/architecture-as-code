@@ -158,16 +158,42 @@ variable "startup_script_path" {
   default     = ""
 }
 
+# ── Why Ubuntu 24.04 and not Debian 12 ──────────────────────────────────────
+#
+# This default was debian-12, and the divergence from v1 CI — which has run the
+# Signal Loom bring-up on ubuntu-2404-lts since the pipeline existed — cost a
+# full day of cascading, individually plausible failures on 2026-08-18. Every
+# one of them traced back here:
+#
+#   * Debian 12 ships skopeo 1.9.3, which speaks Docker API 1.22. Docker 29
+#     requires >= 1.40, so scripts/build-sign-dashboard.sh died with
+#     "client version 1.22 is too old". The FIRST presentation of that fault
+#     was "writing blob: io: read/write on closed pipe", which names neither
+#     skopeo nor the API version and reads like a broken pipe under load.
+#   * Docker installed fresh from download.docker.com onto Debian 12 enables
+#     the containerd image store. Under it `kind load` EXITS 0 HAVING
+#     TRANSFERRED NOTHING — the failure mode scripts/kind-load-verified.sh was
+#     written to catch, documented in Makefile:297 as "fatal on every cold
+#     run". Turning the store off restores kind load and then breaks the
+#     dashboard build instead: "Attestation is not supported for the docker
+#     driver". There is no setting of that one flag under which both halves of
+#     this repo work on Debian 12.
+#
+# So the image family is not a cosmetic preference and must not be "tidied"
+# back to a Debian default. It is the single variable that keeps this VM's
+# toolchain in the configuration the estate has actually been tested in.
+# Changing it forces instance replacement, which is cheap here and is the
+# point: the VM is disposable, the estate is not.
 variable "image_family" {
-  description = "Boot image family."
+  description = "Boot image family. Defaults to ubuntu-2404-lts to match the v1 CI environment the Signal Loom bring-up is tested in; see the comment above before changing it."
   type        = string
-  default     = "debian-12"
+  default     = "ubuntu-2404-lts-amd64"
 }
 
 variable "image_project" {
   description = "Project publishing the boot image family."
   type        = string
-  default     = "debian-cloud"
+  default     = "ubuntu-os-cloud"
 }
 
 variable "enable_confidential_compute" {

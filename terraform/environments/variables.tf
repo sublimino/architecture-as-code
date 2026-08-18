@@ -260,3 +260,9 @@ variable "state_bucket_name" {
   description = "GCS bucket holding Terraform state. Used to read the platform root's outputs, which own the project-level singletons this root consumes."
   type        = string
 }
+
+variable "egress_public_https_destinations" {
+  description = "Public CIDRs the runtime service account may reach on TCP 443, for package mirrors and container registries that publish no stable address range. Empty means no rule is created and public egress stays denied. INGRESS is unaffected: default-deny ingress, no external IP, and IAP-only access all still apply."
+  type        = list(string)
+  default     = []
+}

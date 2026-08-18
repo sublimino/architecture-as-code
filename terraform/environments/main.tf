@@ -150,6 +150,9 @@ module "network" {
   app_port                      = each.value.app_port
   runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
   nat_log_filter                = var.nat_log_filter
+
+  # Reviewed per-environment widening; see the tfvars for the rationale.
+  egress_public_https_destinations = var.egress_public_https_destinations
 }
 
 # ── 3. compute ── the private hardened VM, demo lanes only.

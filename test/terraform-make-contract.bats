@@ -363,10 +363,18 @@ JSON
 @test "no gcp-tf target hardcodes a project id, billing account, domain or IP" {
   block="$(sed -n '/^# GCP Terraform platform — appended by chunk F6/,/^# END GCP Terraform platform block/p' "${MAKEFILE}")"
   [ -n "${block}" ]
-  # The real project this repo's existing CI uses. It must not leak into the
-  # new block: a hardcoded project id is how a demo target ends up creating
+  # The real project this repo's existing CI VM lane uses must not leak into
+  # the new block: a hardcoded project id is how a demo target ends up creating
   # billable infrastructure in someone else's project.
-  [[ "${block}" != *"cp-dev-ajm"* ]]
+  #
+  # Read out of the existing workflow rather than written here. Naming it inline
+  # would put a real project id in a file whose whole purpose is asserting that
+  # no real project id is present — and it would silently stop testing anything
+  # the day that project is renamed.
+  real_project="$(grep -hoE '^[[:space:]]*GCP_PROJECT:[[:space:]]*\S+' \
+    "${REPO_ROOT}/.github/workflows"/*.yaml 2>/dev/null | awk '{print $2}' | head -1)"
+  [ -n "${real_project}" ]
+  [[ "${block}" != *"${real_project}"* ]]
   # gcloud --project=<literal>, terraform -var project_id=<literal>
   run bash -c "printf '%s\n' \"\${block}\" | grep -nE '(--project[= ]|project_id[[:space:]]*=)[[:space:]]*[a-z][a-z0-9-]{4,}' || true"
   [ -z "$output" ]

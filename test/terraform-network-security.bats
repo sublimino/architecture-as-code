@@ -630,6 +630,99 @@ tracked_sources() {
 }
 
 # ---------------------------------------------------------------------------
+# Native terraform test hygiene (CONTRACT §7a; ISC-326/327/332/334/347)
+#
+# These are text properties of the test files, which is exactly what the
+# contract's own routing table assigns to bats — `terraform test` can assert on
+# the config it evaluated, not on what its own suite does or does not contain.
+# ---------------------------------------------------------------------------
+
+tftest_files() {
+	find "$1" -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' 2>/dev/null | sort
+}
+
+@test "both modules ship a native terraform test suite" {
+	# ISC-326, ISC-327.
+	local d
+	for d in "$NET_DIR" "$COMPUTE_DIR"; do
+		[ -d "$d/tests" ] || {
+			echo "missing $d/tests"
+			return 1
+		}
+		[ "$(tftest_files "$d/tests" | wc -l)" -ge 1 ] || {
+			echo "no .tftest.hcl under $d/tests"
+			return 1
+		}
+	done
+}
+
+@test "every .tftest.hcl mocks its providers and never applies" {
+	# ISC-332, ISC-334. Scanned across the whole terraform tree, not just this
+	# chunk's: `command = apply` is an absence property and a sibling chunk
+	# adding one is exactly what this should catch at merge.
+	local files f
+	mapfile -t files < <(tftest_files "$TF_DIR")
+
+	# Guard the guard. Two files are this chunk's; a floor of 2 means the scan
+	# cannot report clean because it found nothing.
+	[ "${#files[@]}" -ge 2 ] || {
+		echo "only ${#files[@]} .tftest.hcl files found; the scan is vacuous"
+		return 1
+	}
+
+	for f in "${files[@]}"; do
+		grep -qE '^mock_provider "google" \{' "$f" || {
+			echo "no mock_provider \"google\" in $f — this test could reach a real API"
+			return 1
+		}
+		if uncommented "$f" | grep -qE '^[[:space:]]*command[[:space:]]*=[[:space:]]*apply'; then
+			echo "command = apply in $f"
+			return 1
+		fi
+		uncommented "$f" | grep -qE '^[[:space:]]*command[[:space:]]*=[[:space:]]*plan' || {
+			echo "no command = plan in $f"
+			return 1
+		}
+	done
+}
+
+@test "every negative tftest run is paired with a passing run" {
+	# ISC-346/347, and the single most common way a terraform test suite ends
+	# up measuring nothing. A file that only ever asserts failure cannot tell a
+	# validation firing from a syntax error, so a file using expect_failures
+	# must also contain a run that asserts something positive.
+	local files f
+	mapfile -t files < <(tftest_files "$TF_DIR")
+	[ "${#files[@]}" -ge 2 ]
+
+	for f in "${files[@]}"; do
+		grep -qE '^[[:space:]]*expect_failures' "$f" || continue
+		grep -qE '^[[:space:]]*assert[[:space:]]*\{' "$f" || {
+			echo "$f uses expect_failures but never asserts a positive outcome"
+			return 1
+		}
+		# And the positive run must not itself be an expect_failures run: at
+		# least one `run` block has asserts and no expect_failures.
+		local blocks="$BATS_TEST_TMPDIR/runs" b positive=0
+		rm -rf "$blocks"
+		mkdir -p "$blocks"
+		awk -v out="$blocks" '
+			/^run "/ { inblock = 1; n += 1; file = out "/run-" n ".block" }
+			inblock { print > file }
+			inblock && /^}[[:space:]]*$/ { inblock = 0 }
+		' "$f"
+		for b in "$blocks"/*.block; do
+			grep -qE '^[[:space:]]*expect_failures' "$b" && continue
+			grep -qE '^[[:space:]]*assert[[:space:]]*\{' "$b" && positive=1
+		done
+		[ "$positive" -eq 1 ] || {
+			echo "$f has no run block that asserts a positive outcome"
+			return 1
+		}
+	done
+}
+
+# ---------------------------------------------------------------------------
 # MUTATION CHECKS
 #
 # Everything above asserts the tree is clean. These assert the guards can say

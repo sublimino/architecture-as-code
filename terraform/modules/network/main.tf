@@ -347,3 +347,70 @@ resource "google_compute_firewall" "deny_all_egress" {
 
   description = "Default-deny egress, logged — replaces GCP's implied allow-all (${local.label_note})"
 }
+
+# ── Private Google Access: the DNS half ─────────────────────────────────────
+#
+# The firewall above already permits egress to the Private Google Access VIPs
+# (199.36.153.4/30 and 199.36.153.8/30). That is necessary and, on its own,
+# useless — because nothing tells the VM to USE them.
+#
+# Without these zones a guest resolves googleapis.com through public DNS, gets a
+# public address, and the deny-all egress rule correctly refuses it. Observed on
+# sl-demo-1-vm: the serial console filled with
+#
+#   dial tcp 172.217.112.4:443: i/o timeout
+#   Cloud Logging Client Error: context deadline exceeded
+#
+# 172.217.x.x is a PUBLIC Google address. The egress policy was working exactly
+# as designed and the environment was still broken, because Private Google
+# Access is two mechanisms and only one of them was present. The failure reads
+# as "the firewall is too strict" and is really "DNS was never redirected" —
+# which is why this comment is longer than the code.
+#
+# restricted.googleapis.com rather than private.googleapis.com: the restricted
+# VIP refuses APIs that are not VPC-SC supported, so a workload cannot silently
+# reach a service outside the perimeter. That is the stricter of the two, and
+# the right default for a security demo.
+resource "google_dns_managed_zone" "google_apis" {
+  count = var.enable_private_google_access_dns ? 1 : 0
+
+  project     = var.project_id
+  name        = "${var.name_prefix}-googleapis"
+  dns_name    = "googleapis.com."
+  description = "Redirects googleapis.com to the restricted Private Google Access VIP so locked-down egress still reaches Google APIs."
+  labels      = var.labels
+
+  visibility = "private"
+
+  private_visibility_config {
+    networks {
+      network_url = google_compute_network.this.id
+    }
+  }
+}
+
+resource "google_dns_record_set" "restricted_googleapis_a" {
+  count = var.enable_private_google_access_dns ? 1 : 0
+
+  project      = var.project_id
+  managed_zone = google_dns_managed_zone.google_apis[0].name
+  name         = "restricted.googleapis.com."
+  type         = "A"
+  ttl          = 300
+
+  # The four addresses of the restricted VIP range, 199.36.153.8/30.
+  rrdatas = ["199.36.153.8", "199.36.153.9", "199.36.153.10", "199.36.153.11"]
+}
+
+# Everything else under googleapis.com follows the restricted VIP.
+resource "google_dns_record_set" "googleapis_wildcard" {
+  count = var.enable_private_google_access_dns ? 1 : 0
+
+  project      = var.project_id
+  managed_zone = google_dns_managed_zone.google_apis[0].name
+  name         = "*.googleapis.com."
+  type         = "CNAME"
+  ttl          = 300
+
+  rrdatas = ["restricted.googleapis.com."]
+}

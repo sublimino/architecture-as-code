@@ -107,3 +107,22 @@ variable "egress_public_https_destinations" {
   type        = list(string)
   default     = []
 }
+
+variable "enable_private_google_access_dns" {
+  description = <<-EOT
+    Create the private DNS zone that points googleapis.com at the restricted
+    Private Google Access VIP.
+
+    Defaults TRUE, and the default matters. Private Google Access is two
+    mechanisms: a route to the VIPs (the firewall rule) and a DNS redirect onto
+    them (these zones). With only the first, a guest resolves googleapis.com
+    publicly, the deny-all egress rule correctly refuses the public address, and
+    the environment is broken in a way that reads as an over-strict firewall.
+
+    Set false only when an organisation-wide DNS policy already provides the
+    redirect, and say so in the environment's tfvars — otherwise the next person
+    to read the plan will assume it was an oversight.
+  EOT
+  type        = bool
+  default     = true
+}

@@ -1095,25 +1095,33 @@ assert_no_public_edge() {
 	}
 }
 
-@test "the IAP tunnel path is open on 22 and the app port is not" {
-	# The reachability story depends on a firewall rule this chunk does not
-	# own, so it is asserted rather than assumed. `allow_iap_ssh` permits the
-	# IAP TCP-forwarding range on port 22 ONLY — which is why the documented
-	# access path forwards over SSH rather than tunnelling straight to the app
-	# port. A raw `start-iap-tunnel <vm> 8080` is refused, and that failure
-	# reads like a broken VM rather than a closed port.
+@test "the IAP tunnel path is open on 22, and on the app port separately" {
+	# The reachability story depends on firewall rules this chunk does not own,
+	# so it is asserted rather than assumed. `allow_iap_ssh` permits the IAP
+	# TCP-forwarding range on port 22 ONLY; the application is reached through a
+	# second, separately-named rule, `allow_iap_app_port`, on the environment's
+	# app_port and nothing else. Two rules rather than two ports on one rule:
+	# SSH and the application are different exposures, and a rule named
+	# "allow-iap-ssh" that also opened 30754 would be a rule whose name lies.
 	local net="${REPO_ROOT}/terraform/modules/network/main.tf"
+	local netvars="${REPO_ROOT}/terraform/modules/network/variables.tf"
 	[ -f "$net" ]
+	[ -f "$netvars" ]
 
-	grep -qF '35.235.240.0/20' "$net" || {
-		echo "the IAP TCP-forwarding range is not in modules/network; the" >&2
-		echo "documented tunnel access path would not work." >&2
+	# Both files, and comments stripped. The range is the default of
+	# `var.iap_source_range` and now lives in variables.tf, so a grep pinned to
+	# main.tf would be satisfied by the comment that explains the rule — which
+	# is a check that has quietly stopped checking anything.
+	local code
+	code="$(sed -e 's/[[:space:]]*#.*$//' "$net" "$netvars")"
+	printf '%s\n' "$code" | grep -qF '35.235.240.0/20' || {
+		echo "the IAP TCP-forwarding range is not in modules/network's" >&2
+		echo "executable configuration; the tunnel access path would not work." >&2
 		return 1
 	}
-	# The rule exists and is scoped to 22. If someone widens it to the app
-	# port, the runbook's SSH-forward instruction becomes unnecessarily
-	# indirect and should be simplified — so this failing is a prompt to
-	# update the docs, not only a regression.
+
+	# The SSH rule exists and is scoped to 22 alone. If the app port ever
+	# appears here, the split above has been undone.
 	local ports
 	ports="$(sed -n '/resource "google_compute_firewall" "allow_iap_ssh"/,/^}/p' "$net" |
 		sed -n 's/.*ports[[:space:]]*=[[:space:]]*\(.*\)/\1/p')"
@@ -1123,6 +1131,21 @@ assert_no_public_edge() {
 	}
 	[[ "$ports" == *'"22"'* ]] || {
 		echo "allow_iap_ssh no longer opens port 22: ${ports}" >&2
+		return 1
+	}
+
+	# And the app-port rule is present and derived, not hardcoded.
+	local app_ports
+	app_ports="$(sed -n '/resource "google_compute_firewall" "allow_iap_app_port"/,/^}/p' "$net" |
+		sed -n 's/.*ports[[:space:]]*=[[:space:]]*\(.*\)/\1/p')"
+	[ -n "$app_ports" ] || {
+		echo "allow_iap_app_port is missing or has no ports; the dashboard is" >&2
+		echo "then unreachable over IAP." >&2
+		return 1
+	}
+	[[ "$app_ports" == *'var.app_port'* ]] || {
+		echo "allow_iap_app_port does not derive its port from var.app_port:" >&2
+		echo "  ${app_ports}" >&2
 		return 1
 	}
 }

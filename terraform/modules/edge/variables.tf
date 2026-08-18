@@ -65,8 +65,96 @@ variable "app_port" {
   }
 }
 
+variable "access_mode" {
+  description = <<-EOT
+    How the edge decides who may reach the application. Exactly three legal values.
+
+      "iap"                Identity-Aware Proxy authenticates and authorises every
+                           request at the Google edge before any byte reaches the
+                           backend. An unauthenticated visitor gets a Google sign-in,
+                           not the app. Access is a named list of principals
+                           (var.iap_members), not a list of IP ranges. THIS IS THE
+                           DEFAULT: the safe posture is what you get by not thinking
+                           about it.
+
+      "allowlist"          Cloud Armor's IP allowlist is the only authorisation
+                           control. Retained for a genuinely public demo. This is
+                           coarse EXPOSURE control and is NOT authentication --
+                           anyone on an allowlisted network is admitted as anyone.
+
+      "iap_and_allowlist"  Both. IAP authenticates, and Cloud Armor additionally
+                           narrows which networks may even reach the sign-in page.
+                           Defence in depth, and the strongest posture available.
+  EOT
+  type        = string
+  default     = "iap"
+
+  validation {
+    condition     = contains(["iap", "allowlist", "iap_and_allowlist"], var.access_mode)
+    error_message = "access_mode must be exactly one of \"iap\", \"allowlist\", or \"iap_and_allowlist\"."
+  }
+}
+
+variable "iap_members" {
+  description = "IAM principals granted roles/iap.httpsResourceAccessor, e.g. [\"user:someone@example.invalid\"]. Required (non-empty) whenever access_mode includes IAP: IAP with no authorised principal is a locked door with no key, and the failure mode is a demo nobody can open."
+  type        = list(string)
+  default     = []
+
+  # An empty list under an IAP mode is not a safe default, it is an outage that
+  # only announces itself at demo time. Fail at plan instead.
+  validation {
+    condition     = !contains(["iap", "iap_and_allowlist"], var.access_mode) || length(var.iap_members) > 0
+    error_message = "access_mode includes IAP but iap_members is empty. IAP with no authorised principal locks everyone out, including you. Name at least one principal, e.g. [\"user:someone@example.invalid\"]."
+  }
+
+  # The single most dangerous line in this module. "allAuthenticatedUsers" reads
+  # as a restriction -- the word "authenticated" is right there -- and in IAP it
+  # means ANY Google account on earth. That is functionally public access wearing
+  # the vocabulary of access control. "allUsers" is public without the disguise.
+  # Compared case-insensitively: only one spelling is valid to the API, but a
+  # guard that a typo walks past is a guard that teaches false confidence.
+  validation {
+    condition = alltrue([
+      for m in var.iap_members :
+      !contains(["allusers", "allauthenticatedusers"], lower(trimspace(m)))
+    ])
+    error_message = "iap_members contains allUsers or allAuthenticatedUsers. Neither is a restriction: allUsers is the public internet, and allAuthenticatedUsers is every Google account in existence, which is functionally public. Name principals explicitly."
+  }
+
+  # Structural backstop for the rule above. Every legal IAM member carries a type
+  # prefix; the two dangerous values are precisely the ones that do not. This
+  # also rejects a bare email address, which silently grants nothing at all.
+  validation {
+    condition = alltrue([
+      for m in var.iap_members :
+      can(regex("^(user|group|serviceAccount|domain|principal|principalSet):[^[:space:]]+$", trimspace(m)))
+    ])
+    error_message = "Every iap_members entry must be a prefixed IAM principal such as \"user:...\", \"group:...\", \"serviceAccount:...\", or \"domain:...\". A bare email address is not a valid member and grants no access."
+  }
+}
+
+variable "iap_oauth2_client_id" {
+  description = "OAuth2 client id for IAP. Leave empty (the default) to use the IAP-managed OAuth client, which requires no brand or client to be provisioned by hand and keeps a client secret out of tfvars entirely. Set both this and iap_oauth2_client_secret only when an externally-managed client is genuinely required."
+  type        = string
+  default     = ""
+}
+
+variable "iap_oauth2_client_secret" {
+  description = "OAuth2 client secret matching iap_oauth2_client_id. Empty by default because the IAP-managed client needs no secret. Never commit a real value; supply it from a secret manager at apply time."
+  type        = string
+  default     = ""
+  sensitive   = true
+
+  # Half a client pair is not a degraded configuration, it is a broken one: the
+  # provider would send an id with no secret and IAP would reject every sign-in.
+  validation {
+    condition     = (var.iap_oauth2_client_id == "") == (var.iap_oauth2_client_secret == "")
+    error_message = "iap_oauth2_client_id and iap_oauth2_client_secret must be set together or both left empty. Leaving both empty selects the IAP-managed OAuth client, which is the recommended form."
+  }
+}
+
 variable "allowed_ipv4" {
-  description = "IPv4 CIDRs permitted at the edge. COARSE EXPOSURE CONTROL ONLY -- this is not authentication. Never 0.0.0.0/0. An empty list is legal and means the default deny is the only rule, which is the safe state."
+  description = "IPv4 CIDRs permitted at the edge. COARSE EXPOSURE CONTROL ONLY -- this is not authentication. Never 0.0.0.0/0. An empty list is legal and means the default deny is the only rule, which is the safe state. Consulted for authorisation only when access_mode is \"allowlist\" or \"iap_and_allowlist\"."
   type        = list(string)
   default     = []
 

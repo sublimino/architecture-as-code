@@ -10,6 +10,9 @@ mock_provider "google" {}
 mock_provider "google-beta" {}
 
 variables {
+  # Allowlist-width validations fire regardless of mode, but this file is about
+  # the allowlist being load-bearing, so it says so.
+  access_mode            = "allowlist"
   project_id             = "changeme-project"
   environment_key        = "demo-1"
   name_prefix            = "sl-demo-1"

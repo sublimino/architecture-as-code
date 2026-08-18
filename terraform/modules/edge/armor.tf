@@ -32,13 +32,42 @@ locals {
   allow_priority_base      = 1000
   default_rule_priority    = 2147483647
 
-  raw_chunks = concat(
+  allowlist_chunks = concat(
     [for i, c in chunklist(var.allowed_ipv4, local.armor_max_cidrs_per_rule) :
       { key = format("ipv4-%02d", i), ranges = c }
     ],
     [for i, c in chunklist(var.allowed_ipv6, local.armor_max_cidrs_per_rule) :
       { key = format("ipv6-%02d", i), ranges = c }
     ],
+  )
+
+  # Which sources Cloud Armor admits depends on WHO is doing the authorising.
+  #
+  # On a global external Application Load Balancer (load_balancing_scheme =
+  # EXTERNAL_MANAGED) Cloud Armor is evaluated BEFORE IAP, against the original
+  # client IP. That ordering is the whole reason this local exists:
+  #
+  #   "For a backend service of a global external Application Load Balancer,
+  #    Cloud Armor evaluation happens first. If Cloud Armor blocks a request,
+  #    IAP doesn't evaluate the request."
+  #    -- cloud.google.com/armor/docs/integrating-cloud-armor
+  #
+  # So in "iap" mode Cloud Armor must admit the client population that IAP will
+  # then authenticate. A policy that admitted only Google's IAP ranges here
+  # would 403 every real browser before IAP ever ran, and the sign-in page would
+  # never appear -- an edge nobody can open, with an entirely green test suite.
+  # IAP is not an upstream proxy with its own source IPs on this LB type; it is
+  # an inline check at the same Google front end. (35.235.240.0/20 is the IAP
+  # TCP-forwarding range, which applies to the VPC firewall for SSH tunnelling,
+  # not to web traffic through this load balancer.)
+  #
+  # The wildcard below therefore widens EXPOSURE, not AUTHORISATION: everything
+  # behind it must still pass IAP. The precondition on the resource makes it
+  # impossible for this branch to be taken while IAP is off.
+  raw_chunks = (
+    local.allowlist_authorises
+    ? local.allowlist_chunks
+    : (local.admit_all_clients ? [{ key = "iap-sign-in", ranges = ["*"] }] : [])
   )
 
   # One shared index across both address families. Indexing each family
@@ -57,7 +86,7 @@ resource "google_compute_security_policy" "edge" {
   name        = "${var.name_prefix}-armor"
   project     = var.project_id
   type        = "CLOUD_ARMOR"
-  description = "Default-deny edge policy for ${var.environment_key}. Allow rules are generated from the environment allowlist; the default action is deny(403)."
+  description = "Default-deny edge policy for ${var.environment_key} in access_mode \"${var.access_mode}\". ${local.allowlist_authorises ? "Allow rules are generated from the environment allowlist" : "Allow rules admit all sources to the IAP sign-in boundary; IAP performs authorisation"}; the default action is deny(403)."
 
   adaptive_protection_config {
     layer_7_ddos_defense_config {
@@ -181,6 +210,21 @@ resource "google_compute_security_policy" "edge" {
       config {
         src_ip_ranges = ["*"]
       }
+    }
+  }
+
+  # The invariant that keeps the wildcard branch above honest. A "*" in the
+  # allow band is only ever acceptable because IAP is authenticating behind it.
+  # If a future edit ever emits that wildcard while IAP is disabled -- a new
+  # access_mode, a changed local, a hand-edited chunker -- this fails the plan
+  # rather than quietly publishing the application to the internet.
+  #
+  # It reads the computed chunk list, not the mode string, so it still bites
+  # when the two are decoupled. That is the mutation worth catching.
+  lifecycle {
+    precondition {
+      condition     = local.iap_enabled || !contains(flatten([for c in local.allow_chunks : c.ranges]), "*")
+      error_message = "A Cloud Armor allow rule admits every source (\"*\") while IAP is disabled. Without IAP behind it that rule publishes the application to the internet and defeats the default deny at priority 2147483647."
     }
   }
 }

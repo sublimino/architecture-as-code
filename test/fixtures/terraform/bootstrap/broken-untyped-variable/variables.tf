@@ -94,3 +94,21 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "create_deploy_identity" {
+  description = "Create the Terraform deploy service account alongside the state bucket. False when you only want the bucket, or when the caller lacks the IAM rights to create it."
+  type        = bool
+  default     = true
+}
+
+variable "deploy_account_id" {
+  description = "Account id for the deploy service account."
+  type        = string
+  default     = "sl-tf-deploy"
+}
+
+variable "deploy_impersonators" {
+  description = "IAM principals permitted to impersonate the deploy identity. Impersonation only; no key is ever created."
+  type        = list(string)
+  default     = []
+}

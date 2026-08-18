@@ -64,6 +64,24 @@ resource "google_storage_bucket_iam_binding" "state_object_admins" {
 #     state they describe means one deletion destroys both the record and the evidence of it.
 #     That is why the separation is structural rather than stylistic.
 
+# ── The deploy identity ─────────────────────────────────────────────────────
+#
+# Created here because it is what applies the platform and environment roots, so
+# it cannot be created by them. One elevated human runs bootstrap once; after
+# that, nobody needs elevated rights again — every subsequent apply and destroy
+# runs as this account by impersonation.
+#
+# Gated so bootstrap still works for someone who only wants the state bucket.
+module "deploy_identity" {
+  count  = var.create_deploy_identity ? 1 : 0
+  source = "../modules/deploy-identity"
+
+  project_id        = var.project_id
+  account_id        = var.deploy_account_id
+  state_bucket_name = google_storage_bucket.terraform_state.name
+  impersonators     = var.deploy_impersonators
+}
+
 resource "google_storage_bucket_iam_binding" "state_bucket_admins" {
   bucket  = google_storage_bucket.terraform_state.name
   role    = "roles/storage.admin"

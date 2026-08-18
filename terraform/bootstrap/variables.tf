@@ -95,3 +95,32 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "create_deploy_identity" {
+  description = <<-EOT
+    Create the Terraform deploy service account alongside the state bucket.
+
+    Opt-in rather than default-on, and the reason is the interaction with
+    deploy_impersonators: the deploy identity rejects an empty impersonator list,
+    because an account nobody can assume is inert while still holding
+    projectIamAdmin. Defaulting this to true with an empty impersonator list
+    therefore made a bare `terraform plan` fail on a contradiction between two
+    defaults, which is a bad first experience and teaches nothing.
+
+    Set true AND name deploy_impersonators together. They are one decision.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "deploy_account_id" {
+  description = "Account id for the deploy service account."
+  type        = string
+  default     = "sl-tf-deploy"
+}
+
+variable "deploy_impersonators" {
+  description = "IAM principals permitted to impersonate the deploy identity. Impersonation only; no key is ever created."
+  type        = list(string)
+  default     = []
+}

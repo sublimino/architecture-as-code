@@ -1,0 +1,179 @@
+{
+  "timestamp": "2026-08-18T04:04:30.237Z",
+  "commit": "f365a4f",
+  "branch": "ci/verify-cold-final",
+  "outcome": "FAIL",
+  "phase": "report",
+  "overall": "FAIL",
+  "total_stages": 27,
+  "passed": 21,
+  "failed": 6,
+  "stages": [
+    {
+      "name": "Static topology, Gateway, probes, Dex, and policy contracts",
+      "status": "fail",
+      "exit_code": 2,
+      "file": "stage1-static.tap"
+    },
+    {
+      "name": "Dashboard unit and guard suite",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1b-dashboard-unit.txt"
+    },
+    {
+      "name": "Acceptance-spec coverage registry",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1c-acceptance-coverage.tap"
+    },
+    {
+      "name": "CI build parity with demo-signalloom-up",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1d-build-parity.tap"
+    },
+    {
+      "name": "Doctor node-image expectations",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1e-node-images.tap"
+    },
+    {
+      "name": "CI terminal-state honesty",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1f-ci-terminal-state.tap"
+    },
+    {
+      "name": "Static guards previously invoked by nothing",
+      "status": "fail",
+      "exit_code": 1,
+      "file": "stage1g-unregistered-guards.tap"
+    },
+    {
+      "name": "bats registry coverage",
+      "status": "fail",
+      "exit_code": 1,
+      "file": "stage1h-bats-registry.tap"
+    },
+    {
+      "name": "Audit-guard reintroduction proof",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1i-audit-reintroduction.txt"
+    },
+    {
+      "name": "RBAC subject resolution",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1l-rbac-subjects.tap"
+    },
+    {
+      "name": "Vocabulary seam mutation proof",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1m-seam-mutation-proof.txt"
+    },
+    {
+      "name": "CI report integrity",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1j-ci-report-integrity.tap"
+    },
+    {
+      "name": "Exec-probe ban in test files",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1k-exec-probe-ban.tap"
+    },
+    {
+      "name": "Vacuous-assertion lint",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1o-vacuous-assertions.txt"
+    },
+    {
+      "name": "Vacuous-assertion lint falsification",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage1p-vacuous-lint-proof.tap"
+    },
+    {
+      "name": "Guard falsification proof",
+      "status": "fail",
+      "exit_code": 3,
+      "file": "stage1q-guard-falsification.txt"
+    },
+    {
+      "name": "API contracts and persistence",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage2-api.txt"
+    },
+    {
+      "name": "Deterministic fake integrations",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage3-fakes.txt"
+    },
+    {
+      "name": "Dashboard API ownership contract",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage4-dashboard.json"
+    },
+    {
+      "name": "TEST-1 harness contract",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage5-harness.tap"
+    },
+    {
+      "name": "Flux and workload convergence",
+      "status": "fail",
+      "exit_code": 2,
+      "file": "stage6-flux.tap"
+    },
+    {
+      "name": "Deployed workloads match the source under test",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage6b-deployed-staleness.txt"
+    },
+    {
+      "name": "Flux variable substitution in live objects",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage6c-flux-substitution.txt"
+    },
+    {
+      "name": "Gateway, probes, Dex, and NetworkPolicy runtime negatives",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage7-runtime.tap"
+    },
+    {
+      "name": "Adversarial API surface probes",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage7b-adversarial.tap"
+    },
+    {
+      "name": "Dex and complete dashboard journey matrix",
+      "status": "pass",
+      "exit_code": 0,
+      "file": "stage8-browser.txt"
+    },
+    {
+      "name": "Dashboard page smoke suite",
+      "status": "fail",
+      "exit_code": 1,
+      "file": "stage8b-smoke.txt"
+    }
+  ],
+  "collected_at": "2026-08-18T05:04:36+01:00",
+  "vm": "signalloom-ci-2",
+  "origin": "/home/andy/src/.worktrees/osramp-demo/ci/verify-cold-90d1872",
+  "host": "fortuna"
+}

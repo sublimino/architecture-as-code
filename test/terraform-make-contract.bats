@@ -1170,8 +1170,35 @@ JSON
   # The suite redirects GCP_TF_HANDOFF_DIR into a temp dir precisely so it cannot
   # write a real hand-off. If that ever stopped working, a test run against a
   # live checkout would emit a file naming the real estate.
-  run bash -c "ls '${REPO_ROOT}'/deploy/gcp/*.handoff.json 2>/dev/null || true"
-  [ -z "$output" ]
+  #
+  # The check is a BEFORE/AFTER comparison, not an assertion that no hand-off
+  # exists. Asserting absence fails on any machine where someone has legitimately
+  # run `make gcp-tf-handoff` — which is every machine that has actually deployed,
+  # i.e. exactly the ones where this guard matters most. A guard that goes red on
+  # correct usage gets deleted, and then the real protection goes with it.
+  #
+  # What is actually forbidden is the SUITE creating or modifying one.
+  local before after
+  before="$(cd "${REPO_ROOT}/deploy/gcp" 2>/dev/null && ls -la -- *.handoff.json 2>/dev/null | sha256sum || echo none)"
+
+  # The redirect is the mechanism under test: these invocations must land in
+  # the temp dir, and the assertion below proves the repository copy is
+  # untouched. Omitting it here — as an earlier version of this test did — makes
+  # the guard fire on its own side effect, which is a true finding about the
+  # test and a false one about the Makefile.
+  local hdir="${BATS_TEST_TMPDIR}/handoff-guard"
+  mkdir -p "${hdir}"
+  run_make gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate GCP_TF_HANDOFF_DIR="${hdir}"
+  run_make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate GCP_TF_HANDOFF_DIR="${hdir}"
+
+  after="$(cd "${REPO_ROOT}/deploy/gcp" 2>/dev/null && ls -la -- *.handoff.json 2>/dev/null | sha256sum || echo none)"
+
+  [ "$before" = "$after" ] || {
+    echo "a gcp-tf target wrote into the repository's deploy/gcp during the suite" >&2
+    echo "before: ${before}" >&2
+    echo "after:  ${after}" >&2
+    return 1
+  }
 }
 
 # ---------------------------------------------------------------------------

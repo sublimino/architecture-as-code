@@ -1279,6 +1279,26 @@ define gcp_tf_assert_prefix
 	echo "gcp-tf: backend prefix '$$resolved' matches ENV='$(ENV)'"
 endef
 
+# Offline init for the validate/test sweep.
+#
+# `terraform validate` and `terraform test` are genuinely offline — verified in
+# a network namespace with no interfaces. `terraform init` is not: it resolves
+# provider packages from registry.terraform.io, and that is a real network
+# dependency no amount of local guarding removes. So init runs only when the
+# providers are not yet installed, and says so when it does.
+#
+# This is not a guard that repairs what it detects. Nothing is being corrected:
+# an uninstalled provider is installed, and if the installed set has drifted
+# from required_providers, terraform's own "provider requirements have changed"
+# error fires on the very next validate. There is no state in which a stale
+# .terraform/ makes this sweep report a pass it has not earned.
+define gcp_tf_init_offline
+	if [ ! -d "$(1)/.terraform/providers" ]; then \
+		echo "    (installing providers — this step, and only this step, needs the registry)"; \
+		$(GCP_TF_NOCREDS) $(TF) -chdir=$(1) init -backend=false -input=false >/dev/null; \
+	fi
+endef
+
 # init -reconfigure with the prefix derived from ENV, followed immediately by
 # the readback assertion. Nothing plans or applies without passing through here.
 define gcp_tf_init_env
@@ -1365,7 +1385,7 @@ gcp-tf-test-unit: ## Run every native `terraform test` suite offline, with cloud
 	fi
 	@for d in $(GCP_TF_TEST_DIRS_RUN); do \
 		echo "--- terraform test: $$d"; \
-		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d init -backend=false -input=false >/dev/null; \
+		$(call gcp_tf_init_offline,$$d); \
 		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d test; \
 	done
 
@@ -1406,7 +1426,7 @@ gcp-tf-validate: ## Offline gate: fmt, validate, tflint, terraform test, terrafo
 	$(GCP_TF_NOCREDS) $(TF) fmt -recursive -check terraform
 	@for d in $(GCP_TF_DIRS); do \
 		echo "--- validate: $$d"; \
-		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d init -backend=false -input=false >/dev/null; \
+		$(call gcp_tf_init_offline,$$d); \
 		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d validate; \
 	done
 	@for d in $(GCP_TF_DIRS); do \

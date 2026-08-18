@@ -937,6 +937,66 @@ register CI-BUILD-PARITY-SCRIPT ci-honesty sh scripts/check-ci-build-parity.sh \
 	'' "$PIPELINE" 'MISSING' mut_ci_build_parity_drop
 register_control ctl_ci_build_parity_delete
 
+# The same guard aimed at the half of the recipe it could not see until now.
+# check-ci-build-parity.sh read `$(MAKE)` lines only, so demo-signalloom-up's two
+# closing script invocations were outside the comparison — and the guard printed
+# a pass over a pipeline missing the only step that activates the Agent Trust
+# slice. A from-scratch run then reached 21/27 stages with zero of six
+# agent-trust-* namespaces, reporting the failure against signalloom-infra.
+#
+# Deleting the line rather than commenting it: the trailing-comment variant is
+# already proven for `make` by mut_ci_build_parity_drop above, and both extractors
+# share one strip_shell_comments.
+mut_ci_build_parity_activation_drop() {
+	# Line-precise, not py_sub. py_sub replaces the FIRST occurrence, and the
+	# invocation now sits under a thirty-line comment block that discusses it —
+	# add one backticked mention of the literal and py_sub would silently mutate
+	# the prose while the live step kept running, scoring the guard green on a
+	# tree that was never mutated.
+	MUT_FILE="$PIPELINE" python3 - <<-'PY'
+		import os, sys, pathlib
+		p = pathlib.Path(os.environ["MUT_FILE"])
+		lines = p.read_text().splitlines(keepends=True)
+		inv = [i for i, l in enumerate(lines)
+		       if l.strip() == "./scripts/agent-trust-local.sh up"]
+		if len(inv) != 1:
+		    sys.stderr.write("expected exactly 1 live invocation line, found %d\n" % len(inv))
+		    sys.exit(3)
+		del lines[inv[0]]
+		p.write_text("".join(lines))
+	PY
+}
+register CI-BUILD-PARITY-ACTIVATION ci-honesty bats test/ci-build-parity.bats \
+	"PARITY the repo's pipeline activates the Agent Trust slice, in recipe order" \
+	"$PIPELINE" 'MISSING|not ok' mut_ci_build_parity_activation_drop
+
+mut_ci_build_parity_activation_early() {
+	# Present but early, which is the worse of the two failures: the activation
+	# snapshots its sibling ResourceSets' inputs and restores them after a fleet
+	# refresh that reapplies `inputs: []`, so it must observe them ACTIVE. Run
+	# before the handover it snapshots nothing, and preflight_bao then waits its
+	# full 600s on a signalloom-infra that will never go Ready — a ten-minute
+	# hang where the omission at least failed fast.
+	MUT_FILE="$PIPELINE" python3 - <<-'PY'
+		import os, sys, pathlib
+		p = pathlib.Path(os.environ["MUT_FILE"])
+		lines = p.read_text().splitlines(keepends=True)
+		inv = [i for i, l in enumerate(lines)
+		       if l.strip() == "./scripts/agent-trust-local.sh up"]
+		anc = [i for i, l in enumerate(lines)
+		       if "signalloom-local.sh up" in l and not l.lstrip().startswith("#")]
+		if len(inv) != 1 or not anc:
+		    sys.stderr.write("expected 1 invocation and >=1 anchor, found %d/%d\n"
+		                     % (len(inv), len(anc)))
+		    sys.exit(3)
+		line = lines.pop(inv[0])
+		p.write_text("".join(lines[:anc[0]] + [line] + lines[anc[0]:]))
+	PY
+}
+register CI-BUILD-PARITY-ACTIVATION-ORDER ci-honesty bats test/ci-build-parity.bats \
+	"PARITY the repo's pipeline activates the Agent Trust slice, in recipe order" \
+	"$PIPELINE" 'TOO EARLY|not ok' mut_ci_build_parity_activation_early
+
 # ── Kind cluster config safety ──────────────────────────────────────────────
 
 mut_kind_command_substitution() {
@@ -1421,6 +1481,93 @@ orc_ci_build_parity() {
 	PY
 }
 
+# The same property for the recipe's SCRIPT steps, which the $(MAKE)-only oracle
+# above cannot see any more than the guard could. Independently parsed, for the
+# reason recorded above orc_ci_build_parity: an oracle that shells out to the
+# checker inherits the checker's blind spots and certifies them.
+#
+# The verb is part of the identity here too. `agent-trust-local.sh down` is a
+# teardown, and an oracle matching the path alone would score it as the bring-up.
+orc_ci_parity_activation() {
+	python3 - <<-'PY'
+		import re, pathlib
+		mk = pathlib.Path("Makefile").read_text()
+		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+
+		steps, inrecipe = [], False
+		for line in mk.split("\n"):
+		    if line.startswith("demo-signalloom-up:"):
+		        inrecipe = True
+		        continue
+		    if not inrecipe:
+		        continue
+		    if not line.startswith("\t"):
+		        if line.strip():
+		            break
+		        continue
+		    body = re.sub(r'^\t+[@+-]*', '', line)
+		    if body.lstrip().startswith("#"):
+		        continue
+		    m = re.search(r'\./(scripts/[A-Za-z0-9_.-]+\.sh)[ \t]+([A-Za-z0-9_-]+)', body)
+		    if m:
+		        steps.append((m.group(1), m.group(2)))
+
+		code = "\n".join(re.sub(r'#.*$', '', ln) for ln in pipe.split("\n"))
+		missing = 0
+		for path, verb in steps:
+		    if not re.search(r'\./%s[ \t]+%s\b' % (re.escape(path), re.escape(verb)), code):
+		        missing += 1
+		print(missing)
+	PY
+}
+
+# Script steps the recipe runs AFTER its handover to signalloom-local.sh that the
+# pipeline runs BEFORE its own. Counted separately from membership because the
+# remedies differ and so does the failure: a missing activation fails fast, an
+# early one snapshots inputs that are not active yet and hangs for ten minutes.
+orc_ci_parity_activation_order() {
+	python3 - <<-'PY'
+		import re, pathlib
+		mk = pathlib.Path("Makefile").read_text()
+		pipe = pathlib.Path("scripts/ci/vm-pipeline.sh").read_text()
+		ANCHOR = r'signalloom-local\.sh up'
+
+		steps, inrecipe, anchor_at = [], False, None
+		for n, line in enumerate(mk.split("\n")):
+		    if line.startswith("demo-signalloom-up:"):
+		        inrecipe = True
+		        continue
+		    if not inrecipe:
+		        continue
+		    if not line.startswith("\t"):
+		        if line.strip():
+		            break
+		        continue
+		    body = re.sub(r'^\t+[@+-]*', '', line)
+		    if body.lstrip().startswith("#"):
+		        continue
+		    if anchor_at is None and re.search(ANCHOR, body):
+		        anchor_at = n
+		    m = re.search(r'\./(scripts/[A-Za-z0-9_.-]+\.sh)[ \t]+([A-Za-z0-9_-]+)', body)
+		    if m:
+		        steps.append((n, m.group(1), m.group(2)))
+
+		lines = [re.sub(r'#.*$', '', ln) for ln in pipe.split("\n")]
+		p_anchor = next((n for n, ln in enumerate(lines) if re.search(ANCHOR, ln)), None)
+		bad = 0
+		if anchor_at is not None and p_anchor is not None:
+		    for n, path, verb in steps:
+		        if n <= anchor_at:
+		            continue
+		        hit = next((i for i, ln in enumerate(lines)
+		                    if re.search(r'\./%s[ \t]+%s\b'
+		                                 % (re.escape(path), re.escape(verb)), ln)), None)
+		        if hit is not None and hit < p_anchor:
+		            bad += 1
+		print(bad)
+	PY
+}
+
 # ── Every case must have an oracle ──────────────────────────────────────────
 #
 # Attached by id, so this block is the only place the oracle layer touches.
@@ -1449,6 +1596,8 @@ attach_oracle META-EXEC-PROBE                   orc_meta_exec_probe
 attach_oracle META-ALLOWLIST-COUNT-DRIFT        orc_meta_exec_probe
 attach_oracle CI-BUILD-PARITY-REAL              orc_ci_build_parity
 attach_oracle CI-BUILD-PARITY-SCRIPT            orc_ci_build_parity
+attach_oracle CI-BUILD-PARITY-ACTIVATION        orc_ci_parity_activation
+attach_oracle CI-BUILD-PARITY-ACTIVATION-ORDER  orc_ci_parity_activation_order
 attach_oracle KIND-COMMAND-SUBSTITUTION         orc_kind_cmdsub
 
 # ── Foreign-edit detection: content hashes, never mtimes ────────────────────

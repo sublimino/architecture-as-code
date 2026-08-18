@@ -136,6 +136,81 @@ variable "egress_public_https_destinations" {
   default     = []
 }
 
+variable "egress_public_ports" {
+  description = <<-EOT
+    TCP ports the runtime service account may reach on the destinations named in
+    egress_public_https_destinations. Defaults to ["443"] alone, so plaintext
+    egress stays closed unless an environment opens it explicitly in tfvars.
+
+    Opening 80 is what makes container image BUILDS work. It also weakens the
+    posture this environment exists to demonstrate. Read EGRESS-RULE-01 below
+    before setting it.
+  EOT
+  type        = list(string)
+  default     = ["443"]
+
+  # ─── The measured failure that made a hardcoded ["443"] untenable ─────────
+  #
+  # `make demo-signalloom-up` failed RC=2 on the running VM, in the image build:
+  #
+  #     W: Failed to fetch http://deb.debian.org/debian/dists/trixie/InRelease
+  #        Unable to connect to deb.debian.org:http
+  #     E: Unable to locate package wget
+  #
+  # And directly, from the VM: `port80 deb.debian.org: BLOCKED`,
+  # `port443 deb.debian.org: 200`.
+  #
+  # The distinction is the whole point and it is easy to miss. The VM's OWN apt
+  # is fine on 443-only, because every source on the GCE Debian image is HTTPS.
+  # A container build does not use the VM's sources — it uses the BASE IMAGE's,
+  # and debian:trixie defaults to http://deb.debian.org. So a 443-only policy
+  # passes every check you can run from the host and fails the moment anything
+  # builds an image. That is why this was found by running the estate rather
+  # than by reading the module.
+  #
+  # ─── Why "just use HTTPS in the Dockerfiles" is not the fix ───────────────
+  #
+  # Debian serves identical content on 443, but debian:trixie-slim ships
+  # without ca-certificates, so apt cannot verify a TLS mirror until it has
+  # installed a package it can only fetch over TLS. Chicken and egg. This was
+  # checked on the VM before the widening was proposed; do not "improve" it
+  # back into a Dockerfile change without re-testing that specific point.
+  #
+  # ─── What opening 80 costs, stated plainly ───────────────────────────────
+  #
+  # It is a real weakening of the story this environment tells, and the comment
+  # should not pretend otherwise. What bounds it:
+  #
+  #   * EGRESS ONLY. Ingress is entirely unaffected — default-deny ingress
+  #     stands, there is no external IP, and the only paths in are IAP on 22
+  #     and on app_port.
+  #   * Scoped by target_service_accounts to this environment's runtime SA. A
+  #     VM running as any other identity in this VPC still cannot reach the
+  #     internet at all.
+  #   * Bounded by egress_public_https_destinations, which is a CIDR list, not
+  #     "the internet" — unless someone makes it so.
+  #
+  # Before showing this to a customer, narrow the destinations to the mirrors
+  # and registries actually used. An 80-open rule pointed at 0.0.0.0/0 is a
+  # plaintext channel to anywhere, and it is the first thing a hostile reviewer
+  # will find.
+  #
+  # The default stays ["443"] so that this decision is made per environment, in
+  # a file someone reviewed, rather than inherited from a module nobody reread.
+  validation {
+    condition     = length(var.egress_public_ports) > 0
+    error_message = "EGRESS-RULE-01-PORTS-NON-EMPTY: egress_public_ports must name at least one port. An empty list produces a firewall rule with no ports, which the provider may widen to every port rather than none — the opposite of the intent. To close public egress entirely, leave egress_public_https_destinations empty; that creates no rule at all."
+  }
+
+  validation {
+    condition = alltrue([
+      for p in var.egress_public_ports :
+      can(regex("^[0-9]+$", p)) && tonumber(p) >= 1 && tonumber(p) <= 65535
+    ])
+    error_message = "EGRESS-RULE-02-PORTS-RANGE: every entry in egress_public_ports must be a bare port number between 1 and 65535, as a string. Ranges (\"80-443\") and protocol names (\"http\") are not accepted here: a range is a much larger grant than it looks, and this list is meant to be countable at a glance."
+  }
+}
+
 variable "enable_private_google_access_dns" {
   description = <<-EOT
     Create the private DNS zone that points googleapis.com at the restricted

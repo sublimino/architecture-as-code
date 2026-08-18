@@ -230,6 +230,100 @@ run "the_app_port_is_reachable_over_iap_and_only_over_iap" {
 }
 
 # ---------------------------------------------------------------------------
+# The regression this environment actually hit.
+#
+# Before allow_iap_app_port existed, app_port was opened ONLY to Google's
+# load-balancer health-check ranges. demo-1 has no load balancer at all —
+# hostname and dns_managed_zone are both "" by design, so no forwarding rule is
+# created — which means those ranges reach this environment NEVER. An IAP tunnel
+# to the app port therefore matched no allow rule and was dropped by
+# deny_all_ingress. Reproduced live against 8080:
+#
+#     ERROR: ... [4003: 'failed to connect to backend']
+#
+# and misread as "nothing is listening yet". It was BOTH, and fixing only the
+# listener would have left an identical error message. That is the expensive way
+# to be wrong, and it is why this run asserts reachability rather than the
+# presence of a rule.
+#
+# Stated as a POSITIVE requirement: some ingress allow rule must grant app_port
+# from the IAP range. Deleting allow_iap_app_port does not satisfy it — it
+# breaks the reference and the run errors. An "app_port is not open to the
+# world" assertion would have passed cheerfully throughout the outage.
+# ---------------------------------------------------------------------------
+
+run "app_port_is_reachable_from_iap_and_not_only_from_health_checkers" {
+  command = plan
+
+  variables {
+    app_port = 30754
+  }
+
+  # The requirement itself. Both halves in one condition on purpose: a rule
+  # that opens the port from the wrong source, and a rule with the right source
+  # that opens the wrong port, are the same outage.
+  assert {
+    condition = (
+      contains(google_compute_firewall.allow_iap_app_port.source_ranges, "35.235.240.0/20")
+      && contains(one(google_compute_firewall.allow_iap_app_port.allow).ports, "30754")
+    )
+    error_message = "no ingress rule grants the app port from the IAP range. With no load balancer in this environment the health-check ranges reach it never, so an IAP tunnel to the app port is dropped by deny_all_ingress and fails as 4003 'failed to connect to backend' — which reads as a dead application."
+  }
+
+  # And the app port is reachable from NOWHERE else. Enumerated over every
+  # ingress allow rule in the module rather than asserted about one of them,
+  # because the question is what the environment permits, not what one resource
+  # says.
+  assert {
+    condition = alltrue([
+      for src in setunion(
+        google_compute_firewall.allow_iap_app_port.source_ranges,
+        google_compute_firewall.allow_health_checks.source_ranges,
+      ) :
+      contains(["35.235.240.0/20", "130.211.0.0/22", "35.191.0.0/16"], src)
+    ])
+    error_message = "the app port is reachable from a source that is neither the IAP range nor a Google health-check range"
+  }
+
+  assert {
+    condition = length(setintersection(
+      setunion(
+        google_compute_firewall.allow_iap_app_port.source_ranges,
+        google_compute_firewall.allow_health_checks.source_ranges,
+      ),
+      toset(["0.0.0.0/0", "::/0"]),
+    )) == 0
+    error_message = "the app port must never be reachable from the whole internet"
+  }
+
+  # The SSH rule does not open the app port. If it did, the split would be
+  # undone and the rule listing would misdescribe the exposure.
+  assert {
+    condition     = !contains(one(google_compute_firewall.allow_iap_ssh.allow).ports, "30754")
+    error_message = "the SSH rule must not open the app port; that is allow_iap_app_port's job and the two are separate exposures"
+  }
+
+  # The health-check rule is unchanged by any of this: same two Google ranges,
+  # still tracking app_port, still scoped to the runtime SA.
+  assert {
+    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+      "130.211.0.0/22", "35.191.0.0/16",
+    ])
+    error_message = "the health-check rule's sources must remain exactly the two GCP probe ranges"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_health_checks.allow).ports == tolist(["30754"])
+    error_message = "the health-check rule must still track app_port"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_health_checks.target_service_accounts == toset([var.runtime_service_account_email])
+    error_message = "the health-check rule must remain scoped to the runtime service account"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # ISC-86/87: health checks from exactly the two GCP ranges, on exactly the app
 # port. Run with a non-default app_port so a hardcoded 8080 fails here.
 # ---------------------------------------------------------------------------
@@ -305,6 +399,130 @@ run "egress_defaults_closed" {
     condition     = google_compute_firewall.deny_all_ingress.priority > google_compute_firewall.allow_iap_ssh.priority
     error_message = "the ingress deny must have a lower precedence than the ingress allows"
   }
+}
+
+# ---------------------------------------------------------------------------
+# EGRESS-RULE-01/02: the public egress ports.
+#
+# The default is the security-relevant half. A module that defaults to
+# ["80","443"] opens plaintext egress for every environment that never asked,
+# and no functional test anywhere notices — the estate builds fine, which is
+# exactly the problem. So the first assertion is on the DEFAULT, stated as an
+# exact-set equality rather than as "443 is present".
+# ---------------------------------------------------------------------------
+
+run "public_egress_defaults_to_443_and_only_443" {
+  command = plan
+
+  variables {
+    egress_public_https_destinations = ["192.0.2.0/24"]
+    # egress_public_ports deliberately NOT set: this run is about the default.
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_egress_public_https[0].allow).ports == tolist(["443"])
+    error_message = "the public egress default must be exactly [\"443\"]; adding 80 to the module default opens plaintext egress for every environment silently"
+  }
+
+  # Belt and braces on the specific value that matters. The equality above
+  # already covers it, but this one names the failure in the message, so a
+  # future reader of a red run learns what was added rather than only that a
+  # list differed.
+  assert {
+    condition     = !contains(one(google_compute_firewall.allow_egress_public_https[0].allow).ports, "80")
+    error_message = "port 80 must never be in the module default; opening plaintext egress is a per-environment decision made in a reviewed tfvars file"
+  }
+}
+
+run "a_configured_port_list_reaches_the_firewall_rule" {
+  command = plan
+
+  variables {
+    egress_public_https_destinations = ["192.0.2.0/24"]
+    egress_public_ports              = ["80", "443"]
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_egress_public_https[0].allow).ports == tolist(["80", "443"])
+    error_message = "egress_public_ports must reach the rule; a hardcoded list ignores the environment and the image build fails on http://deb.debian.org"
+  }
+
+  # The scoping is asserted POSITIVELY — the rule must name this SA — rather
+  # than as "no wildcard target". An absence assertion is satisfied hardest by
+  # a rule that does not exist at all, which is the inversion this repo has
+  # been bitten by before.
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_https[0].target_service_accounts == toset([var.runtime_service_account_email])
+    error_message = "the public egress rule must be scoped to the runtime service account; unscoped, it grants plaintext egress to every instance in the VPC"
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_https[0].target_service_accounts) == 1
+    error_message = "the public egress rule must target exactly one service account"
+  }
+
+  # Widening egress must not disturb ingress. Asserted here rather than assumed,
+  # because "I only opened an outbound port" is exactly the change someone makes
+  # without re-reading the ingress rules.
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_ssh.allow).ports == tolist(["22"])
+    error_message = "an egress change must not alter the SSH ingress rule"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_ssh.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "an egress change must not alter the IAP ingress source range"
+  }
+
+  assert {
+    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+      "130.211.0.0/22", "35.191.0.0/16",
+    ])
+    error_message = "an egress change must not alter the health-check ingress sources"
+  }
+
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress.direction == "INGRESS"
+    error_message = "the default-deny ingress rule must survive an egress change"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.deny_all_ingress.deny).protocol == "all"
+    error_message = "the default-deny ingress rule must still deny every protocol"
+  }
+}
+
+run "rejects_an_empty_public_egress_port_list" {
+  command = plan
+
+  variables {
+    # A rule with no ports is a shape the provider may widen to ALL ports,
+    # which is the opposite of what an empty list looks like it means.
+    egress_public_ports = []
+  }
+
+  expect_failures = [var.egress_public_ports]
+}
+
+run "rejects_a_port_range_in_the_public_egress_ports" {
+  command = plan
+
+  variables {
+    # "80-443" is 364 ports wearing the appearance of two.
+    egress_public_ports = ["80-443"]
+  }
+
+  expect_failures = [var.egress_public_ports]
+}
+
+run "rejects_an_out_of_range_public_egress_port" {
+  command = plan
+
+  variables {
+    egress_public_ports = ["443", "70000"]
+  }
+
+  expect_failures = [var.egress_public_ports]
 }
 
 run "naming_a_public_destination_creates_exactly_one_scoped_rule" {

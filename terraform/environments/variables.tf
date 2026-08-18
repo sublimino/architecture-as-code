@@ -262,7 +262,34 @@ variable "state_bucket_name" {
 }
 
 variable "egress_public_https_destinations" {
-  description = "Public CIDRs the runtime service account may reach on TCP 443, for package mirrors and container registries that publish no stable address range. Empty means no rule is created and public egress stays denied. INGRESS is unaffected: default-deny ingress, no external IP, and IAP-only access all still apply."
+  description = "Public CIDRs the runtime service account may reach on egress_public_ports, for package mirrors and container registries that publish no stable address range. Empty means no rule is created and public egress stays denied. INGRESS is unaffected: default-deny ingress, no external IP, and IAP-only access all still apply."
   type        = list(string)
   default     = []
+}
+
+variable "egress_public_ports" {
+  description = "TCP ports the runtime service account may reach on egress_public_https_destinations. Defaults to [\"443\"]. Opening \"80\" is what makes container image BUILDS work — a build uses the base image's apt sources, and debian:trixie defaults to http://deb.debian.org — and it is a real weakening of the egress story. See EGRESS-RULE-01 in modules/network/variables.tf. Passed to modules/network."
+  type        = list(string)
+  default     = ["443"]
+
+  # Mirrored from the module for the same reason access_mode is mirrored above:
+  # the moment this root wires `egress_public_ports = var.egress_public_ports`
+  # into the network module, the MODULE's default is dead and THIS default
+  # governs. A root defaulting to ["80", "443"] would silently open plaintext
+  # egress for every environment while every module test stayed green, because
+  # the module would be behaving exactly as designed with the input it was
+  # handed. The conditions are character-identical to the module's; only the
+  # message carries this file's rule-ID prefix.
+  validation {
+    condition     = length(var.egress_public_ports) > 0
+    error_message = "EGRESS-RULE-01-PORTS-NON-EMPTY: egress_public_ports must name at least one port. To close public egress entirely, leave egress_public_https_destinations empty; that creates no rule at all."
+  }
+
+  validation {
+    condition = alltrue([
+      for p in var.egress_public_ports :
+      can(regex("^[0-9]+$", p)) && tonumber(p) >= 1 && tonumber(p) <= 65535
+    ])
+    error_message = "EGRESS-RULE-02-PORTS-RANGE: every entry in egress_public_ports must be a bare port number between 1 and 65535, as a string. Ranges and protocol names are not accepted."
+  }
 }

@@ -398,7 +398,11 @@ orbit-approval-configmap: signing-keys ## Publish the PUBLIC orbit approval key 
 
 .PHONY: test
 test: ## Run the end-to-end bats suite against the running cluster.
-	$(MAKE) -C d2-osramp-apps test
+	# Wrapped, because on 2026-08-18 this target exited 0 with 8 tests and 8
+	# skips ("namespace/frontend not deployed") while six live-data failures
+	# were in front of a user. Every line was `ok`, so it read as a pass. The
+	# wrapper fails a run in which nothing actually executed.
+	./scripts/assert-bats-ran-something.sh $(MAKE) -C d2-osramp-apps test
 
 # ─── Signal Fusion / Weave unit tests ───────────────────────────────────────
 # All targets below run offline — no cluster, no network, no API key.

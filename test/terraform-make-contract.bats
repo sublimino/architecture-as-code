@@ -479,8 +479,14 @@ JSON
 }
 
 @test "gcp-tf-validate refuses a vacuous pass when the bats glob finds nothing" {
+  # The sibling test above asserts the failure SIGNATURE as well as the status;
+  # this one originally checked only `-ne 0`, which test/vacuous-assertions.bats
+  # (VAC003) flagged: make exits non-zero for a missing target, a syntax error,
+  # or a tool that is not installed, so the assertion passed for reasons that
+  # have nothing to do with the guard under test. Pin the message.
   run make -C "${REPO_ROOT}" gcp-tf-validate GCP_TF_BATS_RUN= GCP_TF_DIRS=
   [ "$status" -ne 0 ]
+  [[ "${output}" == *"no terraform directories discovered"* ]]
 }
 
 # ---------------------------------------------------------------------------

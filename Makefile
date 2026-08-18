@@ -1526,3 +1526,11 @@ gcp-tf-ci: ## Plan the CI environment lane (CI=<ci-N>). Delegates to gcp-tf-plan
 # ===========================================================================
 # END GCP Terraform platform block
 # ===========================================================================
+
+.PHONY: where
+where: ## Where is Signal Loom right now, and what URL do I hand someone? Read-only, no args.
+	@./scripts/where.sh
+
+.PHONY: where-probe
+where-probe: ## Same as 'where', but also curls each address and reports the status code.
+	@./scripts/where.sh --probe

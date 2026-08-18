@@ -265,10 +265,11 @@ it successfully and reports on an estate it never reached.
 | `project_id` | string | `.project_id` or `.integration_inputs.project_id` | no |
 | `environment_key` | string | `.target_env` | no |
 | `env` | string | Alias of `environment_key`, asserted equal to it. | no |
+| `kind` | string | `.target_environment.kind` — `demo` or `ci` | no |
 | `region` | string | `.target_environment.region` | no |
 | `zone` | string | `.target_environment.zone` | no |
-| `instance_name` | string | `.instance_name`, or `.instance_names[<env>]` | no |
-| `internal_ip` | string | `.internal_ip`, or `.internal_ips[<env>]` | no |
+| `instance_name` | string | `.instance_name`, or `.instance_names[<env>]` | **only when `kind` is `ci`** |
+| `internal_ip` | string | `.internal_ip`, or `.internal_ips[<env>]` | **only when `kind` is `ci`** |
 | `app_port` | **number** | `.target_environment.app_port` | no |
 | `state_bucket` | string | `TF_STATE_BUCKET` | no |
 | `state_prefix` | string | derived from `ENV` | no |
@@ -286,6 +287,15 @@ discovering an absent one at runtime.
 compares it to a port.
 
 ### Worked example
+
+`instance_name` and `internal_ip` may be empty **only** for a CI lane.
+`terraform/environments/main.tf` filters the compute module on `kind == "demo"`,
+so a CI environment genuinely has no instance and no internal IP; demanding them
+would make `make gcp-tf-up ENV=ci-1` fail at its last step with nothing wrong.
+The relaxation is keyed on the resolved `kind` and is fail-closed: only the exact
+string `ci` takes the lenient branch, `demo` and an unresolved `kind` both take
+the strict one, and any other value is rejected rather than guessed at. Read
+`kind` to tell "CI lane, correctly has no instance" from "demo lane, broken".
 
 `access_mode` reports **the access path actually in force**, which is not the
 same thing as `var.access_mode` in the tfvars.
@@ -346,6 +356,7 @@ drift apart.
   "project_id": "CHANGEME-project",
   "environment_key": "demo-1",
   "env": "demo-1",
+  "kind": "demo",
   "region": "CHANGEME-region",
   "zone": "CHANGEME-region-a",
   "instance_name": "osramp-demo-1-vm",

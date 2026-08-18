@@ -6,8 +6,11 @@
 setup() {
 	repo_root="$(cd "${BATS_TEST_FILENAME%/*}/../.." && pwd)"
 	base="$repo_root/d2-signalloom/apps/fleet-manager/base"
+	# The cross-namespace RBAC lives here, not in base/ — see the Role section.
+	resourceset="$repo_root/d2-osramp-fleet/tenants/local/signalloom.yaml"
 
 	command -v yq >/dev/null || skip "yq is required"
+	[ -f "$resourceset" ] || skip "signalloom ResourceSet not found at $resourceset"
 }
 
 # --- Deployment ---
@@ -78,23 +81,57 @@ setup() {
 	[ "$output" = "fleet-manager" ]
 }
 
-# --- Role ---
+# --- Role / RoleBinding ---
+#
+# These moved OUT of base/rbac.yaml and into the signalloom-infra ResourceSet
+# when this directory was put under Flux, and the tests had to move with them.
+#
+# They are not in the base for two reasons, either one sufficient: the
+# signalloom-apps Kustomization carries `targetNamespace`, which would relocate
+# a fe-signalloom-agents Role into the tenant namespace and leave fleet-manager
+# with no grant where the agents run; and that Kustomization reconciles as the
+# namespace-scoped `flux` SA, which lacks `escalate`, so a RoleBinding created
+# from there fails the server dry-run's roleRef lookup and aborts the whole set.
+#
+# Two of these assertions used to pass VACUOUSLY after the move — "no wildcard
+# resources" and "no wildcard verbs" both went green against an empty yq result,
+# because a rule set that does not exist contains no wildcards. A least-
+# privilege guard that passes hardest when the grant is missing entirely is
+# worse than no guard, so each test below first asserts the object IS THERE.
+
+# Emits the fleet-manager Role's rule set from the ResourceSet.
+fleet_role_rules() {
+	yq ea "select(.metadata.name == \"signalloom-infra\")
+	       | .spec.resources[]
+	       | select(.kind == \"Role\" and .metadata.name == \"fleet-manager-pod-reader\")
+	       | .rules[0]" "$resourceset"
+}
+
+@test "the fleet-manager Role exists in the signalloom-infra ResourceSet" {
+	# Asserted before anything reads it, so a Role that was deleted or renamed
+	# reports as missing rather than as trivially compliant.
+	run fleet_role_rules
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+	[[ "$output" != "null" ]]
+}
 
 @test "Role grants exactly get, list, patch on pods" {
-	run yq 'select(.kind == "Role") | .rules[0].verbs | sort | join(",")' "$base/rbac.yaml"
+	run bash -c "$(declare -f fleet_role_rules); resourceset='$resourceset'; fleet_role_rules | yq '.verbs | sort | join(\",\")'"
 	[ "$status" -eq 0 ]
 	[ "$output" = "get,list,patch" ]
 }
 
 @test "Role targets pods resource only" {
-	run yq 'select(.kind == "Role") | .rules[0].resources[0]' "$base/rbac.yaml"
+	run bash -c "$(declare -f fleet_role_rules); resourceset='$resourceset'; fleet_role_rules | yq '.resources | join(\",\")'"
 	[ "$status" -eq 0 ]
 	[ "$output" = "pods" ]
 }
 
 @test "Role has no wildcard resources" {
 	local resources
-	resources="$(yq 'select(.kind == "Role") | .rules[0].resources[]' "$base/rbac.yaml")"
+	resources="$(fleet_role_rules | yq '.resources[]')"
+	[ -n "$resources" ]
 	local wildcards
 	wildcards="$(printf '%s\n' "$resources" | grep -Fx '*' || true)"
 	[ -z "$wildcards" ]
@@ -102,30 +139,63 @@ setup() {
 
 @test "Role has no wildcard verbs" {
 	local verbs
-	verbs="$(yq 'select(.kind == "Role") | .rules[0].verbs[]' "$base/rbac.yaml")"
+	verbs="$(fleet_role_rules | yq '.verbs[]')"
+	[ -n "$verbs" ]
 	local wildcards
 	wildcards="$(printf '%s\n' "$verbs" | grep -Fx '*' || true)"
 	[ -z "$wildcards" ]
 }
 
 @test "Role is namespace-scoped to fe-signalloom-agents" {
-	run yq 'select(.kind == "Role") | .metadata.namespace' "$base/rbac.yaml"
+	run yq ea "select(.metadata.name == \"signalloom-infra\")
+	           | .spec.resources[]
+	           | select(.kind == \"Role\" and .metadata.name == \"fleet-manager-pod-reader\")
+	           | .metadata.namespace" "$resourceset"
 	[ "$status" -eq 0 ]
 	[ "$output" = "fe-signalloom-agents" ]
 }
 
-# --- RoleBinding ---
+@test "Role is namespaced, never a ClusterRole" {
+	# fleet-manager must not acquire a cluster-wide identity. A ClusterRole of
+	# the same name would satisfy every verb assertion above.
+	run yq ea "select(.metadata.name == \"signalloom-infra\")
+	           | .spec.resources[]
+	           | select(.kind == \"ClusterRole\" and (.metadata.name | test(\"fleet-manager\")))
+	           | .metadata.name" "$resourceset"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ] || [ "$output" = "null" ]
+}
 
 @test "RoleBinding references the correct Role" {
-	run yq 'select(.kind == "RoleBinding") | .roleRef.name' "$base/rbac.yaml"
+	run yq ea "select(.metadata.name == \"signalloom-infra\")
+	           | .spec.resources[]
+	           | select(.kind == \"RoleBinding\" and .metadata.name == \"fleet-manager-pod-reader\")
+	           | .roleRef.name" "$resourceset"
 	[ "$status" -eq 0 ]
 	[ "$output" = "fleet-manager-pod-reader" ]
 }
 
-@test "RoleBinding subject is the fleet-manager SA" {
-	run yq 'select(.kind == "RoleBinding") | .subjects[0].name' "$base/rbac.yaml"
+@test "RoleBinding subject is the fleet-manager SA in fe-signalloom" {
+	# The namespace half is the point. A RoleBinding naming a ServiceAccount
+	# that does not exist is LEGAL and SILENT: it binds nothing, every pod
+	# list/patch 403s, and client-go surfaces a 403 as an EMPTY result. The
+	# identical mistake against supercred-demo-runner bound
+	# system:serviceaccount:inf-bao:supercred-demo-runner and cost a day.
+	run yq ea "select(.metadata.name == \"signalloom-infra\")
+	           | .spec.resources[]
+	           | select(.kind == \"RoleBinding\" and .metadata.name == \"fleet-manager-pod-reader\")
+	           | .subjects[0] | .name + \" \" + .namespace" "$resourceset"
 	[ "$status" -eq 0 ]
-	[ "$output" = "fleet-manager" ]
+	[ "$output" = "fleet-manager fe-signalloom" ]
+}
+
+@test "the base kustomization no longer ships the cross-namespace RBAC" {
+	# Belt and braces against a well-meaning restore. Putting the Role back in
+	# base/rbac.yaml reintroduces both failures at once and neither is visible:
+	# Flux reports Ready either way.
+	run yq ea 'select(.kind == "Role" or .kind == "RoleBinding") | .metadata.name' "$base/rbac.yaml"
+	[ "$status" -eq 0 ]
+	[ -z "$output" ] || [ "$output" = "null" ]
 }
 
 # --- ConfigMap ---

@@ -7,9 +7,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultAgentState is the state an agent is reported in when the fleet config
+// does not say otherwise.
+//
+// "active" and not "" — fleetApi.ts declares AgentState.state non-optional and
+// types it as AgentStateValue, so an empty string is not a member of the union.
+// The dashboard does not reject it: stateToken()/stateColour() simply miss,
+// every roster count lands on zero, and the Fleet page renders a fleet in no
+// state at all. A believable wrong answer is the failure mode to design out.
+const DefaultAgentState = "active"
+
 // Agent represents a single agent in the fleet topology.
 type Agent struct {
-	ID           string   `json:"id" yaml:"id"`
+	ID string `json:"id" yaml:"id"`
+	// Name is the human label the topology graph renders (FleetTopology.tsx:145).
+	// Defaulted to ID by BuildDAG when the config omits it, because a blank here
+	// draws an unlabelled node rather than raising anything.
+	Name         string   `json:"name" yaml:"name"`
 	Type         string   `json:"type" yaml:"type"`
 	Team         string   `json:"team" yaml:"team"`
 	TrustProfile string   `json:"trustProfile" yaml:"trustProfile"`
@@ -17,16 +31,41 @@ type Agent struct {
 	GracePeriod  string   `json:"gracePeriod" yaml:"gracePeriod"`
 	Dependencies []string `json:"dependencies" yaml:"dependencies"`
 	Namespace    string   `json:"namespace" yaml:"namespace"`
-	State        string   `json:"state,omitempty" yaml:"-"`
+	// No omitempty: the client requires this key to be present. With omitempty
+	// an unset state vanished from the wire entirely, which is how the Fleet
+	// page came to render agents with no state and counts of zero.
+	State string `json:"state" yaml:"state"`
+}
+
+// RiskSummary is the aggregate fleet risk the dashboard renders as currency.
+// Mirrors the RiskSummary interface in fleetApi.ts.
+//
+// These figures are AUTHORED DEMO DATA read straight from the fleet ConfigMap,
+// and deliberately not computed here. There is no fleet risk model in this
+// repository — risk/ and tools/riskctl model CVE baselines for components, not
+// agent fleets — so any number this service derived would be a risk figure
+// invented in code. Serving authored config keeps the figures reviewable in a
+// manifest and changeable without a rebuild.
+type RiskSummary struct {
+	ALE   float64 `json:"ale" yaml:"ale"`
+	Var95 float64 `json:"var95" yaml:"var95"`
+	Trend string  `json:"trend" yaml:"trend"`
+	// Pointer + omitempty: previousAle is the one optional member of the client
+	// interface, and a plain float64 would put a spurious 0 on the wire.
+	PreviousALE *float64 `json:"previousAle,omitempty" yaml:"previousAle"`
 }
 
 // FleetConfig is the top-level YAML structure.
 type FleetConfig struct {
-	Agents []Agent `yaml:"agents"`
+	Agents        []Agent     `yaml:"agents"`
+	AggregateRisk RiskSummary `yaml:"aggregateRisk"`
 }
 
 // DAG holds the agent dependency graph and provides traversal methods.
 type DAG struct {
+	// risk is the authored aggregate carried alongside the graph so
+	// LoadFleet keeps its single return value and main.go's wiring is unchanged.
+	risk     RiskSummary
 	agents   map[string]*Agent
 	// forward edges: agent -> agents it depends on
 	deps map[string][]string
@@ -51,8 +90,21 @@ func ParseFleet(data []byte) (*DAG, error) {
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse fleet config: %w", err)
 	}
-	return BuildDAG(cfg.Agents)
+	d, err := BuildDAG(cfg.Agents)
+	if err != nil {
+		return nil, err
+	}
+	d.risk = cfg.AggregateRisk
+	if d.risk.Trend == "" {
+		// "stable" and not "": trend is a union of up/down/stable in the client
+		// and an empty string is not a member of it.
+		d.risk.Trend = "stable"
+	}
+	return d, nil
 }
+
+// AggregateRisk returns the authored fleet risk summary.
+func (d *DAG) AggregateRisk() RiskSummary { return d.risk }
 
 // BuildDAG constructs a DAG from a list of agents. Returns an error if:
 // - duplicate agent IDs are found
@@ -70,6 +122,14 @@ func BuildDAG(agents []Agent) (*DAG, error) {
 		a := &agents[i]
 		if _, exists := d.agents[a.ID]; exists {
 			return nil, fmt.Errorf("duplicate agent ID: %s", a.ID)
+		}
+		// Defaulted here rather than in ParseFleet so every construction path
+		// gets it — the cascade tests and the orchestrator build DAGs directly.
+		if a.Name == "" {
+			a.Name = a.ID
+		}
+		if a.State == "" {
+			a.State = DefaultAgentState
 		}
 		d.agents[a.ID] = a
 		d.order = append(d.order, a.ID)

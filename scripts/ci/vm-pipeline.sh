@@ -266,6 +266,13 @@ retry 3 make signalloom-images
 # comparison so the next copy cannot drift silently.
 retry 3 make demo-signalloom-supercred-images
 retry 3 make demo-signalloom-signalfusion-images
+# Same shape as the paragraph above, one slice over: fleet-manager/base is now
+# an unconditional member of apps/fe-signalloom/base/kustomization.yaml, so
+# every bring-up deploys it, and its Deployment pulls a bare
+# `fleet-manager:local` tag with imagePullPolicy: IfNotPresent. Without this
+# line the CI VM deploys a workload it never built, and the Fleet page answers
+# /fleet-api/* with a raw nginx 502.
+retry 3 make demo-signalloom-fleet-image
 
 # ── Activate Flux tenants ────────────────────────────────────────────
 PIPELINE_PHASE="activate-tenants"

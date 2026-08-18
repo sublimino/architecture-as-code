@@ -24,12 +24,84 @@
 > this document does not name. When it does, **add it here**, in the step where
 > it bit. A runbook that is not amended on first contact stays wrong forever.
 
-`demo-1` is **secure, routable, and not publicly accessible**: it keeps a real
-DNS name and a real certificate, and Identity-Aware Proxy in front of the
-backend means every request must carry a Google identity on the `iap_members`
-list. There is no anonymous path to the application. That posture is one line of
-tfvars — `access_mode = "iap"` — and losing it is also one line, so the verify
-step in §7 tests it from outside rather than trusting it.
+## The real target
+
+Verified read-only against the live project on 2026-08-18. These are not
+placeholders; they are what this runbook now assumes throughout.
+
+| | |
+|---|---|
+| Account | `sublimino@gmail.com` — the gcloud CLI login, and the identity IAP will authorise |
+| Project | `sl-port-over-sandbox`, number `308545937261` |
+| Region / zone | **`us-east4`** / `us-east4-a` (zones `-a`, `-b`, `-c` all UP) |
+| Environment key | `demo-1` |
+| Posture | `access_mode = "iap"` |
+| Apply-ready input | `deploy/gcp/sl-port-over-sandbox.example.tfvars` |
+| Cloud DNS zones | **none exist in the project** — see the reachability warning below |
+| Billing / APIs | billing enabled; compute, iap, dns, iam, iamcredentials, storage all enabled |
+
+The load balancer, its Cloud Armor policy and IAP for web backends are **global**
+resources, so `us-east4` constrains none of them. `n2-standard-8` was confirmed
+present in `us-east4-a`.
+
+> ### STOP — the environments root does not build anything yet
+>
+> `make gcp-tf-plan ENV=demo-1` currently produces a plan that creates **zero
+> resources**. `terraform/environments/main.tf` has one live module,
+> `env_contract`, which declares no resources at all; `network`, `compute`,
+> `edge` and `ci_runner` are all commented out inside its INTEGRATION BLOCK,
+> along with the `terraform_remote_state` reference to `terraform/platform`.
+>
+> The comment says those modules "do not exist on this branch". That is now
+> **stale** — `terraform/modules/` contains all of them and `terraform/platform`
+> exists too. The modules landed; the wiring step never happened.
+>
+> Before any of the steps below can produce infrastructure: follow
+> `terraform/environments/WIRING.md` to uncomment the blocks in dependency
+> order, and apply `terraform/platform` first, because this root consumes its
+> outputs read-only. Everything else in this runbook is correct and ready — it
+> just has nothing to build until then.
+
+### Reachability — how you actually reach the demo
+
+`demo-1` is **secure, routable by you, and has no public surface whatsoever**.
+
+The public HTTPS edge is **deliberately not instantiated**. IAP for *web*
+backends needs an HTTPS load balancer, which needs a certificate on a name that
+resolves, and this project has no Cloud DNS managed zone. So instead of a
+self-signed certificate and browser warnings, `hostname = ""` and
+`dns_managed_zone = ""` mean no global address, no certificate, no proxy and no
+forwarding rule are created at all — `modules/edge` gates every one of them on
+`hostname`, and `empty_hostname_plans_no_public_frontend_at_all` in
+`modules/edge/tests/tls_frontend.tftest.hcl` proves it.
+
+You reach it over **IAP TCP forwarding**: a private VM with no external IP,
+ingress permitted only from `35.235.240.0/20` by `allow_iap_ssh`, with
+`deny_all_ingress` behind it. Nothing is listening publicly to be scanned.
+
+> **Mind the port.** `allow_iap_ssh` opens TCP **22 only**, not `app_port`. A
+> raw `gcloud compute start-iap-tunnel <vm> 8080` is refused by the firewall,
+> and the failure reads like a broken VM rather than a closed port. Forward over
+> SSH instead:
+
+```bash
+gcloud compute ssh <instance> --zone us-east4-a \
+  --project sl-port-over-sandbox --tunnel-through-iap \
+  -- -L 8080:localhost:8080
+# then open http://localhost:8080
+```
+
+`access_mode = "iap"` stays set regardless: it is the safe default and it
+becomes the live web posture the moment a hostname is added, with no other
+change. If you later want the real HTTPS edge, set `hostname` to a name you
+control, leave `dns_managed_zone = ""`, and add one A record at your registrar
+pointing at the `lb_ip_address` the apply reports. A managed certificate
+validates against DNS hosted anywhere — it does not require Cloud DNS.
+
+Note that `roles/iap.tunnelResourceAccessor` is **not** granted by this
+Terraform to a human; you will be using it via project `owner`. From a
+less-privileged account the tunnel returns a 403 that looks like a networking
+fault.
 
 ---
 
@@ -47,9 +119,9 @@ that reads as "no such project".
 
 ```bash
 gcloud auth list                                  # which account is ACTIVE?
-gcloud auth login <work-account>                  # reauthenticate; opens a browser
-gcloud config set account <work-account>
-gcloud config set project <TARGET_PROJECT_ID>
+gcloud auth login sublimino@gmail.com                  # reauthenticate; opens a browser
+gcloud config set account sublimino@gmail.com
+gcloud config set project sl-port-over-sandbox
 
 # Terraform does NOT use the gcloud CLI's credentials. It uses Application
 # Default Credentials, a separate grant obtained separately. This is the single
@@ -75,7 +147,7 @@ it is the reason everything downstream of here is written rather than run.
 
 ```bash
 ./scripts/gcp-tf/preflight.sh \
-  --project <TARGET_PROJECT_ID> \
+  --project sl-port-over-sandbox \
   --env demo-1
 ```
 
@@ -85,7 +157,7 @@ guessing:
 
 ```bash
 ./scripts/gcp-tf/preflight.sh \
-  --project <TARGET_PROJECT_ID> \
+  --project sl-port-over-sandbox \
   --env demo-1 \
   --bucket "${TF_STATE_BUCKET}" \
   --dns-zone <ZONE_NAME>
@@ -217,18 +289,29 @@ target can destroy this root.
 ### 6a. Supply the inputs
 
 ```bash
-cp terraform/environments/demo-1.tfvars.example \
+cp deploy/gcp/sl-port-over-sandbox.example.tfvars \
    terraform/environments/environments.tfvars
 ```
 
-`environments.tfvars` is the filename the Makefile passes as `-var-file`. It is
-gitignored; only the `.example` is committed.
+`environments.tfvars` is the filename the Makefile passes as `-var-file`,
+resolved relative to `terraform/environments`. It is gitignored.
 
-Now edit it. The header of the example lists, in order, the seven values that
-must be replaced. Nothing in the file is usable as shipped: `CHANGEME-project`
-is rejected by validation, `*.example.invalid` can never resolve, and the
-allowlists are RFC 5737/3849 documentation ranges. **A copy that is not edited
-fails at plan, not in production.**
+**Remove it once the apply is done.** `test/terraform-environment-keys.bats`
+asserts that `find terraform/ -name '*.tfvars'` returns nothing, and it is a
+filesystem check rather than a git one — so the suite stays red for as long as
+the copy is in place. That is also why the apply-ready input lives outside
+`terraform/`.
+
+Unlike `terraform/environments/demo-1.tfvars.example`, this file is **already
+filled in**: real project id and number, `us-east4`/`us-east4-a`, and the real
+IAP principal. Read it once before planning — the header explains every value —
+but the only thing you may need to change is `hostname`, per the reachability
+table at the top of this runbook.
+
+If you copy `demo-1.tfvars.example` instead, nothing in it is usable as shipped:
+`CHANGEME-project` is rejected by validation, `*.example.invalid` can never
+resolve, and the allowlists are RFC 5737/3849 documentation ranges. **A copy
+that is not edited fails at plan, not in production.**
 
 Confirm the two lines that carry the security posture survived your edit:
 
@@ -291,15 +374,15 @@ state file can answer:
 
 ```bash
 # Certificate: expect ACTIVE.
-gcloud compute ssl-certificates list --project <TARGET_PROJECT_ID>
+gcloud compute ssl-certificates list --project sl-port-over-sandbox
 
 # No external IP on the VM. The EXTERNAL_IP column must be EMPTY.
-gcloud compute instances list --project <TARGET_PROJECT_ID>
+gcloud compute instances list --project sl-port-over-sandbox
 
 # SSH is via IAP only. If this says "agent refused operation", that is a local
 # ssh-agent problem, not a VM problem: unset SSH_AUTH_SOCK and retry.
 gcloud compute ssh sl-demo-1-vm --tunnel-through-iap \
-  --zone europe-west2-a --project <TARGET_PROJECT_ID>
+  --zone us-east4-a --project sl-port-over-sandbox
 ```
 
 - `PROVISIONING` for more than an hour means DNS delegation (step 5) has not
@@ -351,7 +434,7 @@ discovered mid-run costs a re-plan.
 |---|---|---|---|---|
 | 1 | **Target project id** | step 1 | Every resource is created in it. | Andy — project owner |
 | 2 | **Billing account, linked and active** | step 4 | Nothing bills, so nothing creates. Also drives the budget. | Andy — billing admin |
-| 3 | **State bucket location** (e.g. `europe-west2`) | step 4 | Set at creation and immutable. Wrong means recreating the bucket that holds every root's state. | Andy — data-residency call |
+| 3 | **State bucket location** (use `us-east4`, to match the environment) | step 4 | Set at creation and immutable. Wrong means recreating the bucket that holds every root's state. | Andy — data-residency call |
 | 4 | **Project number** (numeric, not the id) | step 5 | The Workload Identity provider's resource name uses the number. | `gcloud projects describe <id> --format='value(projectNumber)'` |
 | 5 | **GitHub owner numeric id** | step 5 | The WIF attribute condition pins the owner by numeric id. A login can be released and re-registered by a stranger; the numeric id cannot. | `gh api users/<owner> --jq .id` |
 | 6 | **DNS managed zone name + domain, and proof the domain is delegated** | step 5 | The managed certificate is issued by DNS validation. Without delegation it stays `PROVISIONING` forever and the demo serves a TLS error. | Andy — registrar access |
@@ -377,7 +460,7 @@ gcloud services enable \
   cloudbilling.googleapis.com \
   billingbudgets.googleapis.com \
   storage.googleapis.com \
-  --project <TARGET_PROJECT_ID>
+  --project sl-port-over-sandbox
 ```
 
 ---

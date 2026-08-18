@@ -1,3 +1,16 @@
+# Input for the bootstrap root, which creates the bucket every other root's
+# state lives in. Copy outside version control and replace every CHANGEME.
+#
+# `location` is set at bucket creation and is IMMUTABLE. Getting it wrong means
+# recreating the bucket that holds all remaining state, so it is worth one
+# moment's thought rather than a default. Use the region the environments
+# themselves are in — `us-east4` for the current estate — unless a
+# data-residency requirement says otherwise.
+#
+# No region is hardcoded below on purpose: this root is deliberately reusable,
+# and a real location baked into a committed example is the value people copy
+# without reading.
+
 project_id          = "CHANGEME-project"
 state_bucket_name   = "CHANGEME-osramp-tfstate"
 location            = "CHANGEME-location"

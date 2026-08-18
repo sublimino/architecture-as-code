@@ -170,6 +170,26 @@ variable "dns_domain" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# Operator identity
+# ---------------------------------------------------------------------------
+#
+# See modules/operator-identity/README.md. The account exists so that reaching a
+# VM does not depend on an organisation-level IAM grant nobody in this project
+# can make.
+
+variable "operator_account_id" {
+  description = "Account id for the operator service account that reaches demo VMs over IAP. Validation lives on the module's own variable; this passes it through so a caller can rename the account without editing the module."
+  type        = string
+  default     = "sl-operator"
+}
+
+variable "operator_impersonators" {
+  description = "IAM principals permitted to become the operator identity, e.g. [\"user:someone@example.invalid\"]. Empty is legal and means nobody can log into a VM yet — the estate still builds. Impersonation only; no key is ever created."
+  type        = list(string)
+  default     = []
+}
+
 variable "dnssec_state" {
   description = "DNSSEC state for the managed zone."
   type        = string

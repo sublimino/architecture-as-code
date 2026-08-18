@@ -201,3 +201,30 @@ variable "github_apply_workflow_ref" {
 # ---------------------------------------------------------------------------
 # END WIRING BLOCK
 # ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Operator identity — the human's route onto a VM
+# ---------------------------------------------------------------------------
+#
+# Belongs here, not in terraform/environments, and CONTRACT §5b is the reason
+# rather than tidiness: this is one account for the whole project, and a
+# project-level singleton declared in an environment's state is DELETED by
+# `make gcp-tf-destroy ENV=<that environment>`. Tearing down demo-1 would
+# silently take away the only way to log into demo-2.
+#
+# It is a sibling of the CI plan/apply accounts §5b already assigns to this root
+# — same lifecycle, same scope, same reason.
+#
+# The actAs grant is fed from modules/identity's runtime account emails, so it
+# tracks the environments that actually exist. Adding an environment key extends
+# the grant to that environment's runtime account and nothing else; removing one
+# withdraws it.
+module "operator_identity" {
+  source = "../modules/operator-identity"
+
+  project_id    = var.project_id
+  account_id    = var.operator_account_id
+  impersonators = var.operator_impersonators
+
+  runtime_service_account_emails = module.identity.runtime_service_account_emails
+}

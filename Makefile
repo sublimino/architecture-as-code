@@ -1360,8 +1360,16 @@ endef
 # from required_providers, terraform's own "provider requirements have changed"
 # error fires on the very next validate. There is no state in which a stale
 # .terraform/ makes this sweep report a pass it has not earned.
+# Re-init when EITHER the provider cache or the lock file is missing.
+#
+# The condition used to test only .terraform/providers, which left a state that
+# looks initialised and is not: a populated provider cache with no lock file.
+# Terraform needs the lock to choose a version out of that cache, so `validate`
+# fails with "Missing required provider" while the guard cheerfully skips init.
+# That state is reachable any time lock files are cleaned — which they are,
+# because child modules deliberately do not commit one.
 define gcp_tf_init_offline
-	if [ ! -d "$(1)/.terraform/providers" ]; then \
+	if [ ! -d "$(1)/.terraform/providers" ] || [ ! -f "$(1)/.terraform.lock.hcl" ]; then \
 		echo "    (installing providers — this step, and only this step, needs the registry)"; \
 		$(GCP_TF_NOCREDS) $(TF) -chdir=$(1) init -backend=false -input=false >/dev/null; \
 	fi

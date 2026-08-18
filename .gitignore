@@ -84,4 +84,3 @@ crash.*.log
 # lock — so a reviewer reading modules/network/.terraform.lock.hcl learns
 # nothing true. Roots commit theirs (ISC-13); child modules must not.
 terraform/modules/*/.terraform.lock.hcl
-terraform/.terraform.lock.hcl

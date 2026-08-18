@@ -1,0 +1,11 @@
+mock_provider "google" {}
+mock_provider "google-beta" {}
+
+run "writes_state_against_a_mock" {
+  command = apply
+
+  assert {
+    condition     = true
+    error_message = "unreachable"
+  }
+}

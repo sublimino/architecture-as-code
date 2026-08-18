@@ -60,8 +60,14 @@ does not exist. The subnet-collision test was falsified separately by adding a
 second example whose `demo-9` claims demo-1's `/24`; it goes red naming
 `demo-9`.
 
-Full sweep `bats test/terraform-*.bats` → **230/231**. The one failure is
-pre-existing and not mine — see below.
+Full sweep `bats test/terraform-*.bats` → **229 pass / 2 fail of 231**. Both
+failures are pre-existing, in a file I did not touch, caused by a commit two
+before my branch point — see "scope touches" item 3 for the evidence.
+
+`terraform init -backend=false && terraform validate` → **Success** on both
+`terraform/environments` and `terraform/platform`. `terraform fmt -recursive
+-check terraform` → clean. `tflint` → clean on both roots. `shellcheck
+scripts/gcp-tf/preflight.sh` → clean.
 
 ---
 
@@ -148,15 +154,38 @@ functional one.
    has access needs reauthentication") and uses `<work-account>`. No information
    is lost; the reader still knows which of their two accounts to pick.
 
-3. **A pre-existing test fails, at the base commit, before any of my work.**
-   `test/terraform-network-security.bats` → "no credential-shaped literal in
-   either module tree or the startup script". Verified by running that test
-   against a clean `git archive` of base commit `d7d8260`: it fails there too.
-   The cause is the **committed** `.terraform.lock.hcl` files — 11 of them are
-   tracked — whose `zh:` provider hashes trip the credential-literal heuristic.
-   The fix is F3's: exclude `.terraform.lock.hcl` from `tracked_sources`, or
-   stop committing the lock files. I did not touch it; it is not my file and it
-   is not my defect.
+3. **Two pre-existing tests fail, and neither is mine.** Both in
+   `test/terraform-network-security.bats`:
+
+   - "no credential-shaped literal in either module tree or the startup script"
+   - "no terraform init artifact is committed under either module"
+
+   Same root cause, and it is a small irony: commit `5809c91` — whose own test
+   comment says *"Both modules had one committed as a side effect of running
+   `terraform init -backend=false` in-place to validate. They are removed, and
+   this assertion stops them coming back"* — **committed them**.
+   `terraform/modules/network/.terraform.lock.hcl` and
+   `terraform/modules/compute/.terraform.lock.hcl` are tracked as of that
+   commit, which is two commits before my branch point `d7d8260`. Their `zh:`
+   provider digests then drown the credential scanner, which is precisely the
+   "how a secrets guard becomes something people mute" failure the comment
+   predicts.
+
+   Evidence: `git log -1 -- terraform/modules/{network,compute}/.terraform.lock.hcl`
+   → `5809c91`. `git log d7d8260..HEAD -- terraform/modules/` → **0 commits**;
+   nothing I did touches that subtree.
+
+   Fix is F3's: `git rm --cached` both files (they are inert in a child module —
+   the lock is only consulted in a root), or exclude them from
+   `tracked_sources`.
+
+   **A caution for whoever verifies this.** My first attempt at proving it
+   pre-existing was to run the suite against a clean `git archive` of the base
+   commit. That is not a valid oracle here: `tracked_sources` shells out to
+   `git ls-files`, an extracted archive has no `.git`, so the file list comes
+   back empty and the test passes **vacuously** — reporting "fixed at base" for
+   a defect that is present at base. `git log` on the specific paths is the
+   honest check.
 
 4. **No `.tftest.hcl` added.** Nothing I built is expressible in one — a tfvars
    *example*, a shell script, and three markdown documents are exactly the

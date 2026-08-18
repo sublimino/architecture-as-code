@@ -42,6 +42,20 @@ resource "google_compute_instance" "this" {
 
   # Permits machine_type and shielded-config changes to apply by stopping the
   # instance rather than failing the plan.
+  #
+  # This is the mechanism that makes a resize an UPDATE rather than a REPLACE.
+  # machine_type is not a ForceNew attribute in the Google provider, but it
+  # cannot be changed on a running instance either: without this flag the plan
+  # is accepted and the apply fails at the API with "instance must be stopped",
+  # leaving the environment half-applied. With it, the provider stops the
+  # instance, resizes it, and starts it again — the disk, the internal IP, the
+  # instance group membership and everything already on the box survive.
+  #
+  # That matters for the sizing profile specifically: e2-standard-4 →
+  # n2-standard-16 is a change a demo VM is expected to survive, and a rebuild
+  # would take the Kind cluster and the whole deployed estate with it. Confirmed
+  # in the plan by `resizing_the_vm_is_an_update_not_a_replacement` in
+  # tests/compute.tftest.hcl.
   allow_stopping_for_update = true
 
   boot_disk {

@@ -1,0 +1,41 @@
+{
+  "name": "sl-demo-1-armor",
+  "description": "Deny by default; rate limited; preconfigured WAF rules.",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/example-project/global/securityPolicies/sl-demo-1-armor",
+  "type": "CLOUD_ARMOR",
+  "adaptiveProtectionConfig": {
+    "layer7DdosDefenseConfig": { "enable": true }
+  },
+  "rules": [
+    {
+      "priority": 1000,
+      "action": "allow",
+      "preview": false,
+      "description": "allowlisted ranges",
+      "match": {
+        "versionedExpr": "SRC_IPS_V1",
+        "config": { "srcIpRanges": ["198.51.100.0/24"] }
+      }
+    },
+    {
+      "priority": 1100,
+      "action": "throttle",
+      "preview": false,
+      "description": "rate limit",
+      "match": {
+        "versionedExpr": "SRC_IPS_V1",
+        "config": { "srcIpRanges": ["*"] }
+      }
+    },
+    {
+      "priority": 2147483647,
+      "action": "deny(403)",
+      "preview": false,
+      "description": "default rule, higher priority overrides it",
+      "match": {
+        "versionedExpr": "SRC_IPS_V1",
+        "config": { "srcIpRanges": ["*"] }
+      }
+    }
+  ]
+}

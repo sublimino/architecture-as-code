@@ -1,0 +1,3 @@
+[
+  { "name": "sl-demo-2-vpc", "selfLink": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-2-vpc", "autoCreateSubnetworks": false }
+]

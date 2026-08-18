@@ -81,3 +81,23 @@ output "ci_apply_service_account_email" {
   description = "Write-capable CI principal, scoped to one workflow file."
   value       = module.identity.ci_apply_service_account_email
 }
+
+# ── Operator identity ───────────────────────────────────────────────────────
+#
+# Exported for the runbook and for scripts/ci/gcp-ci.sh, which needs the email
+# to pass to --impersonate-service-account. Nobody should be retyping it.
+
+output "operator_service_account_email" {
+  description = "The identity a human impersonates to open an IAP tunnel and log into a demo VM. In-project, and therefore internal to the owning organisation, which is what removes the roles/compute.osLoginExternalUser dependency."
+  value       = module.operator_identity.operator_service_account_email
+}
+
+output "operator_granted_roles" {
+  description = "Every role the operator identity holds, at any scope. Three, and a reviewer should be able to check that without reading the module."
+  value       = module.operator_identity.granted_roles
+}
+
+output "operator_ssh_command" {
+  description = "The exact gcloud invocation that reaches a demo VM as the operator identity. INSTANCE and ZONE are placeholders; everything else is resolved."
+  value       = module.operator_identity.ssh_command
+}

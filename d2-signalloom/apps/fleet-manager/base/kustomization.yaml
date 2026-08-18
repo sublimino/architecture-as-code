@@ -1,11 +1,24 @@
-# FLUX ENVSUBST: N/A — applied manually (kubectl apply), not via a Flux
-# Kustomization. Flux envsubst does not apply.
+# FLUX ENVSUBST: YES — this directory is pulled in by
+# apps/fe-signalloom/base/kustomization.yaml, which the signalloom-apps Flux
+# Kustomization reconciles with postBuild.substituteFrom configured. Flux runs
+# envsubst over every rendered manifest here, so use $${VAR} to pass a literal
+# $ through to a container and ${VAR} only for values Flux should substitute
+# from flux-runtime-info. Nothing here currently templates a value; the
+# annotation records that substitution DOES reach it, so a future literal `$`
+# must be escaped.
+#
+# This header used to read "N/A — applied manually (kubectl apply), not via a
+# Flux Kustomization", and that was the defect rather than a description of it:
+# nothing Flux reconciled named this directory, so the slice never deployed and
+# /fleet-api/ returned a raw nginx 502.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-# Everything lands in fe-signalloom. Without this the Deployment and Service
-# declare no namespace and `kubectl apply -k` puts them in `default`, where the
-# dashboard's /fleet-api/ proxy (which targets
-# fleet-manager.fe-signalloom.svc.cluster.local) cannot reach them.
+# Everything lands in fe-signalloom. Under Flux this agrees with the apps
+# Kustomization's `targetNamespace: fe-signalloom` rather than competing with
+# it. It still earns its place for the `kubectl apply -k` test path, where
+# without it the Deployment and Service declare no namespace and land in
+# `default`, out of reach of the dashboard's /fleet-api/ proxy (which targets
+# fleet-manager.fe-signalloom.svc.cluster.local).
 namespace: fe-signalloom
 resources:
   - deployment.yaml

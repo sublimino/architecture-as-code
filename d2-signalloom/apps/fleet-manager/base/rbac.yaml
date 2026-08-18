@@ -12,40 +12,31 @@ metadata:
     app.kubernetes.io/name: fleet-manager
     app.kubernetes.io/component: supercred-demo
     app.kubernetes.io/part-of: signalloom
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: fleet-manager-pod-reader
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: fleet-manager
-    app.kubernetes.io/component: supercred-demo
-    app.kubernetes.io/part-of: signalloom
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list", "patch"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: fleet-manager-pod-reader
-  namespace: fe-signalloom-agents
-  labels:
-    app.kubernetes.io/name: fleet-manager
-    app.kubernetes.io/component: supercred-demo
-    app.kubernetes.io/part-of: signalloom
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: fleet-manager-pod-reader
-subjects:
-  - kind: ServiceAccount
-    name: fleet-manager
-    # fe-signalloom, not default: the Deployment runs there, and a RoleBinding
-    # naming a ServiceAccount that does not exist is LEGAL and SILENT. It binds
-    # nothing, so every pod list/patch 403s -- which client-go surfaces as an
-    # EMPTY result, not a permission error. The Fleet page would have rendered
-    # an empty fleet with no reason given.
-    namespace: fe-signalloom
+
+# ── Where the fe-signalloom-agents Role and RoleBinding went ─────────────────
+#
+# They used to be here. They now live at the END of the signalloom-infra
+# ResourceSet in d2-osramp-fleet/tenants/local/signalloom.yaml, and moving them
+# was a precondition of putting this directory under Flux at all. Two
+# independent reasons, either one sufficient:
+#
+#   1. The signalloom-apps Kustomization that reconciles this directory sets
+#      `targetNamespace: fe-signalloom`, which OVERRIDES the namespace a
+#      manifest declares. A Role written for fe-signalloom-agents would be
+#      applied to fe-signalloom instead — cleanly, with Flux reporting Ready,
+#      while fleet-manager held no grant in the namespace the agents actually
+#      run in. The same relocation already bit agents-cardvault.yaml and
+#      supercred-demo-runner's cross-namespace Roles.
+#
+#   2. signalloom-apps reconciles as the namespace-scoped `flux` ServiceAccount,
+#      which holds ClusterRole/admin but NOT `escalate` on roles. Creating a
+#      RoleBinding makes the API server resolve its roleRef to run the
+#      privilege-escalation check, and kustomize-controller server-dry-runs the
+#      ENTIRE object set before applying any of it — so the roleRef lookup fails
+#      against a Role that was never persisted and the whole set aborts. That
+#      deadlock previously left fe-signalloom empty for six reconciles.
+#
+# The ResourceSet is applied by the cluster-admin flux-system ServiceAccount, so
+# it binds with no escalation check and in any order. This ServiceAccount stays
+# here: it is namespace-correct under targetNamespace and the Deployment needs
+# it in the same namespace it runs in.

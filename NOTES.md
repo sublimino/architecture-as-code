@@ -18,7 +18,29 @@ Branch `feat/gcp-tf-envmodel`. Owns `terraform/modules/env-contract/**`,
   order.
 - **Three worked examples** — `demo-1.tfvars.example`, `ci-1.tfvars.example`, and
   `demo-1-and-demo-2.tfvars.example` (the extensibility proof: purely additive against the first).
-- **`test/terraform-environment-keys.bats`** — 36 tests, ~3s, offline. Executes the rules.
+- **`terraform/modules/env-contract/tests/environment_contract.tftest.hcl`** — 28 native
+  `terraform test` runs, 0.6s. The eleven rules plus 6B, each negative preceded by its corrected
+  positive, plus assertions on the resolved outputs every sibling module consumes.
+- **`terraform/environments/tests/root_contract.tftest.hcl`** — 12 native runs, 0.5s. `target_env`
+  selection, `project_id` validation, the empty-map rule, and the extensibility proof.
+- **`test/terraform-environment-keys.bats`** — 37 tests, ~3s, offline. Executes the rules and
+  covers the whole-tree absence properties `terraform test` cannot reach.
+
+### CONTRACT.md §7a arrived mid-chunk
+
+§7a (native `.tftest.hcl` as the primary correctness surface) landed on this branch in commit
+`a74278b`, after this chunk's brief was written and while it was being built. Both native suites
+above were added in response. The bats suite was **kept, not replaced**, because §7a's own routing
+table puts three things this chunk needs in bats:
+
+- **whole-tree absence** (`access_config`, `/home/andy`, a committed `.tfvars`) — `terraform test`
+  can only see what a given plan evaluated, never what no configuration anywhere contains;
+- **which rule fired** — `expect_failures` names the *variable* that rejected, not the rule.
+  Eleven rules guard `var.environments`, so a mutant that trips the wrong rule is invisible to
+  `expect_failures` and visible to the bats tag-set assertions;
+- **file layout and documentation content**.
+
+Neither surface subsumes the other, and the overlap is deliberate.
 
 ## ISCs claimed
 
@@ -108,7 +130,9 @@ to the environment named in the tfvars.** This is the highest-risk open item in 
 | `terraform init -backend=false && terraform validate` on `terraform/modules/env-contract` | Success |
 | `terraform init -backend=false && terraform validate` on `terraform/environments` | Success (with all sibling blocks commented) |
 | `tflint --chdir` on both | rc=0, no findings |
-| `bats test/terraform-environment-keys.bats` | 36/36 passing, ~3s, offline |
+| `terraform test` in `terraform/modules/env-contract` | 28/28 passing, 0.6s, mocked providers |
+| `terraform test` in `terraform/environments` | 12/12 passing, 0.5s, mocked providers |
+| `bats test/terraform-environment-keys.bats` | 37/37 passing, ~3s, offline |
 
 **Falsification — the suite was proven able to fail**, five ways, each against a throwaway copy
 of the tree under `/tmp` (never the real tree, which would risk reverting in-progress work):
@@ -119,7 +143,38 @@ of the tree under `/tmp` (never the real tree, which would risk reverting in-pro
 | Rename rule 4's error tag | test 11 red |
 | Weaken rule 13 to `var.target_env != ""` | test 26 red: "rule tags fired: [] / wanted: [ENV-RULE-13-TARGET-ENV-EXISTS]" |
 | Drop `if k == var.target_env` from the for_each | test 27 red |
-| Unmutated control | 36/36 green |
+| Plant `access_config` in committed source | test 33 red |
+| Modify (not just add) a line in the two-environment example | test 29 red |
+| Retype `environments` as `map(any)` | test 35 red |
+| Unmutated control | 37/37 green |
+
+The native suites were falsified the same way, also against a throwaway copy: deleting rule 9,
+weakening rule 11's upper bound, breaking the `target_env` filter, and making `name_prefix` drop
+the key each produced a precise red; the control stayed 28/28 and 12/12.
+
+### One finding worth carrying to the other chunks
+
+**Three assertions in the bats file were dead, and the suite was green because of it.** Under bash
+`errexit` (which bats enables), a command whose exit status is inverted with `!` is *exempt* from
+erroring out. So a bare `! grep forbidden_thing file` that is not the last line of a test never
+fails: grep finds the forbidden thing, `!` turns that into a non-zero status, and the test carries
+on to the next line and passes. The three affected assertions were the forbidden-construct check,
+the purely-additive check, and the `map(any)` check — three of the anti-criteria checks, i.e.
+exactly the ones whose whole job is to catch a violation.
+
+They were found only by planting violations and watching the suite stay green. Every negation in
+the file now carries an explicit `|| { echo …; return 1; }` and each was re-falsified individually.
+**Any sibling chunk writing `! grep …` in a bats test has the same latent bug.** Worth a sweep
+before merge.
+
+A second, smaller one: the same test originally ran `grep -r` over `terraform/environments`, which
+walks `.terraform/` — and the downloaded google provider binary contains the literal string
+`access_config`. The guard's verdict therefore depended on whether anyone had recently run `init`.
+Now scoped with `--include='*.tf' --include='*.tftest.hcl' --exclude-dir='.terraform'`.
+
+Related, from the native suites: `terraform test` **skips every remaining `run` block after the
+first failure** in a file (observed: one failure, six skipped). A single red therefore hides the
+status of everything below it — read the first failure, not the pass count.
 
 ## Prohibitions honoured
 
@@ -135,6 +190,10 @@ instead removed the generated `.terraform/` directories before committing.
 
 ## Known gaps
 
+- The chunk brief predates §7a and asked only for the bats surface. The native suites cover the
+  eleven rules, `target_env`, `project_id` and extensibility; they do **not** yet cover the
+  `.tfvars.example` files themselves (those are text, checked by bats) and cannot cover the
+  commented-out module wiring, which by definition evaluates to nothing until it is uncommented.
 - `shellcheck` was not run on the bats file. `.bats` is not POSIX shell — `@test` is bats syntax
   and shellcheck cannot parse it. No shell script was added by this chunk, so §9's shellcheck
   criterion has no subject here.

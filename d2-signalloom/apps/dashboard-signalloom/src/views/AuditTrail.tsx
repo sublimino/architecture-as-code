@@ -64,6 +64,13 @@ const EVENT_TYPES = [
   'support.requested',
   'onboarding_completed', 'onboarding_skipped',
   'demo.phase_run', 'demo.reset_requested',
+  // Generated per demo type by _build_demo_router() in demo_runner.py, which
+  // interpolates the demo type into the event name. Without these the Signal
+  // Fusion demo writes audit rows an operator cannot isolate — the events are
+  // in the table and unreachable from the product, which on the audit trail is
+  // indistinguishable from them never having happened. Migration 032.
+  'demo.supercred.phase_run', 'demo.supercred.reset_requested',
+  'demo.signalfusion.phase_run', 'demo.signalfusion.reset_requested',
   // Legacy vocabulary from migration 007. No call site emits these, but rows
   // using them may exist in long-lived environments, so they stay filterable.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
@@ -96,6 +103,14 @@ const EVENT_COLORS: Record<string, string> = {
   onboarding_skipped: 'var(--amber)',
   'demo.phase_run': 'var(--violet)',
   'demo.reset_requested': 'var(--amber)',
+  // Same two buckets as the fixed-string demo pair above: running a phase is a
+  // state transition, resetting discards state. Keeping the generated types on
+  // the same colours means the chip taxonomy classifies them identically,
+  // rather than making a per-demo distinction the product does not draw.
+  'demo.supercred.phase_run': 'var(--violet)',
+  'demo.supercred.reset_requested': 'var(--amber)',
+  'demo.signalfusion.phase_run': 'var(--violet)',
+  'demo.signalfusion.reset_requested': 'var(--amber)',
   enrollment: 'var(--teal)',
   state_transition: 'var(--violet)',
   violation_detected: 'var(--error)',

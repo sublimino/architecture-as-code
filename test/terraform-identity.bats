@@ -196,18 +196,59 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 }
 
 @test "TFID no real project id, domain, or local path is committed" {
-	local f
+	# Two things this guard learned the hard way.
+	#
+	# The forbidden path is assembled from two literals, so this file cannot
+	# match itself. Written as one literal, the guard fired on its own source —
+	# which reads exactly like a real finding and is not one.
+	#
+	# And the generic form is narrowed to exclude /home/ci/, which is the CI
+	# VM's own service account and the remote-side convention
+	# scripts/ci/gcp-ci.sh already uses. The prohibition is on a developer's
+	# machine leaking into a committed file, not on the remote work directory.
+	local forbidden="/home/""andy"
+	local f scanned=0
 	while IFS= read -r f; do
-		grep -q '/home/andy' "$f" && {
-			echo "absolute home path in $f"
+		scanned=$((scanned + 1))
+		grep -qF "$forbidden" "$f" && {
+			echo "committed developer home path in $f"
+			return 1
+		}
+		grep -oE '/home/[a-z][a-z0-9_-]*/' "$f" | grep -qxv '/home/ci/' && {
+			echo "committed absolute home path in $f"
 			return 1
 		}
 	done < <(git -C "$repo" ls-files 'terraform/modules/identity' 'terraform/modules/ci-runner' 'scripts/ci/gcp-tf-*.sh' 'test/terraform-identity.bats' 'test/terraform-ci-lifecycle.bats' 'test/fixtures/terraform' 'test/fixtures/gcp-tf-ci' | sed "s|^|$repo/|")
+
+	# Presence before behaviour: an empty file list would pass the loop above
+	# without reading a single byte.
+	[ "$scanned" -ge 20 ]
 
 	# The placeholders the contract mandates are actually in use.
 	grep -q 'CHANGEME-project' "$id_mod/tests/identity.tftest.hcl"
 	grep -q '123456789012' "$id_mod/tests/identity.tftest.hcl"
 	grep -q 'example.invalid' "$id_mod/tests/identity.tftest.hcl"
+}
+
+@test "TFID MUTATION the home-path guard fires on a file that has one" {
+	# The guard is self-immune by construction, so it needs an independent
+	# demonstration that it still bites — and that its /home/ci/ carve-out has
+	# not quietly widened into "any home path is fine".
+	local probe="$BATS_TEST_TMPDIR/has-home-path.tf.fixture"
+	printf 'startup_script_path = "%s/src/osramp-demo/scripts/boot.sh"\n' "/home/someuser" >"$probe"
+	run bash -c "grep -oE '/home/[a-z][a-z0-9_-]*/' '$probe' | grep -qxv '/home/ci/'"
+	[ "$status" -eq 0 ]
+
+	# The carve-out: a remote path under the CI account is allowed.
+	local remote="$BATS_TEST_TMPDIR/remote-path.tf.fixture"
+	printf 'remote_dir = "/home/ci/osramp-demo"\n' >"$remote"
+	run bash -c "grep -oE '/home/[a-z][a-z0-9_-]*/' '$remote' | grep -qxv '/home/ci/'"
+	[ "$status" -ne 0 ]
+
+	local clean="$BATS_TEST_TMPDIR/no-home-path.tf.fixture"
+	printf 'startup_script_path = "${path.module}/scripts/boot.sh"\n' >"$clean"
+	run bash -c "grep -oE '/home/[a-z][a-z0-9_-]*/' '$clean' | grep -qxv '/home/ci/'"
+	[ "$status" -ne 0 ]
 }
 
 @test "TFID the WIF principal is attribute-scoped, never pool-wide" {

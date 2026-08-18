@@ -105,32 +105,48 @@ environments = {
     machine_type = "n2-standard-8"
     boot_disk_gb = 100
 
-    # ─── The one value to decide before applying ────────────────────────────
+    # ─── The public HTTPS edge is deliberately NOT instantiated ─────────────
     #
-    # "" means NO PUBLIC FRONTEND IS CREATED AT ALL. Not "no certificate" — no
-    # global address, no managed certificate, no target proxy, no forwarding
-    # rule. modules/edge gates every one of them on `tls_enabled = hostname !=
-    # ""`, and the `lb_ip_address` output is the empty string. The backend
-    # service, the Cloud Armor policy and the IAP grant are still created, but
-    # nothing routes to them.
+    # "" means no public frontend is created at all. Not merely "no
+    # certificate": no global address, no managed certificate, no target proxy
+    # and no forwarding rule. modules/edge gates every one of them on
+    # `tls_enabled = hostname != ""`, the `lb_ip_address` output is the empty
+    # string, and modules/edge/tests/tls_frontend.tftest.hcl asserts exactly
+    # this in `empty_hostname_plans_no_public_frontend_at_all`.
     #
-    # That is fail-closed and it is safe, and it is NOT what "I want to be able
-    # to route to it" asks for. As shipped, this environment has no way in.
+    # This is a choice, not a gap. IAP for *web* backends requires an HTTPS
+    # load balancer, which requires a certificate on a name that resolves. The
+    # project has no Cloud DNS managed zone, so wiring that path tonight would
+    # mean either a self-signed certificate (browser warnings on a demo) or a
+    # domain that is not in this project. Neither is worth it, because the
+    # thing Andy asked for is available without any of it.
     #
-    # To get routable-but-private, set this to a name Andy controls and LEAVE
-    # dns_managed_zone = "". That combination builds the full HTTPS frontend
-    # with IAP in front of it and leaves only the DNS record to do by hand:
+    # What this environment gets instead:
     #
-    #     terraform output lb_ip_address     # after apply
-    #     # create an A record for that name pointing at it, at your registrar
+    #   * a private VM with NO external IP,
+    #   * reachable only over IAP TCP forwarding, which
+    #     modules/network's `allow_iap_ssh` permits from 35.235.240.0/20 and
+    #     from nowhere else, with `deny_all_ingress` behind it,
+    #   * and ZERO public surface — no forwarding rule, no certificate, no
+    #     public listener of any kind exists to be scanned or attacked.
     #
-    # The Google-managed certificate stays PROVISIONING until the A record
-    # resolves, then issues on its own. A certificate that will never issue and
-    # one that has not issued yet look identical, so add the record promptly.
+    # That is a stronger reading of "route to it, but not public" than the load
+    # balancer path, not a weaker one: the tunnel is routable by Andy and
+    # unreachable by everyone else, because there is nothing listening publicly
+    # to reach.
     #
-    # Left empty here deliberately: guessing which domain Andy controls is
-    # exactly the kind of assumption that produces a certificate stuck in
-    # PROVISIONING against a name nobody owns.
+    # NOTE the port. `allow_iap_ssh` opens TCP **22 only** — not app_port. So a
+    # raw `start-iap-tunnel <vm> 8080` is refused by the firewall. Reach the
+    # app by forwarding over SSH, which does run on 22:
+    #
+    #     gcloud compute ssh <instance> --zone us-east4-a \
+    #       --project sl-port-over-sandbox --tunnel-through-iap \
+    #       -- -L 8080:localhost:8080
+    #     # then open http://localhost:8080
+    #
+    # Keeping access_mode = "iap" above is still correct: it is the safe
+    # default, and it becomes the live web posture the moment a hostname is
+    # added, with no other change.
     hostname = ""
 
     # INERT IN THIS MODE, and that is worth knowing before it changes.

@@ -996,3 +996,184 @@ assert_zone_in_region() {
 		return 1
 	}
 }
+
+# ---------------------------------------------------------------------------
+# The private-edge posture: no public frontend, IAP TCP forwarding only
+# ---------------------------------------------------------------------------
+#
+# This environment deliberately instantiates no public HTTPS edge. IAP for web
+# backends needs an HTTPS load balancer, which needs a certificate on a name
+# that resolves, and the project has no Cloud DNS managed zone. Rather than
+# reach for a self-signed certificate, the environment exposes nothing publicly
+# at all and is reached over IAP TCP forwarding.
+#
+# The pairing is what matters. `hostname` alone drives the frontend
+# (tls_enabled = hostname != ""), while the DNS RECORD needs both
+# (dns_enabled = hostname != "" && dns_managed_zone != ""). So a future edit
+# that sets a hostname while leaving dns_managed_zone empty builds a real
+# certificate for a name with no record to validate against — it sits in
+# PROVISIONING, and a certificate that has not issued yet is indistinguishable
+# from one that never will. That is the edit this guard is here to catch.
+
+# Value of a top-level scalar assignment, or the empty string if unset.
+# Prints nothing at all when the key is absent, which every caller below
+# distinguishes from "present and empty".
+tfvars_scalar() {
+	code_only "$1" |
+		sed -n "s/^${2}[[:space:]]*=[[:space:]]*\"\\(.*\\)\"[[:space:]]*$/\\1/p"
+}
+
+# Present-and-empty, as a predicate, so the mutation checks can reuse it.
+assert_no_public_edge() {
+	local file="$1" host_lines zone_lines host zone
+	[ -f "$file" ] || {
+		echo "assert_no_public_edge: no such file: $file" >&2
+		return 1
+	}
+
+	# hostname lives inside the environment map, so it is indented.
+	host_lines="$(code_only "$file" |
+		grep -cE '^[[:space:]]+hostname[[:space:]]*=' || true)"
+	zone_lines="$(code_only "$file" |
+		grep -cE '^dns_managed_zone[[:space:]]*=' || true)"
+
+	# Presence before behaviour. An absent key would make both greps below
+	# find nothing, which reads identical to "correctly empty".
+	[ "$host_lines" -ge 1 ] || {
+		echo "${file} sets no hostname at all; the check would be vacuous" >&2
+		return 1
+	}
+	[ "$zone_lines" -ge 1 ] || {
+		echo "${file} sets no dns_managed_zone at all; the check would be vacuous" >&2
+		return 1
+	}
+
+	host="$(code_only "$file" |
+		sed -n 's/^[[:space:]]\+hostname[[:space:]]*=[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p')"
+	zone="$(tfvars_scalar "$file" dns_managed_zone)"
+
+	[ -z "$host" ] || {
+		echo "${file} sets hostname = \"${host}\"." >&2
+		echo "That instantiates the full public HTTPS frontend. This" >&2
+		echo "environment is deliberately private: IAP TCP forwarding only," >&2
+		echo "no public listener of any kind." >&2
+		if [ -z "$zone" ]; then
+			echo "Worse, dns_managed_zone is empty, so no DNS record is created" >&2
+			echo "either — the managed certificate would sit in PROVISIONING" >&2
+			echo "against a name nothing resolves, forever." >&2
+		fi
+		return 1
+	}
+	[ -z "$zone" ] || {
+		echo "${file} sets dns_managed_zone = \"${zone}\", but no Cloud DNS" >&2
+		echo "managed zone exists in this project." >&2
+		return 1
+	}
+	return 0
+}
+
+@test "the real input instantiates no public edge: hostname and zone both empty" {
+	assert_no_public_edge "${REAL_TFVARS}"
+}
+
+@test "the module proof that an empty hostname builds no frontend still exists" {
+	# The textual guard above asserts the INPUT. This asserts the evaluated
+	# proof that the input has the effect claimed for it, and that the proof
+	# has not been deleted along with the behaviour. Without it, "hostname is
+	# empty" would be an assertion about a string with nothing tying it to the
+	# absence of a public listener.
+	local tftest="${REPO_ROOT}/terraform/modules/edge/tests/tls_frontend.tftest.hcl"
+	[ -f "$tftest" ] || {
+		echo "the evaluated no-frontend proof is missing: ${tftest}" >&2
+		return 1
+	}
+	grep -qF 'empty_hostname_plans_no_public_frontend_at_all' "$tftest" || {
+		echo "${tftest} no longer proves that an empty hostname plans no" >&2
+		echo "public frontend. The tfvars guard alone is then a claim about a" >&2
+		echo "string, not about what gets built." >&2
+		return 1
+	}
+}
+
+@test "the IAP tunnel path is open on 22 and the app port is not" {
+	# The reachability story depends on a firewall rule this chunk does not
+	# own, so it is asserted rather than assumed. `allow_iap_ssh` permits the
+	# IAP TCP-forwarding range on port 22 ONLY — which is why the documented
+	# access path forwards over SSH rather than tunnelling straight to the app
+	# port. A raw `start-iap-tunnel <vm> 8080` is refused, and that failure
+	# reads like a broken VM rather than a closed port.
+	local net="${REPO_ROOT}/terraform/modules/network/main.tf"
+	[ -f "$net" ]
+
+	grep -qF '35.235.240.0/20' "$net" || {
+		echo "the IAP TCP-forwarding range is not in modules/network; the" >&2
+		echo "documented tunnel access path would not work." >&2
+		return 1
+	}
+	# The rule exists and is scoped to 22. If someone widens it to the app
+	# port, the runbook's SSH-forward instruction becomes unnecessarily
+	# indirect and should be simplified — so this failing is a prompt to
+	# update the docs, not only a regression.
+	local ports
+	ports="$(sed -n '/resource "google_compute_firewall" "allow_iap_ssh"/,/^}/p' "$net" |
+		sed -n 's/.*ports[[:space:]]*=[[:space:]]*\(.*\)/\1/p')"
+	[ -n "$ports" ] || {
+		echo "could not parse the ports of allow_iap_ssh; check would be vacuous" >&2
+		return 1
+	}
+	[[ "$ports" == *'"22"'* ]] || {
+		echo "allow_iap_ssh no longer opens port 22: ${ports}" >&2
+		return 1
+	}
+}
+
+@test "the no-public-edge guard fails when a hostname is set without a zone" {
+	# The exact future edit this exists to catch: a hostname added while
+	# dns_managed_zone stays empty. That builds a real managed certificate for
+	# a name with no record to validate it, and it sits in PROVISIONING
+	# indefinitely.
+	local mutated="${BATS_TEST_TMPDIR}/hostname-no-zone.tfvars"
+	sed 's|^\([[:space:]]*\)hostname = ""|\1hostname = "demo-1.example.invalid"|' \
+		"${REAL_TFVARS}" >"$mutated"
+
+	if diff -q "${REAL_TFVARS}" "$mutated" >/dev/null; then
+		echo "the mutation changed nothing: its pattern no longer matches" >&2
+		return 1
+	fi
+
+	assert_no_public_edge "${REAL_TFVARS}" || {
+		echo "the unmutated real input already fails the no-public-edge guard" >&2
+		return 1
+	}
+	run assert_no_public_edge "$mutated"
+	[ "$status" -ne 0 ] || {
+		echo "the guard passed a tfvars that sets a hostname. It cannot fail," >&2
+		echo "so it has never been protecting anything." >&2
+		return 1
+	}
+	# Assert on the message: it must name the certificate trap, not merely
+	# exit non-zero, or it would pass for any unrelated failure.
+	[[ "$output" == *"PROVISIONING"* ]] || {
+		echo "the guard failed without naming the never-validating certificate" >&2
+		echo "$output" >&2
+		return 1
+	}
+}
+
+@test "the no-public-edge guard fails when the keys are absent entirely" {
+	# The vacuity direction. A file with no hostname key at all would make a
+	# naive grep find nothing, which reads exactly like "correctly empty".
+	local empty="${BATS_TEST_TMPDIR}/no-keys.tfvars"
+	printf 'project_id = "sl-port-over-sandbox"\n' >"$empty"
+
+	run assert_no_public_edge "$empty"
+	[ "$status" -ne 0 ] || {
+		echo "the guard passed a file that sets neither key" >&2
+		return 1
+	}
+	[[ "$output" == *"vacuous"* ]] || {
+		echo "the guard failed for some reason other than the absent keys" >&2
+		echo "$output" >&2
+		return 1
+	}
+}

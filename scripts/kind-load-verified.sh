@@ -179,6 +179,54 @@ recover_via_archive() {
   return 1
 }
 
+# Capture the node's state at the moment an image the loader claimed to have
+# transferred is not there.
+#
+# PURE DIAGNOSTICS. Every probe is best-effort and every one ends in `|| true`
+# under this script's `set -euo pipefail`: a failure to COLLECT evidence must
+# never change a verdict, and must never fail a run. If a line is missing below,
+# the probe failed — that is not the same as the reading being empty, and the
+# header line says so rather than leaving the reader to guess.
+#
+# Aimed at the FIRST stage. The cold run on 2026-08-18 had `kind load` exit 0
+# having transferred nothing, three times, while the same command completed in
+# ~1s on an idle node and 0 of 2 synthetic-load attempts reproduced it. We have
+# never captured why. These readings separate the candidates that verdict alone
+# cannot:
+#
+#   ctr lists it, crictl does not   a half-transferred image — manifest written,
+#                                   layers absent, CRI never adopts it. This is
+#                                   the shape the header describes.
+#   neither lists it                the transfer genuinely did not happen.
+#   both list it                    a verification-timing problem, not a load one.
+#   disk near full                  the classic cause of a write that reports
+#                                   success and stores nothing, and it is
+#                                   invisible in every verdict this script prints.
+diagnose_load_failure() {
+  local image="$1" ref name
+  ref="$(canonical_ref "$image")"
+  name="${ref%:*}"
+
+  warn "--- diagnostics for $image (best-effort; a MISSING line means the probe itself failed) ---"
+
+  warn "  ctr, content store:"
+  "$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images ls 2>/dev/null \
+    | awk -v r="$ref" '$1 == r {print "      " $1 "  " $3}' || true
+
+  warn "  crictl, CRI view:"
+  "$DOCKER_BIN" exec "$NODE" crictl images 2>/dev/null \
+    | awk -v n="$name" '$1 == n {print "      " $1 "  " $2 "  " $3}' || true
+
+  local ctr_n crictl_n
+  ctr_n="$("$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images ls -q 2>/dev/null | grep -c . || true)"
+  crictl_n="$("$DOCKER_BIN" exec "$NODE" crictl images -q 2>/dev/null | grep -c . || true)"
+  warn "  totals: ctr=${ctr_n:-MISSING} crictl=${crictl_n:-MISSING}  (tells 'this image is missing' from 'the node lost everything')"
+
+  warn "  node disk:"
+  "$DOCKER_BIN" exec "$NODE" df -h / /var/lib/containerd 2>/dev/null \
+    | sed 's/^/      /' || true
+}
+
 main() {
   [ "$#" -gt 0 ] || fail "usage: kind-load-verified.sh IMAGE [IMAGE...]"
 
@@ -204,8 +252,19 @@ main() {
   # nothing — but it is not worthless either, and a load that ANNOUNCED failure
   # before a mismatch is a different bug report from one that claimed success.
   log "loading into kind cluster $CLUSTER_NAME: $*"
-  local kind_status=0
-  "$KIND_BIN" load docker-image --name "$CLUSTER_NAME" "$@" || kind_status=$?
+  # Captured rather than streamed, because WHAT kind said is evidence and we have
+  # never had it. On 2026-08-18 a cold run had kind exit 0 having transferred
+  # nothing, three times; the report showed the verdict but not kind's own
+  # account of the transfer, so "it announced a load that did not happen" and "it
+  # said nothing at all" were indistinguishable afterwards. They are different
+  # bugs. The cost is that output appears after the load rather than during it.
+  local kind_status=0 kind_out=""
+  kind_out="$("$KIND_BIN" load docker-image --name "$CLUSTER_NAME" "$@" 2>&1)" || kind_status=$?
+  if [ -n "$kind_out" ]; then
+    while IFS= read -r kind_line; do log "kind: $kind_line"; done <<<"$kind_out"
+  else
+    log "kind: (no output at all — it neither named an image nor reported a transfer)"
+  fi
   if [ "$kind_status" -ne 0 ]; then
     warn "kind load exited $kind_status — verifying each image anyway"
   fi
@@ -229,6 +288,10 @@ main() {
     fi
 
     warn "$image did NOT reach $NODE despite kind load exiting $kind_status — recovering"
+    # Read the node BEFORE recovery mutates it. Afterwards the import and the
+    # label have already changed what we would be looking at, so the state that
+    # explains the empty transfer is gone.
+    diagnose_load_failure "$image"
     rc=0; recover_via_archive "$image" || rc=$?
     if [ "$rc" -eq 0 ]; then
       rc=0; verify_identity "$image" || rc=$?

@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 SRC_DIR = Path(__file__).resolve().parent.parent
@@ -63,7 +64,7 @@ LIVE_UNDOTTED_EVENT_TYPES = {"onboarding_completed", "onboarding_skipped"}
 # after a merge: it turns the test green while leaving the database constraint
 # missing an event type. Point it at whichever migration runs LAST, and make
 # that migration enumerate every type.
-CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "021_user_currency_event_type.sql"
+CONSTRAINT_MIGRATION = MIGRATIONS_DIR / "032_generated_demo_event_types.sql"
 
 
 EVENT_TYPE_POSITION = 2
@@ -110,26 +111,143 @@ def _parameter_index(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str
     return names.index(name) if name in names else None
 
 
+def _demo_types() -> set[str]:
+    """Every ``demo_type`` a ``DemoConfig`` is constructed with.
+
+    Read from the constructor calls rather than from ``DEMO_CONFIGS``' dict
+    keys, because it is ``config.demo_type`` that gets interpolated into the
+    event type; the dict key is only conventionally equal to it and a mismatch
+    between the two would make the key the wrong answer.
+
+    Derived, never listed. A hardcoded set here would reproduce the very defect
+    this file exists to catch, one level up -- which is the mistake
+    ``scripts/check-ci-build-parity.sh`` and ``scripts/doctor.sh`` were both
+    converted away from.
+    """
+    found: set[str] = set()
+    for path in _source_modules():
+        for node in ast.walk(ast.parse(path.read_text())):
+            if not isinstance(node, ast.Call) or _called_name(node) != "DemoConfig":
+                continue
+            argument = _argument_for(node, 0, "demo_type")
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                found.add(argument.value)
+    return found
+
+
+#: Interpolations this file knows how to expand, mapped to the derivation that
+#: enumerates their values. An f-string whose placeholder is absent from this
+#: registry is reported UNRESOLVED and fails the run -- it is never guessed at
+#: and never skipped, for the reason the module docstring gives.
+#:
+#: Keeping this a registry rather than a general dataflow engine is deliberate,
+#: and is the same trade ``_resolve_through_callers`` makes: a second system to
+#: trust is worse than an explicit, short, greppable list of the interpolations
+#: that actually occur.
+INTERPOLATION_SOURCES: dict[str, Callable[[], set[str]]] = {
+    "config.demo_type": _demo_types,
+}
+
+
+def _expand_fstring(node: ast.JoinedStr) -> tuple[set[str], str | None]:
+    """Every string an f-string template can produce.
+
+    Returns ``(values, unresolved)``. ``demo_runner`` builds its event types as
+    ``f"demo.{config.demo_type}.phase_run"``, so the *family* of types the code
+    can emit is the cross-product of the literal segments with the values each
+    placeholder can take. Expanding that is the only way to compare a generated
+    event type against an enumerated constraint.
+
+    A placeholder this cannot expand yields ``(set(), reason)`` so the caller
+    fails rather than under-reporting. That matters more than the expansion: a
+    partially-expanded f-string is exactly the shape of failure that let
+    ``demo.signalfusion.phase_run`` reach the database unchecked.
+    """
+    segments: list[set[str]] = []
+    for value in node.values:
+        if isinstance(value, ast.Constant) and isinstance(value.value, str):
+            segments.append({value.value})
+            continue
+        if isinstance(value, ast.FormattedValue):
+            expression = ast.unparse(value.value)
+            source = INTERPOLATION_SOURCES.get(expression)
+            if source is None:
+                return set(), f"f-string interpolates {expression!r}"
+            candidates = source()
+            if not candidates:
+                return set(), f"{expression!r} expanded to nothing"
+            segments.append(candidates)
+            continue
+        return set(), f"f-string segment {ast.unparse(value)!r}"
+
+    combinations = {""}
+    for segment in segments:
+        combinations = {prefix + suffix for prefix in combinations for suffix in segment}
+    return combinations, None
+
+
+def _literal_values(expression: ast.expr | None) -> tuple[set[str], str | None]:
+    """The string values an expression can evaluate to, or why we cannot tell.
+
+    Exactly one of the two elements is ever meaningful: values, or a reason.
+    """
+    if isinstance(expression, ast.Constant) and isinstance(expression.value, str):
+        return {expression.value}, None
+    if isinstance(expression, ast.JoinedStr):
+        return _expand_fstring(expression)
+    if expression is None:
+        return set(), "MISSING"
+    return set(), ast.unparse(expression)
+
+
 def _resolve_through_callers(
     trees: dict[Path, ast.AST], function_name: str, index: int, keyword: str,
-) -> set[str]:
-    """Literals that any caller passes into ``function_name``'s parameter.
+) -> tuple[set[str], list[str]]:
+    """Values that any caller passes into ``function_name``'s parameter.
 
     One hop, deliberately. ``onboarding._terminal_transition`` takes its
     event_type as an argument and every caller supplies a literal, which is the
     real pattern here. A general dataflow engine would be a second system to
     trust; one hop is enough to be exact about the code that exists, and
     anything deeper is reported unresolved rather than guessed at.
+
+    HOW THIS RESOLVER READ AS COVERAGE WHILE PROVIDING NONE
+    -------------------------------------------------------
+    It used to return a bare ``set`` of the literals it recognised and drop
+    every caller argument that was not an ``ast.Constant``. Its caller then did
+    ``if through: resolved |= through; continue`` -- so *one* resolvable caller
+    marked the whole parameter resolved, and every other caller was discarded
+    without a word.
+
+    ``demo_runner._record_privileged_invocation`` has exactly that shape. One
+    caller passes the literal ``"demo.phase_run"``; the others pass
+    ``f"demo.{config.demo_type}.phase_run"`` and
+    ``f"demo.{config.demo_type}.reset_requested"``. The literal satisfied the
+    truthiness check, the f-strings vanished, and this file reported that every
+    emitted event type was permitted while two of them were not. The Signal
+    Fusion demo returned 500 on its first phase in front of an audience.
+
+    So unresolved callers are now RETURNED, not dropped. This is the third time
+    this file has had to learn the same lesson -- first about modules, then
+    about parameters, now about the values passed through them -- which is why
+    the rule is stated as an invariant rather than a fix: an extractor that
+    silently returns less than the truth turns this file into decoration.
     """
     found: set[str] = set()
+    unresolved: list[str] = []
     for tree in trees.values():
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or _called_name(node) != function_name:
                 continue
             argument = _argument_for(node, index, keyword)
-            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-                found.add(argument.value)
-    return found
+            if argument is None:
+                continue
+            values, reason = _literal_values(argument)
+            if values:
+                found |= values
+            elif reason is not None:
+                unresolved.append(f"line {node.lineno}: {reason}")
+    return found, unresolved
 
 
 def _caller_expression_for(
@@ -180,24 +298,34 @@ def _extract_event_types() -> tuple[set[str], list[str]]:
             argument = _argument_for(node, EVENT_TYPE_POSITION, "event_type")
             where = f"{path.name}:{node.lineno}"
 
-            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
-                resolved.add(argument.value)
+            # A literal, or an f-string whose placeholders can be enumerated.
+            values, reason = _literal_values(argument)
+            if values:
+                resolved |= values
                 continue
 
-            # Not a literal. If it names a parameter of the enclosing function,
-            # the callers of that function are where the literals live.
+            # Neither. If it names a parameter of the enclosing function, the
+            # callers of that function are where the values live.
             if isinstance(argument, ast.Name):
                 function = _enclosing_function(tree, node)
                 index = _parameter_index(function, argument.id) if function else None
                 if function is not None and index is not None:
-                    through = _resolve_through_callers(
+                    through, through_unresolved = _resolve_through_callers(
                         trees, function.name, index, argument.id,
                     )
-                    if through:
+                    # Both halves are kept. Taking `through` and discarding
+                    # `through_unresolved` -- which is what this did until the
+                    # Signal Fusion 500 -- lets one resolvable caller vouch for
+                    # every unresolvable sibling.
+                    if through or through_unresolved:
                         resolved |= through
+                        unresolved.extend(
+                            f"{where} via {function.name}() {u}"
+                            for u in through_unresolved
+                        )
                         continue
 
-            unresolved.append(where)
+            unresolved.append(f"{where} -> {reason}")
 
     return resolved, unresolved
 
@@ -215,6 +343,63 @@ def _permitted_event_types() -> set[str]:
     return set(re.findall(r"'([^']+)'", match.group(1)))
 
 
+def _event_type_column_width() -> int | None:
+    """Effective width of ``audit_events.event_type`` after every migration.
+
+    ``None`` means unbounded (``TEXT``). Replayed in filename order, because
+    the last statement to set the type is the one that describes the running
+    database -- the same reason ``CONSTRAINT_MIGRATION`` must name the last
+    migration to recreate the constraint.
+
+    WHY THIS IS A SEPARATE ASSERTION FROM THE CHECK CONSTRAINT
+    ----------------------------------------------------------
+    A permitted value that does not fit the column is rejected just as hard as
+    an unpermitted one, with a different error and the same 500. When the
+    vocabulary was a hand-written list of short names this was safe by
+    inspection, and 012 did exactly that inspection in a comment listing
+    "lengths against the VARCHAR(30) ceiling, longest first". Once the emitter
+    became an f-string over demo types, length stopped being inspectable:
+    ``demo.signalfusion.reset_requested`` is 33 characters against a 30
+    character column, so widening only the CHECK constraint would have fixed
+    the Run button and left the Reset button failing -- with a *new* error that
+    looks nothing like the one being fixed.
+
+    That comment in 012 is why this is derived rather than re-inspected. A
+    correct comment stating an invariant is not a guard; it reads as a decision
+    and stops anybody reopening the question.
+    """
+    declared: int | None = None
+    found = False
+    for path in sorted(MIGRATIONS_DIR.glob("*.sql")):
+        sql = path.read_text()
+
+        create = re.search(
+            r"CREATE\s+TABLE[^;]*?audit_events\s*\((.*?)\n\);", sql, re.S | re.I,
+        )
+        if create:
+            column = re.search(
+                r"\bevent_type\s+(TEXT|VARCHAR\s*\(\s*(\d+)\s*\))", create.group(1), re.I,
+            )
+            if column:
+                declared = int(column.group(2)) if column.group(2) else None
+                found = True
+
+        for alter in re.finditer(
+            r"ALTER\s+TABLE\s+(?:public\.)?audit_events\s+ALTER\s+COLUMN\s+event_type\s+"
+            r"(?:SET\s+DATA\s+)?TYPE\s+(TEXT|VARCHAR\s*\(\s*(\d+)\s*\))",
+            sql, re.S | re.I,
+        ):
+            declared = int(alter.group(2)) if alter.group(2) else None
+            found = True
+
+    assert found, (
+        "no declaration of audit_events.event_type's type found in any "
+        "migration. The parser has stopped matching, so this guard would "
+        "report that every event type fits a column it cannot see."
+    )
+    return declared
+
+
 def test_the_source_emits_event_types_at_all() -> None:
     """Guards the guard: an extractor that finds nothing would pass vacuously."""
     emitted = _emitted_event_types()
@@ -224,6 +409,34 @@ def test_the_source_emits_event_types_at_all() -> None:
 def test_the_migration_permits_values_at_all() -> None:
     permitted = _permitted_event_types()
     assert len(permitted) >= 10, f"only parsed {len(permitted)} permitted values — parser is probably broken"
+
+
+def test_no_apostrophes_in_the_constraints_comments() -> None:
+    """The parser pairs single quotes, so prose apostrophes truncate it.
+
+    ``_permitted_event_types`` reads the vocabulary with ``'([^']+)'``. One
+    apostrophe in a comment inside the ``CHECK`` block shifts every quote pair
+    after it, so the tail of the list is parsed as prose and silently dropped —
+    the guard then reports that legitimately-permitted types are forbidden, or,
+    far worse in the other direction, would compare against a partial list.
+
+    011 warns about this in a comment ("no quote characters in this comment").
+    032 tripped over it anyway, which is the argument for asserting it: a
+    warning in one file does not travel to the next author of a different file.
+    """
+    sql = CONSTRAINT_MIGRATION.read_text()
+    match = re.search(r"CHECK\s*\(\s*event_type\s+IN\s*\((.*?)\)\s*\)", sql, re.S | re.I)
+    assert match is not None, f"no CHECK (event_type IN (...)) in {CONSTRAINT_MIGRATION.name}"
+    offenders = [
+        line.strip() for line in match.group(1).splitlines()
+        if line.strip().startswith("--") and "'" in line
+    ]
+    assert not offenders, (
+        f"{len(offenders)} comment line(s) inside the CHECK block of "
+        f"{CONSTRAINT_MIGRATION.name} contain an apostrophe: {offenders}. "
+        "The vocabulary parser pairs single quotes, so these silently truncate "
+        "the list it reads. Reword without the apostrophe."
+    )
 
 
 def test_every_emitted_event_type_is_permitted() -> None:
@@ -238,6 +451,51 @@ def test_every_emitted_event_type_is_permitted() -> None:
         "the endpoint persists its change and then returns 500. Add them to the "
         "constraint in a new migration."
     )
+
+
+def test_every_emitted_event_type_fits_the_column() -> None:
+    """A permitted value that does not fit is rejected just as hard.
+
+    Separate from the CHECK constraint on purpose: these are two independent
+    ways for the same insert to fail, they fail with different errors, and
+    fixing one does nothing for the other.
+    """
+    width = _event_type_column_width()
+    if width is None:
+        return  # TEXT -- nothing to exceed
+    over = sorted(
+        (t for t in _emitted_event_types() if len(t) > width),
+        key=len, reverse=True,
+    )
+    assert not over, (
+        f"{len(over)} event type(s) exceed audit_events.event_type's "
+        f"VARCHAR({width}): {[(t, len(t)) for t in over]}. Every insert of "
+        "these raises StringDataRightTruncation, which returns the same 500 as "
+        "a CHECK violation but reads as a completely different bug. Widen the "
+        "column in the same migration that widens the constraint."
+    )
+
+
+def test_the_extractor_expands_interpolated_event_types() -> None:
+    """Guards the expansion that the Signal Fusion 500 proved was missing.
+
+    ``demo_runner`` generates event types with an f-string over the demo type,
+    so a resolver that only understands literals sees none of them. Asserted
+    per demo type and derived from ``DemoConfig`` rather than written out, so
+    registering a third demo extends this check by itself.
+    """
+    demo_types = _demo_types()
+    assert demo_types, (
+        "no DemoConfig(demo_type=...) constructions found -- the derivation is "
+        "broken, so every generated event type is invisible to this file."
+    )
+    emitted = _emitted_event_types()
+    for demo_type in sorted(demo_types):
+        assert any(f".{demo_type}." in t for t in emitted), (
+            f"no emitted event type mentions the {demo_type!r} demo. The "
+            "f-string expansion has regressed, and every generated event type "
+            "for that demo now reaches the CHECK constraint unvalidated."
+        )
 
 
 def test_emitted_event_types_use_the_dotted_convention() -> None:

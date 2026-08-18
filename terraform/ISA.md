@@ -4,7 +4,7 @@ project: signalloom-gcp-terraform
 slug: 20260818-signalloom-gcp-terraform
 effort: E5
 phase: observe
-progress: 0/321
+progress: 0/357
 mode: build
 started: 2026-08-18T01:30:00+01:00
 updated: 2026-08-18T01:30:00+01:00
@@ -457,6 +457,45 @@ Andy's authenticated credentials.
 - [ ] ISC-319: The final state of the target branch is reported with an actual commit hash read from `git log`.
 - [ ] ISC-320: Every agent is confirmed terminated, with no background process left running.
 - [ ] ISC-321: Antecedent: the first demo environment's `terraform plan` output is produced and reviewable before any apply is proposed.
+
+### N. Native Terraform tests — plan-time assertions against evaluated config
+
+- [ ] ISC-322: `terraform/bootstrap/tests/*.tftest.hcl` exists.
+- [ ] ISC-323: `terraform/platform/tests/*.tftest.hcl` exists.
+- [ ] ISC-324: `terraform/environments/tests/*.tftest.hcl` exists.
+- [ ] ISC-325: `terraform/modules/env-contract/tests/*.tftest.hcl` exists.
+- [ ] ISC-326: `terraform/modules/network/tests/*.tftest.hcl` exists.
+- [ ] ISC-327: `terraform/modules/compute/tests/*.tftest.hcl` exists.
+- [ ] ISC-328: `terraform/modules/edge/tests/*.tftest.hcl` exists.
+- [ ] ISC-329: `terraform/modules/identity/tests/*.tftest.hcl` exists.
+- [ ] ISC-330: `terraform/modules/ci-runner/tests/*.tftest.hcl` exists.
+- [ ] ISC-331: `terraform/modules/observability/tests/*.tftest.hcl` exists.
+- [ ] ISC-332: Every `.tftest.hcl` declares `mock_provider "google"`.
+- [ ] ISC-333: A test asserts no `.tftest.hcl` omits a `mock_provider` block.
+- [ ] ISC-334: Anti: no `.tftest.hcl` uses `command = apply`.
+- [ ] ISC-335: A test asserts zero occurrences of `command = apply` under `terraform/`.
+- [ ] ISC-336: `terraform test` passes in `terraform/bootstrap` with no network access.
+- [ ] ISC-337: `terraform test` passes in every module directory with no network access.
+- [ ] ISC-338: `terraform test` passes in `terraform/environments` with no network access.
+- [ ] ISC-339: A tftest asserts the state bucket's evaluated `public_access_prevention` is `enforced`.
+- [ ] ISC-340: A tftest asserts the state bucket's evaluated `force_destroy` is `false`.
+- [ ] ISC-341: A tftest asserts the state bucket's evaluated `versioning` is enabled.
+- [ ] ISC-342: A tftest uses `expect_failures` to prove the environment-key regex rejects `prod-1`.
+- [ ] ISC-343: A tftest uses `expect_failures` to prove a duplicate hostname is rejected.
+- [ ] ISC-344: A tftest uses `expect_failures` to prove `0.0.0.0/0` in an allowlist is rejected.
+- [ ] ISC-345: A tftest uses `expect_failures` to prove a `target_env` absent from the map is rejected.
+- [ ] ISC-346: Every `expect_failures` run is paired with a positive run proving the corrected input passes.
+- [ ] ISC-347: A test asserts every `.tftest.hcl` containing `expect_failures` also contains a passing `run`.
+- [ ] ISC-348: A tftest asserts the evaluated Cloud Armor default rule action is `deny(403)`.
+- [ ] ISC-349: A tftest asserts the evaluated firewall SSH rule source is exactly the IAP range.
+- [ ] ISC-350: A tftest asserts the evaluated WIF provider `attribute_condition` is non-empty.
+- [ ] ISC-351: A tftest asserts evaluated resource names embed the environment key.
+- [ ] ISC-352: A tftest asserts evaluated labels include `environment`, `managed-by`, and `component`.
+- [ ] ISC-353: `make gcp-tf-test-unit` runs every `terraform test` suite offline.
+- [ ] ISC-354: `make gcp-tf-validate` invokes `gcp-tf-test-unit`.
+- [ ] ISC-355: A test asserts every directory containing `.tf` files with resources has a `tests/` directory.
+- [ ] ISC-356: The whole `terraform test` sweep completes in under 300 seconds.
+- [ ] ISC-357: Anti: no `.tftest.hcl` requires cloud credentials — the sweep passes with `CLOUDSDK_CORE_ACCOUNT` unset and no ADC.
 
 ## Test Strategy
 

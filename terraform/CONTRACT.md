@@ -244,12 +244,78 @@ F6's Make targets always run `init -reconfigure` with the prefix derived from `E
 
 ---
 
+### 5a. Environment identity must have ONE source — the init/apply mismatch
+
+This is the highest-risk failure mode in the whole design, and the original contract did not
+close it.
+
+Today environment identity is carried in **two independent places**: the backend prefix chosen
+at `terraform init`, and the map key chosen at `terraform apply` via tfvars. Nothing makes them
+agree. Run `init` against `osramp/environments/demo-1`, then `apply` with `demo-2.tfvars`, and
+Terraform raises no objection — a changed backend config is only detected when `init` is re-run,
+and `plan`/`apply` silently reuse the cached `.terraform/` backend pointer. The result is either
+demo-2's resources written into demo-1's state, or a plan that reads
+**"destroy demo-1, create demo-2"** into demo-1's state file. Both are silent and both are
+plausible on a tired evening.
+
+Three mechanisms close it. All three are required; none is sufficient alone.
+
+1. **`target_env` filter.** The environments root takes a required `target_env` variable and
+   instantiates exactly one environment, while keeping the whole map in scope so the
+   cross-environment collision validations still bite:
+   ```hcl
+   for_each = { for k, v in var.environments : k => v if k == var.target_env }
+   ```
+   Plus a validation block asserting `contains(keys(var.environments), var.target_env)` — a
+   typo'd `target_env` must fail loudly rather than silently produce a zero-resource plan.
+
+2. **Per-environment `TF_DATA_DIR`.** Make exports `TF_DATA_DIR=.terraform-$(ENV)` for every
+   terraform invocation. Two environments then cannot share a cached backend pointer at all —
+   cross-contamination becomes physically impossible rather than merely detected.
+
+3. **Post-init prefix assertion.** After `init`, Make reads the resolved backend prefix back
+   (from `$(TF_DATA_DIR)/terraform.tfstate`) and asserts it contains `$(ENV)` before running
+   plan or apply. A mismatch aborts non-zero. This is the belt to the other two braces, and it
+   is the one that catches a human editing state by hand.
+
+`target_env` must equal `ENV` must equal the backend prefix suffix. Any disagreement aborts.
+
+### 5b. What `terraform/platform` actually owns
+
+The platform root is not a naming convenience — it exists for **credential separation**, and it
+must not ship empty. `bootstrap` needs `roles/storage.admin`; `platform` needs IAM, logging, and
+DNS admin; `environments` needs neither. Platform owns exactly the project-level singletons that
+N environments would otherwise each claim to own:
+
+- the Workload Identity Federation pool and provider
+- the log sink, the audit/log bucket, and the data-access audit config
+- the Cloud DNS managed zone (if Terraform manages it at all)
+- the billing budget and the notification channels
+- the CI plan/apply service accounts
+
+Anything scoped to one environment belongs in `environments`, never here.
+
+### 5c. State-bucket protection is IAM, not config
+
+`prevent_destroy` and `force_destroy = false` live *in the config* — the same commit that
+destroys the bucket can delete them. They are useful tripwires, not enforcement. The only real
+mechanism is IAM: **no plan/apply principal may hold `roles/storage.admin` on the state
+bucket.** `roles/storage.objectAdmin` is sufficient to read and write state objects and
+insufficient to delete the bucket. Assert the negative as well as the positive.
+
 ## 6. Hard prohibitions — these are anti-criteria, and they are tested
 
 - No `terraform apply`, `terraform destroy`, `terraform init` against a real backend, or any
   `gcloud` mutation. **Agents run `terraform init -backend=false`, `validate`, `fmt`, and
-  `tflint` only.** There are no cloud credentials in this environment and there must be no
-  attempt to obtain any.
+  `tflint` only.**
+
+  **Working `gcloud` credentials DO exist on this machine.** That makes this rule more
+  important, not less. An authenticated CLI is exactly what turns a plausible-looking
+  `terraform apply` into real, billable, possibly public infrastructure. The proposal this work
+  implements carries an explicit approval gate: *no GCP resource, DNS record, state bucket, or
+  deployment is created until Andrew approves*. Read-only inspection (`gcloud projects
+  describe`, `gcloud compute instances list`) is permitted if it genuinely informs the design.
+  Anything that creates, modifies, or deletes is not, regardless of how safe it looks.
 - No `access_config` block anywhere (no external IPs).
 - No `google_service_account_key` resource.
 - No `google_project_iam_policy` resource (authoritative; destroys existing bindings). Use

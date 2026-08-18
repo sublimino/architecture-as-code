@@ -1,12 +1,69 @@
 # DELIBERATELY BROKEN FIXTURE -- NOT REAL INFRASTRUCTURE.
 #
-# Extracted verbatim from terraform/modules/edge/main.tf, then mutated to
-# violate exactly one guard in test/terraform-edge-security.bats. It exists to
-# prove that guard can fail. It is named *.tf.fixture, not *.tf, so that no
-# terraform fmt/validate run and no repo-wide *.tf scan ever sees it.
+# A byte-for-byte copy of terraform/modules/edge/armor.tf with exactly one
+# mutation applied. test/terraform-edge-security.bats overlays this file over
+# armor.tf in a throwaway copy of the module and asserts that the real
+# terraform test suite goes RED. The real tree is never touched.
 #
-# MUTATION: the default rule at priority 2147483647 has action "allow"
-#           instead of "deny(403)". The edge is wide open.
+# MUTATION: the default rule at priority 2147483647 has action "allow" instead of "deny(403)". The edge is wide open to the internet.
+#
+# Named *.tf.fixture, not *.tf, so no terraform fmt/validate run and no
+# repo-wide *.tf scan ever sees it.
+
+# ---------------------------------------------------------------------------
+# Cloud Armor -- the load-bearing control.
+#
+# This resource lives alone in its own file on purpose. The mutation fixtures
+# under test/fixtures/terraform/edge/ are drop-in replacements for THIS FILE,
+# which is what lets the mutation checks swap in a broken policy and run the
+# real tftest suite against it. Splitting a resource out of main.tf by line
+# number in a test would be brittle; giving it a file makes the swap exact.
+#
+# The priority bands and the allowlist chunking arithmetic live here too, not in
+# main.tf, so that a fixture can mutate the chunker itself. Silent truncation of
+# the allowlist is the failure mode this module most needs to be able to fail on
+# in a test, and a guard that cannot be shown to fail is not a guard.
+# ---------------------------------------------------------------------------
+
+locals {
+  # Cloud Armor caps a single rule's src_ip_ranges at 10 CIDRs. Chunk rather
+  # than truncate: silently dropping the 11th CIDR would lock a legitimate
+  # operator out and look like a network fault, not a configuration error.
+  armor_max_cidrs_per_rule = 10
+
+  # Priority bands. Lower number is evaluated first.
+  #   500-599    preconfigured WAF denies (apply to allowlisted traffic too)
+  #   800-899    rate-limited allow, matched on the allowlist itself
+  #   1000-1099  plain allow fail-safe, matched on the same allowlist
+  #   2147483647 default deny(403)
+  # The 500-entry cap on each allowlist keeps chunk indices below 100, so a
+  # generated priority can never cross into the next band.
+  waf_sqli_priority        = 500
+  waf_xss_priority         = 510
+  rate_limit_priority_base = 800
+  allow_priority_base      = 1000
+  default_rule_priority    = 2147483647
+
+  raw_chunks = concat(
+    [for i, c in chunklist(var.allowed_ipv4, local.armor_max_cidrs_per_rule) :
+      { key = format("ipv4-%02d", i), ranges = c }
+    ],
+    [for i, c in chunklist(var.allowed_ipv6, local.armor_max_cidrs_per_rule) :
+      { key = format("ipv6-%02d", i), ranges = c }
+    ],
+  )
+
+  # One shared index across both address families. Indexing each family
+  # separately would give an IPv4 chunk and an IPv6 chunk the same priority.
+  allow_chunks = [
+    for i, c in local.raw_chunks : {
+      key            = c.key
+      ranges         = c.ranges
+      rate_priority  = local.rate_limit_priority_base + i
+      allow_priority = local.allow_priority_base + i
+    }
+  ]
+}
 
 resource "google_compute_security_policy" "edge" {
   name        = "${var.name_prefix}-armor"

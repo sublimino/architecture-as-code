@@ -254,8 +254,187 @@ run "enabling_confidential_compute_forces_terminate_on_maintenance" {
 }
 
 # ---------------------------------------------------------------------------
+# The VM profile: sized for the workload that actually runs on it.
+#
+# The demo VM carries a Kind cluster running the whole Signal Loom estate,
+# brought up by this repo's own `make demo-signalloom-up`. The measured
+# reference for that exact bring-up is v1 CI: n2-standard-16 with a 200GB boot
+# disk (scripts/ci/gcp-ci.sh). These runs assert the module can express that
+# profile and that both values reach the instance rather than stopping at a
+# variable nobody wired through.
+# ---------------------------------------------------------------------------
+
+run "the_measured_profile_reaches_the_instance" {
+  command = plan
+
+  variables {
+    machine_type = "n2-standard-16"
+    boot_disk_gb = 200
+  }
+
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-standard-16"
+    error_message = "machine_type must reach the instance; v1 CI runs this same bring-up on n2-standard-16"
+  }
+
+  assert {
+    condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == 200
+    error_message = "boot_disk_gb must reach the boot disk; v1 CI provisions 200GB for this workload"
+  }
+}
+
+run "the_module_defaults_are_the_measured_profile" {
+  command = plan
+
+  # No `variables` block: this asserts what an operator who sets NEITHER value
+  # gets. A module whose defaults are undersized is one forgotten tfvars line
+  # away from an acceptance run that times out, and the default is the value
+  # that governs in exactly the case nobody reviewed.
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-standard-16"
+    error_message = "the module default machine type must be the measured profile, not a guess"
+  }
+
+  assert {
+    condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == 200
+    error_message = "the module default boot disk must be the measured 200GB"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Resizing must be an UPDATE, not a REPLACEMENT.
+#
+# What this run can honestly prove, and what it cannot: a mocked-provider plan
+# has no prior state, so every resource is a create and Terraform never emits
+# an update-vs-replace verdict for anything. What it CAN prove is that the
+# mechanism which produces the update is present in the evaluated resource.
+# Without allow_stopping_for_update the plan is still accepted and the APPLY
+# fails at the API with "instance must be stopped", leaving the environment
+# half-applied — so this attribute is the difference between a resize that
+# works and one that strands the demo.
+#
+# The replacement hazard that was real here is separately covered by
+# `confidential_compute_is_off_by_default`: an unconditional
+# confidential_instance_config produced a perpetual diff on a ForceNew
+# attribute and every plan proposed rebuilding a healthy VM.
+# ---------------------------------------------------------------------------
+
+run "resizing_the_vm_is_an_update_not_a_replacement" {
+  command = plan
+
+  variables {
+    machine_type = "n2-standard-32"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.allow_stopping_for_update == true
+    error_message = "allow_stopping_for_update must be true, or a machine_type change plans cleanly and then fails the apply with \"instance must be stopped\""
+  }
+
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-standard-32"
+    error_message = "a larger machine type must be accepted; the floor is a floor, not a fixed size"
+  }
+
+  # The boot disk image is the one attribute deliberately ignored, because an
+  # upstream image release otherwise proposes destroying the VM. Nothing else
+  # may join it — a machine_type in ignore_changes would silently discard every
+  # future resize.
+  assert {
+    condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == var.boot_disk_gb
+    error_message = "boot disk size must still track the variable when the machine type changes"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # Negative tests. Paired with "accepts_the_corrected_inputs" below.
 # ---------------------------------------------------------------------------
+
+# The specific value this profile exists to refuse. e2-standard-4 (4 vCPU /
+# 16GB) was the demo default, chosen against nothing, while the identical
+# bring-up was measured at 16 vCPU / 64GB in v1 CI.
+run "rejects_the_undersized_demo_default" {
+  command = plan
+
+  variables {
+    machine_type = "e2-standard-4"
+  }
+
+  expect_failures = [var.machine_type]
+}
+
+# Shared-core types carry no vCPU count in the name at all. The rule must
+# reject them rather than fail to parse them — `try(..., 0)` is what turns an
+# unparseable type into a refusal instead of an error about a regex.
+run "rejects_a_shared_core_machine_type" {
+  command = plan
+
+  variables {
+    machine_type = "e2-micro"
+  }
+
+  expect_failures = [var.machine_type]
+}
+
+# The one that satisfies the vCPU floor and is still wrong. n2-highcpu-16 has
+# 16 vCPU and 16GB of RAM — less memory than the e2-standard-4 above.
+run "rejects_a_highcpu_machine_type_despite_enough_vcpus" {
+  command = plan
+
+  variables {
+    machine_type = "n2-highcpu-16"
+  }
+
+  expect_failures = [var.machine_type]
+}
+
+# The neighbour of every rejection above: the floor value itself, which is the
+# sandbox's real choice (deploy/gcp/sl-port-over-sandbox.example.tfvars) and
+# must plan. A floor that rejected its own boundary would be an off-by-one that
+# no negative test could distinguish from correct behaviour.
+run "accepts_the_machine_type_at_the_floor" {
+  command = plan
+
+  variables {
+    machine_type = "n2-standard-8"
+    boot_disk_gb = 100
+  }
+
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-standard-8"
+    error_message = "8 vCPU is the documented floor and must be accepted"
+  }
+}
+
+# highmem is the other legal class, and a custom type must survive the parser:
+# `n2-custom-16-65536` embeds its vCPU count in the middle of the name, which a
+# regex anchored to the end of the string would miss.
+run "accepts_highmem_and_custom_machine_types" {
+  command = plan
+
+  variables {
+    machine_type = "n2-highmem-16"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-highmem-16"
+    error_message = "highmem is a legal class for this workload and must be accepted"
+  }
+}
+
+run "accepts_a_custom_machine_type_with_enough_vcpus" {
+  command = plan
+
+  variables {
+    machine_type = "n2-custom-16-65536"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.machine_type == "n2-custom-16-65536"
+    error_message = "a custom type naming 16 vCPUs must be accepted; the count is mid-string, not at the end"
+  }
+}
+
 
 run "rejects_the_default_compute_service_account" {
   command = plan
@@ -283,7 +462,11 @@ run "rejects_a_boot_disk_too_small_for_the_demo" {
   command = plan
 
   variables {
-    boot_disk_gb = 10
+    # 50 rather than 10 on purpose. 10 is absurd and would be caught by almost
+    # any rule; 50 is a value someone might actually type, and it is still half
+    # of what the demo's container images need. A negative test whose input is
+    # obviously wrong proves less than one whose input is plausibly wrong.
+    boot_disk_gb = 50
   }
 
   expect_failures = [var.boot_disk_gb]
@@ -316,15 +499,15 @@ run "accepts_the_corrected_inputs" {
 
   variables {
     service_account_email = "sl-ci-1-runtime@CHANGEME-project.iam.gserviceaccount.com"
-    boot_disk_gb          = 20
+    boot_disk_gb          = 100
     boot_disk_type        = "pd-ssd"
     app_port              = 1
     deletion_protection   = false
   }
 
   assert {
-    condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == 20
-    error_message = "20GB is the documented floor and must be accepted"
+    condition     = one(one(google_compute_instance.this.boot_disk).initialize_params).size == 100
+    error_message = "100GB is the documented floor and must be accepted"
   }
 
   assert {

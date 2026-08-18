@@ -56,6 +56,18 @@ test/acceptance/.auth/
 !test/lib/
 !test/lib/**
 
+# Third instance of the same bare-`lib` trap, negated pre-emptively rather than
+# after it bites. d2-osramp-apps/test/lib/ already holds detik.bash, linter.bash
+# and utils.bash — they survive only because git ignores UNTRACKED files, so
+# nothing is broken today and nothing looks wrong. But `git check-ignore -v
+# d2-osramp-apps/test/lib/anything-new.bash` resolves to ~/.gitignore_global:93,
+# so the next helper added there is dropped silently: `git status` stays clean,
+# the suite passes locally against a file that was never committed, and CI fails
+# on a missing file. That is exactly how the test/lib/ negation above came to be
+# written, caught only by a `git status --untracked-files=all` before commit.
+!d2-osramp-apps/test/lib/
+!d2-osramp-apps/test/lib/**
+
 
 # riskctl build output (regenerate with `make riskctl`)
 tools/riskctl/riskctl

@@ -208,7 +208,11 @@ run "confidential_compute_is_off_by_default" {
   command = plan
 
   assert {
-    condition     = one(google_compute_instance.this.confidential_instance_config).enable_confidential_compute == false
+    condition = length(google_compute_instance.this.confidential_instance_config) == 0
+    # An EMPTY block is what "not confidential" looks like, and it is what the
+    # API returns. Emitting the block with enable=false instead produced a
+    # permanent diff on a ForceNew attribute, so every plan proposed replacing
+    # a healthy VM. Found by deploying, not by any static assertion.
     error_message = "confidential compute must be explicitly off, not silently absent"
   }
 

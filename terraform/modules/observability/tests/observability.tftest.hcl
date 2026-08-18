@@ -44,12 +44,12 @@ run "audit_sink_destination_is_not_the_state_bucket" {
   # the bucket resource. A future refactor could point the sink somewhere else
   # entirely and the bucket-name check above would still pass.
   assert {
-    condition     = google_logging_project_sink.admin_activity.destination != "storage.googleapis.com/${var.state_bucket_name}"
+    condition     = google_logging_project_sink.admin_activity[0].destination != "storage.googleapis.com/${var.state_bucket_name}"
     error_message = "The log sink destination is the Terraform state bucket."
   }
 
   assert {
-    condition     = google_logging_project_sink.admin_activity.destination == "storage.googleapis.com/${google_storage_bucket.audit_logs.name}"
+    condition     = google_logging_project_sink.admin_activity[0].destination == "storage.googleapis.com/${google_storage_bucket.audit_logs.name}"
     error_message = "The log sink does not point at the dedicated audit bucket this module creates."
   }
 }
@@ -85,12 +85,12 @@ run "audit_bucket_is_hardened_and_retains_from_the_variable" {
   }
 
   assert {
-    condition     = google_logging_project_sink.admin_activity.unique_writer_identity == true
+    condition     = google_logging_project_sink.admin_activity[0].unique_writer_identity == true
     error_message = "the sink must use a unique writer identity so its grant can be scoped to the audit bucket alone"
   }
 
   assert {
-    condition     = google_storage_bucket_iam_member.sink_writer.role == "roles/storage.objectCreator"
+    condition     = google_storage_bucket_iam_member.sink_writer[0].role == "roles/storage.objectCreator"
     error_message = "the sink writer must be objectCreator, not objectAdmin — it writes new evidence and must not delete existing evidence"
   }
 

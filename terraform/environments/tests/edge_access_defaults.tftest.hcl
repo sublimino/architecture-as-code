@@ -17,9 +17,34 @@
 mock_provider "google" {}
 mock_provider "google-beta" {}
 
+# The environments root reads the platform root's outputs over
+# terraform_remote_state. A data source is NOT covered by mock_provider — it
+# would reach a real GCS bucket and break the offline guarantee every suite in
+# this repo depends on. override_data stubs it at plan time, which is what it
+# exists for.
+override_data {
+  target = data.terraform_remote_state.platform
+
+  values = {
+    outputs = {
+      runtime_service_account_emails = {
+        "demo-1" = "sl-rt-demo-1@changeme-project.iam.gserviceaccount.com"
+        "demo-2" = "sl-rt-demo-2@changeme-project.iam.gserviceaccount.com"
+        "ci-1"   = "sl-rt-ci-1@changeme-project.iam.gserviceaccount.com"
+        "ci-2"   = "sl-rt-ci-2@changeme-project.iam.gserviceaccount.com"
+      }
+      ci_plan_service_account_email  = "sl-ci-plan@changeme-project.iam.gserviceaccount.com"
+      ci_apply_service_account_email = "sl-ci-apply@changeme-project.iam.gserviceaccount.com"
+    }
+  }
+}
+
+
 variables {
-  project_id = "sl-demo-platform"
-  target_env = "demo-1"
+  project_id          = "sl-demo-platform"
+  state_bucket_name   = "changeme-tfstate"
+  startup_script_path = "../modules/compute/startup/demo-vm.sh"
+  target_env          = "demo-1"
 
   # The root now mirrors modules/edge's non-empty IAP rule, and access_mode
   # defaults to "iap", so a fixture that names no principal cannot plan. That is

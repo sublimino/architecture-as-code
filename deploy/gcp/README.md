@@ -1,0 +1,273 @@
+# `deploy/gcp/` — the real inputs, and the hand-off to the test code
+
+Everything Terraform needs that is specific to a real Google Cloud project lives
+here, and almost none of it is tracked. The Terraform code in `terraform/` is
+generic; this directory is where it meets one billable estate.
+
+The Makefile is the interface. Nothing in here is meant to be fed to
+`terraform` by hand.
+
+---
+
+## Files
+
+| File | Tracked | What it is |
+|---|---|---|
+| `README.md` | yes | This. |
+| `ACCESS-REQUEST.md` | yes | The IAM grants the deploy service account needs, written for the project owner to action. |
+| `*.example.tfvars` | yes | Worked examples with placeholder values. Copy one; never edit it in place. |
+| `environments.tfvars` | **no** | The real environment map. What `make gcp-tf-plan` and `gcp-tf-up` pass as `-var-file`. |
+| `bootstrap.tfvars` | **no** | The real inputs for the one-time state-bucket root. |
+| `deploy-sa` | **no** | One line: the email of the service account Terraform impersonates. |
+| `<env>.handoff.json` | **no** | Generated. The single file the test code reads to know what it is testing. |
+
+`.gitignore` covers `*.tfvars` (with an exception for `*.example.tfvars`),
+`deploy/gcp/deploy-sa`, `deploy/gcp/*.handoff.json` and `*.tfplan`. A test in
+`test/terraform-make-contract.bats` asserts each of those and asserts that
+`README.md` is *not* ignored — a blanket `deploy/gcp/` ignore would satisfy the
+first checks and quietly hide the documentation too.
+
+---
+
+## Why the real tfvars live here and not in `terraform/`
+
+This is not a filing preference.
+
+Terraform auto-loads `terraform.tfvars` and `*.auto.tfvars` from the root
+directory it is running in. That happens during `terraform test` exactly as it
+happens during `terraform plan`. So a real inputs file sitting in
+`terraform/environments/` silently overrides the fixture values that every
+native test suite asserts against: the suites stay green and stop measuring what
+they claim to measure.
+
+Keeping the real inputs one directory outside any Terraform root makes that
+impossible rather than merely discouraged. `GCP_TF_VAR_FILE` therefore defaults
+to `../../deploy/gcp/environments.tfvars` — relative to the `-chdir` root — and
+`GCP_TF_BOOTSTRAP_VAR_FILE` to `../../deploy/gcp/bootstrap.tfvars`.
+
+**Do not move them back.**
+
+---
+
+## Why impersonation is mandatory
+
+Terraform runs as a service account. Never as the human at the keyboard.
+
+A human operator on this project typically holds `roles/editor`. That is enough
+to create a VPC, a subnet, a NAT and a VM — and not enough to create the
+IAM-shaped resources the estate needs. The failure mode is therefore the ugly
+one: the apply gets a long way in, dies part-way through with a permission error
+naming an IAM API, and leaves a half-built estate behind.
+
+The error names IAM, so the obvious next move is to widen IAM. That is the wrong
+fix, applied under time pressure, to a project that is now in an inconsistent
+state. The cause was never IAM; it was that the run had no impersonation.
+
+The Makefile makes that unrepeatable:
+
+- `GCP_TF_IMPERSONATE`, when non-empty, exports
+  `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` onto **every** terraform invocation in
+  the block — init, plan, show, apply, destroy, output.
+- `TF_DEPLOY_SA` is read from `deploy/gcp/deploy-sa`, and `GCP_TF_IMPERSONATE`
+  defaults to it. Nobody retypes a service account email.
+- The mutating targets — `gcp-tf-plan`, `gcp-tf-apply`, `gcp-tf-destroy`,
+  `gcp-tf-up` — **refuse to run** when `deploy/gcp/deploy-sa` names an identity
+  and the exported value is blank. The refusal happens before any terraform
+  invocation, and the message names impersonation before it mentions IAM.
+- `GCP_TF_NOCREDS` strips `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT` from the offline
+  sweeps, so a developer with it exported gets the same result as a runner
+  without it.
+
+Bucket *creation* and bucket IAM remain a privileged human step. The deploy
+service account populates buckets and runs plans and applies; it is not a bucket
+admin, and nothing here asks for that.
+
+---
+
+## Ordered command sequence for a fresh deploy
+
+Replace every `CHANGEME-` value with the real one. None of these strings belong
+in a tracked file.
+
+### 0. One time per project — privileged human, not the deploy SA
+
+```bash
+make gcp-tf-bootstrap
+# Review terraform/bootstrap/bootstrap.tfplan, then apply it by hand:
+terraform -chdir=terraform/bootstrap apply bootstrap.tfplan
+```
+
+`gcp-tf-bootstrap` is plan-only on purpose. Applying it creates the bucket every
+other root's state lives in — the one action in the estate with no state to roll
+back from — so it is not reachable by a one-word target typed absentmindedly.
+
+### 1. One time per checkout — record the deploy identity
+
+```bash
+echo 'CHANGEME-deploy@CHANGEME-project.iam.gserviceaccount.com' > deploy/gcp/deploy-sa
+```
+
+Untracked, and everything from here on picks it up automatically.
+
+### 2. One time per checkout — the real inputs
+
+```bash
+cp deploy/gcp/CHANGEME-project.example.tfvars deploy/gcp/environments.tfvars
+$EDITOR deploy/gcp/environments.tfvars
+```
+
+### 3. Every change — the offline gate
+
+```bash
+make gcp-tf-validate
+```
+
+`fmt -check`, `validate`, `tflint`, every `terraform test` suite and every
+`test/terraform-*.bats` suite. No network beyond provider installation, no
+cloud credentials, no impersonation.
+
+### 4. Deploy
+
+```bash
+make gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=CHANGEME-project-osramp-tfstate
+```
+
+One target, four ordered steps, none skippable:
+
+1. `init -reconfigure` with the backend prefix derived from `ENV`, then read the
+   resolved prefix back out of the data dir and abort unless it is exactly
+   `osramp/environments/demo-1`.
+2. `plan -out=` a saved plan file, then `show` it and print the `Plan:` summary.
+3. `apply` **that exact file**. Any pre-existing plan file is deleted and a
+   sentinel stamped before planning, so a plan file present afterwards was
+   written by this run and is newer than the sentinel. Anything else is refused,
+   not applied — a plan file of unknown provenance is a diff nobody read.
+4. Write `deploy/gcp/demo-1.handoff.json`.
+
+`TF_STATE_BUCKET` has no default and never will: a default would be either a
+real bucket name in a public repo, or a placeholder that 404s instead of
+explaining itself.
+
+### 5. Hand the estate to the tests
+
+```bash
+make gcp-tf-test ENV=demo-1
+```
+
+The test code reads `deploy/gcp/demo-1.handoff.json`. It needs no flags.
+
+To regenerate the hand-off from current state without touching the estate:
+
+```bash
+make gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=CHANGEME-project-osramp-tfstate
+```
+
+### Tearing down
+
+```bash
+make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1 TF_STATE_BUCKET=CHANGEME-project-osramp-tfstate
+```
+
+Typing the key is the point: it is the step that fails when you meant `demo-2`
+and your shell history said `demo-1`.
+
+---
+
+## The hand-off contract
+
+`make gcp-tf-handoff ENV=<key>` writes `deploy/gcp/<key>.handoff.json`.
+
+Every value is derived from `terraform output -json`. Nothing in it is typed by
+a human, and nothing in it is hardcoded in the Makefile — a test asserts that
+changing what Terraform reports changes the file.
+
+If a required field cannot be resolved, **the target fails and writes nothing**.
+It names the field and the output that would have supplied it. A hand-off
+carrying a blank field is strictly worse than no hand-off: the test suite parses
+it successfully and reports on an estate it never reached.
+
+### Fields
+
+| Field | Type | Source | May be empty |
+|---|---|---|---|
+| `schema` | string | Fixed at `signalloom.gcp.handoff/v1`. Match on this before trusting the shape. | no |
+| `schema_version` | number | Fixed at `1`. Bump both on any breaking change. | no |
+| `project_id` | string | `.project_id` or `.integration_inputs.project_id` | no |
+| `environment_key` | string | `.target_env` | no |
+| `env` | string | Alias of `environment_key`, asserted equal to it. | no |
+| `region` | string | `.target_environment.region` | no |
+| `zone` | string | `.target_environment.zone` | no |
+| `instance_name` | string | `.instance_name`, or `.instance_names[<env>]` | no |
+| `internal_ip` | string | `.internal_ip`, or `.internal_ips[<env>]` | no |
+| `app_port` | **number** | `.target_environment.app_port` | no |
+| `state_bucket` | string | `TF_STATE_BUCKET` | no |
+| `state_prefix` | string | derived from `ENV` | no |
+| `deploy_sa` | string | `GCP_TF_IMPERSONATE` / `deploy/gcp/deploy-sa` | no |
+| `access_mode` | string | `.access_mode` or `.integration_inputs.access_mode` | no |
+| `hostname` | string | `.target_environment.hostname` | **yes** |
+| `generated_at` | string | UTC, `%Y-%m-%dT%H:%M:%SZ` | no |
+
+`hostname` is the one field allowed to be empty: an environment with DNS
+disabled genuinely has none, and demanding a value would force a fabricated one.
+The key is always present, so consuming code reads a field rather than
+discovering an absent one at runtime.
+
+`app_port` is a JSON number, not a string, because the code that reads it
+compares it to a port.
+
+### Worked example
+
+`access_mode` is a **three**-valued enum — `iap`, `allowlist`, `iap_and_allowlist`
+(see `terraform/environments/variables.tf`). Anything reading it as a boolean
+"IAP or allowlist" will mishandle the combined mode.
+
+`env` and `schema` are aliases carried for a consumer written against those
+spellings. They are additive; `environment_key` and `schema_version` are the
+canonical names. A test asserts `env == environment_key`, so the two cannot
+drift apart.
+
+```json
+{
+  "schema": "signalloom.gcp.handoff/v1",
+  "schema_version": 1,
+  "project_id": "CHANGEME-project",
+  "environment_key": "demo-1",
+  "env": "demo-1",
+  "region": "CHANGEME-region",
+  "zone": "CHANGEME-region-a",
+  "instance_name": "osramp-demo-1-vm",
+  "internal_ip": "10.20.0.7",
+  "app_port": 8080,
+  "state_bucket": "CHANGEME-project-osramp-tfstate",
+  "state_prefix": "osramp/environments/demo-1",
+  "deploy_sa": "CHANGEME-deploy@CHANGEME-project.iam.gserviceaccount.com",
+  "access_mode": "iap",
+  "hostname": "demo-1.CHANGEME.example",
+  "generated_at": "2026-08-18T18:40:11Z"
+}
+```
+
+### Reading it
+
+```bash
+jq -r .internal_ip deploy/gcp/demo-1.handoff.json
+jq -r '"\(.instance_name) in \(.zone) on port \(.app_port)"' deploy/gcp/demo-1.handoff.json
+```
+
+---
+
+## Variable reference
+
+Every one is overridable; the defaults are what an operator should be relying on.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `ENV` | *(none)* | Required. Matches `^(demo\|ci)-[1-9][0-9]*$`. |
+| `TF_STATE_BUCKET` | *(none)* | Required for anything touching remote state. |
+| `GCP_TF_DEPLOY_SA_FILE` | `deploy/gcp/deploy-sa` | One line, the SA email. |
+| `TF_DEPLOY_SA` | contents of the file above | Comments and blank lines stripped. |
+| `GCP_TF_IMPERSONATE` | `$(TF_DEPLOY_SA)` | Exported as `GOOGLE_IMPERSONATE_SERVICE_ACCOUNT`. |
+| `GCP_TF_VAR_FILE` | `../../deploy/gcp/environments.tfvars` | Relative to the `-chdir` root. |
+| `GCP_TF_BOOTSTRAP_VAR_FILE` | `../../deploy/gcp/bootstrap.tfvars` | Relative to the `-chdir` root. |
+| `GCP_TF_HANDOFF_DIR` | `deploy/gcp` | Redirected by the contract tests so they never write a real hand-off. |
+| `TF_STATE_PREFIX_BASE` | `osramp` | Prefix is `<base>/environments/<ENV>`. |

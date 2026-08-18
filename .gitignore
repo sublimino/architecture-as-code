@@ -67,3 +67,14 @@ test/gcp-5x-results.md
 # block above claimed to cover "test results" and did not.
 test-results/
 test/local-5x-results.md
+# >>> terraform (F1-foundation) >>>
+# Terraform lock files are deliberately committed so everyone resolves the same provider build.
+*.tfstate
+*.tfstate.*
+.terraform/
+crash.log
+crash.*.log
+*.tfvars
+!*.tfvars.example
+!*.example.tfvars
+# <<< terraform (F1-foundation) <<<

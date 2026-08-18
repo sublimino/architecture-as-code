@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Stub for scripts/supervise-port-forward.sh, injected through
+# DEMO_SUPERVISE_BIN.
+#
+# It records the three things that make the published forward correct, and it
+# records them as OBSERVED VALUES rather than as source text: the positional
+# arguments (state dir, namespace, service, local port, remote port, probe path,
+# owner pid) and the PF_* environment the caller exported. Asserting on a grep
+# of the script would pass just as happily against a port number in a comment.
+#
+# The real script binds a socket and starts a supervisor loop; neither is
+# something a hermetic suite can do, which is exactly why the boundary is
+# injectable.
+#
+# Knobs:
+#   STUB_CALL_LOG        file the invocation is appended to
+#   STUB_SUPERVISE_RC    exit code (default 0). Non-zero simulates a Gateway
+#                        that never answers, which must fail the publish stage
+#                        rather than being reported as a published demo.
+
+printf 'supervise %s PF_ADDRESS=[%s] PF_PROBE_URL=[%s] PF_PROBE_CURL_OPTS=[%s]\n' \
+  "$*" "${PF_ADDRESS-}" "${PF_PROBE_URL-}" "${PF_PROBE_CURL_OPTS-}" \
+  >>"${STUB_CALL_LOG:-/dev/null}"
+
+exit "${STUB_SUPERVISE_RC:-0}"

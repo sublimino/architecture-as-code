@@ -46,6 +46,41 @@
 # The owner-pid guard is load-bearing. A hard-killed parent skips its EXIT trap;
 # without an owner liveness check the supervisor becomes the new bug by keeping
 # an orphaned kubectl alive and rebinding the port for the next run.
+#
+# ─── Three optional knobs, added for the GCP demo Gateway forward ───────────
+#
+# Everything above was written for the in-cluster Zot registry: a plaintext HTTP
+# endpoint on loopback. scripts/gcp-tf/demo-pipeline.sh needs the same
+# supervision for the Envoy Gateway, which differs on all three counts, so each
+# assumption that was previously baked in is now a variable with the old value
+# as its default. An unset knob reproduces the previous behaviour byte for byte,
+# which is why the Makefile callers are untouched.
+#
+#   PF_ADDRESS         kubectl --address. Unset (kubectl's own localhost
+#                      default) for the registry, because nothing outside the
+#                      VM may reach a build-time registry. 0.0.0.0 for the demo
+#                      Gateway, because the operator arrives over a Google IAP
+#                      tunnel that connects to the instance's INTERNAL IP —
+#                      a loopback-only listener is unreachable from there and
+#                      fails in a way that looks like a firewall problem.
+#
+#   PF_PROBE_URL       Full probe URL, replacing http://localhost:PORT/PATH.
+#                      The Gateway speaks TLS on 443 and selects its route by
+#                      SNI, so the health of that forward cannot be expressed as
+#                      a path on a plaintext localhost URL.
+#
+#   PF_PROBE_CURL_OPTS Extra curl options, word-split. The Gateway needs -k (the
+#                      demo certificate is self-signed) and --resolve (the SNI
+#                      name dashboard.osramp.acme.local has no DNS record by
+#                      design — the browser side resolves it through Chrome's
+#                      --host-resolver-rules, and curl needs the same trick).
+#
+# All three are persisted into config.env by write_config rather than being read
+# from the environment at probe time. The supervisor is a background grandchild
+# and `ensure`/`down` are separate invocations from other shells; recording the
+# intent in the state directory is how the rest of this script already survives
+# that, and an env-var-only knob would work in `up` and silently revert to the
+# registry defaults in every later respawn.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -101,6 +136,15 @@ append_log() {
 }
 
 state_endpoint() {
+  # PF_PROBE_URL wins when set. Everything that reports on this forward —
+  # cmd_ensure's "restored after Ns" line, cmd_up's success line, every fail()
+  # message — routes through here, so a caller that overrides the probe gets its
+  # real endpoint named in the diagnostics rather than a localhost URL nothing
+  # ever contacted.
+  if [ -n "${PF_PROBE_URL:-}" ]; then
+    printf '%s' "$PF_PROBE_URL"
+    return 0
+  fi
   printf 'http://localhost:%s%s' "$LOCAL_PORT" "$PROBE_PATH"
 }
 
@@ -122,6 +166,14 @@ write_config() {
     printf 'REMOTE_PORT=%q\n' "$remote_port"
     printf 'PROBE_PATH=%q\n' "$probe_path"
     printf 'OWNER_PID=%q\n' "$owner_pid"
+    # Read from the environment rather than taken as positional arguments: they
+    # are optional, and adding three more positions would break every existing
+    # caller's `[ "$#" -eq 7 ]` contract. Persisted unconditionally (empty when
+    # unset) so a state directory always describes its own probe completely, and
+    # so load_config cannot leave a stale value from the calling shell in place.
+    printf 'PF_ADDRESS=%q\n' "${PF_ADDRESS:-}"
+    printf 'PF_PROBE_URL=%q\n' "${PF_PROBE_URL:-}"
+    printf 'PF_PROBE_CURL_OPTS=%q\n' "${PF_PROBE_CURL_OPTS:-}"
   } >"$file"
 }
 
@@ -136,6 +188,14 @@ LOCAL_PORT=""
 REMOTE_PORT=""
 PROBE_PATH=""
 OWNER_PID=""
+# The three optional knobs documented in the header. Declared alongside the
+# required config for the same two reasons: the state a subcommand depends on is
+# visible in one place, and shellcheck can see they are deliberate globals.
+# Empty is the meaningful default in every case — it selects the original
+# registry behaviour.
+PF_ADDRESS="${PF_ADDRESS:-}"
+PF_PROBE_URL="${PF_PROBE_URL:-}"
+PF_PROBE_CURL_OPTS="${PF_PROBE_CURL_OPTS:-}"
 
 load_config() {
   local state_dir="$1"
@@ -164,7 +224,17 @@ probe_endpoint() {
   # No diagnosis is lost. Every caller that gives up calls fail(), which names the
   # namespace, service, local and remote ports and the probe path, and points at
   # the forward log holding kubectl's own stderr.
-  "$CURL_BIN" -fs --max-time "${PF_PROBE_TIMEOUT:-5}" "$(state_endpoint)" >/dev/null 2>&1
+  # Word-split on purpose: PF_PROBE_CURL_OPTS carries multiple curl options
+  # (-k plus a --resolve pair). `read -ra` splits once, into an array, so no
+  # unquoted expansion reaches curl and an option containing no whitespace
+  # survives verbatim. The `+` expansion is the only form safe under `set -u`
+  # for a possibly-empty array.
+  local -a probe_opts=()
+  if [ -n "${PF_PROBE_CURL_OPTS:-}" ]; then
+    read -r -a probe_opts <<<"$PF_PROBE_CURL_OPTS"
+  fi
+  "$CURL_BIN" -fs ${probe_opts[@]+"${probe_opts[@]}"} \
+    --max-time "${PF_PROBE_TIMEOUT:-5}" "$(state_endpoint)" >/dev/null 2>&1
 }
 
 pid_from_file() {
@@ -294,8 +364,19 @@ spawn_forward() {
   pid_file="$(forward_pid_file "$state_dir")"
   log_file="$(forward_log_file "$state_dir")"
 
-  append_log "$log_file" "starting kubectl -n ${NAMESPACE} port-forward svc/${SERVICE} ${LOCAL_PORT}:${REMOTE_PORT}"
-  "$KUBECTL_BIN" -n "$NAMESPACE" port-forward "svc/${SERVICE}" "${LOCAL_PORT}:${REMOTE_PORT}" >>"$log_file" 2>&1 &
+  # An empty PF_ADDRESS must produce the ORIGINAL argument vector, not
+  # `--address ''` — kubectl rejects an empty address, and the registry callers
+  # that set nothing would have started failing on a change advertised as
+  # backwards compatible.
+  local -a address_args=()
+  if [ -n "${PF_ADDRESS:-}" ]; then
+    address_args=(--address "$PF_ADDRESS")
+  fi
+
+  append_log "$log_file" "starting kubectl -n ${NAMESPACE} port-forward ${PF_ADDRESS:+--address ${PF_ADDRESS} }svc/${SERVICE} ${LOCAL_PORT}:${REMOTE_PORT}"
+  "$KUBECTL_BIN" -n "$NAMESPACE" port-forward \
+    ${address_args[@]+"${address_args[@]}"} \
+    "svc/${SERVICE}" "${LOCAL_PORT}:${REMOTE_PORT}" >>"$log_file" 2>&1 &
   child_pid=$!
   printf '%s\n' "$child_pid" >"$pid_file"
 }

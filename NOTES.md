@@ -18,7 +18,15 @@ Only `terraform fmt`, `terraform init -backend=false`, `terraform validate`, `tf
 | `tflint --chdir terraform/modules/network` | exit 0 |
 | `tflint --chdir terraform/modules/compute` | exit 0 |
 | `shellcheck terraform/modules/compute/startup/demo-vm.sh` | exit 0 |
-| `bats test/terraform-network-security.bats` | **37/37 pass, 0 fail, 1.7s, offline** |
+| `bats test/terraform-network-security.bats` | **40/40 pass, 0 fail, 2.1s, offline** |
+| `terraform test` — `modules/network` | **13/13 pass** |
+| `terraform test` — `modules/compute` | **11/11 pass** |
+
+**Offline proven, not asserted.** All three suites were re-run under `unshare -rn` (empty
+network namespace) with `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CREDENTIALS`,
+`GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT` and `CLOUDSDK_CORE_PROJECT` unset and both
+`CLOUDSDK_CONFIG` and `HOME` pointed at nonexistent paths. Same results — 13, 11, 40. That is
+ISC-357 demonstrated rather than claimed.
 
 `.terraform/` and `.terraform.lock.hcl` are removed after each validate run, so
 `git status --porcelain` is empty at hand-off. **F1 should add `**/.terraform/` and
@@ -36,11 +44,28 @@ Three mutation checks run inside the suite (two required, three delivered):
 - committed fixture: `clean-control.tf` → **negative control**; both scanners return clean,
   which is what distinguishes a working guard from an always-fail one
 
-Seven further guards were falsified out-of-band against restored copies (never `git checkout`,
-never the real tree left mutated): removing the subnet `log_config`, hardcoding the NAT filter,
-line-wrapping the egress slogan comment, flipping `enable_vtpm` to false, defaulting the egress
-gate open, hardcoding the subnet name, and adding a module default to `deletion_protection`.
-All seven turned their assertion red. The tree was verified clean after each.
+Sixteen further guards were falsified out-of-band against restored copies (never `git checkout`,
+never the real tree left mutated). Every one turned its assertion red, and the tree was verified
+clean after each:
+
+| Injected fault | Guard that fired |
+|---|---|
+| remove the subnet `log_config` | bats: flow logs |
+| hardcode the NAT filter | bats: NAT logging |
+| line-wrap the egress slogan comment | bats: ISC-91 documentation |
+| flip `enable_vtpm` to false | bats: shielded VM |
+| default the egress gate open | bats: egress gate defaults closed |
+| hardcode the subnet name | bats: contract naming |
+| give `deletion_protection` a module default | bats: documented defaults |
+| delete `modules/network/tests/` | bats: native suites exist |
+| remove `mock_provider "google"` | bats: tftest hygiene |
+| switch a run to `command = apply` | bats: tftest hygiene |
+| strip every positive `assert` from a file using `expect_failures` | bats: negative/positive pairing |
+| add `access_config` to the instance | tftest: private VM |
+| hardcode the instance group's named port | tftest: instance group tracks app_port |
+| widen `local.iap_range` to `0.0.0.0/0` | tftest: SSH source |
+| default `enable_default_deny_egress` false | tftest: egress defaults closed |
+| relax the sampling-rate validation to `>= 0` | tftest: rejects a zero sampling rate |
 
 ## What the previous (interrupted) run left, and what was wrong with it
 
@@ -62,9 +87,24 @@ partly measuring nothing**, which is the exact failure mode the chunk brief name
    saying why.
 5. A dead `grep -qA4 ... <<<"$(cat ...)" || true` line in the NAT test asserted nothing.
 
+## A contract change landed on this branch mid-chunk
+
+Commit `bbba6c1` ("sync contract + ISA for native terraform tests") was authored into this
+worktree **after** I had read CONTRACT.md and started work. It adds §7a and ISC-322..357, making
+`.tftest.hcl` the primary correctness surface and bats the secondary one. I picked it up on a
+`git log` re-read before hand-off, not at the start — worth the orchestrator knowing that the
+window existed. It is implemented in full for both my modules; nothing in the earlier work
+needed to be undone, because §7a adds a surface rather than replacing one.
+
 ## ISCs claimed
 
 **ISC-76 through ISC-114, ISC-117 through ISC-121** — satisfied and tested.
+
+From the new native-test range: **ISC-326, ISC-327** (suites exist), and this chunk's share of
+**ISC-332, ISC-334, ISC-337, ISC-346, ISC-347, ISC-349, ISC-351, ISC-352, ISC-357**. The
+whole-tree halves of ISC-333/335/355 and the Make wiring (ISC-353/354) belong to F6 and F7;
+my bats guards already sweep every `.tftest.hcl` under `terraform/`, so they will catch a
+sibling chunk that omits a `mock_provider` or uses `command = apply` at merge time.
 
 Highlights of how, where it is not obvious:
 
@@ -169,5 +209,13 @@ being destroyed. Doing neither means the demo VM bootstraps to a broken state, l
   `europe-west2`, IAP-only SSH, and the Cloud Router + NAT design match it. The two things it
   does that this module does not: it scopes no firewall rule to a service account, and it relies
   on the implied allow-all egress.
-- The suite runs offline in ~1.7s against a 30s budget, so there is headroom for the integration
+- The bats suite runs offline in ~2.1s against a 30s budget, and the two `terraform test` suites
+  in a few seconds each against a 300s sweep budget, so there is headroom for the integration
   chunk to add cross-module assertions.
+- `terraform test` needs `terraform init -backend=false` to have run in the module directory
+  first, which is why the Make target must own the init. Running it by hand leaves `.terraform/`
+  and `.terraform.lock.hcl` behind; both are removed here before commit.
+- The tftest negative runs deliberately use RFC5737 documentation ranges (`192.0.2.0/24`,
+  `198.51.100.0/24`) for the public-egress allowlist, and `CHANGEME-project` throughout. One run
+  passes `0.0.0.0/0` as an egress destination on purpose — it is the hostile-operator case, and
+  the assertions prove the *allow* rules stay pinned regardless.

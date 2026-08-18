@@ -44,21 +44,28 @@ after a successful Google login, which reads like a broken deploy.
 | `terraform/RUNBOOK.md` | Rewritten as eight numbered `demo-1` steps with rollback per step and an execution-status table |
 | `terraform/environments/WIRING.md` | Ordering corrected for `terraform_remote_state`; documents the two undeclared root variables |
 | `terraform/platform/WIRING.md` | Why platform must be **applied**, not merely planned, before the first environment plan |
-| `test/terraform-demo1-bringup.bats` | 12 tests, 0.6s, offline |
-| `test/fixtures/terraform/demo1/access-mode-public.sed` | Mutation fixture |
+| `terraform/environments/variables.tf` | Declares `access_mode` and `iap_members`, mirrored from `modules/edge` |
+| `terraform/environments/main.tf` | Publishes both through `local.integration_inputs`; the commented `module "edge"` block now passes them |
+| `terraform/environments/tests/edge_access_defaults.tftest.hcl` | 8 runs on the **evaluated** configuration: the default, and four rejections each paired with a positive |
+| `test/terraform-demo1-bringup.bats` | 16 tests, 0.8s, offline |
+| `test/fixtures/terraform/demo1/access-mode-allowlist.sed` | Mutation fixture |
 
 ### Test results
 
-`bats test/terraform-demo1-bringup.bats` → **12/12 pass in 0.62s**, offline, no
+`bats test/terraform-demo1-bringup.bats` → **16/16 pass in 0.80s**, offline, no
 credentials.
+`terraform -chdir=terraform/environments test` → **21/21 pass** (8 new, 13
+pre-existing).
 
-Falsified against a scratch broken tree (posture flipped to `public`,
-`preflight.sh` replaced by `exit 1`, `RUNBOOK.md` emptied): **7 of 12 go red**,
-including the preflight test — which is the point of asserting on the message
-rather than the exit status, since a bare status check passes for a script that
-does not exist. The subnet-collision test was falsified separately by adding a
-second example whose `demo-9` claims demo-1's `/24`; it goes red naming
-`demo-9`.
+Every new assertion was falsified rather than assumed:
+
+| Mutation (always on a copy) | Result |
+|---|---|
+| posture flipped to `allowlist`, `preflight.sh` replaced by `exit 1`, `RUNBOOK.md` emptied | **7 of 12 red**, including the preflight test — the point of asserting on the message, since a bare status check passes for a script that does not exist |
+| a second example whose `demo-9` claims demo-1's `/24` | subnet-collision test red, naming `demo-9` |
+| `access_mode` declaration deleted from `variables.tf` | 3 tests red (declared-variables, its mutation, the named-pair check) |
+| root `access_mode` default flipped to `"allowlist"` | `default_access_mode_is_iap` red |
+| `not_a_real_variable = "x"` appended to an example | undeclared-assignment check red |
 
 Full sweep `bats test/terraform-*.bats` → **229 pass / 2 fail of 231**. Both
 failures are pre-existing, in a file I did not touch, caused by a commit two
@@ -86,20 +93,77 @@ project" reads as "no such project", so the obvious conclusion is a wrong
 project id and the obvious next move is to go hunting for a different one. The
 script names the fix instead.
 
-**Two root variables do not exist yet.** `terraform/environments/variables.tf`
-(F2's file) declares neither `access_mode` nor `iap_members`, and
-`demo-1.tfvars.example` sets both. Terraform treats a value for an undeclared
-variable in a `-var-file` as a **warning**, not an error — it silently drops the
-value and the edge module takes its own default. For a variable whose entire job
-is to decide whether the environment is publicly reachable, that is the worst
-available failure mode. The exact declarations to add are in
-`terraform/environments/WIRING.md`; they belong at the **root**, not as fields on
-the `environments` object, because CONTRACT §3 freezes that object type.
-
-I did not add them myself: `variables.tf` is F2's file and a unilateral edit to
-a frozen interface is the failure mode the contract exists to prevent.
+**Resolved: the two root variables now exist.** `access_mode` and `iap_members`
+are declared in `terraform/environments/variables.tf`, published through
+`local.integration_inputs`, and wired into the commented `module "edge"` block
+ready for step 4. See "the undeclared-variable class of failure" below for what
+this was and how it is now unreachable.
 
 ---
+
+## The undeclared-variable class of failure, and how it is now unreachable
+
+Terraform treats a value for an **undeclared** variable in a `-var-file` as a
+*warning*: it proceeds, discards the value, and the module takes its own
+default. The warning scrolls past in CI output where nobody reads it.
+
+Concretely: Andy would have set `access_mode = "iap"` in tfvars and got whatever
+`modules/edge` defaults to. That default *is* `iap`, so the outcome would have
+been **right by accident** — which is the shape that bites six months later when
+someone changes the default and every environment silently follows.
+
+Four things now stand between that and a release:
+
+1. **The declarations exist**, mirrored from `modules/edge` (G1's, canonical) —
+   `access_mode` string, default `"iap"`, validated against exactly three legal
+   values; `iap_members` `list(string)` with the dangerous-principal and
+   prefix-backstop rules copied character-for-character.
+2. **`tests/edge_access_defaults.tftest.hcl`** asserts the **evaluated** default
+   is `iap`, plus four rejections (`allUsers`, `allAuthenticatedUsers`, a
+   wildcard `principalSet`, a bare email) each paired with a positive. It lives
+   in its own file because run-level `variables` blocks *merge* with the
+   file-level block — a defaults test in a file whose header sets the variable
+   is measuring the header. Falsified by flipping the default to `"allowlist"`
+   on a copy: `default_access_mode_is_iap` goes red.
+3. **A bats test asserting every variable set in any committed
+   `*.tfvars.example` is declared in `variables.tf`**, with two positive
+   controls (the declaration parse must yield ≥ 8 names, each example ≥ 4
+   assignments) so it cannot pass on an empty scan, plus a mutation appending
+   `not_a_real_variable = "x"` to a copy. Falsified by deleting the `access_mode`
+   declaration from a copy of the tree: three tests go red.
+4. **The mutation fixture now writes `allowlist`, not `public`.** `public` is not
+   a legal value, so the variable validation would reject it regardless — a
+   guard could "pass" that mutation without ever having looked at it. `allowlist`
+   is legal, plans cleanly, and quietly removes authentication. That is the
+   realistic accident.
+
+### The one validation not mirrored
+
+`modules/edge` also carries a non-empty rule on `iap_members`. It is correct and
+it fires — on **every** plan of this root that names no principal, including
+`terraform/environments/tests/root_contract.tftest.hcl`, whose file-level
+`variables` block predates these variables and sets neither (result: 0 passed, 1
+failed, 12 skipped). That is a pre-existing test and not this chunk's to edit, so
+the rule is omitted at the root with a comment naming exactly what is missing.
+**Raised with the orchestrator.** One line in that suite's header restores it:
+
+```hcl
+iap_members = ["user:someone@example.invalid"]
+```
+
+Nothing is unguarded meanwhile: the module carries the rule and this root passes
+`iap_members` straight into it, so an empty list still aborts the plan once edge
+is wired — which is also the only moment an empty list can lock anyone out,
+because until then no edge exists. Only *where* the error is raised moves.
+
+### A correction this surfaced
+
+My first draft of `demo-1.tfvars.example` described `"public"` as "the other
+accepted value". There is no such value. `access_mode` is `iap` | `allowlist` |
+`iap_and_allowlist`, read from `feat/gcp-tf-iap-private-edge` at commit
+`05f476e`. Fixed in both examples, in `WIRING.md`, and in the mutation fixture.
+It is the exact mistake the new tftest's `access_mode = "public"` rejection case
+now catches — a reader guessing a fourth value by analogy.
 
 ## Contract objection: the `10.20.1.0/24` instruction
 
@@ -124,16 +188,13 @@ orchestrator can overrule both cheaply.
    A `10.20.x` literal is not in that allowlist, so the suite fails. Only F2 can
    widen it.
 
-**To move to `10.20.1.0/24` anyway** — two edits, both one line:
-
-- `subnet_cidr = "10.20.1.0/24"` in `demo-1.tfvars.example` *and* in
-  `demo-1-and-demo-2.tfvars.example` (they must stay in lockstep, see below);
-- add `|10\.20\.` to that guard's allowlist in
-  `test/terraform-environment-keys.bats`.
-
-The estate's other allocations (`ci-1` 10.10.2.0/24, `demo-2` 10.10.3.0/24) would
-then be inconsistent with demo-1, which is a readability cost rather than a
-functional one.
+**`10.20.1.0/24` was considered and is rejected — it is not a pending option.**
+Both claims above were independently verified by the orchestrator, who
+originated the instruction and withdrew it. The change would cost a red suite
+and an allocation inconsistent with `ci-1` (10.10.2.0/24) and `demo-2`
+(10.10.3.0/24), and buy nothing measurable. Deliberately not recording the steps
+to make it: an option nobody should take should not be documented as available.
+`demo-1` is on `10.10.1.0/24`.
 
 ---
 

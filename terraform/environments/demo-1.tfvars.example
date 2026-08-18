@@ -17,6 +17,13 @@
 
 project_id = "CHANGEME-project"
 
+# The one environment this apply touches. It must equal the ENV passed to make
+# and the suffix of the backend prefix used at init (CONTRACT.md §5a); Make
+# asserts all three agree before it will plan. A target_env naming a key that is
+# not in the map below is rejected by ENV-RULE-13, because the alternative is a
+# zero-resource plan that reads "destroy everything currently in state".
+target_env = "demo-1"
+
 environments = {
   "demo-1" = {
     kind             = "demo"

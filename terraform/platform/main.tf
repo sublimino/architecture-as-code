@@ -90,7 +90,21 @@ variable "manage_project_iam" {
   default     = true
 }
 
+variable "create_log_bucket" {
+  description = "Whether the platform root creates the audit log bucket. False when bootstrap owns it, which removes the deploy identity's need for project-scope storage rights."
+  type        = bool
+  default     = true
+}
+
+variable "log_bucket_name" {
+  description = "Audit log bucket name. Required when create_log_bucket is false."
+  type        = string
+  default     = ""
+}
+
 module "observability" {
+  create_log_bucket  = var.create_log_bucket
+  log_bucket_name    = var.log_bucket_name
   manage_project_iam = var.manage_project_iam
   source             = "../modules/observability"
 

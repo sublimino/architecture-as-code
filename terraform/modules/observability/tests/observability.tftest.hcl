@@ -36,7 +36,7 @@ run "audit_sink_destination_is_not_the_state_bucket" {
   command = plan
 
   assert {
-    condition     = google_storage_bucket.audit_logs.name != var.state_bucket_name
+    condition     = local.log_bucket != var.state_bucket_name
     error_message = "The audit log bucket resolved to the same name as the Terraform state bucket."
   }
 
@@ -49,7 +49,7 @@ run "audit_sink_destination_is_not_the_state_bucket" {
   }
 
   assert {
-    condition     = google_logging_project_sink.admin_activity[0].destination == "storage.googleapis.com/${google_storage_bucket.audit_logs.name}"
+    condition     = google_logging_project_sink.admin_activity[0].destination == "storage.googleapis.com/${local.log_bucket}"
     error_message = "The log sink does not point at the dedicated audit bucket this module creates."
   }
 }
@@ -62,17 +62,17 @@ run "audit_bucket_is_hardened_and_retains_from_the_variable" {
   command = plan
 
   assert {
-    condition     = google_storage_bucket.audit_logs.public_access_prevention == "enforced"
+    condition     = google_storage_bucket.audit_logs[0].public_access_prevention == "enforced"
     error_message = "audit bucket must enforce public access prevention"
   }
 
   assert {
-    condition     = google_storage_bucket.audit_logs.force_destroy == false
+    condition     = google_storage_bucket.audit_logs[0].force_destroy == false
     error_message = "audit bucket must not allow force_destroy — the audit trail outlives the demo"
   }
 
   assert {
-    condition     = google_storage_bucket.audit_logs.uniform_bucket_level_access == true
+    condition     = google_storage_bucket.audit_logs[0].uniform_bucket_level_access == true
     error_message = "audit bucket must use uniform bucket-level access"
   }
 
@@ -80,7 +80,7 @@ run "audit_bucket_is_hardened_and_retains_from_the_variable" {
   # arithmetic rather than the literal is what makes this test track the
   # variable instead of a hardcoded number.
   assert {
-    condition     = tonumber(one(google_storage_bucket.audit_logs.retention_policy).retention_period) == var.log_retention_days * 86400
+    condition     = tonumber(one(google_storage_bucket.audit_logs[0].retention_policy).retention_period) == var.log_retention_days * 86400
     error_message = "audit bucket retention period does not derive from log_retention_days"
   }
 

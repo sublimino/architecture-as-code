@@ -296,7 +296,24 @@ JSON
 }
 
 # ---------------------------------------------------------------------------
-# destroy — ISC-234..237
+# bootstrap — ISC-234
+# ---------------------------------------------------------------------------
+
+@test "gcp-tf-bootstrap plans using the explicit bootstrap input" {
+  run_make gcp-tf-bootstrap
+  [ "$status" -eq 0 ]
+
+  plan_args="$(grep '^ARGV:.* plan ' "${RECORD}/terraform.log")"
+  [ -n "${plan_args}" ]
+  [[ "${plan_args}" == *"-chdir=terraform/bootstrap"* ]]
+  [[ "${plan_args}" == *"-var-file=../../deploy/gcp/bootstrap.tfvars"* ]]
+  [[ "${plan_args}" == *"-out=bootstrap.tfplan"* ]]
+  [[ "${plan_args}" != *" apply "* ]]
+  [[ "${output}" == *"apply bootstrap.tfplan"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# destroy — ISC-235..237
 # ---------------------------------------------------------------------------
 
 @test "gcp-tf-destroy aborts when CONFIRM does not match ENV" {

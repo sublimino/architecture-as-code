@@ -6,7 +6,7 @@
 
 output "log_bucket_name" {
   description = "Name of the dedicated audit log bucket. Never the Terraform state bucket; see the precondition in main.tf."
-  value       = google_storage_bucket.audit_logs.name
+  value       = local.log_bucket
 }
 
 output "log_sink_writer_identity" {
@@ -16,7 +16,7 @@ output "log_sink_writer_identity" {
 
 output "log_bucket_self_link" {
   description = "Self link of the audit log bucket."
-  value       = google_storage_bucket.audit_logs.self_link
+  value       = try(google_storage_bucket.audit_logs[0].self_link, "")
 }
 
 output "uptime_check_ids" {

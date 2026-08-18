@@ -149,7 +149,13 @@ variable "data_access_services" {
   default = [
     "storage.googleapis.com",
     "iam.googleapis.com",
-    "iamcredentials.googleapis.com",
+    # iamcredentials.googleapis.com is DELIBERATELY ABSENT. It does not support
+    # service-level audit configuration, and GCP rejects the whole IAM policy
+    # write with a 400 rather than ignoring the unsupported entry — so one bad
+    # name in this list fails the entire platform apply, including every service
+    # that would have worked. Verified against sl-port-over-sandbox on
+    # 2026-08-18. Add a service here only after confirming it accepts an audit
+    # config; the failure is all-or-nothing, not per-service.
     "secretmanager.googleapis.com",
     "compute.googleapis.com",
   ]
@@ -181,4 +187,28 @@ variable "manage_project_iam" {
   EOT
   type        = bool
   default     = true
+}
+
+variable "create_log_bucket" {
+  description = <<-EOT
+    Whether this module CREATES the audit log bucket.
+
+    False when the bucket is provisioned by the separately-authorised bootstrap
+    step instead. That is the preferred layering, and it exists to shrink the
+    deploy identity's permission set rather than for tidiness: a module that
+    creates a bucket forces its caller to hold project-scope storage rights,
+    and project-scope storage rights include the ability to delete the Terraform
+    state bucket. Moving bucket creation to bootstrap removes that requirement
+    entirely — the best permission is the one you do not need.
+
+    The sink still writes to the bucket either way; only ownership moves.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "log_bucket_name" {
+  description = "Name of the audit log bucket. Required when create_log_bucket is false, because the module must still name the bucket the sink writes to even though it does not own it."
+  type        = string
+  default     = ""
 }

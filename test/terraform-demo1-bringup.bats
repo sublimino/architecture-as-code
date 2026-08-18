@@ -211,14 +211,24 @@ tfvars_assignments() {
 	grep -oE '^[a-z_][a-z0-9_]*[[:space:]]*=' "$1" | sed 's/[[:space:]]*=$//' || true
 }
 
+# $1 = path to a variables.tf. Defaults to the environments root so every
+# existing caller is unchanged.
 declared_variables() {
-	grep -oE '^variable "[a-z_][a-z0-9_]*"' "${REPO_ROOT}/terraform/environments/variables.tf" |
+	local varfile="${1:-${REPO_ROOT}/terraform/environments/variables.tf}"
+	grep -oE '^variable "[a-z_][a-z0-9_]*"' "$varfile" |
 		sed 's/^variable "//; s/"$//' || true
 }
 
-# Names assigned in $1 that variables.tf does not declare, one per line.
+# Names assigned in $1 that the variables.tf at $2 does not declare, one per
+# line. $2 defaults to the environments root.
+#
+# The variables.tf must be passed rather than globbed, because each root
+# declares its own: terraform/bootstrap/terraform.tfvars.example is checked
+# against terraform/bootstrap/variables.tf and would be reported as entirely
+# undeclared against the environments one. A wider glob would have looked like
+# more coverage and been strictly wrong.
 undeclared_in() {
-	comm -23 <(tfvars_assignments "$1" | sort -u) <(declared_variables | sort -u)
+	comm -23 <(tfvars_assignments "$1" | sort -u) <(declared_variables "${2:-}" | sort -u)
 }
 
 @test "every variable set in a committed tfvars example is declared" {
@@ -538,4 +548,75 @@ STUB
 		echo "$output" >&2
 		return 1
 	}
+}
+
+# ─── The bootstrap root has its own variables.tf, and its own exposure ───────
+#
+# The scans above cover terraform/environments only. terraform/bootstrap ships
+# a committed terraform.tfvars.example too, and it is checked against
+# terraform/bootstrap/variables.tf — a different declaration set, so this is a
+# second scan rather than a wider glob. Globbing both roots into one comparison
+# would report every bootstrap assignment as undeclared and look like coverage
+# while being strictly wrong.
+#
+# It was clean when this was written. That is exactly the state worth pinning:
+# a root nobody is watching is where a discarded tfvars value survives longest,
+# and the bootstrap root is the one that creates the bucket holding every other
+# root's state.
+
+@test "every variable set in the bootstrap tfvars example is declared" {
+	local example="${REPO_ROOT}/terraform/bootstrap/terraform.tfvars.example"
+	local varfile="${REPO_ROOT}/terraform/bootstrap/variables.tf"
+	[ -f "$example" ]
+	[ -f "$varfile" ]
+
+	# Positive control on both sides. An empty parse on either makes the
+	# comparison trivially clean, and a scan of nothing reports the same
+	# "all declared" as a scan of everything.
+	local declared assigned
+	declared="$(declared_variables "$varfile" | wc -l)"
+	[ "$declared" -ge 4 ] || {
+		echo "only ${declared} variables parsed out of bootstrap/variables.tf; the parser is broken" >&2
+		return 1
+	}
+	assigned="$(tfvars_assignments "$example" | wc -l)"
+	[ "$assigned" -ge 3 ] || {
+		echo "only ${assigned} assignments parsed out of the bootstrap example; the parser is broken" >&2
+		return 1
+	}
+
+	local undeclared
+	undeclared="$(undeclared_in "$example" "$varfile")"
+	[ -z "$undeclared" ] || {
+		echo "the bootstrap example sets variables that terraform/bootstrap/variables.tf" >&2
+		echo "does not declare. Terraform will WARN and silently discard the value:" >&2
+		echo "$undeclared" | sed 's/^/  terraform.tfvars.example: /' >&2
+		return 1
+	}
+}
+
+@test "the bootstrap declared-variable check catches an undeclared assignment" {
+	# Mutation. Without this the test above passes on a tree where the
+	# comparison silently compares two empty sets.
+	local stage undeclared
+	stage="$(mktemp -d)"
+	cp "${REPO_ROOT}/terraform/bootstrap/terraform.tfvars.example" "${stage}/mutant.tfvars.example"
+	printf '\nnot_a_real_bootstrap_variable = "x"\n' >>"${stage}/mutant.tfvars.example"
+
+	undeclared="$(undeclared_in "${stage}/mutant.tfvars.example" "${REPO_ROOT}/terraform/bootstrap/variables.tf")"
+	rm -rf "$stage"
+
+	[ -n "$undeclared" ]
+	[[ "$undeclared" == *"not_a_real_bootstrap_variable"* ]]
+}
+
+@test "the bootstrap and environments declaration sets are genuinely different" {
+	# Proves the two-scan design is necessary rather than defensive. If these
+	# ever became the same set, one scan would do and this file should say so.
+	local boot env_
+	boot="$(declared_variables "${REPO_ROOT}/terraform/bootstrap/variables.tf" | sort -u)"
+	env_="$(declared_variables "${REPO_ROOT}/terraform/environments/variables.tf" | sort -u)"
+	[ -n "$boot" ]
+	[ -n "$env_" ]
+	[ "$boot" != "$env_" ]
 }

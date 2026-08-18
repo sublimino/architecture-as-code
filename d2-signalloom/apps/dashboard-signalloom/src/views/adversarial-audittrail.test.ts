@@ -19,11 +19,31 @@ const src = readFileSync(
   'utf8',
 )
 
+/**
+ * Strip `//` comments before reading a declaration as data.
+ *
+ * `extractRecordKeys` matches any bare word followed by a colon, which is also
+ * the shape of ordinary English inside a comment: a note ending "...the demo
+ * pair above: running a phase is a state transition" contributed a colour key
+ * called `above`, and the sync test then reported a real, correctly-declared
+ * colour as orphaned. The failure points at the data and the fault is in the
+ * prose beside it, which is the most expensive kind of red to read.
+ *
+ * The Python sibling `test_dashboard_audit_vocabulary._record_keys` already
+ * does this, and says why: EVENT_COLORS "carries prose mentioning event names,
+ * and counting those as declared colours would let a genuinely uncoloured type
+ * pass". That is the same hazard in the more dangerous direction — a comment
+ * can silently *satisfy* this guard as easily as it can break it.
+ */
+function withoutComments(body: string): string {
+  return body.replace(/\/\/[^\n]*/g, '')
+}
+
 function extractArray(name: string): string[] {
   const pattern = new RegExp(`const ${name}\\s*=\\s*\\[([\\s\\S]*?)\\]`)
   const match = src.match(pattern)
   if (!match) throw new Error(`Could not find ${name} in AuditTrail.tsx`)
-  const items = match[1].match(/'([^']+)'/g)
+  const items = withoutComments(match[1]).match(/'([^']+)'/g)
   return items ? items.map(s => s.replace(/'/g, '')) : []
 }
 
@@ -32,7 +52,7 @@ function extractRecordKeys(name: string): string[] {
   const pattern = new RegExp(`const ${name}[^{]*\\{([\\s\\S]*?)\\}`)
   const match = src.match(pattern)
   if (!match) throw new Error(`Could not find ${name} in AuditTrail.tsx`)
-  const keys = match[1].match(/(?:'([^']+)'|(\w[\w.]*))(?=\s*:)/g)
+  const keys = withoutComments(match[1]).match(/(?:'([^']+)'|(\w[\w.]*))(?=\s*:)/g)
   return keys ? keys.map(k => k.replace(/'/g, '')) : []
 }
 
@@ -41,7 +61,7 @@ function extractRecordValues(name: string): string[] {
   const pattern = new RegExp(`const ${name}[^{]*\\{([\\s\\S]*?)\\}`)
   const match = src.match(pattern)
   if (!match) throw new Error(`Could not find ${name} in AuditTrail.tsx`)
-  const values = match[1].match(/:\s*'([^']+)'/g)
+  const values = withoutComments(match[1]).match(/:\s*'([^']+)'/g)
   return values ? values.map(v => v.replace(/^:\s*'/, '').replace(/'$/, '')) : []
 }
 

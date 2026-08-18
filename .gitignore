@@ -47,6 +47,15 @@ test/acceptance/.auth/
 !scripts/lib/
 !scripts/lib/**
 
+# Same override, same reason: ~/.gitignore_global carries a bare `lib` pattern
+# (a Python packaging leftover) which silently swallows ANY directory named lib
+# at any depth. test/lib/fake-image-cli.bash is the shared docker/crictl model
+# for the three suites that exercise scripts/lib/image-identity.sh — without
+# this negation it is never committed, and those suites pass locally and then
+# fail in CI with "FAKE_IMAGE_CLI: No such file or directory".
+!test/lib/
+!test/lib/**
+
 
 # riskctl build output (regenerate with `make riskctl`)
 tools/riskctl/riskctl

@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# Stub `gcloud` for test/terraform-ci-lifecycle.bats.
+#
+# Placed on PATH ahead of the real binary so the lifecycle and reaper scripts
+# execute their REAL control flow with no cloud access, no credentials, and no
+# network. Every invocation is appended to $STUB_GCLOUD_LOG together with the
+# SSH_AUTH_SOCK the caller actually exported — that is what makes the ssh-agent
+# guard testable as behaviour rather than as a grep.
+#
+# Knobs:
+#   STUB_GCLOUD_LOG      file to append invocations to
+#   STUB_VM_STATE        what `instances describe` reports (default SUSPENDED)
+#   STUB_SUSPEND_RC      exit code for `instances suspend` (default 0)
+#   STUB_TEST_CMD        command exec'd for the `compute ssh` test invocation
+#   STUB_INSTANCE_LIST   file whose contents `instances list` prints
+
+log="${STUB_GCLOUD_LOG:-/dev/null}"
+printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
+
+argv="$*"
+
+case "$argv" in
+  *"instances describe"*)
+    printf '%s\n' "${STUB_VM_STATE:-SUSPENDED}"
+    ;;
+  *"instances resume"* | *"instances start"*)
+    printf 'stub-gcloud: lane resumed\n'
+    ;;
+  *"instances suspend"*)
+    exit "${STUB_SUSPEND_RC:-0}"
+    ;;
+  *"instances list"*)
+    if [ -n "${STUB_INSTANCE_LIST:-}" ] && [ -f "${STUB_INSTANCE_LIST}" ]; then
+      cat "${STUB_INSTANCE_LIST}"
+    fi
+    ;;
+  *"compute ssh"*)
+    case "$argv" in
+      *"echo ready"*) exit 0 ;;
+      *) exec "${STUB_TEST_CMD:-true}" ;;
+    esac
+    ;;
+esac
+
+exit 0

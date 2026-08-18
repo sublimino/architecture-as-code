@@ -1,0 +1,10 @@
+resource "google_compute_instance" "runner" {
+  name = "sl-ci-1-runner"
+
+  network_interface {
+    subnetwork = var.subnet_self_link
+
+    access_config {
+    }
+  }
+}

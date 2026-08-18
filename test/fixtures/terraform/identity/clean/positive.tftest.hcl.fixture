@@ -1,0 +1,11 @@
+mock_provider "google" {}
+mock_provider "google-beta" {}
+
+run "reads_a_plan_only" {
+  command = plan
+
+  assert {
+    condition     = true
+    error_message = "unreachable"
+  }
+}

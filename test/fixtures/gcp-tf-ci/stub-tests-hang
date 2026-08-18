@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stands in for a remote test suite that is still running when the operator
+# interrupts. Short by design: the interrupt test must stay well inside the
+# suite's 30-second budget.
+printf 'stub-tests: running\n'
+sleep "${STUB_HANG_SECONDS:-10}"
+exit 0

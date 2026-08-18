@@ -40,6 +40,18 @@
 # that trips two rules is a fixture that stopped testing the one it was named
 # for.
 
+# ─── Why every negated assertion is written `! cmd || { ...; return 1; }` ────
+#
+# Under bash `errexit`, which bats enables, a command whose status is inverted
+# with `!` is EXEMPT from erroring out. So a bare `! grep forbidden_thing file`
+# that is not the last line of a test is a DEAD ASSERTION: grep finds the
+# forbidden thing, `!` turns that into a non-zero status, and the test carries
+# on and passes. Three assertions in this file were dead exactly that way, and
+# they were found only by planting a violation and watching the suite stay
+# green — which is the whole argument for falsifying a guard rather than
+# trusting it. Every negation below therefore carries an explicit `|| { return
+# 1; }` and says what it caught.
+
 setup_file() {
 	repo_root="$(cd "${BATS_TEST_DIRNAME}/.." && pwd)"
 	export repo_root
@@ -66,6 +78,8 @@ setup_file() {
 		"${tf_src}/environments/demo-1.tfvars.example" \
 		"${tf_src}/environments/ci-1.tfvars.example" \
 		"${tf_src}/environments/demo-1-and-demo-2.tfvars.example" \
+		"${tf_src}/modules/env-contract/tests/environment_contract.tftest.hcl" \
+		"${tf_src}/environments/tests/root_contract.tftest.hcl" \
 		"${tfvars}/base.tfvars"; do
 		[ -f "$f" ] || {
 			echo "MISSING under test: $f" >&2
@@ -426,8 +440,15 @@ tf_console() {
 	local d
 	d="$(diff "${tf_src}/environments/demo-1.tfvars.example" "${tf_src}/environments/demo-1-and-demo-2.tfvars.example" || true)"
 	[ -n "$d" ]
-	! printf '%s\n' "$d" | grep -qE '^[0-9,]+[dc][0-9,]+'
-	printf '%s\n' "$d" | grep -q '"demo-2"'
+	! printf '%s\n' "$d" | grep -qE '^[0-9,]+[dc][0-9,]+' || {
+		echo "the two-environment example deletes or modifies lines of the first; it is not purely additive" >&2
+		printf '%s\n' "$d" >&2
+		return 1
+	}
+	printf '%s\n' "$d" | grep -q '"demo-2"' || {
+		echo "the two-environment example does not actually add a demo-2 entry" >&2
+		return 1
+	}
 }
 
 @test "gaining demo-2 requires no Terraform source change at all" {
@@ -483,14 +504,81 @@ tf_console() {
 }
 
 @test "no committed Terraform source contains an absolute home path or an any-source CIDR" {
-	# CONTRACT.md §6 anti-criteria, asserted against the .tf files this chunk
-	# owns. The allowlist fixtures that DO contain 0.0.0.0/0 are tfvars under
-	# test/fixtures and are excluded by construction — they exist to be
-	# rejected, and a rule that could not tell those apart from a real default
-	# would have to be weakened until it caught nothing.
-	! grep -rn '/home/andy' "${tf_src}"/modules/env-contract "${tf_src}"/environments
-	! grep -rn '0\.0\.0\.0/0\|::/0' "${tf_src}"/modules/env-contract/main.tf "${tf_src}"/modules/env-contract/outputs.tf
-	! grep -rn 'access_config\|google_service_account_key\|google_project_iam_policy' "${tf_src}"/modules/env-contract "${tf_src}"/environments
+	# CONTRACT.md §6 anti-criteria, asserted against the source this chunk owns.
+	#
+	# ─── Scoped to committed source, deliberately ───
+	#
+	# A bare `grep -r` over these directories also walks `.terraform/`, which
+	# holds ~700MB of downloaded provider binaries — and those binaries contain
+	# the literal string `access_config`, because the provider implements it.
+	# The guard then passes or fails depending on whether somebody happened to
+	# run `init` recently, which is a test that reports on the local machine
+	# rather than on the code. Caught by this suite going red after a validate.
+	#
+	# The allowlist fixtures and the negative `.tftest.hcl` runs that DO contain
+	# 0.0.0.0/0 exist precisely to be rejected, so the CIDR check is scoped to
+	# the module's non-test source. A rule that could not tell a rejected input
+	# from a shipped default would have to be weakened until it caught nothing.
+	local src_globs=(--include='*.tf' --include='*.tftest.hcl' --exclude-dir='.terraform')
+	! grep -rn "${src_globs[@]}" '/home/andy' "${tf_src}/modules/env-contract" "${tf_src}/environments" || {
+		echo "absolute home path in committed Terraform source" >&2
+		return 1
+	}
+	! grep -rn "${src_globs[@]}" 'access_config\|google_service_account_key\|google_project_iam_policy' \
+		"${tf_src}/modules/env-contract" "${tf_src}/environments" || {
+		echo "CONTRACT.md §6 forbidden construct in committed Terraform source" >&2
+		return 1
+	}
+	! grep -n '0\.0\.0\.0/0\|::/0' \
+		"${tf_src}/modules/env-contract/main.tf" \
+		"${tf_src}/modules/env-contract/outputs.tf" \
+		"${tf_src}/environments/main.tf" \
+		"${tf_src}/environments/outputs.tf" || {
+		echo "an any-source CIDR appears in shipping Terraform source" >&2
+		return 1
+	}
+}
+
+@test "every native test file mocks both providers and never applies" {
+	# CONTRACT.md §7a makes `.tftest.hcl` the primary correctness surface, which
+	# moves the blast radius: a `run` block reaching a real provider on a box
+	# with live gcloud credentials is not a failing test, it is billable
+	# infrastructure. `mock_provider` is what prevents that and `command = plan`
+	# is what prevents state being written, so both are asserted per file rather
+	# than trusted.
+	#
+	# This is a whole-tree absence property — §7a's own table puts exactly this
+	# class of assertion in bats, because `terraform test` can only see what a
+	# given plan evaluated, never what no configuration anywhere contains.
+	local files f
+	mapfile -t files < <(find "${tf_src}/modules/env-contract" "${tf_src}/environments" -name '*.tftest.hcl' -type f)
+	[ "${#files[@]}" -ge 2 ] || {
+		echo "expected at least two .tftest.hcl files, found ${#files[@]}" >&2
+		return 1
+	}
+	for f in "${files[@]}"; do
+		grep -q '^mock_provider "google" {}' "$f" || {
+			echo "$f does not mock the google provider" >&2
+			return 1
+		}
+		grep -q '^mock_provider "google-beta" {}' "$f" || {
+			echo "$f does not mock the google-beta provider" >&2
+			return 1
+		}
+		! grep -qE '^\s*command\s*=\s*apply' "$f" || {
+			echo "$f uses command = apply; only plan is permitted" >&2
+			return 1
+		}
+		# Every negative run must be answered by a positive one somewhere in the
+		# file. A file of nothing but expect_failures cannot distinguish "the
+		# rule fired" from "the configuration was broken all along".
+		if grep -q 'expect_failures' "$f"; then
+			grep -q '^\s*assert {' "$f" || {
+				echo "$f has expect_failures but no positive assertion to calibrate against" >&2
+				return 1
+			}
+		fi
+	done
 }
 
 # ─── Structural criteria the plan cannot express: ISC-47, ISC-48, ISC-60 ────
@@ -500,7 +588,10 @@ tf_console() {
 	# unchecked, and would make ten of the eleven validation rules unreachable
 	# because there would be no field to read.
 	grep -q 'type = map(object({' "${tf_src}/modules/env-contract/variables.tf"
-	! grep -qE 'type\s*=\s*map\(any\)|type\s*=\s*any' "${tf_src}/modules/env-contract/variables.tf"
+	! grep -qE 'type\s*=\s*map\(any\)|type\s*=\s*any' "${tf_src}/modules/env-contract/variables.tf" || {
+		echo "the environments map is typed 'any'; every downstream module input becomes unchecked" >&2
+		return 1
+	}
 	[ "$(grep -c '^variable "environments"' "${tf_src}/modules/env-contract/variables.tf")" -eq 1 ]
 }
 

@@ -41,8 +41,12 @@ setup_file() {
 }
 
 module_fingerprint() {
-  find "${EDGE_MODULE}" -name '*.tf' -o -name '*.tftest.hcl' \
-    | sort | xargs sha256sum
+  # Every file in the module except the provider cache, not just *.tf. An
+  # earlier version of this fingerprint covered only *.tf and *.tftest.hcl and
+  # would have sat green while .terraform.lock.hcl was deleted underneath it.
+  # A tree-integrity check with a file-type filter is a tree-integrity check
+  # with a blind spot.
+  find "${EDGE_MODULE}" -type f -not -path '*/.terraform/*' | sort | xargs sha256sum
 }
 
 setup() {

@@ -1,10 +1,51 @@
 #!/usr/bin/env bash
-# check-ci-build-parity.sh — does CI build everything the demo bring-up builds?
+# check-ci-build-parity.sh — does CI run everything the demo bring-up runs?
 #
 #   check-ci-build-parity.sh          # compare demo-signalloom-up against CI
 #   check-ci-build-parity.sh --target demo-agent-trust-up
 #
 # No cluster, no docker, no network. Reads two text files and exits non-zero.
+#
+# ─── Why this reads SCRIPT steps as well as $(MAKE) steps ───────────────────
+#
+# The first version compared `$(MAKE) <target>` lines only. That is half a
+# recipe. demo-signalloom-up ends by calling two shell scripts directly —
+#
+#   SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+#   ./scripts/agent-trust-local.sh up
+#
+# — and a $(MAKE)-only reader cannot see either, so the whole DEPLOY half of the
+# recipe was outside the comparison while the guard printed "Every build step
+# demo-signalloom-up runs is run or explicitly opted out of by CI."
+#
+# That blind spot cost a full cold lane. Commit a86df1f added
+# `./scripts/agent-trust-local.sh up` to demo-signalloom-up — the step that
+# patches concrete inputs into the agent-trust ResourceSet, which ships
+# `inputs: []` by design. vm-pipeline.sh hand-copies that recipe and received
+# the two $(MAKE) lines from the same commit (push-local-fleet,
+# push-local-agent-trust — this guard flagged those as MISSING at merge time and
+# they were added) but NOT the script line, because nothing could see it. This
+# guard then certified parity, at exit 0, over a pipeline missing the only step
+# that activates the slice.
+#
+# The from-scratch run that followed reached 21/27 stages with zero of six
+# agent-trust-* namespaces, and reported it as TWO failures in neither place:
+#
+#   ResourceSet/flux-system/signalloom-infra   build failed: ... executing
+#     "resourceset" at <inputs>: map has no entry for key "tenant"
+#   ResourceSet/flux-system/agent-trust        Retrying dependency check:
+#     dependency signalloom-infra not ready
+#
+# Both from the one absent line. agent-trust-local.sh up is also the only caller
+# of suspend_root_reconciliation, which suspends the flux-system and tenants
+# Kustomizations; without it the ten-minute flux-system sync
+# (clusters/local/flux-system/flux-operator.yaml) reapplied the declarative
+# `inputs: []` over the inputs signalloom-local.sh had just patched into
+# signalloom-infra. So the slice that never activated took its own prerequisite
+# down with it, and the error named the prerequisite.
+#
+# A build step and a deploy step drift the same way and cost the same lane. The
+# comparison is over both.
 #
 # ─── Why this exists ────────────────────────────────────────────────────────
 #
@@ -134,11 +175,26 @@ allow_reason() {
 
 # ── Read the bring-up recipe ────────────────────────────────────────────────
 #
-# Emits `<line-number> <target>` for each `$(MAKE) <target>` in the recipe body.
+# Emits `<line-number> <step>` for each step in the recipe body, where a step is
+# either a make target (`push-local-fleet`) or a script invocation canonicalised
+# as `<path>:<verb>` (`scripts/agent-trust-local.sh:up`).
+#
 # `$(MAKE) -C <dir> <target>` is skipped deliberately: a sub-make into a slice
 # directory is not a root-Makefile target CI could invoke by this name, and the
 # leading `-` keeps it out of the pattern. Comment lines are skipped so the
-# Makefile can explain itself without being parsed.
+# Makefile can explain itself without being parsed — which matters more now than
+# it did, because demo-signalloom-up's comment block discusses signalloom-local.sh
+# and agent-trust-local.sh by name for seventeen lines.
+#
+# The script verb is part of the identity. `agent-trust-local.sh up` and
+# `agent-trust-local.sh down` are opposite operations, and a guard that matched
+# on the path alone would accept a teardown as proof of a bring-up.
+#
+# Leading environment assignments are tolerated rather than parsed: the pattern
+# is matched anywhere in the line, so `SIGNALLOOM_SKIP_PREPARE=1 ./scripts/...`
+# yields the same step name as a bare invocation. The two files genuinely differ
+# in that prefix today, and an identity that included it would report a
+# permanent false MISSING for a step both of them run.
 recipe_steps() {
   awk -v target="$TARGET" '
     index($0, target ":") == 1 { inrecipe = 1; next }
@@ -150,6 +206,12 @@ recipe_steps() {
       if (match(line, /\$\(MAKE\)[ \t]+[A-Za-z0-9_][A-Za-z0-9_.-]*/)) {
         step = substr(line, RSTART, RLENGTH)
         sub(/\$\(MAKE\)[ \t]+/, "", step)
+        print NR " " step
+      }
+      if (match(line, /\.\/scripts\/[A-Za-z0-9_.-]+\.sh[ \t]+[A-Za-z0-9_-]+/)) {
+        step = substr(line, RSTART, RLENGTH)
+        sub(/^\.\//, "", step)
+        sub(/[ \t]+/, ":", step)
         print NR " " step
       }
       next
@@ -238,6 +300,40 @@ anchor_line() {  # anchor_line <file> ; empty when the file has no anchor
     | grep -E "$DEPLOY_ANCHOR_RE" | head -1 | cut -d: -f1 || true
 }
 
+# The Makefile side must be scoped to the TARGET's recipe, not to the file. A
+# file-global scan finds demo-signalloom-up's handover no matter which target is
+# being checked, and then compares every other recipe's steps against a line
+# number from a recipe they are not in.
+#
+# Harmless while only $(MAKE) steps were read, and wrong the moment script steps
+# were: `--target demo-agent-trust-up` — a usage in this script's own synopsis —
+# reported
+#   TOO LATE  scripts/agent-trust-local.sh:up  built at line 369, after the
+#             deploy at line 289 ... The workload is scheduled before its image
+#             exists.
+# for a step that is correctly placed, citing a handover from a different
+# recipe and describing an image that is not involved. A guard that cries wolf
+# gets muted, and this one would have cried it at the exact step it was just
+# widened to protect.
+#
+# Empty when the target's own recipe has no handover, which leaves both ordering
+# checks skipped by their `[ -n "$recipe_anchor" ]` guards — the honest outcome
+# for a recipe with no build/deploy boundary to be on the wrong side of.
+recipe_anchor_line() {
+  awk -v target="$TARGET" -v re="$DEPLOY_ANCHOR_RE" '
+    index($0, target ":") == 1 { inrecipe = 1; next }
+    inrecipe && /^\t/ {
+      line = $0
+      sub(/^\t+/, "", line)
+      sub(/^[@+-]+/, "", line)
+      if (line ~ /^#/) next
+      if (line ~ re) { print NR; exit }
+      next
+    }
+    inrecipe && !/^\t/ && !/^[ \t]*$/ { inrecipe = 0 }
+  ' "$MAKEFILE"
+}
+
 # ── Read the pipeline ───────────────────────────────────────────────────────
 #
 # Emits `<line-number> <target>` for every `make <target>` the pipeline actually
@@ -254,12 +350,20 @@ pipeline_steps() {
     done < <(printf '%s\n' "$body" \
                | grep -oE '(^|[;&|(]|[[:space:]])make[[:space:]]+[A-Za-z0-9_][A-Za-z0-9_.-]*' \
                | sed -E 's/.*make[[:space:]]+//' || true)
+    # Script steps, canonicalised exactly as recipe_steps does. The pipeline
+    # discusses these scripts in prose too — strip_shell_comments has already
+    # removed both kinds of comment, for the same reason it does for `make`.
+    while IFS= read -r t; do
+      [ -n "$t" ] && printf '%s %s\n' "$n" "$t"
+    done < <(printf '%s\n' "$body" \
+               | grep -oE '(^|[;&|(]|[[:space:]])\./scripts/[A-Za-z0-9_.-]+\.sh[[:space:]]+[A-Za-z0-9_-]+' \
+               | sed -E 's|^[^.]*\./||; s|[[:space:]]+|:|' || true)
   done < <(grep -n '' "$PIPELINE" 2>/dev/null | strip_shell_comments || true)
 }
 
 fail=0
 
-printf '\n── build steps %s runs, and whether CI runs them ──\n\n' "$TARGET"
+printf '\n── steps %s runs, and whether CI runs them ──\n\n' "$TARGET"
 
 steps="$(recipe_steps)"
 
@@ -276,13 +380,16 @@ if [ -z "$steps" ]; then
 fi
 
 pipeline="$(pipeline_steps)"
-recipe_anchor="$(anchor_line "$MAKEFILE")"
+recipe_anchor="$(recipe_anchor_line)"
 pipeline_anchor="$(anchor_line "$PIPELINE")"
 
 while read -r recipe_line step; do
   [ -z "$step" ] && continue
   hit="$(printf '%s\n' "$pipeline" | awk -v s="$step" '$2 == s { print $1; exit }')"
   reason="$(allow_reason "$step" || true)"
+  # A script step is not "built". Saying BUILT of `agent-trust-local.sh up`
+  # would misdescribe the one class of step this guard was widened to see.
+  case "$step" in *.sh:*) verdict="RAN        " ;; *) verdict="BUILT      " ;; esac
 
   if [ -n "$hit" ]; then
     if [ -n "$reason" ]; then
@@ -302,7 +409,26 @@ while read -r recipe_line step; do
       fail=1
       continue
     fi
-    printf '  BUILT       %-40s %s:%s\n' "$step" "$(basename "$PIPELINE")" "$hit"
+    # The mirror image, and it is not symmetry for its own sake. Steps AFTER the
+    # handover are the activation half of the recipe, and demo-signalloom-up
+    # documents at length (Makefile, above `$(MAKE) push-local-fleet`) why
+    # `./scripts/agent-trust-local.sh up` must observe the sibling ResourceSets
+    # already ACTIVE: it snapshots their inputs, refreshes the fleet — which
+    # reapplies the declarative `inputs: []` — and restores the snapshot. Run it
+    # before signalloom-local.sh and it snapshots nothing, restores nothing, and
+    # preflight_bao then waits its full 600s on a signalloom-infra that will
+    # never go Ready. Present-but-early converts a fast failure into a ten-minute
+    # hang, which is a worse outcome than the omission it replaces.
+    if [ -n "$recipe_anchor" ] && [ -n "$pipeline_anchor" ] \
+       && [ "$recipe_line" -gt "$recipe_anchor" ] && [ "$hit" -lt "$pipeline_anchor" ]; then
+      printf '  TOO EARLY   %-40s runs at line %s, before the handover at line %s\n' \
+        "$step" "$hit" "$pipeline_anchor" >&2
+      printf '              The recipe runs it after that handover. Activation steps that\n' >&2
+      printf '              precede it snapshot inputs that are not active yet.\n' >&2
+      fail=1
+      continue
+    fi
+    printf '  %s %-40s %s:%s\n' "$verdict" "$step" "$(basename "$PIPELINE")" "$hit"
     continue
   fi
 
@@ -315,6 +441,17 @@ while read -r recipe_line step; do
     "$step" "$TARGET" "$(basename "$PIPELINE")" >&2
   fail=1
 done <<< "$steps"
+
+# The recipe's own handover must exist in the pipeline, or every ordering
+# verdict above is silently skipped and the guard degrades to a membership
+# check without saying so. Both anchors are derived from the same regex, so an
+# anchor that moves in one file and not the other is the drift this guards.
+if [ -n "$recipe_anchor" ] && [ -z "$pipeline_anchor" ]; then
+  printf '  NO ANCHOR   %-40s %s has no %s\n' \
+    "handover" "$(basename "$PIPELINE")" "$DEPLOY_ANCHOR_RE" >&2
+  printf '              Ordering was not checked. TOO LATE and TOO EARLY cannot fire.\n' >&2
+  fail=1
+fi
 
 # An allowlist entry for a step the recipe no longer runs is a decision record
 # for a decision nobody faces any more. Left in place it silently pre-approves
@@ -331,9 +468,10 @@ if [ "$fail" -ne 0 ]; then
   printf '\n  CI does not build what it deploys.\n' >&2
   printf '  %s hand-copies the body of %s (it cannot call it —\n' "$(basename "$PIPELINE")" "$TARGET" >&2
   printf '  see the "Use individual targets" comment), so every step added to the\n' >&2
-  printf '  recipe has to be added there too. Add the missing step to stage [4/7],\n' >&2
-  printf '  or add it above with a reason if the omission is deliberate.\n\n' >&2
+  printf '  recipe has to be added there too. Build steps belong in stage [4/7] and\n' >&2
+  printf '  activation steps in stage [5/7], in the recipe order; or add the step\n' >&2
+  printf '  above with a reason if the omission is deliberate.\n\n' >&2
   exit 1
 fi
 
-printf '\n  Every build step %s runs is run or explicitly opted out of by CI.\n\n' "$TARGET"
+printf '\n  Every step %s runs is run or explicitly opted out of by CI.\n\n' "$TARGET"

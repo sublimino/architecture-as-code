@@ -331,6 +331,43 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   fi
 }
 
+# Fourth instance of the hand-copy drift, and the first that was invisible to
+# the guard written for the previous three: check-ci-build-parity.sh read
+# `$(MAKE)` lines only, so the two DIRECT SCRIPT invocations that close
+# demo-signalloom-up were outside the comparison entirely. Commit a86df1f added
+# this line to the recipe; this file received that commit's two $(MAKE) lines
+# (283-284 above, flagged MISSING by the guard at merge time) and not this one,
+# and the guard reported parity at exit 0.
+#
+# The agent-trust ResourceSet ships `inputs: []` by design and materialises only
+# when this script patches concrete values in. Without it a from-scratch run
+# reached 21/27 stages with zero of six agent-trust-* namespaces, and named
+# neither the slice nor the missing step:
+#
+#   ResourceSet/flux-system/signalloom-infra   build failed: ... executing
+#     "resourceset" at <inputs>: map has no entry for key "tenant"
+#   ResourceSet/flux-system/agent-trust        Retrying dependency check:
+#     dependency signalloom-infra not ready
+#
+# The error names the PREREQUISITE because this script is also the only caller
+# of suspend_root_reconciliation. Nothing else suspends the flux-system and
+# tenants Kustomizations, so the ten-minute flux-system sync
+# (clusters/local/flux-system/flux-operator.yaml) reapplied the declarative
+# `inputs: []` over the inputs signalloom-local.sh had just patched into
+# signalloom-infra. One absent line, both failures.
+#
+# ORDERING IS LOAD-BEARING — see the comment block above `$(MAKE) push-local-fleet`
+# in demo-signalloom-up. This must run IMMEDIATELY after signalloom-local.sh up,
+# with nothing in between: it snapshots its sibling ResourceSets' inputs, does
+# its own fleet refresh (which reapplies `inputs: []`), then restores the
+# snapshot — so it has to observe those inputs ACTIVE. Anything inserted between
+# the two is a window in which that same ten-minute sync blanks them first; the
+# snapshot then restores nothing and preflight_bao waits its full 600s on a
+# signalloom-infra that will never go Ready. Moving it earlier is worse than
+# omitting it: a fast failure becomes a ten-minute hang. The guard now derives
+# both the membership and this ordering from the recipe (TOO EARLY).
+./scripts/agent-trust-local.sh up
+
 # ── Run 10-stage test suite ───────────────────────────────────────────
 PIPELINE_PHASE="tests"
 echo "==> [6/7] Running 10-stage test suite..."

@@ -42,9 +42,11 @@ setup() {
 		$'\t$(MAKE) -C d2-signalloom test' \
 		$'\t$(MAKE) build-gamma' \
 		$'\tSIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up' \
+		$'\t./scripts/activate-thing.sh up' \
 		'' \
 		'other-target:' \
 		$'\t$(MAKE) build-unrelated' \
+		$'\t./scripts/other-thing.sh up' \
 		>"$fix/Makefile"
 
 	cat >"$fix/pipeline.sh" <<-'PIPE'
@@ -55,7 +57,9 @@ setup() {
 		retry 3 make build-alpha
 		retry 3 make build-beta
 		make -C d2-signalloom test
+		./scripts/other-thing.sh up
 		SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+		./scripts/activate-thing.sh up
 	PIPE
 
 	export MAKEFILE="$fix/Makefile"
@@ -73,6 +77,22 @@ setup() {
 	run env -u MAKEFILE -u PIPELINE -u CI_PARITY_TARGET -u CI_PARITY_ALLOW "$script"
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"demo-signalloom-supercred-images"* ]]
+}
+
+@test "PARITY the repo's pipeline activates the Agent Trust slice, in recipe order" {
+	# The regression lock on the defect that widened this guard. The activation
+	# step is what patches concrete inputs into a ResourceSet declared
+	# `inputs: []`; without it a cold cluster has zero of six agent-trust-*
+	# namespaces and reports the failure against signalloom-infra, naming neither
+	# the slice nor the missing step.
+	#
+	# Asserting the RAN verdict rather than mere presence, because that verdict is
+	# what survives the ordering checks: MISSING, TOO EARLY and NO ANCHOR each
+	# leave the step named in the output but not run.
+	run env -u MAKEFILE -u PIPELINE -u CI_PARITY_TARGET -u CI_PARITY_ALLOW "$script"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"RAN         scripts/signalloom-local.sh:up"* ]]
+	[[ "$output" == *"RAN         scripts/agent-trust-local.sh:up"* ]]
 }
 
 @test "PARITY the repo's opt-outs are all still live decisions" {
@@ -166,6 +186,7 @@ setup() {
 		make -C d2-signalloom test
 		retry 3 make build-gamma   # trailing comment beside a live invocation
 		SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+		./scripts/activate-thing.sh up
 	PIPE
 	run "$script"
 	[ "$status" -eq 0 ]
@@ -203,6 +224,110 @@ setup() {
 	[[ "$output" != *"build-unrelated"* ]]
 }
 
+# ── Script steps: the half of the recipe the guard used to be blind to ──────
+#
+# demo-signalloom-up ends in two direct script invocations, and a $(MAKE)-only
+# reader saw neither. Commit a86df1f added `./scripts/agent-trust-local.sh up`
+# to the recipe — the only step that patches concrete inputs into the
+# agent-trust ResourceSet, which ships `inputs: []` by design. vm-pipeline.sh
+# got that commit's two $(MAKE) lines (this guard flagged them MISSING at merge
+# time) and not its script line, because nothing could see it. The guard then
+# printed "Every build step demo-signalloom-up runs is run or explicitly opted
+# out of by CI." at exit 0 over a pipeline that could not bring the slice up.
+#
+# The from-scratch run that followed reached 21/27 stages with zero of six
+# agent-trust-* namespaces, reporting
+#   signalloom-infra  ... at <inputs>: map has no entry for key "tenant"
+# — the PREREQUISITE, not the slice, because agent-trust-local.sh up is also the
+# only caller of suspend_root_reconciliation, so the ten-minute flux-system sync
+# reapplied `inputs: []` over what signalloom-local.sh had just patched in.
+
+@test "PARITY an activation script the pipeline never runs fails, and is named" {
+	grep -v 'activate-thing.sh up' "$fix/pipeline.sh" >"$fix/mutated" && mv "$fix/mutated" "$fix/pipeline.sh"
+	# Assert the mutation landed: a grep -v whose pattern misses rewrites the file
+	# unchanged and exits 0, and the test would then measure an unmutated fixture.
+	! grep -qF 'activate-thing.sh up' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MISSING"* ]]
+	[[ "$output" == *"scripts/activate-thing.sh:up"* ]]
+}
+
+@test "PARITY the script verb is part of the step identity" {
+	# `up` and `down` are opposite operations against the same ResourceSet. A
+	# guard that matched on the path alone would read a teardown as proof of a
+	# bring-up — and agent-trust-local.sh really does take both verbs.
+	sed -i 's|^\./scripts/activate-thing.sh up$|./scripts/activate-thing.sh down|' "$fix/pipeline.sh"
+	grep -qF './scripts/activate-thing.sh down' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MISSING"* ]]
+	[[ "$output" == *"scripts/activate-thing.sh:up"* ]]
+}
+
+@test "PARITY prose naming the activation script does not count as running it" {
+	# The same property already proven for `make`, on the path that now carries
+	# the deploy half of the recipe. vm-pipeline.sh discusses agent-trust in two
+	# comment blocks; a guard that reads its own documentation as coverage is how
+	# this class of defect survives a guard.
+	sed -i 's|^\./scripts/activate-thing.sh up$|# ./scripts/activate-thing.sh up|' "$fix/pipeline.sh"
+	grep -qF '# ./scripts/activate-thing.sh up' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MISSING"* ]]
+	[[ "$output" == *"scripts/activate-thing.sh:up"* ]]
+	[[ "$output" != *"RAN         scripts/activate-thing.sh:up"* ]]
+}
+
+@test "PARITY a step disabled by a trailing comment does not count as run either" {
+	sed -i 's|^\./scripts/activate-thing.sh up$|true # ./scripts/activate-thing.sh up|' "$fix/pipeline.sh"
+	grep -qF 'true # ./scripts/activate-thing.sh up' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"MISSING"* ]]
+	[[ "$output" == *"scripts/activate-thing.sh:up"* ]]
+}
+
+@test "PARITY an activation step that precedes the handover fails as TOO EARLY" {
+	# Present but early is not present, and here it is worse than absent. The
+	# recipe runs this after signalloom-local.sh because the activation snapshots
+	# its sibling ResourceSets' inputs and restores them after a fleet refresh
+	# that reapplies `inputs: []`. Snapshotting before they are active captures
+	# nothing, restores nothing, and the bring-up then waits its full 600s
+	# preflight on a prerequisite that will never go Ready — a ten-minute hang
+	# where the omission at least failed fast.
+	grep -v 'activate-thing.sh up' "$fix/pipeline.sh" >"$fix/mutated" && mv "$fix/mutated" "$fix/pipeline.sh"
+	sed -i 's|^SIGNALLOOM_SKIP_PREPARE=1|./scripts/activate-thing.sh up\n&|' "$fix/pipeline.sh"
+	grep -qF './scripts/activate-thing.sh up' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"TOO EARLY"* ]]
+	[[ "$output" == *"scripts/activate-thing.sh:up"* ]]
+	# Scoped to the verdict column, not `*"MISSING"*"activate-thing"*`: the
+	# fixture's build-gamma is MISSING in every one of these tests, so the loose
+	# glob matches across two unrelated lines and can never fail.
+	[[ "$output" != *"MISSING     scripts/activate-thing.sh:up"* ]]
+}
+
+@test "PARITY a pipeline with no handover reports ordering as unchecked" {
+	# The anchor decides every TOO LATE and TOO EARLY verdict. If the pipeline
+	# loses it, those checks silently stop running and the guard degrades to a
+	# membership test while still printing a pass. "Could not look" and "looked
+	# and found nothing" are different answers here too.
+	sed -i 's|^SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up$|deploy_somehow|' "$fix/pipeline.sh"
+	! grep -qF 'signalloom-local.sh up' "$fix/pipeline.sh"
+
+	run "$script"
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"NO ANCHOR"* ]]
+	[[ "$output" == *"Ordering was not checked"* ]]
+}
+
 # ── The allowlist is checked too ────────────────────────────────────────────
 
 @test "PARITY a documented opt-out is reported, not failed" {
@@ -237,7 +362,11 @@ setup() {
 	CI_PARITY_TARGET=demo-signalloom-up-renamed run "$script"
 	[ "$status" -eq 1 ]
 	[[ "$output" == *"NO STEPS"* ]]
-	[[ "$output" != *"Every build step"* ]]
+	# "Every build step" until the guard was widened past $(MAKE) lines and the
+	# success line became "Every step". An absence assertion against a string the
+	# guard can no longer emit passes for free — the shape this suite exists to
+	# catch, found in the suite itself.
+	[[ "$output" != *"Every step"* ]]
 }
 
 @test "PARITY an empty pipeline fails every step rather than passing quietly" {
@@ -274,7 +403,7 @@ setup() {
 	MAKEFILE="$fix/no-such-makefile" run "$script"
 	[ "$status" -eq 1 ]
 	[[ "$output" == *"CANNOT READ"* ]]
-	[[ "$output" != *"Every build step"* ]]
+	[[ "$output" != *"Every step"* ]]
 }
 
 @test "PARITY --target reaches other bring-up recipes" {
@@ -284,4 +413,26 @@ setup() {
 	run "$script" --target other-target
 	[ "$status" -eq 1 ]
 	[[ "$output" == *"build-unrelated"* ]]
+}
+
+@test "PARITY the handover anchor is read from the target's own recipe" {
+	# The anchor decides every ordering verdict, and it used to be found by
+	# scanning the whole Makefile — so ANY target checked with --target was
+	# compared against demo-signalloom-up's handover line, from a recipe it is
+	# not in.
+	#
+	# other-target has no handover of its own, and the fixture pipeline runs its
+	# script step BEFORE the signalloom handover. Under the file-global anchor
+	# that combination is `recipe_line > recipe_anchor && hit < pipeline_anchor`
+	# — a TOO EARLY for a step with nothing to be early for. The real tree
+	# produced exactly this against `--target demo-agent-trust-up`, a usage in
+	# the guard's own synopsis: a TOO LATE citing another recipe's handover and
+	# an image the step does not have.
+	#
+	# No handover in the recipe means no ordering claim, which is the honest
+	# answer rather than a confident wrong one.
+	run "$script" --target other-target
+	[[ "$output" == *"RAN         scripts/other-thing.sh:up"* ]]
+	[[ "$output" != *"TOO EARLY"* ]]
+	[[ "$output" != *"TOO LATE"* ]]
 }

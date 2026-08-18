@@ -600,7 +600,7 @@ test-signalfusion-images: ## Verify the Signal Fusion image identity guard again
 	bats test/signalfusion-images.bats
 
 .PHONY: check-ci-build-parity
-check-ci-build-parity: ## Fail if CI omits a build step demo-signalloom-up runs (no cluster required).
+check-ci-build-parity: ## Fail if CI omits a build or activation step demo-signalloom-up runs (no cluster required).
 	./scripts/check-ci-build-parity.sh
 
 .PHONY: test-ci-build-parity

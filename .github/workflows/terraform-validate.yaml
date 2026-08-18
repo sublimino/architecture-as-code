@@ -1,0 +1,107 @@
+# terraform-validate.yaml — the PR-time offline gate for the GCP Terraform platform.
+#
+# Runs `make gcp-tf-validate`: fmt, validate, tflint, every native `terraform
+# test` suite, and every test/terraform-*.bats suite. All of it is discovered by
+# glob, so a suite added in a PR is executed by that same PR with no second edit
+# anywhere.
+#
+# NO GCP CREDENTIALS. No `google-github-actions/auth` step, no Workload Identity
+# Federation, no service account key, no `permissions: id-token`. Every
+# terraform invocation runs under `env -u GOOGLE_APPLICATION_CREDENTIALS -u
+# CLOUDSDK_CORE_ACCOUNT ...` and every .tftest.hcl declares `mock_provider`, so
+# this job cannot reach a Google API even by accident. That is the point: this
+# is the gate that runs on every PR, and a gate holding cloud credentials is a
+# gate whose blast radius is the cloud.
+#
+# This job is also the COMPENSATING CONTROL for the fact that
+# scripts/ci/vm-pipeline.sh (the GCP-VM tier) still hand-lists its bats suites
+# and is frozen. Terraform suites are not registered there and would otherwise
+# never run in CI at all.
+#
+# The one network dependency is the Terraform provider registry, contacted once
+# per job to install the pinned google/google-beta providers. Everything after
+# that — validate, test, tflint, bats — is verified to run in a network
+# namespace with no interfaces.
+
+name: terraform-validate
+
+on:
+  pull_request:
+    branches:
+      - feat/signal-loop-and-bootstrap-refactor
+    paths:
+      - "terraform/**"
+      - "Makefile"
+      - "test/terraform-*.bats"
+      - "test/fixtures/terraform/**"
+      - ".github/workflows/terraform-validate.yaml"
+  workflow_dispatch:
+
+# Read-only. This workflow writes nothing, anywhere.
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Offline terraform gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Matches the >= 1.9 floor in every versions.tf. Pinned rather than
+          # "latest": native `terraform test` semantics and cross-variable
+          # validation are version-sensitive, and a silent minor bump is not a
+          # thing to discover from a red PR.
+          terraform_version: "1.9.8"
+          # The wrapper rewrites stdout, which breaks the argument-recording
+          # stubs the make-contract suite depends on.
+          terraform_wrapper: false
+
+      - name: Install tflint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.50.1
+
+      - name: Install bats
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends bats
+
+      - name: Show tool versions
+        run: |
+          terraform version
+          tflint --version
+          bats --version
+          make --version | head -1
+
+      - name: Assert no cloud credentials are present
+        # An anti-criterion, asserted rather than assumed. If a future edit adds
+        # an auth step, this fails and names it, instead of the gate quietly
+        # gaining cloud reach.
+        run: |
+          fail=0
+          for v in GOOGLE_APPLICATION_CREDENTIALS GOOGLE_CREDENTIALS \
+                   CLOUDSDK_CORE_ACCOUNT CLOUDSDK_AUTH_ACCESS_TOKEN \
+                   GOOGLE_OAUTH_ACCESS_TOKEN; do
+            if [ -n "${!v-}" ]; then
+              echo "::error::${v} is set — this job must hold no cloud credentials"
+              fail=1
+            fi
+          done
+          if [ -f "${HOME}/.config/gcloud/application_default_credentials.json" ]; then
+            echo "::error::application default credentials are present on the runner"
+            fail=1
+          fi
+          exit "${fail}"
+
+      - name: make gcp-tf-validate
+        run: make gcp-tf-validate

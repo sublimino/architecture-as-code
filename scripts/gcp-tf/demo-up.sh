@@ -72,14 +72,27 @@ ENV_KEY="${GCP_TF_DEMO_ENV:-${ENV:-}}"
 HANDOFF_DIR="${GCP_TF_HANDOFF_DIR:-${REPO_ROOT}/deploy/gcp}"
 GCLOUD_CMD="${GCP_TF_DEMO_GCLOUD:-gcloud}"
 TAR_CMD="${GCP_TF_DEMO_TAR:-tar}"
+GIT_CMD="${GCP_TF_DEMO_GIT:-git}"
 
 # Where the delivered checkout and its reports live ON THE VM. Both are part of
 # the contract with demo-pipeline.sh (chunk C) and are stated in
 # docs/gcp-demo/RUNBOOK.md § "The pipeline contract".
-REMOTE_WORK_DIR="${GCP_TF_DEMO_REMOTE_DIR:-/home/demo/osramp-demo}"
-REMOTE_REPORT_DIR="${GCP_TF_DEMO_REMOTE_REPORT_DIR:-/home/demo/demo-reports}"
-REMOTE_USER="${GCP_TF_DEMO_REMOTE_USER:-demo}"
-REMOTE_LOG="${GCP_TF_DEMO_REMOTE_LOG:-/home/demo/demo-pipeline.log}"
+#
+# /opt/signalloom is the path an unpack was actually measured working at, not a
+# path this file invented.
+REMOTE_WORK_DIR="${GCP_TF_DEMO_REMOTE_DIR:-/opt/signalloom/repo}"
+REMOTE_REPORT_DIR="${GCP_TF_DEMO_REMOTE_REPORT_DIR:-/opt/signalloom/reports}"
+REMOTE_LOG="${GCP_TF_DEMO_REMOTE_LOG:-/opt/signalloom/demo-pipeline.log}"
+
+# EMPTY by default, meaning "run as whoever OS Login logged us in as".
+#
+# v1 hardcodes `sudo -u ci` because that VM provisions a `ci` account. This lane
+# has no such guarantee: the only account proven to exist on the demo VM is the
+# one OS Login creates for the impersonated operator SA, and `sudo -u <someone
+# who does not exist>` fails with a message about the user, which reads as a
+# permissions problem rather than as a wrong assumption in this file. Set it
+# when chunk B's VM profile guarantees a service account to drop to.
+REMOTE_USER="${GCP_TF_DEMO_REMOTE_USER:-}"
 
 # The pipeline, relative to the repo root. Overridable so the tests can drive a
 # fixture tree, and so a rename on chunk C's side is a one-variable change here
@@ -88,6 +101,16 @@ PIPELINE_REL="${GCP_TF_DEMO_PIPELINE:-scripts/gcp-tf/demo-pipeline.sh}"
 
 REPORT_DIR="${GCP_TF_DEMO_REPORT_DIR:-${REPO_ROOT}/demo-reports}"
 SUMMARY_NAME="${GCP_TF_DEMO_SUMMARY_NAME:-summary.json}"
+
+# How long cmd_connect waits for the tunnel to bind before it stops waiting and
+# starts diagnosing. PORT_PROBE is injectable so the whole connect path is
+# exercisable without a real listener; the default needs no external binary.
+TUNNEL_WAIT_SECONDS="${GCP_TF_DEMO_TUNNEL_WAIT_SECONDS:-20}"
+PORT_PROBE="${GCP_TF_DEMO_PORT_PROBE:-default_port_probe}"
+
+default_port_probe() {
+  (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+}
 
 SSH_WAIT_ATTEMPTS="${GCP_TF_DEMO_SSH_WAIT_ATTEMPTS:-30}"
 SSH_WAIT_INTERVAL="${GCP_TF_DEMO_SSH_WAIT_INTERVAL:-5}"
@@ -259,18 +282,118 @@ gcloud_common() {
   printf '%s\n' "--project=${PROJECT_ID}" "--impersonate-service-account=${OPERATOR_SA}"
 }
 
+# `--impersonate-service-account` makes gcloud print a WARNING to stderr on
+# EVERY underlying API call — four per invocation, observed live. Two things go
+# wrong if that is left alone, and they are different problems:
+#
+#   1. It pollutes the streamed pipeline output the operator is watching, at a
+#      rate of four lines per gcloud call.
+#   2. Anything that PARSES stderr gets the warning as data. vm_status merges
+#      stderr into stdout deliberately (so it can classify auth failures) and
+#      then compares the result against RUNNING/SUSPENDED/… — with the warning
+#      glued on, that comparison never matches, every state reads as unknown,
+#      and the run aborts against a perfectly healthy VM.
+#
+# Narrow on purpose. It matches gcloud's own impersonation warning and nothing
+# else; a filter broad enough to swallow a real error would be worse than the
+# noise it removes.
+strip_impersonation_warning() {
+  grep -v -E '^WARNING: This command is using service account impersonation|^WARNING: .*impersonat' || true
+}
+
+# The two IAP tunnel errors that do not say what they mean, both hit live.
+#
+#   4033 'not authorized'          — the SA lacks roles/iap.tunnelResourceAccessor.
+#                                    Says nothing about IAM; reads as a network fault.
+#   4003 'failed to connect to backend' — nothing is listening on the target port,
+#                                    OR a firewall rule does not permit it. Those
+#                                    two are indistinguishable from the client, so
+#                                    the message must name both rather than pick.
+explain_iap_error() {
+  local err="$1" port="${2:-the target port}"
+  case "$err" in
+    *4033*|*"not authorized"*)
+      cat >&2 <<EOF
+
+  This is an IAM failure, not a network one, despite what it says.
+
+  The operator service account needs roles/iap.tunnelResourceAccessor on the
+  project (or on the instance). Without it every tunnel attempt returns
+  4033 'not authorized', which mentions no permission and no principal.
+
+      gcloud projects add-iam-policy-binding ${PROJECT_ID} \\
+        --member=serviceAccount:${OPERATOR_SA} \\
+        --role=roles/iap.tunnelResourceAccessor
+
+  IAM takes roughly a minute to propagate. An immediate retry after granting
+  still fails, which reads exactly like the grant not having worked.
+EOF
+      ;;
+    *4003*|*"failed to connect to backend"*)
+      cat >&2 <<EOF
+
+  The tunnel reached IAP and IAP could not reach the port. That is TWO causes
+  wearing one error, and they are indistinguishable from here:
+
+    1. Nothing is listening on ${INSTANCE_NAME}:${port}.
+       Check the estate is actually up:  make gcp-tf-demo-status ENV=${ENV_KEY}
+    2. A firewall rule does not permit it. The IAP range is 35.235.240.0/20,
+       and a rule that only opens tcp:22 from it — with the app port opened to
+       Google's load-balancer health-check ranges instead — produces exactly
+       this, because this environment has no load balancer in front of it.
+
+       gcloud compute firewall-rules list --project=${PROJECT_ID} \\
+         --filter="network~${INSTANCE_NAME}" --format='table(name,allowed[],sourceRanges[])'
+EOF
+      ;;
+  esac
+}
+
+# Run a command with its stderr passed through the impersonation filter, and
+# its exit status and its stdout untouched.
+#
+# stderr is buffered to a file rather than piped, deliberately. A pipe or a
+# process substitution here would either lose the exit status or race the
+# script's own exit; every caller below is a short control-plane call, so
+# buffering costs nothing. Anything that STREAMS (the pipeline) filters inline
+# instead and never comes through here.
+run_filtered() {
+  local err rc=0
+  err="$(mktemp "${TMPDIR:-/tmp}/demo-stderr.XXXXXX")"
+  "$@" 2>"$err" || rc=$?
+  strip_impersonation_warning <"$err" >&2
+  rm -f "$err"
+  return "$rc"
+}
+
 vm_ssh() {
   local args=()
   mapfile -t args < <(gcloud_common)
-  SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
+  run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
     --zone="$ZONE" "${args[@]}" --tunnel-through-iap \
     --command="$1"
+}
+
+# Run a command on the VM, optionally dropping to a service account.
+#
+# `--command` and NOTHING on stdin. `gcloud compute ssh --command '…' < file`
+# DOES NOT FORWARD STDIN: the redirect is accepted, the command runs, the exit
+# status is 0, and the file arrives EMPTY. Every surrounding step then reports
+# success — chmod works, a launch reports launched, and the log is empty. It is
+# the worst possible failure shape, because nothing anywhere goes red. Anything
+# that needs bytes on the VM goes through vm_scp and is verified after transfer.
+remote_run() {
+  local cmd="$1"
+  if [ -n "$REMOTE_USER" ]; then
+    printf -v cmd 'sudo -u %q bash -lc %q' "$REMOTE_USER" "$cmd"
+  fi
+  vm_ssh "$cmd"
 }
 
 vm_scp() {
   local args=()
   mapfile -t args < <(gcloud_common)
-  SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute scp --tunnel-through-iap \
+  run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute scp --tunnel-through-iap \
     --zone="$ZONE" "${args[@]}" "$@"
 }
 
@@ -280,8 +403,14 @@ vm_scp() {
 vm_status() {
   local out rc=0 args=()
   mapfile -t args < <(gcloud_common)
+  # stderr is merged in ON PURPOSE — the classification below reads gcloud's
+  # error text — and then the impersonation warning is stripped, because
+  # otherwise it is glued onto the status and `RUNNING` never compares equal to
+  # anything. Stripping BEFORE the success branch is what matters; doing it only
+  # on the error path would leave the healthy case broken.
   out="$(SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute instances describe "$INSTANCE_NAME" \
-    --zone="$ZONE" "${args[@]}" --format='get(status)' 2>&1)" || rc=$?
+    --zone="$ZONE" "${args[@]}" --format='get(status)' 2>&1 |
+    strip_impersonation_warning)" || rc=$?
   if [ "$rc" -eq 0 ]; then
     printf '%s' "$out" | tr -d '[:space:]'
     return 0
@@ -321,13 +450,13 @@ ensure_vm_ready() {
       ;;
     SUSPENDED)
       log "resuming suspended ${INSTANCE_NAME}"
-      SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute instances resume "$INSTANCE_NAME" \
+      run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute instances resume "$INSTANCE_NAME" \
         --zone="$ZONE" "${args[@]}" --quiet
       wait_for_ssh || return 2
       ;;
     TERMINATED | STOPPED)
       log "starting stopped ${INSTANCE_NAME}"
-      SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute instances start "$INSTANCE_NAME" \
+      run_filtered env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute instances start "$INSTANCE_NAME" \
         --zone="$ZONE" "${args[@]}" --quiet
       wait_for_ssh || return 2
       ;;
@@ -346,65 +475,80 @@ ensure_vm_ready() {
 
 # ── Delivery ────────────────────────────────────────────────────────────────
 
-# Build the tarball that gets carried to the VM.
+# Build the payload with `git archive`, not with a tar of the working tree.
 #
-# The exclusion list is the security boundary of this whole lane, so it is a
-# list of reasons rather than a list of paths:
+# This is the security boundary of the whole lane, and the mechanism is the
+# point. `git archive HEAD` ships TRACKED FILES ONLY. Every piece of secret
+# material in this repo is gitignored — the tfvars, the hand-offs,
+# deploy/gcp/deploy-sa, .keys — so none of it CAN ride along. That is a
+# guarantee by construction. An `--exclude` list is a guarantee by somebody
+# maintaining it correctly forever, which is a different and much weaker thing:
+# a pattern that silently matches nothing looks exactly like one that works.
 #
-#   .git          the VM does not need history, and shipping it would carry
-#                 every branch and every credential ever committed in error.
-#                 Kustomize DOES need a .git as a security boundary for relative
-#                 path traversal (`../base/` is rejected without one) — the
-#                 pipeline git-inits a throwaway snapshot repo on the VM for
-#                 that, exactly as scripts/ci/vm-pipeline.sh does. It is a
-#                 marker, not history.
-#   .keys         signing keys. Never leave this machine. The pipeline mints its
-#                 own on the VM; a key that rides along is a key that exists in
-#                 two places and gets revoked in one.
-#   *.tfvars      real inputs. They name the project, the billing account and
-#                 the operator's own domains.
-#   *.handoff.json and deploy/gcp/deploy-sa — the same, plus service account
-#                 identities the demo pipeline has no use for.
-#   node_modules, .terraform* — reinstallable, and together they are most of the
-#                 bytes. Excluding them is what makes this transfer seconds.
+# It is also just better. A tar of this working tree measured 249MB, because
+# `.terraform*` provider binaries and several node_modules trees survived the
+# excludes. `git archive` is 35MB and ~2576 files.
 #
-# Anything added here needs a reason on the same footing. An exclusion with no
-# reason is how a file the pipeline needs disappears and nobody can say when.
+# THE COST, stated plainly because it is real: uncommitted work is not
+# delivered. HEAD is what ships, so a run against a dirty tree would test
+# something other than what the operator is looking at while stamping the report
+# with HEAD's SHA — the exact "green tests tested the wrong artefact" shape. So
+# a dirty tree is refused rather than silently tolerated.
+#
+# `git archive` also ships no `.git`, which Kustomize needs as a security
+# boundary for relative path traversal (`../base/` is rejected without one).
+# deliver_code snapshots a throwaway repo on the VM for that. It is a marker,
+# not history.
+require_clean_tree() {
+  [ "${GCP_TF_DEMO_ALLOW_DIRTY:-0}" != "1" ] || {
+    warn "GCP_TF_DEMO_ALLOW_DIRTY=1 — delivering HEAD. Your uncommitted changes are NOT in this run, and the report will be stamped with HEAD's commit regardless."
+    return 0
+  }
+
+  local dirty
+  dirty="$("$GIT_CMD" -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
+  [ -n "$dirty" ] || return 0
+
+  {
+    printf 'demo-up: REFUSING to deliver — the working tree has uncommitted changes.\n\n'
+    printf '%s\n' "$dirty" | head -20 | while IFS= read -r entry; do printf '  %s\n' "$entry"; done
+    cat <<EOF
+
+  The payload is built with 'git archive HEAD', so only COMMITTED files travel.
+  Running now would test HEAD while you are looking at something else on disk,
+  and stamp the report with HEAD's commit — a verdict that is accurate about a
+  tree nobody is reading.
+
+  Commit first, or accept it explicitly:
+
+      GCP_TF_DEMO_ALLOW_DIRTY=1 make gcp-tf-demo-up ENV=${ENV_KEY}
+EOF
+  } >&2
+  exit 2
+}
+
 build_payload() {
   local out="$1"
   [ -n "$out" ] || die "build_payload needs an output path"
 
+  require_clean_tree
+
+  "$GIT_CMD" -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1 ||
+    die "${REPO_ROOT} is not a git repository, and the payload is built with 'git archive'. There is no working-tree fallback on purpose: it is the tracked-files-only property that keeps secrets out of the payload."
+
   # Presence before packaging. A payload that omits the pipeline produces a 127
-  # on the VM twenty minutes later, by which point the obvious suspect is the
-  # VM.
-  if [ ! -f "${REPO_ROOT}/${PIPELINE_REL}" ]; then
-    die "no pipeline at ${REPO_ROOT}/${PIPELINE_REL}. It is supplied by scripts/gcp-tf/demo-pipeline.sh; override the path with GCP_TF_DEMO_PIPELINE=<relative-path>."
-  fi
+  # on the VM twenty minutes later, by which point the obvious suspect is the VM.
+  #
+  # Checked against `git ls-files`, not against the filesystem: an UNTRACKED
+  # pipeline exists on disk and will not be in the archive, and "it is right
+  # there" is the most convincing possible wrong answer.
+  "$GIT_CMD" -C "$REPO_ROOT" ls-files --error-unmatch "$PIPELINE_REL" >/dev/null 2>&1 ||
+    die "no TRACKED pipeline at ${PIPELINE_REL}. If the file exists on disk it is untracked, and 'git archive' will not carry it. Commit it, or override with GCP_TF_DEMO_PIPELINE=<relative-path>."
 
-  "$TAR_CMD" -C "$REPO_ROOT" \
-    --exclude='.git' \
-    --exclude='.keys' \
-    --exclude='.claude' \
-    --exclude='.worktrees' \
-    --exclude='node_modules' \
-    --exclude='.terraform' \
-    --exclude='.terraform*' \
-    --exclude='*.tfvars' \
-    --exclude='*.tfvars.json' \
-    --exclude='*.tfplan' \
-    --exclude='*.handoff.json' \
-    --exclude='deploy/gcp/deploy-sa' \
-    --exclude='ci-reports*' \
-    --exclude='demo-reports*' \
-    --exclude='test-results' \
-    --exclude='playwright-report' \
-    -czf "$out" .
+  "$GIT_CMD" -C "$REPO_ROOT" archive --format=tar.gz -o "$out" HEAD
 
-  # Verify what was built rather than trusting the flag list. A tar --exclude
-  # that silently matches nothing (a renamed directory, a pattern that needed a
-  # leading ./) is indistinguishable from a correct one at this point, and the
-  # cost of being wrong is a signing key in a bucket. Checking the artefact is
-  # the only assertion that survives a refactor of the list above.
+  # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
+  # survives someone swapping git archive back out for a tar with excludes.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
     grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
@@ -412,37 +556,102 @@ build_payload() {
   if [ -n "$leaked" ]; then
     printf 'demo-up: REFUSING to deliver — excluded material is present in the payload:\n' >&2
     printf '%s\n' "$leaked" | while IFS= read -r entry; do printf '  %s\n' "$entry" >&2; done
-    printf 'demo-up: this is the exclusion list failing, not a transfer problem.\n' >&2
+    printf 'demo-up: something is TRACKED that must not be. Fix .gitignore and untrack it;\n' >&2
+    printf 'demo-up: do not paper over it with an archive exclusion.\n' >&2
     rm -f "$out"
     exit 2
   fi
   return 0
 }
 
+REMOTE_DELIVERY_PATH="${GCP_TF_DEMO_REMOTE_DELIVERY:-/tmp/osramp-demo-delivery.tar.gz}"
+
+# Confirm the bytes ARRIVED, rather than confirming the transfer command exited 0.
+#
+# This is not defensive padding. `gcloud compute ssh --command '…' < file` does
+# not forward stdin: it exits 0 and the file lands at ZERO BYTES, and everything
+# downstream — chmod, a launch, a "delivered" log line — reports success against
+# an empty file. Observed live. scp is a different mechanism and does not have
+# that specific defect, but the lesson generalises to every transfer here: an
+# exit status describes the command, and the only thing that describes the
+# artefact is the artefact.
+#
+# Byte count rather than a checksum: it catches the empty and truncated cases
+# (which are the ones that actually happen and the ones that read as success),
+# needs no sha256sum on the VM, and one round trip rather than two.
+verify_delivered_size() {
+  local expected="$1" remote_size
+  remote_size="$(vm_ssh "stat -c %s $(printf '%q' "$REMOTE_DELIVERY_PATH") 2>/dev/null || echo MISSING" |
+    strip_impersonation_warning | tr -d '[:space:]')"
+
+  if [ "$remote_size" = "MISSING" ] || [ -z "$remote_size" ]; then
+    die "the payload is not on ${INSTANCE_NAME} at ${REMOTE_DELIVERY_PATH} after a transfer that reported success. Nothing was delivered; do NOT read the run that would have followed as a result about this code."
+  fi
+  if [ "$remote_size" != "$expected" ]; then
+    die "the delivered payload is ${remote_size} bytes and ${expected} were sent. A truncated or empty payload extracts partially and the pipeline then fails somewhere unrelated, blaming the estate."
+  fi
+  log "delivery verified: ${remote_size} bytes on the VM"
+}
+
 deliver_code() {
-  log "delivering this checkout to ${INSTANCE_NAME}:${REMOTE_WORK_DIR}"
+  log "delivering HEAD to ${INSTANCE_NAME}:${REMOTE_WORK_DIR}"
   local tarball
   tarball="$(mktemp "${TMPDIR:-/tmp}/osramp-demo-${ENV_KEY}.XXXXXX.tar.gz")"
   build_payload "$tarball"
 
   local size
-  size="$(wc -c <"$tarball" | tr -d ' ')"
-  log "payload: ${size} bytes"
+  size="$(wc -c <"$tarball" | tr -d '[:space:]')"
+  log "payload: ${size} bytes (git archive HEAD — tracked files only)"
 
-  vm_scp "$tarball" "${INSTANCE_NAME}:/tmp/osramp-demo-delivery.tar.gz"
+  vm_scp "$tarball" "${INSTANCE_NAME}:${REMOTE_DELIVERY_PATH}"
+  verify_delivered_size "$size"
 
   # rm -rf then re-extract, rather than extracting over the top. `tar -xzf`
   # overwrites the files in the archive and leaves everything else alone, so a
   # file deleted in this checkout would survive on the VM and the pipeline would
   # test a tree that exists nowhere in git.
+  # The chown is unconditional, and when no service account is configured it
+  # targets the CONNECTING user — resolved on the VM with `id -un`, not here.
+  # The directory is created with sudo, so without this it belongs to root and
+  # the very next step (git init, as an unprivileged user) fails with a
+  # permission error that reads like an IAM problem and is a chown.
+  local owner
+  if [ -n "$REMOTE_USER" ]; then
+    owner="$(printf '%q' "$REMOTE_USER")"
+  else
+    # shellcheck disable=SC2016  # deliberately unexpanded: evaluated on the VM
+    owner='$(id -un)'
+  fi
+
   vm_ssh "sudo rm -rf $(printf '%q' "$REMOTE_WORK_DIR") \
     && sudo mkdir -p $(printf '%q' "$REMOTE_WORK_DIR") \
-    && sudo tar -xzf /tmp/osramp-demo-delivery.tar.gz -C $(printf '%q' "$REMOTE_WORK_DIR") \
-    && sudo chown -R $(printf '%q' "$REMOTE_USER"):$(printf '%q' "$REMOTE_USER") $(printf '%q' "$REMOTE_WORK_DIR") \
-    && rm -f /tmp/osramp-demo-delivery.tar.gz"
+    && sudo tar -xzf $(printf '%q' "$REMOTE_DELIVERY_PATH") -C $(printf '%q' "$REMOTE_WORK_DIR") \
+    && sudo chown -R ${owner} $(printf '%q' "$REMOTE_WORK_DIR") \
+    && rm -f $(printf '%q' "$REMOTE_DELIVERY_PATH")"
 
   rm -f "$tarball"
+  snapshot_remote_git
   log "delivered to ${REMOTE_WORK_DIR}"
+}
+
+# Kustomize uses .git/ as a security boundary for relative path traversal:
+# without one, a kustomization referencing `../base/` is rejected. `git archive`
+# ships no .git, so one is created here.
+#
+# It is a MARKER, not history. Its SHA is meaningless — two runs of
+# byte-identical code produce two different SHAs, which is why every report is
+# stamped with the commit from the local checkout instead and why a report
+# carrying the VM's own SHA is classified STALE.
+snapshot_remote_git() {
+  log "snapshotting a throwaway git repo on the VM (Kustomize path-traversal boundary)"
+  remote_run "cd $(printf '%q' "$REMOTE_WORK_DIR") \
+    && if [ ! -d .git ]; then \
+      git init -q \
+      && git add -A \
+      && git -c user.name='Signal Loom demo' -c user.email='demo@signalloom.local' \
+           commit -q -m 'demo snapshot' --no-gpg-sign --allow-empty; \
+    fi \
+    && test -d .git"
 }
 
 # ── Run state: written at every transition, starting before the VM is touched ─
@@ -623,6 +832,18 @@ run_pipeline() {
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$APP_PORT" "$DASHBOARD_HOST" \
     "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH"
 
+  # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
+  # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`
+  # naming a missing user fails with a message about sudo, which reads as a
+  # privilege problem rather than as a wrong assumption in this file.
+  local invocation
+  if [ -n "$REMOTE_USER" ]; then
+    printf -v invocation 'sudo -u %q env %s bash -l -c %q' \
+      "$REMOTE_USER" "$envs" "$remote_cmd"
+  else
+    printf -v invocation 'env %s bash -l -c %q' "$envs" "$remote_cmd"
+  fi
+
   log "running the pipeline on ${INSTANCE_NAME} (stage=${stage}, fence=${TIMEOUT_MINUTES}m)"
   log "output streams below; it is also being written to ${REPORT_DIR}/pipeline.log"
 
@@ -631,15 +852,20 @@ run_pipeline() {
   # pipeline gets a chance to flush its report files before the tunnel is torn
   # down — a killed pipeline that wrote nothing is an ABORTED with no diagnosis.
   #
-  # PIPESTATUS, not $?, because the tee is what the shell sees last.
+  # The impersonation warning is stripped before the tee. gcloud emits it on
+  # every underlying API call — four per invocation — and left alone it
+  # interleaves with the pipeline's real output at exactly the moment a human is
+  # reading it for a problem.
+  #
+  # PIPESTATUS[0], not $?, because tee is what the shell sees last.
   set +e
   "$TIMEOUT_CMD" -k 60s "${TIMEOUT_MINUTES}m" \
     env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
     --zone="$ZONE" --project="$PROJECT_ID" \
     --impersonate-service-account="$OPERATOR_SA" \
     --tunnel-through-iap \
-    --command="sudo -u $(printf '%q' "$REMOTE_USER") env ${envs} bash -l -c $(printf '%q' "$remote_cmd")" \
-    2>&1 | tee -a "${REPORT_DIR}/pipeline.log"
+    --command="$invocation" \
+    2>&1 | strip_impersonation_warning | tee -a "${REPORT_DIR}/pipeline.log"
   PIPELINE_EXIT="${PIPESTATUS[0]}"
   set -e
 
@@ -880,16 +1106,69 @@ EOF
     warn "opening ${port}, not the Dex-pinned ${DEX_PINNED_PORT}. The dashboard login WILL fail."
   fi
 
-  # Printed BEFORE the tunnel, because the tunnel blocks in the foreground and
+  # Printed BEFORE the tunnel, because the tunnel occupies the foreground and
   # anything printed after it would only appear once the operator had already
   # given up and pressed Ctrl-C.
   print_connect_instructions "$port"
 
   log "opening IAP tunnel: localhost:${port} -> ${INSTANCE_NAME}:${port}"
-  exec env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute start-iap-tunnel "$INSTANCE_NAME" "$port" \
+
+  # Backgrounded and PROBED, rather than exec'd.
+  #
+  # `exec` was the obvious shape and it is the wrong one, because the two ways
+  # this fails both look like a tunnel that is simply taking its time:
+  #
+  #   4033 'not authorized'              — the SA lacks iap.tunnelResourceAccessor
+  #   4003 'failed to connect to backend' — the port is closed, or firewalled
+  #
+  # Neither mentions IAM or a firewall. Under `exec` the operator sits watching
+  # a terminal that has printed a URL, waiting for something that will never
+  # bind. So the tunnel is started, the local port is polled to a deadline, and
+  # a failure is diagnosed with its own stderr in hand.
+  local tunnel_err
+  tunnel_err="$(mktemp "${TMPDIR:-/tmp}/demo-tunnel.XXXXXX.log")"
+
+  env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute start-iap-tunnel "$INSTANCE_NAME" "$port" \
     --local-host-port="localhost:${port}" \
     --zone="$ZONE" --project="$PROJECT_ID" \
-    --impersonate-service-account="$OPERATOR_SA"
+    --impersonate-service-account="$OPERATOR_SA" 2>"$tunnel_err" &
+  local tunnel_pid=$!
+
+  # Killed by PID, never by pattern. `pkill -f start-iap-tunnel` would match the
+  # shell running this script, because the tool that invokes it puts the whole
+  # script text on that shell's command line — a self-kill that presents as a
+  # silent exit with no output at all.
+  local bound=0 waited=0
+  while [ "$waited" -lt "$TUNNEL_WAIT_SECONDS" ]; do
+    if ! kill -0 "$tunnel_pid" 2>/dev/null; then
+      break # the tunnel died; fall through to the diagnosis
+    fi
+    if "$PORT_PROBE" "$port"; then
+      bound=1
+      break
+    fi
+    waited=$((waited + 1))
+    sleep 1
+  done
+
+  if [ "$bound" -ne 1 ]; then
+    kill "$tunnel_pid" 2>/dev/null || true
+    wait "$tunnel_pid" 2>/dev/null || true
+    local err
+    err="$(strip_impersonation_warning <"$tunnel_err" | tail -5)"
+    {
+      printf '\ndemo-up: the tunnel did not bind localhost:%s within %ds.\n' "$port" "$TUNNEL_WAIT_SECONDS"
+      printf '\n  gcloud said:\n'
+      printf '%s\n' "${err:-(nothing on stderr)}" | while IFS= read -r line; do printf '    %s\n' "$line"; done
+    } >&2
+    explain_iap_error "${err}" "$port"
+    rm -f "$tunnel_err"
+    exit 2
+  fi
+
+  rm -f "$tunnel_err"
+  log "tunnel is UP on localhost:${port} — the URL above is live. Ctrl-C to close."
+  wait "$tunnel_pid"
 }
 
 cmd_status() {

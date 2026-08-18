@@ -49,3 +49,20 @@ These suites do not prove successful applies, live GCP behaviour, or remote-stat
 - `.terraform.lock.hcl` is committed.
 - Every variable declares an explicit `type` and a non-empty `description`.
 - Modules declare `required_providers` and do not declare `provider` blocks.
+
+## The rest of the documentation
+
+This file is the map. The detail lives in five siblings, and it is worth knowing which one
+answers which question before you need it at speed.
+
+| You want to | Read |
+|---|---|
+| Bring up the first environment, step by step, from nothing | `RUNBOOK.md` |
+| Know which threat a given resource or guard exists to stop | `SECURITY.md` |
+| Answer "what does a demo cost if we leave it running?" | `COSTS.md` |
+| Understand why the tree is shaped this way, or change an interface | `CONTRACT.md` |
+| Know what "done" means and what has actually been verified | `ISA.md` |
+
+Per-chunk hand-off notes — including what each build agent could not satisfy and why — are in
+`notes/`. Read those before assuming an unmet criterion is an oversight; most are deliberate
+boundary decisions recorded at the time.

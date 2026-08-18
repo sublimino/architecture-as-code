@@ -1191,12 +1191,15 @@ GCP_TF_NOCREDS = env -u GOOGLE_APPLICATION_CREDENTIALS -u GOOGLE_CREDENTIALS \
 # fails if either is replaced by a hand-written list.
 
 # Every directory under terraform/ holding .tf files — fmt, validate, tflint.
-GCP_TF_DIRS = $(sort $(shell find terraform -type f -name '*.tf' \
-	-not -path '*/.terraform*' -printf '%h\n' 2>/dev/null))
+# Deliberately on ONE line each. A backslash-continued assignment is a landmine
+# for anything that reads the Makefile a line at a time — including this repo's
+# own `make help` awk and the registration guard in
+# test/terraform-suite-registration.bats — and a line-oriented edit to the first
+# half leaves the second half dangling as a syntax error.
+GCP_TF_DIRS = $(sort $(shell find terraform -type f -name '*.tf' -not -path '*/.terraform*' -printf '%h\n' 2>/dev/null))
 
 # Every directory holding a tests/*.tftest.hcl suite — `terraform test`.
-GCP_TF_TEST_DIRS = $(sort $(patsubst %/tests,%,$(shell find terraform \
-	-type f -name '*.tftest.hcl' -not -path '*/.terraform*' -printf '%h\n' 2>/dev/null)))
+GCP_TF_TEST_DIRS = $(sort $(patsubst %/tests,%,$(shell find terraform -type f -name '*.tftest.hcl' -not -path '*/.terraform*' -printf '%h\n' 2>/dev/null)))
 
 # Every terraform bats suite.
 GCP_TF_BATS = $(sort $(wildcard test/terraform-*.bats))

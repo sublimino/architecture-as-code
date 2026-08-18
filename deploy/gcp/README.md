@@ -84,6 +84,59 @@ admin, and nothing here asks for that.
 
 ---
 
+## The two service accounts, and why they are two
+
+| Account | Module | What it does | What it cannot do |
+|---|---|---|---|
+| `sl-tf-deploy` | `terraform/modules/deploy-identity` | Applies and destroys the estate. | Log into a VM. |
+| `sl-operator` | `terraform/modules/operator-identity` | Opens an IAP tunnel and logs into a VM to run the demo pipeline. | Create, modify or destroy anything. |
+
+Merging them is a four-line change and would be a mistake. The deploy identity
+holds `roles/compute.admin` and `roles/resourcemanager.projectIamAdmin` — it can
+grant itself anything in the project. Giving it an interactive sudo shell on
+every VM it builds makes build rights and run-on-the-box rights one credential,
+so a compromise of either is a compromise of both.
+
+### Why the operator account exists at all
+
+The operator's own Google account is **external to the organization that owns
+the project**. OS Login refuses to configure POSIX account data for an external
+identity without `roles/compute.osLoginExternalUser`, and that role is grantable
+**only at organization scope** — `gcloud organizations list` returns zero items
+here, so it cannot be self-granted and blocked this work for a day.
+
+A service account created *inside* the project is internal to the owning
+organization by construction, so the rule does not apply to it. Impersonate it
+and OS Login works. Measured on 2026-08-18: the `osLoginExternalUser` error
+disappears entirely and the failure moves to the IAP layer
+(`4033: 'not authorized'`), which is a project-scoped grant the project owner can
+make.
+
+```bash
+gcloud compute ssh sl-demo-1-vm --zone us-east4-a --project CHANGEME-project \
+  --tunnel-through-iap \
+  --impersonate-service-account=sl-operator@CHANGEME-project.iam.gserviceaccount.com
+```
+
+### The operator's three roles, and the operation each one is for
+
+| Role | Scope | Required by |
+|---|---|---|
+| `roles/iap.tunnelResourceAccessor` | project | Opening the IAP TCP tunnel. Without it `--tunnel-through-iap` fails with `4033: 'not authorized'` before SSH is attempted. |
+| `roles/compute.osAdminLogin` | project | OS Login **with sudo**. `scripts/ci/gcp-ci.sh` runs every remote command as `sudo -u ci` and unpacks its work tree with `sudo tar`/`sudo chown`; `scripts/ci/vm-pipeline.sh` opens `/usr/local/bin` with `sudo chmod`. The no-sudo `roles/compute.osLogin` cannot run the pipeline. |
+| `roles/iam.serviceAccountUser` | **the runtime service account resource** | OS Login to an instance carrying a non-default service account requires `actAs` on that account. Never at project scope — there it would cover every service account in the project, including `sl-tf-deploy`. |
+
+That is the whole footprint. A `terraform test` budget pins the count *and* the
+exact membership, so a fourth grant is a failing diff rather than a line nobody
+noticed. Neither account ever gets a JSON key; access to both is
+`roles/iam.serviceAccountTokenCreator`.
+
+Full reasoning: `terraform/modules/operator-identity/README.md`. The manual
+`gcloud` equivalent, for a project owner who has not run Terraform yet:
+`deploy/gcp/ACCESS-REQUEST.md`.
+
+---
+
 ## Ordered command sequence for a fresh deploy
 
 Replace every `CHANGEME-` value with the real one. None of these strings belong

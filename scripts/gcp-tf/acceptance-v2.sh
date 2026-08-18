@@ -895,8 +895,23 @@ iap_probe() {
       break
     fi
     if ! kill -0 "$IAP_TUNNEL_PID" 2>/dev/null; then
-      # Exited without saying anything we recognise.
-      rc=1
+      # The process is gone, so its log is now final -- but a fast exit (the
+      # denied/no-listener stub cases print one line and exit immediately) can
+      # race the three greps above: under load, the writer can land its last
+      # byte and exit in the gap between this iteration's pattern checks and
+      # this kill -0, which otherwise reports a correctly-denied or
+      # correctly-closed tunnel as unclassified. One more pass over the now-
+      # guaranteed-stable log before giving up.
+      if grep -qE 'Listening on port \[[0-9]+\]' "$log" 2>/dev/null; then
+        IAP_VERDICT="listening"
+        IAP_LOCAL_PORT="$(grep -oE 'Listening on port \[[0-9]+\]' "$log" | head -1 | grep -oE '[0-9]+' | head -1)"
+      elif grep -qiE '4033|not authoriz|not authoris|permission denied|PERMISSION_DENIED|Error while connecting.*[Ff]orbidden' "$log" 2>/dev/null; then
+        IAP_VERDICT="denied"
+      elif grep -qiE '4010|destination read failed|failed to connect to backend|connection refused|Connection refused' "$log" 2>/dev/null; then
+        IAP_VERDICT="authorised-no-listener"
+      else
+        rc=1
+      fi
       break
     fi
     sleep 1

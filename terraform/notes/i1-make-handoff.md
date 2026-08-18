@@ -90,10 +90,11 @@ Makefile constant.
 | `project_id` | string | no | `.project_id` \|\| `.integration_inputs.project_id` |
 | `environment_key` | string | no | `.target_env` |
 | `env` | string | no | alias of `environment_key`, asserted equal |
+| `kind` | string | no | `.target_environment.kind` — `demo` or `ci` |
 | `region` | string | no | `.target_environment.region` |
 | `zone` | string | no | `.target_environment.zone` |
-| `instance_name` | string | no | `.instance_name` \|\| `.instance_names[env]` \|\| `.compute[env].instance_name` |
-| `internal_ip` | string | no | `.internal_ip` \|\| `.internal_ips[env]` \|\| `.compute[env].internal_ip` |
+| `instance_name` | string | **ci only** | `.instance_name` \|\| `.instance_names[env]` \|\| `.compute[env].instance_name` |
+| `internal_ip` | string | **ci only** | `.internal_ip` \|\| `.internal_ips[env]` \|\| `.compute[env].internal_ip` |
 | `app_port` | **number** | no | `.target_environment.app_port` |
 | `state_bucket` | string | no | `TF_STATE_BUCKET` |
 | `state_prefix` | string | no | derived from `ENV` |
@@ -121,7 +122,24 @@ two spellings of one value drift the moment somebody edits one.
 three-valued — `terraform/environments/variables.tf` validates
 `iap | allowlist | iap_and_allowlist`, and there is a second validation
 requiring a non-empty `iap_members` whenever the mode includes IAP. A reader
-treating it as a two-way switch mishandles the combined mode.
+treating it as a two-way switch mishandles the combined mode. They fixed it and
+added a fourth verdict (`N/A`) so a CI lane's absent instance is not an UNKNOWN —
+their `--strict` exits 3 on any UNKNOWN, so a correct CI hand-off would have
+failed every strict run permanently.
+
+**Rejected, do not re-propose: `iap_member_count` in the hand-off.** I offered it
+as a privacy-preserving way to let the acceptance harness check the "IAP with no
+authorised principal is a locked door with no key" validation without putting
+real principal emails into an untracked file that gets copied between machines.
+I2 declined and the reasoning is better than the proposal: **a count cannot
+distinguish one named principal from `allAuthenticatedUsers`**. Both are 1, and
+the second is every Google account on earth — the single most dangerous IAP
+misconfiguration there is. Their `conformance.sh` already reads the live IAP IAM
+policy and catches exactly that. The field would have been a weaker restatement
+of an existing check plus a second source of truth that can drift. The privacy
+instinct was right; the field simply cannot carry the signal that matters. If
+this comes up again, the answer is to read the live policy, not to summarise it
+into the hand-off.
 
 **Failure is silent-proof by construction.** If any non-`hostname` field
 resolves empty, the target exits non-zero, names the field and the output that

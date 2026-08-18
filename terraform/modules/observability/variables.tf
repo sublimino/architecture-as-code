@@ -159,3 +159,26 @@ variable "data_access_services" {
     error_message = "data_access_services must name at least one service; pass the default rather than an empty list."
   }
 }
+
+variable "manage_project_iam" {
+  description = <<-EOT
+    Whether this module manages PROJECT-LEVEL IAM bindings.
+
+    Setting project IAM requires resourcemanager.projects.setIamPolicy, which
+    roles/editor does NOT grant. A deployer with editor can create every other
+    resource here — service accounts, networks, instances, buckets — and then
+    fails partway through the apply on the first binding, leaving the estate
+    half-built. A half-applied estate is worse than either outcome: it looks
+    deployed and is not, and the error names IAM rather than the permission the
+    caller is actually missing.
+
+    Set false to deploy everything except project IAM. The bindings are then a
+    documented follow-up for someone holding projectIamAdmin or owner, and the
+    apply completes cleanly instead of aborting.
+
+    Default true: the safe posture is the complete one, and a deployer who does
+    hold the permission should not have to ask for it.
+  EOT
+  type        = bool
+  default     = true
+}

@@ -255,3 +255,8 @@ variable "github_allowed_ref" {
   type        = string
   default     = ""
 }
+
+variable "state_bucket_name" {
+  description = "GCS bucket holding Terraform state. Used to read the platform root's outputs, which own the project-level singletons this root consumes."
+  type        = string
+}

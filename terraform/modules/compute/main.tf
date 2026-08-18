@@ -71,8 +71,23 @@ resource "google_compute_instance" "this" {
   # and forces TERMINATE on host maintenance, and the demo's default machine
   # type is n2-standard-16. Enabling it is a two-variable change:
   # enable_confidential_compute = true with a compatible machine_type.
-  confidential_instance_config {
-    enable_confidential_compute = var.enable_confidential_compute
+  # Emitted ONLY when confidential compute is actually wanted.
+  #
+  # Declared unconditionally, this block produced a perpetual diff that forced
+  # instance REPLACEMENT on every plan: the API returns an empty
+  # confidential_instance_config for a non-confidential VM, Terraform compares
+  # that to the block we sent, sees a difference in a ForceNew attribute, and
+  # proposes destroy-and-create. Observed live on sl-demo-1-vm — a routine
+  # `terraform apply` would have silently rebuilt a running demo.
+  #
+  # dynamic with a zero-length list emits nothing at all, which is what matches
+  # the API's own representation of "not confidential".
+  dynamic "confidential_instance_config" {
+    for_each = var.enable_confidential_compute ? [1] : []
+
+    content {
+      enable_confidential_compute = true
+    }
   }
 
   scheduling {

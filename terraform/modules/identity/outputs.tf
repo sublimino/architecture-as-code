@@ -5,7 +5,7 @@ output "runtime_service_account_emails" {
 
 output "workload_identity_provider_name" {
   description = "Full resource name of the OIDC provider, for google-github-actions/auth."
-  value       = google_iam_workload_identity_pool_provider.github.name
+  value       = try(google_iam_workload_identity_pool_provider.github[0].name, "")
 }
 
 output "ci_plan_service_account_email" {

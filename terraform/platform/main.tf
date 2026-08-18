@@ -84,8 +84,15 @@ resource "google_dns_managed_zone" "demo" {
 # Observability — audit sink, uptime checks, alerts, budget
 # ---------------------------------------------------------------------------
 
+variable "manage_project_iam" {
+  description = "Whether the platform root manages project-level IAM. Requires resourcemanager.projects.setIamPolicy, which roles/editor does not grant. False deploys everything else cleanly and leaves the bindings as a documented follow-up."
+  type        = bool
+  default     = true
+}
+
 module "observability" {
-  source = "../modules/observability"
+  manage_project_iam = var.manage_project_iam
+  source             = "../modules/observability"
 
   project_id               = var.project_id
   labels                   = local.mandatory_labels
@@ -119,50 +126,63 @@ module "observability" {
 # order given in WIRING.md.
 #
 # ---------------------------------------------------------------------------
-# variable "project_number" {
-#   description = "Numeric project number, required by the Workload Identity Federation provider resource name."
-#   type        = string
-#
-#   validation {
-#     condition     = can(regex("^[0-9]+$", var.project_number))
-#     error_message = "project_number must be the numeric project number, not the project id."
-#   }
-# }
-#
-# variable "environment_keys" {
-#   description = "Every environment key that needs a runtime service account. Must equal keys(var.environments) in the environments root."
-#   type        = list(string)
-#   default     = []
-# }
-#
-# variable "github_owner_id" {
-#   description = "Numeric GitHub owner id. Numeric and not the login, because a login can be released and re-registered by someone else; the numeric id cannot."
-#   type        = string
-#   default     = ""
-# }
-#
-# variable "github_repository" {
-#   description = "GitHub repository in owner/repo form, used in the WIF attribute condition."
-#   type        = string
-#   default     = ""
-# }
-#
-# variable "github_allowed_ref" {
-#   description = "The single git ref permitted to assume the CI identity, e.g. refs/heads/main."
-#   type        = string
-#   default     = ""
-# }
-#
-# module "identity" {
-#   source = "../modules/identity"
-#
-#   project_id         = var.project_id
-#   project_number     = var.project_number
-#   environment_keys   = var.environment_keys
-#   github_owner_id    = var.github_owner_id
-#   github_repository  = var.github_repository
-#   github_allowed_ref = var.github_allowed_ref
-# }
+variable "project_number" {
+  description = "Numeric project number, required by the Workload Identity Federation provider resource name."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.project_number))
+    error_message = "project_number must be the numeric project number, not the project id."
+  }
+}
+
+variable "environment_keys" {
+  description = "Every environment key that needs a runtime service account. Must equal keys(var.environments) in the environments root."
+  type        = list(string)
+  default     = []
+}
+
+variable "github_owner_id" {
+  description = "Numeric GitHub owner id. Numeric and not the login, because a login can be released and re-registered by someone else; the numeric id cannot."
+  type        = string
+  default     = ""
+}
+
+variable "github_repository" {
+  description = "GitHub repository in owner/repo form, used in the WIF attribute condition."
+  type        = string
+  default     = ""
+}
+
+variable "github_allowed_ref" {
+  description = "The single git ref permitted to assume the CI identity, e.g. refs/heads/main."
+  type        = string
+  default     = ""
+}
+
+module "identity" {
+  source = "../modules/identity"
+
+  project_id         = var.project_id
+  project_number     = var.project_number
+  environment_keys   = var.environment_keys
+  github_owner_id    = var.github_owner_id
+  github_repository  = var.github_repository
+  github_allowed_ref = var.github_allowed_ref
+
+  # Required since the plan/apply privilege split: the apply identity is scoped
+  # to one workflow file rather than to the repository, so that any other
+  # workflow in the same repo cannot assume it.
+  github_apply_workflow_ref = var.github_apply_workflow_ref
+
+  state_bucket_name  = var.state_bucket_name
+  manage_project_iam = var.manage_project_iam
+}
+
+variable "github_apply_workflow_ref" {
+  description = "Fully-qualified job_workflow_ref of the one workflow permitted to assume the apply service account."
+  type        = string
+}
 #
 # ---------------------------------------------------------------------------
 # END WIRING BLOCK

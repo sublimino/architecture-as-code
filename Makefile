@@ -1135,3 +1135,326 @@ check-backends: ## Assert every backend the dashboard proxies to is declared and
 .PHONY: check-deployed-staleness
 check-deployed-staleness: ## Assert the running pods are running THIS working tree, not an older build.
 	./scripts/check-deployed-staleness.sh
+
+# ===========================================================================
+# GCP Terraform platform — appended by chunk F6. See terraform/CONTRACT.md §1.
+#
+# This block is APPEND-ONLY. Nothing above this line is edited, renamed or
+# reordered by it, and no target here shadows an existing `ci-*` target: the
+# existing GCP CI VM lane (`ci-gcp`, `ci-gcp-2`, `ci-provision`, `ci-status`)
+# runs the kind-based demo pipeline and is untouched. Everything here is
+# prefixed `gcp-tf-`.
+# ===========================================================================
+
+TF ?= terraform
+TFLINT ?= tflint
+
+# Roots. Overridable so the contract tests can point a target at a fixture tree
+# rather than mutating the real one — and so `gcp-tf-destroy`'s refusal to run
+# against `platform` or `bootstrap` is a testable behaviour rather than an
+# accident of a hardcoded path.
+TF_ROOT_BOOTSTRAP ?= terraform/bootstrap
+TF_ROOT_PLATFORM ?= terraform/platform
+TF_ROOT_ENV ?= terraform/environments
+
+# No project id, billing account, domain or bucket name is hardcoded anywhere in
+# this block. TF_STATE_BUCKET has no default on purpose: a default would be a
+# real bucket name in a public repo, or a placeholder that produces a confusing
+# 404 instead of a clear "you have not told me which bucket" message.
+TF_STATE_BUCKET ?=
+TF_STATE_PREFIX_BASE ?= osramp
+
+# Per-environment data dir (CONTRACT §5a mechanism 2). Two environments cannot
+# share a cached backend pointer, so cross-contamination is physically
+# impossible rather than merely detected. TF_DATA_DIR resolves relative to the
+# -chdir target, so this lands inside the root it belongs to.
+TF_DATA_DIR_BASE ?= .terraform
+GCP_TF_DATA_DIR = $(TF_DATA_DIR_BASE)-$(ENV)
+GCP_TF_PREFIX = $(TF_STATE_PREFIX_BASE)/environments/$(ENV)
+GCP_TF_PLAN_FILE = $(GCP_TF_DATA_DIR)/$(ENV).tfplan
+GCP_TF_VAR_FILE ?= environments.tfvars
+
+# Every offline terraform invocation runs with cloud credentials stripped from
+# the environment. Working gcloud credentials exist on developer machines, so
+# "the unit sweep passes here" would otherwise be no evidence at all that it
+# passes on a runner with none (ISC-357).
+GCP_TF_NOCREDS = env -u GOOGLE_APPLICATION_CREDENTIALS -u GOOGLE_CREDENTIALS \
+	-u CLOUDSDK_CORE_ACCOUNT -u CLOUDSDK_AUTH_ACCESS_TOKEN -u GOOGLE_OAUTH_ACCESS_TOKEN
+
+# --- Discovery, not hand-maintained lists ----------------------------------
+#
+# This repo has already shipped 33 bats suites that no runner executed: all
+# passing, all measuring nothing, because the runner named files by hand and
+# nobody re-edited the list. d2-signalloom/Makefile fixed the same hole by
+# globbing. Both lists below are DISCOVERED, so a new suite runs the day it
+# lands and registration is default-on. test/terraform-suite-registration.bats
+# fails if either is replaced by a hand-written list.
+
+# Every directory under terraform/ holding .tf files — fmt, validate, tflint.
+# Deliberately on ONE line each. A backslash-continued assignment is a landmine
+# for anything that reads the Makefile a line at a time — including this repo's
+# own `make help` awk and the registration guard in
+# test/terraform-suite-registration.bats — and a line-oriented edit to the first
+# half leaves the second half dangling as a syntax error.
+GCP_TF_DIRS = $(sort $(shell find terraform -type f -name '*.tf' -not -path '*/.terraform*' -printf '%h\n' 2>/dev/null))
+
+# Every directory holding a tests/*.tftest.hcl suite — `terraform test`.
+GCP_TF_TEST_DIRS = $(sort $(patsubst %/tests,%,$(shell find terraform -type f -name '*.tftest.hcl' -not -path '*/.terraform*' -printf '%h\n' 2>/dev/null)))
+
+# Every terraform bats suite.
+GCP_TF_BATS = $(sort $(wildcard test/terraform-*.bats))
+
+# Exclusions. Each entry needs a written reason immediately above it; an entry
+# with no reason, or naming a file that does not exist, fails
+# test/terraform-suite-registration.bats. Both are empty today, and an empty
+# exclusion list is the correct steady state — reaching for one should feel
+# like a decision, not a convenience.
+GCP_TF_EXCLUDED_BATS =
+GCP_TF_EXCLUDED_TEST_DIRS =
+
+GCP_TF_BATS_RUN = $(filter-out $(GCP_TF_EXCLUDED_BATS),$(GCP_TF_BATS))
+GCP_TF_TEST_DIRS_RUN = $(filter-out $(GCP_TF_EXCLUDED_TEST_DIRS),$(GCP_TF_TEST_DIRS))
+
+# --- Guard rails ------------------------------------------------------------
+#
+# These are `define`d rather than factored into a shell script because
+# scripts/gcp-tf/ belongs to another chunk, and because a guard that lives in
+# the Makefile cannot be bypassed by invoking the Makefile.
+
+define gcp_tf_require_env
+	@if [ -z "$(ENV)" ]; then \
+		echo "ERROR: ENV is required for '$@'."; \
+		echo "       Usage: make $@ ENV=demo-1"; \
+		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$ — demo-1, demo-2, ci-1."; \
+		exit 2; \
+	fi
+	@printf '%s' '$(ENV)' | grep -Eq '^(demo|ci)-[1-9][0-9]*$$' || { \
+		echo "ERROR: ENV='$(ENV)' is not a valid environment key."; \
+		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$."; \
+		echo "       'prod-1' is rejected on purpose: this platform builds demo and"; \
+		echo "       CI estates only, and a prod-shaped key here would put production"; \
+		echo "       naming on infrastructure with a demo's guard rails."; \
+		exit 2; \
+	}
+endef
+
+define gcp_tf_require_state_bucket
+	@if [ -z "$(TF_STATE_BUCKET)" ]; then \
+		echo "ERROR: TF_STATE_BUCKET is required for '$@'."; \
+		echo "       Usage: make $@ ENV=$(ENV) TF_STATE_BUCKET=<bucket>"; \
+		echo "       It is created by 'make gcp-tf-bootstrap' and has no default:"; \
+		echo "       a default here would be either a real bucket name in a public"; \
+		echo "       repo, or a placeholder that 404s instead of explaining itself."; \
+		exit 2; \
+	fi
+endef
+
+# CONTRACT §5a mechanism 3. Reads the resolved backend prefix back out of the
+# data dir terraform just wrote and refuses to proceed unless it names ENV.
+# This is the mechanism that catches a human editing state by hand, and the one
+# that fires if `init` silently reused a cached backend pointer.
+define gcp_tf_assert_prefix
+	@backend_state="$(1)/$(GCP_TF_DATA_DIR)/terraform.tfstate"; \
+	if [ ! -f "$$backend_state" ]; then \
+		echo "ERROR: cannot read back the resolved backend configuration."; \
+		echo "       Expected: $$backend_state"; \
+		echo "       Refusing to plan or apply against an unverified state prefix."; \
+		exit 3; \
+	fi; \
+	resolved="$$(sed -n 's/.*"prefix"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$$backend_state" | head -1)"; \
+	if [ -z "$$resolved" ]; then \
+		echo "ERROR: the resolved backend configuration names no prefix."; \
+		echo "       Read from: $$backend_state"; \
+		exit 3; \
+	fi; \
+	case "$$resolved" in \
+		*"$(ENV)"*) ;; \
+		*) echo "ERROR: backend prefix mismatch — this is CONTRACT §5a firing."; \
+		   echo "       resolved prefix: $$resolved"; \
+		   echo "       ENV:             $(ENV)"; \
+		   echo "       Terraform would have written $(ENV)'s resources into another"; \
+		   echo "       environment's state. Re-run 'terraform init -reconfigure'."; \
+		   exit 3;; \
+	esac; \
+	echo "gcp-tf: backend prefix '$$resolved' matches ENV='$(ENV)'"
+endef
+
+# Offline init for the validate/test sweep.
+#
+# `terraform validate` and `terraform test` are genuinely offline — verified in
+# a network namespace with no interfaces. `terraform init` is not: it resolves
+# provider packages from registry.terraform.io, and that is a real network
+# dependency no amount of local guarding removes. So init runs only when the
+# providers are not yet installed, and says so when it does.
+#
+# This is not a guard that repairs what it detects. Nothing is being corrected:
+# an uninstalled provider is installed, and if the installed set has drifted
+# from required_providers, terraform's own "provider requirements have changed"
+# error fires on the very next validate. There is no state in which a stale
+# .terraform/ makes this sweep report a pass it has not earned.
+define gcp_tf_init_offline
+	if [ ! -d "$(1)/.terraform/providers" ]; then \
+		echo "    (installing providers — this step, and only this step, needs the registry)"; \
+		$(GCP_TF_NOCREDS) $(TF) -chdir=$(1) init -backend=false -input=false >/dev/null; \
+	fi
+endef
+
+# init -reconfigure with the prefix derived from ENV, followed immediately by
+# the readback assertion. Nothing plans or applies without passing through here.
+define gcp_tf_init_env
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) init -reconfigure \
+		-backend-config=bucket=$(TF_STATE_BUCKET) \
+		-backend-config=prefix=$(GCP_TF_PREFIX)
+	$(call gcp_tf_assert_prefix,$(TF_ROOT_ENV))
+endef
+
+.PHONY: gcp-tf-bootstrap
+gcp-tf-bootstrap: ## Plan the one-time state-bucket bootstrap root (review, then apply by hand).
+	@# Deliberately plan-only. Applying this root creates the bucket every other
+	@# root's state lives in — the one action in the estate with no state to roll
+	@# back from — so it is not reachable by a one-word make target typed
+	@# absentmindedly. The plan is produced here; the apply is a human step, and
+	@# terraform/RUNBOOK.md gives the exact command.
+	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) init
+	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) plan -out=bootstrap.tfplan
+	@echo
+	@echo "Plan written to $(TF_ROOT_BOOTSTRAP)/bootstrap.tfplan."
+	@echo "Review it, then apply by hand:"
+	@echo "    $(TF) -chdir=$(TF_ROOT_BOOTSTRAP) apply bootstrap.tfplan"
+
+.PHONY: gcp-tf-plan
+gcp-tf-plan: ## Plan one environment to a reviewable saved plan file (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_init_env)
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) plan \
+		-var-file=$(GCP_TF_VAR_FILE) \
+		-var target_env=$(ENV) \
+		-out=$(GCP_TF_PLAN_FILE)
+	@echo
+	@echo "Plan saved to $(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)."
+	@echo "Review it, then: make gcp-tf-apply ENV=$(ENV) TF_STATE_BUCKET=$(TF_STATE_BUCKET)"
+
+.PHONY: gcp-tf-apply
+gcp-tf-apply: ## Apply a previously reviewed saved plan file (ENV=<key>). Never a bare apply.
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	@if [ ! -f "$(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)" ]; then \
+		echo "ERROR: no saved plan at $(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)."; \
+		echo "       Run: make gcp-tf-plan ENV=$(ENV) TF_STATE_BUCKET=$(TF_STATE_BUCKET)"; \
+		echo "       This target applies a reviewed plan file and nothing else. A bare"; \
+		echo "       'terraform apply' re-plans at apply time, so what a human read and"; \
+		echo "       what Terraform executes are two different plans."; \
+		exit 2; \
+	fi
+	$(gcp_tf_init_env)
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) apply $(GCP_TF_PLAN_FILE)
+
+.PHONY: gcp-tf-status
+gcp-tf-status: ## Show one environment's state inventory and outputs, read-only (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_init_env)
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) state list
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) output
+
+.PHONY: gcp-tf-test
+gcp-tf-test: ## Run the offline unit sweep plus the live edge probes against one environment (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(MAKE) --no-print-directory gcp-tf-test-unit
+	@probes="$$(ls scripts/gcp-tf/edge-probe-*.sh 2>/dev/null || true)"; \
+	if [ -z "$$probes" ]; then \
+		echo "ERROR: no live edge probes found at scripts/gcp-tf/edge-probe-*.sh."; \
+		echo "       They are supplied by chunk F4 (feat/gcp-tf-edge). Until that"; \
+		echo "       merges there is no live acceptance surface, and reporting a pass"; \
+		echo "       from the offline sweep alone would be a green test measuring"; \
+		echo "       nothing about the deployed environment."; \
+		exit 2; \
+	fi; \
+	for p in $$probes; do echo "--- $$p"; ENV=$(ENV) "$$p"; done
+
+.PHONY: gcp-tf-test-unit
+gcp-tf-test-unit: ## Run every native `terraform test` suite offline, with cloud credentials stripped.
+	@# DISCOVERED, not listed. Every directory holding tests/*.tftest.hcl runs.
+	@if [ -z "$(GCP_TF_TEST_DIRS_RUN)" ]; then \
+		echo "ERROR: no terraform test suites discovered under terraform/."; \
+		echo "       Every root and module ships at least one (CONTRACT §7a), so an"; \
+		echo "       empty sweep means discovery is broken, not that there is"; \
+		echo "       nothing to run. Refusing to report a vacuous pass."; \
+		exit 2; \
+	fi
+	@for d in $(GCP_TF_TEST_DIRS_RUN); do \
+		echo "--- terraform test: $$d"; \
+		$(call gcp_tf_init_offline,$$d); \
+		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d test; \
+	done
+
+.PHONY: gcp-tf-destroy
+gcp-tf-destroy: ## Destroy one environment. Requires CONFIRM=<the same key> (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	@case "$(TF_ROOT_ENV)" in \
+		*platform*|*bootstrap*) \
+			echo "ERROR: refusing to destroy '$(TF_ROOT_ENV)'."; \
+			echo "       This target destroys ONE demo environment. The platform root"; \
+			echo "       owns the audit sink, the WIF pool and the DNS zone; the"; \
+			echo "       bootstrap root owns the bucket holding every other root's"; \
+			echo "       state. Neither is disposable and neither is reachable here."; \
+			exit 2;; \
+	esac
+	@if [ "$(CONFIRM)" != "$(ENV)" ]; then \
+		echo "ERROR: destroy requires a typed confirmation matching the environment key."; \
+		echo "       Expected: CONFIRM=$(ENV)"; \
+		echo "       Got:      CONFIRM=$(CONFIRM)"; \
+		echo "       Typing the key is the point: it is the step that fails when you"; \
+		echo "       meant demo-2 and your shell history said demo-1."; \
+		exit 2; \
+	fi
+	$(gcp_tf_init_env)
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) destroy \
+		-var-file=$(GCP_TF_VAR_FILE) \
+		-var target_env=$(ENV)
+	@echo "Destroyed $(ENV). The state bucket, the audit log bucket and the platform"
+	@echo "singletons are in other roots' state and were not touched."
+
+.PHONY: gcp-tf-validate
+gcp-tf-validate: ## Offline gate: fmt, validate, tflint, terraform test, terraform bats. No network, no credentials.
+	@if [ -z "$(GCP_TF_DIRS)" ]; then \
+		echo "ERROR: no terraform directories discovered under terraform/."; \
+		exit 2; \
+	fi
+	$(GCP_TF_NOCREDS) $(TF) fmt -recursive -check terraform
+	@for d in $(GCP_TF_DIRS); do \
+		echo "--- validate: $$d"; \
+		$(call gcp_tf_init_offline,$$d); \
+		$(GCP_TF_NOCREDS) $(TF) -chdir=$$d validate; \
+	done
+	@for d in $(GCP_TF_DIRS); do \
+		echo "--- tflint: $$d"; \
+		$(GCP_TF_NOCREDS) $(TFLINT) --chdir=$$d; \
+	done
+	$(MAKE) --no-print-directory gcp-tf-test-unit
+	@# GLOB, not a hand-maintained list — see the discovery comment above.
+	@if [ -z "$(GCP_TF_BATS_RUN)" ]; then \
+		echo "ERROR: no test/terraform-*.bats suites discovered."; \
+		echo "       Refusing to report a vacuous pass."; \
+		exit 2; \
+	fi
+	$(GCP_TF_NOCREDS) bats $(GCP_TF_BATS_RUN)
+
+.PHONY: gcp-tf-ci
+gcp-tf-ci: ## Plan the CI environment lane (CI=<ci-N>). Delegates to gcp-tf-plan.
+	@if [ -z "$(CI)" ]; then \
+		echo "ERROR: CI is required for '$@'. Usage: make $@ CI=ci-1"; \
+		exit 2; \
+	fi
+	@printf '%s' '$(CI)' | grep -Eq '^ci-[1-9][0-9]*$$' || { \
+		echo "ERROR: CI='$(CI)' is not a valid CI environment key (^ci-[1-9][0-9]*\$$)."; \
+		echo "       This lane runs CI environments only; use ENV= for a demo."; \
+		exit 2; \
+	}
+	$(MAKE) --no-print-directory gcp-tf-plan ENV=$(CI)
+
+# ===========================================================================
+# END GCP Terraform platform block
+# ===========================================================================

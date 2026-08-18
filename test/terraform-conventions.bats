@@ -108,31 +108,31 @@ setup() {
 # firing. Both mutation checks then pass while measuring nothing. This test exists so that
 # failure is impossible to reach silently.
 @test "the variable audit helper exists and is executable" {
-  [ -x "${REPO_ROOT}/test/lib/tf-variable-audit.sh" ]
-  run "${REPO_ROOT}/test/lib/tf-variable-audit.sh"
+  [ -x "${REPO_ROOT}/test/helpers/tf-variable-audit.sh" ]
+  run "${REPO_ROOT}/test/helpers/tf-variable-audit.sh"
   [ "$status" -eq 2 ]
 }
 
 @test "every declared variable has an explicit type" {
-  run "${REPO_ROOT}/test/lib/tf-variable-audit.sh" type terraform
+  run "${REPO_ROOT}/test/helpers/tf-variable-audit.sh" type terraform
   [ "$status" -eq 0 ]
 }
 
 @test "every declared variable has a non-empty description" {
-  run "${REPO_ROOT}/test/lib/tf-variable-audit.sh" description terraform
+  run "${REPO_ROOT}/test/helpers/tf-variable-audit.sh" description terraform
   [ "$status" -eq 0 ]
 }
 
 @test "MUTATION: a variable with no type makes the type guard fail" {
   [ -d "${FIXTURES}/broken-untyped-variable" ]
-  run "${REPO_ROOT}/test/lib/tf-variable-audit.sh" type "${FIXTURES}/broken-untyped-variable"
+  run "${REPO_ROOT}/test/helpers/tf-variable-audit.sh" type "${FIXTURES}/broken-untyped-variable"
   [ "$status" -eq 1 ]
   [[ "$output" == *"has no type"* ]]
 }
 
 @test "MUTATION: a variable with no description makes the description guard fail" {
   [ -d "${FIXTURES}/broken-undescribed-variable" ]
-  run "${REPO_ROOT}/test/lib/tf-variable-audit.sh" description "${FIXTURES}/broken-undescribed-variable"
+  run "${REPO_ROOT}/test/helpers/tf-variable-audit.sh" description "${FIXTURES}/broken-undescribed-variable"
   [ "$status" -eq 1 ]
   [[ "$output" == *"description"* ]]
 }

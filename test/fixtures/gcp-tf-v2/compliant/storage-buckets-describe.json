@@ -1,0 +1,7 @@
+{
+  "name": "example-sl-tfstate",
+  "location": "EXAMPLE-REGION",
+  "versioning_enabled": true,
+  "uniform_bucket_level_access": true,
+  "public_access_prevention": "enforced"
+}

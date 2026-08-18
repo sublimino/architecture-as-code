@@ -1,0 +1,8 @@
+{
+  "schema": "signalloom.gcp.handoff/v1",
+  "env": "demo-1",
+  "project": "example-sl-project",
+  "region": "example-region",
+  "zone": "example-region-a",
+  "instance": "sl-demo-1-vm"
+}

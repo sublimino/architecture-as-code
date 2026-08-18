@@ -1,0 +1,35 @@
+[
+  {
+    "name": "sl-demo-1-vm",
+    "status": "RUNNING",
+    "zone": "https://www.googleapis.com/compute/v1/projects/example-project/zones/us-east4-a",
+    "networkInterfaces": [
+      {
+        "name": "nic0",
+        "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+        "subnetwork": "https://www.googleapis.com/compute/v1/projects/example-project/regions/us-east4/subnetworks/sl-demo-1-subnet",
+        "networkIP": "10.70.0.2",
+        "accessConfigs": [
+          { "type": "ONE_TO_ONE_NAT", "name": "External NAT", "natIP": "203.0.113.42" }
+        ]
+      }
+    ],
+    "shieldedInstanceConfig": {
+      "enableSecureBoot": true,
+      "enableVtpm": true,
+      "enableIntegrityMonitoring": true
+    },
+    "serviceAccounts": [
+      {
+        "email": "sl-rt-demo-1@example-project.iam.gserviceaccount.com",
+        "scopes": ["https://www.googleapis.com/auth/cloud-platform"]
+      }
+    ],
+    "metadata": {
+      "items": [
+        { "key": "enable-oslogin", "value": "TRUE" },
+        { "key": "block-project-ssh-keys", "value": "TRUE" }
+      ]
+    }
+  }
+]

@@ -1,0 +1,12 @@
+{
+  "bucket": "example-tfstate-bucket",
+  "storage_url": "gs://example-tfstate-bucket/",
+  "location": "US-EAST4",
+  "location_type": "region",
+  "default_storage_class": "STANDARD",
+  "metageneration": 3,
+  "public_access_prevention": "enforced",
+  "uniform_bucket_level_access": true,
+  "versioning_enabled": true,
+  "soft_delete_policy": { "retention_duration_seconds": 604800 }
+}

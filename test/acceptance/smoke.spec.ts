@@ -140,4 +140,174 @@ test.describe("authenticated dashboard", () => {
     // tab's "Register Agent" button is always present once the data loads.
     await expect(page.getByRole("button", { name: /Register Agent/i })).toBeVisible({ timeout: 15_000 });
   });
+
+  /**
+   * THE SINGLE-SCROLL-CONTEXT INVARIANT.
+   *
+   * The shell is `height: 100vh; overflow: hidden` with `<main>` as the one
+   * scroll container, so the document itself must never scroll. When it does,
+   * the browser's own scrollbar drags the whole UI — sidebar, page, sticky
+   * rail and all — off the top of the screen, which is what a reader sees as
+   * "there are two scrollbars and the on-this-page index has vanished".
+   *
+   * The mechanism this guards is specific and easy to reintroduce, because
+   * nothing has to be positioned on purpose for it to happen: `overflow: auto`
+   * makes `<main>` a clip, but only `position` makes it a containing block. An
+   * absolutely-positioned descendant with no positioned ancestor resolves
+   * against the initial containing block, which is OUTSIDE that clip, so its
+   * box lands in document coordinates and extends the document's scroll area.
+   * The two that triggered it were visually-hidden live regions — the
+   * `position: absolute; width: 1px` recipe is the whole cause — and they sit
+   * on other pages too, harmless only because those pages are short enough
+   * that the span's static position still falls inside the viewport.
+   *
+   * Which is why this asserts on the SHORT routes as well as the long ones.
+   * On /agents the defect is invisible to the eye and still measurable here.
+   *
+   * jsdom implements no layout: every height it reports is 0, so this
+   * invariant cannot be expressed as a unit test at any level of effort. A
+   * real browser is the only instrument that can see it.
+   */
+  const SCROLL_CONTEXT_ROUTES: { route: string; heading: string }[] = [
+    // Two ordinary pages as the control: whatever fixes the design-system
+    // pages must leave these exactly as they are.
+    { route: "/agents", heading: "Agents" },
+    { route: "/compliance", heading: "Compliance" },
+    // Both PageTocLayout pages. /design-system/headers was measurably clean
+    // while /design-system was not, so testing only the broken one would have
+    // let a fix that merely moved the problem pass.
+    { route: "/design-system", heading: "Design System & Component Library" },
+    { route: "/design-system/headers", heading: "Design System — Headers" },
+  ];
+
+  for (const { route, heading } of SCROLL_CONTEXT_ROUTES) {
+    test(`${route} has exactly one scroll context`, async ({ page }) => {
+      await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
+      await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible({ timeout: 20_000 });
+
+      // SAMPLED OVER A WINDOW, not measured once, and that is not belt-and-
+      // braces — a single reading taken when the <h1> appears reports this page
+      // as CLEAN while it is broken. Measured on the unfixed build: docScroll
+      // was 720 at 0ms and at 250ms, and 9413 at 500ms. The two elements that
+      // escape are visually-hidden live regions inside specimens that mount a
+      // beat after the page does, so they simply do not exist yet at the
+      // moment the heading becomes visible.
+      //
+      // Sampling also makes the assertion the right shape. A document that
+      // scrolls for two seconds and then stops is still the defect — the
+      // scrollbar appears, the layout jolts — so the invariant is "never", and
+      // the worst sample is what has to satisfy it.
+      const m = await page.evaluate(async () => {
+        const doc = document.documentElement;
+        const main = document.querySelector("main") as HTMLElement;
+        const sample = () => {
+          // Reported so a failure says WHICH element escaped rather than only
+          // that the number is wrong: this is the diagnosis that saves the
+          // next person the bisect.
+          const escapers = Array.from(document.querySelectorAll("main *"))
+            .filter((el) => {
+              if (getComputedStyle(el).position !== "absolute") return false;
+              const op = (el as HTMLElement).offsetParent;
+              return op === null || op === document.body || op === document.documentElement;
+            })
+            .map((el) => `${el.tagName.toLowerCase()}.${el.className || "-"}@y${Math.round(el.getBoundingClientRect().top)}`);
+          return { docScroll: doc.scrollHeight, mainScroll: main.scrollHeight, escapers };
+        };
+
+        let worst = sample();
+        let maxMainScroll = worst.mainScroll;
+        for (let i = 0; i < 30; i++) {
+          await new Promise((r) => setTimeout(r, 100));
+          const s = sample();
+          maxMainScroll = Math.max(maxMainScroll, s.mainScroll);
+          if (s.docScroll > worst.docScroll) worst = s;
+        }
+        return {
+          docClient: doc.clientHeight,
+          mainClient: main.clientHeight,
+          maxDocScroll: worst.docScroll,
+          maxMainScroll,
+          escapers: worst.escapers,
+        };
+      });
+
+      expect(
+        m.maxDocScroll,
+        `${route}: the document must never scroll — it reached ${m.maxDocScroll}px in a ${m.docClient}px viewport. ` +
+          `Absolutely-positioned descendants of <main> with no positioned ancestor: ` +
+          `${m.escapers.length ? m.escapers.join(", ") : "none found"}`,
+      ).toBeLessThanOrEqual(m.docClient);
+
+      // Without this the test passes vacuously on a page that failed to render
+      // its content: a blank <main> also produces a non-scrolling document.
+      expect(m.maxMainScroll, `${route}: <main> rendered no scrollable content`).toBeGreaterThan(m.mainClient);
+    });
+  }
+
+  test("the design-system rail stays put while the content scrolls", async ({ page }) => {
+    // Explicitly wider than RAIL_MIN_VIEWPORT (1280) rather than relying on the
+    // 1280 default: at exactly the breakpoint a classic (non-overlay) scrollbar
+    // takes the viewport to 1275 and `display: none` wins, and whether a given
+    // machine paints overlay scrollbars is not something this test should be
+    // betting on.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`${BASE}/design-system`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("page-toc")).toBeVisible({ timeout: 20_000 });
+
+    const railTop = async () => (await page.getByTestId("page-toc").boundingBox())!.y;
+    // Index rather than id: "a later entry became current" is the behaviour,
+    // and naming a specific section would tie this to the page's contents.
+    const activeIndex = () =>
+      page.evaluate(() =>
+        Array.from(document.querySelectorAll(".ds-toc-link")).findIndex(
+          (a) => a.getAttribute("aria-current") === "location",
+        ),
+      );
+
+    // The route wrapper carries `.fade-in`, whose keyframes translate it, so
+    // for the first few hundred milliseconds every y in this test is offset by
+    // a couple of pixels — measured at 30.57 against an expected 28. Waiting on
+    // the element's OWN animations (getAnimations() does not recurse) settles
+    // that deterministically; a wider tolerance would have hidden it instead,
+    // and this page is full of infinite specimen animations that a
+    // document-wide wait would block on forever.
+    await page.evaluate(async () => {
+      const el = document.querySelector("main > div.fade-in") as HTMLElement;
+      await Promise.all(el.getAnimations().map((a) => a.finished.catch(() => undefined)));
+    });
+
+    // Unscrolled: the rail sits at the content's 28px top padding — below its
+    // own 20px sticky clamp, so the assertion after the scroll is proof it
+    // moved up and held rather than having started there by luck.
+    expect(await railTop()).toBeCloseTo(28, 0);
+    expect(await activeIndex()).toBe(0);
+
+    await page.evaluate(() => {
+      (document.querySelector("main") as HTMLElement).scrollTop = 6000;
+    });
+    // The scrollspy is an IntersectionObserver, so it settles a frame or two
+    // after the scroll rather than synchronously with it.
+    await page.waitForTimeout(1000);
+
+    // THE BUG, stated as a measurement: with a second scroll context the rail
+    // travelled with the document and left the screen entirely. Sticking means
+    // clamping to its own `top: 20px` against <main>'s padding box, which
+    // starts at viewport y=0.
+    expect(
+      await railTop(),
+      "the rail scrolled away with the content instead of sticking to top: 20px",
+    ).toBeCloseTo(20, 0);
+    await expect(page.getByTestId("page-toc")).toBeInViewport();
+
+    // Scrolling must not have introduced the document scroll either: a sticky
+    // element that mispositions can grow the page it sits in.
+    const docScrolls = await page.evaluate(
+      () => document.documentElement.scrollHeight > document.documentElement.clientHeight,
+    );
+    expect(docScrolls, "scrolling the content grew the document").toBe(false);
+
+    // And the highlight still tracks — a rail that sticks but stops following
+    // the reader is only half the feature.
+    expect(await activeIndex(), "the active-section highlight did not advance").toBeGreaterThan(0);
+  });
 });

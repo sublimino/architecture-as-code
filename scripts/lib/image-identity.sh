@@ -83,27 +83,95 @@
 # green, the broken loader stays broken, and the next person inherits it. Verify
 # and fail. The remedy goes in the error message, not in the gate.
 #
-# ─── ID formats, and the empty-vs-empty trap ────────────────────────────────
+# ─── Why identity is diffIDs and NOT image IDs ──────────────────────────────
 #
-#   docker image inspect --format '{{.Id}}'  sha256:<64 hex>
-#   crictl images                            <13 hex>          (TRUNCATED)
-#   crictl images --no-trunc                 sha256:<64 hex>
-#   supercred-crictl-shim.sh                 -                 (no ID at all)
+# The obvious comparison — docker's image ID against crictl's IMAGE ID — is
+# WRONG, and wrong in a way that passes on a laptop and can never pass on CI.
+# The two sides do not name the same thing:
 #
-# `--no-trunc` is NOT used: scripts/supercred-crictl-shim.sh accepts exactly
-# `docker exec <node> crictl images` and fails closed on any other argv, so
-# adding a flag would break the in-cluster path outright.
+#   docker image inspect '{{.Id}}'   overlay2 store  → the CONFIG digest
+#                                    containerd store → the MANIFEST/INDEX digest
+#   crictl images / inspecti         always          → the CONFIG digest
 #
-# So IDs are normalised (strip `sha256:`, lowercase) and compared as a PREFIX —
-# the node's possibly-truncated value must prefix the local full-length one,
-# never the reverse, which would match anything.
+# So on Docker's containerd image store the two values are structurally
+# different identifiers for the SAME image and the comparison fails 100% of the
+# time, deterministically. Measured on signalloom-ci-2, 2026-08-18:
 #
-# The comparison is guarded so it cannot pass vacuously. An ID must be
-# non-empty, hex-only, and at least 12 characters before it is compared at all.
-# Without that guard the shim's `-` normalises to empty, the local ID for an
-# image that does not exist locally is also empty, and "" == "" reports a
-# perfect match for two things that were never looked at — which is the exact
-# bug class this file was written to close, re-entering through the fix.
+#   docker .Id            sha256:59aad5ea7cf4…   (index digest)
+#   crictl IMAGE ID       sha256:29d454929e03…   (config digest)
+#   docker save .Config   sha256:29d454929e03…   ← identical to crictl
+#
+# The node held precisely the image just built; the guard called it "a DIFFERENT
+# image" and aborted CI in build-images with 0 of 27 stages run, on both the warm
+# and the cold lane. Andy's laptop is overlay2, where `.Id` IS the config digest,
+# which is why it was never seen locally.
+#
+# Two fixes that look right and are not:
+#
+#   `--provenance=false`   collapses the OCI index to a single manifest, so the
+#                          mediaType changes and it LOOKS fixed. `.Id` is still
+#                          the manifest digest. Measured: withprov .Id c1b53274…,
+#                          noprov .Id daf11ba8…, config b675f3a0… both times.
+#
+#   read the config digest Not available. The config digest appears NOWHERE in
+#   from docker inspect    `docker image inspect` output (grep count 0).
+#
+#   compare `ctr` instead  `ctr -n k8s.io images ls` DOES agree with docker's
+#                          `.Id`, which makes crictl look like the broken side.
+#                          It is not. ctr reads the content store and lists
+#                          images whose manifest arrived while the layers did
+#                          not — exactly the half-transferred state this file
+#                          exists to catch. Switching to ctr buys a green
+#                          comparison and a pod that cannot start.
+#
+# So identity is the ROOTFS DIFFID LIST, which lives in the image config and is
+# therefore identical across both local stores and the CRI:
+#
+#   local  docker image inspect '{{range .RootFS.Layers}}…'
+#   node   crictl inspecti <ref> → .info.imageSpec.rootfs.diff_ids[]
+#
+# Compared as an EXACT ORDERED LIST. Not a prefix — both sides are full length —
+# and order matters, because the same layer set in a different order is a
+# different filesystem. This is a strictly stronger check than either digest: it
+# compares the actual layer content the kubelet will run.
+#
+# ─── The empty-vs-empty trap ────────────────────────────────────────────────
+#
+# The comparison is guarded so it cannot pass vacuously. A diffID list must be
+# non-empty, and every entry hex-only and full length, before it is compared at
+# all. Without that guard the local list for an image that does not exist
+# locally is empty, the node list for an unreadable image is also empty, and
+# "" == "" reports a perfect match for two things that were never looked at —
+# which is the exact bug class this file was written to close, re-entering
+# through the fix.
+#
+# ─── Sampling, and why the second exec is safe ──────────────────────────────
+#
+# "One sample, not two" (see image_identity_read_node) forbids deriving an
+# authoritative state from two samples that can disagree. The diffID read is a
+# SECOND `docker exec`, and it stays inside that rule because the two samples
+# answer disjoint questions and only one direction is reachable:
+#
+#   presence  comes from the single `crictl images` listing, and NOTHING else
+#   identity  comes from `crictl inspecti`, and NOTHING else
+#
+# They are never cross-checked against each other, so no verdict is ever
+# assembled from both. Every failure mode of the second sample — inspecti
+# erroring, returning no diff_ids, or jq being absent — is COULD-NOT-VERIFY, so
+# the extra sample can only ever DOWNGRADE a verdict and can never manufacture a
+# PASS.
+#
+# The shim never reaches it. scripts/supercred-crictl-shim.sh accepts exactly
+# `docker exec <node> crictl images` and fails closed on any other argv, so an
+# `inspecti` call would break the in-cluster path. It cannot be reached from
+# there: the pod has no local docker image, so verify() returns
+# COULD-NOT-VERIFY/NO_LOCAL_IMAGE before any inspecti call is made. The in-pod
+# caller wants image_identity_present_on_node anyway, which never inspects.
+#
+#   crictl images            <13 hex>   (TRUNCATED — still used for PRESENCE)
+#   supercred-crictl-shim.sh -          (no ID at all)
+#
+# `--no-trunc` is NOT used on the presence listing, for the shim reason above.
 
 # ─── Normalisation ──────────────────────────────────────────────────────────
 
@@ -148,6 +216,68 @@ image_identity_local_id() {
 	local image="$1" raw
 	raw="$("${DOCKER_BIN:-docker}" image inspect --format '{{.Id}}' "$image" 2>/dev/null)" || return 0
 	image_identity_normalise_id "$raw"
+}
+
+# ─── diffIDs — the identity axis ────────────────────────────────────────────
+
+# Validate and normalise a newline-separated diffID list, or print NOTHING.
+#
+# All-or-nothing on purpose. A list that parsed partially is not a weaker
+# answer, it describes a DIFFERENT filesystem — so one malformed entry voids the
+# whole list rather than silently shortening it into something that could
+# compare equal to a truncated read of the other side.
+image_identity_normalise_diffids() {
+	local line out="" n=0
+	while IFS= read -r line; do
+		line="${line#sha256:}"
+		line="$(printf '%s' "$line" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+		[ -n "$line" ] || continue
+		# Full-length hex only. Unlike the 13-character IDs crictl prints in its
+		# table, diff_ids are never abbreviated on either side, so anything short
+		# is corruption rather than an abbreviation to be accommodated.
+		case "$line" in
+		*[!0-9a-f]*) return 0 ;;
+		esac
+		[ "${#line}" -eq 64 ] || return 0
+		out="${out}${line}"$'\n'
+		n=$((n + 1))
+	done
+	[ "$n" -gt 0 ] || return 0
+	printf '%s' "$out"
+}
+
+# The local daemon's rootfs diffIDs for a tag.
+#
+# A Go template, not jq: the local side stays free of any JSON dependency, and
+# `.RootFS.Layers` is the same list on the overlay2 and containerd stores alike
+# — which is the entire reason identity moved onto this axis.
+#
+# Empty when there is no such local image. That is the normal case under
+# scripts/supercred-crictl-shim.sh, and it is load-bearing: verify() checks the
+# local side FIRST, so the in-pod path returns NO_LOCAL_IMAGE before it can
+# reach the node-side inspecti the shim would reject.
+image_identity_local_diffids() {
+	local image="$1" raw
+	raw="$("${DOCKER_BIN:-docker}" image inspect \
+		--format '{{range .RootFS.Layers}}{{println .}}{{end}}' "$image" 2>/dev/null)" || return 0
+	printf '%s\n' "$raw" | image_identity_normalise_diffids
+}
+
+# The node's rootfs diffIDs, via the CRI's own view of what it will run — the
+# same authority `crictl images` carries for presence.
+#
+# Fails closed in every direction. A missing jq, a non-zero inspecti, a payload
+# with no diff_ids: all print nothing, and the caller turns nothing into
+# COULD-NOT-VERIFY. None of them can produce a match.
+image_identity_node_diffids() {
+	local image="$1" ref raw
+	command -v jq >/dev/null 2>&1 || return 0
+	ref="$(image_identity_canonical_ref "$image")"
+	raw="$("${DOCKER_BIN:-docker}" exec "${NODE:?image-identity: NODE is not set}" \
+		crictl inspecti "$ref" 2>/dev/null)" || return 0
+	printf '%s' "$raw" \
+		| jq -r '.info.imageSpec.rootfs.diff_ids[]?' 2>/dev/null \
+		| image_identity_normalise_diffids
 }
 
 # Read the node's `crictl images` ONCE, into two globals:
@@ -233,10 +363,15 @@ image_identity_node_state() {
 # Sets, for the caller to read:
 #   IMAGE_IDENTITY_RESULT    PASS | FAIL | COULD-NOT-VERIFY
 #   IMAGE_IDENTITY_OUTCOME   MATCH | MISMATCH | ABSENT | NO_LOCAL_IMAGE
-#                            | NO_NODE_ID | LISTING_TRUNCATED
+#                            | NO_NODE_ID | NO_LOCAL_DIFFIDS | NO_NODE_DIFFIDS
+#                            | LISTING_TRUNCATED
 #   IMAGE_IDENTITY_PRESENT   yes | no | unknown   (presence, independent of identity)
-#   IMAGE_IDENTITY_LOCAL_ID  normalised local ID, or empty
-#   IMAGE_IDENTITY_NODE_ID   normalised node ID, or empty
+#   IMAGE_IDENTITY_LOCAL_ID  normalised local ID, or empty  (DIAGNOSTIC ONLY —
+#   IMAGE_IDENTITY_NODE_ID   normalised node ID, or empty     these two are NOT
+#                            the identity axis; see the header. Comparing them
+#                            is the defect this file was rewritten to close.)
+#   IMAGE_IDENTITY_LOCAL_DIFFIDS  newline-separated rootfs diffIDs, or empty
+#   IMAGE_IDENTITY_NODE_DIFFIDS   newline-separated rootfs diffIDs, or empty
 #   IMAGE_IDENTITY_DETAIL    one line naming exactly what was compared
 #
 # Returns 0 for PASS, 1 for FAIL, 2 for COULD-NOT-VERIFY.
@@ -248,6 +383,8 @@ image_identity_verify() {
 	IMAGE_IDENTITY_PRESENT="unknown"
 	IMAGE_IDENTITY_LOCAL_ID=""
 	IMAGE_IDENTITY_NODE_ID=""
+	IMAGE_IDENTITY_LOCAL_DIFFIDS=""
+	IMAGE_IDENTITY_NODE_DIFFIDS=""
 	IMAGE_IDENTITY_DETAIL=""
 
 	[ -n "${IMAGE_IDENTITY_LISTING+set}" ] || image_identity_read_node || true
@@ -300,27 +437,50 @@ image_identity_verify() {
 		return 2
 	fi
 
-	# Prefix, in this direction only. crictl abbreviates to 13 characters, so
-	# the node's value must PREFIX the local full-length one. The reverse test
-	# would let a short local value match any node image at all.
-	case "$IMAGE_IDENTITY_LOCAL_ID" in
-	"$IMAGE_IDENTITY_NODE_ID"*)
+	# Identity is the diffID list. Read the local side FIRST: under the crictl
+	# shim there is no local image, and returning here is what keeps the in-pod
+	# path from ever issuing the `inspecti` the shim would reject.
+	IMAGE_IDENTITY_LOCAL_DIFFIDS="$(image_identity_local_diffids "$image")"
+	if [ -z "$IMAGE_IDENTITY_LOCAL_DIFFIDS" ]; then
+		IMAGE_IDENTITY_RESULT="COULD-NOT-VERIFY"
+		IMAGE_IDENTITY_OUTCOME="NO_LOCAL_DIFFIDS"
+		IMAGE_IDENTITY_DETAIL="$image exists locally but its rootfs diffIDs are unreadable — presence proven, identity unproven"
+		return 2
+	fi
+
+	IMAGE_IDENTITY_NODE_DIFFIDS="$(image_identity_node_diffids "$image")"
+	if [ -z "$IMAGE_IDENTITY_NODE_DIFFIDS" ]; then
+		IMAGE_IDENTITY_RESULT="COULD-NOT-VERIFY"
+		IMAGE_IDENTITY_OUTCOME="NO_NODE_DIFFIDS"
+		IMAGE_IDENTITY_DETAIL="$image is present on ${NODE:-the node}, but its rootfs diffIDs are unreadable — presence proven, identity unproven. Is jq installed, and does \`${DOCKER_BIN:-docker} exec ${NODE:-<node>} crictl inspecti $(image_identity_canonical_ref "$image")\` work from here?"
+		return 2
+	fi
+
+	# Exact, ordered list equality. NOT a prefix test: diff_ids are full length
+	# on both sides, and order is part of the identity — the same layers stacked
+	# in a different order are a different filesystem.
+	if [ "$IMAGE_IDENTITY_LOCAL_DIFFIDS" = "$IMAGE_IDENTITY_NODE_DIFFIDS" ]; then
 		IMAGE_IDENTITY_RESULT="PASS"
 		IMAGE_IDENTITY_OUTCOME="MATCH"
-		IMAGE_IDENTITY_DETAIL="$image on ${NODE:-the node} is the locally built image (${IMAGE_IDENTITY_NODE_ID})"
+		IMAGE_IDENTITY_DETAIL="$image on ${NODE:-the node} is the locally built image ($(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS" | grep -c . ) matching rootfs layers)"
 		return 0
-		;;
-	esac
+	fi
 
 	IMAGE_IDENTITY_RESULT="FAIL"
 	IMAGE_IDENTITY_OUTCOME="MISMATCH"
 	IMAGE_IDENTITY_DETAIL="$image on ${NODE:-the node} is a DIFFERENT image from the one built locally
-       local (docker)      sha256:${IMAGE_IDENTITY_LOCAL_ID}
-       node  (crictl)      ${IMAGE_IDENTITY_NODE_ID}
+       local rootfs layers  $(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS" | grep -c .)
+       node  rootfs layers  $(printf '%s' "$IMAGE_IDENTITY_NODE_DIFFIDS" | grep -c .)
+       first divergence at layer $(diff <(printf '%s' "$IMAGE_IDENTITY_LOCAL_DIFFIDS") <(printf '%s' "$IMAGE_IDENTITY_NODE_DIFFIDS") 2>/dev/null | grep -m1 -oE '^[0-9]+' || echo '?')
        The tag is the same and the content is not. \`kind load\` exited without
        transferring, so the node kept the previous build and the workload will
        keep running it — imagePullPolicy IfNotPresent on a bare :local tag never
-       re-pulls."
+       re-pulls.
+
+       This compares rootfs diffIDs, not image IDs. If you are about to \"fix\"
+       this by comparing docker's .Id to crictl's IMAGE ID, read the header:
+       those are different digest types on the containerd image store and can
+       never match."
 	return 1
 }
 

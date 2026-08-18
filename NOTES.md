@@ -60,7 +60,7 @@ The handoff schema I read, with the fallback spellings also accepted:
 | `state_bucket` | `bucket` | bucket protection, deploy-SA roles |
 | `deploy_sa` | `deploy_service_account` | deploy-SA roles |
 | `access_mode` | — | the three-valued posture check |
-| `kind` | — | whether an instance is expected at all (`demo` | `ci`) |
+| `kind` | — | whether an instance is expected at all: `demo` or `ci` |
 | `hostname` | — | reporting; `""` is valid |
 
 A field absent under every spelling yields `UNKNOWN` for the checks that need it,

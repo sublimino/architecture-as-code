@@ -17,6 +17,14 @@ mock_provider "google-beta" {}
 variables {
   project_id = "sl-demo-platform"
   target_env = "demo-1"
+
+  # access_mode defaults to "iap", and an IAP environment that names no
+  # principal is a locked door with no key. The root's non-empty validation
+  # therefore aborts any plan without this, which is the guard working — so the
+  # fixture names a principal rather than the guard being removed. Supplying it
+  # here also makes the fixture realistic: every environment this root will ever
+  # plan for real has one.
+  iap_members = ["user:someone@example.invalid"]
   environments = {
     "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-1.example.invalid", allowed_ipv4 = ["192.0.2.0/24", "198.51.100.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = { tier = "demo" } }
     "demo-2" = { kind = "demo", subnet_cidr = "10.10.3.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-2.example.invalid", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = false, labels = { tier = "demo" } }
@@ -238,5 +246,71 @@ run "a_ci_lane_resolves_with_no_dns_and_no_uptime_target" {
   assert {
     condition     = output.target_environment.deletion_protect == false
     error_message = "a CI lane must be destroyable; deletion protection on an ephemeral lane is how estates leak cost"
+  }
+}
+
+# ─── The root mirrors modules/edge's non-empty IAP rule ─────────────────────
+#
+# This validation was initially left out of the root because enabling it aborted
+# every plan of a fixture that named no principal — the guard working, read as
+# the guard being in the way. The fixture was wrong, not the rule: an IAP
+# environment that authorises nobody is a locked door with no key, and the
+# failure mode is a demo nobody can open, discovered at demo time.
+#
+# Failing at the ROOT is better than failing inside the module: the operator
+# sees the error against the variable they actually set in their tfvars.
+
+run "an_iap_environment_naming_no_principal_is_rejected" {
+  command = plan
+
+  variables {
+    access_mode = "iap"
+    iap_members = []
+  }
+
+  expect_failures = [var.iap_members]
+}
+
+run "iap_and_allowlist_naming_no_principal_is_also_rejected" {
+  command = plan
+
+  variables {
+    access_mode = "iap_and_allowlist"
+    iap_members = []
+  }
+
+  expect_failures = [var.iap_members]
+}
+
+# An allowlist-only environment has no IAP to lock anyone out of, so an empty
+# principal list is legal there. Without this the rule could be "always require
+# principals" and both negatives above would still pass.
+run "an_allowlist_only_environment_may_name_no_iap_principal" {
+  command = plan
+
+  variables {
+    access_mode = "allowlist"
+    iap_members = []
+  }
+
+  assert {
+    condition     = var.access_mode == "allowlist"
+    error_message = "an allowlist-only environment must plan cleanly with no IAP principals"
+  }
+}
+
+# Paired positive for the negatives: the same IAP config with a principal named
+# must plan. Without it, a rule that rejected every value would look correct.
+run "an_iap_environment_naming_a_principal_plans_cleanly" {
+  command = plan
+
+  variables {
+    access_mode = "iap"
+    iap_members = ["user:someone@example.invalid"]
+  }
+
+  assert {
+    condition     = length(var.iap_members) == 1
+    error_message = "the corrected baseline must plan cleanly, or the two negatives above prove nothing"
   }
 }

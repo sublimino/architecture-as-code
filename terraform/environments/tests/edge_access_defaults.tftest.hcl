@@ -20,6 +20,14 @@ mock_provider "google-beta" {}
 variables {
   project_id = "sl-demo-platform"
   target_env = "demo-1"
+
+  # The root now mirrors modules/edge's non-empty IAP rule, and access_mode
+  # defaults to "iap", so a fixture that names no principal cannot plan. That is
+  # the guard working: an IAP environment authorising nobody is a locked door
+  # with no key. The runs below that specifically test the empty case override
+  # this with an explicit expect_failures.
+  iap_members = ["user:someone@example.invalid"]
+
   environments = {
     "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-1.example.invalid", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = { tier = "demo" } }
   }

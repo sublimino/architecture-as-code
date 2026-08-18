@@ -161,40 +161,17 @@ variable "iap_members" {
   type        = list(string)
   default     = []
 
-  # ONE of the module's three validations is deliberately NOT mirrored here:
-  # the non-empty check,
+  # Mirrors modules/edge exactly. The non-empty rule fires at the ROOT, which is
+  # earlier and clearer than discovering it inside the module: the operator sees
+  # "you named no principal" against the variable they actually set in tfvars.
   #
-  #   !contains(["iap", "iap_and_allowlist"], var.access_mode) || length(var.iap_members) > 0
-  #
-  # It works — that is the problem. `access_mode` defaults to "iap" and
-  # `iap_members` defaults to `[]`, so it aborts EVERY plan of this root that
-  # does not name a principal, including `tests/root_contract.tftest.hcl`, whose
-  # file-level variables block predates these variables and sets neither. That
-  # suite is not mine to edit, and one line would fix it:
-  #
-  #   iap_members = ["user:someone@example.invalid"]
-  #
-  # Raised with the orchestrator. Nothing is unguarded in the meantime: the
-  # module carries this exact rule, and this root passes `iap_members` straight
-  # into it, so an empty list still aborts the plan the moment the edge module
-  # is wired — which is also the only moment at which an empty list can lock
-  # anybody out, because until then no edge exists. What is lost is only *where*
-  # the error is raised, not whether it is.
-  #
-  # The two rules below are mirrored in full, and both pass on an empty list, so
-  # neither has this problem.
+  # An empty list under an IAP mode is not a safe default, it is an outage that
+  # only announces itself at demo time.
+  validation {
+    condition     = !contains(["iap", "iap_and_allowlist"], var.access_mode) || length(var.iap_members) > 0
+    error_message = "access_mode includes IAP but iap_members is empty. IAP with no authorised principal locks everyone out, including you. Name at least one principal, e.g. [\"user:someone@example.invalid\"]."
+  }
 
-  # The single most dangerous line in this pair. "allAuthenticatedUsers" reads
-  # as a restriction — the word "authenticated" is right there — and in IAP it
-  # means ANY Google account on earth. That is functionally public access
-  # wearing the vocabulary of access control. "allUsers" is public without the
-  # disguise. A wildcard principalSet reads as a scoped grant and admits every
-  # identity in the pool.
-  #
-  # The wildcard clause is what makes this rule independently testable: the
-  # prefix rule below also rejects both bare tokens, so without it, deleting
-  # this whole block left the module's suite green — the most dangerous guard
-  # had no test that could see it disappear.
   validation {
     condition = alltrue([
       for m in var.iap_members :

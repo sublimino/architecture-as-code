@@ -81,6 +81,26 @@ interface Tolerated {
   path: RegExp;
   /** The status this endpoint is allowed to return. */
   status: number;
+  /**
+   * The `error.code` from the response envelope that is tolerated, when status
+   * alone is too coarse to be honest.
+   *
+   * This exists because status alone WAS too coarse, and tolerating on it would
+   * have been the exact failure this file's header warns about. `/api/rbac/*`
+   * answers with 503 for four distinct causes (rbac_correlation.py
+   * `_afm_failure`): `afm_not_deployed` means the optional AFM slice was never
+   * deployed and the message names the remedy, while `afm_unreachable` and
+   * `afm_bad_response` mean AFM IS deployed and is broken or breaking its
+   * contract. Same status, opposite meanings. An entry matching only
+   * `/api/rbac/` + 503 would tolerate the designed absence AND silently swallow
+   * a real outage forever — decoration, on the one signal a security-posture
+   * tool most needs to scream about.
+   *
+   * When set, the observed code must match exactly. An unreadable body yields
+   * no code and is therefore NOT tolerated: fail closed, because "we could not
+   * tell" is not "it is fine".
+   */
+  code?: string;
   /** Why this is correct behaviour and not a defect. Required. */
   because: string;
 }
@@ -95,16 +115,86 @@ const TOLERATED: Tolerated[] = [
     status: 404,
     because: "AFM slice is optional; its Makefile target warns rather than fails when absent",
   },
+  {
+    // The same optional slice, reached through the correlation API rather than
+    // probed directly. rbac_correlation.py deliberately fails CLOSED — its
+    // header argues that a posture tool reporting "no escalations" because its
+    // upstream was unreachable is a worse failure than a visible 503 — so an
+    // absent AFM surfaces here as 503 rather than as empty data. That is
+    // correct behaviour, and the dashboard already renders it as "not
+    // deployed" with the remedy (rbacCorrelationApi.ts BACKEND_ABSENT_CODES),
+    // not as an error.
+    //
+    // PINNED TO THE CODE, and that is the whole point. This endpoint answers
+    // 503 for four causes: `afm_not_deployed` (the slice was never deployed —
+    // this one), plus `afm_unreachable` and `afm_bad_response`, which both mean
+    // AFM IS deployed and is broken or breaking its contract. Matching on
+    // path+status alone would tolerate the designed absence AND silently
+    // swallow a real outage forever, on precisely the signal a security-posture
+    // tool most needs to raise.
+    path: /^\/api\/rbac\//,
+    status: 503,
+    code: "afm_not_deployed",
+    because:
+      "AFM slice is optional and CI never runs demo-signalloom-afm-up; " +
+      "rbac_correlation.py fails closed with afm_not_deployed and names the remedy. " +
+      "afm_unreachable and afm_bad_response stay untolerated — those mean AFM is deployed and broken",
+  },
 ];
 
-function isTolerated(path: string, status: number): Tolerated | undefined {
-  return TOLERATED.find((t) => t.path.test(path) && t.status === status);
+/**
+ * Pure matcher, taking its entry list as an argument rather than closing over
+ * TOLERATED, so the tolerance RULES can be tested without asserting against
+ * whatever the live list happens to contain today. A test that had to use the
+ * real list would change meaning every time an entry was added.
+ */
+export function matchTolerated(
+  entries: readonly Tolerated[],
+  path: string,
+  status: number,
+  code?: string,
+): Tolerated | undefined {
+  return entries.find((t) => {
+    if (!t.path.test(path) || t.status !== status) return false;
+    // No code pinned: status is a sufficient discriminator for this entry.
+    if (t.code === undefined) return true;
+    // Code pinned: it must match exactly. `code === undefined` here means the
+    // body could not be read, which fails closed by falling through to false.
+    return t.code === code;
+  });
+}
+
+function isTolerated(path: string, status: number, code?: string): Tolerated | undefined {
+  return matchTolerated(TOLERATED, path, status, code);
+}
+
+/**
+ * The `error.code` from this repo's standard error envelope,
+ * `{"error":{"code","message"}}` (api_compat.py `_error_response`).
+ *
+ * Defensive throughout: a body that is missing, not JSON, not that shape, or
+ * no longer buffered yields `undefined` rather than throwing. Undefined is the
+ * fail-closed value — a code-pinned TOLERATED entry will not match it — so an
+ * unreadable body reports the failure instead of hiding it.
+ */
+async function errorCode(response: {
+  json: () => Promise<unknown>;
+}): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as { error?: { code?: unknown } } | null;
+    const code = body?.error?.code;
+    return typeof code === "string" ? code : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 interface Failure {
   route: string;
   path: string;
   status: number;
+  /** Carried into the report: "503" alone does not say which 503 this was. */
+  code?: string;
 }
 
 /**
@@ -176,6 +266,15 @@ test.describe("live data", () => {
     const seen: Array<{ route: string; path: string; status: number }> = [];
     let currentRoute = "(pre-login)";
 
+    // Classification is async now, because deciding whether a 503 is the
+    // designed absence of an optional slice or a real outage requires the
+    // error code, and reading a body is a promise. Each classification is
+    // parked here and awaited before the assertions, rather than left to run
+    // detached — an un-awaited handler would let the test assert on `failures`
+    // while entries were still being appended, and the race would resolve in
+    // favour of "clean" exactly as often as the machine was fast.
+    const classified: Array<Promise<void>> = [];
+
     page.on("response", (response) => {
       const url = response.url();
       if (!isApiCall(url)) return;
@@ -183,8 +282,15 @@ test.describe("live data", () => {
       const status = response.status();
       seen.push({ route: currentRoute, path, status });
       if (status < 400) return;
-      if (isTolerated(path, status)) return;
-      failures.push({ route: currentRoute, path, status });
+      // Captured now: currentRoute advances while the body is in flight.
+      const route = currentRoute;
+      classified.push(
+        (async () => {
+          const code = await errorCode(response);
+          if (isTolerated(path, status, code)) return;
+          failures.push({ route, path, status, code });
+        })(),
+      );
     });
 
     // demoMode:false is the entire point — see the header. With the default
@@ -223,8 +329,12 @@ test.describe("live data", () => {
         silent.map((r) => `  ${r}`).join("\n"),
     ).toEqual([]);
 
+    // Every parked classification must finish before `failures` is read, or
+    // the assertion races the thing it is asserting on.
+    await Promise.all(classified);
+
     const report = failures
-      .map((f) => `  ${f.route}  ->  ${f.path}  ${f.status}`)
+      .map((f) => `  ${f.route}  ->  ${f.path}  ${f.status}${f.code ? ` (${f.code})` : ""}`)
       .join("\n");
 
     expect(
@@ -314,5 +424,71 @@ test.describe("live data", () => {
       ).toContain("application/json");
     }
     console.log(results.join("\n"));
+  });
+});
+
+// ─── The tolerance rules themselves ─────────────────────────────────────────
+//
+// TOLERATED is the dangerous part of this file, so the rules governing it are
+// tested rather than trusted. These need no browser and no cluster; they run in
+// the same project so they cannot become a spec nothing invokes — the defect
+// that kept live-data.spec.ts itself from running until 3d70cc2.
+test.describe("tolerance rules", () => {
+  const ENTRIES: Tolerated[] = [
+    { path: /^\/api\/thing\//, status: 404, because: "status alone is honest here" },
+    { path: /^\/api\/coded\//, status: 503, code: "designed_absence", because: "only this code" },
+  ];
+
+  test("a code-pinned entry tolerates ONLY that code", () => {
+    // The whole point. Same path, same status, opposite meanings — an entry
+    // that pinned no code would return truthy for all three of these.
+    expect(matchTolerated(ENTRIES, "/api/coded/x", 503, "designed_absence")).toBeTruthy();
+    expect(matchTolerated(ENTRIES, "/api/coded/x", 503, "real_outage")).toBeUndefined();
+    expect(matchTolerated(ENTRIES, "/api/coded/x", 503, "contract_break")).toBeUndefined();
+  });
+
+  test("a code-pinned entry does NOT tolerate an unreadable body", () => {
+    // "We could not tell" is not "it is fine". An unreadable body yields no
+    // code, and the entry must fail closed rather than wave it through — the
+    // alternative makes every malformed 503 tolerated for free.
+    expect(matchTolerated(ENTRIES, "/api/coded/x", 503)).toBeUndefined();
+  });
+
+  test("an entry with no code still matches on path and status alone", () => {
+    // The pre-existing shape has to keep working, or adding the code axis
+    // silently narrows entries that were correct as they were.
+    expect(matchTolerated(ENTRIES, "/api/thing/y", 404)).toBeTruthy();
+    expect(matchTolerated(ENTRIES, "/api/thing/y", 404, "anything")).toBeTruthy();
+    expect(matchTolerated(ENTRIES, "/api/thing/y", 500)).toBeUndefined();
+    expect(matchTolerated(ENTRIES, "/api/other/y", 404)).toBeUndefined();
+  });
+
+  test("every live TOLERATED entry states a because", () => {
+    // A hole in the assertion with no stated reason is indistinguishable from
+    // one added to turn a red run green.
+    for (const t of TOLERATED) {
+      expect(t.because.trim().length, `${t.path} ${t.status} has no reason`).toBeGreaterThan(10);
+    }
+  });
+
+  test("the AFM 503 is tolerated ONLY as a designed absence", () => {
+    // The entry this test guards is a hole in the assertion, so the hole is
+    // pinned shut from both sides.
+    //
+    // /api/rbac/* answers 503 for four causes and only ONE of them is correct
+    // behaviour. Proven in the backend's own suite, which runs as CI stage 2:
+    // test_list_clusters_reports_afm_not_deployed_when_its_name_does_not_resolve
+    // asserts code `afm_not_deployed` for a gaierror (an undeployed slice),
+    // while test_refused_connection_is_not_reported_as_not_deployed asserts
+    // `afm_unreachable` for a refused connection — same endpoint, same status,
+    // different code, different fix.
+    //
+    // So tolerating on path+status would wave through a deployed-and-broken
+    // AFM forever. These four assertions are what stops that.
+    expect(isTolerated("/api/rbac/clusters", 503, "afm_not_deployed")).toBeTruthy();
+    expect(isTolerated("/api/rbac/clusters", 503, "afm_unreachable")).toBeUndefined();
+    expect(isTolerated("/api/rbac/clusters", 503, "afm_bad_response")).toBeUndefined();
+    // Body unreadable: not tolerated, because "could not tell" is not "fine".
+    expect(isTolerated("/api/rbac/clusters", 503)).toBeUndefined();
   });
 });

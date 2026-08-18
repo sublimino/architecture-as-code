@@ -32,8 +32,17 @@ rollback_failed_activation() {
   local status=$?
   trap - ERR
   if [[ "$activation_pending" == true ]]; then
-    printf 'Agent Trust activation failed; restoring ResourceSet inputs to []\n' >&2
+    printf 'Agent Trust activation failed; disabling the ResourceSet\n' >&2
     if [[ "$identity_configured" == true ]]; then cleanup_identity_plane || true; fi
+    # Emptying inputs is no longer a deactivation. tenants/base/agent-trust.yaml
+    # now declares them, so a `kubectl patch` of spec.inputs is drift against a
+    # Flux-owned field that the tenants Kustomization will revert -- the slice
+    # would come straight back. The reconcile annotation is absent from the
+    # source manifest, so Flux does not own it and does not strip it, and the
+    # controller honours it before the build. Set it first, then clear inputs so
+    # the observable spec.inputs state matches what callers already check.
+    kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
+      fluxcd.controlplane.io/reconcile=disabled --overwrite >/dev/null 2>&1 || true
     kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge \
       -p '{"spec":{"inputs":[]}}' >/dev/null 2>&1 || true
     kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
@@ -100,6 +109,13 @@ require_command() {
 
 activate() {
   local nonce="${AGENT_TRUST_ACTIVATION_NONCE:-$(date -u +%Y%m%dT%H%M%S%N)}"
+  # `down` disables the ResourceSet via the reconcile annotation, which the
+  # controller checks (obj.IsDisabled()) and returns on BEFORE the build.
+  # Clearing it is what actually re-activates the slice; the inputs patch below
+  # is now belt-and-braces, because tenants/base/agent-trust.yaml declares
+  # equivalent inputs and Flux applies them on its own.
+  kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
+    fluxcd.controlplane.io/reconcile- >/dev/null 2>&1 || true
   kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge \
     -p "{\"spec\":{\"inputs\":[{\"activationNonce\":\"${nonce}\",\"artifactSubjectGitRef\":\"local\",\"artifactSubjectWorkflow\":\"local\",\"component\":\"agent-trust\",\"environment\":\"local\",\"tag\":\"latest\",\"tenant\":\"agent-trust-platform\"}]}}"
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
@@ -555,14 +571,31 @@ down() {
   require_command flux
   trap 'resume_root_reconciliation || true' EXIT
   cleanup_identity_plane
+  # Deactivation is the reconcile annotation, not empty inputs.
+  #
+  # `inputs: []` was never an off-state. flux-operator renders spec.resources
+  # with `Option("missingkey=error")` and BuildResourceSet treats an empty input
+  # list as "render ONCE against a nil map", not "render nothing" -- so emptying
+  # inputs did not quiesce this object, it stalled it with `map has no entry for
+  # key "tenant"`. (The deploy-nothing-and-GC path exists but the controller
+  # gates it on `len(obj.Spec.InputsFrom) > 0`, and inputsFrom is unset here.)
+  #
+  # And since tenants/base/agent-trust.yaml now declares the inputs, spec.inputs
+  # is a field the tenants Kustomization owns; patching it is drift that Flux is
+  # entitled to revert, which would bring the slice back after teardown. The
+  # reconcile annotation is absent from the source manifest, so Flux does not
+  # own it, does not strip it, and the controller returns on obj.IsDisabled()
+  # before building anything.
+  kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
+    fluxcd.controlplane.io/reconcile=disabled --overwrite
   kubectl -n "$flux_namespace" patch "resourceset/${resource_set}" --type merge -p '{"spec":{"inputs":[]}}'
   kubectl -n "$flux_namespace" annotate "resourceset/${resource_set}" \
     reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
-  # Empty ResourceSet inputs intentionally render no template values, so Ready
-  # becomes false. Verify the deactivation state directly rather than waiting
-  # for a Ready condition that cannot exist without an input row.
-  _wait_retry 600 "inactive resourceset/${resource_set}" \
-    "test \"\$(kubectl -n '$flux_namespace' get 'resourceset/${resource_set}' -o jsonpath='{.spec.inputs}')\" = '[]'"
+  # Wait on the annotation rather than on spec.inputs. A disabled ResourceSet
+  # has no Ready condition to wait for, and spec.inputs is now reconciler-owned
+  # so it is not a state this script can assert about its own actions.
+  _wait_retry 600 "disabled resourceset/${resource_set}" \
+    "test \"\$(kubectl -n '$flux_namespace' get 'resourceset/${resource_set}' -o jsonpath='{.metadata.annotations.fluxcd\\.controlplane\\.io/reconcile}')\" = 'disabled'"
   local namespace
   for namespace in "${owned_namespaces[@]}"; do
     kubectl delete namespace "$namespace" --ignore-not-found --wait=true

@@ -1,0 +1,31 @@
+# The paired positive: an operator identity with nothing wrong with it.
+#
+# Every guard in test/terraform-operator-access.bats must stay SILENT on this
+# file. A guard that fires here would fire on the real module too, and would be
+# switched off within a week.
+
+locals {
+  operator_project_roles = [
+    "roles/iap.tunnelResourceAccessor",
+    "roles/compute.osAdminLogin",
+  ]
+}
+
+resource "google_service_account" "operator" {
+  project    = var.project_id
+  account_id = "sl-operator"
+}
+
+resource "google_project_iam_member" "operator" {
+  for_each = toset(local.operator_project_roles)
+
+  project = var.project_id
+  role    = each.value
+  member  = "serviceAccount:${local.operator_email}"
+}
+
+resource "google_service_account_iam_member" "act_as_runtime" {
+  service_account_id = "projects/changeme-project/serviceAccounts/sl-rt-demo-1@changeme-project.iam.gserviceaccount.com"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${local.operator_email}"
+}

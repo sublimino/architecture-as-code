@@ -1,0 +1,13 @@
+# BROKEN: the operator can now rebuild the estate it logs into.
+#
+# compute.admin makes the operator identity and the deploy identity the same
+# blast radius: one credential whose compromise costs the whole project rather
+# than one shell on one VM.
+
+locals {
+  operator_project_roles = [
+    "roles/iap.tunnelResourceAccessor",
+    "roles/compute.osAdminLogin",
+    "roles/compute.admin",
+  ]
+}

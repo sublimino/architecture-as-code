@@ -273,6 +273,15 @@ retry 3 make demo-signalloom-signalfusion-images
 # line the CI VM deploys a workload it never built, and the Fleet page answers
 # /fleet-api/* with a raw nginx 502.
 retry 3 make demo-signalloom-fleet-image
+# Third instance of the same drift in one merge, which is the argument for the
+# derived guard rather than for care: demo-signalloom-up gained these two when
+# the Agent Trust slice became part of the standard lifecycle, and this file did
+# not. Without them CI activates tenants that reference artifacts no one pushed,
+# so all six agent-trust-* namespaces stay absent and the topology collector
+# reports the resulting 403s as an RBAC denial. stage 1d
+# (scripts/check-ci-build-parity.sh) flagged both as MISSING at merge time.
+retry 3 make push-local-fleet
+retry 3 make push-local-agent-trust
 
 # ── Activate Flux tenants ────────────────────────────────────────────
 PIPELINE_PHASE="activate-tenants"

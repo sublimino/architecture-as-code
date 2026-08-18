@@ -44,34 +44,64 @@ The load balancer, its Cloud Armor policy and IAP for web backends are **global*
 resources, so `us-east4` constrains none of them. `n2-standard-8` was confirmed
 present in `us-east4-a`.
 
-> ### Reachability — decide this before you plan
+> ### STOP — the environments root does not build anything yet
 >
-> `demo-1` is **secure and not publicly accessible**: Identity-Aware Proxy sits
-> in front of the backend, so every request must carry a Google identity on the
-> `iap_members` list and there is no anonymous path to the application. That
-> posture is one line of tfvars — `access_mode = "iap"` — and losing it is also
-> one line, so the verify step in §7 tests it from outside rather than trusting
-> it.
+> `make gcp-tf-plan ENV=demo-1` currently produces a plan that creates **zero
+> resources**. `terraform/environments/main.tf` has one live module,
+> `env_contract`, which declares no resources at all; `network`, `compute`,
+> `edge` and `ci_runner` are all commented out inside its INTEGRATION BLOCK,
+> along with the `terraform_remote_state` reference to `terraform/platform`.
 >
-> **Whether it is **routable** is a separate decision, and the shipped input
-> does not make it routable.** `modules/edge` gates the entire public frontend
-> on `hostname`, not on `dns_managed_zone`:
+> The comment says those modules "do not exist on this branch". That is now
+> **stale** — `terraform/modules/` contains all of them and `terraform/platform`
+> exists too. The modules landed; the wiring step never happened.
 >
-> | `hostname` | What gets built |
-> |---|---|
-> | `""` *(as shipped)* | No global address, **no certificate, no proxy, no forwarding rule.** The backend service, Cloud Armor policy and IAP grant are created, but nothing routes to them and `lb_ip_address` outputs `""`. Fail-closed and safe — and there is no way in. |
-> | a name you control, with `dns_managed_zone = ""` | The full HTTPS frontend: address, Google-managed certificate, proxy, forwarding rule, IAP in front. Only the DNS record is left to do by hand. |
->
-> The project has no Cloud DNS managed zone, so the second row is reached by
-> setting `hostname` and adding one A record at your registrar pointing at the
-> `lb_ip_address` this apply reports. The managed certificate stays
-> `PROVISIONING` until that record resolves, then issues on its own — and a
-> certificate that has not issued *yet* looks exactly like one that never will,
-> so add the record promptly.
->
-> `hostname` is left empty in the committed input deliberately: guessing which
-> domain Andy controls is how a certificate ends up stuck against a name nobody
-> owns.
+> Before any of the steps below can produce infrastructure: follow
+> `terraform/environments/WIRING.md` to uncomment the blocks in dependency
+> order, and apply `terraform/platform` first, because this root consumes its
+> outputs read-only. Everything else in this runbook is correct and ready — it
+> just has nothing to build until then.
+
+### Reachability — how you actually reach the demo
+
+`demo-1` is **secure, routable by you, and has no public surface whatsoever**.
+
+The public HTTPS edge is **deliberately not instantiated**. IAP for *web*
+backends needs an HTTPS load balancer, which needs a certificate on a name that
+resolves, and this project has no Cloud DNS managed zone. So instead of a
+self-signed certificate and browser warnings, `hostname = ""` and
+`dns_managed_zone = ""` mean no global address, no certificate, no proxy and no
+forwarding rule are created at all — `modules/edge` gates every one of them on
+`hostname`, and `empty_hostname_plans_no_public_frontend_at_all` in
+`modules/edge/tests/tls_frontend.tftest.hcl` proves it.
+
+You reach it over **IAP TCP forwarding**: a private VM with no external IP,
+ingress permitted only from `35.235.240.0/20` by `allow_iap_ssh`, with
+`deny_all_ingress` behind it. Nothing is listening publicly to be scanned.
+
+> **Mind the port.** `allow_iap_ssh` opens TCP **22 only**, not `app_port`. A
+> raw `gcloud compute start-iap-tunnel <vm> 8080` is refused by the firewall,
+> and the failure reads like a broken VM rather than a closed port. Forward over
+> SSH instead:
+
+```bash
+gcloud compute ssh <instance> --zone us-east4-a \
+  --project sl-port-over-sandbox --tunnel-through-iap \
+  -- -L 8080:localhost:8080
+# then open http://localhost:8080
+```
+
+`access_mode = "iap"` stays set regardless: it is the safe default and it
+becomes the live web posture the moment a hostname is added, with no other
+change. If you later want the real HTTPS edge, set `hostname` to a name you
+control, leave `dns_managed_zone = ""`, and add one A record at your registrar
+pointing at the `lb_ip_address` the apply reports. A managed certificate
+validates against DNS hosted anywhere — it does not require Cloud DNS.
+
+Note that `roles/iap.tunnelResourceAccessor` is **not** granted by this
+Terraform to a human; you will be using it via project `owner`. From a
+less-privileged account the tunnel returns a 403 that looks like a networking
+fault.
 
 ---
 

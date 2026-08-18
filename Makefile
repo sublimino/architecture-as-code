@@ -1309,9 +1309,18 @@ define gcp_tf_require_state_bucket
 endef
 
 # CONTRACT §5a mechanism 3. Reads the resolved backend prefix back out of the
-# data dir terraform just wrote and refuses to proceed unless it names ENV.
-# This is the mechanism that catches a human editing state by hand, and the one
-# that fires if `init` silently reused a cached backend pointer.
+# data dir terraform just wrote and refuses to proceed unless it IS the prefix
+# ENV derives. This is the mechanism that catches a human editing state by hand,
+# and the one that fires if `init` silently reused a cached backend pointer.
+#
+# The comparison is exact equality, not a substring match. It was written as
+# `case "$$resolved" in *"$(ENV)"*)`, which passed for any prefix merely
+# CONTAINING the key: `osramp/environments/demo-10` satisfied `ENV=demo-1`.
+# Since TF_STATE_PREFIX_BASE is ?=-overridable, so did anything else with the
+# key somewhere in it. A hand-edit from demo-1 to demo-10 is precisely the
+# mistake this guard exists to catch, and it was the one case it let through —
+# while the typed CONFIRM on destroy still matched, because that checks ENV
+# against the operator's typing, not against the state the backend resolved to.
 define gcp_tf_assert_prefix
 	@backend_state="$(1)/$(GCP_TF_DATA_DIR)/terraform.tfstate"; \
 	if [ ! -f "$$backend_state" ]; then \
@@ -1326,15 +1335,15 @@ define gcp_tf_assert_prefix
 		echo "       Read from: $$backend_state"; \
 		exit 3; \
 	fi; \
-	case "$$resolved" in \
-		*"$(ENV)"*) ;; \
-		*) echo "ERROR: backend prefix mismatch — this is CONTRACT §5a firing."; \
-		   echo "       resolved prefix: $$resolved"; \
-		   echo "       ENV:             $(ENV)"; \
-		   echo "       Terraform would have written $(ENV)'s resources into another"; \
-		   echo "       environment's state. Re-run 'terraform init -reconfigure'."; \
-		   exit 3;; \
-	esac; \
+	if [ "$$resolved" != "$(GCP_TF_PREFIX)" ]; then \
+		echo "ERROR: backend prefix mismatch — this is CONTRACT §5a firing."; \
+		echo "       resolved prefix: $$resolved"; \
+		echo "       expected prefix: $(GCP_TF_PREFIX)"; \
+		echo "       ENV:             $(ENV)"; \
+		echo "       Terraform would have written $(ENV)'s resources into another"; \
+		echo "       environment's state. Re-run 'terraform init -reconfigure'."; \
+		exit 3; \
+	fi; \
 	echo "gcp-tf: backend prefix '$$resolved' matches ENV='$(ENV)'"
 endef
 

@@ -1231,8 +1231,16 @@ TF_DATA_DIR_BASE ?= .terraform
 GCP_TF_DATA_DIR = $(TF_DATA_DIR_BASE)-$(ENV)
 GCP_TF_PREFIX = $(TF_STATE_PREFIX_BASE)/environments/$(ENV)
 GCP_TF_PLAN_FILE = $(GCP_TF_DATA_DIR)/$(ENV).tfplan
-GCP_TF_VAR_FILE ?= environments.tfvars
-# This path is evaluated after Terraform changes into TF_ROOT_BOOTSTRAP.
+
+# Real inputs live in deploy/gcp/, OUTSIDE terraform/, and both paths below are
+# relative to the -chdir root. This is not a filing preference. Terraform
+# auto-loads `terraform.tfvars` and `*.auto.tfvars` from the root directory
+# during `terraform test` as well as during plan, so a real tfvars file sitting
+# in terraform/environments/ silently overrides the fixture values every native
+# test suite asserts against — the suites stay green and stop measuring what
+# they claim to. Keeping the real inputs one directory outside any Terraform
+# root makes that physically impossible rather than merely discouraged.
+GCP_TF_VAR_FILE ?= ../../deploy/gcp/environments.tfvars
 GCP_TF_BOOTSTRAP_VAR_FILE ?= ../../deploy/gcp/bootstrap.tfvars
 
 # Every offline terraform invocation runs with cloud credentials stripped from
@@ -1240,7 +1248,48 @@ GCP_TF_BOOTSTRAP_VAR_FILE ?= ../../deploy/gcp/bootstrap.tfvars
 # "the unit sweep passes here" would otherwise be no evidence at all that it
 # passes on a runner with none (ISC-357).
 GCP_TF_NOCREDS = env -u GOOGLE_APPLICATION_CREDENTIALS -u GOOGLE_CREDENTIALS \
-	-u CLOUDSDK_CORE_ACCOUNT -u CLOUDSDK_AUTH_ACCESS_TOKEN -u GOOGLE_OAUTH_ACCESS_TOKEN
+	-u CLOUDSDK_CORE_ACCOUNT -u CLOUDSDK_AUTH_ACCESS_TOKEN -u GOOGLE_OAUTH_ACCESS_TOKEN \
+	-u GOOGLE_IMPERSONATE_SERVICE_ACCOUNT
+
+# --- Deploy identity: impersonation is how this estate is applied ------------
+#
+# Terraform runs as a service account, never as the human at the keyboard. The
+# human's own principal on this project is roles/editor, which is enough to
+# create a VPC and a VM and NOT enough to create the IAM-shaped resources the
+# estate needs. The observed failure is the ugly one: the apply gets a long way
+# in, dies part-way through with a permission error that names an IAM API, and
+# leaves a half-built estate. The error names IAM, so the obvious next move is
+# to widen IAM — which is the wrong fix, applied under time pressure, to a
+# project that is now in an inconsistent state.
+#
+# TF_DEPLOY_SA is read from an untracked one-line file so nobody retypes a
+# service account email, and so the email — which contains the real project id —
+# never lands in a tracked file. GCP_TF_IMPERSONATE defaults to it and is what
+# actually gets exported; keeping them separate is what makes "a deploy identity
+# is configured for this checkout, and you have blanked it" a detectable state
+# rather than an indistinguishable one.
+GCP_TF_DEPLOY_SA_FILE ?= deploy/gcp/deploy-sa
+TF_DEPLOY_SA ?= $(strip $(shell sed -e 's/#.*//' -e '/^[[:space:]]*$$/d' '$(GCP_TF_DEPLOY_SA_FILE)' 2>/dev/null | head -1))
+GCP_TF_IMPERSONATE ?= $(TF_DEPLOY_SA)
+
+# Prefixed onto every terraform invocation in this block. Empty when no
+# impersonation target is configured, so the recipe line is unchanged for the
+# offline sweeps — and GCP_TF_NOCREDS strips the variable outright, so a
+# developer's exported impersonation cannot make the offline suite pass
+# differently from a runner that has none.
+GCP_TF_IMPERSONATE_ENV = $(if $(strip $(GCP_TF_IMPERSONATE)),GOOGLE_IMPERSONATE_SERVICE_ACCOUNT='$(strip $(GCP_TF_IMPERSONATE))',)
+
+# The handoff the test code reads. One file, no flags. Untracked: every value in
+# it names a real project.
+GCP_TF_HANDOFF_DIR ?= deploy/gcp
+GCP_TF_HANDOFF_FILE = $(GCP_TF_HANDOFF_DIR)/$(ENV).handoff.json
+
+# The identifier a consumer matches on before trusting the shape. `schema` is
+# the string form the acceptance harness reads; `schema_version` is the integer
+# to compare when the string matches. Both are emitted because two readers were
+# already written against two spellings, and adding a field is cheaper than
+# either of them renaming.
+GCP_TF_HANDOFF_SCHEMA ?= signalloom.gcp.handoff/v1
 
 # --- Discovery, not hand-maintained lists ----------------------------------
 #
@@ -1319,6 +1368,48 @@ define gcp_tf_require_bootstrap_var_file
 	fi
 endef
 
+# Refuse to mutate the estate as a user identity.
+#
+# The condition is narrow on purpose: it fires when a deploy identity IS
+# configured for this checkout (deploy/gcp/deploy-sa names one) and the value
+# that actually gets exported is empty. That is the reachable accident — an
+# operator overriding GCP_TF_IMPERSONATE= on the command line, a CI job that
+# clears the environment, a sub-make that forgot to forward it — and it is
+# indistinguishable from "correctly configured" at the point of failure, because
+# gcloud will happily authenticate as the human and Terraform will happily
+# start.
+#
+# What it prevents is the half-applied estate. The user principal here holds
+# roles/editor, which creates a VPC and a VM and then fails on the first
+# IAM-shaped resource. The error names an IAM permission, so the diagnosis it
+# invites is "widen IAM" — on a project that is now half-built. The message
+# below therefore names impersonation first and IAM second, because the IAM
+# error is the symptom and the missing impersonation is the cause.
+define gcp_tf_require_impersonation
+	@if [ -n '$(strip $(TF_DEPLOY_SA))' ] && [ -z '$(strip $(GCP_TF_IMPERSONATE))' ]; then \
+		echo "ERROR: refusing to run '$@' without impersonation."; \
+		echo "       A deploy service account is configured for this checkout"; \
+		echo "       ($(GCP_TF_DEPLOY_SA_FILE) names one) but GCP_TF_IMPERSONATE is empty,"; \
+		echo "       so Terraform would run as your own user identity."; \
+		echo; \
+		echo "       That does not fail cleanly. Your user principal can create a VPC"; \
+		echo "       and a VM and cannot create the IAM-shaped resources, so the apply"; \
+		echo "       gets a long way in and then dies with a permission error naming an"; \
+		echo "       IAM API — leaving a half-applied estate and inviting the wrong fix"; \
+		echo "       (widening IAM) instead of the right one (impersonate the SA)."; \
+		echo; \
+		echo "       Fix: make $@ ENV=$(ENV) GCP_TF_IMPERSONATE=\$$(cat $(GCP_TF_DEPLOY_SA_FILE))"; \
+		echo "       or simply drop the override — it defaults to that file's contents."; \
+		exit 2; \
+	fi
+	@if [ -z '$(strip $(GCP_TF_IMPERSONATE))' ]; then \
+		echo "WARNING: no deploy service account is configured — '$@' will run as"; \
+		echo "         whatever identity gcloud is currently authenticated as. Write the"; \
+		echo "         deploy SA email into $(GCP_TF_DEPLOY_SA_FILE) (untracked) to fix"; \
+		echo "         this permanently. See deploy/gcp/README.md."; \
+	fi
+endef
+
 # CONTRACT §5a mechanism 3. Reads the resolved backend prefix back out of the
 # data dir terraform just wrote and refuses to proceed unless it IS the prefix
 # ENV derives. This is the mechanism that catches a human editing state by hand,
@@ -1389,7 +1480,7 @@ endef
 # init -reconfigure with the prefix derived from ENV, followed immediately by
 # the readback assertion. Nothing plans or applies without passing through here.
 define gcp_tf_init_env
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) init -reconfigure \
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) init -reconfigure \
 		-backend-config=bucket=$(TF_STATE_BUCKET) \
 		-backend-config=prefix=$(GCP_TF_PREFIX)
 	$(call gcp_tf_assert_prefix,$(TF_ROOT_ENV))
@@ -1403,8 +1494,10 @@ gcp-tf-bootstrap: ## Plan the one-time state-bucket bootstrap root (review, then
 	@# absentmindedly. The plan is produced here; the apply is a human step, and
 	@# terraform/RUNBOOK.md gives the exact command.
 	$(gcp_tf_require_bootstrap_var_file)
-	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) init
-	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) plan -var-file=$(GCP_TF_BOOTSTRAP_VAR_FILE) -out=bootstrap.tfplan
+	$(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_BOOTSTRAP) init
+	$(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_BOOTSTRAP) plan \
+		-var-file=$(GCP_TF_BOOTSTRAP_VAR_FILE) \
+		-out=bootstrap.tfplan
 	@echo
 	@echo "Plan written to $(TF_ROOT_BOOTSTRAP)/bootstrap.tfplan."
 	@echo "Review it, then apply by hand:"
@@ -1414,8 +1507,9 @@ gcp-tf-bootstrap: ## Plan the one-time state-bucket bootstrap root (review, then
 gcp-tf-plan: ## Plan one environment to a reviewable saved plan file (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_require_impersonation)
 	$(gcp_tf_init_env)
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) plan \
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) plan \
 		-var-file=$(GCP_TF_VAR_FILE) \
 		-var target_env=$(ENV) \
 		-out=$(GCP_TF_PLAN_FILE)
@@ -1427,6 +1521,7 @@ gcp-tf-plan: ## Plan one environment to a reviewable saved plan file (ENV=<key>)
 gcp-tf-apply: ## Apply a previously reviewed saved plan file (ENV=<key>). Never a bare apply.
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_require_impersonation)
 	@if [ ! -f "$(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)" ]; then \
 		echo "ERROR: no saved plan at $(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)."; \
 		echo "       Run: make gcp-tf-plan ENV=$(ENV) TF_STATE_BUCKET=$(TF_STATE_BUCKET)"; \
@@ -1436,15 +1531,15 @@ gcp-tf-apply: ## Apply a previously reviewed saved plan file (ENV=<key>). Never 
 		exit 2; \
 	fi
 	$(gcp_tf_init_env)
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) apply $(GCP_TF_PLAN_FILE)
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) apply $(GCP_TF_PLAN_FILE)
 
 .PHONY: gcp-tf-status
 gcp-tf-status: ## Show one environment's state inventory and outputs, read-only (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)
 	$(gcp_tf_init_env)
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) state list
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) output
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) state list
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) output
 
 .PHONY: gcp-tf-test
 gcp-tf-test: ## Run the offline unit sweep plus the live edge probes against one environment (ENV=<key>).
@@ -1481,6 +1576,7 @@ gcp-tf-test-unit: ## Run every native `terraform test` suite offline, with cloud
 gcp-tf-destroy: ## Destroy one environment. Requires CONFIRM=<the same key> (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_require_impersonation)
 	@case "$(TF_ROOT_ENV)" in \
 		*platform*|*bootstrap*) \
 			echo "ERROR: refusing to destroy '$(TF_ROOT_ENV)'."; \
@@ -1499,7 +1595,7 @@ gcp-tf-destroy: ## Destroy one environment. Requires CONFIRM=<the same key> (ENV
 		exit 2; \
 	fi
 	$(gcp_tf_init_env)
-	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(TF) -chdir=$(TF_ROOT_ENV) destroy \
+	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) destroy \
 		-var-file=$(GCP_TF_VAR_FILE) \
 		-var target_env=$(ENV)
 	@echo "Destroyed $(ENV). The state bucket, the audit log bucket and the platform"
@@ -1542,6 +1638,146 @@ gcp-tf-ci: ## Plan the CI environment lane (CI=<ci-N>). Delegates to gcp-tf-plan
 		exit 2; \
 	}
 	$(MAKE) --no-print-directory gcp-tf-plan ENV=$(CI)
+
+# --- The one target an operator types ---------------------------------------
+#
+# Everything above stays: the granular targets are how you review a plan, how
+# you re-run a single step after fixing one thing, and how the contract tests
+# reach individual guards. `gcp-tf-up` is the ordered sequence, so that "how do
+# I deploy this" has exactly one answer and that answer cannot skip a step.
+#
+# Every variable is forwarded explicitly to the sub-makes. Command-line
+# variables propagate through MAKEFLAGS on their own, but the ones with a
+# computed default (GCP_TF_IMPERSONATE, resolved from an untracked file) do not
+# arrive that way — and an impersonation target that silently fails to reach the
+# apply is precisely the failure this whole block exists to prevent.
+GCP_TF_FORWARD = ENV=$(ENV) TF_STATE_BUCKET=$(TF_STATE_BUCKET) TF_ROOT_ENV=$(TF_ROOT_ENV) GCP_TF_VAR_FILE=$(GCP_TF_VAR_FILE) GCP_TF_HANDOFF_DIR=$(GCP_TF_HANDOFF_DIR) GCP_TF_IMPERSONATE=$(GCP_TF_IMPERSONATE)
+
+.PHONY: gcp-tf-up
+gcp-tf-up: ## Deploy one environment end to end: plan, summarise, apply that exact plan, write the handoff (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_require_impersonation)
+	@# Refuse to apply a plan this run did not create.
+	@#
+	@# Removing any existing plan file up front is the mechanism: after the plan
+	@# step returns, a plan file exists if and only if this invocation produced
+	@# it. The sentinel is the second half, and it is not redundant — it catches
+	@# the case where the removal succeeded, the plan produced nothing, and
+	@# something else (a concurrent run, a stale copy restored by an editor)
+	@# dropped a file in between. Applying a plan file of unknown provenance is
+	@# applying a diff nobody read.
+	@rm -f '$(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)'
+	@mkdir -p '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)'
+	@rm -f '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/.up-sentinel'
+	@touch '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/.up-sentinel'
+	@echo "==> gcp-tf-up [1/4] init + plan $(ENV)"
+	$(MAKE) --no-print-directory gcp-tf-plan $(GCP_TF_FORWARD)
+	@if [ ! -f '$(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)' ]; then \
+		echo "ERROR: the plan step produced no plan file at"; \
+		echo "       $(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)."; \
+		echo "       Refusing to apply a plan this run did not create."; \
+		exit 3; \
+	fi
+	@if [ ! '$(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE)' -nt '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/.up-sentinel' ]; then \
+		echo "ERROR: the plan file at $(TF_ROOT_ENV)/$(GCP_TF_PLAN_FILE) predates this run."; \
+		echo "       It was not written by the plan step that just ran, so it is a diff"; \
+		echo "       nobody in this invocation has seen. Refusing to apply it."; \
+		exit 3; \
+	fi
+	@echo "==> gcp-tf-up [2/4] summarise the saved plan"
+	@TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) show -no-color '$(GCP_TF_PLAN_FILE)' \
+		> '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/$(ENV).plan.txt'
+	@summary="$$(grep -E '^(Plan:|No changes\.)' '$(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/$(ENV).plan.txt' | tail -1)"; \
+	if [ -n "$$summary" ]; then \
+		echo "    $$summary"; \
+	else \
+		echo "    (no 'Plan:' summary line in the rendered plan)"; \
+	fi; \
+	echo "    full plan text: $(TF_ROOT_ENV)/$(GCP_TF_DATA_DIR)/$(ENV).plan.txt"
+	@echo "==> gcp-tf-up [3/4] apply the saved plan"
+	$(MAKE) --no-print-directory gcp-tf-apply $(GCP_TF_FORWARD)
+	@echo "==> gcp-tf-up [4/4] write the hand-off"
+	$(MAKE) --no-print-directory gcp-tf-handoff $(GCP_TF_FORWARD)
+
+.PHONY: gcp-tf-handoff
+gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, read-only (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_state_bucket)
+	$(gcp_tf_init_env)
+	@mkdir -p '$(GCP_TF_HANDOFF_DIR)'
+	@set -e; \
+	outputs="$$(TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) output -json)"; \
+	if [ -z "$$outputs" ]; then \
+		echo "ERROR: 'terraform output -json' produced nothing for ENV=$(ENV)."; \
+		echo "       There is no applied state to hand off. Run: make gcp-tf-up ENV=$(ENV)"; \
+		exit 3; \
+	fi; \
+	printf '%s' "$$outputs" | jq -e . >/dev/null 2>&1 || { \
+		echo "ERROR: 'terraform output -json' did not return valid JSON for ENV=$(ENV)."; \
+		exit 3; \
+	}; \
+	v() { printf '%s' "$$outputs" | jq -r --arg env '$(ENV)' "$$1 // empty" 2>/dev/null || true; }; \
+	project_id="$$(v '.project_id.value // .integration_inputs.value.project_id')"; \
+	environment_key="$$(v '.target_env.value')"; \
+	region="$$(v '.target_environment.value.region')"; \
+	zone="$$(v '.target_environment.value.zone')"; \
+	app_port="$$(v '.target_environment.value.app_port')"; \
+	hostname="$$(v '.target_environment.value.hostname')"; \
+	access_mode="$$(v '.access_mode.value // .integration_inputs.value.access_mode')"; \
+	instance_name="$$(v '.instance_name.value // .instance_names.value[$$env] // .compute.value[$$env].instance_name')"; \
+	internal_ip="$$(v '.internal_ip.value // .internal_ips.value[$$env] // .compute.value[$$env].internal_ip')"; \
+	deploy_sa='$(strip $(GCP_TF_IMPERSONATE))'; \
+	missing=''; \
+	[ -n "$$project_id" ]      || missing="$$missing project_id(.integration_inputs.value.project_id)"; \
+	[ -n "$$environment_key" ] || missing="$$missing environment_key(.target_env)"; \
+	[ -n "$$region" ]          || missing="$$missing region(.target_environment.value.region)"; \
+	[ -n "$$zone" ]            || missing="$$missing zone(.target_environment.value.zone)"; \
+	[ -n "$$app_port" ]        || missing="$$missing app_port(.target_environment.value.app_port)"; \
+	[ -n "$$access_mode" ]     || missing="$$missing access_mode(.integration_inputs.value.access_mode)"; \
+	[ -n "$$instance_name" ]   || missing="$$missing instance_name(.instance_name|.instance_names[<env>])"; \
+	[ -n "$$internal_ip" ]     || missing="$$missing internal_ip(.internal_ip|.internal_ips[<env>])"; \
+	[ -n '$(strip $(TF_STATE_BUCKET))' ] || missing="$$missing state_bucket(TF_STATE_BUCKET)"; \
+	[ -n "$$deploy_sa" ]       || missing="$$missing deploy_sa(GCP_TF_IMPERSONATE / $(GCP_TF_DEPLOY_SA_FILE))"; \
+	if [ -n "$$missing" ]; then \
+		echo "ERROR: the terraform outputs do not carry every value the hand-off contract requires."; \
+		echo "       Unresolved (field, and the output that would supply it):"; \
+		for m in $$missing; do echo "         - $$m"; done; \
+		echo; \
+		echo "       Nothing was written. A hand-off with a blank field is worse than no"; \
+		echo "       hand-off at all: the test suite reads it, finds a field it can parse,"; \
+		echo "       and reports on an estate it never reached."; \
+		echo "       Every value here is derived from 'terraform output -json'. An"; \
+		echo "       unresolved field means the root does not publish it — add the output"; \
+		echo "       block to $(TF_ROOT_ENV)/outputs.tf. Do not hand-edit the hand-off."; \
+		exit 3; \
+	fi; \
+	case "$$app_port" in \
+		''|*[!0-9]*) \
+			echo "ERROR: app_port resolved to '$$app_port', which is not a port number."; \
+			exit 3;; \
+	esac; \
+	jq -n \
+		--argjson schema_version 1 \
+		--arg schema '$(GCP_TF_HANDOFF_SCHEMA)' \
+		--arg project_id "$$project_id" \
+		--arg environment_key "$$environment_key" \
+		--arg region "$$region" \
+		--arg zone "$$zone" \
+		--arg instance_name "$$instance_name" \
+		--arg internal_ip "$$internal_ip" \
+		--argjson app_port "$$app_port" \
+		--arg state_bucket '$(strip $(TF_STATE_BUCKET))' \
+		--arg state_prefix '$(GCP_TF_PREFIX)' \
+		--arg deploy_sa "$$deploy_sa" \
+		--arg access_mode "$$access_mode" \
+		--arg hostname "$$hostname" \
+		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		> '$(GCP_TF_HANDOFF_FILE)'; \
+	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
+	echo "The test suite reads this one file and needs no flags. It is untracked:"; \
+	echo "every field in it names a real project."
 
 # ===========================================================================
 # END GCP Terraform platform block

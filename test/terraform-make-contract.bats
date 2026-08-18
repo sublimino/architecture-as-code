@@ -29,6 +29,18 @@ setup() {
 
   # Stub terraform: records argv and the terraform-relevant environment, then
   # exits 0. It never contacts a provider, a backend, or the network.
+  #
+  # It does three things beyond recording, each of which exists because a target
+  # under test consumes terraform's *output*, not just its exit code:
+  #
+  #   plan -out=F   writes F, so `gcp-tf-up`'s "did this run create the plan I am
+  #                 about to apply?" check has something real to decide about.
+  #                 STUB_TF_NO_PLAN_FILE=1 suppresses it and STUB_TF_PLAN_MTIME
+  #                 backdates it, so both halves of that check are reachable.
+  #   show          emits a plan summary line, so the summary step is observable.
+  #   output -json  emits the fixture in STUB_TF_OUTPUT_JSON (or a default that
+  #                 models a fully-wired root), so the hand-off generator has
+  #                 real JSON to derive from.
   cat > "${STUBDIR}/terraform" <<'STUB'
 #!/usr/bin/env bash
 {
@@ -38,7 +50,66 @@ setup() {
   printf 'TF_DATA_DIR:%s\n' "${TF_DATA_DIR-<unset>}"
   printf 'GOOGLE_APPLICATION_CREDENTIALS:%s\n' "${GOOGLE_APPLICATION_CREDENTIALS-<unset>}"
   printf 'CLOUDSDK_CORE_ACCOUNT:%s\n' "${CLOUDSDK_CORE_ACCOUNT-<unset>}"
+  printf 'GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:%s\n' "${GOOGLE_IMPERSONATE_SERVICE_ACCOUNT-<unset>}"
 } >> "${STUB_RECORD}/terraform.log"
+
+stub_chdir=""
+stub_verb=""
+stub_out=""
+stub_json=0
+for a in "$@"; do
+  case "$a" in
+    -chdir=*) stub_chdir="${a#-chdir=}" ;;
+    -out=*)   stub_out="${a#-out=}" ;;
+    -json)    stub_json=1 ;;
+    -*)       ;;
+    *)        [ -z "${stub_verb}" ] && stub_verb="$a" ;;
+  esac
+done
+
+case "${stub_verb}" in
+  plan)
+    if [ -n "${stub_out}" ] && [ "${STUB_TF_NO_PLAN_FILE-0}" != "1" ]; then
+      target="${stub_out}"
+      [ -n "${stub_chdir}" ] && target="${stub_chdir}/${stub_out}"
+      mkdir -p "$(dirname "${target}")"
+      printf 'stub plan: %s\n' "$*" > "${target}"
+      [ -n "${STUB_TF_PLAN_MTIME-}" ] && touch -d "${STUB_TF_PLAN_MTIME}" "${target}"
+    fi
+    ;;
+  show)
+    printf 'Terraform will perform the following actions:\n'
+    printf '\n'
+    printf 'Plan: 3 to add, 0 to change, 0 to destroy.\n'
+    ;;
+  output)
+    if [ "${stub_json}" = "1" ]; then
+      if [ -n "${STUB_TF_OUTPUT_JSON-}" ]; then
+        cat "${STUB_TF_OUTPUT_JSON}"
+      else
+        cat <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "environment_key": "demo-1",
+    "name_prefix": "osramp-demo-1",
+    "region": "us-east4",
+    "zone": "us-east4-a",
+    "app_port": 8080,
+    "hostname": "demo-1.changeme.invalid"
+  } },
+  "integration_inputs": { "value": {
+    "project_id": "changeme-sandbox",
+    "access_mode": "iap"
+  } },
+  "instance_name": { "value": "osramp-demo-1-vm" },
+  "internal_ip": { "value": "10.20.0.7" }
+}
+JSON
+      fi
+    fi
+    ;;
+esac
 exit 0
 STUB
 
@@ -55,6 +126,18 @@ STUB
   export STUB_RECORD="${RECORD}"
   export PATH="${STUBDIR}:${PATH}"
 }
+
+teardown() {
+  # gcp-tf-bootstrap is the one target whose root is not redirected by any test:
+  # the assertion is about the DEFAULT path, so it plans against
+  # terraform/bootstrap for real. The stub writes whatever `-out=` names, which
+  # means running this suite leaves a plan file in the working tree. It is
+  # gitignored, but an untracked artefact that appears whenever the tests run is
+  # still noise a reviewer has to explain away.
+  rm -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan"
+}
+
+TF_ROOT_BOOTSTRAP_DEFAULT='terraform/bootstrap'
 
 # Run make from the repo root with the stubs in front of the real binaries.
 run_make() {
@@ -87,7 +170,8 @@ JSON
 
 @test "every gcp-tf target exists and is a real make target" {
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
-           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci; do
+           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
+           gcp-tf-up gcp-tf-handoff; do
     # -n dry-runs; an undefined target is "No rule to make target".
     run make -C "${REPO_ROOT}" -n "$t"
     [[ "${output}" != *"No rule to make target"* ]] || {
@@ -99,7 +183,8 @@ JSON
 
 @test "every gcp-tf target is declared .PHONY" {
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
-           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci; do
+           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
+           gcp-tf-up gcp-tf-handoff; do
     grep -Eq "^\.PHONY:( .*)? ${t}( |$)" "${MAKEFILE}" || {
       echo "${t} is not declared .PHONY"
       return 1
@@ -111,7 +196,8 @@ JSON
   run_make help
   [ "$status" -eq 0 ]
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
-           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci; do
+           gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
+           gcp-tf-up gcp-tf-handoff; do
     [[ "${output}" == *"${t}"* ]] || {
       echo "${t} is missing from make help — it has no '## ' comment"
       return 1
@@ -124,7 +210,7 @@ JSON
 # ---------------------------------------------------------------------------
 
 @test "every environment-scoped target exits non-zero when ENV is unset" {
-  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy; do
+  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff; do
     run_make "$t"
     [ "$status" -ne 0 ] || {
       echo "${t} succeeded with no ENV"
@@ -148,7 +234,7 @@ JSON
 }
 
 @test "ENV=prod-1 is rejected by every environment-scoped target" {
-  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy; do
+  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff; do
     run_make "$t" ENV=prod-1 TF_STATE_BUCKET=changeme-tfstate CONFIRM=prod-1
     [ "$status" -ne 0 ] || {
       echo "${t} accepted ENV=prod-1"
@@ -641,4 +727,552 @@ JSON
   [ "$status" -eq 0 ]
   run bash -c "grep '^ARGV:.* apply ' '${RECORD}/terraform.log'"
   [[ "$output" == *"-auto-approve"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Impersonation — the estate is applied by a service account, never by a human
+#
+# Every test below pins GCP_TF_DEPLOY_SA_FILE. The default is an untracked file
+# that exists on an operator's machine and not on a runner, so a suite that left
+# it at the default would assert different things in the two places — and would
+# pass in both.
+# ---------------------------------------------------------------------------
+
+SA_EMAIL='changeme-deploy@changeme-sandbox.iam.gserviceaccount.com'
+
+# A path that is guaranteed not to exist, so TF_DEPLOY_SA resolves empty.
+no_sa_file() {
+  printf '%s' "GCP_TF_DEPLOY_SA_FILE=${BATS_TEST_TMPDIR}/no-such-deploy-sa"
+}
+
+# A one-line deploy-sa file, as an operator would write it.
+sa_file() {
+  local f="${BATS_TEST_TMPDIR}/deploy-sa"
+  printf '%s\n' "${SA_EMAIL}" > "${f}"
+  printf '%s' "${f}"
+}
+
+@test "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT is exported on every terraform invocation when GCP_TF_IMPERSONATE is set" {
+  fixture="$(env_fixture demo-1)"
+  run_make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}"
+  [ "$status" -eq 0 ]
+
+  # More than one invocation happened, so "every" is a claim about a set with
+  # something in it. status runs init, state list and output.
+  invocations="$(grep -c '^ARGV:' "${RECORD}/terraform.log")"
+  [ "${invocations}" -ge 3 ]
+
+  carried="$(grep -c "^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:${SA_EMAIL}\$" "${RECORD}/terraform.log")"
+  [ "${carried}" -eq "${invocations}" ]
+
+  # And not one invocation ran without it. An invocation that slipped through
+  # unimpersonated is the whole failure mode: it runs as the human.
+  run bash -c "grep '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:' '${RECORD}/terraform.log' | grep -v '${SA_EMAIL}' || true"
+  [ -z "$output" ]
+}
+
+@test "no terraform invocation carries an impersonation target when none is configured" {
+  # The paired negative. Without it, a Makefile that hardcoded the variable
+  # would satisfy the test above and prove nothing about GCP_TF_IMPERSONATE.
+  fixture="$(env_fixture demo-1)"
+  run_make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" GCP_TF_IMPERSONATE=
+  [ "$status" -eq 0 ]
+  run bash -c "grep '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:' '${RECORD}/terraform.log' | grep -v '<unset>' || true"
+  [ -z "$output" ]
+}
+
+@test "TF_DEPLOY_SA is read from the deploy-sa file so nobody retypes it" {
+  fixture="$(env_fixture demo-1)"
+  run_make gcp-tf-plan ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "GCP_TF_DEPLOY_SA_FILE=$(sa_file)"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:${SA_EMAIL}\$' '${RECORD}/terraform.log'"
+  [ "$status" -eq 0 ]
+  [ "$output" -ge 1 ]
+}
+
+@test "a mutating target refuses to run when impersonation is configured but empty" {
+  local sa; sa="$(sa_file)"
+  fixture="$(env_fixture demo-1)"
+  touch "${fixture}/.terraform-demo-1/demo-1.tfplan"
+
+  for t in gcp-tf-plan gcp-tf-apply gcp-tf-destroy gcp-tf-up; do
+    : > "${RECORD}/terraform.log"
+    run make -C "${REPO_ROOT}" "$t" ENV=demo-1 CONFIRM=demo-1 \
+      TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}" \
+      "GCP_TF_DEPLOY_SA_FILE=${sa}" GCP_TF_IMPERSONATE=
+    [ "$status" -ne 0 ] || {
+      echo "${t} ran as a user identity with a deploy SA configured"
+      return 1
+    }
+    [[ "${output}" == *"impersonation"* ]] || {
+      echo "${t} refused without naming impersonation: ${output}"
+      return 1
+    }
+    # The guard fires before anything is invoked. A refusal that happens after
+    # init has already touched the backend is not a refusal.
+    [ ! -s "${RECORD}/terraform.log" ] || {
+      echo "${t} invoked terraform before refusing"
+      return 1
+    }
+  done
+}
+
+@test "the refusal names impersonation as the cause and IAM only as the symptom" {
+  local sa; sa="$(sa_file)"
+  fixture="$(env_fixture demo-1)"
+  run make -C "${REPO_ROOT}" gcp-tf-apply ENV=demo-1 \
+    TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}" \
+    "GCP_TF_DEPLOY_SA_FILE=${sa}" GCP_TF_IMPERSONATE=
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"without impersonation"* ]]
+  [[ "${output}" == *"half-applied"* ]]
+  [[ "${output}" == *"IAM"* ]]
+  # Order matters. The observed failure names an IAM permission, which invites
+  # widening IAM. If this message led with IAM it would reinforce exactly that.
+  imp_at="$(printf '%s\n' "${output}" | grep -n 'impersonation' | head -1 | cut -d: -f1)"
+  iam_at="$(printf '%s\n' "${output}" | grep -n 'IAM' | head -1 | cut -d: -f1)"
+  [ "${imp_at}" -lt "${iam_at}" ]
+}
+
+@test "a mutating target proceeds when impersonation resolves" {
+  # Paired positive for the refusal above: a guard that refused unconditionally
+  # would satisfy every assertion in that test.
+  local sa; sa="$(sa_file)"
+  fixture="$(env_fixture demo-1)"
+  run make -C "${REPO_ROOT}" gcp-tf-plan ENV=demo-1 \
+    TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}" \
+    "GCP_TF_DEPLOY_SA_FILE=${sa}"
+  [ "$status" -eq 0 ]
+  [[ "${output}" != *"without impersonation"* ]]
+}
+
+@test "the offline sweep strips an inherited impersonation target" {
+  # A developer with GOOGLE_IMPERSONATE_SERVICE_ACCOUNT exported must not get a
+  # different offline result from a runner that has none.
+  run env "GOOGLE_IMPERSONATE_SERVICE_ACCOUNT=${SA_EMAIL}" \
+    make -C "${REPO_ROOT}" gcp-tf-test-unit
+  [ "$status" -eq 0 ]
+  run bash -c "grep '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:' '${RECORD}/terraform.log' | grep -v '<unset>' || true"
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# gcp-tf-up — one ordered sequence, applying only a plan it just created
+# ---------------------------------------------------------------------------
+
+@test "gcp-tf-up produces a plan file and applies THAT file" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-up"
+  run make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  # The plan step wrote the file...
+  [ -f "${fixture}/.terraform-demo-1/demo-1.tfplan" ]
+  grep -q '^stub plan:' "${fixture}/.terraform-demo-1/demo-1.tfplan"
+
+  plan_args="$(grep '^ARGV:.* plan ' "${RECORD}/terraform.log")"
+  [[ "${plan_args}" == *"-out=.terraform-demo-1/demo-1.tfplan"* ]]
+
+  # ...and the apply consumed exactly it, with no re-plan at apply time.
+  apply_args="$(grep '^ARGV:.* apply ' "${RECORD}/terraform.log")"
+  [[ "${apply_args}" == *"apply .terraform-demo-1/demo-1.tfplan"* ]]
+  [[ "${apply_args}" != *"-auto-approve"* ]]
+}
+
+@test "gcp-tf-up runs init, plan, show, apply and output in that order" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-order"
+  run make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  at() { grep -n "^ARGV:.* $1" "${RECORD}/terraform.log" | head -1 | cut -d: -f1; }
+  n_init="$(at 'init ')"; n_plan="$(at 'plan ')"
+  n_show="$(at 'show ')"; n_apply="$(at 'apply ')"
+  n_out="$(at 'output -json')"
+  for n in "${n_init}" "${n_plan}" "${n_show}" "${n_apply}" "${n_out}"; do
+    [ -n "$n" ]
+  done
+  [ "${n_init}" -lt "${n_plan}" ]
+  [ "${n_plan}" -lt "${n_show}" ]
+  [ "${n_show}" -lt "${n_apply}" ]
+  [ "${n_apply}" -lt "${n_out}" ]
+
+  # The summary the operator reads comes from the saved plan, not from a re-plan.
+  [[ "${output}" == *"Plan: 3 to add, 0 to change, 0 to destroy."* ]]
+}
+
+@test "gcp-tf-up refuses to apply when the plan step produced no plan file" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-noplan"
+  run env STUB_TF_NO_PLAN_FILE=1 \
+    make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"Refusing to apply a plan this run did not create"* ]]
+  run bash -c "grep '^ARGV:.* apply ' '${RECORD}/terraform.log' || true"
+  [ -z "$output" ]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
+}
+
+@test "gcp-tf-up refuses a plan file that predates the run" {
+  # The second half of the provenance check. A plan file exists — so the
+  # existence test above is satisfied — but it is older than the sentinel this
+  # invocation stamped, so it is not the diff this run produced.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-stale"
+  run env "STUB_TF_PLAN_MTIME=2020-01-01 00:00:00" \
+    make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"predates this run"* ]]
+  run bash -c "grep '^ARGV:.* apply ' '${RECORD}/terraform.log' || true"
+  [ -z "$output" ]
+}
+
+@test "gcp-tf-up carries impersonation through to the sub-make invocations" {
+  # gcp-tf-up delegates to gcp-tf-plan and gcp-tf-apply. GCP_TF_IMPERSONATE has a
+  # computed default, so it does not reach a sub-make through MAKEFLAGS on its
+  # own — an apply that silently lost it is the failure this forwards against.
+  local sa; sa="$(sa_file)"
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-forward"
+  run make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "GCP_TF_DEPLOY_SA_FILE=${sa}" "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+  run bash -c "grep '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:' '${RECORD}/terraform.log' | grep -v '${SA_EMAIL}' || true"
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# gcp-tf-handoff — one file, no flags, every value derived from state
+# ---------------------------------------------------------------------------
+
+# Every key the test code is entitled to rely on. hostname is deliberately not
+# here: an environment with no DNS has none, and demanding a non-empty value
+# would force a fabricated one.
+HANDOFF_REQUIRED='project_id environment_key region zone instance_name internal_ip app_port state_bucket deploy_sa access_mode generated_at'
+
+@test "gcp-tf-handoff writes valid JSON with every required key present and non-empty" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff"
+  run make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  # Existence before content.
+  [ -f "${hdir}/demo-1.handoff.json" ]
+  run jq -e . "${hdir}/demo-1.handoff.json"
+  [ "$status" -eq 0 ]
+
+  for k in ${HANDOFF_REQUIRED}; do
+    run jq -r --arg k "$k" 'if has($k) then (.[$k] | tostring) else "<<ABSENT>>" end' \
+      "${hdir}/demo-1.handoff.json"
+    [ "$status" -eq 0 ]
+    [ "$output" != "<<ABSENT>>" ] || { echo "key ${k} absent"; return 1; }
+    [ -n "$output" ] || { echo "key ${k} present but empty"; return 1; }
+  done
+
+  # hostname must be a key even when the value is empty, so the test code reads
+  # a field rather than discovering an absent one at runtime.
+  run jq -e 'has("hostname")' "${hdir}/demo-1.handoff.json"
+  [ "$status" -eq 0 ]
+}
+
+@test "every hand-off value is derived from terraform output, not from the Makefile" {
+  # Change what terraform reports and the hand-off must change with it. A value
+  # baked into the Makefile would survive this and still satisfy the test above.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-derived"
+  outputs="${BATS_TEST_TMPDIR}/outputs-derived.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "europe-west2", "zone": "europe-west2-b",
+    "app_port": 9443, "hostname": "elsewhere.changeme.invalid"
+  } },
+  "integration_inputs": { "value": {
+    "project_id": "changeme-other", "access_mode": "allowlist"
+  } },
+  "instance_name": { "value": "osramp-demo-1-elsewhere" },
+  "internal_ip": { "value": "10.99.0.42" }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-other-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  h="${hdir}/demo-1.handoff.json"
+  [ "$(jq -r .project_id "$h")"      = "changeme-other" ]
+  [ "$(jq -r .environment_key "$h")" = "demo-1" ]
+  [ "$(jq -r .region "$h")"          = "europe-west2" ]
+  [ "$(jq -r .zone "$h")"            = "europe-west2-b" ]
+  [ "$(jq -r .instance_name "$h")"   = "osramp-demo-1-elsewhere" ]
+  [ "$(jq -r .internal_ip "$h")"     = "10.99.0.42" ]
+  [ "$(jq -r .app_port "$h")"        = "9443" ]
+  [ "$(jq -r .access_mode "$h")"     = "allowlist" ]
+  [ "$(jq -r .hostname "$h")"        = "elsewhere.changeme.invalid" ]
+  # app_port is a JSON number, not a string: the test code compares it to a port.
+  [ "$(jq -r '.app_port | type' "$h")" = "number" ]
+  # And the two values Make owns rather than Terraform.
+  [ "$(jq -r .state_bucket "$h")" = "changeme-other-tfstate" ]
+  [ "$(jq -r .deploy_sa "$h")"    = "${SA_EMAIL}" ]
+}
+
+@test "the hand-off carries the agreed schema id and the env alias, and they cannot drift" {
+  # The acceptance harness (chunk I2) was written against `schema` and `env`;
+  # this generator emits `schema_version` and `environment_key`. Emitting both
+  # is cheaper than either side renaming — but two spellings of one value drift
+  # the moment somebody edits one, so the alias is asserted equal to its twin
+  # rather than merely present.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-alias"
+  run make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  h="${hdir}/demo-1.handoff.json"
+  [ -f "$h" ]
+  [ "$(jq -r .schema "$h")" = "signalloom.gcp.handoff/v1" ]
+  [ "$(jq -r .schema_version "$h")" = "1" ]
+  # The alias is the same value, not an independently computed one.
+  [ "$(jq -r .env "$h")" = "$(jq -r .environment_key "$h")" ]
+  [ "$(jq -r .env "$h")" = "demo-1" ]
+}
+
+@test "gcp-tf-handoff accepts an empty hostname and still writes the file" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-nohost"
+  outputs="${BATS_TEST_TMPDIR}/outputs-nohost.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
+  "instance_name": { "value": "osramp-demo-1-vm" },
+  "internal_ip": { "value": "10.20.0.7" }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+  [ -f "${hdir}/demo-1.handoff.json" ]
+  [ "$(jq -r .hostname "${hdir}/demo-1.handoff.json")" = "" ]
+  [ "$(jq -r .instance_name "${hdir}/demo-1.handoff.json")" = "osramp-demo-1-vm" ]
+}
+
+@test "gcp-tf-handoff writes nothing when a required output is missing" {
+  # This is today's real state for instance_name and internal_ip: the compute
+  # module publishes them, the environments root does not re-export them. The
+  # target must say so rather than emit a file with two blank fields.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-partial"
+  outputs="${BATS_TEST_TMPDIR}/outputs-partial.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"instance_name"* ]]
+  [[ "${output}" == *"internal_ip"* ]]
+  [[ "${output}" == *"outputs.tf"* ]]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
+}
+
+@test "gcp-tf-handoff refuses when no deploy identity can be recorded" {
+  # A hand-off that cannot say which identity built the estate leaves the test
+  # code unable to tell a half-applied estate from a complete one.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-nosa"
+  run make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" GCP_TF_IMPERSONATE= \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"deploy_sa"* ]]
+  [ ! -f "${hdir}/demo-1.handoff.json" ]
+}
+
+@test "gcp-tf-handoff is read-only: it never plans, applies or destroys" {
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-ro"
+  run make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -E '^ARGV:.* (plan|apply|destroy) ' '${RECORD}/terraform.log' || true"
+  [ -z "$output" ]
+  run bash -c "grep -c '^ARGV:.* output -json' '${RECORD}/terraform.log'"
+  [ "$output" -ge 1 ]
+}
+
+@test "the hand-off and the deploy identity are gitignored, and the README is not" {
+  run git -C "${REPO_ROOT}" check-ignore -q deploy/gcp/demo-1.handoff.json
+  [ "$status" -eq 0 ] || { echo "deploy/gcp/*.handoff.json is not gitignored"; return 1; }
+  run git -C "${REPO_ROOT}" check-ignore -q deploy/gcp/deploy-sa
+  [ "$status" -eq 0 ] || { echo "deploy/gcp/deploy-sa is not gitignored"; return 1; }
+  # Paired positive: a blanket ignore over deploy/gcp/ would satisfy both checks
+  # above and hide the documentation too.
+  run git -C "${REPO_ROOT}" check-ignore -q deploy/gcp/README.md
+  [ "$status" -ne 0 ] || { echo "deploy/gcp/README.md is gitignored"; return 1; }
+}
+
+@test "saved plan files are gitignored and none is tracked" {
+  run git -C "${REPO_ROOT}" check-ignore -q "${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan"
+  [ "$status" -eq 0 ] || { echo "*.tfplan is not gitignored"; return 1; }
+  run bash -c "git -C '${REPO_ROOT}' ls-files -- '*.tfplan'"
+  [ -z "$output" ] || { echo "tracked plan files: ${output}"; return 1; }
+}
+
+@test "running this suite leaves no artefact in the working tree" {
+  # The stub writes whatever `-out=` names, and gcp-tf-bootstrap plans against
+  # the real default root. Without the teardown this suite would deposit a plan
+  # file in terraform/bootstrap/ on every run.
+  run_make gcp-tf-bootstrap
+  [ "$status" -eq 0 ]
+  [ -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan" ]
+  teardown
+  [ ! -f "${REPO_ROOT}/${TF_ROOT_BOOTSTRAP_DEFAULT}/bootstrap.tfplan" ]
+}
+
+@test "no hand-off or deploy-identity file is tracked" {
+  run bash -c "git -C '${REPO_ROOT}' ls-files -- 'deploy/gcp/*.handoff.json' 'deploy/gcp/deploy-sa'"
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || { echo "tracked: ${output}"; return 1; }
+}
+
+@test "no gcp-tf target writes into the repository's deploy/gcp during the suite" {
+  # The suite redirects GCP_TF_HANDOFF_DIR into a temp dir precisely so it cannot
+  # write a real hand-off. If that ever stopped working, a test run against a
+  # live checkout would emit a file naming the real estate.
+  run bash -c "ls '${REPO_ROOT}'/deploy/gcp/*.handoff.json 2>/dev/null || true"
+  [ -z "$output" ]
+}
+
+# ---------------------------------------------------------------------------
+# The pre-existing CI lane is untouched by any of this
+# ---------------------------------------------------------------------------
+
+@test "no ci-* target's recipe references the gcp-tf block" {
+  # The kind-based CI lane and the GCP Terraform block are separate machines.
+  # A ci-* recipe reaching into GCP_TF_* would couple them, and the first
+  # symptom would be a CI run trying to impersonate a service account.
+  run bash -c "awk '/^ci-[a-zA-Z0-9_-]*:/{inr=1;next} /^[^\t]/{inr=0} inr' '${MAKEFILE}' | grep -n 'GCP_TF_\|gcp-tf' || true"
+  [ -z "$output" ] || { echo "a ci-* recipe references the gcp-tf block: ${output}"; return 1; }
+}
+
+@test "the gcp-tf block defines no target outside its own prefix" {
+  # Everything this chunk adds is namespaced. A target defined inside the block
+  # without the prefix could shadow one above it, and make resolves the last
+  # definition — silently.
+  run bash -c "awk '/^# GCP Terraform platform — appended by chunk F6/{inb=1} /^# END GCP Terraform platform block/{inb=0} inb' '${MAKEFILE}' | grep -E '^[a-zA-Z0-9_.-]+:' | grep -v '^gcp-tf-' | grep -v '^\.PHONY' || true"
+  [ -z "$output" ] || { echo "unprefixed target inside the block: ${output}"; return 1; }
+}
+
+# ---------------------------------------------------------------------------
+# MUTATION CHECKS for this chunk
+# ---------------------------------------------------------------------------
+
+@test "MUTATION impersonation-guard: neutering the guard lets a mutating target run as the user" {
+  mutdir="$(apply_mutation impersonation-guard)"
+  local sa; sa="$(sa_file)"
+  fixture="$(env_fixture demo-1)"
+  touch "${fixture}/.terraform-demo-1/demo-1.tfplan"
+
+  # Unmutated: refused.
+  run make -C "${REPO_ROOT}" gcp-tf-apply ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "GCP_TF_DEPLOY_SA_FILE=${sa}" GCP_TF_IMPERSONATE=
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"without impersonation"* ]]
+
+  # Mutated: the apply proceeds, unimpersonated. That is the half-applied estate.
+  : > "${RECORD}/terraform.log"
+  run make -C "${mutdir}" gcp-tf-apply ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "GCP_TF_DEPLOY_SA_FILE=${sa}" GCP_TF_IMPERSONATE=
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c '^GOOGLE_IMPERSONATE_SERVICE_ACCOUNT:<unset>\$' '${RECORD}/terraform.log'"
+  [ "$output" -ge 1 ]
+}
+
+@test "MUTATION up-plan-provenance: neutering the sentinel lets a stale plan be applied" {
+  mutdir="$(apply_mutation up-plan-provenance)"
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-mut"
+
+  # Unmutated: a backdated plan file is refused.
+  run env "STUB_TF_PLAN_MTIME=2020-01-01 00:00:00" \
+    make -C "${REPO_ROOT}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"predates this run"* ]]
+
+  # Mutated: the same stale plan is applied without comment.
+  : > "${RECORD}/terraform.log"
+  run env "STUB_TF_PLAN_MTIME=2020-01-01 00:00:00" \
+    make -C "${mutdir}" gcp-tf-up ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+  run bash -c "grep -c '^ARGV:.* apply ' '${RECORD}/terraform.log'"
+  [ "$output" -ge 1 ]
+}
+
+@test "MUTATION handoff-completeness: neutering the check writes a hand-off with blank fields" {
+  mutdir="$(apply_mutation handoff-completeness)"
+  fixture="$(env_fixture demo-1)"
+  outputs="${BATS_TEST_TMPDIR}/outputs-mut.json"
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "us-east4", "zone": "us-east4-a", "app_port": 8080, "hostname": ""
+  } },
+  "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } }
+}
+JSON
+
+  # Unmutated: nothing written.
+  hdir_ok="${BATS_TEST_TMPDIR}/handoff-hc-ok"
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir_ok}"
+  [ "$status" -ne 0 ]
+  [ ! -f "${hdir_ok}/demo-1.handoff.json" ]
+
+  # Mutated: a file appears, and the test code would happily parse it.
+  hdir_mut="${BATS_TEST_TMPDIR}/handoff-hc-mut"
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${mutdir}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir_mut}"
+  [ "$status" -eq 0 ]
+  [ -f "${hdir_mut}/demo-1.handoff.json" ]
+  [ "$(jq -r .instance_name "${hdir_mut}/demo-1.handoff.json")" = "" ]
 }

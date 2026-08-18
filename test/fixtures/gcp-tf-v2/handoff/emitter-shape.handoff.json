@@ -14,5 +14,6 @@
   "deploy_sa": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
   "access_mode": "iap",
   "hostname": "demo-1.example.invalid",
-  "generated_at": "2026-08-18T18:40:11Z"
+  "generated_at": "2026-08-18T18:40:11Z",
+  "kind": "demo"
 }

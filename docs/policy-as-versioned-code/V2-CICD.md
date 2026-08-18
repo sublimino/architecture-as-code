@@ -97,17 +97,38 @@ and an absent resource looks exactly like a clean one — so the report goes gre
 on a question it never asked. A field the handoff does not carry produces
 `UNKNOWN`, which is a statement about the *report*, not about the estate.
 
-## The three verdicts
+## The four verdicts
 
 | Verdict | Meaning |
 |---|---|
 | `PASS` | Checked, and it is as required. |
 | `FAIL` | Checked, and it is **not** as required. The named threat is live. |
 | `UNKNOWN` | Could **not** be checked — no permission, no resource, no key in the handoff. |
+| `N/A` | There is **nothing to check**, by design. Not a gap in the report. |
 
 `UNKNOWN` is never downgraded to `PASS` or promoted to `FAIL`. "I could not read
 the IAM policy" and "the IAM policy is wrong" are different facts, and only one
 of them means something is broken.
+
+### Why `N/A` is a separate verdict rather than a kind of `UNKNOWN`
+
+A CI lane (`kind = "ci"`) has no compute module, so it has no instance and no
+application port. That is the environment working as designed.
+
+Folding that into `UNKNOWN` has a concrete consequence: `--strict` exits `3` on
+any unchecked control, so a perfectly correct CI hand-off would fail every
+strict run and **CI lanes could never pass acceptance**. Three facts —
+"I could not look", "I looked and it is wrong", and "there is nothing here to
+look at" — need three answers.
+
+`N/A` is **fail-closed**. Only the exact string `ci` takes it. `kind = "demo"`,
+an absent `kind`, and any unrecognised value all take the strict path and report
+`UNKNOWN`, because the shape that would make this dangerous is a demo
+environment misclassified as something unfamiliar and handed over with blank
+instance fields. The unexpected case must never be the permissive one.
+
+The checks that remain meaningful for a CI lane — state bucket protection,
+deploy-SA roles, access mode — still run and still have to pass.
 
 ## The IAP distinction, which is the most useful thing the report says
 

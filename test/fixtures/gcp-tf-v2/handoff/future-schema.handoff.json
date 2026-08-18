@@ -12,5 +12,6 @@
   "state_bucket": "example-sl-tfstate",
   "deploy_sa": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
   "access_mode": "iap",
-  "hostname": ""
+  "hostname": "",
+  "kind": "demo"
 }

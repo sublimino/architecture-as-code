@@ -398,13 +398,17 @@ scan_credential_literals() {
 	grep -qi 'NAT is not egress control' <<<"$comments"
 }
 
-@test "the closed egress default is stated loudly in both NOTES.md and the module README" {
+@test "the closed egress default is stated loudly in both the chunk notes and the module README" {
 	# The chunk brief's explicit requirement. A variable that quietly defaults
 	# open is how "NAT is not egress control" survives review; a variable that
 	# defaults closed without anyone being told is how the demo mysteriously
 	# fails to pull images. Both documents must say so.
+	#
+	# The notes moved from NOTES.md at repo root to terraform/notes/<chunk>.md at
+	# merge time: every parallel chunk was told to write NOTES.md at its worktree
+	# root, so the second merge collided on it by construction.
 	local doc
-	for doc in "$REPO_ROOT/NOTES.md" "$NET_DIR/README.md"; do
+	for doc in "$REPO_ROOT/terraform/notes/f3-network-compute.md" "$NET_DIR/README.md"; do
 		[ -s "$doc" ] || {
 			echo "missing: $doc"
 			return 1

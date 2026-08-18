@@ -1,0 +1,10 @@
+project_id          = "CHANGEME-project"
+state_bucket_name   = "CHANGEME-osramp-tfstate"
+location            = "CHANGEME-location"
+state_object_admins = ["serviceAccount:CHANGEME-terraform@CHANGEME-project.iam.gserviceaccount.com"]
+
+noncurrent_versions_kept = 10
+
+labels = {
+  owner = "CHANGEME-owner"
+}

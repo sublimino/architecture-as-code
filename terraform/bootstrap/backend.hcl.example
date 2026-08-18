@@ -1,0 +1,6 @@
+# Supply these values with -backend-config= at terraform init time; never hand-write them into a backend "gcs" block.
+bucket = "CHANGEME-osramp-tfstate"
+prefix = "osramp/platform"
+
+# Environments root variant:
+# prefix = "osramp/environments/<key>"

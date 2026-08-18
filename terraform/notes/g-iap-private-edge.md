@@ -142,6 +142,31 @@ the pool. Deleting the guard now fails `rejects_a_wildcard_principalset`, and a 
 mutation checks assert the edit applied before running, so a `sed` that stops matching cannot
 report a green suite as a passing mutation.
 
+## For G2 — the root must mirror the default, not just the name
+
+The module defaults are a security control, because Terraform discards a tfvars value for an
+**undeclared** variable with only a warning. `tests/defaults_are_locked_down.tftest.hcl` proves
+every discarded optional lands safe (iap mode, no frontend without a hostname, empty allowlists,
+CDN off, IAP-managed client, default deny intact), and that discarding `iap_members` aborts the
+plan rather than falling back to a mode needing no principals.
+
+**The limit of that guarantee:** a module default only applies while the caller passes **no**
+value. The moment `terraform/environments` wires `access_mode = var.access_mode`, the **root's**
+default governs and the module's is dead. So the root must declare `access_mode` with
+`default = "iap"`, or with **no default at all** (required). A root defaulting to `"allowlist"`
+silently reverses this entire chunk while every module test stays green.
+
+Mirror the validations verbatim — all three on `iap_members`, particularly
+`!strcontains(m, "*")`, which is the clause that makes the dangerous-principal guard independently
+testable.
+
+## A note on `terraform test` merge semantics
+
+Run-level `variables` blocks **merge** with the file-level block; they do not replace it. A run
+that "omits" an input still receives the file header's value. This cost a red build: the
+all-defaults test, written as a run inside `iap_access.tftest.hcl`, failed against a module that
+was behaving correctly. Any test *about defaults* must live in a file whose header is minimal.
+
 ## Handoff — what the orchestrator must do
 
 1. **Wire the environments root.** `terraform/environments/main.tf` lines 160–176 have the

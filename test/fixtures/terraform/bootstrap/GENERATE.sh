@@ -103,4 +103,39 @@ resource "google_storage_bucket_iam_binding" "state_bucket_admins" {\
   members = var.state_object_admins\
 }'
 
+# Native `terraform test` fixtures. These mutate the tftest suite rather than a .tf file, and
+# they live here rather than under terraform/ on purpose: a fixture containing `command = apply`
+# inside terraform/ would trip the very guard it exists to exercise.
+make_tftest_fixture() {
+  local dir="$1"
+  shift
+
+  local src="${BOOTSTRAP_DIR}/tests/state-bucket.tftest.hcl"
+  local dst="${FIXTURE_ROOT}/${dir}/state-bucket.tftest.hcl"
+
+  [ -f "${src}" ] || { echo "FATAL: source ${src} does not exist" >&2; exit 1; }
+
+  mkdir -p "${FIXTURE_ROOT}/${dir}"
+  cp "${src}" "${dst}"
+
+  local expr
+  for expr in "$@"; do
+    sed -i -e "${expr}" "${dst}"
+  done
+
+  if cmp -s "${src}" "${dst}"; then
+    echo "FATAL: fixture ${dir} is identical to its source — a mutation expression no longer" >&2
+    echo "       matches. Fix the expression; do not ship an unbroken fixture." >&2
+    exit 1
+  fi
+
+  echo "ok: ${dir}/state-bucket.tftest.hcl"
+}
+
+make_tftest_fixture broken-tftest-no-mock-provider \
+  '/^mock_provider /d'
+
+make_tftest_fixture broken-tftest-command-apply \
+  '0,/^  command = plan$/ s//  command = apply/'
+
 echo "all fixtures regenerated"

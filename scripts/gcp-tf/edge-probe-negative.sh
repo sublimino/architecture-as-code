@@ -102,7 +102,10 @@ main() {
 
   if [ "$dry_run" = "true" ]; then
     log "DRY RUN -- no network request is made."
-    log "would run: curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time ${timeout} --location-trusted --request GET -- ${url}"
+    log "would run: curl --silent --show-error --output /dev/null --write-out '%{http_code}' --max-time ${timeout} --request GET -- ${url}"
+    log "note:             redirects are deliberately NOT followed. The first status is the"
+    log "                  one Cloud Armor produced; following a 302 would report the identity"
+    log "                  provider's status instead and hide what the edge actually did."
     log "pass condition:   HTTP ${EXPECTED_CODE} (Cloud Armor default deny)"
     log "fail conditions:  any other status code (exit ${EXIT_UNEXPECTED_RESPONSE});"
     log "                  request did not complete (exit ${EXIT_INCONCLUSIVE})"

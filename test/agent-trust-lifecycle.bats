@@ -110,6 +110,14 @@ if [[ "$*" == *'get resourceset -o json'* ]]; then
   printf '%s\n' '{"items":[{"metadata":{"name":"signalloom-infra"},"spec":{"inputs":[{"tenant":"inf-bao","tag":"latest"}]}},{"metadata":{"name":"signalloom-apps"},"spec":{"inputs":[{"tenant":"fe-signalloom","tag":"latest"}]}},{"metadata":{"name":"olly"},"spec":{"inputs":[]}}]}'
 fi
 if [[ "${AGENT_TRUST_FAKE_ABSENT:-0}" == 1 && "$*" == *'get namespace agent-trust-'* ]]; then exit 1; fi
+# Without this the shim reports the A2A key material as already present, so
+# prepare_a2a_keys returns early, a2a_keys_created stays false, and the rollback
+# path has nothing to unwind. A test asserting that cleanup against the default
+# fixture is asserting a no-op -- both sides agree by construction and the
+# assertion cannot fail. This flag makes the material absent so the run really
+# creates it and the rollback really has to remove it.
+if [[ "${AGENT_TRUST_FAKE_A2A_ABSENT:-0}" == 1 && "$*" == *'get secret agent-trust-a2a-private'* ]]; then exit 1; fi
+if [[ "${AGENT_TRUST_FAKE_A2A_ABSENT:-0}" == 1 && "$*" == *'get configmap agent-trust-a2a-public'* ]]; then exit 1; fi
 if [[ "${AGENT_TRUST_FAKE_DOWN_FAILURE:-0}" == 1 && "$*" == *'metadata.annotations.agent-trust'* ]]; then printf 'true'; fi
 # Discriminate on the actual jsonpath rather than answering '[]' to every query
 # about this object. The blanket form made any jsonpath the script asked for
@@ -140,31 +148,56 @@ line_number() {
   printf '%s\n' "$first"
 }
 
-@test "lifecycle preflights Bao before patching the opt-in ResourceSet" {
+# Was "preflights Bao before PATCHING the opt-in ResourceSet", and it asserted
+# the whole snapshot-and-restore choreography: `get resourceset -o json`, then a
+# patch of signalloom-infra's and signalloom-apps' spec.inputs, then a patch of
+# agent-trust's. That machinery existed to survive a fleet refresh that reapplied
+# `inputs: []` over the siblings. The inputs are declared now, the refresh
+# reinforces them, and none of those writes happen -- so the ordering hazard the
+# choreography defended against is gone rather than merely re-timed.
+#
+# What survives is the actual requirement in the name: Bao is preflighted before
+# the slice is switched on. Plus the stronger new one -- this lifecycle writes no
+# ResourceSet's spec.inputs, its own or a sibling's.
+@test "lifecycle preflights Bao before enabling the opt-in ResourceSet" {
   run env PATH="$bin:$PATH" COMMAND_LOG="$log" "$root/scripts/agent-trust-local.sh" up
   [ "$status" -eq 0 ]
   [[ "$output" == *"Agent Trust local reconciliation converged"* ]]
   grep -Fq 'reconcile kustomization flux-system -n flux-system --with-source' "$log"
   grep -Fq 'suspend kustomization tenants -n flux-system' "$log"
   grep -Fq 'get resourceset agent-trust' "$log"
-  grep -Fq 'get resourceset -o json' "$log"
-  grep -Fq 'patch resourceset/signalloom-infra --type merge -p {"spec":{"inputs":[{"tenant":"inf-bao","tag":"latest"}]}}' "$log"
-  grep -Fq 'patch resourceset/signalloom-apps --type merge -p {"spec":{"inputs":[{"tenant":"fe-signalloom","tag":"latest"}]}}' "$log"
-  ! grep -Fq 'patch resourceset/olly --type merge' "$log"
+
+  # No sibling's inputs are read for later restoration, and none are written.
+  run grep -F 'get resourceset -o json' "$log"
+  [ "$status" -ne 0 ]
+  run grep -E 'patch resourceset/(signalloom-infra|signalloom-apps|olly|apps) --type merge' "$log"
+  [ "$status" -ne 0 ]
+
+  # Bao readiness is still gated on the sibling's STATUS -- waited on, not
+  # written to. That is the whole substitution: status in, spec untouched.
   grep -Fq 'wait resourceset/signalloom-infra --for=condition=ready' "$log"
   grep -Fq 'wait kustomization/infra-configs --for=condition=ready' "$log"
-  grep -Fq 'patch resourceset/agent-trust --type merge' "$log"
+  # Activation itself: clearing the disable annotation, not a spec write.
+  grep -Fq 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile-' "$log"
   grep -Fq 'reconcile kustomization agent-trust -n agent-trust-platform --with-source' "$log"
   grep -Fq 'bao write "auth/jwt/role/agent-trust-${agent}"' "$log"
   grep -Fq 'bao read -format=json auth/jwt/role/agent-trust-planner' "$log"
   grep -Fq 'spire-server entry show -spiffeID spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner' "$log"
   grep -Fq 'rollout status deploy/agent-trust-triage' "$log"
   grep -Fq 'get service agent-trust-triage' "$log"
-  restore=$(line_number 'patch resourceset/signalloom-infra --type merge')
+  # Ordering. This used to be suspend < restore < bao_preflight, where `restore`
+  # was the sibling-inputs patch that had to land inside the suspended window or
+  # a reconcile would blank it. With no restore step the chain is simply:
+  # refresh the fleet, quiesce the owning reconcilers, then gate on Bao. The
+  # third link is the one that carried the requirement in this test's name.
+  refresh=$(line_number 'reconcile kustomization flux-system -n flux-system --with-source')
   suspend=$(line_number 'suspend kustomization tenants -n flux-system')
   bao_preflight=$(line_number 'wait resourceset/signalloom-infra --for=condition=ready')
-  [ "$suspend" -lt "$restore" ]
-  [ "$restore" -lt "$bao_preflight" ]
+  enable=$(line_number 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile-')
+  [ "$refresh" -lt "$suspend" ]
+  [ "$suspend" -lt "$bao_preflight" ]
+  # The requirement the test is named for: Bao is ready before the slice is on.
+  [ "$bao_preflight" -lt "$enable" ]
 }
 
 @test "Agent Trust Flux bootstrap grants roles and rolebindings before reconciliation" {
@@ -177,29 +210,127 @@ line_number() {
   [[ "$output" == *'"patch"'* ]]
 }
 
-@test "repeat activation changes nonce without changing logical Agent Trust inputs" {
-  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_ACTIVATION_NONCE=first \
+# ── spec.inputs is Flux's, not this script's ────────────────────────────────
+#
+# tenants/base/agent-trust.yaml declares spec.inputs, so the flux-system/tenants
+# Kustomization owns that field and the reconciler may revert any write to it at
+# any time. Every path in this lifecycle therefore has to express activation and
+# deactivation through the reconcile annotation, which is absent from the source
+# manifest and so is NOT reconciler-owned.
+#
+# The three tests below assert that separately for activation, rollback and
+# teardown, and the fourth asserts it once at source level so a fourth path
+# added later cannot quietly reintroduce the patch.
+#
+# Was "repeat activation changes nonce without changing logical inputs". The
+# nonce existed to mutate spec.inputs enough to force a rebuild. With the inputs
+# declared, reconcile.fluxcd.io/requestedAt does that without touching a field
+# the script does not own.
+@test "repeat activation re-enables and requests reconciliation without writing inputs" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" \
     "$root/scripts/agent-trust-local.sh" up
   [ "$status" -eq 0 ]
-  run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_ACTIVATION_NONCE=second \
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" \
     "$root/scripts/agent-trust-local.sh" up
   [ "$status" -eq 0 ]
-  mapfile -t patches < <(grep 'patch resourceset/agent-trust --type merge' "$log")
-  [ "${#patches[@]}" -eq 2 ]
-  [[ "${patches[0]}" == *'"activationNonce":"first"'* ]]
-  [[ "${patches[1]}" == *'"activationNonce":"second"'* ]]
-  [[ "${patches[0]}" == *'"tenant":"agent-trust-platform"'* ]]
-  [[ "${patches[1]}" == *'"tenant":"agent-trust-platform"'* ]]
+
+  # Both runs clear the disable annotation -- that is what re-activates the
+  # slice, because the controller returns on obj.IsDisabled() before building.
+  mapfile -t enables < <(grep -F 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile-' "$log")
+  [ "${#enables[@]}" -eq 2 ]
+
+  # Both runs request a reconcile, which is what the nonce used to accomplish.
+  mapfile -t requests < <(grep -F 'annotate resourceset/agent-trust reconcile.fluxcd.io/requestedAt=' "$log")
+  [ "${#requests[@]}" -eq 2 ]
+
+  # And neither writes spec.inputs.
+  run grep -F 'patch resourceset/agent-trust --type merge' "$log"
+  [ "$status" -ne 0 ]
 }
 
-@test "failed reconciliation rolls activation back to inactive inputs" {
+# Was "rolls activation back to INACTIVE INPUTS", asserting the message
+# "restoring ResourceSet inputs to []" and a patch to `{"spec":{"inputs":[]}}`.
+#
+# That rollback restored into the exact state this branch exists to eliminate.
+# `inputs: []` is not an inactive ResourceSet -- flux-operator's
+# BuildResourceSet renders the template ONCE against a nil map when the input
+# list is empty, so the object does not go quiet, it goes terminally Stalled
+# with `map has no entry for key "tenant"`. The old rollback was not restoring
+# anything: it converted a half-activated slice into an unbuildable one, with
+# every namespace it had already created still present, because a Stalled
+# ResourceSet does not prune. It looked like deactivation and was not.
+#
+# What rollback is actually FOR is the imperative side-effects that Flux does
+# not own -- the OpenBao roles and SPIRE entries, the A2A key material, the
+# namespace this script created itself, and resuming root reconciliation. Those
+# are still real and still asserted here. The ResourceSet half is now the
+# annotation, which is a state the operator implements.
+@test "failed reconciliation disables the slice and unwinds what Flux does not own" {
   run env PATH="$bin:$PATH" COMMAND_LOG="$log" AGENT_TRUST_FAKE_RECONCILE_FAILURE=1 \
     "$root/scripts/agent-trust-local.sh" up
   [ "$status" -ne 0 ]
-  [[ "$output" == *"restoring ResourceSet inputs to []"* ]]
-  grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
+  [[ "$output" == *"disabling the ResourceSet"* ]]
+
+  # The ResourceSet is left in an off-state the controller honours...
+  grep -Fq 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile=disabled --overwrite' "$log"
+  # ...and NOT in the unbuildable one, which is what it used to be left in.
+  run grep -F 'patch resourceset/agent-trust --type merge' "$log"
+  [ "$status" -ne 0 ]
+
+  # Root reconciliation is handed back, which is the one unwind that always runs.
   grep -Fq 'flux resume kustomization flux-system -n flux-system' "$log"
   grep -Fq 'flux resume kustomization tenants -n flux-system' "$log"
+
+  # The failure is injected at `flux reconcile kustomization agent-trust`, i.e.
+  # before configure_identity_plane, so the OpenBao roles were never written and
+  # must not be deleted. Asserting their cleanup here would pass only because
+  # nothing had happened.
+  run grep -F 'bao delete auth/jwt/role/agent-trust-planner' "$log"
+  [ "$status" -ne 0 ]
+}
+
+# The other half of "unwinds what Flux does not own": material this run actually
+# created. Split out because it needs a fixture in which the A2A keys are ABSENT
+# to begin with -- against the default shim they read as already present,
+# prepare_a2a_keys returns early, and any assertion about their removal passes
+# without the removal ever being reachable.
+@test "rollback deletes the A2A material the failed run created" {
+  run env PATH="$bin:$PATH" COMMAND_LOG="$log" \
+    AGENT_TRUST_FAKE_A2A_ABSENT=1 AGENT_TRUST_FAKE_RECONCILE_FAILURE=1 \
+    "$root/scripts/agent-trust-local.sh" up
+  [ "$status" -ne 0 ]
+
+  # Precondition: this run genuinely created the material, so there is something
+  # to unwind. Without this the deletion assertions below would be vacuous.
+  grep -Fq 'create secret generic agent-trust-a2a-private' "$log"
+  grep -Fq 'create configmap agent-trust-a2a-public' "$log"
+
+  grep -Fq 'delete secret agent-trust-a2a-private' "$log"
+  grep -Fq 'delete configmap agent-trust-a2a-public' "$log"
+}
+
+# Source-level guard, so a fourth path cannot reintroduce the drift without
+# tripping something. The three behavioural tests above prove the paths that
+# exist today do the right thing; this one covers the paths that do not exist
+# yet. Scanning the script from the test file keeps the forbidden literal out of
+# the file being scanned -- a guard that greps for a pattern it also contains
+# fires on itself and reads exactly like a real finding.
+@test "the lifecycle never writes the Flux-owned spec.inputs field" {
+  run grep -n 'spec\\*":{\\*"inputs' "$root/scripts/agent-trust-local.sh"
+  [ "$status" -ne 0 ] || {
+    printf 'agent-trust-local.sh writes spec.inputs:\n%s\n' "$output" >&2
+    printf 'That field is declared in tenants/base/agent-trust.yaml, so the\n' >&2
+    printf 'tenants Kustomization owns it and will revert the write. Express\n' >&2
+    printf 'activation and deactivation through fluxcd.controlplane.io/reconcile.\n' >&2
+    return 1
+  }
+
+  # Prove the guard can see the thing it is looking for, rather than passing
+  # because the pattern never matches anything at all.
+  local canary="$BATS_TEST_TMPDIR/canary.sh"
+  printf '%s\n' 'kubectl patch resourceset/x --type merge -p "{\"spec\":{\"inputs\":[]}}"' >"$canary"
+  run grep -n 'spec\\*":{\\*"inputs' "$canary"
+  [ "$status" -eq 0 ]
 }
 
 @test "network test fails closed when no CNI daemonset is present" {
@@ -380,10 +511,27 @@ print(",".join(bad))
 
 @test "lifecycle contains no fixed readiness sleeps and teardown is owned-only" {
   script="$root/scripts/agent-trust-local.sh"
-  ! grep -E '(^|[;[:space:]])sleep[[:space:]]+[0-9]' "$script"
-  grep -Fq 'patch "resourceset/${resource_set}" --type merge -p '\''{"spec":{"inputs":[]}}'\''' "$script"
+
+  # `! cmd` was dead here. bats fails a test on a bare `!` only when it is the
+  # LAST line of the body -- anywhere else the negation suppresses the failure
+  # and the assertion is decoration. Verified directly: `! true` as the final
+  # line fails the test, `! true` followed by any other line passes. So the
+  # no-fixed-sleeps guard, the headline half of this test's name, has never been
+  # able to fire. `run` plus an explicit status check works at any position.
+  run grep -nE '(^|[;[:space:]])sleep[[:space:]]+[0-9]' "$script"
+  [ "$status" -ne 0 ]
+
+  # Teardown parks the ResourceSet in the off-state the operator implements.
+  # This asserted a patch of spec.inputs to []. That is not an off-state --
+  # BuildResourceSet renders once against a nil map when the input list is
+  # empty, so it stalls the object instead of quiescing it -- and spec.inputs is
+  # now declared in tenants/base/agent-trust.yaml, so writing it is drift the
+  # tenants Kustomization reverts.
+  grep -Fq 'fluxcd.controlplane.io/reconcile=disabled --overwrite' "$script"
+
   grep -Fq 'kubectl delete namespace "$namespace"' "$script"
-  ! grep -Fq 'delete namespace "$bao_namespace"' "$script"
+  run grep -F 'delete namespace "$bao_namespace"' "$script"
+  [ "$status" -ne 0 ]
 }
 
 @test "down deactivates the ResourceSet then removes only owned namespaces" {
@@ -397,7 +545,8 @@ print(",".join(bad))
   # inputs, so spec.inputs is a Flux-owned field that the tenants Kustomization
   # will revert. Asserting the annotation is asserting the thing that holds.
   grep -Fq 'annotate resourceset/agent-trust fluxcd.controlplane.io/reconcile=disabled --overwrite' "$log"
-  grep -Fq 'patch resourceset/agent-trust --type merge -p {"spec":{"inputs":[]}}' "$log"
+  run grep -F 'patch resourceset/agent-trust --type merge' "$log"
+  [ "$status" -ne 0 ]
   grep -q 'get resourceset/agent-trust -o jsonpath=.*fluxcd' "$log"
   grep -Fq 'delete namespace agent-trust-platform --ignore-not-found --wait=true' "$log"
   grep -Fq 'delete namespace agent-trust-northstar-investigations --ignore-not-found --wait=true' "$log"

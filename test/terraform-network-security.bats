@@ -252,6 +252,55 @@ tracked_sources() {
 	grep -qE 'var\.flow_log_sampling_rate[[:space:]]*>[[:space:]]*0' "$NET_DIR/variables.tf"
 }
 
+@test "exactly one subnet, named from the contract's name_prefix" {
+	# ISC-78. The contract fixes name_prefix = "sl-${environment_key}", so a
+	# name derived from it carries the environment key by construction. A
+	# hardcoded subnet name would collide the moment a second environment is
+	# added — which is the whole premise of the environment map.
+	local subnets
+	subnets="$(grep -cE '^resource "google_compute_subnetwork"' "$NET_DIR/main.tf")"
+	[ "$subnets" -eq 1 ]
+
+	grep -qE '^[[:space:]]*name[[:space:]]*=[[:space:]]*"\$\{var\.name_prefix\}-subnet"' "$NET_DIR/main.tf"
+
+	# Same for the VPC, router and NAT: no resource invents its own scheme.
+	local blocks="$BATS_TEST_TMPDIR/named" b type
+	for type in google_compute_network google_compute_router google_compute_router_nat; do
+		rm -rf "$blocks"
+		explode_resource_blocks "$NET_DIR" "$type" "$blocks"
+		[ "$(find "$blocks" -name '*.block' | wc -l)" -ge 1 ]
+		for b in "$blocks"/*.block; do
+			grep -qE '^[[:space:]]*name[[:space:]]*=[[:space:]]*"\$\{var\.name_prefix\}-' "$b" || {
+				echo "$type does not name itself from var.name_prefix: $b"
+				return 1
+			}
+		done
+	done
+}
+
+@test "machine type and boot disk are variables with documented defaults" {
+	# ISC-113. A default is not documented by existing; the description has to
+	# say why the number is that number.
+	local block
+	block="$(grep -A6 'variable "machine_type"' "$COMPUTE_DIR/variables.tf")"
+	[ -n "$block" ]
+	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*"[a-z0-9-]+"' <<<"$block"
+	grep -qE '^[[:space:]]*description[[:space:]]*=[[:space:]]*".{60,}' <<<"$block"
+
+	block="$(grep -A8 'variable "boot_disk_gb"' "$COMPUTE_DIR/variables.tf")"
+	[ -n "$block" ]
+	grep -qE '^[[:space:]]*default[[:space:]]*=[[:space:]]*[0-9]+' <<<"$block"
+	grep -qE '^[[:space:]]*description[[:space:]]*=[[:space:]]*".{60,}' <<<"$block"
+
+	# deletion_protection is deliberately NOT defaulted here: the contract makes
+	# it true for demo and false for ci, and that is a root-level decision. A
+	# module default would let a root forget to pass it and still plan.
+	block="$(grep -A5 'variable "deletion_protection"' "$COMPUTE_DIR/variables.tf")"
+	[ -n "$block" ]
+	run grep -qE '^[[:space:]]*default[[:space:]]*=' <<<"$block"
+	[ "$status" -ne 0 ]
+}
+
 @test "Cloud Router and Cloud NAT exist, and NAT logging is enabled" {
 	grep -qE '^resource "google_compute_router" ' "$NET_DIR/main.tf"
 

@@ -1,0 +1,28 @@
+{
+  "name": "sl-demo-1-armor",
+  "description": "Default rule allows -- allowlist is then decoration.",
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/example-project/global/securityPolicies/sl-demo-1-armor",
+  "type": "CLOUD_ARMOR",
+  "rules": [
+    {
+      "priority": 1000,
+      "action": "deny(403)",
+      "preview": false,
+      "description": "block one bad range",
+      "match": {
+        "versionedExpr": "SRC_IPS_V1",
+        "config": { "srcIpRanges": ["203.0.113.0/24"] }
+      }
+    },
+    {
+      "priority": 2147483647,
+      "action": "allow",
+      "preview": false,
+      "description": "default rule",
+      "match": {
+        "versionedExpr": "SRC_IPS_V1",
+        "config": { "srcIpRanges": ["*"] }
+      }
+    }
+  ]
+}

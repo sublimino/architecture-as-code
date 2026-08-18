@@ -1,0 +1,15 @@
+{
+  "name": "sl-demo-1-backend",
+  "description": "IAP block present but disabled -- every request reaches the backend.",
+  "loadBalancingScheme": "EXTERNAL_MANAGED",
+  "protocol": "HTTP",
+  "port": 8080,
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/example-project/global/backendServices/sl-demo-1-backend",
+  "backends": [
+    {
+      "group": "https://www.googleapis.com/compute/v1/projects/example-project/zones/us-east4-a/instanceGroups/sl-demo-1-ig"
+    }
+  ],
+  "securityPolicy": "https://www.googleapis.com/compute/v1/projects/example-project/global/securityPolicies/sl-demo-1-armor",
+  "iap": { "enabled": false }
+}

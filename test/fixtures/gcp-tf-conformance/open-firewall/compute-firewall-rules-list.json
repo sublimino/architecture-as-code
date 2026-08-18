@@ -1,0 +1,29 @@
+[
+  {
+    "name": "sl-demo-1-allow-iap-ssh",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 1000,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["35.235.240.0/20"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["22"] }]
+  },
+  {
+    "name": "sl-demo-1-temporary-debug-open",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 800,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["0.0.0.0/0"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["8080"] }]
+  },
+  {
+    "name": "sl-demo-1-deny-all-ingress",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 65534,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["0.0.0.0/0"],
+    "denied": [{ "IPProtocol": "all" }]
+  }
+]

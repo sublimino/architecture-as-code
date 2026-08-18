@@ -1,0 +1,58 @@
+[
+  {
+    "name": "sl-demo-1-allow-iap-ssh",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 1000,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["35.235.240.0/20"],
+    "targetTags": ["sl-demo-1"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["22"] }]
+  },
+  {
+    "name": "sl-demo-1-allow-health-checks",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 1000,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["130.211.0.0/22", "35.191.0.0/16"],
+    "targetTags": ["sl-demo-1"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["8080"] }]
+  },
+  {
+    "name": "sl-demo-1-deny-all-ingress",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 65534,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["0.0.0.0/0"],
+    "denied": [{ "IPProtocol": "all" }]
+  },
+  {
+    "name": "sl-demo-1-legacy-open",
+    "direction": "INGRESS",
+    "disabled": true,
+    "priority": 900,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "sourceRanges": ["0.0.0.0/0"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["0-65535"] }]
+  },
+  {
+    "name": "sl-demo-1-allow-egress-dns",
+    "direction": "EGRESS",
+    "disabled": false,
+    "priority": 1000,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-1-vpc",
+    "destinationRanges": ["169.254.169.254/32"],
+    "allowed": [{ "IPProtocol": "udp", "ports": ["53"] }]
+  },
+  {
+    "name": "sl-demo-10-allow-all",
+    "direction": "INGRESS",
+    "disabled": false,
+    "priority": 1000,
+    "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-10-vpc",
+    "sourceRanges": ["0.0.0.0/0"],
+    "allowed": [{ "IPProtocol": "tcp", "ports": ["0-65535"] }]
+  }
+]

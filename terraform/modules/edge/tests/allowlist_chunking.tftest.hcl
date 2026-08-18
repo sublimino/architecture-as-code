@@ -15,6 +15,10 @@ mock_provider "google" {}
 mock_provider "google-beta" {}
 
 variables {
+  # Chunking only happens when the allowlist is an authorisation control, so
+  # this file is pinned to allowlist mode. Under the "iap" default the allow
+  # band is a single wildcard chunk and there is nothing to chunk.
+  access_mode            = "allowlist"
   project_id             = "CHANGEME-project"
   environment_key        = "demo-1"
   name_prefix            = "sl-demo-1"

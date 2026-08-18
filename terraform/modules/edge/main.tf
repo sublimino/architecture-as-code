@@ -10,6 +10,24 @@
 # ---------------------------------------------------------------------------
 
 locals {
+  # --- Access mode ---------------------------------------------------------
+  # Three postures, derived once here so no resource re-interprets the string.
+  #
+  #   iap_enabled          IAP authenticates and authorises at the Google edge.
+  #   allowlist_authorises Cloud Armor's IP allowlist is an authorisation control.
+  #   admit_all_clients    Cloud Armor admits every source IP to the sign-in
+  #                        boundary, because in pure "iap" mode there is no IP
+  #                        restriction by design and IAP is what says no.
+  #
+  # Read modules/edge/README.md "Access modes" before changing any of these.
+  iap_enabled          = contains(["iap", "iap_and_allowlist"], var.access_mode)
+  allowlist_authorises = contains(["allowlist", "iap_and_allowlist"], var.access_mode)
+  admit_all_clients    = var.access_mode == "iap"
+
+  # Empty id selects the IAP-managed OAuth client: no brand to provision by
+  # hand, and no client secret in tfvars or state.
+  iap_managed_client = var.iap_oauth2_client_id == ""
+
   # The public frontend exists only when a hostname was supplied. Without one
   # there is no certificate to terminate TLS with, so we create no proxy and no
   # forwarding rule at all rather than leaving a half-built plaintext edge.
@@ -98,6 +116,44 @@ resource "google_compute_backend_service" "app" {
       serve_while_stale = 0
     }
   }
+
+  # --- Identity-Aware Proxy ------------------------------------------------
+  # This is the control that makes the edge non-public. The load balancer stays
+  # externally addressable so there is a real hostname and a managed
+  # certificate, but Google authenticates and authorises every request here,
+  # before any byte reaches the backend. An unauthenticated visitor gets a
+  # Google sign-in page, not the application.
+  #
+  # Omitting oauth2_client_id/secret selects the IAP-managed OAuth client. The
+  # provider schema at google ~> 6.8 marks both optional, so this is supported
+  # rather than assumed -- see NOTES.md for the schema check.
+  dynamic "iap" {
+    for_each = local.iap_enabled ? [1] : []
+
+    content {
+      enabled              = true
+      oauth2_client_id     = local.iap_managed_client ? null : var.iap_oauth2_client_id
+      oauth2_client_secret = local.iap_managed_client ? null : var.iap_oauth2_client_secret
+    }
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Who may pass IAP
+#
+# Enabling IAP without granting anyone httpsResourceAccessor produces an edge
+# that authenticates every visitor and then refuses all of them. The variable
+# validation makes an empty list unrepresentable under an IAP mode; this
+# resource is what turns the named principals into actual access.
+# ---------------------------------------------------------------------------
+
+resource "google_iap_web_backend_service_iam_member" "accessors" {
+  for_each = local.iap_enabled ? toset(var.iap_members) : toset([])
+
+  project             = var.project_id
+  web_backend_service = google_compute_backend_service.app.name
+  role                = "roles/iap.httpsResourceAccessor"
+  member              = each.value
 }
 
 # ---------------------------------------------------------------------------

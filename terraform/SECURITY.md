@@ -93,6 +93,61 @@ Nothing in Terraform can stop someone treating the allowlist as a login. The
 control is that it is written down, and that the runbook makes you prove the
 `403` from outside rather than assume it.
 
+### 5a. The access-mode decision — what IAP does that an allowlist cannot
+
+**Threat.** The requirement is "route to it, but do not have public access". An
+IP allowlist cannot satisfy that, for the reason stated above: it is exposure
+control, and exposure control is not authentication. Narrowing an allowlist
+makes a public endpoint *smaller*, never *private*.
+
+**What changes.** `modules/edge` takes an `access_mode` with three values, and
+**the default is `iap`**. A variable that defaults to the weaker posture is how
+the weaker posture ends up in production; the safe value is what you get by not
+thinking about it.
+
+| Mechanism | Where |
+|---|---|
+| `access_mode` defaults to `"iap"` — Identity-Aware Proxy authenticates and authorises **every** request at the Google edge before any byte reaches the backend | `modules/edge/variables.tf`, asserted on the **evaluated default** by `tests/iap_access.tftest.hcl` → `default_access_mode_is_iap`, and mutation-proved in bats ("defaulting access_mode to allowlist turns the suite red") |
+| `iap_enabled = true` on the backend service, with the **IAP-managed OAuth client** (no client secret in tfvars or state) | `modules/edge/main.tf`, asserted on the evaluated `iap` block |
+| `roles/iap.httpsResourceAccessor` granted to a named `iap_members` list, bound to *this* backend service | `google_iap_web_backend_service_iam_member`, asserted on role, member shape, and target backend |
+| Empty `iap_members` rejected under any IAP mode — IAP with no authorised principal is a locked door with no key | variable validation, proven by `expect_failures` **paired with a positive** |
+| `allUsers`, `allAuthenticatedUsers`, and wildcard members rejected | variable validation, proven by `expect_failures` paired with positives, and independently mutation-proved |
+| Cloud Armor default `deny(403)`, preconfigured WAF, adaptive protection and rate limiting retained in **every** mode | `modules/edge/armor.tf`, asserted per-mode |
+| A wildcard allow rule is unrepresentable while IAP is disabled | `lifecycle { precondition }` on the security policy, reading the **computed** chunk list rather than the mode string |
+
+**`allAuthenticatedUsers` is not a restriction.** This is the single most
+dangerous value in the module and it deserves its own line. The word
+"authenticated" reads as a constraint — something has been checked, someone has
+proved something. In IAP it means **any Google account on earth**: every Gmail
+address, every Workspace tenant, anyone who can complete a sign-in with any
+identity Google will issue. It is functionally public access wearing the
+vocabulary of access control, and it is more dangerous than `allUsers` precisely
+because `allUsers` is honest about what it does. Neither is a restriction.
+Both are rejected at plan time.
+
+**The honest part.** IAP is enforced by Google at the front end, which means it
+is only as good as the principal list and the Google account behind it. It does
+not authenticate service-to-service traffic that bypasses the load balancer, and
+it is not a substitute for the application's own OIDC — a demo VM reachable on
+its internal address is still reachable regardless of what IAP says at the edge.
+That path is closed separately, by the network module's firewall rules and by
+the absence of any `access_config` (§3), and it is what
+`scripts/gcp-tf/edge-probe-bypass.sh` exists to probe.
+
+**One ordering fact drives the Cloud Armor design.** On a global external
+Application Load Balancer, Cloud Armor is evaluated **before** IAP, against the
+original client IP — *"If Cloud Armor blocks a request, IAP doesn't evaluate the
+request"* ([Cloud Armor
+integration](https://cloud.google.com/armor/docs/integrating-cloud-armor)). IAP
+is an inline check at the same front end, not an upstream proxy with its own
+source addresses. So in `iap` mode Cloud Armor must admit the client population
+IAP will then authenticate: a policy restricted to "Google's IAP range" would
+return `403` to every real browser and the sign-in page would never render.
+(`35.235.240.0/20` is the IAP **TCP-forwarding** range — it governs the VPC
+firewall for SSH tunnelling, per §3, and carries no web traffic through this
+load balancer.) The wildcard in `iap` mode therefore widens **exposure**, not
+**authorisation**, and `iap_and_allowlist` is the mode that narrows both.
+
 ## 6. Cross-environment collision
 
 **Threat.** Two demo environments colliding on a subnet, a hostname, or — worst

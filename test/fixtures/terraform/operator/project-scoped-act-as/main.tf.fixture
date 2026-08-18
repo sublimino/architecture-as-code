@@ -1,0 +1,13 @@
+# BROKEN: actAs granted at PROJECT scope.
+#
+# roles/iam.serviceAccountUser on the project covers every service account in
+# it, including the deploy identity — which holds roles/resourcemanager.
+# projectIamAdmin. The operator can therefore impersonate the deploy identity
+# and grant itself anything, which is the entire separation this module exists
+# to create, undone in one line that looks like a simplification.
+
+resource "google_project_iam_member" "operator_act_as" {
+  project = var.project_id
+  role    = "roles/iam.serviceAccountUser"
+  member  = "serviceAccount:${local.operator_email}"
+}

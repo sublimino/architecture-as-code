@@ -1232,6 +1232,8 @@ GCP_TF_DATA_DIR = $(TF_DATA_DIR_BASE)-$(ENV)
 GCP_TF_PREFIX = $(TF_STATE_PREFIX_BASE)/environments/$(ENV)
 GCP_TF_PLAN_FILE = $(GCP_TF_DATA_DIR)/$(ENV).tfplan
 GCP_TF_VAR_FILE ?= environments.tfvars
+# This path is evaluated after Terraform changes into TF_ROOT_BOOTSTRAP.
+GCP_TF_BOOTSTRAP_VAR_FILE ?= ../../deploy/gcp/bootstrap.tfvars
 
 # Every offline terraform invocation runs with cloud credentials stripped from
 # the environment. Working gcloud credentials exist on developer machines, so
@@ -1304,6 +1306,15 @@ define gcp_tf_require_state_bucket
 		echo "       It is created by 'make gcp-tf-bootstrap' and has no default:"; \
 		echo "       a default here would be either a real bucket name in a public"; \
 		echo "       repo, or a placeholder that 404s instead of explaining itself."; \
+		exit 2; \
+	fi
+endef
+
+define gcp_tf_require_bootstrap_var_file
+	@if [ ! -f "$(TF_ROOT_BOOTSTRAP)/$(GCP_TF_BOOTSTRAP_VAR_FILE)" ]; then \
+		echo "ERROR: bootstrap input file is required for '$@'."; \
+		echo "       Expected: $(TF_ROOT_BOOTSTRAP)/$(GCP_TF_BOOTSTRAP_VAR_FILE)"; \
+		echo "       Set GCP_TF_BOOTSTRAP_VAR_FILE=<path-relative-to-bootstrap-root>."; \
 		exit 2; \
 	fi
 endef
@@ -1391,8 +1402,9 @@ gcp-tf-bootstrap: ## Plan the one-time state-bucket bootstrap root (review, then
 	@# back from — so it is not reachable by a one-word make target typed
 	@# absentmindedly. The plan is produced here; the apply is a human step, and
 	@# terraform/RUNBOOK.md gives the exact command.
+	$(gcp_tf_require_bootstrap_var_file)
 	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) init
-	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) plan -out=bootstrap.tfplan
+	$(TF) -chdir=$(TF_ROOT_BOOTSTRAP) plan -var-file=$(GCP_TF_BOOTSTRAP_VAR_FILE) -out=bootstrap.tfplan
 	@echo
 	@echo "Plan written to $(TF_ROOT_BOOTSTRAP)/bootstrap.tfplan."
 	@echo "Review it, then apply by hand:"

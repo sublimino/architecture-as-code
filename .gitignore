@@ -93,6 +93,10 @@ test/local-5x-results.md
 *.tfstate
 *.tfstate.*
 .terraform/
+# Terraform can create named local cache directories (for example .terraform-demo-1).
+.terraform*/
+# Saved execution plans are generated local artifacts and may contain sensitive values.
+*.tfplan
 crash.log
 crash.*.log
 *.tfvars

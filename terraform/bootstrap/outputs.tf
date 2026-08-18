@@ -16,3 +16,13 @@ output "backend_config" {
     # The environments root uses prefix = "osramp/environments/<key>" instead.
   EOT
 }
+
+output "deploy_service_account_email" {
+  description = "The identity every subsequent apply and destroy should run as."
+  value       = try(module.deploy_identity[0].deploy_service_account_email, "")
+}
+
+output "deploy_impersonation_command" {
+  description = "The exact gcloud invocation that authenticates Terraform as the deploy identity."
+  value       = try(module.deploy_identity[0].impersonation_command, "")
+}

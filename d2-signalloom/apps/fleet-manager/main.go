@@ -14,9 +14,34 @@ import (
 )
 
 // TopologyResponse is the wire format for GET /api/v1/fleet/topology.
+//
+// Every field mirrors the FleetTopology interface in
+// apps/dashboard-signalloom/src/api/fleetApi.ts, all four of whose members are
+// non-optional. This struct carried only Agents and Edges once, and the two
+// missing keys did not fail visibly: FleetDemoPage.tsx:328 defaults a missing
+// aggregateRisk to zeros, so the page reported a fleet worth nothing rather
+// than reporting that it had been told nothing.
 type TopologyResponse struct {
-	Agents []Agent `json:"agents"`
-	Edges  []Edge  `json:"edges"`
+	Agents         []Agent        `json:"agents"`
+	Edges          []Edge         `json:"edges"`
+	AggregateRisk  RiskSummary    `json:"aggregateRisk"`
+	CascadeHistory []CascadeEvent `json:"cascadeHistory"`
+}
+
+// CascadeEvent mirrors the CascadeEvent interface in fleetApi.ts.
+//
+// Distinct from CascadeResult in cascade.go, which is the INTERNAL record of a
+// run and uses snake_case. Keeping the wire type separate is deliberate: the
+// client contract and the orchestrator's bookkeeping are free to differ, and
+// conflating them is how a rename inside the orchestrator would silently become
+// a breaking API change.
+type CascadeEvent struct {
+	TriggerID   string   `json:"triggerId"`
+	AffectedIDs []string `json:"affectedIds"`
+	Timestamp   string   `json:"timestamp"`
+	DurationMs  int64    `json:"durationMs"`
+	RiskBefore  float64  `json:"riskBefore"`
+	RiskAfter   float64  `json:"riskAfter"`
 }
 
 // Edge represents a dependency edge in the topology.
@@ -54,8 +79,13 @@ func (s *server) handleTopology(w http.ResponseWriter, r *http.Request) {
 
 	agents := s.dag.AllAgents()
 	resp := TopologyResponse{
-		Agents: make([]Agent, len(agents)),
-		Edges:  make([]Edge, 0),
+		Agents:        make([]Agent, len(agents)),
+		Edges:         make([]Edge, 0),
+		AggregateRisk: s.dag.AggregateRisk(),
+		// make(), not nil: a nil slice marshals to `null`, and the client maps
+		// over cascadeHistory directly. An empty history is the correct answer
+		// for a process that has not run a cascade yet; `null` is a crash.
+		CascadeHistory: make([]CascadeEvent, 0),
 	}
 
 	for i, a := range agents {

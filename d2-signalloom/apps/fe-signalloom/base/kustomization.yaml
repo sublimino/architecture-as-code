@@ -60,6 +60,30 @@ resources:
   # fe-signalloom (via targetNamespace on the Flux Kustomization), so the proxy
   # can reach it at http://signal-ingest:8082 without cross-namespace wiring.
   - ../../signal-ingest/base
+  # Fleet Manager: agent dependency DAG and cascade stun orchestrator, reached
+  # by the dashboard at http://fleet-manager:8082 via nginx's /fleet-api/ proxy.
+  #
+  # This line is the whole reason the Fleet page worked or did not. The slice was
+  # authored complete on 2026-08-04 — source, unit tests, a 22-test manifest
+  # contract suite, and every manifest in apps/fleet-manager/base — and then
+  # reached no cluster for two weeks, because nothing Flux reconciles ever named
+  # that directory. The only deploy path was `make demo-signalloom-fleet-up`, a
+  # `kubectl apply -k` escape hatch that no bring-up target and no CI stage
+  # called. nginx resolved fleet-manager.fe-signalloom.svc.cluster.local, found
+  # no Service, and answered /fleet-api/* with a raw nginx 502 page.
+  #
+  # Every test was green throughout, which is the part worth remembering: the
+  # contract suite asserts manifest CONTENT, so it cannot distinguish a deployed
+  # workload from a well-formed file. d2-signalloom/test/fleet-manager-live.bats
+  # is the guard that can — it asks the running cluster.
+  #
+  # Only the in-tenant objects come from here. The cross-namespace RBAC (the
+  # fe-signalloom-agents Role and its binding) is inline in the signalloom-infra
+  # ResourceSet, for the same two reasons supercred-demo-runner's is: this
+  # Kustomization's targetNamespace would relocate the Role into fe-signalloom,
+  # and the namespace-scoped `flux` SA lacks `escalate`, so creating a
+  # RoleBinding from here fails the server dry-run and aborts the whole set.
+  - ../../fleet-manager/base
 
 configMapGenerator:
   # netassert-signalloom.yaml here is a committed copy of

@@ -760,6 +760,77 @@ spec:
         - kind: ServiceAccount
           name: netassert-runner
           namespace: fe-signalloom
+    # ─────────────────────────────────────────────────────────────────────────
+    # APPENDED DELIBERATELY — keep new resources at the END of this list.
+    # tenants/local/kustomization.yaml patches this ResourceSet by hard-coded
+    # positional index (/spec/resources/N/spec/verify); inserting above that
+    # index lands the cosign swap on an unrelated object and Flux then rejects
+    # every locally-pushed artifact with a VerificationError while the
+    # Kustomization silently stays on the old revision. Guarded by
+    # d2-signalloom/test/fleet-patch-indexes.bats.
+    # ─────────────────────────────────────────────────────────────────────────
+    #
+    # Fleet Manager — pod read/patch in fe-signalloom-agents.
+    #
+    # Moved here from apps/fleet-manager/base/rbac.yaml when that directory was
+    # put under Flux. It cannot live there: the signalloom-apps Kustomization
+    # carries `targetNamespace`, which would relocate this Role into the tenant
+    # namespace and leave fleet-manager with no grant where the agents actually
+    # run; and that Kustomization reconciles as the namespace-scoped `flux` SA,
+    # which lacks `escalate`, so a RoleBinding created from there fails the
+    # server dry-run's roleRef lookup and aborts the entire object set. Applied
+    # from this ResourceSet the cluster-admin flux-system SA binds it with no
+    # escalation check, in any order. Identical reasoning to the
+    # supercred-demo-runner pair above.
+    #
+    # ── Why fe-signalloom-agents is a LITERAL here ──
+    #
+    # This ResourceSet's inputs are inf-bao and inf-signalloom, so
+    # << inputs.tenant >> is neither the agents namespace nor the namespace the
+    # fleet-manager ServiceAccount lives in. Templating either would name an
+    # object that does not exist — and a RoleBinding whose subject does not
+    # resolve is LEGAL and SILENT: it grants nothing, every pod list/patch
+    # 403s, and client-go surfaces a 403 as an EMPTY result rather than an
+    # error, so the Fleet page would render an empty fleet with no reason
+    # given. The file already hardcodes fe-signalloom-agents elsewhere for
+    # exactly this reason.
+    #
+    # Verbs are the minimum the cascade orchestrator needs: read the agent pods
+    # to build the DAG, patch labels to record a stun. No create, no delete, no
+    # wildcard, and no ClusterRole — this identity must not become cluster-wide.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: fleet-manager-pod-reader
+        namespace: fe-signalloom-agents
+        labels:
+          app.kubernetes.io/name: fleet-manager
+          app.kubernetes.io/component: supercred-demo
+          app.kubernetes.io/part-of: signalloom
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "patch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: fleet-manager-pod-reader
+        namespace: fe-signalloom-agents
+        labels:
+          app.kubernetes.io/name: fleet-manager
+          app.kubernetes.io/component: supercred-demo
+          app.kubernetes.io/part-of: signalloom
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: fleet-manager-pod-reader
+      subjects:
+        - kind: ServiceAccount
+          name: fleet-manager
+          # fe-signalloom, not default and not << inputs.tenant >>: the
+          # Deployment runs there under the apps Kustomization's
+          # targetNamespace.
+          namespace: fe-signalloom
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet

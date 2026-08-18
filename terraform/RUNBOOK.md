@@ -1,125 +1,145 @@
-# Runbook — standing up the first demo environment
+# Runbook — standing up `demo-1`, the first environment
 
 **Audience: a second engineer, at 3am, who did not write any of this.**
 
-> **No apply has been run.** Nothing in this document has been executed against a
-> real GCP project. Every command below is written from the configuration, not
-> from a transcript. Expect the first pass to surface an enabled-API gap or an
-> IAM permission this document does not name; when it does, add it here.
+> ## Execution status — read this before anything else
+>
+> **No step in this document has ever been executed.** Not once, not partially,
+> not against a scratch project. Every command below is written from the
+> configuration, not from a transcript, and the outputs described are what the
+> configuration says should happen rather than what anyone has watched happen.
+>
+> | Step | Ever executed? |
+> |---|---|
+> | 1 — authenticate | no |
+> | 2 — preflight | **the script itself is tested offline against stubs; it has never been pointed at a real project** |
+> | 3 — offline gate | yes — `make gcp-tf-validate` runs green in CI and locally |
+> | 4 — bootstrap the state bucket | no |
+> | 5 — apply platform | no |
+> | 6 — plan and apply `demo-1` | no |
+> | 7 — verify | no |
+> | 8 — destroy | no |
+>
+> Expect the first real pass to surface an enabled-API gap or an IAM permission
+> this document does not name. When it does, **add it here**, in the step where
+> it bit. A runbook that is not amended on first contact stays wrong forever.
+
+`demo-1` is **secure, routable, and not publicly accessible**: it keeps a real
+DNS name and a real certificate, and Identity-Aware Proxy in front of the
+backend means every request must carry a Google identity on the `iap_members`
+list. There is no anonymous path to the application. That posture is one line of
+tfvars — `access_mode = "iap"` — and losing it is also one line, so the verify
+step in §7 tests it from outside rather than trusting it.
 
 ---
 
-## 0. Before anything: fix your gcloud identity
+## Step 1 — Fix your gcloud identity
 
-This is the first step because it is the one that bites first, and because the
-error it produces does not look like an identity problem — it looks like the
-project does not exist.
+This is first because it bites first, and because the error it produces does not
+look like an identity problem: it looks like the project does not exist.
 
-On the workstation this was built on, `gcloud auth list` shows **two** accounts:
-
-| Account | State | Can reach the target project? |
-|---|---|---|
-| `andy@control-plane.io` | authenticated but **NOT active**, credentials **need reauthentication** | yes, once reauthenticated and made active |
-| `sublimino@gmail.com` | **active** | **no** |
-
-So the default identity is the one with no access. A `terraform plan` under it
-fails with a permission or not-found error against the project, and the obvious
-reading — "the project id is wrong" — is wrong.
+Two accounts are authenticated on the workstation this was built on. The
+**active** one is a personal account with no access to the target project; the
+work account that does have access is authenticated but not active and its
+credentials need reauthentication. So the default identity is the one that
+cannot see the project, and `gcloud projects describe` answers with a message
+that reads as "no such project".
 
 ```bash
-gcloud auth list                                   # confirm which account is ACTIVE
-gcloud auth login andy@control-plane.io            # reauthenticate; opens a browser
-gcloud config set account andy@control-plane.io    # make it the active account
+gcloud auth list                                  # which account is ACTIVE?
+gcloud auth login <work-account>                  # reauthenticate; opens a browser
+gcloud config set account <work-account>
 gcloud config set project <TARGET_PROJECT_ID>
 
 # Terraform does NOT use the gcloud CLI's credentials. It uses Application
-# Default Credentials, which are a separate grant that must be obtained
-# separately. This is the single most common "but I'm logged in" failure.
+# Default Credentials, a separate grant obtained separately. This is the single
+# most common "but I am logged in" failure in this whole document.
 gcloud auth application-default login
 
-# Verify both, separately.
 gcloud config list
 gcloud auth application-default print-access-token >/dev/null && echo "ADC OK"
 ```
 
-If you are on a machine with no browser, use
-`gcloud auth login --no-launch-browser` and paste the verification code back.
+No browser on the machine? `gcloud auth login --no-launch-browser`, then paste
+the verification code back.
+
+**Rollback:** none — this changes local credential state only. To undo,
+`gcloud config set account <previous-account>`.
+
+**An agent cannot do this step.** Reauthentication is interactive by design, and
+it is the reason everything downstream of here is written rather than run.
 
 ---
 
-## 1. Prerequisites Andy must supply
-
-Terraform cannot invent any of these. Collect all seven before starting; each
-one discovered mid-run costs a re-plan.
-
-| # | Value | Why it is needed | Who can produce it |
-|---|---|---|---|
-| 1 | **Target project id** (e.g. `CHANGEME-project`) | Every resource is created in it. | Andy — project owner |
-| 2 | **Project number** (numeric, not the id) | The Workload Identity Federation provider's resource name uses the number, not the id. `gcloud projects describe <id> --format='value(projectNumber)'` | Derivable once you have (1) |
-| 3 | **DNS managed zone name + domain, and proof the domain is delegated** | The load balancer's Google-managed certificate is issued by DNS validation. Without delegation the certificate stays `PROVISIONING` forever and the demo serves a TLS error. | Andy — registrar access |
-| 4 | **Source IPv4 and IPv6 allowlist** (CIDRs) | Cloud Armor's default rule denies everything; only these ranges reach the demo. `0.0.0.0/0` and `::/0` are rejected by the environment contract's validation, deliberately. | Andy — office/VPN/home egress ranges |
-| 5 | **State bucket location** (e.g. `europe-west2`) | Set at creation and immutable. Getting it wrong means recreating the bucket that holds every root's state. | Andy — data-residency call |
-| 6 | **Billing account id** | The budget and its 50/80/100% thresholds. Optional: leave `billing_account_id = ""` and everything else still applies. | Andy — billing admin |
-| 7 | **GitHub owner numeric id** | The WIF attribute condition pins the owner by numeric id. A login can be released and re-registered by a stranger; the numeric id cannot. `curl -s https://api.github.com/users/<owner> \| jq .id` | Derivable |
-
-Also confirm these project APIs are enabled — a disabled API surfaces as a
-generic `403` that reads like an IAM problem:
+## Step 2 — Preflight
 
 ```bash
-gcloud services enable \
-  compute.googleapis.com \
-  iam.googleapis.com \
-  iamcredentials.googleapis.com \
-  sts.googleapis.com \
-  dns.googleapis.com \
-  logging.googleapis.com \
-  monitoring.googleapis.com \
-  cloudbilling.googleapis.com \
-  billingbudgets.googleapis.com \
-  storage.googleapis.com \
-  --project <TARGET_PROJECT_ID>
+./scripts/gcp-tf/preflight.sh \
+  --project <TARGET_PROJECT_ID> \
+  --env demo-1
 ```
 
+Once the state bucket exists (step 4) and a DNS zone is configured, pass them
+too — the script reports `UNKNOWN` for anything it was not given rather than
+guessing:
+
+```bash
+./scripts/gcp-tf/preflight.sh \
+  --project <TARGET_PROJECT_ID> \
+  --env demo-1 \
+  --bucket "${TF_STATE_BUCKET}" \
+  --dns-zone <ZONE_NAME>
+```
+
+It creates, modifies and deletes nothing — every cloud call passes through an
+allowlist of `describe`/`list`/`version`, so a call that would mutate aborts the
+script instead. Run it as often as you like, including while an apply is in
+flight.
+
+Three verdicts, and the difference between the last two matters:
+
+| Verdict | Meaning |
+|---|---|
+| `PASS` | checked, and as required |
+| `FAIL` | checked, and **not** as required — the fix is printed underneath |
+| `UNKNOWN` | **could not be checked** — no permission, no tool, nothing supplied |
+
+`UNKNOWN` is never reported as `FAIL`. A preflight that says "API not enabled"
+when it merely could not look sends you to enable an API that was already on.
+
+Exit `0` means no `FAIL`; exit `1` means at least one. **Do not proceed past a
+`FAIL`.** Every one of them is a thing that makes a later step fail in a less
+obvious place.
+
+**Rollback:** none needed; it changes nothing.
+
 ---
 
-## 2. Ordering: bootstrap → platform → environments
-
-The three roots exist for **credential separation**, not tidiness. Running them
-out of order does not just fail; it fails in ways that look like something else.
-
-| Root | Owns | Needs the role | State lives in |
-|---|---|---|---|
-| `terraform/bootstrap` | the Terraform state bucket | `roles/storage.admin` | a **local** state file — a root cannot own the bucket holding its own state |
-| `terraform/platform` | WIF pool + provider, CI service accounts, audit sink + audit bucket, data-access audit config, DNS managed zone, budget, notification channels | IAM, logging, monitoring, DNS admin | GCS, prefix `osramp/platform` |
-| `terraform/environments` | one demo VM, its subnet, NAT, LB, Cloud Armor policy, DNS record | compute + limited IAM | GCS, prefix `osramp/environments/<key>` |
-
-Run environments before platform and you get an environment with no runtime
-service account and no zone to attach a record to.
-
----
-
-## 3. Step by step
-
-### Step 3.1 — Offline gate first, always
+## Step 3 — The offline gate
 
 ```bash
 make gcp-tf-validate
 ```
 
-Format, validate, tflint, every native `terraform test` suite, every
-`test/terraform-*.bats` suite. No network beyond a one-time provider install, no
-credentials. If this is red, stop: nothing below will be more informative.
+`terraform fmt`, `validate` and `tflint` over every root and module, every
+native `terraform test` suite, and every `test/terraform-*.bats` suite. All of
+it discovered by glob, not by a hand-maintained list, so a suite that lands runs
+the same day. No credentials; no network beyond a one-time provider install.
+
+If this is red, **stop**. Nothing below will be more informative.
 
 **Rollback:** none needed; it changes nothing.
 
-### Step 3.2 — Bootstrap the state bucket (once per project, ever)
+---
+
+## Step 4 — Bootstrap the state bucket (once per project, ever)
 
 ```bash
 make gcp-tf-bootstrap
 ```
 
 This is **plan only**. It writes `terraform/bootstrap/bootstrap.tfplan` and
-stops. Read the plan. Then apply it by hand:
+stops. Read the plan, then apply it by hand:
 
 ```bash
 terraform -chdir=terraform/bootstrap apply bootstrap.tfplan
@@ -129,21 +149,36 @@ The hand step is deliberate. This apply creates the bucket every other root's
 state lives in — the one action in the estate with no state to roll back from —
 so it is not reachable by a one-word make target typed absentmindedly.
 
-Record the bucket name; every later command needs it.
+Record the bucket name. Every command from here on needs it:
 
 ```bash
 export TF_STATE_BUCKET=<the bucket name from the output>
 ```
 
-**Rollback:** the bucket has `force_destroy = false` and a `prevent_destroy`
-lifecycle rule, so `terraform destroy` will refuse. If it genuinely must go,
-that is a considered manual `gsutil rm -r` after confirming no other root has
-state in it. Do not automate this.
+**Rollback:** the bucket carries `force_destroy = false` and a `prevent_destroy`
+lifecycle rule, so `terraform destroy` refuses. If it genuinely must go, that is
+a considered manual `gcloud storage rm --recursive` after confirming no other
+root has state in it. Do not automate this. Note that both tripwires live in the
+config, so the same commit that destroys the bucket could delete them — the real
+protection is IAM (CONTRACT §5c): no plan/apply principal holds
+`roles/storage.admin` on the state bucket.
 
-**If it fails:** almost always `roles/storage.admin` missing, or the location in
-(5) not being a valid GCS location.
+**If it fails:** almost always missing `roles/storage.admin`, or a bucket
+location that is not a valid GCS location.
 
-### Step 3.3 — Platform
+---
+
+## Step 5 — Apply the platform root
+
+Platform must be applied **before** `demo-1`, because `demo-1` reads its
+outputs. It owns the project-level singletons that N environments would
+otherwise each claim to own: the Workload Identity pool and provider, the CI
+plan/apply service accounts, the runtime service accounts, the audit log sink
+and bucket, the DNS managed zone, the budget and the notification channels.
+
+First complete `terraform/platform/WIRING.md` — the `modules/identity` call
+ships commented out because that module is built on a sibling branch. WIRING.md
+lists exactly what to uncomment and in what order.
 
 ```bash
 terraform -chdir=terraform/platform init -reconfigure \
@@ -155,108 +190,241 @@ terraform -chdir=terraform/platform plan -out=platform.tfplan
 terraform -chdir=terraform/platform apply platform.tfplan
 ```
 
-Before this runs, complete `terraform/platform/WIRING.md` — the
-`modules/identity` call ships commented out because that module is built on a
-sibling branch. WIRING.md lists exactly what to uncomment and in what order.
-
-Capture the outputs; the environments root consumes them:
+Capture the outputs — `demo-1` consumes them through
+`terraform_remote_state`, so they must be in state before step 6:
 
 ```bash
 terraform -chdir=terraform/platform output
 ```
 
 - `dns_name_servers` → **delegate the domain to these at the registrar now.**
-  Certificate issuance in step 3.4 depends on it and takes 15–60 minutes after
-  delegation propagates.
+  Certificate issuance in step 6 depends on it, and takes 15–60 minutes after
+  delegation propagates. Doing this at the end of step 6 costs an hour of
+  waiting that could have overlapped with the rest of the work.
 - `runtime_service_account_emails`, `workload_identity_provider_name`,
   `notification_channel_ids`, `log_bucket_name`.
 
-**Rollback:** `terraform -chdir=terraform/platform destroy`. Note what this
+**Rollback:** `terraform -chdir=terraform/platform destroy`. Know what that
 takes with it: the audit sink and the audit bucket. The audit bucket has
-`force_destroy = false`, so the destroy will refuse while objects are inside it
-and within retention — that is the audit trail defending itself, not a bug.
+`force_destroy = false`, so the destroy refuses while objects are inside it and
+within retention — that is the audit trail defending itself, not a bug. No make
+target can destroy this root.
 
-### Step 3.4 — The first demo environment
+---
+
+## Step 6 — Plan and apply `demo-1`
+
+### 6a. Supply the inputs
+
+```bash
+cp terraform/environments/demo-1.tfvars.example \
+   terraform/environments/environments.tfvars
+```
+
+`environments.tfvars` is the filename the Makefile passes as `-var-file`. It is
+gitignored; only the `.example` is committed.
+
+Now edit it. The header of the example lists, in order, the seven values that
+must be replaced. Nothing in the file is usable as shipped: `CHANGEME-project`
+is rejected by validation, `*.example.invalid` can never resolve, and the
+allowlists are RFC 5737/3849 documentation ranges. **A copy that is not edited
+fails at plan, not in production.**
+
+Confirm the two lines that carry the security posture survived your edit:
+
+```bash
+grep -E 'access_mode|iap_members' terraform/environments/environments.tfvars
+```
+
+`access_mode = "iap"` is the difference between "not publicly accessible" and
+"publicly accessible". `iap_members` is who may authenticate; an empty list is a
+working, fully locked-out environment whose failure mode is a 403 *after* a
+successful Google login, which reads like a broken deploy.
+
+### 6b. Plan
 
 ```bash
 make gcp-tf-plan ENV=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 ```
 
-The target does four things in order, and every one of them can abort:
+Four things happen in order, and every one of them can abort:
 
-1. Refuses unless `ENV` matches `^(demo|ci)-[1-9][0-9]*$`. `prod-1` is rejected.
-2. Exports `TF_DATA_DIR=.terraform-demo-1`, so `demo-1` and `demo-2` cannot
-   share a cached backend pointer.
-3. `init -reconfigure` against `prefix=osramp/environments/demo-1`, then reads
-   the resolved prefix straight back out of the data dir and aborts unless it
-   contains `demo-1`.
-4. `plan -var target_env=demo-1 -out=…`, so the tfvars map key cannot disagree
-   with the state prefix.
+1. `ENV` must match `^(demo|ci)-[1-9][0-9]*$`. `prod-1` is rejected on purpose.
+2. `TF_DATA_DIR=.terraform-demo-1` is exported, so `demo-1` and `demo-2` cannot
+   share a cached backend pointer. Cross-contamination becomes physically
+   impossible rather than merely detected.
+3. `init -reconfigure` against `prefix=osramp/environments/demo-1`, then the
+   resolved prefix is read straight back out of the data dir and compared for
+   **exact equality** with `osramp/environments/demo-1`. A substring match was
+   the original implementation and it let `demo-10` satisfy `ENV=demo-1`.
+4. `plan -var target_env=demo-1 -out=.terraform-demo-1/demo-1.tfplan`, so the
+   tfvars map key cannot disagree with the state prefix.
 
-**Read the plan.** Then:
+**Read the plan.** In particular: no `access_config` block anywhere (no external
+IPs), and the Cloud Armor policy's default rule is a deny.
+
+### 6c. Apply
 
 ```bash
 make gcp-tf-apply ENV=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 ```
 
-`gcp-tf-apply` applies the saved plan file and refuses to run without one. There
-is no path through this Makefile to a bare `terraform apply`; a bare apply
-re-plans at apply time, so what a human read and what Terraform executes are two
-different plans.
+**`gcp-tf-apply` only ever applies a saved, reviewed plan file.** It refuses,
+non-zero, if `.terraform-demo-1/demo-1.tfplan` does not exist, and it tells you
+to run `gcp-tf-plan`. There is no path through this Makefile to a bare
+`terraform apply` — a bare apply re-plans at apply time, so what a human read
+and what Terraform executes are two different plans. If you find yourself
+wanting to bypass this, you want step 6b again.
 
-**Rollback:**
+**Rollback:** step 8.
 
-```bash
-make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
-```
+---
 
-`CONFIRM` must equal `ENV` exactly. That is the step that fails when you meant
-`demo-2` and your shell history said `demo-1`. The target refuses outright
-against the `platform` and `bootstrap` roots, and its argument list contains no
-reference to the state bucket.
-
-### Step 3.5 — Verify
+## Step 7 — Verify
 
 ```bash
 make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 ```
 
-Then the live checks:
+Read-only: `state list` plus `output`. Then the live checks, none of which the
+state file can answer:
 
-- **Certificate.** `gcloud compute ssl-certificates list` — expect `ACTIVE`.
-  `PROVISIONING` for more than an hour means DNS delegation (step 3.3) has not
+```bash
+# Certificate: expect ACTIVE.
+gcloud compute ssl-certificates list --project <TARGET_PROJECT_ID>
+
+# No external IP on the VM. The EXTERNAL_IP column must be EMPTY.
+gcloud compute instances list --project <TARGET_PROJECT_ID>
+
+# SSH is via IAP only. If this says "agent refused operation", that is a local
+# ssh-agent problem, not a VM problem: unset SSH_AUTH_SOCK and retry.
+gcloud compute ssh sl-demo-1-vm --tunnel-through-iap \
+  --zone europe-west2-a --project <TARGET_PROJECT_ID>
+```
+
+- `PROVISIONING` for more than an hour means DNS delegation (step 5) has not
   propagated. `FAILED_NOT_VISIBLE` means it is definitively wrong.
-- **From an allowlisted address:** the demo loads over HTTPS.
-- **From a non-allowlisted address:** `403` from Cloud Armor. Test this. An
+- **From an allowlisted address, signed in as an `iap_members` principal:** the
+  demo loads over HTTPS.
+- **Signed in as an identity NOT on `iap_members`:** IAP refuses. Test this.
+- **From a non-allowlisted address:** `403` from Cloud Armor. Test this too. An
   allowlist nobody has tested from outside is a belief, not a control.
-- **No external IP on the VM.** `gcloud compute instances list` — the `EXTERNAL_IP`
-  column must be empty. SSH is via IAP only:
-  `gcloud compute ssh <instance> --tunnel-through-iap`.
-- **Uptime check and alerts:** confirm the uptime check exists and that each
-  alert policy lists a notification channel.
+- Confirm the uptime check exists and that each alert policy lists a
+  notification channel.
+
+The edge probes automate the last two once the environment is up:
+
+```bash
+make gcp-tf-test ENV=demo-1
+```
+
+**Rollback:** none needed; every command here is read-only.
 
 ---
 
-## 4. Common failures, in the order you will hit them
+## Step 8 — Destroy `demo-1`
+
+```bash
+make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1 TF_STATE_BUCKET="${TF_STATE_BUCKET}"
+```
+
+`CONFIRM` must equal `ENV` exactly. Typing the key is the point: it is the step
+that fails when you meant `demo-2` and your shell history said `demo-1`.
+
+What this does **not** touch: the state bucket, the audit log bucket, and every
+platform singleton — they live in other roots' state. The target refuses
+outright against the `platform` and `bootstrap` roots by path.
+
+`deletion_protect = true` in the shipped `demo-1` entry means the VM itself will
+refuse to be deleted until you flip it to `false` and re-apply. That is
+deliberate: destroying a demo the day before it is demoed is a cheaper mistake
+to make than to recover from.
+
+---
+
+## Prerequisites — everything Andy must supply, in one place
+
+Terraform cannot invent any of these. Collect them before starting; each one
+discovered mid-run costs a re-plan.
+
+| # | Value | Needed at | Why | How to get it |
+|---|---|---|---|---|
+| 1 | **Target project id** | step 1 | Every resource is created in it. | Andy — project owner |
+| 2 | **Billing account, linked and active** | step 4 | Nothing bills, so nothing creates. Also drives the budget. | Andy — billing admin |
+| 3 | **State bucket location** (e.g. `europe-west2`) | step 4 | Set at creation and immutable. Wrong means recreating the bucket that holds every root's state. | Andy — data-residency call |
+| 4 | **Project number** (numeric, not the id) | step 5 | The Workload Identity provider's resource name uses the number. | `gcloud projects describe <id> --format='value(projectNumber)'` |
+| 5 | **GitHub owner numeric id** | step 5 | The WIF attribute condition pins the owner by numeric id. A login can be released and re-registered by a stranger; the numeric id cannot. | `gh api users/<owner> --jq .id` |
+| 6 | **DNS managed zone name + domain, and proof the domain is delegated** | step 5 | The managed certificate is issued by DNS validation. Without delegation it stays `PROVISIONING` forever and the demo serves a TLS error. | Andy — registrar access |
+| 7 | **`iap_members` principals** | step 6 | Who may reach the environment at all. `user:` / `group:` / `serviceAccount:` prefixed. | Andy — decides the audience |
+| 8 | **Source IPv4 and IPv6 allowlist** (CIDRs) | step 6 | Cloud Armor's default rule denies everything; only these ranges reach the demo. `0.0.0.0/0` and `::/0` are rejected by validation, deliberately. | Andy — office/VPN/home egress ranges |
+| 9 | **Owner label** | step 6 | On every resource; it is what a budget alert gets routed by. | Andy |
+
+Project APIs. A disabled API surfaces as a generic `403` that reads like an IAM
+problem, which is why `preflight.sh` checks them by name:
+
+```bash
+gcloud services enable \
+  compute.googleapis.com \
+  iap.googleapis.com \
+  iam.googleapis.com \
+  iamcredentials.googleapis.com \
+  sts.googleapis.com \
+  cloudresourcemanager.googleapis.com \
+  dns.googleapis.com \
+  certificatemanager.googleapis.com \
+  logging.googleapis.com \
+  monitoring.googleapis.com \
+  cloudbilling.googleapis.com \
+  billingbudgets.googleapis.com \
+  storage.googleapis.com \
+  --project <TARGET_PROJECT_ID>
+```
+
+---
+
+## Why the ordering is bootstrap → platform → environments
+
+The three roots exist for **credential separation**, not tidiness. Running them
+out of order does not merely fail; it fails in ways that look like something
+else.
+
+| Root | Owns | Needs the role | State lives in |
+|---|---|---|---|
+| `terraform/bootstrap` | the Terraform state bucket | `roles/storage.admin` | a **local** state file — a root cannot own the bucket holding its own state |
+| `terraform/platform` | WIF pool + provider, CI and runtime service accounts, audit sink + audit bucket, data-access audit config, DNS managed zone, budget, notification channels | IAM, logging, monitoring, DNS admin | GCS, prefix `osramp/platform` |
+| `terraform/environments` | one demo VM, its subnet, NAT, LB, IAP binding, Cloud Armor policy, DNS record | compute + limited IAM | GCS, prefix `osramp/environments/demo-1` |
+
+Run environments before platform and you get an environment with no runtime
+service account and no zone to attach a record to — and the error names a
+missing remote state output, not a missing step.
+
+---
+
+## Common failures, in the order you will hit them
 
 | Symptom | Actual cause |
 |---|---|
-| `permission denied` or `project not found` on the very first plan | The active gcloud account is `sublimino@gmail.com`. Go back to §0. |
-| `could not find default credentials` | `gcloud auth login` was run but `gcloud auth application-default login` was not. They are separate grants. |
+| `permission denied` or `project not found` on the very first call | The active gcloud account is the personal one. Step 1. `preflight.sh` names this explicitly. |
+| `could not find default credentials` | `gcloud auth login` was run but `gcloud auth application-default login` was not. Separate grants. |
+| Remote state output not found in step 6 | The platform root has not been applied, or was applied under a different prefix. Step 5. |
 | `gcloud compute ssh` fails with "agent refused operation" | A local ssh-agent problem, not a VM problem. `unset SSH_AUTH_SOCK` and retry. |
-| Certificate stuck `PROVISIONING` | Domain not delegated to the zone's name servers, or delegation has not propagated yet. |
-| `ERROR: backend prefix mismatch` | CONTRACT §5a mechanism 3 firing. The cached backend pointer names a different environment. `rm -rf terraform/environments/.terraform-<env>` and re-run the plan target. |
-| `ERROR: no saved plan at …` | You ran `gcp-tf-apply` without `gcp-tf-plan`. This is the guard, not a bug. |
-| A `403` on an API you are sure you have rights to | A disabled service API. See the `gcloud services enable` list in §1. |
+| Certificate stuck `PROVISIONING` | Domain not delegated to the zone's name servers, or delegation has not propagated. |
+| `403` after a successful Google login | IAP is working and you are not on `iap_members`. |
+| `ERROR: backend prefix mismatch` | CONTRACT §5a mechanism 3 firing. The cached backend pointer names a different environment. `rm -rf terraform/environments/.terraform-demo-1` and re-run step 6b. |
+| `ERROR: no saved plan at …` | You ran `gcp-tf-apply` without `gcp-tf-plan`. That is the guard, not a bug. |
+| A `403` on an API you are sure you have rights to | A disabled service API. See the enable list above. |
 | `terraform init` fails with no network | Only `init` needs the provider registry. `validate`, `test` and `tflint` do not. |
 
 ---
 
-## 5. What this runbook deliberately does not do
+## What this runbook deliberately does not do
 
-- **It does not apply anything automatically.** Every apply in this document is
-  preceded by a plan a human is expected to read.
-- **It does not create the state bucket via make.** See step 3.2.
+- **It does not apply anything automatically.** Every apply here is preceded by
+  a plan a human is expected to read.
+- **It does not create the state bucket via make.** Step 4.
 - **It does not destroy the platform or bootstrap roots.** No make target can.
-  Doing so is a considered manual action, and the audit bucket's retention
-  policy will resist it — correctly.
+  That is a considered manual action, and the audit bucket's retention policy
+  will resist it — correctly.
+- **It does not name a real project id, domain, billing account or address.**
+  Everything in angle brackets is yours to supply; nothing in this repository
+  carries a value that could be applied by accident.

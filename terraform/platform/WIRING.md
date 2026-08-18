@@ -90,9 +90,48 @@ github_allowed_ref = "refs/heads/main"
 `bootstrap` → `platform` → `environments`. Platform consumes
 `state_bucket_name` from bootstrap's output and produces
 `runtime_service_account_emails`, `dns_managed_zone_name` and
-`notification_channel_ids` for environments. Running environments before
-platform gives you an environment with no runtime identity and no DNS zone to
-put a record in.
+`notification_channel_ids` for environments.
+
+**The environments root consumes those outputs through `terraform_remote_state`,
+not through a module call.** That changes the ordering from a preference into a
+hard gate, and it is worth being precise about why.
+
+Identity used to be instantiated in the environments root. An adversarial review
+found that to be a reversibility hole: a project-level singleton declared in an
+environment's root is stored in an *environment's* state file, and
+`make gcp-tf-destroy ENV=demo-1` destroys everything in that state. The destroy
+guard refuses `platform` and `bootstrap` **by path**, so it would have permitted
+exactly that destroy — taking the workload identity pool, both CI service
+accounts and every `google_project_iam_member` with it, after which CI could no
+longer authenticate at all and recovery needed bootstrap-level credentials. So
+the singletons live here, per CONTRACT §5b, and environments reads them:
+
+```hcl
+data "terraform_remote_state" "platform" {
+  backend = "gcs"
+  config = {
+    bucket = var.state_bucket_name
+    prefix = "osramp/platform"
+  }
+}
+```
+
+The consequence for sequencing: a `terraform_remote_state` data source reads a
+state object that must **already exist**. Planning `demo-1` before this root has
+been *applied* — not planned, applied — fails on a missing remote state, and the
+error names a missing output rather than a missing step. There is no plan-time
+stand-in, so this cannot be worked around by validating harder.
+
+Two practical consequences:
+
+1. **Apply this root before the first environment plan.**
+   `terraform/RUNBOOK.md` step 5 is that apply; step 6 is the environment.
+2. **`environment_keys` here must be a superset of every environment key that
+   will ever be planned.** A runtime service account must exist for *every*
+   environment, not only the one being applied — that is precisely why these are
+   singletons and not per-environment resources. Adding `demo-2` therefore means
+   re-applying this root with `environment_keys = ["demo-1", "demo-2"]` first,
+   and only then planning `demo-2`.
 
 ## What deliberately stays commented
 

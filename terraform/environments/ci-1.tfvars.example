@@ -24,6 +24,10 @@
 
 project_id = "CHANGEME-project"
 
+# The one environment this apply touches — see CONTRACT.md §5a. Must equal the
+# ENV passed to make and the suffix of the backend prefix used at init.
+target_env = "ci-1"
+
 # Pinned so the CI service accounts can only be assumed from one repository and
 # one ref. Left as "" here because the numeric owner ID must be looked up, not
 # guessed — see terraform/environments/WIRING.md.

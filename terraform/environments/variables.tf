@@ -78,6 +78,48 @@ variable "environments" {
   }
 }
 
+variable "target_env" {
+  description = "The single environment key this root is being applied to. Must be a key present in `environments`. Required; there is no safe default. See CONTRACT.md §5a."
+  type        = string
+
+  # Rule 13 — target_env names a key that actually exists.
+  #
+  # ─── Why this rule is the load-bearing one in this file ─────────────────────
+  #
+  # Environment identity is carried in two independent places: the backend
+  # prefix chosen at `terraform init`, and the map key chosen at `terraform
+  # apply`. Nothing in Terraform makes them agree. `init` against
+  # osramp/environments/demo-1 followed by `apply -var-file=demo-2.tfvars`
+  # raises no objection at all — a changed backend config is only detected when
+  # `init` is re-run, and plan/apply silently reuse the cached .terraform/
+  # backend pointer. The result is demo-2's resources written into demo-1's
+  # state, or a plan reading "destroy demo-1, create demo-2" against demo-1's
+  # state file. Both are silent, and both are plausible at the end of a long day.
+  #
+  # `target_env` collapses the second source of identity into one explicit,
+  # reviewable value. It does not by itself make the two agree — that needs the
+  # per-environment TF_DATA_DIR and the post-init prefix assertion, which belong
+  # to the Makefile chunk (CONTRACT.md §5a mechanisms 2 and 3, tracked in
+  # NOTES.md). What it does is make the value assertable at all: `terraform
+  # output -raw target_env` is what Make compares against $(ENV) and against the
+  # prefix it read back from state.
+  #
+  # ─── Why the existence check is not optional ────────────────────────────────
+  #
+  # Without it, a typo'd target_env produces a for_each over an empty map, which
+  # is a *successful* plan proposing the destruction of every resource in the
+  # current state — the exact outcome the variable exists to prevent, reached by
+  # a different road. A zero-resource plan must never be reachable by typo.
+  validation {
+    condition = contains(keys(var.environments), var.target_env)
+    error_message = format(
+      "ENV-RULE-13-TARGET-ENV-EXISTS: target_env %q is not a key in the environments map (known keys: %s). A target_env that names nothing produces a zero-resource plan, which against a populated state means \"destroy everything\".",
+      var.target_env,
+      join(", ", sort(keys(var.environments))),
+    )
+  }
+}
+
 variable "dns_managed_zone" {
   description = "Name of the pre-existing Cloud DNS managed zone the edge module writes records into. \"\" disables DNS record creation for every environment."
   type        = string

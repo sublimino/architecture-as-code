@@ -29,6 +29,21 @@
 
 project_id = "CHANGEME-project"
 
+# The one environment this apply touches. It must equal the ENV passed to make
+# and the suffix of the backend prefix used at init (CONTRACT.md §5a); Make
+# asserts all three agree before it will plan. A target_env naming a key that is
+# not in the map below is rejected by ENV-RULE-13, because the alternative is a
+# zero-resource plan that reads "destroy everything currently in state".
+target_env = "demo-1"
+
+# Note that BOTH environments are declared here while only one is applied. That
+# is deliberate and it is the reason the map is not split into per-environment
+# files: the unique-hostname and unique-subnet rules are cross-environment, and
+# they cannot see a collision between demo-1 and demo-2 unless both are in
+# scope. Applying demo-2 means re-running with target_env = "demo-2", ENV=demo-2
+# and a backend prefix of osramp/environments/demo-2 — the same file, a
+# different target, a different state.
+
 environments = {
   "demo-1" = {
     kind             = "demo"

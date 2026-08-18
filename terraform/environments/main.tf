@@ -16,7 +16,7 @@
 # ─── The extensibility invariant (ISC-75) ───────────────────────────────────
 #
 # Note what is NOT below: there is no per-environment block anywhere. Every
-# module call is a single `for_each` over `module.env_contract.environments`,
+# module call is a single `for_each` over `local.target_environments`,
 # and each reads `each.value.<input>`. Adding `demo-2` is therefore one new
 # entry in a tfvars map and zero `.tf` edits. `demo-1-and-demo-2.tfvars.example`
 # is the worked proof, and the bats suite asserts it byte-for-byte differs from
@@ -26,6 +26,29 @@ module "env_contract" {
   source = "../modules/env-contract"
 
   environments = var.environments
+}
+
+# ─── The single-environment filter (CONTRACT.md §5a mechanism 1) ─────────────
+#
+# The whole map goes into `module.env_contract` so that the cross-environment
+# validations — unique hostnames, unique subnets — still bite; they cannot
+# detect a collision between demo-1 and demo-2 if only one of them is in scope.
+# Resources are then instantiated for exactly one key.
+#
+# The filter reads the module's *resolved* map rather than `var.environments`
+# directly, because the resolved map is what carries name_prefix and the merged
+# label set. The key set is identical by construction (the resolved map is a
+# projection of var.environments over the same keys), so the filter selects the
+# same single entry the contract specifies. Recorded in NOTES.md.
+#
+# `var.target_env` is validated to be a key of `var.environments`, so this
+# expression yields exactly one element — never zero. That matters: an empty
+# for_each is a *successful* plan that proposes destroying everything already
+# in state, which is precisely the accident target_env exists to prevent.
+locals {
+  target_environments = {
+    for k, v in module.env_contract.environments : k => v if k == var.target_env
+  }
 }
 
 # Values the commented module blocks below will consume at integration.
@@ -63,22 +86,26 @@ locals {
 # compute produces the instance group that edge consumes.
 # ════════════════════════════════════════════════════════════════════════════
 
-# # ── 1. identity ── map-aware; NOT for_each'd. Produces the SA emails below.
+# # ── 1. identity ── map-aware; NOT for_each'd, and deliberately NOT filtered
+# # by target_env: the workload identity pool and the CI service accounts are
+# # project-level singletons, and a runtime service account must exist for every
+# # environment key regardless of which one is being applied right now. Filtering
+# # this module would make `apply` for demo-1 delete demo-2's service account.
 # module "identity" {
 #   source = "../modules/identity"
 #
-#   project_id        = var.project_id
-#   project_number    = var.project_number
-#   environment_keys  = module.env_contract.environment_keys
-#   github_owner_id   = var.github_owner_id
-#   github_repository = var.github_repository
+#   project_id         = var.project_id
+#   project_number     = var.project_number
+#   environment_keys   = module.env_contract.environment_keys
+#   github_owner_id    = var.github_owner_id
+#   github_repository  = var.github_repository
 #   github_allowed_ref = var.github_allowed_ref
 # }
 #
-# # ── 2. network ── one VPC + subnet + NAT + firewall per environment.
+# # ── 2. network ── one VPC + subnet + NAT + firewall, for the target env only.
 # module "network" {
 #   source   = "../modules/network"
-#   for_each = module.env_contract.environments
+#   for_each = local.target_environments
 #
 #   project_id                    = var.project_id
 #   environment_key               = each.value.environment_key
@@ -94,7 +121,7 @@ locals {
 # # ── 3. compute ── the private hardened VM, demo lanes only.
 # module "compute" {
 #   source   = "../modules/compute"
-#   for_each = { for k, v in module.env_contract.environments : k => v if v.kind == "demo" }
+#   for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
 #
 #   project_id            = var.project_id
 #   environment_key       = each.value.environment_key
@@ -114,7 +141,7 @@ locals {
 # # lane has no public edge by design, which is why this filters on kind.
 # module "edge" {
 #   source   = "../modules/edge"
-#   for_each = { for k, v in module.env_contract.environments : k => v if v.kind == "demo" }
+#   for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
 #
 #   project_id                      = var.project_id
 #   environment_key                 = each.value.environment_key
@@ -133,7 +160,7 @@ locals {
 # # ── 5. ci-runner ── CI lanes only.
 # module "ci_runner" {
 #   source   = "../modules/ci-runner"
-#   for_each = { for k, v in module.env_contract.environments : k => v if v.kind == "ci" }
+#   for_each = { for k, v in local.target_environments : k => v if v.kind == "ci" }
 #
 #   project_id            = var.project_id
 #   environment_key       = each.value.environment_key

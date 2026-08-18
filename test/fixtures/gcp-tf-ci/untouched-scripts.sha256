@@ -1,13 +1,13 @@
 # Digests of the pre-existing imperative CI estate. ISC-203, ISC-278..280:
 # the terraform work is a SIBLING of these scripts and may never edit them.
 #
-# Recorded against commit d1abaaccbc109f1587a4b6618d41e14aa6b52ba5.
 #
 # A mismatch means one of two things, and they need different responses:
 #   1. Terraform work edited a frozen script -> revert it, the guard did its job.
 #   2. Unrelated CI work legitimately changed it -> confirm the change came from
 #      outside the terraform tree, then re-record HERE with the new commit.
 # Never re-record to make a red guard green without establishing which case it is.
+# Recorded against commit b618dc84903dace06f6eeb8426cbfc90277a4b3e.
 8c8b16e01876968a3272518b981cfdd648ea2306f74a3fcebcc609ba350e1de8  scripts/ci/gcp-ci.sh
-df96dabfda6ab156f85d621e6ebc30a331d1db40959b14eabd543af99291b4d4  scripts/ci/vm-pipeline.sh
+1b4da9d8f8b2f609158179e02c335b1faad8f37d7fd01636eb2cb3bf99f2ae7b  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

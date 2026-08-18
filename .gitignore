@@ -78,3 +78,10 @@ crash.*.log
 !*.tfvars.example
 !*.example.tfvars
 # <<< terraform (F1-foundation) <<<
+
+# A .terraform.lock.hcl is only consulted in a ROOT module. In a shared child
+# module it is inert, and it silently drifts from whatever the roots actually
+# lock — so a reviewer reading modules/network/.terraform.lock.hcl learns
+# nothing true. Roots commit theirs (ISC-13); child modules must not.
+terraform/modules/*/.terraform.lock.hcl
+terraform/.terraform.lock.hcl

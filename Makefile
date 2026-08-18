@@ -508,6 +508,16 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# preflight_bao waiting 600s on a signalloom-infra that will never go Ready.
 	$(MAKE) push-local-fleet
 	$(MAKE) push-local-agent-trust
+	# fleet-manager/base became an unconditional member of
+	# apps/fe-signalloom/base/kustomization.yaml, so every bring-up now DEPLOYS
+	# it — and the same rule applies as for supercred-demo-runner above:
+	# always-deployed has to mean always-built. The Deployment uses
+	# imagePullPolicy: IfNotPresent against a bare `fleet-manager:local` tag, so
+	# without this line a fresh node resolves that tag to docker.io/library and
+	# the kubelet reports a pull failure that reads as a registry problem rather
+	# than a missing build step. The dashboard's /fleet-api/ proxy has no
+	# fallback: a missing fleet-manager is a raw nginx 502 on the Fleet page.
+	$(MAKE) demo-signalloom-fleet-image
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
@@ -1157,11 +1167,24 @@ demo-signalloom-fleet-image: ## Build and kind-load the Fleet Manager image.
 	docker build -t fleet-manager:local d2-signalloom/apps/fleet-manager
 	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh fleet-manager:local
 
-demo-signalloom-fleet-up: demo-signalloom-fleet-image ## Deploy Fleet Manager (separate service; applied directly, not via Flux).
+demo-signalloom-fleet-up: demo-signalloom-fleet-image ## TEST ESCAPE HATCH ONLY — Flux owns Fleet Manager; use demo-signalloom-up.
+	# Flux is the deploy path. fleet-manager/base is reconciled by the
+	# signalloom-apps Kustomization via apps/fe-signalloom/base/kustomization.yaml,
+	# and demo-signalloom-up builds the image and brings it up with everything
+	# else. This target remains only to iterate on the manifests against a
+	# running cluster without waiting for a reconcile.
+	#
+	# It is NOT equivalent to the Flux path and must not be mistaken for it:
+	# the fe-signalloom-agents Role and RoleBinding are no longer in this
+	# directory (they are in the signalloom-infra ResourceSet), so an apply from
+	# here produces a fleet-manager with no grant on the agent namespace.
+	# Whatever it writes, Flux reverts on the next reconcile.
+	@echo "WARNING: hand-applying a Flux-managed slice. Flux reverts this on the"
+	@echo "         next reconcile, and the cross-namespace RBAC is NOT applied."
 	kubectl apply -k d2-signalloom/apps/fleet-manager/base
 	kubectl -n fe-signalloom rollout status deploy/fleet-manager --timeout=180s
 
-demo-signalloom-fleet-down: ## Remove Fleet Manager only.
+demo-signalloom-fleet-down: ## Remove the hand-applied Fleet Manager (Flux restores it on the next reconcile).
 	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found
 
 .PHONY: check-backends

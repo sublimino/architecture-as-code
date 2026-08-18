@@ -8,8 +8,36 @@ metadata:
     app.kubernetes.io/part-of: signalloom
 data:
   fleet.yaml: |
+    # ── aggregateRisk: AUTHORED DEMO DATA, NOT A COMPUTED FIGURE ──────────────
+    #
+    # The dashboard renders these as currency on the Fleet page, so they need to
+    # be right in the sense of "deliberately chosen and reviewable", not in the
+    # sense of "derived". They are declared here rather than calculated in Go on
+    # purpose: this repository has NO fleet risk model. risk/ and tools/riskctl
+    # implement FAIR over component CVE baselines, which is a different subject
+    # entirely, and nothing anywhere maps an agent's riskClass to an ALE. A
+    # number invented inside the topology handler would be a fabricated risk
+    # figure presented to a bank audience with no way to review or change it
+    # short of a rebuild.
+    #
+    # Provenance: these are the figures the repo's own Fleet page fixture already
+    # used (FleetDemoPage.test.tsx:61) — adopted rather than invented, so the
+    # live demo and the test fixture tell the same story.
+    #
+    # They are demo values and should be replaced when a real fleet risk model
+    # exists. Editing them here changes the demo with no code change and no
+    # rebuild: fleet-manager reads this ConfigMap at /etc/fleet/fleet.yaml.
+    aggregateRisk:
+      ale: 847000
+      var95: 1200000
+      trend: up
+      previousAle: 650000
+    # `name` is the human label the topology graph draws on each node. It falls
+    # back to `id` when omitted, so it is not load-bearing — but "Card Vault"
+    # reads better on a projector than "agent-cardvault".
     agents:
       - id: agent-cardvault
+        name: Card Vault
         type: data-vault
         team: platform
         trustProfile: high
@@ -18,6 +46,7 @@ data:
         dependencies: []
         namespace: fe-signalloom-agents
       - id: agent-txn-pipeline
+        name: Transaction Pipeline
         type: data-pipeline
         team: payments
         trustProfile: medium
@@ -26,6 +55,7 @@ data:
         dependencies: [agent-cardvault]
         namespace: fe-signalloom-agents
       - id: agent-llm-classifier
+        name: LLM Classifier
         type: llm-inference
         team: ml-ops
         trustProfile: high
@@ -34,6 +64,7 @@ data:
         dependencies: [agent-txn-pipeline]
         namespace: fe-signalloom-agents
       - id: agent-api-gateway
+        name: API Gateway
         type: api-gateway
         team: platform
         trustProfile: medium
@@ -42,6 +73,7 @@ data:
         dependencies: [agent-cardvault]
         namespace: fe-signalloom-agents
       - id: agent-monitor
+        name: Fleet Monitor
         type: observability
         team: sre
         trustProfile: low

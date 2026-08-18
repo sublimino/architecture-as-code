@@ -80,6 +80,9 @@ tunnel-policy.yaml
 MEMORY/
 Plans/
 ci-reports*/
+# Written by scripts/gcp-tf/demo-up.sh. Covers demo-reports/ and the
+# demo-reports.prev/ generation it rotates the previous run into.
+demo-reports*/
 d2-signalloom/results.tap
 test/gcp-results/
 test/gcp-5x-results.md

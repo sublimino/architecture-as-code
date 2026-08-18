@@ -1,21 +1,74 @@
-# Worked input for the first demo environment.
+# Worked input for demo-1 — the first Signal Loom demo environment.
 #
-# Copy to a file OUTSIDE version control (`.tfvars` is gitignored; only
-# `.tfvars.example` is committed) and replace every CHANGEME.
+# Copy to a file OUTSIDE version control and replace every CHANGEME:
 #
-# Every value below is deliberately unusable as-is:
-#   project_id  "CHANGEME-project"       rejected by PROJECT-RULE-01-PLACEHOLDER
-#   hostname    "*.example.invalid"      RFC 2606 — can never resolve
+#     cp terraform/environments/demo-1.tfvars.example \
+#        terraform/environments/environments.tfvars
+#
+# `environments.tfvars` is the filename the Makefile passes as -var-file
+# (GCP_TF_VAR_FILE). `.tfvars` is gitignored; only `.tfvars.example` is
+# committed, and test/terraform-environment-keys.bats fails if a real `.tfvars`
+# ever appears under terraform/.
+#
+# ─── The seven values Andy must supply, in the order he will need them ──────
+#
+#  1. project_id            the GCP project every resource is created in.
+#  2. iap_members           who may reach the demo at all. IAP is the front
+#                           door; an empty list locks everyone out including
+#                           Andy, and a wrong entry is the only way a
+#                           "not publicly accessible" environment becomes
+#                           publicly accessible.
+#  3. hostname              the fully-qualified name the managed certificate is
+#                           issued for. Must sit inside the DNS zone named in
+#                           (4) and that zone must be delegated at the
+#                           registrar, or the certificate never leaves
+#                           PROVISIONING.
+#  4. dns_managed_zone      the pre-existing Cloud DNS zone name (NOT the
+#                           domain). "" disables DNS and certificate wiring
+#                           entirely and the environment is reachable by IP
+#                           over IAP only — a legitimate first-pass choice.
+#  5. allowed_ipv4 /        the network allowlist Cloud Armor enforces. This is
+#     allowed_ipv6          the second gate, behind IAP; see the note on
+#                           defence in depth below. 0.0.0.0/0 and ::/0 are
+#                           rejected by the environment contract, deliberately.
+#  6. labels.owner          the team or person answerable for the spend. It is
+#                           on every resource and it is what a budget alert
+#                           gets routed by.
+#  7. project_number        numeric, not the id. Only needed once the platform
+#                           root's workload identity wiring is live; "" until
+#                           then. `gcloud projects describe <id>
+#                           --format='value(projectNumber)'`
+#
+# An eighth value is NOT in this file: the state bucket name. It is passed on
+# the make command line as TF_STATE_BUCKET, because it is a property of where
+# state lives rather than of what is being built, and because a bucket name
+# baked into a committed example is a real bucket name in a public repo.
+#
+# ─── Everything below is unusable as shipped, on purpose ────────────────────
+#
+#   project_id  "CHANGEME-project"              rejected by PROJECT-RULE-01
+#   hostname    "*.example.invalid"             RFC 2606 — can never resolve
+#   iap_members "user:CHANGEME-…@example.invalid"  never matches a real identity
 #   allowlists  192.0.2.0/24, 198.51.100.0/24   RFC 5737 documentation ranges
 #               2001:db8::/32                   RFC 3849 documentation range
+#
 # A copy that is not edited fails at plan, not in production.
 #
 # Subnet allocation across the estate (each must be a unique RFC1918 /24):
 #   demo-1  10.10.1.0/24
 #   ci-1    10.10.2.0/24
 #   demo-2  10.10.3.0/24     (see demo-1-and-demo-2.tfvars.example)
+#
+# None of these collide with the pre-existing hand-built CI estate, whose VPC
+# `signalloom-ci` carries a single subnet on 10.0.0.0/24 (scripts/ci/gcp-ci.sh).
+# That estate is not managed by this Terraform and will not be migrated by it;
+# the two must coexist in the same project without a routing conflict.
 
 project_id = "CHANGEME-project"
+
+# Numeric project number, not the id. Consumed by the platform root's workload
+# identity wiring. "" is correct until that wiring is live.
+project_number = ""
 
 # The one environment this apply touches. It must equal the ENV passed to make
 # and the suffix of the backend prefix used at init (CONTRACT.md §5a); Make
@@ -24,15 +77,61 @@ project_id = "CHANGEME-project"
 # zero-resource plan that reads "destroy everything currently in state".
 target_env = "demo-1"
 
+# ─── Reachability: secure, routable, not publicly accessible ────────────────
+#
+# `access_mode = "iap"` is the whole answer to "routable but not public". The
+# load balancer keeps a real DNS name and a real certificate, so the demo is
+# reachable from anywhere by URL — but Identity-Aware Proxy sits in front of the
+# backend service and every request must carry a Google identity on the
+# iap_members list. There is no anonymous path to the application.
+#
+# "public" is the other accepted value and it is not a synonym for "insecure" —
+# it means the Cloud Armor allowlist is the only gate. Do not set it here.
+# Setting it turns a demo that is safe to leave running into one that is not.
+access_mode = "iap"
+
+# Who may authenticate. IAP denies everyone not on this list, so an empty list
+# is a working, fully locked-out environment — the failure looks like a 403
+# after a successful Google login, which reads like a broken deploy.
+#
+# Accepted principal forms, all of which need the `user:` / `group:` /
+# `serviceAccount:` prefix — a bare email address is silently not a principal:
+#
+#   "user:andy@CHANGEME-domain.invalid"
+#   "group:CHANGEME-team@CHANGEME-domain.invalid"
+#   "serviceAccount:CHANGEME-sa@CHANGEME-project.iam.gserviceaccount.com"
+#
+# Prefer a group over a list of users: revoking a demo viewer then costs a
+# group membership change rather than a terraform apply.
+iap_members = [
+  "user:CHANGEME-you@example.invalid",
+]
+
+# Name of the PRE-EXISTING Cloud DNS managed zone, not the domain. "" disables
+# DNS record and certificate creation for every environment; the load balancer
+# still builds and is reachable by IP. Start here if the domain is not yet
+# delegated — it is reversible, and a certificate stuck in PROVISIONING is not
+# obviously distinguishable from one that will never issue.
+dns_managed_zone = ""
+
 environments = {
   "demo-1" = {
-    kind             = "demo"
-    subnet_cidr      = "10.10.1.0/24"
-    region           = "europe-west2"
-    zone             = "europe-west2-a"
-    machine_type     = "n2-standard-16"
-    boot_disk_gb     = 200
-    hostname         = "demo-1.example.invalid"
+    kind         = "demo"
+    subnet_cidr  = "10.10.1.0/24"
+    region       = "europe-west2"
+    zone         = "europe-west2-a"
+    machine_type = "n2-standard-16"
+    boot_disk_gb = 200
+
+    # Must be inside the zone named in dns_managed_zone. Set to "" if that is
+    # "" — a hostname with no zone to put it in produces a certificate that
+    # cannot validate, which surfaces an hour later as a TLS error.
+    hostname = "demo-1.example.invalid"
+
+    # The network gate, enforced by Cloud Armor, BEHIND the identity gate that
+    # access_mode = "iap" puts in front of it. Both, not either: IAP answers
+    # "who are you", the allowlist answers "and from where". Either alone has a
+    # single failure mode that ends with the demo on the open internet.
     allowed_ipv4     = ["192.0.2.0/24", "198.51.100.0/24"]
     allowed_ipv6     = ["2001:db8::/32"]
     app_port         = 8080

@@ -113,12 +113,24 @@ variable "iap_members" {
   # the vocabulary of access control. "allUsers" is public without the disguise.
   # Compared case-insensitively: only one spelling is valid to the API, but a
   # guard that a typo walks past is a guard that teaches false confidence.
+  #
+  # The wildcard clause is what makes this rule independently testable, and it
+  # was added because of a real gap. The prefix rule below ALSO rejects both
+  # bare tokens (neither carries a "type:" prefix), so deleting this entire
+  # block left the suite green -- the most dangerous guard in the module had no
+  # test that could see it disappear. A wildcard principalSet is prefix-valid,
+  # so only this rule can reject it, and now a mutation here goes red.
+  #
+  # It is also a real footgun in its own right: a member such as
+  # "principalSet://iam.googleapis.com/.../workloadIdentityPools/pool/*" reads
+  # as a scoped grant and admits every identity in the pool.
   validation {
     condition = alltrue([
       for m in var.iap_members :
       !contains(["allusers", "allauthenticatedusers"], lower(trimspace(m)))
+      && !strcontains(m, "*")
     ])
-    error_message = "iap_members contains allUsers or allAuthenticatedUsers. Neither is a restriction: allUsers is the public internet, and allAuthenticatedUsers is every Google account in existence, which is functionally public. Name principals explicitly."
+    error_message = "iap_members contains allUsers, allAuthenticatedUsers, or a wildcard. None is a restriction: allUsers is the public internet, allAuthenticatedUsers is every Google account in existence, and a wildcard principalSet admits every identity in the pool. Name principals explicitly."
   }
 
   # Structural backstop for the rule above. Every legal IAM member carries a type

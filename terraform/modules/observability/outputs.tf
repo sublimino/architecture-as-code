@@ -11,7 +11,7 @@ output "log_bucket_name" {
 
 output "log_sink_writer_identity" {
   description = "Service account identity the log sink writes as. Granted objectCreator on the audit bucket only."
-  value       = google_logging_project_sink.admin_activity.writer_identity
+  value       = try(google_logging_project_sink.admin_activity[0].writer_identity, "")
 }
 
 output "log_bucket_self_link" {

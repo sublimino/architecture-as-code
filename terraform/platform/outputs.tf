@@ -58,3 +58,26 @@ output "dns_name_servers" {
 #
 # END WIRING BLOCK
 # ===========================================================================
+
+# ── Identity, re-exported for the environments root ─────────────────────────
+#
+# The environments root consumes these via terraform_remote_state rather than
+# instantiating modules/identity itself. That is deliberate (CONTRACT §5b): a
+# project-level singleton declared in an environment's state is destroyed by
+# `make gcp-tf-destroy ENV=<that environment>`, which would take CI's ability to
+# authenticate with it. Re-exporting here is what makes the read-only path work.
+
+output "runtime_service_account_emails" {
+  description = "Runtime service account email per environment key. Consumed by the environments root for the VM's identity and for firewall target scoping."
+  value       = module.identity.runtime_service_account_emails
+}
+
+output "ci_plan_service_account_email" {
+  description = "Read-only CI principal."
+  value       = module.identity.ci_plan_service_account_email
+}
+
+output "ci_apply_service_account_email" {
+  description = "Write-capable CI principal, scoped to one workflow file."
+  value       = module.identity.ci_apply_service_account_email
+}

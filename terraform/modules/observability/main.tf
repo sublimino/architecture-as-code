@@ -72,6 +72,7 @@ resource "google_storage_bucket" "audit_logs" {
 }
 
 resource "google_logging_project_sink" "admin_activity" {
+  count       = var.manage_project_iam ? 1 : 0
   name        = "${var.name_prefix}-admin-activity"
   project     = var.project_id
   destination = "storage.googleapis.com/${google_storage_bucket.audit_logs.name}"
@@ -92,12 +93,13 @@ resource "google_logging_project_sink" "admin_activity" {
 }
 
 resource "google_storage_bucket_iam_member" "sink_writer" {
+  count  = var.manage_project_iam ? 1 : 0
   bucket = google_storage_bucket.audit_logs.name
 
   # objectCreator, not objectAdmin: the sink needs to write new objects and must
   # not be able to delete or overwrite the ones already there.
   role   = "roles/storage.objectCreator"
-  member = google_logging_project_sink.admin_activity.writer_identity
+  member = google_logging_project_sink.admin_activity[0].writer_identity
 }
 
 # ---------------------------------------------------------------------------
@@ -108,7 +110,7 @@ resource "google_storage_bucket_iam_member" "sink_writer" {
 # IAM. Without this block, "who read the demo's data" is unanswerable after the
 # fact, which is precisely the question a regulated buyer asks.
 resource "google_project_iam_audit_config" "data_access" {
-  for_each = toset(var.data_access_services)
+  for_each = var.manage_project_iam ? toset(var.data_access_services) : toset([])
 
   project = var.project_id
   service = each.value

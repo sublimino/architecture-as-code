@@ -22,6 +22,20 @@
 # is the worked proof, and the bats suite asserts it byte-for-byte differs from
 # the single-environment example only inside the tfvars file.
 
+# The platform root owns the project-level singletons (CONTRACT §5b): the
+# runtime service accounts, the WIF pool, the audit sink. This root CONSUMES
+# them read-only. Declaring them here instead would place them in an
+# ENVIRONMENT's state, where `make gcp-tf-destroy ENV=demo-1` destroys
+# everything — taking CI's ability to authenticate with it.
+data "terraform_remote_state" "platform" {
+  backend = "gcs"
+
+  config = {
+    bucket = var.state_bucket_name
+    prefix = "osramp/platform"
+  }
+}
+
 module "env_contract" {
   source = "../modules/env-contract"
 
@@ -122,41 +136,46 @@ locals {
 # #
 # # test/terraform-identity.bats asserts this root declares no identity module.
 #
-# # ── 2. network ── one VPC + subnet + NAT + firewall, for the target env only.
-# module "network" {
-#   source   = "../modules/network"
-#   for_each = local.target_environments
-#
-#   project_id                    = var.project_id
-#   environment_key               = each.value.environment_key
-#   name_prefix                   = each.value.name_prefix
-#   labels                        = each.value.labels
-#   region                        = each.value.region
-#   subnet_cidr                   = each.value.subnet_cidr
-#   app_port                      = each.value.app_port
-#   runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
-#   nat_log_filter                = var.nat_log_filter
-# }
-#
-# # ── 3. compute ── the private hardened VM, demo lanes only.
-# module "compute" {
-#   source   = "../modules/compute"
-#   for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
-#
-#   project_id            = var.project_id
-#   environment_key       = each.value.environment_key
-#   name_prefix           = each.value.name_prefix
-#   labels                = each.value.labels
-#   zone                  = each.value.zone
-#   machine_type          = each.value.machine_type
-#   boot_disk_gb          = each.value.boot_disk_gb
-#   subnet_self_link      = module.network[each.key].subnet_self_link
-#   network_tag           = module.network[each.key].network_tag
-#   service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
-#   deletion_protection   = each.value.deletion_protect
-#   startup_script_path   = var.startup_script_path
-# }
-#
+# ── 2. network ── one VPC + subnet + NAT + firewall, for the target env only.
+module "network" {
+  source   = "../modules/network"
+  for_each = local.target_environments
+
+  project_id                    = var.project_id
+  environment_key               = each.value.environment_key
+  name_prefix                   = each.value.name_prefix
+  labels                        = each.value.labels
+  region                        = each.value.region
+  subnet_cidr                   = each.value.subnet_cidr
+  app_port                      = each.value.app_port
+  runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
+  nat_log_filter                = var.nat_log_filter
+}
+
+# ── 3. compute ── the private hardened VM, demo lanes only.
+module "compute" {
+  source   = "../modules/compute"
+  for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
+
+  project_id            = var.project_id
+  environment_key       = each.value.environment_key
+  name_prefix           = each.value.name_prefix
+  labels                = each.value.labels
+  zone                  = each.value.zone
+  machine_type          = each.value.machine_type
+  boot_disk_gb          = each.value.boot_disk_gb
+  subnet_self_link      = module.network[each.key].subnet_self_link
+  network_tag           = module.network[each.key].network_tag
+  service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
+  deletion_protection   = each.value.deletion_protect
+  startup_script_path   = var.startup_script_path
+
+  # The compute module health-checks and serves on this port, and the network
+  # module opens the health-check firewall rule for exactly it. Passing the same
+  # resolved value to both is what keeps them from drifting apart.
+  app_port = each.value.app_port
+}
+
 # # ── 4. edge ── HTTPS LB, managed cert, Cloud Armor. Demo lanes only; a CI
 # # lane has no public edge by design, which is why this filters on kind.
 # module "edge" {

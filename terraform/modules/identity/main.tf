@@ -74,6 +74,7 @@ locals {
 # ── Workload Identity Federation ────────────────────────────────────────────
 
 resource "google_iam_workload_identity_pool" "github" {
+  count                     = var.manage_project_iam ? 1 : 0
   project                   = var.project_id
   workload_identity_pool_id = var.pool_id
   display_name              = "Signal Loom GitHub"
@@ -81,8 +82,9 @@ resource "google_iam_workload_identity_pool" "github" {
 }
 
 resource "google_iam_workload_identity_pool_provider" "github" {
+  count                              = var.manage_project_iam ? 1 : 0
   project                            = var.project_id
-  workload_identity_pool_id          = google_iam_workload_identity_pool.github.workload_identity_pool_id
+  workload_identity_pool_id          = google_iam_workload_identity_pool.github[0].workload_identity_pool_id
   workload_identity_pool_provider_id = "sl-github-oidc"
   display_name                       = "GitHub Actions OIDC"
 
@@ -149,12 +151,14 @@ resource "google_service_account" "ci_apply" {
 # impersonate. Either alone is insufficient.
 
 resource "google_service_account_iam_member" "ci_plan_wif" {
+  count              = var.manage_project_iam ? 1 : 0
   service_account_id = google_service_account.ci_plan.name
   role               = "roles/iam.workloadIdentityUser"
   member             = local.wif_plan_principal
 }
 
 resource "google_service_account_iam_member" "ci_apply_wif" {
+  count              = var.manage_project_iam ? 1 : 0
   service_account_id = google_service_account.ci_apply.name
   role               = "roles/iam.workloadIdentityUser"
   member             = local.wif_apply_principal
@@ -168,10 +172,10 @@ resource "google_service_account_iam_member" "ci_apply_wif" {
 # humans back in. It is never used in this tree.
 
 resource "google_project_iam_member" "runtime" {
-  for_each = {
+  for_each = var.manage_project_iam ? {
     for pair in setproduct(var.environment_keys, var.runtime_roles) :
     "${pair[0]}::${pair[1]}" => { key = pair[0], role = pair[1] }
-  }
+  } : {}
 
   project = var.project_id
   role    = each.value.role
@@ -181,7 +185,7 @@ resource "google_project_iam_member" "runtime" {
 }
 
 resource "google_project_iam_member" "ci_plan" {
-  for_each = toset(var.ci_plan_roles)
+  for_each = var.manage_project_iam ? toset(var.ci_plan_roles) : toset([])
 
   project = var.project_id
   role    = each.key
@@ -191,7 +195,7 @@ resource "google_project_iam_member" "ci_plan" {
 }
 
 resource "google_project_iam_member" "ci_apply" {
-  for_each = toset(var.ci_apply_roles)
+  for_each = var.manage_project_iam ? toset(var.ci_apply_roles) : toset([])
 
   project = var.project_id
   role    = each.key
@@ -201,10 +205,10 @@ resource "google_project_iam_member" "ci_apply" {
 }
 
 resource "google_project_iam_member" "operators" {
-  for_each = {
+  for_each = var.manage_project_iam ? {
     for pair in setproduct(var.operator_members, var.operator_roles) :
     "${pair[0]}::${pair[1]}" => { member = pair[0], role = pair[1] }
-  }
+  } : {}
 
   project = var.project_id
   role    = each.value.role

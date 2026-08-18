@@ -1,0 +1,10 @@
+[
+  {
+    "name": "sl-demo-2-vm",
+    "status": "RUNNING",
+    "zone": "https://www.googleapis.com/compute/v1/projects/example-project/zones/us-east4-a",
+    "networkInterfaces": [
+      { "network": "https://www.googleapis.com/compute/v1/projects/example-project/global/networks/sl-demo-2-vpc", "networkIP": "10.71.0.2" }
+    ]
+  }
+]

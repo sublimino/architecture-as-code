@@ -282,6 +282,129 @@ deployment_verbs_in() {
 	}
 }
 
+# ---------------------------------------------------------------------------
+# Docker socket access for OS Login users.
+#
+# The measured failure: `docker info` -> permission denied on
+# /var/run/docker.sock, while the daemon is active and enabled. The CI tooling
+# then reports "Docker daemon is not running", which is false and sends people
+# to restart a healthy daemon.
+# ---------------------------------------------------------------------------
+
+@test "the startup script grants OS Login users access to the docker socket" {
+	local body
+	body="$(code_only "$STARTUP")"
+
+	# Mechanism 1: the guest agent places new OS Login accounts in `docker`.
+	grep -qE '^configure_oslogin_groups\(\)' "$STARTUP" || {
+		echo "configure_oslogin_groups is gone. OS Login accounts will not" >&2
+		echo "receive the docker group, and every pipeline run will fail with" >&2
+		echo "a socket permission error misreported as a stopped daemon." >&2
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qF '/etc/default/instance_configs.cfg' || {
+		echo "the guest-agent account config path is gone from the script." >&2
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qE '^groups = .*\bdocker\b' || {
+		echo "the configured OS Login supplementary groups no longer include" >&2
+		echo "docker; the file is written but grants nothing." >&2
+		return 1
+	}
+
+	# Mechanism 2: the self-heal backstop.
+	grep -qE '^install_docker_group_selfheal\(\)' "$STARTUP" || {
+		echo "install_docker_group_selfheal is gone; there is no backstop for" >&2
+		echo "an account the guest agent missed." >&2
+		return 1
+	}
+	printf '%s\n' "$body" | grep -qF '/etc/profile.d/99-signalloom-docker-group.sh' || {
+		echo "the self-heal profile snippet path is gone." >&2
+		return 1
+	}
+
+	# Both are called, and after install_docker — the guest agent skips a group
+	# that does not exist, and the snippet is pointless without a socket.
+	local main_body docker_line groups_line selfheal_line
+	main_body="$(sed -n '/^main()/,/^}/p' "$STARTUP")"
+	[ -n "$main_body" ] || {
+		echo "could not extract main(); this ordering check would be vacuous" >&2
+		return 1
+	}
+	docker_line="$(printf '%s\n' "$main_body" | grep -n '^  install_docker$' | head -1 | cut -d: -f1)"
+	groups_line="$(printf '%s\n' "$main_body" | grep -n 'configure_oslogin_groups' | head -1 | cut -d: -f1)"
+	selfheal_line="$(printf '%s\n' "$main_body" | grep -n 'install_docker_group_selfheal' | head -1 | cut -d: -f1)"
+
+	[ -n "$docker_line" ] && [ -n "$groups_line" ] && [ -n "$selfheal_line" ] || {
+		echo "main() does not call all three of install_docker," >&2
+		echo "configure_oslogin_groups and install_docker_group_selfheal;" >&2
+		echo "a function that exists and is never called is dead code." >&2
+		return 1
+	}
+	[ "$groups_line" -gt "$docker_line" ] || {
+		echo "configure_oslogin_groups runs BEFORE install_docker. The guest" >&2
+		echo "agent skips groups that do not exist yet, so the docker group" >&2
+		echo "would silently not be applied." >&2
+		return 1
+	}
+	[ "$selfheal_line" -gt "$docker_line" ] || {
+		echo "install_docker_group_selfheal runs before install_docker" >&2
+		return 1
+	}
+}
+
+@test "the docker-group fix embeds no username and does not widen the socket" {
+	local body
+	body="$(code_only "$STARTUP")"
+
+	# The dead-code shape this repo keeps getting burned by: a usermod naming a
+	# fixed user. OS Login accounts are sa_<numeric-id> or <user>_<domain> and
+	# are created at first login, so any literal here matches nobody and
+	# succeeds silently.
+	local fixed
+	fixed="$(printf '%s\n' "$body" |
+		grep -nE 'usermod[[:space:]]+-aG[[:space:]]+docker[[:space:]]+[a-z][a-z0-9_-]*[[:space:]]*$' || true)"
+	[ -z "$fixed" ] || {
+		echo "the script adds a HARDCODED username to the docker group:" >&2
+		printf '%s\n' "$fixed" >&2
+		echo "OS Login provisions the account at first login; this name" >&2
+		echo "matches nobody and the command succeeds having done nothing." >&2
+		return 1
+	}
+
+	# The rejected alternative. Root-equivalent socket access for every local
+	# account. This assertion is meaningful only because the two positive
+	# existence checks in the previous test passed — on their own, "no 0666"
+	# is satisfied best by a script that does nothing about docker at all.
+	local widened
+	widened="$(printf '%s\n' "$body" |
+		grep -nE 'SocketMode[[:space:]]*=[[:space:]]*0?666|chmod[[:space:]]+(a\+rw|0?666).*docker\.sock' || true)"
+	[ -z "$widened" ] || {
+		echo "the script world-writes the docker socket:" >&2
+		printf '%s\n' "$widened" >&2
+		echo "Docker socket access is root-equivalent. See the README for why" >&2
+		echo "this was rejected in favour of group membership." >&2
+		return 1
+	}
+}
+
+@test "the README warns that the CI tooling misreports the socket failure" {
+	local readme="${COMPUTE_DIR}/README.md"
+	[ -f "$readme" ]
+
+	grep -qiF 'wrong about the cause' "$readme" || {
+		echo "the README no longer warns that 'Docker daemon is not running'" >&2
+		echo "is a false diagnosis. The next person will restart a healthy" >&2
+		echo "daemon and lose a bring-up to it." >&2
+		return 1
+	}
+	grep -qF '/var/run/docker.sock' "$readme" || {
+		echo "the README does not name the socket, so the warning cannot be" >&2
+		echo "matched to the error a reader actually has in front of them." >&2
+		return 1
+	}
+}
+
 @test "the startup script keeps its checksum discipline and its marker" {
 	# fetch_verified is the only download path, and it aborts on a mismatch
 	# rather than degrading to an unverified install.
@@ -354,6 +477,112 @@ deployment_verbs_in() {
 	[ "$allow_sources" -ge 1 ] || {
 		echo "the IAP range literal was not found in the network module's" >&2
 		echo "executable lines; the CIDR extraction above examined nothing." >&2
+		return 1
+	}
+}
+
+# Splits every google_compute_firewall resource in $1 into one file per block
+# under $2, named after the resource. terraform fmt guarantees a top-level
+# block closes with `}` in column zero, which is what makes this safe.
+split_firewall_blocks() {
+	mkdir -p "$2"
+	awk -v out="$2" '
+		/^resource "google_compute_firewall" "/ {
+			name = $0
+			sub(/^resource "google_compute_firewall" "/, "", name)
+			sub(/".*$/, "", name)
+			f = out "/" name ".tf"
+			inblock = 1
+		}
+		inblock { print > f }
+		/^}$/ { inblock = 0 }
+	' "$1"
+}
+
+@test "REGRESSION: the app port is granted from the IAP range by some rule" {
+	# The regression this guard exists for, in its own words: app_port was open
+	# ONLY to Google's load-balancer health-check ranges. This environment has no
+	# load balancer — hostname and dns_managed_zone are both "" by design — so
+	# those ranges reach it never, and an IAP tunnel to the app port was dropped
+	# by deny_all_ingress. It presented as 4003 'failed to connect to backend',
+	# which reads as a dead application rather than a closed port.
+	#
+	# Written as a POSITIVE existence requirement, deliberately. The obvious
+	# phrasing — "no rule opens app_port to the world" — is satisfied most
+	# completely by a tree with no app-port rule at all, which is precisely the
+	# broken state. This one counts the grants and fails at zero.
+	local blocks="${BATS_TEST_TMPDIR}/fw"
+	split_firewall_blocks "$NET_MAIN" "$blocks"
+
+	# Positive control before any counting: the splitter found rules at all. A
+	# splitter whose pattern stopped matching yields zero blocks, and "zero
+	# grants" would then be a fact about awk rather than about the firewall.
+	local found
+	found="$(find "$blocks" -name '*.tf' | wc -l)"
+	[ "$found" -ge 4 ] || {
+		echo "the firewall-block splitter found only ${found} rules in" >&2
+		echo "${NET_MAIN}; it has stopped parsing and every count below" >&2
+		echo "would be meaningless." >&2
+		return 1
+	}
+
+	# Rules that are INGRESS, grant app_port, and are sourced from the IAP range.
+	local f grants=0 granting_rules=()
+	for f in "$blocks"/*.tf; do
+		grep -qF 'direction = "INGRESS"' "$f" || continue
+		grep -qE '^[[:space:]]*allow \{' "$f" || continue
+		grep -qF 'var.app_port' "$f" || continue
+		# local.iap_range resolves to var.iap_source_range, which NET-RULE-01
+		# pins to 35.235.240.0/20. Either spelling counts as the IAP source.
+		grep -qE 'source_ranges[^=]*=.*(local\.iap_range|var\.iap_source_range|35\.235\.240\.0/20)' "$f" || continue
+		grants=$((grants + 1))
+		granting_rules+=("$(basename "$f" .tf)")
+	done
+
+	[ "$grants" -ge 1 ] || {
+		echo "NO ingress rule grants app_port from the IAP range." >&2
+		echo "" >&2
+		echo "This is the exact outage that was reproduced live: with no load" >&2
+		echo "balancer in this environment, the health-check ranges never reach" >&2
+		echo "it, so app_port open to health checks alone is app_port open to" >&2
+		echo "nobody. An IAP tunnel then fails with" >&2
+		echo "  ERROR: ... [4003: 'failed to connect to backend']" >&2
+		echo "which reads as a broken application, not as a closed port." >&2
+		echo "" >&2
+		echo "Ingress allow rules that mention app_port:" >&2
+		for f in "$blocks"/*.tf; do
+			grep -qF 'var.app_port' "$f" || continue
+			echo "  $(basename "$f" .tf): $(grep -o 'source_ranges.*' "$f" | head -1)" >&2
+		done
+		return 1
+	}
+}
+
+@test "REGRESSION: app_port is granted from the IAP range and nowhere unexpected" {
+	# The other half. Every ingress rule that grants app_port must be sourced
+	# from the IAP range or from the two Google health-check ranges — and from
+	# nothing else. Together with the test above (at least one grant exists),
+	# this pins both directions: the grant is present AND it is narrow.
+	local blocks="${BATS_TEST_TMPDIR}/fw"
+	split_firewall_blocks "$NET_MAIN" "$blocks"
+
+	local f checked=0 bad=()
+	for f in "$blocks"/*.tf; do
+		grep -qF 'direction = "INGRESS"' "$f" || continue
+		grep -qE '^[[:space:]]*allow \{' "$f" || continue
+		grep -qF 'var.app_port' "$f" || continue
+		checked=$((checked + 1))
+		grep -qE 'source_ranges[^=]*=.*(local\.iap_range|var\.iap_source_range|local\.health_check_ranges)' "$f" ||
+			bad+=("$(basename "$f" .tf)")
+	done
+
+	[ "$checked" -ge 1 ] || {
+		echo "no ingress allow rule mentions var.app_port at all; this check" >&2
+		echo "examined nothing. See the REGRESSION test above." >&2
+		return 1
+	}
+	[ "${#bad[@]}" -eq 0 ] || {
+		echo "these rules grant app_port from an unreviewed source: ${bad[*]}" >&2
 		return 1
 	}
 }
@@ -452,6 +681,68 @@ deployment_verbs_in() {
 # what is asserted here is that the rules exist at all, so that a `terraform
 # test` suite cannot go green against a module that lost them.
 # ---------------------------------------------------------------------------
+
+@test "both egress_public_ports defaults are 443 alone, module AND root" {
+	# The root default is the one that actually governs. The moment
+	# environments/main.tf wires `egress_public_ports = var.egress_public_ports`
+	# into the module, the MODULE's default is dead configuration and this one
+	# decides. A root defaulting to ["80","443"] would open plaintext egress for
+	# every environment while every module test stayed green — the module would
+	# be behaving exactly as designed with the input it was handed.
+	#
+	# Found by mutation: adding 80 to the root default broke nothing at all
+	# until this test existed.
+	local f checked=0
+	for f in "${REPO_ROOT}/terraform/modules/network/variables.tf" \
+		"${REPO_ROOT}/terraform/environments/variables.tf"; do
+		[ -f "$f" ] || {
+			echo "missing variables file: $f" >&2
+			return 1
+		}
+
+		# Presence before behaviour: the variable must be declared here at all,
+		# or "no bad default" is a fact about a variable that does not exist.
+		grep -qE '^variable "egress_public_ports" \{' "$f" || {
+			echo "$(basename "$(dirname "$f")")/variables.tf does not declare" >&2
+			echo "egress_public_ports; the port list is then unreachable from" >&2
+			echo "tfvars and the container build has no supported fix." >&2
+			return 1
+		}
+
+		local default_line
+		default_line="$(sed -n '/^variable "egress_public_ports" {/,/^}/p' "$f" |
+			sed -n 's/^[[:space:]]*default[[:space:]]*=[[:space:]]*//p' | head -1)"
+		[ -n "$default_line" ] || {
+			echo "no default found for egress_public_ports in $f; a variable" >&2
+			echo "with no default forces every caller to set it, which is not" >&2
+			echo "what the fail-closed design intends." >&2
+			return 1
+		}
+		[ "$default_line" = '["443"]' ] || {
+			echo "egress_public_ports defaults to ${default_line} in $f," >&2
+			echo "not [\"443\"]. Opening plaintext egress must be a" >&2
+			echo "per-environment decision recorded in a reviewed tfvars file," >&2
+			echo "not a default nobody rereads." >&2
+			return 1
+		}
+		checked=$((checked + 1))
+	done
+
+	[ "$checked" -eq 2 ] || {
+		echo "expected to check 2 variables.tf files, checked ${checked}" >&2
+		return 1
+	}
+
+	# And the root actually passes it down. A mirrored variable that is never
+	# wired is a value an operator sets in tfvars to no effect whatsoever.
+	grep -qE '^[[:space:]]*egress_public_ports[[:space:]]*=[[:space:]]*var\.egress_public_ports$' \
+		"${REPO_ROOT}/terraform/environments/main.tf" || {
+		echo "the environments root declares egress_public_ports but never" >&2
+		echo "passes it to modules/network. Setting it in tfvars would then" >&2
+		echo "change nothing, silently." >&2
+		return 1
+	}
+}
 
 @test "the compute module still carries a machine-type floor" {
 	grep -qF 'COMPUTE-RULE-01-MACHINE-TYPE-VCPU' "$COMPUTE_VARS" || {

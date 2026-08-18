@@ -107,6 +107,56 @@ interface Failure {
   status: number;
 }
 
+/**
+ * Wait until this route's API traffic has actually happened and then stopped.
+ *
+ * `waitForLoadState("networkidle")` is the obvious choice here and it is WRONG,
+ * measurably so. This spec used it for exactly one run: on a cold first run it
+ * caught the /fleet 502 and the /signal-fusion 500, and on the warm re-run it
+ * completed all 21 routes in 16 seconds and reported everything clean. Nothing
+ * had been fixed in between. networkidle resolves as soon as there are no
+ * in-flight requests, and immediately after `domcontentloaded` there are none
+ * YET — the SPA has not booted, so the condition is satisfied by the gap
+ * BEFORE the work rather than the quiet after it. The spec was racing the app
+ * and scoring the race as a pass.
+ *
+ * That is the same defect this whole spec exists to catch, turned inward: a
+ * component reporting a confident answer it has not earned. So instead of
+ * asking the browser whether it is idle, we watch the thing we actually care
+ * about — this route's own API calls — and require BOTH that at least one
+ * arrived and that a quiet window followed it.
+ */
+async function settle(
+  count: () => number,
+  { firstCallTimeout = 15_000, quietMs = 1_500, maxMs = 25_000 } = {},
+): Promise<void> {
+  const started = Date.now();
+
+  // Phase 1: wait for the first call. A route that never issues one is a real
+  // finding, not a reason to hang, so this resolves rather than throws — the
+  // per-route silent assertion below is what reports it, with a better message.
+  while (count() === 0 && Date.now() - started < firstCallTimeout) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  if (count() === 0) return;
+
+  // Phase 2: quiesce. Pages fan out in waves (auth, then data, then panels),
+  // so "no new call for quietMs" is the end of the fan-out, bounded by maxMs
+  // for pages that long-poll and would otherwise never go quiet.
+  let last = count();
+  let lastChange = Date.now();
+  while (Date.now() - started < maxMs) {
+    await new Promise((r) => setTimeout(r, 100));
+    const now = count();
+    if (now !== last) {
+      last = now;
+      lastChange = Date.now();
+    } else if (Date.now() - lastChange >= quietMs) {
+      return;
+    }
+  }
+}
+
 test.describe("live data", () => {
   // NOT serial, and that is deliberate — it was serial for one run and the
   // consequence was immediate: the sweep failed, and Playwright reported
@@ -145,13 +195,7 @@ test.describe("live data", () => {
     for (const route of ROUTES) {
       currentRoute = route;
       await page.goto(`${config.base}${route}`, { waitUntil: "domcontentloaded" });
-      // Pages fan out several calls after first paint; networkidle is the
-      // observable end of that fan-out. A page with a long-poll never settles,
-      // so failing to settle is not itself an assertion — we just move on with
-      // whatever arrived, and the responses already captured still count.
-      await page
-        .waitForLoadState("networkidle", { timeout: 15_000 })
-        .catch(() => undefined);
+      await settle(() => seen.filter((s) => s.route === route).length);
     }
 
     // A spec that observed NOTHING would report zero failures and read as a
@@ -205,18 +249,69 @@ test.describe("live data", () => {
 
     await login(page, { demoMode: false });
 
+    // The dashboard authenticates with `Authorization: Bearer <access_token>`,
+    // NOT with a cookie. The first version of this test used
+    // `fetch(p, { credentials: "same-origin" })` on the theory that a fetch
+    // issued from the page context inherits the browser's session — and it
+    // returned 401 on every endpoint, which is exactly the uninformative
+    // answer that would let a genuinely-broken endpoint hide behind an
+    // authentication failure.
+    //
+    // oidc-client-ts stores the user under an `oidc.user:<issuer>:<client>`
+    // key, and THIS app puts that store in localStorage on purpose —
+    // `userStore: new WebStorageStateStore({ store: window.localStorage })`
+    // (auth/oidc.tsx:36), so evidence links opened in new tabs share the
+    // session. Looking only in sessionStorage found nothing and produced a
+    // false "no token" failure. Both stores are searched here so a future
+    // change to that decision degrades to a slower lookup, not a wrong answer.
+    const token = await page.evaluate(() => {
+      for (const store of [window.localStorage, window.sessionStorage]) {
+        for (let i = 0; i < store.length; i++) {
+          const key = store.key(i);
+          if (!key?.startsWith("oidc.user:")) continue;
+          try {
+            const v = JSON.parse(store.getItem(key) ?? "{}");
+            if (v?.access_token) return v.access_token as string;
+          } catch {
+            /* not the entry we want */
+          }
+        }
+      }
+      return null;
+    });
+
+    expect(
+      token,
+      "no OIDC access token found in local or session storage — the probes " +
+        "below would all return 401 and prove nothing about the endpoints " +
+        "themselves, so this fails here rather than reporting a false result",
+    ).toBeTruthy();
+
     const results: string[] = [];
     for (const { path, was } of ENDPOINTS) {
-      // Issued from the page context so it carries the session the browser
-      // holds. Probing these with a bare fetch from the test process would
-      // send no credentials and turn every one of them into an uninformative
-      // 401 — which is the "confident answer it has not earned" trap.
-      const status = await page.evaluate(async (p) => {
-        const r = await fetch(p, { credentials: "same-origin" });
-        return r.status;
-      }, path);
-      results.push(`${path} -> ${status}  (was: ${was})`);
-      expect(status, `${path} returned ${status} (was: ${was})`).toBeLessThan(400);
+      const probe = await page.evaluate(
+        async ([p, t]) => {
+          const r = await fetch(p!, { headers: { Authorization: `Bearer ${t}` } });
+          return { status: r.status, contentType: r.headers.get("content-type") ?? "" };
+        },
+        [path, token] as const,
+      );
+      results.push(`${path} -> ${probe.status} ${probe.contentType}  (was: ${was})`);
+      expect(
+        probe.status,
+        `${path} returned ${probe.status} (was: ${was})`,
+      ).toBeLessThan(400);
+      // A 200 is not proof of live data. The SPA catch-all answers unmatched
+      // paths with index.html and 200 OK — that is precisely how /fleet-api/
+      // failures used to present before nginx got an explicit location block,
+      // and fleetApi.ts still carries a comment about it. An API path that
+      // returns HTML has not been served by an API.
+      expect(
+        probe.contentType,
+        `${path} returned ${probe.status} but with content-type ` +
+          `"${probe.contentType}" — an API path answered with HTML is the SPA ` +
+          `catch-all, not the backend`,
+      ).toContain("application/json");
     }
     console.log(results.join("\n"));
   });

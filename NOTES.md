@@ -23,8 +23,10 @@ Branch `feat/gcp-tf-envmodel`. Owns `terraform/modules/env-contract/**`,
   positive, plus assertions on the resolved outputs every sibling module consumes.
 - **`terraform/environments/tests/root_contract.tftest.hcl`** — 12 native runs, 0.5s. `target_env`
   selection, `project_id` validation, the empty-map rule, and the extensibility proof.
-- **`test/terraform-environment-keys.bats`** — 37 tests, ~3s, offline. Executes the rules and
-  covers the whole-tree absence properties `terraform test` cannot reach.
+- **`test/terraform-environment-keys.bats`** — 14 tests, ~0.4s. **Shrunk from 37 tests / 621 lines
+  to 14 / 383** when §7a landed: the plan-based negative tests and the whole
+  `test/fixtures/terraform/envmodel/` tree were deleted, because the native suites now execute
+  those rules. What remains is only what a plan structurally cannot see.
 
 ### CONTRACT.md §7a arrived mid-chunk
 
@@ -46,6 +48,11 @@ Neither surface subsumes the other, and the overlap is deliberate.
 
 ISC-47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 62, 63, 64, 65, 66, 67, 68, 69, 70,
 71, 72, 73, 74, 75.
+
+From the new §7a range: ISC-324, 325, 332, 333, 334, 335, 342, 343, 344, 345, 346, 347, 351, 352,
+355, 357. ISC-337 is claimed **only for `modules/env-contract`** — the other module directories
+belong to F3/F4/F5/F6. ISC-336, 339, 340, 341 (bootstrap and state bucket) are F1's; ISC-348, 349,
+350 are F4/F5's; ISC-353, 354, 356 are F6's Make sweep.
 
 ISC-62/63/64 are claimed **at the contract layer only**: `local.mandatory_labels` computes
 `environment = <key>`, `managed-by = "terraform"` and `component = "signalloom"` for every
@@ -131,8 +138,9 @@ to the environment named in the tfvars.** This is the highest-risk open item in 
 | `terraform init -backend=false && terraform validate` on `terraform/environments` | Success (with all sibling blocks commented) |
 | `tflint --chdir` on both | rc=0, no findings |
 | `terraform test` in `terraform/modules/env-contract` | 28/28 passing, 0.6s, mocked providers |
-| `terraform test` in `terraform/environments` | 12/12 passing, 0.5s, mocked providers |
-| `bats test/terraform-environment-keys.bats` | 37/37 passing, ~3s, offline |
+| `terraform test` in `terraform/environments` | 13/13 passing, 0.5s, mocked providers |
+| `bats test/terraform-environment-keys.bats` | 14/14 passing, ~0.4s, offline |
+| ISC-357 — both sweeps with `CLOUDSDK_CONFIG=/nonexistent` and every `GOOGLE_*`/`CLOUDSDK_*` credential var unset | 41/41 passing |
 
 **Falsification — the suite was proven able to fail**, five ways, each against a throwaway copy
 of the tree under `/tmp` (never the real tree, which would risk reverting in-progress work):
@@ -151,6 +159,33 @@ of the tree under `/tmp` (never the real tree, which would risk reverting in-pro
 The native suites were falsified the same way, also against a throwaway copy: deleting rule 9,
 weakening rule 11's upper bound, breaking the `target_env` filter, and making `name_prefix` drop
 the key each produced a precise red; the control stayed 28/28 and 12/12.
+
+### Per-rule falsification sweep — the evidence that shrinking bats was safe
+
+Before deleting the plan-based negative tests, every validation rule was deleted from a throwaway
+copy of the tree, one at a time, to check whether the native suites still catch it. **Fifteen of
+sixteen turn a tftest run red.** Two things came out of it that reading the tests would not have
+found:
+
+1. **`ENV-RULE-02` (kind enum) is logically redundant, not under-tested.** Deleting it leaves both
+   suites green, and no input can change that: rule 1 forces the key to match
+   `^(demo|ci)-[1-9][0-9]*$`, rule 3 forces the key to start with `${kind}-`, and the only kind
+   satisfying both is `demo` or `ci`. Verified with rule 2 removed —
+   `kind="production"`/`key="demo-1"` is caught by rule 3, `kind="prod"`/`key="prod-1"` by rule 1.
+   Rule 2 stays (CONTRACT §3 mandates it, and it gives the actionable error message), and its
+   presence is asserted **structurally** in bats. That single assertion is the reason the bats
+   file could not be deleted outright.
+
+2. **`PROJECT-RULE-02-FORMAT` was a real gap, now closed.** All three project_id negatives were
+   also caught by `PROJECT-RULE-01`, so none isolated the format rule and it could have been
+   deleted silently. Added `a_malformed_but_non_placeholder_project_id_is_rejected`
+   (`"SL-Demo-Platform"` — long enough, no CHANGEME, no `example`, but not lowercase). Deleting
+   either PROJECT rule now turns the suite red.
+
+The shrunk bats file was then falsified seven ways (removed a `tests/` dir; `command = apply`;
+deleted the ENV-RULE-02 tag; made the two-environment example modify rather than add; a real
+`0.0.0.0/0` value in an example; a real domain in an example; a default on `target_env`). All
+seven red, control green.
 
 ### One finding worth carrying to the other chunks
 

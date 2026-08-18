@@ -120,6 +120,23 @@ run "a_too_short_project_id_is_rejected" {
   expect_failures = [var.project_id]
 }
 
+run "a_malformed_but_non_placeholder_project_id_is_rejected" {
+  # This run exists because deleting PROJECT-RULE-02-FORMAT left the whole
+  # suite green without it. The three rejections above are all caught by
+  # PROJECT-RULE-01 as well, so none of them isolates the format rule, and the
+  # format rule could have been deleted silently.
+  #
+  # "SL-Demo-Platform" is long enough, contains neither CHANGEME nor example,
+  # and so passes rule 01 — but GCP project IDs are lowercase, so only rule 02
+  # can reject it. Found by deleting each rule in turn against a throwaway copy
+  # rather than by reading the tests.
+  command = plan
+  variables {
+    project_id = "SL-Demo-Platform"
+  }
+  expect_failures = [var.project_id]
+}
+
 run "a_well_formed_project_id_is_accepted" {
   # The corrected pair for all three rejections above: same configuration,
   # only the project ID fixed. Without this run, a project_id rejection caused

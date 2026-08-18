@@ -275,6 +275,47 @@ def _fetch_kubernetes_text(url: str, token: str, context: ssl.SSLContext) -> str
         return response.read().decode("utf-8", errors="replace")
 
 
+def _self_subject_access_review(
+    base_url: str,
+    token: str,
+    context: ssl.SSLContext | None,
+    **attributes: str,
+) -> bool | None:
+    """Ask the apiserver whether THIS identity is authorized for one object.
+
+    Needs no grant of its own: `system:basic-user` is bound to
+    `system:authenticated`, so every authenticated identity may create a
+    SelfSubjectAccessReview. That matters here -- the collector is diagnosing a
+    situation in which it has been refused, and a diagnosis that itself requires
+    permission would be refused for the same reason and tell us nothing.
+
+    Returns True, False, or None when the review could not be performed. None is
+    not a soft False: a review that did not happen is evidence of nothing, and
+    the caller must report it as undetermined rather than pick a side.
+    """
+    body = {
+        "apiVersion": "authorization.k8s.io/v1",
+        "kind": "SelfSubjectAccessReview",
+        "spec": {"resourceAttributes": {
+            key: value for key, value in attributes.items() if value
+        }},
+    }
+    req = request.Request(
+        f"{base_url}/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with request.urlopen(req, context=context, timeout=5.0) as response:
+            payload = json.load(response)
+    except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError):
+        return None
+    status = payload.get("status") if isinstance(payload, dict) else None
+    allowed = status.get("allowed") if isinstance(status, dict) else None
+    return allowed if isinstance(allowed, bool) else None
+
+
 def _patch_kubernetes_json(
     url: str,
     token: str,
@@ -749,19 +790,124 @@ def _topology_node(
     }
 
 
+def _diagnose_collector_failure(
+    namespace: str, stage: str, exc: BaseException, review: object,
+) -> tuple[str, str]:
+    """Name what actually happened instead of echoing the HTTP status.
+
+    The Kubernetes API answers 403 rather than 404 for an object the caller may
+    not read, precisely so that a denial cannot be used to probe existence. So
+    `HTTP Error 403: Forbidden` -- which this collector used to append verbatim,
+    and which the dashboard printed as its reason for falling back to a derived
+    diagram -- is genuinely ambiguous between "this namespace is not there" and
+    "this collector was refused". It was rendered as the second for the entire
+    life of the demo while the truth was the first: the Agent Trust slice was
+    never deployed, so neither the namespaces nor the RBAC that reads them
+    existed.
+
+    Three facts separate the cases, and all three come from calls the collector
+    already makes:
+
+      * 404 on the namespace read is unambiguous. The grant authorising that
+        read is cluster-scoped and resourceName-pinned, so it does not depend on
+        the namespace existing -- reaching the object and being told it is gone
+        means it is gone.
+      * 403 on the namespace read means the grant itself is absent. A
+        SelfSubjectAccessReview settles that without needing any privilege, and
+        an authoritative "not allowed" is a statement about AUTHORISATION, never
+        about existence. Because the Agent Trust topology RBAC is delivered by
+        the very slice it describes, all six namespaces reading this way is what
+        an undeployed slice looks like from inside the collector.
+      * 403 on pods or networkpolicies AFTER the namespace read succeeded is a
+        real permission denial, inside a namespace whose existence was observed
+        a moment earlier.
+
+    A review that could not be performed yields `undetermined`. Guessing either
+    way would put the same unfounded verdict back on the panel in nicer words.
+    """
+    if not isinstance(exc, error.HTTPError):
+        return "unreachable", f"{namespace}: kubernetes API unreachable during the {stage} read: {exc}"
+    if exc.code == 404 and stage == "namespace":
+        return "absent", f"{namespace}: namespace does not exist"
+    if exc.code != 403:
+        return "unreachable", f"{namespace}: kubernetes API returned HTTP {exc.code} for the {stage} read"
+    if stage != "namespace":
+        # Existence is not in question: the namespace object was read seconds ago.
+        return "denied", (
+            f"{namespace}: namespace exists but {stage} could not be listed — permission denied"
+        )
+    allowed = review(
+        group="", resource="namespaces", verb="get", name=namespace, namespace="",
+    ) if callable(review) else None
+    if allowed is False:
+        return "not-granted", (
+            f"{namespace}: this collector holds no read grant for the namespace, "
+            "so Kubernetes will not disclose whether it exists"
+        )
+    return "undetermined", (
+        f"{namespace}: the read was refused and the access review could not be "
+        "performed, so absent-versus-denied is undetermined"
+    )
+
+
+# One sentence beats six repetitions of the same fact, and the inference that
+# only holds when EVERY namespace fails identically belongs here rather than in
+# a per-namespace message that cannot see the others.
+_COLLECTOR_SUMMARIES = {
+    "absent": (
+        "none of the six Agent Trust namespaces exist — the Agent Trust slice is "
+        "not deployed in this cluster"
+    ),
+    "not-granted": (
+        "this collector holds no read grant for any of the six Agent Trust "
+        "namespaces, so Kubernetes will not disclose whether they exist; the "
+        "topology RBAC is delivered by the Agent Trust slice itself, so this is "
+        "what a slice that is not deployed looks like from here"
+    ),
+    "denied": (
+        "the six Agent Trust namespaces exist but their pods and networkpolicies "
+        "could not be listed — permission denied"
+    ),
+    "undetermined": (
+        "every Agent Trust namespace read was refused and no access review could "
+        "be performed, so absent-versus-denied is undetermined"
+    ),
+}
+
+
+def _collector_reason(failures: list[tuple[str, str]], total: int) -> str:
+    if not failures:
+        return "six fixed namespaces collected"
+    codes = {code for code, _ in failures}
+    if len(failures) == total and len(codes) == 1:
+        summary = _COLLECTOR_SUMMARIES.get(next(iter(codes)))
+        if summary is not None:
+            return summary
+    return "; ".join(message for _, message in failures)[:500]
+
+
 def collect_trust_topology(
     base_url: str, service_account: str, context: ssl.SSLContext | None,
     fetch: object | None = None, now: str | None = None,
+    review: object | None = None,
 ) -> dict[str, object]:
     """Collect a fail-closed topology from the six fixed Agent Trust namespaces."""
     getter = fetch if callable(fetch) else _fetch_kubernetes_json
+    reviewer = review if callable(review) else (
+        lambda **attributes: _self_subject_access_review(
+            base_url, service_account, context, **attributes)
+    )
     observed_at = now or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     current_time = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
     nodes_by_id: dict[str, dict[str, object]] = {}
     configuration_gaps: list[dict[str, object]] = []
-    collector_errors: list[str] = []
+    collector_failures: list[tuple[str, str]] = []
     probe_pods: dict[str, list[object]] = {probe: [] for probe in TRUST_PROBES}
     for namespace in TRUST_TOPOLOGY_NAMESPACES:
+        # Which call was refused is half the diagnosis: a 403 before the
+        # namespace object has been read cannot distinguish absence from
+        # denial, and a 403 after it can.
+        stage = "namespace"
         try:
             ns = getter(f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}", service_account, context)
             labels = ns.get("metadata", {}).get("labels", {}) if isinstance(ns, dict) else {}
@@ -780,6 +926,7 @@ def collect_trust_topology(
                     "fresh", "configuration-observed", "namespace labels read from Kubernetes API",
                 ),
             )
+            stage = "pods"
             pods = getter(f"{base_url}/api/v1/namespaces/{quote(namespace, safe='')}/pods", service_account, context)
             for pod in pods.get("items", []) if isinstance(pods, dict) else []:
                 metadata = pod.get("metadata", {}) if isinstance(pod, dict) else {}
@@ -817,6 +964,7 @@ def collect_trust_topology(
                 current = nodes_by_id.get(logical_id)
                 if current is None or (candidate.get("ready") is True and current.get("ready") is not True):
                     nodes_by_id[logical_id] = candidate
+            stage = "networkpolicies"
             policies = getter(f"{base_url}/apis/networking.k8s.io/v1/namespaces/{quote(namespace, safe='')}/networkpolicies", service_account, context)
             for policy in policies.get("items", []) if isinstance(policies, dict) else []:
                 name = policy.get("metadata", {}).get("name") if isinstance(policy, dict) else None
@@ -835,7 +983,7 @@ def collect_trust_topology(
                         ),
                     })
         except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
-            collector_errors.append(f"{namespace}: {exc}")
+            collector_failures.append(_diagnose_collector_failure(namespace, stage, exc, reviewer))
 
     probe_results = {
         probe: _probe_evidence_from_pods(probe_pods[probe], probe, current_time)
@@ -891,7 +1039,7 @@ def collect_trust_topology(
                 **evidence,
             })
 
-    status = "unavailable" if len(collector_errors) == len(TRUST_TOPOLOGY_NAMESPACES) else ("partial" if collector_errors else "ok")
+    status = "unavailable" if len(collector_failures) == len(TRUST_TOPOLOGY_NAMESPACES) else ("partial" if collector_failures else "ok")
     probe_status = "ok" if not probe_gaps else ("unavailable" if len(probe_gaps) == len(TRUST_PROBES) else "partial")
     external_gaps = [
         {
@@ -915,7 +1063,7 @@ def collect_trust_topology(
             "kubernetes": {
                 "status": status,
                 "observed_at": observed_at,
-                "reason": "; ".join(collector_errors)[:500] or "six fixed namespaces collected",
+                "reason": _collector_reason(collector_failures, len(TRUST_TOPOLOGY_NAMESPACES)),
             },
             "probes": {
                 "status": probe_status,

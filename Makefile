@@ -477,7 +477,27 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	# dashboard-signalloom/nginx.conf depends on it either way.
 	$(MAKE) demo-signalloom-supercred-images
 	$(MAKE) demo-signalloom-signalfusion-images
+	# The dashboard renders the Agent Trust Topology panel unconditionally, but
+	# the ResourceSet backing it ships with `inputs: []` and only materialises
+	# when scripts/agent-trust-local.sh patches concrete values in. Nothing here
+	# ever did, so every standard bring-up left all six agent-trust-* namespaces
+	# absent, the topology collector refused by RBAC that the missing slice was
+	# itself supposed to deliver, and the panel permanently on its derived
+	# fallback. Always-rendered has to mean always-deployed -- the same rule
+	# demo-signalloom-supercred-images above exists to enforce for images.
+	#
+	# The artifacts are pushed HERE rather than via demo-agent-trust-up so that
+	# nothing runs between signalloom-local.sh activating its ResourceSets and
+	# agent-trust-local.sh snapshotting them. That script restores the sibling
+	# inputs after its own fleet refresh, because refreshing reapplies the
+	# declarative `inputs: []` -- so it has to observe them ACTIVE. Any step in
+	# between is a window in which the ten-minute flux-system reconcile can
+	# blank them first, and the snapshot then restores nothing, leaving
+	# preflight_bao waiting 600s on a signalloom-infra that will never go Ready.
+	$(MAKE) push-local-fleet
+	$(MAKE) push-local-agent-trust
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
+	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
 
 .PHONY: demo-signalloom-afm-up

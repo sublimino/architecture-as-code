@@ -116,6 +116,15 @@ setup() {
 		        exit $? ;;
 		      ctr)
 		        case "$*" in
+		          # The CONTENT STORE, which is a different thing from the CRI view.
+		          # $CTR_CONTENT names refs whose bytes are already on the node —
+		          # the state measured on signalloom-ci-2 on 2026-08-18, where ctr
+		          # held 102 images and crictl could run 40 of them.
+		          *"images ls"*)
+		            for r in ${CTR_CONTENT:-}; do
+		              echo "docker.io/library/$r application/vnd.oci.image.index.v1+json sha256:deadbeef"
+		            done
+		            exit 0 ;;
 		          *"images import"*)
 		            cat >/dev/null
 		            # An import alone does NOT make the image visible to the CRI.
@@ -124,9 +133,16 @@ setup() {
 		            [ -n "${CTR_IMPORT_IMAGE:-}" ] && echo "$CTR_IMPORT_IMAGE" >>"$BATS_TEST_TMPDIR/imported"
 		            exit "${CTR_IMPORT_STATUS:-0}" ;;
 		          *"images label"*)
-		            if [ -s "$BATS_TEST_TMPDIR/imported" ] && [ "${CTR_LABEL_STATUS:-0}" = 0 ]; then
-		              cat "$BATS_TEST_TMPDIR/imported" >>"$CRICTL_STATE"
-		              : >"$BATS_TEST_TMPDIR/imported"
+		            if [ "${CTR_LABEL_STATUS:-0}" = 0 ]; then
+		              # Labelling adopts whatever bytes are on the node, whether
+		              # they arrived by import just now or were already in the
+		              # content store. The second case is the whole point: the
+		              # bytes were never missing, only the label was.
+		              if [ -s "$BATS_TEST_TMPDIR/imported" ]; then
+		                cat "$BATS_TEST_TMPDIR/imported" >>"$CRICTL_STATE"
+		                : >"$BATS_TEST_TMPDIR/imported"
+		              fi
+		              for r in ${CTR_CONTENT:-}; do echo "$r" >>"$CRICTL_STATE"; done
 		            fi
 		            exit "${CTR_LABEL_STATUS:-0}" ;;
 		        esac ;;
@@ -559,4 +575,59 @@ setup() {
 	CONTAINERD_STORE=1 CRICTL_INSPECTI_EMPTY=1 KIND_LOADS="fake-integration-proxy:dev" \
 		run bash "$script" fake-integration-proxy:dev
 	[[ "$output" != *"PASS"* ]]
+}
+
+# ─── Label-first recovery ───────────────────────────────────────────────────
+#
+# Measured on signalloom-ci-2, 2026-08-18, during a cold run that aborted in
+# build-images. The diagnostics caught the failure in the act:
+#
+#   ctr, content store:  docker.io/library/fake-integration-proxy:dev sha256:fe4a005f…
+#   crictl, CRI view:    (empty)
+#   totals: ctr=88 crictl=33
+#   node disk: 8% used, 178G avail
+#
+# and the recovery that fixed it reported:
+#
+#   Importing  elapsed: 0.3 s  total: 0.0 B  (0.0 B/s)
+#
+# Zero bytes. The bytes were never missing — only the
+# io.cri-containerd.image=managed label was. So the export-and-reimport is doing
+# expensive work for a condition that is not the one present.
+
+@test "KINDLOAD content already on the node is adopted by LABELLING, not by re-exporting it" {
+	# The load leaves nothing runnable (KIND_LOADS unset) but the bytes ARE in
+	# the content store. Recovery must label what is there.
+	CONTAINERD_STORE=1 CTR_CONTENT="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"PASS"* ]]
+	# The point of the change: no tar was written and nothing was re-imported to
+	# move 0.0 B. Asserting the ABSENCE of the expensive path, because a recovery
+	# that still exports would satisfy a status-only check and pass vacuously.
+	run grep -c "images import" "$CALL_LOG"
+	[ "$output" -eq 0 ]
+	run grep -c "^docker save" "$CALL_LOG"
+	[ "$output" -eq 0 ]
+}
+
+@test "KINDLOAD content genuinely absent still takes the full export path" {
+	# The fallback must survive. If the bytes really are missing, labelling
+	# cannot conjure them and the export is the only thing that can work.
+	CONTAINERD_STORE=1 CTR_IMPORT_IMAGE="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"PASS"* ]]
+	run grep -c "images import" "$CALL_LOG"
+	[ "$output" -gt 0 ]
+}
+
+@test "KINDLOAD content absent and the export failing still fails CLOSED" {
+	# Neither path can deliver. The run must fail and say so — a recovery that
+	# cannot recover must never report success.
+	CONTAINERD_STORE=1 CTR_IMPORT_STATUS=1 \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"FAILED"* ]]
+	[[ "$output" != *"✓ PASS — all"* ]]
 }

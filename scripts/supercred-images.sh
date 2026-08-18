@@ -274,6 +274,24 @@ kind_load_all() {
 # archive before the command returns.
 reload_via_archive() {
   local image="$1" context="$2" dockerfile="${3:-}"
+
+  # Label-first, before the rebuild below. On 2026-08-18 a cold run aborted here
+  # on supercred-demo-runner:local after 3/3 retries, while the same run's
+  # diagnostics showed the content store holding images the CRI could not see —
+  # ctr=102 against crictl=40 on a node at 9% disk. The recovery that worked
+  # elsewhere in that run reported `Importing … total: 0.0 B`: the bytes were
+  # never missing, only the io.cri-containerd.image=managed label was.
+  #
+  # This path is more expensive than kind-load-verified.sh's — it REBUILDS the
+  # image — so the saving is larger and the reason to try the cheap action first
+  # is stronger. It cannot mask anything: image_identity_adopt_if_present
+  # returns 0 only when image_identity_verify proves identity afterwards, so a
+  # failed adoption falls through to the rebuild rather than reporting success.
+  if image_identity_adopt_if_present "$image" "${SUPERCRED_CRI_ADOPT_TIMEOUT:-90}"; then
+    log "recovery: content was already on $NODE — labelled it CRI-managed, no rebuild needed"
+    return 0
+  fi
+
   local tar
   tar="$(mktemp -t "supercred-${image%%:*}-XXXXXX.tar")"
   # shellcheck disable=SC2064  # expand $tar now, not at trap time
@@ -430,10 +448,19 @@ load_images() {
        'ctr images ls' can list an image whose layers never transferred, so this
        check uses 'crictl images' instead — a listed-but-unusable image is
        reported as missing here on purpose. Neither command tells you WHICH
-       image; compare the IMAGE ID column against 'docker image inspect'.
-       Inspect with:
-         docker exec $NODE crictl images --no-trunc
-         docker exec $NODE ctr -n k8s.io images ls
+       image.
+       Do NOT answer that by comparing the IMAGE ID column against 'docker image
+       inspect'. On Docker's containerd image store those are different KINDS of
+       digest — docker reports the manifest/index digest, crictl the config
+       digest — so they disagree for identical images and agree for none.
+       Identity is the rootfs diffID list, which lives in the image config and
+       so reads the same on both sides. See scripts/lib/image-identity.sh.
+       Inspect with — these compare the axis that IS comparable, so their
+       output can be diffed directly:
+         docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' IMAGE
+         docker exec $NODE crictl inspecti IMAGE | jq -r '.info.imageSpec.rootfs.diff_ids[]'
+       And for presence only, which is a different question:
+         docker exec $NODE crictl images
        Then retry:  make demo-signalloom-supercred-images"
       ;;
   esac

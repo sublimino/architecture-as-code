@@ -513,6 +513,84 @@ image_identity_present_on_node() {
 	[ "$state" = "PRESENT" ]
 }
 
+# ─── Adoption: the bytes are usually already there ──────────────────────────
+#
+# All three consumers of this library recover a failed load the same way: export
+# the image to a tar, re-import it, label it, wait. Measured on signalloom-ci-2
+# on 2026-08-18, in the act, that export moves NOTHING:
+#
+#   recovery: importing fake-integration-proxy:dev into containerd
+#   Importing  elapsed: 0.3 s  total: 0.0 B  (0.0 B/s)
+#   ✓ PASS  fake-integration-proxy:dev … (6 matching rootfs layers)
+#
+# Zero bytes, because the bytes were never missing. The same run's diagnostics
+# showed the content store holding the image at the correct digest while the CRI
+# could not see it, on a node at 8% disk:
+#
+#   ctr, content store:  docker.io/library/fake-integration-proxy:dev sha256:fe4a005f…
+#   crictl, CRI view:    (empty)
+#   totals: ctr=88 crictl=33
+#
+# What actually makes the CRI adopt an image is the label. Confirmed from the
+# other direction on the same node: cardvault:local, which passed, carries
+# io.cri-containerd.image=managed in its ctr listing, and signal-ingest, which
+# did not, sat at ctr=1 crictl=0.
+#
+# THE OPEN QUESTION, and it is NOT answered by this function. Why containerd's
+# CRI plugin adopts some freshly-loaded images and strands others — 62 of them
+# on that node — is unexplained, and is a question about kind's loader or the
+# CRI plugin rather than about this repo. Labelling content that is already
+# present is the right action at THIS level regardless of what causes the label
+# to be missing: it is not a workaround for the deeper bug, it is the correct
+# remedy for the condition actually observed. If you are here because images are
+# still being stranded, the thing to investigate is upstream, not this file.
+#
+# Is the image's content already on the node, whatever the CRI thinks?
+image_identity_content_on_node() {
+	local image="$1" ref
+	ref="$(image_identity_canonical_ref "$image")"
+	"${DOCKER_BIN:-docker}" exec "${NODE:?image-identity: NODE is not set}" \
+		ctr -n k8s.io images ls 2>/dev/null \
+		| awk -v r="$ref" '$1 == r { found = 1 } END { exit !found }'
+}
+
+# Label content already on the node so the CRI will adopt it.
+image_identity_adopt_on_node() {
+	local image="$1" ref
+	ref="$(image_identity_canonical_ref "$image")"
+	"${DOCKER_BIN:-docker}" exec "${NODE:?image-identity: NODE is not set}" \
+		ctr -n k8s.io images label "$ref" io.cri-containerd.image=managed >/dev/null 2>&1
+}
+
+# image_identity_adopt_if_present IMAGE [MAX_CHECKS]
+#
+# The cheap recovery: if the content is already on the node, label it and wait
+# for the CRI to pick it up. Returns 0 only when identity is PROVEN afterwards,
+# 1 otherwise — including when the content is absent, which is the caller's
+# signal to fall back to a full export.
+#
+# Fail-closed by construction: this never decides anything itself, it asks
+# image_identity_verify and returns its verdict. It cannot turn a mismatch into
+# a pass, and a caller that gets 1 must still do the expensive thing rather than
+# treat the attempt as success.
+#
+# MAX_CHECKS bounds ITERATIONS, not seconds — see the note in the callers about
+# why those two are not interchangeable under load.
+image_identity_adopt_if_present() {
+	local image="$1" max="${2:-20}" checks=0 rc
+	image_identity_content_on_node "$image" || return 1
+	image_identity_adopt_on_node "$image" || return 1
+	while [ "$checks" -lt "$max" ]; do
+		image_identity_invalidate
+		rc=0; image_identity_verify "$image" || rc=$?
+		[ "$rc" -eq 0 ] && return 0
+		[ "$rc" -eq 2 ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ] && return 0
+		sleep 1
+		checks=$((checks + 1))
+	done
+	return 1
+}
+
 # Drop the cached sample. Anything that polls — a recovery loop waiting for the
 # CRI to adopt an image — MUST call this between iterations, or it will spend
 # the whole timeout re-reading the one table it read before the change it is

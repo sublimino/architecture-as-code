@@ -174,6 +174,19 @@ kind_load_all() {
 
 reload_via_archive() {
   local image="$1" context="$2" dockerfile="${3:-}"
+
+  # Label-first, before the rebuild below. Same reasoning and same measurement as
+  # supercred-images.sh: on the node the content store held images the CRI could
+  # not run (ctr=102, crictl=40, disk 9%), and the recovery that fixed them moved
+  # 0.0 B — the label was missing, not the bytes. One shared implementation in
+  # scripts/lib/image-identity.sh rather than a third copy of the logic, because
+  # three copies of a model drifting apart is exactly how this class of defect
+  # came back the last time.
+  if image_identity_adopt_if_present "$image" "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-90}"; then
+    log "recovery: content was already on $NODE — labelled it CRI-managed, no rebuild needed"
+    return 0
+  fi
+
   local tar
   tar="$(mktemp -t "signalfusion-${image%%:*}-XXXXXX.tar")"
   # shellcheck disable=SC2064  # expand $tar now, not at trap time
@@ -279,10 +292,15 @@ load_images() {
        Nothing has been repaired. A gate that reloads on a mismatch and then
        reports success hides the broken loader — which is how a stale binary ran
        under a green pipeline on 2026-08-17.
-       Inspect with:
-         docker image inspect --format '{{.Id}}' signal-ingest:local
-         docker exec $NODE crictl images --no-trunc
-         docker exec $NODE ctr -n k8s.io images ls
+       Do NOT compare docker's .Id against the crictl IMAGE ID column. On the
+       containerd image store those are different KINDS of digest — manifest
+       versus config — so they never match, for correct images or wrong ones.
+       Identity is the rootfs diffID list. See scripts/lib/image-identity.sh.
+       Inspect with — these compare the axis that IS comparable:
+         docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' signal-ingest:local
+         docker exec $NODE crictl inspecti signal-ingest:local | jq -r '.info.imageSpec.rootfs.diff_ids[]'
+       And for presence only, which is a different question:
+         docker exec $NODE crictl images
        Then retry:  make demo-signalloom-signalfusion-images"
       ;;
   esac

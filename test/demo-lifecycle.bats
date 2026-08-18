@@ -96,14 +96,44 @@ SCRIPT
   [[ "$output" != *"make up"* ]]
 }
 
-@test "demo ResourceSets default to inactive inputs" {
-  run grep -F 'inputs: []' \
-    "$root/d2-osramp-fleet/tenants/base/apps.yaml" \
-    "$root/d2-osramp-fleet/tenants/base/olly.yaml" \
-    "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+# Was "demo ResourceSets default to inactive inputs", asserting `inputs: []` in
+# all three files and exactly twice in signalloom.yaml. That encoded the defect
+# as the requirement: `inputs: []` is not an inactive ResourceSet. flux-operator
+# renders spec.resources with `Option("missingkey=error")` and BuildResourceSet
+# treats an empty input list as "render ONCE against a nil map" rather than
+# "render nothing", so each of those objects shipped terminally Stalled with
+# `map has no entry for key "tenant"` and waited for a script to repair it.
+#
+# The two demos that really are opt-in now say so with the annotation the
+# controller actually honours (obj.IsDisabled(), checked before the build).
+# Signal Loom is not opt-in on this branch -- tenants/local/kustomization.yaml
+# includes it deliberately -- so it carries declarative inputs and Flux brings
+# it up unaided. Completeness of those inputs is swept in
+# test/resourceset-inputs-declarative.bats.
+@test "opt-in demo ResourceSets ship disabled, not merely input-less" {
+  local f
+  for f in apps olly; do
+    run grep -F 'fluxcd.controlplane.io/reconcile: disabled' \
+      "$root/d2-osramp-fleet/tenants/base/$f.yaml"
+    [ "$status" -eq 0 ]
+  done
 
-  [ "$status" -eq 0 ]
-  [ "$(grep -Fc 'inputs: []' "$root/d2-osramp-fleet/tenants/local/signalloom.yaml")" -eq 2 ]
+  # Signal Loom's two ResourceSets must NOT be input-less: an empty input list
+  # there is the cold-start deadlock this branch exists to remove.
+  #
+  # Asserted structurally rather than with `grep -Fc 'inputs: []'`, which is a
+  # guard that matches its own documentation: the header of signalloom.yaml
+  # explains at length why `inputs: []` was wrong, so the literal appears in the
+  # file for exactly the reason the file is now correct. yq parses YAML and does
+  # not see comments.
+  command -v yq >/dev/null || skip "yq is required"
+  local name
+  for name in signalloom-infra signalloom-apps; do
+    run yq -e "select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") | (.spec.inputs | length) > 0" \
+      "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
+    [ "$status" -eq 0 ]
+    [ "$output" = "true" ]
+  done
 }
 
 @test "stack purge fails closed while a labelled Bao consumer remains" {

@@ -47,7 +47,9 @@ Two service accounts are involved and they are **not** the same thing:
   `deploy/gcp/deploy-sa`. It holds resource-creation rights.
 - **operator SA** — what the *driver* impersonates to SSH and tunnel. Published
   into the hand-off as `operator_sa`, or overridden with
-  `GCP_TF_DEMO_OPERATOR_SA`. It holds no creation rights.
+  `GCP_TF_DEMO_OPERATOR_SA`. It holds no creation rights, and it needs
+  **`roles/iap.tunnelResourceAccessor`** — without it every tunnel returns
+  `4033: 'not authorized'`, which mentions no permission at all.
 
 The driver refuses to fall back from one to the other. See
 [Why impersonation, and why it is not the usual reason](#why-impersonation-and-why-it-is-not-the-usual-reason).
@@ -153,18 +155,53 @@ What happens, in order:
 Expect this to take a while. The fence is 90 minutes; raise it with
 `GCP_TF_DEMO_TIMEOUT_MINUTES=<n>`.
 
-**What is not delivered.** `.git`, `.keys`, any `*.tfvars`, any
-`*.handoff.json`, `deploy/gcp/deploy-sa`, `node_modules` and `.terraform*`. No
-signing key and no real project input leaves this machine. The driver inspects
-the built artefact and refuses to send it if any of that is present — checking
-the tarball, not the flag list, because a `--exclude` that silently matches
-nothing looks exactly like a correct one.
+### What is delivered, and why it cannot contain a secret
 
-Kustomize needs a `.git` directory as a security boundary for relative path
-traversal (`../base/` is rejected without one). The pipeline `git init`s a
-throwaway snapshot repo on the VM for that. It is a marker, not history — which
-is why the driver stamps the report with the commit from **your** checkout, and
-treats a report stamped with anything else as `STALE`.
+The payload is `git archive HEAD` — **tracked files only**.
+
+That is a guarantee by construction, not by maintenance. Every piece of secret
+material in this repo is gitignored (the tfvars, the hand-offs,
+`deploy/gcp/deploy-sa`, `.keys/`), so none of it *can* ride along. The
+alternative — a `tar` of the working tree with an `--exclude` list — is a
+guarantee only for as long as somebody keeps that list correct, and an
+`--exclude` that silently matches nothing looks exactly like one that works.
+
+It is also dramatically smaller. Measured on this repo: a working-tree tar is
+**249MB**, because `.terraform*` provider binaries and several `node_modules`
+trees survived the excludes. `git archive` is **35MB / ~2576 files**.
+
+The driver still inspects the built artefact and refuses to send it if anything
+excluded is present. If that fires, something is *tracked* that must not be —
+fix `.gitignore` and untrack it; do not paper over it with an archive exclusion.
+
+**The cost: uncommitted work is not delivered.** `HEAD` is what ships. A run
+against a dirty tree would test `HEAD` while you read your edits on disk, and
+stamp the report with `HEAD`'s commit — a verdict that is accurate about a tree
+nobody is looking at. So a dirty tree is refused:
+
+```
+demo-up: REFUSING to deliver — the working tree has uncommitted changes.
+```
+
+Commit first, or accept it explicitly with `GCP_TF_DEMO_ALLOW_DIRTY=1`, which
+proceeds and tells you plainly that your changes are not in the run.
+
+`git archive` ships no `.git`, and Kustomize needs one as a security boundary
+for relative path traversal (`../base/` is rejected without it). The **driver**
+`git init`s a throwaway snapshot repo on the VM immediately after unpacking —
+this is not left to the pipeline. It is a marker, not history: its SHA is
+meaningless, which is why the report is stamped with the commit from **your**
+checkout and why a report stamped with anything else is `STALE`.
+
+### Delivery is verified, not assumed
+
+After the transfer the driver reads the payload's size back off the VM and
+compares it. This is not padding. `gcloud compute ssh --command '…' < file`
+**does not forward stdin**: the command exits 0 and the file lands at **zero
+bytes**, and everything downstream reports success against an empty file —
+`chmod` works, a launch reports launched, and the log is empty. Nothing anywhere
+goes red. An exit status describes the command; only the artefact describes the
+artefact.
 
 To re-run just the tests against a cluster that is already standing:
 
@@ -309,8 +346,62 @@ SSH_AUTH_SOCK= gcloud compute ssh ...
 
 ### `roles/compute.osLoginExternalUser` / permission denied on SSH
 
-You are reaching the cloud as yourself instead of as the operator SA. See
-below — the fix is not to grant yourself the role.
+You are reaching the cloud as yourself instead of as the operator SA. The fix is
+**not** to grant yourself the role — you cannot. The operator is external to the
+owning organisation, and `gcloud organizations list` returns zero items for
+them, so there is no org-level policy they can edit. Use the impersonation path;
+that is what it is for. An org admin granting the role is an optional
+convenience, never a prerequisite.
+
+### `4033: 'not authorized'` when opening the tunnel
+
+The full form is `ERROR: [0] Error during local connection to [stdin]: Error
+while connecting [4033: 'not authorized']`. It mentions no permission and no
+principal, and reads like a network fault. **It is IAM.** The operator service
+account needs `roles/iap.tunnelResourceAccessor`:
+
+```bash
+gcloud projects add-iam-policy-binding <project> \
+  --member=serviceAccount:<operator-sa> \
+  --role=roles/iap.tunnelResourceAccessor
+```
+
+There is roughly a **minute of propagation delay**. An immediate retry after
+granting still fails, which reads exactly like the grant not having worked.
+Wait, then retry.
+
+### `4003: 'failed to connect to backend'` when opening the tunnel
+
+Two causes wearing one error, indistinguishable from the client:
+
+1. **Nothing is listening** on the target port. Check the estate is up:
+   `make gcp-tf-demo-status ENV=demo-1`.
+2. **A firewall rule does not permit it.** The IAP source range is
+   `35.235.240.0/20`. A rule set that opens `tcp:22` from that range and opens
+   `app_port` only to Google's load-balancer health-check ranges produces
+   exactly this, because there is no load balancer in front of this environment.
+
+```bash
+gcloud compute firewall-rules list --project=<project> \
+  --format='table(name,allowed[],sourceRanges[])'
+```
+
+`gcp-tf-connect` does not hang on either. It polls the local port to a deadline,
+then kills the tunnel and prints the diagnosis with gcloud's own stderr.
+
+### `Docker daemon is not running` — when it is running
+
+`install-ci-tools.sh` and `setup.sh --tools-only` both abort with this on a
+fresh VM while the daemon is up and healthy. The message names the wrong cause:
+**the OS Login user is not in the `docker` group**. Confirm with `id` and
+`sudo systemctl status docker` before believing the message.
+
+### `the payload is not on <instance>` / `delivered payload is N bytes and M were sent`
+
+The transfer reported success and the bytes did not arrive, or arrived
+truncated. Do **not** read the run that would have followed as a result about
+your code — nothing, or only part of it, was delivered. Retry; if it repeats,
+the tunnel or the VM's disk is the place to look, not the pipeline.
 
 ### `gcloud is not authenticated, so <instance>'s state is UNKNOWN`
 
@@ -360,8 +451,17 @@ This is measured, not theoretical.
 halves of one thing. The interface, so neither can drift silently:
 
 **Invocation** — `bash scripts/gcp-tf/demo-pipeline.sh`, with the working
-directory set to `SL_DEMO_WORK_DIR`, running as the VM's demo user under
-`bash -l`.
+directory set to `SL_DEMO_WORK_DIR`, under `bash -l`. It runs as the **OS Login
+user** unless `GCP_TF_DEMO_REMOTE_USER` names a service account to drop to;
+`sudo -u` naming an account that does not exist fails with a message about sudo,
+which reads as a privilege problem rather than a wrong assumption.
+
+**What the driver has already done before the pipeline starts** — so chunk C
+does not repeat it: the checkout is unpacked at `SL_DEMO_WORK_DIR`, owned by the
+invoking user, and a throwaway `git init` + snapshot commit exists there for
+Kustomize's path-traversal boundary. The pipeline does **not** need to create
+one. It **does** need to mint its own signing material: `.keys/` is gitignored
+and therefore not in the payload, by construction.
 
 **Configuration** — environment only, no arguments:
 
@@ -405,8 +505,12 @@ against stubs with no cloud access.
 | `GCP_TF_DEMO_OPERATOR_SA` | from the hand-off | override the SSH identity |
 | `GCP_TF_DEMO_TIMEOUT_MINUTES` | `90` | raise the pipeline fence |
 | `GCP_TF_DEMO_REPORT_DIR` | `demo-reports/` | where reports land locally |
-| `GCP_TF_DEMO_REMOTE_DIR` | `/home/demo/osramp-demo` | delivery target on the VM |
+| `GCP_TF_DEMO_REMOTE_DIR` | `/opt/signalloom/repo` | delivery target on the VM |
+| `GCP_TF_DEMO_REMOTE_USER` | *(empty)* | service account to drop to on the VM; empty means the OS Login user |
+| `GCP_TF_DEMO_ALLOW_DIRTY` | `0` | deliver `HEAD` despite uncommitted changes |
 | `GCP_TF_DEMO_ALLOW_PORT_MISMATCH` | `0` | open a non-Dex port anyway |
+| `GCP_TF_DEMO_TUNNEL_WAIT_SECONDS` | `20` | how long to wait for the tunnel to bind before diagnosing |
+| `GCP_TF_DEMO_PORT_PROBE` | built-in | how the tunnel's local port is tested |
 | `GCP_TF_DEMO_GCLOUD` | `gcloud` | the gcloud binary, plus flags |
 | `GCP_TF_HANDOFF_DIR` | `deploy/gcp` | where hand-offs are read from |
 

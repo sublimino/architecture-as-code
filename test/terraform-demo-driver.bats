@@ -66,6 +66,20 @@ setup() {
 	export GCP_TF_DEMO_SSH_WAIT_ATTEMPTS=2
 	export GCP_TF_DEMO_SSH_WAIT_INTERVAL=0
 	export GCP_TF_DEMO_TIMEOUT_MINUTES=1
+
+	# The VM's filesystem, so the post-transfer size check has real bytes to
+	# read back rather than a canned answer.
+	export STUB_VM_FS="${BATS_TEST_TMPDIR}/vmfs"
+	mkdir -p "${STUB_VM_FS}"
+
+	# The tunnel probe is injectable precisely so the connect path is drivable
+	# with no listener. Default success; the failure tests point it at `false`.
+	printf '#!/usr/bin/env bash\nexit 0\n' >"${stubdir}/probe-ok"
+	printf '#!/usr/bin/env bash\nexit 1\n' >"${stubdir}/probe-fail"
+	chmod +x "${stubdir}/probe-ok" "${stubdir}/probe-fail"
+	export GCP_TF_DEMO_PORT_PROBE="${stubdir}/probe-ok"
+	export GCP_TF_DEMO_TUNNEL_WAIT_SECONDS=2
+	export STUB_TUNNEL_HOLD=1
 }
 
 # A fixture checkout carrying one of everything the exclusion list names, so
@@ -90,9 +104,25 @@ make_repo() {
 	printf 'all: ; @true\n' >"${root}/Makefile"
 	printf 'the app\n' >"${root}/d2-signalloom/app.ts"
 
-	# A REAL git repo, for two reasons: the payload test needs a real .git to
-	# prove it is excluded, and the STALE test needs a real commit for the
-	# driver to stamp and compare against.
+	# The fixture's .gitignore MIRRORS the real repo's protections, and that is
+	# load-bearing rather than tidiness. The payload is `git archive HEAD`, so
+	# "no secret can ride along" is a claim about what is TRACKED. A fixture
+	# without these lines would track the key and the tfvars, and the exclusion
+	# test would fail — correctly, because in that repo the guarantee genuinely
+	# would not hold.
+	cat >"${root}/.gitignore" <<'IGNORE'
+.keys/
+node_modules/
+.terraform*
+*.tfvars
+*.handoff.json
+deploy/gcp/deploy-sa
+demo-reports*/
+IGNORE
+
+	# A REAL git repo. `git archive` needs a commit to archive, the STALE test
+	# needs a commit for the driver to stamp and compare against, and the
+	# dirty-tree guard needs a clean tree to not fire against.
 	git -C "${root}" init -q
 	git -C "${root}" add -A
 	git -C "${root}" -c user.name=t -c user.email=t@t \
@@ -169,12 +199,16 @@ gcloud_log() {
 
 	# Not driven through `run`: a pipeline puts `run` in a subshell, so $status
 	# and $output never come back and the assertion silently measures the empty
-	# string. 127.0.0.1 is deliberately exempt — it is the loopback in the
-	# /etc/hosts line and the curl --resolve, which are the POINT of the connect
-	# output rather than an estate identity that can go stale.
+	# string.
+	#
+	# Two exemptions, both constants of the protocol rather than of the estate:
+	# 127.0.0.1 (the loopback in the /etc/hosts line and the curl --resolve,
+	# which are the POINT of the connect output) and 35.235.240.0/20 (Google's
+	# fixed IAP source range, quoted in the firewall diagnosis). Neither can go
+	# stale when the estate is rebuilt, which is the property being protected.
 	local hits
 	hits="$(grep -nE '(cp-dev-ajm|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]|((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))' "${DRIVER_SRC}" |
-		grep -v '127\.0\.0\.1' || true)"
+		grep -v -e '127\.0\.0\.1' -e '35\.235\.240\.0' || true)"
 	[ -z "$hits" ] || {
 		echo "hardcoded estate identity in the driver:"
 		echo "$hits"
@@ -380,11 +414,15 @@ gcloud_log() {
 
 	# Positive control FIRST. An empty tarball excludes every secret perfectly
 	# and delivers nothing, and would pass every assertion below.
-	[[ "${listing}" == *"./d2-signalloom/app.ts"* ]] || {
+	#
+	# No `./` prefix: git archive emits repo-relative paths, where a tar of the
+	# working tree emitted `./`-prefixed ones. Matching the old shape here would
+	# have silently turned the positive control into a permanent failure.
+	[[ "${listing}" == *"d2-signalloom/app.ts"* ]] || {
 		echo "the payload does not contain the application source — it is not a delivery"
 		return 1
 	}
-	[[ "${listing}" == *"./scripts/gcp-tf/demo-pipeline.sh"* ]] || {
+	[[ "${listing}" == *"scripts/gcp-tf/demo-pipeline.sh"* ]] || {
 		echo "the payload does not contain the pipeline it exists to run"
 		return 1
 	}
@@ -399,12 +437,185 @@ gcloud_log() {
 	}
 }
 
-@test "DEMODRIVER delivery is refused when the pipeline is absent from the checkout" {
-	rm -f "${root}/scripts/gcp-tf/demo-pipeline.sh"
+@test "DEMODRIVER the payload is built with git archive, not a tar of the working tree" {
+	# Asserting the MECHANISM, not only its effect. A tar with the right
+	# excludes produces a payload that passes every content assertion above and
+	# has none of the guarantee: excludes are correct while somebody maintains
+	# them, tracked-files-only is correct by construction.
+	[ -f "${DRIVER_SRC}" ]
+	grep -q 'archive --format=tar.gz' "${DRIVER_SRC}" || {
+		echo "the payload is no longer built with git archive"
+		return 1
+	}
+	local excludes
+	excludes="$(grep -c -- "--exclude=" "${DRIVER_SRC}" || true)"
+	[ "$excludes" -eq 0 ] || {
+		echo "the payload has grown ${excludes} tar --exclude flags; the guarantee is tracked-files-only"
+		return 1
+	}
+}
+
+@test "DEMODRIVER an untracked secret cannot reach the payload at all" {
+	# The positive statement of the guarantee: the fixture's key is present on
+	# disk and simply is not in the archive, with no exclusion doing the work.
+	[ -f "${root}/.keys/cosign.key" ]
+	local out="${BATS_TEST_TMPDIR}/tracked-only.tar.gz"
+	run "${driver}" payload "${out}"
+	[ "$status" -eq 0 ]
+
+	local listing
+	listing="$(tar -tzf "${out}")"
+	[[ "${listing}" != *"cosign.key"* ]] || {
+		echo "an untracked signing key reached the payload"
+		return 1
+	}
+	[[ "${listing}" == *"d2-signalloom/app.ts"* ]] || {
+		echo "the payload carries nothing — it excludes the key by being empty"
+		return 1
+	}
+}
+
+@test "DEMODRIVER a dirty working tree is refused, because git archive ships HEAD" {
+	# Otherwise the run tests HEAD while the operator reads their edits, and
+	# stamps the report with HEAD's commit — accurate about a tree nobody is
+	# looking at.
+	printf 'uncommitted edit\n' >>"${root}/d2-signalloom/app.ts"
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"uncommitted changes"* ]]
+	[[ "${output}" == *"GCP_TF_DEMO_ALLOW_DIRTY=1"* ]] || {
+		echo "the refusal did not offer the explicit override: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"d2-signalloom/app.ts"* ]] || {
+		echo "the refusal did not name the dirty file: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER GCP_TF_DEMO_ALLOW_DIRTY proceeds but says what is not in the run" {
+	printf 'uncommitted edit\n' >>"${root}/d2-signalloom/app.ts"
+	make_report PASS
+	GCP_TF_DEMO_ALLOW_DIRTY=1 run "${driver}" up
+	[ "$status" -eq 0 ]
+	[[ "${output}" == *"uncommitted changes are NOT in this run"* ]] || {
+		echo "the override ran silently — the operator is not told what was skipped: ${output}"
+		return 1
+	}
+}
+
+# ─── Delivery is verified, not assumed ──────────────────────────────────────
+
+@test "DEMODRIVER a payload that lands EMPTY fails the run" {
+	# The historical shape: the transfer reports success and the file is zero
+	# bytes, so chmod succeeds, the launch reports launched, and the log is
+	# empty. Nothing anywhere goes red.
+	export STUB_DELIVERY_BYTES=0
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -ne 0 ] || {
+		echo "a zero-byte delivery was accepted and the run reported success"
+		return 1
+	}
+	[[ "${output}" == *"bytes and"* ]] || {
+		echo "the size mismatch was not reported: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER a payload that never arrives fails the run" {
+	export STUB_DELIVERY_BYTES=MISSING
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"not on"* ]]
+	[[ "${output}" == *"do NOT read"* ]] || {
+		echo "an absent payload was reported without warning against the run that follows: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER a truncated payload fails the run" {
+	export STUB_DELIVERY_BYTES=64
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"64 bytes"* ]] || {
+		echo "the truncation was not reported with the byte counts: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the VM gets a throwaway git repo for Kustomize" {
+	# git archive ships no .git, and Kustomize rejects `../base/` without one.
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -eq 0 ]
+	[[ "$(gcloud_log)" == *"git init"* ]] || {
+		echo "no snapshot repo was created on the VM; Kustomize will reject relative paths"
+		return 1
+	}
+}
+
+# ─── gcloud's impersonation warning must not become data ────────────────────
+
+@test "DEMODRIVER the impersonation warning does not corrupt the VM state read" {
+	# gcloud prints the warning to stderr on every API call, and vm_status
+	# merges stderr in on purpose so it can classify auth failures. Unstripped,
+	# the warning is glued onto the status, RUNNING never compares equal, and
+	# the run aborts against a healthy VM.
+	export STUB_VM_STATE=SUSPENDED
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -eq 0 ] || {
+		echo "the run failed to read the VM state: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"resuming suspended"* ]] || {
+		echo "SUSPENDED was not recognised — the state read is being corrupted: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the impersonation warning is kept out of the streamed output" {
+	make_report PASS
+	run "${driver}" up
+	[ "$status" -eq 0 ]
+	[[ "${output}" != *"using service account impersonation"* ]] || {
+		echo "gcloud's per-API-call warning is polluting the operator's terminal"
+		return 1
+	}
+	[[ "${output}" == *"stub-pipeline: stage output line 1"* ]] || {
+		echo "the filter removed the pipeline's real output too"
+		return 1
+	}
+}
+
+@test "DEMODRIVER delivery is refused when the pipeline is not TRACKED" {
+	# An untracked pipeline is the dangerous case, not a missing one: it sits
+	# right there on disk, `git archive` does not carry it, and "it is right
+	# there" is the most convincing possible wrong answer. So the file is left
+	# in place and merely removed from the index.
+	#
+	# It is also added to .gitignore in the same commit, so the tree stays
+	# CLEAN. Without that the dirty-tree guard fires first and this test passes
+	# on the wrong refusal — a green that proves a different guard.
+	git -C "${root}" rm -q --cached scripts/gcp-tf/demo-pipeline.sh
+	printf 'scripts/gcp-tf/demo-pipeline.sh\n' >>"${root}/.gitignore"
+	git -C "${root}" add .gitignore
+	git -C "${root}" -c user.name=t -c user.email=t@t \
+		commit -q -m "untrack the pipeline" --no-gpg-sign
+	[ -f "${root}/scripts/gcp-tf/demo-pipeline.sh" ]
+	[ -z "$(git -C "${root}" status --porcelain)" ]
+
 	run "${driver}" payload "${BATS_TEST_TMPDIR}/p.tar.gz"
 	[ "$status" -ne 0 ]
-	[[ "${output}" == *"no pipeline at"* ]]
-	[[ "${output}" == *"demo-pipeline.sh"* ]]
+	[[ "${output}" == *"no TRACKED pipeline"* ]] || {
+		echo "an untracked pipeline was not diagnosed as such: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"git archive"* ]]
 }
 
 # ─── The verdict — the whole reason this file exists ────────────────────────
@@ -568,6 +779,87 @@ gcloud_log() {
 	}
 }
 
+@test "DEMODRIVER connect fails cleanly when the tunnel never binds, rather than hanging" {
+	export GCP_TF_DEMO_PORT_PROBE="${stubdir}/probe-fail"
+	export STUB_TUNNEL_HOLD=10
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "connect reported success against a tunnel that never bound"
+		return 1
+	}
+	[[ "${output}" == *"did not bind localhost:30754"* ]] || {
+		echo "connect did not say the tunnel failed to bind: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER connect explains 4033 as an IAM failure, which it does not look like" {
+	export GCP_TF_DEMO_PORT_PROBE="${stubdir}/probe-fail"
+	export STUB_TUNNEL_STDERR="ERROR: [0] Error during local connection to [stdin]: Error while connecting [4033: 'not authorized']"
+	run "${driver}" connect
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"iap.tunnelResourceAccessor"* ]] || {
+		echo "4033 was not diagnosed as the missing IAP role: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"propagate"* ]] || {
+		echo "the IAM propagation delay was not mentioned, so an immediate retry reads as the grant failing: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER connect explains 4003 as TWO causes, not one" {
+	# A closed port and a firewall rule are indistinguishable from the client.
+	# Naming only one of them sends the reader to the wrong layer half the time.
+	export GCP_TF_DEMO_PORT_PROBE="${stubdir}/probe-fail"
+	export STUB_TUNNEL_STDERR="ERROR: [4003: 'failed to connect to backend']"
+	run "${driver}" connect
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"Nothing is listening"* ]] || {
+		echo "4003 did not name the nothing-listening cause: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"firewall"* ]] || {
+		echo "4003 did not name the firewall cause: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"35.235.240.0/20"* ]] || {
+		echo "the firewall diagnosis did not give the IAP source range: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the driver never pgreps or pkills a pattern that matches itself" {
+	# The tool that runs this puts the whole script text on the invoking shell's
+	# command line, so `pkill -f start-iap-tunnel` kills that shell — a silent
+	# exit with no output that reads as anything but a self-kill. The tunnel is
+	# terminated by PID for exactly this reason.
+	[ -f "${DRIVER_SRC}" ]
+
+	# COMMENTS ARE EXCLUDED, and finding that out was the point of running this
+	# once. The driver carries a comment explaining why it does not pkill, and
+	# the first version of this scan matched that comment — a guard firing on
+	# its own documentation, which reads exactly like a real finding.
+	local hits
+	hits="$(grep -nE '\b(pgrep|pkill)\b' "${DRIVER_SRC}" |
+		grep -vE '^[0-9]+: *#' | grep -v -- '-x' || true)"
+	[ -z "$hits" ] || {
+		echo "pattern-matching process lookup in the driver:"
+		echo "$hits"
+		return 1
+	}
+
+	# The scan must be able to see one, or its silence proves nothing.
+	local control
+	control="$(printf '%s\n' '  pkill -f start-iap-tunnel' |
+		grep -cE '\b(pgrep|pkill)\b' || true)"
+	[ "$control" -eq 1 ]
+	grep -q 'kill "\$tunnel_pid"' "${DRIVER_SRC}" || {
+		echo "the tunnel is not terminated by PID — check how it is being killed"
+		return 1
+	}
+}
+
 @test "DEMODRIVER connect refuses a port Dex is not pinned to" {
 	# A tunnel on any other port reaches the Gateway and then fails the login
 	# redirect, which presents as a broken application rather than a port
@@ -593,13 +885,22 @@ gcloud_log() {
 # and requires the corresponding assertion to invert. The green half is the
 # ordinary test above; the red half is here.
 
-# Apply a sed expression to the driver copy under test.
+# Apply a sed expression to the driver copy under test, then COMMIT it.
+#
+# The commit is not tidiness. The driver copy lives inside the fixture repo, so
+# an uncommitted mutation makes the tree dirty and the dirty-tree guard refuses
+# the run before the mutated code is ever reached — every mutation proof below
+# would then go "red" on the wrong guard and look like it had worked.
 mutate() {
 	sed -i "$1" "${driver}"
 	grep -q . "${driver}" || {
 		echo "the mutation emptied the driver"
 		return 1
 	}
+	git -C "${root}" add -A
+	git -C "${root}" -c user.name=t -c user.email=t@t \
+		commit -q -m "mutation" --no-gpg-sign --allow-empty
+	FIXTURE_COMMIT="$(git -C "${root}" rev-parse --short HEAD)"
 }
 
 @test "DEMODRIVER MUTATION ssh-agent: deleting the guard lets a populated socket through" {
@@ -690,22 +991,25 @@ mutate() {
 	}
 }
 
-@test "DEMODRIVER MUTATION payload: dropping the .keys exclusion is caught, naming the key" {
-	# Two things are proven at once, and both matter.
+@test "DEMODRIVER MUTATION payload: a TRACKED signing key is caught and named" {
+	# The mutation is to the REPOSITORY, not to the driver, because with `git
+	# archive` the repository is where the guarantee lives. Force-adding the key
+	# to the index is the only way it can reach the payload at all — and it is a
+	# real accident, one `git add -f` or one deleted .gitignore line away.
 	#
-	# That the driver REFUSES shows the post-build readback is live: it inspects
-	# the artefact rather than trusting the flag list, so a --exclude that
-	# silently matches nothing cannot pass for a correct one.
-	#
-	# That the refusal NAMES .keys/cosign.key shows the fixture really carries
+	# Two things are proven at once. That the driver REFUSES shows the
+	# post-build readback is live: it inspects the artefact, so swapping
+	# `git archive` back out for a tar with excludes cannot go unnoticed. That
+	# the refusal NAMES .keys/cosign.key shows the fixture really carries
 	# signing material — without which "the payload excludes secrets" would be a
 	# statement about an empty set.
-	# Neutered, not deleted. Deleting the text leaves a bare continuation line
-	# and tar exits on a usage error, which is a red for the wrong reason.
-	mutate "s@--exclude='\.keys'@--exclude='__no_such_path__'@"
+	git -C "${root}" add -f .keys/cosign.key
+	git -C "${root}" -c user.name=t -c user.email=t@t \
+		commit -q -m "accidentally track a signing key" --no-gpg-sign
+
 	run "${driver}" payload "${BATS_TEST_TMPDIR}/leaky.tar.gz"
 	[ "$status" -ne 0 ] || {
-		echo "the mutated driver packaged signing keys and reported success"
+		echo "the driver packaged a tracked signing key and reported success"
 		return 1
 	}
 	[[ "${output}" == *".keys/cosign.key"* ]] || {

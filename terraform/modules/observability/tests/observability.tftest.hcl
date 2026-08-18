@@ -176,7 +176,7 @@ run "budget_has_thresholds_at_50_80_and_100_percent" {
   }
 
   assert {
-    condition = tolist([for r in google_billing_budget.platform[0].threshold_rules : r.threshold_percent]) == tolist([0.5, 0.8, 1.0])
+    condition     = tolist([for r in google_billing_budget.platform[0].threshold_rules : r.threshold_percent]) == tolist([0.5, 0.8, 1.0])
     error_message = "budget thresholds must evaluate to exactly 0.5, 0.8 and 1.0 — one alarm at 100% only ever arrives too late to act on"
   }
 

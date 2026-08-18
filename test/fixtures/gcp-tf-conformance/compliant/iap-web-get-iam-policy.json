@@ -1,0 +1,12 @@
+{
+  "bindings": [
+    {
+      "role": "roles/iap.httpsResourceAccessor",
+      "members": [
+        "user:demo-viewer@example.com",
+        "group:signal-loom-demo@example.com"
+      ]
+    }
+  ],
+  "etag": "BwYaExampleEtag="
+}

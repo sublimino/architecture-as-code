@@ -1,0 +1,25 @@
+{
+  "name": "sl-demo-1-backend",
+  "description": "Signal Loom demo backend, IAP in front of the instance group.",
+  "loadBalancingScheme": "EXTERNAL_MANAGED",
+  "protocol": "HTTP",
+  "port": 8080,
+  "portName": "http",
+  "timeoutSec": 30,
+  "selfLink": "https://www.googleapis.com/compute/v1/projects/example-project/global/backendServices/sl-demo-1-backend",
+  "healthChecks": [
+    "https://www.googleapis.com/compute/v1/projects/example-project/global/healthChecks/sl-demo-1-hc"
+  ],
+  "backends": [
+    {
+      "group": "https://www.googleapis.com/compute/v1/projects/example-project/zones/us-east4-a/instanceGroups/sl-demo-1-ig",
+      "balancingMode": "UTILIZATION"
+    }
+  ],
+  "securityPolicy": "https://www.googleapis.com/compute/v1/projects/example-project/global/securityPolicies/sl-demo-1-armor",
+  "iap": {
+    "enabled": true,
+    "oauth2ClientId": "example-iap-managed-client"
+  },
+  "logConfig": { "enable": true, "sampleRate": 1.0 }
+}

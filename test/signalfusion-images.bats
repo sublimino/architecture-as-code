@@ -33,6 +33,13 @@ setup() {
 	bin="$BATS_TEST_TMPDIR/bin"
 	mkdir -p "$bin"
 
+	# One model of docker and crictl across all three suites that exercise
+	# image-identity.sh. Exported so the fake `docker` written below can source
+	# it, and sourced here so assertions derive the same values the fake does.
+	export FAKE_IMAGE_CLI="$BATS_TEST_DIRNAME/lib/fake-image-cli.bash"
+	# shellcheck source=test/lib/fake-image-cli.bash
+	source "$FAKE_IMAGE_CLI"
+
 	# The CRI's view of the node. A line is `ref` or `ref id`; the second field
 	# overrides the derived ID, which is how a STALE image is staged.
 	export CRICTL_STATE="$BATS_TEST_TMPDIR/crictl-images"
@@ -43,15 +50,17 @@ setup() {
 	cat >"$bin/docker" <<-'FAKE'
 		#!/usr/bin/env bash
 		echo "docker $*" >>"$CALL_LOG"
-		derive_id() { printf '%s' "$1" | sha256sum | cut -c1-64; }
+		# The image-identity surface is shared with kind-load-verified.bats and
+		# supercred-images.bats. Three hand-written copies of it is how all three
+		# came to encode the same false premise — that docker's .Id and crictl's
+		# IMAGE ID are one identifier — while staying green over a defect that
+		# aborted both CI lanes. See test/lib/fake-image-cli.bash.
+		source "$FAKE_IMAGE_CLI"
 		case "$1" in
 		  image)
-		    ref="${!#}"
-		    for absent in ${DOCKER_MISSING:-}; do
-		      [ "$absent" = "$ref" ] && { echo "Error: No such image: $ref" >&2; exit 1; }
-		    done
-		    printf 'sha256:%s\n' "$(derive_id "$ref")"
-		    exit 0 ;;
+		    shift
+		    fake_docker_image_cmd "$@"
+		    exit $? ;;
 		  build)  exit "${DOCKER_BUILD_STATUS:-0}" ;;
 		  buildx)
 		    for arg in "$@"; do
@@ -64,17 +73,9 @@ setup() {
 		    shift  # node name
 		    case "$1" in
 		      crictl)
-		        [ -n "${CRICTL_TRUNCATED:-}" ] && \
-		          echo "supercred-crictl-shim: WARNING node.status.images is at the kubelet cap (50 entries)" >&2
-		        printf 'IMAGE TAG IMAGE ID SIZE\n'
-		        while IFS=' ' read -r ref id; do
-		          [ -n "$ref" ] || continue
-		          case "$ref" in */*) full="$ref" ;; *) full="docker.io/library/$ref" ;; esac
-		          [ -n "$id" ] || id="$(derive_id "$ref")"
-		          # Real crictl TRUNCATES the IMAGE ID to 13 characters.
-		          printf '%s %s %s 10MB\n' "${full%:*}" "${full##*:}" "${id:0:13}"
-		        done <"$CRICTL_STATE"
-		        ;;
+		        shift
+		        fake_crictl_cmd "$@"
+		        exit $? ;;
 		      ctr)
 		        case "$*" in
 		          *"images import"*)
@@ -111,8 +112,10 @@ setup() {
 	KIND_LOADS="signal-ingest:local" run "$script" load
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"PASS — all Signal Fusion images"*"are the images just built locally"* ]]
-	# The ID it verified against is printed, so the claim is checkable.
-	[[ "$output" == *"$(fake_image_id signal-ingest:local | cut -c1-13)"* ]]
+	# What it verified against is printed, so the claim is checkable. This used
+	# to assert the crictl IMAGE ID; identity no longer reads that column, so
+	# asserting it would pin a value the guard does not consult.
+	[[ "$output" == *"matching rootfs layers"* ]]
 	# No archive round-trip when the loader did its job.
 	run grep -c 'buildx build' "$CALL_LOG"
 	[ "$output" -eq 0 ]
@@ -132,9 +135,13 @@ setup() {
 	run "$script" load
 	[ "$status" -ne 0 ]
 	[[ "$output" == *"DIFFERENT image"* ]]
-	# Both IDs printed, so the reader can act without re-deriving either.
-	[[ "$output" == *"$(fake_image_id signal-ingest:local)"* ]]
-	[[ "$output" == *"7913092728b75"* ]]
+	# The evidence a reader needs, in the terms the check now works in. It used
+	# to assert both IMAGE IDs; the crictl ID column is no longer consulted for
+	# identity, so pinning it would be a test passing on something other than
+	# the thing it names — the defect class this suite exists to catch.
+	[[ "$output" == *"local rootfs layers"* ]]
+	[[ "$output" == *"node  rootfs layers"* ]]
+	[[ "$output" == *"first divergence at layer"* ]]
 }
 
 @test "SF a stale image is NOT silently repaired" {

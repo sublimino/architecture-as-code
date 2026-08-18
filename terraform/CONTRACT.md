@@ -353,6 +353,80 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
 
 ---
 
+## 7a. Native Terraform tests (`.tftest.hcl`) — the primary correctness surface
+
+**This is now the primary test surface for anything expressible in it. The bats suites in §7 are
+the secondary surface, for what `terraform test` cannot reach.**
+
+The distinction matters. A bats test greps HCL *text* and proves the source says the right thing.
+`terraform test` asserts on the *evaluated configuration* — the resource attributes Terraform
+actually computed, after variables, locals, `for_each`, conditionals, and module composition have
+all resolved. A grep cannot tell you that `public_access_prevention` came out `"enforced"` for the
+environment you actually planned; `terraform test` can. Verified working offline in this repo at
+Terraform 1.15.8:
+
+```hcl
+mock_provider "google" {}
+
+variables {
+  project_id = "CHANGEME-project"
+}
+
+run "state_bucket_is_hardened" {
+  command = plan
+
+  assert {
+    condition     = google_storage_bucket.state.public_access_prevention == "enforced"
+    error_message = "state bucket must enforce public access prevention"
+  }
+}
+```
+
+### Rules
+
+- Test files live in `tests/` inside the root or module they test, named `<topic>.tftest.hcl`.
+- **`mock_provider "google" {}` and `mock_provider "google-beta" {}` are mandatory in every test
+  file.** No test may reach a real provider, require credentials, or touch the network.
+- **`command = plan` only.** Never `command = apply` — apply against a mocked provider still
+  writes state, and the habit is the thing we are trying not to build.
+- Every module and every root ships at least one `.tftest.hcl`.
+- Negative tests use `expect_failures` against the variable that should reject the input. This is
+  the correct way to prove a `validation` block fires, and it is far more truthful than parsing
+  stderr from a fixture root:
+
+  ```hcl
+  run "rejects_prod_prefix" {
+    command = plan
+    variables {
+      environments = { "prod-1" = { /* … */ } }
+    }
+    expect_failures = [var.environments]
+  }
+  ```
+
+- **Every negative test must be paired with a positive one proving the same configuration passes
+  when the offending input is corrected.** A `run` block that fails for an unrelated reason —
+  a syntax error, a missing variable — is indistinguishable from a validation rule firing
+  correctly. Baseline-green then mutation-red, every time. This is the single most common way a
+  `terraform test` suite ends up measuring nothing.
+- `terraform test` requires `terraform init -backend=false` to have run in that directory first.
+  The Make target owns that; do not commit `.terraform/` directories.
+- Keep each file under 30 seconds.
+
+### What goes where
+
+| Assertion | Surface |
+|---|---|
+| A resource attribute has the required value after evaluation | `.tftest.hcl` |
+| A variable validation rejects bad input | `.tftest.hcl` with `expect_failures` |
+| Module composition wires output → input correctly | `.tftest.hcl` |
+| A forbidden construct appears **nowhere** in the tree (`access_config`, `google_service_account_key`, `roles/owner`) | bats — this is a whole-tree property, not a plan property |
+| Shell script behaviour, Make target behaviour, file layout, git hygiene | bats |
+| Documentation content | bats |
+
+Absence-across-the-whole-tree is the case `terraform test` genuinely cannot do: it can only see
+what a given plan evaluated, not what no configuration anywhere contains. Keep those in bats.
+
 ## 8. Commit conventions
 
 - Conventional commits with a scope: `feat(terraform): …`, `test(terraform): …`,

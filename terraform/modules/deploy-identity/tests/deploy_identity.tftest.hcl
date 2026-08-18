@@ -90,3 +90,113 @@ run "accepts_a_correctly_prefixed_principal" {
     error_message = "A correctly-prefixed principal list must plan cleanly, or the negatives prove nothing."
   }
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PERMISSION BUDGET
+#
+# These exist so the deploy identity's privilege set cannot grow quietly. Every
+# role and permission is pinned by exact count and exact membership, so ADDING
+# one fails the suite. That converts "we granted a bit more to make it work"
+# from an invisible commit into a deliberate, reviewable change with a number
+# attached — which is the difference between least privilege as a practice and
+# least privilege as an aspiration.
+#
+# When a grant is genuinely needed, the required change is: add it, update the
+# count, and justify it in the diff. That is the point. The failure is the
+# feature.
+# ═══════════════════════════════════════════════════════════════════════════
+
+run "project_role_budget_is_exactly_nine" {
+  command = plan
+
+  assert {
+    condition     = length(local.deploy_roles) == 9
+    error_message = "The deploy identity's project role count changed. Nine roles were justified against the 34 resource types this estate declares. Adding one is a privilege increase: update this number ONLY with a comment in main.tf saying which resource type forced it."
+  }
+}
+
+run "project_roles_are_exactly_the_justified_set" {
+  command = plan
+
+  # Set equality, not a subset check. A subset check would pass while something
+  # extra was granted, which is precisely the drift this is meant to catch.
+  assert {
+    condition = setunion(toset(local.deploy_roles), toset([
+      "roles/compute.admin",
+      "roles/iam.serviceAccountAdmin",
+      "roles/iam.serviceAccountUser",
+      "roles/resourcemanager.projectIamAdmin",
+      "roles/iam.workloadIdentityPoolAdmin",
+      "roles/logging.configWriter",
+      "roles/monitoring.editor",
+      "roles/dns.admin",
+      "roles/iap.admin",
+      ])) == toset([
+      "roles/compute.admin",
+      "roles/iam.serviceAccountAdmin",
+      "roles/iam.serviceAccountUser",
+      "roles/resourcemanager.projectIamAdmin",
+      "roles/iam.workloadIdentityPoolAdmin",
+      "roles/logging.configWriter",
+      "roles/monitoring.editor",
+      "roles/dns.admin",
+      "roles/iap.admin",
+    ])
+    error_message = "The deploy identity's project roles are no longer exactly the justified set. Something was added or renamed."
+  }
+}
+
+run "no_primitive_or_legacy_role_is_ever_granted" {
+  command = plan
+
+  # CIS GCP Benchmark guidance: primitive roles (owner/editor/viewer) and legacy
+  # roles grant far more than any resource needs and change meaning under you
+  # when the provider revises them.
+  assert {
+    condition = length([
+      for r in local.deploy_roles : r
+      if contains(["roles/owner", "roles/editor", "roles/viewer"], r) || strcontains(lower(r), "legacy")
+    ]) == 0
+    error_message = "A primitive (owner/editor/viewer) or legacy role appears in the deploy role set. CIS guidance forbids both, and legacy roles are deprecated on Google's schedule, not yours."
+  }
+}
+
+run "storage_admin_is_never_granted_at_project_scope" {
+  command = plan
+
+  # roles/storage.admin includes storage.buckets.delete. At project scope it
+  # would let the deploy identity destroy the state bucket — the one object with
+  # no state to roll back from.
+  assert {
+    condition     = !contains(local.deploy_roles, "roles/storage.admin")
+    error_message = "roles/storage.admin grants storage.buckets.delete. The deploy identity must never be able to delete the bucket holding every environment's history."
+  }
+}
+
+# ── The custom role's permission budget ────────────────────────────────────
+
+run "object_access_stays_object_admin_not_bucket_admin" {
+  command = plan
+
+  assert {
+    condition     = google_storage_bucket_iam_member.deploy_state.role == "roles/storage.objectAdmin"
+    error_message = "Object access must remain objectAdmin: it reads and writes state objects and cannot delete the bucket."
+  }
+}
+
+run "the_only_bucket_grant_is_object_admin" {
+  command = plan
+
+  # The strongest form of this invariant is a count, not a value check: exactly
+  # ONE bucket-scoped binding exists, and it is objectAdmin. Adding a second —
+  # a custom role, a legacy role, storage.admin — fails here rather than being
+  # noticed later.
+  #
+  # Bucket CREATION and bucket IAM are lifecycle and belong to the privileged
+  # bootstrap step. The deploy identity POPULATES buckets and runs Terraform; it
+  # never owns them. That split is what keeps this budget at one.
+  assert {
+    condition     = google_storage_bucket_iam_member.deploy_state.role == "roles/storage.objectAdmin"
+    error_message = "The deploy identity's only bucket grant must be objectAdmin: it reads and writes state objects and cannot get, set, reconfigure or delete the bucket."
+  }
+}

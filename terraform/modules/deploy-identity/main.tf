@@ -136,3 +136,22 @@ resource "google_service_account_iam_member" "impersonators" {
   role               = "roles/iam.serviceAccountTokenCreator"
   member             = each.value
 }
+
+# ── State-bucket access: objectAdmin, and deliberately nothing more ─────────
+#
+# An earlier version of this module granted bucket-IAM permissions here, first
+# via roles/storage.legacyBucketOwner and then via a custom role, so that
+# Terraform could manage the bindings ON the state bucket.
+#
+# Both were solving the wrong problem. Bucket CREATION and bucket IAM are
+# lifecycle, and lifecycle belongs to the privileged bootstrap step that a human
+# runs once; the buckets are never destroyed. What the deploy identity does is
+# POPULATE those buckets — Terraform state objects and log objects — and run
+# plans and applies against everything else.
+#
+# Splitting it that way removes the requirement entirely. No buckets.get, no
+# getIamPolicy, no setIamPolicy, no custom role to maintain, and no legacy role
+# that Google will deprecate on its own schedule. The best permission is the one
+# you do not need, and this is the only bucket grant that survives:
+# roles/storage.objectAdmin, at bucket scope, which reads and writes objects and
+# cannot touch the bucket itself.

@@ -21,7 +21,13 @@ locals {
 # Audit log destination — a dedicated bucket, provably not the state bucket
 # ---------------------------------------------------------------------------
 
+# The bucket the sink writes to, whether this module owns it or bootstrap does.
+locals {
+  log_bucket = var.create_log_bucket ? one(google_storage_bucket.audit_logs[*].name) : var.log_bucket_name
+}
+
 resource "google_storage_bucket" "audit_logs" {
+  count         = var.create_log_bucket ? 1 : 0
   name          = local.audit_bucket_name
   project       = var.project_id
   location      = var.log_bucket_location
@@ -75,7 +81,7 @@ resource "google_logging_project_sink" "admin_activity" {
   count       = var.manage_project_iam ? 1 : 0
   name        = "${var.name_prefix}-admin-activity"
   project     = var.project_id
-  destination = "storage.googleapis.com/${google_storage_bucket.audit_logs.name}"
+  destination = "storage.googleapis.com/${local.log_bucket}"
 
   # Admin Activity is the "who changed what" stream and cannot be disabled.
   # System Event, Policy Denied and Data Access ride the same sink so the
@@ -93,8 +99,16 @@ resource "google_logging_project_sink" "admin_activity" {
 }
 
 resource "google_storage_bucket_iam_member" "sink_writer" {
-  count  = var.manage_project_iam ? 1 : 0
-  bucket = google_storage_bucket.audit_logs.name
+  count = var.create_log_bucket ? 1 : 0
+
+  # Bucket IAM is part of bucket LIFECYCLE, and lifecycle belongs to the
+  # privileged bootstrap step. Gating it on the same variable as bucket
+  # creation keeps one rule rather than two: whoever owns the bucket owns its
+  # bindings. The deploy identity is then left needing objectAdmin and nothing
+  # else — no buckets.get, no getIamPolicy, no setIamPolicy, and therefore no
+  # path to deleting or reconfiguring the bucket that holds every environment's
+  # state.
+  bucket = local.log_bucket
 
   # objectCreator, not objectAdmin: the sink needs to write new objects and must
   # not be able to delete or overwrite the ones already there.

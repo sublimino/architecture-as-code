@@ -14,15 +14,16 @@ Nothing was applied. No `gcloud` command of any kind was run. Verification was l
 | Path | Purpose |
 |---|---|
 | `terraform/bootstrap/{versions,main,variables,outputs}.tf` | The state-bucket root. No `backend` block of any kind. |
+| `terraform/bootstrap/tests/state-bucket.tftest.hcl` | 16 native `terraform test` runs, mocked provider, plan-only. |
 | `terraform/bootstrap/{backend.hcl.example,terraform.tfvars.example}` | Copyable shapes, `CHANGEME-` placeholders only. |
 | `terraform/bootstrap/README.md` | One-time procedure, IAM-vs-config argument, state recovery rehearsal. |
 | `terraform/bootstrap/.terraform.lock.hcl` | Committed on purpose. |
 | `terraform/versions.tf` | Canonical version-pin reference copy. |
 | `terraform/README.md` | Three-root layout, ordering, prefixes, destroy exclusions. |
 | `.gitignore` | Append-only delimited block. |
-| `test/terraform-conventions.bats` | 24 tests (5 skip). |
+| `test/terraform-conventions.bats` | 30 tests (5 skip). |
 | `test/terraform-state-protection.bats` | 28 tests (4 skip). |
-| `test/fixtures/terraform/bootstrap/` | 12 broken fixtures + `GENERATE.sh`. |
+| `test/fixtures/terraform/bootstrap/` | 14 broken fixtures + `GENERATE.sh`. |
 
 ## Verification actually run
 
@@ -30,9 +31,10 @@ Nothing was applied. No `gcloud` command of any kind was run. Verification was l
 terraform fmt -recursive -check terraform/                        exit 0
 terraform init -backend=false && terraform validate  (bootstrap)  exit 0, "Success!"
 tflint --chdir terraform/bootstrap                                exit 0
-bats test/terraform-conventions.bats           24 tests, 0 fail, 5 skip, 0.9s
+bats test/terraform-conventions.bats           30 tests, 0 fail, 5 skip, 1.0s
 bats test/terraform-state-protection.bats      28 tests, 0 fail, 4 skip, 0.9s
 shellcheck test/fixtures/terraform/bootstrap/GENERATE.sh          exit 0
+terraform test  (bootstrap, no credentials)      16 passed, 0 failed
 ```
 
 Provider resolved to `hashicorp/google` and `google-beta` 6.50.0 under the `~> 6.8` pin.
@@ -93,6 +95,60 @@ repo `Makefile`, because CONTRACT §5 puts the prefix in a `-backend-config=` ar
 in HCL. If F6 spells the prefix anywhere else, or spells it `osramp/platform/` with a trailing
 slash, test 27 of the state-protection suite will fail. That is intended.
 
+## Section N (ISC-322–357) landed mid-build — partially absorbed
+
+Commit `573eda8` ("docs(terraform): sync contract + ISA for native terraform tests") was pushed
+onto this branch at 01:51, *after* I had read CONTRACT.md and started work. It added CONTRACT §7a
+and ISA section N (ISC-322–357), making `terraform test` the primary correctness surface. My
+brief assigned me ISC-1–46, so section N is outside my range — but several of its criteria fall
+inside `terraform/bootstrap/`, which is my exclusive path and which **no other chunk may write
+to**. I built those rather than leave them unbuildable.
+
+**Claimed from section N:** ISC-322, 332, 333, 334, 335, 336, 339, 340, 341, 346, 347, 355, 357.
+
+- `terraform/bootstrap/tests/state-bucket.tftest.hcl` — 16 runs, all `command = plan`, both
+  providers mocked. Asserts evaluated `public_access_prevention`, `force_destroy`,
+  `uniform_bucket_level_access`, versioning, the lifecycle rule's retention condition, the
+  mandatory labels, the IAM role and members, and label-merge direction; then 12 `expect_failures`
+  negatives against the variable validations, after an explicit baseline run.
+- `terraform test` passes 16/16 with `CLOUDSDK_CORE_ACCOUNT` unset and
+  `GOOGLE_APPLICATION_CREDENTIALS` pointed at a nonexistent path (ISC-357), in ~4s (ISC-356 for
+  this root).
+- Four whole-tree bats guards added to the conventions suite for the absence properties
+  `terraform test` structurally cannot see: mock_provider present (ISC-333), no `command = apply`
+  (ISC-335), every `expect_failures` file has a positive baseline run (ISC-347), every
+  resource-declaring directory ships `tests/` (ISC-355).
+
+**Not mine from section N:** ISC-323–331 and 337–338 (other chunks' roots and modules),
+ISC-342–345 (F2's environment-map validations), ISC-348–352 (F3/F4/F5 module attributes),
+ISC-353–354 (F6's Make targets).
+
+**ISC-336 caveat:** `terraform test` requires `terraform init -backend=false` to have run in that
+directory first, which needs registry network access. Credentials are not needed; the network is.
+
+## Finding that every chunk writing `expect_failures` needs
+
+**`expect_failures` cannot tell you which validation fired — only that one did.** Where an input
+violates two rules at once, the run cannot attribute the rejection, and a test named after the
+rule it does not isolate is a coverage claim with nothing behind it.
+
+Proven here, not theorised. I deleted the public-principal validation from a scratch copy of
+`variables.tf` and re-ran. The runs feeding bare `["allUsers"]` and `["allAuthenticatedUsers"]`
+**still passed** — the principal-prefix rule rejects an unprefixed string on its own, so those
+runs never exercised the public-principal rule at all. Only the prefixed forms (`user:allUsers`,
+`principalSet:allAuthenticatedUsers`) went red, because a valid prefix leaves the public-principal
+rule as the only thing that can reject them.
+
+The suite now carries both, named for what each actually proves. **F2 has eleven validation
+blocks on the environment map and is the chunk most exposed to this**: an input that trips the key
+regex *and* the CIDR rule will pass `expect_failures` whichever rule you deleted. The general
+rule: each negative input must violate exactly one rule, and the way to confirm that is to delete
+the rule and watch the test go red.
+
+Related tool behaviour worth knowing: **a failing run stops the rest of the file.** An early
+failure reported `0 passed, 1 failed, 14 skipped` — a suite can look almost-clean while measuring
+nothing after line one. Read the skip count, not just the fail count.
+
 ## Two defects found and fixed during the build
 
 1. **The public-principal guard had a hole.** The first draft matched only
@@ -137,6 +193,7 @@ slash, test 27 of the state-protection suite will fail. That is intended.
 
 ## For the orchestrator, before merging
 
+- Section N (`terraform test`) landed mid-build; see the section above for what I absorbed.
 - `.gitignore` was edited **append-only** inside `# >>> terraform (F1-foundation) >>>` markers.
   No existing line was reordered or touched.
 - No pre-existing file under `test/` was modified. Both bats files are new.

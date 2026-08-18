@@ -537,6 +537,151 @@ guard_no_absolute_home_paths() {
   done
 }
 
+# --- Native `terraform test` conventions -------------------------------------------------------
+#
+# These are whole-tree ABSENCE properties, which is precisely what `terraform test` cannot check:
+# a plan only sees what it evaluated, never what no configuration anywhere contains. So they live
+# in bats even though the thing they guard is a tftest concern.
+
+# Every root and module that declares resources must ship at least one .tftest.hcl.
+tftest_files_under() {
+  local dir="$1"
+  find "$dir" -type f -name '*.tftest.hcl' -not -path '*/.terraform/*' 2>/dev/null | sort
+}
+
+guard_every_tftest_declares_mock_provider() {
+  local target="$1"
+  local -a files
+  local file
+
+  [ -e "$target" ] || { echo "guard target missing: $target"; return 1; }
+
+  if [ -d "$target" ]; then
+    mapfile -t files < <(tftest_files_under "$target")
+  else
+    files=("$target")
+  fi
+
+  [ "${#files[@]}" -gt 0 ] || { echo "no .tftest.hcl files found under $target"; return 1; }
+
+  for file in "${files[@]}"; do
+    grep -Eq '^[[:space:]]*mock_provider[[:space:]]+"google"' "$file" || {
+      echo "tftest file does not declare mock_provider \"google\": $file"
+      return 1
+    }
+  done
+}
+
+# `command = apply` against a mocked provider still writes state, and the habit is the thing being
+# avoided. This is an absence property over the whole terraform/ tree.
+guard_no_tftest_uses_command_apply() {
+  local target="$1"
+  local -a files
+  local file
+
+  [ -e "$target" ] || { echo "guard target missing: $target"; return 1; }
+
+  if [ -d "$target" ]; then
+    mapfile -t files < <(tftest_files_under "$target")
+  else
+    files=("$target")
+  fi
+
+  [ "${#files[@]}" -gt 0 ] || { echo "no .tftest.hcl files found under $target"; return 1; }
+
+  for file in "${files[@]}"; do
+    if grep -Eq '^[[:space:]]*command[[:space:]]*=[[:space:]]*apply' "$file"; then
+      echo "command = apply found in tftest file: $file"
+      return 1
+    fi
+  done
+}
+
+# A file made only of expect_failures proves nothing: every run could be failing for an unrelated
+# reason and the suite would still be green. Require a baseline run with no expect_failures.
+guard_negative_tftests_are_paired_with_a_positive() {
+  local target="$1"
+  local -a files
+  local file positive_runs
+
+  [ -e "$target" ] || { echo "guard target missing: $target"; return 1; }
+
+  if [ -d "$target" ]; then
+    mapfile -t files < <(tftest_files_under "$target")
+  else
+    files=("$target")
+  fi
+
+  [ "${#files[@]}" -gt 0 ] || { echo "no .tftest.hcl files found under $target"; return 1; }
+
+  for file in "${files[@]}"; do
+    grep -q 'expect_failures' "$file" || continue
+
+    # Count run blocks that contain no expect_failures anywhere in their body.
+    positive_runs="$(
+      awk '
+        /^run "/ { if (in_run && !saw_expect) positive++; in_run = 1; saw_expect = 0; next }
+        /expect_failures/ { if (in_run) saw_expect = 1 }
+        END { if (in_run && !saw_expect) positive++; print positive + 0 }
+      ' "$file"
+    )"
+
+    [ "$positive_runs" -gt 0 ] || {
+      echo "tftest file has expect_failures runs but no positive baseline run: $file"
+      return 1
+    }
+  done
+}
+
+guard_resource_declaring_dirs_have_tests() {
+  local root="$1"
+  local dir
+
+  [ -d "$root" ] || { echo "guard target missing: $root"; return 1; }
+
+  while IFS= read -r dir; do
+    [ -n "$dir" ] || continue
+    grep -lqE '^[[:space:]]*resource[[:space:]]+"' "$dir"/*.tf 2>/dev/null || continue
+
+    [ -d "${dir}/tests" ] || {
+      echo "directory declares resources but has no tests/ directory: $dir"
+      return 1
+    }
+  done < <(find "$root" -type d -not -path '*/.terraform*' -not -path '*/tests' | sort)
+}
+
+@test "every tftest file declares a mocked google provider" {
+  run guard_every_tftest_declares_mock_provider "$TERRAFORM_DIR"
+  [ "$status" -eq 0 ]
+}
+
+@test "MUTATION: mock-provider guard fails on a tftest copy with the mock removed" {
+  run guard_every_tftest_declares_mock_provider "${FIXTURE_DIR}/broken-tftest-no-mock-provider/state-bucket.tftest.hcl"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not declare mock_provider"* ]]
+}
+
+@test "no tftest file uses command = apply" {
+  run guard_no_tftest_uses_command_apply "$TERRAFORM_DIR"
+  [ "$status" -eq 0 ]
+}
+
+@test "MUTATION: command-apply guard fails on a tftest copy that applies" {
+  run guard_no_tftest_uses_command_apply "${FIXTURE_DIR}/broken-tftest-command-apply/state-bucket.tftest.hcl"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"command = apply found"* ]]
+}
+
+@test "every tftest file with expect_failures also has a positive baseline run" {
+  run guard_negative_tftests_are_paired_with_a_positive "$TERRAFORM_DIR"
+  [ "$status" -eq 0 ]
+}
+
+@test "every directory declaring resources ships a tests directory" {
+  run guard_resource_declaring_dirs_have_tests "$TERRAFORM_DIR"
+  [ "$status" -eq 0 ]
+}
+
 # An exclusion list is a hole in a guard, so it needs its own tripwire. If one of the two frozen
 # files is renamed or deleted, the exclusion silently starts covering nothing and nobody notices
 # — the suite would stay green while the reason for the exclusion had evaporated.

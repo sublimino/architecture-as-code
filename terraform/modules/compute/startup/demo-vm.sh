@@ -74,6 +74,43 @@ fetch_verified() {
   log "installed ${dest}"
 }
 
+# The prerequisites the pipeline cannot bootstrap itself, and nothing more.
+#
+# Every entry below is needed BEFORE scripts/ci/install-ci-tools.sh can run,
+# which is the first thing the pipeline invokes. Each is here because something
+# in the repo demonstrably calls it, not because it seemed likely:
+#
+#   git             install-ci-tools.sh installs bats by `git clone`, and
+#                   vm-pipeline.sh runs `git init -q` so Kustomize will resolve
+#                   the tree as a repository. Neither can install git first.
+#   make            the pipeline drives the demo entirely through make targets
+#                   (`make ci-tools`, `make demo-signalloom-up`). A VM with no
+#                   make has nothing to run.
+#   ca-certificates every fetch below and in the installer is HTTPS.
+#   curl            fetch_verified, install-ci-tools.sh, and the Go tarball.
+#   gnupg           dearmours the Docker apt key further down.
+#   apt-transport-https  the Docker apt source is HTTPS.
+#
+# Deliberately NOT here: jq, unzip, gcc/g++, python3, node. The first three
+# belong to scripts/setup.sh, python3 is apt-installed by install-ci-tools.sh
+# itself, and node arrives with the Playwright setup. Adding them would move
+# the provisioning/deployment line without moving the responsibility, and this
+# script's whole contract is that it stops at prerequisites.
+#
+# Runs unconditionally rather than inside install_docker. It used to be folded
+# into that function, which early-returns when docker is already present — so
+# on any image shipping docker, curl and gnupg were silently never installed
+# and fetch_verified failed at the first download. The marker file at the top
+# of main() is what makes re-running cheap; a second guard inside a function
+# only makes it incomplete.
+install_base_packages() {
+  log "installing base prerequisites"
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq
+  apt-get install -y -qq --no-install-recommends \
+    ca-certificates curl gnupg apt-transport-https git make
+}
+
 install_docker() {
   if command -v docker >/dev/null 2>&1; then
     log "docker already present, skipping"
@@ -82,9 +119,6 @@ install_docker() {
 
   log "installing docker"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq --no-install-recommends \
-    ca-certificates curl gnupg apt-transport-https
 
   install -m 0755 -d /etc/apt/keyrings
   curl --fail --silent --show-error --location \
@@ -153,6 +187,7 @@ main() {
 
   [[ "$(id -u)" -eq 0 ]] || die "must run as root"
 
+  install_base_packages
   install_docker
   install_kind
   install_kubectl

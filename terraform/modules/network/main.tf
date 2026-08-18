@@ -272,17 +272,31 @@ resource "google_compute_firewall" "deny_all_ingress" {
 #      via Private Google Access. Reached without touching the internet.
 #   3. Intra-subnet — the Kind control plane and node containers talk to each
 #      other and to the host on the subnet CIDR.
-#   4. Public HTTPS — TCP 443 to whatever var.egress_public_https_destinations
-#      names. This is the container registries and OS package mirrors that
-#      publish no stable address range: docker.io, ghcr.io, quay.io,
-#      deb.debian.org, download.docker.com. THE DEFAULT IS THE EMPTY LIST, so
-#      by default no such rule is created and public egress stays denied.
+#   4. Public egress — var.egress_public_ports (default TCP 443 alone) to
+#      whatever var.egress_public_https_destinations names. This is the
+#      container registries and OS package mirrors that publish no stable
+#      address range: docker.io, ghcr.io, quay.io, deb.debian.org,
+#      download.docker.com. THE DEFAULT DESTINATION LIST IS EMPTY, so by
+#      default no such rule is created and public egress stays denied.
 #
 # Consequence, stated plainly: with the defaults, a freshly applied environment
 # CANNOT pull public container images. That is the correct default for a
 # security demo whose subject is egress control. Opening it is one line in a
 # per-environment tfvars file, and that line is then reviewable, diffable, and
 # attributable — which a module default is not.
+#
+# ─── Do NOT open port 80 for the VM's own apt ───────────────────────────────
+#
+# Every apt source on the GCE Debian image is HTTPS — https://deb.debian.org,
+# https://packages.cloud.google.com, https://download.docker.com — so the VM
+# updates and installs packages perfectly well on 443-only egress. Verified on
+# the running sl-demo-1-vm while installing git and make.
+#
+# If you find yourself reaching for port 80, the cause is almost certainly a
+# CONTAINER BUILD rather than the host: a build uses the BASE IMAGE's sources,
+# and debian:trixie defaults to http://deb.debian.org. That is a different
+# problem with a different fix — EGRESS-RULE-01 in variables.tf. Adding 80
+# "so apt works" would widen the policy for a host that never needed it.
 # ---------------------------------------------------------------------------
 
 resource "google_compute_firewall" "allow_egress_dns" {
@@ -357,6 +371,17 @@ resource "google_compute_firewall" "allow_egress_intra_subnet" {
 # Created only when an operator has named destinations. count = 0 by default,
 # so the module ships with public egress denied rather than with a rule whose
 # destination list happens to be empty.
+#
+# The PORTS are a variable for the same reason the destinations are: see
+# EGRESS-RULE-01 in variables.tf for the measured failure that made a hardcoded
+# ["443"] untenable, and for why the default is still ["443"] alone.
+#
+# The description renders the actual port list rather than the word "HTTPS".
+# That string is what `gcloud compute firewall-rules list` prints, so an
+# environment running with plaintext egress open says so in the rule listing
+# itself — an auditor should not have to describe the rule to find that out.
+# The resource address keeps its `_https` name deliberately: renaming it would
+# destroy and recreate the rule, dropping egress mid-run for a cosmetic gain.
 resource "google_compute_firewall" "allow_egress_public_https" {
   count = length(var.egress_public_https_destinations) > 0 ? 1 : 0
 
@@ -372,10 +397,10 @@ resource "google_compute_firewall" "allow_egress_public_https" {
 
   allow {
     protocol = "tcp"
-    ports    = ["443"]
+    ports    = var.egress_public_ports
   }
 
-  description = "Operator-named public HTTPS destinations, e.g. container registries (${local.label_note})"
+  description = "Operator-named public egress on tcp ${join(",", var.egress_public_ports)}, e.g. container registries and package mirrors (${local.label_note})"
 }
 
 # The rule that makes the four allows above meaningful. Priority 65534 sits

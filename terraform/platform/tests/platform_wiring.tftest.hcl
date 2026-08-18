@@ -185,6 +185,81 @@ run "dns_is_omitted_entirely_when_unconfigured" {
 }
 
 # ---------------------------------------------------------------------------
+# Operator identity — composition, which is the part the module cannot test
+# ---------------------------------------------------------------------------
+#
+# modules/operator-identity/tests proves the module is correct given its inputs.
+# What only this file can prove is that the ROOT feeds it the right ones: that
+# the actAs grant lands on the runtime accounts modules/identity actually
+# creates, and not on some literal typed twice.
+
+run "the_operator_can_act_as_the_runtime_accounts_this_root_creates" {
+  command = plan
+
+  variables {
+    environment_keys       = ["demo-1", "demo-2"]
+    operator_impersonators = ["user:someone@example.invalid"]
+  }
+
+  assert {
+    condition     = length(module.operator_identity.act_as_service_account_names) == 2
+    error_message = "One actAs binding must exist per environment runtime account. A count that does not track environment_keys means the operator cannot log into some environment's VMs, which surfaces as an OS Login failure months later."
+  }
+
+  assert {
+    condition = alltrue([
+      for name in module.operator_identity.act_as_service_account_names :
+      contains(
+        [for e in values(module.identity.runtime_service_account_emails) : "projects/${var.project_id}/serviceAccounts/${e}"],
+        name
+      )
+    ])
+    error_message = "The operator's actAs bindings do not match the runtime service accounts modules/identity creates. A binding on an account that does not exist grants nothing and fails at apply."
+  }
+
+  # Vacuity guard. Both assertions above are satisfied by an empty list, which is
+  # exactly what a broken wiring would produce.
+  assert {
+    condition     = length(module.identity.runtime_service_account_emails) == 2
+    error_message = "modules/identity produced no runtime accounts for two environment keys, so the assertions above measured nothing."
+  }
+}
+
+run "the_operator_is_not_the_deploy_or_ci_identity" {
+  command = plan
+
+  variables {
+    environment_keys = ["demo-1"]
+  }
+
+  # Separation of duties, asserted as an evaluated fact rather than a comment.
+  # If the operator account is ever "simplified" into the CI apply account, this
+  # is what says no.
+  assert {
+    condition     = output.operator_service_account_email != output.ci_apply_service_account_email
+    error_message = "The operator identity must not be the CI apply identity. The apply identity can rebuild the estate; giving it a sudo shell on every VM merges two blast radii."
+  }
+
+  assert {
+    condition     = output.operator_service_account_email != output.ci_plan_service_account_email
+    error_message = "The operator identity must be its own account, distinct from the CI plan identity."
+  }
+
+  assert {
+    condition = !contains(
+      [for e in values(output.runtime_service_account_emails) : e],
+      output.operator_service_account_email
+    )
+    error_message = "The operator identity must not be a runtime identity. The runtime account is what the VM runs AS; the operator is who logs IN. Merging them means anything running on the VM can open a tunnel to every other VM."
+  }
+
+  assert {
+    condition     = length(output.operator_granted_roles) == 3
+    error_message = "The platform root must export exactly the three operator roles. A different count here and in the module's own budget means the root is composing a different module than the one under test."
+  }
+}
+
+# ---------------------------------------------------------------------------
 # ISC-346 — negative runs, each PAIRED with a positive above
 # ---------------------------------------------------------------------------
 

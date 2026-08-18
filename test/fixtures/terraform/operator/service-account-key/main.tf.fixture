@@ -1,0 +1,8 @@
+# BROKEN: a downloaded JSON key.
+#
+# A bearer credential with no expiry that lives wherever it was last pasted, and
+# whose use is attributable to nobody. Impersonation is revocable in one place.
+
+resource "google_service_account_key" "operator" {
+  service_account_id = google_service_account.operator.name
+}

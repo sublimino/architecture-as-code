@@ -1,0 +1,12 @@
+# BROKEN: the access path now depends on an organisation-level grant.
+#
+# This applies only for someone holding IAM rights on the organisation that owns
+# the project. The operator of this estate holds a personal Google account and
+# `gcloud organizations list` returns nothing for him, so this line makes the
+# estate unappliable by the person who owns it.
+
+resource "google_organization_iam_member" "os_login_external" {
+  org_id = "000000000000"
+  role   = "roles/compute.osLoginExternalUser"
+  member = "user:someone@example.invalid"
+}

@@ -1,0 +1,12 @@
+# BROKEN: a legacy role.
+#
+# CIS GCP Benchmark guidance forbids them, and their meaning changes under you
+# when Google revises them — on Google's schedule, not yours.
+
+locals {
+  operator_project_roles = [
+    "roles/iap.tunnelResourceAccessor",
+    "roles/compute.osAdminLogin",
+    "roles/storage.legacyBucketOwner",
+  ]
+}

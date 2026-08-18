@@ -1,0 +1,15 @@
+# NOT broken. This file names the forbidden resource in a comment, exactly as
+# the real module does when explaining why it is absent:
+#
+#   resource "google_organization_iam_member" "os_login_external" {
+#     org_id = "CHANGEME"
+#     role   = "roles/compute.osLoginExternalUser"
+#   }
+#
+# A guard that cannot tell "declares" from "forbids" is a guard that gets
+# deleted the first time it cries wolf, so this fixture pins the distinction.
+
+resource "google_service_account" "operator" {
+  project    = var.project_id
+  account_id = "sl-operator"
+}

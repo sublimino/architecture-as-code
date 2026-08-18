@@ -1,0 +1,54 @@
+# Worked input for the first CI lane.
+#
+# Copy to a file OUTSIDE version control and replace every CHANGEME.
+#
+# ─── Why a CI lane looks different from a demo lane ─────────────────────────
+#
+# hostname is "", which disables DNS record creation, and main.tf filters the
+# edge module on `kind == "demo"`. A CI lane therefore has no public HTTPS load
+# balancer, no managed certificate and no Cloud Armor policy at all: it is
+# reached over IAP through the same private subnet the demo lanes use. That is
+# not a saving, it is the point — the surface that does not exist cannot be
+# misconfigured, and a CI lane's whole job is to run untrusted branch code.
+#
+# The allowlists are still populated even though nothing consumes them for a
+# CI lane, because the type requires them and because a lane that is later
+# promoted to kind = "demo" should not inherit an empty allowlist that someone
+# then "fixes" with 0.0.0.0/0. Rule 9 would reject that; a populated example
+# means nobody reaches for it.
+#
+# Subnet allocation across the estate (each must be a unique RFC1918 /24):
+#   demo-1  10.10.1.0/24
+#   ci-1    10.10.2.0/24
+#   demo-2  10.10.3.0/24
+
+project_id = "CHANGEME-project"
+
+# Pinned so the CI service accounts can only be assumed from one repository and
+# one ref. Left as "" here because the numeric owner ID must be looked up, not
+# guessed — see terraform/environments/WIRING.md.
+github_owner_id    = ""
+github_repository  = "CHANGEME-owner/CHANGEME-repo"
+github_allowed_ref = "refs/heads/main"
+
+ci_idle_suspend_minutes = 30
+
+environments = {
+  "ci-1" = {
+    kind             = "ci"
+    subnet_cidr      = "10.10.2.0/24"
+    region           = "europe-west2"
+    zone             = "europe-west2-a"
+    machine_type     = "n2-standard-8"
+    boot_disk_gb     = 100
+    hostname         = ""
+    allowed_ipv4     = ["192.0.2.0/24"]
+    allowed_ipv6     = ["2001:db8::/32"]
+    app_port         = 8080
+    deletion_protect = false
+    labels = {
+      tier  = "ci"
+      owner = "CHANGEME-team"
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "schema": "signalloom.gcp.handoff/v0-draft",
+  "env_key": "demo-1",
+  "project_id": "example-sl-project",
+  "region": "example-region",
+  "zone": "example-region-a",
+  "instance_name": "sl-demo-1-vm",
+  "ip": "10.20.0.5",
+  "port": "8080",
+  "bucket": "example-sl-tfstate",
+  "deploy_service_account": "sl-tf-deploy@example-sl-project.iam.gserviceaccount.com",
+  "access_mode": "iap",
+  "hostname": ""
+}

@@ -1,0 +1,16 @@
+{
+  "bindings": [
+    {
+      "role": "roles/storage.objectAdmin",
+      "members": ["serviceAccount:sl-tf-deploy@example-sl-project.iam.gserviceaccount.com"]
+    },
+    {
+      "role": "roles/storage.admin",
+      "members": [
+        "group:sl-platform-admins@example.com",
+        "serviceAccount:sl-tf-deploy@example-sl-project.iam.gserviceaccount.com"
+      ]
+    }
+  ],
+  "etag": "BwXexampleEtag="
+}

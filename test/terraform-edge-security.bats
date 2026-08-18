@@ -337,6 +337,171 @@ stub_curl() {
 }
 
 # ---------------------------------------------------------------------------
+# Access mode -- whole-tree properties a plan cannot see
+#
+# terraform test proves the DEFAULT is iap and that each mode evaluates
+# correctly. It cannot prove anything about files no plan reads: the committed
+# tfvars examples, the documentation, or a future example set someone adds.
+# ---------------------------------------------------------------------------
+
+# True (exit 0) when a file selects an allowlist-authorising mode without
+# supplying any allowlist to authorise with. Extracted into a function so the
+# same matcher can be run against a known-bad canary below; a guard that has
+# never been shown to fire is not a guard.
+access_mode_violation() {
+  local f="$1"
+  grep -Eq '^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*"(allowlist|iap_and_allowlist)"' "$f" || return 1
+  # An allowlist mode needs a non-empty allowed_ipv4 or allowed_ipv6, or the
+  # Cloud Armor default deny is the only rule and nothing can reach the app.
+  grep -Eq '^[[:space:]]*allowed_ipv(4|6)[[:space:]]*=[[:space:]]*\[[[:space:]]*"' "$f" && return 1
+  return 0
+}
+
+@test "no committed tfvars or example selects an allowlist mode with no allowlist" {
+  # Existence before content. If the example set were deleted or renamed, the
+  # loop below would inspect nothing and report success.
+  local -a candidates
+  mapfile -t candidates < <(find "${REPO_ROOT}/terraform" -type f -name '*.tfvars*' -not -path '*/.terraform/*' | sort)
+  [ "${#candidates[@]}" -gt 0 ] || { echo "no tfvars files found under terraform/; this guard is measuring nothing"; return 1; }
+
+  local f
+  for f in "${candidates[@]}"; do
+    if access_mode_violation "$f"; then
+      echo "selects an allowlist mode with no non-empty allowlist: ${f}"
+      return 1
+    fi
+  done
+
+  # Prove the matcher fires. Without this, a typo in either grep would make
+  # every file above pass silently -- and today no example sets access_mode at
+  # all, so the loop is entirely satisfied by absence.
+  local bad="${BATS_TEST_TMPDIR}/bad.tfvars"
+  printf '%s\n' 'access_mode = "allowlist"' 'allowed_ipv4 = []' > "$bad"
+  access_mode_violation "$bad" || { echo "matcher failed to flag a known-bad tfvars"; return 1; }
+
+  local good="${BATS_TEST_TMPDIR}/good.tfvars"
+  printf '%s\n' 'access_mode = "allowlist"' 'allowed_ipv4 = ["192.0.2.0/24"]' > "$good"
+  access_mode_violation "$good" && { echo "matcher flagged a correctly-configured tfvars"; return 1; }
+
+  local iap="${BATS_TEST_TMPDIR}/iap.tfvars"
+  printf '%s\n' 'access_mode = "iap"' 'allowed_ipv4 = []' > "$iap"
+  access_mode_violation "$iap" && { echo "matcher flagged iap mode, which needs no allowlist"; return 1; }
+  return 0
+}
+
+@test "nothing in the tree grants IAP to allUsers or allAuthenticatedUsers" {
+  # The single most dangerous value in this chunk. allAuthenticatedUsers reads
+  # as a restriction and means any Google account on earth. The module variable
+  # rejects it at plan time; this asserts no committed example, tfvars or doc
+  # ever suggests it as a value in the first place.
+  # Inside tests/ these literals appear as deliberate negative inputs, exactly
+  # as 0.0.0.0/0 does above. Excluded here and required to prove their intent
+  # with expect_failures at the bottom of this test.
+  local member_re='(iap_members|member)[[:space:]]*=[[:space:]]*.*"?(allUsers|allAuthenticatedUsers)"?'
+  local f line
+
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    if [[ "$line" =~ $member_re ]]; then
+      echo "grants IAP to a public principal: ${line}"
+      return 1
+    fi
+  done < <(grep -rnE --exclude-dir=.terraform --exclude='*.tftest.hcl' \
+    'allUsers|allAuthenticatedUsers' "${REPO_ROOT}/terraform" || true)
+
+  # A tftest may name these values only to prove they are rejected.
+  while IFS= read -r f; do
+    grep -qE 'allUsers|allAuthenticatedUsers' "$f" || continue
+    grep -q 'expect_failures' "$f" \
+      || { echo "${f} names a public principal but has no expect_failures"; return 1; }
+  done < <(find "$EDGE_TESTS" -name '*.tftest.hcl' -type f)
+
+  # The literals must genuinely be present somewhere -- in the validation that
+  # rejects them and in the documentation that explains why. If they vanished
+  # entirely, this guard and the reader both lose the warning.
+  grep -q 'allauthenticatedusers' "${EDGE_MODULE}/variables.tf" \
+    || { echo "variables.tf no longer rejects allAuthenticatedUsers"; return 1; }
+
+  # And prove the shape-matcher fires against a known-bad line.
+  local canary='  iap_members = ["allAuthenticatedUsers"]'
+  [[ "$canary" =~ $member_re ]] || { echo "member_re failed to match a known-bad line"; return 1; }
+  local benign='  # allAuthenticatedUsers is not a restriction'
+  [[ "$benign" =~ $member_re ]] && { echo "member_re matches explanatory prose"; return 1; }
+  return 0
+}
+
+@test "the access-mode decision is documented in the module and in SECURITY.md" {
+  local readme="${EDGE_MODULE}/README.md"
+  local security="${REPO_ROOT}/terraform/SECURITY.md"
+  [ -f "$readme" ]
+  [ -f "$security" ]
+
+  local m
+  for m in iap allowlist iap_and_allowlist; do
+    grep -q "$m" "$readme" || { echo "README does not document access mode ${m}"; return 1; }
+  done
+
+  # The claim that matters is not "IAP exists" but "allAuthenticatedUsers is not
+  # a restriction". A reader who takes only that away is safe.
+  grep -qi 'allAuthenticatedUsers' "$security" \
+    || { echo "SECURITY.md does not mention allAuthenticatedUsers"; return 1; }
+  grep -qi 'not a restriction' "$security" \
+    || { echo "SECURITY.md does not state that allAuthenticatedUsers is not a restriction"; return 1; }
+  grep -qi 'identity-aware proxy\|IAP' "$security" \
+    || { echo "SECURITY.md has no IAP row"; return 1; }
+}
+
+@test "MUTATION: defaulting access_mode to allowlist turns the suite red" {
+  # The central claim of this chunk is that the SAFE posture is what you get by
+  # not thinking about it. That claim is only worth anything if flipping the
+  # default is caught, so prove it can be.
+  [ -d "${EDGE_MODULE}/.terraform" ] || { echo "provider schema absent"; return 1; }
+  local dest="${BATS_TEST_TMPDIR}/mut-default"
+  stage_module "$dest"
+
+  # Assert the edit actually applied. A sed whose pattern stops matching becomes
+  # a silent no-op that re-runs the unmutated module and reports a green suite
+  # as a passing mutation check.
+  cp "${dest}/variables.tf" "${dest}/variables.tf.orig"
+  sed -i 's/^  default     = "iap"$/  default     = "allowlist"/' "${dest}/variables.tf"
+  ! diff -q "${dest}/variables.tf.orig" "${dest}/variables.tf" >/dev/null \
+    || { echo "the default-flip mutation was a no-op; this check is measuring nothing"; return 1; }
+  rm -f "${dest}/variables.tf.orig"
+
+  run bash -c "cd '${dest}' && terraform test 2>&1"
+  [ "$status" -ne 0 ] || { echo "a module defaulting to the weaker posture PASSED the suite"; return 1; }
+  echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -q 'run "default_access_mode_is_iap"\.\.\. fail' \
+    || { echo "suite failed, but not on the default-posture assertion:"; echo "$output"; return 1; }
+}
+
+@test "MUTATION: dropping the allUsers guard turns the suite red" {
+  # This check exists because the guard it protects was, briefly, untested. The
+  # prefix rule in iap_members also rejects allUsers and allAuthenticatedUsers
+  # (neither carries a "type:" prefix), so deleting the dedicated dangerous-value
+  # validation left the suite entirely green -- the most dangerous guard in the
+  # module had no test that could see it disappear.
+  #
+  # It is now independently falsifiable via a wildcard principalSet, which is
+  # prefix-valid and therefore only that rule can reject. This proves it.
+  [ -d "${EDGE_MODULE}/.terraform" ] || { echo "provider schema absent"; return 1; }
+  local dest="${BATS_TEST_TMPDIR}/mut-allusers"
+  stage_module "$dest"
+
+  # Delete the strcontains wildcard clause: the minimal edit that reopens the
+  # hole while leaving the file syntactically valid.
+  cp "${dest}/variables.tf" "${dest}/variables.tf.orig"
+  sed -i '/&& !strcontains(m, "\*")/d' "${dest}/variables.tf"
+  ! diff -q "${dest}/variables.tf.orig" "${dest}/variables.tf" >/dev/null \
+    || { echo "the allUsers-guard mutation was a no-op; this check is measuring nothing"; return 1; }
+  rm -f "${dest}/variables.tf.orig"
+
+  run bash -c "cd '${dest}' && terraform test 2>&1"
+  [ "$status" -ne 0 ] || { echo "a weakened dangerous-principal guard PASSED the suite"; return 1; }
+  echo "$output" | sed 's/\x1b\[[0-9;]*m//g' | grep -q 'run "rejects_a_wildcard_principalset"\.\.\. fail' \
+    || { echo "suite failed, but not on the wildcard-principal assertion:"; echo "$output"; return 1; }
+}
+
+# ---------------------------------------------------------------------------
 # Mutation checks -- proof the tftest suite can go red
 #
 # Baseline-green first, every time. A mutation run that fails for an unrelated

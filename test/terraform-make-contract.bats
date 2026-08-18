@@ -738,7 +738,7 @@ JSON
 # pass in both.
 # ---------------------------------------------------------------------------
 
-SA_EMAIL='sl-tf-deploy@changeme-sandbox.iam.gserviceaccount.com'
+SA_EMAIL='changeme-deploy@changeme-sandbox.iam.gserviceaccount.com'
 
 # A path that is guaranteed not to exist, so TF_DEPLOY_SA resolves empty.
 no_sa_file() {

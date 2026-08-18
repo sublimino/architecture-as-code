@@ -67,12 +67,33 @@ honest signal. It is documented as a proxy rather than presented as a direct hea
 because someone will eventually debug an alert that did not fire and needs to know what it was
 actually watching.
 
+## Tests
+
+`tests/observability.tftest.hcl` — 9 `run` blocks, `mock_provider` throughout, `command = plan`
+only, ~0.6 s. These assert on the **evaluated** configuration, not on the HCL text: that the sink's
+resolved `destination` is not the state bucket, that the retention period equals
+`log_retention_days * 86400` rather than a literal, that the budget's threshold list evaluates to
+exactly `[0.5, 0.8, 1.0]`, and that every alert policy the plan produced carries at least one
+notification channel.
+
+The negative run (`expect_failures` on an empty channel list with alerts enabled) is paired with
+**two** positives: one proving the corrected input plans, and one proving `enable_alerts = false`
+is the sanctioned way to have no channels. Without the pair, "reject empty channels" would be
+indistinguishable from "channels are always mandatory", and a run block failing for an unrelated
+reason would be indistinguishable from the validation firing correctly.
+
+Both assertions have been mutation-checked: pointing the audit bucket at the state bucket, and
+changing one budget threshold from `0.8` to `0.9`, each turn the suite red.
+
 ## Verify
 
 ```sh
 terraform -chdir=terraform/modules/observability init -backend=false
 terraform -chdir=terraform/modules/observability validate
+terraform -chdir=terraform/modules/observability test
 tflint --chdir=terraform/modules/observability
 ```
 
-Or, for the whole tree plus the bats contract suites, `make gcp-tf-validate`.
+Or, for the whole tree plus the bats contract suites, `make gcp-tf-validate`. Discovery is
+automatic — this module's `tests/` directory is swept because it exists, not because it is named
+in a list anywhere.

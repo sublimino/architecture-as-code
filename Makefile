@@ -1779,6 +1779,74 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \
 	echo "every field in it names a real project."
 
+# --- The demo lane: from an applied estate to a browser -----------------------
+#
+# `gcp-tf-up` finishes with a hardened, IAP-only VM and a hand-off file. These
+# three targets are what turn that into something a human can look at:
+#
+#   gcp-tf-demo-up    deliver this checkout, stand the estate up, test it
+#   gcp-tf-demo-test  re-run the tests only, against a cluster already standing
+#   gcp-tf-connect    open the tunnel and print the URL, the hosts line and the
+#                     login — the thing the operator actually wants
+#
+# All three delegate to scripts/gcp-tf/demo-up.sh. The guards stay HERE, in the
+# same `define`s every other target in this block uses, because a guard in the
+# Makefile cannot be bypassed by invoking the Makefile — and because two
+# implementations of "is ENV valid" drift the moment one of them is corrected.
+#
+# The script reads deploy/gcp/<env>.handoff.json for the project, zone,
+# instance and ports. Nothing about the estate is passed on the command line and
+# nothing is hardcoded in either file.
+GCP_TF_DEMO_SCRIPT ?= scripts/gcp-tf/demo-up.sh
+
+# Forwarded explicitly for the same reason GCP_TF_FORWARD is: a value with a
+# computed default does not reach a sub-process through MAKEFLAGS, and an
+# impersonation target that silently fails to arrive is the failure this whole
+# block exists to prevent.
+GCP_TF_DEMO_ENVIRONMENT = ENV='$(ENV)' GCP_TF_DEMO_ENV='$(ENV)' GCP_TF_HANDOFF_DIR='$(GCP_TF_HANDOFF_DIR)'
+
+.PHONY: gcp-tf-demo-up
+gcp-tf-demo-up: ## Stand the whole demo up on the VM: deliver, build, test, collect (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	@# Not `&&`-chained with the guard above: this must run in its own recipe
+	@# line so a non-zero exit propagates as make's exit status rather than
+	@# being consumed by a conditional.
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' up
+
+.PHONY: gcp-tf-demo-test
+gcp-tf-demo-test: ## Re-run the demo tests against a cluster that is already standing (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' test
+
+.PHONY: gcp-tf-connect
+gcp-tf-connect: ## Open the IAP tunnel to the demo dashboard and print the URL and login (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' connect
+
+.PHONY: gcp-tf-demo-status
+gcp-tf-demo-status: ## What the demo VM's state is and what the last run decided, read-only (ENV=<key>).
+	$(gcp_tf_require_env)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' status
+
 # ===========================================================================
 # END GCP Terraform platform block
 # ===========================================================================

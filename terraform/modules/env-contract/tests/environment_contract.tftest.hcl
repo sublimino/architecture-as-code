@@ -407,3 +407,47 @@ run "rule11_accepts_the_boundary_ports" {
     error_message = "ports 1 and 65535 are inside the TCP range and must be accepted"
   }
 }
+
+# Regression for an adversarial-review finding on ENV-RULE-09 / ENV-RULE-10.
+#
+# Both rules rejected any /0, which reads as thorough — 128.0.0.0/0 is caught as
+# well as 0.0.0.0/0. It is still not enough. ["0.0.0.0/1", "128.0.0.0/1"] is two
+# valid CIDRs, neither a /0, and between them they are every IPv4 address on the
+# internet. Prefix length is the property that actually means "not the internet".
+run "rule_09_rejects_the_split_ipv4_internet" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-1.example.invalid", allowed_ipv4 = ["0.0.0.0/1", "128.0.0.0/1"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+    }
+    target_env = "demo-1"
+  }
+  expect_failures = [var.environments]
+}
+
+run "rule_10_rejects_the_split_ipv6_internet" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-1.example.invalid", allowed_ipv4 = ["192.0.2.0/24"], allowed_ipv6 = ["::/1", "8000::/1"], app_port = 8080, deletion_protect = true, labels = {} }
+    }
+    target_env = "demo-1"
+  }
+  expect_failures = [var.environments]
+}
+
+# Paired positive: a rule that rejected everything would satisfy both negatives
+# above while breaking every real environment.
+run "rules_09_and_10_still_accept_realistic_ranges" {
+  command = plan
+  variables {
+    environments = {
+      "demo-1" = { kind = "demo", subnet_cidr = "10.10.1.0/24", region = "europe-west2", zone = "europe-west2-a", machine_type = "n2-standard-16", boot_disk_gb = 200, hostname = "demo-1.example.invalid", allowed_ipv4 = ["192.0.2.0/24", "198.51.100.128/25"], allowed_ipv6 = ["2001:db8::/32"], app_port = 8080, deletion_protect = true, labels = {} }
+    }
+    target_env = "demo-1"
+  }
+  assert {
+    condition     = length(var.environments) == 1
+    error_message = "a realistic allowlist must still plan cleanly, or the two negatives above prove nothing"
+  }
+}

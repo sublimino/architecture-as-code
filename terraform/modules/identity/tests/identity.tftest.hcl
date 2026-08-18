@@ -18,8 +18,10 @@ variables {
   github_owner_id    = "123456789012"
   github_repository  = "example-org/osramp-demo"
   github_allowed_ref = "refs/heads/main"
-  state_bucket_name  = "changeme-tfstate"
-  operator_members   = ["group:sre@example.invalid"]
+
+  github_apply_workflow_ref = "example-org/osramp-demo/.github/workflows/gcp-apply.yml@refs/heads/main"
+  state_bucket_name         = "changeme-tfstate"
+  operator_members          = ["group:sre@example.invalid"]
 }
 
 # ── The WIF provider: the single most dangerous surface in the module ────────
@@ -111,9 +113,19 @@ run "wif_member_is_attribute_scoped_not_pool_wide" {
     error_message = "The WIF member must not be scoped to the whole pool."
   }
 
+  # This originally required the APPLY member to be repository-scoped, which is
+  # the defect an adversarial review found rather than a property worth holding:
+  # repository scope on apply is what made it identical to plan. Apply is now
+  # workflow-scoped, so the invariant that survives is "scoped by SOME attribute,
+  # never pool-wide" — asserted for each member against its own correct scope.
   assert {
-    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "/attribute.repository/${var.github_repository}")
-    error_message = "The WIF member must be scoped by the repository attribute."
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "/attribute.repository/${var.github_repository}")
+    error_message = "The plan WIF member must be scoped by the repository attribute."
+  }
+
+  assert {
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "/attribute.job_workflow_ref/")
+    error_message = "The apply WIF member must be scoped by job_workflow_ref, which is narrower than the repository."
   }
 
   assert {
@@ -121,9 +133,18 @@ run "wif_member_is_attribute_scoped_not_pool_wide" {
     error_message = "The principalSet URI must carry the numeric project number, not the project id."
   }
 
+  # This assertion used to require the two members to be EQUAL — it encoded the
+  # vulnerability as an invariant, which is why twenty-four identity assertions
+  # passed while the plan/apply boundary did not exist. Inverted, and the
+  # positive form now lives in its own run block below.
   assert {
-    condition     = google_service_account_iam_member.ci_plan_wif.member == google_service_account_iam_member.ci_apply_wif.member
-    error_message = "Both CI principals are assumed by the same pinned repository identity."
+    condition     = google_service_account_iam_member.ci_plan_wif.member != google_service_account_iam_member.ci_apply_wif.member
+    error_message = "The plan and apply principals must differ; identical members mean the read-only identity is a path to the write-capable one."
+  }
+
+  assert {
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "projects/${var.project_number}/")
+    error_message = "The plan principalSet URI must carry the numeric project number, not the project id."
   }
 }
 
@@ -475,5 +496,68 @@ run "an_empty_state_bucket_name_creates_no_bucket_binding" {
   assert {
     condition     = length(google_storage_bucket_iam_member.ci_state) == 0
     error_message = "An empty state_bucket_name must produce no bucket binding at all."
+  }
+}
+
+# ── Plan/apply privilege separation ─────────────────────────────────────────
+#
+# Regression for an adversarial-review finding. ci_plan_wif and ci_apply_wif
+# both bound the SAME repository-scoped principalSet, so the read-only
+# ci_plan_roles list and the write-capable ci_apply_roles list described a
+# boundary nothing enforced: any token the pool accepted could impersonate the
+# apply account, which holds compute.admin, iam.serviceAccountAdmin and
+# dns.admin.
+#
+# Both lines were individually correct. The defect was that they were the same
+# line, which is exactly the shape a grep-based guard cannot see and an
+# evaluated-config assertion can.
+
+run "plan_and_apply_wif_members_are_not_the_same_principal" {
+  command = plan
+
+  assert {
+    condition = (
+      google_service_account_iam_member.ci_plan_wif.member !=
+      google_service_account_iam_member.ci_apply_wif.member
+    )
+    error_message = "The plan and apply WIF bindings name the same principal, so the read-only plan identity is a path to the write-capable apply identity."
+  }
+
+  assert {
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "attribute.job_workflow_ref/")
+    error_message = "The apply binding must be scoped to one workflow file, not to the repository."
+  }
+
+  assert {
+    condition     = strcontains(google_service_account_iam_member.ci_plan_wif.member, "attribute.repository/")
+    error_message = "The plan binding stays repository-scoped; it is the weaker identity by design."
+  }
+
+  assert {
+    condition     = strcontains(google_iam_workload_identity_pool_provider.github.attribute_mapping["attribute.job_workflow_ref"], "assertion.job_workflow_ref")
+    error_message = "job_workflow_ref must be mapped on the provider, or the apply principalSet can never match anything."
+  }
+}
+
+run "rejects_a_repository_shaped_apply_workflow_ref" {
+  command = plan
+
+  variables {
+    github_apply_workflow_ref = "example-org/osramp-demo"
+  }
+
+  expect_failures = [var.github_apply_workflow_ref]
+}
+
+run "accepts_a_well_formed_apply_workflow_ref" {
+  command = plan
+
+  variables {
+    github_apply_workflow_ref = "example-org/osramp-demo/.github/workflows/gcp-apply.yml@refs/heads/main"
+  }
+
+  assert {
+    condition     = strcontains(google_service_account_iam_member.ci_apply_wif.member, "gcp-apply.yml@refs/heads/main")
+    error_message = "the corrected baseline must plan cleanly, or the negative above proves nothing"
   }
 }

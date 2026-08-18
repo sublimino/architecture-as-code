@@ -182,3 +182,13 @@ variable "pool_id" {
   type        = string
   default     = "sl-github-pool"
 }
+
+variable "github_apply_workflow_ref" {
+  description = "Fully-qualified job_workflow_ref of the ONE workflow permitted to assume the apply service account, e.g. \"owner/repo/.github/workflows/gcp-apply.yml@refs/heads/main\". Scoping apply to a workflow rather than to the repository is what stops any other workflow in the same repo — including one added by a pull request — from reaching an identity holding compute.admin."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[^/]+/[^/]+/\\.github/workflows/[^/]+\\.ya?ml@refs/(heads|tags)/.+$", var.github_apply_workflow_ref))
+    error_message = "github_apply_workflow_ref must look like owner/repo/.github/workflows/<file>.yml@refs/heads/<branch>. A repository-shaped value here would silently recreate the defect this variable exists to fix."
+  }
+}

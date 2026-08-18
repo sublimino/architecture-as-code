@@ -178,36 +178,43 @@ variable "environments" {
     )
   }
 
-  # Rule 9 — no any-source IPv4. Any /0 is rejected, not just the literal
-  # 0.0.0.0/0: 128.0.0.0/0 is the same allowlist wearing a disguise.
+  # Rule 9 — no over-wide IPv4 source. This rejected any /0, which was already
+  # better than blocking the literal 0.0.0.0/0, but an adversarial review showed
+  # it still let the whole internet through: ["0.0.0.0/1", "128.0.0.0/1"] is two
+  # valid CIDRs, neither a /0, and together they are every IPv4 address. The
+  # honest test is prefix length, so /8 is the ceiling.
   validation {
     condition = alltrue(flatten([
       for v in values(var.environments) : [
-        for c in v.allowed_ipv4 : c != "0.0.0.0/0" && !can(regex("/0$", c))
+        for c in v.allowed_ipv4 : can(tonumber(split("/", c)[1])) && tonumber(split("/", c)[1]) >= 8
       ]
     ]))
     error_message = format(
-      "ENV-RULE-09-NO-ANY-IPV4: allowed_ipv4 must not contain 0.0.0.0/0 or any other /0; rejected: %s.",
+      "ENV-RULE-09-NO-ANY-IPV4: every allowed_ipv4 entry must be /8 or narrower — a pair of /1s is the internet just as much as a /0 is; rejected: %s.",
       join(", ", flatten([
         for k, v in var.environments : [
-          for c in v.allowed_ipv4 : "${k}=${c}" if c == "0.0.0.0/0" || can(regex("/0$", c))
+          for c in v.allowed_ipv4 : "${k}=${c}"
+          if !can(tonumber(split("/", c)[1])) || tonumber(split("/", c)[1]) < 8
         ]
       ])),
     )
   }
 
-  # Rule 10 — no any-source IPv6.
+  # Rule 10 — no over-wide IPv6 source. Same defect and same fix as rule 9:
+  # ["::/1", "8000::/1"] is the IPv6 internet in two entries, neither a /0.
   validation {
     condition = alltrue(flatten([
       for v in values(var.environments) : [
-        for c in v.allowed_ipv6 : c != "::/0" && !can(regex("/0$", c))
+        for c in v.allowed_ipv6 :
+        can(tonumber(split("/", c)[1])) && tonumber(split("/", c)[1]) >= 32 && tonumber(split("/", c)[1]) <= 128
       ]
     ]))
     error_message = format(
-      "ENV-RULE-10-NO-ANY-IPV6: allowed_ipv6 must not contain ::/0 or any other /0; rejected: %s.",
+      "ENV-RULE-10-NO-ANY-IPV6: every allowed_ipv6 entry must have a prefix length between /32 and /128 — a pair of /1s is the internet just as much as a ::/0 is; rejected: %s.",
       join(", ", flatten([
         for k, v in var.environments : [
-          for c in v.allowed_ipv6 : "${k}=${c}" if c == "::/0" || can(regex("/0$", c))
+          for c in v.allowed_ipv6 : "${k}=${c}"
+          if !can(tonumber(split("/", c)[1])) || tonumber(split("/", c)[1]) < 32 || tonumber(split("/", c)[1]) > 128
         ]
       ])),
     )

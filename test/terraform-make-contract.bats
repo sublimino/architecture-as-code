@@ -563,6 +563,35 @@ JSON
   [ "$status" -eq 0 ]
 }
 
+# Regression for an adversarial-review finding. The §5a readback was
+# `case "$resolved" in *"$(ENV)"*)`, a substring match, so a backend resolved to
+# osramp/environments/demo-10 satisfied the assertion for ENV=demo-1. That is
+# precisely the hand-edit the mechanism exists to catch, and it was the one case
+# it let through — while the typed CONFIRM on destroy still matched, because that
+# compares ENV against the operator's typing, not against the resolved state.
+@test "a prefix that merely CONTAINS the env key is rejected, not accepted" {
+  fixture="${BATS_TEST_TMPDIR}/prefixsuperstring"
+  mkdir -p "${fixture}/.terraform-demo-1"
+  cat > "${fixture}/.terraform-demo-1/terraform.tfstate" <<'JSON'
+{"version":3,"backend":{"type":"gcs","config":{"bucket":"changeme-tfstate","prefix":"osramp/environments/demo-10"}}}
+JSON
+  run_make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}"
+  [ "$status" -ne 0 ]
+  [[ "${output}" == *"backend prefix mismatch"* ]]
+}
+
+@test "the exact-match prefix guard still accepts the genuinely correct prefix" {
+  # Paired positive: without this, the test above passes even if the guard
+  # started rejecting everything, which is a different bug wearing the same green.
+  fixture="${BATS_TEST_TMPDIR}/prefixexact"
+  mkdir -p "${fixture}/.terraform-demo-1"
+  cat > "${fixture}/.terraform-demo-1/terraform.tfstate" <<'JSON'
+{"version":3,"backend":{"type":"gcs","config":{"bucket":"changeme-tfstate","prefix":"osramp/environments/demo-1"}}}
+JSON
+  run_make gcp-tf-status ENV=demo-1 TF_STATE_BUCKET=changeme-tfstate TF_ROOT_ENV="${fixture}"
+  [[ "${output}" != *"backend prefix mismatch"* ]]
+}
+
 @test "MUTATION tf-data-dir: unscoping the data dir lets two environments share a backend pointer" {
   mutdir="$(apply_mutation tf-data-dir)"
   fixture="${BATS_TEST_TMPDIR}/shareddd"

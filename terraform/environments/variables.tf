@@ -126,6 +126,96 @@ variable "dns_managed_zone" {
   default     = ""
 }
 
+# ─── Edge reachability ───────────────────────────────────────────────────────
+#
+# These two mirror `modules/edge` deliberately and exactly, and the mirroring is
+# itself the security control.
+#
+# A module default only governs while the caller passes NO value. The moment
+# this root wires `access_mode = var.access_mode` into the edge module, the
+# module's `default = "iap"` is dead and THIS default governs. A root defaulting
+# to "allowlist" would silently reverse the entire private-edge posture while
+# every module test stayed green, because the module would be behaving exactly
+# as designed with the input it was handed.
+#
+# The validations are mirrored from `modules/edge/variables.tf` rather than
+# simplified. Validating only at the module boundary would mean a bad value in
+# tfvars fails deep inside a module the reader did not write, naming a variable
+# they did not set; validating here fails at the root, on the name they typed.
+# Each condition below is character-identical to the module's; only the message
+# carries this file's local rule-ID prefix.
+
+variable "access_mode" {
+  description = "How the edge decides who may reach the application. \"iap\" (the default) puts Identity-Aware Proxy in front of the backend, so every request carries a Google identity from iap_members and there is no anonymous path. \"allowlist\" makes the Cloud Armor IP allowlist the only control — coarse exposure control, NOT authentication. \"iap_and_allowlist\" is both, and is the strongest posture. Passed to modules/edge."
+  type        = string
+  default     = "iap"
+
+  validation {
+    condition     = contains(["iap", "allowlist", "iap_and_allowlist"], var.access_mode)
+    error_message = "EDGE-RULE-02-ACCESS-MODE: access_mode must be exactly one of \"iap\", \"allowlist\", or \"iap_and_allowlist\"."
+  }
+}
+
+variable "iap_members" {
+  description = "IAM principals granted roles/iap.httpsResourceAccessor, e.g. [\"user:someone@example.invalid\"]. Required (non-empty) whenever access_mode includes IAP: IAP with no authorised principal is a locked door with no key, and the failure mode is a demo nobody can open. Passed to modules/edge."
+  type        = list(string)
+  default     = []
+
+  # ONE of the module's three validations is deliberately NOT mirrored here:
+  # the non-empty check,
+  #
+  #   !contains(["iap", "iap_and_allowlist"], var.access_mode) || length(var.iap_members) > 0
+  #
+  # It works — that is the problem. `access_mode` defaults to "iap" and
+  # `iap_members` defaults to `[]`, so it aborts EVERY plan of this root that
+  # does not name a principal, including `tests/root_contract.tftest.hcl`, whose
+  # file-level variables block predates these variables and sets neither. That
+  # suite is not mine to edit, and one line would fix it:
+  #
+  #   iap_members = ["user:someone@example.invalid"]
+  #
+  # Raised with the orchestrator. Nothing is unguarded in the meantime: the
+  # module carries this exact rule, and this root passes `iap_members` straight
+  # into it, so an empty list still aborts the plan the moment the edge module
+  # is wired — which is also the only moment at which an empty list can lock
+  # anybody out, because until then no edge exists. What is lost is only *where*
+  # the error is raised, not whether it is.
+  #
+  # The two rules below are mirrored in full, and both pass on an empty list, so
+  # neither has this problem.
+
+  # The single most dangerous line in this pair. "allAuthenticatedUsers" reads
+  # as a restriction — the word "authenticated" is right there — and in IAP it
+  # means ANY Google account on earth. That is functionally public access
+  # wearing the vocabulary of access control. "allUsers" is public without the
+  # disguise. A wildcard principalSet reads as a scoped grant and admits every
+  # identity in the pool.
+  #
+  # The wildcard clause is what makes this rule independently testable: the
+  # prefix rule below also rejects both bare tokens, so without it, deleting
+  # this whole block left the module's suite green — the most dangerous guard
+  # had no test that could see it disappear.
+  validation {
+    condition = alltrue([
+      for m in var.iap_members :
+      !contains(["allusers", "allauthenticatedusers"], lower(trimspace(m)))
+      && !strcontains(m, "*")
+    ])
+    error_message = "EDGE-RULE-04-IAP-MEMBERS-DANGEROUS: iap_members contains allUsers, allAuthenticatedUsers, or a wildcard. None is a restriction: allUsers is the public internet, allAuthenticatedUsers is every Google account in existence, and a wildcard principalSet admits every identity in the pool. Name principals explicitly."
+  }
+
+  # Structural backstop for the rule above. Every legal IAM member carries a
+  # type prefix; the two dangerous values are precisely the ones that do not.
+  # This also rejects a bare email address, which silently grants nothing.
+  validation {
+    condition = alltrue([
+      for m in var.iap_members :
+      can(regex("^(user|group|serviceAccount|domain|principal|principalSet):[^[:space:]]+$", trimspace(m)))
+    ])
+    error_message = "EDGE-RULE-05-IAP-MEMBERS-PREFIX: Every iap_members entry must be a prefixed IAM principal such as \"user:...\", \"group:...\", \"serviceAccount:...\", or \"domain:...\". A bare email address is not a valid member and grants no access."
+  }
+}
+
 variable "nat_log_filter" {
   description = "Cloud NAT log filter passed to modules/network."
   type        = string

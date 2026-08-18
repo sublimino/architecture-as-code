@@ -192,6 +192,133 @@ env_subnets() {
 }
 
 # ---------------------------------------------------------------------------
+# Every value set in an example must be a variable that exists
+# ---------------------------------------------------------------------------
+#
+# Terraform treats a value for an UNDECLARED variable in a -var-file as a
+# warning, not an error. It proceeds, discards the value, and the module takes
+# its own default. The warning scrolls past in CI output where nobody reads it.
+#
+# That is how `access_mode = "iap"` in tfvars can produce an environment whose
+# access mode was never set by anyone — right by accident, for exactly as long
+# as the module default happens to agree. This test is the only thing that turns
+# a discarded value into a failure.
+
+# Top-level assignments only. Nested map entries are indented, so anchoring at
+# column zero is what separates `iap_members = [...]` from `app_port = 8080`
+# inside an environment block.
+tfvars_assignments() {
+	grep -oE '^[a-z_][a-z0-9_]*[[:space:]]*=' "$1" | sed 's/[[:space:]]*=$//' || true
+}
+
+declared_variables() {
+	grep -oE '^variable "[a-z_][a-z0-9_]*"' "${REPO_ROOT}/terraform/environments/variables.tf" |
+		sed 's/^variable "//; s/"$//' || true
+}
+
+# Names assigned in $1 that variables.tf does not declare, one per line.
+undeclared_in() {
+	comm -23 <(tfvars_assignments "$1" | sort -u) <(declared_variables | sort -u)
+}
+
+@test "every variable set in a committed tfvars example is declared" {
+	local varfile="${REPO_ROOT}/terraform/environments/variables.tf"
+	[ -f "$varfile" ]
+
+	# Positive control, twice over. An empty assignment set or an empty
+	# declaration set makes the comm below trivially clean, and a scan of
+	# nothing reports the same "all declared" as a scan of everything.
+	local declared assigned
+	declared="$(declared_variables | wc -l)"
+	[ "$declared" -ge 8 ] || {
+		echo "only ${declared} variables parsed out of variables.tf; the parser is broken" >&2
+		return 1
+	}
+
+	local f undeclared bad=()
+	for f in "${REPO_ROOT}"/terraform/environments/*.tfvars.example; do
+		assigned="$(tfvars_assignments "$f" | sort -u | wc -l)"
+		[ "$assigned" -ge 4 ] || {
+			echo "only ${assigned} assignments parsed out of $(basename "$f"); the parser is broken" >&2
+			return 1
+		}
+		undeclared="$(undeclared_in "$f")"
+		[ -z "$undeclared" ] || bad+=("$(basename "$f"): $(printf '%s' "$undeclared" | tr '\n' ' ')")
+	done
+
+	[ "${#bad[@]}" -eq 0 ] || {
+		echo "these examples set variables that terraform/environments/variables.tf" >&2
+		echo "does not declare. Terraform will WARN and silently discard the value:" >&2
+		printf '  %s\n' "${bad[@]}" >&2
+		return 1
+	}
+}
+
+@test "the declared-variable check catches an undeclared assignment" {
+	# The mutation for the test above. Without it, a parser that returned
+	# nothing would report every example clean forever.
+	local mutated="${BATS_TEST_TMPDIR}/undeclared.tfvars.example"
+	cp "${TFVARS}" "$mutated"
+	printf '\nnot_a_real_variable = "x"\n' >>"$mutated"
+
+	run undeclared_in "$mutated"
+	[[ "$output" == *"not_a_real_variable"* ]] || {
+		echo "the check did not flag an assignment to an undeclared variable" >&2
+		echo "output: ${output}" >&2
+		return 1
+	}
+	# And the unmutated file must still be clean, or the check is just noisy.
+	run undeclared_in "${TFVARS}"
+	[ -z "$output" ] || {
+		echo "the real example reports undeclared variables: ${output}" >&2
+		return 1
+	}
+}
+
+@test "access_mode and iap_members are both set in the example and declared" {
+	# The specific pair this whole class of failure was found through. Named
+	# explicitly so that deleting either declaration fails on the thing that
+	# broke, not on a generic count.
+	local name
+	for name in access_mode iap_members; do
+		tfvars_assignments "${TFVARS}" | grep -qx "$name" || {
+			echo "demo-1.tfvars.example does not set ${name}" >&2
+			return 1
+		}
+		declared_variables | grep -qx "$name" || {
+			echo "terraform/environments/variables.tf does not declare ${name}." >&2
+			echo "Terraform would warn and discard the tfvars value, leaving the" >&2
+			echo "module default to decide whether the environment is public." >&2
+			return 1
+		}
+	done
+}
+
+@test "the root declares access_mode with the safe default" {
+	# A module default governs only while the caller passes no value. Once this
+	# root wires access_mode into modules/edge, the ROOT's default is what
+	# ships, and a root defaulting to "allowlist" reverses the private-edge
+	# posture while every module test stays green.
+	#
+	# The evaluated-configuration proof lives in
+	# terraform/environments/tests/edge_access_defaults.tftest.hcl; this is the
+	# textual guard that the tftest file has not been deleted along with it.
+	local tftest="${REPO_ROOT}/terraform/environments/tests/edge_access_defaults.tftest.hcl"
+	[ -f "$tftest" ] || {
+		echo "the evaluated-default proof is missing: ${tftest}" >&2
+		return 1
+	}
+	grep -qF 'default_access_mode_is_iap' "$tftest" || {
+		echo "${tftest} no longer asserts the evaluated default" >&2
+		return 1
+	}
+	grep -qF 'expect_failures = [var.iap_members]' "$tftest" || {
+		echo "${tftest} no longer proves the iap_members guards reject anything" >&2
+		return 1
+	}
+}
+
+# ---------------------------------------------------------------------------
 # preflight.sh
 # ---------------------------------------------------------------------------
 
@@ -375,14 +502,14 @@ STUB
 # Mutation check — prove the posture guard can go red
 # ---------------------------------------------------------------------------
 
-@test "the posture guard fails when demo-1 is flipped to public" {
-	local sedfile="${FIXTURES}/access-mode-public.sed"
+@test "the posture guard fails when demo-1 is flipped to allowlist-only" {
+	local sedfile="${FIXTURES}/access-mode-allowlist.sed"
 	[ -f "$sedfile" ] || {
 		echo "mutation fixture missing: $sedfile" >&2
 		return 1
 	}
 
-	local mutated="${BATS_TEST_TMPDIR}/demo-1-public.tfvars.example"
+	local mutated="${BATS_TEST_TMPDIR}/demo-1-allowlist.tfvars.example"
 	sed -f "$sedfile" "${TFVARS}" >"$mutated"
 
 	# A sed program whose pattern has drifted applies cleanly and changes

@@ -85,9 +85,21 @@ target_env = "demo-1"
 # backend service and every request must carry a Google identity on the
 # iap_members list. There is no anonymous path to the application.
 #
-# "public" is the other accepted value and it is not a synonym for "insecure" —
-# it means the Cloud Armor allowlist is the only gate. Do not set it here.
-# Setting it turns a demo that is safe to leave running into one that is not.
+# There are exactly three legal values, and the other two are worth knowing so
+# nobody reaches for one by analogy:
+#
+#   "iap"                 the default and what is set below. Identity is the
+#                         gate; the Cloud Armor allowlist is a second, network
+#                         gate behind it.
+#   "allowlist"           the IP allowlist is the ONLY authorisation control.
+#                         That is coarse exposure control and it is NOT
+#                         authentication — anyone on an allowlisted network is
+#                         admitted as anyone. Retained for a genuinely public
+#                         demo. Do not set it here.
+#   "iap_and_allowlist"   both, with the allowlist additionally narrowing which
+#                         networks may even reach the sign-in page. The
+#                         strongest posture available; use it once the source
+#                         ranges below are known to be right.
 access_mode = "iap"
 
 # Who may authenticate. IAP denies everyone not on this list, so an empty list

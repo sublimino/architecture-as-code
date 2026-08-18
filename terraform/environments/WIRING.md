@@ -42,41 +42,46 @@ real apply, against the real bucket, by a human. `terraform/RUNBOOK.md` step 5
 is that apply. Until it has happened, steps 2–5 here cannot produce a plan, and
 the error they produce names a missing output rather than a missing step.
 
-### Two root variables the edge wiring needs, which are not declared yet
+### The two edge-reachability root variables
 
-`terraform/environments/variables.tf` does **not** currently declare
-`access_mode` or `iap_members`, and `demo-1.tfvars.example` sets both. Terraform
-treats a value for an undeclared variable in a `-var-file` as a *warning*, so
-this does not fail a plan — it silently drops the value and the edge module
-takes its own default. That is the worst available failure mode for a variable
-whose whole job is to decide whether the environment is publicly reachable, so
-declare them before step 4:
+`access_mode` and `iap_members` are **declared in
+`terraform/environments/variables.tf`** and published through
+`local.integration_inputs`, so step 4 can wire them straight into
+`modules/edge`. Three things about them are load-bearing.
 
-```hcl
-variable "access_mode" {
-  description = "Edge reachability. \"iap\" puts Identity-Aware Proxy in front of the backend; \"public\" leaves the Cloud Armor allowlist as the only gate."
-  type        = string
-  default     = "iap"
+**They are root variables, not fields on the `environments` object.** That
+object type is frozen by CONTRACT §3 — "copy this type verbatim; do not add or
+rename fields". They follow the precedent set by
+`rate_limit_threshold_per_minute` and `enable_cdn`: an edge input that varies by
+deployment rather than by environment key lives at the root and is passed down.
 
-  validation {
-    condition     = contains(["iap", "public"], var.access_mode)
-    error_message = "access_mode must be \"iap\" or \"public\"."
-  }
-}
+**The root must mirror the module's default, not merely its name.** A module
+default governs only while the caller passes **no** value. The moment this root
+wires `access_mode = var.access_mode`, `modules/edge`'s `default = "iap"` is
+dead and the root's default is what ships. A root defaulting to `"allowlist"`
+would silently reverse the entire private-edge posture while every module test
+stayed green — the module would be behaving exactly as designed with the input
+it was handed. The evaluated default is asserted in
+`tests/edge_access_defaults.tftest.hcl`, in its own file because run-level
+`variables` blocks *merge* with the file-level block rather than replacing it,
+so a test about defaults is meaningless in a file whose header sets the thing
+under test.
 
-variable "iap_members" {
-  description = "IAM principals permitted through IAP, each prefixed user:/group:/serviceAccount:. Ignored when access_mode is \"public\"."
-  type        = list(string)
-  default     = []
-}
-```
+**`access_mode` has exactly three legal values** — `iap` (default),
+`allowlist`, `iap_and_allowlist`. `"public"` is the value a reader guesses by
+analogy and it is not one of them; the validation rejects it, and a tftest run
+proves the rejection.
 
-They are **root variables, not fields on the `environments` object**, because
-that object type is frozen by CONTRACT §3 — "copy this type verbatim; do not add
-or rename fields". They follow the existing precedent set by
-`rate_limit_threshold_per_minute` and `enable_cdn`: an edge-module input that
-varies by deployment rather than by environment key lives at the root and is
-passed down.
+One of `modules/edge`'s three `iap_members` validations is **not** mirrored
+here: the non-empty check. It is correct and it fires — on every plan of this
+root that names no principal, including `tests/root_contract.tftest.hcl`, whose
+file-level variables block predates these variables and sets neither. Restoring
+it needs one line in that suite's header
+(`iap_members = ["user:someone@example.invalid"]`), which is a pre-existing test
+and not this chunk's to edit. Until then the rule still bites at the module
+boundary, which is also the only point at which an empty list can lock anyone
+out — before the edge module is wired there is no edge. Only the location of the
+error moves, not whether it is raised. Recorded in `NOTES.md`.
 
 After each step: `terraform init -backend=false && terraform validate && tflint`. Do not batch
 the uncommenting. A single `plan` covering five newly-live modules attributes every error to the

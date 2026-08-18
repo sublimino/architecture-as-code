@@ -162,10 +162,15 @@ main() {
   # Record what the local daemon holds BEFORE the load. On a mismatch this is
   # the only way to say whether the loader dropped the transfer or the build
   # never produced what the caller thinks it did.
-  local image local_id
+  # The ID is logged as a breadcrumb only. Identity is the rootfs diffID list —
+  # on the containerd image store this ID is the manifest digest and is NOT
+  # comparable to anything crictl prints, so the layer count is the number that
+  # actually corresponds to what gets compared below.
+  local image local_id local_diffids
   for image in "$@"; do
     local_id="$(image_identity_local_id "$image")"
-    log "local  $image  ${local_id:+sha256:}${local_id:-<not in the local image store>}"
+    local_diffids="$(image_identity_local_diffids "$image")"
+    log "local  $image  ${local_id:+sha256:}${local_id:-<not in the local image store>}${local_diffids:+  ($(printf '%s' "$local_diffids" | grep -c .) rootfs layers)}"
   done
 
   # One kind invocation for the whole set: it is faster, and it is the call the

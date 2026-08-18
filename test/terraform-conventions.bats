@@ -172,9 +172,11 @@ setup() {
 # the sentence forbidding it is a guard nobody will keep. Fixture trees are excluded for the same
 # reason in reverse: broken-absolute-path is broken on purpose so the mutation test has something
 # to catch.
+# /home/ci/ is excluded: it is the CI VM's own service-account home and the remote-side
+# convention scripts/ci/gcp-ci.sh already uses for its work directory. The prohibition is on a
+# DEVELOPER's machine leaking into a committed file, not on the remote path the code SSHes to.
 @test "no committed terraform source or script embeds a developer home directory" {
-  run bash -c "_tf_portable_files() { git ls-files -- 'terraform/*.tf' 'terraform/**/*.tf' 'terraform/**/*.tftest.hcl' 'terraform/**/*.example' 'scripts/gcp-tf/*.sh' 'scripts/ci/gcp-tf-*.sh'; }; _tf_portable_files | xargs -r grep -l '/home/[a-z]' 2>/dev/null | head -5"
-  [ "$status" -eq 0 ]
+  run bash -c "git ls-files -- 'terraform/*.tf' 'terraform/**/*.tf' 'terraform/**/*.tftest.hcl' 'terraform/**/*.example' 'scripts/gcp-tf/*.sh' 'scripts/ci/gcp-tf-*.sh' | xargs -r grep -ohE '/home/[a-z][a-z0-9_-]*/' 2>/dev/null | sort -u | grep -v '^/home/ci/$'"
   [ -z "$output" ]
 }
 

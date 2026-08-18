@@ -22,8 +22,11 @@ locals {
   network_tag = "sl-${var.environment_key}-node"
 
   # Identity-Aware Proxy's TCP forwarding range. This is a fixed, Google-owned
-  # range; SSH arrives from here and nowhere else.
-  iap_range = "35.235.240.0/20"
+  # range; SSH and the app-port tunnel arrive from here and nowhere else. It is
+  # sourced from a variable pinned by NET-RULE-01 rather than written as a
+  # literal, so that repointing IAP ingress is a plan-time failure with a name
+  # on it — see the rule in variables.tf.
+  iap_range = var.iap_source_range
 
   # Google's two health-check / load-balancer proxy ranges. Traffic to the
   # backend arrives from exactly these; any other source is not a health check.
@@ -145,6 +148,60 @@ resource "google_compute_firewall" "allow_iap_ssh" {
   }
 
   description = "SSH from the IAP TCP-forwarding range only (${local.label_note})"
+}
+
+# ─── The app-port tunnel ────────────────────────────────────────────────────
+#
+# A SEPARATE rule rather than a second port on allow_iap_ssh, deliberately. SSH
+# and the application are different exposures with different review histories,
+# and a rule named "allow-iap-ssh" that also opens 30754 is a rule whose name
+# lies. Splitting them keeps `gcloud compute firewall-rules list` honest and
+# lets either be removed without touching the other.
+#
+# ─── Why the app port needs an IAP path at all ──────────────────────────────
+#
+# The demo VM has no external IP and, with `hostname = ""`, no HTTPS load
+# balancer either (modules/edge gates the whole frontend on hostname). The only
+# way to a browser is IAP TCP forwarding. Until now that meant SSH plus a
+# manual `-L` forward, because this rule did not exist and only 22 was open.
+#
+# ─── Why the port is load-bearing, and cannot be "any free port" ────────────
+#
+# The dashboard is served through the Envoy Gateway at
+# https://dashboard.osramp.acme.local:30754. Dex pins its local issuer and its
+# callback client to that exact port — `setup_gateway_forward` in
+# scripts/acceptance-test.sh forwards the Gateway's dynamic NodePort to 30754
+# for precisely this reason. A tunnel on any other port reaches the Gateway and
+# then fails the OIDC redirect, which presents as a broken application rather
+# than as a port mismatch. That is why app_port is a per-environment value the
+# operator sets to 30754, and why this rule derives from it rather than
+# hardcoding anything.
+#
+# ─── Why this does not widen the posture ────────────────────────────────────
+#
+# The source is Google's IAP forwarding range, not a network anyone can route
+# from; packets only arrive there after IAP has authorised the caller against
+# roles/iap.tunnelResourceAccessor on this instance. The rule is scoped to the
+# runtime service account like every other rule in this module, and
+# deny_all_ingress still stands behind it. No external IP is created, no source
+# range outside 35.235.240.0/20 is admitted, and port 22 is unaffected.
+resource "google_compute_firewall" "allow_iap_app_port" {
+  name    = "${var.name_prefix}-allow-iap-app"
+  project = var.project_id
+  network = google_compute_network.this.id
+
+  direction = "INGRESS"
+  priority  = 1000
+
+  source_ranges           = [local.iap_range]
+  target_service_accounts = [var.runtime_service_account_email]
+
+  allow {
+    protocol = "tcp"
+    ports    = [tostring(var.app_port)]
+  }
+
+  description = "Application port over IAP TCP forwarding only (${local.label_note})"
 }
 
 resource "google_compute_firewall" "allow_health_checks" {

@@ -159,6 +159,77 @@ run "ssh_is_reachable_only_from_the_iap_range" {
 }
 
 # ---------------------------------------------------------------------------
+# The app-port tunnel. A SEPARATE rule from allow_iap_ssh, so that the SSH rule
+# above still opens 22 and nothing else — a rule named "allow-iap-ssh" that
+# also opened the application would be a rule whose name lies.
+#
+# Run at 30754, the real value, because that number is load-bearing rather than
+# arbitrary: Dex pins its OIDC issuer and callback client to it
+# (`setup_gateway_forward`, scripts/acceptance-test.sh), so a tunnel on any
+# other port reaches the Envoy Gateway and then fails the login redirect. It is
+# passed as a variable here so a hardcoded literal in the module would fail.
+# ---------------------------------------------------------------------------
+
+run "the_app_port_is_reachable_over_iap_and_only_over_iap" {
+  command = plan
+
+  variables {
+    app_port = 30754
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_app_port.allow).ports == tolist(["30754"])
+    error_message = "the IAP app rule must open exactly the configured app port; 30754 is what Dex's callback is pinned to"
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_iap_app_port.source_ranges) == 1
+    error_message = "the IAP app rule must have exactly one source range"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_app_port.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "the IAP app rule's only source must be Google's IAP TCP-forwarding range"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_app_port.target_service_accounts == toset([var.runtime_service_account_email])
+    error_message = "the IAP app rule must be scoped to the runtime service account, not to every instance in the VPC"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_app_port.allow).protocol == "tcp"
+    error_message = "the IAP app rule must allow tcp only"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_app_port.direction == "INGRESS"
+    error_message = "the IAP app rule must be an ingress rule"
+  }
+
+  # Both paths from the IAP range, asserted together — this is the pair the
+  # demo actually depends on, and asserting them in one run is what proves they
+  # share a source range rather than merely each having a plausible one.
+  assert {
+    condition     = google_compute_firewall.allow_iap_ssh.source_ranges == google_compute_firewall.allow_iap_app_port.source_ranges
+    error_message = "SSH and the app port must be reachable from the same, single IAP range"
+  }
+
+  # And 22 is untouched by the addition. A change that opened the app port by
+  # widening the SSH rule would pass every assertion above except this one.
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_ssh.allow).ports == tolist(["22"])
+    error_message = "adding the app-port rule must not add a port to the SSH rule; they are separate exposures"
+  }
+
+  # The deny still sits behind both.
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress.priority > google_compute_firewall.allow_iap_app_port.priority
+    error_message = "the ingress deny must still sit below the app-port allow"
+  }
+}
+
+# ---------------------------------------------------------------------------
 # ISC-86/87: health checks from exactly the two GCP ranges, on exactly the app
 # port. Run with a non-default app_port so a hardcoded 8080 fails here.
 # ---------------------------------------------------------------------------
@@ -301,6 +372,14 @@ run "no_allow_rule_is_open_to_the_world" {
 
   assert {
     condition = length(setintersection(
+      google_compute_firewall.allow_iap_app_port.source_ranges,
+      toset(["0.0.0.0/0", "::/0"]),
+    )) == 0
+    error_message = "the IAP app-port allow rule must never be sourced from the whole internet"
+  }
+
+  assert {
+    condition = length(setintersection(
       google_compute_firewall.allow_egress_dns.destination_ranges,
       toset(["0.0.0.0/0", "::/0"]),
     )) == 0
@@ -331,6 +410,74 @@ run "rejects_an_out_of_range_app_port" {
   }
 
   expect_failures = [var.app_port]
+}
+
+# ---------------------------------------------------------------------------
+# NET-RULE-01: the IAP ingress source is immovable.
+#
+# The two halves are different claims and both are needed. The runs above
+# assert the CURRENT value is Google's range — true of any correct config, and
+# equally true of one that happens to be right today. This asserts that a wrong
+# value is REFUSED, which is the property that survives the next edit.
+#
+# The rejected values below are the three plausible ones, in ascending order of
+# how reasonable they look: an office CIDR, a broader Google-owned range that
+# contains the right one, and the whole internet.
+# ---------------------------------------------------------------------------
+
+run "rejects_a_non_iap_ssh_source" {
+  command = plan
+
+  variables {
+    # RFC5737 documentation range standing in for "my office".
+    iap_source_range = "192.0.2.0/24"
+  }
+
+  expect_failures = [var.iap_source_range]
+}
+
+run "rejects_a_supernet_of_the_iap_range" {
+  command = plan
+
+  variables {
+    # The subtle one. 35.235.0.0/16 CONTAINS 35.235.240.0/20, so SSH from IAP
+    # keeps working and the widening is invisible in every functional test.
+    iap_source_range = "35.235.0.0/16"
+  }
+
+  expect_failures = [var.iap_source_range]
+}
+
+run "rejects_the_whole_internet_as_an_iap_source" {
+  command = plan
+
+  variables {
+    iap_source_range = "0.0.0.0/0"
+  }
+
+  expect_failures = [var.iap_source_range]
+}
+
+# The positive half. Passing the correct value EXPLICITLY, rather than relying
+# on the default, is what proves the rule accepts it rather than that nothing
+# evaluated it.
+run "accepts_the_iap_range_when_stated_explicitly" {
+  command = plan
+
+  variables {
+    iap_source_range = "35.235.240.0/20"
+    app_port         = 30754
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_ssh.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "the explicitly-stated IAP range must reach the SSH rule"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_app_port.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "the explicitly-stated IAP range must reach the app-port rule"
+  }
 }
 
 run "rejects_an_empty_runtime_service_account" {

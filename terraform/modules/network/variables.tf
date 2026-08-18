@@ -38,6 +38,34 @@ variable "app_port" {
   }
 }
 
+variable "iap_source_range" {
+  description = "Source range for every IAP ingress rule. Google's IAP TCP-forwarding range is 35.235.240.0/20 and there is no second legal value; this is a variable so that an attempt to point IAP ingress somewhere else fails at plan with a named rule."
+  type        = string
+  default     = "35.235.240.0/20"
+
+  # ─── Why a variable that accepts exactly one value is not ceremony ────────
+  #
+  # This range was a `local`. A local can be widened by a one-character edit —
+  # to an office CIDR, to a VPN range, to 0.0.0.0/0 — and the edit reads as
+  # configuration rather than as a change of posture. Nothing named the rule it
+  # was breaking, so nothing could report it as broken.
+  #
+  # As a variable with an equality validation, the same edit fails at plan and
+  # says what it violated. The rule is also now reachable from a test:
+  # `rejects_a_non_iap_ssh_source` in tests/network.tftest.hcl proves it fires,
+  # which an assertion on the evaluated source range cannot do — that only
+  # proves the current value is right, not that a wrong one is refused.
+  #
+  # The value is Google-owned infrastructure, not a customer network. Traffic
+  # arriving from it has already been authorised by IAP against
+  # roles/iap.tunnelResourceAccessor; the firewall rule is the second gate, not
+  # the first.
+  validation {
+    condition     = var.iap_source_range == "35.235.240.0/20"
+    error_message = "NET-RULE-01-IAP-RANGE: iap_source_range must be exactly \"35.235.240.0/20\", Google's IAP TCP-forwarding range. Any other value is by definition not IAP: it converts an identity-gated tunnel into a network allowlist, and the resulting rule still carries the name \"allow-iap-ssh\". If you need a different source, add a separate, differently-named rule and justify it — do not repoint this one."
+  }
+}
+
 variable "runtime_service_account_email" {
   description = "Per-environment runtime service account attached to this environment's instances. Every firewall rule in this module is scoped to it, so no rule is ever applied network-wide."
   type        = string

@@ -87,3 +87,28 @@ The input names in `main.tf` are copied from `CONTRACT.md` §4 and are frozen. I
 inputs differ, **the module is wrong, not this file** — raise it with the orchestrator rather
 than editing either side. A unilateral rename on one side of a frozen interface is the failure
 mode the contract exists to prevent, and it converts a merge into a rewrite.
+
+## Correction — `module "identity"` does NOT belong in this root
+
+Step 1 of the table above originally said to uncomment `module "identity"` here. **Do not.**
+An adversarial security review found that instruction to be a reversibility hole, and it has
+been removed from `main.tf`.
+
+The reasoning behind it was half right: the WIF pool and the CI service accounts are
+project-level singletons, so they must not be filtered by `target_env` — otherwise applying
+`demo-1` deletes `demo-2`'s runtime service account. That much is true.
+
+The conclusion did not follow. A singleton declared in *this* root is stored in an
+*environment's* state file, and `make gcp-tf-destroy ENV=demo-1` destroys everything in that
+state. The destroy guard refuses the `platform` and `bootstrap` roots **by path**, so it would
+have permitted this destroy without complaint — taking the workload identity pool, both CI
+service accounts and every `google_project_iam_member` with it. CI could no longer
+authenticate, and recovery would need bootstrap-level credentials. The target's closing line
+("the platform singletons were not touched") would have been false.
+
+Singletons live in `terraform/platform` per CONTRACT §5b, which exists for exactly this
+credential- and lifecycle-separation reason. This root consumes them read-only via
+`terraform_remote_state` against prefix `osramp/platform`. Step 1 is therefore: **apply the
+platform root first**, then wire the data source. Steps 2 onward are unchanged apart from
+reading `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]`
+where they previously read `module.identity.runtime_service_account_emails[each.key]`.

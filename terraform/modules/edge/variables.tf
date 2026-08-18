@@ -75,9 +75,20 @@ variable "allowed_ipv4" {
     error_message = "Every allowed_ipv4 entry must parse as an IPv4 CIDR, e.g. \"192.0.2.0/24\"."
   }
 
+  # A literal `c != "0.0.0.0/0"` was the original rule, and an adversarial review
+  # walked straight past it: ["0.0.0.0/1", "128.0.0.0/1"] covers every IPv4
+  # address, parses as two valid CIDRs, fits inside the 500-entry cap, and gets
+  # allow-listed at priority 1000 above the default deny. The error message
+  # asserted a property the condition did not enforce.
+  #
+  # A prefix length is the honest expression of "not the internet". /8 still
+  # permits 16.7M addresses, which is far wider than any demo needs, but it is a
+  # ceiling a reviewer can reason about rather than a single blocked spelling.
   validation {
-    condition     = alltrue([for c in var.allowed_ipv4 : c != "0.0.0.0/0"])
-    error_message = "allowed_ipv4 must never contain 0.0.0.0/0. An allow-the-internet rule defeats the Cloud Armor default deny."
+    condition = alltrue([
+      for c in var.allowed_ipv4 : can(tonumber(split("/", c)[1])) && tonumber(split("/", c)[1]) >= 8
+    ])
+    error_message = "Every allowed_ipv4 entry must be /8 or narrower. 0.0.0.0/0 allows the internet; so does the pair 0.0.0.0/1 and 128.0.0.0/1, which is why this checks the prefix length rather than blocking one spelling."
   }
 
   validation {
@@ -96,9 +107,15 @@ variable "allowed_ipv6" {
     error_message = "Every allowed_ipv6 entry must parse as an IPv6 CIDR, e.g. \"2001:db8::/32\"."
   }
 
+  # Same defect as allowed_ipv4, same fix. ["::/1", "8000::/1"] is the IPv6
+  # spelling of the whole internet and passed a literal `!= "::/0"` compare.
+  # The prior regex also accepted a /999 prefix, which tonumber now bounds.
   validation {
-    condition     = alltrue([for c in var.allowed_ipv6 : c != "::/0"])
-    error_message = "allowed_ipv6 must never contain ::/0. An allow-the-internet rule defeats the Cloud Armor default deny."
+    condition = alltrue([
+      for c in var.allowed_ipv6 :
+      can(tonumber(split("/", c)[1])) && tonumber(split("/", c)[1]) >= 32 && tonumber(split("/", c)[1]) <= 128
+    ])
+    error_message = "Every allowed_ipv6 entry must have a prefix length between /32 and /128. ::/0 allows the internet; so does the pair ::/1 and 8000::/1, which is why this checks the prefix length rather than blocking one spelling."
   }
 
   validation {

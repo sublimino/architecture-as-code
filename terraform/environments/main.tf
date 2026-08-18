@@ -86,21 +86,39 @@ locals {
 # compute produces the instance group that edge consumes.
 # ════════════════════════════════════════════════════════════════════════════
 
-# # ── 1. identity ── map-aware; NOT for_each'd, and deliberately NOT filtered
-# # by target_env: the workload identity pool and the CI service accounts are
-# # project-level singletons, and a runtime service account must exist for every
-# # environment key regardless of which one is being applied right now. Filtering
-# # this module would make `apply` for demo-1 delete demo-2's service account.
-# module "identity" {
-#   source = "../modules/identity"
-#
-#   project_id         = var.project_id
-#   project_number     = var.project_number
-#   environment_keys   = module.env_contract.environment_keys
-#   github_owner_id    = var.github_owner_id
-#   github_repository  = var.github_repository
-#   github_allowed_ref = var.github_allowed_ref
-# }
+# # ── 1. identity ── DO NOT INSTANTIATE THIS MODULE IN THIS ROOT.
+# #
+# # This block used to live here, uncommented by the WIRING instructions, and it
+# # was a reversibility hole that an adversarial review found. The reasoning that
+# # put it here was sound as far as it went: the WIF pool and the CI service
+# # accounts are project-level singletons, so they must not be filtered by
+# # target_env or applying demo-1 would delete demo-2's service account.
+# #
+# # The conclusion was wrong. Declaring a singleton in THIS root puts it in an
+# # ENVIRONMENT's state file, and `make gcp-tf-destroy ENV=demo-1` destroys
+# # everything in that state. The destroy guard refuses the `platform` and
+# # `bootstrap` roots by path, so it would have permitted exactly this — taking
+# # the workload identity pool, both CI service accounts and every project IAM
+# # member with it. CI could then no longer authenticate at all, and recovering
+# # needs bootstrap-level credentials. The target's own closing message claims
+# # the platform singletons were not touched; it would have been lying.
+# #
+# # Singletons belong to terraform/platform (CONTRACT §5b). This root CONSUMES
+# # them read-only:
+# #
+# #   data "terraform_remote_state" "platform" {
+# #     backend = "gcs"
+# #     config = {
+# #       bucket = var.state_bucket_name
+# #       prefix = "osramp/platform"
+# #     }
+# #   }
+# #
+# # The module blocks below have already been rewritten to read
+# #   data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
+# # in place of the module output they previously consumed.
+# #
+# # test/terraform-identity.bats asserts this root declares no identity module.
 #
 # # ── 2. network ── one VPC + subnet + NAT + firewall, for the target env only.
 # module "network" {
@@ -114,7 +132,7 @@ locals {
 #   region                        = each.value.region
 #   subnet_cidr                   = each.value.subnet_cidr
 #   app_port                      = each.value.app_port
-#   runtime_service_account_email = module.identity.runtime_service_account_emails[each.key]
+#   runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
 #   nat_log_filter                = var.nat_log_filter
 # }
 #
@@ -132,7 +150,7 @@ locals {
 #   boot_disk_gb          = each.value.boot_disk_gb
 #   subnet_self_link      = module.network[each.key].subnet_self_link
 #   network_tag           = module.network[each.key].network_tag
-#   service_account_email = module.identity.runtime_service_account_emails[each.key]
+#   service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
 #   deletion_protection   = each.value.deletion_protect
 #   startup_script_path   = var.startup_script_path
 # }
@@ -171,7 +189,7 @@ locals {
 #   boot_disk_gb          = each.value.boot_disk_gb
 #   subnet_self_link      = module.network[each.key].subnet_self_link
 #   network_tag           = module.network[each.key].network_tag
-#   service_account_email = module.identity.runtime_service_account_emails[each.key]
+#   service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
 #   idle_suspend_minutes  = var.ci_idle_suspend_minutes
 # }
 

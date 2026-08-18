@@ -41,10 +41,33 @@ locals {
   #   principalSet://.../workloadIdentityPools/<pool>/*
   # grants every identity the pool can ever mint, which defeats the point of
   # having a condition on the provider in the first place.
-  wif_principal = join("", [
+  #
+  # This repository-scoped set is the PLAN identity's principal. It is
+  # deliberately the weaker of the two: any workflow in the repository that the
+  # provider will mint a token for can assume it, and it holds read-only roles.
+  wif_plan_principal = join("", [
     "principalSet://iam.googleapis.com/projects/${var.project_number}",
     "/locations/global/workloadIdentityPools/${var.pool_id}",
     "/attribute.repository/${var.github_repository}",
+  ])
+
+  # The APPLY identity is scoped to one workflow file, not to the repository.
+  #
+  # Both bindings previously used the repository-scoped set above — byte
+  # identical — while the comment beside them claimed they "decide which service
+  # accounts an accepted token may impersonate". Identical members decide
+  # nothing. Any token the pool accepted could impersonate the apply account,
+  # which holds compute.admin, iam.serviceAccountAdmin and dns.admin; the
+  # read-only ci_plan_roles list was guarding a boundary that existed only in
+  # prose. An adversarial review found it.
+  #
+  # job_workflow_ref names the workflow file that is actually executing, so a
+  # token minted by any other workflow in the same repository — including one
+  # added by a pull request — cannot assume the apply identity.
+  wif_apply_principal = join("", [
+    "principalSet://iam.googleapis.com/projects/${var.project_number}",
+    "/locations/global/workloadIdentityPools/${var.pool_id}",
+    "/attribute.job_workflow_ref/${var.github_apply_workflow_ref}",
   ])
 }
 
@@ -71,6 +94,7 @@ resource "google_iam_workload_identity_pool_provider" "github" {
     "attribute.repository"          = "assertion.repository"
     "attribute.repository_owner_id" = "assertion.repository_owner_id"
     "attribute.ref"                 = "assertion.ref"
+    "attribute.job_workflow_ref"    = "assertion.job_workflow_ref"
   }
 
   oidc {
@@ -127,13 +151,13 @@ resource "google_service_account" "ci_apply" {
 resource "google_service_account_iam_member" "ci_plan_wif" {
   service_account_id = google_service_account.ci_plan.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = local.wif_principal
+  member             = local.wif_plan_principal
 }
 
 resource "google_service_account_iam_member" "ci_apply_wif" {
   service_account_id = google_service_account.ci_apply.name
   role               = "roles/iam.workloadIdentityUser"
-  member             = local.wif_principal
+  member             = local.wif_apply_principal
 }
 
 # ── Project IAM — additive members only ─────────────────────────────────────
@@ -203,4 +227,23 @@ resource "google_storage_bucket_iam_member" "ci_state" {
   bucket = var.state_bucket_name
   role   = "roles/storage.objectAdmin"
   member = each.value
+}
+
+# The plan and apply principals must never converge again.
+#
+# They were byte-identical once, which meant the read-only ci_plan_roles list
+# and the write-capable ci_apply_roles list described a boundary that nothing
+# enforced. A grep-based test would not have caught it — both lines were
+# individually correct, and the defect was that they were the SAME line. This is
+# a plan-time control, evaluated on the values Terraform actually computed.
+check "wif_principals_are_distinct" {
+  assert {
+    condition     = local.wif_plan_principal != local.wif_apply_principal
+    error_message = "The plan and apply WIF principals are identical, so any token that can assume the read-only plan identity can also assume the write-capable apply identity. Scope apply to a job_workflow_ref."
+  }
+
+  assert {
+    condition     = can(regex("attribute\\.job_workflow_ref/", local.wif_apply_principal))
+    error_message = "The apply WIF principal must be scoped by job_workflow_ref, not by repository."
+  }
 }

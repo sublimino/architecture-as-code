@@ -455,3 +455,41 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 	guard_absent "$fixtures/clean" "$PAT_ACCESS_CONFIG" ".fixture"
 	guard_absent "$fixtures/clean" "$PAT_APPLY" ".fixture"
 }
+
+# ─── Reversibility: singletons must not live in an environment's state ───────
+#
+# Regression for an adversarial-review finding. `module "identity"` was wired
+# into terraform/environments, and WIRING.md told the operator to uncomment it.
+# A singleton declared in that root is stored in an ENVIRONMENT's state file,
+# and `make gcp-tf-destroy ENV=demo-1` destroys everything in that state. The
+# destroy guard refuses `platform` and `bootstrap` BY PATH, so it would have
+# permitted exactly this — taking the WIF pool, both CI service accounts and
+# every project IAM member with it, leaving CI unable to authenticate at all.
+#
+# This is a whole-tree structural property, which is why it lives in bats: no
+# single plan can see that a module is declared in the wrong root.
+
+@test "TFID the environments root declares no identity module" {
+	local root="$repo/terraform/environments"
+	[ -d "$root" ]
+	run grep -nE '^[[:space:]]*module[[:space:]]+"identity"' "$root"/*.tf
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
+}
+
+@test "TFID the platform root is where the identity module is declared" {
+	# Paired positive. Without it the test above passes on a tree where the
+	# identity module was deleted outright rather than moved, which is a
+	# different defect wearing the same green.
+	local root="$repo/terraform/platform"
+	[ -d "$root" ]
+	run grep -nE '^#?[[:space:]]*#?[[:space:]]*module[[:space:]]+"identity"' "$root"/*.tf
+	[ "$status" -eq 0 ]
+	[ -n "$output" ]
+}
+
+@test "TFID the environments WIRING guide does not instruct uncommenting identity there" {
+	local wiring="$repo/terraform/environments/WIRING.md"
+	[ -f "$wiring" ]
+	grep -q "does NOT belong in this root" "$wiring"
+}

@@ -27,7 +27,7 @@ lives wherever it was pasted.
 
 `runtime_service_account_emails`, `workload_identity_provider_name`,
 `ci_plan_service_account_email`, `ci_apply_service_account_email`, plus
-`workload_identity_principal` and `attribute_condition` — the last two exist so
+`workload_identity_plan_principal`, `workload_identity_apply_principal` and `attribute_condition` — the last two exist so
 callers and tests can assert on the two values that decide whether this module
 is a security control or a hole.
 

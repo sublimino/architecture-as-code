@@ -1,0 +1,45 @@
+# Worked input for the first demo environment.
+#
+# Copy to a file OUTSIDE version control (`.tfvars` is gitignored; only
+# `.tfvars.example` is committed) and replace every CHANGEME.
+#
+# Every value below is deliberately unusable as-is:
+#   project_id  "CHANGEME-project"       rejected by PROJECT-RULE-01-PLACEHOLDER
+#   hostname    "*.example.invalid"      RFC 2606 — can never resolve
+#   allowlists  192.0.2.0/24, 198.51.100.0/24   RFC 5737 documentation ranges
+#               2001:db8::/32                   RFC 3849 documentation range
+# A copy that is not edited fails at plan, not in production.
+#
+# Subnet allocation across the estate (each must be a unique RFC1918 /24):
+#   demo-1  10.10.1.0/24
+#   ci-1    10.10.2.0/24
+#   demo-2  10.10.3.0/24     (see demo-1-and-demo-2.tfvars.example)
+
+project_id = "CHANGEME-project"
+
+# The one environment this apply touches. It must equal the ENV passed to make
+# and the suffix of the backend prefix used at init (CONTRACT.md §5a); Make
+# asserts all three agree before it will plan. A target_env naming a key that is
+# not in the map below is rejected by ENV-RULE-13, because the alternative is a
+# zero-resource plan that reads "destroy everything currently in state".
+target_env = "demo-1"
+
+environments = {
+  "demo-1" = {
+    kind             = "demo"
+    subnet_cidr      = "10.10.1.0/24"
+    region           = "europe-west2"
+    zone             = "europe-west2-a"
+    machine_type     = "n2-standard-16"
+    boot_disk_gb     = 200
+    hostname         = "demo-1.example.invalid"
+    allowed_ipv4     = ["192.0.2.0/24", "198.51.100.0/24"]
+    allowed_ipv6     = ["2001:db8::/32"]
+    app_port         = 8080
+    deletion_protect = true
+    labels = {
+      tier  = "demo"
+      owner = "CHANGEME-team"
+    }
+  }
+}

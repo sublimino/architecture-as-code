@@ -18,15 +18,37 @@ Only `terraform fmt`, `terraform init -backend=false`, `terraform validate`, `tf
 | `tflint --chdir terraform/modules/network` | exit 0 |
 | `tflint --chdir terraform/modules/compute` | exit 0 |
 | `shellcheck terraform/modules/compute/startup/demo-vm.sh` | exit 0 |
-| `bats test/terraform-network-security.bats` | **40/40 pass, 0 fail, 2.1s, offline** |
-| `terraform test` — `modules/network` | **13/13 pass** |
-| `terraform test` — `modules/compute` | **11/11 pass** |
+| `bats test/terraform-network-security.bats` | **27/27 pass, 0 fail, 1.4s, offline** |
+| `terraform test` — `modules/network` | **13/13 pass, 0 failed** |
+| `terraform test` — `modules/compute` | **11/11 pass, 0 failed** |
 
 **Offline proven, not asserted.** All three suites were re-run under `unshare -rn` (empty
 network namespace) with `GOOGLE_APPLICATION_CREDENTIALS`, `GOOGLE_CREDENTIALS`,
 `GOOGLE_PROJECT`, `CLOUDSDK_CORE_ACCOUNT` and `CLOUDSDK_CORE_PROJECT` unset and both
-`CLOUDSDK_CONFIG` and `HOME` pointed at nonexistent paths. Same results — 13, 11, 40. That is
+`CLOUDSDK_CONFIG` and `HOME` pointed at nonexistent paths. Same results — 13, 11, 27. That is
 ISC-357 demonstrated rather than claimed.
+
+### How the two surfaces divide
+
+`terraform test` is primary (CONTRACT §7a). bats was retargeted to the residue — the classes a
+plan structurally cannot express:
+
+| Class | Surface | Why |
+|---|---|---|
+| An attribute's evaluated value | tftest | after variables, locals, conditionals resolve |
+| A variable validation rejecting input | tftest, `expect_failures` | truthful; no stderr parsing |
+| Absence across the **whole tree** | bats | a plan sees what it evaluated, never what nothing anywhere contains |
+| A universal across **all chunks' modules** | bats | F3's demo VM and F5's CI runner are in different plans |
+| Documentation content | bats | prose has no evaluated form |
+| Test-suite shape (`mock_provider`, no `apply`) | bats | a suite cannot audit its own existence |
+| Git hygiene, file layout | bats | outside Terraform entirely |
+
+Thirteen text-grep assertions were **deleted** from bats because the tftests now prove the same
+facts against evaluated config — the SSH rule's source, the health-check sources and ports,
+`auto_create_subnetworks`, `private_ip_google_access`, flow-log config, NAT logging, the
+priority ordering, the boot-disk variables, the network tag, and the egress gate's default. Each
+is a strictly stronger claim in its new home. Nothing was dropped without a replacement; the
+mapping is 1:1 and is why the bats count fell from 40 to 27 while coverage rose.
 
 `.terraform/` and `.terraform.lock.hcl` are removed after each validate run, so
 `git status --porcelain` is empty at hand-off. **F1 should add `**/.terraform/` and
@@ -66,6 +88,8 @@ clean after each:
 | widen `local.iap_range` to `0.0.0.0/0` | tftest: SSH source |
 | default `enable_default_deny_egress` false | tftest: egress defaults closed |
 | relax the sampling-rate validation to `>= 0` | tftest: rejects a zero sampling rate |
+| soften "cannot pull public container images" in the network README | bats: loud egress default |
+| delete the only `google_compute_instance` resource | bats: instance presence floor |
 
 ## What the previous (interrupted) run left, and what was wrong with it
 

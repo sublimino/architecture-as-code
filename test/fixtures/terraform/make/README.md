@@ -29,6 +29,9 @@ Two properties make these fixtures trustworthy, and both are enforced in code:
 | `bare-apply.sed` | `gcp-tf-apply`'s saved-plan-file requirement. |
 | `bats-hand-list.sed` | The `test/terraform-*.bats` glob (reverts to a hand list). |
 | `tftest-hand-list.sed` | The `tests/*.tftest.hcl` directory discovery. |
+| `impersonation-guard.sed` | The refusal to mutate the estate as a user identity. |
+| `up-plan-provenance.sed` | `gcp-tf-up`'s "did this run create the plan I am applying?" sentinel. |
+| `handoff-completeness.sed` | `gcp-tf-handoff`'s refusal to write a hand-off with a blank field. |
 
 To add a mutation: write the `.sed`, add a row above, and add the bats case that
 asserts the guard fails under it. A fixture with no test that consumes it is

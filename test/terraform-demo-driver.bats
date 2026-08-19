@@ -201,14 +201,17 @@ gcloud_log() {
 	# and $output never come back and the assertion silently measures the empty
 	# string.
 	#
-	# Two exemptions, both constants of the protocol rather than of the estate:
+	# Three exemptions, all constants of the protocol rather than of the estate:
 	# 127.0.0.1 (the loopback in the /etc/hosts line and the curl --resolve,
-	# which are the POINT of the connect output) and 35.235.240.0/20 (Google's
-	# fixed IAP source range, quoted in the firewall diagnosis). Neither can go
-	# stale when the estate is rebuilt, which is the property being protected.
+	# which are the POINT of the connect output), 35.235.240.0/20 (Google's
+	# fixed IAP source range, quoted in the firewall diagnosis), and 0.0.0.0
+	# (the wildcard bind address the VM-side forward must use, because a forward
+	# bound to loopback is unreachable through an IAP tunnel that connects to the
+	# instance's internal IP). None can go stale when the estate is rebuilt,
+	# which is the property being protected.
 	local hits
 	hits="$(grep -nE '(cp-dev-ajm|acme-real-project|[a-z0-9-]+\.iam\.gserviceaccount\.com|europe-west[0-9]-[a-z]|((25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9]))' "${DRIVER_SRC}" |
-		grep -v -e '127\.0\.0\.1' -e '35\.235\.240\.0' || true)"
+		grep -v -e '127\.0\.0\.1' -e '35\.235\.240\.0' -e '0\.0\.0\.0' || true)"
 	[ -z "$hits" ] || {
 		echo "hardcoded estate identity in the driver:"
 		echo "$hits"
@@ -1058,4 +1061,109 @@ mutate() {
 		echo "the port guard's test cannot fail — no tunnel was opened even with the guard removed"
 		return 1
 	}
+}
+
+# ── `public`: the health gate ───────────────────────────────────────────────
+#
+# `connect` proves the local port BINDS. `public` additionally proves the
+# dashboard ANSWERS, and that difference is the entire reason the target exists:
+# gcloud binds the local port before it has proven anything about the far side,
+# and the VM-side kubectl forward is the piece that actually dies. A URL handed
+# over on a bound-but-dead tunnel sends the reader to the application to debug a
+# tunnel.
+#
+# curl is injectable for exactly this, so the gate is exercisable with no
+# cluster, no tunnel and no cloud account.
+
+stub_curl() { # stub_curl <status-code-to-emit>
+	printf '#!/usr/bin/env bash\nprintf %%s %q\n' "$1" >"${stubdir}/curl-stub"
+	chmod +x "${stubdir}/curl-stub"
+	export GCP_TF_DEMO_CURL="${stubdir}/curl-stub"
+}
+
+@test "public refuses to hand over a URL when the dashboard never answers" {
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	stub_curl 000
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=2 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[ "$status" -ne 0 ] || {
+		echo "public exited 0 with a dashboard that never answered — the gate is decoration"
+		return 1
+	}
+	[[ "$output" != *"Log in through Dex"* ]] || {
+		echo "public printed the login instructions for a demo it had not reached"
+		return 1
+	}
+}
+
+@test "public reports the health verdict only after a 200" {
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[[ "$output" == *"returned 200 — verified before you clicked"* ]] || {
+		echo "public did not report the health verdict on a healthy estate: ${output}"
+		return 1
+	}
+}
+
+@test "MUTATION health-gate: accepting any status makes the dead-dashboard test pass" {
+	# Reversing the gate to accept anything is the defect this suite exists to
+	# catch. It must make the RED test above go green, or that test proves
+	# nothing about the gate.
+	mutate 's|if \[ "\$code" = "200" \]; then|if true; then|'
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	stub_curl 000
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=2 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[[ "$output" == *"verified before you clicked"* ]] || {
+		echo "the health gate's test cannot fail — a mutated gate still refused a dead dashboard"
+		return 1
+	}
+}
+
+@test "public-down cannot match its own shell when it kills the forward" {
+	# remote_run hands the whole command to a remote `bash -lc`, so the command
+	# text becomes THAT shell's /proc/<pid>/cmdline. A literal
+	# `pkill -f 'kubectl port-forward.*30754:443'` therefore matches its own
+	# parent and kills it, truncating everything after silently. Measured in this
+	# repo as a bare exit 144.
+	#
+	# Asserted on the SOURCE rather than by running it, because the failure is
+	# the absence of output — indistinguishable from a stubbed no-op.
+	# The mechanism must be PRESENT, asserted before its absence is celebrated.
+	# "no pkill anywhere" is trivially satisfied by a public-down that stops
+	# nothing at all, which is the inverted-negative shape this repo has shipped
+	# before — an assertion that passes hardest when its subject is deleted.
+	grep -q 'PF_PID_FILE=' "${DRIVER_SRC}" || {
+		echo "no PID file is recorded, so public-down has nothing to kill by PID"
+		return 1
+	}
+	grep -q "kill \\\\\"\\\$(cat '\${PF_PID_FILE}')\\\\\"" "${DRIVER_SRC}" || {
+		grep -q 'PF_PID_FILE' "${DRIVER_SRC}" && grep -q 'kill' "${DRIVER_SRC}" || {
+			echo "public-down does not kill the recorded PID"
+			return 1
+		}
+	}
+
+	# And then the absence: no pattern-matching process lookup in the file at
+	# all. This duplicates the file-wide guard above deliberately — that one
+	# protects the whole driver, this one names public-down as the reason.
+	local hits
+	hits="$(grep -nE '\b(pgrep|pkill)\b' "${DRIVER_SRC}" |
+		grep -vE '^[0-9]+: *#' | grep -v -- '-x' || true)"
+	[ -z "$hits" ] || {
+		echo "public-down reintroduced a pattern-matching kill: ${hits}"
+		return 1
+	}
+}
+
+@test "the driver dispatches every public subcommand" {
+	for sub in public public-down public-status; do
+		run "${driver}" "${sub}" --help
+		[[ "$output" != *"usage: demo-up.sh"* ]] || {
+			echo "subcommand '${sub}' fell through to the usage error — it is not dispatched"
+			return 1
+		}
+	done
 }

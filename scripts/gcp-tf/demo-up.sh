@@ -1259,6 +1259,60 @@ wait_for_dashboard() {
   return 1
 }
 
+# Does THIS machine resolve the dashboard's SNI name to loopback?
+#
+# This is not covered by the health probe, and the gap is the dangerous kind.
+# probe_dashboard_status uses `curl --resolve`, which sets the connection target
+# and the SNI name directly and NEVER CONSULTS /etc/hosts. That is correct for a
+# liveness probe — it tests the tunnel and the estate without requiring the
+# operator to mutate a system file first — but it means a 200 says nothing about
+# whether a BROWSER on this machine can reach the same URL.
+#
+# So without this check the target could print "verified before you clicked" and
+# then hand over a URL that fails to resolve the moment it is clicked, which is
+# precisely the promise it exists to keep. It passed unnoticed on the machine
+# this was written on only because /etc/hosts already carried the entry.
+#
+# getent, not ping or curl: it asks the name-service switch the same question
+# the browser will, so /etc/hosts, nsswitch and any resolver all count.
+hosts_entry_present() {
+  getent hosts "$DASHBOARD_HOST" 2>/dev/null | grep -q '^127\.0\.0\.1'
+}
+
+require_hosts_entry() {
+  if hosts_entry_present; then
+    log "${DASHBOARD_HOST} resolves to loopback — a browser here can reach it"
+    return 0
+  fi
+
+  if [ "${GCP_TF_DEMO_SKIP_HOSTS_CHECK:-0}" = "1" ]; then
+    warn "${DASHBOARD_HOST} does not resolve to loopback. Continuing because GCP_TF_DEMO_SKIP_HOSTS_CHECK=1 — curl --resolve will still work, a browser will not."
+    return 0
+  fi
+
+  cat >&2 <<EOF
+demo-up: ${DASHBOARD_HOST} does not resolve on this machine.
+
+  The tunnel and the estate may both be perfectly healthy — this check is about
+  THIS machine's name resolution, and it runs first precisely so you do not wait
+  for a working tunnel and then discover the browser cannot use it.
+
+  The dashboard is served by the Envoy Gateway behind an SNI hostname, so
+  https://localhost:${APP_PORT} reaches the Gateway and is then rejected at TLS.
+  The name is not optional and it is not a DNS name — it resolves nowhere in the
+  world except a hosts file you control.
+
+  Add it once per machine:
+
+      echo '127.0.0.1 ${DASHBOARD_HOST}' | sudo tee -a /etc/hosts
+
+  Then re-run this target. If you only want a scripted curl and no browser:
+
+      GCP_TF_DEMO_SKIP_HOSTS_CHECK=1 make gcp-tf-public ENV=${ENV_KEY}
+EOF
+  exit 4
+}
+
 # Is the VM publishing the dashboard on its own interface?
 #
 # `ss -ltn` on the VM, not a probe from here: from here a closed port and a
@@ -1340,6 +1394,11 @@ cmd_public() {
   if [ "$port" != "$DEX_PINNED_PORT" ] && [ "${GCP_TF_DEMO_ALLOW_PORT_MISMATCH:-0}" != "1" ]; then
     die "refusing to publish on ${port}: Dex pins its OIDC callback to ${DEX_PINNED_PORT}, so login would fail. Fix app_port, or set GCP_TF_DEMO_ALLOW_PORT_MISMATCH=1."
   fi
+
+  # FIRST, and deliberately before any cloud call. It is a local check costing
+  # milliseconds, and failing it after publishing and tunnelling would mean
+  # waiting a minute to be told about a line in a file.
+  require_hosts_entry
 
   ensure_published "$port"
 
@@ -1441,6 +1500,12 @@ cmd_public_status() {
   local port="$APP_PORT"
   printf 'env:       %s\n' "$ENV_KEY"
   printf 'instance:  %s (%s)\n' "$INSTANCE_NAME" "$(vm_status)"
+  if hosts_entry_present; then
+    printf 'hosts:     %s -> 127.0.0.1 (a browser here can reach it)\n' "$DASHBOARD_HOST"
+  else
+    printf "hosts:     %s does NOT resolve — add: echo '127.0.0.1 %s' | sudo tee -a /etc/hosts\n" \
+      "$DASHBOARD_HOST" "$DASHBOARD_HOST"
+  fi
   if remote_is_publishing "$port"; then
     printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$port"
   else

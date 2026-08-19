@@ -1167,3 +1167,56 @@ stub_curl() { # stub_curl <status-code-to-emit>
 		}
 	done
 }
+
+@test "public refuses when this machine cannot resolve the SNI hostname" {
+	# The health probe uses `curl --resolve`, which never consults /etc/hosts, so
+	# a 200 says nothing about whether a BROWSER here can reach the same URL.
+	# Without this check the target prints "verified before you clicked" and then
+	# hands over a URL that fails to resolve on the click — defeating its own
+	# promise. Pointed at a name nothing resolves, so the check has something
+	# real to fail on.
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
+	stub_curl 200
+	run "${driver}" public
+	[ "$status" -ne 0 ] || {
+		echo "public proceeded with an unresolvable hostname — the browser would fail on the click"
+		return 1
+	}
+	[[ "$output" == *"/etc/hosts"* ]] || {
+		echo "the refusal did not name the file to edit: ${output}"
+		return 1
+	}
+	# It must fail FIRST — before any cloud call — or the operator waits a minute
+	# to be told about a line in a local file.
+	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
+		echo "the hosts check ran after the tunnel was opened, not before it"
+		return 1
+	}
+}
+
+@test "the hosts check is overridable for scripted, browserless use" {
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
+	export GCP_TF_DEMO_SKIP_HOSTS_CHECK=1
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[[ "$output" == *"returned 200"* ]] || {
+		echo "the override did not let a browserless run through: ${output}"
+		return 1
+	}
+}
+
+@test "MUTATION hosts-check: removing the guard lets an unresolvable host through" {
+	mutate 's|^  require_hosts_entry$|  :|'
+	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[[ "$output" == *"returned 200"* ]] || {
+		echo "the hosts check's test cannot fail — removing the guard changed nothing: ${output}"
+		return 1
+	}
+}

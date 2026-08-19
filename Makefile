@@ -1838,6 +1838,51 @@ gcp-tf-connect: ## Open the IAP tunnel to the demo dashboard and print the URL a
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' connect
 
+# ── Publishing the demo, mirroring the `public` family ─────────────────────
+#
+# Named for `public` / `public-down` / `public-status` because it is the same
+# verb for the same job — put the dashboard in front of a human — and an
+# operator who knows one should not have to learn the other. It is prefixed
+# gcp-tf- rather than ci- because it belongs to the v2 Terraform demo lane, not
+# to the shared v1 CI VMs that own the ci-* namespace.
+#
+# The difference from gcp-tf-connect, which remains for the tunnel-only case:
+# connect proves the local port BINDS. That is not the same as a demo that
+# works, because gcloud binds locally before it has proven anything about the
+# far side, and the VM-side kubectl forward is the part that actually dies.
+# gcp-tf-public ensures the VM is publishing, opens the tunnel, waits for the
+# bind, and then fetches /readyz through the tunnel WITH the SNI hostname the
+# Gateway routes on. It prints a URL only after a 200.
+.PHONY: gcp-tf-public
+gcp-tf-public: ## Publish the demo dashboard and prove it answers before printing the URL (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' public
+
+.PHONY: gcp-tf-public-down
+gcp-tf-public-down: ## Stop the VM-side forward that publishes the demo dashboard (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' public-down
+
+.PHONY: gcp-tf-public-status
+gcp-tf-public-status: ## Whether the VM is publishing and whether a healthy tunnel exists here (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' public-status
+
 .PHONY: gcp-tf-demo-status
 gcp-tf-demo-status: ## What the demo VM's state is and what the last run decided, read-only (ENV=<key>).
 	$(gcp_tf_require_env)

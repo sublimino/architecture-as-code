@@ -1171,6 +1171,291 @@ EOF
   wait "$tunnel_pid"
 }
 
+# ── Publishing, and proving it before a human clicks ────────────────────────
+#
+# `connect` opens the tunnel and proves the LOCAL port binds. That is necessary
+# and it is not sufficient, and the gap between the two is where this whole
+# family earns its keep:
+#
+#   * A bound local port says the IAP tunnel accepted a connection. It says
+#     nothing about whether anything on the VM is listening on the far side,
+#     because gcloud binds locally before it ever proves the backend.
+#   * The VM-side forward is the piece that actually dies. `kubectl
+#     port-forward` drops on apiserver SPDY resets and pod restarts, so a demo
+#     that worked an hour ago frequently has no listener now.
+#   * Even with both ends up, the Gateway selects its route by SNI. A probe
+#     that omits the SNI name gets its connection closed during the TLS
+#     handshake — measured, and it presents as `UNEXPECTED_EOF_WHILE_READING`,
+#     which reads like a broken tunnel rather than a wrong hostname.
+#
+# So `public` does the whole chain and refuses to hand over a URL it has not
+# fetched a 200 from: ensure the VM is publishing, open the tunnel, wait for
+# the local bind, then HTTP-probe /readyz through the tunnel WITH the SNI name.
+# Only then is anything printed that invites a click.
+
+# Everything below is injectable so the control flow is exercisable against
+# stubs with no cluster, no tunnel and no cloud account.
+HEALTH_PATH="${GCP_TF_DEMO_HEALTH_PATH:-/readyz}"
+HEALTH_WAIT_SECONDS="${GCP_TF_DEMO_HEALTH_WAIT_SECONDS:-120}"
+HEALTH_INTERVAL_SECONDS="${GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS:-3}"
+CURL_BIN="${GCP_TF_DEMO_CURL:-curl}"
+GATEWAY_LABEL="${GCP_TF_DEMO_GATEWAY_LABEL:-gateway.envoyproxy.io/owning-gateway-name=cluster}"
+
+# The wildcard bind address, not loopback.
+#
+# Loopback is the wrong value here and the failure is misleading: the operator
+# arrives over an IAP tunnel that connects to the instance's INTERNAL IP, so a
+# forward bound to localhost is reachable only from the VM itself and presents
+# to the tunnel as 4003 'failed to connect to backend' — indistinguishable from
+# a firewall block, and it sends the reader to the firewall.
+#
+# It is an IP literal, which the estate-identity scan in
+# test/terraform-demo-driver.bats forbids. It is exempted there alongside
+# 127.0.0.1 and 35.235.240.0/20 on the same stated grounds: those are constants
+# of the PROTOCOL, not of the estate, and cannot go stale when the estate is
+# rebuilt — which is the property that guard exists to protect.
+#
+# Defined here with the other constants rather than beside its consumer, because
+# it is read inside a heredoc built by ensure_published and a later definition
+# would expand empty.
+GATEWAY_BIND_ADDRESS="${GCP_TF_DEMO_GATEWAY_BIND_ADDRESS:-0.0.0.0}"
+
+# Where the VM records the forward's PID and log, so `public-down` can stop it
+# by PID rather than by a self-matching pattern.
+PF_PID_FILE="${GCP_TF_DEMO_PF_PID_FILE:-/tmp/demo-gateway-pf.pid}"
+PF_LOG="${GCP_TF_DEMO_PF_LOG:-/tmp/demo-gateway-pf.log}"
+
+# One HTTP probe through the tunnel. Returns the status code on stdout, or the
+# empty string when the request could not be made at all.
+#
+# --resolve rather than /etc/hosts: it sets BOTH the connection target and the
+# TLS SNI name from the URL's hostname, which is exactly the pair the Gateway
+# needs, and it does it without asking the operator to mutate a system file
+# before we have proven there is anything worth pointing at.
+#
+# -k because the Gateway serves a self-signed certificate. This probe is
+# checking liveness through a tunnel that Google has already authenticated; it
+# is not the thing establishing trust.
+probe_dashboard_status() {
+  local port="$1"
+  "$CURL_BIN" -k -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    --resolve "${DASHBOARD_HOST}:${port}:127.0.0.1" \
+    "https://${DASHBOARD_HOST}:${port}${HEALTH_PATH}" 2>/dev/null || printf ''
+}
+
+# Poll until the dashboard answers 200, or the deadline expires.
+wait_for_dashboard() {
+  local port="$1" waited=0 code=''
+  while [ "$waited" -lt "$HEALTH_WAIT_SECONDS" ]; do
+    code="$(probe_dashboard_status "$port")"
+    if [ "$code" = "200" ]; then
+      printf '%s' "$code"
+      return 0
+    fi
+    sleep "$HEALTH_INTERVAL_SECONDS"
+    waited=$((waited + HEALTH_INTERVAL_SECONDS))
+  done
+  printf '%s' "$code"
+  return 1
+}
+
+# Is the VM publishing the dashboard on its own interface?
+#
+# `ss -ltn` on the VM, not a probe from here: from here a closed port and a
+# firewalled port are the same timeout, and this has to tell them apart to give
+# a useful message.
+remote_is_publishing() {
+  local port="$1"
+  remote_run "ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHING || echo ABSENT" 2>/dev/null \
+    | grep -q PUBLISHING
+}
+
+# Start the VM-side supervised forward if it is not already up. Idempotent.
+#
+# Resolves the Gateway by LABEL rather than by name: Envoy appends a hash to the
+# service name (envoy-ingress-cluster-6b24dc08), so a hardcoded name works until
+# the Gateway is recreated and then fails with "service not found" on a cluster
+# that is perfectly healthy.
+ensure_published() {
+  local port="$1"
+
+  if remote_is_publishing "$port"; then
+    log "the VM is already publishing on :${port}"
+    return 0
+  fi
+
+  log "the VM is not publishing on :${port} — starting the supervised forward"
+
+  # 0.0.0.0, not loopback: the operator arrives over an IAP tunnel that connects
+  # to the instance's INTERNAL IP, so a forward bound to localhost is reachable
+  # only from the VM itself and presents to the tunnel as 4003 'failed to
+  # connect to backend' — indistinguishable from a firewall problem.
+  #
+  # Owned by pid 1 so it outlives this SSH session. A forward owned by the
+  # session dies the moment we disconnect, which is the same defect as not
+  # starting one, deferred by a few seconds.
+  # No `cd` into the checkout: this needs kubectl and a kubeconfig, not the
+  # repository. Anchoring it to the delivery directory would make publishing an
+  # already-running estate fail on a VM where the payload had been cleaned up.
+  local script
+  script=$(cat <<REMOTE
+set -uo pipefail
+# NOT set -e, and NOT a bare \`read\`.
+#
+# kubectl -o jsonpath emits NO trailing newline, so \`read\` consumes the fields
+# and still returns non-zero for want of a line terminator. Under \`set -e\` that
+# aborts the script at this line — before the gateway check, before the
+# forward, before any echo — so the caller sees a completely empty stdout and a
+# generic failure. That cost a diagnosis cycle here; the \`|| true\` and the
+# explicit checks below are what make the failure say which thing was missing.
+read -r ns svc < <(kubectl get service -A -l '${GATEWAY_LABEL}' \
+  -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null) || true
+if [ -z "\${ns:-}" ] || [ -z "\${svc:-}" ]; then
+  echo "NO_GATEWAY" >&2
+  exit 3
+fi
+echo "gateway=\${ns}/\${svc}"
+nohup setsid kubectl port-forward -n "\${ns}" "svc/\${svc}" \
+  --address ${GATEWAY_BIND_ADDRESS} ${port}:443 >${PF_LOG} 2>&1 < /dev/null &
+# The PID is RECORDED, because it is the only thing that can stop this forward
+# without a pattern match. A \`pkill -f 'kubectl port-forward…'\` issued over
+# remote_run matches the remote \`bash -lc\` that carries the command text and
+# kills its own shell — the same self-kill the local tunnel is killed by PID to
+# avoid.
+echo \$! >${PF_PID_FILE}
+sleep 6
+ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHED || { echo NOT_PUBLISHED >&2; exit 4; }
+REMOTE
+)
+  if ! remote_run "$script"; then
+    die "could not publish the dashboard on the VM. Is the estate up? Try: make gcp-tf-demo-status ENV=${ENV_KEY}"
+  fi
+}
+
+# `public` — the whole chain, proven, then handed over.
+cmd_public() {
+  prepare public
+
+  local port="$APP_PORT"
+  if [ "$port" != "$DEX_PINNED_PORT" ] && [ "${GCP_TF_DEMO_ALLOW_PORT_MISMATCH:-0}" != "1" ]; then
+    die "refusing to publish on ${port}: Dex pins its OIDC callback to ${DEX_PINNED_PORT}, so login would fail. Fix app_port, or set GCP_TF_DEMO_ALLOW_PORT_MISMATCH=1."
+  fi
+
+  ensure_published "$port"
+
+  log "opening IAP tunnel: localhost:${port} -> ${INSTANCE_NAME}:${port}"
+  local tunnel_err
+  tunnel_err="$(mktemp "${TMPDIR:-/tmp}/demo-tunnel.XXXXXX.log")"
+
+  env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute start-iap-tunnel "$INSTANCE_NAME" "$port" \
+    --local-host-port="localhost:${port}" \
+    --zone="$ZONE" --project="$PROJECT_ID" \
+    --impersonate-service-account="$OPERATOR_SA" 2>"$tunnel_err" &
+  local tunnel_pid=$!
+
+  # Killed by PID, never by pattern — `pkill -f start-iap-tunnel` matches the
+  # shell running this script and self-terminates it silently.
+  # shellcheck disable=SC2064
+  trap "kill ${tunnel_pid} 2>/dev/null || true" EXIT
+
+  local bound=0 waited=0
+  while [ "$waited" -lt "$TUNNEL_WAIT_SECONDS" ]; do
+    kill -0 "$tunnel_pid" 2>/dev/null || break
+    if "$PORT_PROBE" "$port"; then bound=1; break; fi
+    waited=$((waited + 1))
+    sleep 1
+  done
+
+  if [ "$bound" -ne 1 ]; then
+    local err
+    err="$(strip_impersonation_warning <"$tunnel_err" | tail -5)"
+    printf '\ndemo-up: the tunnel did not bind localhost:%s within %ds.\n\n  gcloud said:\n%s\n' \
+      "$port" "$TUNNEL_WAIT_SECONDS" "${err:-    (nothing on stderr)}" >&2
+    explain_iap_error "${err}" "$port"
+    rm -f "$tunnel_err"
+    exit 2
+  fi
+
+  # The bit `connect` does not do. A bound port is not a working demo.
+  log "tunnel bound — probing https://${DASHBOARD_HOST}:${port}${HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"
+  local code
+  if ! code="$(wait_for_dashboard "$port")"; then
+    {
+      printf '\ndemo-up: the tunnel is up but the dashboard did not answer %s.\n' "$HEALTH_PATH"
+      printf '  last status: %s\n\n' "${code:-(no response)}"
+      printf '  The tunnel and the firewall are FINE — this got far enough to ask.\n'
+      printf '  What has not: something behind the Gateway. Check the estate:\n\n'
+      printf '    make gcp-tf-demo-status ENV=%s\n' "$ENV_KEY"
+      printf '    make gcp-tf-demo-up ENV=%s      # rebuild and re-test\n\n' "$ENV_KEY"
+      printf '  An empty status usually means curl could not resolve or connect;\n'
+      printf '  a 404 means the Gateway answered but no route matched the SNI name\n'
+      printf '  %s.\n' "$DASHBOARD_HOST"
+    } >&2
+    rm -f "$tunnel_err"
+    exit 3
+  fi
+
+  rm -f "$tunnel_err"
+  print_connect_instructions "$port"
+  printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n\n' \
+    "$DASHBOARD_HOST" "$HEALTH_PATH" "$code"
+  log "the demo is live on localhost:${port}. Ctrl-C to close the tunnel."
+  wait "$tunnel_pid"
+}
+
+# Stop the VM-side forward. The local tunnel dies with its own process.
+cmd_public_down() {
+  prepare public-down
+  local port="$APP_PORT"
+  log "stopping the VM-side forward on :${port}"
+
+  # BY PID, never by pattern — the same rule the local tunnel follows, and for
+  # the same reason. `remote_run` hands this text to a remote `bash -lc`, so the
+  # whole command string becomes that shell's /proc/<pid>/cmdline; a
+  # `pkill -f 'kubectl port-forward…'` matches its own parent, kills it, and
+  # everything after the pkill silently never runs. Measured in this repo as a
+  # bare exit 144 with no output at all, which reads as a hung command rather
+  # than a self-kill.
+  #
+  # ensure_published records the PID for exactly this. A missing PID file is
+  # reported rather than papered over with a pattern sweep: "I do not know what
+  # to stop" is a different answer from "there was nothing to stop", and
+  # conflating them is how a forward survives a teardown that claimed success.
+  remote_run "
+if [ ! -f '${PF_PID_FILE}' ]; then
+  if ss -ltn 2>/dev/null | grep -q ':${port} '; then
+    echo 'UNKNOWN_OWNER'
+  else
+    echo 'STOPPED'
+  fi
+  exit 0
+fi
+kill \"\$(cat '${PF_PID_FILE}')\" 2>/dev/null || true
+rm -f '${PF_PID_FILE}'
+sleep 2
+ss -ltn 2>/dev/null | grep -q ':${port} ' && echo STILL_PUBLISHING || echo STOPPED"
+}
+
+cmd_public_status() {
+  prepare public-status
+  local port="$APP_PORT"
+  printf 'env:       %s\n' "$ENV_KEY"
+  printf 'instance:  %s (%s)\n' "$INSTANCE_NAME" "$(vm_status)"
+  if remote_is_publishing "$port"; then
+    printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$port"
+  else
+    printf 'vm:        NOT publishing on :%s — run: make gcp-tf-public ENV=%s\n' "$port" "$ENV_KEY"
+  fi
+  local code
+  code="$(probe_dashboard_status "$port")"
+  if [ "$code" = "200" ]; then
+    printf 'local:     tunnel OPEN and healthy (%s%s -> %s)\n' "$DASHBOARD_HOST" "$HEALTH_PATH" "$code"
+  else
+    printf 'local:     no healthy tunnel here (%s%s -> %s)\n' \
+      "$DASHBOARD_HOST" "$HEALTH_PATH" "${code:-no response}"
+  fi
+}
+
 cmd_status() {
   prepare status
   printf 'env:      %s\n' "$ENV_KEY"
@@ -1203,11 +1488,14 @@ case "${1:-up}" in
   up) cmd_up ;;
   test) cmd_test ;;
   connect) cmd_connect ;;
+  public) cmd_public ;;
+  public-down) cmd_public_down ;;
+  public-status) cmd_public_status ;;
   status) cmd_status ;;
   payload)
     shift
     cmd_payload "${1:-}"
     ;;
   -h | --help | help) sed -n '2,20p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|connect|status|payload <file>}" ;;
+  *) die "usage: $(basename "$0") {up|test|connect|public|public-down|public-status|status|payload <file>}" ;;
 esac

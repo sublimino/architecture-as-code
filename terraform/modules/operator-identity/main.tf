@@ -44,11 +44,150 @@
 # fails if it ever does.
 
 locals {
-  # ── Project-scoped roles: exactly two, each tied to one operation ─────────
+  # ── The instance-lifecycle custom role ────────────────────────────────────
+  #
+  # THE PROBLEM. The operator can open a tunnel and log in, and cannot turn the
+  # machine off. On 2026-08-19 sl-demo-2-vm had to be suspended as PROJECT OWNER
+  # because this identity holds no compute.instances.suspend. The estate runs a
+  # hot/cold pattern — one lane parked suspended, one rebuilt — and suspend is
+  # the step that stops the billing. A teardown that requires project owner is
+  # either skipped or done with an over-privileged credential; both are worse
+  # than fixing the grant.
+  #
+  # WHY NOT A PREDEFINED ROLE. The only predefined role carrying
+  # compute.instances.suspend is roles/compute.instanceAdmin.v1. Measured
+  # against the live role definition on 2026-08-20:
+  #
+  #   gcloud iam roles describe roles/compute.instanceAdmin.v1
+  #     → 529 permissions, including compute.instances.create,
+  #       compute.instances.delete, compute.instances.setMetadata,
+  #       compute.instances.setServiceAccount, compute.instances.attachDisk
+  #       and compute.disks.delete.
+  #
+  # 529 permissions to reclaim two verbs, and four of those permissions are
+  # individually sufficient to rebuild or take over the estate. setServiceAccount
+  # plus the actAs grant this module already holds is a path to running code as
+  # the runtime identity; setMetadata is an SSH-key write, which is the OS Login
+  # bypass the whole module exists to make unnecessary. The README rejects that
+  # class of role by name, and adding it here would retire the argument rather
+  # than answer it. So: a custom role holding only the verbs the driver calls.
+  #
+  # EACH PERMISSION, AND THE CALL SITE THAT FORCES IT. Nothing is here on the
+  # grounds that it "seems related"; every entry has a line of shell behind it.
+  operator_lifecycle_permissions = [
+    # The operation this role exists for. scripts/ci/gcp-tf-ci.sh:248 (end of a
+    # CI lane), scripts/ci/gcp-ci.sh:535 and :1301, scripts/ci/gcp-tf-reaper.sh:138
+    # (idle-lane reaper). Documented requirement: "To suspend an instance:
+    # compute.instances.suspend" — cloud.google.com/compute/docs/instances/
+    # suspend-resume-instance, Required roles and permissions.
+    "compute.instances.suspend",
+
+    # The reciprocal, and the SUSPENDED branch of every driver's state machine:
+    # scripts/gcp-tf/demo-up.sh:532, scripts/ci/gcp-tf-ci.sh:219,
+    # scripts/ci/gcp-ci.sh:271 and :1328. Same doc, same section: "To resume an
+    # instance: compute.instances.resume". Suspend without resume is a one-way
+    # door — the operator could stop the billing and never restart the lane.
+    "compute.instances.resume",
+
+    # NOT implied by resume, and required anyway. The docs treat stop/start and
+    # suspend/resume as two separate pairs with two separate permissions
+    # (cloud.google.com/compute/docs/instances/stop-start-instance: "To restart
+    # an instance: compute.instances.start"), so resume does NOT cover start —
+    # the question was asked explicitly and this is the answer.
+    #
+    # It is included because the estate's own hot/cold pattern produces the
+    # TERMINATED state without anyone choosing it: "You can suspend an instance
+    # for only up to 60 days before Compute Engine automatically transitions its
+    # state to TERMINATED" (suspend-resume-instance, Limitations). A parked lane
+    # is exactly the thing that sits suspended for months. Every driver already
+    # has the branch — demo-up.sh:538, gcp-tf-ci.sh:225, gcp-ci.sh:278, all
+    # `TERMINATED | STOPPED)` arms of the same case statement that calls resume —
+    # so without this permission the operator's lane lifecycle fails on a state
+    # Google itself created, and the fallback is the project-owner escalation
+    # this role exists to remove.
+    "compute.instances.start",
+
+    # Not a compute.instances verb, and the one that would have been missed.
+    # gcloud's suspend/resume/start are ASYNCHRONOUS API calls: the response is
+    # an Operation, and gcloud polls zoneOperations.get until it is DONE unless
+    # --async is passed. `gcloud compute instances suspend --help` on the
+    # installed SDK: "--async  Return immediately, without waiting for the
+    # operation in progress to complete." Waiting is therefore the default, and
+    # `grep -rn -- --async` across gcp-tf-ci.sh, gcp-ci.sh, demo-up.sh and
+    # gcp-tf-reaper.sh returns NOTHING — every call site waits.
+    #
+    # Without this, the mutation lands and the poll returns 403: the VM really
+    # does suspend, and the driver reports a permission failure. That is the
+    # worst shape of bug available here, because the operator retries against a
+    # machine that is already suspended. resume_lane() in gcp-tf-ci.sh:210 also
+    # calls wait_for_ssh() straight after resume, so it depends on the operation
+    # actually having been observed to complete.
+    "compute.zoneOperations.get",
+  ]
+
+  # ── What is deliberately NOT in that list ────────────────────────────────
+  #
+  # compute.instances.get and compute.instances.list. Both are genuinely needed —
+  # vm_status() in demo-up.sh:490 and gcp-tf-ci.sh:172 runs `compute instances
+  # describe`, and gcp-tf-reaper.sh:121 runs `compute instances list` — and both
+  # are ALREADY HELD. Read off the live role definition on 2026-08-20:
+  #
+  #   gcloud iam roles describe roles/compute.osAdminLogin
+  #     → compute.instances.get, compute.instances.list, compute.projects.get,
+  #       resourcemanager.projects.get, compute.instances.osAdminLogin, …
+  #
+  # Restating them here would inflate this role's count by two while granting
+  # nothing new, which is exactly the kind of unexamined widening the budget
+  # test exists to catch. The permission set below is the DELTA over what the
+  # identity already holds, not a standalone description of what it can do.
+  #
+  # compute.instances.stop. No call site stops an instance; the estate suspends,
+  # because suspend preserves memory and stop does not. A verb with no caller is
+  # a verb granted on speculation.
+  #
+  # compute.disks.*. The suspend documentation's required-permissions section
+  # names none, and the question is not academic: suspend does write guest memory
+  # to storage. It writes it to Compute-Engine-managed storage attached to the
+  # instance, not to a google_compute_disk the caller owns, which is why no disk
+  # permission appears in the requirement. Asserted from the doc rather than from
+  # the plausible-sounding inference, which pointed the other way.
+  #
+  # compute.instances.startWithEncryptionKey. Only for customer-supplied
+  # encryption keys; terraform/modules/compute declares none.
+  #
+  # compute.zoneOperations.list. get is enough to poll an operation whose name
+  # the API just returned. list would let this identity enumerate every mutation
+  # in the zone, which is a disclosure the driver never asks for.
+  #
+  # iam.serviceAccounts.actAs. Starting an instance that carries a service
+  # account needs it, and it is already granted at RESOURCE scope below. It must
+  # not be restated here: a permission in a project-level custom role is a
+  # project-level grant, which is precisely the widening this module's actAs
+  # comment spends twenty lines refusing.
+
+  # Custom role ids are [a-zA-Z0-9_.]{3,64}. Deliberately contains neither
+  # "admin" nor "owner": the budget test's shape guard rejects an admin-shaped
+  # role name arriving alongside a quietly-updated count, and a role called
+  # slOperatorInstanceAdmin would have to be argued for rather than skimmed past.
+  operator_lifecycle_role_id = "slOperatorInstanceLifecycle"
+
+  # Derived, not read off google_project_iam_custom_role.instance_lifecycle.id,
+  # for the same reason operator_email is derived: the resource attribute is
+  # computed and therefore unknown at plan, which would force every assertion
+  # about it into an apply. projects/<project>/roles/<role_id> is the provider's
+  # canonical id and both components are known inputs.
+  operator_lifecycle_role_name = "projects/${var.project_id}/roles/${local.operator_lifecycle_role_id}"
+
+  # ── Project-scoped roles: exactly three, each tied to one operation ───────
   #
   # This list is the module's entire project-level footprint. The budget test in
   # tests/operator_identity.tftest.hcl pins both its length and its membership,
-  # so adding a third is a failing diff rather than a quiet widening.
+  # so adding a fourth is a failing diff rather than a quiet widening.
+  #
+  # It went from two to three on 2026-08-20. The third is a CUSTOM role holding
+  # four permissions, not a predefined role holding 529 — the count went up by
+  # one and the reachable surface went up by four verbs, and the budget test now
+  # pins both numbers separately so those two facts cannot drift apart.
   operator_project_roles = [
     # Opens the IAP TCP tunnel. Without it `gcloud compute ssh
     # --tunnel-through-iap` fails at the tunnel, before SSH is even attempted,
@@ -68,6 +207,27 @@ locals {
     # `sudo -u ci` wrapper, downgrade this to roles/compute.osLogin — the budget
     # test will need updating, which is the point.
     "roles/compute.osAdminLogin",
+
+    # Suspend, resume, start, and the operation poll that all three depend on.
+    # Four permissions, declared above with a call site each. This is the only
+    # non-predefined entry in the list, and the only one whose contents are
+    # pinned by name as well as by count.
+    local.operator_lifecycle_role_name,
+  ]
+
+  # ── What is actually BOUND, as opposed to what is budgeted ───────────────
+  #
+  # operator_project_roles above is a statement of entitlement and is constant:
+  # the budget test pins it at three whatever the caller configures, because a
+  # budget that shrinks when a feature flag is flipped is not a budget.
+  #
+  # This is the list the bindings are built from, and it drops the custom role
+  # when the caller cannot create one. See var.manage_lifecycle_custom_role for
+  # why that case exists — briefly: creating a custom role needs iam.roles.create,
+  # which the deploy identity does not hold and must not be given.
+  operator_bound_project_roles = [
+    for r in local.operator_project_roles : r
+    if var.manage_lifecycle_custom_role || r != local.operator_lifecycle_role_name
   ]
 
   # ── The third grant, and why it is not in the list above ─────────────────
@@ -86,7 +246,7 @@ locals {
   # a reviewer actually cares about.
   runtime_act_as_role = "roles/iam.serviceAccountUser"
 
-  # Every role granted to the operator identity anywhere, at any scope. Three.
+  # Every role granted to the operator identity anywhere, at any scope. Four.
   operator_all_roles = concat(local.operator_project_roles, [local.runtime_act_as_role])
 
   # The provider's canonical id for each runtime service account, keyed by
@@ -113,14 +273,63 @@ resource "google_service_account" "operator" {
   description  = "Reaches demo VMs over IAP and runs the demo pipeline on them. Impersonated, never keyed. Cannot create, modify or destroy the estate."
 }
 
+# ── The instance-lifecycle custom role ──────────────────────────────────────
+#
+# A custom role rather than roles/compute.instanceAdmin.v1, for the reason set
+# out at length in the locals block: the predefined role carries 529 permissions
+# and this one carries four.
+#
+# THE COST, STATED PLAINLY. Creating this resource requires iam.roles.create on
+# the project. That permission is in roles/iam.roleAdmin, and it is NOT in
+# roles/resourcemanager.projectIamAdmin — verified against the live definitions
+# on 2026-08-20, where projectIamAdmin resolves to nine permissions, all of them
+# resourcemanager.projects.* or iam.policybindings.*, and none of them
+# iam.roles.*. modules/deploy-identity grants projectIamAdmin and does not grant
+# roleAdmin, so the deploy identity CANNOT create this role.
+#
+# That is deliberate and it is not being fixed by widening the deploy identity.
+# roleAdmin on the identity that already holds compute.admin and projectIamAdmin
+# would let it mint a role containing any permission and bind that role to
+# itself, which is a strictly more general form of the privilege escalation the
+# deploy module's own comments say it is trying to bound.
+#
+# So the caller chooses, the same way modules/identity handles the setIamPolicy
+# problem with manage_project_iam: apply the platform root as an identity that
+# holds roleAdmin or owner, or set manage_lifecycle_custom_role = false and
+# create the role once by hand. The flag exists so the estate applies CLEANLY in
+# both cases rather than dying part-way with an error naming an IAM API.
+resource "google_project_iam_custom_role" "instance_lifecycle" {
+  count = var.manage_lifecycle_custom_role ? 1 : 0
+
+  project     = var.project_id
+  role_id     = local.operator_lifecycle_role_id
+  title       = "Signal Loom operator — instance lifecycle"
+  description = "Suspend, resume and start demo VMs, and poll the zone operation each of those returns. Deliberately holds no create, delete, setMetadata or disk permission: this identity parks and unparks the estate, it does not build it."
+
+  permissions = local.operator_lifecycle_permissions
+
+  # GA rather than the provider default of ALPHA. A role left at ALPHA is
+  # documented as subject to change and, more practically, reads to a reviewer as
+  # unfinished — which invites the "let me just use instanceAdmin" shortcut this
+  # whole resource exists to avoid.
+  stage = "GA"
+}
+
 resource "google_project_iam_member" "operator" {
-  for_each = toset(local.operator_project_roles)
+  for_each = toset(local.operator_bound_project_roles)
 
   project = var.project_id
   role    = each.value
   member  = "serviceAccount:${local.operator_email}"
 
-  depends_on = [google_service_account.operator]
+  # The custom role must exist before anything is bound to it. depends_on rather
+  # than a reference for the same reason the role name is derived rather than
+  # read back: a reference to a counted resource's computed id is unknown at
+  # plan, and every assertion about these bindings would then need an apply.
+  depends_on = [
+    google_service_account.operator,
+    google_project_iam_custom_role.instance_lifecycle,
+  ]
 }
 
 # ── actAs, at RESOURCE scope ────────────────────────────────────────────────
@@ -182,6 +391,17 @@ resource "google_service_account_iam_member" "impersonators" {
 # tunnel and log in. An operator who can also rebuild the estate is a single
 # credential whose compromise costs everything, which is the arrangement this
 # module was split out to avoid.
+#
+# roles/compute.instanceAdmin.v1.
+#
+# The obvious answer to "the operator cannot suspend a VM", and the reason
+# google_project_iam_custom_role.instance_lifecycle exists instead. It is the
+# ONLY predefined role carrying compute.instances.suspend, and it carries 529
+# permissions to deliver it, including create, delete, setMetadata,
+# setServiceAccount and attachDisk. Granting it would give this identity every
+# capability the deploy identity has over instances, which collapses the split
+# the file spends its first forty lines establishing. The budget test asserts
+# both that it is absent and that no other admin-shaped role has taken its place.
 #
 # Any role containing "legacy". CIS GCP Benchmark guidance, and the same
 # reasoning as deploy-identity: legacy roles are deprecated on Google's schedule

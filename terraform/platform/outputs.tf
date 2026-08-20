@@ -93,8 +93,18 @@ output "operator_service_account_email" {
 }
 
 output "operator_granted_roles" {
-  description = "Every role the operator identity holds, at any scope. Three, and a reviewer should be able to check that without reading the module."
+  description = "Every role the operator identity holds, at any scope. Four, and a reviewer should be able to check that without reading the module."
   value       = module.operator_identity.granted_roles
+}
+
+output "operator_lifecycle_role_permissions" {
+  description = "The four permissions in the operator's instance-lifecycle custom role. Exposed beside operator_granted_roles because one of those roles is custom, and a role name alone does not tell a reviewer what it grants — which is the entire reason a custom role was preferred to roles/compute.instanceAdmin.v1 and its 529 permissions."
+  value       = module.operator_identity.lifecycle_role_permissions
+}
+
+output "operator_can_suspend" {
+  description = "Whether the operator identity can actually park the estate. False means the custom role was left to a manual follow-up because the applying identity lacked iam.roles.create, and suspending a demo VM still needs project owner — which is the cost this role was added to remove. Surfaced as an output so the answer is visible in `make gcp-tf-status` rather than discovered at teardown."
+  value       = module.operator_identity.lifecycle_role_is_managed
 }
 
 output "operator_ssh_command" {

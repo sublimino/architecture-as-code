@@ -118,18 +118,29 @@ gcloud compute ssh sl-demo-1-vm --zone us-east4-a --project CHANGEME-project \
   --impersonate-service-account=sl-operator@CHANGEME-project.iam.gserviceaccount.com
 ```
 
-### The operator's three roles, and the operation each one is for
+### The operator's four roles, and the operation each one is for
 
 | Role | Scope | Required by |
 |---|---|---|
 | `roles/iap.tunnelResourceAccessor` | project | Opening the IAP TCP tunnel. Without it `--tunnel-through-iap` fails with `4033: 'not authorized'` before SSH is attempted. |
 | `roles/compute.osAdminLogin` | project | OS Login **with sudo**. `scripts/ci/gcp-ci.sh` runs every remote command as `sudo -u ci` and unpacks its work tree with `sudo tar`/`sudo chown`; `scripts/ci/vm-pipeline.sh` opens `/usr/local/bin` with `sudo chmod`. The no-sudo `roles/compute.osLogin` cannot run the pipeline. |
+| `slOperatorInstanceLifecycle` (**custom**) | project | Suspending, resuming and starting a demo VM — the step that stops the billing on a parked lane. Four permissions: `compute.instances.suspend`, `.resume`, `.start`, and `compute.zoneOperations.get` for the operation poll gcloud performs unless `--async` is passed. |
 | `roles/iam.serviceAccountUser` | **the runtime service account resource** | OS Login to an instance carrying a non-default service account requires `actAs` on that account. Never at project scope — there it would cover every service account in the project, including `sl-tf-deploy`. |
 
 That is the whole footprint. A `terraform test` budget pins the count *and* the
-exact membership, so a fourth grant is a failing diff rather than a line nobody
-noticed. Neither account ever gets a JSON key; access to both is
+exact membership, so a fifth grant is a failing diff rather than a line nobody
+noticed. The custom role's **permission** list is pinned the same way, because a
+role budget counts roles and one custom role can hold any number of permissions.
+Neither account ever gets a JSON key; access to both is
 `roles/iam.serviceAccountTokenCreator`.
+
+> **Suspend needs one thing Terraform may not be able to do for you.** Creating a
+> custom role requires `iam.roles.create`, which lives in `roles/iam.roleAdmin`
+> and is **not** in the `roles/resourcemanager.projectIamAdmin` that `sl-tf-deploy`
+> holds. Apply the platform root as an identity with `roleAdmin` or `owner`, or
+> set `manage_operator_lifecycle_role = false` and create the role once by hand.
+> The `operator_can_suspend` output reports which case is in force — when it is
+> `false`, suspending a demo VM still needs project owner.
 
 Full reasoning: `terraform/modules/operator-identity/README.md`. The manual
 `gcloud` equivalent, for a project owner who has not run Terraform yet:

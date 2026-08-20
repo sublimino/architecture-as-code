@@ -226,5 +226,7 @@ module "operator_identity" {
   account_id    = var.operator_account_id
   impersonators = var.operator_impersonators
 
+  manage_lifecycle_custom_role = var.manage_operator_lifecycle_role
+
   runtime_service_account_emails = module.identity.runtime_service_account_emails
 }

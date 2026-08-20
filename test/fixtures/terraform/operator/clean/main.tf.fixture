@@ -8,6 +8,25 @@ locals {
   operator_project_roles = [
     "roles/iap.tunnelResourceAccessor",
     "roles/compute.osAdminLogin",
+    "projects/changeme-project/roles/slOperatorInstanceLifecycle",
+  ]
+}
+
+# A well-formed instance-lifecycle role. Present so the permission guard has a
+# LEGITIMATE custom role to stay silent on: a guard that fired on every
+# google_project_iam_custom_role block would satisfy the overreaching-custom-role
+# mutation check while being useless on the real module.
+resource "google_project_iam_custom_role" "instance_lifecycle" {
+  project = var.project_id
+  role_id = "slOperatorInstanceLifecycle"
+  title   = "Signal Loom operator — instance lifecycle"
+  stage   = "GA"
+
+  permissions = [
+    "compute.instances.suspend",
+    "compute.instances.resume",
+    "compute.instances.start",
+    "compute.zoneOperations.get",
   ]
 }
 

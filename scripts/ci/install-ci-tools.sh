@@ -90,7 +90,23 @@ bin_place() { # src dest [mode]
     :
   elif sudo -n install -m "$mode" "$src" "$dest" 2>/dev/null; then
     log "NOTE: ${dest} required elevation that the '[ -w ${BIN} ]' probe did not predict."
-    log "NOTE: ${BIN} is owned by $(stat -c '%U' "${BIN}" 2>/dev/null || echo '?') and its mode is mutated by the caller around this script."
+    # NUMERIC uid as well as the name, and the mode, because this line is the
+    # only datapoint we get about a property measured to be nondeterministic.
+    #
+    # The first version printed only `stat -c %U` and emitted "owned by UNKNOWN"
+    # on a live first boot. That is not a stat failure — GNU stat SUCCEEDS and
+    # prints the literal string UNKNOWN when the owning uid has no /etc/passwd
+    # entry, which is exactly the case here: the directory belonged to uid 1001,
+    # an OS Login principal that is not in passwd from this context. So the
+    # `|| echo '?'` fallback was dead code, because the failure mode was a ZERO
+    # exit returning a placeholder rather than a non-zero exit. A fallback that
+    # can only fire on a non-zero status cannot catch a function that reports
+    # failure in its output.
+    #
+    # `%u` always resolves, so each NOTE now records the uid and mode that were
+    # actually in force — which is what makes the nondeterministic-ownership
+    # finding checkable across boots instead of a shrug.
+    log "NOTE: ${BIN} is owned by $(stat -c '%U (uid %u), mode %a' "${BIN}" 2>/dev/null || echo 'unstatable') and its mode is mutated by the caller around this script."
   else
     log "ERROR: could not place ${dest} (tried unprivileged and 'sudo -n')"
     return 1

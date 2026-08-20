@@ -288,6 +288,11 @@ prove "remove bin_place's escalation, so a wrong probe is fatal again" \
   "$CI_TOOLS" "escalates when the cached probe was wrong" \
   $'perl -0pi -e \'s{  elif sudo -n install -m "\\$mode" "\\$src" "\\$dest" 2>/dev/null; then\\n[^\\n]*\\n[^\\n]*\\n}{  elif false; then\\n}\' '"$CI_TOOLS"
 
+# Reverting the NOTE to name-only reproduces the live "owned by UNKNOWN".
+prove "print only the owner NAME, losing the uid on an unmapped principal" \
+  "$CI_TOOLS" "renders a real owner and mode" \
+  "sed -i \"s|stat -c '%U (uid %u), mode %a'|stat -c '%U'|\" ${CI_TOOLS}"
+
 prove "escalate SILENTLY — repair with no alarm" \
   "$CI_TOOLS" "escalates when the cached probe was wrong" \
   $'perl -0pi -e \'s{    log "NOTE:[^\\n]*\\n}{}g\' '"$CI_TOOLS"

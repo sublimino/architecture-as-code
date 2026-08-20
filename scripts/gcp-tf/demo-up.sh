@@ -628,9 +628,25 @@ build_payload() {
 
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
+  #
+  # `\.terraform/` with the SLASH, and the slash is the whole point.
+  #
+  # The bare prefix `\.terraform` also matched `.terraform.lock.hcl`, which is
+  # tracked ON PURPOSE — it is the provider pin, four of them are committed at
+  # the repository root and in each Terraform root, and `make gcp-tf-validate`
+  # re-inits when one is missing. So the guard refused every payload the moment
+  # those lock files landed, with a message telling the operator to untrack
+  # something that must stay tracked. `make gcp-tf-demo-up` could not build at
+  # all; measured 2026-08-20 against demo-2.
+  #
+  # What the term is FOR is `.terraform/` — the provider cache directory, which
+  # is gitignored and therefore cannot appear in `git archive HEAD` unless
+  # somebody tracks it deliberately. That intent is preserved exactly; only the
+  # collision with the lock file is removed. The two differ by one character and
+  # by whether the repository wants them.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
-    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform/)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then
     printf 'demo-up: REFUSING to deliver — excluded material is present in the payload:\n' >&2

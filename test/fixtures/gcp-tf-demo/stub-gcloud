@@ -26,7 +26,15 @@
 #   STUB_GCLOUD_LOG        file to append invocations to
 #   STUB_VM_FS             directory standing in for the VM's filesystem
 #   STUB_VM_STATE          what `instances describe` reports (default RUNNING)
-#   STUB_PIPELINE_RC       exit code for the remote pipeline (default 0)
+#   STUB_PIPELINE_RC       exit code for the remote pipeline (default 0). Applies
+#                          ONLY to the `demo-pipeline.sh` invocation — see the
+#                          ordering note at that case arm.
+#   STUB_PROVISION_RC      exit code for the remote mkdir that creates the report
+#                          directory and the log (default 0). Separate from
+#                          STUB_PIPELINE_RC on purpose: one knob covering every
+#                          ssh call cannot tell "the call under test failed" from
+#                          "a different call failed", so a test could assert on
+#                          the wrong one and still be green.
 #   STUB_REPORT_SRC        directory handed back as the collected report bundle.
 #                          UNSET means collection FAILS — how "the run came back
 #                          with no verdict" is reproduced.
@@ -115,7 +123,35 @@ case "$argv" in
         fi
         exit 0
         ;;
-      *"demo-pipeline"*)
+      # ── Provisioning the remote paths, BEFORE the pipeline arm ────────────
+      #
+      # Ordered first deliberately. The driver provisions ${REMOTE_REPORT_DIR}
+      # and ${REMOTE_LOG}, and REMOTE_LOG is /opt/signalloom/demo-pipeline.LOG —
+      # so this command contains the substring "demo-pipeline" and used to be
+      # answered by the pipeline arm below. With STUB_PIPELINE_RC=3 the stub
+      # returned 3 to a mkdir, the driver died in provisioning, and the test
+      # named "a PASS summary next to a non-zero pipeline exit is a FAIL" failed
+      # having never reached the pipeline at all.
+      #
+      # Matched on `tar -xzf` / `mkdir -p` rather than on any path, because a
+      # matcher keyed on a filename is what produced the ambiguity.
+      *"tar -xzf"*)
+        # Delivery: unpack the payload into the work dir.
+        exit 0
+        ;;
+      *"mkdir -p"*)
+        # Provisioning the report dir and the log. Separately controllable, so a
+        # test can fail THIS call without failing the pipeline — otherwise a
+        # single knob cannot distinguish "the call I care about failed" from
+        # "some other call failed", and an assertion may be passing on the wrong
+        # one entirely.
+        exit "${STUB_PROVISION_RC:-0}"
+        ;;
+      # `demo-pipeline.sh`, not `demo-pipeline`. The pipeline invocation carries
+      # BOTH the script and DEMO_PIPELINE_LOG=/…/demo-pipeline.log in its
+      # environment string, so `.sh` is what separates it from the provisioning
+      # command, which only ever names the `.log`.
+      *"demo-pipeline.sh"*)
         printf 'stub-pipeline: stage output line 1\n'
         printf 'stub-pipeline: stage output line 2\n'
         exit "${STUB_PIPELINE_RC:-0}"

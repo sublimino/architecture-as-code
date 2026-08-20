@@ -607,6 +607,12 @@ mutate() {
 		echo "the serve backend is not the local nginx forward: $(gcloud_log)"
 		return 1
 	}
+	# The backend is cleartext only on VM loopback. The browser-facing side must
+	# still be HTTPS, terminated by Tailscale for the MagicDNS certificate.
+	[[ "$(gcloud_log)" =~ tailscale\ serve\ --bg\ --https=443.*http://127\.0\.0\.1:8080 ]] || {
+		echo "tailscale serve no longer terminates HTTPS before the loopback backend: $(gcloud_log)"
+		return 1
+	}
 	# `tailscale serve` must actually have been configured. The forward itself is
 	# not asserted here on purpose: this suite's stub reports the VM as already
 	# PUBLISHING, so ensure_published short-circuits and never issues one. What

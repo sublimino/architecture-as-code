@@ -257,6 +257,48 @@ bats_dirs() {
 	# draft whose `compgen -G` returned empty under bats.
 	[ -n "$dirs" ]
 
+	# A GLOB-registered proof is invoked without ever being NAMED.
+	#
+	# The literal search below asks "does any runner contain this basename?".
+	# That was the whole question while every proof was hand-listed. It stopped
+	# being the whole question when the Makefile moved proof registration to
+	#
+	#   GCP_TF_PROOFS = $(wildcard test/*-mutation-proof.sh)
+	#
+	# deliberately, so that a proof landing tomorrow is executed the day it
+	# lands rather than the day somebody remembers to list it. A wildcard
+	# expands at build time and puts NOTHING in the file, so all four proofs
+	# present when this was written were reported as invoked by nothing while
+	# `make gcp-tf-validate` ran every one of them on every merge.
+	#
+	# That false positive is not a nuisance. This guard's job is to make an
+	# unrun proof impossible to ignore, and a guard that cries wolf on the
+	# repo's own preferred registration mechanism is one people learn to skip --
+	# at which point the real finding it exists for goes past unread.
+	#
+	# So ask make what it ACTUALLY runs, which is the same question test
+	# "Terraform BATS suites are owned by gcp-tf-validate" already asks, using
+	# the same mechanism. `-n` prints the recipe without executing it, and
+	# GCP_TF_PROOFS_RUN is overridable precisely so this stays cheap.
+	local validate_plan
+	run make -C "$root" -n gcp-tf-validate
+	[ "$status" -eq 0 ] || {
+		echo "could not expand 'make -n gcp-tf-validate' (exit ${status}):"
+		echo "$output"
+		echo ""
+		echo "Without it, every glob-registered proof below would be reported as"
+		echo "invoked by nothing. Refusing to guess."
+		return 1
+	}
+	validate_plan="$output"
+	# Assert the mechanism produced text before deciding anything from it: an
+	# empty plan would silently switch this second source of truth off and
+	# restore exactly the false positive it was added to remove.
+	[ -n "${validate_plan//[[:space:]]/}" ] || {
+		echo "'make -n gcp-tf-validate' expanded to nothing"
+		return 1
+	}
+
 	local unrun="" d f base
 	for d in $dirs; do
 		for f in "$d"/*.sh; do
@@ -288,6 +330,12 @@ bats_dirs() {
 			done < <(grep -rl --include='*.sh' --include='Makefile' \
 					--exclude="$base" -F "$base" \
 					"$root/scripts" "$root/Makefile" "$root/d2-signalloom" 2>/dev/null)
+			# The glob half. Checked only after the literal search fails, so the
+			# common case costs nothing and the expensive `make -n` output is
+			# consulted for exactly the scripts that would otherwise be reported.
+			if [ "$invoked" -eq 0 ] && grep -qF "$base" <<<"$validate_plan"; then
+				invoked=1
+			fi
 			if [ "$invoked" -eq 0 ]; then
 				unrun="${unrun}${f#$root/} "
 			fi
@@ -298,8 +346,11 @@ bats_dirs() {
 		echo "Proof/test script(s) that no runner invokes:"
 		echo "  $unrun"
 		echo ""
-		echo "A proof nothing runs proves nothing. Add it to a run_stage in"
-		echo "scripts/ci/vm-pipeline.sh or to a Makefile target."
+		echo "A proof nothing runs proves nothing. Either add it to a run_stage in"
+		echo "scripts/ci/vm-pipeline.sh or to a Makefile target, or -- for a"
+		echo "Terraform-domain mutation proof -- simply NAME it"
+		echo "test/<topic>-mutation-proof.sh, which GCP_TF_PROOFS globs and"
+		echo "'make gcp-tf-validate' then runs with no registration step at all."
 		false
 	fi
 }

@@ -129,12 +129,20 @@ setup() {
 # "the payload excludes secrets" is a statement about material that is really
 # there. A test whose fixture contains no key cannot observe a leaked key.
 make_repo() {
-	mkdir -p "${root}/scripts/gcp-tf" "${root}/deploy/gcp" "${root}/.keys" \
+	mkdir -p "${root}/scripts/gcp-tf" "${root}/scripts/lib" "${root}/deploy/gcp" "${root}/.keys" \
 		"${root}/node_modules/left-pad" "${root}/terraform/environments/.terraform-demo-7" \
 		"${root}/d2-signalloom"
 
 	cp "${DRIVER_SRC}" "${driver}"
 	chmod +x "${driver}"
+
+	# The REAL wait.sh. The driver sources it relative to its own location, so a
+	# scratch tree without scripts/lib/ makes the driver fail before it parses a
+	# single argument — which surfaces as every hand-off assertion failing on a
+	# missing message, i.e. as "the refusals are gone" rather than as "the
+	# fixture is incomplete". Copying the real library also keeps these tests on
+	# the same waiting code that runs in production.
+	cp "${REPO_ROOT}/scripts/lib/wait.sh" "${root}/scripts/lib/wait.sh"
 
 	printf '#!/usr/bin/env bash\necho "demo-pipeline ran"\n' >"${root}/scripts/gcp-tf/demo-pipeline.sh"
 	chmod +x "${root}/scripts/gcp-tf/demo-pipeline.sh"

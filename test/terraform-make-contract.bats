@@ -103,7 +103,8 @@ case "${stub_verb}" in
     "access_mode": "iap"
   } },
   "instance_name": { "value": "osramp-demo-1-vm" },
-  "internal_ip": { "value": "10.20.0.7" }
+  "internal_ip": { "value": "10.20.0.7" },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
 }
 JSON
       fi
@@ -959,7 +960,7 @@ sa_file() {
 # Every key the test code is entitled to rely on. hostname is deliberately not
 # here: an environment with no DNS has none, and demanding a non-empty value
 # would force a fabricated one.
-HANDOFF_REQUIRED='project_id environment_key region zone instance_name internal_ip app_port state_bucket deploy_sa access_mode generated_at'
+HANDOFF_REQUIRED='project_id environment_key region zone instance_name internal_ip app_port state_bucket deploy_sa operator_sa access_mode generated_at'
 
 @test "gcp-tf-handoff writes valid JSON with every required key present and non-empty" {
   fixture="$(env_fixture demo-1)"
@@ -1005,7 +1006,8 @@ HANDOFF_REQUIRED='project_id environment_key region zone instance_name internal_
     "project_id": "changeme-other", "access_mode": "allowlist"
   } },
   "instance_name": { "value": "osramp-demo-1-elsewhere" },
-  "internal_ip": { "value": "10.99.0.42" }
+  "internal_ip": { "value": "10.99.0.42" },
+  "operator_sa": { "value": "sl-operator@changeme-other.iam.gserviceaccount.com" }
 }
 JSON
   run env "STUB_TF_OUTPUT_JSON=${outputs}" \
@@ -1163,7 +1165,8 @@ JSON
   } },
   "integration_inputs": { "value": { "project_id": "changeme-sandbox", "access_mode": "iap" } },
   "instance_name": { "value": "osramp-demo-1-vm" },
-  "internal_ip": { "value": "10.20.0.7" }
+  "internal_ip": { "value": "10.20.0.7" },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
 }
 JSON
   run env "STUB_TF_OUTPUT_JSON=${outputs}" \

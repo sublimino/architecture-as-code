@@ -67,6 +67,7 @@ STUB
 
   chmod +x "${STUBDIR}/bats" "${STUBDIR}/terraform" "${STUBDIR}/tflint"
   export STUB_RECORD="${RECORD}"
+  export GCP_TF_PROOFS_RUN=/usr/bin/true
   export PATH="${STUBDIR}:${PATH}"
 }
 
@@ -186,6 +187,12 @@ disk_test_dirs() {
   run grep -c '^TEST:' "${RECORD}/terraform.log"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
+}
+
+@test "gcp-tf-validate executes the Dex origin mutation proof" {
+  run env -u GCP_TF_PROOFS_RUN make -C "${REPO_ROOT}" -n gcp-tf-validate
+  [ "$status" -eq 0 ]
+  [[ "${output}" == *"bash test/dex-origin-mutation-proof.sh"* ]]
 }
 
 # ---------------------------------------------------------------------------

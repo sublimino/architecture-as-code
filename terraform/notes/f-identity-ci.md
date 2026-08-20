@@ -1,5 +1,16 @@
 # F5 — identity + CI lifecycle
 
+> **HISTORICAL — partly superseded on 2026-08-20.** This file records what chunk F5 built at
+> the time and is kept for its reasoning, not as a description of the current tree.
+>
+> `terraform/modules/ci-runner/` **no longer exists.** It was absorbed into
+> `terraform/modules/compute`, which now serves both lane kinds; CI lane instances are named
+> `sl-<key>-vm` rather than `sl-<key>-runner`. Consequently
+> `scripts/ci/gcp-tf-reaper.sh` no longer selects on the instance name — it selects on the
+> `ci-lane` label, and the gate list at the head of that script is the current description.
+>
+> Current interfaces: `terraform/CONTRACT.md` §4 and `terraform/modules/compute/README.md`.
+
 Branch `feat/gcp-tf-identity-ci`. Chunk: the cloud identity boundary and the CI lane lifecycle.
 
 ## What was built

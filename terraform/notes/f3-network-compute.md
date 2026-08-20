@@ -153,6 +153,11 @@ Highlights of how, where it is not obvious:
   CI lanes are `terraform/modules/ci-runner`, owned by F5 per CONTRACT §1/§4. `modules/compute`
   is the demo VM only, and creating a file under another chunk's subtree is a merge conflict by
   definition. F5 must satisfy this.
+
+  > **Superseded 2026-08-20.** `modules/ci-runner` was absorbed into `modules/compute`, so
+  > ISC-115 is now satisfied HERE: `var.kind = "ci"` types the lane, emits the `ci-lane` label
+  > the reaper selects on, and publishes the idle-suspend budget that lets it be suspended.
+  > The chunk boundary that made this "not mine" no longer exists.
 - **ISC-116** — **half mine, and the half I own is done.** `deletion_protection` is a required
   `bool` variable with no module default, and a test asserts it stays undefaulted. The *per-kind
   values* ("true for demo, false for ci") are a root-level decision belonging to

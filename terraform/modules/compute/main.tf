@@ -196,12 +196,23 @@ locals {
   # Emitted as an empty map when the feature is off, so a non-Tailscale
   # instance's metadata is byte-identical to what it was before this existed and
   # the startup script has exactly one signal to read.
+  # signalloom-app-port is here rather than in the base metadata block on
+  # purpose: it exists only to tell the startup script what `tailscale serve`
+  # should proxy to, so a non-Tailscale instance still gets byte-identical
+  # metadata to what it had before this existed.
+  #
+  # It is PUBLISHED rather than hardcoded because the startup script cannot
+  # derive it. app_port is per-environment (it comes from the frozen environment
+  # object), the script runs before any code is delivered to the VM, and a
+  # default baked into bash would be a second place for the port to live and the
+  # one that is wrong after somebody changes the tfvars.
   tailscale_metadata = var.tailscale_enabled ? {
     signalloom-tailscale-enabled   = "TRUE"
     signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
     signalloom-tailscale-tag       = var.tailscale_tag
     signalloom-tailscale-hostname  = local.tailscale_hostname
     signalloom-tailscale-ssh       = var.tailscale_ssh_enabled ? "TRUE" : "FALSE"
+    signalloom-app-port            = tostring(var.app_port)
   } : {}
 
   # Falls back to the module's own version-controlled script. A variable

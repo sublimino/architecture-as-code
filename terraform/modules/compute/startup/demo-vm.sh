@@ -94,6 +94,24 @@ readonly TS_NAME_MARKER="/var/lib/signalloom/tailscale-name-mismatch"
 readonly TS_LOGOUT_UNIT_NAME="signalloom-tailscale-logout.service"
 readonly TS_LOGOUT_UNIT="/etc/systemd/system/${TS_LOGOUT_UNIT_NAME}"
 
+# The boot-time serve unit. See install_tailscale_serve_unit.
+#
+# These three names are a CONTRACT with scripts/gcp-tf/demo-up.sh, which
+# installs a byte-compatible unit at runtime for VMs built before this existed.
+# test/terraform-tailscale-access.bats asserts the two files still agree; if you
+# rename anything here, that test fails and tells you where the other copy is.
+readonly TS_SERVE_UNIT_NAME="signalloom-tailscale-serve.service"
+readonly TS_SERVE_UNIT="/etc/systemd/system/${TS_SERVE_UNIT_NAME}"
+readonly TS_SERVE_HELPER="/usr/local/sbin/signalloom-tailscale-serve"
+
+# The port `tailscale serve` proxies to, published as instance metadata by
+# modules/compute. NOT defaulted: see require_app_port in
+# install_tailscale_serve_unit.
+readonly TS_SERVE_HTTPS_PORT="443"
+
+# Ceiling on the boot-time wait for tailscaled to finish authenticating.
+readonly TS_SERVE_WAIT_SECONDS="120"
+
 log() {
   echo "[${LOG_TAG}] $*"
   logger -t "$LOG_TAG" -- "$*" || true
@@ -595,6 +613,13 @@ bring_tailscale_up() {
   # leave exactly the corpse that caused the mismatch in the first place.
   install_tailscale_logout_unit
 
+  # BEFORE the name assertion, and deliberately so — same argument as the logout
+  # unit above. The two are independent of whether the name came out right: a
+  # node that was suffixed still needs to serve, because serving nothing is not
+  # a useful response to a naming problem, and the operator debugging the
+  # suffixed name is exactly the person who wants a URL to look at.
+  install_tailscale_serve_unit
+
   assert_tailscale_node_name "$node_name" || return 1
 
   log "tailscale is up as ${node_name} (${tag})"
@@ -800,6 +825,156 @@ UNIT
   }
 
   log "${TS_LOGOUT_UNIT_NAME} installed — this node releases its tailnet name on shutdown"
+}
+
+# ─── The serve unit: why serving is a BOOT property, not an operator's memory ──
+#
+# Until this existed, `tailscale serve` was configured in exactly one place: an
+# operator typing `make gcp-tf-ts-up ENV=<key>`. Nothing in this script, in any
+# pipeline, or in Terraform ever configured it. Measured on 2026-08-20: sl-ci-1
+# and sl-ci-2 were on the tailnet, online, correctly tagged, correctly named,
+# running complete and healthy Signal Loom estates — and answering NOTHING,
+# because nobody had ever typed the command for them. sl-demo-1 answered 200
+# solely because somebody had.
+#
+# That is bad on its own and much worse next to the unit above. `tailscale
+# logout` WIPES the serve configuration, and install_tailscale_logout_unit runs
+# one on every clean shutdown so the next build can reclaim the MagicDNS name.
+# A stop/start — which is what a machine-type change is — therefore takes a
+# serving node and returns it online, correctly named, resolving through
+# MagicDNS, and serving nothing. Every cheap health check reports healthy. The
+# name is right, the node is up, and the URL is dead.
+#
+# So the serve config is re-asserted at every boot, by the machine that owns it.
+#
+# THIS IS CONSTRUCTION, NOT A REPAIRING DETECTOR — a distinction this repo has
+# been bitten by. Nothing here inspects a failure and patches over it; the unit
+# declares what the machine should be doing, exactly as the logout unit declares
+# what it should do on the way down. The DETECTOR is `demo-up.sh ts-status`,
+# which was changed in the same commit to FAIL when a node is online and not
+# serving. A durable serve and an honest health check are two halves of one fix:
+# either alone still lets a dead URL read as green.
+#
+# FUNNEL IS DELIBERATELY ABSENT and must stay absent. A boot unit that asserted
+# `tailscale funnel` would republish this estate to the public internet after
+# every reboot on the strength of one funnel-up somebody ran months earlier.
+# Tailnet-only serving is the only thing that may ever be automatic here.
+install_tailscale_serve_unit() {
+  local app_port
+
+  # NOT defaulted. A hardcoded fallback would be a second place for the port to
+  # live, and the one that is silently wrong the day somebody changes app_port
+  # in the tfvars — producing a node that serves a real TLS listener in front of
+  # nothing, which is a worse and much more confusing state than not serving.
+  app_port="$(metadata_attr signalloom-app-port)" || app_port=""
+  case "$app_port" in
+    '' | *[!0-9]*)
+      log "WARNING: signalloom-app-port metadata is '${app_port:-(absent)}', not a port number"
+      log "WARNING: ${TS_SERVE_UNIT_NAME} NOT installed. This node will come back"
+      log "WARNING: from a reboot ONLINE, CORRECTLY NAMED and SERVING NOTHING."
+      log "WARNING: Recover with: make gcp-tf-ts-up ENV=<key>"
+      return 0
+      ;;
+  esac
+
+  # Two files rather than one. systemd does not run a shell, so an ExecStart
+  # carrying the retry loop below would have to be `/bin/bash -c '...'` with the
+  # whole loop quoted inside a unit file — the shape nobody can read and nobody
+  # notices is subtly wrong. The unit stays trivial; the logic lives in a script
+  # that can be read, run by hand, and diffed.
+  #
+  # The retry loop is not defensive padding. `tailscale serve` against a
+  # tailscaled that is running but NOT YET AUTHENTICATED fails immediately, and
+  # a oneshot with no retry would leave the unit failed and the URL dead for the
+  # entire uptime of the machine — reintroducing the exact silent failure this
+  # is here to remove.
+  #
+  # An unquoted heredoc: ${app_port} and the readonly paths above are expanded
+  # HERE, at install time, so the helper on disk is fully literal. \$ escapes are
+  # the runtime shell's.
+  if ! cat >"$TS_SERVE_HELPER" <<HELPER
+#!/usr/bin/env bash
+# Re-assert this node's tailnet HTTPS listener at boot.
+#
+# WRITTEN BY terraform/modules/compute/startup/demo-vm.sh
+# (install_tailscale_serve_unit). Edit it there, not here.
+#
+# 'tailscale logout' wipes the serve config, and this estate logs out on
+# shutdown so the next build can reclaim its MagicDNS name. Without this the
+# node returns online, correctly named, and serving nothing.
+set -uo pipefail
+
+WAITED=0
+while [ "\$WAITED" -lt ${TS_SERVE_WAIT_SECONDS} ]; do
+  if tailscale status --json 2>/dev/null | grep -q '"BackendState": *"Running"'; then
+    break
+  fi
+  sleep 3
+  WAITED=\$((WAITED + 3))
+done
+
+exec tailscale serve --bg --https=${TS_SERVE_HTTPS_PORT} 'http://127.0.0.1:${app_port}'
+HELPER
+  then
+    log "WARNING: could not write ${TS_SERVE_HELPER}; ${TS_SERVE_UNIT_NAME} not installed"
+    return 0
+  fi
+
+  chmod 0755 "$TS_SERVE_HELPER" || {
+    log "WARNING: could not chmod ${TS_SERVE_HELPER}; ${TS_SERVE_UNIT_NAME} not installed"
+    return 0
+  }
+
+  if ! cat >"$TS_SERVE_UNIT" <<UNIT
+[Unit]
+Description=Signal Loom tailnet HTTPS listener (tailscale serve)
+Documentation=https://tailscale.com/kb/1312/serve
+After=network-online.target tailscaled.service
+Wants=network-online.target
+Requires=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${TS_SERVE_HELPER}
+# The helper does its own waiting, so this is a ceiling on a node that never
+# authenticates rather than the mechanism that makes it work.
+TimeoutStartSec=${TS_SERVE_WAIT_SECONDS}s
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  then
+    log "WARNING: could not write ${TS_SERVE_UNIT}"
+    log "WARNING: this node will come back from a reboot serving NOTHING"
+    return 0
+  fi
+
+  systemctl daemon-reload || {
+    log "WARNING: systemctl daemon-reload failed; ${TS_SERVE_UNIT_NAME} is not active"
+    return 0
+  }
+
+  # enable AND start, like the logout unit and for a related reason. `enable`
+  # alone arms the NEXT boot, which would leave THIS boot — the one that just
+  # built the lane — serving nothing until somebody rebooted it.
+  systemctl enable "$TS_SERVE_UNIT_NAME" || {
+    log "WARNING: could not enable ${TS_SERVE_UNIT_NAME}; serving will not survive a reboot"
+    return 0
+  }
+
+  # A failure here is EXPECTED on a first boot and is not degradation: the
+  # estate has not been deployed yet, so there is nothing on :${app_port}. The
+  # serve config is recorded regardless — `tailscale serve` does not require its
+  # backend to be listening — so the URL answers 502 until the estate lands and
+  # 200 afterwards, with no second visit needed. 502 is a diagnosable state; the
+  # 000 it replaces is not.
+  systemctl start "$TS_SERVE_UNIT_NAME" || {
+    log "WARNING: ${TS_SERVE_UNIT_NAME} did not start; the tailnet URL is not live yet"
+    return 0
+  }
+
+  log "${TS_SERVE_UNIT_NAME} installed — this node serves :${TS_SERVE_HTTPS_PORT} -> 127.0.0.1:${app_port} on every boot"
 }
 
 # ---------------------------------------------------------------------------

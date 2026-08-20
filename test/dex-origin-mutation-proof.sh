@@ -150,7 +150,7 @@ check "M9 malformed origin rejected" "a malformed origin is rejected"
 
 echo "M10 applying the baseline takes a lease instead of releasing"
 mutate "$LIB" 's|^  if \[\[ "$origin" == "$DEX_ORIGIN_BASELINE" \]\]; then|  if false; then|'
-check "M10 baseline is a release" "applying the IAP baseline is a release, not a lease"
+check "M10 baseline is a release" "applying the resting baseline is a release, not a lease"
 
 # The obvious mutation here — appending `|| true` to the guarded patch — is
 # WRONG and was tried first: `if ! cmd || true` parses as `(! cmd) || true`, so

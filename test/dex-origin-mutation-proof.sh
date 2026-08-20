@@ -36,38 +36,30 @@ EXPOSE="scripts/lib/expose.sh"
 DEX_MANIFEST="d2-signalloom/infra/inf-signalloom/base/dex.yaml"
 SUITE="test/terraform-dex-origin.bats"
 
-BACKUP="$(mktemp -d)"
-trap 'restore_all; rm -rf "$BACKUP"' EXIT
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# An EXIT trap alone was the whole protection here, and it does not survive
+# SIGKILL — which is what a tool timeout escalates to. A hard kill left three
+# real files mutated, the &&-chained gate carried on into the next proof, and
+# the leak was diagnosed as content lost in a merge. The helper adds the marker
+# that outlives a hard kill, refuses to start on top of one, and verifies the
+# restore on content AND mode. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-mkdir -p "$BACKUP/$(dirname "$LIB")" "$BACKUP/$(dirname "$DEX_MANIFEST")"
-cp "$LIB" "$BACKUP/$LIB"
-cp "$EXPOSE" "$BACKUP/$EXPOSE"
-cp "$DEX_MANIFEST" "$BACKUP/$DEX_MANIFEST"
+ms_guard_init dex-origin "$LIB" "$EXPOSE" "$DEX_MANIFEST"
+trap ms_guard_on_exit EXIT
 
-restore_all() {
-  cp "$BACKUP/$LIB" "$LIB"
-  cp "$BACKUP/$EXPOSE" "$EXPOSE"
-  cp "$BACKUP/$DEX_MANIFEST" "$DEX_MANIFEST"
-}
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
 
-# A sed that cannot silently do nothing.
-#
-# A non-matching pattern no-ops while returning 0, so the mutation never lands,
-# the suite stays green, and the harness reports "guard did not fire" — a false
-# finding that looks exactly like a real one.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+# A sed that cannot silently do nothing — and that tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches. Both used to read identically to
+# "the mutation landed and the guard did not fire", which sends you off to fix a
+# guard that is fine. md5 is gone with it; the rail hashes with sha256.
+mutate() { ms_sed "$1" "$2"; }
 
 # Runs the suite and reports the NAMES of the tests that failed.
 #

@@ -44,42 +44,30 @@ MAKEFILE="Makefile"
 TFVARS="deploy/gcp/sl-port-over-sandbox.example.tfvars"
 SUITE="test/terraform-ts-stable-node-name.bats"
 
-BACKUP="$(mktemp -d)"
-trap 'restore_all; rm -rf "$BACKUP"' EXIT
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# scripts/gcp-tf/demo-up.sh is mutated by THREE proofs (this one, toolchain, and
+# vacuous-run-status) and the gate chains them with `&&`. A SIGKILL here leaves
+# it broken for both of the others and for the next gate run — and no EXIT trap
+# survives SIGKILL, which is what a tool timeout escalates to. The helper adds
+# the marker that does, refuses to start on top of one, and verifies the restore
+# on content AND mode. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-mkdir -p "$BACKUP/$(dirname "$STARTUP")" "$BACKUP/$(dirname "$DRIVER")" \
-  "$BACKUP/$(dirname "$TFVARS")"
-cp "$STARTUP" "$BACKUP/$STARTUP"
-cp "$DRIVER" "$BACKUP/$DRIVER"
-cp "$MAKEFILE" "$BACKUP/$MAKEFILE"
-cp "$TFVARS" "$BACKUP/$TFVARS"
+ms_guard_init ts-stable-node-name "$STARTUP" "$DRIVER" "$MAKEFILE" "$TFVARS"
+trap ms_guard_on_exit EXIT
 
-restore_all() {
-  cp "$BACKUP/$STARTUP" "$STARTUP"
-  cp "$BACKUP/$DRIVER" "$DRIVER"
-  cp "$BACKUP/$MAKEFILE" "$MAKEFILE"
-  cp "$BACKUP/$TFVARS" "$TFVARS"
-}
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
 
-# A sed that cannot silently do nothing.
-#
-# A non-matching pattern no-ops while returning 0, so the mutation never lands,
-# the suite stays green, and the harness reports "guard did not fire" — a false
-# finding that looks exactly like a real one, and one that invites somebody to
-# go and "fix" working code.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+# A sed that cannot silently do nothing — and that tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches. Both used to read identically to
+# "the mutation landed and the guard did not fire", a false finding that invites
+# somebody to go and "fix" working code.
+mutate() { ms_sed "$1" "$2"; }
 
 # Runs the suite and reports the NAMES of the tests that failed.
 #

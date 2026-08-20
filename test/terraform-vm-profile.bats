@@ -644,12 +644,18 @@ split_firewall_blocks() {
 	}
 }
 
-@test "30754 is documented as load-bearing wherever it is set" {
-	# The number is not a preference. Dex pins its OIDC issuer and callback to
-	# it, so any other value reaches the Gateway and then fails the login
-	# redirect — a failure that presents as a broken application. Anywhere it is
-	# configured, the reason must travel with it, or the next person to see an
-	# odd port number will "tidy" it to 8080.
+@test "app_port is 8080 and the reason travels with it wherever it is set" {
+	# 8080 is the dashboard nginx Service port (dashboard-signalloom:8080 in
+	# fe-signalloom), which every access method — IAP, ngrok, Tailscale, Funnel —
+	# forwards to. It looks like a lazy default and is not one, so the reason has
+	# to be next to the number.
+	#
+	# This test used to require 30754 and the word "dex", because the access path
+	# went through the Envoy Gateway and Dex's callback was pinned to that
+	# host:port. It is UPDATED rather than deleted: the file still has to state a
+	# port and still has to explain it, only the correct answer changed. Deleting
+	# it would remove the one thing stopping the next reader from "tidying" the
+	# number in either direction.
 	local f checked=0
 	for f in "${REPO_ROOT}/terraform/environments/demo-1.tfvars.example" \
 		"${REPO_ROOT}/terraform/environments/demo-1-and-demo-2.tfvars.example" \
@@ -658,13 +664,22 @@ split_firewall_blocks() {
 			echo "missing example: $f" >&2
 			return 1
 		}
-		grep -qE '^[[:space:]]*app_port[[:space:]]*=[[:space:]]*30754$' "$f" || {
-			echo "$(basename "$f") does not set app_port = 30754" >&2
+		grep -qE '^[[:space:]]*app_port[[:space:]]*=[[:space:]]*8080$' "$f" || {
+			echo "$(basename "$f") does not set app_port = 8080" >&2
 			return 1
 		}
-		grep -qiF 'dex' "$f" || {
-			echo "$(basename "$f") sets 30754 without saying why. The next" >&2
-			echo "reader will assume it is arbitrary." >&2
+		# No example may still be pinned to the Gateway port. Asserted as well as
+		# the positive above, because "sets 8080 somewhere" is satisfied by a file
+		# that ALSO still sets 30754 on a second environment block — which is
+		# exactly the shape demo-1-and-demo-2 has.
+		! grep -qE '^[[:space:]]*app_port[[:space:]]*=[[:space:]]*30754$' "$f" || {
+			echo "$(basename "$f") still sets app_port = 30754 on some environment." >&2
+			echo "The IAP tunnel targets the dashboard nginx now, not the Gateway." >&2
+			return 1
+		}
+		grep -qiF 'nginx' "$f" || {
+			echo "$(basename "$f") sets a port without saying what is listening" >&2
+			echo "on it. The next reader will assume 8080 is an arbitrary default." >&2
 			return 1
 		}
 		checked=$((checked + 1))

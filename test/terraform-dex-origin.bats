@@ -55,7 +55,7 @@ setup() {
 @test "the library exposes the documented verbs" {
   # A verb interface is the contract every access method codes against. If one
   # is renamed, the caller that used it fails at runtime on a cluster, not here.
-  for verb in apply restore current status validate; do
+  for verb in apply restore current holder status validate; do
     run "$LIB" "$verb" --nonsense-argument-that-cannot-be-valid
     # The usage block is what a missing verb produces; anything else means the
     # verb was dispatched, which is all this asserts.
@@ -88,13 +88,23 @@ setup() {
 # ── Validation, pure and offline ─────────────────────────────────────
 
 @test "every real access method's origin validates" {
-  # These four are the actual shapes in use. A validator that rejects one of
-  # them blocks a working access method at the door.
+  # The actual shapes in use, one per access method. A validator that rejects
+  # one of them blocks a working access method at the door.
+  #
+  #   BASELINE               the resting origin the manifests default to
+  #   http://localhost:8080  IAP, through the tunnel to the dashboard nginx
+  #   ngrok / ts.net         the two TLS-terminating methods
+  #
+  # `http://34.89.1.2:31080` used to be in this list, for expose.sh's `nodeport`
+  # strategy. It is now REFUSED on purpose — see the insecure-origin test below
+  # — and that strategy has no caller anywhere in the repo.
   for origin in \
       "$BASELINE" \
+      "http://localhost:8080" \
+      "http://localhost:18080" \
+      "http://127.0.0.1:8080" \
       "https://ab-12-34.ngrok-free.app" \
-      "https://nuc.taild4da3.ts.net" \
-      "http://34.89.1.2:31080"; do
+      "https://nuc.taild4da3.ts.net"; do
     run "$LIB" validate "$origin"
     if [ "$status" -ne 0 ]; then
       echo "rejected a legitimate origin: ${origin}"
@@ -102,6 +112,64 @@ setup() {
       return 1
     fi
   done
+}
+
+@test "an insecure origin is refused on any host but loopback" {
+  # nginx serves cleartext on 8080, so `http://` is genuinely correct for the
+  # IAP path: the origin is loopback and the IAP tunnel is the confidentiality
+  # boundary. The same shape on a routable host means Dex hands its
+  # authorisation code, its ID token and every later bearer to the wire in the
+  # clear, and the browser additionally drops the Secure session cookie — half
+  # silent interception, half a login that will not stick.
+  #
+  # Refused rather than warned about, because no legitimate caller produces one:
+  # Tailscale and Funnel get a real certificate from `tailscale serve`, ngrok
+  # terminates TLS at its edge, and IAP is loopback.
+  local bad=(
+    "http://34.89.1.2:31080"
+    "http://demo.example.com"
+    "http://nuc.taild4da3.ts.net"
+    "http://dashboard.osramp.acme.local:30754"
+    "http://192.168.1.10:8080"
+    "http://127x0x0x1"
+  )
+  local origin
+  for origin in "${bad[@]}"; do
+    run "$LIB" validate "$origin"
+    if [ "$status" -eq 0 ]; then
+      echo "accepted a cleartext origin on a routable host: '${origin}'"
+      return 1
+    fi
+  done
+
+  # Its OWN diagnostic, asserted separately from the rejection. Every one of
+  # those is a WELL-FORMED origin, so the generic "expected scheme://host[:port]"
+  # trailer would send a reader to check a shape that is already correct — and
+  # they would retype the same URL and watch it be refused again.
+  run "$LIB" validate "http://demo.example.com"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not loopback"* ]] || {
+    echo "the refusal did not say what was wrong with the host: ${output}"
+    return 1
+  }
+  [[ "$output" == *"cleartext"* ]] || {
+    echo "the refusal did not say why cleartext is the problem: ${output}"
+    return 1
+  }
+
+  # And the loopback exemption is real, not a claim in a comment. Without this
+  # the whole rule could be "reject every http:// origin" and the IAP path would
+  # be dead — a test that only checks refusals cannot tell those apart.
+  run "$LIB" validate "http://localhost:8080"
+  [ "$status" -eq 0 ] || {
+    echo "loopback cleartext was refused, which kills the IAP path: ${output}"
+    return 1
+  }
+  run "$LIB" validate "http://127.0.0.2:8080"
+  [ "$status" -eq 0 ] || {
+    echo "127.0.0.0/8 is loopback too; refusing it rejects a correct origin: ${output}"
+    return 1
+  }
 }
 
 @test "a malformed origin is rejected" {
@@ -347,12 +415,17 @@ setup() {
   fi
 }
 
-@test "applying the IAP baseline is a release, not a lease" {
-  # The IAP tunnel's origin IS the baseline — it is the resting state, pinned to
-  # port 30754 by scripts/acceptance-test.sh and enforced by
-  # scripts/gcp-tf/demo-up.sh. Letting it take a lease against itself would
-  # block every other access method for no reason and break `make public` after
-  # any IAP run.
+@test "applying the resting baseline is a release, not a lease" {
+  # The baseline is the RESTING origin — the value the manifests default to —
+  # and it belongs to no access method. Letting any caller take a lease against
+  # it would block every other method for no reason and break `make public`
+  # after any run that touched it.
+  #
+  # This test used to be called "applying the IAP baseline", because IAP served
+  # at this origin and therefore never needed a lease at all. It is renamed
+  # rather than deleted: the RELEASE semantics it pins are unchanged and still
+  # load-bearing; only the claim that this origin belongs to IAP has gone. What
+  # IAP does now is asserted directly in the test below.
   run "$LIB" apply ngrok "$NGROK"
   [ "$status" -eq 0 ]
   run "$LIB" restore
@@ -368,6 +441,91 @@ setup() {
   [ "$status" -eq 0 ]
 }
 
+@test "iap is an ordinary lease-taking method, not the baseline" {
+  # The behavioural half of demoting IAP from "the baseline" to "a method".
+  # Before this refactor IAP served at the origin the manifests already default
+  # to, so it published nothing and held nothing, and every other method had to
+  # work around a publisher it could not see. It now takes a lease like the
+  # others — and the lease has to EXCLUDE the others, or it is decoration.
+  local IAP="http://localhost:8080"
+
+  run "$LIB" apply iap "$IAP"
+  [ "$status" -eq 0 ]
+
+  run "$LIB" current
+  [ "$output" = "$IAP" ]
+  run "$LIB" holder
+  [ "$output" = "iap" ] || {
+    echo "iap took the origin without recording itself as the holder: '${output}'"
+    return 1
+  }
+
+  # A second method is refused, and told who to go and tear down.
+  run "$LIB" apply ngrok "$NGROK"
+  [ "$status" -ne 0 ] || {
+    echo "ngrok published alongside a live IAP demo — one of the two logins now bounces"
+    return 1
+  }
+  [[ "$output" == *"iap"* ]] || {
+    echo "the refusal did not name iap as the holder: ${output}"
+    return 1
+  }
+
+  # And the exclusion is symmetric — the previous behaviour was that IAP could
+  # be trampled silently, so this direction is the one worth stating.
+  run "$LIB" restore
+  [ "$status" -eq 0 ]
+  run "$LIB" apply ngrok "$NGROK"
+  [ "$status" -eq 0 ]
+  run "$LIB" apply iap "$IAP"
+  [ "$status" -ne 0 ] || {
+    echo "IAP took the issuer from a live ngrok demo"
+    return 1
+  }
+  [[ "$output" == *"ngrok"* ]]
+}
+
+@test "holder answers 'is anyone publishing', which current cannot" {
+  # `current` falls back to the baseline at rest, so it is NEVER empty and
+  # "non-empty means somebody holds it" is wrong. An out-of-process caller that
+  # made that inference refused itself on every idle cluster, naming the
+  # baseline as the holder — which is exactly what
+  # scripts/gcp-tf/demo-up.sh did until the seam tests in
+  # test/terraform-demo-driver.bats drove the two against each other.
+  #
+  # The distinction is the whole reason this verb exists, so it is asserted as a
+  # pair: at rest, `current` is non-empty AND `holder` is empty.
+  run "$LIB" current
+  [ "$status" -eq 0 ]
+  [ -n "$output" ] || {
+    echo "current is empty at rest, so this verb would be unnecessary — re-derive the caller contract"
+    return 1
+  }
+  [ "$output" = "$BASELINE" ]
+
+  run "$LIB" holder
+  [ "$status" -eq 0 ]
+  [ -z "$output" ] || {
+    echo "holder named '${output}' on a cluster nobody has published to"
+    return 1
+  }
+
+  run "$LIB" apply tailscale "$TSNET"
+  [ "$status" -eq 0 ]
+  run "$LIB" holder
+  [ "$status" -eq 0 ]
+  [ "$output" = "tailscale" ]
+
+  # Released again, so a caller polling this can tell the lease really went.
+  run "$LIB" restore
+  [ "$status" -eq 0 ]
+  run "$LIB" holder
+  [ -z "$output" ] || {
+    echo "holder still names '${output}' after restore"
+    return 1
+  }
+}
+
 # ── Reporting ────────────────────────────────────────────────────────
 
 @test "current and status describe the resting state and the held state" {
@@ -378,6 +536,18 @@ setup() {
   run "$LIB" status
   [ "$status" -eq 0 ]
   [[ "$output" == *"AVAILABLE"* ]]
+  # The resting state must not name a METHOD. It used to say "method: iap",
+  # which was true while IAP served here and is now a lie of the expensive kind:
+  # an operator reading it concludes an IAP demo is live and goes looking for a
+  # tunnel to tear down.
+  [[ "$output" != *"method:  iap"* ]] || {
+    echo "status still attributes the resting origin to iap: ${output}"
+    return 1
+  }
+  [[ "$output" == *"held by nobody"* ]] || {
+    echo "status did not say the resting origin is unheld: ${output}"
+    return 1
+  }
 
   run "$LIB" apply tailscale "$TSNET"
   [ "$status" -eq 0 ]

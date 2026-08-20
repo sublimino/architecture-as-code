@@ -141,9 +141,22 @@ deploy/gcp/preserve-baseline.json
 # nothing true. Roots commit theirs (ISC-13); child modules must not.
 terraform/modules/*/.terraform.lock.hcl
 
-# Sentinel dropped by test/operator-suspend-mutation-proof.sh while it has the
-# real module deliberately broken, and removed when it restores. It survives a
-# SIGKILL — which is the point, because the next run must REFUSE rather than
-# read a leaked mutation as a regression. Ignored so a `git add -A` during that
-# window cannot commit it and make the refusal permanent.
-.operator-suspend-mutation-in-progress
+# Sentinels dropped by the mutation-proof harnesses while a REAL file is
+# deliberately broken, and removed when they restore. CONTRACT §7b requires
+# mutating the real tree, so an interrupted run leaves the repository mutated;
+# the harness REFUSES to start when it finds one of these rather than repairing,
+# which is the signal that matters. Ignored so a `git add -A` inside that window
+# cannot commit the sentinel and make the refusal permanent.
+#
+# They survive SIGKILL, and that is the point: a tool timeout escalates to
+# SIGKILL, no trap survives it, and a leaked mutation then reads as a genuine
+# regression on the next run. Measured on 2026-08-20 — a killed gate left
+# `[ "${FORCE:-0}" != "1" ] || force=1` replaced by `:` and the following run
+# reported it as content lost in a merge.
+#
+# A PATTERN rather than one line per harness, and each harness must choose a
+# name UNIQUE TO ITSELF. A shared sentinel is worse than none: harness A's
+# restore deletes harness B's in-progress marker, so B's next run sees a clean
+# repo, reads B's own leaked mutation as a real failure, and the refusal that
+# was supposed to catch it never fires.
+*mutation-in-progress

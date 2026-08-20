@@ -759,8 +759,18 @@ dex_log() {
 	make_report PASS
 	run "${driver}" test
 	[ "$status" -eq 0 ]
-	[[ "$(gcloud_log)" == *"SL_DEMO_STAGE=test"* ]] || {
+	# DEMO_STAGE, not SL_DEMO_STAGE. The driver exported an SL_DEMO_ prefix that
+	# demo-pipeline.sh never read, and this assertion is part of why that
+	# survived: it proved the string reached the gcloud command line and never
+	# that anything on the far side consumed it. test/terraform-env-contract.bats
+	# now asserts both halves agree.
+	[[ "$(gcloud_log)" == *"DEMO_STAGE=test"* ]] || {
 		echo "the test lane did not ask the pipeline for the tests-only stage"
+		return 1
+	}
+	# And it must NOT be the dead prefix again.
+	[[ "$(gcloud_log)" != *"SL_DEMO_STAGE"* ]] || {
+		echo "the driver is exporting the SL_DEMO_ prefix, which nothing reads"
 		return 1
 	}
 }
@@ -769,7 +779,8 @@ dex_log() {
 	make_report PASS
 	run "${driver}" up
 	[ "$status" -eq 0 ]
-	[[ "$(gcloud_log)" == *"SL_DEMO_STAGE=full"* ]]
+	[[ "$(gcloud_log)" == *"DEMO_STAGE=full"* ]]
+	[[ "$(gcloud_log)" != *"SL_DEMO_STAGE"* ]]
 }
 
 # ─── connect: the deliverable the human actually sees ───────────────────────

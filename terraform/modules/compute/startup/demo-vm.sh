@@ -34,7 +34,44 @@
 
 set -euo pipefail
 
-readonly KIND_VERSION="v0.24.0"
+# ── Toolchain pins ───────────────────────────────────────────────────────────
+#
+# THESE MUST MATCH scripts/ci/install-ci-tools.sh AND scripts/setup.sh.
+# test/terraform-toolchain-pins.bats enforces that by DERIVING all three sets
+# from the files themselves and failing on any disagreement — it does not carry
+# a hand-written copy of today's numbers, because a fourth copy of a version
+# string is the same defect one file further along.
+#
+# A shared constants file is not available to this script and that is not an
+# oversight: this file is delivered as `metadata_startup_script` and runs before
+# any repository exists on the instance, so it cannot source anything from the
+# tree. Duplication is forced; what is NOT forced is the duplication being
+# unchecked. The test is the single source of truth's enforcement mechanism.
+#
+# ─── Why these two lines were wrong, and what it cost ───────────────────────
+#
+# kind was pinned here at v0.24.0 while install-ci-tools.sh pinned 0.29.0 and
+# setup.sh pinned v0.29.0 — one outlier against two that already agreed. This
+# script installs 0.24.0 at boot as root; the pipeline then detects the mismatch
+# and tries to upgrade, and THAT is what triggered the install failure on
+# sl-demo-2-vm (see the long note above install_binary in install-ci-tools.sh —
+# curl could not open the root-owned file this script had created). The two
+# defects were only reachable together.
+#
+# NOTE THE `v`. install-ci-tools.sh stores the bare number and adds the prefix
+# at the URL; this file and setup.sh store it with the prefix. The comparison in
+# the test normalises it, because "0.29.0" != "v0.29.0" is exactly the kind of
+# difference that makes a divergence test look green while the tools differ.
+#
+# kubectl WAS NOT PINNED HERE AT ALL. It resolved
+# https://dl.k8s.io/release/stable.txt at boot, so the version installed on any
+# given VM was whatever Kubernetes had released that morning: not reproducible
+# between two VMs built a week apart, and an unpinned supply-chain intake on a
+# machine whose entire demonstration subject is supply-chain posture. It is now
+# pinned to the same version install-ci-tools.sh and setup.sh use, which also
+# means the pipeline's version check no-ops instead of reinstalling.
+readonly KIND_VERSION="v0.29.0"
+readonly KUBECTL_VERSION="v1.33.2"
 readonly LOG_TAG="signalloom-bootstrap"
 readonly MARKER="/var/lib/signalloom/.bootstrapped"
 readonly METADATA_ROOT="http://169.254.169.254/computeMetadata/v1"
@@ -135,11 +172,34 @@ metadata_attr() {
 #   gnupg           dearmours the Docker apt key further down.
 #   apt-transport-https  the Docker apt source is HTTPS.
 #
-# Deliberately NOT here: jq, unzip, gcc/g++, python3, node. The first three
-# belong to scripts/setup.sh, python3 is apt-installed by install-ci-tools.sh
-# itself, and node arrives with the Playwright setup. Adding them would move
-# the provisioning/deployment line without moving the responsibility, and this
-# script's whole contract is that it stops at prerequisites.
+# Deliberately NOT here, with the ACTUAL provider named in each case rather than
+# assumed — every claim below was checked against the file it names:
+#
+#   jq            scripts/setup.sh:100, via fetch_bin from the jq releases page.
+#   python3       scripts/ci/install-ci-tools.sh, apt, near the end.
+#   unzip         scripts/ci/install-ci-tools.sh, apt, on demand for bun's zip.
+#   node/bun/uv   scripts/ci/install-ci-tools.sh, pinned + checksum-verified.
+#   gcc/g++       NOTHING INSTALLS THEM, and nothing needs them. This list used
+#                 to say they "belong to scripts/setup.sh"; setup.sh apt-installs
+#                 only skopeo. There is no CGO_ENABLED anywhere in the repo and
+#                 every Go tool fetched by `go install` here is pure Go, so the
+#                 absence is correct — but the stated reason was not, and an
+#                 incorrect reason is what makes the next person go looking in
+#                 the wrong file.
+#
+# Adding any of them here would move the provisioning/deployment line without
+# moving the responsibility, and this script's whole contract is that it stops
+# at prerequisites.
+#
+# THIS LIST PREVIOUSLY CLAIMED "node arrives with the Playwright setup". It does
+# not, and the claim cost three separate forty-minute runs to disprove one tool
+# at a time. The Playwright step in scripts/ci/vm-pipeline.sh RUNS `npx
+# playwright install chrome` — it consumes npx and has never provided it. The v1
+# CI VM's scripts/ci/vm-startup.sh installs node, bun and uv; this script is v1's
+# replacement for the demo lane and silently dropped all three, so every fresh
+# VM failed on `npx: not found`, then `bun: command not found`, then uv. They are
+# now installed, pinned and checksum-verified, in install-ci-tools.sh beside the
+# other toolchain pins where test/terraform-toolchain-pins.bats can see them.
 #
 # Runs unconditionally rather than inside install_docker. It used to be folded
 # into that function, which early-returns when docker is already present — so
@@ -217,14 +277,14 @@ install_kubectl() {
     return 0
   fi
 
-  local version
-  version="$(curl --fail --silent --show-error --location \
-    https://dl.k8s.io/release/stable.txt)" \
-    || die "could not resolve the stable kubectl version"
-
-  log "installing kubectl ${version}"
+  # PINNED, not resolved. This used to fetch dl.k8s.io/release/stable.txt at
+  # boot and install whatever it named, which meant two VMs built a week apart
+  # ran different kubectl versions with nothing recording why — and it made the
+  # pipeline's pinned check reinstall on every machine that drifted. See the
+  # KUBECTL_VERSION note at the top of this file.
+  log "installing kubectl ${KUBECTL_VERSION}"
   fetch_verified \
-    "https://dl.k8s.io/release/${version}/bin/linux/amd64/kubectl" \
+    "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl" \
     /usr/local/bin/kubectl
 }
 

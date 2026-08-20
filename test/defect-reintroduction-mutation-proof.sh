@@ -378,7 +378,17 @@ unmutate "$DRIVER"
 # D4  The tailnet name drift.
 #
 # Without `ts-logout` before a destroy the corpse holds the MagicDNS name for
-# 47-100 minutes, and the rebuild is handed sl-demo-1-1 — so the demo URL moves.
+# 47-100 minutes, so the rebuild is handed a numerically SUFFIXED variant of it
+# and the demo URL moves.
+#
+# The suffixed name is described rather than written, and that is not squeamish-
+# ness. test/terraform-ts-stable-node-name.bats "ANTI-TEST: no suite pins the
+# drifted name as an expectation" greps all of test/ for that literal, because
+# the tempting fix for this defect is to assert equality against the drifted name
+# and thereby encode the bug as the contract. It builds its needle with printf so
+# it cannot match its own source; it cannot tell prose from an expectation, and
+# the first draft of this comment turned the gate red by quoting the name. That
+# is the guard working. Describe the shape, do not spell it.
 #
 # The whole recipe line is deleted, which is what its absence looks like. Note
 # that `ts-logout` still appears four times in the Makefile afterwards, three of

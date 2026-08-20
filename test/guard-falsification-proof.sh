@@ -1095,13 +1095,31 @@ orc_rbac_dangling_sa() {
 }
 
 orc_rbac_discovery() {
+	# Scoped to d2-signalloom AND d2-osramp-fleet, not d2-signalloom alone.
+	# 141a757f (2026-08-01, "move agent namespace + RBAC into signalloom-infra
+	# ResourceSet") relocated the fe-signalloom-agents Role/RoleBinding pair out
+	# of d2-signalloom entirely, into the signalloom-infra ResourceSet at
+	# d2-osramp-fleet/tenants/local/signalloom.yaml -- deliberately, for two
+	# independent reasons documented in
+	# d2-signalloom/apps/fleet-manager/base/rbac.yaml: the signalloom-apps
+	# Kustomization's targetNamespace override would silently misapply a Role
+	# declared for the agents namespace, and the namespace-scoped flux
+	# ServiceAccount lacks `escalate`, so a RoleBinding whose roleRef can't
+	# resolve aborts kustomize-controller's whole server-dry-run.
+	#
+	# This oracle was written two weeks later (1216c97c, 2026-08-16) and never
+	# learned about the new location, so it reported the relocated grant as
+	# ungranted from the day it was written -- a false positive in the oracle,
+	# not a gap in product RBAC. Widening the search path is the fix; the RBAC
+	# itself stays exactly where 141a757f put it.
 	ORC_FILE="d2-signalloom/apps/fake-integration-proxy/server.py" python3 - <<-'PY'
 		import os, re, pathlib, subprocess
 		src = pathlib.Path(os.environ["ORC_FILE"]).read_text()
 		m = re.search(r'DEFAULT_AGENT_DISCOVERY_NAMESPACES\s*=\s*\(([^)]*)\)', src)
 		nss = re.findall(r'"([^"]+)"', m.group(1)) if m else []
 		granted = subprocess.run(
-		    ["grep", "-rl", "-e", "kind: Role", "--include=*.yaml", "d2-signalloom"],
+		    ["grep", "-rl", "-e", "kind: Role", "--include=*.yaml",
+		     "d2-signalloom", "d2-osramp-fleet"],
 		    capture_output=True, text=True).stdout.split()
 		bad = 0
 		for ns in nss:

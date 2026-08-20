@@ -1335,15 +1335,31 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	# "no pkill anywhere" is trivially satisfied by a public-down that stops
 	# nothing at all, which is the inverted-negative shape this repo has shipped
 	# before — an assertion that passes hardest when its subject is deleted.
-	grep -q 'PF_PID_FILE=' "${DRIVER_SRC}" || {
-		echo "no PID file is recorded, so public-down has nothing to kill by PID"
+	#
+	# The IDENTITY changed and the rule did not. This used to require a recorded
+	# PID file; the forward is now a systemd unit, and a unit name is the same
+	# discipline with a stronger identity — a PID can be recycled by an unrelated
+	# process between publish and teardown, and a stale PID file after a reboot
+	# names something that was never the forward.
+	#
+	# A PID kill would in fact be WORSE than useless now: under Restart=always,
+	# killing the process makes systemd start another five seconds later, so
+	# public-down would report STOPPED with the port still bound.
+	grep -q 'PF_UNIT=' "${DRIVER_SRC}" || {
+		echo "no forward unit is named, so public-down has nothing to stop by identity"
 		return 1
 	}
-	grep -q "kill \\\\\"\\\$(cat '\${PF_PID_FILE}')\\\\\"" "${DRIVER_SRC}" || {
-		grep -q 'PF_PID_FILE' "${DRIVER_SRC}" && grep -q 'kill' "${DRIVER_SRC}" || {
-			echo "public-down does not kill the recorded PID"
-			return 1
-		}
+	grep -qF 'sudo systemctl disable --now' "${DRIVER_SRC}" || {
+		echo "public-down does not stop the forward unit by name"
+		return 1
+	}
+
+	# DISABLE, not merely stop. A unit that is only stopped comes back on the
+	# next reboot, which makes teardown a lie that surfaces hours later. Asserted
+	# separately from the line above so the failure names which half is missing.
+	grep -qE 'systemctl (disable --now|.*--now.*disable)' "${DRIVER_SRC}" || {
+		echo "public-down stops the unit without disabling it — it returns on reboot"
+		return 1
 	}
 
 	# And then the absence: no pattern-matching process lookup in the file at

@@ -57,6 +57,15 @@
 #                     with ci-lane (ci-6/ci-5)    disagreeing value is itself a
 #                                                 CI key, so gate 5 cannot fire
 #                                                 and gate 4 is genuinely alone.
+#   sl-ci-6-vm        ci-lane = xci-6, which   -> only gate 2's ANCHORS reject
+#                     merely CONTAINS a lane      it. Unanchor the pattern and
+#                     key                         this row is reaped: its
+#                                                 environment label agrees, its
+#                                                 kind is ci, and it carries no
+#                                                 demo marker. This repo has
+#                                                 already shipped a token
+#                                                 matching inside a longer token
+#                                                 (DEMO_ENV inside SL_DEMO_ENV).
 #   sl-ci-7-vm        genuine lane, SUSPENDED  -> admitted past every safety gate
 #                                                 and then left alone on state.
 #                                                 Realistic: a demo lane is
@@ -74,6 +83,7 @@ signalloom-ci|europe-west2-a|ci-1|@OLD@|RUNNING|ci|ci-1
 signalloom-ci-2|europe-west2-a|ci-2|@OLD@|RUNNING|ci|ci-2
 sl-ci-4-vm|europe-west2-a|ci-4|@OLD@|RUNNING||ci-4
 sl-ci-5-vm|europe-west2-a|ci-5|@OLD@|RUNNING|ci|ci-6
+sl-ci-6-vm|europe-west2-a|xci-6|@OLD@|RUNNING|ci|xci-6
 sl-ci-7-vm|europe-west2-a|ci-7|@OLD@|SUSPENDED|ci|ci-7
 sl-ci-8-vm|europe-west2-a|ci-8|not-a-timestamp|RUNNING|ci|ci-8
 sl-ci-9-vm|europe-west2-a|ci-9|@NEW@|RUNNING|ci|ci-9

@@ -107,6 +107,22 @@ setup() {
 	export GCP_TF_DEMO_PORT_PROBE="${stubdir}/probe-ok"
 	export GCP_TF_DEMO_TUNNEL_WAIT_SECONDS=2
 	export STUB_TUNNEL_HOLD=1
+
+	# ── The PRE-FLIGHT probe is pinned, and pinning it is not tidiness ────────
+	#
+	# require_local_port_free asks the OPPOSITE question to PORT_PROBE: success
+	# means "the port is taken, refuse". Left on its real default this suite
+	# would probe the runner's actual localhost:8080, so every connect and
+	# public test would pass or fail according to what happened to be listening
+	# on the machine — green on a laptop, red on a developer running anything on
+	# 8080, and neither result would be about the driver.
+	#
+	# `port-free` (exit 1 — nothing is listening) is the resting state. The
+	# collision tests swap in `port-busy`.
+	printf '#!/usr/bin/env bash\nexit 1\n' >"${stubdir}/port-free"
+	printf '#!/usr/bin/env bash\nexit 0\n' >"${stubdir}/port-busy"
+	chmod +x "${stubdir}/port-free" "${stubdir}/port-busy"
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-free"
 }
 
 # A fixture checkout carrying one of everything the exclusion list names, so
@@ -1786,4 +1802,175 @@ stub_curl() { # stub_curl <status-code-to-emit>
 		return 1
 	}
 	return 0
+}
+
+# ─── Lane parallelism: the local port is the one shared mutable resource ─────
+#
+# Andy runs demo-1, demo-2, ci-1 and ci-2 at the same time. Almost every axis of
+# that is already per-lane by construction — the Terraform data dir, the GCS
+# state prefix, the plan file, the handoff file, the Dex origin (it lives in
+# each lane's own cluster, reached over that lane's own SSH).
+#
+# The operator's own machine is not. `app_port` is a single value in the shared
+# tfvars — 30754 for all four lanes — and the LOCAL end of the IAP tunnel
+# defaults to it. Four lanes, one localhost port.
+#
+# What made that a correctness bug rather than a nuisance is in the driver's
+# comment above require_local_port_free: the post-launch wait loop cannot tell
+# "my tunnel bound" from "somebody else's tunnel is listening", so the second
+# lane reports a healthy tunnel and serves the first lane's cluster.
+
+@test "PARALLEL the local-port preflight guard is present at all" {
+	# Presence before behaviour. Every assertion below drives the driver and
+	# reads its refusal; if the guard were deleted the driver would simply
+	# succeed, and a suite that only ever asserted "refuses" would go green
+	# against a driver that no longer refuses anything — it would just never
+	# reach the assertions. Named here so the failure says which mechanism
+	# went missing rather than which string did not appear.
+	grep -q 'require_local_port_free()' "${DRIVER_SRC}" || {
+		echo "require_local_port_free is not defined in the driver"
+		return 1
+	}
+	grep -q 'require_local_port_free "\$local_port" "gcp-tf-connect"' "${DRIVER_SRC}" || {
+		echo "connect does not call the local-port preflight guard"
+		return 1
+	}
+	grep -q 'require_local_port_free "\$local_port" "gcp-tf-public"' "${DRIVER_SRC}" || {
+		echo "public does not call the local-port preflight guard"
+		return 1
+	}
+}
+
+@test "PARALLEL connect refuses when another lane already holds the local port" {
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-busy"
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "connect reported success while another lane held localhost:8080 — this is the silent wrong-lane bug: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"already in use"* ]] || {
+		echo "the refusal did not say the port was taken: ${output}"
+		return 1
+	}
+}
+
+@test "PARALLEL connect refuses BEFORE it touches the cloud or mutates Dex" {
+	# The ordering is the substance of the fix, not a nicety. `dex_origin apply`
+	# repoints THIS lane's issuer at an origin the OTHER lane is serving, so a
+	# guard that fired after it would still have broken this lane's login on its
+	# way to refusing. And the tunnel is the thing that would have reported a
+	# false success.
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-busy"
+	run "${driver}" connect
+	[ "$status" -ne 0 ]
+	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
+		echo "the tunnel was opened before the port collision was detected: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(dex_log)" != *"apply"* ]] || {
+		echo "Dex was repointed before the port collision was detected: $(dex_log)"
+		return 1
+	}
+}
+
+@test "PARALLEL public refuses on a held local port, before the cloud and before Dex" {
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-busy"
+	run "${driver}" public
+	[ "$status" -ne 0 ] || {
+		echo "public reported success while another lane held the local port: ${output}"
+		return 1
+	}
+	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
+		echo "public opened the tunnel before detecting the collision: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(dex_log)" != *"apply"* ]] || {
+		echo "public repointed Dex before detecting the collision: $(dex_log)"
+		return 1
+	}
+}
+
+@test "PARALLEL the refusal hands over the per-lane escape hatch" {
+	# A refusal that does not say how to proceed converts a silent wrong-lane
+	# bug into a hard stop, which is better but is not the job. Andy's stated
+	# requirement is four lanes at once, so the message has to carry the
+	# mechanism that makes that work.
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-busy"
+	run "${driver}" connect
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"GCP_TF_DEMO_LOCAL_PORT"* ]] || {
+		echo "the refusal never names the variable that gives a lane its own port: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"ENV=${ENV_KEY}"* ]] || {
+		echo "the refusal did not name the lane it refused: ${output}"
+		return 1
+	}
+}
+
+@test "PARALLEL a free port leaves connect completely unchanged" {
+	# The guard must be invisible on the single-lane path, or it is a tax that
+	# gets deleted. `port-free` is the resting state set in setup().
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "connect failed on a FREE local port — the guard is refusing valid input: ${output}"
+		return 1
+	}
+	[[ "$(gcloud_log)" == *"--local-host-port=localhost:8080"* ]] || {
+		echo "the tunnel no longer binds the configured port: $(gcloud_log)"
+		return 1
+	}
+}
+
+@test "PARALLEL the preflight probe is a SEPARATE injection point from the wait probe" {
+	# If a future edit collapses the two onto one variable, the suites' probe-ok
+	# stub — which answers "bound" unconditionally, correctly, for the
+	# post-launch question — would make the preflight refuse every single run.
+	# The two names existing separately is the thing that keeps both questions
+	# askable, so it is asserted rather than left to review.
+	grep -q 'GCP_TF_DEMO_PREFLIGHT_PORT_PROBE' "${DRIVER_SRC}" || {
+		echo "the preflight probe is no longer independently injectable"
+		return 1
+	}
+	local pf wait_probe
+	pf="$(grep -c 'PREFLIGHT_PORT_PROBE="\${GCP_TF_DEMO_PREFLIGHT_PORT_PROBE' "${DRIVER_SRC}")"
+	wait_probe="$(grep -c 'PORT_PROBE="\${GCP_TF_DEMO_PORT_PROBE' "${DRIVER_SRC}")"
+	[ "$pf" -eq 1 ] && [ "$wait_probe" -eq 1 ] || {
+		echo "expected exactly one definition of each probe, got preflight=${pf} wait=${wait_probe}"
+		return 1
+	}
+}
+
+@test "PARALLEL MUTATION port-collision: deleting the guard call reports a healthy tunnel on the wrong lane" {
+	# THE mutation this whole section exists for. With the call removed and the
+	# port held by another lane, the driver must be observed to sail through and
+	# claim success — which is exactly what it did before the fix, and is why a
+	# collision was never noticed.
+	local mutated="${BATS_TEST_TMPDIR}/demo-up-mutated.sh"
+	sed 's/^  require_local_port_free "\$local_port" "gcp-tf-connect"$/  : # MUTATED: guard call deleted/' \
+		"${DRIVER_SRC}" >"${mutated}"
+	chmod +x "${mutated}"
+
+	# Assert the mutation REACHED the thing under test. A sed that matched
+	# nothing leaves an identical file, the driver still refuses, and this test
+	# passes having proved nothing at all.
+	! diff -q "${DRIVER_SRC}" "${mutated}" >/dev/null || {
+		echo "the mutation changed nothing — the guard call did not match the pattern"
+		return 1
+	}
+	grep -q 'MUTATED: guard call deleted' "${mutated}" || {
+		echo "the mutation marker is absent from the mutated driver"
+		return 1
+	}
+
+	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-busy"
+	run "${mutated}" connect
+	[ "$status" -eq 0 ] || {
+		echo "the mutant refused anyway — something OTHER than the deleted guard is doing the refusing, so the guard is not what these tests measure: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"tunnel is UP"* ]] || {
+		echo "the mutant did not report a live tunnel; the wrong-lane failure mode is not what this suite reproduces: ${output}"
+		return 1
+	}
 }

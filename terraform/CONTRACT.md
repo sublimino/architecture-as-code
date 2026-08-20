@@ -391,6 +391,31 @@ prohibition:
   the opposite of what it claims. Compare hashes, or use a helper that fails on a no-op. Watch
   for shell metacharacters: an unescaped `|` in a `sed` expression is a syntax error that reads
   as "the guard is dead".
+
+- **Assert it applied AT THE RIGHT LEVEL. A hash proves the bytes changed; it does not prove the
+  change reached the thing under test.** These are different claims and only the second one
+  matters.
+
+  Measured on 2026-08-20. A proof mutated `KEYS_DIR ?= …` at `Makefile:42`. The bytes changed, so
+  the hash check passed. But `Makefile:43` is `export KEYS_DIR`, so every recipe child of
+  `make gcp-tf-validate` inherits it in its *environment* — and an environment variable beats
+  `?=`. The mutation was real and `make` expanded the same value regardless:
+
+      make -n signing-keys                                   -> mkdir -p …/osramp-demo/.keys
+      KEYS_DIR=/parent/inherited/.keys make -n signing-keys   -> mkdir -p /parent/inherited/.keys
+
+  The proof then reported a perfectly good guard as dead: `21/0` standalone, `19/2` under the
+  gate. **A false finding that points at working code is indistinguishable from a real one**, and
+  it costs more than a missed defect because it sends someone to fix something that is not broken.
+
+  So a mutation must additionally move something the system under test actually *evaluates*, and
+  the harness must abort as a HARNESS ERROR rather than return a verdict when it cannot show that.
+  Where the target is read from the environment, `unset` it first so the verdict cannot depend on
+  the parent process.
+
+  The general form: **inherited environment, defaulted variables (`?=`, `${X:-}`), caches and
+  generated files all sit between the file you mutated and the behaviour you are asserting.** Any
+  of them can absorb a mutation silently.
 - **Verify restoration** by comparing the hash to the pre-mutation one, and report it.
 - A mutation that fails NOTHING is a finding, not a nuisance. Fix the assertion before moving on.
 - Prefer `rg`/`grep` over parsing HCL with regex where a `terraform validate` or

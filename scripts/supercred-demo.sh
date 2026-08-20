@@ -520,26 +520,20 @@ $(printf '%s' "$role_delete_out" | indent)"
   # Polling for the pod and reading its log in full is what makes the claim
   # evidenced. --tail is deliberately absent: the whole chain is four lines and
   # the failing one is not always the last.
-  local agent_log="" agent_pod="" waited=0
+  local agent_log="" agent_pod=""
   local deadline="${SUPERCRED_STUN_EVIDENCE_TIMEOUT:-120}"
-  while [ "$waited" -lt "$deadline" ]; do
-    if [ -z "$agent_log" ]; then
-      agent_pod="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
-        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || agent_pod=""
-      if [ -n "$agent_pod" ]; then
-        agent_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers 2>/dev/null)" \
-          || agent_log=""
-      fi
-    fi
-    # `[ … ] && break` as a bare statement returns 1 when the test is false,
-    # which `set -e` would treat as a script failure the moment it lands last
-    # in the loop body. An explicit `if` keeps the loop refactor-safe.
-    if [ "$(job_condition Complete)" = "True" ] || [ "$(job_condition Failed)" = "True" ]; then
-      break
-    fi
-    sleep 2
-    waited=$((waited + 2))
-  done
+
+  # Wait for Job to reach a terminal condition (Complete or Failed)
+  _wait_retry "$deadline" "supercred-agent-run job completed or failed" \
+    "kubectl -n '${NAMESPACE_AGENTS}' get job supercred-agent-run -o jsonpath='{.status.conditions[*].type}' 2>/dev/null | grep -qE 'Complete|Failed'" || true
+
+  # Extract agent pod and full container logs
+  agent_pod="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
+    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || agent_pod=""
+  if [ -n "$agent_pod" ]; then
+    agent_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers 2>/dev/null)" \
+      || agent_log=""
+  fi
 
   if [ "$(job_condition Complete)" = "True" ]; then
     fail "agent job COMPLETED after the stun — credentials were NOT revoked.

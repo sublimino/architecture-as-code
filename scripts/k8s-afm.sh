@@ -92,26 +92,14 @@ except Exception as e:
     # populated before acceptance tests run. The CronJob imports the live cluster
     # RBAC as id=local; this POST kicks off the async analysis and waits for it.
     echo "==> Triggering escalation analysis for local cluster..."
-    python3 -c "
-import json, time, urllib.request
-try:
-    req = urllib.request.Request('http://localhost:18000/clusters/local/analysis/escalation',
-        method='POST', headers={'Content-Type': 'application/json'}, data=b'{}')
-    urllib.request.urlopen(req, timeout=30)
-except Exception: pass  # 404 if cluster-import hasn't run yet — seed path covers it
-for i in range(20):
-    try:
-        resp = urllib.request.urlopen('http://localhost:18000/clusters/local/analysis/latest', timeout=5)
-        data = json.load(resp)
-        if data and isinstance(data, dict) and data.get('metadata'):
-            n = len(data['metadata'].get('non_admins', []))
-            print(f'  analysis ready: {n} non-admin subjects')
-            break
-    except Exception: pass
-    time.sleep(3)
-else:
-    print('  analysis not ready after 60s (tests may fail on /analysis/latest)')
-" 2>&1
+    curl -sS -X POST http://localhost:18000/clusters/local/analysis/escalation \
+      -H 'Content-Type: application/json' -d '{}' >/dev/null 2>&1 || true
+    if _wait_retry 60 "local cluster analysis ready" "curl -fsS http://localhost:18000/clusters/local/analysis/latest 2>/dev/null | jq -e '.metadata.non_admins' >/dev/null 2>&1"; then
+      count=$(curl -fsS http://localhost:18000/clusters/local/analysis/latest 2>/dev/null | jq -r '.metadata.non_admins | length // 0')
+      echo "  analysis ready: ${count} non-admin subjects"
+    else
+      echo "  analysis not ready after 60s (tests may fail on /analysis/latest)"
+    fi
     kill "$PF" 2>/dev/null || true
     echo "==> KubeSec-AFM deployed."
     kubectl -n "$NS" get pods

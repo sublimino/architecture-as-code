@@ -364,25 +364,21 @@ restore_dex_secret() {
 
   echo "    Dex config restored from backup"
   kubectl rollout restart "deployment/${DEX_DEPLOYMENT}" -n "$DEX_NAMESPACE"
-  sleep 2
   wait_rollout "$DEX_DEPLOYMENT" -n "$DEX_NAMESPACE" 120
   echo "    Dex restarted and ready"
 }
 
 # ── ngrok URL extraction ─────────────────────────────────────────────
 extract_ngrok_url() {
-  local deadline=$((SECONDS + 30))
-  while (( SECONDS < deadline )); do
-    local url
-    url=$(curl -fsS "$NGROK_API" 2>/dev/null \
-      | jq -r '.tunnels[0].public_url // empty' 2>/dev/null) || true
+  local url=""
+  if _wait_retry 30 "extract ngrok URL" "curl -fsS '${NGROK_API}' 2>/dev/null | jq -e '.tunnels[0].public_url' >/dev/null 2>&1"; then
+    url="$(curl -fsS "$NGROK_API" 2>/dev/null | jq -r '.tunnels[0].public_url // empty')"
     if [[ -n "$url" ]]; then
       echo "$url" > "$NGROK_URL_FILE"
       echo "$url"
       return 0
     fi
-    sleep 1
-  done
+  fi
   echo "ERROR: Failed to extract ngrok URL within 30s" >&2
   echo "       Check ${NGROK_LOG_FILE} for errors" >&2
   return 1

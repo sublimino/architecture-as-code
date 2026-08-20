@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+#
+# Stub `curl` for test/terraform-tailnet-remote.bats.
+#
+# Models the FOUR routes the remote surface asks for, independently, because the
+# defects worth testing are per-route: a lane that serves nginx but proxies no
+# Dex, a Dex whose issuer belongs to another access path, an API that answers
+# 200 to an anonymous caller. A single global knob could express none of those.
+#
+# ─── Why it is a separate stub from the sibling stub_curl helper ────────────
+#
+# test/terraform-tailscale-access.bats generates a one-line curl that prints a
+# status code and nothing else. That is exactly right for the health-gate tests
+# it serves, and useless here: this surface reads BODIES — the OIDC discovery
+# document and the token response — and asserts on their contents. A stub that
+# writes no body would make every issuer and token assertion vacuous, which is
+# the failure mode this repo keeps rediscovering.
+#
+# ─── The contract with the caller ──────────────────────────────────────────
+#
+# ts_fetch invokes:  curl -sS -o <body> -w '%{http_code}' --max-time <n> [args] <url>
+# The URL is always LAST, and the body path always follows -o. Both are read
+# positionally here rather than parsed, because a full getopt would be a second
+# implementation of curl's CLI and would drift from the one line that matters.
+#
+# Knobs, all optional:
+#   STUB_CURL_LOG            file to append each invocation to
+#   STUB_CURL_RC             exit code for EVERY request; 7 models a lane whose
+#                            node is up with nothing listening on :443
+#   STUB_CURL_READYZ_CODE    HTTP status for the health path        (default 200)
+#   STUB_CURL_OIDC_CODE      HTTP status for OIDC discovery         (default 200)
+#   STUB_CURL_OIDC_ISSUER    the `issuer` in the discovery document
+#   STUB_CURL_TOKEN_CODE     HTTP status for the token endpoint     (default 200)
+#   STUB_CURL_TOKEN_ISS      the `iss` claim inside the minted id_token
+#   STUB_CURL_TOKEN_NO_ID    1 => a 200 whose body carries no id_token
+#   STUB_CURL_API_ANON_CODE  HTTP status for /api/* with no bearer  (default 401)
+#   STUB_CURL_API_AUTH_CODE  HTTP status for /api/* with a bearer   (default 200)
+
+log="${STUB_CURL_LOG:-/dev/null}"
+printf '%s\n' "$*" >>"$log"
+
+url=""
+body="/dev/null"
+authorization=0
+prev=""
+for arg in "$@"; do
+  case "$prev" in
+    -o) body="$arg" ;;
+  esac
+  case "$arg" in
+    Authorization:*) authorization=1 ;;
+    https://* | http://*) url="$arg" ;;
+  esac
+  prev="$arg"
+done
+
+# A non-zero curl exit means the request could not be made AT ALL. Real curl
+# writes no body and reports 000 in that case, and reproducing both matters:
+# the driver distinguishes "no response" from "a bad response" and a stub that
+# emitted a status here would collapse the two.
+if [ "${STUB_CURL_RC:-0}" != "0" ]; then
+  printf '000'
+  exit "${STUB_CURL_RC}"
+fi
+
+# base64url, as a JWT actually carries it: '+' and '/' substituted and the
+# padding stripped. Emitting plain base64 would still decode for many inputs and
+# fail for some, which is the worst of both worlds in a fixture.
+b64url() {
+  base64 -w0 2>/dev/null | tr '+/' '-_' | tr -d '='
+}
+
+emit() { # emit <http-code> [body]
+  printf '%s' "${2-}" >"$body"
+  printf '%s' "$1"
+  exit 0
+}
+
+case "$url" in
+  */dex/.well-known/openid-configuration)
+    emit "${STUB_CURL_OIDC_CODE:-200}" \
+      "$(jq -nc --arg i "${STUB_CURL_OIDC_ISSUER:-}" '{issuer: $i}')"
+    ;;
+  */dex/token)
+    if [ "${STUB_CURL_TOKEN_NO_ID:-0}" = "1" ]; then
+      emit "${STUB_CURL_TOKEN_CODE:-200}" '{"access_token":"opaque"}'
+    fi
+    header="$(printf '%s' '{"alg":"RS256"}' | b64url)"
+    payload="$(jq -nc --arg i "${STUB_CURL_TOKEN_ISS:-}" '{iss: $i}' | b64url)"
+    emit "${STUB_CURL_TOKEN_CODE:-200}" \
+      "$(jq -nc --arg t "${header}.${payload}.sig" '{id_token: $t}')"
+    ;;
+  */api/*)
+    if [ "$authorization" = "1" ]; then
+      emit "${STUB_CURL_API_AUTH_CODE:-200}" '{"ok":true}'
+    fi
+    emit "${STUB_CURL_API_ANON_CODE:-401}" '{"error":"unauthorized"}'
+    ;;
+esac
+
+# Everything else is the health path. Named last rather than matched on /readyz
+# because the path is injectable (GCP_TF_DEMO_TS_HEALTH_PATH) and a stub that
+# hardcoded it would stop modelling the driver the moment that knob was used.
+emit "${STUB_CURL_READYZ_CODE:-200}"

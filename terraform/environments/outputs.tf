@@ -63,6 +63,16 @@ output "integration_inputs" {
   value       = local.integration_inputs
 }
 
+output "edge_environment_keys" {
+  description = "Environment keys whose lane really has an HTTPS load balancer. Deliberately derived from the single local.edge_environments definition in main.tf so the published answer and the module graph cannot disagree."
+  value       = sort(keys(local.edge_environments))
+}
+
+output "access_mode" {
+  description = "Effective access path for the targeted environment. Deliberately named access_mode because make gcp-tf-handoff resolves the hand-off field with .access_mode.value // .integration_inputs.value.access_mode; publishing it here makes the hand-off report the real path in force, while the integration_inputs fallback remains for state written before this output existed."
+  value       = local.effective_access_mode
+}
+
 # ── Hand-off to the test code ───────────────────────────────────────────────
 #
 # The deploy → test hand-off (`make gcp-tf-handoff`) derives every field from

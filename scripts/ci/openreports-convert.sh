@@ -124,6 +124,15 @@ const stageMap = [
   // asserts nothing about the product -- it asserts that the other stages run
   // what they claim to run.
   { file: 'stage1c-acceptance-coverage.tap', parser: parseTap, source: 'bats-acceptance-coverage', category: 'meta' },
+  // Stage 1c2. 'meta' for the same reason as 1c above: it asserts that the
+  // gateway-forward supervisor behaves, which is machinery the acceptance run
+  // depends on, not a claim about the product.
+  //
+  // This entry exists because ci-terminal-state.bats caught its absence within
+  // minutes of stage 1c2 being added — a TAP report with no stage-map row is
+  // produced, parsed by nothing, and silently absent from the verdict. Adding
+  // the stage and forgetting the row is the exact failure that guard is for.
+  { file: 'stage1c2-gateway-forward.tap', parser: parseTap, source: 'bats-gateway-forward', category: 'meta' },
   // Also 'meta': it asserts that stage [4/7] builds everything
   // demo-signalloom-up builds, not anything about the product. Reported
   // separately from 1c because the two answer different questions -- 1c asks

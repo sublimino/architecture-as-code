@@ -143,6 +143,81 @@ default_port_probe() {
   (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
 }
 
+# ── The PRE-FLIGHT probe, which asks the opposite question ──────────────────
+#
+# Deliberately a SECOND injection point rather than a reuse of PORT_PROBE, and
+# the split is the whole point rather than duplication.
+#
+# PORT_PROBE runs AFTER the tunnel is launched and asks "is the port bound yet?"
+# — success means proceed. This one runs BEFORE anything is launched and asks
+# "is the port ALREADY taken?" — success means REFUSE. Same syscall, opposite
+# polarity, opposite moment. A single injectable cannot express both: the
+# suites' `probe-ok` stub answers "bound" unconditionally, which is correct for
+# the post-launch question and would make this guard refuse every run.
+PREFLIGHT_PORT_PROBE="${GCP_TF_DEMO_PREFLIGHT_PORT_PROBE:-default_port_probe}"
+
+# ── Why a local port collision is a WRONG-LANE bug, not an inconvenience ────
+#
+# Every lane in this estate publishes the same app_port (30754 for demo-1,
+# demo-2, ci-1 and ci-2 alike — it is one value in the shared tfvars), and
+# local_tunnel_port() defaults the LOCAL end to that same number. So all four
+# lanes want to bind localhost:30754 on the operator's machine, and only one of
+# them can have it.
+#
+# Left unguarded that does NOT present as "address already in use". It presents
+# as success on the wrong cluster, by this exact sequence:
+#
+#   1. lane A's tunnel is already bound on localhost:30754.
+#   2. the operator runs `connect` for lane B. gcloud is launched in the
+#      background and takes several seconds to authenticate and impersonate
+#      before it ever attempts its bind.
+#   3. the post-launch wait loop checks `kill -0` (the process is alive — it is
+#      still starting up) and then probes the port. The probe SUCCEEDS, because
+#      lane A is listening on it.
+#   4. `bound=1`, and the driver reports "tunnel is UP on localhost:30754".
+#
+# The operator is now doing lane B's work against lane A's cluster, and nothing
+# in the output says so. Worse, step 2 is reached only after `dex_origin apply`
+# has already repointed lane B's Dex issuer at an origin that lane A is serving
+# — so a refused run would still have mutated the cluster.
+#
+# Hence: refused here, before the origin claim and before any cloud call.
+# `require_no_conflicting_origin` cannot catch this — it asks lane B's own
+# cluster whether another ACCESS METHOD holds its issuer, and lane A is a
+# different cluster that it never speaks to.
+require_local_port_free() {
+  local want="$1" who="$2"
+
+  "$PREFLIGHT_PORT_PROBE" "$want" || return 0
+
+  cat >&2 <<EOF
+demo-up: REFUSING — localhost:${want} is already in use.
+
+  wanted by:  ${who} (ENV=${ENV_KEY})
+  local port: ${want}
+
+  Something on this machine is already listening there. In a multi-lane session
+  that is almost certainly ANOTHER LANE's tunnel: every lane in this estate
+  publishes the same app_port, and the local end of the tunnel defaults to it,
+  so demo-1, demo-2, ci-1 and ci-2 all want this one number.
+
+  This is refused rather than survived because the failure it prevents is
+  silent. The tunnel would be launched, the wait loop would probe this port,
+  the OTHER lane's listener would answer, and this run would report a healthy
+  tunnel while serving you a different cluster's dashboard.
+
+  Give this lane a local port of its own — the remote end is fixed by the
+  estate's firewall rule, the local end is whatever this machine has free:
+
+      GCP_TF_DEMO_LOCAL_PORT=$((want + 1)) make ${who} ENV=${ENV_KEY}
+
+  Or close whatever holds it:
+
+      ss -ltnp 'sport = :${want}'
+EOF
+  exit 7
+}
+
 SSH_WAIT_ATTEMPTS="${GCP_TF_DEMO_SSH_WAIT_ATTEMPTS:-30}"
 SSH_WAIT_INTERVAL="${GCP_TF_DEMO_SSH_WAIT_INTERVAL:-5}"
 TIMEOUT_MINUTES="${GCP_TF_DEMO_TIMEOUT_MINUTES:-90}"
@@ -1363,6 +1438,11 @@ cmd_connect() {
   local_port="$(local_tunnel_port)"
   origin="$(iap_origin)"
 
+  # FIRST, before the origin claim mutates this lane's Dex and before any cloud
+  # call. See require_local_port_free: a taken port here is another lane's
+  # tunnel, and proceeding hands this operator that lane's cluster.
+  require_local_port_free "$local_port" "gcp-tf-connect"
+
   # There is no port refusal here any more, and its absence is the deliberate
   # part.
   #
@@ -1940,6 +2020,11 @@ cmd_public() {
   local port="$APP_PORT" local_port origin
   local_port="$(local_tunnel_port)"
   origin="$(iap_origin)"
+
+  # Ahead of even the origin claim, for the same "refuse in milliseconds"
+  # reason and one stronger one: this refusal costs no cloud call AND no
+  # cluster mutation. See require_local_port_free.
+  require_local_port_free "$local_port" "gcp-tf-public"
 
   # The origin claim comes FIRST, before any cloud call, for the same reason the
   # hosts check used to: a run that is going to be refused because ngrok holds

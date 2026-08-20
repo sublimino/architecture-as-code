@@ -140,3 +140,10 @@ deploy/gcp/preserve-baseline.json
 # lock — so a reviewer reading modules/network/.terraform.lock.hcl learns
 # nothing true. Roots commit theirs (ISC-13); child modules must not.
 terraform/modules/*/.terraform.lock.hcl
+
+# Sentinel dropped by test/operator-suspend-mutation-proof.sh while it has the
+# real module deliberately broken, and removed when it restores. It survives a
+# SIGKILL — which is the point, because the next run must REFUSE rather than
+# read a leaked mutation as a regression. Ignored so a `git add -A` during that
+# window cannot commit it and make the refusal permanent.
+.operator-suspend-mutation-in-progress

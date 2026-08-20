@@ -19,6 +19,34 @@ variable "account_id" {
   }
 }
 
+variable "manage_lifecycle_custom_role" {
+  description = <<-EOT
+    Whether this module creates the instance-lifecycle custom role that lets the
+    operator suspend, resume and start a demo VM.
+
+    Creating a custom role requires iam.roles.create, which lives in
+    roles/iam.roleAdmin. roles/resourcemanager.projectIamAdmin — the IAM role the
+    deploy identity actually holds — does NOT include it: verified against the
+    live role definition, projectIamAdmin is nine permissions and every one of
+    them is resourcemanager.projects.* or iam.policybindings.*. So a platform
+    apply running as the deploy service account cannot create this role.
+
+    True (the default) is correct when the platform root is applied by an
+    identity holding roleAdmin or owner. Set it false to deploy everything else
+    cleanly and create the role once by hand — the same trade modules/identity
+    makes with manage_project_iam, and for the same reason: an apply that dies
+    part-way on a permission error leaves a half-built estate and invites the
+    wrong fix, which here would be granting roleAdmin to an identity that already
+    holds compute.admin and projectIamAdmin and could then mint itself anything.
+
+    When false, the operator keeps the tunnel and the login and still cannot
+    suspend. The role is a documented follow-up, not a silent downgrade:
+    outputs.lifecycle_role_is_managed reports which case is in force.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "runtime_service_account_emails" {
   description = <<-EOT
     Runtime service account email per environment key, from

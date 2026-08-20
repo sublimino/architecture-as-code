@@ -190,6 +190,12 @@ variable "operator_impersonators" {
   default     = []
 }
 
+variable "manage_operator_lifecycle_role" {
+  description = "Whether to create the custom role that lets the operator suspend, resume and start demo VMs. Creating a custom role needs iam.roles.create, which is in roles/iam.roleAdmin and NOT in the roles/resourcemanager.projectIamAdmin the deploy identity holds — so a platform apply running as the deploy service account cannot create it. True is correct when applying as an identity holding roleAdmin or owner. False deploys everything else cleanly and leaves the role as a documented follow-up; the operator can still tunnel and log in, and still cannot stop the billing."
+  type        = bool
+  default     = true
+}
+
 variable "dnssec_state" {
   description = "DNSSEC state for the managed zone."
   type        = string

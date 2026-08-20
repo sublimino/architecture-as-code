@@ -254,8 +254,41 @@ run "the_operator_is_not_the_deploy_or_ci_identity" {
   }
 
   assert {
-    condition     = length(output.operator_granted_roles) == 3
-    error_message = "The platform root must export exactly the three operator roles. A different count here and in the module's own budget means the root is composing a different module than the one under test."
+    condition     = length(output.operator_granted_roles) == 4
+    error_message = "The platform root must export exactly the four operator roles. A different count here and in the module's own budget means the root is composing a different module than the one under test."
+  }
+
+  # The fourth role is the instance-lifecycle CUSTOM role, added 2026-08-20 so
+  # the operator can suspend a parked lane without escalating to project owner.
+  # The count above moved from three to four with it; these two assertions are
+  # what stop that number being nudged again by something that is not a custom
+  # role holding exactly the four justified permissions.
+  assert {
+    condition     = length(output.operator_lifecycle_role_permissions) == 4
+    error_message = "The platform root must export exactly the four instance-lifecycle permissions. If this and the module's own permission budget disagree, the root is composing a different module than the one under test — which is the failure the role-count assertion above cannot see, because a custom role can gain permissions without gaining a role."
+  }
+
+  # Not merely four SOMETHINGS. A count alone is satisfied by four permissions
+  # nobody justified, and the whole argument for a custom role over
+  # roles/compute.instanceAdmin.v1 is about which verbs, not how many.
+  assert {
+    condition = toset(output.operator_lifecycle_role_permissions) == toset([
+      "compute.instances.resume",
+      "compute.instances.start",
+      "compute.instances.suspend",
+      "compute.zoneOperations.get",
+    ])
+    error_message = "The instance-lifecycle permissions exported by the platform root are not the justified set. Each has a driver call site named in modules/operator-identity/main.tf."
+  }
+
+  # Suspend is the step that stops the billing, so whether the estate can
+  # actually perform it is a fact the root must state rather than imply. Pinned
+  # true here because that is this root's default; the module's own suite covers
+  # the false case, where the role is a documented manual follow-up because the
+  # applying identity lacked iam.roles.create.
+  assert {
+    condition     = output.operator_can_suspend
+    error_message = "The platform root defaults to NOT creating the instance-lifecycle role, so suspending a demo VM still needs project owner. If that default is deliberate, this assertion is the place to argue for it."
   }
 }
 

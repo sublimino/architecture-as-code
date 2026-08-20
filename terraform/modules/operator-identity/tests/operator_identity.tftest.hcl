@@ -242,29 +242,45 @@ run "rejects_an_account_id_that_gcp_would_refuse" {
 # count, and justify it in the diff. The failure is the feature.
 # ═══════════════════════════════════════════════════════════════════════════
 
-run "project_role_budget_is_exactly_two" {
+run "project_role_budget_is_exactly_three" {
   command = plan
 
+  # Was two until 2026-08-20. The third is the instance-lifecycle CUSTOM role,
+  # added so the operator can suspend the estate it parks — see main.tf for the
+  # call site behind each of its four permissions. The number moved deliberately
+  # and this assertion moved with it; it is still an exact count, so a fourth
+  # role is still a failing diff.
   assert {
-    condition     = length(local.operator_project_roles) == 2
-    error_message = "The operator identity's project role count changed. Two roles were justified: one to open the IAP tunnel, one to log in with the sudo the pipeline requires. Adding a third is a privilege increase — update this number ONLY with a comment in main.tf naming the operation that forced it."
+    condition     = length(local.operator_project_roles) == 3
+    error_message = "The operator identity's project role count changed. Three roles are justified: one to open the IAP tunnel, one to log in with the sudo the pipeline requires, and one custom role holding suspend/resume/start plus the operation poll. Adding a fourth is a privilege increase — update this number ONLY with a comment in main.tf naming the operation that forced it."
+  }
+
+  # Exactly one of the three may be a custom role. A second custom role would be
+  # a second permission budget that nothing in this file pins, which is how the
+  # count stays at three while the reachable surface doubles.
+  assert {
+    condition = length([
+      for r in local.operator_project_roles : r
+      if !startswith(r, "roles/")
+    ]) == 1
+    error_message = "The operator identity holds more than one non-predefined project role. Each custom role carries its own unpinned permission list, so a second one widens the identity without moving any number in this file."
   }
 }
 
-run "total_role_budget_at_any_scope_is_exactly_three" {
+run "total_role_budget_at_any_scope_is_exactly_four" {
   command = plan
 
-  # The number a reviewer actually asks for. Two project roles plus the
-  # resource-scoped actAs. A fourth grant appearing at ANY scope fails here even
+  # The number a reviewer actually asks for. Three project roles plus the
+  # resource-scoped actAs. A fifth grant appearing at ANY scope fails here even
   # if someone splits it across files.
   assert {
-    condition     = length(local.operator_all_roles) == 3
-    error_message = "The operator identity holds more than three roles. Three is the whole budget: tunnel, login-with-sudo, and actAs on the runtime account it logs in beside."
+    condition     = length(local.operator_all_roles) == 4
+    error_message = "The operator identity holds more than four roles. Four is the whole budget: tunnel, login-with-sudo, the instance-lifecycle custom role, and actAs on the runtime account it logs in beside."
   }
 
   assert {
-    condition     = length(toset(local.operator_all_roles)) == 3
-    error_message = "A role is duplicated across the project and resource-scoped lists, which would make the count of three misleading."
+    condition     = length(toset(local.operator_all_roles)) == 4
+    error_message = "A role is duplicated across the project and resource-scoped lists, which would make the count of four misleading."
   }
 }
 
@@ -273,17 +289,220 @@ run "roles_are_exactly_the_justified_set" {
 
   # Set equality, not a subset check. A subset check passes while something extra
   # is granted, which is precisely the drift this is meant to catch.
+  #
+  # This was WRITTEN as `setunion(toset(actual), toset(expected)) == toset(expected)`
+  # and that expression is a subset test, not an equality test: setunion(A, E)
+  # equals E exactly when A is contained in E, so it fires on an ADDED role and
+  # is blind to a REMOVED one. The comment above it claimed equality and the code
+  # underneath implemented containment. Found on 2026-08-20 by deleting a
+  # permission from the real module and watching the paired permission assertion
+  # stay green (CONTRACT §7b — the mutation that fails nothing is the finding).
+  # Direct comparison of the two sets has both directions.
+  #
+  # The custom role is pinned by its FULL resource name, project id included.
+  # var.project_id is "changeme-project" for this suite (set at the top of the
+  # file), so this also catches the role being moved to another project — a
+  # binding to projects/<someone-else>/roles/<id> is a grant this estate cannot
+  # see the contents of.
   assert {
-    condition = setunion(toset(local.operator_all_roles), toset([
+    condition = toset(local.operator_all_roles) == toset([
       "roles/iap.tunnelResourceAccessor",
       "roles/compute.osAdminLogin",
       "roles/iam.serviceAccountUser",
-      ])) == toset([
-      "roles/iap.tunnelResourceAccessor",
-      "roles/compute.osAdminLogin",
-      "roles/iam.serviceAccountUser",
+      "projects/changeme-project/roles/slOperatorInstanceLifecycle",
     ])
-    error_message = "The operator identity's roles are no longer exactly the justified set. Something was added or renamed."
+    error_message = "The operator identity's roles are no longer exactly the justified set. Something was added, removed or renamed."
+  }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# PERMISSION BUDGET — the custom role's contents
+#
+# A role budget counts ROLES. A custom role is one role holding an arbitrary
+# number of permissions, so counting roles alone would let this identity acquire
+# compute.instances.delete without any number in this file moving. These runs
+# pin the permission list the same way the role list is pinned: exact count,
+# exact membership, plus shape guards that name the verb rather than the string
+# so a rename cannot slip past a count that was updated without being read.
+# ═══════════════════════════════════════════════════════════════════════════
+
+run "the_custom_role_is_created_and_bound_to_this_identity" {
+  command = plan
+
+  # Positive first, for the same reason as the top of this file: every negative
+  # below is satisfied by a role that does not exist.
+  assert {
+    condition     = length(google_project_iam_custom_role.instance_lifecycle) == 1
+    error_message = "The instance-lifecycle custom role must be created when manage_lifecycle_custom_role is true, or the operator still cannot suspend a VM and every permission assertion below passes over an empty set."
+  }
+
+  assert {
+    condition     = one(google_project_iam_custom_role.instance_lifecycle).role_id == "slOperatorInstanceLifecycle"
+    error_message = "The custom role id changed. It is pinned because local.operator_lifecycle_role_name derives the binding target from it, and a rename would bind the operator to a role that does not exist."
+  }
+
+  # The role must actually reach the operator. A custom role nobody is bound to
+  # is a permission list with no holder, and it would satisfy every membership
+  # assertion in this file.
+  assert {
+    condition = contains([
+      for m in values(google_project_iam_member.operator) : m.role
+    ], "projects/changeme-project/roles/slOperatorInstanceLifecycle")
+    error_message = "The instance-lifecycle role is declared but never bound to the operator identity. The role would exist, hold exactly the right permissions, and grant nobody anything."
+  }
+
+  assert {
+    condition     = one(google_project_iam_custom_role.instance_lifecycle).stage == "GA"
+    error_message = "The custom role must be stage GA. The provider default is ALPHA, which reads as unfinished and invites replacing it with roles/compute.instanceAdmin.v1."
+  }
+}
+
+run "lifecycle_permission_budget_is_exactly_four" {
+  command = plan
+
+  assert {
+    condition     = length(local.operator_lifecycle_permissions) == 4
+    error_message = "The instance-lifecycle permission count changed. Four are justified, each with a call site named in main.tf: suspend, resume, start (the 60-day suspend limit transitions a parked lane to TERMINATED), and zoneOperations.get (gcloud polls the operation unless --async, and no driver passes --async)."
+  }
+
+  assert {
+    condition     = length(toset(local.operator_lifecycle_permissions)) == 4
+    error_message = "A permission is repeated in the instance-lifecycle role, which would make the count of four overstate the number of distinct verbs granted."
+  }
+}
+
+run "lifecycle_permissions_are_exactly_the_justified_set" {
+  command = plan
+
+  # Set equality in BOTH directions, written as a direct comparison rather than
+  # the `setunion(actual, expected) == expected` idiom used elsewhere in this
+  # repo. That idiom is a containment test: it fires when a permission is added
+  # and stays green when one is removed. Removal is the half that matters most
+  # here — dropping compute.instances.start breaks the TERMINATED branch of every
+  # driver's lane state machine, and nothing looks wrong until a parked lane will
+  # not come back.
+  #
+  # This is the assertion that fails if someone later adds
+  # compute.instances.delete, and it fails whether or not they remember to update
+  # the count above.
+  assert {
+    condition = toset(local.operator_lifecycle_permissions) == toset([
+      "compute.instances.suspend",
+      "compute.instances.resume",
+      "compute.instances.start",
+      "compute.zoneOperations.get",
+    ])
+    error_message = "The instance-lifecycle role's permissions are no longer exactly the justified set. Each of the four has a call site in a driver script named in main.tf; a fifth needs one too, and a missing one breaks a branch of the lane state machine."
+  }
+
+  # The declared resource must carry the same list the budget above pins.
+  # Without this, the local could be correct while the resource was built from
+  # something else entirely, and every assertion here would be about a value
+  # nothing is deployed from.
+  assert {
+    condition     = toset(one(google_project_iam_custom_role.instance_lifecycle).permissions) == toset(local.operator_lifecycle_permissions)
+    error_message = "The custom role resource's permissions differ from local.operator_lifecycle_permissions. The budget assertions above are then measuring a value that is not what gets applied."
+  }
+}
+
+run "the_lifecycle_role_grants_no_estate_mutating_verb" {
+  command = plan
+
+  # Named by VERB rather than by full string, so this also catches the verb
+  # arriving on a resource type nobody thought of — compute.disks.delete, say,
+  # or compute.snapshots.create. The role's job is to park and unpark a machine
+  # that already exists; anything that builds, destroys or reconfigures one is
+  # the deploy identity's job and is what makes instanceAdmin.v1 unacceptable.
+  assert {
+    condition = length([
+      for p in local.operator_lifecycle_permissions : p
+      if length([
+        for verb in [
+          "create", "insert", "delete", "update", "setMetadata", "setIamPolicy",
+          "setServiceAccount", "attachDisk", "detachDisk", "setTags", "setLabels",
+          "addAccessConfig", "reset", "setMachineType", "setDiskAutoDelete",
+        ] : verb if endswith(p, ".${verb}")
+      ]) > 0
+    ]) == 0
+    error_message = "An estate-mutating verb (create/insert/delete/update/setMetadata/setIamPolicy/setServiceAccount/attachDisk/detachDisk/setTags/setLabels/addAccessConfig/reset/setMachineType/setDiskAutoDelete) appears in the instance-lifecycle role. This role parks and unparks machines; building and reconfiguring them belongs to modules/deploy-identity."
+  }
+
+  # Nothing outside the two API surfaces the lane state machine actually calls.
+  # A permission from another service in here would be invisible to the verb
+  # guard above and to any reviewer skimming for "admin".
+  assert {
+    condition = alltrue([
+      for p in local.operator_lifecycle_permissions :
+      startswith(p, "compute.instances.") || startswith(p, "compute.zoneOperations.")
+    ])
+    error_message = "The instance-lifecycle role reaches beyond compute.instances and compute.zoneOperations. Those are the only two surfaces the drivers call: instances for suspend/resume/start, zoneOperations for the poll each of those returns."
+  }
+}
+
+run "already_held_permissions_are_not_restated_in_the_custom_role" {
+  command = plan
+
+  # compute.instances.get and .list ARE required — vm_status() runs `instances
+  # describe` and the reaper runs `instances list` — and are ALREADY granted by
+  # roles/compute.osAdminLogin. Restating them would grow this role's count
+  # while granting nothing, which makes the budget number a worse signal than it
+  # was before. Asserted rather than commented, because "we already have that"
+  # is exactly the kind of claim that decays silently.
+  assert {
+    condition = length([
+      for p in local.operator_lifecycle_permissions : p
+      if contains(["compute.instances.get", "compute.instances.list"], p)
+    ]) == 0
+    error_message = "compute.instances.get or compute.instances.list appears in the custom role. Both are already granted by roles/compute.osAdminLogin (verified against the live role definition), so this role must hold only the DELTA over what the identity already has."
+  }
+
+  # And the paired positive: the role that supplies them is still granted. If
+  # osAdminLogin is ever narrowed to roles/compute.osLogin, get and list survive
+  # (both roles carry them) — but this is the assertion that stops the negative
+  # above passing because the whole login role was dropped.
+  assert {
+    condition     = contains(local.operator_project_roles, "roles/compute.osAdminLogin")
+    error_message = "roles/compute.osAdminLogin is gone, so compute.instances.get and .list are no longer held from anywhere, and the custom role was deliberately built without them."
+  }
+}
+
+run "the_custom_role_can_be_left_to_a_manual_follow_up" {
+  command = plan
+  variables { manage_lifecycle_custom_role = false }
+
+  # The deploy identity holds projectIamAdmin and not roleAdmin, so it cannot
+  # create a custom role. This is the case that lets the platform root apply
+  # cleanly as that identity instead of dying part-way with an IAM error.
+  assert {
+    condition     = length(google_project_iam_custom_role.instance_lifecycle) == 0
+    error_message = "With manage_lifecycle_custom_role = false no custom role may be declared, or the apply still requires iam.roles.create and the flag achieves nothing."
+  }
+
+  # And nothing may be BOUND to it. A binding to a role Terraform did not create
+  # fails at apply with a confusing "role not found", which is a worse failure
+  # than the one the flag exists to avoid.
+  assert {
+    condition = length([
+      for m in values(google_project_iam_member.operator) : m
+      if !startswith(m.role, "roles/")
+    ]) == 0
+    error_message = "A binding to the custom role survives when the role itself is not created. The apply would fail on a role that does not exist."
+  }
+
+  # The tunnel and the login must SURVIVE. An operator who loses shell access
+  # because a suspend feature was disabled is a strictly worse outcome than one
+  # who cannot suspend.
+  assert {
+    condition     = length(google_project_iam_member.operator) == 2
+    error_message = "Disabling the custom role must leave exactly the two predefined grants — the IAP tunnel and OS Login. Losing either takes away shell access to fix the very thing that is disabled."
+  }
+
+  # The BUDGET does not shrink. operator_project_roles is a statement of
+  # entitlement, and a budget that quietly drops to two when a flag is flipped
+  # would let a future role be added under cover of "we are back to three".
+  assert {
+    condition     = length(local.operator_project_roles) == 3
+    error_message = "The role budget shrank when manage_lifecycle_custom_role was disabled. The budget must state what this identity is entitled to hold regardless of what the current configuration binds."
   }
 }
 

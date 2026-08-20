@@ -59,11 +59,14 @@ test("RBAC Analysis page loads the KubeSec-AFM iframe", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText("KubeSec-AFM").first()).toBeVisible();
 
-  // The iframe should be present and load the AFM dashboard.
+  // The iframe should load the selected-cluster AFM dashboard.
   const iframe = page.locator('[data-testid="afm-iframe"]');
   await expect(iframe).toBeVisible({ timeout: 10_000 });
   const src = await iframe.getAttribute("src");
-  expect(src).toBe("/dashboard/");
+  expect(src).not.toBeNull();
+  const iframeUrl = new URL(src!, "https://dashboard.osramp.acme.local");
+  expect(iframeUrl.pathname).toBe("/dashboard/");
+  expect(iframeUrl.searchParams.get("cluster")).toBeTruthy();
 
   // "Open full" link should be present.
   await expect(page.getByText("Open full ↗")).toBeVisible();

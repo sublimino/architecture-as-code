@@ -256,35 +256,16 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     const beforeScrollUp = await sampleCursor(page);
 
     // ── The instructor scrolls up to read something ─────────────────────────
-    // Assigning scrollTop fires a real `scroll` event, which is the same signal
-    // a wheel produces and the one StreamingLogBlock's own onScroll listens to.
-    //
-    // AWAITING that event is load-bearing, not tidiness. The assignment moves
-    // the viewport synchronously, but the browser DELIVERS `scroll`
-    // asynchronously, at frame time. StreamingLogBlock only learns it has been
-    // unpinned in its onScroll handler, so between the assignment and the
-    // event there is a window in which `pinnedRef` still reads true — and its
-    // useLayoutEffect, which DOES run synchronously on commit, will re-pin the
-    // view to the bottom if a log chunk lands inside it. The unpin is then lost
-    // entirely: the following scroll event observes the re-pinned position and
-    // records `pinned` all over again.
-    //
-    // That window is the difference between this test passing and failing, and
-    // it is a race the TEST creates rather than a property of the component.
-    // Observed here: run phase 1 against an already-deployed estate and output
-    // is slow enough at the 20-line mark that the event always wins; run it
-    // straight after a reset and lines 20→38 arrive inside one 200ms tick, the
-    // commit wins, and every one of the 19 in-flight samples reads pinned.
-    // A real instructor's wheel emits a stream of scroll events over many
-    // frames, so they unpin on the next tick; a single scripted assignment gets
-    // exactly one chance and has to wait for it.
-    await scroll.evaluate(
-      (el) =>
-        new Promise<void>((resolve) => {
-          el.addEventListener("scroll", () => resolve(), { once: true });
-          el.scrollTop = 0;
-        }),
-    );
+    // Use a wheel event, not a synthetic `scrollTop` assignment. The product
+    // promises what an instructor's real input does; an assignment can race a
+    // queued programmatic tail-follow event and test browser scheduling instead.
+    await scroll.hover();
+    await Promise.all([
+      scroll.evaluate((el) => new Promise<void>((resolve) => {
+        el.addEventListener("scroll", () => resolve(), { once: true });
+      })),
+      page.mouse.wheel(0, -1_000),
+    ]);
     const afterScrollUp = await sampleCursor(page);
 
     // Wait for MORE lines rather than for a fixed line number: a live phase
@@ -294,17 +275,13 @@ test("phase 1 follows the tail, and stops following once the instructor scrolls 
     const beforeScrollDown = await sampleCursor(page);
 
     // ── They scroll back down, and following resumes ────────────────────────
-    // Awaited for the same reason as the scroll up, in the mirror direction:
-    // until the event lands the component still believes it is unpinned, so a
-    // chunk committing in the window leaves the view where it is and the
-    // follows-tail assertion below reads a viewport that never caught up.
-    await scroll.evaluate(
-      (el) =>
-        new Promise<void>((resolve) => {
-          el.addEventListener("scroll", () => resolve(), { once: true });
-          el.scrollTop = el.scrollHeight;
-        }),
-    );
+    await scroll.hover();
+    await Promise.all([
+      scroll.evaluate((el) => new Promise<void>((resolve) => {
+        el.addEventListener("scroll", () => resolve(), { once: true });
+      })),
+      page.mouse.wheel(0, 10_000),
+    ]);
     const afterScrollDown = await sampleCursor(page);
     await waitForLine(page, (await currentLastLine(page)) + 10, { timeout: PHASE_TIMEOUT });
 

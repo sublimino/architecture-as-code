@@ -464,12 +464,15 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   const beforeScrollUp = await sampleCursor(page);
 
   // ── The instructor scrolls up to read something ─────────────────────────
-  // Assigning scrollTop fires a real `scroll` event, which is what the
-  // component's own onScroll listens to — this is the same signal a mouse
-  // wheel produces, not a private hook into React state.
-  await scroll.evaluate((el) => {
-    el.scrollTop = 0;
-  });
+  // The browser delivers scroll asynchronously. Wait for the real event so
+  // StreamingLogBlock records the unpinned state before another log commit.
+  await scroll.evaluate(
+    (el) =>
+      new Promise<void>((resolve) => {
+        el.addEventListener("scroll", () => resolve(), { once: true });
+        el.scrollTop = 0;
+      }),
+  );
   const afterScrollUp = await sampleCursor(page);
 
   // Let a decent stretch of output land while they are reading.
@@ -477,9 +480,13 @@ test("scrolling up stops new output yanking the view, and scrolling back down re
   const beforeScrollDown = await sampleCursor(page);
 
   // ── They scroll back to the bottom, and following resumes ───────────────
-  await scroll.evaluate((el) => {
-    el.scrollTop = el.scrollHeight;
-  });
+  await scroll.evaluate(
+    (el) =>
+      new Promise<void>((resolve) => {
+        el.addEventListener("scroll", () => resolve(), { once: true });
+        el.scrollTop = el.scrollHeight;
+      }),
+  );
   const afterScrollDown = await sampleCursor(page);
 
   await expect(page.locator(RUN_STATUS)).toContainText(/—\s*succeeded/, { timeout: 60_000 });

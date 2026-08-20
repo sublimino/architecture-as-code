@@ -24,6 +24,8 @@ setup() {
 
 	export AGENT_LOG_FILE="$BATS_TEST_TMPDIR/agent.log"
 	: >"$AGENT_LOG_FILE"
+	export AGENT_PREVIOUS_LOG_FILE="$BATS_TEST_TMPDIR/agent-previous.log"
+	: >"$AGENT_PREVIOUS_LOG_FILE"
 
 	# Defaults describe a correct, fully-revoked run. Each test perturbs one
 	# thing, so a failure names the property that broke.
@@ -128,7 +130,10 @@ case "$argv" in
 	*"get pods -l job-name=supercred-agent-run"*)
 		printf '%s' "${JOB_POD_NAME}"
 		[ -n "${JOB_POD_NAME}" ] || exit 1 ;;
-	*"logs "*"--all-containers")
+	*"logs "*"--all-containers"*"--previous"*)
+		[ -s "$AGENT_PREVIOUS_LOG_FILE" ] || exit 1
+		cat "$AGENT_PREVIOUS_LOG_FILE" ;;
+	*"logs "*"--all-containers"*)
 		[ -s "$AGENT_LOG_FILE" ] || exit 1
 		cat "$AGENT_LOG_FILE" ;;
 	*"get job supercred-agent-run"*)
@@ -224,6 +229,14 @@ STUB
 		run grep -Fq 'imagePullPolicy: IfNotPresent' "$manifest"
 		[ "$status" -eq 0 ]
 	done
+}
+
+@test "credential-chain retries preserve distinct pod logs for stun evidence" {
+	local job_manifest="$BATS_TEST_DIRNAME/../d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml"
+	run grep -Fq 'restartPolicy: Never' "$job_manifest"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'Keep each failed credential-chain attempt as a distinct Pod' "$job_manifest"
+	[ "$status" -eq 0 ]
 }
 
 # ─── The load-bearing claim: revocation is read back, not assumed ───────────
@@ -332,6 +345,36 @@ STUB
 	[[ "$output" == *"SPIFFE identity acquired"* ]]
 	[[ "$output" == *'FAILED: OpenBao login returned 400'* ]]
 	[[ "$output" == *"role \\\"signalloom-cardvault-agent\\\" could not be found"* ]]
+}
+
+@test "a restarted agent pod preserves revocation evidence through previous logs" {
+	write_revoked_agent_log
+	cp "$AGENT_LOG_FILE" "$AGENT_PREVIOUS_LOG_FILE"
+	: >"$AGENT_LOG_FILE"
+
+	run_step4
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"SPIFFE identity acquired"* ]]
+	[[ "$output" == *"DENIED credentials"* ]]
+}
+
+@test "a CRI log retrieval failure cannot overwrite captured denial evidence" {
+	write_revoked_agent_log
+	cp "$AGENT_LOG_FILE" "$AGENT_PREVIOUS_LOG_FILE"
+	printf 'unable to retrieve container logs for containerd://terminated-container\n' >"$AGENT_LOG_FILE"
+
+	run_step4
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"SPIFFE identity acquired"* ]]
+	[[ "$output" == *"DENIED credentials"* ]]
+	[[ "$output" != *"did not report a failure"* ]]
+}
+
+@test "each log probe has a bounded pending-pod wait" {
+	run grep -Fq 'logs "$agent_pod" --all-containers --pod-running-timeout=1s' "$script"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'logs "$agent_pod" --all-containers --previous --pod-running-timeout=1s' "$script"
+	[ "$status" -eq 0 ]
 }
 
 # --tail=5 was in the original. A chain longer than five lines lost its opening

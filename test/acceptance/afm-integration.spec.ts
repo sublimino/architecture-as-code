@@ -38,11 +38,15 @@ test.describe("AFM integration in Signal Loom", () => {
     await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 15_000 });
 
-    // The iframe element must be present with the correct src
+    // The embedded dashboard receives the selected cluster. A bare dashboard
+    // has no cluster context; the separate "Open full" link remains bare.
     const iframe = page.locator('[data-testid="afm-iframe"]');
     await expect(iframe).toBeVisible({ timeout: 10_000 });
     const src = await iframe.getAttribute("src");
-    expect(src).toBe("/dashboard/");
+    expect(src).not.toBeNull();
+    const iframeUrl = new URL(src!, "https://dashboard.osramp.acme.local");
+    expect(iframeUrl.pathname).toBe("/dashboard/");
+    expect(iframeUrl.searchParams.get("cluster")).toBeTruthy();
 
     // Wait for the iframe to finish loading (the loading text should disappear)
     await expect(page.getByText("Loading KubeSec-AFM dashboard")).not.toBeVisible({ timeout: 15_000 });

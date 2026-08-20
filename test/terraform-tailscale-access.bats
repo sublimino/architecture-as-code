@@ -589,6 +589,15 @@ mutate() {
 @test "TS ts-up configures serve on the VM, not funnel" {
 	stub_curl 200
 	run "${driver}" ts-up
+	# `run` swallows the exit code — that is its entire purpose — so without this
+	# the assertions below read a log written by a driver that may have died
+	# half-way. A ts-up that emits `tailscale serve` and THEN aborts satisfies
+	# every remaining assertion in this test while leaving the demo unreachable.
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed (exit ${status}); the log below is only what it managed before dying: ${output}"
+		return 1
+	}
 	[[ "$(gcloud_log)" == *"tailscale serve"* ]] || {
 		echo "ts-up never configured tailscale serve: $(gcloud_log)"
 		return 1
@@ -609,6 +618,13 @@ mutate() {
 	# alias has nothing to do and the VM's /etc/hosts is left alone.
 	stub_curl 200
 	run "${driver}" ts-up
+	# See the note in "ts-up configures serve on the VM, not funnel": the exit
+	# code is the first thing the log cannot tell you about.
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed (exit ${status}); the log below is only what it managed before dying: ${output}"
+		return 1
+	}
 
 	# PRESENCE first. "no /etc/hosts write" is trivially satisfied by a ts-up
 	# that configures nothing at all, so the positive assertion is what stops the
@@ -711,6 +727,14 @@ mutate() {
 @test "TS ts-up claims the Dex origin at the MagicDNS URL" {
 	stub_curl 200
 	run "${driver}" ts-up
+	# The origin claim is one of the LAST things ts-up does, so a driver that
+	# fails after claiming it would satisfy the assertion below while having
+	# published nothing. Assert the exit code before reading the log.
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed (exit ${status}); the origin claim below proves nothing: ${output}"
+		return 1
+	}
 	[[ "$(dex_log)" == *"apply tailscale https://${TS_FQDN}"* ]] || {
 		echo "ts-up never claimed the origin, so the login would bounce: $(dex_log)"
 		return 1
@@ -723,8 +747,22 @@ mutate() {
 	# them silently breaks login.
 	stub_curl 200
 	run "${driver}" ts-up
+	# BOTH invocations get a status assertion. Truncating the dex log between
+	# them means a failed ts-up leaves no trace at all by the time the assertion
+	# below runs, so without this the test would compare funnel-up's origin
+	# against nothing and still pass.
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed (exit ${status}) — there is no ts-up origin to compare against: ${output}"
+		return 1
+	}
 	: >"${dexlog}"
 	run "${driver}" funnel-up
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "funnel-up failed (exit ${status}); the origin comparison below proves nothing: ${output}"
+		return 1
+	}
 	# Same ORIGIN, different METHOD — that pairing is the actual invariant.
 	# funnel must claim the identical URL (so moving between them does not
 	# break login) while recording itself as the holder (so a later refusal

@@ -41,20 +41,24 @@ cd "$REPO_ROOT"
 STARTUP="terraform/modules/compute/startup/demo-vm.sh"
 DRIVER="scripts/gcp-tf/demo-up.sh"
 MAKEFILE="Makefile"
+TFVARS="deploy/gcp/sl-port-over-sandbox.example.tfvars"
 SUITE="test/terraform-ts-stable-node-name.bats"
 
 BACKUP="$(mktemp -d)"
 trap 'restore_all; rm -rf "$BACKUP"' EXIT
 
-mkdir -p "$BACKUP/$(dirname "$STARTUP")" "$BACKUP/$(dirname "$DRIVER")"
+mkdir -p "$BACKUP/$(dirname "$STARTUP")" "$BACKUP/$(dirname "$DRIVER")" \
+  "$BACKUP/$(dirname "$TFVARS")"
 cp "$STARTUP" "$BACKUP/$STARTUP"
 cp "$DRIVER" "$BACKUP/$DRIVER"
 cp "$MAKEFILE" "$BACKUP/$MAKEFILE"
+cp "$TFVARS" "$BACKUP/$TFVARS"
 
 restore_all() {
   cp "$BACKUP/$STARTUP" "$STARTUP"
   cp "$BACKUP/$DRIVER" "$DRIVER"
   cp "$BACKUP/$MAKEFILE" "$MAKEFILE"
+  cp "$BACKUP/$TFVARS" "$TFVARS"
 }
 
 PASS=0
@@ -202,12 +206,16 @@ check "M17 unit is installed" "the startup script installs a shutdown logout uni
 
 echo "=== logout before destroy ==="
 
-echo "M18 the logout is moved AFTER the destroy"
-mutate "$MAKEFILE" '/^\t-@\$(GCP_TF_DEMO_ENVIRONMENT) .\$(GCP_TF_DEMO_SCRIPT). ts-logout$/d'
+# These two match the destroy recipe's logout line, which now carries --force.
+# The `$` anchor after `ts-logout` stopped matching when the flag was added and
+# `mutate` aborted the whole run rather than silently testing nothing — which is
+# exactly what that abort is for.
+echo "M18 the logout is removed from the destroy entirely"
+mutate "$MAKEFILE" '/^\t-@\$(GCP_TF_DEMO_ENVIRONMENT) .\$(GCP_TF_DEMO_SCRIPT). ts-logout --force$/d'
 check "M18 logout precedes destroy" "gcp-tf-destroy releases the tailnet name BEFORE terraform destroy"
 
 echo "M19 the logout can fail the destroy (error tolerance removed)"
-mutate "$MAKEFILE" 's|^\t-@\$(GCP_TF_DEMO_ENVIRONMENT) .\$(GCP_TF_DEMO_SCRIPT). ts-logout$|\t@$(GCP_TF_DEMO_ENVIRONMENT) '"'"'$(GCP_TF_DEMO_SCRIPT)'"'"' ts-logout|'
+mutate "$MAKEFILE" 's|^\t-@\$(GCP_TF_DEMO_ENVIRONMENT) .\$(GCP_TF_DEMO_SCRIPT). ts-logout --force$|\t@$(GCP_TF_DEMO_ENVIRONMENT) '"'"'$(GCP_TF_DEMO_SCRIPT)'"'"' ts-logout --force|'
 check "M19 logout cannot fail destroy" "the logout step cannot fail the destroy"
 
 # M20's first form mutated `return 0` to `return "$rc"` and expected the
@@ -242,6 +250,10 @@ echo "M24 status stops reading the marker at all"
 mutate "$DRIVER" 's|^  marker="$(ts_name_marker)"|  marker=""|'
 check "M24 status reads the marker" "status FAILS when the VM recorded a name mismatch"
 
+echo "M24b the serve line is dropped from ts-status, hiding a wiped serve"
+mutate "$DRIVER" "s@^    absent) printf 'ts serve:  ABSENT@    absent) printf 'x:@"
+check "M24b serve reported separately" "ts-status reports serve state separately from node state"
+
 echo "M25 the writer and reader marker paths drift apart"
 mutate "$DRIVER" 's|/var/lib/signalloom/tailscale-name-mismatch|/var/lib/signalloom/ts-name-mismatch|'
 check "M25 marker path is one contract" "the marker path is the same string in the writer and the reader"
@@ -251,6 +263,55 @@ echo "=== documentation ==="
 echo "M26 the false reclaim claim is put back"
 mutate "$STARTUP" 's|^  # Deterministic, derived from the environment key by Terraform. Requested, not|  # Deterministic. The rebuilt VM reclaims sl-demo-1 rather than accumulating|'
 check "M26 false claim stays gone" "the false reclaim claim is gone from the startup script"
+
+# M27 and M28 guard the SECOND false claim found in this work — that the auth
+# key was not ephemeral and had to be re-minted. It was wrong (47 minutes is
+# inside the reap window, not past it), and it would have shipped as an
+# instruction to rotate a working credential. Both halves of the correction are
+# falsified here, because a documentation fix nobody can break is a
+# documentation fix nobody will notice breaking.
+echo "M27 the measured reap window is dropped from the tfvars"
+mutate "$TFVARS" 's|^#   auto-reap         > 47 min and < 100 min after disconnect|#   reap              eventually|'
+check "M27 measured window recorded" "the tfvars comment records the MEASURED reap window and names logout as primary"
+
+echo "M28 the 'key is fine' statement is dropped, inviting a needless rotation"
+mutate "$TFVARS" 's|it needs no rotation|it should be re-minted|'
+check "M28 no needless rotation advice" "the tfvars comment does NOT tell the reader to rotate a working key"
+
+echo "=== the serve-config guard ==="
+
+echo "M29 the guard is bypassed, so a live serve is silently wiped"
+mutate "$DRIVER" 's@^    if \[ "$force" != "1" \]; then@    if false; then@'
+check "M29 guard fires unforced" "ts-logout REFUSES when the node is currently serving"
+
+echo "M30 an unreadable serve status is treated as 'nothing configured'"
+mutate "$DRIVER" 's@^    printf .unknown.@    printf "absent"@'
+check "M30 unknown is not absent" "an unreadable serve status REFUSES rather than assuming there is none"
+
+echo "M31 --force is dropped from the destroy, so the guard silently skips it"
+mutate "$MAKEFILE" 's@ts-logout --force@ts-logout@'
+check "M31 destroy forces" "the destroy path FORCES, so the guard cannot silently skip the logout"
+
+echo "M32 --force stops being honoured, so a destroy would refuse"
+mutate "$DRIVER" 's@^    --force) force=1 ;;@    --force) force=0 ;;@'
+check "M32 force is honoured" "ts-logout proceeds when forced, even on a serving node"
+
+echo "M33 FORCE=1 in the environment stops being honoured"
+mutate "$DRIVER" 's@^  \[ "${FORCE:-0}" != "1" \] || force=1@  :@'
+check "M33 FORCE env honoured" "FORCE=1 in the environment is honoured as well as the flag"
+
+# M34 pins a defect this work introduced and then fixed. The refusal was first
+# signalled with `exit 2` — which is exactly what `die` in demo-up.sh exits with,
+# so a missing hand-off (an ordinary best-effort miss) arrived at the caller
+# indistinguishable from "this node is serving, I refuse". Reverting the sentinel
+# to 2 must go red, or nothing stops that being reintroduced.
+echo "M34 the refusal status collides with die's, as it originally did"
+mutate "$DRIVER" 's@^TS_LOGOUT_REFUSED=97@TS_LOGOUT_REFUSED=2@'
+check "M34 refusal status is distinct" "ts-logout exits 0 when the hand-off file is missing"
+
+echo "M35 the refusal stops naming the override"
+mutate "$DRIVER" 's@make gcp-tf-ts-logout ENV=${ENV_KEY} FORCE=1   # yes, take the demo down@see the docs@'
+check "M35 refusal names the override" "the refusal explains the consequence and names the override"
 
 echo ""
 echo "=== restored: the suite must be green again ==="

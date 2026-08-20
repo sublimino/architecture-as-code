@@ -257,9 +257,10 @@ install_kubectl() {
 # roles/secretmanager.secretAccessor on that one secret, which modules/compute
 # grants to the runtime service account and to nothing else.
 #
-# The key itself MUST be minted reusable + ephemeral + pre-approved, and
-# "ephemeral" is the half that this file cannot enforce and depends on totally.
-# See the long note above bring_tailscale_up for what a non-ephemeral key costs.
+# The key is minted reusable + ephemeral + pre-approved. Ephemeral means the
+# node is eventually reaped after it goes offline — measured at 47-100 minutes,
+# which is a long-stop and not a mechanism. See the note above
+# bring_tailscale_up for why the name is released explicitly instead.
 #
 # ─── Egress requirements, stated because they are easy to get wrong ─────────
 #
@@ -468,13 +469,19 @@ fetch_tailscale_authkey() {
 #   1. Removal on teardown, which is the real fix. Primary path: demo-up.sh
 #      runs `tailscale logout` over SSH before `terraform destroy` (wired into
 #      the gcp-tf-destroy target). Backstop for hard kills: the systemd unit
-#      installed by install_tailscale_logout_unit below.
-#   2. An EPHEMERAL auth key, so a node that dies without logging out is reaped
-#      by Tailscale itself a few minutes after it goes offline. This file cannot
-#      verify the key is ephemeral — that is a property of how it was minted,
-#      and it is stated as a requirement in deploy/gcp/*.example.tfvars.
+#      installed by install_tailscale_logout_unit below. Measured: the device
+#      record is GONE within 5 seconds of the logout — removed outright, not
+#      left as a logged-out husk still holding the name. A subsequent
+#      `tailscale up --hostname=<name>` on the SAME key reclaims the name and
+#      the tag exactly.
+#   2. The ephemeral auto-reap, as a LONG-STOP only. Measured at more than 47
+#      and less than 100 minutes after disconnect — correct, and useless
+#      against a rebuild cadence measured in minutes. It covers the teardowns
+#      1 cannot reach (preemption, console deletion, a destroy run elsewhere),
+#      an hour later. Anything that treats it as the mechanism is waiting.
 #   3. assert_tailscale_node_name, below, which is what turns a failure of 1
-#      and 2 from silent drift into a loud, durable signal.
+#      and 2 from silent drift into a loud, durable signal. On a fast rebuild
+#      it is the ONLY thing that fires, because 2 has not had time to.
 #
 # A random or hex suffix was considered for the hostname and REJECTED. It fixes
 # collision and destroys the property being defended: the name would be unique
@@ -609,8 +616,9 @@ assert_tailscale_node_name() {
   log "ERROR: a stale device record still owns '${want}' in this tailnet."
   log "ERROR: Nothing in 'terraform destroy' removes a tailnet device, so a"
   log "ERROR: previously destroyed VM keeps the name and this one is suffixed."
-  log "ERROR: Remove the offline '${want}' device in the admin console, or"
-  log "ERROR: confirm the auth key is EPHEMERAL, then rebuild:"
+  log "ERROR: Remove the offline '${want}' device, then rebuild. The auto-reap"
+  log "ERROR: takes 47-100 minutes, so on a fast rebuild this is expected and"
+  log "ERROR: the console is the fix — do not suspect the auth key:"
   log "ERROR:   https://login.tailscale.com/admin/machines"
   write_ts_name_marker "$want" "$got"
   return 1
@@ -638,11 +646,14 @@ This node did not get the MagicDNS name it asked for, so any URL built from
 
 Cause: 'terraform destroy' removes the GCP instance and does not remove the
 tailnet device record. The offline device still owns the name, and this node
-was given the next free suffix.
+was given the next free suffix. The teardown either skipped the explicit
+'tailscale logout', or this rebuild happened before the previous node's
+auto-reap — measured at 47-100 minutes after disconnect.
 
 Fix: delete the offline '${want}' device at
-https://login.tailscale.com/admin/machines, and confirm the auth key in Secret
-Manager is EPHEMERAL so the next one is reaped automatically.
+https://login.tailscale.com/admin/machines and rebuild. The auth key is not the
+problem and does not need rotating; a logout removes the record in under 5
+seconds, and the same key then reclaims this exact name.
 EOF
   chmod 0644 "$TS_NAME_MARKER" 2>/dev/null || true
 }
@@ -704,7 +715,8 @@ WantedBy=multi-user.target
 UNIT
   then
     log "WARNING: could not write ${TS_LOGOUT_UNIT}"
-    log "WARNING: this node will rely on the ephemeral key reap alone"
+    log "WARNING: on a hard kill this node's name is held until the auto-reap,"
+    log "WARNING: which is 47-100 minutes. An explicit teardown is unaffected."
     return 0
   fi
 

@@ -31,6 +31,12 @@
 #                          fails. Models a VM whose optional tailscale stage
 #                          never ran.
 #   STUB_TS_LOGOUT_RC      exit code for a remote `tailscale logout`
+#   STUB_TS_SERVE_STATUS   what `tailscale serve status` prints. Defaults to
+#                          "No serve config", the literal that means nothing is
+#                          configured.
+#   STUB_TS_SERVE_SILENT   1 => `serve status` fails and prints nothing, which
+#                          is what an unreachable node or a refused sudo does.
+#                          The driver must read this as UNKNOWN, not absent.
 
 log="${STUB_GCLOUD_LOG:-/dev/null}"
 printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
@@ -74,6 +80,23 @@ case "$argv" in
           exit "${STUB_TS_FUNNEL_RC}"
         }
         printf 'FUNNEL_CONFIGURED\n'
+        exit 0
+        ;;
+      # BEFORE the generic `tailscale serve` branch, for exactly the reason the
+      # funnel comment above gives: `tailscale serve status` contains
+      # "tailscale serve", so the generic arm would answer SERVE_CONFIGURED to
+      # a read-only status query. That made every unforced ts-logout look like
+      # it was running against a serving node.
+      *"tailscale serve status"*)
+        # `No serve config` is the literal tailscale prints when nothing is
+        # configured, and it is the ONLY positive evidence of absence. Default
+        # to it so every pre-existing test keeps the behaviour it had.
+        #
+        # STUB_TS_SERVE_SILENT models the cases that produce no output at all —
+        # SSH failed, sudo refused, tailscaled is down — which the driver must
+        # treat as "unknown", never as "absent".
+        [ "${STUB_TS_SERVE_SILENT:-0}" != "1" ] || exit 1
+        printf '%s\n' "${STUB_TS_SERVE_STATUS:-No serve config}"
         exit 0
         ;;
       *"tailscale serve"*)

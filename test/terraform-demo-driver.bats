@@ -590,6 +590,105 @@ dex_log() {
 	}
 }
 
+@test "DEMODRIVER PAYLOADGUARD the exclusion pattern does not fire on THIS repo's tracked files" {
+	# ─── Why this test exists, and why the suite above cannot replace it ───────
+	#
+	# Every other payload test here runs the driver against `make_repo`'s FIXTURE
+	# checkout. That fixture mirrors the real repo's .gitignore — its exclusions —
+	# but not its tracked, legitimate, collision-shaped files. It has no
+	# `.terraform.lock.hcl` and no `*.example.tfvars`, which are precisely the two
+	# classes the exclusion pattern has already been observed to match by accident.
+	#
+	# So a guard that REFUSES every real delivery leaves this suite green. Measured
+	# 2026-08-20: reverting the pattern to a bare `\.terraform` and dropping the
+	# example exemption made `make gcp-tf-demo-up` unable to build at all, and not
+	# one bats suite in the repository noticed. The fixture could not observe the
+	# defect, which is the same shape as the note at the top of make_repo — a test
+	# whose fixture contains no key cannot observe a leaked key.
+	#
+	# This test therefore runs the guard's OWN pattern against the REAL repository's
+	# real tracked file list. It is a false-POSITIVE test: the guard refuses rather
+	# than filters, so a term that is too wide is an outage, not a warning.
+	[ -f "${DRIVER_SRC}" ]
+
+	# ─── Derive the pipeline from the driver, never restate it ────────────────
+	#
+	# A copy of the pattern here would be a second place to fix and a first place
+	# to forget, and this suite already carries one stale copy of it. Extracting
+	# the greps means the test cannot pass because it is testing an older rule.
+	local body pipeline
+	body="$(sed -n '/^build_payload() {/,/^}/p' "${DRIVER_SRC}")"
+	[ -n "${body}" ] || {
+		echo "build_payload is not defined in ${DRIVER_SRC} — nothing to extract"
+		return 1
+	}
+	pipeline="$(printf '%s\n' "${body}" |
+		sed -n 's/^[[:space:]]*\(grep -[a-zA-Z]*E .*\)[[:space:]]|$/\1/p' |
+		paste -sd'|' - | sed 's/|grep/ | grep/g')"
+	[ -n "${pipeline}" ] || {
+		echo "no grep stage extracted from build_payload — this test would measure nothing"
+		return 1
+	}
+
+	# ─── Positive control, before the negative assertion ──────────────────────
+	#
+	# "matches nothing" is trivially satisfied by an extraction that produced a
+	# pattern matching nothing at all. Prove the pipeline still catches genuine
+	# leaks before trusting it to report a clean listing.
+	local caught
+	caught="$(printf '%s\n' \
+		'deploy/gcp/acme-live-project.tfvars' \
+		'.keys/cosign.key' \
+		'terraform/.terraform/providers/registry.tf/x' \
+		'deploy/gcp/deploy-sa' |
+		eval "${pipeline}" || true)"
+	local n_caught
+	n_caught="$(printf '%s' "${caught}" | grep -c . || true)"
+	[ "${n_caught}" -eq 4 ] || {
+		echo "the extracted guard caught ${n_caught}/4 planted leaks — the extraction is wrong,"
+		echo "so the clean-listing assertion below would be vacuous. Caught:"
+		printf '%s\n' "${caught}"
+		echo "pipeline: ${pipeline}"
+		return 1
+	}
+
+	# ─── Presence: the repo must actually contain the colliding files ─────────
+	#
+	# If nobody tracks a lock file or an example tfvars any more, this test still
+	# passes and has stopped covering anything. Say so instead.
+	local listing
+	listing="$(git -C "${REPO_ROOT}" ls-tree -r --name-only HEAD)"
+	[ -n "${listing}" ] || {
+		echo "git ls-tree returned nothing for HEAD — cannot judge the guard"
+		return 1
+	}
+	printf '%s\n' "${listing}" | grep -q '\.terraform\.lock\.hcl$' || {
+		echo "no tracked .terraform.lock.hcl at HEAD — the lock-file collision this"
+		echo "test covers can no longer occur; re-check the premise before deleting it."
+		return 1
+	}
+	printf '%s\n' "${listing}" | grep -qE '\.example\.tfvars$|\.tfvars\.example$' || {
+		echo "no tracked example tfvars at HEAD — the example collision this test"
+		echo "covers can no longer occur; re-check the premise before deleting it."
+		return 1
+	}
+
+	# ─── The assertion ────────────────────────────────────────────────────────
+	local refused
+	refused="$(printf '%s\n' "${listing}" | eval "${pipeline}" || true)"
+	[ -z "${refused}" ] || {
+		echo "the payload guard REFUSES this repository's own tracked files:"
+		printf '%s\n' "${refused}" | sed 's/^/  /'
+		echo ""
+		echo "These are tracked on purpose. The guard exits 2 rather than filtering,"
+		echo "so this is not a warning — 'make gcp-tf-demo-up' cannot build at all,"
+		echo "and its message tells the operator to untrack something that must stay"
+		echo "tracked. Narrow the term in build_payload; do not untrack these."
+		echo "pipeline: ${pipeline}"
+		return 1
+	}
+}
+
 @test "DEMODRIVER the payload is built with git archive, not a tar of the working tree" {
 	# Asserting the MECHANISM, not only its effect. A tar with the right
 	# excludes produces a payload that passes every content assertion above and

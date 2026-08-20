@@ -1,0 +1,37 @@
+# BROKEN: the custom role can now destroy the estate it was meant to park.
+#
+# This is the failure the ROLE budget cannot see. A role budget counts roles, and
+# this file still declares exactly one custom role — the count in
+# tests/operator_identity.tftest.hcl does not move. What moved is the permission
+# list inside it, which is the only place in the operator module where a
+# privilege increase is invisible to every count a reviewer is likely to check.
+#
+# compute.instances.delete lets the operator remove a demo VM outright.
+# compute.instances.setMetadata is the quieter one and arguably worse: instance
+# metadata is where SSH keys live, so it is a write path onto every VM that
+# bypasses OS Login entirely — the exact control the operator identity exists to
+# route access THROUGH.
+
+locals {
+  operator_project_roles = [
+    "roles/iap.tunnelResourceAccessor",
+    "roles/compute.osAdminLogin",
+    "projects/changeme-project/roles/slOperatorInstanceLifecycle",
+  ]
+}
+
+resource "google_project_iam_custom_role" "instance_lifecycle" {
+  project = var.project_id
+  role_id = "slOperatorInstanceLifecycle"
+  title   = "Signal Loom operator — instance lifecycle"
+  stage   = "GA"
+
+  permissions = [
+    "compute.instances.suspend",
+    "compute.instances.resume",
+    "compute.instances.start",
+    "compute.zoneOperations.get",
+    "compute.instances.delete",
+    "compute.instances.setMetadata",
+  ]
+}

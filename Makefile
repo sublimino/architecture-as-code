@@ -1340,6 +1340,32 @@ GCP_TF_TEST_DIRS_RUN = $(filter-out $(GCP_TF_EXCLUDED_TEST_DIRS),$(GCP_TF_TEST_D
 GCP_TF_PROOFS = $(wildcard test/*-mutation-proof.sh)
 GCP_TF_PROOFS_RUN ?= $(foreach p,$(GCP_TF_PROOFS),bash $(p) &&) true
 
+# ── Naming is the registration. There is no list to add yourself to. ────────
+#
+# A new mutation proof is picked up by the wildcard above the moment it is named
+# `test/<something>-mutation-proof.sh`. Nothing else is required, and adding a
+# hand-registered variable for one is actively harmful: it runs that proof
+# TWICE, once via the glob and once via the extra invocation, on a gate that
+# already takes ~13 minutes. That is exactly what happened here and it was
+# caught in review, not by the gate — a duplicate run is green, just slower.
+#
+# ─── What is deliberately NOT in this glob, and why ─────────────────────────
+#
+# test/guard-falsification-proof.sh is a proof and is NOT matched, because it is
+# not named `*-mutation-proof.sh`. That exclusion is CORRECT and must survive
+# future tidying. It is a ~119KB VM-side harness that proves this repo's guards
+# are capable of failing, and it is already run in the two places that can
+# actually run it:
+#
+#   scripts/gcp-tf/demo-pipeline.sh:634   cd ${WORK_DIR} && ./test/guard-falsification-proof.sh
+#   scripts/ci/vm-pipeline.sh:807         cd ${WORK_DIR} && ./test/guard-falsification-proof.sh
+#
+# No make target runs it and none should. `gcp-tf-validate` is the OFFLINE gate
+# — no network, no cloud, no cluster — and that harness needs a VM. Widening
+# this wildcard to `test/*-proof.sh` would drag it into the offline gate and
+# break it. "No make target runs it" is a deliberate design decision here, not
+# the unregistered-suite defect it superficially resembles.
+
 # --- Guard rails ------------------------------------------------------------
 #
 # These are `define`d rather than factored into a shell script because

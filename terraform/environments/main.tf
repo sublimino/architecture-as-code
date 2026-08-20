@@ -65,6 +65,34 @@ locals {
   }
 }
 
+# ─── The single definition of "which lanes have an edge" ───────────────────
+#
+# This map is the ONE definition of "which lanes have an edge". The live
+# `module "network"` block below reads it through `edge_enabled`, and the
+# commented `module "edge"` block reads the same map through its `for_each`
+# when it is re-enabled, so "the load balancer exists" and "the health-check
+# ingress exists" cannot disagree.
+#
+# Today the map is literally empty because the edge module block is commented
+# out, so no lane has a live HTTPS load balancer. Any non-empty expression here
+# would describe an intention rather than a fact, which is how a review ends up
+# claiming a web edge exists when nothing in GCP actually serves it.
+#
+# Re-enabling the edge is therefore a deliberate TWO-line change:
+#   1. uncomment the `module "edge"` block below; and
+#   2. replace `{}` here with
+#      `{ for k, v in local.target_environments : k => v if v.kind == "demo" }`
+#
+# Both halves are guarded. Doing one without the other turns a test red rather
+# than silently reintroducing a public HTTPS frontend: test/terraform-edge-
+# dormant.bats asserts the module graph contains no edge module, and
+# terraform/environments/tests/edge_dormant.tftest.hcl asserts this map stays
+# empty and that no lane gains the health-check ingress that only an edge
+# should need.
+locals {
+  edge_environments = {}
+}
+
 # Values the commented module blocks below will consume at integration.
 # Publishing them through an output means the wiring can be reviewed — and the
 # resolved names, labels and allowlists inspected — before any sibling module
@@ -85,6 +113,21 @@ locals {
     github_repository               = var.github_repository
     github_allowed_ref              = var.github_allowed_ref
   }
+}
+
+# ─── The effective access path, not the wished-for one ──────────────────────
+#
+# `var.access_mode` describes the posture of the WEB edge: Identity-Aware Proxy
+# in front of an HTTPS load balancer. With no edge instantiated there is no web
+# front door for it to describe, so reporting "iap" tells a reader the estate
+# has a control it does not have. The path actually in force is the IAP TCP
+# tunnel — roles/iap.tunnelResourceAccessor, source range 35.235.240.0/20,
+# ports 22 and app_port — which is a different and narrower thing.
+#
+# When the edge comes back, the same local resolves to var.access_mode again
+# automatically because the lane key appears in local.edge_environments.
+locals {
+  effective_access_mode = contains(keys(local.edge_environments), var.target_env) ? var.access_mode : "iap_tunnel"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -150,6 +193,11 @@ module "network" {
   app_port                      = each.value.app_port
   runtime_service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
   nat_log_filter                = var.nat_log_filter
+
+  # The GCP health-check firewall rule exists only for a lane that actually
+  # has a load balancer, and both facts are derived from the one
+  # local.edge_environments map above.
+  edge_enabled = contains(keys(local.edge_environments), each.key)
 
   # Reviewed per-environment widening; see the tfvars for the rationale. The
   # ports travel with the destinations because opening a port and naming a
@@ -231,10 +279,12 @@ module "compute" {
 }
 
 # # ── 4. edge ── HTTPS LB, managed cert, Cloud Armor. Demo lanes only; a CI
-# # lane has no public edge by design, which is why this filters on kind.
+# # lane has no public edge by design, which is why local.edge_environments
+# # must switch from {} to the demo-lane filter at the same time this block is
+# # uncommented.
 # module "edge" {
 #   source   = "../modules/edge"
-#   for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
+#   for_each = local.edge_environments
 #
 #   project_id                      = var.project_id
 #   environment_key                 = each.value.environment_key

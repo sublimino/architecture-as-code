@@ -1031,6 +1031,104 @@ JSON
   [ "$(jq -r .deploy_sa "$h")"    = "${SA_EMAIL}" ]
 }
 
+@test "the hand-off reports the access path in force, not the one the tfvars wished for" {
+  # ─── What was wrong ───────────────────────────────────────────────────────
+  #
+  # `access_mode` used to be sourced from `.integration_inputs.value.access_mode`
+  # alone, which is the root's `var.access_mode` — "iap" in every tfvars in this
+  # repo. It describes the WEB edge: Identity-Aware Proxy in front of an HTTPS
+  # load balancer. There is no such edge. `module "edge"` is commented out, and
+  # a live probe of the project on 2026-08-20 found zero forwarding rules, zero
+  # backend services and zero Cloud Armor policies.
+  #
+  # So the file the test suite reads announced a control the estate does not
+  # have. The root now publishes a top-level `access_mode` output carrying
+  # `local.effective_access_mode`, and the Makefile's existing
+  # `.access_mode.value // .integration_inputs.value.access_mode` precedence
+  # picks it up. This test is what keeps that precedence load-bearing: without
+  # it, deleting the root output silently restores the lie via the fallback.
+  fixture="$(env_fixture demo-1)"
+  hdir="${BATS_TEST_TMPDIR}/handoff-effective"
+  outputs="${BATS_TEST_TMPDIR}/outputs-effective.json"
+
+  # Deliberately disagreeing halves: the top-level output says what is really in
+  # force, integration_inputs still carries the tfvars aspiration. The whole
+  # point is which one wins.
+  cat > "${outputs}" <<'JSON'
+{
+  "target_env": { "value": "demo-1" },
+  "target_environment": { "value": {
+    "region": "europe-west2", "zone": "europe-west2-a",
+    "app_port": 8080, "hostname": ""
+  } },
+  "access_mode": { "value": "iap_tunnel" },
+  "edge_environment_keys": { "value": [] },
+  "integration_inputs": { "value": {
+    "project_id": "changeme-sandbox", "access_mode": "iap"
+  } },
+  "instance_name": { "value": "sl-demo-1-vm" },
+  "internal_ip": { "value": "10.10.1.7" }
+}
+JSON
+  run env "STUB_TF_OUTPUT_JSON=${outputs}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-sandbox-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir}"
+  [ "$status" -eq 0 ]
+
+  h="${hdir}/demo-1.handoff.json"
+  [ "$(jq -r .access_mode "$h")" = "iap_tunnel" ] || {
+    echo "the hand-off reported '$(jq -r .access_mode "$h")' rather than the" >&2
+    echo "top-level access_mode output. The root's effective value lost to the" >&2
+    echo "integration_inputs fallback, so the file claims a web IAP edge that" >&2
+    echo "does not exist." >&2
+    return 1
+  }
+
+  # The fallback must still work for state written before the output existed —
+  # that is the only reason it is still in the jq expression.
+  outputs_legacy="${BATS_TEST_TMPDIR}/outputs-legacy.json"
+  jq 'del(.access_mode)' "${outputs}" > "${outputs_legacy}"
+  hdir_legacy="${BATS_TEST_TMPDIR}/handoff-legacy"
+  run env "STUB_TF_OUTPUT_JSON=${outputs_legacy}" \
+    make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-sandbox-tfstate \
+    TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \
+    "GCP_TF_HANDOFF_DIR=${hdir_legacy}"
+  [ "$status" -eq 0 ]
+  [ "$(jq -r .access_mode "${hdir_legacy}/demo-1.handoff.json")" = "iap" ]
+}
+
+@test "the root publishes the effective access mode the hand-off depends on" {
+  # The test above proves the Makefile's precedence. This proves the output it
+  # gives precedence TO actually exists — the two together are what stop the
+  # hand-off quietly falling back to the tfvars aspiration.
+  #
+  # Asserted on the root's outputs.tf rather than on a plan because
+  # `terraform test` already covers the VALUE
+  # (terraform/environments/tests/edge_dormant.tftest.hcl); what a plan cannot
+  # tell you is whether the output block a downstream Makefile greps for is
+  # still called `access_mode`.
+  outputs_tf="${REPO_ROOT}/terraform/environments/outputs.tf"
+  [ -f "${outputs_tf}" ]
+
+  grep -qE '^output "access_mode" \{' "${outputs_tf}" || {
+    echo "the root no longer publishes an 'access_mode' output." >&2
+    echo "make gcp-tf-handoff resolves the field with" >&2
+    echo "  .access_mode.value // .integration_inputs.value.access_mode" >&2
+    echo "so removing this output does not break the hand-off — it makes it" >&2
+    echo "silently report var.access_mode again, which is the lie this output" >&2
+    echo "exists to stop." >&2
+    return 1
+  }
+
+  grep -qE 'value += +local\.effective_access_mode' "${outputs_tf}" || {
+    echo "the access_mode output is no longer wired to" >&2
+    echo "local.effective_access_mode, so it is free to disagree with whether" >&2
+    echo "an edge is actually instantiated." >&2
+    return 1
+  }
+}
+
 @test "the hand-off carries the agreed schema id and the env alias, and they cannot drift" {
   # The acceptance harness (chunk I2) was written against `schema` and `env`;
   # this generator emits `schema_version` and `environment_key`. Emitting both

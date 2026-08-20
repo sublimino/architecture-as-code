@@ -281,9 +281,51 @@ compares it to a port.
 
 ### Worked example
 
-`access_mode` is a **three**-valued enum — `iap`, `allowlist`, `iap_and_allowlist`
-(see `terraform/environments/variables.tf`). Anything reading it as a boolean
-"IAP or allowlist" will mishandle the combined mode.
+`access_mode` reports **the access path actually in force**, which is not the
+same thing as `var.access_mode` in the tfvars.
+
+Three of its values come from `var.access_mode` and describe the posture of the
+**web edge** — Identity-Aware Proxy in front of an HTTPS load balancer: `iap`,
+`allowlist`, `iap_and_allowlist` (see `terraform/environments/variables.tf`).
+Anything reading those as a boolean "IAP or allowlist" will mishandle the
+combined mode.
+
+The fourth value is `iap_tunnel`, and it is what this estate reports today.
+`module "edge"` is commented out in `terraform/environments/main.tf`, so no lane
+has a load balancer — verified live against `sl-port-over-sandbox` on
+2026-08-20: zero forwarding rules, zero backend services, zero global
+addresses, zero managed certificates, zero Cloud Armor policies. With no web
+front door there is no web posture for `var.access_mode` to describe, and
+echoing `"iap"` told a reader the estate had a control it does not have. The
+path genuinely in force is the IAP **TCP tunnel** —
+`roles/iap.tunnelResourceAccessor`, source range `35.235.240.0/20`, ports 22
+and `app_port` — which is a different and narrower thing, hence a distinct
+value rather than a reused one.
+
+It resolves back to `var.access_mode` automatically when the edge is wired up
+again, because both facts derive from the single `local.edge_environments` map
+in `terraform/environments/main.tf`.
+
+#### Why this is not a schema bump
+
+The field's documented meaning has not changed: it has always been "the access
+path in force", and `iap_tunnel` is the first value that describes that path
+honestly rather than aspirationally. What changed is the value SET, which is a
+compatible change for a consumer treating the field as opaque and a breaking one
+for a consumer enumerating the three tfvars values.
+
+No such consumer exists. Every reference was checked
+(`rg -n 'access_mode' --glob '!.claude'`): the Makefile writes it, this document
+and `terraform/notes/i1-make-handoff.md` describe it, and
+`test/terraform-make-contract.bats` asserts it non-empty and echoed. No script
+branches on it — `scripts/gcp-tf/conformance.sh` mentions `access_mode` only in
+the prose of a remediation message, and reads the live backend service rather
+than this file. So `schema` stays `signalloom.gcp.handoff/v1` and
+`schema_version` stays `1`.
+
+A consumer that must distinguish "there is a web edge" from "there is not"
+should read the `edge_environment_keys` root output rather than pattern-matching
+this string; an empty list is the unambiguous answer.
 
 `env` and `schema` are aliases carried for a consumer written against those
 spellings. They are additive; `environment_key` and `schema_version` are the

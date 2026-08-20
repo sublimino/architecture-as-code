@@ -527,18 +527,53 @@ declare -a stage_results=()
 # shape as every other stage. One JSON writer, one verdict shape, no second
 # place for the two to disagree.
 record_stage() {
-  local name="$1" output_file="$2" exit_code="$3"
+  local name="$1" output_file="$2" exit_code="$3" elapsed="${4:-0}"
   local status="pass"
   if ((exit_code != 0)); then
     status="fail"
     ((failures+=1))
   fi
-  echo "  ${status^^}: ${name} (exit ${exit_code})"
+
+  # ─── Why a stage records its DURATION and its share of the fence ─────────
+  #
+  # scripts/lib/wait.sh emits a WAIT_STAT line for every inner wait, carrying
+  # elapsed, deadline and the ratio between them, and scripts/cluster-debug.sh
+  # ranks them. That instrumentation is why "is this wait close to timing out"
+  # is a question with an answer here. Measured across three real runs: 495
+  # samples, zero timeouts, a maximum of 10% of budget used.
+  #
+  # The OUTER fence had none of it. A stage announced its budget and then never
+  # said what it spent, so a stage sitting at 95% of STAGE_TIMEOUT_SECONDS was
+  # indistinguishable from one at 5% until the day it crossed and was killed —
+  # and a `timeout` kill reads as a hung test rather than as a budget that was
+  # always too tight. The inner waits were observable and the thing that
+  # actually terminates a run was not.
+  #
+  # This matters most exactly when the machine changes. Halving a lane's vCPU
+  # does not move the inner waits (they are dominated by image pulls, Flux
+  # reconciliation and DNS, none of which are CPU-bound) but it does move total
+  # stage wall-clock, which is the number nobody had. budget_pct is what makes
+  # the next resize a measurement instead of an argument.
+  local budget_pct=0
+  if ((STAGE_TIMEOUT_SECONDS > 0)); then
+    budget_pct=$(( elapsed * 100 / STAGE_TIMEOUT_SECONDS ))
+  fi
+  echo "  ${status^^}: ${name} (exit ${exit_code}, ${elapsed}s of ${STAGE_TIMEOUT_SECONDS}s = ${budget_pct}%)"
+
+  # Warn ONCE past 60% of the fence, and keep going. Same soft-threshold ratio
+  # and the same intent as WAIT_SOFT_RATIO in scripts/lib/wait.sh: a stage that
+  # is merely slow must not fail, but it must not pass silently either. This is
+  # the line that would have said "8 vCPU is not enough" before a stage started
+  # being killed at minute thirty.
+  if ((budget_pct >= 60)); then
+    printf '⚠ slow: stage %s used %s%% of its %ss budget (%ss). Raise DEMO_STAGE_TIMEOUT_SECONDS or investigate.\n' \
+      "$name" "$budget_pct" "$STAGE_TIMEOUT_SECONDS" "$elapsed" >&2
+  fi
 
   # Hand-rolled rather than jq, for the reason given above write_terminal_summary:
   # this file has exactly one JSON writer and it depends on nothing the pipeline
   # itself installs.
-  stage_results+=("{\"name\":$(json_str "$name"),\"status\":$(json_str "$status"),\"exit_code\":${exit_code},\"file\":$(json_str "$output_file")}")
+  stage_results+=("{\"name\":$(json_str "$name"),\"status\":$(json_str "$status"),\"exit_code\":${exit_code},\"file\":$(json_str "$output_file"),\"duration_s\":${elapsed},\"budget_s\":${STAGE_TIMEOUT_SECONDS},\"budget_pct\":${budget_pct}}")
 }
 
 run_stage() {
@@ -546,14 +581,18 @@ run_stage() {
   local exit_code=0
 
   echo "──── STAGE: ${name} (timeout ${STAGE_TIMEOUT_SECONDS}s) ────"
+  # SECONDS is bash's own monotonic-ish counter and needs no external command,
+  # which matters because this pipeline runs before its own toolchain is proven.
+  local stage_start="${SECONDS}"
   timeout -k 30s "${STAGE_TIMEOUT_SECONDS}s" bash -c "$*" \
     > "${REPORT_DIR}/${output_file}" 2>&1 || exit_code=$?
+  local stage_elapsed=$(( SECONDS - stage_start ))
   if ((exit_code == 124)); then
     printf '\nTIMEOUT: stage exceeded %ss and was terminated\n' \
       "$STAGE_TIMEOUT_SECONDS" >> "${REPORT_DIR}/${output_file}"
   fi
 
-  record_stage "$name" "$output_file" "$exit_code"
+  record_stage "$name" "$output_file" "$exit_code" "$stage_elapsed"
 }
 
 # ═══ Tier 0: the gates that need NO cluster, run BEFORE there is one ═════════
@@ -935,9 +974,10 @@ publish_dashboard() {
 # at export time. record_stage keeps the bookkeeping identical either way.
 echo "──── STAGE: Publish the dashboard on a supervised port-forward ────"
 publish_rc=0
+publish_start="${SECONDS}"
 publish_dashboard > "${REPORT_DIR}/stage6d-publish.txt" 2>&1 || publish_rc=$?
 record_stage "Publish the dashboard on a supervised port-forward" \
-  "stage6d-publish.txt" "$publish_rc"
+  "stage6d-publish.txt" "$publish_rc" "$(( SECONDS - publish_start ))"
 
 # ═══ Tier 3: runtime. Needs the cluster AND the published Gateway. ═══════════
 PIPELINE_PHASE="tests"

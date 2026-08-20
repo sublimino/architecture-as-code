@@ -346,8 +346,53 @@ insufficient to delete the bucket. Assert the negative as well as the positive.
 - Every file must run green **offline**, with no network and no cloud credentials.
 - Every file must complete in under 30 seconds.
 - Include at least one *mutation check*: a test that proves the suite fails when the guarded
-  condition is violated, using a fixture copy under `test/fixtures/terraform/` — never by
-  mutating the real tree.
+  condition is violated.
+
+### 7b. Mutate the REAL file. A fixture mutation proves only that the fixture is wired up.
+
+This rule previously read "using a fixture copy under `test/fixtures/terraform/` — never by
+mutating the real tree". That was wrong in a way that cost us three dead assertions in a single
+task on 2026-08-20, every one of them inside a suite that was green and had a passing mutation
+test. A fixture mutation asks "does my scanner detect this string in a file I just wrote it
+into?" — it cannot ask "does the thing I am guarding actually exist in the shipped code?"
+
+The three, because the shapes recur:
+
+1. **Prose satisfied the assertion.** `[[ "$log" == *"Restart=always"* ]]` passed with
+   `Restart=no` in the systemd unit. `demo-up.sh` builds remote scripts as heredocs and ships
+   them via `--command`, so the script's own COMMENTS travel to the VM and land in the stub's
+   command log — one of them contained the phrase. Match config directives as **complete
+   lines** (`grep -qxF 'Restart=always'`, `grep -qE '^ExecStart=…'`); a comment can never be a
+   whole directive line.
+
+2. **The other branch satisfied the assertion.** A substring check for `systemctl enable`
+   stayed green when it was deleted from the branch under test, because the stub receives the
+   ENTIRE script — both branches — as one string and cannot report which one ran. Where an
+   invariant must hold on every branch, assert a **count**, and say why in the test.
+
+3. **A stub can only ever prove the CALLER's half.** `STUB_PF_RC=5` proves the driver *handles*
+   exit 5. It cannot prove the remote script *produces* it, because the stub never executes
+   that script. Deleting the real `kubectl get service` pre-check failed **nothing** across 57
+   tests, including the test written for it. Any assertion about a remote script's behaviour
+   needs a **source-level guard as well**, placed FIRST so the failure names the missing
+   mechanism rather than a missing message.
+
+So: fixture mutations are still welcome for exercising a scanner's edge cases, and are the only
+option when the defect cannot exist in the real tree. But **the guard is not proven until the
+real file has been mutated and the right test has gone red for the right reason.**
+
+Doing that safely is the part the old rule was protecting, and it is a procedure, not a
+prohibition:
+
+- Copy the file to a path **outside the repository** first, and restore from that copy — never
+  `git checkout`, which silently reverts uncommitted work in the same directory.
+- **Assert the mutation applied.** A `sed` whose pattern no longer matches exits 0 and changes
+  nothing, so the mutation test that follows runs against correct code and passes — a proof of
+  the opposite of what it claims. Compare hashes, or use a helper that fails on a no-op. Watch
+  for shell metacharacters: an unescaped `|` in a `sed` expression is a syntax error that reads
+  as "the guard is dead".
+- **Verify restoration** by comparing the hash to the pre-mutation one, and report it.
+- A mutation that fails NOTHING is a finding, not a nuisance. Fix the assertion before moving on.
 - Prefer `rg`/`grep` over parsing HCL with regex where a `terraform validate` or
   `terraform console` check would be more truthful, but do not require network access.
 

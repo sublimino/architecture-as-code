@@ -644,9 +644,23 @@ build_payload() {
   # somebody tracks it deliberately. That intent is preserved exactly; only the
   # collision with the lock file is removed. The two differ by one character and
   # by whether the repository wants them.
+  # The `.tfvars` term has the same shape of collision, for the same reason, and
+  # it is exempted rather than loosened.
+  #
+  # This repo uses TWO example-file conventions. `terraform/**/*.tfvars.example`
+  # ends in `.example` and never matched. `deploy/gcp/*.example.tfvars` ends in
+  # `.tfvars` and always did — so the committed, reviewed, placeholder-bearing
+  # example was reported as leaked material, alongside the lock files above.
+  #
+  # A LIVE tfvars is still caught, and the exemption cannot be used to smuggle
+  # one: the live files are `deploy/gcp/<project>.tfvars`, they are gitignored,
+  # and `git archive HEAD` carries tracked files only — so this verifier is the
+  # second line, not the first. What it must not do is fire on the tracked file
+  # the repository deliberately ships as documentation.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
     grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform/)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -vE '\.example\.tfvars$|\.tfvars\.example$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then
     printf 'demo-up: REFUSING to deliver — excluded material is present in the payload:\n' >&2

@@ -545,3 +545,383 @@ run "accepts_the_corrected_inputs" {
     error_message = "ci environments pass deletion_protection = false and must be accepted"
   }
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# TAILSCALE
+#
+# Three claims are made in prose elsewhere and enforced here:
+#
+#   1. With the feature off, NOTHING is planned. Not a data source, not an IAM
+#      binding, not a metadata key. An environment with no auth-key secret must
+#      plan and apply exactly as it did before this existed.
+#   2. The secret grant is SECRET-SCOPED. The available alternative — a project
+#      IAM member with the same role — reads almost identically in a diff and
+#      differs by the entire blast radius of the project's secret store.
+#   3. The auth key is NEVER in metadata. Instance metadata is plain text and
+#      readable by anyone holding compute.instances.get; what travels there is
+#      the NAME of the secret. The whole-file version of that assertion lives in
+#      test/terraform-tailscale-access.bats, because absence-across-a-file is
+#      not something a plan can see.
+#
+# In this file rather than a suite of its own for the same reason the network
+# module's UDP runs are: test/terraform-network-security.bats copies
+# `tests/*.tftest.hcl` onto one destination path, so a second file here breaks
+# that guard with a `cp` error.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ---------------------------------------------------------------------------
+# OFF BY DEFAULT, and off means nothing is planned.
+#
+# The three assertions are deliberately separate resources rather than one
+# combined condition: a `count` edit, a data-source edit and a metadata edit are
+# three different mistakes, and a merged assertion would name none of them.
+# ---------------------------------------------------------------------------
+
+run "tailscale_is_off_by_default_and_plans_no_resource" {
+  command = plan
+
+  assert {
+    condition     = var.tailscale_enabled == false
+    error_message = "tailscale_enabled must default to false. The auth-key secret is created out of band, so a true default makes every environment without one fail at plan with \"secret not found\" — including CI lanes that will never have a tailnet."
+  }
+
+  assert {
+    condition     = length(data.google_secret_manager_secret.tailscale_authkey) == 0
+    error_message = "with tailscale disabled the module must not look the secret up at all; a data source that always runs makes an optional feature mandatory at plan time"
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.tailscale_authkey_accessor) == 0
+    error_message = "with tailscale disabled no IAM binding may be planned"
+  }
+
+  # Metadata keys ABSENT, not present-and-empty. An empty-string value is a
+  # value the startup script would still have to interpret; absence is
+  # unambiguous, and it means a non-Tailscale instance's metadata is identical
+  # to what it was before this feature existed.
+  assert {
+    condition     = !contains(keys(google_compute_instance.this.metadata), "signalloom-tailscale-enabled")
+    error_message = "with tailscale disabled no signalloom-tailscale-* metadata key may be emitted"
+  }
+
+  assert {
+    condition     = !contains(keys(google_compute_instance.this.metadata), "signalloom-tailscale-secret-id")
+    error_message = "with tailscale disabled the secret name must not appear in instance metadata"
+  }
+
+  # The hardening the module already had is untouched by any of this. Asserted
+  # in the same run so a change that added Tailscale by weakening the instance
+  # fails here rather than in a file nobody re-reads.
+  assert {
+    condition     = google_compute_instance.this.metadata["enable-oslogin"] == "TRUE"
+    error_message = "OS Login must survive the metadata merge; a merge that dropped it would move SSH authorisation off IAM entirely"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["block-project-ssh-keys"] == "TRUE"
+    error_message = "project-wide SSH keys must still be refused at the instance"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["serial-port-enable"] == "FALSE"
+    error_message = "serial console access must still be disabled"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# ENABLED: exactly one grant, at secret scope, of exactly one role.
+# ---------------------------------------------------------------------------
+
+run "enabling_tailscale_grants_secret_accessor_at_secret_scope" {
+  command = plan
+
+  variables {
+    tailscale_enabled = true
+  }
+
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.tailscale_authkey_accessor) == 1
+    error_message = "enabling tailscale must create exactly one IAM binding"
+  }
+
+  # SECRET SCOPE. The resource TYPE is the control — google_secret_manager_secret_iam_member
+  # binds on one secret, where google_project_iam_member with the same role would
+  # grant read on every secret in the project, present and future, to a service
+  # account attached to a VM that pulls public container images. Asserting the
+  # bound secret_id is how that type choice becomes visible in a test: a
+  # project-scoped binding has no secret_id attribute at all, so this assertion
+  # cannot be satisfied by one.
+  assert {
+    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].secret_id == var.tailscale_authkey_secret_id
+    error_message = "the binding must name the ONE secret holding the auth key. A project-scoped grant of the same role reads almost identically in a diff and differs by the entire blast radius of the project's secret store."
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].role == "roles/secretmanager.secretAccessor"
+    error_message = "the role must be roles/secretmanager.secretAccessor — read a version's payload, and nothing else"
+  }
+
+  # secretAccessor and NOT its neighbours. Named individually because each is a
+  # plausible mis-grant with a very different meaning: admin can add versions and
+  # rewrite the key, viewer leaks metadata about every secret it can see, and
+  # secretVersionManager can destroy the version the VM depends on.
+  #
+  # The primitive roles are DELIBERATELY NOT in this list even though they are
+  # the worst possible values here. `test/terraform-identity.bats` greps the
+  # whole terraform tree for a line that is exactly `"roles/owner",` and fails
+  # on it — correctly, because it cannot distinguish a grant from a denylist
+  # entry, and a guard that has to make that distinction is one that gets a
+  # carve-out and then stops working. They are covered instead by the exact
+  # role equality asserted directly above, which admits no value but
+  # secretAccessor.
+  assert {
+    condition = !contains([
+      "roles/secretmanager.admin",
+      "roles/secretmanager.secretVersionManager",
+      "roles/secretmanager.secretVersionAdder",
+      "roles/secretmanager.viewer",
+    ], google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].role)
+    error_message = "the binding holds a role broader than secretAccessor. The VM reads one key at boot; it never needs to add, rotate, destroy or enumerate anything."
+  }
+
+  # The member is the instance's OWN attached identity, not a human and not a CI
+  # principal. This is what makes "the VM fetches it at runtime under its own
+  # service account" true rather than merely intended.
+  assert {
+    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].member == "serviceAccount:${var.service_account_email}"
+    error_message = "the grant must go to the instance's own attached runtime service account"
+  }
+
+  assert {
+    condition     = length(data.google_secret_manager_secret.tailscale_authkey) == 1
+    error_message = "enabling tailscale must look the secret up, so that a missing secret fails at PLAN rather than leaving a VM that silently never joins the tailnet"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# What travels in metadata, and what must not.
+# ---------------------------------------------------------------------------
+
+run "metadata_carries_the_secret_name_and_never_the_key" {
+  command = plan
+
+  variables {
+    tailscale_enabled = true
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-enabled"] == "TRUE"
+    error_message = "the enabled flag must reach the instance, or the startup script's Tailscale stage never runs"
+  }
+
+  # The NAME of the secret. Resolving it to a value requires
+  # roles/secretmanager.secretAccessor, which is the grant asserted above.
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-secret-id"] == var.tailscale_authkey_secret_id
+    error_message = "metadata must carry the secret's NAME so the VM can resolve it at runtime"
+  }
+
+  # No metadata VALUE may look like a Tailscale key. Startup scripts and
+  # metadata are stored in plain text and readable by anyone holding
+  # compute.instances.get, which is the exact threat the module header names.
+  #
+  # Enumerated over every value rather than over the keys this feature adds: a
+  # key smuggled in under an unrelated name — signalloom-environment, a label —
+  # would pass a per-key check and fail this one.
+  assert {
+    condition = alltrue([
+      for v in values(google_compute_instance.this.metadata) :
+      !strcontains(v, "tskey-")
+    ])
+    error_message = "an instance metadata value looks like a Tailscale auth key. Metadata is plain text and readable by anyone with compute.instances.get; the key is fetched from Secret Manager at runtime and must never be written here."
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-tag"] == "tag:sl-demo"
+    error_message = "the ACL tag must reach the instance; an untagged node is owned by the user whose key created it rather than by the tailnet policy"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# The node's hostname is DERIVED, not configured.
+#
+# Run with a non-default environment_key so a hardcoded "sl-demo-1" in the
+# module fails here. That is the whole reason this run exists — asserting the
+# demo-1 value would be satisfied by a literal.
+# ---------------------------------------------------------------------------
+
+run "the_tailscale_hostname_derives_from_the_environment_key" {
+  command = plan
+
+  variables {
+    tailscale_enabled = true
+    environment_key   = "demo-7"
+    name_prefix       = "sl-demo-7"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-hostname"] == "sl-demo-7"
+    error_message = "the tailnet hostname must derive from the environment key. A deterministic name is what makes the EPHEMERAL key's reap predictable: a rebuilt VM reclaims sl-demo-7 rather than accumulating sl-demo-7-1, sl-demo-7-2 in the tailnet device list."
+  }
+
+  # And it tracks the environment rather than the prefix, which are separate
+  # inputs that happen to agree in every environment shipped so far.
+  assert {
+    condition     = strcontains(google_compute_instance.this.metadata["signalloom-tailscale-hostname"], var.environment_key)
+    error_message = "the tailnet hostname must embed the environment key"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale SSH: off unless asked for, on when asked for.
+#
+# Both halves, because "defaults to false" is satisfied by a flag that is wired
+# to nothing at all.
+# ---------------------------------------------------------------------------
+
+run "tailscale_ssh_is_off_unless_the_environment_asks" {
+  command = plan
+
+  variables {
+    tailscale_enabled = true
+  }
+
+  assert {
+    condition     = var.tailscale_ssh_enabled == false
+    error_message = "tailscale_ssh_enabled must default to false: it adds a second authorisation system that GCP IAM and the GCP audit log cannot see, on a VM whose posture claim is that IAM is the only gate"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-ssh"] == "FALSE"
+    error_message = "the default must reach the instance as FALSE, or the flag governs nothing"
+  }
+}
+
+run "enabling_tailscale_ssh_reaches_the_instance" {
+  command = plan
+
+  variables {
+    tailscale_enabled     = true
+    tailscale_ssh_enabled = true
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-ssh"] == "TRUE"
+    error_message = "setting tailscale_ssh_enabled must reach the instance; without this the run above proves only that a constant is constant"
+  }
+
+  # Enabling the tailnet's own SSH must not disturb the cloud's. Both gates
+  # stand; the trade being made is "a second path", never "a replacement".
+  assert {
+    condition     = google_compute_instance.this.metadata["enable-oslogin"] == "TRUE"
+    error_message = "enabling Tailscale SSH must not disable OS Login"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# The VM stays private. Every one of these held before Tailscale existed and
+# must still hold with it fully enabled — that is the claim the whole feature
+# rests on, so it is asserted rather than argued.
+# ---------------------------------------------------------------------------
+
+run "an_enabled_tailscale_node_is_still_a_private_shielded_vm" {
+  command = plan
+
+  variables {
+    tailscale_enabled     = true
+    tailscale_ssh_enabled = true
+  }
+
+  # No external IP. `access_config` is what would create one, and its absence is
+  # the single property that keeps this instance off the public internet.
+  assert {
+    condition     = length(google_compute_instance.this.network_interface[0].access_config) == 0
+    error_message = "the instance must have no access_config and therefore no external IP. Tailscale needs none — it is outbound-only — and adding one would route around both the load balancer and the egress policy in one line."
+  }
+
+  assert {
+    condition = alltrue([
+      one(google_compute_instance.this.shielded_instance_config).enable_secure_boot,
+      one(google_compute_instance.this.shielded_instance_config).enable_vtpm,
+      one(google_compute_instance.this.shielded_instance_config).enable_integrity_monitoring,
+    ])
+    error_message = "all three Shielded VM protections must survive the Tailscale change"
+  }
+
+  assert {
+    condition     = one(google_compute_instance.this.service_account).email == var.service_account_email
+    error_message = "the instance must still run as the per-environment runtime service account"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Negatives, each paired with a positive.
+# ---------------------------------------------------------------------------
+
+run "rejects_a_full_resource_path_as_the_secret_id" {
+  command = plan
+
+  variables {
+    tailscale_enabled           = true
+    tailscale_authkey_secret_id = "projects/CHANGEME-project/secrets/sl-demo-tailscale-authkey"
+  }
+
+  expect_failures = [var.tailscale_authkey_secret_id]
+}
+
+run "rejects_an_empty_secret_id" {
+  command = plan
+
+  variables {
+    tailscale_enabled           = true
+    tailscale_authkey_secret_id = ""
+  }
+
+  expect_failures = [var.tailscale_authkey_secret_id]
+}
+
+run "rejects_an_untagged_tailscale_tag" {
+  command = plan
+
+  variables {
+    # The plausible mistake: the tag's NAME without the "tag:" prefix.
+    # Tailscale refuses it at `tailscale up`, on the VM, at boot, with the
+    # message going to a serial console this instance has disabled — so the
+    # observed symptom is a node that never joins.
+    tailscale_enabled = true
+    tailscale_tag     = "sl-demo"
+  }
+
+  expect_failures = [var.tailscale_tag]
+}
+
+run "rejects_an_uppercase_tailscale_tag" {
+  command = plan
+
+  variables {
+    tailscale_enabled = true
+    tailscale_tag     = "tag:SL-Demo"
+  }
+
+  expect_failures = [var.tailscale_tag]
+}
+
+run "accepts_a_corrected_secret_id_and_tag" {
+  command = plan
+
+  variables {
+    tailscale_enabled           = true
+    tailscale_authkey_secret_id = "sl-demo-2-tailscale-authkey"
+    tailscale_tag               = "tag:sl-demo-2"
+  }
+
+  assert {
+    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].secret_id == "sl-demo-2-tailscale-authkey"
+    error_message = "a bare secret id must be accepted and must reach the binding, or the negatives above prove nothing"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-tag"] == "tag:sl-demo-2"
+    error_message = "a correctly-prefixed tag must be accepted and must reach the instance"
+  }
+}

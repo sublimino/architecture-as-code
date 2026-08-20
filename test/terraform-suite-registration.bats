@@ -23,12 +23,14 @@ setup_file() {
   export REPO_ROOT
   export MAKEFILE="${REPO_ROOT}/Makefile"
   export FIXTURES="${REPO_ROOT}/test/fixtures/terraform/make"
+  export WORKFLOW="${REPO_ROOT}/.github/workflows/terraform-validate.yaml"
 }
 
 setup() {
   # Presence first, always.
   [ -f "${MAKEFILE}" ]
   [ -d "${FIXTURES}" ]
+  [ -f "${WORKFLOW}" ]
   grep -q '^# END GCP Terraform platform block' "${MAKEFILE}"
 
   STUBDIR="${BATS_TEST_TMPDIR}/stubs"
@@ -69,6 +71,11 @@ STUB
   export STUB_RECORD="${RECORD}"
   export GCP_TF_PROOFS_RUN=/usr/bin/true
   export PATH="${STUBDIR}:${PATH}"
+}
+
+@test "terraform workflow registers GCP Terraform trigger paths" {
+  grep -Fqx '      - "scripts/gcp-tf/**"' "${WORKFLOW}"
+  grep -Fqx '      - "test/fixtures/gcp-tf/**"' "${WORKFLOW}"
 }
 
 # Copy the real Makefile, apply one named mutation fixture, and REFUSE to

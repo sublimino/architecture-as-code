@@ -219,8 +219,77 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+# ── The first-session docker group, and why this re-execs itself ────────────
+#
+# THE FIRST BRING-UP AFTER ANY VM REPLACEMENT FAILS WITHOUT THIS, deterministically.
+#
+# This VM enforces OS Login, so the account is provisioned by the guest agent at
+# FIRST LOGIN and its name is not knowable at boot. demo-vm.sh handles that with
+# a /etc/profile.d snippet that runs `usermod -aG docker "$(id -un)"` — correct,
+# and it says so itself:
+#
+#   signalloom: added sa_1084361981201826946.. to the docker group.
+#   signalloom: group membership applies to your NEXT session — reconnect
+#
+# That is the whole problem. usermod changes the ACCOUNT; it cannot change the
+# credentials of the session already running. The pipeline is invoked through
+# `bash -l -c`, so profile.d fires in this very session and the usermod lands
+# too late for it. install-ci-tools.sh then finds the socket unreachable and
+# reports "Docker daemon is not running" — which is wrong about the cause, and
+# someone will restart a daemon that was never down.
+#
+# It self-clears on a second run, which is exactly why it is worth fixing: every
+# VM rebuild otherwise spends one full pipeline (up to the 90m fence) proving
+# something already known.
+#
+# `sg docker -c` runs a command with the docker group ACTIVE NOW. It re-reads
+# the group database rather than the session's credentials, so it picks up a
+# usermod that happened seconds ago with no relogin, no second SSH session and
+# no change to the socket's permissions. Widening the socket was the obvious
+# alternative and demo-vm.sh already rejects it at length: docker socket access
+# is root-equivalent, and 0666 grants that to every local account on a machine
+# whose entire demonstration subject is security posture.
+#
+# ─── Every condition below is load-bearing ──────────────────────────────────
+#
+#   DEMO_SG_REEXEC     loop guard. Exported before the exec, so the re-executed
+#                      process cannot re-exec again if sg fails to fix things.
+#   docker present     nothing to fix on a box without docker.
+#   socket unreachable the ONLY trigger. A working session is never re-executed.
+#   member per getent  `sg` prompts for a GROUP PASSWORD when the caller is not
+#                      already a member. On a non-interactive SSH session that
+#                      prompt has no tty and the run hangs until the fence.
+#                      Checking /etc/group first makes that case unreachable.
+#   not member per id  if the group is already effective, sg would change
+#                      nothing and re-exec for no reason.
+#   sg present         it ships with the passwd package, but assuming a binary
+#                      is how the npx failure happened.
+#
+# Placed before the tee so the log is opened once, by the process that survives.
+if [[ -z "${DEMO_SG_REEXEC:-}" ]] \
+  && command -v docker >/dev/null 2>&1 \
+  && ! docker version >/dev/null 2>&1 \
+  && command -v sg >/dev/null 2>&1 \
+  && getent group docker 2>/dev/null | awk -F: '{print $4}' | tr ',' '\n' | grep -qx "$(id -un)" \
+  && ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx docker; then
+  echo "==> docker socket unreachable and the docker group is not yet active in this session"
+  echo "==> re-executing under 'sg docker' (first login after a VM rebuild; no relogin needed)"
+  export DEMO_SG_REEXEC=1
+  exec sg docker -c "$(printf '%q ' bash "$0" "$@")"
+fi
+
 mkdir -p "$(dirname "$PIPELINE_LOG")" 2>/dev/null || true
 exec > >(tee -a "$PIPELINE_LOG") 2>&1
+
+# If the re-exec happened and STILL did not help, say so plainly rather than
+# letting install-ci-tools.sh blame the daemon. The daemon being down and the
+# socket being unreachable are different faults with the same symptom, and this
+# repo has already watched someone act on the wrong one.
+if [[ -n "${DEMO_SG_REEXEC:-}" ]] && ! docker version >/dev/null 2>&1; then
+  echo "WARNING: re-executed under 'sg docker' and the socket is STILL unreachable."
+  echo "WARNING: this is NOT evidence that the daemon is down — check it directly"
+  echo "WARNING: with 'systemctl is-active docker' before restarting anything."
+fi
 
 retry() {
   local max_attempts="$1"; shift

@@ -275,13 +275,24 @@ FIXTURE
     echo "install_binary is not defined in ${CI_TOOLS}" >&2
     return 1
   }
-  printf '%s\n' "$body" | grep -qE '^\s*&&\s*\$\{SUDO\} rm -f "\$\{dest\}"' || {
-    echo "install_binary does not unlink the destination before installing:" >&2
+  # The unlink now lives in bin_place, which every placement goes through, so
+  # this asserts DELEGATION here and the mechanism there. Asserting the old
+  # inline `${SUDO} rm -f` would be asserting a mechanism that legitimately
+  # moved — a test failing because the code improved.
+  printf '%s\n' "$body" | grep -q 'bin_place ' || {
+    echo "install_binary does not place through bin_place:" >&2
     printf '%s\n' "$body" >&2
     return 1
   }
-  printf '%s\n' "$body" | grep -qE 'install -m 0755' || {
-    echo "install_binary does not install with an explicit mode" >&2
+  local place
+  place="$(sed -n '/^bin_place() {/,/^}/p' "${CI_TOOLS}")"
+  printf '%s\n' "$place" | grep -qE 'rm -f "\$dest"' || {
+    echo "bin_place does not unlink the destination before installing" >&2
+    printf '%s\n' "$place" >&2
+    return 1
+  }
+  printf '%s\n' "$place" | grep -qE 'install -m "\$mode"' || {
+    echo "bin_place does not install with an explicit mode" >&2
     return 1
   }
 
@@ -290,8 +301,9 @@ FIXTURE
     echo "install_from_tarball is not defined in ${CI_TOOLS}" >&2
     return 1
   }
-  printf '%s\n' "$body" | grep -qE '^\s*&&\s*\$\{SUDO\} rm -f "\$\{BIN\}/\$\{name\}"' || {
-    echo "install_from_tarball does not unlink the destination before installing" >&2
+  printf '%s\n' "$body" | grep -q 'bin_place ' || {
+    echo "install_from_tarball does not place through bin_place" >&2
+    printf '%s\n' "$body" >&2
     return 1
   }
 }
@@ -305,8 +317,8 @@ FIXTURE
     echo "install_anchore_tool is not defined" >&2
     return 1
   }
-  printf '%s\n' "$body" | grep -qE '\$\{SUDO\} rm -f "\$\{BIN\}/\$\{name\}"' || {
-    echo "install_anchore_tool installs over the destination without unlinking it" >&2
+  printf '%s\n' "$body" | grep -q 'bin_place ' || {
+    echo "install_anchore_tool installs without going through bin_place" >&2
     printf '%s\n' "$body" >&2
     return 1
   }
@@ -534,6 +546,114 @@ FIXTURE
     echo "loop: ${loop}" >&2
     return 1
   }
+}
+
+@test "no tool is placed into BIN except through bin_place" {
+  # bun and uv failed on a rebuilt VM with "install: cannot create regular file
+  # '/usr/local/bin/bun': Permission denied", while node succeeded on the same
+  # run — node uses ${PKG_SUDO} (always sudo when not root), bun and uv used
+  # ${SUDO}, which is a snapshot of a directory mode the CALLER mutates on both
+  # sides of this script. Routing every placement through one helper is what
+  # makes the privilege decision happen at write time instead of at line 27.
+  # bin_place's OWN body contains `${SUDO} install -m "$mode"` — that is the
+  # one legitimate occurrence, and an unscoped grep fires on it. Fourth time
+  # tonight a guard has matched its own source; excluding the helper's body is
+  # what makes the assertion mean "no CALLER bypasses the helper".
+  local code
+  code="$(
+    grep -v '^[[:space:]]*#' "${CI_TOOLS}" \
+      | sed '/^bin_place() {/,/^}/d'
+  )"
+  [ -n "$code" ]
+
+  printf '%s\n' "$code" | grep -qE '\$\{SUDO\} install ' && {
+    echo "a raw '\${SUDO} install' remains outside bin_place:" >&2
+    printf '%s\n' "$code" | grep -nE '\$\{SUDO\} install ' >&2
+    return 1
+  }
+  printf '%s\n' "$code" | grep -q 'bin_place ' || {
+    echo "bin_place is never called" >&2
+    return 1
+  }
+  return 0
+}
+
+@test "bin_place escalates when the cached probe was wrong, and verifies the result" {
+  local body
+  body="$(sed -n '/^bin_place() {/,/^}/p' "${CI_TOOLS}")"
+  [ -n "$body" ] || { echo "bin_place is not defined" >&2; return 1; }
+
+  printf '%s\n' "$body" | grep -q 'sudo -n install' || {
+    echo "bin_place never escalates; a wrong probe stays fatal" >&2; return 1; }
+  printf '%s\n' "$body" | grep -q 'NOTE:' || {
+    echo "bin_place escalates SILENTLY. A repair with no alarm is how the broken" >&2
+    echo "assumption survives — the run goes green and nobody learns the probe" >&2
+    echo "was wrong." >&2
+    return 1; }
+  printf '%s\n' "$body" | grep -qE '\[ ! -x "\$dest" \]' || {
+    echo "bin_place does not verify the destination exists afterwards" >&2
+    return 1; }
+}
+
+@test "bin_place really places, really escalates, and really fails — executed" {
+  # Executed against the real function, with SUDO forced empty, which is the
+  # exact state that produced the live failure.
+  local dir="${BATS_TEST_TMPDIR}/bin" src="${BATS_TEST_TMPDIR}/src"
+  mkdir -p "$dir"
+  printf '#!/bin/sh\necho hi\n' >"$src"
+
+  # `log` is a ONE-LINER — `log() { printf ...; }` — so a
+  # `sed '/^log() {/,/^}/p'` range never terminates on its own line and swallows
+  # everything up to the next line that STARTS with `}`, producing an unparseable
+  # fragment (observed: source exits 2). Only bin_place is extracted; log is
+  # stubbed here.
+  log() { printf '[ci-tools] %s\n' "$*"; }
+  # shellcheck source=/dev/null
+  source <(sed -n '/^bin_place() {/,/^}/p' "${CI_TOOLS}")
+  SUDO=""
+  BIN="$dir"
+
+  # 1. Writable destination: succeeds without escalating.
+  run bin_place "$src" "${dir}/tool"
+  [ "$status" -eq 0 ] || { echo "failed on a writable dir: $output" >&2; return 1; }
+  [ -x "${dir}/tool" ]
+  [[ "$output" != *"NOTE:"* ]] || {
+    echo "escalated when it did not need to: $output" >&2; return 1; }
+
+  # 2. Unwritable destination with no usable sudo: must FAIL, not pretend.
+  #    PATH is emptied so `sudo` cannot be found, modelling "escalation is not
+  #    available" without depending on this machine's sudoers.
+  chmod 0555 "$dir"
+  run env PATH=/nonexistent bash -c "
+    $(declare -f log bin_place)
+    SUDO=''; BIN='${dir}'
+    bin_place '${src}' '${dir}/blocked'
+  "
+  chmod 0755 "$dir"
+  [ "$status" -ne 0 ] || {
+    echo "bin_place reported success into an unwritable directory" >&2
+    echo "$output" >&2
+    return 1
+  }
+}
+
+@test "a tool that fails to install stops the run at the point of failure" {
+  # It did not. bun and uv each logged one ERROR line and the pipeline carried
+  # on to Chrome and ffmpeg before aborting for an unrelated reason twenty
+  # minutes later, so the verdict described the symptom furthest from the cause.
+  local body tool
+  body="$(sed -n '/^die_tool() {/,/^}/p' "${CI_TOOLS}")"
+  [ -n "$body" ] || { echo "die_tool is not defined" >&2; return 1; }
+  printf '%s\n' "$body" | grep -q 'exit 1' || {
+    echo "die_tool does not exit" >&2; return 1; }
+
+  # Each of the three must actually call it on its failure branch.
+  for tool in node bun uv; do
+    sed -n "/^if ! ${tool} /,/^fi\$/p" "${CI_TOOLS}" | grep -q 'die_tool' || {
+      echo "${tool}'s install block does not abort the run when it fails" >&2
+      return 1
+    }
+  done
 }
 
 @test "the mutation harness refuses to start on a leaked sentinel, and does not repair" {

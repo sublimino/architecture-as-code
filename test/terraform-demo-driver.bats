@@ -1564,6 +1564,16 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
 	export STUB_DEX_CURRENT="https://abc123.ngrok.app" STUB_DEX_HOLDER="ngrok"
 	run "${driver}" public-down
+	# SILENTLY is the whole point, and it needs asserting rather than assuming.
+	# If the mutated driver exited non-zero the defect would be self-announcing,
+	# and the holder check would be a nicety rather than the only thing standing
+	# between a tidy-up and a stolen origin. `run` discards the exit code, so
+	# without this line the test never learns which of those two worlds it is in.
+	# vacuity-proof anchor (test/vacuous-run-status-mutation-proof.sh)
+	[ "$status" -eq 0 ] || {
+		echo "the mutated public-down FAILED (exit ${status}) rather than silently stealing the origin; re-read this test's premise: ${output}"
+		return 1
+	}
 	[[ "$(dex_log)" == *restore* ]] || {
 		echo "the holder check's test cannot fail — the mutated driver still left ngrok's origin alone: $(dex_log)"
 		return 1

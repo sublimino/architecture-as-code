@@ -102,27 +102,59 @@ variable "log_bucket_name" {
   default     = ""
 }
 
-module "observability" {
-  create_log_bucket  = var.create_log_bucket
-  log_bucket_name    = var.log_bucket_name
-  manage_project_iam = var.manage_project_iam
-  source             = "../modules/observability"
-
-  project_id               = var.project_id
-  labels                   = local.mandatory_labels
-  log_retention_days       = var.log_retention_days
-  uptime_targets           = var.uptime_targets
-  notification_channel_ids = local.notification_channel_ids
-  billing_account_id       = var.billing_account_id
-  budget_amount_currency   = var.budget_amount_currency
-  budget_amount_units      = var.budget_amount_units
-
-  # Additive, F6-owned inputs (all defaulted; see modules/observability/README.md).
-  name_prefix         = var.name_prefix
-  log_bucket_location = var.log_bucket_location
-  state_bucket_name   = var.state_bucket_name
-  enable_alerts       = var.enable_alerts
-}
+# ─── observability: DELIBERATELY NOT INSTANTIATED ───────────────────────────
+#
+# Andy's decision, 2026-08-20: observability is not to be installed as part of
+# this estate. In-cluster observability was already off and enforced —
+# `ENABLE_OBSERVABILITY ?= false` in the Makefile, and scripts/push-local.sh
+# strips the `monitoring` and `trivy-system` tenant blocks from the fleet on the
+# false branch — but the GCP-level half was not off at all. It was live-wired
+# here: a log sink, a dedicated audit bucket, a data-access audit config, uptime
+# checks, two alert-policy families and a billing budget, all uncommented and
+# ready to plan.
+#
+# WHAT WAS ACTUALLY STOPPING IT, AND WHY THAT WAS NOT GOOD ENOUGH
+#
+# Nothing in this repository ever applied it — but not by design. `Makefile`
+# declares `TF_ROOT_PLATFORM ?= terraform/platform` and then uses it in exactly
+# zero recipes (grep it: one occurrence, the declaration; compare TF_ROOT_ENV at
+# twenty-eight). Every apply goes through TF_ROOT_ENV or TF_ROOT_BOOTSTRAP, so
+# this root is reached only by the offline sweeps — `gcp-tf-validate` and
+# `gcp-tf-test-unit` — which run `validate` and `test` with credentials stripped.
+#
+# That is an accident of plumbing, not a control. A single hand-run
+# `terraform -chdir=terraform/platform apply` would have created every resource
+# above, and no guard anywhere would have refused it. An unused variable is not
+# a safety mechanism: it is one `make` target away from not existing.
+#
+# Commenting the block is what makes the decision structural. The module, its
+# variables, its outputs and its own tftest suite all remain on disk and keep
+# passing, so restoring observability is uncommenting this block — the same
+# dormancy pattern `module "edge"` uses in terraform/environments/main.tf, and
+# for the same reason: a component you may want later should be dormant and
+# tested, not deleted and forgotten.
+#
+# module "observability" {
+#   create_log_bucket  = var.create_log_bucket
+#   log_bucket_name    = var.log_bucket_name
+#   manage_project_iam = var.manage_project_iam
+#   source             = "../modules/observability"
+#
+#   project_id               = var.project_id
+#   labels                   = local.mandatory_labels
+#   log_retention_days       = var.log_retention_days
+#   uptime_targets           = var.uptime_targets
+#   notification_channel_ids = local.notification_channel_ids
+#   billing_account_id       = var.billing_account_id
+#   budget_amount_currency   = var.budget_amount_currency
+#   budget_amount_units      = var.budget_amount_units
+#
+#   # Additive, F6-owned inputs (all defaulted; see modules/observability/README.md).
+#   name_prefix         = var.name_prefix
+#   log_bucket_location = var.log_bucket_location
+#   state_bucket_name   = var.state_bucket_name
+#   enable_alerts       = var.enable_alerts
+# }
 
 # ===========================================================================
 # WIRING BLOCK — uncomment at integration. See terraform/platform/WIRING.md.

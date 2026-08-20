@@ -463,6 +463,22 @@ run_stage \
   "stage1c-acceptance-coverage.tap" \
   "cd ${WORK_DIR} && bats --tap test/acceptance-spec-coverage.bats"
 
+# Stage 1c2: the gateway-forward supervisor's own suite.
+#
+# Registered here rather than left to be noticed, because the suite list in this
+# file is HAND-MAINTAINED and that is exactly how it drifts: the suite arrived
+# with f9a00af9 and nothing invoked it, so it provided no regression protection
+# however green it was by hand. bats-registry-coverage.bats caught the omission,
+# which is the guard doing its job rather than a nuisance.
+#
+# It belongs beside 1c: same shape (offline, no cluster, ~1s) and it gates the
+# same acceptance path, so a failure here should stop the run before the
+# expensive stages rather than after them.
+run_stage \
+  "Gateway-forward supervisor" \
+  "stage1c2-gateway-forward.tap" \
+  "cd ${WORK_DIR} && bats --tap test/acceptance-gateway-forward.bats"
+
 # Stage 1d: CI build parity (BATS TAP)
 #
 # Numbered 1d for the reason 1b and 1c were: openreports-convert.sh maps report

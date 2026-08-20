@@ -56,6 +56,8 @@ setup() {
 	unset STUB_TS_FUNNEL_RC STUB_TS_FUNNEL_OFF_RC STUB_NO_WARNING
 	unset STUB_TS_DAEMON_DOWN STUB_TS_RC STUB_DEX_CURRENT STUB_DEX_HOLDER
 	unset STUB_DEX_APPLY_RC STUB_DEX_BASELINE
+	unset STUB_TS_SERVE_JSON STUB_TS_SERVE_STATUS
+	unset STUB_TS_SERVE_UNIT_RC STUB_TS_SERVE_UNIT_CHANGED STUB_TS_SERVE_UNIT_STATE
 	unset GCP_TF_DEMO_SKIP_MAGICDNS_CHECK GCP_TF_DEMO_SKIP_DEX_ORIGIN
 
 	# Presence before behaviour, always. A suite driving a script that was never
@@ -196,6 +198,24 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	printf '#!/usr/bin/env bash\nprintf %%s %q\n' "$1" >"${stubdir}/curl-stub"
 	chmod +x "${stubdir}/curl-stub"
 	export GCP_TF_DEMO_CURL="${stubdir}/curl-stub"
+}
+
+# A node that is actually SERVING.
+#
+# The stub's default serve state is `No serve config`, which is correct as a
+# default — it is what an idle node reports, and it keeps the tests that are
+# about ts-logout's refusal honest. It is NOT the fixture for a healthy lane,
+# and the difference used to be invisible: ts-status returned 0 regardless, so
+# a test named "reports the node ... and the health" asserted a green exit
+# against a stub whose every serve answer said nothing was being served. The
+# fixture agreed with the bug, so neither could catch the other.
+#
+# Anything asserting a HEALTHY lane must call this. Anything asserting a dead
+# one must not.
+serving_fixture() {
+	export STUB_TS_SERVE_JSON='{"TCP":{"443":{"HTTPS":true}}}'
+	export STUB_TS_SERVE_STATUS="https://${TS_FQDN} (tailnet only)|-- / proxy http://127.0.0.1:8080"
+	stub_curl 200
 }
 
 gcloud_log() { cat "${log}" 2>/dev/null || true; }
@@ -911,7 +931,7 @@ mutate() {
 # ─── Status ─────────────────────────────────────────────────────────────────
 
 @test "TS ts-status reports the node, its MagicDNS name, its IP and the health" {
-	stub_curl 200
+	serving_fixture
 	run "${driver}" ts-status
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"${TS_FQDN}"* ]]
@@ -1305,6 +1325,338 @@ mutate() {
 	[ "$status" -ne 0 ] || {
 		echo "a call site passes an origin as the method argument:"
 		echo "$output"
+		return 1
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  EVERY LANE SERVES — demo and ci alike
+#
+#  Andy's requirement is "I should be able to tailscale HTTPS access each env
+#  once it's running", and `each` is the load-bearing word. The estate has four
+#  lanes across two kinds and only the demo kind was ever served.
+#
+#  The measured root cause was NOT a refusal anywhere on this path — every
+#  assertion below passed against the driver before a line of it was changed.
+#  `require_env` already accepted `ci-N`, the CI lane already ran a complete and
+#  healthy Signal Loom estate, and `ts-up ENV=ci-1` took sl-ci-1 from 000 to 200
+#  with no code change at all. Nothing had ever invoked it.
+#
+#  Which makes these REGRESSION tests rather than tests of a fix, and worth
+#  having for exactly that reason: the cheapest way for this to break again is
+#  for someone to add a `case` arm, a validation, or a hand-off field that is
+#  demo-shaped, and then discover it a quarter later when a CI lane is needed.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Re-point the whole fixture at a ci-* lane. ENV_KEY, the hostname, the FQDN and
+# the hand-off all move together, because a test that changed only ENV would be
+# asserting against a hand-off describing a different environment and would be
+# refused for that reason instead of the one under test.
+ci_lane_fixture() {
+	ENV_KEY="ci-3"
+	TS_HOST="sl-${ENV_KEY}"
+	TS_FQDN="${TS_HOST}.example-tailnet.ts.net"
+	export GCP_TF_DEMO_ENV="${ENV_KEY}"
+	# The resolver has to move with the name. magicdns_resolves asks the
+	# name-service switch, so a fixture that changed the lane but left
+	# STUB_RESOLVABLE pointing at the demo name would fail every ci test on a
+	# resolver error and read as "ci lanes are refused" — the wrong diagnosis,
+	# arrived at convincingly.
+	export STUB_RESOLVABLE="${TS_FQDN}"
+	write_handoff
+	write_ts_status "${TS_HOST}" true
+}
+
+@test "LANE ts-up serves a ci-* lane exactly as it serves a demo-* lane" {
+	ci_lane_fixture
+	serving_fixture
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ] || {
+		echo "ts-up refused a ci lane: ${output}"
+		return 1
+	}
+	[[ "$output" == *"https://sl-ci-3.example-tailnet.ts.net"* ]] || {
+		echo "ts-up did not hand over the ci lane's MagicDNS URL: ${output}"
+		return 1
+	}
+	# The remote serve must actually have been issued for this lane. Asserted on
+	# the gcloud log rather than on stdout, because stdout is the driver talking
+	# about itself and the log is what reached the VM.
+	gcloud_log | grep -q "tailscale serve" || {
+		echo "no remote 'tailscale serve' for the ci lane:"
+		gcloud_log
+		return 1
+	}
+}
+
+@test "LANE every ts-* subcommand accepts a ci-* key, none is demo-shaped" {
+	ci_lane_fixture
+	serving_fixture
+	local sub
+	for sub in ts-up ts-status funnel-down; do
+		run "${driver}" "${sub}"
+		[[ "$output" != *"is not a valid environment key"* ]] || {
+			echo "${sub} refuses ci lanes as an invalid environment key: ${output}"
+			return 1
+		}
+		[[ "$output" != *"no hand-off for ENV=ci-"* ]] || {
+			echo "${sub} could not read a ci lane's hand-off: ${output}"
+			return 1
+		}
+	done
+}
+
+@test "LANE require_env accepts ci keys and still refuses nonsense" {
+	# The validation itself, driven rather than grepped. A `case` arm that had
+	# been narrowed to demo-only would pass a grep for the word `ci`.
+	local bad
+	for bad in "prod-1" "ci" "ci-0" "demo" "" ; do
+		ENV_KEY="${bad}" GCP_TF_DEMO_ENV="${bad}" run "${driver}" ts-status
+		[ "$status" -ne 0 ] || {
+			echo "the driver accepted ENV='${bad}'"
+			return 1
+		}
+	done
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  ts-status MUST BE ABLE TO FAIL
+#
+#  It could not. Every fact was printed and only a recorded name mismatch could
+#  change the exit status, so a node that was online, correctly named, resolving
+#  through MagicDNS and serving nothing exited 0. Measured on sl-ci-1 on
+#  2026-08-20: three consecutive lines saying the URL was dead, `EXIT=0`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "STATUS fails when the node is online and serving nothing" {
+	# The exact live state of sl-ci-1 before this change: node up, name right,
+	# resolver fine, nothing served, dashboard unreachable.
+	stub_curl 000
+	run "${driver}" ts-status
+	[ "$status" -ne 0 ] || {
+		echo "ts-status exited 0 for a node serving nothing — the check cannot see the failure it exists to catch: ${output}"
+		return 1
+	}
+	[[ "$output" == *"ts state:  FAILED"* ]] || {
+		echo "ts-status did not render a failing verdict: ${output}"
+		return 1
+	}
+	[[ "$output" == *"nothing is being served on the tailnet"* ]] || {
+		echo "the verdict did not name the serve state as a cause: ${output}"
+		return 1
+	}
+}
+
+@test "STATUS fails when serve is configured and the dashboard does not answer" {
+	# The other half, and a genuinely different failure: `tailscale serve` is
+	# configured and the thing behind it is dead. Reporting this as healthy is
+	# what a serve-only check would do.
+	serving_fixture
+	stub_curl 502
+	run "${driver}" ts-status
+	[ "$status" -ne 0 ] || {
+		echo "ts-status exited 0 with the dashboard answering 502: ${output}"
+		return 1
+	}
+	[[ "$output" == *"the dashboard did not answer"* ]] || {
+		echo "the verdict did not name the dashboard: ${output}"
+		return 1
+	}
+}
+
+@test "STATUS fails when the serve state cannot be read at all" {
+	# `unknown` is not `absent` and must not be treated as either healthy or as
+	# a confirmed outage. It fails, and the verdict says why it cannot tell.
+	export STUB_TS_SERVE_JSON_SILENT=1
+	export STUB_TS_SERVE_SILENT=1
+	stub_curl 200
+	run "${driver}" ts-status
+	[ "$status" -ne 0 ] || {
+		echo "ts-status exited 0 without being able to read the serve state: ${output}"
+		return 1
+	}
+	[[ "$output" == *"could not be read"* ]] || {
+		echo "the verdict did not distinguish 'cannot tell' from 'is fine': ${output}"
+		return 1
+	}
+}
+
+@test "STATUS still reports every fact separately, not just the verdict" {
+	# The verdict must not replace the four-line diagnosis. A command that says
+	# only FAILED sends the reader back to the VM to find out what.
+	stub_curl 000
+	run "${driver}" ts-status
+	local line
+	for line in "ts serve:" "forward:" "vm:" "dex origin:" "dashboard:"; do
+		[[ "$output" == *"${line}"* ]] || {
+			echo "the verdict swallowed the '${line}' fact: ${output}"
+			return 1
+		}
+	done
+}
+
+@test "STATUS passes on a lane that is genuinely serving and answering" {
+	# The regression guard for sl-demo-1, which returns 200 today and must keep
+	# doing so. A verdict that can fail is only useful if it does not fail on
+	# the healthy case.
+	serving_fixture
+	run "${driver}" ts-status
+	[ "$status" -eq 0 ] || {
+		echo "ts-status failed a healthy serving lane: ${output}"
+		return 1
+	}
+	[[ "$output" == *"ts state:  OK"* ]] || {
+		echo "a healthy lane did not get a passing verdict: ${output}"
+		return 1
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  SERVING MUST SURVIVE THE MACHINE
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "DURABLE ts-up installs the boot-time re-assertion unit" {
+	serving_fixture
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+	# Asserted on what reached the VM. `serve_unit_changed` is a literal the
+	# remote script ECHOES — it appears in no comment, in this suite or in the
+	# driver — so this cannot be satisfied by prose explaining the mechanism.
+	gcloud_log | grep -q "serve_unit_changed" || {
+		echo "ts-up did not install the boot-durability unit; serving would not survive a reboot:"
+		gcloud_log
+		return 1
+	}
+	gcloud_log | grep -q "systemctl enable signalloom-tailscale-serve.service" || {
+		echo "the unit was written and never enabled — nothing links it into multi-user.target:"
+		gcloud_log
+		return 1
+	}
+}
+
+@test "DURABLE the unit is enabled for a ci lane too" {
+	ci_lane_fixture
+	serving_fixture
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+	gcloud_log | grep -q "serve_unit_changed" || {
+		echo "a ci lane got a serve that dies at the next reboot:"
+		gcloud_log
+		return 1
+	}
+}
+
+@test "DURABLE funnel-up does NOT install a unit that would restore public access at boot" {
+	# A security property, not a tidiness one. A boot-time unit re-asserting
+	# `tailscale funnel` would republish this estate to the entire internet
+	# after every reboot, on the strength of one funnel-up somebody ran for a
+	# demo months earlier.
+	serving_fixture
+	run "${driver}" funnel-up
+	[ "$status" -eq 0 ]
+	gcloud_log | grep -q "serve_unit_changed" && {
+		echo "funnel-up installed a boot-time unit — public exposure would come back by itself:"
+		gcloud_log
+		return 1
+	}
+	# And the funnel itself must still have been configured, or this test would
+	# pass against a funnel-up that does nothing at all.
+	gcloud_log | grep -q "tailscale funnel" || {
+		echo "funnel-up configured no funnel; the assertion above proved nothing:"
+		gcloud_log
+		return 1
+	}
+}
+
+@test "DURABLE a failed unit install warns and does not take down a live URL" {
+	# The URL is already serving by the time the unit is installed, so failing
+	# the whole command over a durability property would destroy a working
+	# handover. It must warn, loudly, and hand over.
+	serving_fixture
+	export STUB_TS_SERVE_UNIT_RC=8
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed outright because the durability unit could not be installed: ${output}"
+		return 1
+	}
+	[[ "$output" == *"will NOT come back on its own"* ]] || {
+		echo "the failure was silent — the operator would believe serving survives a reboot: ${output}"
+		return 1
+	}
+}
+
+@test "DURABLE ts-status reports whether serving survives a reboot" {
+	serving_fixture
+	export STUB_TS_SERVE_UNIT_STATE="disabled"
+	run "${driver}" ts-status
+	[[ "$output" == *"NOT durable"* ]] || {
+		echo "ts-status did not report that serving dies at the next reboot: ${output}"
+		return 1
+	}
+	# ... and it is a FACT, not a verdict. A lane that is serving correctly must
+	# not be failed for it, or this becomes the line everyone learns to ignore.
+	[ "$status" -eq 0 ] || {
+		echo "ts-status failed a serving lane over a durability warning: ${output}"
+		return 1
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MUTATION PROOFS
+#
+#  Each breaks the real guard in the copy of the driver under test and asserts
+#  that the assertion above goes green. A guard whose test cannot fail is
+#  decoration, and this repo has shipped that shape more than once.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "MUTATION restoring the old always-return-0 verdict makes the serve check pass" {
+	# The defect verbatim: drop every cause except the name marker, which is
+	# exactly what ts-status did before this change.
+	mutate 's/"\${#failures\[@\]}" -ne 0/"\${ts_name_ok}" -ne 0/'
+	stub_curl 000
+	run "${driver}" ts-status
+	[ "$status" -eq 0 ] || {
+		echo "the mutation did not reintroduce the defect — the assertion it proves may be testing something else: ${output}"
+		return 1
+	}
+}
+
+@test "MUTATION treating an unreadable serve state as healthy makes the unknown check pass" {
+	mutate 's/^    \*) failures+=("the serve state could not be read.*$/    *) : ;;/'
+	export STUB_TS_SERVE_JSON_SILENT=1
+	export STUB_TS_SERVE_SILENT=1
+	stub_curl 200
+	run "${driver}" ts-status
+	[ "$status" -eq 0 ] || {
+		echo "unknown-is-healthy did not go green; the real assertion may be passing for another reason: ${output}"
+		return 1
+	}
+}
+
+@test "MUTATION dropping the unit install makes the durability check pass" {
+	mutate 's/^    ensure_ts_serve_unit "\$port"$/    : ;/'
+	serving_fixture
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+	gcloud_log | grep -q "serve_unit_changed" && {
+		echo "the unit install still ran after being removed — the durability assertion is not measuring this call:"
+		gcloud_log
+		return 1
+	}
+	return 0
+}
+
+@test "MUTATION letting funnel install the boot unit makes the public-exposure guard fail" {
+	# The inverse direction, and the one that matters most: prove the funnel
+	# guard is load-bearing by removing the condition that implements it and
+	# watching the boot unit appear on a funnel-up.
+	mutate 's/^  if \[ "\$verb" = "serve" \]; then$/  if true; then/'
+	serving_fixture
+	run "${driver}" funnel-up
+	[ "$status" -eq 0 ]
+	gcloud_log | grep -q "serve_unit_changed" || {
+		echo "funnel still installed no unit after the guard was removed — the guard test proves nothing:"
+		gcloud_log
 		return 1
 	}
 }

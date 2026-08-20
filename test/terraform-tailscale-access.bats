@@ -665,7 +665,7 @@ mutate() {
 @test "TS ts-up claims the Dex origin at the MagicDNS URL" {
 	stub_curl 200
 	run "${driver}" ts-up
-	[[ "$(dex_log)" == *"apply https://${TS_FQDN}"* ]] || {
+	[[ "$(dex_log)" == *"apply tailscale https://${TS_FQDN}"* ]] || {
 		echo "ts-up never claimed the origin, so the login would bounce: $(dex_log)"
 		return 1
 	}
@@ -679,7 +679,12 @@ mutate() {
 	run "${driver}" ts-up
 	: >"${dexlog}"
 	run "${driver}" funnel-up
-	[[ "$(dex_log)" == *"apply https://${TS_FQDN}"* ]] || {
+	# Same ORIGIN, different METHOD — that pairing is the actual invariant.
+	# funnel must claim the identical URL (so moving between them does not
+	# break login) while recording itself as the holder (so a later refusal
+	# sends the operator to funnel-down, not ts-down, and the PUBLIC listener
+	# is the thing that gets torn down).
+	[[ "$(dex_log)" == *"apply funnel https://${TS_FQDN}"* ]] || {
 		echo "funnel-up claimed a different origin from ts-up: $(dex_log)"
 		return 1
 	}
@@ -944,6 +949,77 @@ mutate() {
 	# asserted here rather than left as a comment.
 	[[ "${output}" == *"demo-up: ENV is required"* ]] || {
 		echo "with the Make guard removed nothing stopped the run at all: ${output}"
+		return 1
+	}
+}
+
+# ── The seam between chunks T2 and T3 ───────────────────────────────────────
+#
+# Every test above drives dex_origin() through a STUB, and every test in
+# test/terraform-dex-origin.bats drives the real mechanism through its own CLI.
+# Both suites were green while the two disagreed about the signature: this file
+# called `apply <origin>` and the mechanism expects `apply <method> <origin>`,
+# so `gcp-tf-ts-up` would have failed at the Dex step on every single run with
+# "invalid access-method name 'https://…'".
+#
+# Neither suite could see it. A stub answers whatever it is asked; a CLI test
+# never asks the way its caller does. The only thing that catches a contract
+# seam is exercising BOTH REAL SIDES against each other, which is what these
+# tests do — no stub for the mechanism, the shipped script itself.
+
+@test "SEAM the driver invokes the real mechanism with a method it accepts" {
+	local mech="${REPO_ROOT}/scripts/lib/dex-origin.sh"
+	[ -x "$mech" ] || skip "chunk T2's mechanism is not in this checkout"
+
+	# Every method name the driver passes must be one the mechanism accepts.
+	# Extracted from the driver rather than hardcoded, so a new call site with a
+	# new method is covered the day it is written.
+	local methods
+	methods="$(grep -oE 'dex_origin apply [a-z]+' "${REPO_ROOT}/scripts/gcp-tf/demo-up.sh" |
+		awk '{print $3}' | sort -u)"
+	[ -n "$methods" ] || {
+		echo "no 'dex_origin apply <method>' call sites found — has the call shape changed?"
+		return 1
+	}
+
+	local m
+	for m in $methods; do
+		# `validate` is pure and needs no cluster; the method check lives in
+		# apply, so drive apply with a deliberately empty origin and assert the
+		# failure is about the ORIGIN, never about the METHOD.
+		run "$mech" apply "$m" ""
+		[[ "$output" != *"invalid access-method name"* ]] || {
+			echo "the mechanism rejects method '${m}' that the driver passes: ${output}"
+			return 1
+		}
+	done
+}
+
+@test "SEAM a one-argument apply is rejected, which is what the bug looked like" {
+	local mech="${REPO_ROOT}/scripts/lib/dex-origin.sh"
+	[ -x "$mech" ] || skip "chunk T2's mechanism is not in this checkout"
+
+	# The regression itself. If someone drops the method argument again the
+	# mechanism must refuse loudly rather than record a lease under a URL.
+	run "$mech" apply "https://sl-demo-1.example.ts.net"
+	[ "$status" -ne 0 ] || {
+		echo "a one-argument apply succeeded — the method argument is not enforced"
+		return 1
+	}
+	[[ "$output" == *"invalid access-method name"* ]] || {
+		echo "the refusal did not name the method problem: ${output}"
+		return 1
+	}
+}
+
+@test "SEAM the driver never passes an origin where a method belongs" {
+	# Direct assertion on the defect's shape: a call site whose first argument
+	# after `apply` looks like a URL.
+	run grep -nE 'dex_origin apply +"?\$?\{?[a-z_]*\}?"?(https?://|\$base|\$\{base)' \
+		"${REPO_ROOT}/scripts/gcp-tf/demo-up.sh"
+	[ "$status" -ne 0 ] || {
+		echo "a call site passes an origin as the method argument:"
+		echo "$output"
 		return 1
 	}
 }

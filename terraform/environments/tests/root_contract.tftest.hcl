@@ -32,6 +32,13 @@ override_data {
       }
       ci_plan_service_account_email  = "sl-ci-plan@changeme-project.iam.gserviceaccount.com"
       ci_apply_service_account_email = "sl-ci-apply@changeme-project.iam.gserviceaccount.com"
+      # Consumed by output "operator_sa", which republishes it so the hand-off
+      # can carry the SSH identity demo-up.sh refuses to run without. An
+      # override_data block is an EXHAUSTIVE stand-in, not an overlay: a key
+      # absent here does not fall through to the real remote state, it simply
+      # does not exist, and the root fails to plan with "Unsupported attribute".
+      # So every platform output this root reads has to be listed.
+      operator_service_account_email = "sl-operator@changeme-project.iam.gserviceaccount.com"
     }
   }
 }

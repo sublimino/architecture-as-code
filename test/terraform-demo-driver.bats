@@ -123,6 +123,33 @@ setup() {
 	printf '#!/usr/bin/env bash\nexit 0\n' >"${stubdir}/port-busy"
 	chmod +x "${stubdir}/port-free" "${stubdir}/port-busy"
 	export GCP_TF_DEMO_PREFLIGHT_PORT_PROBE="${stubdir}/port-free"
+
+	# ── Socket ownership: who is listening, not merely that someone is ────────
+	#
+	# The stub gcloud writes its own pid here, and that pid IS the driver's
+	# `$!` — `env` execs the stub, so it keeps the pid the driver recorded. So
+	# `owner-ours` returns the genuine article and exercises
+	# pid_is_descendant_of for real, rather than asserting against a number the
+	# test invented.
+	#
+	# `owner-theirs` returns pid 1. Deliberately a REAL pid that certainly
+	# exists and is certainly not a descendant of our tunnel — a made-up large
+	# number would also pass today and would start failing the day it happened
+	# to be live, which is the kind of test that fails once a year for no
+	# reason anyone can reconstruct.
+	#
+	# `owner-none` prints nothing: the socket belongs to another user, or `ss`
+	# is missing. That is a refusal too, because the question is whether we can
+	# PROVE the tunnel is ours.
+	export STUB_TUNNEL_PIDFILE="${BATS_TEST_TMPDIR}/tunnel.pid"
+	export STUB_TUNNEL_CHILD_PIDFILE="${BATS_TEST_TMPDIR}/tunnel-child.pid"
+	printf '#!/usr/bin/env bash\ncat "${STUB_TUNNEL_PIDFILE}" 2>/dev/null\n' >"${stubdir}/owner-ours"
+	printf '#!/usr/bin/env bash\ncat "${STUB_TUNNEL_CHILD_PIDFILE}" 2>/dev/null\n' >"${stubdir}/owner-descendant"
+	printf '#!/usr/bin/env bash\necho 1\n' >"${stubdir}/owner-theirs"
+	printf '#!/usr/bin/env bash\nexit 0\n' >"${stubdir}/owner-none"
+	chmod +x "${stubdir}/owner-ours" "${stubdir}/owner-descendant" \
+		"${stubdir}/owner-theirs" "${stubdir}/owner-none"
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-ours"
 }
 
 # A fixture checkout carrying one of everything the exclusion list names, so
@@ -1979,6 +2006,190 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	}
 	[[ "${output}" == *"tunnel is UP"* ]] || {
 		echo "the mutant did not report a live tunnel; the wrong-lane failure mode is not what this suite reproduces: ${output}"
+		return 1
+	}
+}
+
+# ─── Socket ownership: the check a per-lane port cannot replace ──────────────
+#
+# require_local_port_free closes the collision. It does not close the RACE:
+# gcloud spends several seconds authenticating before it binds, and another
+# lane can take the port inside that window. Nor does it help at all if two
+# operators pick the same GCP_TF_DEMO_LOCAL_PORT.
+#
+# assert_tunnel_is_ours asks the binding question instead — is the socket held
+# by the tunnel THIS run started for THIS lane. The tunnel was opened with this
+# lane's INSTANCE_NAME, so provenance of the socket is identity of the far end.
+
+@test "OWNERSHIP the tunnel-ownership check is present and wired into both paths" {
+	# Presence before behaviour. Every assertion below drives the driver and
+	# reads a refusal; with the check deleted the driver simply succeeds, and
+	# tests that only assert "refuses" would never reach their assertions.
+	grep -q 'assert_tunnel_is_ours()' "${DRIVER_SRC}" || {
+		echo "assert_tunnel_is_ours is not defined in the driver"
+		return 1
+	}
+	grep -q 'assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-connect"' "${DRIVER_SRC}" || {
+		echo "connect does not assert tunnel ownership"
+		return 1
+	}
+	grep -q 'assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-public"' "${DRIVER_SRC}" || {
+		echo "public does not assert tunnel ownership"
+		return 1
+	}
+}
+
+@test "OWNERSHIP connect accepts a socket held by its own tunnel" {
+	# The happy path, driven against the REAL pid the stub recorded. If this
+	# goes red, pid_is_descendant_of is rejecting our own tunnel — which is the
+	# failure mode that gets a correct guard deleted.
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "connect refused a tunnel it started itself: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"tunnel is UP"* ]] || {
+		echo "connect did not reach the live-tunnel message: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP connect refuses a socket held by ANOTHER lane's tunnel" {
+	# THE cross-lane hijack, and the one that used to report success. The port
+	# answers — PORT_PROBE is probe-ok, exactly as it is on the happy path — but
+	# the socket belongs to a process this run did not start.
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-theirs"
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "connect handed over a tunnel owned by another process — the wrong-lane bug: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"not served by this run's tunnel"* ]] || {
+		echo "the refusal did not name the ownership failure: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"tunnel is UP"* ]] || {
+		echo "connect still declared the tunnel live before refusing: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP the refusal names the lane it was asked for" {
+	# An operator who sees this is, by construction, running more than one lane.
+	# A refusal that does not say which lane this run wanted leaves them to
+	# guess which terminal is which.
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-theirs"
+	run "${driver}" connect
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"sl-demo-7-demo"* ]] || {
+		echo "the refusal never named this lane's instance: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"ENV=${ENV_KEY}"* ]] || {
+		echo "the refusal never named the environment key: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP an unattributable socket is refused, not assumed to be ours" {
+	# `ss` missing, or the socket owned by another user. Fail closed: the
+	# question is whether ownership can be PROVEN, not whether a reason can be
+	# found to proceed. This is the branch that would otherwise quietly become
+	# "no evidence against, therefore fine" on any machine without ss.
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-none"
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "connect proceeded on a socket it could not attribute: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"<none reported>"* ]] || {
+		echo "the refusal did not report the absent owner: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP public refuses a hijacked socket BEFORE its health probe" {
+	# public is the worse case of the two. Its health probe is exactly what
+	# would launder the hijack into a verdict: it would collect a 200 from the
+	# other lane's perfectly healthy dashboard and print "verified before you
+	# clicked" about an estate nobody asked for.
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-theirs"
+	run "${driver}" public
+	[ "$status" -ne 0 ] || {
+		echo "public published a tunnel owned by another process: ${output}"
+		return 1
+	}
+	# The POSITIVE assertion, and it is the one carrying this test.
+	#
+	# Asserting only "non-zero exit, and no HEALTH: line" was VACUOUS, and the
+	# mutation harness caught it: with public's ownership check deleted, public
+	# still exits non-zero (its health probe fails against the stub) and still
+	# never prints HEALTH: — so the test passed against a driver with the
+	# mechanism removed. Exactly the failure shape this file warns about
+	# elsewhere: a refusal test satisfied by any refusal at all.
+	#
+	# Only the ownership check produces this string, so only the ownership check
+	# can satisfy this line.
+	[[ "${output}" == *"not served by this run's tunnel"* ]] || {
+		echo "public did not refuse on OWNERSHIP — it failed for some other reason: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"HEALTH:"* ]] || {
+		echo "public ran its health probe through a socket it did not own: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP MUTATION hijack: deleting the check republishes the wrong lane as healthy" {
+	# The mutation that matters. With the check removed and the socket held by
+	# another process, the driver must be OBSERVED to sail through and declare a
+	# live tunnel — which is what it did before this fix, and is why a hijack
+	# was never noticed.
+	local mutated="${BATS_TEST_TMPDIR}/demo-up-hijack.sh"
+	sed 's/^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-connect"; then$/  if false; then # MUTATED: ownership check removed/' \
+		"${DRIVER_SRC}" >"${mutated}"
+	chmod +x "${mutated}"
+
+	# Assert the mutation REACHED the thing under test. A sed matching nothing
+	# leaves an identical file, the driver still refuses, and this test passes
+	# having proved nothing.
+	! diff -q "${DRIVER_SRC}" "${mutated}" >/dev/null || {
+		echo "the mutation changed nothing — the ownership branch did not match"
+		return 1
+	}
+
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-theirs"
+	run "${mutated}" connect
+	[ "$status" -eq 0 ] || {
+		echo "the mutant refused anyway — something OTHER than the ownership check is refusing, so these tests do not measure it: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"tunnel is UP"* ]] || {
+		echo "the mutant did not declare a live tunnel; the hijack failure mode is not what this reproduces: ${output}"
+		return 1
+	}
+}
+
+@test "OWNERSHIP connect accepts a socket held by a DESCENDANT of its tunnel" {
+	# The production case, and the one the `owner-ours` stub cannot reach.
+	#
+	# `$!` is the pid of the backgrounded `env`, which execs the stub — so
+	# owner-ours returns a number EQUAL to tunnel_pid and the ancestry walk is
+	# never entered. A real gcloud is a wrapper that runs Python, so the socket
+	# is held by a child and only the walk resolves it.
+	#
+	# Without this test, collapsing pid_is_descendant_of to a direct comparison
+	# leaves the whole suite green while rejecting every real tunnel in
+	# production — a guard that refuses valid input, which is the kind that gets
+	# deleted rather than understood. Proven falsifiable as M10.
+	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-descendant"
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "connect refused a socket held by a descendant of its own tunnel: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"tunnel is UP"* ]] || {
+		echo "connect did not reach the live-tunnel message: ${output}"
 		return 1
 	}
 }

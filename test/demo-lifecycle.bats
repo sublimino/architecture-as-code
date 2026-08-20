@@ -38,8 +38,27 @@ SCRIPT
 }
 
 @test "compatibility aliases and every canonical lifecycle target are real Make targets" {
-  run make -n cluster-up cluster-down flux-bootstrap flux-test demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge
+  # MAKE=true, and it is load-bearing rather than tidy.
+  #
+  # GNU Make treats any recipe line containing $(MAKE) as implicitly
+  # `+`-prefixed, so `make -n` EXECUTES that line instead of printing it. A dry
+  # run is therefore not side-effect-free. `demo-osramp-test` recurses into the
+  # top-level `test:` target, which 8db25090e wrapped in
+  # assert-bats-ran-something.sh — so this "dry run" really ran bats and hard
+  # failed on an all-skip, and the failure looked like a missing Make target.
+  #
+  # Overriding MAKE makes the recursed command `true`, which keeps the run dry
+  # while leaving every non-recursive recipe line printed exactly as before —
+  # the two asserted below still appear. What this test is FOR is target
+  # existence: a renamed or deleted target still fails here with
+  # "No rule to make target", which is the regression it was written to catch.
+  #
+  # The underlying hazard is in the Makefile, not here: a recipe that recurses
+  # cannot be reviewed by dry run, which matters most for destructive targets.
+  # Prefer a direct invocation over $(MAKE) where reviewability counts.
+  run make -n MAKE=true cluster-up cluster-down flux-bootstrap flux-test demo-bao-up demo-bao-test-config demo-bao-test demo-bao-down demo-signalloom-up demo-signalloom-test-config demo-signalloom-test demo-signalloom-down demo-osramp-up demo-osramp-test-config demo-osramp-test demo-osramp-down demo-olly-up demo-olly-test-config demo-olly-test demo-olly-down demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge
   [ "$status" -eq 0 ]
+  [[ "$output" != *"No rule to make target"* ]]
   [[ "$output" == *"demo-lifecycle.sh bao-up"* ]]
   [[ "$output" == *"create-kind-cluster.sh"* ]]
 }

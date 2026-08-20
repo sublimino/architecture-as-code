@@ -69,9 +69,9 @@ echo ""
 # cascaded into every dependent spec, so it is hoisted into a shared function.
 setup_gateway_forward() {
   gateway_local_port=18443
-  read -r gateway_namespace gateway_service < <(kubectl get service -A \
+  read -r gateway_namespace gateway_service < <(kubectl -n ingress get service \
     -l gateway.envoyproxy.io/owning-gateway-name=cluster \
-    -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null || true)
+    -o jsonpath='ingress {.items[0].metadata.name}' 2>/dev/null || true)
   gateway_forwarded=0
   if [[ -n "$gateway_service" && -n "$gateway_namespace" ]]; then
     # Dex pins its local issuer and callback client to this stable port. Forward

@@ -11,7 +11,7 @@ One of those five, `module "identity"`, is **not to be uncommented at all** — 
 reasoning is at the bottom of this file under "Correction"; the ordering table below already
 reflects it, so following the table is sufficient and reading the correction is optional.
 
-The blocks are commented rather than absent because `../modules/{network,compute,edge,ci-runner}`
+The blocks are commented rather than absent because `../modules/{network,compute,edge}`
 are built by chunks F3, F4 and F5 in parallel worktrees and do not exist on this branch. A live
 `module` block pointing at a missing directory makes `terraform init` fail, which would make the
 root un-validatable, which would make `test/terraform-environment-keys.bats` — the only test in
@@ -30,9 +30,9 @@ module" error that reads like a typo rather than like a sequencing mistake.
 | 2 | `module "network"` | F3 | `terraform/modules/network/` exists **and** step 1 is live | `local.target_environments`, `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]` | `subnet_self_link`, `network_tag` |
 | 3 | `module "compute"` | F3 | `terraform/modules/compute/` exists **and** step 2 is live | step 2's outputs, `var.startup_script_path` | `instance_group_self_link` |
 | 4 | `module "edge"` | F4 | `terraform/modules/edge/` exists **and** step 3 is live | `module.compute[each.key].instance_group_self_link`, `var.dns_managed_zone`, `var.access_mode`, `var.iap_members` | the LB — nothing downstream |
-| 5 | `module "ci_runner"` | F5 | `terraform/modules/ci-runner/` exists **and** step 2 is live | step 2's outputs, `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]` | nothing downstream |
+| ~~5~~ | ~~`module "ci_runner"`~~ | — | **DELETED 2026-08-20.** `modules/ci-runner` was absorbed into `modules/compute`, so step 3 now covers CI lanes too. Do not reintroduce it — `terraform/CONTRACT.md` §4 records why. | — | — |
 
-Steps 4 and 5 are independent of each other; either order works.
+There is no step 5. Step 4 is the last.
 
 **Step 1 is not a code change you can validate your way through.** A
 `terraform_remote_state` data source reads a state object that must already
@@ -98,10 +98,15 @@ Three different `for_each` expressions appear, and the differences are load-bear
   `target_env` would mean `apply` for demo-1 deletes demo-2's service account.
 - **`network` uses `local.target_environments`** — the single targeted environment. Networks are
   per-environment and must not be touched by another environment's apply.
-- **`compute`, `edge` and `ci_runner` filter `local.target_environments` further on `kind`.** A
-  CI lane gets a runner and no public edge; a demo lane gets a VM and an edge. That filter is why
-  a `ci-*` entry carries `hostname = ""` — there is no DNS record because there is no load
-  balancer.
+- **`compute` is NOT filtered on `kind`; `edge` still is.** Every lane gets a VM from the same
+  module — that is the point of the merge, since a CI lane exists to run the demo bring-up. Only
+  `edge` filters, because a CI lane has no public frontend, which is why a `ci-*` entry carries
+  `hostname = ""`: there is no DNS record because there is no load balancer.
+
+  **`compute`'s unfiltered `for_each` is load-bearing for safety, not only for coverage.** The
+  module emits the `ci-lane` label that `scripts/ci/gcp-tf-reaper.sh` selects on to SUSPEND
+  instances, and it emits it from `each.value.kind`. Narrowing this `for_each` again would leave
+  CI lanes unbuilt; widening `edge`'s would give a CI lane a public load balancer.
 
 `local.target_environments` is derived from `module.env_contract.environments` (the resolved map,
 carrying `name_prefix` and merged labels), narrowed by `k == var.target_env`. The **whole** map

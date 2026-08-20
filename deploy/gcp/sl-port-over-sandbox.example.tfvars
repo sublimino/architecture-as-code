@@ -236,15 +236,15 @@ environments = {
     # the application is opened by a second, separately-named rule,
     # `allow_iap_app`, on the `app_port` set below and nothing else. So:
     #
-    #     gcloud compute start-iap-tunnel <instance> 30754 \
-    #       --local-host-port=localhost:30754 --zone us-east4-a
-    #     # then open https://dashboard.osramp.acme.local:30754
+    #     gcloud compute start-iap-tunnel <instance> 8080 \
+    #       --local-host-port=localhost:8080 --zone us-east4-a
+    #     # then open http://localhost:8080
     #
     # The SSH forward still works and remains the fallback:
     #
     #     gcloud compute ssh <instance> --zone us-east4-a \
     #       --project sl-port-over-sandbox --tunnel-through-iap \
-    #       -- -L 30754:localhost:30754
+    #       -- -L 8080:localhost:8080
     #
     # Keeping access_mode = "iap" above is still correct: it is the safe
     # default, and it becomes the live web posture the moment a hostname is

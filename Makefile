@@ -363,12 +363,7 @@ cpai-images: ## Build CPAI runtime image from cpai-cli, push to Zot, and cosign 
 
 .PHONY: workload-key
 workload-key: ## Generate the ed25519 key the processor signs attestations with.
-	@for i in $$(seq 1 60); do \
-		kubectl get ns frontend >/dev/null 2>&1 && break; \
-		echo "waiting for the frontend namespace (created by the apps ResourceSet)..."; \
-		sleep 5; \
-	done
-	kubectl get ns frontend >/dev/null
+	@bash -c 'source ./scripts/lib/wait.sh && wait_k8s_exists namespace frontend 300'
 	$(MAKE) -C d2-osramp-apps signing-key
 
 .PHONY: wait

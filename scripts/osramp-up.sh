@@ -5,6 +5,9 @@
 
 set -eo pipefail
 
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
+
 NAMESPACES=("frontend" "backend")
 RESOURCESET="apps"
 FLUX_NS="flux-system"
@@ -62,29 +65,12 @@ kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
 
 echo "==> Waiting for namespaces to appear..."
 for ns in "${NAMESPACES[@]}"; do
-  for i in $(seq 1 60); do
-    if kubectl get namespace "${ns}" &>/dev/null; then
-      echo "    ${ns}: created (${i}s)."
-      break
-    fi
-    sleep 1
-  done
-  if ! kubectl get namespace "${ns}" &>/dev/null; then
-    echo "WARNING: ${ns} did not appear within 60s."
-  fi
+  wait_k8s_exists namespace "${ns}" 120
 done
 
 echo "==> Waiting for Kustomizations to become Ready..."
 for ns in "${NAMESPACES[@]}"; do
-  for i in $(seq 1 18); do
-    READY_COUNT=$(kubectl get kustomizations -n "${ns}" -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || true)
-    TOTAL=$(kubectl get kustomizations -n "${ns}" --no-headers 2>/dev/null | wc -l || true)
-    if [ "${READY_COUNT}" -eq "${TOTAL}" ] && [ "${TOTAL}" -gt 0 ]; then
-      echo "    ${ns}: Kustomizations Ready."
-      break
-    fi
-    sleep 10
-  done
+  wait_flux_ready kustomization apps -n "${ns}" 300
 done
 
 echo "==> Pod status:"

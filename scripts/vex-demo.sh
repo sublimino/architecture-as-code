@@ -190,7 +190,7 @@ if [ -z "${ARCHIVISTA_URL}" ] && kubectl -n backend get svc osramp-archivista >/
   kubectl -n backend port-forward svc/osramp-archivista 8082:8082 >/dev/null 2>&1 &
   ARCHIVISTA_PID=$!
   trap 'kill ${PORT_FORWARD_PID} ${ARCHIVISTA_PID} 2>/dev/null || true' EXIT
-  sleep 2
+  wait_reachable "http://localhost:8082/v1/health" 60
   ARCHIVISTA_URL="http://localhost:8082"
 fi
 if [ -n "${ARCHIVISTA_URL}" ] && command -v witness >/dev/null 2>&1 && [ -f .keys/witness.pem ]; then

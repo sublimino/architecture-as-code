@@ -3780,7 +3780,9 @@ async def audit(
         if agent is not None:
             events = [
                 e for e in events
-                if e.agent_id == agent or (e.agent_name or "").lower().find(agent.lower()) >= 0
+                if e.agent_id == agent
+                or (e.agent_name or "").lower().find(agent.lower()) >= 0
+                or (isinstance(e.detail, dict) and e.detail.get("agent_ref") == agent)
             ]
         if type is not None:
             events = [e for e in events if e.event_type == type]
@@ -3811,9 +3813,10 @@ async def audit(
             params.append(agent_uuid)
             idx += 1
         else:
-            conditions.append(f"agent_name ILIKE ${idx}")
+            conditions.append(f"(agent_name ILIKE ${idx} OR detail->>'agent_ref' = ${idx + 1})")
             params.append(f"%{agent}%")
-            idx += 1
+            params.append(agent)
+            idx += 2
     if type is not None:
         conditions.append(f"event_type = ${idx}")
         params.append(type)

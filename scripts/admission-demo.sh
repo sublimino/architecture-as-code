@@ -20,7 +20,7 @@ test -f "${KEYS_DIR}/cosign.key" || { echo "run 'make signing-keys' first"; exit
 echo "=== installing Kyverno ${KYVERNO_VERSION} (idempotent)"
 # server-side apply: the Kyverno CRDs exceed the client-side annotation limit
 kubectl apply --server-side --force-conflicts -f "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/install.yaml" >/dev/null
-kubectl -n kyverno rollout status deploy/kyverno-admission-controller --timeout=3m
+wait_rollout kyverno-admission-controller -n kyverno 180
 
 echo "=== publishing a signed and an unsigned image"
 kubectl -n registry port-forward svc/zot 5001:5000 >/dev/null 2>&1 &
@@ -60,7 +60,7 @@ INDENTED_KEY=$(sed 's/^/                      /' ${KEYS_DIR}/cosign.pub)
 awk -v key="${INDENTED_KEY}" \
   '{ if ($0 ~ /\$\{COSIGN_PUBLIC_KEY\}/) print key; else print }' \
   policy/kyverno-verify-images.yaml | kubectl apply -f -
-sleep 3
+_wait_retry 15 "clusterpolicy check-image-signatures ready" "kubectl get clusterpolicy check-image-signatures >/dev/null 2>&1"
 
 run_pod() {
   kubectl -n admission-demo run "$1" --image="$2" \

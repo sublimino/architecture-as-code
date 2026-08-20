@@ -263,3 +263,94 @@ describe('AgentDetailPage — credential actions', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+describe('AgentDetailPage — Activity Timeline for Synthetic Agents', () => {
+  it('requests audit events for synthetic agent ID and renders them on the timeline', async () => {
+    const syntheticAgent = makeAgent({
+      id: 'agent-cardvault',
+      name: 'Synthesized agent-cardvault',
+      type: 'service',
+      lifecycle_state: 'suspended',
+    })
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(syntheticAgent)
+    ;(api.audit as ReturnType<typeof vi.fn>).mockResolvedValue({
+      events: [
+        {
+          id: 'audit-event-1',
+          timestamp: '2026-08-20T12:00:00Z',
+          event_type: 'agent.stunned',
+          agent_id: null,
+          agent_name: null,
+          actor: 'demo-operator@signal-loom.ai',
+          detail: {
+            agent_ref: 'agent-cardvault',
+            reason: 'operator-initiated stun via governance API',
+            from_state: 'active',
+            to_state: 'suspended',
+          },
+        },
+        {
+          id: 'audit-event-2',
+          timestamp: '2026-08-20T11:00:00Z',
+          event_type: 'agent.transitioned',
+          agent_id: null,
+          agent_name: null,
+          actor: 'demo-operator@signal-loom.ai',
+          detail: {
+            agent_ref: 'agent-cardvault',
+            from_state: 'registered',
+            to_state: 'active',
+          },
+        },
+      ],
+      total: 2,
+      page: 1,
+      limit: 50,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/agents/agent-cardvault']}>
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    // Verify header renders synthesized agent name
+    expect(await screen.findByText('Synthesized agent-cardvault')).toBeInTheDocument()
+
+    // Verify api.audit was called with agent-cardvault
+    expect(api.audit).toHaveBeenCalledWith('test-token', { agent: 'agent-cardvault', limit: 50 })
+
+    // Verify timeline renders the audit events
+    expect((await screen.findAllByText('agent.stunned'))[1]).toBeInTheDocument()
+    expect(screen.getAllByText('agent.transitioned')[1]).toBeInTheDocument()
+    expect(screen.getAllByText(/demo-operator@signal-loom.ai/)[1]).toBeInTheDocument()
+    expect(screen.getAllByText(/agent-cardvault/)[1]).toBeInTheDocument()
+  })
+
+  it('renders empty timeline state when no audit events exist for the agent', async () => {
+    const syntheticAgent = makeAgent({
+      id: 'agent-cardvault',
+      name: 'Synthesized agent-cardvault',
+    })
+    ;(api.agents.get as ReturnType<typeof vi.fn>).mockResolvedValue(syntheticAgent)
+    ;(api.audit as ReturnType<typeof vi.fn>).mockResolvedValue({
+      events: [],
+      total: 0,
+      page: 1,
+      limit: 50,
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/agents/agent-cardvault']}>
+        <Routes>
+          <Route path="/agents/:id" element={<AgentDetailPage />} />
+        </Routes>
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText('Synthesized agent-cardvault')).toBeInTheDocument()
+    expect(screen.getByText(/no events recorded/i)).toBeInTheDocument()
+  })
+})

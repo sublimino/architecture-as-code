@@ -143,7 +143,11 @@ reconcile_frontend() {
     reconcile.fluxcd.io/requestedAt="$(date +%s)" >/dev/null
   # Injectable so the fake-binary harness in test/revocation-demo.bats does not
   # spend ~90s asleep proving control flow that has nothing to do with timing.
-  sleep "${RECONCILE_SETTLE_SECONDS:-10}"
+  # Poll for OCIRepository status with deadline
+  local settle="${RECONCILE_SETTLE_SECONDS:-10}"
+  if [ "$settle" -gt 0 ]; then
+    _wait_retry "$settle" "reconcile ocirepository apps" "kubectl -n frontend get ocirepository apps -o jsonpath='{.status.observedGeneration}' >/dev/null 2>&1" || true
+  fi
   kubectl -n frontend get ocirepository apps \
     -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{" "}{.message}{end}'
   echo

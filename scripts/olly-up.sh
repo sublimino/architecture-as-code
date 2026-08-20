@@ -5,6 +5,9 @@
 
 set -eo pipefail
 
+# shellcheck source=scripts/lib/wait.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
+
 NAMESPACE="olly-replica"
 RESOURCESET="olly"
 FLUX_NS="flux-system"
@@ -48,30 +51,11 @@ kubectl annotate resourceset "${RESOURCESET}" -n "${FLUX_NS}" \
   reconcile.fluxcd.io/requestedAt="$(date -u +%Y-%m-%dT%H:%M:%SZ)" --overwrite
 
 echo "==> Waiting for namespace '${NAMESPACE}' to appear..."
-for i in $(seq 1 60); do
-  if kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-    echo "    Namespace created (${i}s)."
-    break
-  fi
-  sleep 1
-done
-
-if ! kubectl get namespace "${NAMESPACE}" &>/dev/null; then
-  echo "ERROR: namespace did not appear within 60s."
-  echo "       Check: kubectl get resourceset ${RESOURCESET} -n ${FLUX_NS}"
-  exit 1
-fi
+wait_k8s_exists namespace "${NAMESPACE}" 120
 
 echo "==> Waiting for Kustomizations to become Ready..."
-for i in $(seq 1 18); do
-  READY_COUNT=$(kubectl get kustomizations -n "${NAMESPACE}" -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null | grep -c "True" || true)
-  TOTAL=$(kubectl get kustomizations -n "${NAMESPACE}" --no-headers 2>/dev/null | wc -l || true)
-  if [ "${READY_COUNT}" -eq "${TOTAL}" ] && [ "${TOTAL}" -gt 0 ]; then
-    echo "    All ${TOTAL} Kustomization(s) Ready."
-    break
-  fi
-  sleep 10
-done
+wait_flux_ready kustomization olly-controllers -n "${NAMESPACE}" 300
+wait_flux_ready kustomization olly-configs -n "${NAMESPACE}" 300
 
 echo "==> Pod status in ${NAMESPACE}:"
 kubectl get pods -n "${NAMESPACE}" --no-headers 2>/dev/null | \

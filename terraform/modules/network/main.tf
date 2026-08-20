@@ -278,6 +278,13 @@ resource "google_compute_firewall" "deny_all_ingress" {
 #      address range: docker.io, ghcr.io, quay.io, deb.debian.org,
 #      download.docker.com. THE DEFAULT DESTINATION LIST IS EMPTY, so by
 #      default no such rule is created and public egress stays denied.
+#   5. Public UDP egress — var.egress_public_udp_ports to whatever
+#      var.egress_public_udp_destinations names. This is Tailscale's direct
+#      listener (41641/udp) and STUN (3478/udp). BOTH LISTS DEFAULT TO EMPTY,
+#      so by default no such rule is created and UDP egress stays denied
+#      entirely. Unlike (4) this one is not needed for the feature to work at
+#      all — see the rule's own comment for why it buys throughput rather than
+#      reachability.
 #
 # Consequence, stated plainly: with the defaults, a freshly applied environment
 # CANNOT pull public container images. That is the correct default for a
@@ -401,6 +408,70 @@ resource "google_compute_firewall" "allow_egress_public_https" {
   }
 
   description = "Operator-named public egress on tcp ${join(",", var.egress_public_ports)}, e.g. container registries and package mirrors (${local.label_note})"
+}
+
+# ── Operator-named UDP egress ───────────────────────────────────────────────
+#
+# Created only when an operator has named UDP ports, exactly as the TCP rule
+# above is created only when an operator has named destinations. Both lists
+# default to empty, so an environment that has not asked for UDP does not get it.
+#
+# ─── What this is for, and what it is not ───────────────────────────────────
+#
+# Tailscale. 41641/udp is the node's direct listener and 3478/udp is STUN, which
+# is how two nodes behind NAT learn a path to each other. With both open the two
+# ends negotiate a DIRECT WireGuard tunnel; with both closed Tailscale still
+# works and relays every packet through Tailscale's DERP servers over TCP 443,
+# which allow_egress_public_https already permits when destinations are named.
+#
+# So this rule buys latency and throughput. It does not buy reachability, and a
+# comment claiming an environment "needs" it to connect would be wrong.
+#
+# ─── Why this does not weaken the ingress posture at all ────────────────────
+#
+# It is an EGRESS rule and Tailscale is an outbound-only protocol: the node
+# dials out to the coordination server and to its peers, and nothing dials in.
+# deny_all_ingress still stands, no ingress source range is touched, and the
+# instance still has no external IP. That property is the reason a tailnet suits
+# this estate — an inbound path would have needed an external address or a
+# widened source range, and neither exists here.
+#
+# ─── The honest cost ────────────────────────────────────────────────────────
+#
+# UDP is connectionless, so an allowed UDP port is a one-way channel out of the
+# estate that looks the same in the flow logs whether anything answered or not.
+# It is the best exfiltration path this policy contains. What bounds it: the
+# ports are countable (see EGRESS-RULE-03), the destinations are a CIDR list and
+# not "the internet" unless someone makes it so (EGRESS-RULE-04), and
+# target_service_accounts scopes it to this environment's runtime SA — a VM
+# running as any other identity in this VPC still has no UDP egress whatsoever.
+#
+# The description renders the actual port list rather than the word "Tailscale",
+# for the same reason the TCP rule renders its ports: that string is what
+# `gcloud compute firewall-rules list` prints, and an auditor should be able to
+# read the grant out of the rule listing without being told what it was for.
+resource "google_compute_firewall" "allow_egress_public_udp" {
+  count = length(var.egress_public_udp_ports) > 0 ? 1 : 0
+
+  name    = "${var.name_prefix}-allow-egress-public-udp"
+  project = var.project_id
+  network = google_compute_network.this.id
+
+  direction = "EGRESS"
+  priority  = 1100
+
+  # Never empty when this rule exists: EGRESS-RULE-04 refuses a port list with
+  # no destinations, so the count above cannot select a rule with nothing to
+  # send to. That is enforcement, not an assumption — see variables.tf.
+  destination_ranges      = var.egress_public_udp_destinations
+  target_service_accounts = [var.runtime_service_account_email]
+
+  allow {
+    protocol = "udp"
+    ports    = var.egress_public_udp_ports
+  }
+
+  description = "Operator-named public egress on udp ${join(",", var.egress_public_udp_ports)}, e.g. Tailscale's direct listener and STUN (${local.label_note})"
 }
 
 # The rule that makes the four allows above meaningful. Priority 65534 sits

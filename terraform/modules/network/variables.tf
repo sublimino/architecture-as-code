@@ -211,6 +211,98 @@ variable "egress_public_ports" {
   }
 }
 
+# ---------------------------------------------------------------------------
+# UDP egress. A SEPARATE pair of variables from egress_public_ports, not a
+# protocol field bolted onto it.
+#
+# egress_public_ports is consumed inside `allow { protocol = "tcp" }`. Adding
+# "41641" to it would open TCP/41641, which Tailscale does not listen on, while
+# leaving UDP as closed as it was — a change that reads as "I opened the port"
+# and grants nothing. Protocol and port are one decision and they belong in one
+# variable pair, or the rule listing and the tfvars disagree about what was
+# actually permitted.
+# ---------------------------------------------------------------------------
+
+variable "egress_public_udp_ports" {
+  description = <<-EOT
+    UDP ports the runtime service account may reach on the destinations named in
+    egress_public_udp_destinations. Defaults to the EMPTY list, which creates no
+    rule at all and leaves UDP egress denied exactly as it is today.
+
+    41641 is Tailscale's direct listener and 3478 is STUN, which is how two
+    nodes behind NAT discover a path to each other. Opening both is what buys a
+    DIRECT WireGuard tunnel; leaving them closed does not break Tailscale, it
+    makes every packet relay through Tailscale's DERP servers over TCP 443,
+    which the existing public-egress rule already permits. So this variable buys
+    latency and throughput, not connectivity — which is precisely why it should
+    be an explicit per-environment decision rather than a module default.
+  EOT
+  type        = list(string)
+  default     = []
+
+  # ─── Why the default is empty and not ["41641", "3478"] ──────────────────
+  #
+  # UDP egress is the widest thing this module can open. TCP egress to a named
+  # CIDR is at least a connection the flow logs record as established or not;
+  # UDP is connectionless, so an allowed UDP port to a wide destination is a
+  # one-way channel out of the estate that looks identical whether anything is
+  # listening or not. It is a better exfiltration path than anything else in
+  # this policy, and it is the one an auditor asks about.
+  #
+  # That does not make it wrong to open — Andy has chosen direct connections
+  # over DERP relaying deliberately — it makes it wrong to INHERIT. An
+  # environment that never asked for Tailscale must not acquire UDP egress
+  # because a module default said so, and the empty default is what guarantees
+  # the grant appears in a reviewed tfvars diff with a name attached.
+  #
+  # The conditions below are character-identical to EGRESS-RULE-01/02 above,
+  # deliberately: the same class of input is wrong for the same reasons whether
+  # the protocol is TCP or UDP, and two rules that disagree about what a port
+  # looks like is how one of them ends up weaker than the other.
+  validation {
+    condition = alltrue([
+      for p in var.egress_public_udp_ports :
+      can(regex("^[0-9]+$", p)) && tonumber(p) >= 1 && tonumber(p) <= 65535
+    ])
+    error_message = "EGRESS-RULE-03-UDP-PORTS-RANGE: every entry in egress_public_udp_ports must be a bare port number between 1 and 65535, as a string. Ranges (\"3478-3479\") and protocol names (\"stun\") are not accepted: a range is a much larger grant than it looks, and this list is meant to be countable at a glance."
+  }
+}
+
+variable "egress_public_udp_destinations" {
+  description = <<-EOT
+    Public CIDRs the runtime service account may reach on egress_public_udp_ports.
+    Defaults to the empty list. Required to be non-empty whenever
+    egress_public_udp_ports names a port — a firewall rule with ports and no
+    destinations is a shape the provider may widen, and the widening is invisible
+    in the tfvars that caused it.
+
+    Kept SEPARATE from egress_public_https_destinations because they are
+    different destination sets with different justifications: that one names
+    container registries and package mirrors, this one names Tailscale's DERP
+    and STUN infrastructure, or the peer addresses a direct tunnel needs. Sharing
+    one list would grant UDP to the registries and TCP to the tailnet, neither of
+    which anyone asked for.
+  EOT
+  type        = list(string)
+  default     = []
+
+  # ─── The pairing rule, and why it is here rather than in the resource ─────
+  #
+  # Ports without destinations is the failure that matters. The rule's `count`
+  # keys off the PORT list, so a tfvars naming ports and forgetting destinations
+  # would produce a real firewall rule whose destination_ranges is empty — and
+  # the Google provider does not treat an empty destination list as "nothing".
+  #
+  # Stated as a validation on the DESTINATIONS variable rather than on the ports
+  # one so that the error names the field the operator must actually fill in.
+  # Cross-variable references in validation conditions are a Terraform 1.9
+  # feature and this tree pins `>= 1.9`.
+  validation {
+    condition     = length(var.egress_public_udp_ports) == 0 || length(var.egress_public_udp_destinations) > 0
+    error_message = "EGRESS-RULE-04-UDP-DESTINATIONS: egress_public_udp_ports names at least one port, so egress_public_udp_destinations must name at least one CIDR. A UDP egress rule with ports and no destinations is not \"no destinations\" — the provider may render it as every destination, which is the opposite of what an empty list looks like it means. To close UDP egress entirely, empty egress_public_udp_ports instead; that creates no rule at all."
+  }
+}
+
 variable "enable_private_google_access_dns" {
   description = <<-EOT
     Create the private DNS zone that points googleapis.com at the restricted

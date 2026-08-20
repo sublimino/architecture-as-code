@@ -196,6 +196,94 @@ variable "image_project" {
   default     = "ubuntu-os-cloud"
 }
 
+# ---------------------------------------------------------------------------
+# Tailscale
+#
+# A tailnet node ON the demo VM, so the estate is reachable from Andy's own
+# devices without the IAP tunnel dance. It is off by default and every resource
+# it needs is gated on the flag, because the secret holding the auth key is
+# created out of band and an environment that does not have one must still plan
+# and apply cleanly.
+#
+# What it deliberately does NOT change: there is still no external IP, still no
+# ingress rule beyond IAP, and still no widened source range. Tailscale is an
+# outbound-only protocol — the node dials the coordination server and its peers,
+# and nothing dials in — which is the entire reason it fits an estate whose
+# posture story is "no inbound path exists to attack".
+# ---------------------------------------------------------------------------
+
+variable "tailscale_enabled" {
+  description = "Install Tailscale on the VM and grant its runtime service account read access to the auth-key secret. Defaults false: the secret is created out of band, so an environment without one must still plan and apply. With this false no Tailscale resource is planned, no metadata key is emitted, and the startup script's Tailscale stage does not run."
+  type        = bool
+  default     = false
+}
+
+variable "tailscale_authkey_secret_id" {
+  description = "Secret Manager secret id (the short id, not the full resource name) holding a reusable, ephemeral, pre-approved Tailscale auth key. Read at RUNTIME by the VM under its own attached service account; never placed in instance metadata, which is stored in plain text. Only consulted when tailscale_enabled is true."
+  type        = string
+  default     = "sl-demo-tailscale-authkey"
+
+  # A short id, not a full resource path. `projects/x/secrets/y` is what the
+  # data source RETURNS and what the IAM binding consumes; passing that form in
+  # produces `projects/x/secrets/projects/x/secrets/y`, which fails at plan with
+  # a "not found" that reads as a missing secret rather than a malformed input.
+  # GCP's own constraint is the same character class, capped at 255.
+  validation {
+    condition     = can(regex("^[a-zA-Z0-9_-]{1,255}$", var.tailscale_authkey_secret_id))
+    error_message = "COMPUTE-RULE-04-SECRET-ID: tailscale_authkey_secret_id must be a bare Secret Manager secret id — letters, digits, underscores and hyphens, 1 to 255 characters. A full resource path (\"projects/<p>/secrets/<s>\") is not accepted: the data source returns that form and the IAM binding consumes it, so passing it in produces a doubled path and a \"secret not found\" error that reads as a missing secret rather than a malformed input."
+  }
+}
+
+variable "tailscale_tag" {
+  description = "ACL tag applied to this node at `tailscale up --advertise-tags`. A tagged node is owned by the tailnet policy rather than by the user whose auth key created it, which is what makes the node's access reviewable in the ACL file and survivable when that user leaves."
+  type        = string
+  default     = "tag:sl-demo"
+
+  # `tag:` prefix enforced rather than assumed. Tailscale rejects an
+  # unprefixed value at `tailscale up`, and the rejection happens on the VM at
+  # boot with the message going to the serial console — where nobody is looking,
+  # because the symptom is "the node never appeared in the tailnet", which reads
+  # as a missing auth key or a firewall problem. Failing at plan costs one line
+  # and closes a genuinely expensive misdiagnosis.
+  validation {
+    condition     = can(regex("^tag:[a-z0-9][a-z0-9-]*$", var.tailscale_tag))
+    error_message = "COMPUTE-RULE-05-TAILSCALE-TAG: tailscale_tag must be a Tailscale ACL tag of the form \"tag:<name>\", lowercase, starting with a letter or digit. Tailscale refuses an unprefixed value at `tailscale up`, and it refuses it on the VM at boot with the message going to the serial console — so the observed symptom is a node that never joins the tailnet, which reads as a bad auth key rather than as a malformed tag."
+  }
+}
+
+variable "tailscale_ssh_enabled" {
+  description = "Pass --ssh to `tailscale up`, letting tailnet principals SSH to this VM with authorisation decided by the tailnet ACL. Defaults FALSE; see the argument in variables.tf before enabling."
+  type        = bool
+  default     = false
+
+  # ─── The argument, both ways, because the brief asked for one ─────────────
+  #
+  # FOR: Tailscale SSH is genuinely good. It needs no key distribution, no
+  # sshd configuration and no port open anywhere; authorisation is a rule in the
+  # tailnet ACL evaluated per connection; sessions can be recorded centrally; and
+  # it removes the last reason to keep an IAP tunnel open at all. On a box Andy
+  # reaches from four devices, it is the ergonomic answer.
+  #
+  # AGAINST, and why it wins here: this VM's whole posture claim is that there
+  # is exactly ONE identity-gated way in, and that the gate is Google IAM — IAP
+  # authorises the tunnel against roles/iap.tunnelResourceAccessor, and OS Login
+  # authorises the login against IAM. Enabling Tailscale SSH adds a SECOND
+  # authorisation system that IAM cannot see: a principal denied by OS Login can
+  # still be admitted by the tailnet ACL, and nothing in the GCP audit log or in
+  # `gcloud compute instances describe` says so. For an estate whose subject IS
+  # the posture, an access path invisible to the cloud's own audit surface is a
+  # bad default even when the path itself is well built.
+  #
+  # It is a default, not a prohibition. Set true in a tfvars, in a diff someone
+  # reads, and the trade is made deliberately with a name attached — which is
+  # the same rule every other widening in this tree follows.
+  #
+  # Note the asymmetry that makes false cheap: with SSH off, Andy still reaches
+  # the VM's app port over the tailnet directly, which is the thing he actually
+  # asked for. Only the shell falls back to IAP, and IAP for a shell already
+  # works today.
+}
+
 variable "enable_confidential_compute" {
   description = "Enable AMD SEV Confidential Computing. Defaults false because it constrains the instance to the N2D/C2D families and forces on_host_maintenance = TERMINATE, and the demo's default n2-standard-16 does not support it. Set true only together with a compatible machine_type such as n2d-standard-16."
   type        = bool

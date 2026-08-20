@@ -769,3 +769,336 @@ run "accepts_the_corrected_inputs" {
     error_message = "65535 is a valid app port and must be accepted"
   }
 }
+
+# ═══════════════════════════════════════════════════════════════════════════
+# OPERATOR-NAMED UDP EGRESS (Tailscale)
+#
+# The rule exists so a Tailscale node on the demo VM can negotiate a DIRECT
+# WireGuard path (41641/udp) after discovering one through STUN (3478/udp),
+# rather than relaying every packet through Tailscale's DERP servers over TCP
+# 443. It is the widest grant this module can make, so nearly every assertion
+# below is about it NOT being made unless someone asked.
+#
+# These runs live in this file rather than in a suite of their own on purpose.
+# `test/terraform-network-security.bats` copies `tests/*.tftest.hcl` onto a
+# single destination path in its generated mutation check, so a second file in
+# this directory makes that check fail with a `cp` error — a real guard broken
+# by a layout choice, which is not a trade worth making for file tidiness.
+# ═══════════════════════════════════════════════════════════════════════════
+
+# ---------------------------------------------------------------------------
+# THE DEFAULT. This is the assertion that matters most in the file.
+#
+# Stated as an exact emptiness on the VARIABLE as well as an absence of the
+# RESOURCE, because the two fail differently. If someone adds "41641" to the
+# module default, the resource assertion catches it. If someone changes the
+# `count` expression so the rule is created regardless, the variable assertion
+# still holds while the resource assertion catches that instead. Neither alone
+# covers both edits.
+# ---------------------------------------------------------------------------
+
+run "udp_egress_is_closed_by_default" {
+  command = plan
+
+  assert {
+    condition     = length(var.egress_public_udp_ports) == 0
+    error_message = "the module default for egress_public_udp_ports must be the EMPTY list. UDP is the widest grant this policy can make and it must never be inherited: an environment that did not ask for a tailnet must not acquire outbound UDP because a module default said so."
+  }
+
+  assert {
+    condition     = length(var.egress_public_udp_destinations) == 0
+    error_message = "the module default for egress_public_udp_destinations must be the EMPTY list"
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_udp) == 0
+    error_message = "with the defaults, NO udp egress rule may be planned at all. A rule with an empty port or destination list is a shape the provider may widen; the correct default is no rule."
+  }
+
+  # And the deny that makes every allow in this module meaningful is untouched
+  # by the addition. Asserted here rather than assumed, because a change that
+  # added a protocol by weakening the deny would satisfy everything above.
+  assert {
+    condition     = length(google_compute_firewall.deny_all_egress) == 1
+    error_message = "adding a UDP rule must not remove the default-deny egress rule"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.deny_all_egress[0].deny).protocol == "all"
+    error_message = "the default-deny egress rule must still deny every protocol"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# The configured case: ports and destinations reach a real, scoped rule.
+# ---------------------------------------------------------------------------
+
+run "configured_udp_ports_reach_a_scoped_firewall_rule" {
+  command = plan
+
+  variables {
+    # RFC5737 documentation ranges. Never a real address in a test.
+    egress_public_udp_destinations = ["192.0.2.0/24", "198.51.100.0/24"]
+    egress_public_udp_ports        = ["3478", "41641"]
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_udp) == 1
+    error_message = "naming udp ports and destinations must create exactly one rule"
+  }
+
+  # The protocol is the half a reader assumes and a diff does not show. Adding
+  # "41641" to egress_public_ports instead would open TCP/41641 — a port nothing
+  # listens on — while leaving UDP as closed as before: a change that reads as
+  # "I opened the port" and grants nothing.
+  assert {
+    condition     = one(google_compute_firewall.allow_egress_public_udp[0].allow).protocol == "udp"
+    error_message = "the rule must allow udp; a tcp rule on these ports grants nothing, because Tailscale's direct listener and STUN are both UDP"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_egress_public_udp[0].allow).ports == tolist(["3478", "41641"])
+    error_message = "egress_public_udp_ports must reach the rule; a hardcoded list ignores the environment"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_udp[0].destination_ranges == toset(["192.0.2.0/24", "198.51.100.0/24"])
+    error_message = "egress_public_udp_destinations must reach the rule"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_udp[0].direction == "EGRESS"
+    error_message = "the udp rule must be an EGRESS rule. Tailscale is outbound-only — the node dials the coordination server and its peers and nothing dials in — which is the whole reason it suits an estate with no external IP."
+  }
+
+  # Scoping asserted POSITIVELY: the rule must NAME this service account. An
+  # absence assertion ("no wildcard target") is satisfied hardest by a rule that
+  # does not exist at all, which is an inversion this repo has been bitten by.
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_udp[0].target_service_accounts == toset([var.runtime_service_account_email])
+    error_message = "the udp rule must be scoped to the runtime service account; unscoped it grants outbound UDP to every instance in the VPC"
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_udp[0].target_service_accounts) == 1
+    error_message = "the udp rule must target exactly one service account"
+  }
+
+  # The deny still sits below it, or the allow is the whole policy.
+  assert {
+    condition     = google_compute_firewall.deny_all_egress[0].priority > google_compute_firewall.allow_egress_public_udp[0].priority
+    error_message = "the egress deny must still have a lower precedence than the udp allow"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# INGRESS IS IMMOVABLE.
+#
+# Run with UDP fully open, which is the configuration under which an ingress
+# regression would be easiest to miss — the change "worked", the tailnet came
+# up, and nobody re-read the ingress rules. Every one of these assertions is
+# duplicated from network.tftest.hcl on purpose: this file must fail on its own
+# if a UDP change touched ingress, without depending on another file's coverage.
+# ---------------------------------------------------------------------------
+
+run "opening_udp_egress_changes_no_ingress_rule" {
+  command = plan
+
+  variables {
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    egress_public_udp_ports        = ["3478", "41641"]
+
+    # Stated explicitly rather than inherited from the file-level default,
+    # because the app-port assertions below name 30754 and 30754 is the value
+    # Dex's OIDC callback is pinned to. Inheriting 8080 here would make those
+    # assertions pass against a number nothing in the estate uses.
+    app_port = 30754
+  }
+
+  # The IAP source range, stated as an exact set. This is the single value the
+  # brief calls immovable.
+  assert {
+    condition     = google_compute_firewall.allow_iap_ssh.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "the IAP ingress source range must still be exactly 35.235.240.0/20"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_iap_app_port.source_ranges == toset(["35.235.240.0/20"])
+    error_message = "the app-port ingress source range must still be exactly 35.235.240.0/20"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_ssh.allow).ports == tolist(["22"])
+    error_message = "the SSH ingress rule must still open 22 and nothing else"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_iap_app_port.allow).ports == tolist(["30754"])
+    error_message = "the app-port ingress rule must still track app_port and open nothing else"
+  }
+
+  assert {
+    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+      "130.211.0.0/22", "35.191.0.0/16",
+    ])
+    error_message = "the health-check ingress sources must still be exactly the two GCP probe ranges"
+  }
+
+  # Every ingress ALLOW rule in this module, enumerated in one expression: the
+  # question is what the environment admits, not what any one resource says.
+  assert {
+    condition = alltrue([
+      for src in setunion(
+        google_compute_firewall.allow_iap_ssh.source_ranges,
+        google_compute_firewall.allow_iap_app_port.source_ranges,
+        google_compute_firewall.allow_health_checks.source_ranges,
+      ) :
+      contains(["35.235.240.0/20", "130.211.0.0/22", "35.191.0.0/16"], src)
+    ])
+    error_message = "an ingress allow rule names a source that is neither the IAP range nor a Google health-check range"
+  }
+
+  assert {
+    condition = length(setintersection(
+      setunion(
+        google_compute_firewall.allow_iap_ssh.source_ranges,
+        google_compute_firewall.allow_iap_app_port.source_ranges,
+        google_compute_firewall.allow_health_checks.source_ranges,
+      ),
+      toset(["0.0.0.0/0", "::/0"]),
+    )) == 0
+    error_message = "no ingress allow rule may ever be sourced from the whole internet"
+  }
+
+  # The default-deny ingress rule survives. A UDP egress change that also
+  # weakened this would satisfy every source-range assertion above.
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress.direction == "INGRESS"
+    error_message = "the default-deny ingress rule must survive a UDP egress change"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.deny_all_ingress.deny).protocol == "all"
+    error_message = "the default-deny ingress rule must still deny every protocol"
+  }
+
+  assert {
+    condition     = google_compute_firewall.deny_all_ingress.priority > google_compute_firewall.allow_iap_ssh.priority
+    error_message = "the ingress deny must still sit below the ingress allows"
+  }
+
+  # The new rule is not an ingress rule wearing an egress name. Asserted as a
+  # direction inequality against a known ingress rule rather than as a literal,
+  # so a rule that changed direction fails here as well as above.
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_udp[0].direction != google_compute_firewall.allow_iap_ssh.direction
+    error_message = "the udp rule must not be an ingress rule; it exists to let the node dial OUT"
+  }
+
+  # And the TCP public-egress rule is untouched by a UDP change. With no TCP
+  # destinations named it must still plan to nothing — opening UDP must not
+  # quietly open HTTPS to the world alongside it.
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_https) == 0
+    error_message = "naming UDP ports must not create the TCP public-egress rule; the two lists are independent decisions"
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Negatives. Each is paired with a positive proving the same input is accepted
+# once corrected — a `run` that fails for an unrelated reason is otherwise
+# indistinguishable from a validation firing.
+# ---------------------------------------------------------------------------
+
+run "rejects_a_udp_port_range" {
+  command = plan
+
+  variables {
+    # "3478-3479" is two ports wearing the appearance of one value, and the
+    # syntax scales: "1-65535" is the same shape.
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    egress_public_udp_ports        = ["3478-3479"]
+  }
+
+  expect_failures = [var.egress_public_udp_ports]
+}
+
+run "rejects_an_out_of_range_udp_port" {
+  command = plan
+
+  variables {
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    egress_public_udp_ports        = ["41641", "70000"]
+  }
+
+  expect_failures = [var.egress_public_udp_ports]
+}
+
+run "rejects_a_protocol_name_in_place_of_a_udp_port" {
+  command = plan
+
+  variables {
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    egress_public_udp_ports        = ["stun"]
+  }
+
+  expect_failures = [var.egress_public_udp_ports]
+}
+
+# The pairing rule. This is the failure that actually matters: ports named,
+# destinations forgotten, producing a rule whose destination_ranges is empty —
+# which the provider does not treat as "nowhere".
+run "rejects_udp_ports_with_no_destinations" {
+  command = plan
+
+  variables {
+    egress_public_udp_ports = ["41641"]
+    # egress_public_udp_destinations deliberately left at its empty default.
+  }
+
+  expect_failures = [var.egress_public_udp_destinations]
+}
+
+# The positive half. Both the ports and the destinations are stated EXPLICITLY
+# rather than left to defaults, which is what proves the validations accept a
+# correct value rather than that nothing evaluated them.
+run "accepts_the_corrected_udp_inputs" {
+  command = plan
+
+  variables {
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    egress_public_udp_ports        = ["3478", "41641", "65535"]
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_udp) == 1
+    error_message = "a corrected port and destination list must plan cleanly, or the negatives above prove nothing"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_egress_public_udp[0].allow).ports == tolist(["3478", "41641", "65535"])
+    error_message = "65535 is a valid udp port and must be accepted"
+  }
+
+  # Destinations with no ports is the OTHER half of the pairing rule, and it is
+  # legal on purpose: it names nothing, creates nothing, and is how an operator
+  # stages the destination list before deciding to open a port.
+  assert {
+    condition     = google_compute_firewall.allow_egress_public_udp[0].destination_ranges == toset(["192.0.2.0/24"])
+    error_message = "the corrected destination list must reach the rule"
+  }
+}
+
+run "destinations_without_ports_are_legal_and_create_nothing" {
+  command = plan
+
+  variables {
+    egress_public_udp_destinations = ["192.0.2.0/24"]
+    # egress_public_udp_ports deliberately left empty.
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_egress_public_udp) == 0
+    error_message = "naming destinations without naming ports must create no rule; the port list is what gates the grant"
+  }
+}

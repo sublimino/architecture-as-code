@@ -293,3 +293,64 @@ variable "egress_public_ports" {
     error_message = "EGRESS-RULE-02-PORTS-RANGE: every entry in egress_public_ports must be a bare port number between 1 and 65535, as a string. Ranges and protocol names are not accepted."
   }
 }
+
+variable "egress_public_udp_ports" {
+  description = "UDP ports the runtime service account may reach on egress_public_udp_destinations. Defaults to the EMPTY list, which creates no rule and leaves UDP egress denied entirely. 41641 is Tailscale's direct listener and 3478 is STUN; opening both buys a direct WireGuard path instead of relaying through Tailscale's DERP servers over TCP 443. It buys throughput, not reachability. Passed to modules/network."
+  type        = list(string)
+  default     = []
+
+  # Mirrored from the module for the reason stated above egress_public_ports:
+  # once this root wires the variable through, the MODULE's default is dead and
+  # THIS default governs. A root defaulting to ["41641", "3478"] would open UDP
+  # egress for every environment while every module test stayed green, because
+  # the module would be behaving exactly as designed with the input it was
+  # handed. The condition is character-identical to the module's; only the
+  # message carries this file's rule-ID prefix.
+  validation {
+    condition = alltrue([
+      for p in var.egress_public_udp_ports :
+      can(regex("^[0-9]+$", p)) && tonumber(p) >= 1 && tonumber(p) <= 65535
+    ])
+    error_message = "EGRESS-RULE-03-UDP-PORTS-RANGE: every entry in egress_public_udp_ports must be a bare port number between 1 and 65535, as a string. Ranges and protocol names are not accepted."
+  }
+}
+
+variable "egress_public_udp_destinations" {
+  description = "Public CIDRs the runtime service account may reach on egress_public_udp_ports. Defaults to the empty list, and must be non-empty whenever egress_public_udp_ports names a port — a firewall rule with ports and no destinations is a shape the provider may widen. Kept separate from egress_public_https_destinations so that opening UDP to the tailnet does not also open UDP to the container registries. Passed to modules/network."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = length(var.egress_public_udp_ports) == 0 || length(var.egress_public_udp_destinations) > 0
+    error_message = "EGRESS-RULE-04-UDP-DESTINATIONS: egress_public_udp_ports names at least one port, so egress_public_udp_destinations must name at least one CIDR. To close UDP egress entirely, empty egress_public_udp_ports instead; that creates no rule at all."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale. Passed to modules/compute; see that module's variables.tf for the
+# full reasoning, including the argument for and against Tailscale SSH.
+# ---------------------------------------------------------------------------
+
+variable "tailscale_enabled" {
+  description = "Install Tailscale on the demo VM and grant its runtime service account read access to the auth-key secret. Defaults false because the secret is created out of band: an environment that has not been given one must still plan and apply cleanly. Note this opens no ingress and creates no external IP — Tailscale is outbound-only."
+  type        = bool
+  default     = false
+}
+
+variable "tailscale_authkey_secret_id" {
+  description = "Secret Manager secret id holding a reusable, ephemeral, pre-approved Tailscale auth key. The VM resolves it at runtime under its own attached service account; the key never enters instance metadata or Terraform state. Only consulted when tailscale_enabled is true."
+  type        = string
+  default     = "sl-demo-tailscale-authkey"
+}
+
+variable "tailscale_tag" {
+  description = "ACL tag advertised by the node, e.g. \"tag:sl-demo\". A tagged node is owned by the tailnet policy rather than by the user whose auth key created it."
+  type        = string
+  default     = "tag:sl-demo"
+}
+
+variable "tailscale_ssh_enabled" {
+  description = "Pass --ssh to `tailscale up`. Defaults false: it adds a second authorisation system that GCP IAM and the GCP audit log cannot see, on a VM whose posture claim is that IAM is the only gate. Enabling it is a deliberate per-environment trade — see modules/compute/variables.tf."
+  type        = bool
+  default     = false
+}

@@ -69,6 +69,14 @@ STUB
 
   chmod +x "${STUBDIR}/bats" "${STUBDIR}/terraform" "${STUBDIR}/tflint"
   export STUB_RECORD="${RECORD}"
+  # Overriding GCP_TF_PROOFS_RUN neutralises EVERY proof the wildcard matches,
+  # which is the whole set — there is no second variable to override, and adding
+  # one would make its proof run twice. The tests below EXECUTE
+  # `make gcp-tf-validate` with a recording stub on PATH, so without this a
+  # 24-mutation harness would run for real inside them, driving `bats` against
+  # the fake `bats` this file just installed and corrupting the recording every
+  # assertion here reads. The tests that need the REAL recipe text use
+  # `env -u GCP_TF_PROOFS_RUN make -n`, which prints without executing.
   export GCP_TF_PROOFS_RUN=/usr/bin/true
   export PATH="${STUBDIR}:${PATH}"
 }
@@ -194,6 +202,89 @@ disk_test_dirs() {
   run grep -c '^TEST:' "${RECORD}/terraform.log"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
+}
+
+@test "every *-mutation-proof.sh on disk is run by gcp-tf-validate, EXACTLY ONCE" {
+  # Two failures in one assertion, and the second is the one that bit.
+  #
+  # ZERO runs is the classic unregistered-artifact defect this file exists for.
+  # TWO runs is subtler and cannot be caught by reading a green gate: a proof
+  # registered by hand AS WELL AS by the wildcard executes twice, passes twice,
+  # and only shows up as minutes on a gate that already takes ~13 of them. That
+  # is precisely what a `GCP_TF_TOOLCHAIN_PROOF_RUN` variable added here did,
+  # on the false premise that the registry was a hand-maintained list. It is a
+  # wildcard, and has been.
+  #
+  # Derived from disk, so a proof added tomorrow is covered without editing this.
+  run env -u GCP_TF_PROOFS_RUN make -C "${REPO_ROOT}" -n gcp-tf-validate
+  [ "$status" -eq 0 ]
+
+  local proofs
+  proofs="$(cd "${REPO_ROOT}" && ls -1 test/*-mutation-proof.sh 2>/dev/null)"
+  [ -n "$proofs" ] || {
+    echo "no test/*-mutation-proof.sh found — refusing a vacuous pass" >&2
+    return 1
+  }
+
+  local p n bad=""
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    n="$(printf '%s\n' "${output}" | grep -c -- "bash ${p}\( \|$\)")"
+    [ "$n" -eq 1 ] || bad="${bad} ${p}(x${n})"
+  done <<<"$proofs"
+
+  [ -z "$bad" ] || {
+    echo "mutation proofs not run exactly once by gcp-tf-validate:${bad}" >&2
+    echo "" >&2
+    echo "0 = unregistered. 2 = registered by hand AND by the wildcard; delete" >&2
+    echo "the hand registration, naming the file is what registers it." >&2
+    return 1
+  }
+}
+
+@test "the toolchain mutation proof is registered by the wildcard, not by hand" {
+  # The specific regression, named so the failure message says what to do.
+  grep -q 'GCP_TF_TOOLCHAIN_PROOF_RUN' "${MAKEFILE}" && {
+    echo "GCP_TF_TOOLCHAIN_PROOF_RUN is back in the Makefile." >&2
+    echo "test/toolchain-mutation-proof.sh already matches" >&2
+    echo "GCP_TF_PROOFS = \$(wildcard test/*-mutation-proof.sh), so this variable" >&2
+    echo "makes the proof run twice." >&2
+    return 1
+  }
+  # And the wildcard really is what catches it.
+  grep -qF 'GCP_TF_PROOFS = $(wildcard test/*-mutation-proof.sh)' "${MAKEFILE}" || {
+    echo "the proof registry is no longer a wildcard over test/*-mutation-proof.sh" >&2
+    return 1
+  }
+  [ -f "${REPO_ROOT}/test/toolchain-mutation-proof.sh" ]
+}
+
+@test "the VM-side guard-falsification proof stays OUT of the offline gate" {
+  # Not an oversight, and the comment in the Makefile says so. It is a ~119KB
+  # harness that needs a VM, it is run by demo-pipeline.sh and vm-pipeline.sh,
+  # and `gcp-tf-validate` is the offline gate. Widening the wildcard to
+  # test/*-proof.sh would pull it in and break that gate.
+  #
+  # Asserted in both directions: absent from the make target, present in the
+  # pipelines. Absence alone would be satisfied by deleting the file.
+  local gf="test/guard-falsification-proof.sh"
+  [ -f "${REPO_ROOT}/${gf}" ]
+
+  run env -u GCP_TF_PROOFS_RUN make -C "${REPO_ROOT}" -n gcp-tf-validate
+  [ "$status" -eq 0 ]
+  [[ "${output}" != *"${gf}"* ]] || {
+    echo "${gf} is being run by the offline gate; it needs a VM" >&2
+    return 1
+  }
+
+  grep -q "${gf}" "${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh" || {
+    echo "${gf} is no longer run by demo-pipeline.sh — now it IS unregistered" >&2
+    return 1
+  }
+  grep -q "${gf}" "${REPO_ROOT}/scripts/ci/vm-pipeline.sh" || {
+    echo "${gf} is no longer run by vm-pipeline.sh" >&2
+    return 1
+  }
 }
 
 @test "gcp-tf-validate executes the Dex origin mutation proof" {

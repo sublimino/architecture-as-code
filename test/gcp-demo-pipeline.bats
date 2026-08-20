@@ -723,11 +723,23 @@ script_code() {
 	# The paired positive: without it, the test above cannot tell a working guard
 	# from a writer that never runs.
 	local mutant="$BATS_TEST_TMPDIR/clobber.sh"
-	sed 's#^  \[\[ -f "\${REPORT_DIR}/summary.json" \]\] && return 0$#  :#' \
+	# Targets ${SUMMARY_FILE}, which is what write_terminal_summary now guards
+	# on. It read ${REPORT_DIR}/summary.json until the summary path became
+	# injectable (demo-up.sh sends DEMO_SUMMARY_FILE so the driver's
+	# GCP_TF_DEMO_SUMMARY_NAME cannot name a file this script never writes).
+	#
+	# The landed-check below is why that rename surfaced here as a red test
+	# instead of a silent one: a sed whose pattern stops matching is a no-op that
+	# exits 0, so without it this mutation test would have gone on "passing"
+	# while mutating nothing at all.
+	sed 's#^  \[\[ -f "\${SUMMARY_FILE}" \]\] && return 0$#  :#' \
 		"$script" >"$mutant"
 	chmod +x "$mutant"
-	# The mutation landed.
-	run grep -c 'summary.json" \]\] && return 0' "$mutant"
+	# The mutation landed. Asserted against the ORIGINAL, so a pattern that stops
+	# matching fails here rather than downstream.
+	run grep -c '\${SUMMARY_FILE}" \]\] && return 0' "$script"
+	[ "$output" -eq 1 ]
+	run grep -c '\${SUMMARY_FILE}" \]\] && return 0' "$mutant"
 	[ "$output" -eq 0 ]
 
 	mkdir -p "$reports"

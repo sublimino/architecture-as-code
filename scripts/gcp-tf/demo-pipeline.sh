@@ -79,6 +79,76 @@ REPORT_FILENAME="${DEMO_REPORT_FILENAME:-signalloom-demo-report.yaml}"
 PIPELINE_LOG="${DEMO_PIPELINE_LOG:-${HOME}/demo-pipeline.log}"
 STAGE_TIMEOUT_SECONDS="${DEMO_STAGE_TIMEOUT_SECONDS:-1800}"
 
+# The verdict file. Derived from REPORT_DIR by default, because that is the
+# contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
+# overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file
+# this script never writes. Two sides deriving the same path independently is
+# how they drift; one side sending it is how they cannot.
+SUMMARY_FILE="${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}"
+
+# Which environment this run describes. Recorded in the summary because a
+# verdict that does not name its own environment is weak evidence — reading
+# demo-1's summary as demo-2's is a one-character mistake with no guard on it.
+DEMO_ENV_KEY="${DEMO_ENV:-unknown}"
+
+# ── The delivered source, resolved BEFORE the EXIT trap is armed ─────────────
+#
+# These used to be resolved down beside the checkout phase, after `trap
+# on_pipeline_exit EXIT`. That was survivable only while the aborted summary
+# carried no commit; now that it does, an abort before that point would
+# reference an unset variable under `set -u` and take out the trap that exists
+# to write the abort record. Resolved here, they are defined on every path.
+#
+# SOURCE_ORIGIN is not decoration. When the driver supplies the commit, this run
+# can be tied to a known tree; when it does not, the fallback describes the
+# throwaway repo that the checkout phase git-inits for Kustomize, which is a
+# snapshot of unknown provenance. Those two are worth telling apart in the log
+# and in the verdict, because for the whole life of this contract the second was
+# silently reported as though it were the first.
+if [[ -n "${DEMO_SOURCE_COMMIT:-}" ]]; then
+  SOURCE_ORIGIN="driver"
+else
+  SOURCE_ORIGIN="vm-local"
+fi
+#
+# `git -C "$WORK_DIR"`, never a bare `git`: this now runs before the `cd
+# "$WORK_DIR"` in the checkout phase, so a bare rev-parse would describe
+# whatever directory the caller happened to be standing in. Naming the tree
+# explicitly makes the answer independent of cwd, which is the property the old
+# placement got for free and this one has to state.
+SOURCE_COMMIT="${DEMO_SOURCE_COMMIT:-$(git -C "$WORK_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)}"
+SOURCE_BRANCH="${DEMO_SOURCE_BRANCH:-$(git -C "$WORK_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}"
+
+# ── DEMO_STAGE: refuse what cannot be honoured ───────────────────────────────
+#
+# This script has NO stage system. It runs one fixed sequence; the "STAGE:"
+# banners further down label steps within that sequence and select nothing.
+#
+# That was harmless while DEMO_STAGE never arrived. Now that the driver's
+# environment reaches this file, a request for a partial run would be accepted
+# and silently upgraded to a full one — and `make gcp-tf-demo-test` advertises
+# "re-run the demo tests against a cluster that is already standing", which is
+# exactly the thing this script cannot do. A caller who asks to skip a rebuild
+# and gets a rebuild has been given the wrong answer to the right question, and
+# the only evidence is forty minutes on the clock.
+#
+# So it refuses. This is a REFUSAL, not an implementation: the honest failure is
+# a loud one at second zero. Implementing real stage selection is a separate
+# change against a script whose steps are not currently separable.
+STAGE="${DEMO_STAGE:-full}"
+case "$STAGE" in
+  full) ;;
+  *)
+    echo "ERROR: DEMO_STAGE='${STAGE}' was requested, and this pipeline cannot honour it." >&2
+    echo "       demo-pipeline.sh implements a single fixed sequence and has no stage" >&2
+    echo "       selection. Running anyway would silently perform a FULL bring-up —" >&2
+    echo "       including a cluster rebuild — for a caller that asked not to." >&2
+    echo "       Refusing rather than doing the wrong thing quietly." >&2
+    echo "       Only DEMO_STAGE=full is supported today." >&2
+    exit 2
+    ;;
+esac
+
 MAKE_BIN="${MAKE_BIN:-make}"
 KUBECTL_BIN="${KUBECTL_BIN:-kubectl}"
 BATS_BIN="${BATS_BIN:-bats}"
@@ -233,8 +303,8 @@ write_terminal_summary() {
   # completed run — pass or fail — must be reported exactly as it reported
   # itself, and an abort-time writer that clobbers a real result turns a known
   # outcome into an unknown one.
-  [[ -f "${REPORT_DIR}/summary.json" ]] && return 0
-  mkdir -p "$REPORT_DIR" 2>/dev/null || return 0
+  [[ -f "${SUMMARY_FILE}" ]] && return 0
+  mkdir -p "$(dirname "${SUMMARY_FILE}")" 2>/dev/null || return 0
 
   # stage_results is declared further down and may not exist yet; the `+`
   # expansion is the only form that is safe under `set -u` for an unset array.
@@ -255,6 +325,13 @@ write_terminal_summary() {
     printf '  "phase": %s,\n' "$(json_str "$PIPELINE_PHASE")"
     printf '  "exit_code": %d,\n' "$rc"
     printf '  "timestamp": %s,\n' "$(json_str "$(date -Iseconds)")"
+    # commit/branch/env on the ABORT path too, not just the success path. The
+    # driver's STALE guard reads .commit to prove the verdict describes the tree
+    # it delivered; an aborted summary with no commit made that check fall back
+    # to "unknown", which is indistinguishable from a wrong-tree verdict.
+    printf '  "commit": %s,\n' "$(json_str "$SOURCE_COMMIT")"
+    printf '  "branch": %s,\n' "$(json_str "$SOURCE_BRANCH")"
+    printf '  "env": %s,\n' "$(json_str "$DEMO_ENV_KEY")"
     printf '  "demo_published": false,\n'
     printf '  "note": %s,\n' "$(json_str "the pipeline exited during phase '${PIPELINE_PHASE}' without reaching the report stage — this is an ABORTED run, NOT a test result")"
     printf '  "total_stages": %d,\n' "$total"
@@ -262,7 +339,7 @@ write_terminal_summary() {
     printf '  "failed": %d,\n' "$failed"
     printf '  "stages": %s\n' "$stages_json"
     printf '}\n'
-  } >"${REPORT_DIR}/summary.json" 2>/dev/null || true
+  } >"${SUMMARY_FILE}" 2>/dev/null || true
   return 0
 }
 
@@ -304,9 +381,16 @@ if [[ ! -d .git ]]; then
   git -c user.name="Signal Loom demo" -c user.email="demo@signalloom.local" \
     commit -q -m "demo snapshot" --allow-empty
 fi
-SOURCE_COMMIT="${DEMO_SOURCE_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}"
-SOURCE_BRANCH="${DEMO_SOURCE_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)}"
-echo "==> Source: ${SOURCE_BRANCH}@${SOURCE_COMMIT}"
+# SOURCE_COMMIT / SOURCE_BRANCH are resolved at the TOP of this file, before the
+# EXIT trap is armed — see the block beside SUMMARY_FILE. They must not be
+# resolved here: write_terminal_summary now stamps them into an aborted summary,
+# and an abort between `trap on_pipeline_exit EXIT` (above) and this line would
+# then reference an unset variable under `set -u` and kill the trap itself.
+#
+# The fallback below them is also the reason this line reported `master@47c5ea5`
+# on demo-2: the driver's value never arrived, so it described the throwaway
+# repo git-init'd four lines up rather than the tree that was delivered.
+echo "==> Source: ${SOURCE_BRANCH}@${SOURCE_COMMIT} (env ${DEMO_ENV_KEY}, source ${SOURCE_ORIGIN})"
 
 # ── Phase: tools ─────────────────────────────────────────────────────────────
 #
@@ -844,6 +928,14 @@ overall="PASS"
   printf '  "timestamp": %s,\n' "$(json_str "$(date -Iseconds)")"
   printf '  "commit": %s,\n' "$(json_str "$SOURCE_COMMIT")"
   printf '  "branch": %s,\n' "$(json_str "$SOURCE_BRANCH")"
+  # Where the commit above CAME from. "driver" means the orchestrator handed it
+  # over and this verdict can be tied to the tree it delivered; "vm-local" means
+  # it describes the throwaway repo the checkout phase creates, which proves
+  # nothing. The driver's STALE guard compares .commit against what it sent, so
+  # this field is what tells an operator whether a STALE verdict means "wrong
+  # tree" or "the contract broke again".
+  printf '  "source_origin": %s,\n' "$(json_str "$SOURCE_ORIGIN")"
+  printf '  "env": %s,\n' "$(json_str "$DEMO_ENV_KEY")"
   printf '  "demo_published": true,\n'
   printf '  "demo_url": %s,\n' "$(json_str "$demo_url")"
   printf '  "demo_user": %s,\n' "$(json_str "$DEMO_USER")"
@@ -856,7 +948,7 @@ overall="PASS"
   printf '  "failed": %d,\n' "$failures"
   printf '  "stages": [%s]\n' "$(IFS=,; printf '%s' "${stage_results[*]}")"
   printf '}\n'
-} > "${REPORT_DIR}/summary.json"
+} > "${SUMMARY_FILE}"
 
 # ── Phase: the hand-over ─────────────────────────────────────────────────────
 #

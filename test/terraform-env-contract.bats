@@ -404,6 +404,233 @@ FIXTURE
   }
 }
 
+# ── Every remote path the pipeline is told to write to must be provisioned ──
+#
+# The first genuinely-addressed bring-up failed here:
+#
+#   tee: /opt/signalloom/demo-pipeline.log: Permission denied
+#   mkdir: cannot create directory '/opt/signalloom/reports': Permission denied
+#
+# /opt/signalloom is root-owned 0755 and only `repo` was ever created and
+# chowned. Unreachable until the prefix mismatch was fixed: while the variables
+# never arrived the pipeline fell back to ${HOME}/… — writable, so the
+# permission assumption never fired, it just wrote where nobody collected.
+#
+# DERIVED, never pinned. The assertions below do not know that today's answer is
+# /opt/signalloom; they pair the exported names to the shell variables that
+# supply them and require each path-valued one to be provisioned.
+
+@test "the name-to-variable pairing extractor works (no vacuous pass)" {
+  run contract_remote_path_vars "${UP}"
+  [ "$status" -eq 0 ]
+  [ -n "$output" ]
+  # The three that must be present for the contract to mean anything.
+  printf '%s\n' "$output" | grep -qx 'DEMO_WORK_DIR REMOTE_WORK_DIR'
+  printf '%s\n' "$output" | grep -qx 'DEMO_REPORT_DIR REMOTE_REPORT_DIR'
+  printf '%s\n' "$output" | grep -qx 'DEMO_PIPELINE_LOG REMOTE_LOG'
+}
+
+@test "every REMOTE_* path exported to the pipeline is created and chowned on the VM" {
+  # THE assertion. A path the driver tells the pipeline to write to, that the
+  # driver never provisions, is a forty-minute run that ends in "no verdict".
+  #
+  # Scoped to the two functions that touch the VM's filesystem, so the long
+  # comment explaining the failure cannot satisfy it.
+  # Scoped to the lines that actually TOUCH THE FILESYSTEM — mkdir, chown,
+  # touch, tar — not to the whole function.
+  #
+  # Two things can otherwise satisfy this without any path being created, and
+  # both were observed. Comments are the obvious one: the rationale above
+  # provision_remote_paths names every variable in prose. The second is subtler
+  # and is what the mutation harness caught — the `die` message interpolates
+  # ${REMOTE_REPORT_DIR} to tell the operator which path failed, so replacing
+  # the real mkdir argument with a wrong path left the assertion green on the
+  # strength of the ERROR STRING. A diagnostic that names a thing is not
+  # evidence that the thing happens.
+  # PRESENCE PER SOURCE, checked independently before they are concatenated.
+  #
+  # An earlier version extracted `deliver()` — the function is `deliver_code()`
+  # — so that half silently produced NOTHING, and the combined non-empty check
+  # passed on the strength of the other half alone. The test then asserted over
+  # one of the two functions it claimed to cover, and stayed green. A single
+  # presence check across several sources cannot tell "all present" from "at
+  # least one present", which is the whole failure mode it is meant to prevent.
+  local deliver_body provision_body provisioning
+  deliver_body="$(sed -n '/^deliver_code() {/,/^}/p' "${UP}")"
+  provision_body="$(sed -n '/^provision_remote_paths() {/,/^}/p' "${UP}")"
+
+  [ -n "$deliver_body" ] || {
+    echo "deliver_code() not found in ${UP} — did it get renamed?" >&2
+    return 1
+  }
+  [ -n "$provision_body" ] || {
+    echo "provision_remote_paths() not found in ${UP} — did it get renamed?" >&2
+    return 1
+  }
+  provisioning="${deliver_body}"$'\n'"${provision_body}"
+  provisioning="$(
+    printf '%s\n' "$provisioning" \
+      | grep -v '^[[:space:]]*#' \
+      | grep -E 'mkdir|chown|touch|tar -xzf'
+  )"
+  [ -n "$provisioning" ] || {
+    echo "no mkdir/chown/touch lines found in the delivery path at all" >&2
+    return 1
+  }
+
+  local pairs remote_var unprovisioned=""
+  pairs="$(contract_remote_path_vars "${UP}")"
+  [ -n "$pairs" ] || { echo "no exported name/variable pairs found" >&2; return 1; }
+
+  while read -r _ remote_var; do
+    # Only the ones naming a remote filesystem path.
+    case "$remote_var" in
+      REMOTE_*) ;;
+      *) continue ;;
+    esac
+    printf '%s\n' "$provisioning" | grep -q "\$$remote_var\|\${$remote_var}" \
+      || unprovisioned="${unprovisioned} ${remote_var}"
+  done <<<"$pairs"
+
+  [ -z "$unprovisioned" ] || {
+    echo "exported to the pipeline but never created on the VM:${unprovisioned}" >&2
+    echo "" >&2
+    echo "The pipeline is told to write there and cannot. /opt/signalloom is" >&2
+    echo "root-owned 0755, so a path under it must be mkdir'd AND chowned by the" >&2
+    echo "delivery step, which is the only thing here that holds sudo." >&2
+    return 1
+  }
+}
+
+@test "the log FILE is created and handed over, not merely its parent directory" {
+  # A writable DIRECTORY does not imply a writable FILE — the same lesson as the
+  # curl/EACCES defect in install-ci-tools.sh, in a different tool. `tee` opens
+  # an existing log for writing and is refused when another principal owns it,
+  # however writable the parent is. Creating only the parent works on the first
+  # run and fails after any run under a different service account.
+  local body
+  body="$(sed -n '/^provision_remote_paths()/,/^}/p' "${UP}" | grep -v '^[[:space:]]*#')"
+  [ -n "$body" ] || { echo "provision_remote_paths is not defined" >&2; return 1; }
+
+  printf '%s\n' "$body" | grep -qE 'touch .*REMOTE_LOG' || {
+    echo "the log file itself is never created:" >&2
+    printf '%s\n' "$body" >&2
+    return 1
+  }
+  # `.*`, NOT `[^\n]*`. Inside a POSIX ERE bracket expression `\n` is the two
+  # literal characters backslash and n, so `[^\n]*` means "not a backslash and
+  # not the letter n" — it cannot cross the `n` in `${owner}`, and this
+  # assertion failed against code that was correct. grep is line-oriented; `.`
+  # already excludes newlines.
+  printf '%s\n' "$body" | grep -qE 'chown .*REMOTE_LOG' || {
+    echo "the log file is created but never chowned to the pipeline user" >&2
+    return 1
+  }
+}
+
+@test "provisioning failure is fatal, not a warning" {
+  # A driver that carries on after failing to create the report directory
+  # produces "no verdict was produced" forty minutes later, with the real cause
+  # scrolled off the top. The same argument the STALE and missing-summary paths
+  # already make: a verdict derived from absent evidence is not a verdict.
+  local body
+  body="$(sed -n '/^provision_remote_paths()/,/^}/p' "${UP}" | grep -v '^[[:space:]]*#')"
+  printf '%s\n' "$body" | grep -q 'die ' || {
+    echo "provision_remote_paths does not abort on failure:" >&2
+    printf '%s\n' "$body" >&2
+    return 1
+  }
+}
+
+@test "provisioning runs as part of delivery, before the pipeline is invoked" {
+  # Ordering, asserted by line number: the paths must exist before run_pipeline
+  # tells the pipeline to write to them.
+  local call_line run_line
+  call_line="$(grep -n '^  provision_remote_paths ' "${UP}" | head -1 | cut -d: -f1)"
+  run_line="$(grep -n '^run_pipeline() {' "${UP}" | head -1 | cut -d: -f1)"
+  [ -n "$call_line" ] || {
+    echo "provision_remote_paths is defined but never called" >&2
+    return 1
+  }
+  [ -n "$run_line" ] || { echo "run_pipeline not found" >&2; return 1; }
+  [ "$call_line" -lt "$run_line" ] || {
+    echo "provision_remote_paths (line ${call_line}) is called after run_pipeline" >&2
+    echo "is defined (line ${run_line}); check it runs during delivery" >&2
+    return 1
+  }
+}
+
+# ── The first-session docker group ──────────────────────────────────────────
+
+@test "the pipeline re-execs under sg docker when the group is not yet active" {
+  # Without this the FIRST bring-up after any VM replacement always fails:
+  # OS Login provisions the account at first login, demo-vm.sh's profile.d
+  # snippet runs `usermod -aG docker` in that same session, and usermod cannot
+  # change the credentials of a session already running.
+  local block
+  block="$(sed -n '/^if \[\[ -z "\${DEMO_SG_REEXEC:-}" \]\]/,/^fi$/p' "${PIPE}")"
+  [ -n "$block" ] || {
+    echo "no sg docker re-exec guard found in ${PIPE}" >&2
+    return 1
+  }
+
+  # Each condition, because each one prevents a distinct failure.
+  printf '%s\n' "$block" | grep -q 'DEMO_SG_REEXEC' || {
+    echo "no loop guard — a failing sg would re-exec forever" >&2; return 1; }
+  printf '%s\n' "$block" | grep -q 'getent group docker' || {
+    echo "membership is not checked against /etc/group; sg prompts for a group" >&2
+    echo "password when the caller is not a member, and a non-interactive SSH" >&2
+    echo "session has no tty for that prompt — it would hang to the fence." >&2
+    return 1; }
+  printf '%s\n' "$block" | grep -q 'docker version' || {
+    echo "the socket is never probed; this would re-exec on a healthy session" >&2
+    return 1; }
+  printf '%s\n' "$block" | grep -q 'exec sg docker -c' || {
+    echo "the guard does not actually re-exec under sg" >&2; return 1; }
+  printf '%s\n' "$block" | grep -q 'export DEMO_SG_REEXEC=1' || {
+    echo "the loop guard is not exported, so it cannot survive the exec" >&2
+    return 1; }
+}
+
+@test "the sg re-exec sits before the first docker consumer" {
+  # install-ci-tools.sh is where the failure surfaces, as "Docker daemon is not
+  # running" — a message that is wrong about the cause. The re-exec is worthless
+  # after it.
+  local guard_line consumer_line
+  guard_line="$(grep -n '^if \[\[ -z "\${DEMO_SG_REEXEC:-}" \]\]' "${PIPE}" | head -1 | cut -d: -f1)"
+  # The comment filter is anchored `^[0-9]+:[[:space:]]*#`, because `grep -n`
+  # emits `238:# ...` — the line number comes FIRST. An earlier version looked
+  # for `:[0-9]*:#`, which never matches that shape, so the filter did nothing
+  # and the first "consumer" found was the comment explaining the guard. Third
+  # time tonight a comment has satisfied one of my own assertions.
+  consumer_line="$(grep -n 'install-ci-tools.sh' "${PIPE}" | grep -vE '^[0-9]+:[[:space:]]*#' | head -1 | cut -d: -f1)"
+  [ -n "$guard_line" ] || { echo "no sg guard found" >&2; return 1; }
+  [ -n "$consumer_line" ] || { echo "install-ci-tools.sh is no longer invoked" >&2; return 1; }
+  [ "$guard_line" -lt "$consumer_line" ] || {
+    echo "the sg re-exec (line ${guard_line}) runs after install-ci-tools.sh" >&2
+    echo "(line ${consumer_line}), which is where the docker check fails" >&2
+    return 1
+  }
+}
+
+@test "the sg guard does not fire on a healthy session" {
+  # Executed, not read. This box has a working docker socket and the invoking
+  # user is already an effective member, so the guard must decline — proving it
+  # cannot re-exec a session that does not need it.
+  command -v docker >/dev/null 2>&1 || skip "no docker on this machine"
+  docker version >/dev/null 2>&1 || skip "docker socket unreachable here"
+
+  run env DEMO_STAGE=full DEMO_WORK_DIR=/nonexistent-tree-for-test \
+    DEMO_REPORT_DIR="${BATS_TEST_TMPDIR}/r" \
+    DEMO_PIPELINE_LOG="${BATS_TEST_TMPDIR}/p.log" \
+    bash "${PIPE}"
+  [[ "$output" != *"re-executing under 'sg docker'"* ]] || {
+    echo "the guard re-executed a session whose socket already works" >&2
+    echo "$output" >&2
+    return 1
+  }
+}
+
 @test "both scripts are syntactically valid" {
   run bash -n "${UP}"
   [ "$status" -eq 0 ] || { echo "$output" >&2; return 1; }

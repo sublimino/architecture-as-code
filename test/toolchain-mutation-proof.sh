@@ -259,6 +259,65 @@ prove "rewrite the prerequisite list back to a wrong provider" \
   $'perl -0pi -e \'s{#   node/bun/uv   scripts/ci/install-ci-tools\\.sh, pinned \\+ checksum-verified\\.}{#   node/bun/uv   arrive with the Playwright setup.}\' '"$STARTUP"
 
 echo
+echo "── Defect 7: remote paths exported but never provisioned ──"
+
+# Removing the CALL is caught by the ordering test, not by the set-comparison
+# test — and that split is correct rather than a gap. The set test asks "does
+# the provisioning cover every exported path", the ordering test asks "does it
+# run at all". An earlier expectation named the wrong one of the pair, which is
+# how this ran UNPROVEN: the function body still existed and still mentioned
+# every variable, so the set test was quite right to stay green.
+prove "stop provisioning the report dir and the log (the state that failed live)" \
+  "$UP" "provisioning runs as part of delivery" \
+  $'perl -0pi -e \'s{^  provision_remote_paths "\\$owner"\\n}{}m\' '"$UP"
+
+# And a mutation that DOES exercise the set comparison: keep the call, drop one
+# path from it. This is the shape a future edit would actually take — adding a
+# path to the pipeline's environment and forgetting to provision it.
+prove "provision the log but not the report directory" \
+  "$UP" "created and chowned on the VM" \
+  $'perl -0pi -e \'s{\\$\\(printf \\x27%q\\x27 "\\$REMOTE_REPORT_DIR"\\)}{/tmp/unprovisioned}g\' '"$UP"
+
+# Renaming a function the test extracts by name must FAIL, not silently reduce
+# what the test covers. This is the mutation that would have caught the
+# `deliver()` / `deliver_code()` slip, where one of two extractions returned
+# nothing and the combined presence check passed on the other half.
+prove "rename deliver_code, so a by-name extraction silently covers nothing" \
+  "$UP" "created and chowned on the VM" \
+  'sed -i '"'"'s/^deliver_code() {/deliver_code_renamed() {/'"'"' '"$UP"
+
+prove "provision only the log's PARENT, not the log file itself" \
+  "$UP" "log FILE is created and handed over" \
+  $'perl -0pi -e \'s{    && sudo touch \\$\\(printf \\x27%q\\x27 "\\$REMOTE_LOG"\\) \\\\\\n    && sudo chown \\$\\{owner\\} \\$\\(printf \\x27%q\\x27 "\\$REMOTE_LOG"\\)}{    && true}\' '"$UP"
+
+prove "warn instead of aborting when provisioning fails" \
+  "$UP" "failure is fatal, not a warning" \
+  $'perl -0pi -e \'s{    \\|\\| die "could not provision[^\\n]*\\n}{    || warn "could not provision"\\n}\' '"$UP"
+
+echo
+echo "── Defect 8: first session after a VM rebuild has no docker group ──"
+
+# `sm`, not `s`. With /s alone the `^` anchors to the START OF THE STRING only,
+# so this matched nothing and reported BROKEN MUTATION — which is the harness
+# working: a no-op edit is called out rather than being silently scored as
+# "the test did not fire".
+prove "remove the sg docker re-exec entirely" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{^if \\[\\[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" \\]\\].*?\\nfi\\n}{}sm\' '"$PIPE"
+
+prove "drop the /etc/group membership check (sg would prompt and hang to the fence)" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{  && getent group docker[^\\n]*\\n}{}\' '"$PIPE"
+
+prove "drop the loop guard export (a failing sg would re-exec forever)" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{^  export DEMO_SG_REEXEC=1\\n}{}m\' '"$PIPE"
+
+prove "move the sg re-exec after install-ci-tools.sh, where it is useless" \
+  "$PIPE" "sits before the first docker consumer" \
+  $'perl -0pi -e \'s{^if \\[\\[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" \\]\\]}{if [[ -n "\\$\\{NEVER_SET:-\\}" ]] \\&\\& [[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" ]]}m\' '"$PIPE"
+
+echo
 echo "── Defect 3: report collection runs a malformed sudo ──"
 
 prove "restore the unguarded 'sudo -u \$(printf %q \$REMOTE_USER)' in collect_reports" \

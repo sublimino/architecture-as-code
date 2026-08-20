@@ -55,6 +55,43 @@ contract_read_names() {
     | sort -u
 }
 
+# The REMOTE_* variables demo-up.sh exports into the pipeline's environment,
+# paired with the shell variable whose value is sent.
+#
+# Emits "DEMO_NAME REMOTE_VAR" lines, derived from the `printf -v envs` format
+# string and its argument list together — so a path added to the contract is
+# discovered here rather than restated. This is what lets a test ask "is every
+# remote path the pipeline is told to write to actually provisioned?" without
+# any test knowing that today's answer is /opt/signalloom.
+contract_remote_path_vars() {
+  local up="$1"
+  # The exported names, in order, from the format string.
+  local -a names
+  mapfile -t names < <(contract_sent_names_ordered "$up")
+  # The arguments, in order, from the continuation lines that follow it.
+  local -a args
+  mapfile -t args < <(
+    sed -n "/printf -v envs '/,/^\$/p" "$up" \
+      | sed -n '2,$p' \
+      | grep -oE '"\$[A-Za-z_][A-Za-z0-9_]*"|"\$\{[A-Za-z_][A-Za-z0-9_]*\}[^"]*"' \
+      | sed -E 's/^"\$\{?//; s/\}?"$//; s/\}.*$//'
+  )
+  local i
+  for i in "${!names[@]}"; do
+    [ -n "${args[$i]:-}" ] || continue
+    printf '%s %s\n' "${names[$i]}" "${args[$i]}"
+  done
+}
+
+# Same extraction as contract_sent_names but ORDER-PRESERVING, because pairing
+# names to arguments depends on position.
+contract_sent_names_ordered() {
+  local up="$1"
+  sed -n "/printf -v envs '/,/^\$/p" "$up" \
+    | grep -oE "['[:space:]]DEMO_[A-Z_]+=%q" \
+    | sed -E "s/^['[:space:]]//; s/=%q\$//"
+}
+
 # Version pins, normalised. Emits "TOOL VERSION" lines with any leading `v`
 # stripped from the version.
 #

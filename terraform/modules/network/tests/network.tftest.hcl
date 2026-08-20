@@ -372,6 +372,15 @@ run "no_edge_means_no_health_check_ingress" {
     condition     = length(google_compute_firewall.allow_health_checks) == 0
     error_message = "with no edge enabled, Google's load-balancer health-check and proxy ranges reach this environment never. Keeping the rule anyway is dead ingress surface that admits nothing legitimate and exists only to be found by an auditor."
   }
+
+  # The published answer must agree with the planned resource. The root's suite
+  # asserts on this output rather than on the rule, so an output that reported
+  # emptiness independently of the resource would let the root go green over a
+  # lane that had the ingress.
+  assert {
+    condition     = length(output.health_check_firewall_names) == 0
+    error_message = "the module planned no health-check rule but still published a name for one, so a caller asserting on the output would be told the opposite of what was planned"
+  }
 }
 
 run "an_edge_lane_gets_the_health_check_ingress" {
@@ -396,6 +405,13 @@ run "an_edge_lane_gets_the_health_check_ingress" {
   assert {
     condition     = one(google_compute_firewall.allow_health_checks[0].allow).ports == tolist(["8080"])
     error_message = "an edge lane's health-check rule must open exactly app_port"
+  }
+
+  # And the output tracks the resource on this branch too, so it is a faithful
+  # projection rather than a constant that happens to be right when empty.
+  assert {
+    condition     = output.health_check_firewall_names == [google_compute_firewall.allow_health_checks[0].name]
+    error_message = "the published health-check rule names must be the names actually planned"
   }
 
   assert {

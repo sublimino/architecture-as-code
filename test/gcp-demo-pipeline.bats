@@ -38,8 +38,8 @@
 #                  success path AND on the failure path.
 #
 #   PUBLISH        0.0.0.0 because the operator arrives over an IAP tunnel to
-#                  the internal IP; 30754 because Dex pins its OIDC issuer and
-#                  callback to that exact port.
+#                  the internal IP; dashboard Nginx on 8080 is the human-access
+#                  entrypoint. Acceptance tests separately retain Envoy :30754.
 #
 # Every structural guard below is paired with a MUTATION test that introduces
 # the defect on a COPY and requires the guard to go red. A guard nobody has
@@ -535,7 +535,7 @@ script_code() {
 
 # ═══ Publishing ══════════════════════════════════════════════════════════════
 
-@test "DEMOPIPE PUBLISH the forward binds 0.0.0.0 on 30754 and forwards to 443" {
+@test "DEMOPIPE PUBLISH forwards human access to dashboard Nginx on 8080" {
 	run bash "$script"
 	[ "$status" -eq 0 ]
 
@@ -545,10 +545,11 @@ script_code() {
 	[ "$status" -eq 0 ]
 
 	# state-dir namespace service LOCAL REMOTE probe-path owner-pid
-	[[ "$output" == *" ingress cluster-envoy 30754 443 /livez "* ]]
+	[[ "$output" == *" fe-signalloom dashboard-signalloom 8080 8080 / "* ]]
 	[[ "$output" == *"PF_ADDRESS=[0.0.0.0]"* ]]
-	[[ "$output" == *"PF_PROBE_URL=[https://dashboard.osramp.acme.local:30754/livez]"* ]]
-	[[ "$output" == *"--resolve dashboard.osramp.acme.local:30754:127.0.0.1"* ]]
+	[[ "$output" == *"PF_PROBE_URL=[http://127.0.0.1:8080/]"* ]]
+	[[ "$output" != *"cluster-envoy"* ]]
+	[[ "$output" != *"30754"* ]]
 }
 
 @test "DEMOPIPE PUBLISH the forward outlives this process by being owned by pid 1" {
@@ -558,28 +559,32 @@ script_code() {
 	run bash "$script"
 	[ "$status" -eq 0 ]
 	run grep -E '^supervise up ' "$LOG"
-	[[ "$output" == *" /livez 1 "* ]]
+	[[ "$output" == *" / 1 "* ]]
 }
 
-@test "DEMOPIPE PUBLISH 30754 and 0.0.0.0 are the DEFAULTS, not merely reachable values" {
+@test "DEMOPIPE PUBLISH 8080 and 0.0.0.0 are the DEFAULTS, not merely reachable values" {
 	# The tests above run with the defaults in force, but a future edit could
-	# make them defaults in name only. Dex pins its OIDC issuer and callback to
-	# 30754; the IAP tunnel connects to the internal IP, so loopback is
-	# unreachable from where the operator actually is.
-	grep -qE 'GATEWAY_LOCAL_PORT="\$\{DEMO_GATEWAY_LOCAL_PORT:-30754\}"' "$script"
-	grep -qE 'GATEWAY_BIND_ADDRESS="\$\{DEMO_GATEWAY_BIND_ADDRESS:-0\.0\.0\.0\}"' "$script"
+	# make them defaults in name only. Human access terminates at dashboard Nginx;
+	# the IAP tunnel connects to the internal IP, so loopback is unreachable.
+	grep -qE 'DASHBOARD_LOCAL_PORT="\$\{DEMO_DASHBOARD_LOCAL_PORT:-8080\}"' "$script"
+	grep -qE 'DASHBOARD_BIND_ADDRESS="\$\{DEMO_DASHBOARD_BIND_ADDRESS:-0\.0\.0\.0\}"' "$script"
 	grep -qE 'PF_OWNER_PID="\$\{DEMO_PF_OWNER_PID:-1\}"' "$script"
 }
 
-@test "DEMOPIPE PUBLISH a cluster with no Envoy data plane FAILS rather than reporting a demo" {
-	# There is nothing to hand over, so "published" would be a lie. The estate
-	# being up is not the same as the demo being up.
-	export STUB_GATEWAY_SVC=""
+@test "DEMOPIPE PUBLISH leaves acceptance Gateway forwarding on 30754" {
+	local acceptance="$repo/scripts/acceptance-test.sh"
+	grep -q 'gateway_local_port=30754' "$acceptance"
+	grep -qE 'DASHBOARD_LOCAL_PORT="\$\{DEMO_DASHBOARD_LOCAL_PORT:-8080\}"' "$script"
+}
+
+@test "DEMOPIPE PUBLISH does not discover an Envoy data plane" {
+	# Publishing names the stable dashboard Service directly; an Envoy discovery
+	# result must not affect the human handover.
+	export STUB_GATEWAY_SVC="ingress cluster-envoy"
 	run bash "$script"
-	[ "$status" -ne 0 ]
-	[ "$(summary_field outcome)" = "FAIL" ]
-	grep -q 'no Envoy data-plane Service' "$reports/stage6d-publish.txt"
-	assert_absent '^supervise up '
+	[ "$status" -eq 0 ]
+	run grep -F "supervise up $DEMO_PF_STATE_DIR fe-signalloom dashboard-signalloom 8080 8080 / 1" "$LOG"
+	[ "$status" -eq 0 ]
 }
 
 @test "DEMOPIPE PUBLISH a supervisor that cannot establish the forward fails the stage" {
@@ -592,11 +597,11 @@ script_code() {
 @test "DEMOPIPE HANDOVER the run prints the URL, the Dex user and the password" {
 	run bash "$script"
 	[ "$status" -eq 0 ]
-	log_contains "https://dashboard.osramp.acme.local:30754/"
+	log_contains "http://dashboard.osramp.acme.local:8080/"
 	log_contains "demo-user@signalloom.local"
 	log_contains "Password:  demo-user"
 	# And machine-readably, so the hand-off does not depend on scraping a log.
-	[ "$(summary_field demo_url)" = "https://dashboard.osramp.acme.local:30754/" ]
+	[ "$(summary_field demo_url)" = "http://dashboard.osramp.acme.local:8080/" ]
 	[ "$(summary_field demo_user)" = "demo-user@signalloom.local" ]
 	[ "$(summary_field demo_password)" = "demo-user" ]
 }

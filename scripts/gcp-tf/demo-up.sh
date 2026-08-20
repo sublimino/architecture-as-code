@@ -174,19 +174,8 @@ DASHBOARD_NAMESPACE="${GCP_TF_DEMO_DASHBOARD_NAMESPACE:-fe-signalloom}"
 DASHBOARD_SERVICE="${GCP_TF_DEMO_DASHBOARD_SERVICE:-dashboard-signalloom}"
 DASHBOARD_SERVICE_PORT="${GCP_TF_DEMO_DASHBOARD_SERVICE_PORT:-8080}"
 
-# The Gateway's SNI hostname. NOT on the access path any more — it is handed to
-# the VM-side pipeline as DEMO_GATEWAY_HOSTNAME and nowhere else.
-#
-# It survives the single-entry-point refactor because the pipeline is a
-# different thing from the access path: demo-pipeline.sh stands the estate up
-# and runs the acceptance suite THROUGH the Envoy Gateway, on the resting origin
-# the manifests default to. Envoy is still deployed and still exercised; a human
-# simply no longer browses through it. Deleting this would break the pipeline
-# contract to tidy up a name the access path stopped using.
-#
-# It is deliberately not read from the hand-off's `hostname` field — those two
-# are different names for different things, and conflating them produces a URL
-# that resolves and then fails TLS on SNI.
+# Dashboard hostname used by the VM-side pipeline's human handover. Acceptance
+# retains its own Envoy Gateway origin and TLS/SNI contract internally.
 DASHBOARD_HOST="${GCP_TF_DEMO_DASHBOARD_HOST:-dashboard.osramp.acme.local}"
 
 # The LOCAL port a browser will type, and therefore the port the origin carries.
@@ -993,17 +982,12 @@ run_pipeline() {
 
   # APP_PORT IS DELIBERATELY NOT EXPORTED, and dropping it is a fix rather than
   # an omission. It was sent as SL_DEMO_APP_PORT, which nothing read. The only
-  # port-shaped variable on the pipeline side is DEMO_GATEWAY_LOCAL_PORT, and
-  # binding APP_PORT to it would be actively harmful: they are different ports
-  # for different front doors. APP_PORT is the hand-off's app_port (8080) — the
-  # dashboard nginx port THIS file forwards for the access path. The pipeline's
-  # 30754 is the Envoy Gateway port it runs the acceptance suite through, and
-  # demo-pipeline.sh states that 30754 is pinned by Dex's OIDC issuer and
-  # callback, so overriding it with 8080 would serve the login page and then
-  # fail the redirect with an invalid redirect_uri. Exporting a name nothing
-  # reads is noise; exporting it into the wrong reader is an outage.
+  # port-shaped variable on the pipeline side is DEMO_DASHBOARD_LOCAL_PORT.
+  # APP_PORT belongs to the separately supervised access path, while this
+  # pipeline publishes the same dashboard Nginx service for its handover.
+  # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_GATEWAY_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
     "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH"

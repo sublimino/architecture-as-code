@@ -84,8 +84,17 @@ setup() {
 		echo "the driver has no cmd_ts_logout — every logout test would hit the usage error"
 		return 1
 	}
-	grep -q '^  ts-logout) cmd_ts_logout ;;' "${DRIVER_SRC}" || {
+	# Matches the CASE LABEL, not the whole one-line form the dispatch used to
+	# have. The arm became multi-line when ts-logout gained --force, and the
+	# old literal stopped matching — which this guard correctly reported as
+	# "the mechanism is missing" for all 43 tests. Pinning the label is the
+	# stable half; the body is asserted by the behaviour tests below.
+	grep -qE '^  ts-logout\)' "${DRIVER_SRC}" || {
 		echo "ts-logout is not dispatched — every subcommand test would hit the usage error"
+		return 1
+	}
+	grep -q 'cmd_ts_logout' "${DRIVER_SRC}" || {
+		echo "the ts-logout arm does not call cmd_ts_logout"
 		return 1
 	}
 
@@ -425,23 +434,206 @@ destroy_recipe() {
 	[ "$status" -eq 0 ]
 }
 
-@test "gcp-tf-ts-logout forwards to the driver and survives a driver that fails" {
-	# EXECUTED, not grepped. A stub driver that exits non-zero models every
-	# runtime failure at once; the target must still report success.
+@test "gcp-tf-ts-logout forwards to the driver and PROPAGATES its status" {
+	# EXECUTED, not grepped.
+	#
+	# This target propagates, unlike the identical call inside gcp-tf-destroy,
+	# and the asymmetry is the design: a destroy must never be blocked, while a
+	# human running this by hand against a live node must be stopped. Swallowing
+	# the status here would make the serve-config refusal a thing that only
+	# prints.
 	stub="${BATS_TEST_TMPDIR}/failing-driver.sh"
-	printf '#!/usr/bin/env bash\necho "DRIVER CALLED: $*"\nexit 7\n' >"${stub}"
+	printf '#!/usr/bin/env bash\necho "DRIVER CALLED: $*"\nexit 2\n' >"${stub}"
 	chmod +x "${stub}"
 
 	run make -C "${REPO_ROOT}" gcp-tf-ts-logout \
 		ENV="${ENV_KEY}" GCP_TF_DEMO_SCRIPT="${stub}"
-	[ "$status" -eq 0 ]
+	[ "$status" -ne 0 ]
 	[[ "${output}" == *"DRIVER CALLED: ts-logout"* ]]
 }
 
-@test "gcp-tf-ts-logout survives the driver being missing entirely" {
+@test "gcp-tf-ts-logout reports rather than silently skipping when the driver is missing" {
+	# A silent skip here is how a stale device survives to rename the next build.
 	run make -C "${REPO_ROOT}" gcp-tf-ts-logout \
 		ENV="${ENV_KEY}" GCP_TF_DEMO_SCRIPT="${BATS_TEST_TMPDIR}/does-not-exist.sh"
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"NOT released"* ]]
+}
+
+@test "gcp-tf-ts-logout passes FORCE through to the driver" {
+	stub="${BATS_TEST_TMPDIR}/echo-driver.sh"
+	printf '#!/usr/bin/env bash\necho "ARGS: $*"\necho "FORCE=${FORCE:-unset}"\n' >"${stub}"
+	chmod +x "${stub}"
+
+	run make -C "${REPO_ROOT}" gcp-tf-ts-logout \
+		ENV="${ENV_KEY}" FORCE=1 GCP_TF_DEMO_SCRIPT="${stub}"
 	[ "$status" -eq 0 ]
+	[[ "${output}" == *"FORCE=1"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# The serve-config guard. `tailscale logout` wipes serve, so a logout on a live
+# node leaves it online, correctly named, and serving nothing.
+# ---------------------------------------------------------------------------
+
+@test "ts-logout REFUSES when the node is currently serving" {
+	setup_driver
+	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)
+|-- / proxy http://127.0.0.1:9999"
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"REFUSING"* ]]
+
+	# The refusal must be a refusal, not a warning followed by the act.
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" = "0" ]
+}
+
+@test "the refusal explains the consequence and names the override" {
+	setup_driver
+	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+
+	run "${DRIVER_SRC}" ts-logout
+	[[ "${output}" == *"wipes the serve"* ]]
+	[[ "${output}" == *"FORCE=1"* ]]
+}
+
+@test "ts-logout proceeds when forced, even on a serving node" {
+	setup_driver
+	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+
+	run "${DRIVER_SRC}" ts-logout --force
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" -ge 1 ]
+}
+
+@test "FORCE=1 in the environment is honoured as well as the flag" {
+	setup_driver
+	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+	export FORCE=1
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" -ge 1 ]
+}
+
+@test "ts-logout proceeds unforced when there is no serve config" {
+	# The other half. Without this the guard could refuse unconditionally and
+	# the refusal tests above would still pass.
+	setup_driver
+	export STUB_TS_SERVE_STATUS="No serve config"
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" -ge 1 ]
+}
+
+@test "an unreadable serve status REFUSES rather than assuming there is none" {
+	# Not knowing is not the same as knowing there is nothing there. An empty
+	# reply is what an unreachable node, a refused sudo and a stopped tailscaled
+	# all produce, and reading those as "absent" would wipe a live serve config.
+	setup_driver
+	export STUB_TS_SERVE_SILENT=1
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"REFUSING"* ]]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" = "0" ]
+}
+
+@test "the guard never repairs the serve config it warned about" {
+	# A mitigation that repairs its own symptom hides the fact that somebody ran
+	# a destructive command on a live node. The forced path must log out and
+	# STOP — no re-serve, no restore.
+	setup_driver
+	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+
+	run "${DRIVER_SRC}" ts-logout --force
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale serve --bg\|tailscale serve https' "${gcloudlog}"
+	[ "${output}" = "0" ]
+}
+
+@test "the destroy path FORCES, so the guard cannot silently skip the logout" {
+	# Without --force the refusal fires, the recipe's leading `-` swallows it,
+	# and the logout is skipped on exactly the demos most likely to be standing
+	# — reintroducing the drift this whole change exists to fix.
+	run destroy_recipe
+	[ "$status" -eq 0 ]
+	[[ "${output}" == *"ts-logout --force"* ]]
+}
+
+# ---------------------------------------------------------------------------
+# Serve state is reported as its own fact
+# ---------------------------------------------------------------------------
+
+# ts-status needs a LOCAL tailnet too: ts_resolve_node asks this machine's
+# tailscaled for the node before any of the remote facts are gathered, and
+# returns early if it cannot find it. The suite's own stub answers only
+# `status --json --peers=false` (which is all the startup-script functions ask
+# for), so the driver gets the fixture stub instead, pointed at a document that
+# contains this environment's node.
+setup_ts_status_tailnet() {
+	local ts_stub="${REPO_ROOT}/test/fixtures/gcp-tf-tailscale/stub-tailscale"
+	[ -f "${ts_stub}" ]
+	cp "${ts_stub}" "${stubdir}/ts-fixture"
+	chmod +x "${stubdir}/ts-fixture"
+
+	jq -n --arg h "${TS_HOST}" --arg d "${TS_HOST}.${TS_SUFFIX}." \
+		'{Self: {HostName: "operator-laptop", DNSName: "operator-laptop.example-tailnet.ts.net.",
+		         TailscaleIPs: ["100.64.0.9"], Online: true},
+		  Peer: {"nodekey:aaa": {HostName: $h, DNSName: $d,
+		                         TailscaleIPs: ["100.64.0.1"], Online: true}}}' \
+		>"${BATS_TEST_TMPDIR}/tailnet.json"
+
+	export STUB_TS_STATUS_JSON="${BATS_TEST_TMPDIR}/tailnet.json"
+	export GCP_TF_DEMO_TAILSCALE="${stubdir}/ts-fixture"
+	# The dashboard probe reaches a URL that does not exist here; skipping the
+	# resolver check keeps the test about serve reporting rather than about DNS.
+	export GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1
+}
+
+@test "ts-status reports serve state separately from node state" {
+	setup_driver
+	setup_ts_status_tailnet
+	export STUB_TS_SERVE_STATUS="No serve config"
+
+	run "${DRIVER_SRC}" ts-status
+	# A node that is up and named correctly but serving nothing must be
+	# readable as exactly that. A single composite verdict is what hides it.
+	[[ "${output}" == *"ts serve:"* ]]
+	[[ "${output}" == *"ABSENT"* ]]
+
+	# And the node facts are still reported alongside, as separate lines.
+	[[ "${output}" == *"online:"* ]]
+}
+
+@test "ts-status distinguishes a configured serve from an unreadable one" {
+	setup_driver
+	setup_ts_status_tailnet
+
+	export STUB_TS_SERVE_STATUS="https://${TS_HOST}.${TS_SUFFIX} (tailnet only)"
+	run "${DRIVER_SRC}" ts-status
+	[[ "${output}" == *"ts serve:  configured"* ]]
+
+	export STUB_TS_SERVE_SILENT=1
+	run "${DRIVER_SRC}" ts-status
+	[[ "${output}" == *"ts serve:  UNKNOWN"* ]]
+}
+
+@test "the node ID is documented as something nothing may depend on" {
+	# A logout re-mints the node ID (observed on demo-2). The MagicDNS name and
+	# the tag survive; the device identity does not. A per-device ACL grant or a
+	# tailnet-lock signature would break silently across a logout while the name
+	# went on resolving.
+	body="$(sed -n '/^# ─── The node ID is RE-MINTED/,/^cmd_ts_logout() {/p' "${DRIVER_SRC}")"
+	[ -n "${body}" ]
+	[[ "${body}" == *"node ID"* ]]
 }
 
 # ---------------------------------------------------------------------------
@@ -601,12 +793,54 @@ observed:  ${TS_DRIFTED}.${TS_SUFFIX}"
 	[ "${output}" = "0" ]
 }
 
-@test "the tfvars comment records that the auth key MUST be ephemeral" {
-	run grep -qi 'EPHEMERAL IS MANDATORY' "${TFVARS}"
+@test "the tfvars comment records the MEASURED reap window and names logout as primary" {
+	# This test previously asserted "EPHEMERAL IS MANDATORY" and pinned a claim
+	# that turned out to be false. The key IS ephemeral and its nodes DO reap;
+	# the reap is simply far too slow to be the mechanism. Measured on demo-1
+	# and independently on demo-2: auto-reap between 47 and 100 minutes after
+	# disconnect, explicit logout under 5 seconds, and a rejoin on the SAME key
+	# reclaims the name and tag exactly.
+	# Anchored to the measurement ROW — one line carrying auto-reap and BOTH
+	# bounds. The mutation proof caught the loose version: separate whole-file
+	# greps for "auto-reap" and "47" both stayed green after the row itself was
+	# replaced with "eventually", because the words survive in the prose
+	# further down. A guard satisfied by a different line than the one it
+	# describes is the same defect as one satisfied by a comment.
+	run grep -qE '^#.*auto-reap.*47.*100' "${TFVARS}"
 	[ "$status" -eq 0 ]
 
-	# And says WHY, in terms of the mechanism rather than as an assertion.
+	# The logout measurement is the other half of the table, and it is what
+	# justifies logout being primary rather than the reap.
+	run grep -qE '^#.*tailscale logout.*5 seconds|^#.*under 5 seconds' "${TFVARS}"
+	[ "$status" -eq 0 ]
+
+	# Terraform's blindness to the device record is the standing cause and must
+	# stay documented.
 	run grep -qi 'NOTHING IN TERRAFORM REMOVES THE' "${TFVARS}"
+	[ "$status" -eq 0 ]
+
+	# The explicit logout is the mechanism; the reap is the long-stop.
+	run grep -qi 'tailscale logout' "${TFVARS}"
+	[ "$status" -eq 0 ]
+}
+
+@test "the tfvars comment does NOT tell the reader to rotate a working key" {
+	# The specific harm the corrected text exists to prevent. The original
+	# reasoning was: a device still registered 47 minutes after disconnect,
+	# against a remembered ~30-minute window, therefore the key is not
+	# ephemeral, therefore re-mint it. 47 minutes is INSIDE the window, so the
+	# observation proved nothing — and acting on it meant rotating a credential
+	# that was working correctly.
+	#
+	# Asserted as an absence, which is weak on its own, so it is paired with the
+	# positive statement below. Absence-of-bad is trivially satisfied by
+	# nothing-present.
+	run bash -c "grep -ci \"replace the secret's payload\" '${TFVARS}' || true"
+	[ "${output}" = "0" ]
+
+	# The positive half: the file must actively say the key is fine, so a reader
+	# who arrives mid-incident is told not to go credential-hunting.
+	run grep -qi 'needs no rotation' "${TFVARS}"
 	[ "$status" -eq 0 ]
 }
 

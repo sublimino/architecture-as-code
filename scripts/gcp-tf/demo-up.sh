@@ -10,7 +10,8 @@
 #   --- Tailscale, the PRIMARY access path ---
 #   demo-up.sh ts-up       # serve the dashboard on the tailnet, print the URL
 #   demo-up.sh ts-status   # node, MagicDNS name, tailnet IP, dashboard health
-#   demo-up.sh ts-logout   # release the tailnet name before a destroy. Never fails.
+#   demo-up.sh ts-logout   # release the tailnet name before a destroy.
+#                          # REFUSES on a live serve config; --force overrides.
 #   demo-up.sh funnel-up   # additionally expose it to the PUBLIC internet
 #   demo-up.sh funnel-down # remove the public listener, keep the tailnet one
 #
@@ -1884,6 +1885,10 @@ cmd_payload() {
 # flow is exercisable against a stub binary with no tailnet and no cloud.
 TAILSCALE_CMD="${GCP_TF_DEMO_TAILSCALE:-tailscale}"
 
+# The status cmd_ts_logout uses to mean "I refused", distinct from every other
+# status this file can produce. See the long note above cmd_ts_logout.
+TS_LOGOUT_REFUSED=97
+
 # The node's SHORT hostname. Deterministic from the environment key, because
 # chunk T1 derives it the same way in Terraform and a name typed in two places
 # is a name that disagrees in one of them.
@@ -1927,6 +1932,32 @@ TS_NAME_MARKER="${GCP_TF_DEMO_TS_NAME_MARKER:-/var/lib/signalloom/tailscale-name
 # name is verified" — it means "nothing on that VM says otherwise".
 ts_name_marker() {
   remote_run "cat ${TS_NAME_MARKER} 2>/dev/null || true" 2>/dev/null || printf ''
+}
+
+# Is the node currently serving? Prints exactly one of: present, absent, unknown.
+#
+# THREE answers, not a boolean, and the third is the whole reason this is not a
+# boolean. `tailscale serve status` prints the literal `No serve config` when
+# there is nothing configured — that string is the ONLY positive evidence of
+# absence available here. An empty reply, an SSH failure, a sudo refusal and a
+# tailscale that is not running all produce no output, and collapsing those into
+# "absent" would make an unreachable node look like a safe one to log out.
+#
+# Nothing here shells out more than once: the caller decides what to do with the
+# answer, and the answer is a fact rather than a policy.
+ts_serve_state() {
+  local out
+  out="$(remote_run 'sudo tailscale serve status 2>&1' 2>/dev/null || printf '')"
+
+  if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
+    printf 'unknown'
+    return 0
+  fi
+
+  case "$out" in
+    *"No serve config"*) printf 'absent' ;;
+    *) printf 'present' ;;
+  esac
 }
 
 # Prints the mismatch block if there is one and returns 1; prints nothing and
@@ -2257,6 +2288,17 @@ cmd_ts_status() {
   local ts_name_ok=0
   report_ts_name_marker || ts_name_ok=1
 
+  # Serve state is reported as its OWN fact, never folded into a composite
+  # verdict. A node can be up, correctly named and resolving while serving
+  # nothing — that is exactly what `tailscale logout` on a live node leaves
+  # behind, and a single "healthy" line is what would hide it. Separate facts,
+  # separate ways to be wrong, each readable at a glance.
+  case "$(ts_serve_state)" in
+    present) printf 'ts serve:  configured — the tailnet URL is being served\n' ;;
+    absent) printf 'ts serve:  ABSENT — nothing served on the tailnet. Run: make gcp-tf-ts-up ENV=%s\n' "$ENV_KEY" ;;
+    *) printf 'ts serve:  UNKNOWN — could not read serve status from %s\n' "$INSTANCE_NAME" ;;
+  esac
+
   if remote_is_publishing "$APP_PORT"; then
     printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
       "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$APP_PORT"
@@ -2317,7 +2359,45 @@ cmd_ts_status() {
 # unit the startup script installs is the backstop for every teardown that does
 # not come through this path.
 #
-# ─── Why it exits 0 no matter what ──────────────────────────────────────────
+# ─── LOGOUT ALSO WIPES THE SERVE AND FUNNEL CONFIG ──────────────────────────
+#
+# Measured deliberately on demo-2 — same node, same key, same hostname:
+#
+#   SERVE_BEFORE  https://sl-demo-2.<tailnet>.ts.net  -- / proxy http://127.0.0.1:9999
+#   (sudo tailscale logout; rejoin with the same --hostname on the same key)
+#   SERVE_AFTER   No serve config
+#   SELF          sl-demo-2.<tailnet>.ts.net.          <- name reclaimed correctly
+#
+# The name comes back. The published URL does not. Inside a destroy that costs
+# nothing, because the VM is going away. Run against a LIVE node it produces a
+# node that is online, correctly named, resolving through MagicDNS, and serving
+# nothing — every signal a person would check says healthy. That is the exact
+# failure class the name marker exists to prevent, arriving through this door.
+#
+# So a live serve config makes this REFUSE unless forced, and the refusal says
+# why. It does NOT re-apply serve afterwards: a mitigation that repairs its own
+# symptom hides the fact that somebody ran a destructive command on a live node,
+# and the next person learns nothing. The destroy path passes --force, which is
+# the sanctioned case, and that is what keeps the guard meaningful rather than a
+# thing everybody routes around.
+#
+# (A `No serve config` was first seen on demo-1 after its logout, but that one is
+# NOT attributable — demo-1 had been rebuilt and serve may never have been set on
+# it. The demo-2 run above is the evidence, because the config was set and
+# observed live first.)
+#
+# ─── The node ID is RE-MINTED across this, and nothing may depend on it ─────
+#
+# Observed on demo-2: neJCfvjqHu11CNTRL -> nZ5ye7XzN121CNTRL. The MagicDNS name
+# and the tag survive intact; the device identity does not.
+#
+# Nothing in this estate keys on node ID today — scripts/, terraform/, Makefile
+# and test/ were checked, and every reference is to a tag or the MagicDNS name.
+# KEEP IT THAT WAY. A per-device ACL grant, a tailnet-lock signature or a
+# device-scoped approval would break silently across a logout while the name went
+# on resolving, which is the hardest possible shape to debug.
+#
+# ─── Why it exits 0 for everything EXCEPT a refusal ─────────────────────────
 #
 # Destroy is the operator's escape hatch. A teardown that can be BLOCKED by a
 # best-effort cleanup step is a worse failure than the stale device this step
@@ -2329,12 +2409,31 @@ cmd_ts_status() {
 # the VM is unreachable, SSH is refused, tailscale is not installed, the node was
 # never logged in, the hand-off file is missing, credentials have expired.
 #
+# The REFUSAL is the one exception, and it is safe to be one: the destroy path
+# always passes --force, so a refusal cannot occur there by construction. A
+# refusal that exited 0 would be a guard that only prints.
+#
+# TS_LOGOUT_REFUSED is 97 and NOT 2, which was the first choice and was wrong:
+# `die` in this file exits 2, so a missing hand-off or an absent operator SA —
+# both ordinary best-effort misses — arrived at the caller indistinguishable
+# from "this node is serving, I refuse". The subshell can only signal through an
+# exit status, so that status has to be one nothing else in here produces.
+#
 # The subshell is not decoration. `prepare` calls `die` on a missing hand-off or
 # a missing operator SA, and `die` EXITS — in-process that would take the destroy
 # down with it, which is the precise outcome this function promises never to
 # cause. Inside `( … )` that exit is contained and observable as a status.
 cmd_ts_logout() {
-  local rc=0
+  local rc=0 force=0
+
+  # Both spellings, because this is reached two ways: a human types the target
+  # with FORCE=1, and the destroy recipe passes the flag.
+  case "${1:-}" in
+    --force) force=1 ;;
+    "") ;;
+    *) die "usage: $(basename "$0") ts-logout [--force]" ;;
+  esac
+  [ "${FORCE:-0}" != "1" ] || force=1
 
   (
     prepare ts-logout
@@ -2346,7 +2445,7 @@ cmd_ts_logout() {
     local state
     state="$(vm_status)"
     if [ "$state" != "RUNNING" ]; then
-      warn "${INSTANCE_NAME} is ${state}, not RUNNING — cannot log out from here. The ephemeral key reap and the on-shutdown unit are what release '${host}' now."
+      warn "${INSTANCE_NAME} is ${state}, not RUNNING — cannot log out from here. If it shut down cleanly the on-shutdown unit already released '${host}'; otherwise the auto-reap frees it 47-100 minutes after it went offline. A rebuild sooner than that will be handed a suffixed name and will say so."
       exit 0
     fi
 
@@ -2354,22 +2453,71 @@ cmd_ts_logout() {
     # completely uninteresting one. `command -v` first so the common cases are
     # distinguishable in the log rather than collapsing into one opaque failure.
     if ! remote_run 'command -v tailscale >/dev/null 2>&1'; then
-      warn "no tailscale on ${INSTANCE_NAME} — nothing to log out. Its device record, if any, is left to the ephemeral reap."
+      warn "no tailscale on ${INSTANCE_NAME} — nothing to log out. Its device record, if it has one, is left to the auto-reap 47-100 minutes after it goes offline."
       exit 0
+    fi
+
+    # THE GUARD. Checked before the logout, never repaired after it.
+    if [ "$force" != "1" ]; then
+      local serve
+      serve="$(ts_serve_state)"
+      case "$serve" in
+        present)
+          cat >&2 <<EOF
+demo-up: REFUSING to log out — ${host} is serving right now.
+
+  'tailscale logout' wipes the serve and funnel configuration. The node would
+  come back with the right name, resolving through MagicDNS, online, and
+  serving NOTHING — and every check short of fetching the URL would call that
+  healthy. Measured on demo-2.
+
+  This is safe during a teardown and destructive on a live node, so it is not
+  a decision this command will make for you.
+
+      make gcp-tf-ts-logout ENV=${ENV_KEY} FORCE=1   # yes, take the demo down
+      make gcp-tf-ts-up ENV=${ENV_KEY}               # re-serve it afterwards
+
+  A destroy already passes --force, so this refusal never blocks a teardown.
+EOF
+          exit "$TS_LOGOUT_REFUSED"
+          ;;
+        unknown)
+          cat >&2 <<EOF
+demo-up: REFUSING to log out — could not determine whether ${host} is serving.
+
+  'tailscale serve status' on ${INSTANCE_NAME} gave no usable answer, so this
+  cannot tell a node that is serving from one that is not. Logging out would
+  wipe a serve config if there is one.
+
+  Not knowing is not the same as knowing there is nothing there, and this is
+  the one place that distinction is expensive.
+
+      make gcp-tf-ts-status ENV=${ENV_KEY}           # what does the node say?
+      make gcp-tf-ts-logout ENV=${ENV_KEY} FORCE=1   # proceed anyway
+EOF
+          exit "$TS_LOGOUT_REFUSED"
+          ;;
+      esac
     fi
 
     if remote_run 'sudo tailscale logout'; then
       log "${host} released its device record — the name is free for the next build"
     else
-      warn "'tailscale logout' on ${INSTANCE_NAME} did not succeed. This does NOT block the destroy. If the key was minted ephemeral, Tailscale reaps the node a few minutes after it goes offline; if it was not, delete the offline '${host}' device at https://login.tailscale.com/admin/machines or the next build of this environment will be named '${host}-1'."
+      warn "'tailscale logout' on ${INSTANCE_NAME} did not succeed. This does NOT block the destroy. The auto-reap will free '${host}' 47-100 minutes after it goes offline, so a rebuild sooner than that gets a SUFFIXED name and the demo URL moves. To rebuild now, delete the offline '${host}' device at https://login.tailscale.com/admin/machines first. The auth key is not implicated and does not need rotating."
     fi
   ) || rc=$?
+
+  # 2 is the refusal, and it is the ONE status that travels. Everything else is
+  # a best-effort miss and must not be visible as a failure, because a destroy
+  # is never blocked by this.
+  if [ "$rc" -eq "$TS_LOGOUT_REFUSED" ]; then
+    return 2
+  fi
 
   if [ "$rc" -ne 0 ]; then
     warn "the tailnet logout step could not run (status ${rc}). Continuing — a destroy is never blocked by this."
   fi
 
-  # Unconditional. The one guarantee this subcommand makes.
   return 0
 }
 
@@ -2534,7 +2682,10 @@ case "${1:-up}" in
   public-status) cmd_public_status ;;
   ts-status) cmd_ts_status ;;
   ts-up) cmd_ts_up ;;
-  ts-logout) cmd_ts_logout ;;
+  ts-logout)
+    shift
+    cmd_ts_logout "${1:-}"
+    ;;
   funnel-up) cmd_funnel_up ;;
   funnel-down) cmd_funnel_down ;;
   status) cmd_status ;;

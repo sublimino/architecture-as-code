@@ -1630,7 +1630,16 @@ gcp-tf-destroy: ## Destroy one environment. Requires CONFIRM=<the same key> (ENV
 	@# construct `make -n` executes anyway instead of printing — so the recursive
 	@# form would both break the local convention and make the destroy recipe
 	@# unreviewable by a dry run.
-	-@$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout
+	@#
+	@# --force is REQUIRED here and its absence would be a silent regression.
+	@# The driver refuses to log out a node that is currently serving, because
+	@# logout wipes the serve config and leaves a live demo online, correctly
+	@# named and serving nothing. Destroying is the sanctioned case for that, so
+	@# this caller forces. Without the flag the refusal would fire, the leading
+	@# `-` would swallow it, and the logout would be skipped on exactly the
+	@# demos most likely to be standing — reintroducing the drift this whole
+	@# change exists to fix. Asserted by test/terraform-ts-stable-node-name.bats.
+	-@$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout --force
 	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) destroy \
 		-var-file=$(GCP_TF_VAR_FILE) \
 		-var target_env=$(ENV)
@@ -1972,18 +1981,26 @@ gcp-tf-ts-status: ## Is the demo's Tailscale node up, what is its MagicDNS name,
 # that went around this Makefile.
 #
 # NOT guarded by gcp_tf_require_impersonation, unlike its siblings. That guard
-# `exit 2`s, and this target's whole contract is that it cannot fail a destroy.
-# The driver reaches the cloud, so it needs impersonation to succeed — it just
-# treats not having it as one more best-effort miss rather than as an error.
+# `exit 2`s, and the driver treats missing impersonation as one more best-effort
+# miss rather than as an error.
+#
+# This target PROPAGATES the driver's status, unlike the copy of this call
+# inside gcp-tf-destroy. The two callers want opposite things and that is the
+# whole point of the guard: a destroy must never be blocked, and a human
+# running this by hand on a live node must be STOPPED. `tailscale logout` wipes
+# the serve config, so on a standing demo this takes the URL down while leaving
+# the node online and correctly named. FORCE=1 is the way to say you meant it.
 .PHONY: gcp-tf-ts-logout
-gcp-tf-ts-logout: ## Release the demo's Tailscale device record so the next build reclaims the name (ENV=<key>).
+gcp-tf-ts-logout: ## Release the demo's Tailscale device record so the next build reclaims the name (ENV=<key>, FORCE=1 to override the live-serve refusal).
 	$(gcp_tf_require_env)
 	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
-		echo "WARNING: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
-		echo "         Skipping the tailnet logout — this never blocks a destroy."; \
-		exit 0; \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		echo "       The tailnet name was NOT released. Reporting that rather than"; \
+		echo "       exiting 0, because a silent skip here is how a stale device"; \
+		echo "       survives to rename the next build."; \
+		exit 2; \
 	fi
-	-@$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout
+	@FORCE=$(FORCE) $(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout
 
 .PHONY: gcp-tf-ts-up
 gcp-tf-ts-up: ## PRIMARY: serve the demo on the tailnet and prove it answers before printing the URL (ENV=<key>).

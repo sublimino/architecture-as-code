@@ -628,9 +628,27 @@ build_payload() {
 
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
+  # Two deliberate narrowings, both of which this guard got wrong until a real
+  # payload was built from a real checkout on 2026-08-20:
+  #
+  #   `.terraform[/-]` rather than a bare `.terraform`. The target is the state
+  #   DIRECTORY (.terraform/ and the per-env .terraform-<key>/). A bare match
+  #   also caught `.terraform.lock.hcl`, which HashiCorp's own guidance says to
+  #   COMMIT — it is the provider dependency lock, and a repo that tracks it is
+  #   correct. The guard then told the operator to untrack it, which is the
+  #   opposite of the right action and is the expensive kind of wrong: an
+  #   authoritative-sounding instruction to break the repo.
+  #
+  #   `*.example.tfvars` is allowed through. The tfvars exclusion exists because
+  #   a real tfvars names a project and an account; an example file is a
+  #   template that is tracked ON PURPOSE, and shipping it to the VM leaks
+  #   nothing. Excluding it blocked delivery outright rather than dropping a
+  #   file, because this guard refuses rather than filters — by design, and that
+  #   design is what makes a false positive a full stop.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
-    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform[/-])|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -vE '(^|/)[^/]*\.example\.tfvars$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then
     printf 'demo-up: REFUSING to deliver — excluded material is present in the payload:\n' >&2

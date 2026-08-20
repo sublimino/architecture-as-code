@@ -48,6 +48,16 @@ TS_TARGETS="gcp-tf-ts-status gcp-tf-ts-up gcp-tf-funnel-up gcp-tf-funnel-down"
 IAP_TARGETS="gcp-tf-connect gcp-tf-public gcp-tf-public-down gcp-tf-public-status"
 
 setup() {
+	# BATS inherits its environment. Reset every behaviour knob exposed by this
+	# suite's stubs so a prior test (or an invoking test runner) cannot turn a
+	# baseline test into a different fixture. Tests set their required fault
+	# after setup; the default fixture always starts clean.
+	unset STUB_VM_STATE STUB_VM_PUBLISHING STUB_VM_ALIAS_RC STUB_TS_SERVE_RC
+	unset STUB_TS_FUNNEL_RC STUB_TS_FUNNEL_OFF_RC STUB_NO_WARNING
+	unset STUB_TS_DAEMON_DOWN STUB_TS_RC STUB_DEX_CURRENT STUB_DEX_HOLDER
+	unset STUB_DEX_APPLY_RC STUB_DEX_BASELINE
+	unset GCP_TF_DEMO_SKIP_MAGICDNS_CHECK GCP_TF_DEMO_SKIP_DEX_ORIGIN
+
 	# Presence before behaviour, always. A suite driving a script that was never
 	# written reports whatever the shell does with a missing file, and a suite
 	# driving a script with no Tailscale code in it reports a clean green.
@@ -605,6 +615,12 @@ mutate() {
 	# negative below from passing hardest when its subject is deleted.
 	[[ "$(gcloud_log)" == *"http://127.0.0.1:8080"* ]] || {
 		echo "the serve backend is not the local nginx forward: $(gcloud_log)"
+		return 1
+	}
+	# The backend is cleartext only on VM loopback. The browser-facing side must
+	# still be HTTPS, terminated by Tailscale for the MagicDNS certificate.
+	[[ "$(gcloud_log)" =~ tailscale\ serve\ --bg\ --https=443.*http://127\.0\.0\.1:8080 ]] || {
+		echo "tailscale serve no longer terminates HTTPS before the loopback backend: $(gcloud_log)"
 		return 1
 	}
 	# `tailscale serve` must actually have been configured. The forward itself is

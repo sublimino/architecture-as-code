@@ -629,7 +629,7 @@ build_payload() {
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
   #
-  # `\.terraform/` with the SLASH, and the slash is the whole point.
+  # `\.terraform[/-]`, and the trailing character class is the whole point.
   #
   # The bare prefix `\.terraform` also matched `.terraform.lock.hcl`, which is
   # tracked ON PURPOSE — it is the provider pin, four of them are committed at
@@ -639,18 +639,23 @@ build_payload() {
   # something that must stay tracked. `make gcp-tf-demo-up` could not build at
   # all; measured 2026-08-20 against demo-2.
   #
-  # What the term is FOR is `.terraform/` — the provider cache directory, which
-  # is gitignored and therefore cannot appear in `git archive HEAD` unless
-  # somebody tracks it deliberately. That intent is preserved exactly; only the
-  # collision with the lock file is removed. The two differ by one character and
-  # by whether the repository wants them.
-  # The `.tfvars` term has the same shape of collision, for the same reason, and
-  # it is exempted rather than loosened.
+  # What the term is FOR is the state DIRECTORIES: `.terraform/`, the provider
+  # cache, and `.terraform-<env>/`, the per-environment data dirs this repo
+  # gives each lane so two applies cannot share one local state. Both are
+  # gitignored and so cannot appear in `git archive HEAD` unless somebody tracks
+  # one deliberately — which is exactly the case this second line exists to
+  # catch. `[/-]` covers both; a plain `/` would silently stop covering the
+  # per-env dirs, which is the more likely of the two to be tracked by accident
+  # since it is created by a Make variable rather than by terraform itself.
   #
-  # This repo uses TWO example-file conventions. `terraform/**/*.tfvars.example`
-  # ends in `.example` and never matched. `deploy/gcp/*.example.tfvars` ends in
-  # `.tfvars` and always did — so the committed, reviewed, placeholder-bearing
-  # example was reported as leaked material, alongside the lock files above.
+  # The `.tfvars` term has the same shape of collision, and is exempted rather
+  # than loosened. This repo uses TWO example conventions:
+  # `terraform/**/*.tfvars.example` ends in `.example` and never matched;
+  # `deploy/gcp/*.example.tfvars` ends in `.tfvars` and always did — so the
+  # committed, reviewed, placeholder-bearing example was reported as leaked
+  # material alongside the lock files. Both forms are exempted, including the
+  # one that never matched, so that neither convention can start failing if the
+  # term above is ever rewritten.
   #
   # A LIVE tfvars is still caught, and the exemption cannot be used to smuggle
   # one: the live files are `deploy/gcp/<project>.tfvars`, they are gitignored,
@@ -659,7 +664,7 @@ build_payload() {
   # the repository deliberately ships as documentation.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
-    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform/)|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
+    grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform[/-])|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
     grep -vE '\.example\.tfvars$|\.tfvars\.example$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then

@@ -2,25 +2,39 @@
 # more simply, by copying the values into the environment tfvars) and by the
 # runbook.
 
-output "log_bucket_name" {
-  description = "Dedicated audit log bucket. Provably not the Terraform state bucket — see the precondition in modules/observability/main.tf."
-  value       = module.observability.log_bucket_name
-}
-
-output "log_sink_writer_identity" {
-  description = "Identity the admin-activity log sink writes as."
-  value       = module.observability.log_sink_writer_identity
-}
+# ─── Dormant with module "observability" ────────────────────────────────────
+#
+# These three outputs read module.observability directly, so they must go
+# dormant with it or `terraform validate` fails on a reference to an
+# uninstantiated module. Commented rather than deleted, for the same reason the
+# module block is: restoring observability should be uncommenting, not
+# reconstructing.
+#
+# NOT dormant, and deliberately so: `notification_channel_ids` below reads
+# `local.notification_channel_ids`, not the module, so it stays live. Anything
+# consuming it keeps working while observability is off.
+#
+# output "log_bucket_name" {
+#   description = "Dedicated audit log bucket. Provably not the Terraform state bucket — see the precondition in modules/observability/main.tf."
+#   value       = module.observability.log_bucket_name
+# }
+#
+# output "log_sink_writer_identity" {
+#   description = "Identity the admin-activity log sink writes as."
+#   value       = module.observability.log_sink_writer_identity
+# }
 
 output "notification_channel_ids" {
   description = "Every monitoring notification channel an alert policy can route to, created here plus supplied externally."
   value       = local.notification_channel_ids
 }
 
-output "budget_enabled" {
-  description = "False means billing_account_id was empty, not that the budget failed to create."
-  value       = module.observability.budget_enabled
-}
+# Dormant with module "observability" — see the note above.
+#
+# output "budget_enabled" {
+#   description = "False means billing_account_id was empty, not that the budget failed to create."
+#   value       = module.observability.budget_enabled
+# }
 
 output "dns_managed_zone_name" {
   description = "Name of the managed zone, or empty string when Terraform does not manage DNS. Feed this to the environments root's dns_managed_zone input."

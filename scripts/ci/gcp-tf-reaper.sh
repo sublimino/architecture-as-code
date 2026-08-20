@@ -211,17 +211,36 @@ age_minutes() {
   printf '%d' $(((now - epoch) / 60))
 }
 
-# The two label columns are APPENDED, never inserted. Every existing field keeps
-# its position, so a reader that only knows the old five still parses correctly
-# and a stale fixture degrades to empty kind/environment — which every gate
-# below treats as a refusal. Fail-closed on a short row is the whole reason for
-# putting them at the end.
+# ─── PIPE-SEPARATED, AND THE SEPARATOR IS A CORRECTNESS PROPERTY ────────────
+#
+# This listing was tab-separated and read with `IFS=$'\t' read`. That is WRONG
+# for a row that can contain an empty field, and it was found by a fixture row
+# carrying an absent `kind` label.
+#
+# Tab is an IFS *whitespace* character. Under IFS whitespace, bash collapses
+# RUNS of the delimiter into one and strips leading and trailing ones — so
+#
+#     sl-ci-4-vm<TAB>zone<TAB>ci-4<TAB>ts<TAB>RUNNING<TAB><TAB>ci-4
+#
+# parses as SIX fields, not seven, and every field after the gap shifts one to
+# the left. `kind` silently received `ci-4`, the environment value. The gate
+# still refused the row — `ci-4` is not `ci` — so the failure was invisible in
+# the outcome and the reaper looked correct while reading the wrong column.
+#
+# `|` is not IFS whitespace, so empty fields are preserved and positions are
+# stable. GCP label values are restricted to [a-z0-9_-], and instance names and
+# zones likewise, so no field can contain the separator.
+#
+# The two label columns are also APPENDED rather than inserted, so a stale
+# five-column listing degrades to EMPTY kind and environment. Both gates that
+# read them compare for equality against a non-empty constant, so empty is a
+# refusal. Short rows fail closed.
 list_lanes() {
   local args=(
     compute instances list
     --project="$PROJECT"
     --filter="labels.ci-lane:* AND status=RUNNING"
-    "--format=value(name,zone,labels.ci-lane,lastStartTimestamp,status,labels.kind,labels.environment)"
+    "--format=value[separator='|'](name,zone,labels.ci-lane,lastStartTimestamp,status,labels.kind,labels.environment)"
   )
   [ -n "$ZONE" ] && args+=(--zones="$ZONE")
   "${GCLOUD[@]}" "${args[@]}"
@@ -243,7 +262,9 @@ main() {
 
   printf '==> reaping CI lanes idle beyond %s minutes in %s\n' "$IDLE_MINUTES" "$PROJECT"
 
-  while IFS=$'\t' read -r name zone lane ts status kind env; do
+  # IFS='|', never a tab. See the separator argument on list_lanes: a tab is IFS
+  # whitespace, so it collapses empty fields and shifts every later column left.
+  while IFS='|' read -r name zone lane ts status kind env; do
     [ -n "${name:-}" ] || continue
     seen=$((seen + 1))
 

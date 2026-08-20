@@ -691,6 +691,38 @@ split_firewall_blocks() {
 	}
 }
 
+@test "IAP tunnel documentation targets dashboard nginx on port 8080" {
+	# These are the two copy-pasteable IAP access instructions. They must move
+	# with app_port: stale 30754 tunnel commands bypass the dashboard nginx
+	# contract even while every Terraform example remains correct.
+	local f checked=0
+	for f in "${REPO_ROOT}/terraform/RUNBOOK.md" \
+		"${REPO_ROOT}/deploy/gcp/sl-port-over-sandbox.example.tfvars"; do
+		[ -f "$f" ] || {
+			echo "missing IAP documentation: $f" >&2
+			return 1
+		}
+		grep -qF 'gcloud compute start-iap-tunnel <instance> 8080' "$f" || {
+			echo "$(basename "$f") does not tunnel to port 8080" >&2
+			return 1
+		}
+		grep -qF 'localhost:8080' "$f" || {
+			echo "$(basename "$f") does not publish localhost:8080" >&2
+			return 1
+		}
+		! grep -qE '(start-iap-tunnel <instance>|-L )30754' "$f" || {
+			echo "$(basename "$f") retains a stale 30754 IAP tunnel command" >&2
+			return 1
+		}
+		checked=$((checked + 1))
+	done
+
+	[ "$checked" -eq 2 ] || {
+		echo "expected to check 2 IAP documentation files, checked ${checked}" >&2
+		return 1
+	}
+}
+
 # ---------------------------------------------------------------------------
 # Sizing. The evaluated behaviour is in modules/compute/tests/compute.tftest.hcl;
 # what is asserted here is that the rules exist at all, so that a `terraform

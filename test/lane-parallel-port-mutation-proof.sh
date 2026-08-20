@@ -173,7 +173,7 @@ mutate() {
 # What is given up: collateral damage from a mutation is no longer visible. That
 # is acceptable because these mutations are deliberate breakages — a mutation
 # also breaking a neighbouring test is expected, not a finding.
-FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL}"
+FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL|OWNERSHIP}"
 failing_tests() {
   bats --filter "$FILTER" "$SUITE" 2>&1 | sed -n 's/^not ok [0-9]* //p'
 }
@@ -270,6 +270,59 @@ check "M5 escape hatch" "PARALLEL the refusal hands over the per-lane escape hat
 echo "M6  the preflight probe is collapsed onto the post-launch probe"
 mutate 's|^PREFLIGHT_PORT_PROBE="\${GCP_TF_DEMO_PREFLIGHT_PORT_PROBE:-default_port_probe}"$|PREFLIGHT_PORT_PROBE="$PORT_PROBE"|'
 check "M6 collapsed probes" "PARALLEL a free port leaves connect completely unchanged"
+
+# ─── M7: connect's ownership check deleted ──────────────────────────────────
+#
+# The port guard and the ownership check answer different questions, and this
+# is what proves the second is not decoration once the first exists. With a
+# per-lane port the collision never happens, the port guard stays silent — and
+# a socket hijacked inside gcloud's authentication window still gets handed
+# over as a healthy tunnel.
+echo "M7  connect's tunnel-ownership check is deleted"
+mutate 's|^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-connect"; then$|  if false; then # MUTATED|'
+check "M7 connect ownership" "OWNERSHIP connect refuses a socket held by ANOTHER lane's tunnel"
+
+# ─── M8: public's ownership check deleted ───────────────────────────────────
+#
+# Separate from M7 for the same reason M2 is separate from M1, and with more at
+# stake: public's health probe would collect its 200 from the other lane's
+# dashboard and print "verified before you clicked".
+echo "M8  public's tunnel-ownership check is deleted"
+mutate 's|^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-public"; then$|  if false; then # MUTATED|'
+check "M8 public ownership" "OWNERSHIP public refuses a hijacked socket BEFORE its health probe"
+
+# ─── M9: unattributable sockets treated as ours ─────────────────────────────
+#
+# The fail-OPEN rewrite, and the most likely one to be introduced in good faith.
+# `ss` is missing on some machines, the check starts refusing, and the obvious
+# "fix" is to let an empty owner list pass. That silently disables the entire
+# mechanism on exactly the hosts where it cannot verify anything — while every
+# presence assertion in the suite still passes.
+echo "M9  an unattributable socket is treated as ours (fail-open)"
+# `#` delimiter: the matched line contains `||`, which with `|` as the delimiter
+# ends the expression early and yields sed's opaque "unknown option to `s'".
+# Same trap as M3 — it bit twice in this file, which is why both now say so.
+mutate 's#^  owners="\$("\$LISTENER_OWNER_PROBE" "\$want" 2>/dev/null \|\| true)"$#  owners="$("$LISTENER_OWNER_PROBE" "$want" 2>/dev/null || true)"; [ -n "$owners" ] || return 0#'
+check "M9 fail-open owners" "OWNERSHIP an unattributable socket is refused, not assumed to be ours"
+
+# ─── M10: the descendant walk collapsed to an equality test ─────────────────
+#
+# Subtle, correct-looking, and it breaks the HAPPY path rather than the failure
+# path — so no refusal test can catch it. `$!` is the pid of the backgrounded
+# `env`; against a real gcloud (a wrapper that runs Python) the socket is held
+# by a descendant, so comparing the two numbers directly rejects every
+# legitimate tunnel. A guard that refuses valid input is a guard somebody
+# deletes, and deleting this one restores the hijack.
+#
+# The expectation is the DESCENDANT test, not the plain accept test, and the
+# distinction is the whole point. `owner-ours` returns a pid EQUAL to
+# tunnel_pid — the stub is exec'd by `env` so it keeps the pid — which means
+# the direct comparison succeeds and the walk is never entered. This mutation
+# was NOT PROVEN against that test, correctly: the suite could not see it. The
+# stub now also records a genuine child pid, and only the walk resolves that.
+echo "M10 the ancestry walk is collapsed to a direct pid comparison"
+mutate 's|^    \[ "\$pid" = "\$want" \] \&\& return 0$|    [ "$pid" = "$want" ] \&\& return 0; return 1|'
+check "M10 descendant walk" "OWNERSHIP connect accepts a socket held by a DESCENDANT of its tunnel"
 
 echo
 echo "=== restored; verifying the tree is byte-identical to where we started ==="

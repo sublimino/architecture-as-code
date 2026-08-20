@@ -576,8 +576,45 @@ image_identity_adopt_on_node() {
 #
 # MAX_CHECKS bounds ITERATIONS, not seconds — see the note in the callers about
 # why those two are not interchangeable under load.
+#
+# ─── One number, one place (2026-08-20) ─────────────────────────────────────
+#
+# This budget existed in FOUR copies: 20 here, 20 in kind-load-verified.sh, 90
+# in supercred-images.sh, 90 in signalfusion-images.sh — all bounding the same
+# poll around the same helper. This file's own header is about three scripts
+# independently growing the same verification and drifting; the budget for that
+# verification had done precisely the same thing.
+#
+# IMAGE_IDENTITY_ADOPT_CHECKS is now the canonical default. Each caller keeps
+# its own override variable so a single image can still be tuned in isolation,
+# but they all fall through to this one number.
+#
+# WHY 300, AND WHAT MEASURED IT
+#
+# Both older values were fitted on n2-standard-16 lanes. The estate now runs
+# n2-standard-8 — half the vCPU, and containerd unpacking is exactly the
+# CPU-bound work that halves with it. Two failures on 2026-08-20 bracket the
+# real requirement:
+#
+#   demo-1  netassert-controller:dev  "after 20 checks over 22s"   (~1.1s/check,
+#           an essentially idle node — so adoption genuinely needed >22s, not a
+#           node too busy for its iterations to mean anything)
+#   demo-2  signal-ingest:local       "has not adopted it after 90s — slow
+#           unpack, not a failed import; re-run"
+#
+# So >90 is measured, not guessed. 300 is 3.3x the largest known-insufficient
+# value. It costs nothing on a healthy load — the loop returns the moment
+# identity verifies, and a clean adoption takes seconds — and it is only spent
+# when the alternative is aborting a forty-minute estate build over an unpack
+# that was going to finish.
+#
+# It remains a bound on ITERATIONS. Do not convert it to wall-clock: under load
+# a real 300-second deadline is TIGHTER than 300 checks, so changing the unit
+# would make failure MORE likely while looking like a correctness fix. The
+# callers report both units on failure so the next person can tell "adoption is
+# slow" from "the node is thrashing" without re-deriving it.
 image_identity_adopt_if_present() {
-	local image="$1" max="${2:-20}" checks=0 rc
+	local image="$1" max="${2:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}" checks=0 rc
 	image_identity_content_on_node "$image" || return 1
 	image_identity_adopt_on_node "$image" || return 1
 	while [ "$checks" -lt "$max" ]; do

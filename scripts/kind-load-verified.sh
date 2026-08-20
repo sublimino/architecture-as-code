@@ -122,7 +122,7 @@ recover_via_archive() {
   # This cannot mask a failure: image_identity_adopt_if_present returns 0 only
   # when image_identity_verify PROVES identity afterwards, so a failed adoption
   # falls through to the expensive path rather than being reported as success.
-  if image_identity_adopt_if_present "$image" "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-90}"; then
+  if image_identity_adopt_if_present "$image" "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}"; then
     log "recovery: content was already on $NODE — labelled it CRI-managed, no re-export needed"
     return 0
   fi
@@ -208,7 +208,7 @@ recover_via_archive() {
   # without re-deriving it.
   local checks=0 rc started elapsed
   started="$(date +%s)"
-  while [ "$checks" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-90}" ]; do
+  while [ "$checks" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}" ]; do
     image_identity_invalidate
     rc=0; image_identity_verify "$image" || rc=$?
     [ "$rc" -eq 0 ] && return 0

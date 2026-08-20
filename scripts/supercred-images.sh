@@ -287,7 +287,7 @@ reload_via_archive() {
   # is stronger. It cannot mask anything: image_identity_adopt_if_present
   # returns 0 only when image_identity_verify proves identity afterwards, so a
   # failed adoption falls through to the rebuild rather than reporting success.
-  if image_identity_adopt_if_present "$image" "${SUPERCRED_CRI_ADOPT_TIMEOUT:-90}"; then
+  if image_identity_adopt_if_present "$image" "${SUPERCRED_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}"; then
     log "recovery: content was already on $NODE — labelled it CRI-managed, no rebuild needed"
     return 0
   fi
@@ -371,7 +371,7 @@ reload_via_archive() {
   # satisfy a presence poll on its very first iteration — against the stale
   # image it was sent to replace.
   local waited=0 rc
-  while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-90}" ]; do
+  while [ "$waited" -lt "${SUPERCRED_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}" ]; do
     image_identity_invalidate
     rc=0; image_identity_verify "$image" || rc=$?
     [ "$rc" -eq 0 ] && return 0

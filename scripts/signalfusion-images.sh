@@ -182,7 +182,7 @@ reload_via_archive() {
   # scripts/lib/image-identity.sh rather than a third copy of the logic, because
   # three copies of a model drifting apart is exactly how this class of defect
   # came back the last time.
-  if image_identity_adopt_if_present "$image" "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-90}"; then
+  if image_identity_adopt_if_present "$image" "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}"; then
     log "recovery: content was already on $NODE — labelled it CRI-managed, no rebuild needed"
     return 0
   fi
@@ -227,7 +227,7 @@ reload_via_archive() {
   # satisfied on its first iteration by the very stale image the recovery was
   # sent to replace.
   local waited=0 rc
-  while [ "$waited" -lt "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-90}" ]; do
+  while [ "$waited" -lt "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}" ]; do
     image_identity_invalidate
     rc=0; image_identity_verify "$image" || rc=$?
     [ "$rc" -eq 0 ] && return 0

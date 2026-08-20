@@ -58,31 +58,31 @@ variable "state_bucket_name" {
 # Observability
 # ---------------------------------------------------------------------------
 
-variable "log_retention_days" {
-  description = "Audit log retention in the dedicated audit bucket."
-  type        = number
-  default     = 400
+# variable "log_retention_days" {
+#   description = "Audit log retention in the dedicated audit bucket."
+#   type        = number
+#   default     = 400
+#
+#   validation {
+#     condition     = var.log_retention_days >= 30 && var.log_retention_days <= 3650
+#     error_message = "log_retention_days must be between 30 and 3650."
+#   }
+# }
 
-  validation {
-    condition     = var.log_retention_days >= 30 && var.log_retention_days <= 3650
-    error_message = "log_retention_days must be between 30 and 3650."
-  }
-}
+# variable "log_bucket_location" {
+#   description = "Location for the dedicated audit log bucket."
+#   type        = string
+#   default     = "europe-west2"
+# }
 
-variable "log_bucket_location" {
-  description = "Location for the dedicated audit log bucket."
-  type        = string
-  default     = "europe-west2"
-}
-
-variable "uptime_targets" {
-  description = "Public endpoints to uptime-check, keyed by environment key. Populated from the environment map's demo-N hostnames."
-  type = map(object({
-    hostname = string
-    app_port = number
-  }))
-  default = {}
-}
+# variable "uptime_targets" {
+#   description = "Public endpoints to uptime-check, keyed by environment key. Populated from the environment map's demo-N hostnames."
+#   type = map(object({
+#     hostname = string
+#     app_port = number
+#   }))
+#   default = {}
+# }
 
 variable "enable_alerts" {
   description = "Whether alert policies are created. False omits them; it never creates a policy with no channel."
@@ -121,23 +121,23 @@ variable "extra_notification_channel_ids" {
 # Billing budget
 # ---------------------------------------------------------------------------
 
-variable "billing_account_id" {
-  description = "Billing account id that owns the budget. Empty string disables the budget so this root is usable by an engineer without billing-account access."
-  type        = string
-  default     = ""
-}
+# variable "billing_account_id" {
+#   description = "Billing account id that owns the budget. Empty string disables the budget so this root is usable by an engineer without billing-account access."
+#   type        = string
+#   default     = ""
+# }
 
-variable "budget_amount_currency" {
-  description = "ISO 4217 currency for the budget amount."
-  type        = string
-  default     = "GBP"
-}
+# variable "budget_amount_currency" {
+#   description = "ISO 4217 currency for the budget amount."
+#   type        = string
+#   default     = "GBP"
+# }
 
-variable "budget_amount_units" {
-  description = "Whole-currency-unit monthly budget for the whole estate."
-  type        = number
-  default     = 500
-}
+# variable "budget_amount_units" {
+#   description = "Whole-currency-unit monthly budget for the whole estate."
+#   type        = number
+#   default     = 500
+# }
 
 # ---------------------------------------------------------------------------
 # DNS

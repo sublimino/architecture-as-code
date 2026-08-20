@@ -122,7 +122,7 @@ recover_via_archive() {
   # This cannot mask a failure: image_identity_adopt_if_present returns 0 only
   # when image_identity_verify PROVES identity afterwards, so a failed adoption
   # falls through to the expensive path rather than being reported as success.
-  if image_identity_adopt_if_present "$image" "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}"; then
+  if image_identity_adopt_if_present "$image" "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-90}"; then
     log "recovery: content was already on $NODE — labelled it CRI-managed, no re-export needed"
     return 0
   fi
@@ -176,9 +176,39 @@ recover_via_archive() {
   # 20-second deadline is TIGHTER than 20 checks, so changing the unit would
   # make the failure MORE likely while looking like a correctness fix. The bound
   # stays on iterations deliberately; only the reporting changes here.
+  #
+  # ─── 2026-08-20: the default moved 20 → 90, and the paragraph above is why
+  #     that is a raise rather than the unit error it warns against ───────────
+  #
+  # The reporting change demanded above is what made this decidable. demo-1
+  # failed with "after 20 checks over 22s" — the count and the elapsed time
+  # BOTH printed, ~1.1s per iteration. That is an essentially idle node: the
+  # `docker exec` round trips were not dominating, so this is NOT the
+  # under-load case where iterations and seconds diverge. Adoption simply had
+  # not finished in 22 seconds.
+  #
+  # So the earlier controlled experiment stands and is not being overridden.
+  # It showed 20 and 90 both PASS *on an idle node*, and it ran when a lane was
+  # n2-standard-16. These lanes are now n2-standard-8 — half the vCPU, and
+  # containerd unpacking is exactly the CPU-bound work that halves with it.
+  # The experiment's conclusion was "the number in the message was never the
+  # elapsed time", which was true and remains true; it was not "20 is enough
+  # for every image on every machine".
+  #
+  # 90 is not a guess either: it is what supercred-images.sh:290/374 and
+  # signalfusion-images.sh:185/230 have always used for the identical poll
+  # against the identical shared helper. This file was the outlier at 20, and
+  # its own comment records that 20 "was fitted to a 54MB image". Three call
+  # sites of one helper now agree, which is worth more than the four-and-a-half
+  # times headroom on its own — a model that differs per copy is how this class
+  # of defect keeps returning.
+  #
+  # The failure remains reported in BOTH units, so if this ever fires again the
+  # next person can tell "adoption is slow" from "the node is thrashing"
+  # without re-deriving it.
   local checks=0 rc started elapsed
   started="$(date +%s)"
-  while [ "$checks" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-20}" ]; do
+  while [ "$checks" -lt "${KIND_LOAD_CRI_ADOPT_TIMEOUT:-90}" ]; do
     image_identity_invalidate
     rc=0; image_identity_verify "$image" || rc=$?
     [ "$rc" -eq 0 ] && return 0

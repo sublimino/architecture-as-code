@@ -18,7 +18,11 @@ setup() {
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$KUBECTL_LOG"
 case " $* " in
-  *" get service -A "*) printf 'gateway-ns gateway-svc\n' ;;
+  *" get service -A "*)
+    [ "${FAKE_REQUIRE_INGRESS_NAMESPACE:-0}" = 1 ] && exit 1
+    printf 'gateway-ns gateway-svc\n'
+    ;;
+  *" -n ingress get service "*) printf 'gateway-ns gateway-svc\n' ;;
   *" get service gateway-svc "*) printf '31443' ;;
   *" get nodes "*) printf '172.18.0.2' ;;
   *" get svc "*|*" get deployment "*) exit 1 ;;
@@ -38,7 +42,10 @@ FAKE
 	cat >"$bin/nc" <<'FAKE'
 #!/usr/bin/env bash
 case " $* " in
-  *" 30754"*) exit "${FAKE_GATEWAY_PORT_BUSY:-1}" ;;
+  *" 30754"*)
+    [ "${FAKE_STALE_IAP_CHILD_KILLED:-0}" = 1 ] && exit 1
+    exit "${FAKE_GATEWAY_PORT_BUSY:-1}"
+    ;;
 esac
 exit 1
 FAKE
@@ -86,4 +93,18 @@ teardown() {
 	[ "$status" -eq 0 ]
 	[ -e "$marker" ]
 	[ -e "$gateway_terminated" ]
+}
+
+@test "Gateway discovery requires only ingress namespace Service access" {
+	run env FAKE_REQUIRE_INGRESS_NAMESPACE=1 "$script" signalloom-test-1.spec.ts
+	[ "$status" -eq 0 ]
+	[ -e "$marker" ]
+	grep -F -- '-n ingress get service -l gateway.envoyproxy.io/owning-gateway-name=cluster' "$kubectl_log"
+}
+
+@test "a killed stale IAP child permits an owned Gateway forward" {
+	run env FAKE_STALE_IAP_CHILD_KILLED=1 "$script" signalloom-test-1.spec.ts
+	[ "$status" -eq 0 ]
+	[ -e "$marker" ]
+	grep -E -- 'port-forward.*svc/gateway-svc.*30754:443' "$kubectl_log"
 }

@@ -10,6 +10,7 @@ TEST_DIR="${REPO_ROOT}/test/acceptance"
 # shellcheck source=scripts/lib/wait.sh
 source "${SCRIPT_DIR}/lib/wait.sh"
 PF_PIDS=()
+GATEWAY_PF_STATE_DIR=""
 # "namespace/service" for every forward that is actually listening — whether we
 # started it or reused an existing listener. Preflight asserts against THIS,
 # not against a spec name: we check the health of what we established, so a
@@ -28,6 +29,10 @@ pf_established() {
 
 cleanup() {
   echo "==> Cleaning up port-forwards..."
+  if [[ -n "${GATEWAY_PF_STATE_DIR}" ]]; then
+    "${SCRIPT_DIR}/supervise-port-forward.sh" down "${GATEWAY_PF_STATE_DIR}" || true
+    rm -rf "${GATEWAY_PF_STATE_DIR}"
+  fi
   for pid in "${PF_PIDS[@]}"; do
     kill "${pid}" 2>/dev/null || true
   done
@@ -69,7 +74,6 @@ setup_gateway_forward() {
     -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null || true)
   gateway_forwarded=0
   if [[ -n "$gateway_service" && -n "$gateway_namespace" ]]; then
-    gateway_forwarded=1
     # Dex pins its local issuer and callback client to this stable port. Forward
     # the dynamic NodePort here rather than exposing that ephemeral port to the
     # browser, otherwise Dex rejects the OIDC redirect URI.
@@ -77,7 +81,27 @@ setup_gateway_forward() {
     gateway_node_port="$(kubectl -n "$gateway_namespace" get service "$gateway_service" \
       -o jsonpath='{.spec.ports[?(@.port==443)].nodePort}' 2>/dev/null || true)"
     gatewayAddress="$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
-    start_port_forward "$gateway_namespace" "$gateway_service" "${gateway_local_port}" 443
+    # A listening socket proves only that *something* owns this port. In
+    # particular, a gcloud IAP tunnel can occupy 30754 and make the old `nc -z`
+    # reuse branch run the suite through an unrelated Gateway. This harness owns
+    # its forward for this run or fails before the browser can report a misleading
+    # application error.
+    if nc -z 127.0.0.1 "${gateway_local_port}" 2>/dev/null; then
+      echo "    ERROR: localhost:${gateway_local_port} is already listening; refusing to adopt an unowned Gateway forward" >&2
+      PREFLIGHT_FAILED=1
+      return
+    fi
+    GATEWAY_PF_STATE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/acceptance-gateway-forward.XXXXXX")"
+    export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
+    if ! PF_PROBE_URL="${DASHBOARD_URL}/readyz" \
+      PF_PROBE_CURL_OPTS="-k --resolve dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" \
+      "${SCRIPT_DIR}/supervise-port-forward.sh" up "${GATEWAY_PF_STATE_DIR}" \
+        "${gateway_namespace}" "${gateway_service}" "${gateway_local_port}" 443 /readyz "$$"; then
+      echo "    ERROR: could not establish supervised shared Gateway forward" >&2
+      PREFLIGHT_FAILED=1
+      return
+    fi
+    gateway_forwarded=1
     echo "    gateway: ${gateway_namespace}/${gateway_service} nodePort=${gateway_node_port} localPort=${gateway_local_port} address=${gatewayAddress}"
   else
     echo "    SKIP: ingress/cluster Envoy service (service not found)"
@@ -87,17 +111,6 @@ setup_gateway_forward() {
   # The Gateway requires SNI hostname *.osramp.acme.local — Chrome's
   # --host-resolver-rules (in playwright.config.ts) resolves it to 127.0.0.1.
   export DASHBOARD_URL="${DASHBOARD_URL:-https://dashboard.osramp.acme.local:${gateway_local_port}}"
-  # start_port_forward backgrounds kubectl and returns immediately, so without
-  # this the readiness probe below raced a port-forward that had had zero time to
-  # bind, and `|| echo not-ready` swallowed the race into a warning. The generic
-  # `sleep 4` further down fires ~20 lines too late to help here. TCP-level, so
-  # no --resolve is needed: the SNI name only matters once TLS starts.
-  wait_tcp 127.0.0.1 "${gateway_local_port}" 60 || \
-    echo "    WARNING: gateway port-forward never accepted on ${gateway_local_port}"
-  dashboard_ready="$(curl -kfsS --max-time 5 --resolve "dashboard.osramp.acme.local:${gateway_local_port}:127.0.0.1" "${DASHBOARD_URL}/readyz" 2>/dev/null || echo not-ready)"
-  if [[ "$dashboard_ready" != "ready" ]]; then
-    echo "    WARNING: dashboard readiness check returned: ${dashboard_ready}"
-  fi
   export GATEWAY_ADDRESS="127.0.0.1"
 }
 
@@ -247,6 +260,11 @@ if pf_established monitoring/kube-prometheus-stack-grafana; then
   if ! curl -s -o /dev/null -w "" http://127.0.0.1:13000/ 2>/dev/null; then
     echo "    WARNING: Grafana port-forward may not be ready yet, continuing..."
   fi
+fi
+
+if (( PREFLIGHT_FAILED )); then
+  echo "==> Preflight failed; Playwright will not run." >&2
+  exit 1
 fi
 
 echo "==> Running Playwright tests..."

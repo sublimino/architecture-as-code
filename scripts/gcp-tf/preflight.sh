@@ -404,11 +404,135 @@ check_billing() {
 
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Quota headroom
+# ---------------------------------------------------------------------------
+#
+# This check exists because the estate hit two quota ceilings in one afternoon
+# and both of them failed in the worst possible place: MID-APPLY.
+#
+# On 2026-08-20 `make gcp-tf-up ENV=demo-2` ran for several minutes, created a
+# VPC, a subnet, a router, a Cloud NAT, a DNS zone and all nine firewall rules,
+# and then failed on `CPUS_ALL_REGIONS exceeded. Limit: 32.0`. What it left
+# behind was a half-built lane -- resources in state, no instance -- which reads
+# as a broken apply rather than as a ceiling that was always going to be hit.
+# The information needed to refuse in one second was available before the first
+# resource was created. Nobody asked for it.
+#
+# The second ceiling was subtler and would have cost a SECOND failed rebuild:
+# `pd-balanced` boot disks bill against the regional SSD_TOTAL_GB quota, not
+# against DISKS_TOTAL_GB. DISKS_TOTAL_GB sat at 32/4096 and looked reassuring
+# while SSD_TOTAL_GB was at 400/500 and was the thing that actually binds.
+# Checking the wrong metric is worse than checking nothing, so this names both.
+#
+# ─── Two facts that are not guessable and were established by experiment ────
+#
+#   * A SUSPENDED instance RELEASES its CPU quota. Measured: suspending one
+#     n2-standard-8 moved CPUS_ALL_REGIONS usage from 32.0 to 24.0.
+#   * A SUSPENDED instance KEEPS its disk, and therefore keeps its SSD quota.
+#     Only a destroy frees that.
+#
+# So "suspend something" is a real remedy for a CPU ceiling and is NO remedY at
+# all for a disk ceiling. Those two sentences are the reason this check reports
+# the two metrics separately with different fix lines, rather than collapsing
+# them into one "insufficient quota" verdict that would send an operator to
+# suspend a lane and watch it not help.
+#
+# ─── Why "at exactly the limit" is reported rather than passed silently ─────
+#
+# COMPUTE-RULE-01-MACHINE-TYPE-VCPU floors machine_type at 8 vCPU, so four
+# lanes cost at least 32 vCPU and the project's CPUS_ALL_REGIONS limit is 32.
+# The floor and the ceiling are the same number: there is no four-lane
+# configuration with CPU headroom, and no tfvars edit can create one. That is a
+# property an operator needs told, because at exactly 32/32 a rolling replace, a
+# resize, or any operation that transiently runs N+1 instances fails -- and it
+# fails with the same message as genuine exhaustion.
+check_quota_headroom() {
+  local project="$1" region="$2" machine_type="$3" disk_gb="$4"
+  local vcpus quotas cpu_usage cpu_limit ssd_usage ssd_limit rc=0
+
+  # Derived with the SAME regex COMPUTE-RULE-01 uses, so a type this check
+  # measures is a type that module accepts. A non-matching name yields empty
+  # and is reported UNKNOWN rather than assumed to be zero -- a machine type
+  # this script cannot parse is one it must not vouch for.
+  vcpus="$(printf '%s' "$machine_type" \
+    | sed -nE 's/^[a-z0-9]+-(standard|highmem|highcpu|custom)-([0-9]+)([-].*)?$/\2/p')"
+  if [ -z "$vcpus" ]; then
+    report UNKNOWN "quota: vCPU headroom" "cannot derive vCPU count from machine_type '${machine_type}'"
+    fix "custom types carry no parseable vCPU count here; check quota by hand before applying"
+    return 0
+  fi
+
+  # CPUS_ALL_REGIONS is a PROJECT-level quota and lives on project-info, not on
+  # the region. Reading the regional CPUS metric instead is the mistake this
+  # comment exists to prevent: regional CPUS was 0/200 and N2_CPUS 32/200 while
+  # the global cap was the thing refusing the apply.
+  quotas="$(gcloud_ro compute project-info describe --project "$project" --format=json || true)"
+  if [ -z "$quotas" ]; then
+    report UNKNOWN "quota: vCPU headroom" "could not read project quotas for '${project}'"
+    fix "needs compute.projects.get; the apply may still succeed, this check simply could not look"
+  else
+    cpu_usage="$(printf '%s' "$quotas" | jq -r '.quotas[]? | select(.metric=="CPUS_ALL_REGIONS") | .usage' 2>/dev/null || true)"
+    cpu_limit="$(printf '%s' "$quotas" | jq -r '.quotas[]? | select(.metric=="CPUS_ALL_REGIONS") | .limit' 2>/dev/null || true)"
+    if [ -z "$cpu_usage" ] || [ -z "$cpu_limit" ]; then
+      report UNKNOWN "quota: vCPU headroom" "CPUS_ALL_REGIONS absent from the quota list"
+    else
+      local cpu_free
+      cpu_free="$(awk "BEGIN{print ${cpu_limit} - ${cpu_usage}}")"
+      if awk "BEGIN{exit !(${cpu_free} < ${vcpus})}"; then
+        report FAIL "quota: vCPU headroom" \
+          "need ${vcpus}, have ${cpu_free} free (CPUS_ALL_REGIONS ${cpu_usage}/${cpu_limit})"
+        fix "SUSPEND an idle lane to free CPU (measured: suspend releases CPU quota), or destroy one"
+        fix "gcloud compute instances suspend <name> --zone ${region}-a --project ${project}"
+        rc=1
+      elif awk "BEGIN{exit !(${cpu_free} == ${vcpus})}"; then
+        report PASS "quota: vCPU headroom" \
+          "need ${vcpus}, have ${cpu_free} free -- EXACTLY enough, zero spare (${cpu_usage}/${cpu_limit})"
+        fix "this apply fits, but no resize or rolling replace will: those need N+1 instances briefly"
+      else
+        report PASS "quota: vCPU headroom" \
+          "need ${vcpus}, have ${cpu_free} free (CPUS_ALL_REGIONS ${cpu_usage}/${cpu_limit})"
+      fi
+    fi
+  fi
+
+  # SSD_TOTAL_GB is REGIONAL and is what pd-balanced bills against. Checking
+  # DISKS_TOTAL_GB here would report healthy while the apply fails.
+  local rquotas
+  rquotas="$(gcloud_ro compute regions describe "$region" --project "$project" --format=json || true)"
+  if [ -z "$rquotas" ]; then
+    report UNKNOWN "quota: SSD headroom" "could not read regional quotas for '${region}'"
+    return "$rc"
+  fi
+  ssd_usage="$(printf '%s' "$rquotas" | jq -r '.quotas[]? | select(.metric=="SSD_TOTAL_GB") | .usage' 2>/dev/null || true)"
+  ssd_limit="$(printf '%s' "$rquotas" | jq -r '.quotas[]? | select(.metric=="SSD_TOTAL_GB") | .limit' 2>/dev/null || true)"
+  if [ -z "$ssd_usage" ] || [ -z "$ssd_limit" ]; then
+    report UNKNOWN "quota: SSD headroom" "SSD_TOTAL_GB absent from ${region}'s quota list"
+    return "$rc"
+  fi
+  local ssd_free
+  ssd_free="$(awk "BEGIN{print ${ssd_limit} - ${ssd_usage}}")"
+  if awk "BEGIN{exit !(${ssd_free} < ${disk_gb})}"; then
+    report FAIL "quota: SSD headroom" \
+      "need ${disk_gb}GB, have ${ssd_free}GB free (SSD_TOTAL_GB ${ssd_usage}/${ssd_limit} in ${region})"
+    fix "pd-balanced bills against SSD_TOTAL_GB, NOT DISKS_TOTAL_GB -- do not be reassured by the latter"
+    fix "SUSPENDING a lane does NOT help: a suspended instance keeps its disk. Only destroy frees this."
+    rc=1
+  else
+    report PASS "quota: SSD headroom" \
+      "need ${disk_gb}GB, have ${ssd_free}GB free (SSD_TOTAL_GB ${ssd_usage}/${ssd_limit} in ${region})"
+  fi
+  return "$rc"
+}
+
 main() {
   local project="${PREFLIGHT_PROJECT:-}"
   local bucket="${PREFLIGHT_STATE_BUCKET:-}"
   local dns_zone="${PREFLIGHT_DNS_ZONE:-}"
   local env_key="demo-1"
+  local region="${PREFLIGHT_REGION:-us-east4}"
+  local machine_type="${PREFLIGHT_MACHINE_TYPE:-n2-standard-8}"
+  local disk_gb="${PREFLIGHT_DISK_GB:-100}"
 
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -426,6 +550,18 @@ main() {
         ;;
       --env)
         env_key="${2:-}"
+        shift 2
+        ;;
+      --region)
+        region="${2:-}"
+        shift 2
+        ;;
+      --machine-type)
+        machine_type="${2:-}"
+        shift 2
+        ;;
+      --disk-gb)
+        disk_gb="${2:-}"
         shift 2
         ;;
       -h | --help)
@@ -464,6 +600,7 @@ main() {
     check_state_bucket "$bucket" || true
     check_dns_zone "$project" "$dns_zone" || true
     check_billing "$project" || true
+    check_quota_headroom "$project" "$region" "$machine_type" "$disk_gb" || true
   else
     report UNKNOWN "gcloud active account" "gcloud is not available"
     report UNKNOWN "project reachable" "gcloud is not available"
@@ -471,6 +608,8 @@ main() {
     report UNKNOWN "state bucket" "gcloud is not available"
     report UNKNOWN "DNS managed zone" "gcloud is not available"
     report UNKNOWN "billing enabled" "gcloud is not available"
+    report UNKNOWN "quota: vCPU headroom" "gcloud is not available"
+    report UNKNOWN "quota: SSD headroom" "gcloud is not available"
   fi
 
   check_terraform_version || true

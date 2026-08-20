@@ -1324,6 +1324,10 @@ GCP_TF_EXCLUDED_TEST_DIRS =
 
 GCP_TF_BATS_RUN = $(filter-out $(GCP_TF_EXCLUDED_BATS),$(GCP_TF_BATS))
 GCP_TF_TEST_DIRS_RUN = $(filter-out $(GCP_TF_EXCLUDED_TEST_DIRS),$(GCP_TF_TEST_DIRS))
+# Shell mutation proofs owned by the Terraform validation domain. Kept
+# overridable so registration tests can record the target without recursively
+# running a mutation harness under their fake `bats` binary.
+GCP_TF_PROOFS_RUN ?= bash test/dex-origin-mutation-proof.sh
 
 # --- Guard rails ------------------------------------------------------------
 #
@@ -1625,6 +1629,10 @@ gcp-tf-validate: ## Offline gate: fmt, validate, tflint, terraform test, terrafo
 		exit 2; \
 	fi
 	$(GCP_TF_NOCREDS) bats $(GCP_TF_BATS_RUN)
+	@# Mutation proof for the Terraform-owned Dex origin contract. This is a shell
+	@# script rather than a terraform-*.bats suite, so the dynamic BATS glob cannot
+	@# discover it; keep it beside that suite's owning validation target.
+	$(GCP_TF_NOCREDS) $(GCP_TF_PROOFS_RUN)
 
 .PHONY: gcp-tf-ci
 gcp-tf-ci: ## Plan the CI environment lane (CI=<ci-N>). Delegates to gcp-tf-plan.

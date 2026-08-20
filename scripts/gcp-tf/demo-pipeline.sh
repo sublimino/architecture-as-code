@@ -29,7 +29,7 @@
 #      regardless, so an operator who wants to look at what broke can. The exit
 #      status still tells the truth about the tests.
 #
-#   3. IT PUBLISHES. See publish_gateway below for the port, the bind address
+#   3. IT PUBLISHES. See publish_dashboard below for the port, the bind address
 #      and the supervision, all three of which are load-bearing.
 #
 # ─── What is carried over from vm-pipeline.sh unchanged ─────────────────────
@@ -159,24 +159,23 @@ CONVERT_BIN="${DEMO_CONVERT_BIN:-${WORK_DIR}/scripts/ci/openreports-convert.sh}"
 
 # ── The published endpoint ───────────────────────────────────────────────────
 #
-# 30754 is not a preference. Dex pins its OIDC issuer and its callback client to
-# that exact port (see the local issuer in
-# d2-signalloom/infra/inf-signalloom/base/dex.yaml, and the identical constant
-# in setup_gateway_forward in scripts/acceptance-test.sh). Any other port
-# reaches the Gateway happily, serves the login page, and then fails the OIDC
-# redirect with an invalid redirect_uri — which reads as a broken dashboard
-# rather than as a wrong port number.
+# Human access deliberately bypasses the Envoy Gateway. IAP, Tailscale, Funnel,
+# and ngrok each reach the dashboard's Nginx Service directly on port 8080. The
+# acceptance harness separately owns its Envoy :30754 forward for Gateway and
+# TLS/SNI contract coverage; changing it here would weaken that test boundary.
 #
 # 0.0.0.0 is not a preference either. The operator arrives over a Google IAP
 # tunnel, and that tunnel connects to the instance's INTERNAL IP, not to its
 # loopback. kubectl port-forward binds localhost by default, so a demo published
 # on the default address is reachable only from a shell already on the VM —
 # the one place nobody needs it.
-GATEWAY_LOCAL_PORT="${DEMO_GATEWAY_LOCAL_PORT:-30754}"
-GATEWAY_BIND_ADDRESS="${DEMO_GATEWAY_BIND_ADDRESS:-0.0.0.0}"
-GATEWAY_HOSTNAME="${DEMO_GATEWAY_HOSTNAME:-dashboard.osramp.acme.local}"
-GATEWAY_LABEL="${DEMO_GATEWAY_LABEL:-gateway.envoyproxy.io/owning-gateway-name=cluster}"
-PF_STATE_DIR="${DEMO_PF_STATE_DIR:-${HOME}/.signalloom-demo-gateway-pf}"
+DASHBOARD_LOCAL_PORT="${DEMO_DASHBOARD_LOCAL_PORT:-8080}"
+DASHBOARD_BIND_ADDRESS="${DEMO_DASHBOARD_BIND_ADDRESS:-0.0.0.0}"
+DASHBOARD_HOSTNAME="${DEMO_DASHBOARD_HOSTNAME:-dashboard.osramp.acme.local}"
+DASHBOARD_NAMESPACE="${DEMO_DASHBOARD_NAMESPACE:-fe-signalloom}"
+DASHBOARD_SERVICE="${DEMO_DASHBOARD_SERVICE:-dashboard-signalloom}"
+DASHBOARD_SERVICE_PORT="${DEMO_DASHBOARD_SERVICE_PORT:-8080}"
+PF_STATE_DIR="${DEMO_PF_STATE_DIR:-${HOME}/.signalloom-demo-dashboard-pf}"
 
 # The supervisor stops itself when its owner pid dies — that guard exists so a
 # hard-killed CI job cannot leave an orphaned kubectl rebinding the port for the
@@ -813,46 +812,22 @@ run_stage \
 # instead is a deliberate and, I think, strictly better choice, and the reason is
 # evidence rather than convenience.
 #
-# scripts/acceptance-test.sh's start_port_forward REUSES an existing listener on
-# a port rather than starting a second one (`nc -z 127.0.0.1 30754`), and its
-# cleanup only kills the pids it started itself. So establishing the supervised
-# forward first means the browser stages drive the EXACT endpoint the operator
-# will later open — same port, same supervisor, same TLS path — instead of a
-# private forward that acceptance-test.sh tears down before the operator ever
-# arrives. Publishing afterwards leaves the published URL itself untested, which
-# is the one thing a demo cannot afford to have wrong.
+# The browser stages intentionally retain their independent Envoy :30754
+# contract in scripts/acceptance-test.sh. Establishing the supervised dashboard
+# forward first makes the human handover durable without teaching acceptance to
+# bypass the Gateway it is meant to validate.
 #
 # It also means a failure to publish is reported as a failure, at the point it
 # happens, rather than after the reader has already been told the run passed.
 PIPELINE_PHASE="publish"
-publish_gateway() {
-  local ns svc
-  read -r ns svc < <("$KUBECTL_BIN" get service -A -l "$GATEWAY_LABEL" \
-    -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null || true)
-
-  if [[ -z "${ns:-}" || -z "${svc:-}" ]]; then
-    echo "ERROR: no Envoy data-plane Service matched ${GATEWAY_LABEL}." >&2
-    echo "       The estate is up but nothing can be published, so there is no" >&2
-    echo "       demo to hand over. This is a failure, not a skip." >&2
-    return 1
-  fi
-
-  echo "==> Publishing ${ns}/${svc} on ${GATEWAY_BIND_ADDRESS}:${GATEWAY_LOCAL_PORT} → 443"
-  # PF_PROBE_URL and PF_PROBE_CURL_OPTS exist because the supervisor's built-in
-  # probe assumes a plaintext localhost endpoint — true of the Zot registry it
-  # was written for, false of a TLS listener that routes by SNI. -k because the
-  # demo certificate is self-signed; --resolve because the SNI name has no DNS
-  # record by design (the browser side resolves it through Chrome's
-  # --host-resolver-rules, and curl needs the equivalent).
-  #
-  # /livez rather than /readyz: readiness can legitimately flap while a workload
-  # rolls, and a supervisor that respawns the forward every time a pod behind it
-  # restarts is a supervisor that makes the demo worse.
-  PF_ADDRESS="$GATEWAY_BIND_ADDRESS" \
-  PF_PROBE_URL="https://${GATEWAY_HOSTNAME}:${GATEWAY_LOCAL_PORT}/livez" \
-  PF_PROBE_CURL_OPTS="-k --resolve ${GATEWAY_HOSTNAME}:${GATEWAY_LOCAL_PORT}:127.0.0.1" \
-    "$SUPERVISE_BIN" up "$PF_STATE_DIR" "$ns" "$svc" \
-      "$GATEWAY_LOCAL_PORT" 443 /livez "$PF_OWNER_PID"
+publish_dashboard() {
+  echo "==> Publishing ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} on ${DASHBOARD_BIND_ADDRESS}:${DASHBOARD_LOCAL_PORT} → ${DASHBOARD_SERVICE_PORT}"
+  # Nginx serves plaintext HTTP and routes by path, so the supervisor can probe
+  # its loopback endpoint directly. This intentionally has no TLS/SNI override.
+  PF_ADDRESS="$DASHBOARD_BIND_ADDRESS" \
+  PF_PROBE_URL="http://127.0.0.1:${DASHBOARD_LOCAL_PORT}/" \
+    "$SUPERVISE_BIN" up "$PF_STATE_DIR" "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" \
+      "$DASHBOARD_LOCAL_PORT" "$DASHBOARD_SERVICE_PORT" / "$PF_OWNER_PID"
 }
 
 # Called directly rather than through run_stage: run_stage evaluates its command
@@ -862,7 +837,7 @@ publish_gateway() {
 # at export time. record_stage keeps the bookkeeping identical either way.
 echo "──── STAGE: Publish the dashboard on a supervised port-forward ────"
 publish_rc=0
-publish_gateway > "${REPORT_DIR}/stage6d-publish.txt" 2>&1 || publish_rc=$?
+publish_dashboard > "${REPORT_DIR}/stage6d-publish.txt" 2>&1 || publish_rc=$?
 record_stage "Publish the dashboard on a supervised port-forward" \
   "stage6d-publish.txt" "$publish_rc"
 
@@ -913,7 +888,7 @@ if [[ -x "$CONVERT_BIN" || -f "$CONVERT_BIN" ]]; then
     || echo "WARNING: OpenReports conversion failed; summary.json is unaffected"
 fi
 
-demo_url="https://${GATEWAY_HOSTNAME}:${GATEWAY_LOCAL_PORT}/"
+demo_url="http://${DASHBOARD_HOSTNAME}:${DASHBOARD_LOCAL_PORT}/"
 overall="PASS"
 ((failures != 0)) && overall="FAIL"
 
@@ -940,8 +915,8 @@ overall="PASS"
   printf '  "demo_url": %s,\n' "$(json_str "$demo_url")"
   printf '  "demo_user": %s,\n' "$(json_str "$DEMO_USER")"
   printf '  "demo_password": %s,\n' "$(json_str "$DEMO_PASSWORD")"
-  printf '  "gateway_port": %d,\n' "$GATEWAY_LOCAL_PORT"
-  printf '  "gateway_bind_address": %s,\n' "$(json_str "$GATEWAY_BIND_ADDRESS")"
+  printf '  "dashboard_port": %d,\n' "$DASHBOARD_LOCAL_PORT"
+  printf '  "dashboard_bind_address": %s,\n' "$(json_str "$DASHBOARD_BIND_ADDRESS")"
   printf '  "port_forward_state_dir": %s,\n' "$(json_str "$PF_STATE_DIR")"
   printf '  "total_stages": %d,\n' "${#stage_results[@]}"
   printf '  "passed": %d,\n' "$(( ${#stage_results[@]} - failures ))"
@@ -963,17 +938,16 @@ echo "  URL:       ${demo_url}"
 echo "  Username:  ${DEMO_USER}"
 echo "  Password:  ${DEMO_PASSWORD}"
 echo ""
-echo "  Published on ${GATEWAY_BIND_ADDRESS}:${GATEWAY_LOCAL_PORT}, supervised."
+echo "  Published on ${DASHBOARD_BIND_ADDRESS}:${DASHBOARD_LOCAL_PORT}, supervised."
 echo "  The forward is owned by pid ${PF_OWNER_PID} and survives this script."
 echo "  Stop it with:"
 echo "    ${SUPERVISE_BIN} down ${PF_STATE_DIR}"
 echo ""
 echo "  Reaching it from a workstation (IAP tunnel to the internal IP, which is"
-echo "  why the forward binds ${GATEWAY_BIND_ADDRESS} rather than loopback):"
-echo "    gcloud compute start-iap-tunnel sl-demo-1-vm ${GATEWAY_LOCAL_PORT} \\"
-echo "      --local-host-port=localhost:${GATEWAY_LOCAL_PORT} --zone <zone>"
-echo "  The Gateway selects its route by SNI, so the hostname is not optional:"
-echo "    echo '127.0.0.1 ${GATEWAY_HOSTNAME}' | sudo tee -a /etc/hosts"
+echo "  why the forward binds ${DASHBOARD_BIND_ADDRESS} rather than loopback):"
+echo "    gcloud compute start-iap-tunnel sl-demo-1-vm ${DASHBOARD_LOCAL_PORT} \\"
+echo "      --local-host-port=localhost:${DASHBOARD_LOCAL_PORT} --zone <zone>"
+echo "  Dashboard Nginx routes by path; no Gateway TLS/SNI host override is needed."
 echo "  then open ${demo_url}"
 echo ""
 echo "  Reports:   ${REPORT_DIR}"

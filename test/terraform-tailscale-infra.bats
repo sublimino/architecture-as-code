@@ -54,6 +54,8 @@ setup_file() {
 	export COMPUTE_VARS="${TF_DIR}/modules/compute/variables.tf"
 	export ROOT_VARS="${TF_DIR}/environments/variables.tf"
 	export STARTUP="${TF_DIR}/modules/compute/startup/demo-vm.sh"
+	export TF_ENV_ROOT="${TF_DIR}/environments"
+	export CLOSURE="${REPO_ROOT}/test/helpers/tf-module-closure.sh"
 }
 
 setup() {
@@ -66,6 +68,8 @@ setup() {
 	[ -f "$COMPUTE_VARS" ]
 	[ -f "$ROOT_VARS" ]
 	[ -f "$STARTUP" ]
+	[ -d "$TF_ENV_ROOT" ]
+	[ -x "$CLOSURE" ]
 }
 
 # ---------------------------------------------------------------------------
@@ -161,6 +165,37 @@ scan_project_scoped_secret_grant() {
 	return "$found"
 }
 
+# VIOLATION SCANNER: any Secret Manager IAM resource declared in ONE directory.
+#
+# Non-recursive on purpose. Its caller walks the environments root's transitive
+# module closure and asks this of each directory in turn, so recursing here would
+# make the closure walk decorative — and a scan that recursed from
+# terraform/environments would reach nothing at all, because every module it
+# calls lives in a sibling tree rather than underneath it.
+#
+# All three member/binding/policy forms are matched. They differ in authority,
+# not in the permission they require of the applying identity: every one of them
+# is a setIamPolicy call on the secret, which is the thing the deploy identity
+# does not have and must not be given.
+#
+# Matched over comment-stripped source, because modules/compute now carries a
+# long comment naming the exact resource type it deliberately does not declare.
+# A scanner that fired on the sentence explaining the decision is a scanner
+# someone deletes within a week; the guard that used to sit here learned that
+# lesson for google_secret_manager_secret_version and it is recorded above.
+scan_secret_iam_resource() {
+	local dir="$1" found=0 f
+	[ -d "$dir" ] || return 2
+	for f in "$dir"/*.tf; do
+		[ -f "$f" ] || continue
+		if code_only "$f" | grep -qE '^resource "google_secret_manager_secret_iam_(member|binding|policy)"'; then
+			echo "SECRET MANAGER IAM RESOURCE in ${f}"
+			found=1
+		fi
+	done
+	return "$found"
+}
+
 # Names of every IAM resource type declared under <dir>.
 iam_resource_types() {
 	local dir="$1"
@@ -203,9 +238,14 @@ variable_list_default() {
 		return 1
 	}
 
-	run grep -qF 'resource "google_secret_manager_secret_iam_member" "tailscale_authkey_accessor"' "$COMPUTE_MAIN"
+	# The DATA source, not an IAM resource. The binding this used to name was
+	# removed deliberately — the secret's policy is granted once by a human, and
+	# the reasoning is at the head of modules/compute/main.tf. What must still be
+	# present is the read-only lookup: it is the plan-time existence gate, and
+	# every assertion below about how the key is resolved is vacuous without it.
+	run grep -qF 'data "google_secret_manager_secret" "tailscale_authkey"' "$COMPUTE_MAIN"
 	[ "$status" -eq 0 ] || {
-		echo "the compute module declares no secret-scoped IAM binding"
+		echo "the compute module no longer looks the auth-key secret up at all"
 		return 1
 	}
 
@@ -285,10 +325,29 @@ variable_list_default() {
 	run grep -qF 'metadata_attr signalloom-tailscale-secret-id' "$STARTUP"
 	[ "$status" -eq 0 ]
 
-	# And the Terraform side emits exactly that, on the instance.
-	run grep -qF 'signalloom-tailscale-secret-id = var.tailscale_authkey_secret_id' "$COMPUTE_MAIN"
+	# And the Terraform side emits exactly that key, on the instance.
+	#
+	# The VALUE is matched loosely here — either the variable or the data
+	# source's echo of it — because this test owns one claim only: the metadata
+	# key carries an identifier, which is worthless without an IAM grant, rather
+	# than a credential. WHICH of the two expressions supplies it is a different
+	# property with a different failure mode (the plan-time existence gate being
+	# tidied away as unused), and it is asserted exactly, once, in "the compute
+	# module still reads the secret, and grants nothing". Pinning the expression
+	# in both places would mean two tests failing for one cause and neither
+	# naming it.
+	run grep -qE '^ *signalloom-tailscale-secret-id *= *(var\.tailscale_authkey_secret_id|data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id) *$' "$COMPUTE_MAIN"
 	[ "$status" -eq 0 ] || {
 		echo "the compute module no longer publishes the secret NAME in metadata"
+		return 1
+	}
+
+	# The paired negative: whatever supplies that value, it is an identifier and
+	# not the key itself. Without this the assertion above is satisfied by a
+	# module that publishes a hardcoded tskey-… under the same key name.
+	run scan_authkey_literal "$COMPUTE_MAIN"
+	[ "$status" -eq 0 ] || {
+		echo "$output"
 		return 1
 	}
 }
@@ -350,20 +409,111 @@ variable_list_default() {
 }
 
 # ---------------------------------------------------------------------------
-# THE GRANT IS SECRET-SCOPED, AND IS THE ONLY GRANT
+# THE SECRET'S IAM IS NOT THE DEPLOY IDENTITY'S TO MANAGE
+#
+# The compute module used to declare a secret-scoped
+# google_secret_manager_secret_iam_member granting secretAccessor to the VM's
+# runtime account. Correct about scope, wrong about OWNER: declaring it means the
+# identity running `terraform apply` needs secretmanager.secrets.setIamPolicy on
+# that secret, and both first applies died on exactly that 403. Widening the
+# deploy identity is the available fix and the wrong one — an account that can
+# setIamPolicy on a secret can grant itself read of that secret, and this one
+# runs unattended. The repo already settled the same question for buckets at the
+# foot of modules/deploy-identity/main.tf: creation and IAM are lifecycle,
+# lifecycle belongs to the one-time privileged human, and what the deploy
+# identity does is POPULATE.
+#
+# So the assertion inverts. It is no longer "the grant is correctly scoped" but
+# "no Secret Manager IAM resource is reachable from the environments root at
+# all" — and it is asked of the transitive MODULE CLOSURE rather than of the
+# root's own files, because the root declares no `resource` blocks whatsoever.
+# A guard that grepped only terraform/environments/*.tf would be green today,
+# green if the binding were re-added inside any module the root calls, and would
+# report nothing on the morning the 403 came back. tf-module-closure.sh is the
+# tool that answers the question actually being asked; it is the same helper
+# test/terraform-preserve-guards.bats uses, for the same reason.
 # ---------------------------------------------------------------------------
 
-@test "the secret grant is secret-scoped and names secretAccessor" {
-	# Presence and correctness together. The resource TYPE is the control:
-	# google_secret_manager_secret_iam_member binds on one secret, where
-	# google_project_iam_member with the same role grants read on every secret
-	# in the project, present and future.
-	run grep -qE '^resource "google_secret_manager_secret_iam_member" "tailscale_authkey_accessor" \{' "$COMPUTE_MAIN"
-	[ "$status" -eq 0 ]
+@test "no Secret Manager IAM resource is reachable from the environments root" {
+	local closure violations dir
 
-	run grep -qF 'role      = "roles/secretmanager.secretAccessor"' "$COMPUTE_MAIN"
+	closure="$("$CLOSURE" "$TF_ENV_ROOT")"
+
+	# PRESENCE FIRST, and it is not ceremony. The scan below is an
+	# absence-of-bad assertion, which is trivially satisfied by having walked
+	# nothing: a closure helper that silently returned an empty list, or a
+	# renamed module directory, would make this test pass hardest at the moment
+	# it stopped looking at anything. So the closure must contain the module
+	# that actually carries the Tailscale code before its emptiness means a
+	# thing.
+	[ -n "$closure" ]
+	printf '%s\n' "$closure" | grep -qx "${TF_DIR}/modules/compute" || {
+		echo "the environments root's module closure no longer reaches modules/compute:"
+		printf '  %s\n' $closure
+		echo "Every assertion below is vacuous until it does."
+		return 1
+	}
+
+	violations=""
+	while IFS= read -r dir; do
+		[ -n "$dir" ] || continue
+		run scan_secret_iam_resource "$dir"
+		[ "$status" -ne 2 ] || {
+			echo "closure names a directory that does not exist: ${dir}"
+			return 1
+		}
+		if [ "$status" -eq 1 ]; then
+			violations="${violations}${output}"$'\n'
+		fi
+	done <<<"$closure"
+
+	[ -z "$violations" ] || {
+		echo "$violations"
+		echo ""
+		echo "A Secret Manager IAM resource in the environments root's closure"
+		echo "requires the DEPLOY identity to hold secretmanager.secrets.setIamPolicy"
+		echo "on that secret. It does not hold it, and it must not: an account that"
+		echo "can setIamPolicy on a secret can grant itself read of that secret, and"
+		echo "this one runs unattended from CI."
+		echo ""
+		echo "The grants are made once, by a human, in the act that creates the"
+		echo "secret — see terraform/bootstrap/README.md."
+		return 1
+	}
+}
+
+@test "the compute module still reads the secret, and grants nothing" {
+	# The two halves together, because either alone is satisfiable by deleting
+	# the feature. A tree with no Tailscale code at all has no IAM resource in
+	# it either, and would sail through the closure scan above.
+	run grep -qE '^data "google_secret_manager_secret" "tailscale_authkey" \{' "$COMPUTE_MAIN"
 	[ "$status" -eq 0 ] || {
-		echo "the binding no longer names roles/secretmanager.secretAccessor"
+		echo "the compute module no longer looks the auth-key secret up"
+		echo "roles/secretmanager.viewer on the deploy identity exists to make"
+		echo "this lookup resolve; without the lookup there is no plan-time gate."
+		return 1
+	}
+
+	# The lookup is CONSUMED, not merely declared. Nothing else references it
+	# now that the IAM binding is gone, so an unreferenced data source is one
+	# `tflint --fix` away from deletion — and its deletion is silent, because
+	# what it provides is a plan-time failure that simply stops happening.
+	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$COMPUTE_MAIN"
+	[ "$status" -eq 0 ] || {
+		echo "the secret name published to the VM no longer comes FROM the lookup."
+		echo "Taking it from var.tailscale_authkey_secret_id instead produces the"
+		echo "identical string and removes the dependency edge, which is the only"
+		echo "thing keeping the existence gate from being tidied away as unused."
+		return 1
+	}
+
+	local types
+	types="$(iam_resource_types "${TF_DIR}/modules/compute")"
+	[ -z "$types" ] || {
+		echo "the compute module declares IAM resources again:"
+		printf '  %s\n' $types
+		echo "Its IAM budget is now ZERO. The VM's access to the auth-key secret"
+		echo "is granted out of band by a human; see the head of the module."
 		return 1
 	}
 }
@@ -376,21 +526,6 @@ variable_list_default() {
 		echo "roles/secretmanager.secretAccessor at PROJECT scope grants read on"
 		echo "every secret in the project, present and future, to a service"
 		echo "account attached to a VM that pulls public container images."
-		return 1
-	}
-}
-
-@test "the compute module's IAM budget is exactly one secret-scoped binding" {
-	# A count, not a value check. Adding a second IAM resource — a project
-	# member, a service-account user binding, a second secret — fails here
-	# rather than being noticed later. When one is genuinely needed the required
-	# change is: add it, update this list, and justify it in the diff.
-	local types
-	types="$(iam_resource_types "${TF_DIR}/modules/compute")"
-	[ "$types" = "google_secret_manager_secret_iam_member" ] || {
-		echo "the compute module's IAM resource types are now:"
-		printf '  %s\n' "$types"
-		echo "Expected exactly: google_secret_manager_secret_iam_member"
 		return 1
 	}
 }
@@ -676,14 +811,22 @@ mutate() {
 	[ "$status" -eq 0 ]
 }
 
-@test "MUTATION: widening the grant to project scope is caught" {
-	local mutated dir
+@test "MUTATION: a project-scoped secret grant is caught" {
+	# The mutation this replaces edited the real binding's resource type in a
+	# copy of main.tf. That binding no longer exists, so the sed became a silent
+	# no-op — and a no-op mutation leaves the scanner untested while the test
+	# still passes, which is the exact failure mode this suite's header warns
+	# about. The fixture is now synthesised, so it cannot stop matching.
+	local dir
 	dir="${BATS_TEST_TMPDIR}/mut-iam"
 	mkdir -p "$dir"
-	cp "$COMPUTE_MAIN" "${dir}/main.tf"
-	sed -i -e 's|^resource "google_secret_manager_secret_iam_member" "tailscale_authkey_accessor" {|resource "google_project_iam_member" "tailscale_authkey_accessor" {|' "${dir}/main.tf"
-	run cmp -s "$COMPUTE_MAIN" "${dir}/main.tf"
-	[ "$status" -ne 0 ]
+	cat >"${dir}/main.tf" <<'PROJECTSCOPED'
+resource "google_project_iam_member" "tailscale_authkey_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${var.service_account_email}"
+}
+PROJECTSCOPED
 
 	run scan_project_scoped_secret_grant "$dir"
 	[ "$status" -eq 1 ]
@@ -694,12 +837,101 @@ mutate() {
 	[ "$status" -eq 0 ]
 }
 
+@test "MUTATION: re-adding a secret IAM resource inside the closure is caught" {
+	# The guard that replaced the scope check. Its subject is a resource that
+	# is now ABSENT, and an absence assertion is exactly the shape that passes
+	# hardest when nothing is there — so the only way to know it can still fail
+	# is to put the resource back and watch it fire.
+	#
+	# All three authority forms, because they are equally 403-producing: each is
+	# a setIamPolicy call on the secret.
+	local dir form
+	for form in member binding policy; do
+		dir="${BATS_TEST_TMPDIR}/mut-secretiam-${form}"
+		mkdir -p "$dir"
+		cat >"${dir}/main.tf" <<RESTORED
+resource "google_secret_manager_secret_iam_${form}" "tailscale_authkey_accessor" {
+  project   = var.project_id
+  secret_id = var.tailscale_authkey_secret_id
+  role      = "roles/secretmanager.secretAccessor"
+}
+RESTORED
+
+		run scan_secret_iam_resource "$dir"
+		[ "$status" -eq 1 ] || {
+			echo "the guard did not fire on a google_secret_manager_secret_iam_${form}"
+			return 1
+		}
+		[[ "$output" == *"SECRET MANAGER IAM RESOURCE"* ]]
+	done
+
+	# A COMMENT discussing the resource type must NOT fire. modules/compute now
+	# carries several paragraphs naming it, and a guard that reported the
+	# correctly-written file as broken is one that gets switched off.
+	dir="${BATS_TEST_TMPDIR}/mut-secretiam-comment"
+	mkdir -p "$dir"
+	cat >"${dir}/main.tf" <<'COMMENTONLY'
+# resource "google_secret_manager_secret_iam_member" is deliberately not used:
+# it would require setIamPolicy on the secret.
+resource "google_compute_instance" "x" {
+  name = "x"
+}
+COMMENTONLY
+	run scan_secret_iam_resource "$dir"
+	[ "$status" -eq 0 ]
+
+	# Missing directory is status 2, distinct from "clean" — the trap where
+	# `[ "$status" -ne 0 ]` reads a nonexistent target as a pass.
+	run scan_secret_iam_resource "${BATS_TEST_TMPDIR}/no-such-dir-at-all"
+	[ "$status" -eq 2 ]
+
+	# Clean control: every directory in the real closure.
+	local d
+	while IFS= read -r d; do
+		[ -n "$d" ] || continue
+		run scan_secret_iam_resource "$d"
+		[ "$status" -eq 0 ] || {
+			echo "$output"
+			return 1
+		}
+	done < <("$CLOSURE" "$TF_ENV_ROOT")
+}
+
+@test "MUTATION: dropping the data-source reference from metadata is caught" {
+	# The consumed-lookup half. Rewriting the metadata value back to the
+	# variable produces a byte-identical published string, so nothing about the
+	# VM changes and no other assertion in this suite or in compute.tftest.hcl
+	# notices — the only casualty is the dependency edge that stops the
+	# existence gate being deleted as unused. That is precisely the class of
+	# change a guard has to catch, because its symptom is nothing.
+	local mutated
+	mutated="$(mutate "$COMPUTE_MAIN" \
+		's|signalloom-tailscale-secret-id = data\.google_secret_manager_secret\.tailscale_authkey\[0\]\.secret_id|signalloom-tailscale-secret-id = var.tailscale_authkey_secret_id|')"
+	[ -n "$mutated" ]
+
+	# The mutation must have CHANGED something. A sed whose pattern stopped
+	# matching would leave an identical file and the assertions below would
+	# then be testing the unmutated original.
+	run cmp -s "$COMPUTE_MAIN" "$mutated"
+	[ "$status" -ne 0 ]
+
+	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$mutated"
+	[ "$status" -ne 0 ]
+
+	run grep -qF 'signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id' "$COMPUTE_MAIN"
+	[ "$status" -eq 0 ]
+}
+
 @test "MUTATION: the project-scope scanner reports a missing directory distinctly" {
 	run scan_project_scoped_secret_grant "${BATS_TEST_TMPDIR}/no-such-dir"
 	[ "$status" -eq 2 ]
 }
 
-@test "MUTATION: a second IAM resource breaks the compute permission budget" {
+@test "MUTATION: ANY IAM resource breaks the compute permission budget" {
+	# The budget is now ZERO, which makes this mutation more important rather
+	# than less: "no IAM resources here" is an absence assertion, and the tree
+	# satisfies it today by having none. Adding one is the only way to show the
+	# check still has teeth.
 	local dir
 	dir="${BATS_TEST_TMPDIR}/mut-budget"
 	mkdir -p "$dir"
@@ -715,13 +947,13 @@ EXTRA
 
 	run iam_resource_types "$dir"
 	[ "$status" -eq 0 ]
-	[ "$output" != "google_secret_manager_secret_iam_member" ]
+	[ -n "$output" ]
 	[[ "$output" == *"google_project_iam_member"* ]]
 
-	# Clean control: the real module still holds exactly one.
+	# Clean control: the real module holds none.
 	run iam_resource_types "${TF_DIR}/modules/compute"
 	[ "$status" -eq 0 ]
-	[ "$output" = "google_secret_manager_secret_iam_member" ]
+	[ -z "$output" ]
 }
 
 @test "MUTATION: a new ingress rule breaks the ingress set" {

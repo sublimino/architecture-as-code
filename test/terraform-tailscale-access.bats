@@ -1012,6 +1012,194 @@ mutate() {
 	}
 }
 
+@test "TS the shared forward is a restart-always systemd unit" {
+	# The manual step this replaces, and the one thing chunk S1 did not deliver:
+	# S1 routed every access method through ONE forward, correctly, and left it a
+	# `nohup setsid kubectl port-forward`. That survives the SSH session and
+	# nothing else — not the process dying, not a reboot. A port-forward dies on
+	# apiserver resets and on pod restarts, exits ZERO when it does, and says
+	# nothing, which is how a demo that worked at 21:00 is dead at 09:00.
+	#
+	# LINE-ANCHORED, not substrings of the log, and that is not fastidiousness.
+	# The first version of this test asserted `== *"Restart=always"*` and PASSED
+	# with `Restart=no` in the unit, because the remote script's own comments
+	# travel to the VM inside the heredoc and land in the same log — one of them
+	# is the sentence "# always, not on-failure: ...". The assertion was reading
+	# prose as data. Only mutating the REAL file caught it. Every directive below
+	# is matched as a COMPLETE LINE, which a comment can never be.
+	#
+	# STUB_VM_PUBLISHING=0 is what drives the INSTALL path. ensure_published
+	# short-circuits when the port is already bound — correctly, because
+	# reinstalling would restart the unit and Dex keeps its sessions in memory —
+	# so with the stub's default of "already publishing" this test would assert
+	# against a run that never wrote a unit at all.
+	export STUB_VM_PUBLISHING=0
+	stub_curl 200
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+
+	local sent
+	sent="$(gcloud_log)"
+
+	grep -qF -- '/etc/systemd/system/signalloom-dashboard-pf.service' <<<"$sent" || {
+		echo "no unit file was written: ${sent}"
+		return 1
+	}
+	grep -qxF -- 'Restart=always' <<<"$sent" || {
+		echo "the unit does not restart. A port-forward that loses its pod exits"
+		echo "ZERO, so on-failure or no leaves the demo dead with the unit"
+		echo "reported as cleanly finished: ${sent}"
+		return 1
+	}
+	grep -qxF -- 'StartLimitIntervalSec=0' <<<"$sent" || {
+		echo "systemd's default rate limit gives up after 5 restarts in 10s and"
+		echo "leaves the unit failed — which a pod roll reaches routinely: ${sent}"
+		return 1
+	}
+	grep -qxF -- 'WantedBy=multi-user.target' <<<"$sent" || {
+		echo "the unit has no [Install] target, so 'systemctl enable' cannot link"
+		echo "it and the forward does not survive a reboot: ${sent}"
+		return 1
+	}
+	grep -qE '^ExecStart=.*port-forward .*svc/dashboard-signalloom' <<<"$sent" || {
+		echo "ExecStart does not forward the dashboard service: ${sent}"
+		return 1
+	}
+
+	# ENABLEMENT, counted rather than merely present, and the count is the whole
+	# assertion. The install has two branches — unit body changed, and unchanged
+	# — and the stub receives the ENTIRE SCRIPT as one string with both branches
+	# in it, so it cannot report which one ran. A substring match for "systemctl
+	# enable" is therefore satisfied by the other branch and stays green when the
+	# one under test loses it. Proven: dropping `enable --now` from the
+	# fresh-install branch failed nothing at all until this became a count.
+	[ "$(grep -co 'systemctl enable' <<<"$sent")" -ge 2 ] || {
+		echo "fewer than two 'systemctl enable' calls reached the VM. Both branches"
+		echo "must enable the unit — the one that rewrites it and the one that"
+		echo "finds it already correct. A unit started but never enabled does not"
+		echo "survive a reboot: ${sent}"
+		return 1
+	}
+}
+
+@test "TS ts-up refuses when the dashboard service is not in the cluster" {
+	# Under Restart=always a missing service is an INFINITE loop: the unit
+	# reports active, nothing ever binds, and the health gate times out two
+	# minutes later having named nothing. The remote script reads the service
+	# once, first, so the failure is immediate and says which one is missing.
+	#
+	# TWO ASSERTIONS, and the first one is the one that nearly went missing.
+	#
+	# STUB_PF_RC=5 makes the STUB exit 5. That proves the driver HANDLES exit 5;
+	# it cannot prove the driver PRODUCES it, because the stub never executes the
+	# remote script at all. Deleting the real `kubectl get service` pre-check
+	# therefore failed nothing in this whole suite — verified by mutating the
+	# real file, which is the only way this class of hole is visible. The source
+	# assertion below is what closes it, and it is deliberately placed before the
+	# behavioural half so the failure names the missing mechanism rather than a
+	# missing message.
+	grep -qE '^if ! "\\\$KUBECTL" get service -n .*; then$' "${DRIVER_SRC}" || {
+		echo "the remote script no longer reads the dashboard Service before"
+		echo "writing a Restart=always unit that chases it. A missing or renamed"
+		echo "service becomes an infinite restart loop reported as 'active', with"
+		echo "the health gate timing out two minutes later having named nothing."
+		return 1
+	}
+	grep -qF 'NO_DASHBOARD_SERVICE' "${DRIVER_SRC}" || {
+		echo "the pre-check no longer reports which service was looked for"
+		return 1
+	}
+
+	export STUB_VM_PUBLISHING=0
+	export STUB_PF_RC=5
+	stub_curl 200
+	run "${driver}" ts-up
+	[ "$status" -ne 0 ]
+	[[ "$output" == *"fe-signalloom/dashboard-signalloom"* ]] || {
+		echo "the failure did not name the service it could not find: ${output}"
+		return 1
+	}
+	[[ "$(gcloud_log)" != *"tailscale serve"* ]] || {
+		echo "serve was configured in front of a backend that does not exist: $(gcloud_log)"
+		return 1
+	}
+}
+
+@test "TS ts-up refuses when the unit starts and nothing ever listens" {
+	# systemd reports `active` the moment the process forks, several seconds
+	# before kubectl has an apiserver connection — and forever if it never gets
+	# one. `active` with no listener is exactly what a restart loop looks like,
+	# so the install waits for the LISTENER rather than trusting the unit.
+	export STUB_VM_PUBLISHING=0
+	export STUB_PF_LISTENING=0
+	stub_curl 200
+	run "${driver}" ts-up
+	[ "$status" -ne 0 ]
+	[[ "$(gcloud_log)" != *"tailscale serve"* ]] || {
+		echo "serve was configured in front of a dead forward: $(gcloud_log)"
+		return 1
+	}
+}
+
+@test "TS MUTATION forward-ordering: serving before the forward publishes nothing" {
+	# ensure_published runs BEFORE ensure_ts_serve because tailscale accepts a
+	# backend that is not answering without complaint. Swapped, the failure
+	# surfaces two minutes later at the health gate as a 502 and names nothing.
+	# Asserted on source order, because both orders "work" against a stub that
+	# always succeeds — which is precisely why it needs a guard, not a comment.
+	local fwd srv
+	fwd="$(grep -n '^  ensure_published "\$port"$' "${DRIVER_SRC}" | sed -n '2p' | cut -d: -f1)"
+	srv="$(grep -n '^  ensure_ts_serve serve' "${DRIVER_SRC}" | head -1 | cut -d: -f1)"
+	[ -n "$fwd" ] || {
+		echo "cmd_ts_up does not call ensure_published at all"
+		return 1
+	}
+	[ -n "$srv" ] || {
+		echo "cmd_ts_up does not call ensure_ts_serve at all"
+		return 1
+	}
+	[ "$fwd" -lt "$srv" ] || {
+		echo "ensure_ts_serve (line ${srv}) runs before ensure_published (line ${fwd})"
+		return 1
+	}
+}
+
+# ── The seam between the stub and the script it models ──────────────────────
+#
+# stub-gcloud dispatches on substrings of the remote command. That is the only
+# thing it can do, and it is also how it goes silently wrong: rename the unit,
+# drop the --address flag, change PUBLISHED to something else, and the stub's
+# branch stops matching. It then falls through to the catch-all `*) exit 0`,
+# which reports SUCCESS with no output — so an assertion that only looked for a
+# substring in the log keeps passing while the two have diverged completely.
+
+@test "SEAM the stub's dispatch markers still exist in the real driver" {
+	local marker
+	for marker in 'port-forward' 'systemctl is-active' 'systemctl disable' \
+		'tailscale serve' 'tailscale funnel' 'ss -ltn'; do
+		grep -qF -- "$marker" "${DRIVER_SRC}" || {
+			echo "stub-gcloud dispatches on '${marker}', which the driver no longer"
+			echo "issues. That branch is unreachable and its knob is dead"
+			echo "configuration; the stub falls through to its catch-all and"
+			echo "reports success with no output."
+			return 1
+		}
+	done
+}
+
+@test "SEAM the forward's remote script emits the words its caller checks for" {
+	# The stub answers PUBLISHED / NOT_PUBLISHED because that is ensure_published's
+	# own vocabulary. If the driver stopped using those words the stub would be
+	# speaking a dialect nobody reads, and every test here would stay green.
+	local word
+	for word in PUBLISHED NOT_PUBLISHED; do
+		grep -qF -- "$word" "${DRIVER_SRC}" || {
+			echo "the driver no longer emits ${word}, but the stub still answers it"
+			return 1
+		}
+	done
+}
+
 # ── The seam between chunks T2 and T3 ───────────────────────────────────────
 #
 # Every test above drives dex_origin() through a STUB, and every test in

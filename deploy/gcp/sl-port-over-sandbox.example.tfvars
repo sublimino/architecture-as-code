@@ -100,15 +100,40 @@ dns_managed_zone = ""
 #     printf '%s' "<the key>" | gcloud secrets create sl-demo-tailscale-authkey \
 #       --project sl-port-over-sandbox --data-file=- --replication-policy=automatic
 #
-# Terraform REFERENCES that secret with a data source and grants the runtime
-# service account roles/secretmanager.secretAccessor ON THAT SECRET ALONE. It
-# never declares the secret or its version, because a
+# Terraform REFERENCES that secret with a data source and NOTHING ELSE. It never
+# declares the secret, never declares a version — a
 # google_secret_manager_secret_version resource carries its payload in
-# `secret_data` and would write the key into Terraform state in plain text.
+# `secret_data` and would write the key into Terraform state in plain text — and,
+# since the first two applies of this path died on it, never declares the
+# secret's IAM either:
 #
-# If the secret does not exist, `tailscale_enabled = true` fails at PLAN with
-# "secret not found" — deliberately, and before anything is created. Leaving the
-# flag false plans and applies exactly as this environment did before.
+#     Error 403: Permission 'secretmanager.secrets.setIamPolicy' denied
+#       on 'projects/sl-port-over-sandbox/secrets/sl-demo-tailscale-authkey'
+#
+# The fix is NOT to widen sl-tf-deploy. An identity that can setIamPolicy on a
+# secret can grant itself read of that secret, and sl-tf-deploy applies this
+# estate unattended from CI. So the grants are made once, by a human, in the same
+# act that creates the secret — the same lifecycle/populate split the state
+# bucket already uses (see terraform/modules/deploy-identity/main.tf):
+#
+#     gcloud secrets add-iam-policy-binding sl-demo-tailscale-authkey \
+#       --member="serviceAccount:sl-rt-demo-1@sl-port-over-sandbox.iam.gserviceaccount.com" \
+#       --role=roles/secretmanager.secretAccessor     # reads the PAYLOAD, at boot
+#
+#     gcloud secrets add-iam-policy-binding sl-demo-tailscale-authkey \
+#       --member="serviceAccount:sl-tf-deploy@sl-port-over-sandbox.iam.gserviceaccount.com" \
+#       --role=roles/secretmanager.viewer             # reads the METADATA only
+#
+# One accessor grant PER ENVIRONMENT KEY — each environment has its own runtime
+# account. Full procedure: terraform/bootstrap/README.md § "The Tailscale
+# auth-key secret".
+#
+# If the secret does not exist, or the deploy account lacks `viewer`,
+# `tailscale_enabled = true` fails at PLAN — deliberately, and before anything is
+# created. Leaving the flag false plans and applies exactly as this environment
+# did before. If the RUNTIME account lacks `secretAccessor` there is no error at
+# all: the VM boots, the node never joins, and the failure surfaces much later as
+# "no node named sl-demo-1 in this tailnet".
 #
 # SECOND PREREQUISITE, and it is easy to miss because this file does not set it.
 # The startup script installs Tailscale from pkgs.tailscale.com over public

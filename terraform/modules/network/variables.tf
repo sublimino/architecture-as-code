@@ -38,6 +38,34 @@ variable "app_port" {
   }
 }
 
+# ─── Why this is an explicit root signal, not `hostname != ""` ─────────────
+#
+# The edge module does NOT treat hostname as "edge on/off". It uses
+# `local.tls_enabled = var.hostname != ""` to gate the TLS FRONTEND only:
+# global address, managed certificate, SSL policy, URL maps, proxies, and
+# forwarding rules. The backend half is different. The health check, backend
+# service, IAP backend-service IAM binding, and Cloud Armor policy are created
+# whenever modules/edge is instantiated, hostname or not.
+#
+# That distinction matters here because Google's two load-balancer
+# health-check / proxy ranges hit the VM whenever the edge module exists, even
+# on a lane with hostname = "". Deriving this firewall rule from hostname would
+# therefore delete real probe ingress for a backend that still exists, and the
+# symptom would be a backend that never turns healthy — an outage that reads as
+# a broken application rather than as a broken network policy.
+#
+# So this module takes an explicit boolean from the root instead. The root can
+# drive it from the SAME expression that decides whether module "edge" exists,
+# which makes disagreement between "the edge was instantiated" and "the health
+# check ranges are admitted" unrepresentable. The default stays false for the
+# opposite case: a caller who does not think about the question gets no dead
+# ingress surface by accident.
+variable "edge_enabled" {
+  description = "Create the GCP health-check / load-balancer proxy ingress rule. Defaults false so a caller that does not think about the question gets no dead ingress surface by accident; set true only where the root is also instantiating the edge module."
+  type        = bool
+  default     = false
+}
+
 variable "iap_source_range" {
   description = "Source range for every IAP ingress rule. Google's IAP TCP-forwarding range is 35.235.240.0/20 and there is no second legal value; this is a variable so that an attempt to point IAP ingress somewhere else fails at plan with a named rule."
   type        = string

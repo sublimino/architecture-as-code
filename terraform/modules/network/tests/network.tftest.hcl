@@ -261,7 +261,8 @@ run "app_port_is_reachable_from_iap_and_not_only_from_health_checkers" {
   command = plan
 
   variables {
-    app_port = 30754
+    app_port     = 30754
+    edge_enabled = true
   }
 
   # The requirement itself. Both halves in one condition on purpose: a rule
@@ -283,7 +284,7 @@ run "app_port_is_reachable_from_iap_and_not_only_from_health_checkers" {
     condition = alltrue([
       for src in setunion(
         google_compute_firewall.allow_iap_app_port.source_ranges,
-        google_compute_firewall.allow_health_checks.source_ranges,
+        google_compute_firewall.allow_health_checks[0].source_ranges,
       ) :
       contains(["35.235.240.0/20", "130.211.0.0/22", "35.191.0.0/16"], src)
     ])
@@ -294,7 +295,7 @@ run "app_port_is_reachable_from_iap_and_not_only_from_health_checkers" {
     condition = length(setintersection(
       setunion(
         google_compute_firewall.allow_iap_app_port.source_ranges,
-        google_compute_firewall.allow_health_checks.source_ranges,
+        google_compute_firewall.allow_health_checks[0].source_ranges,
       ),
       toset(["0.0.0.0/0", "::/0"]),
     )) == 0
@@ -311,19 +312,19 @@ run "app_port_is_reachable_from_iap_and_not_only_from_health_checkers" {
   # The health-check rule is unchanged by any of this: same two Google ranges,
   # still tracking app_port, still scoped to the runtime SA.
   assert {
-    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+    condition = google_compute_firewall.allow_health_checks[0].source_ranges == toset([
       "130.211.0.0/22", "35.191.0.0/16",
     ])
     error_message = "the health-check rule's sources must remain exactly the two GCP probe ranges"
   }
 
   assert {
-    condition     = one(google_compute_firewall.allow_health_checks.allow).ports == tolist(["30754"])
+    condition     = one(google_compute_firewall.allow_health_checks[0].allow).ports == tolist(["30754"])
     error_message = "the health-check rule must still track app_port"
   }
 
   assert {
-    condition     = google_compute_firewall.allow_health_checks.target_service_accounts == toset([var.runtime_service_account_email])
+    condition     = google_compute_firewall.allow_health_checks[0].target_service_accounts == toset([var.runtime_service_account_email])
     error_message = "the health-check rule must remain scoped to the runtime service account"
   }
 }
@@ -337,29 +338,69 @@ run "health_checks_reach_only_the_app_port_from_only_google" {
   command = plan
 
   variables {
-    app_port = 9443
+    app_port     = 9443
+    edge_enabled = true
   }
 
   assert {
-    condition     = length(google_compute_firewall.allow_health_checks.source_ranges) == 2
+    condition     = length(google_compute_firewall.allow_health_checks[0].source_ranges) == 2
     error_message = "the health-check rule must have exactly two source ranges"
   }
 
   assert {
-    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+    condition = google_compute_firewall.allow_health_checks[0].source_ranges == toset([
       "130.211.0.0/22", "35.191.0.0/16",
     ])
     error_message = "the health-check rule's sources must be exactly the two GCP probe ranges"
   }
 
   assert {
-    condition     = one(google_compute_firewall.allow_health_checks.allow).ports == tolist(["9443"])
+    condition     = one(google_compute_firewall.allow_health_checks[0].allow).ports == tolist(["9443"])
     error_message = "the health-check rule must open only the app port, and must track it"
   }
 
   assert {
-    condition     = google_compute_firewall.allow_health_checks.target_service_accounts == toset([var.runtime_service_account_email])
+    condition     = google_compute_firewall.allow_health_checks[0].target_service_accounts == toset([var.runtime_service_account_email])
     error_message = "the health-check rule must be scoped to the runtime service account"
+  }
+}
+
+run "no_edge_means_no_health_check_ingress" {
+  command = plan
+
+  assert {
+    condition     = length(google_compute_firewall.allow_health_checks) == 0
+    error_message = "with no edge enabled, Google's load-balancer health-check and proxy ranges reach this environment never. Keeping the rule anyway is dead ingress surface that admits nothing legitimate and exists only to be found by an auditor."
+  }
+}
+
+run "an_edge_lane_gets_the_health_check_ingress" {
+  command = plan
+
+  variables {
+    edge_enabled = true
+  }
+
+  assert {
+    condition     = length(google_compute_firewall.allow_health_checks) == 1
+    error_message = "enabling the edge must create exactly one health-check ingress rule"
+  }
+
+  assert {
+    condition = google_compute_firewall.allow_health_checks[0].source_ranges == toset([
+      "130.211.0.0/22", "35.191.0.0/16",
+    ])
+    error_message = "an edge lane must admit exactly the two GCP health-check / proxy source ranges"
+  }
+
+  assert {
+    condition     = one(google_compute_firewall.allow_health_checks[0].allow).ports == tolist(["8080"])
+    error_message = "an edge lane's health-check rule must open exactly app_port"
+  }
+
+  assert {
+    condition     = google_compute_firewall.allow_health_checks[0].target_service_accounts == toset([var.runtime_service_account_email])
+    error_message = "an edge lane's health-check rule must be scoped to the runtime service account"
   }
 }
 
@@ -443,6 +484,7 @@ run "a_configured_port_list_reaches_the_firewall_rule" {
   command = plan
 
   variables {
+    edge_enabled                     = true
     egress_public_https_destinations = ["192.0.2.0/24"]
     egress_public_ports              = ["80", "443"]
   }
@@ -480,7 +522,7 @@ run "a_configured_port_list_reaches_the_firewall_rule" {
   }
 
   assert {
-    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+    condition = google_compute_firewall.allow_health_checks[0].source_ranges == toset([
       "130.211.0.0/22", "35.191.0.0/16",
     ])
     error_message = "an egress change must not alter the health-check ingress sources"
@@ -573,6 +615,7 @@ run "no_allow_rule_is_open_to_the_world" {
   command = plan
 
   variables {
+    edge_enabled = true
     # The hostile case: an operator "temporarily" allowlisting everything.
     egress_public_https_destinations = ["0.0.0.0/0"]
   }
@@ -587,7 +630,7 @@ run "no_allow_rule_is_open_to_the_world" {
 
   assert {
     condition = length(setintersection(
-      google_compute_firewall.allow_health_checks.source_ranges,
+      google_compute_firewall.allow_health_checks[0].source_ranges,
       toset(["0.0.0.0/0", "::/0"]),
     )) == 0
     error_message = "the health-check allow rule must never be sourced from the whole internet"
@@ -753,6 +796,7 @@ run "accepts_the_corrected_inputs" {
 
   variables {
     app_port                      = 65535
+    edge_enabled                  = true
     runtime_service_account_email = "sl-demo-1-runtime@CHANGEME-project.iam.gserviceaccount.com"
     nat_log_filter                = "ALL"
     flow_log_sampling_rate        = 1
@@ -770,7 +814,7 @@ run "accepts_the_corrected_inputs" {
   }
 
   assert {
-    condition     = one(google_compute_firewall.allow_health_checks.allow).ports == tolist(["65535"])
+    condition     = one(google_compute_firewall.allow_health_checks[0].allow).ports == tolist(["65535"])
     error_message = "65535 is a valid app port and must be accepted"
   }
 }
@@ -912,6 +956,7 @@ run "opening_udp_egress_changes_no_ingress_rule" {
   variables {
     egress_public_udp_destinations = ["192.0.2.0/24"]
     egress_public_udp_ports        = ["3478", "41641"]
+    edge_enabled                   = true
 
     # Stated explicitly rather than inherited from the file-level default,
     # because the app-port assertions below name 30754 as a literal. Inheriting
@@ -944,7 +989,7 @@ run "opening_udp_egress_changes_no_ingress_rule" {
   }
 
   assert {
-    condition = google_compute_firewall.allow_health_checks.source_ranges == toset([
+    condition = google_compute_firewall.allow_health_checks[0].source_ranges == toset([
       "130.211.0.0/22", "35.191.0.0/16",
     ])
     error_message = "the health-check ingress sources must still be exactly the two GCP probe ranges"
@@ -957,7 +1002,7 @@ run "opening_udp_egress_changes_no_ingress_rule" {
       for src in setunion(
         google_compute_firewall.allow_iap_ssh.source_ranges,
         google_compute_firewall.allow_iap_app_port.source_ranges,
-        google_compute_firewall.allow_health_checks.source_ranges,
+        google_compute_firewall.allow_health_checks[0].source_ranges,
       ) :
       contains(["35.235.240.0/20", "130.211.0.0/22", "35.191.0.0/16"], src)
     ])
@@ -969,7 +1014,7 @@ run "opening_udp_egress_changes_no_ingress_rule" {
       setunion(
         google_compute_firewall.allow_iap_ssh.source_ranges,
         google_compute_firewall.allow_iap_app_port.source_ranges,
-        google_compute_firewall.allow_health_checks.source_ranges,
+        google_compute_firewall.allow_health_checks[0].source_ranges,
       ),
       toset(["0.0.0.0/0", "::/0"]),
     )) == 0

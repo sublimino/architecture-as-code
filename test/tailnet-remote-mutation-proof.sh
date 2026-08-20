@@ -164,6 +164,25 @@ prove "a stale receipt still vouches for the lane" \
 prove "the on-VM lane files no receipt" \
   '/write_surface_receipt on-vm/d'
 
+# ── Fence instrumentation ──────────────────────────────────────────────────
+#
+# These guard a signal rather than a verdict, and they are mutated for exactly
+# that reason: an unmeasured fence fails silently, by never reporting anything,
+# which is the failure mode least likely to be noticed by a human reading a
+# green run.
+
+prove "checks report no elapsed time against their fence" \
+  "s/printf -v budget '\\[%d\\.%03ds\\/%ss %d%%\\]'/printf -v budget '%.0s%.0s%.0s%.0s'/"
+
+prove "the per-check budget is never recorded in the receipt" \
+  's/--argjson ms "\$ms" --argjson pct "\$pct"/--argjson ms 0 --argjson pct 0/'
+
+prove "a check at 100% of its budget never warns" \
+  's/^  if \[ "\$pct" -ge "\$TS_TEST_WARN_PERCENT" \]; then/  if false; then/'
+
+prove "the timing line is dropped from the verdict" \
+  "/    TIMING: %d/d"
+
 printf '\n──── RESULT ────\n'
 if [ "$FAILURES" -eq 0 ]; then
   printf 'ALL %d MUTATIONS CAUGHT — every guard in the remote surface can go red.\n' "$CHECKED"

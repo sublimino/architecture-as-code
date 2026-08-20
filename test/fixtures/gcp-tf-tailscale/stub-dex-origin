@@ -7,7 +7,9 @@
 # the one place the difference shows up, and the suite goes red rather than
 # quietly testing a shape nobody built.
 #
-#   apply <origin>   claim it. Non-zero when another origin already holds Dex.
+#   apply <method> <origin>   claim it for <method>. Non-zero when another
+#                             origin already holds Dex. The METHOD is what a later
+#                             refusal quotes back, so it is echoed too.
 #   current          print the origin in force, or nothing at the pinned default.
 #   restore          put the pinned default back.
 #   status           human-readable.
@@ -33,7 +35,7 @@ case "${1:-}" in
       printf 'dex-origin: refusing, %s already holds the issuer\n' "${STUB_DEX_CURRENT:-something}" >&2
       exit "${STUB_DEX_APPLY_RC}"
     }
-    printf 'dex-origin: issuer now %s\n' "${2:-}"
+    printf 'dex-origin: issuer now %s (method %s)\n' "${3:-}" "${2:-}"
     exit 0
     ;;
   restore | status)

@@ -2102,7 +2102,13 @@ cmd_ts_up() {
 
   if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
     log "claiming the Dex origin: ${base}"
-    dex_origin apply "$base" ||
+    # `apply <method> <origin>` — the METHOD is not optional. The mechanism
+    # records which access method holds the lease so the refusal it gives the
+    # next caller can name whose teardown to run; an origin alone cannot answer
+    # that. Chunk T3 was written against an assumed one-argument signature and
+    # this seam was invisible to both suites, because each tested its own side
+    # of it: T3 against a stub, T2 against its own CLI.
+    dex_origin apply tailscale "$base" ||
       die "could not repoint Dex at ${base}. The dashboard would load and the login would bounce, so this is a failure rather than a warning."
   fi
 
@@ -2174,7 +2180,12 @@ EOF
   ensure_ts_serve funnel "$port"
 
   log "claiming the Dex origin: ${base}"
-  dex_origin apply "$base" ||
+  # `funnel`, not `tailscale` — same URL, different method. serve and funnel
+  # publish the identical origin, so the lease would be satisfied either way,
+  # but the recorded holder is what a later refusal quotes back. Naming it
+  # `tailscale` here would tell the next operator to run the wrong teardown and
+  # leave the PUBLIC listener up.
+  dex_origin apply funnel "$base" ||
     die "could not repoint Dex at ${base}. Refusing to leave a PUBLIC URL whose login bounces — run 'make gcp-tf-funnel-down ENV=${ENV_KEY}' now."
 
   log "probing ${base}${TS_HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"

@@ -439,7 +439,7 @@ assert_not_suspended() {
 	[ -f "$fixtures/instances.tsv.template" ]
 	seed_instances
 	run bash -c "wc -l < '$STUB_INSTANCE_LIST'"
-	[ "$output" -ge 12 ]
+	[ "$output" -ge 13 ]
 
 	# Each adversarial row is present by name, so a fixture that silently lost
 	# one cannot make the test it exists for pass by absence.
@@ -539,6 +539,23 @@ assert_not_suspended() {
 	[[ "$names" != *demo* ]]
 }
 
+@test "GCPTFREAP the LIVE demo sl-demo-1-vm is never suspended" {
+	# Narrowed to ONE instance on purpose, and that instance is the one serving a
+	# live demo right now.
+	#
+	# The broader test above asserts all three demo rows at once, which makes it
+	# unusable as a mutation target for the individual gate-5 markers: a compound
+	# mutation that isolates one marker necessarily lets a DIFFERENT demo row
+	# through, so the broad test goes red for a reason that is not the one under
+	# examination. test/ci-lane-reaper-mutation-proof.sh M8 targets this test
+	# precisely because its subject is a single row.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-demo-1-vm
+}
+
 @test "GCPTFREAP GATE 3+4+5 a demo VM carrying a VALID ci-lane label is refused" {
 	# sl-demo-2-vm carries ci-lane = ci-1, which passes gates 1 and 2 outright.
 	# Before the selector moved, the instance-NAME gate caught this row. It no
@@ -580,6 +597,21 @@ assert_not_suspended() {
 	assert_a_real_lane_was_reaped
 	assert_not_suspended sl-ci-4-vm
 	[[ "$output" == *"kind label is <absent>"* ]]
+}
+
+@test "GCPTFREAP GATE 2 a ci-lane value that merely CONTAINS a lane key is refused" {
+	# sl-ci-6-vm carries ci-lane = xci-6. Its environment label agrees, its kind
+	# is ci, and its name carries no demo marker — so gates 3, 4, 5 and 6 all
+	# pass. ONLY the ^...$ anchors on LANE_LABEL_PATTERN reject it.
+	#
+	# This repo has already shipped the unanchored version of this bug: DEMO_ENV
+	# matching inside SL_DEMO_ENV, in a guard that read as correct.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-6-vm
+	[[ "$output" == *"xci-6 is not a CI lane key"* ]]
 }
 
 @test "GCPTFREAP GATE 4 an environment label disagreeing with ci-lane is refused" {
@@ -668,12 +700,12 @@ assert_not_suspended() {
 	seed_instances
 	reap_all 60
 
-	[[ "$output" == *"12 listed"* ]]
+	[[ "$output" == *"13 listed"* ]]
 
 	# Exactly the five genuine lanes got past the gates: ci-1, ci-2, and the
 	# suspended, unreadable-timestamp and young ones. A COUNT rather than a
 	# substring, because a substring assertion would hold for any number and the
-	# whole point is that seven adversarial rows were stopped.
+	# whole point is that eight adversarial rows were stopped.
 	[[ "$output" == *"5 admitted past the safety gates"* ]]
 }
 

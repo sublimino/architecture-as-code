@@ -132,6 +132,44 @@ healthy. `gcp-tf-ts-up` checks for this before it promises you a URL.
 
 ---
 
+## Step 0b — One-time GCP-side setup for the auth key
+
+Also done once, also by a human with elevated rights, and also impossible to put
+in the unattended path. Skip it with Step 0a if you are using IAP only.
+
+The auth key lives in Secret Manager, and **neither the secret nor its IAM policy
+is declared by any Terraform root.** Two different reasons:
+
+* **The secret** is out of band because a `google_secret_manager_secret_version`
+  resource carries its payload in `secret_data`, so declaring one writes the key
+  into Terraform state in plain text.
+* **Its IAM** is out of band because declaring it would require the deploy
+  identity to hold `secretmanager.secrets.setIamPolicy` on the secret — and an
+  identity that can set a secret's policy can grant itself read of that secret.
+  That account applies the estate unattended, from CI. This is the same split the
+  state bucket already uses: creation and IAM are lifecycle, lifecycle belongs to
+  the one-time privileged step, and what the deploy identity does is *populate*.
+
+The commands are in
+[`terraform/bootstrap/README.md` § "The Tailscale auth-key secret"](../../terraform/bootstrap/README.md).
+The shape of the result, which is the part worth remembering:
+
+| Principal | Role | Can it read the key? |
+| :--- | :--- | :--- |
+| `sl-rt-<env>` — the VM's own runtime account | `roles/secretmanager.secretAccessor` | **Yes.** This is the read that happens at boot. |
+| `sl-tf-deploy` — what `terraform apply` runs as | `roles/secretmanager.viewer` | **No.** Metadata only. |
+
+`viewer` exists solely so `modules/compute`'s `data` lookup resolves, which is
+what makes a missing secret fail at **plan** rather than leaving a VM that boots,
+looks healthy and silently never joins the tailnet.
+
+If you skip the deploy grant, the symptom is a plan error naming the secret. If
+you skip the runtime grant, there is no error anywhere — the VM comes up, the
+node never appears, and `make gcp-tf-ts-up` reports "no node named `sl-<env>` in
+this tailnet", which reads as a tailnet policy problem. Check this table first.
+
+---
+
 ## Step 1 — Bootstrap the state bucket (once, ever)
 
 ```bash
@@ -314,20 +352,54 @@ Before it prints anything it does four checks, in this order and deliberately:
 4. **Does `/readyz` return a real HTTP 200 at that URL?** Only then is anything
    clickable printed.
 
-### Why there is a `tailscale serve` in the middle
+### What it does on the VM, and why none of it is a manual step
 
-The dashboard is served by an in-cluster Envoy Gateway that routes by **SNI** on
-`dashboard.osramp.acme.local`. A request arriving with any other name in the
-handshake is closed during TLS — it presents as `UNEXPECTED_EOF_WHILE_READING`,
-which reads as a broken tunnel rather than a wrong hostname. So browsing
-`https://sl-demo-1.<tailnet>.ts.net:30754` straight at the forwarded port fails
-exactly as `https://localhost:30754` does.
+Everything below is performed by the target. **There is no reason to SSH to the
+box**, and that is the property this path is for — each of these was once a hand
+step in a runbook, and none of them survived a `terraform destroy`.
 
-`tailscale serve` is what resolves it. The node terminates TLS itself with a
-real, publicly-trusted certificate for its MagicDNS name and proxies to a
-backend we get to name — so the SNI name is supplied **on the VM**, once,
-automatically, instead of on every operator's laptop forever. `gcp-tf-ts-up`
-adds `127.0.0.1 dashboard.osramp.acme.local` to the VM's `/etc/hosts` for this.
+| On the VM | What it is |
+| :--- | :--- |
+| `signalloom-dashboard-pf.service` | A systemd unit running `kubectl port-forward -n fe-signalloom svc/dashboard-signalloom --address 127.0.0.1 8080:8080`, with `Restart=always`. |
+| `tailscale serve --bg --https=443 http://127.0.0.1:8080` | Terminates TLS with a real certificate for the MagicDNS name and proxies to that forward. |
+| The Dex origin | Claimed through `scripts/lib/dex-origin.sh apply tailscale <url>`, so the login works at the new origin. |
+
+**Why a unit and not a `kubectl port-forward`.** A port-forward is not a durable
+tunnel: it dies on apiserver resets and on pod restarts, it exits **zero** when
+it does, and it says nothing. That is how a demo that worked at 21:00 is dead at
+09:00 with no error anywhere. `Restart=always` covers that and a reboot;
+`StartLimitIntervalSec=0` stops systemd giving up during a pod roll, which
+routinely exceeds its default of five restarts in ten seconds.
+
+**Why the backend is the dashboard nginx and not the Envoy Gateway.** This is
+the non-obvious part, and it was measured. Envoy's listener hostname is
+`*.osramp.acme.local` and it matches the request's `:authority`. Holding SNI
+constant and varying only the Host header:
+
+```
+Host: dashboard.osramp.acme.local  ->  200 OK
+Host: <node>.<tailnet>.ts.net      ->  404 Not Found
+```
+
+So a MagicDNS name cannot reach the Gateway's route at all without the Host
+header being rewritten — and the 404 it produces reads as a broken application
+rather than a name mismatch. The dashboard nginx has `server_name _`, so it
+answers to any name; it proxies `/dex/`, `/api/`, `/afm/`, `/demo-api/`,
+`/fleet-api/` and `/supercred-api/` to their in-cluster backends, so it is a
+same-origin front door for the whole application including OIDC; and it sets
+`absolute_redirect off`, so it emits no redirect carrying an origin the browser
+did not use.
+
+Serving nginx therefore removes the Host-header 404, the SNI discipline **and**
+the VM-side `/etc/hosts` alias in one move. `scripts/public-tunnel.sh` reached
+the same conclusion for its ngrok path and says so in its header.
+
+The forward binds **loopback**, not `0.0.0.0`, because `tailscale serve` runs on
+the same VM. A wildcard bind would publish an unauthenticated dashboard on the
+instance's internal interface, defended by a firewall rule alone, for nothing.
+(The IAP path's forward *does* bind `0.0.0.0`, and must: the tunnel arrives at
+the instance's internal IP, so a loopback bind is unreachable from it and
+presents as `4003: failed to connect to backend`.)
 
 ### The origin changes, and Dex has exactly one issuer
 
@@ -353,8 +425,21 @@ make gcp-tf-ts-status ENV=demo-1
 ```
 
 Read-only. Reports the node, its MagicDNS name, its tailnet IP, whether it is
-online, whether *this machine* resolves it, whether the VM is publishing, who
-currently holds the Dex origin, and whether `/readyz` answers.
+online, whether *this machine* resolves it, who currently holds the Dex origin,
+and whether `/readyz` answers.
+
+It reports the forward as **two separate facts**, and they disagree exactly when
+it matters:
+
+```
+forward:   signalloom-dashboard-pf.service is active
+backend:   LISTENING on 127.0.0.1:8080 (fe-signalloom/dashboard-signalloom)
+```
+
+`active` with nothing listening is the signature of a `Restart=always` loop —
+systemd reports the unit healthy the moment the process forks, several seconds
+before `kubectl` has an apiserver connection, and forever if it never gets one.
+A single merged "is it up" line would report that state as green.
 
 ---
 
@@ -530,7 +615,8 @@ for a missing package.
 | `needs the Dex origin mechanism, and it is not in this checkout` | `scripts/lib/dex-origin.sh` is missing. Serving a new origin without it gives you a dashboard that **loads** and a login that **bounces**. | Use `make gcp-tf-public ENV=…`, which serves at the origin Dex is already pinned to. `GCP_TF_DEMO_SKIP_DEX_ORIGIN=1` proceeds anyway for `ts-up` only — never for `funnel-up`. | 5 |
 | `'tailscale serve' failed` mentioning a certificate | HTTPS Certificates are off for the tailnet. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 3 | 2 |
 | `'tailscale funnel' failed` / an empty status behind Funnel | The tailnet policy grants no `funnel` `nodeAttr` to `tag:sl-demo`, so the edge refuses to route. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 4 | 2 |
-| `the node is up but the dashboard did not answer /readyz` | Got far enough to ask, so MagicDNS and the tailnet are fine. **Empty** status → the certificate did not verify (row 3). **502** → `serve` reached the VM-side forward and got nothing; the estate is down. **404** → the Gateway answered and no route matched the SNI name; the VM's loopback alias is wrong. | Follow the status code, not the symptom | 3 |
+| `the node is up but the dashboard did not answer /readyz` | Got far enough to ask, so MagicDNS and the tailnet are fine. **Empty** status → the certificate did not verify (row 3). **502** → `serve` dialled `127.0.0.1:8080` and got nothing; the forward opened its port and then lost it. **404** → something answered that is *not* the dashboard nginx, which serves this path unconditionally — the unit is forwarding the wrong service. | Follow the status code, not the symptom. `make gcp-tf-ts-status ENV=…` separates "the unit is alive" from "something is listening". | 3 |
+| `could not stand up the dashboard forward` | The forward never came up, and the remote exit code names which of six causes: **3** no `kubectl` on the VM (the estate was never deployed here), **4** no readable kubeconfig (the Kind cluster belongs to another user), **5** no `fe-signalloom/dashboard-signalloom` service (the cluster is up, the app is not), **6/7** the unit could not be written or reloaded, **8** systemd would not start it, **9** it started and nothing ever bound the port — `systemctl status` is printed for that one. | 5 is by far the most common: `make gcp-tf-demo-up ENV=…`. The service is read *before* the unit is written precisely so this is immediate rather than a two-minute timeout — `Restart=always` would otherwise turn a wrong service name into a silent infinite loop. | 7 |
 
 **`gcp-tf-funnel-down` is not covered by teardown-verify.** If `funnel-down`
 fails it says so loudly and tells you the public listener **may still be up** —

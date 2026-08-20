@@ -1573,22 +1573,39 @@ cmd_payload() {
 #   2. NO FOREGROUND TUNNEL. `public` and `connect` hold a gcloud process for as
 #      long as the demo is wanted; close the terminal and the demo goes away.
 #      A Tailscale node serves for as long as it is up.
+#   3. NOTHING TO DO ON THE VM. Every step below is performed by the driver.
+#      `make gcp-tf-ts-up ENV=<key>` against a freshly applied VM is the whole
+#      procedure — no shell on the box, no hand-started port-forward, no
+#      hand-run `tailscale serve`, no hand-applied Dex origin. That is the
+#      property this path is FOR, and each of those four was a manual step
+#      before; none of them survived a destroy, which is how the demo was
+#      rebuilt from a runbook rather than from code.
 #
-# What it does NOT remove is the SNI problem itself, and that is the one piece
-# of this block that is genuinely non-obvious.
+# ── The SNI problem, and why it is now absent rather than solved ────────────
 #
-#   The dashboard is served by an in-cluster Envoy Gateway that selects its
-#   route by SNI, on the name DASHBOARD_HOST. A request arriving with any other
-#   name in the handshake is closed during TLS — measured, and it presents as
-#   UNEXPECTED_EOF_WHILE_READING, which reads as a broken tunnel rather than as
-#   a wrong hostname. So browsing https://<node>.<tailnet>.ts.net:30754 straight
-#   at the forwarded port fails exactly as https://localhost:30754 does, and
-#   fixing that with a hosts entry would put back the thing we just removed.
+#   The obvious backend is the in-cluster Envoy Gateway, and it is the wrong
+#   one. Envoy selects its route by SNI *and* by the request's `:authority`; its
+#   listener hostname is `*.osramp.acme.local`. Measured, holding SNI constant:
 #
-#   `tailscale serve` is what resolves it. The node terminates TLS itself with a
-#   real, publicly-trusted certificate for its MagicDNS name, and proxies to a
-#   backend we get to name — so the SNI name is supplied ON THE VM, once, by
-#   ensure_vm_hosts_alias, instead of on every operator's laptop forever.
+#       Host: dashboard.osramp.acme.local  ->  200 OK
+#       Host: <node>.<tailnet>.ts.net      ->  404 Not Found
+#
+#   A MagicDNS name therefore cannot reach the Gateway's route at all without
+#   the Host header being rewritten, and the 404 it produces reads as a broken
+#   application rather than as a name mismatch. The workaround — dial the
+#   Gateway over TLS at the name it wants, having given that name a loopback
+#   alias on the VM — worked, and cost a /etc/hosts edit on the box, a
+#   self-signed hop, and an SNI discipline every future edit had to preserve.
+#
+#   Serving the DASHBOARD NGINX instead removes the problem rather than solving
+#   it. nginx has `server_name _`, so it answers to any name; it proxies /dex/,
+#   /api/, /afm/, /demo-api/, /fleet-api/ and /supercred-api/ to their
+#   in-cluster backends, so it is a same-origin front door for the whole
+#   application including OIDC; and it sets `absolute_redirect off`, so it
+#   generates no redirect carrying an origin the browser did not use. TLS is
+#   terminated once, by the Tailscale node, with a real publicly-trusted
+#   certificate for the MagicDNS name. scripts/public-tunnel.sh reached the same
+#   conclusion for ngrok and states it in its header.
 #
 # ── The origin changes, and Dex has exactly one issuer ──────────────────────
 #
@@ -1956,22 +1973,227 @@ EOF
   exit 6
 }
 
-# Make the SNI name resolve ON THE VM, so `tailscale serve` can name it as its
-# backend.
+# ── The backend is the dashboard nginx, NOT the Envoy Gateway ───────────────
 #
-# This is the line that moves the hosts-file burden off every operator's laptop
-# and onto the VM once. The Gateway routes by SNI on DASHBOARD_HOST, so the
-# serve backend must be dialled by that NAME — an IP literal sends no SNI at
-# all and the Gateway closes the connection during the handshake.
+# This is the single most consequential decision on this path, it was measured
+# rather than reasoned, and getting it wrong is expensive in a way that does not
+# look like a routing problem.
 #
-# Idempotent, and it appends rather than rewriting: /etc/hosts on this VM is
-# not ours alone.
-ensure_vm_hosts_alias() {
-  remote_run "grep -qE '^127\\.0\\.0\\.1[[:space:]]+${DASHBOARD_HOST}\$' /etc/hosts \
-    || echo '127.0.0.1 ${DASHBOARD_HOST}' | sudo tee -a /etc/hosts >/dev/null; \
-    getent hosts ${DASHBOARD_HOST} >/dev/null && echo ALIAS_OK || { echo ALIAS_MISSING >&2; exit 3; }" \
-    >/dev/null ||
-    die "could not give ${DASHBOARD_HOST} a loopback alias on ${INSTANCE_NAME}. Without it 'tailscale serve' dials the backend with no SNI name and the Gateway closes the connection mid-handshake, which reads as a dead dashboard."
+# The Gateway selects its route by SNI *and* by the request's `:authority`. Its
+# listener hostname is `*.osramp.acme.local`. Holding SNI constant and varying
+# only the Host header:
+#
+#     Host: dashboard.osramp.acme.local  ->  200 OK
+#     Host: <node>.<tailnet>.ts.net      ->  404 Not Found
+#
+# So a MagicDNS name can never be served through the Gateway without also
+# rewriting the Host header, and a 404 from a healthy Gateway reads as a broken
+# application. `tailscale serve` sets the Host header from the *backend* URL it
+# was given, so pointing it at an `https+insecure://dashboard.osramp.acme.local`
+# backend does work — at the cost of a VM-side /etc/hosts alias to make that name
+# resolve, plus a self-signed certificate on the hop, plus an SNI discipline that
+# must be preserved by every future edit.
+#
+# The dashboard nginx removes all three at once. It is
+# `nginxinc/nginx-unprivileged` serving the SPA and proxy_pass-ing /dex/, /api/,
+# /afm/, /demo-api/, /fleet-api/ and /supercred-api/ to their in-cluster
+# backends: a SAME-ORIGIN front door for the whole application, OIDC included.
+# It has `server_name _` and `absolute_redirect off`, so it does not care what
+# name it is reached by and generates no redirect that would leak one.
+# scripts/public-tunnel.sh has always used it for exactly these reasons and says
+# so in its header; this path now agrees with it rather than solving the problem
+# a second, harder way.
+#
+# What that buys, concretely: no Host-header 404, no /etc/hosts line on the VM,
+# no SNI to keep, and TLS terminated once — by Tailscale, with a real
+# publicly-trusted certificate for the MagicDNS name.
+DASHBOARD_NAMESPACE="${GCP_TF_DEMO_DASHBOARD_NS:-fe-signalloom}"
+DASHBOARD_SERVICE="${GCP_TF_DEMO_DASHBOARD_SVC:-dashboard-signalloom}"
+DASHBOARD_SVC_PORT="${GCP_TF_DEMO_DASHBOARD_SVC_PORT:-8080}"
+
+# The VM-local port the forward binds. Same number as the service port by
+# convention only — they are independent, and naming them separately is what
+# stops a service-port change silently becoming a bind-port change.
+TS_BACKEND_PORT="${GCP_TF_DEMO_TS_BACKEND_PORT:-8080}"
+
+# LOOPBACK, and this is the one place in this file where that is right.
+#
+# ensure_published binds 0.0.0.0 because the operator arrives over an IAP tunnel
+# to the instance's INTERNAL ip, so a loopback bind is unreachable and presents
+# as a firewall problem. Nothing about that applies here: `tailscale serve` runs
+# ON the VM and dials this port from the VM. Binding it wider would publish an
+# unauthenticated dashboard on the instance's internal interface — defended only
+# by a firewall rule, for no benefit at all.
+TS_BACKEND_BIND="${GCP_TF_DEMO_TS_BACKEND_BIND:-127.0.0.1}"
+
+# The supervised forward, as a systemd unit rather than a nohup'd process.
+#
+# `kubectl port-forward` is not a durable tunnel. It dies on apiserver resets and
+# on pod restarts, and it does so silently — which is how a demo that worked at
+# 21:00 is dead at 09:00 with nothing in any log that says why. ensure_published
+# has the same exposure and mitigates it with `nohup setsid` plus a recorded PID,
+# which survives the SSH session but not the process. A unit with Restart=always
+# survives both, and survives a VM reboot.
+#
+# The unit name is a constant so `ts-status` can ask about it by name, and so a
+# second run adopts the existing unit rather than racing it.
+PF_UNIT="${GCP_TF_DEMO_PF_UNIT:-signalloom-dashboard-pf}"
+PF_UNIT_PATH="/etc/systemd/system/${PF_UNIT}.service"
+
+# Poll for the forward's local port, in seconds. Generous because a cold start
+# also waits for kubectl to reach the apiserver.
+PF_WAIT_SECONDS="${GCP_TF_DEMO_PF_WAIT_SECONDS:-60}"
+
+# Install and start the dashboard forward on the VM. Idempotent.
+#
+# Idempotence here is not tidiness. Restarting the unit drops every in-flight
+# connection, and Dex runs `storage: type: memory`, so a needless restart during
+# a demo logs people out. The unit is therefore rewritten and reloaded ONLY when
+# its content actually changes; an already-correct, already-active unit is left
+# strictly alone.
+ensure_dashboard_forward() {
+  log "ensuring the dashboard forward on ${INSTANCE_NAME}: ${TS_BACKEND_BIND}:${TS_BACKEND_PORT} -> ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}:${DASHBOARD_SVC_PORT}"
+
+  local script
+  script=$(cat <<REMOTE
+set -uo pipefail
+# NOT set -e. The kubectl probes below are expected to fail on a cluster that is
+# not up yet, and each failure needs to produce its OWN message: under errexit
+# the script would abort at the first one and the caller would see empty stdout
+# and a generic non-zero, which is the exact shape that cost a diagnosis cycle
+# in ensure_published.
+
+KUBECTL="\$(command -v kubectl 2>/dev/null || true)"
+if [ -z "\$KUBECTL" ]; then
+  echo "NO_KUBECTL" >&2
+  exit 3
+fi
+
+# The kubeconfig is discovered, never assumed. The cluster is Kind, created by
+# whichever account the pipeline ran as, so its config lives in that user's HOME
+# — and this command arrives over a login shell that already has that HOME.
+# systemd does not: a unit with no KUBECONFIG runs with HOME=/root and finds
+# nothing, which surfaces as an authentication error against localhost:6443 and
+# reads like a broken cluster.
+KUBECONFIG_PATH="\${KUBECONFIG:-\${HOME}/.kube/config}"
+if [ ! -r "\$KUBECONFIG_PATH" ]; then
+  echo "NO_KUBECONFIG:\${KUBECONFIG_PATH}" >&2
+  exit 4
+fi
+RUN_USER="\$(id -un)"
+
+# PROVE THE SERVICE EXISTS BEFORE WRITING A UNIT THAT CHASES IT.
+#
+# Restart=always turns a wrong namespace or a renamed service into an infinite
+# restart loop: the unit reports active, nothing ever listens, and the health
+# gate below times out after two minutes with an empty status. That is a
+# genuinely hard failure to read. One cheap read here converts it into a named
+# one. \`|| true\` because errexit is off and a missing service must reach the
+# explicit test rather than the exit status of a pipeline.
+SVC="\$("\$KUBECTL" get service -n ${DASHBOARD_NAMESPACE} ${DASHBOARD_SERVICE} \
+  -o jsonpath='{.metadata.name}' 2>/dev/null || true)"
+if [ "\$SVC" != "${DASHBOARD_SERVICE}" ]; then
+  echo "NO_SERVICE:${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
+  exit 5
+fi
+
+# ExecStart takes an absolute path and no shell metacharacters — systemd does
+# not run a shell, so a \$VAR or a pipe here would be passed to kubectl as a
+# literal argument.
+UNIT_BODY="[Unit]
+Description=Signal Loom dashboard port-forward (Tailscale access path)
+Documentation=https://github.com/controlplaneio-in-toto/osramp-demo/blob/main/docs/gcp-demo/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=\${RUN_USER}
+Environment=KUBECONFIG=\${KUBECONFIG_PATH}
+ExecStart=\${KUBECTL} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${TS_BACKEND_BIND} ${TS_BACKEND_PORT}:${DASHBOARD_SVC_PORT}
+# Always, not on-failure: a port-forward that loses its pod exits ZERO, so
+# on-failure would leave the demo dead with the unit reported as cleanly
+# finished.
+Restart=always
+RestartSec=5
+# The forward is expected to die often — a pod roll restarts it several times in
+# a minute. systemd's default rate limit would give up after 5 restarts in 10s
+# and leave the unit failed, which is worse than the problem it guards against.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
+"
+
+# Rewrite ONLY on change. Restarting drops in-flight connections, and Dex keeps
+# its sessions in memory, so a gratuitous restart logs out everyone using the
+# demo right now.
+CHANGED=0
+if [ ! -f ${PF_UNIT_PATH} ] || ! printf '%s' "\$UNIT_BODY" | sudo cmp -s - ${PF_UNIT_PATH}; then
+  printf '%s' "\$UNIT_BODY" | sudo tee ${PF_UNIT_PATH} >/dev/null || { echo "UNIT_WRITE_FAILED" >&2; exit 6; }
+  sudo systemctl daemon-reload || { echo "DAEMON_RELOAD_FAILED" >&2; exit 7; }
+  CHANGED=1
+fi
+echo "unit_changed=\${CHANGED}"
+
+if [ "\$CHANGED" = "1" ]; then
+  sudo systemctl enable --now ${PF_UNIT}.service >/dev/null 2>&1 || { echo "UNIT_START_FAILED" >&2; exit 8; }
+  sudo systemctl restart ${PF_UNIT}.service || { echo "UNIT_RESTART_FAILED" >&2; exit 8; }
+else
+  # enable is idempotent and cheap; it is what makes the forward survive a
+  # reboot even when the unit body was already correct from a previous run.
+  sudo systemctl enable ${PF_UNIT}.service >/dev/null 2>&1 || true
+  sudo systemctl is-active --quiet ${PF_UNIT}.service || sudo systemctl start ${PF_UNIT}.service || { echo "UNIT_START_FAILED" >&2; exit 8; }
+fi
+
+# Wait for the LISTENER, not for the unit. systemd reports active the moment the
+# process is forked, which is several seconds before kubectl has a connection to
+# the apiserver — so "active" is not the property anything downstream needs.
+WAITED=0
+while [ "\$WAITED" -lt ${PF_WAIT_SECONDS} ]; do
+  if ss -ltn 2>/dev/null | grep -q '${TS_BACKEND_BIND}:${TS_BACKEND_PORT} '; then
+    echo "FORWARD_LISTENING"
+    exit 0
+  fi
+  sleep 2
+  WAITED=\$((WAITED + 2))
+done
+
+echo "FORWARD_NOT_LISTENING" >&2
+sudo systemctl status ${PF_UNIT}.service --no-pager --lines=15 >&2 2>/dev/null || true
+exit 9
+REMOTE
+)
+
+  # stdout captured, stderr NOT: the remote script's diagnoses (NO_SERVICE,
+  # FORWARD_NOT_LISTENING, the systemctl status dump) are written to stderr
+  # precisely so they reach the operator's terminal as they happen rather than
+  # being swallowed into a variable and reprinted out of order.
+  local out rc=0
+  out="$(remote_run "$script")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    cat >&2 <<EOF
+
+demo-up: could not stand up the dashboard forward on ${INSTANCE_NAME}.
+
+  The unit is ${PF_UNIT}.service, at ${PF_UNIT_PATH}.
+  The remote step exited ${rc}, which names the cause:
+
+    3  no kubectl on the VM        — the estate was never deployed here
+    4  no readable kubeconfig      — the Kind cluster belongs to another user
+    5  no ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} service
+                                   — the cluster is up and the app is not.
+                                     Run: make gcp-tf-demo-up ENV=${ENV_KEY}
+    6/7 could not write or reload the unit — sudo is refusing on the VM
+    8  systemd would not start the unit
+    9  the unit started and nothing ever listened on ${TS_BACKEND_BIND}:${TS_BACKEND_PORT}
+                                     systemctl status is above.
+
+EOF
+    exit 7
+  fi
+  printf '%s\n' "$out" | grep -q FORWARD_LISTENING ||
+    die "the dashboard forward reported success without a listener on ${TS_BACKEND_BIND}:${TS_BACKEND_PORT}. Refusing to serve a URL in front of nothing."
 }
 
 # `tailscale serve` (tailnet-only) or `tailscale funnel` (public), on the VM.
@@ -1982,9 +2204,14 @@ TS_SERVE_PORT="${GCP_TF_DEMO_TS_SERVE_PORT:-443}"
 
 ensure_ts_serve() {
   local verb="$1" port="$2" # verb: serve | funnel
-  log "configuring 'tailscale ${verb}' on ${INSTANCE_NAME}: :${TS_SERVE_PORT} -> ${DASHBOARD_HOST}:${port}"
+  log "configuring 'tailscale ${verb}' on ${INSTANCE_NAME}: :${TS_SERVE_PORT} -> http://${TS_BACKEND_BIND}:${port}"
+  # PLAIN http, and no `https+insecure://`. The backend is nginx on loopback on
+  # this same VM, which speaks http and holds no certificate; TLS is terminated
+  # once, by Tailscale, with a real certificate for the MagicDNS name. The
+  # previous form dialled the Envoy Gateway over TLS purely to satisfy its SNI
+  # route, and that whole hop is gone.
   remote_run "sudo tailscale ${verb} --bg --https=${TS_SERVE_PORT} \
-    'https+insecure://${DASHBOARD_HOST}:${port}' && echo ${verb^^}_CONFIGURED" ||
+    'http://${TS_BACKEND_BIND}:${port}' && echo ${verb^^}_CONFIGURED" ||
     die "'tailscale ${verb}' failed on ${INSTANCE_NAME}. If it named a certificate, HTTPS certs are not enabled for this tailnet (admin console -> DNS -> HTTPS Certificates). If it named funnel, the tailnet policy has no nodeAttrs entry granting 'funnel' to tag:sl-demo. Neither is fixable from here."
 }
 
@@ -2047,10 +2274,24 @@ cmd_ts_status() {
     printf 'resolves:  NO — this machine does not resolve %s (MagicDNS off for this device or tailnet)\n' "$TS_FQDN"
   fi
 
-  if remote_is_publishing "$APP_PORT"; then
-    printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$APP_PORT"
+  # The FORWARD's port, not the Gateway's. Reporting APP_PORT here would say
+  # "PUBLISHING" on a VM where the IAP path happens to be up and the Tailscale
+  # backend is not — a green line for the wrong listener.
+  #
+  # Two facts, deliberately separate: whether systemd thinks the unit is alive,
+  # and whether anything is actually listening. They disagree exactly when it
+  # matters — a unit in a Restart=always loop reports `activating` or even
+  # `active` forever while no port ever opens.
+  local unit_state
+  unit_state="$(remote_run "systemctl is-active ${PF_UNIT}.service 2>/dev/null || true" 2>/dev/null |
+    tr -d '\r' | tr -d '[:space:]')"
+  printf 'forward:   %s.service is %s\n' "$PF_UNIT" "${unit_state:-unknown}"
+
+  if remote_is_publishing "$TS_BACKEND_PORT"; then
+    printf 'backend:   LISTENING on %s:%s (%s/%s)\n' \
+      "$TS_BACKEND_BIND" "$TS_BACKEND_PORT" "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE"
   else
-    printf 'vm:        NOT publishing on :%s — run: make gcp-tf-ts-up ENV=%s\n' "$APP_PORT" "$ENV_KEY"
+    printf 'backend:   NOTHING on :%s — run: make gcp-tf-ts-up ENV=%s\n' "$TS_BACKEND_PORT" "$ENV_KEY"
   fi
 
   if dex_origin_available; then
@@ -2074,7 +2315,13 @@ cmd_ts_status() {
 
 cmd_ts_up() {
   prepare ts-up
-  local port="$APP_PORT"
+
+  # TS_BACKEND_PORT, not APP_PORT. APP_PORT is the Gateway's node port and is
+  # what the IAP path publishes; this path does not go near the Gateway. The two
+  # were the same variable while `tailscale serve` dialled the Gateway, and
+  # keeping them merged after the backend moved would have made a Gateway port
+  # change silently repoint the dashboard forward.
+  local port="$TS_BACKEND_PORT"
 
   # LOCAL FIRST, before any cloud call, in this order and for the same reason
   # cmd_public checks /etc/hosts first: these cost milliseconds, and failing
@@ -2096,8 +2343,11 @@ cmd_ts_up() {
     require_no_conflicting_origin "$base"
   fi
 
-  ensure_published "$port"
-  ensure_vm_hosts_alias
+  # Forward FIRST, then serve. The reverse order publishes a listener in front of
+  # nothing, and `tailscale serve` accepts a backend that is not answering
+  # without complaint — so the failure would surface two minutes later at the
+  # health gate as a 502, having named nothing.
+  ensure_dashboard_forward
   ensure_ts_serve serve "$port"
 
   if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
@@ -2123,10 +2373,15 @@ cmd_ts_up() {
       printf '    1. An EMPTY status usually means the TLS certificate did not verify.\n'
       printf '       HTTPS certs are not enabled for this tailnet (admin console ->\n'
       printf '       DNS -> HTTPS Certificates). Nothing in this repo can turn that on.\n'
-      printf '    2. A 502 means tailscale serve reached the VM-side forward and got\n'
-      printf '       nothing. Check the estate:  make gcp-tf-demo-status ENV=%s\n' "$ENV_KEY"
-      printf '    3. A 404 means the Gateway answered and no route matched the SNI\n'
-      printf '       name %s — the loopback alias on the VM is wrong.\n' "$DASHBOARD_HOST"
+      printf '    2. A 502 means tailscale serve dialled %s:%s and got\n' "$TS_BACKEND_BIND" "$TS_BACKEND_PORT"
+      printf '       nothing. The forward opened its port and then lost it — a pod\n'
+      printf '       roll, or the apiserver going away. systemd will be restarting it:\n'
+      printf '         make gcp-tf-ts-status ENV=%s\n' "$ENV_KEY"
+      printf '    3. A 404 means something answered that is NOT the dashboard nginx.\n'
+      printf '       nginx serves this path unconditionally, so a 404 here means the\n'
+      printf '       forward is pointed at another service — check that\n'
+      printf '       %s/%s is what %s.service names.\n' \
+        "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$PF_UNIT"
     } >&2
     exit 3
   fi
@@ -2142,7 +2397,7 @@ cmd_ts_up() {
 
 cmd_funnel_up() {
   prepare funnel-up
-  local port="$APP_PORT"
+  local port="$TS_BACKEND_PORT"
 
   ts_resolve_node || exit 2
   require_magicdns
@@ -2175,8 +2430,7 @@ cmd_funnel_up() {
 
 EOF
 
-  ensure_published "$port"
-  ensure_vm_hosts_alias
+  ensure_dashboard_forward
   ensure_ts_serve funnel "$port"
 
   log "claiming the Dex origin: ${base}"

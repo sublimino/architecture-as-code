@@ -18,8 +18,27 @@
 #   STUB_GCLOUD_LOG        file to append invocations to
 #   STUB_VM_STATE          what `instances describe` reports (default RUNNING)
 #   STUB_VM_PUBLISHING     1 (default) => `ss -ltn` reports the port bound, so
-#                          ensure_published short-circuits. 0 => absent.
-#   STUB_VM_ALIAS_RC       exit code for the /etc/hosts alias step
+#                          remote_is_publishing sees a listener. 0 => absent.
+#   STUB_PF_RC             exit code for the dashboard-forward install step. The
+#                          real script exits 3/4/5/6/7/8/9 for causes that need
+#                          different answers (no kubectl, no kubeconfig, no
+#                          service, cannot write the unit, cannot start it,
+#                          nothing ever listened), and each is separately
+#                          reachable here for the same reason serve and funnel
+#                          are: one code standing in for seven outcomes makes a
+#                          red test ambiguous.
+#   STUB_PF_LISTENING      1 (default) => the forward reports FORWARD_LISTENING.
+#                          0 => it reports FORWARD_NOT_LISTENING and exits 9,
+#                          which is the unit-started-and-nothing-bound case.
+#   STUB_PF_UNIT_CHANGED   what the install step reports for unit_changed
+#                          (default 0 — an already-correct unit is not rewritten,
+#                          because rewriting restarts it and Dex keeps sessions
+#                          in memory).
+#   STUB_PF_UNIT_STATE     what `systemctl is-active` reports to ts-status
+#                          (default active)
+#   STUB_VM_ALIAS_RC       exit code for the /etc/hosts alias step. RETAINED for
+#                          the IAP path only — the Tailscale path no longer
+#                          touches /etc/hosts, and a test asserts it does not.
 #   STUB_TS_SERVE_RC       exit code for a remote `tailscale serve`
 #   STUB_TS_FUNNEL_RC      exit code for a remote `tailscale funnel --bg`
 #   STUB_TS_FUNNEL_OFF_RC  exit code for a remote `tailscale funnel ... off`
@@ -56,6 +75,28 @@ case "$argv" in
     # turning it on — which would make funnel-down's test pass against a stub
     # that never modelled it.
     case "$argv" in
+      # BEFORE the `ss -ltn` branch, and that ordering is load-bearing. The
+      # forward-install script polls with `ss -ltn` itself, so the generic
+      # branch below would swallow the whole thing and answer PUBLISHING —
+      # ensure_dashboard_forward would then see no FORWARD_LISTENING and die,
+      # with the stub, not the driver, having decided the outcome.
+      #
+      # Matched on `port-forward`, which appears in the install script and in no
+      # other remote command the Tailscale path issues.
+      *"port-forward"*)
+        [ "${STUB_PF_RC:-0}" = "0" ] || exit "${STUB_PF_RC}"
+        printf 'unit_changed=%s\n' "${STUB_PF_UNIT_CHANGED:-0}"
+        if [ "${STUB_PF_LISTENING:-1}" = "1" ]; then
+          printf 'FORWARD_LISTENING\n'
+          exit 0
+        fi
+        printf 'FORWARD_NOT_LISTENING\n' >&2
+        exit 9
+        ;;
+      *"systemctl is-active"*)
+        printf '%s\n' "${STUB_PF_UNIT_STATE:-active}"
+        exit 0
+        ;;
       *"tailscale funnel"*" off"*)
         [ "${STUB_TS_FUNNEL_OFF_RC:-0}" = "0" ] || exit "${STUB_TS_FUNNEL_OFF_RC}"
         printf 'FUNNEL_OFF\n'

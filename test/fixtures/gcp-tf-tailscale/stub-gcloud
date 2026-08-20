@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+#
+# Stub `gcloud` for test/terraform-tailscale-access.bats.
+#
+# A sibling of test/fixtures/gcp-tf-demo/stub-gcloud rather than a reuse of it.
+# That one models delivery, the pipeline and report collection; this one models
+# the handful of remote commands the Tailscale path issues, and models them
+# SEPARATELY so a funnel that fails and a serve that fails are distinguishable.
+# Sharing one stub would have meant a single exit code standing in for four
+# different remote outcomes, which is the shape that makes a red test ambiguous.
+#
+# Every invocation is appended to $STUB_GCLOUD_LOG together with the
+# SSH_AUTH_SOCK the caller actually exported, so the ssh-agent and impersonation
+# guards stay behavioural assertions rather than greps — and so a test can
+# assert that NOTHING reached the cloud before a local check failed.
+#
+# Knobs:
+#   STUB_GCLOUD_LOG        file to append invocations to
+#   STUB_VM_STATE          what `instances describe` reports (default RUNNING)
+#   STUB_VM_PUBLISHING     1 (default) => `ss -ltn` reports the port bound, so
+#                          ensure_published short-circuits. 0 => absent.
+#   STUB_VM_ALIAS_RC       exit code for the /etc/hosts alias step
+#   STUB_TS_SERVE_RC       exit code for a remote `tailscale serve`
+#   STUB_TS_FUNNEL_RC      exit code for a remote `tailscale funnel --bg`
+#   STUB_TS_FUNNEL_OFF_RC  exit code for a remote `tailscale funnel ... off`
+#   STUB_NO_WARNING        1 => suppress the impersonation warning
+
+log="${STUB_GCLOUD_LOG:-/dev/null}"
+printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
+
+argv="$*"
+
+# The real gcloud emits this on EVERY underlying API call when impersonating,
+# and it broke vm_status in review by gluing itself onto the status string. A
+# stub that stayed silent about it would never show that again.
+case "$argv" in
+  *--impersonate-service-account=*)
+    if [ "${STUB_NO_WARNING:-0}" != "1" ]; then
+      printf 'WARNING: This command is using service account impersonation. All API calls will be executed as [stub-operator].\n' >&2
+    fi
+    ;;
+esac
+
+case "$argv" in
+  *"instances describe"*)
+    printf '%s\n' "${STUB_VM_STATE:-RUNNING}"
+    exit 0
+    ;;
+  *"instances resume"* | *"instances start"* | *"instances suspend"*)
+    exit 0
+    ;;
+  *"compute ssh"*)
+    # Ordered most specific first. `tailscale funnel ... off` and
+    # `tailscale funnel --bg ...` both contain "tailscale funnel", so the off
+    # branch has to be tested first or turning funnel off would be scored as
+    # turning it on — which would make funnel-down's test pass against a stub
+    # that never modelled it.
+    case "$argv" in
+      *"tailscale funnel"*" off"*)
+        [ "${STUB_TS_FUNNEL_OFF_RC:-0}" = "0" ] || exit "${STUB_TS_FUNNEL_OFF_RC}"
+        printf 'FUNNEL_OFF\n'
+        exit 0
+        ;;
+      *"tailscale funnel"*)
+        [ "${STUB_TS_FUNNEL_RC:-0}" = "0" ] || {
+          printf 'funnel is not enabled for this tailnet\n' >&2
+          exit "${STUB_TS_FUNNEL_RC}"
+        }
+        printf 'FUNNEL_CONFIGURED\n'
+        exit 0
+        ;;
+      *"tailscale serve"*)
+        [ "${STUB_TS_SERVE_RC:-0}" = "0" ] || {
+          printf 'could not get certificate for this node\n' >&2
+          exit "${STUB_TS_SERVE_RC}"
+        }
+        printf 'SERVE_CONFIGURED\n'
+        exit 0
+        ;;
+      *"/etc/hosts"*)
+        [ "${STUB_VM_ALIAS_RC:-0}" = "0" ] || exit "${STUB_VM_ALIAS_RC}"
+        printf 'ALIAS_OK\n'
+        exit 0
+        ;;
+      *"ss -ltn"*)
+        # remote_is_publishing greps this for PUBLISHING. Answering honestly to
+        # the knob is what lets a test drive ensure_published's slow path.
+        if [ "${STUB_VM_PUBLISHING:-1}" = "1" ]; then
+          printf 'PUBLISHING\n'
+        else
+          printf 'ABSENT\n'
+        fi
+        exit 0
+        ;;
+      *"echo ready"*) exit 0 ;;
+      *) exit 0 ;;
+    esac
+    ;;
+esac
+
+exit 0

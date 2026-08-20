@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+#
+# Stub `getent` for test/terraform-tailscale-access.bats.
+#
+# magicdns_resolves asks the name-service switch the same question a browser
+# will, which is the right call and also the one thing a test cannot control by
+# environment variable — the answer comes from the machine. So `getent` is
+# stubbed on PATH, and STUB_RESOLVABLE is the list of names that resolve.
+#
+# Anything not in the list exits 2, which is what real getent does for a name it
+# cannot find. Exiting 1 would also have read as "not found" to the caller and
+# would have hidden a caller that only checks for a specific status.
+#
+# Knobs:
+#   STUB_RESOLVABLE   space-separated names that resolve
+
+case "${1:-}" in
+  hosts)
+    want="${2:-}"
+    for name in ${STUB_RESOLVABLE:-}; do
+      if [ "$name" = "$want" ]; then
+        printf '100.64.0.9 %s\n' "$want"
+        exit 0
+      fi
+    done
+    exit 2
+    ;;
+esac
+
+exit 2

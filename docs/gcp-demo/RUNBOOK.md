@@ -3,10 +3,24 @@
 From an empty GCP project to the Signal Loom dashboard open in front of you,
 then back to nothing. Every command here is real and in order.
 
-The estate is a hardened, IAP-only VM with **no external IP**. There is nothing
-to browse to and nothing to SSH to from the open internet; all access is through
-an IAP tunnel, which is why the last step of getting a browser onto it is a
-`make` target rather than a URL you can bookmark.
+The estate is a hardened VM with **no external IP**. There is nothing to browse
+to and nothing to SSH to from the open internet. Two access paths exist, and
+which one you want is a decision worth making once:
+
+| | **Tailscale** (primary) | **IAP** (fallback) |
+| :--- | :--- | :--- |
+| Get in with | membership of the tailnet | a Google identity + `roles/iap.tunnelResourceAccessor` |
+| `/etc/hosts` edit | none | one line, per machine, forever |
+| Certificate | real, issued to the MagicDNS name | self-signed; click through the warning |
+| Holds a terminal | no | yes — the tunnel is foreground |
+| Works from a phone | yes | no |
+| Target | `make gcp-tf-ts-up ENV=demo-1` | `make gcp-tf-public ENV=demo-1` |
+
+**Use Tailscale.** IAP is not deprecated and is not going anywhere — it is fully
+tested, and it is the only path that works for someone who cannot join the
+tailnet (a client on a customer's laptop, a CI job, an auditor). But every
+ergonomic difference above runs the same direction, and the hosts-file line in
+particular is the single most common reason a handed-over demo does not open.
 
 Throughout, `ENV` is the environment key — `demo-1`, `demo-2`, `ci-1`. It is
 matched against `^(demo|ci)-[1-9][0-9]*$`; `prod-1` is rejected on purpose.
@@ -20,12 +34,19 @@ export TF_STATE_BUCKET=<your-state-bucket>
 
 make gcp-tf-up      ENV=demo-1     # plan, review, apply, write the hand-off
 make gcp-tf-demo-up ENV=demo-1     # deliver the code, build the estate, test it
-make gcp-tf-connect ENV=demo-1     # open the tunnel; prints the URL and login
+make gcp-tf-ts-up   ENV=demo-1     # serve it on the tailnet; prints the URL
+```
+
+The IAP fallback, if you are not on the tailnet:
+
+```bash
+make gcp-tf-public  ENV=demo-1     # publish, prove a 200, print the URL (foreground)
 ```
 
 Then the teardown, which is not optional — the VM bills until it is gone:
 
 ```bash
+make gcp-tf-funnel-down ENV=demo-1           # ONLY if you turned Funnel on
 make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
 ./scripts/gcp-tf/teardown-verify.sh          # believe the destroy only after this
 ```
@@ -53,6 +74,61 @@ Two service accounts are involved and they are **not** the same thing:
 
 The driver refuses to fall back from one to the other. See
 [Why impersonation, and why it is not the usual reason](#why-impersonation-and-why-it-is-not-the-usual-reason).
+
+---
+
+## Step 0a — One-time Tailscale admin console setup
+
+**None of this is in code and none of it can be.** It is tailnet-level policy,
+it is done once ever, and it is done in the admin console by someone with owner
+or admin rights on the tailnet. Terraform can create the node; it cannot grant
+the node permission to exist.
+
+Skip this section entirely if you are only using the IAP fallback.
+
+| # | Setting | Where | Why it is not optional |
+| :--- | :--- | :--- | :--- |
+| 1 | `tagOwners` for `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | An auth key cannot apply a tag nobody owns. Without this the VM's `tailscale up` is **rejected**, and the node simply never appears — indistinguishable from a VM that failed to boot. |
+| 2 | **MagicDNS: on** | [DNS](https://login.tailscale.com/admin/dns) | Without it the node has an IP and no name. No name means no certificate, which means `tailscale serve` has nothing to terminate TLS with and there is no URL to hand over. |
+| 3 | **HTTPS Certificates: on** | [DNS](https://login.tailscale.com/admin/dns) | This is what issues the real certificate for `<node>.<tailnet>.ts.net`. Off, `tailscale serve` fails at the certificate step and `gcp-tf-ts-up` reports it as such. |
+| 4 | `nodeAttrs` granting `funnel` to `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | **Only needed for `gcp-tf-funnel-up`.** Without it the funnel command is refused by policy and the edge will not route. Leaving this off is a perfectly reasonable posture — it makes the public path structurally impossible. |
+| 5 | An ACL rule letting *your user* reach `tag:sl-demo` | [Access controls](https://login.tailscale.com/admin/acls) | A node you cannot see and a node that does not exist look identical from `tailscale status`. |
+
+The policy fragments, for reference — merge them into the existing document
+rather than replacing it:
+
+```jsonc
+{
+  "tagOwners": {
+    // 1. Who may apply tag:sl-demo. Without this the node cannot join.
+    "tag:sl-demo": ["autogroup:admin"],
+  },
+  "nodeAttrs": [
+    // 4. ONLY if you want the public Funnel path. Omit to make it impossible.
+    { "target": ["tag:sl-demo"], "attr": ["funnel"] },
+  ],
+  "acls": [
+    // 5. Let your own devices reach the demo node.
+    { "action": "accept", "src": ["autogroup:member"], "dst": ["tag:sl-demo:*"] },
+  ],
+}
+```
+
+**The demo node is ephemeral.** It is removed from the tailnet when it goes
+down rather than shown as offline, so *an absent node is the expected look of a
+suspended demo VM* — not evidence that any of the above is wrong.
+
+On the operator's own machine you need a `tailscale` client, logged into the
+same tailnet, brought up **with MagicDNS accepted**:
+
+```bash
+tailscale up --accept-dns
+tailscale status          # the demo node should be listed
+```
+
+A device brought up with `--accept-dns=false` keeps its old resolver and
+resolves nothing in the tailnet, while `tailscale status` looks perfectly
+healthy. `gcp-tf-ts-up` checks for this before it promises you a URL.
 
 ---
 
@@ -211,14 +287,126 @@ make gcp-tf-demo-test ENV=demo-1
 
 ---
 
-## Step 6 — Connect
+## Step 6 — Connect (Tailscale, primary)
 
 ```bash
-make gcp-tf-connect ENV=demo-1
+make gcp-tf-ts-up ENV=demo-1
 ```
 
-This opens `gcloud compute start-iap-tunnel <instance> 30754
---local-host-port=localhost:30754` in the **foreground** and prints everything
+That is the whole thing. It prints a URL like
+`https://sl-demo-1.<your-tailnet>.ts.net`, and the URL is clickable from any
+device already on the tailnet — including a phone — with **no hosts file, no
+certificate warning and no terminal held open**. Nothing has to keep running:
+close the laptop and the demo stays up.
+
+Before it prints anything it does four checks, in this order and deliberately:
+
+1. **Is there a tailscale client here, and is its daemon up?** Local, free.
+2. **Is this environment's node in the tailnet, and is it online?** Local — it
+   asks this machine's `tailscaled`, not the cloud. So a suspended VM is
+   reported in milliseconds rather than after a minute of `gcloud`.
+3. **Does the node's MagicDNS name resolve *on this machine*?** This is the
+   direct analogue of the IAP path's `/etc/hosts` check and exists for exactly
+   the same reason: the health probe below proves the *dashboard* answers, not
+   that a *browser here* can reach it. Without this check the target would print
+   "verified before you clicked" and then hand over a URL that fails on the
+   click.
+4. **Does `/readyz` return a real HTTP 200 at that URL?** Only then is anything
+   clickable printed.
+
+### Why there is a `tailscale serve` in the middle
+
+The dashboard is served by an in-cluster Envoy Gateway that routes by **SNI** on
+`dashboard.osramp.acme.local`. A request arriving with any other name in the
+handshake is closed during TLS — it presents as `UNEXPECTED_EOF_WHILE_READING`,
+which reads as a broken tunnel rather than a wrong hostname. So browsing
+`https://sl-demo-1.<tailnet>.ts.net:30754` straight at the forwarded port fails
+exactly as `https://localhost:30754` does.
+
+`tailscale serve` is what resolves it. The node terminates TLS itself with a
+real, publicly-trusted certificate for its MagicDNS name and proxies to a
+backend we get to name — so the SNI name is supplied **on the VM**, once,
+automatically, instead of on every operator's laptop forever. `gcp-tf-ts-up`
+adds `127.0.0.1 dashboard.osramp.acme.local` to the VM's `/etc/hosts` for this.
+
+### The origin changes, and Dex has exactly one issuer
+
+A browser at `https://sl-demo-1.<tailnet>.ts.net` is at a **different origin**
+from `https://dashboard.osramp.acme.local:30754`, and Dex pins its OIDC issuer
+and callback client to one origin at a time. Left alone the dashboard would load
+and the login would bounce — which presents as a *broken application*, not as an
+origin mismatch.
+
+So `gcp-tf-ts-up` claims the origin through the shared Dex origin mechanism
+(`scripts/lib/dex-origin.sh`) and **refuses if something else is holding it**,
+naming the holder. In practice the other holder is an ngrok tunnel from
+`make public`. Release that first:
+
+```bash
+./scripts/public-tunnel.sh down
+```
+
+### Checking on it
+
+```bash
+make gcp-tf-ts-status ENV=demo-1
+```
+
+Read-only. Reports the node, its MagicDNS name, its tailnet IP, whether it is
+online, whether *this machine* resolves it, whether the VM is publishing, who
+currently holds the Dex origin, and whether `/readyz` answers.
+
+---
+
+## Step 6a — Tailscale Funnel: the public internet
+
+```bash
+make gcp-tf-funnel-up   ENV=demo-1     # ON
+make gcp-tf-funnel-down ENV=demo-1     # OFF
+```
+
+**Read this paragraph before running it.** Funnel is the only thing in this
+entire estate that creates a listener the public internet can reach. Everything
+else is closed by construction: the VM has no external IP, IAP requires a Google
+identity holding `roles/iap.tunnelResourceAccessor`, and Tailscale requires
+membership of this tailnet. Funnel routes the node's MagicDNS name through
+Tailscale's edge, under a valid public certificate, to anyone who has the URL.
+
+Behind it is a demo estate with **published credentials**
+(`demo-user@signalloom.local` / `demo-user`). Treat everything in it as
+disclosed for as long as Funnel is on.
+
+**It does not expire.** Nothing switches it off for you, and
+`make gcp-tf-destroy` is the only other thing that ends it. Turn it off when the
+demo ends.
+
+Funnel serves the *same URL* as `gcp-tf-ts-up` — `serve` and `funnel` publish
+the same name with the same certificate, and funnel only adds public
+reachability. That is why `funnel-up` does not re-patch Dex (the origin is
+identical) and why `funnel-down` leaves the tailnet demo standing: after
+switching the public listener off, the demo is still live for the tailnet at the
+same address.
+
+---
+
+## Step 6b — Connect (IAP, the fallback)
+
+Use this when you cannot join the tailnet. It is fully supported and fully
+tested; it is second because of the hosts file and the foreground tunnel, not
+because it is less reliable.
+
+```bash
+make gcp-tf-public  ENV=demo-1     # publish, prove a 200, then print the URL
+make gcp-tf-connect ENV=demo-1     # tunnel only — proves the port binds, nothing more
+```
+
+`gcp-tf-public` is the one to use. `gcp-tf-connect` proves the local port
+*binds*, which is not the same as a demo that works: gcloud binds locally before
+it has proven anything about the far side, and the VM-side `kubectl
+port-forward` is the piece that actually dies.
+
+Both open `gcloud compute start-iap-tunnel <instance> 30754
+--local-host-port=localhost:30754` in the **foreground** and print everything
 you need first. Ctrl-C closes it.
 
 ### What you have to do
@@ -324,6 +512,37 @@ answers rather than two.
 The verdict is always on disk at `demo-reports/summary.json`, stamped with the
 branch and commit it describes. Read that file, not the VM's state — suspending
 is what a pass looks like *and* what a manual cleanup looks like.
+
+### Tailscale path — the five things that go wrong
+
+Every row below is a state `gcp-tf-ts-up` and `gcp-tf-funnel-up` distinguish and
+report separately, because the fixes have nothing to do with each other and a
+single "Tailscale is not working" message sends the reader to the admin console
+for a missing package.
+
+| Symptom | What it actually is | Fix | Exit |
+| :--- | :--- | :--- | :--- |
+| `no node named 'sl-demo-1' in this tailnet` | The node is **absent**, not offline. Three causes, indistinguishable from your machine: the VM is down (the node is ephemeral, so it is *removed*, not shown offline); the auth key expired or `tag:sl-demo` has no `tagOwners` entry so it was never approved; or an ACL hides it from you. The message lists the nodes you *can* see, which is the one piece of evidence available locally. | `make gcp-tf-demo-status ENV=…` first — if the VM is suspended, that is the whole answer. Otherwise [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) rows 1 and 5. | 2 |
+| `node '…' is in the tailnet but OFFLINE` | The node is **known by name and not answering**. Not a resolution problem and not an ACL problem — those would present as the row above. The VM is suspended or its `tailscaled` is not running. | `make gcp-tf-demo-up ENV=…` | 2 |
+| `node '…' has no MagicDNS name` | MagicDNS is off for the **tailnet**. The node has an IP and no name, so no certificate can be issued and there is no URL to hand over. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 2 | 2 |
+| `… does not resolve on this machine` | The node is up and named; **your device** is not using the tailnet's resolver. Usually `tailscale up --accept-dns=false`, occasionally something local rewriting `/etc/resolv.conf` after `tailscaled` wrote it. `tailscale status` looks healthy throughout. | `tailscale up --accept-dns`. For a scripted probe with no browser: `GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1` | 4 |
+| `REFUSING — another origin already holds Dex` | Something else — almost always an ngrok tunnel from `make public` — owns Dex's single OIDC issuer. Taking it would break that demo's login without warning it. The message names the holder. | `./scripts/public-tunnel.sh down`, then re-run | 6 |
+| `needs the Dex origin mechanism, and it is not in this checkout` | `scripts/lib/dex-origin.sh` is missing. Serving a new origin without it gives you a dashboard that **loads** and a login that **bounces**. | Use `make gcp-tf-public ENV=…`, which serves at the origin Dex is already pinned to. `GCP_TF_DEMO_SKIP_DEX_ORIGIN=1` proceeds anyway for `ts-up` only — never for `funnel-up`. | 5 |
+| `'tailscale serve' failed` mentioning a certificate | HTTPS Certificates are off for the tailnet. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 3 | 2 |
+| `'tailscale funnel' failed` / an empty status behind Funnel | The tailnet policy grants no `funnel` `nodeAttr` to `tag:sl-demo`, so the edge refuses to route. | [Step 0a](#step-0a--one-time-tailscale-admin-console-setup) row 4 | 2 |
+| `the node is up but the dashboard did not answer /readyz` | Got far enough to ask, so MagicDNS and the tailnet are fine. **Empty** status → the certificate did not verify (row 3). **502** → `serve` reached the VM-side forward and got nothing; the estate is down. **404** → the Gateway answered and no route matched the SNI name; the VM's loopback alias is wrong. | Follow the status code, not the symptom | 3 |
+
+**`gcp-tf-funnel-down` is not covered by teardown-verify.** If `funnel-down`
+fails it says so loudly and tells you the public listener **may still be up** —
+that is not a formality. Check by hand before walking away:
+
+```bash
+gcloud compute ssh <instance> --zone=<zone> --project=<project> \
+  --impersonate-service-account=<operator-sa> --tunnel-through-iap \
+  --command='sudo tailscale funnel status'
+```
+
+`make gcp-tf-destroy` also ends it, by destroying the node.
 
 ### `demo-up: no hand-off for ENV=demo-1`
 
@@ -514,6 +733,19 @@ against stubs with no cloud access.
 | `GCP_TF_DEMO_GCLOUD` | `gcloud` | the gcloud binary, plus flags |
 | `GCP_TF_HANDOFF_DIR` | `deploy/gcp` | where hand-offs are read from |
 
+Tailscale path:
+
+| Variable | Default | Use |
+| :--- | :--- | :--- |
+| `GCP_TF_DEMO_TAILSCALE` | `tailscale` | the local tailscale binary |
+| `GCP_TF_DEMO_TS_HOSTNAME` | hand-off `tailscale_hostname`, else `sl-<env>` | the node's short hostname |
+| `GCP_TF_DEMO_SKIP_MAGICDNS_CHECK` | `0` | proceed when this machine cannot resolve the node — scripted use only, a browser will still fail |
+| `GCP_TF_DEMO_SKIP_DEX_ORIGIN` | `0` | do not repoint Dex. **`ts-up` only**; the login will bounce |
+| `GCP_TF_DEMO_DEX_ORIGIN_CMD` | *(empty — run it on the VM)* | a local command implementing the origin interface |
+| `GCP_TF_DEMO_DEX_ORIGIN_REL` | `scripts/lib/dex-origin.sh` | where the origin mechanism lives in the checkout |
+| `GCP_TF_DEMO_TS_SERVE_PORT` | `443` | the port `serve`/`funnel` listen on |
+| `GCP_TF_DEMO_TS_HEALTH_PATH` | `/readyz` | the readiness endpoint probed over MagicDNS |
+
 ---
 
 ## Read next
@@ -523,4 +755,5 @@ against stubs with no cloud access.
 | `deploy/gcp/README.md` | the estate's own documentation |
 | `terraform/CONTRACT.md` | what the Terraform roots guarantee |
 | `scripts/ci/README.md` | the *other* GCP lane (CI VMs), and its traps |
-| `test/terraform-demo-driver.bats` | what this lane is actually proven to do |
+| `test/terraform-demo-driver.bats` | what the IAP lane is actually proven to do |
+| `test/terraform-tailscale-access.bats` | what the Tailscale lane is actually proven to do |

@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+#
+# Stub `tailscale` for test/terraform-tailscale-access.bats.
+#
+# The LOCAL client only. The VM-side `tailscale serve` / `tailscale funnel`
+# calls travel through `gcloud compute ssh` and are modelled by the sibling
+# stub-gcloud, because that is genuinely a different boundary: this one answers
+# "what does this machine's tailscaled know about the tailnet", and that one
+# answers "what happened when we asked the node to reconfigure itself".
+#
+# `status --json` reads a file the test wrote rather than generating anything,
+# so each test states the exact tailnet shape it is about — node absent, node
+# offline, node with no MagicDNS name — and there is no shared default for a
+# test to accidentally depend on.
+#
+# Knobs:
+#   STUB_TS_LOG           file to append invocations to
+#   STUB_TS_STATUS_JSON   file emitted for `status --json`
+#   STUB_TS_DAEMON_DOWN   1 => `status --json` fails and prints nothing, which
+#                         is what a logged-out or stopped tailscaled does
+#   STUB_TS_RC            exit code for any other subcommand
+
+log="${STUB_TS_LOG:-/dev/null}"
+printf '%s\n' "$*" >>"$log"
+
+case "$*" in
+  "status --json")
+    [ "${STUB_TS_DAEMON_DOWN:-0}" != "1" ] || exit 1
+    [ -f "${STUB_TS_STATUS_JSON:-}" ] || exit 1
+    cat "${STUB_TS_STATUS_JSON}"
+    exit 0
+    ;;
+esac
+
+exit "${STUB_TS_RC:-0}"

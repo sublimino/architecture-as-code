@@ -140,3 +140,9 @@ deploy/gcp/preserve-baseline.json
 # lock — so a reviewer reading modules/network/.terraform.lock.hcl learns
 # nothing true. Roots commit theirs (ISC-13); child modules must not.
 terraform/modules/*/.terraform.lock.hcl
+
+# Written by test/toolchain-mutation-proof.sh while a REAL file is mutated, and
+# removed when it restores. Ignored so an interrupted run can never be committed
+# by `git add -A`; the harness itself refuses to start when it finds one, which
+# is the signal that matters.
+.mutation-in-progress

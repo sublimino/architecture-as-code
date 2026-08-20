@@ -175,7 +175,7 @@ DASHBOARD_SERVICE="${GCP_TF_DEMO_DASHBOARD_SERVICE:-dashboard-signalloom}"
 DASHBOARD_SERVICE_PORT="${GCP_TF_DEMO_DASHBOARD_SERVICE_PORT:-8080}"
 
 # The Gateway's SNI hostname. NOT on the access path any more — it is handed to
-# the VM-side pipeline as SL_DEMO_HOSTNAME and nowhere else.
+# the VM-side pipeline as DEMO_GATEWAY_HOSTNAME and nowhere else.
 #
 # It survives the single-entry-point refactor because the pipeline is a
 # different thing from the access path: demo-pipeline.sh stands the estate up
@@ -919,15 +919,64 @@ on_term() { exit 143; }
 # because the two halves land on different branches and a contract that lives in
 # only one of them is a contract nobody can check:
 #
-#   invoked as   : bash <PIPELINE_REL>, with cwd = SL_DEMO_WORK_DIR
-#   configured by: the SL_DEMO_* environment below, nothing else
-#   must write   : SL_DEMO_REPORT_DIR/summary.json, a JSON object carrying at
+#   invoked as   : bash <PIPELINE_REL>, with cwd = DEMO_WORK_DIR
+#   configured by: the DEMO_* environment below, nothing else
+#   must write   : DEMO_REPORT_DIR/summary.json, a JSON object carrying at
 #                  least {outcome: "PASS"|"FAIL"|"ABORTED", commit: "<sha>"}.
-#                  The commit MUST be the SL_DEMO_SOURCE_COMMIT it was handed —
+#                  The commit MUST be the DEMO_SOURCE_COMMIT it was handed —
 #                  the VM's own git SHA is a throwaway snapshot and means
 #                  nothing, so stamping that instead makes every run look STALE.
 #   exit status  : 0 pass, non-zero otherwise. A zero exit with no summary is
 #                  treated as ABORTED here, never as a pass.
+#
+# ─── The prefix, and why it is DEMO_ and not SL_DEMO_ ───────────────────────
+#
+# This block used to export ten variables named SL_DEMO_*. demo-pipeline.sh
+# reads DEMO_*. Nothing in the repo consumed a single SL_DEMO_ name:
+#
+#   $ grep -rl 'SL_DEMO_' --include='*.sh' --include='*.bats' .
+#   ./scripts/gcp-tf/demo-up.sh
+#   ./test/terraform-demo-driver.bats
+#
+# The sender and its own test, and no reader anywhere. Both halves were green:
+# this file's test asserted the string appeared in the gcloud command line, and
+# demo-pipeline.sh's test drove DEMO_* directly. Each side verified its own half
+# against its own fixtures, so the mismatch between them was invisible to both.
+#
+# Every one of the ten silently fell back to its default, and two of those
+# defaults are what made `make gcp-tf-demo-up ENV=demo-2` abort:
+#
+#   DEMO_REPORT_DIR    the pipeline wrote its reports and summary.json to
+#                      ${HOME}/demo-reports while collect_reports packaged
+#                      /opt/signalloom/reports. Different directories, so no
+#                      summary was ever collected and the classifier read the
+#                      absent verdict as ABORTED.
+#   DEMO_SOURCE_COMMIT the pipeline fell back to `git rev-parse HEAD` against
+#                      the throwaway repo vm-pipeline.sh git-inits for
+#                      Kustomize, and stamped THAT into summary.json — the
+#                      `master@47c5ea5` in the run log. That is the exact
+#                      failure the paragraph above predicts, and it disables the
+#                      STALE guard: the collected commit can now never equal
+#                      RUN_COMMIT, so the one mechanism that proves a verdict
+#                      describes the delivered tree is dead.
+#
+# The build itself was never wrong. demo-pipeline.sh resolves WORK_DIR to its
+# own script directory when DEMO_WORK_DIR is unset, and this file invokes it by
+# path inside the tree it just delivered, so the delivered tree is always the
+# tree that gets built. The detector was broken, not the thing it detects.
+#
+# Renaming the SENDER rather than the reader is deliberate. demo-pipeline.sh
+# owns seventeen DEMO_* injectable boundaries that test/gcp-demo-pipeline.bats
+# already drives; the SL_DEMO_ prefix had no implementation behind it at all.
+# test/terraform-env-contract.bats now asserts every name this block exports is
+# read by demo-pipeline.sh, so the two halves can no longer drift apart quietly.
+#
+# STILL UNIMPLEMENTED, stated rather than papered over: demo-pipeline.sh has no
+# stage concept — DEMO_STAGE has no reader, only a cosmetic "STAGE:" banner per
+# step — so `--stage test` and `--stage full` currently select the same work.
+# The variable is exported because the contract calls for it and a future reader
+# is a small change; the gap is asserted as a known gap by the contract suite so
+# that implementing it turns a test red rather than passing unnoticed.
 #
 # Sets the global PIPELINE_EXIT rather than echoing it. That is not a style
 # choice: `pipeline_exit="$(run_pipeline …)"` captures this function's stdout,
@@ -942,10 +991,21 @@ run_pipeline() {
   local remote_cmd
   printf -v remote_cmd 'cd %q && bash %q' "$REMOTE_WORK_DIR" "$PIPELINE_REL"
 
+  # APP_PORT IS DELIBERATELY NOT EXPORTED, and dropping it is a fix rather than
+  # an omission. It was sent as SL_DEMO_APP_PORT, which nothing read. The only
+  # port-shaped variable on the pipeline side is DEMO_GATEWAY_LOCAL_PORT, and
+  # binding APP_PORT to it would be actively harmful: they are different ports
+  # for different front doors. APP_PORT is the hand-off's app_port (8080) — the
+  # dashboard nginx port THIS file forwards for the access path. The pipeline's
+  # 30754 is the Envoy Gateway port it runs the acceptance suite through, and
+  # demo-pipeline.sh states that 30754 is pinned by Dex's OIDC issuer and
+  # callback, so overriding it with 8080 would serve the login page and then
+  # fail the redirect with an invalid redirect_uri. Exporting a name nothing
+  # reads is noise; exporting it into the wrong reader is an outage.
   local envs
-  printf -v envs 'SL_DEMO_ENV=%q SL_DEMO_STAGE=%q SL_DEMO_WORK_DIR=%q SL_DEMO_REPORT_DIR=%q SL_DEMO_SUMMARY_FILE=%q SL_DEMO_APP_PORT=%q SL_DEMO_HOSTNAME=%q SL_DEMO_LOG=%q SL_DEMO_SOURCE_COMMIT=%q SL_DEMO_SOURCE_BRANCH=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_GATEWAY_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
-    "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$APP_PORT" "$DASHBOARD_HOST" \
+    "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
     "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
@@ -997,11 +1057,39 @@ collect_reports() {
   # The report directory belongs to the restricted demo account while IAP SCP
   # authenticates as the operator SA, so it is packaged via sudo rather than
   # weakening the directory's permissions just to collect artefacts.
-  if vm_ssh "sudo -u $(printf '%q' "$REMOTE_USER") tar -C $(printf '%q' "$REMOTE_REPORT_DIR") -czf $(printf '%q' "$archive") ." &&
+  #
+  # REMOTE_USER IS EMPTY BY DEFAULT (see its definition above: it is only set
+  # when GCP_TF_DEMO_REMOTE_USER names an account). Every other sudo site in
+  # this file guards on that — vm_ssh, deliver, run_pipeline all branch on
+  # `[ -n "$REMOTE_USER" ]`. This one did not, so it emitted `sudo -u ''`, and
+  # sudo rejects an EMPTY option argument in its own argument parser, before it
+  # ever looks up a user. The result is not "unknown user": it is the full
+  # multi-line usage block and exit 1. Reproduced verbatim:
+  #
+  #   $ sudo -n -u '' tar -C /tmp -czf /tmp/x.tar.gz .
+  #   usage: sudo -h | -K | -k | -V
+  #   usage: sudo -v [-ABkNnS] [-g group] [-h host] [-p prompt] [-u user]
+  #   ...
+  #
+  # The consequence is worse than the noise. Collection fails, and the verdict
+  # is then "derived without" the reports — a verdict computed from missing
+  # evidence, which is exactly the shape this file refuses everywhere else.
+  local pack
+  if [ -n "$REMOTE_USER" ]; then
+    printf -v pack 'sudo -u %q tar -C %q -czf %q .' \
+      "$REMOTE_USER" "$REMOTE_REPORT_DIR" "$archive"
+  else
+    printf -v pack 'sudo tar -C %q -czf %q .' "$REMOTE_REPORT_DIR" "$archive"
+  fi
+  if vm_ssh "$pack" &&
     vm_scp "${INSTANCE_NAME}:${archive}" "${REPORT_DIR}/" &&
     "$TAR_CMD" -xzf "${REPORT_DIR}/$(basename "$archive")" -C "$REPORT_DIR"; then
     rm -f "${REPORT_DIR}/$(basename "$archive")"
-    vm_ssh "rm -f $(printf '%q' "$archive")" >/dev/null 2>&1 || true
+    # `sudo rm`, because the archive was written BY the sudo above and /tmp is
+    # sticky: only the owner may unlink there, and the owner is root (or
+    # REMOTE_USER), never the operator SA the tunnel authenticates as. Without
+    # the elevation this silently leaks one tarball per run behind `|| true`.
+    vm_ssh "sudo rm -f $(printf '%q' "$archive")" >/dev/null 2>&1 || true
     log "reports collected into ${REPORT_DIR}"
     return 0
   fi

@@ -476,10 +476,29 @@ destroy_recipe() {
 # node leaves it online, correctly named, and serving nothing.
 # ---------------------------------------------------------------------------
 
+# Put the stubbed node into a definite serve state, through BOTH probes.
+#
+# Setting only one is how a test ends up describing a node the driver never
+# asks about: --json is consulted first, so a prose-only "serving" fixture is
+# silently overridden by the JSON default of `{}` and the node reads as idle.
+# That is not hypothetical — it broke four tests the moment --json landed.
+#
+# The single-probe tests below deliberately set ONE side and silence the other;
+# that is their subject, and they do not use these helpers.
+serve_present() {
+	export STUB_TS_SERVE_JSON='{"TCP":{"443":{"HTTPS":true}}}'
+	export STUB_TS_SERVE_STATUS="https://${TS_HOST}.${TS_SUFFIX} (tailnet only)
+|-- / proxy http://127.0.0.1:9999"
+}
+
+serve_absent() {
+	export STUB_TS_SERVE_JSON='{}'
+	export STUB_TS_SERVE_STATUS="No serve config"
+}
+
 @test "ts-logout REFUSES when the node is currently serving" {
 	setup_driver
-	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)
-|-- / proxy http://127.0.0.1:9999"
+	serve_present
 
 	run "${DRIVER_SRC}" ts-logout
 	[ "$status" -ne 0 ]
@@ -492,7 +511,7 @@ destroy_recipe() {
 
 @test "the refusal explains the consequence and names the override" {
 	setup_driver
-	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+	serve_present
 
 	run "${DRIVER_SRC}" ts-logout
 	[[ "${output}" == *"wipes the serve"* ]]
@@ -501,7 +520,7 @@ destroy_recipe() {
 
 @test "ts-logout proceeds when forced, even on a serving node" {
 	setup_driver
-	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+	serve_present
 
 	run "${DRIVER_SRC}" ts-logout --force
 	[ "$status" -eq 0 ]
@@ -511,7 +530,7 @@ destroy_recipe() {
 
 @test "FORCE=1 in the environment is honoured as well as the flag" {
 	setup_driver
-	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+	serve_present
 	export FORCE=1
 
 	run "${DRIVER_SRC}" ts-logout
@@ -524,7 +543,7 @@ destroy_recipe() {
 	# The other half. Without this the guard could refuse unconditionally and
 	# the refusal tests above would still pass.
 	setup_driver
-	export STUB_TS_SERVE_STATUS="No serve config"
+	serve_absent
 
 	run "${DRIVER_SRC}" ts-logout
 	[ "$status" -eq 0 ]
@@ -532,11 +551,62 @@ destroy_recipe() {
 	[ "${output}" -ge 1 ]
 }
 
+@test "an idle node is recognised from --json alone" {
+	# The JSON form is asked FIRST because `{}` is a stabler contract than a
+	# prose sentence. Proven independently: the prose form is silenced here, so
+	# only the JSON path can produce this answer.
+	setup_driver
+	export STUB_TS_SERVE_JSON='{}'
+	export STUB_TS_SERVE_SILENT=1
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" -ge 1 ]
+}
+
+@test "a serving node is recognised from --json alone" {
+	setup_driver
+	export STUB_TS_SERVE_JSON='{"TCP":{"443":{"HTTPS":true}}}'
+	export STUB_TS_SERVE_SILENT=1
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"REFUSING"* ]]
+}
+
+@test "the prose form is a working fallback when --json is unavailable" {
+	# The reverse risk to the one above: an older or stripped build with no
+	# --json would answer nothing, and a JSON-only probe would then return
+	# "unknown" and refuse every unforced logout. Proven independently: JSON is
+	# silenced, so only the prose path can produce this answer.
+	setup_driver
+	export STUB_TS_SERVE_JSON_SILENT=1
+	serve_absent
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -eq 0 ]
+	run grep -c 'tailscale logout' "${gcloudlog}"
+	[ "${output}" -ge 1 ]
+}
+
+@test "the prose fallback still detects a live serve" {
+	setup_driver
+	export STUB_TS_SERVE_JSON_SILENT=1
+	export STUB_TS_SERVE_STATUS="https://${TS_HOST}.${TS_SUFFIX} (tailnet only)"
+
+	run "${DRIVER_SRC}" ts-logout
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"REFUSING"* ]]
+}
+
 @test "an unreadable serve status REFUSES rather than assuming there is none" {
 	# Not knowing is not the same as knowing there is nothing there. An empty
 	# reply is what an unreachable node, a refused sudo and a stopped tailscaled
 	# all produce, and reading those as "absent" would wipe a live serve config.
 	setup_driver
+	# BOTH forms silent. Either one answering would be a determinate result.
+	export STUB_TS_SERVE_JSON_SILENT=1
 	export STUB_TS_SERVE_SILENT=1
 
 	run "${DRIVER_SRC}" ts-logout
@@ -546,12 +616,23 @@ destroy_recipe() {
 	[ "${output}" = "0" ]
 }
 
+@test "the measured serve contract is recorded with its version" {
+	# A probe that depends on an exact string needs its provenance attached, or
+	# someone tidies the comparison into something looser and the guard stops
+	# distinguishing an idle node from a serving one.
+	body="$(sed -n '/^# Is the node currently serving?/,/^ts_serve_state() {/p' "${DRIVER_SRC}")"
+	[ -n "${body}" ]
+	[[ "${body}" == *"tailscale 1.102.3"* ]]
+	[[ "${body}" == *"No serve config"* ]]
+	[[ "${body}" == *"DO NOT loosen"* ]]
+}
+
 @test "the guard never repairs the serve config it warned about" {
 	# A mitigation that repairs its own symptom hides the fact that somebody ran
 	# a destructive command on a live node. The forced path must log out and
 	# STOP — no re-serve, no restore.
 	setup_driver
-	export STUB_TS_SERVE_STATUS="https://sl-${ENV_KEY}.${TS_SUFFIX} (tailnet only)"
+	serve_present
 
 	run "${DRIVER_SRC}" ts-logout --force
 	[ "$status" -eq 0 ]
@@ -601,7 +682,7 @@ setup_ts_status_tailnet() {
 @test "ts-status reports serve state separately from node state" {
 	setup_driver
 	setup_ts_status_tailnet
-	export STUB_TS_SERVE_STATUS="No serve config"
+	serve_absent
 
 	run "${DRIVER_SRC}" ts-status
 	# A node that is up and named correctly but serving nothing must be
@@ -617,10 +698,14 @@ setup_ts_status_tailnet() {
 	setup_driver
 	setup_ts_status_tailnet
 
-	export STUB_TS_SERVE_STATUS="https://${TS_HOST}.${TS_SUFFIX} (tailnet only)"
+	serve_present
 	run "${DRIVER_SRC}" ts-status
 	[[ "${output}" == *"ts serve:  configured"* ]]
 
+	# BOTH probes silenced. Silencing only the prose form leaves --json
+	# answering `{}`, which is a determinate "absent" and not the unknown this
+	# is about.
+	export STUB_TS_SERVE_JSON_SILENT=1
 	export STUB_TS_SERVE_SILENT=1
 	run "${DRIVER_SRC}" ts-status
 	[[ "${output}" == *"ts serve:  UNKNOWN"* ]]

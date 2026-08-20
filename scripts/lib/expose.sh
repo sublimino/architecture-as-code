@@ -14,16 +14,33 @@
 # Sourced by public-tunnel.sh; every function here is side-effect free except
 # the two named *_up / *_down.
 
-# Namespaces holding a flux-runtime-info copy that feeds a ${PUBLIC_ORIGIN}.
-ORIGIN_CONSUMER_NAMESPACES=(inf-signalloom fe-signalloom)
+# LOCAL_ORIGIN_DEFAULT was this file's name for the baseline and callers may
+# still export it, so it seeds dex-origin.sh's own knob BEFORE the source rather
+# than being reconciled with it afterwards. Getting this order wrong would make
+# an exported LOCAL_ORIGIN_DEFAULT silently ineffective on teardown — teardown
+# would land on the built-in baseline while the caller believed it had moved it.
+DEX_ORIGIN_BASELINE="${DEX_ORIGIN_BASELINE:-${LOCAL_ORIGIN_DEFAULT:-}}"
 
-# What teardown reverts to. Must match the :=default in dex.yaml and in the
-# fe-signalloom deployment, or teardown lands somewhere neither expects.
-LOCAL_ORIGIN_DEFAULT="${LOCAL_ORIGIN_DEFAULT:-https://dashboard.osramp.acme.local:30754}"
+# The origin mechanism itself. Publishing an origin, holding it against a
+# competing access method, and restoring the baseline all live in dex-origin.sh
+# so that ngrok (here), the IAP tunnel, Tailscale and Tailscale Funnel share ONE
+# implementation — Dex has one issuer, so they cannot each have their own.
+# shellcheck source=scripts/lib/dex-origin.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/dex-origin.sh"
 
-# The Kustomizations that consume PUBLIC_ORIGIN. Defined here so expose.sh is
-# self-contained; public-tunnel.sh sets the same list for its own use.
-FLUX_TARGETS=("${FLUX_TARGETS[@]:-inf-signalloom/infra-configs fe-signalloom/apps}")
+# Which access method this file publishes on behalf of. Overridable so a caller
+# that reuses expose.sh for a different transport takes its own lease rather
+# than masquerading as the tunnel.
+EXPOSE_ORIGIN_METHOD="${EXPOSE_ORIGIN_METHOD:-ngrok}"
+
+# ORIGIN_CONSUMER_NAMESPACES used to live here and has been removed rather than
+# kept for compatibility: nothing outside this file ever read it, and leaving it
+# beside DEX_ORIGIN_TENANT_NAMESPACES would give one setting two knobs, only one
+# of which does anything.
+
+# Retained as this file's published name for the baseline. Now derived from
+# dex-origin.sh so the two can never disagree about where teardown lands.
+LOCAL_ORIGIN_DEFAULT="${DEX_ORIGIN_BASELINE}"
 
 # ── Strategy detection ───────────────────────────────────────────────
 #
@@ -88,73 +105,42 @@ loadbalancer_address() {
 
 # ── Publishing the origin to the cluster ─────────────────────────────
 #
-# This replaces patching the Dex secret and the API deployment directly and
-# then suspending Flux to stop it reverting them. PUBLIC_ORIGIN is a
-# substitution input, so writing it here and reconciling makes Flux APPLY the
-# public origin rather than undo it. Nothing needs suspending, and the value
-# survives every future reconcile.
+# PUBLIC_ORIGIN is a Flux substitution input, so writing it and reconciling
+# makes Flux APPLY the public origin rather than undo it — which is why nothing
+# has to be suspended and the value survives every future reconcile. That
+# machinery now lives in dex-origin.sh; what remains here is this file's
+# published surface over it.
+#
+# Thin wrapper over dex_origin_apply, kept because callers already say
+# `publish_origin "$url"` and the origin mechanism should not have needed them
+# to learn a new spelling.
+#
+# The behavioural change this brings, and it is the point of the whole exercise:
+# publishing now FAILS if another access method already holds the issuer, rather
+# than overwriting it. Two publishers racing over one issuer is not a state
+# anything can recover from at runtime — the loser's users get a login that
+# fails, with a healthy-looking tunnel in front of it.
 publish_origin() {
-  local origin="$1" ns
-
-  # Written to flux-system AND to each tenant copy, deliberately.
-  #
-  # The tenant copies carry `fluxcd.controlplane.io/copyFrom:
-  # flux-system/flux-runtime-info`, but that copy does NOT reliably propagate an
-  # update: measured on 2026-08-03, changing the key in flux-system (and even
-  # forcing a ResourceSet reconcile) left both tenant copies on the previous
-  # value, so Dex and the API kept serving a stale origin. Writing flux-system
-  # alone looks correct and silently does nothing.
-  #
-  # flux-system is still written because it is the durable source a future
-  # re-copy or a rebuilt namespace will read; the tenant writes are what take
-  # effect now.
-  kubectl patch configmap flux-runtime-info -n flux-system \
-    --type=merge -p "{\"data\":{\"PUBLIC_ORIGIN\":\"${origin}\"}}" >/dev/null
-  for ns in "${ORIGIN_CONSUMER_NAMESPACES[@]}"; do
-    kubectl patch configmap flux-runtime-info -n "$ns" \
-      --type=merge -p "{\"data\":{\"PUBLIC_ORIGIN\":\"${origin}\"}}" >/dev/null 2>&1 || true
-  done
-  echo "    PUBLIC_ORIGIN=${origin}"
-
-  reconcile_origin_consumers
+  local origin="$1"
+  dex_origin_apply "$EXPOSE_ORIGIN_METHOD" "$origin"
 }
 
-# Teardown SETS the local default rather than removing the key.
+# Teardown SETS the local default rather than removing the key, and releases the
+# lease so the next access method can take it.
 #
-# Removing it does not unpublish: the tenant copies keep the last value, so the
-# demo stays published on a dead origin while the cluster looks reset. An
+# Removing the key does not unpublish: the tenant copies keep the last value, so
+# the demo stays published on a dead origin while the cluster looks reset. An
 # explicit value always propagates; an absent one does not.
 unpublish_origin() {
-  publish_origin "${LOCAL_ORIGIN_DEFAULT}"
+  dex_origin_restore
 }
 
-# Reconciling the Kustomization alone is not enough -- it re-applies whatever
-# its source already had. The OCIRepository must be refreshed first or the new
-# substitution never reaches the manifest.
+# Retained under its original name because it is part of this file's surface;
+# the implementation moved to dex-origin.sh so every access method reconciles
+# and restarts Dex the same way.
 reconcile_origin_consumers() {
-  local target ns name src
-  for target in "${FLUX_TARGETS[@]}"; do
-    ns="${target%%/*}"; name="${target##*/}"
-    src="$(kubectl get kustomization "$name" -n "$ns" -o jsonpath='{.spec.sourceRef.name}' 2>/dev/null || true)"
-    [[ -n "$src" ]] && flux reconcile source oci "$src" -n "$ns" >/dev/null 2>&1 || true
-    flux reconcile kustomization "$name" -n "$ns" >/dev/null 2>&1 || true
-  done
-  echo "    reconciled ${FLUX_TARGETS[*]}"
-
-  # Dex reads its config once, at startup. Updating the Secret is not enough:
-  # the kubelet syncs a mounted Secret on its own schedule and Dex would not
-  # re-read it anyway, so the running process keeps serving the OLD issuer and
-  # redirect list. Symptom is maximally confusing — the Secret in the cluster
-  # visibly contains the new callback while Dex keeps rejecting it with
-  # "Unregistered redirect_uri".
-  #
-  # The API picks up its change automatically, because the substitution edits
-  # the Deployment's env and that rolls the pods.
-  if kubectl get deploy dex -n "$DEX_NAMESPACE" >/dev/null 2>&1; then
-    kubectl rollout restart "deployment/dex" -n "$DEX_NAMESPACE" >/dev/null 2>&1 || true
-    kubectl rollout status "deployment/dex" -n "$DEX_NAMESPACE" --timeout=120s >/dev/null 2>&1 || true
-    echo "    dex restarted to load the new issuer"
-  fi
+  _dex_origin_reconcile
+  _dex_origin_restart_dex
 }
 
 # ── NodePort exposure (cloud VM) ─────────────────────────────────────

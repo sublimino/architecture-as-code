@@ -754,9 +754,17 @@ variable_list_default() {
 # it reads as coverage.
 #
 # The mutations run on COPIES in BATS_TEST_TMPDIR, generated from the live tree
-# at test time (CONTRACT §7: never by mutating the real tree). Generated rather
-# than committed so they cannot go stale — they are derived from whatever the
-# source says today.
+# at test time. Generated rather than committed so they cannot go stale — they
+# are derived from whatever the source says today.
+#
+# THAT IS NOT SUFFICIENT ON ITS OWN, and the contract used to say it was.
+# CONTRACT §7b now states the correction: a fixture mutation proves the scanner
+# detects a string in a file the test just wrote it into — it cannot prove the
+# thing being guarded exists in the shipped code. Three assertions in this
+# repository were dead inside green suites that had passing fixture mutations
+# exactly like these. Every guard here has ALSO been proven by mutating the real
+# file and confirming the right test went red; the copies below are what runs in
+# CI, and the real-file sweep is what makes them worth running.
 #
 # Each mutation ASSERTS IT CHANGED SOMETHING before running the guard. A sed
 # whose pattern no longer matches silently no-ops, and the mutation check would

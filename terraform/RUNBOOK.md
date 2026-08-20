@@ -82,18 +82,15 @@ ingress permitted only from `35.235.240.0/20` by `allow_iap_ssh`, with
 > **Mind the port, and mind which port.** `allow_iap_ssh` opens TCP **22 only**.
 > The application is opened by a second, separately-named rule,
 > `allow_iap_app`, and only on the environment's `app_port` — which for a demo
-> lane is **30754**, not an arbitrary free port. Dex pins its local issuer and
-> its OIDC callback client to 30754 (`setup_gateway_forward` in
-> `scripts/acceptance-test.sh`), so a tunnel on any other port reaches the Envoy
-> Gateway and then fails the login redirect. That failure looks like a broken
-> application, not like a closed port.
+> lane is **8080**, the dashboard nginx Service port. IAP forwarding targets
+> dashboard nginx directly; nginx serves the SPA and proxies `/dex/` and `/api/`
+> on the same origin. This avoids the former Gateway and Dex port coupling.
 
 ```bash
 # Direct tunnel to the application. Needs roles/iap.tunnelResourceAccessor.
-gcloud compute start-iap-tunnel <instance> 30754 \
-  --local-host-port=localhost:30754 --zone us-east4-a
-# then open https://dashboard.osramp.acme.local:30754
-# (the Gateway requires that SNI name; add it to /etc/hosts as 127.0.0.1)
+gcloud compute start-iap-tunnel <instance> 8080 \
+  --local-host-port=localhost:8080 --zone us-east4-a
+# then open http://localhost:8080
 ```
 
 The SSH forward still works and is the fallback when the tunnel is blocked by
@@ -102,7 +99,7 @@ an org policy on `app_port`:
 ```bash
 gcloud compute ssh <instance> --zone us-east4-a \
   --project sl-port-over-sandbox --tunnel-through-iap \
-  -- -L 30754:localhost:30754
+  -- -L 8080:localhost:8080
 ```
 
 `access_mode = "iap"` stays set regardless: it is the safe default and it

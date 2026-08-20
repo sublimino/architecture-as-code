@@ -35,6 +35,8 @@ data "google_compute_image" "boot" {
 # looks for. The count is what keeps that from being a tax on every environment
 # that never asked for Tailscale — with the feature off, this lookup is not
 # performed at all, so an environment with no secret still plans and applies.
+#
+# READ-ONLY, and that word is now load-bearing — see the block below.
 data "google_secret_manager_secret" "tailscale_authkey" {
   count = var.tailscale_enabled ? 1 : 0
 
@@ -42,27 +44,58 @@ data "google_secret_manager_secret" "tailscale_authkey" {
   secret_id = var.tailscale_authkey_secret_id
 }
 
-# SECRET-SCOPED, never project-scoped.
+# ---------------------------------------------------------------------------
+# THE SECRET'S IAM IS NOT DECLARED HERE, AND THAT IS THE POINT.
 #
-# `google_secret_manager_secret_iam_member` binds on ONE secret. The available
-# alternative, `google_project_iam_member` with roles/secretmanager.secretAccessor,
-# grants read on EVERY secret in the project — present and future — to a service
-# account attached to a VM that runs demo workloads and pulls public container
-# images. The two lines look almost identical in a diff and differ by the entire
-# blast radius of the project's secret store.
+# This module used to carry a `google_secret_manager_secret_iam_member` granting
+# roles/secretmanager.secretAccessor on the auth-key secret to the VM's runtime
+# service account. It was correct about scope — secret-scoped, never
+# project-scoped — and wrong about OWNERSHIP, which is the more expensive axis.
 #
-# Additive by construction: this resource adds one member to one secret's policy
-# and touches nothing else. The authoritative sibling
-# (`google_secret_manager_secret_iam_policy`) would replace that secret's whole
-# policy, silently removing whatever grant lets Andy manage the key himself.
-resource "google_secret_manager_secret_iam_member" "tailscale_authkey_accessor" {
-  count = var.tailscale_enabled ? 1 : 0
-
-  project   = var.project_id
-  secret_id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
-  role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${var.service_account_email}"
-}
+# Declaring it here means the identity that runs `terraform apply` must hold
+# secretmanager.secrets.setIamPolicy on that secret. It does not, and the two
+# applies that first exercised this path both died on exactly that:
+#
+#     Error 403: Permission 'secretmanager.secrets.setIamPolicy' denied
+#       on 'projects/<p>/secrets/sl-demo-tailscale-authkey'
+#
+# The available fix — widen the deploy identity — is the wrong one, and this
+# repo has already argued why at length for a different resource. See the long
+# comment at the foot of modules/deploy-identity/main.tf: bucket CREATION and
+# bucket IAM are LIFECYCLE, lifecycle belongs to the privileged bootstrap step a
+# human runs once, and what the deploy identity does is POPULATE. The same split
+# applies here with more force, not less, because the resource is a secret. An
+# identity that can setIamPolicy on a secret can grant itself secretAccessor on
+# it, so granting that to the account which runs UNATTENDED — from CI, on a
+# branch — makes the tailnet auth key readable by anything that can land a
+# commit. The secret is deliberately created out of band precisely so its
+# payload never reaches an unattended principal; owning its policy from here
+# would hand back the same access through the other door.
+#
+# So the grants are made ONCE, by a human who already holds elevated rights, in
+# the same act that creates the secret. Two of them, and they are asymmetric on
+# purpose:
+#
+#   sl-rt-demo-N  roles/secretmanager.secretAccessor  reads the PAYLOAD, at boot
+#   sl-tf-deploy  roles/secretmanager.viewer          reads the METADATA only
+#
+# viewer is what makes the data source above resolve, and it is the whole reason
+# that source can stay. It answers "does this secret exist" and cannot answer
+# "what is in it" — so a plan gets its existence gate and the deploy identity
+# still cannot read the key.
+#
+# Rejected alternative, recorded so it is not re-proposed: declaring the binding
+# in terraform/bootstrap/ alongside the state bucket's. The bucket's IAM lives
+# there because bootstrap CREATES the bucket. Bootstrap does not create this
+# secret and must not, and the runtime accounts it would name do not exist until
+# terraform/platform has run — so it would be a third home for the grant with an
+# ordering trap in it. Whoever creates the secret grants its access, in one step.
+#
+# Commands: terraform/bootstrap/README.md § "The Tailscale auth-key secret".
+# Enforced by test/terraform-tailscale-infra.bats, which fails if any Secret
+# Manager IAM resource reappears anywhere in the environments root's transitive
+# module closure.
+# ---------------------------------------------------------------------------
 
 locals {
   instance_name = "${var.name_prefix}-vm"
@@ -86,14 +119,26 @@ locals {
   # Startup scripts and metadata are stored in plain text and readable by anyone
   # holding compute.instances.get, so what goes here is the NAME of the secret,
   # not its contents. The VM resolves the name to a value at runtime under its
-  # own attached service account, which is the grant made above.
+  # own attached service account, holding the human-granted secretAccessor
+  # described at the head of this file.
+  #
+  # The secret id is taken from the DATA SOURCE rather than from the variable,
+  # and the two are the same string: `secret_id` is a required input on that data
+  # source, not a computed attribute, so it echoes exactly what was passed in.
+  # The reference is therefore not about the value — it is about the EDGE. It
+  # makes the instance depend on the existence check, so the name published to
+  # the VM is provably the name of a secret that resolved at plan time, and
+  # deleting the data source breaks the instance instead of silently removing the
+  # gate. Before the secret's IAM binding moved out of this module that edge came
+  # for free, because the binding consumed the data source; this is what carries
+  # it now, and it is also why tflint does not report the lookup as unused.
   #
   # Emitted as an empty map when the feature is off, so a non-Tailscale
   # instance's metadata is byte-identical to what it was before this existed and
   # the startup script has exactly one signal to read.
   tailscale_metadata = var.tailscale_enabled ? {
     signalloom-tailscale-enabled   = "TRUE"
-    signalloom-tailscale-secret-id = var.tailscale_authkey_secret_id
+    signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
     signalloom-tailscale-tag       = var.tailscale_tag
     signalloom-tailscale-hostname  = local.tailscale_hostname
     signalloom-tailscale-ssh       = var.tailscale_ssh_enabled ? "TRUE" : "FALSE"

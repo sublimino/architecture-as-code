@@ -452,16 +452,51 @@ ms_guard_report() {
 # that fact — which is the exact failure the sentinel exists to prevent, and it
 # is what an unconditional `rm -f "$SENTINEL"` in an EXIT trap does today.
 ms_guard_restore() {
-	local i f
+	local i f pristine got bad=0
 	for i in "${!MS_FILES[@]}"; do
 		f="${MS_FILES[$i]}"
-		if [ -f "${MS_BACKUP_DIR}/${f}" ]; then
-			cp "${MS_BACKUP_DIR}/${f}" "$(ms__abs "$f")"
-			# Not a courtesy. `cp` onto an existing destination keeps the
-			# DESTINATION's mode, so without this the +x bit stays dropped.
-			chmod "${MS_MODES[$i]}" "$(ms__abs "$f")"
+		pristine="${MS_BACKUP_DIR}/${f}"
+
+		# The pristine copy is verified BEFORE it is trusted.
+		#
+		# `[ -f "$pristine" ] && cp ...` silently skips when the backup is gone,
+		# and silently installs corruption when it is damaged. Both then surface
+		# as "RESTORE FAILED (content)" pointing at the WORKING file — sending
+		# you to inspect the one thing that is not at fault.
+		#
+		# Not hypothetical: this rail's own backup directory was reaped mid-run
+		# by an external cleaner (a sandbox that owned $TMPDIR), and the copy
+		# that came back was neither the original nor the mutation. The recorded
+		# sha256 in the sentinel is what caught it.
+		if [ ! -f "$pristine" ]; then
+			printf '*** PRISTINE COPY MISSING: %s\n' "$pristine" >&2
+			printf '        for %s\n' "$f" >&2
+			printf '        Nothing can be restored from it. Recover with:\n' >&2
+			printf '        git -C %s show %s:%s > %s\n' \
+				"$MS_REPO_ROOT" "$MS_HEAD_COMMIT" "$f" "$(ms__abs "$f")" >&2
+			bad=1
+			continue
 		fi
+		got="$(sha256sum "$pristine" | cut -d' ' -f1)"
+		if [ "$got" != "${MS_SHAS[$i]}" ]; then
+			printf '*** PRISTINE COPY CORRUPT: %s\n' "$pristine" >&2
+			printf '        want sha256 %s\n' "${MS_SHAS[$i]}" >&2
+			printf '        got  sha256 %s\n' "$got" >&2
+			printf '        Restoring from it would install unknown content.\n' >&2
+			bad=1
+			continue
+		fi
+
+		cp "$pristine" "$(ms__abs "$f")"
+		# Not a courtesy. `cp` onto an existing destination keeps the
+		# DESTINATION's mode, so without this the +x bit stays dropped.
+		chmod "${MS_MODES[$i]}" "$(ms__abs "$f")"
 	done
+
+	if [ "$bad" -ne 0 ]; then
+		printf '*** SENTINEL KEPT at %s — the tree is NOT clean.\n' "$MS_SENTINEL" >&2
+		return 1
+	fi
 	if ms_guard_verify; then
 		ms_guard_disarm
 		return 0
@@ -548,6 +583,60 @@ ms_sed() { # file sed-expr
 			"read the resulting green as a proof."
 	fi
 	return 0
+}
+
+# ── The second level: did the mutation REACH the thing under test? ─────────
+#
+# Comparing hashes proves the BYTES changed. It does not prove the system under
+# test now evaluates anything different, and the gap between those two is a
+# false finding that points at correct code — worse than a missed defect,
+# because somebody then goes and "fixes" a working guard.
+#
+# The measured case: a proof mutated `KEYS_DIR ?=` at Makefile:42. The hash
+# moved, so the assert passed. Makefile:43 is `export KEYS_DIR`, and an
+# inherited environment variable beats `?=` — make expanded the SAME value, the
+# suite stayed green, and the proof reported a working guard as dead.
+#
+# `export` is only one absorber. `?=` defaults, `${X:-fallback}`, build caches,
+# generated files, vendored copies and anything read from a second source all
+# swallow a mutation while the bytes on disk change happily.
+#
+# So: capture what the system under test SAYS before the mutation, and require
+# that to move too.
+#
+#   ms_sed_effective <file> <sed-expr> <oracle-command>
+#
+# The oracle should be the cheapest command whose output the mutation must
+# change — `make -n <target>`, `bash -n`, a `--dry-run`, a single grep of a
+# generated artefact. It runs from the repo root.
+MS_ORACLE_BEFORE=""
+
+ms_oracle_capture() { # command
+	MS_ORACLE_BEFORE="$(cd "$MS_REPO_ROOT" && bash -c "$1" 2>&1)" || true
+}
+
+ms_assert_effective() { # command [context]
+	local cmd="$1" context="${2:-the mutation}" after
+	after="$(cd "$MS_REPO_ROOT" && bash -c "$cmd" 2>&1)" || true
+	if [ "$after" = "$MS_ORACLE_BEFORE" ]; then
+		ms__die \
+			"the bytes changed but the SYSTEM UNDER TEST did not notice." \
+			"context: ${context}" \
+			"oracle:  ${cmd}" \
+			"The file on disk is different and this oracle evaluates to exactly" \
+			"the same thing, so the check below would run against EFFECTIVELY" \
+			"UNCHANGED behaviour and pass — reporting a working guard as dead." \
+			"Something is absorbing the mutation. Look for an \`export\` beating" \
+			"a \`?=\`, a \${X:-fallback}, a cache, a generated file, or a second" \
+			"copy of the value that is the one actually being read."
+	fi
+	return 0
+}
+
+ms_sed_effective() { # file sed-expr oracle-command
+	ms_oracle_capture "$3"
+	ms_sed "$1" "$2"
+	ms_assert_effective "$3" "$1: $2"
 }
 
 # ── ms_assert_mutated <file> ────────────────────────────────────────────────

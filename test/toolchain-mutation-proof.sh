@@ -34,8 +34,6 @@ SUITES=(test/terraform-toolchain-pins.bats test/terraform-env-contract.bats)
 # prove, so the proof runs the suite that can actually see the change.
 DRIVER_SUITE=(test/terraform-demo-driver.bats)
 
-BACKUP="$(mktemp -d)"
-
 # ── The sentinel, and why a correct trap is not enough ──────────────────────
 #
 # This harness restores from an out-of-repo copy on EXIT, INT and TERM, per
@@ -63,59 +61,32 @@ BACKUP="$(mktemp -d)"
 # run invisible, and the operator would never learn that a gate result they had
 # already read was computed against a mutated file. The file is named, the
 # backup path is printed, and a human decides.
-SENTINEL="${REPO_ROOT}/.mutation-in-progress"
+# ── The name was the bug ────────────────────────────────────────────────────
+#
+# This harness used `.mutation-in-progress` — GENERIC, with no proof name in it,
+# while seven other proofs share the same working tree. A shared name is worse
+# than no name at all: this harness's restore deletes the marker belonging to
+# whichever proof was killed earlier, that proof then starts against a clean-
+# LOOKING repo, reads its OWN leaked mutation as a genuine failure, and the
+# refusal that exists to prevent exactly that never fires.
+#
+# It is now `.toolchain-mutation-in-progress`, minted by the shared rail, which
+# additionally gives this harness the restore-mode check and the live-pid-versus-
+# leaked distinction it did not have. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-if [ -e "$SENTINEL" ]; then
-  cat >&2 <<EOF
-ERROR: a previous mutation run did not complete.
+ms_guard_init toolchain "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"
 
-$(cat "$SENTINEL" 2>/dev/null)
+# EXIT alone, where this was `EXIT INT TERM`. bash runs the EXIT trap after an
+# INT or TERM handler returns, so naming all three ran the restore twice; and
+# INT/TERM are not otherwise trapped here, so EXIT covers them.
+trap ms_guard_on_exit EXIT
 
-The working tree may still contain a MUTATED file. This is what an interrupted
-run looks like, and it is not a merge regression — check with:
-
-    git status --porcelain
-    git diff
-
-A line replaced by a bare ':' is a mutation signature, never a merge artefact.
-
-Restore the named file from the backup path above if it still exists, or with
-'git checkout -- <file>' if you have no other uncommitted work in that
-directory, then delete ${SENTINEL} and re-run.
-
-Refusing to start. This script will not repair the tree for you: silently
-restoring would hide that a destructive run was interrupted, and any gate result
-read since then was computed against an unknown tree.
-EOF
-  exit 4
-fi
-
-mark_sentinel() { # label file
-  printf 'mutation:  %s\nfile:      %s\nbackup:    %s/%s\nstarted:   %s\npid:       %s\n' \
-    "$1" "$2" "$BACKUP" "$2" "$(date -Iseconds)" "$$" >"$SENTINEL"
-}
-
-clear_sentinel() { rm -f "$SENTINEL"; }
-
-# The sentinel is removed by the EXIT trap on every path this process controls.
-# When it survives, that is precisely the SIGKILL case it exists to report.
-trap 'restore_all; clear_sentinel; rm -rf "$BACKUP"' EXIT INT TERM
-
-backup_all() {
-  local f
-  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
-    mkdir -p "${BACKUP}/$(dirname "$f")"
-    cp -p "$f" "${BACKUP}/${f}"
-  done
-}
-
-restore_all() {
-  local f
-  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
-    [ -f "${BACKUP}/${f}" ] && cp -p "${BACKUP}/${f}" "$f"
-  done
-  return 0
-}
+mark_sentinel() { ms_guard_arm "$1 — $2"; }
+clear_sentinel() { ms_guard_disarm; }
+backup_all() { :; } # ms_guard_init already took the out-of-repo backup
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -462,13 +433,17 @@ restore_all
 # Final guard: the tree must be byte-identical to where it started, and the
 # suites must be green again. A proof harness that leaves a mutation behind is
 # worse than no proof at all.
-for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
-  if ! cmp -s "$f" "${BACKUP}/${f}"; then
-    echo "ERROR: ${f} was not restored cleanly" >&2
-    exit 3
-  fi
-done
-echo "  all five files restored byte-for-byte"
+#
+# `cmp` against the backup only ever compared CONTENT. The rail checks the MODE
+# too, which `cmp` is blind to: `cp` onto an existing file keeps the destination
+# mode, so a mutation applied via a tempfile and `mv` restores byte-identical
+# with the executable bit gone. Four of the five files here are scripts.
+if ! ms_guard_verify; then
+  echo "ERROR: the tree was not restored cleanly" >&2
+  exit 3
+fi
+echo "  all five files restored byte-for-byte, modes included"
+ms_guard_report
 
 if bats "${SUITES[@]}" >/dev/null 2>&1; then
   echo "  suites green after restore"

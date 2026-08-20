@@ -368,6 +368,44 @@ DEAD_PID=999999999
 	[ -f "$(SENTINEL_OF demo-proof)" ]
 }
 
+@test "a CORRUPT pristine copy is named as such, not blamed on the working file" {
+	# Measured: this rail's own backup dir was reaped mid-run by a sandbox that
+	# owned $TMPDIR, and the copy that came back was neither the original nor
+	# the mutation. Restoring from it would have installed unknown content and
+	# then reported a content mismatch against the WORKING file — sending
+	# somebody to inspect the one thing that is not at fault.
+	write_proof '
+		ms_guard_init demo-proof target.sh
+		ms_guard_arm "M1"
+		ms_sed target.sh "s/real_line=1/real_line=0/"
+		printf "corrupt\n" > "${MS_BACKUP_DIR}/target.sh"
+		ms_guard_restore || true
+		exit 0
+	'
+	run bash "${SANDBOX}/proof.sh"
+	[[ "$output" == *"PRISTINE COPY CORRUPT"* ]]
+	# and it refuses to install it: the mutation is still on disk, untouched,
+	# rather than overwritten with unknown content.
+	run grep -c 'real_line=0' "${SANDBOX}/target.sh"
+	[ "$output" -eq 1 ]
+}
+
+@test "a MISSING pristine copy is named, and names the git recovery command" {
+	# `[ -f "$backup" ] && cp ...` silently skips a restore that never happened.
+	write_proof '
+		ms_guard_init demo-proof target.sh
+		ms_guard_arm "M1"
+		ms_sed target.sh "s/real_line=1/real_line=0/"
+		rm -f "${MS_BACKUP_DIR}/target.sh"
+		ms_guard_restore || true
+		exit 0
+	'
+	run bash "${SANDBOX}/proof.sh"
+	[[ "$output" == *"PRISTINE COPY MISSING"* ]]
+	[[ "$output" == *"git -C ${SANDBOX} show"* ]]
+	[ -f "$(SENTINEL_OF demo-proof)" ]
+}
+
 @test "a SUCCESSFUL restore clears the sentinel" {
 	# The negative of the test above. A verifier that always failed, or a
 	# restore that never cleared, would satisfy that one and break the gate.
@@ -558,9 +596,69 @@ DEAD_PID=999999999
 	run bash "${SANDBOX}/proof.sh"
 	[ "$status" -eq 2 ]
 	[[ "$output" == *"15 proven"* ]]
-	[[ "$output" == *"RESTORE FAILED"* ]]
+	# The proof's own verdict was 0 and the restore is what promoted it.
+	[[ "$output" == *"SENTINEL KEPT"* ]]
 	# and the marker survives, so the next run refuses rather than compounding
 	[ -f "$(SENTINEL_OF demo-proof)" ]
+}
+
+@test "ms_sed_effective ABORTS when the bytes move but an export absorbs the mutation" {
+	# The measured §7b level-two case, reproduced exactly. `export KEYS_DIR` on
+	# the line after `KEYS_DIR ?= ...` means an inherited environment variable
+	# wins, so make expands the SAME value however the `?=` line is mutated.
+	# A hash check passes; the guard is reported dead while being perfectly fine.
+	# A false finding pointing at correct code is worse than a missed defect.
+	cat >"${SANDBOX}/Makefile" <<'MK'
+KEYS_DIR ?= /original/keys
+export KEYS_DIR
+show:
+	@printf '%s\n' "$$KEYS_DIR"
+MK
+	git -C "$SANDBOX" add Makefile
+	git -C "$SANDBOX" commit -qm mk --no-gpg-sign
+
+	# Premise check: prove the absorber is real before relying on it, otherwise
+	# this test passes for a reason that has nothing to do with the mechanism.
+	run bash -c "cd '${SANDBOX}' && KEYS_DIR=/inherited make -s show"
+	[ "$output" = "/inherited" ]
+
+	write_proof '
+		export KEYS_DIR=/inherited
+		ms_guard_init demo-proof Makefile
+		trap ms_guard_on_exit EXIT
+		ms_sed_effective Makefile "s#/original/keys#/mutated/keys#" "make -s show"
+		echo "REACHED THE CHECK"
+	'
+	run bash "${SANDBOX}/proof.sh"
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"SYSTEM UNDER TEST did not notice"* ]]
+	[[ "$output" == *"reporting a working guard as dead"* ]]
+	[[ "$output" != *"REACHED THE CHECK"* ]]
+	# and it still cleans up after itself
+	run git -C "$SANDBOX" status --porcelain -- Makefile
+	[ -z "$output" ]
+}
+
+@test "ms_sed_effective PROCEEDS when the mutation actually reaches the system under test" {
+	# The negative. An ms_sed_effective that always aborted would satisfy the
+	# test above while making every proof unable to mutate anything.
+	cat >"${SANDBOX}/Makefile" <<'MK'
+KEYS_DIR ?= /original/keys
+show:
+	@printf '%s\n' "$(KEYS_DIR)"
+MK
+	git -C "$SANDBOX" add Makefile
+	git -C "$SANDBOX" commit -qm mk --no-gpg-sign
+
+	write_proof '
+		ms_guard_init demo-proof Makefile
+		trap ms_guard_on_exit EXIT
+		ms_sed_effective Makefile "s#/original/keys#/mutated/keys#" "make -s show"
+		echo REACHED-THE-CHECK
+	'
+	run bash "${SANDBOX}/proof.sh"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *REACHED-THE-CHECK* ]]
 }
 
 @test "ms_guard_init refuses to guard a file it cannot find" {

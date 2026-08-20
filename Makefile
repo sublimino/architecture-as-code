@@ -2023,6 +2023,20 @@ gcp-tf-public-status: ## Whether the VM is publishing and whether a healthy tunn
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' public-status
 
+.PHONY: gcp-tf-surfaces-report
+gcp-tf-surfaces-report: ## Report EVERY lane on BOTH surfaces in one table; STALE and MISSING both fail (LANES=, COMMIT=).
+	@# No ENV guard: sweeping every lane is the whole point, and requiring ENV
+	@# here would make the one target that answers "which lanes are good?"
+	@# answerable only one lane at a time — which is the gap it exists to close.
+	@if [ ! -x 'scripts/gcp-tf/surfaces-report.sh' ]; then \
+		echo "ERROR: scripts/gcp-tf/surfaces-report.sh is missing or not executable."; \
+		exit 2; \
+	fi
+	@scripts/gcp-tf/surfaces-report.sh \
+		$(if $(strip $(LANES)),--lanes '$(strip $(LANES))',) \
+		$(if $(strip $(COMMIT)),--commit '$(strip $(COMMIT))',) \
+		$(if $(strip $(JSON)),--json,)
+
 .PHONY: gcp-tf-demo-status
 gcp-tf-demo-status: ## What the demo VM's state is and what the last run decided, read-only (ENV=<key>).
 	$(gcp_tf_require_env)

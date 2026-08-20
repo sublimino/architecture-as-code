@@ -194,6 +194,15 @@ suspended_names() {
 	grep -q 'instances suspend sl-ci-1-runner' "$log"
 }
 
+@test "GCPTFCI default test command is the offline Terraform validation gate" {
+	# The runner VM does not require a deployed demo. Setup supplies an override
+	# for other lifecycle tests, so remove it to exercise the real default.
+	run env -u GCP_TF_CI_TEST_CMD bash "$script" run
+	[ "$status" -eq 0 ]
+
+	grep -q 'make gcp-tf-validate' "$log"
+}
+
 @test "GCPTFCI FAIL path exits non-zero and STILL suspends the lane" {
 	# ISC-187, ISC-188. "Leave it up so I can debug" is the intention that never
 	# survives contact with a Friday evening.

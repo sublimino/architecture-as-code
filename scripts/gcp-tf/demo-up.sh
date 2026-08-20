@@ -10,6 +10,7 @@
 #   --- Tailscale, the PRIMARY access path ---
 #   demo-up.sh ts-up       # serve the dashboard on the tailnet, print the URL
 #   demo-up.sh ts-status   # node, MagicDNS name, tailnet IP, dashboard health
+#   demo-up.sh ts-logout   # release the tailnet name before a destroy. Never fails.
 #   demo-up.sh funnel-up   # additionally expose it to the PUBLIC internet
 #   demo-up.sh funnel-down # remove the public listener, keep the tailnet one
 #
@@ -1803,6 +1804,16 @@ cmd_status() {
   else
     printf 'verdict:  none — no run has finished in %s\n' "$REPORT_DIR"
   fi
+
+  # Surfaced here as well as in ts-status, because `status` is the command
+  # people actually run and a signal that only appears behind a subcommand
+  # nobody types is not surfaced at all.
+  local ts_name_ok=0
+  report_ts_name_marker || ts_name_ok=1
+  if [ "$ts_name_ok" -ne 0 ]; then
+    printf 'result:   FAILED — see the name mismatch above\n'
+    return 1
+  fi
 }
 
 # Build the payload and stop. Exists so the exclusion list is directly
@@ -1897,6 +1908,39 @@ ts_node_hostname() {
 # promise a URL under a tailnet the operator is not actually on.
 ts_status_json() {
   "$TAILSCALE_CMD" status --json 2>/dev/null || printf ''
+}
+
+# Where the VM records that it did NOT get the MagicDNS name it asked for.
+#
+# Written by assert_tailscale_node_name in
+# terraform/modules/compute/startup/demo-vm.sh. The path is a contract between
+# these two files and is stated in both.
+TS_NAME_MARKER="${GCP_TF_DEMO_TS_NAME_MARKER:-/var/lib/signalloom/tailscale-name-mismatch}"
+
+# The marker's contents, or empty. NEVER fails, and the distinction it refuses
+# to make is deliberate: an unreachable VM, a missing file and an empty file all
+# come back as "no mismatch recorded".
+#
+# That is the right call ONLY because this is a supplementary signal on a status
+# command that has already reported whether the VM is reachable. It is not a
+# health check in its own right, and callers must not treat "empty" as "the node
+# name is verified" — it means "nothing on that VM says otherwise".
+ts_name_marker() {
+  remote_run "cat ${TS_NAME_MARKER} 2>/dev/null || true" 2>/dev/null || printf ''
+}
+
+# Prints the mismatch block if there is one and returns 1; prints nothing and
+# returns 0 otherwise. The return value is what makes a status command FAIL, and
+# failing is the point: the VM is up, Tailscale is up, and the URL is wrong.
+# Reporting that as a healthy estate is how the drift survived three rebuilds.
+report_ts_name_marker() {
+  local marker
+  marker="$(ts_name_marker)"
+  [ -n "$marker" ] || return 0
+
+  printf 'ts name:   MISMATCH — this node does not own the name the demo URL uses\n'
+  printf '%s\n' "$marker" | sed 's/^/           /'
+  return 1
 }
 
 # Resolved by ts_resolve_node. FQDN carries no trailing dot.
@@ -2204,6 +2248,15 @@ cmd_ts_status() {
     printf 'resolves:  NO — this machine does not resolve %s (MagicDNS off for this device or tailnet)\n' "$TS_FQDN"
   fi
 
+  # Deliberately AFTER the name is printed and BEFORE the dashboard probe.
+  #
+  # After, because the mismatch block only makes sense once the reader has seen
+  # which name was resolved. Before, because a healthy 200 from the wrong node
+  # is the single most misleading line this command can emit, and the reader
+  # needs the warning first.
+  local ts_name_ok=0
+  report_ts_name_marker || ts_name_ok=1
+
   if remote_is_publishing "$APP_PORT"; then
     printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
       "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$APP_PORT"
@@ -2238,6 +2291,85 @@ cmd_ts_status() {
   else
     printf 'dashboard: not answering (%s%s -> %s)\n' "$base" "$TS_HEALTH_PATH" "${code:-no response}"
   fi
+
+  # A recorded name mismatch fails this command even when every other line is
+  # green, because every other line CAN be green while the URL is wrong. That
+  # is the whole failure mode.
+  if [ "$ts_name_ok" -ne 0 ]; then
+    printf 'ts state:  FAILED — the node name is not the one this environment publishes\n'
+    return 1
+  fi
+  return 0
+}
+
+# Release this environment's tailnet device record. CANNOT FAIL, BY DESIGN.
+#
+# ─── Why this exists ────────────────────────────────────────────────────────
+#
+# `terraform destroy` removes the GCP instance. NOTHING removes the tailnet
+# device. The corpse keeps owning sl-<env>, so the next build of the same
+# environment is given sl-<env>-1, then sl-<env>-2 — the demo URL moves further
+# on every rebuild, and the URL is the deliverable. Measured on 2026-08-18; the
+# full account is above bring_tailscale_up in the startup script.
+#
+# This runs BEFORE the destroy, from here, over SSH, because that is the last
+# moment at which the node is both alive and known to be going away. The systemd
+# unit the startup script installs is the backstop for every teardown that does
+# not come through this path.
+#
+# ─── Why it exits 0 no matter what ──────────────────────────────────────────
+#
+# Destroy is the operator's escape hatch. A teardown that can be BLOCKED by a
+# best-effort cleanup step is a worse failure than the stale device this step
+# exists to prevent: the VM keeps costing money and the operator has to go
+# around the tooling, which is exactly when people learn to reach for
+# `terraform destroy` directly and skip this forever.
+#
+# So every one of these is a warning and never an error: the VM is already gone,
+# the VM is unreachable, SSH is refused, tailscale is not installed, the node was
+# never logged in, the hand-off file is missing, credentials have expired.
+#
+# The subshell is not decoration. `prepare` calls `die` on a missing hand-off or
+# a missing operator SA, and `die` EXITS — in-process that would take the destroy
+# down with it, which is the precise outcome this function promises never to
+# cause. Inside `( … )` that exit is contained and observable as a status.
+cmd_ts_logout() {
+  local rc=0
+
+  (
+    prepare ts-logout
+
+    local host
+    host="$(ts_node_hostname)"
+    log "releasing the tailnet device record for ${host} before teardown"
+
+    local state
+    state="$(vm_status)"
+    if [ "$state" != "RUNNING" ]; then
+      warn "${INSTANCE_NAME} is ${state}, not RUNNING — cannot log out from here. The ephemeral key reap and the on-shutdown unit are what release '${host}' now."
+      exit 0
+    fi
+
+    # `tailscale logout` on a node that was never logged in is an error, and a
+    # completely uninteresting one. `command -v` first so the common cases are
+    # distinguishable in the log rather than collapsing into one opaque failure.
+    if ! remote_run 'command -v tailscale >/dev/null 2>&1'; then
+      warn "no tailscale on ${INSTANCE_NAME} — nothing to log out. Its device record, if any, is left to the ephemeral reap."
+      exit 0
+    fi
+
+    if remote_run 'sudo tailscale logout'; then
+      log "${host} released its device record — the name is free for the next build"
+    else
+      warn "'tailscale logout' on ${INSTANCE_NAME} did not succeed. This does NOT block the destroy. If the key was minted ephemeral, Tailscale reaps the node a few minutes after it goes offline; if it was not, delete the offline '${host}' device at https://login.tailscale.com/admin/machines or the next build of this environment will be named '${host}-1'."
+    fi
+  ) || rc=$?
+
+  if [ "$rc" -ne 0 ]; then
+    warn "the tailnet logout step could not run (status ${rc}). Continuing — a destroy is never blocked by this."
+  fi
+
+  # Unconditional. The one guarantee this subcommand makes.
   return 0
 }
 
@@ -2402,6 +2534,7 @@ case "${1:-up}" in
   public-status) cmd_public_status ;;
   ts-status) cmd_ts_status ;;
   ts-up) cmd_ts_up ;;
+  ts-logout) cmd_ts_logout ;;
   funnel-up) cmd_funnel_up ;;
   funnel-down) cmd_funnel_down ;;
   status) cmd_status ;;
@@ -2409,6 +2542,6 @@ case "${1:-up}" in
     shift
     cmd_payload "${1:-}"
     ;;
-  -h | --help | help) sed -n '2,24p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|connect|ts-up|ts-status|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  -h | --help | help) sed -n '2,25p' "$0" ;;
+  *) die "usage: $(basename "$0") {up|test|connect|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

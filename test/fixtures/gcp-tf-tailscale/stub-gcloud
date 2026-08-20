@@ -24,6 +24,13 @@
 #   STUB_TS_FUNNEL_RC      exit code for a remote `tailscale funnel --bg`
 #   STUB_TS_FUNNEL_OFF_RC  exit code for a remote `tailscale funnel ... off`
 #   STUB_NO_WARNING        1 => suppress the impersonation warning
+#   STUB_TS_NAME_MARKER    contents of /var/lib/signalloom/tailscale-name-mismatch
+#                          on the VM. EMPTY by default, which is the healthy
+#                          state — the node got the name it asked for.
+#   STUB_TS_ABSENT         1 => no tailscale client on the VM, so `command -v`
+#                          fails. Models a VM whose optional tailscale stage
+#                          never ran.
+#   STUB_TS_LOGOUT_RC      exit code for a remote `tailscale logout`
 
 log="${STUB_GCLOUD_LOG:-/dev/null}"
 printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
@@ -90,6 +97,29 @@ case "$argv" in
         else
           printf 'ABSENT\n'
         fi
+        exit 0
+        ;;
+      # Ordered before the generic catch-all, and each of these three has a
+      # DEFAULT that is the healthy answer, so every existing test keeps the
+      # behaviour it had before these branches existed.
+      *"tailscale-name-mismatch"*)
+        # The name-mismatch marker demo-up.sh reads in `status` and `ts-status`.
+        # Default EMPTY, which is "no mismatch recorded" — the state of every
+        # healthy VM and of every test that is not about this.
+        printf '%s' "${STUB_TS_NAME_MARKER:-}"
+        exit 0
+        ;;
+      *"command -v tailscale"*)
+        # Whether the VM has a tailscale client at all. Default present.
+        [ "${STUB_TS_ABSENT:-0}" != "1" ] || exit 1
+        exit 0
+        ;;
+      *"tailscale logout"*)
+        [ "${STUB_TS_LOGOUT_RC:-0}" = "0" ] || {
+          printf 'logout failed: not logged in\n' >&2
+          exit "${STUB_TS_LOGOUT_RC}"
+        }
+        printf 'LOGGED_OUT\n'
         exit 0
         ;;
       *"echo ready"*) exit 0 ;;

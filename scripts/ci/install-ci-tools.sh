@@ -50,10 +50,23 @@ log() { printf '\033[1;36m[ci-tools]\033[0m %s\n' "$*"; }
 #   scripts/ci/vm-pipeline.sh:178/201     the same pair
 #
 # Both are `2>/dev/null || true`, so a chmod that FAILS is indistinguishable
-# from one that succeeded, and the directory's owner is UID 1001 — a different
-# OS Login principal, not ours. Its mode is therefore neither ours to rely on
-# nor stable across a VM rebuild: it was writable on the pre-rebuild VM and 0755
-# on the rebuilt one.
+# from one that succeeded.
+#
+# ─── The OWNER varies between IDENTICAL rebuilds. Measured. ─────────────────
+#
+# Two consecutive rebuilds of the same environment, same Terraform, same image
+# family, no configuration change between them:
+#
+#   drwxr-xr-x 2 1001 google-sudoers      <- one rebuild
+#   drwxr-xr-x 2 root root                <- the next
+#
+# UID 1001 is an OS Login principal — presumably whichever one provisioned
+# first. So this is not merely "the mode is unstable"; the OWNERSHIP is
+# nondeterministic across builds that are identical on paper, which means no
+# amount of care at line 27 can produce an answer that stays true. DO NOT
+# reintroduce a cached probe here on the assumption that this directory has a
+# fixed owner: it does not, and the failure it produces is a permission error on
+# two tools out of seventeen, twenty minutes into a forty-minute run.
 #
 # So the honest fix is not a better probe. It is to stop depending on a cached
 # answer to a question whose answer changes: attempt the write, and if it is

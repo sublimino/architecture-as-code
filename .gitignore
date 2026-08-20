@@ -119,6 +119,13 @@ deploy/gcp/*.handoff.json
 # One line: the email of the service account Terraform impersonates. The email
 # contains the project id.
 deploy/gcp/deploy-sa
+# The destroy-preservation baseline, written by `scripts/gcp-tf/preserve-check.sh
+# --capture` and read back by the same script after a destroy. It carries NO
+# secret material by construction -- only bucket names, object counts per state
+# prefix, secret version counts and service account emails -- but every one of
+# those names embeds the real project id, which CONTRACT.md §6 keeps out of
+# committed files. Regenerate it with --capture rather than committing it.
+deploy/gcp/preserve-baseline.json
 # Saved plan files. A plan is a binary diff against one specific state serial;
 # committing one invites applying a diff that no longer describes reality.
 *.tfplan

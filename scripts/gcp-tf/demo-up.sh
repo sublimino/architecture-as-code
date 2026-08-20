@@ -734,9 +734,81 @@ deliver_code() {
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_WORK_DIR") \
     && rm -f $(printf '%q' "$REMOTE_DELIVERY_PATH")"
 
+  provision_remote_paths "$owner"
+
   rm -f "$tarball"
   snapshot_remote_git
   log "delivered to ${REMOTE_WORK_DIR}"
+}
+
+# Creates and hands over EVERY remote path this driver tells the pipeline to
+# write to. Not just the checkout — that omission is what made the first
+# genuinely-addressed bring-up fail.
+#
+# ─── The failure, and why fixing the addressing caused it ───────────────────
+#
+#   tee: /opt/signalloom/demo-pipeline.log: Permission denied
+#   mkdir: cannot create directory '/opt/signalloom/reports': Permission denied
+#
+#   drwxr-xr-x  3 root                     root  /opt/signalloom/
+#   drwxr-xr-x 26 sa_1084361981201826946.. root  /opt/signalloom/repo
+#
+# Only `repo` was ever created and chowned; nothing created its siblings, and
+# /opt/signalloom itself is root-owned 0755.
+#
+# This was UNREACHABLE until the SL_DEMO_/DEMO_ prefix mismatch was fixed.
+# While the variables never arrived, the pipeline fell back to
+# ${HOME}/demo-reports and ${HOME}/demo-pipeline.log — writable, so nothing ever
+# failed here; the reports simply went where nobody collected them. Repairing
+# the addressing pointed the pipeline at the paths the driver actually collects,
+# and those were the ones it could not write. A latent permission assumption the
+# addressing bug had been masking.
+#
+# ─── Why the report directory stays under /opt/signalloom ───────────────────
+#
+# The alternative was to move reports somewhere the pipeline user owns outright
+# and stop chowning siblings. Rejected, for a reason that outlives the
+# convenience: ${HOME} for an OS Login principal is /home/sa_<numeric-id>,
+# DERIVED FROM WHICHEVER SERVICE ACCOUNT WAS IMPERSONATED. Two operators running
+# the same environment would write verdicts to two different directories, and
+# collect_reports — which packages one fixed path — would collect the wrong one
+# or none. That is the same class of defect just removed: the driver and the
+# pipeline disagreeing about where the evidence lives. A principal-independent
+# path is the property worth keeping, and ownership is the cheap part.
+#
+# /var/tmp/... was considered and rejected too: it is world-writable and sticky,
+# so any local account could pre-create the reports directory and control what
+# the verdict is assembled from. On an estate whose subject is security posture
+# that is not a trade worth making for one saved chown.
+#
+# ─── A writable DIRECTORY does not imply a writable FILE ────────────────────
+#
+# The log is pre-created and chowned, not merely its parent. This is the same
+# lesson as the curl/EACCES defect in scripts/ci/install-ci-tools.sh, in a
+# different tool: `tee` opens an EXISTING file for writing and is refused when
+# it is owned by someone else, no matter how writable the directory is. Creating
+# only the parent would work on the first run and fail on every run after a run
+# that had executed as a different principal.
+#
+# Everything below is DERIVED from the same REMOTE_* variables that are exported
+# to the pipeline, never restated. test/terraform-env-contract.bats asserts that
+# correspondence, so a path added to the pipeline's environment without being
+# provisioned here fails a test rather than a forty-minute run.
+provision_remote_paths() {
+  local owner="$1"
+  local log_dir
+  log_dir="$(dirname "$REMOTE_LOG")"
+
+  log "provisioning remote paths under $(dirname "$REMOTE_WORK_DIR")"
+
+  # mkdir -p on the log's parent AND the report dir; chown -R both; then create
+  # the log file itself and hand it over. `install -m` is not used for the log
+  # because it must not truncate a log an operator may be tailing across runs.
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") \
+    && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
+    && sudo touch $(printf '%q' "$REMOTE_LOG") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
+    || die "could not provision ${REMOTE_REPORT_DIR} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:

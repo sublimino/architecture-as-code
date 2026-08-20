@@ -25,7 +25,14 @@ CI_TOOLS="scripts/ci/install-ci-tools.sh"
 STARTUP="terraform/modules/compute/startup/demo-vm.sh"
 UP="scripts/gcp-tf/demo-up.sh"
 PIPE="scripts/gcp-tf/demo-pipeline.sh"
+STUB="test/fixtures/gcp-tf-demo/stub-gcloud"
 SUITES=(test/terraform-toolchain-pins.bats test/terraform-env-contract.bats)
+
+# The driver suite is not in the default set because it is slower and most
+# mutations here do not touch it. Mutations that DO — anything involving the
+# gcloud stub or the driver's remote calls — pass it as a fifth argument to
+# prove, so the proof runs the suite that can actually see the change.
+DRIVER_SUITE=(test/terraform-demo-driver.bats)
 
 BACKUP="$(mktemp -d)"
 
@@ -96,7 +103,7 @@ trap 'restore_all; clear_sentinel; rm -rf "$BACKUP"' EXIT INT TERM
 
 backup_all() {
   local f
-  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE"; do
+  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
     mkdir -p "${BACKUP}/$(dirname "$f")"
     cp -p "$f" "${BACKUP}/${f}"
   done
@@ -104,7 +111,7 @@ backup_all() {
 
 restore_all() {
   local f
-  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE"; do
+  for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
     [ -f "${BACKUP}/${f}" ] && cp -p "${BACKUP}/${f}" "$f"
   done
   return 0
@@ -121,6 +128,9 @@ FAIL=0
 # is not proof of coverage.
 prove() {
   local label="$1" file="$2" expect_test="$3" mutate="$4"
+  # Optional 5th argument: a suite list, space separated. Defaults to SUITES.
+  local -a suites=("${SUITES[@]}")
+  if [ -n "${5:-}" ]; then read -r -a suites <<<"$5"; fi
 
   restore_all
   # The mutation must actually change the file. A sed whose pattern no longer
@@ -147,7 +157,7 @@ prove() {
   fi
 
   local out status=0
-  out="$(bats "${SUITES[@]}" 2>&1)" || status=$?
+  out="$(bats "${suites[@]}" 2>&1)" || status=$?
 
   if printf '%s\n' "$out" | grep -qE "^not ok [0-9]+ .*${expect_test}"; then
     printf '  [CAUGHT]   %s\n' "$label"
@@ -177,23 +187,32 @@ prove "restore the raw 'curl -o \${BIN}/kind' that took EACCES on demo-2" \
   "$CI_TOOLS" "never curls directly onto a path under BIN" \
   $'perl -0pi -e \'s{  install_binary "https://github.com/kubernetes-sigs/kind[^\\n]*\\n}{  \\$\\{SUDO\\} curl -fsSL -o "\\$\\{BIN\\}/kind" "https://github.com/kubernetes-sigs/kind/releases/download/v\\$\\{KIND_VERSION\\}/kind-\\$\\{OS\\}-\\$\\{ARCH\\}"\\n}\' '"$CI_TOOLS"
 
-prove "drop the unlink from install_binary (leaving install -m 0755 alone)" \
+# The unlink now lives in ONE place, so it is mutated in one place. The three
+# mutations that used to target an inline `${SUDO} rm -f` in each installer were
+# reported BROKEN MUTATION once it moved — the harness refusing to score a
+# no-op edit, which is exactly what that check is for. A sed whose pattern has
+# gone stale would otherwise run against correct code and be recorded as "the
+# test did not fire".
+prove "drop the unlink from bin_place" \
   "$CI_TOOLS" "unlinks a destination before installing over it" \
-  $'perl -0pi -e \'s{    && \\$\\{SUDO\\} rm -f "\\$\\{dest\\}" \\\\\\n}{}\' '"$CI_TOOLS"
+  $'perl -0pi -e \'s{^  \\$\\{SUDO\\} rm -f "\\$dest".*\\n}{}m\' '"$CI_TOOLS"
 
-prove "drop the unlink from install_from_tarball" \
+prove "make install_binary bypass bin_place" \
   "$CI_TOOLS" "unlinks a destination before installing over it" \
-  $'perl -0pi -e \'s{    && \\$\\{SUDO\\} rm -f "\\$\\{BIN\\}/\\$\\{name\\}" \\\\\\n    && \\$\\{SUDO\\} install -m 0755 "\\$\\{tmp\\}/\\$\\{name\\}"}{    && \\$\\{SUDO\\} install -m 0755 "\\$\\{tmp\\}/\\$\\{name\\}"}\' '"$CI_TOOLS"
+  $'perl -0pi -e \'s{    && bin_place "\\$\\{tmp\\}/payload" "\\$\\{dest\\}"}{    && install -m 0755 "\\$\\{tmp\\}/payload" "\\$\\{dest\\}"}\' '"$CI_TOOLS"
 
-# SCOPED TO THE FUNCTION BODY. install_from_tarball and install_anchore_tool
-# contain byte-identical unlink+install pairs, so an unscoped substitution
-# rewrites the FIRST one and proves nothing about the second — the first run of
-# this harness reported exactly that, with the failure attributed to the
-# install_from_tarball test. The `(?s)` block match pins the edit to the
-# function that is actually under test.
-prove "drop the unlink from install_anchore_tool" \
+# sed with a LINE RANGE rather than perl across the whole file. The perl form
+# needed escaped braces on both sides and produced "Unmatched right curly
+# bracket" — a mutation that fails to compile reads, in a hurry, exactly like a
+# guard that did not fire. A range scoped to the function is unambiguous and
+# needs no escaping.
+prove "make install_from_tarball bypass bin_place" \
+  "$CI_TOOLS" "unlinks a destination before installing over it" \
+  "sed -i '/^install_from_tarball() {/,/^}/ s|&& bin_place |\\&\\& install -m 0755 |' ${CI_TOOLS}"
+
+prove "make install_anchore_tool bypass bin_place" \
   "$CI_TOOLS" "anchore installer also unlinks" \
-  $'perl -0pi -e \'s{(install_anchore_tool\\(\\) \\{.*?)    && \\$\\{SUDO\\} rm -f "\\$\\{BIN\\}/\\$\\{name\\}" \\\\\\n}{$1}s\' '"$CI_TOOLS"
+  "sed -i '/^install_anchore_tool() {/,/^}/ s|&& bin_place |\\&\\& install -m 0755 |' ${CI_TOOLS}"
 
 echo
 echo "── Defect 2: two hardcoded versions of the same tool ──"
@@ -257,6 +276,118 @@ prove "drop node/bun/uv from the operator-facing summary loop" \
 prove "rewrite the prerequisite list back to a wrong provider" \
   "$STARTUP" "names the real provider for node, bun and uv" \
   $'perl -0pi -e \'s{#   node/bun/uv   scripts/ci/install-ci-tools\\.sh, pinned \\+ checksum-verified\\.}{#   node/bun/uv   arrive with the Playwright setup.}\' '"$STARTUP"
+
+echo
+echo "── Defect 9: bun/uv unplaceable when the cached SUDO probe is wrong ──"
+
+prove "bypass bin_place and install with the cached \${SUDO} directly" \
+  "$CI_TOOLS" "except through bin_place" \
+  $'perl -0pi -e \'s{    && bin_place "\\$\\{uv_tmp\\}/\\$\\{uv_base\\}/uv" "\\$\\{BIN\\}/uv"}{    && \\$\\{SUDO\\} install -m 0755 "\\$\\{uv_tmp\\}/\\$\\{uv_base\\}/uv" "\\$\\{BIN\\}/uv"}\' '"$CI_TOOLS"
+
+prove "remove bin_place's escalation, so a wrong probe is fatal again" \
+  "$CI_TOOLS" "escalates when the cached probe was wrong" \
+  $'perl -0pi -e \'s{  elif sudo -n install -m "\\$mode" "\\$src" "\\$dest" 2>/dev/null; then\\n[^\\n]*\\n[^\\n]*\\n}{  elif false; then\\n}\' '"$CI_TOOLS"
+
+prove "escalate SILENTLY — repair with no alarm" \
+  "$CI_TOOLS" "escalates when the cached probe was wrong" \
+  $'perl -0pi -e \'s{    log "NOTE:[^\\n]*\\n}{}g\' '"$CI_TOOLS"
+
+prove "drop bin_place's post-install verification" \
+  "$CI_TOOLS" "escalates when the cached probe was wrong" \
+  $'perl -0pi -e \'s{  if \\[ ! -x "\\$dest" \\]; then\\n[^\\n]*\\n[^\\n]*\\n  fi\\n}{}\' '"$CI_TOOLS"
+
+prove "log an ERROR and carry on instead of aborting when a tool fails" \
+  "$CI_TOOLS" "stops the run at the point of failure" \
+  $'perl -0pi -e \'s{    die_tool uv "\\$\\{UV_VERSION\\}"}{    log "ERROR: uv failed"}\' '"$CI_TOOLS"
+
+echo
+echo "── Defect 7: remote paths exported but never provisioned ──"
+
+# Removing the CALL is caught by the ordering test, not by the set-comparison
+# test — and that split is correct rather than a gap. The set test asks "does
+# the provisioning cover every exported path", the ordering test asks "does it
+# run at all". An earlier expectation named the wrong one of the pair, which is
+# how this ran UNPROVEN: the function body still existed and still mentioned
+# every variable, so the set test was quite right to stay green.
+prove "stop provisioning the report dir and the log (the state that failed live)" \
+  "$UP" "provisioning runs as part of delivery" \
+  $'perl -0pi -e \'s{^  provision_remote_paths "\\$owner"\\n}{}m\' '"$UP"
+
+# And a mutation that DOES exercise the set comparison: keep the call, drop one
+# path from it. This is the shape a future edit would actually take — adding a
+# path to the pipeline's environment and forgetting to provision it.
+prove "provision the log but not the report directory" \
+  "$UP" "created and chowned on the VM" \
+  $'perl -0pi -e \'s{\\$\\(printf \\x27%q\\x27 "\\$REMOTE_REPORT_DIR"\\)}{/tmp/unprovisioned}g\' '"$UP"
+
+# Renaming a function the test extracts by name must FAIL, not silently reduce
+# what the test covers. This is the mutation that would have caught the
+# `deliver()` / `deliver_code()` slip, where one of two extractions returned
+# nothing and the combined presence check passed on the other half.
+prove "rename deliver_code, so a by-name extraction silently covers nothing" \
+  "$UP" "created and chowned on the VM" \
+  'sed -i '"'"'s/^deliver_code() {/deliver_code_renamed() {/'"'"' '"$UP"
+
+prove "provision only the log's PARENT, not the log file itself" \
+  "$UP" "log FILE is created and handed over" \
+  $'perl -0pi -e \'s{    && sudo touch \\$\\(printf \\x27%q\\x27 "\\$REMOTE_LOG"\\) \\\\\\n    && sudo chown \\$\\{owner\\} \\$\\(printf \\x27%q\\x27 "\\$REMOTE_LOG"\\)}{    && true}\' '"$UP"
+
+prove "warn instead of aborting when provisioning fails" \
+  "$UP" "failure is fatal, not a warning" \
+  $'perl -0pi -e \'s{    \\|\\| die "could not provision[^\\n]*\\n}{    || warn "could not provision"\\n}\' '"$UP"
+
+# The stub matcher, which is a test-infrastructure defect rather than a product
+# one — and it produced a red gate on a correct fix, which is the expensive kind.
+#
+# Reverting the pipeline arm to the bare substring makes it swallow the
+# provisioning mkdir, because REMOTE_LOG is /opt/signalloom/demo-pipeline.LOG.
+# Exactly the shape as `DEMO_ENV` matching inside `SL_DEMO_ENV`: a token that is
+# a substring of a longer, different token.
+# Removing the dedicated arm is the mutation that reproduces the live failure.
+#
+# An earlier version only reverted the pattern to the bare substring and was
+# reported UNPROVEN — correctly. The `mkdir -p` arm is ordered BEFORE the
+# pipeline arm, so it catches the provisioning call first and the bare pattern
+# never gets the chance to swallow it. The ORDERED ARM is the load-bearing fix;
+# the `.sh` specificity is belt and braces. Mutating the belt while the braces
+# hold proves nothing, which is exactly what the harness said.
+prove "delete the dedicated provisioning arm from the stub" \
+  "$STUB" "fail INDEPENDENTLY" \
+  $'perl -0pi -e \'s{      \\*"mkdir -p"\\*\\).*?\\n        ;;\\n}{}s\' '"$STUB" \
+  "${DRIVER_SUITE[*]}"
+
+prove "delete the arm AND revert to the bare substring (the original defect)" \
+  "$STUB" "fail INDEPENDENTLY" \
+  $'perl -0pi -e \'s{      \\*"mkdir -p"\\*\\).*?\\n        ;;\\n}{}s; s{\\*"demo-pipeline\\.sh"\\*\\)}{*"demo-pipeline"*)}\' '"$STUB" \
+  "${DRIVER_SUITE[*]}"
+
+prove "collapse STUB_PROVISION_RC onto STUB_PIPELINE_RC (one knob, two calls)" \
+  "$STUB" "fail INDEPENDENTLY" \
+  $'perl -0pi -e \'s{exit "\\$\\{STUB_PROVISION_RC:-0\\}"}{exit "\\$\\{STUB_PIPELINE_RC:-0\\}"}\' '"$STUB" \
+  "${DRIVER_SUITE[*]}"
+
+echo
+echo "── Defect 8: first session after a VM rebuild has no docker group ──"
+
+# `sm`, not `s`. With /s alone the `^` anchors to the START OF THE STRING only,
+# so this matched nothing and reported BROKEN MUTATION — which is the harness
+# working: a no-op edit is called out rather than being silently scored as
+# "the test did not fire".
+prove "remove the sg docker re-exec entirely" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{^if \\[\\[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" \\]\\].*?\\nfi\\n}{}sm\' '"$PIPE"
+
+prove "drop the /etc/group membership check (sg would prompt and hang to the fence)" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{  && getent group docker[^\\n]*\\n}{}\' '"$PIPE"
+
+prove "drop the loop guard export (a failing sg would re-exec forever)" \
+  "$PIPE" "re-execs under sg docker" \
+  $'perl -0pi -e \'s{^  export DEMO_SG_REEXEC=1\\n}{}m\' '"$PIPE"
+
+prove "move the sg re-exec after install-ci-tools.sh, where it is useless" \
+  "$PIPE" "sits before the first docker consumer" \
+  $'perl -0pi -e \'s{^if \\[\\[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" \\]\\]}{if [[ -n "\\$\\{NEVER_SET:-\\}" ]] \\&\\& [[ -z "\\$\\{DEMO_SG_REEXEC:-\\}" ]]}m\' '"$PIPE"
 
 echo
 echo "── Defect 3: report collection runs a malformed sudo ──"
@@ -326,13 +457,13 @@ restore_all
 # Final guard: the tree must be byte-identical to where it started, and the
 # suites must be green again. A proof harness that leaves a mutation behind is
 # worse than no proof at all.
-for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE"; do
+for f in "$CI_TOOLS" "$STARTUP" "$UP" "$PIPE" "$STUB"; do
   if ! cmp -s "$f" "${BACKUP}/${f}"; then
     echo "ERROR: ${f} was not restored cleanly" >&2
     exit 3
   fi
 done
-echo "  all four files restored byte-for-byte"
+echo "  all five files restored byte-for-byte"
 
 if bats "${SUITES[@]}" >/dev/null 2>&1; then
   echo "  suites green after restore"

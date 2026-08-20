@@ -30,6 +30,95 @@ PKG_SUDO=""
 
 log() { printf '\033[1;36m[ci-tools]\033[0m %s\n' "$*"; }
 
+# ── SUDO is a CACHED SNAPSHOT of a value the caller is actively changing ────
+#
+# Measured on a rebuilt sl-demo-2-vm:
+#
+#   install: cannot create regular file '/usr/local/bin/bun': Permission denied
+#   install: cannot create regular file '/usr/local/bin/uv': Permission denied
+#   /usr/local/bin   drwxr-xr-x 2 1001 google-sudoers
+#
+# node installed on the same run, because node is untarred with ${PKG_SUDO}
+# (which is "sudo" whenever we are not root) while bun and uv were placed with
+# ${SUDO} (which is empty whenever ${BIN} LOOKED writable at line 27).
+#
+# The line-27 probe is sampled ONCE, at script start, and the property it
+# samples is mutated by this script's own caller, on both sides of the call:
+#
+#   scripts/gcp-tf/demo-pipeline.sh:488   chmod a+w /usr/local/bin  2>/dev/null || true
+#   scripts/gcp-tf/demo-pipeline.sh:491   chmod go-w /usr/local/bin 2>/dev/null || true
+#   scripts/ci/vm-pipeline.sh:178/201     the same pair
+#
+# Both are `2>/dev/null || true`, so a chmod that FAILS is indistinguishable
+# from one that succeeded.
+#
+# ─── The OWNER varies between IDENTICAL rebuilds. Measured. ─────────────────
+#
+# Two consecutive rebuilds of the same environment, same Terraform, same image
+# family, no configuration change between them:
+#
+#   drwxr-xr-x 2 1001 google-sudoers      <- one rebuild
+#   drwxr-xr-x 2 root root                <- the next
+#
+# UID 1001 is an OS Login principal — presumably whichever one provisioned
+# first. So this is not merely "the mode is unstable"; the OWNERSHIP is
+# nondeterministic across builds that are identical on paper, which means no
+# amount of care at line 27 can produce an answer that stays true. DO NOT
+# reintroduce a cached probe here on the assumption that this directory has a
+# fixed owner: it does not, and the failure it produces is a permission error on
+# two tools out of seventeen, twenty minutes into a forty-minute run.
+#
+# So the honest fix is not a better probe. It is to stop depending on a cached
+# answer to a question whose answer changes: attempt the write, and if it is
+# refused, escalate and SAY SO. bin_place below does that, and verifies the
+# result rather than trusting the exit status of the last command in a chain.
+#
+# The NOTE it logs on escalation is deliberate. A repair that happens silently
+# is how a broken assumption survives — the run goes green and nobody learns the
+# probe was wrong. This repairs (it must; the tool has to be installed) and
+# announces, which is the only combination that fixes the run AND leaves
+# evidence.
+bin_place() { # src dest [mode]
+  local src="$1" dest="$2" mode="${3:-0755}"
+
+  # Remove first: a writable DIRECTORY does not imply a writable FILE when the
+  # file exists and belongs to someone else. Both forms are tried for the same
+  # reason as the install below.
+  ${SUDO} rm -f "$dest" 2>/dev/null || sudo rm -f "$dest" 2>/dev/null || true
+
+  if ${SUDO} install -m "$mode" "$src" "$dest" 2>/dev/null; then
+    :
+  elif sudo -n install -m "$mode" "$src" "$dest" 2>/dev/null; then
+    log "NOTE: ${dest} required elevation that the '[ -w ${BIN} ]' probe did not predict."
+    log "NOTE: ${BIN} is owned by $(stat -c '%U' "${BIN}" 2>/dev/null || echo '?') and its mode is mutated by the caller around this script."
+  else
+    log "ERROR: could not place ${dest} (tried unprivileged and 'sudo -n')"
+    return 1
+  fi
+
+  # VERIFY, rather than trusting the install's exit status. This is the same
+  # rule the rest of this file follows: a coverage claim is untested until
+  # something independent checks the result.
+  if [ ! -x "$dest" ]; then
+    log "ERROR: ${dest} is absent or not executable after a successful-looking install"
+    return 1
+  fi
+  return 0
+}
+
+# A tool that fails to install must stop the run HERE.
+#
+# Measured consequence of not doing so: bun and uv both failed, each logged one
+# ERROR line, and the pipeline carried on to Chrome and ffmpeg before aborting
+# for an unrelated reason twenty minutes later. The verdict then describes the
+# symptom furthest from the cause, which is the most expensive place to start
+# reading.
+die_tool() { # name version
+  log "ERROR: ${1} ${2} failed verification or install; refusing to continue"
+  log "ERROR: a later stage would fail for a reason that has nothing to do with this."
+  exit 1
+}
+
 # ── Why no tool below is curl'd straight onto its destination ────────────────
 #
 # A WRITABLE DIRECTORY DOES NOT IMPLY A WRITABLE FILE. The SUDO probe above asks
@@ -71,9 +160,7 @@ install_binary() { # url dest
   local url="$1" dest="$2" tmp rc=0
   tmp="$(mktemp -d)"
   curl -fsSL -o "${tmp}/payload" "${url}" \
-    && chmod 0755 "${tmp}/payload" \
-    && ${SUDO} rm -f "${dest}" \
-    && ${SUDO} install -m 0755 "${tmp}/payload" "${dest}" \
+    && bin_place "${tmp}/payload" "${dest}" \
     || rc=1
   rm -rf "${tmp}"
   if [ "$rc" -ne 0 ]; then
@@ -92,9 +179,7 @@ install_from_tarball() { # url dest_basename [tar-args...]
   tmp="$(mktemp -d)"
   curl -fsSL -o "${tmp}/payload.tar.gz" "${url}" \
     && tar -xzf "${tmp}/payload.tar.gz" -C "${tmp}" "$@" \
-    && chmod 0755 "${tmp}/${name}" \
-    && ${SUDO} rm -f "${BIN}/${name}" \
-    && ${SUDO} install -m 0755 "${tmp}/${name}" "${BIN}/${name}" \
+    && bin_place "${tmp}/${name}" "${BIN}/${name}" \
     || rc=1
   rm -rf "${tmp}"
   if [ "$rc" -ne 0 ]; then
@@ -227,8 +312,7 @@ install_anchore_tool() { # name version sha256
     "https://github.com/anchore/${name}/releases/download/v${version}/${name}_${version}_${OS}_${ARCH}.tar.gz" \
     && echo "${sha}  ${tmp}/${name}.tar.gz" | sha256sum -c --status - \
     && tar -C "${tmp}" -xzf "${tmp}/${name}.tar.gz" "${name}" \
-    && ${SUDO} rm -f "${BIN}/${name}" \
-    && ${SUDO} install -m 0755 "${tmp}/${name}" "${BIN}/${name}" \
+    && bin_place "${tmp}/${name}" "${BIN}/${name}" \
     || rc=1
   rm -rf "${tmp}"
   if [ "$rc" -ne 0 ]; then
@@ -394,7 +478,8 @@ if ! node --version 2>/dev/null | grep -q "^v${NODE_VERSION}$"; then
       -xzf "${node_tmp}/${node_base}.tar.gz"; then
     log "node ${NODE_VERSION} installed"
   else
-    log "ERROR: node ${NODE_VERSION} failed verification or install"
+    rm -rf "${node_tmp}"
+    die_tool node "${NODE_VERSION}"
   fi
   rm -rf "${node_tmp}"
 fi
@@ -418,12 +503,13 @@ if ! bun --version 2>/dev/null | grep -q "^${BUN_VERSION}$"; then
     && verify_against_sidecar "${bun_tmp}/bun-linux-x64.zip" \
       "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/SHASUMS256.txt" \
     && unzip -qo "${bun_tmp}/bun-linux-x64.zip" -d "${bun_tmp}" \
-    && ${SUDO} rm -f "${BIN}/bun" "${BIN}/bunx" \
-    && ${SUDO} install -m 0755 "${bun_tmp}/bun-linux-x64/bun" "${BIN}/bun" \
-    && ${SUDO} ln -sf "${BIN}/bun" "${BIN}/bunx"; then
+    && bin_place "${bun_tmp}/bun-linux-x64/bun" "${BIN}/bun" \
+    && { ${SUDO} ln -sf "${BIN}/bun" "${BIN}/bunx" 2>/dev/null \
+      || sudo -n ln -sf "${BIN}/bun" "${BIN}/bunx"; }; then
     log "bun ${BUN_VERSION} installed"
   else
-    log "ERROR: bun ${BUN_VERSION} failed verification or install"
+    rm -rf "${bun_tmp}"
+    die_tool bun "${BUN_VERSION}"
   fi
   rm -rf "${bun_tmp}"
 fi
@@ -442,12 +528,12 @@ if ! uv --version 2>/dev/null | grep -q "${UV_VERSION}"; then
   if curl -fsSL -o "${uv_tmp}/${uv_base}.tar.gz" "${uv_url}" \
     && verify_against_sidecar "${uv_tmp}/${uv_base}.tar.gz" "${uv_url}.sha256" \
     && tar -C "${uv_tmp}" -xzf "${uv_tmp}/${uv_base}.tar.gz" \
-    && ${SUDO} rm -f "${BIN}/uv" "${BIN}/uvx" \
-    && ${SUDO} install -m 0755 "${uv_tmp}/${uv_base}/uv" "${BIN}/uv" \
-    && ${SUDO} install -m 0755 "${uv_tmp}/${uv_base}/uvx" "${BIN}/uvx"; then
+    && bin_place "${uv_tmp}/${uv_base}/uv" "${BIN}/uv" \
+    && bin_place "${uv_tmp}/${uv_base}/uvx" "${BIN}/uvx"; then
     log "uv ${UV_VERSION} installed"
   else
-    log "ERROR: uv ${UV_VERSION} failed verification or install"
+    rm -rf "${uv_tmp}"
+    die_tool uv "${UV_VERSION}"
   fi
   rm -rf "${uv_tmp}"
 fi

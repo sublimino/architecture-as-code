@@ -718,6 +718,74 @@ dex_log() {
 	[[ "${output}" == *"DIFFERENT run"* ]]
 }
 
+@test "DEMODRIVER failing to provision the remote paths aborts, and says so" {
+	# The live failure on a freshly rebuilt demo-1:
+	#   mkdir: cannot create directory '/opt/signalloom/reports': Permission denied
+	#   tee: /opt/signalloom/demo-pipeline.log: Permission denied
+	# /opt/signalloom is root-owned 0755 and only `repo` was ever chowned.
+	#
+	# Aborting here rather than continuing is the point: a driver that carries on
+	# reports "no verdict was produced" forty minutes later with the real cause
+	# scrolled off the top.
+	make_report PASS
+	export STUB_PROVISION_RC=1
+	run "${driver}" up
+	[ "$status" -ne 0 ] || {
+		echo "provisioning failed and the run continued anyway"
+		return 1
+	}
+	[[ "${output}" == *"could not provision"* ]] || {
+		echo "the abort did not name provisioning as the cause: ${output}"
+		return 1
+	}
+	# And it must die BEFORE the pipeline runs — provisioning the paths the
+	# pipeline writes to is worthless after it has already tried.
+	[[ "${output}" != *"stub-pipeline: stage output"* ]] || {
+		echo "the pipeline ran even though its report directory was never created"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the provisioning and pipeline stubs fail INDEPENDENTLY" {
+	# The discrimination test, and it is not ceremony.
+	#
+	# The stub answers every `compute ssh` call, and it used to match the
+	# pipeline on the bare substring "demo-pipeline". The driver provisions
+	# ${REMOTE_LOG}, which is /opt/signalloom/demo-pipeline.LOG — so a mkdir
+	# matched the pipeline arm and STUB_PIPELINE_RC was returned to it. The test
+	# named "a PASS summary next to a non-zero pipeline exit is a FAIL" then
+	# failed in provisioning, having never reached the pipeline.
+	#
+	# A single knob across several calls cannot distinguish which call failed, so
+	# an assertion can pass for the wrong reason. These two halves prove the
+	# knobs are actually independent.
+	#
+	# Half 1: failing ONLY the pipeline must NOT produce a provisioning error.
+	make_report PASS
+	export STUB_PIPELINE_RC=3
+	export STUB_PROVISION_RC=0
+	run "${driver}" up
+	[[ "${output}" != *"could not provision"* ]] || {
+		echo "a pipeline-only failure was reported as a provisioning failure"
+		echo "${output}"
+		return 1
+	}
+	[[ "${output}" == *"stub-pipeline: stage output"* ]] || {
+		echo "the pipeline never ran, so this asserted nothing about it"
+		return 1
+	}
+
+	# Half 2: failing ONLY provisioning must NOT reach the pipeline.
+	export STUB_PIPELINE_RC=0
+	export STUB_PROVISION_RC=1
+	run "${driver}" up
+	[[ "${output}" == *"could not provision"* ]] || {
+		echo "a provisioning-only failure was not reported as one"
+		echo "${output}"
+		return 1
+	}
+}
+
 @test "DEMODRIVER a PASS summary next to a non-zero pipeline exit is a FAIL" {
 	# A report saying PASS beside a red exit means the run died after writing
 	# it. Exiting 0 on that pair is the same lie in a different file.

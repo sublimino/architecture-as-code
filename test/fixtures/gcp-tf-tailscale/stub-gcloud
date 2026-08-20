@@ -27,8 +27,8 @@
 #                          reachable here for the same reason serve and funnel
 #                          are: one code standing in for seven outcomes makes a
 #                          red test ambiguous.
-#   STUB_PF_LISTENING      1 (default) => the forward reports FORWARD_LISTENING.
-#                          0 => it reports FORWARD_NOT_LISTENING and exits 9,
+#   STUB_PF_LISTENING      1 (default) => the forward reports PUBLISHED.
+#                          0 => it reports NOT_PUBLISHED and exits 9,
 #                          which is the unit-started-and-nothing-bound case.
 #   STUB_PF_UNIT_CHANGED   what the install step reports for unit_changed
 #                          (default 0 — an already-correct unit is not rewritten,
@@ -77,21 +77,35 @@ case "$argv" in
     case "$argv" in
       # BEFORE the `ss -ltn` branch, and that ordering is load-bearing. The
       # forward-install script polls with `ss -ltn` itself, so the generic
-      # branch below would swallow the whole thing and answer PUBLISHING —
-      # ensure_dashboard_forward would then see no FORWARD_LISTENING and die,
-      # with the stub, not the driver, having decided the outcome.
+      # branch below would swallow the whole thing and answer PUBLISHING
+      # without ever reaching the unit install — the stub, not the driver,
+      # deciding the outcome.
       #
-      # Matched on `port-forward`, which appears in the install script and in no
-      # other remote command the Tailscale path issues.
+      # Matched on `port-forward`, which appears in ensure_published's install
+      # script and in no other remote command any access method issues.
+      #
+      # The words below are ensure_published's OWN vocabulary and must stay that
+      # way: PUBLISHED / NOT_PUBLISHED, not a name invented here. A stub that
+      # answers in a dialect the caller does not speak keeps every test green
+      # while the two disagree, which is why the SEAM test in
+      # test/terraform-tailscale-access.bats asserts these markers still exist in
+      # the driver.
       *"port-forward"*)
         [ "${STUB_PF_RC:-0}" = "0" ] || exit "${STUB_PF_RC}"
+        printf 'dashboard=fe-signalloom/dashboard-signalloom\n'
         printf 'unit_changed=%s\n' "${STUB_PF_UNIT_CHANGED:-0}"
         if [ "${STUB_PF_LISTENING:-1}" = "1" ]; then
-          printf 'FORWARD_LISTENING\n'
+          printf 'PUBLISHED\n'
           exit 0
         fi
-        printf 'FORWARD_NOT_LISTENING\n' >&2
+        printf 'NOT_PUBLISHED\n' >&2
         exit 9
+        ;;
+      *"systemctl disable"*)
+        # public-down. STOPPED unless a test asks for the stuck case.
+        [ "${STUB_PF_DISABLE_STUCK:-0}" = "1" ] && { printf 'STILL_PUBLISHING\n'; exit 0; }
+        printf 'STOPPED\n'
+        exit 0
         ;;
       *"systemctl is-active"*)
         printf '%s\n' "${STUB_PF_UNIT_STATE:-active}"

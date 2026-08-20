@@ -1892,6 +1892,68 @@ gcp-tf-demo-status: ## What the demo VM's state is and what the last run decided
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' status
 
+# ── Tailscale: the PRIMARY access path ──────────────────────────────────────
+#
+# `gcp-tf-public` and `gcp-tf-connect` above are NOT deprecated and are not
+# going anywhere — they are the tested fallback, and they are the only path
+# that works for an operator who cannot join the tailnet. Tailscale leads
+# because it removes the /etc/hosts line and the foreground tunnel, which are
+# the two things that make handing this demo to someone else awkward.
+#
+# Same guards, same `define`s, same shape as the family above. That is
+# deliberate: two implementations of "is ENV valid" drift the moment one of
+# them is corrected, and a guard living in the Makefile cannot be bypassed by
+# invoking the Makefile.
+#
+# All four require impersonation, gcp-tf-ts-status included. It reads the VM's
+# state and asks the VM whether it is publishing, so it reaches the cloud —
+# unlike gcp-tf-demo-status, which only reads local files when the VM is
+# unreachable.
+.PHONY: gcp-tf-ts-status
+gcp-tf-ts-status: ## Is the demo's Tailscale node up, what is its MagicDNS name, is the dashboard answering (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-status
+
+.PHONY: gcp-tf-ts-up
+gcp-tf-ts-up: ## PRIMARY: serve the demo on the tailnet and prove it answers before printing the URL (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-up
+
+# The only target in this repo that creates a listener the public internet can
+# reach. Everything else is closed by construction — no external IP, IAP behind
+# a Google identity, Tailscale behind tailnet membership. It is a separate
+# target from gcp-tf-ts-up for exactly that reason: going public should be an
+# act, not a side effect of asking for a URL.
+.PHONY: gcp-tf-funnel-up
+gcp-tf-funnel-up: ## PUBLIC INTERNET: expose the demo via Tailscale Funnel. Deliberate, and off by default (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' funnel-up
+
+.PHONY: gcp-tf-funnel-down
+gcp-tf-funnel-down: ## Remove the public Funnel listener. The tailnet-only demo stays up (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' funnel-down
+
 # ===========================================================================
 # END GCP Terraform platform block
 # ===========================================================================

@@ -2,11 +2,21 @@
 #
 # demo-up.sh — the LOCAL side of the GCP demo lane.
 #
-#   demo-up.sh up        # deliver this checkout, build the estate, test it
-#   demo-up.sh test      # re-run the tests only, against a standing cluster
-#   demo-up.sh connect   # open the IAP tunnel and print what a human needs
-#   demo-up.sh status    # VM state and the verdict on disk, read-only
-#   demo-up.sh payload F # build the delivery tarball at F and stop
+#   demo-up.sh up          # deliver this checkout, build the estate, test it
+#   demo-up.sh test        # re-run the tests only, against a standing cluster
+#   demo-up.sh status      # VM state and the verdict on disk, read-only
+#   demo-up.sh payload F   # build the delivery tarball at F and stop
+#
+#   --- Tailscale, the PRIMARY access path ---
+#   demo-up.sh ts-up       # serve the dashboard on the tailnet, print the URL
+#   demo-up.sh ts-status   # node, MagicDNS name, tailnet IP, dashboard health
+#   demo-up.sh funnel-up   # additionally expose it to the PUBLIC internet
+#   demo-up.sh funnel-down # remove the public listener, keep the tailnet one
+#
+#   --- IAP, the fallback ---
+#   demo-up.sh connect     # open the IAP tunnel and print what a human needs
+#   demo-up.sh public      # publish, prove a 200, then hand over the URL
+#   demo-up.sh public-down # stop the VM-side forward
 #
 # Terraform builds a hardened, IAP-only VM with no external IP.
 # scripts/gcp-tf/demo-pipeline.sh runs ON that VM and stands the estate up.
@@ -1549,6 +1559,662 @@ cmd_payload() {
   printf '%s\n' "$out"
 }
 
+# ── Tailscale: the PRIMARY access path ──────────────────────────────────────
+#
+# IAP (everything above) stays, tested, as the documented fallback. Tailscale
+# leads because it removes the two things that make the IAP path awkward for a
+# human, and it removes them for a stated reason rather than by preference:
+#
+#   1. NO /etc/hosts LINE. The IAP path hands over an SNI hostname that resolves
+#      nowhere in the world, so every operator must edit a system file before a
+#      browser can reach the demo — see require_hosts_entry, which exists purely
+#      to stop that being discovered on the click. MagicDNS resolves the node's
+#      name on every device already on the tailnet, so there is nothing to edit.
+#   2. NO FOREGROUND TUNNEL. `public` and `connect` hold a gcloud process for as
+#      long as the demo is wanted; close the terminal and the demo goes away.
+#      A Tailscale node serves for as long as it is up.
+#
+# What it does NOT remove is the SNI problem itself, and that is the one piece
+# of this block that is genuinely non-obvious.
+#
+#   The dashboard is served by an in-cluster Envoy Gateway that selects its
+#   route by SNI, on the name DASHBOARD_HOST. A request arriving with any other
+#   name in the handshake is closed during TLS — measured, and it presents as
+#   UNEXPECTED_EOF_WHILE_READING, which reads as a broken tunnel rather than as
+#   a wrong hostname. So browsing https://<node>.<tailnet>.ts.net:30754 straight
+#   at the forwarded port fails exactly as https://localhost:30754 does, and
+#   fixing that with a hosts entry would put back the thing we just removed.
+#
+#   `tailscale serve` is what resolves it. The node terminates TLS itself with a
+#   real, publicly-trusted certificate for its MagicDNS name, and proxies to a
+#   backend we get to name — so the SNI name is supplied ON THE VM, once, by
+#   ensure_vm_hosts_alias, instead of on every operator's laptop forever.
+#
+# ── The origin changes, and Dex has exactly one issuer ──────────────────────
+#
+# A browser reaching the demo at https://<node>.<tailnet>.ts.net is at a
+# DIFFERENT ORIGIN from https://DASHBOARD_HOST:30754, and Dex pins its OIDC
+# issuer and its callback client to one origin at a time. Left alone, the
+# dashboard loads over Tailscale and the login bounces — which presents as a
+# broken application, not as an origin mismatch, and is the single most
+# expensive failure shape this lane has. Every path below that changes the
+# browser-visible origin therefore claims it through dex_origin() and refuses
+# when something else holds it.
+#
+# ── Funnel is the same URL, made PUBLIC ─────────────────────────────────────
+#
+# `tailscale serve` and `tailscale funnel` publish the same MagicDNS name with
+# the same certificate; funnel additionally routes it from the public internet
+# over Tailscale's edge. That is why funnel-up does not re-patch Dex — the
+# origin is identical — and why funnel-down leaves serve standing: the demo is
+# still live on the tailnet after the public listener is switched off.
+
+# Injectable like everything else in this file, so the whole Tailscale control
+# flow is exercisable against a stub binary with no tailnet and no cloud.
+TAILSCALE_CMD="${GCP_TF_DEMO_TAILSCALE:-tailscale}"
+
+# The node's SHORT hostname. Deterministic from the environment key, because
+# chunk T1 derives it the same way in Terraform and a name typed in two places
+# is a name that disagrees in one of them.
+#
+# Resolution order mirrors OPERATOR_SA's: explicit override, then the hand-off
+# field T1 publishes, then the derivation. The derivation is last rather than
+# absent so this file is usable before T1's output block lands.
+ts_node_hostname() {
+  local from_handoff=""
+  if [ -n "$HANDOFF_FILE" ] && [ -f "$HANDOFF_FILE" ]; then
+    from_handoff="$(jq -r '.tailscale_hostname // ""' "$HANDOFF_FILE" 2>/dev/null || true)"
+  fi
+  printf '%s' "${GCP_TF_DEMO_TS_HOSTNAME:-${from_handoff:-sl-${ENV_KEY}}}"
+}
+
+# The tailnet's MagicDNS suffix is deliberately NOT a constant in this file.
+#
+# It could be one — it is stable per tailnet — but `tailscale status --json`
+# already carries the node's fully-qualified DNSName, which is the name a
+# browser and `getent` will both use. Deriving it from the live tailnet means
+# there is no second place for it to be wrong, and no way for this file to
+# promise a URL under a tailnet the operator is not actually on.
+ts_status_json() {
+  "$TAILSCALE_CMD" status --json 2>/dev/null || printf ''
+}
+
+# Resolved by ts_resolve_node. FQDN carries no trailing dot.
+TS_FQDN=""
+TS_IP=""
+TS_ONLINE=""
+
+# Find this environment's node in the tailnet and fill TS_FQDN / TS_IP /
+# TS_ONLINE. Returns non-zero with a diagnosis on stderr, having named which of
+# the five distinguishable causes applies — no client, no daemon, no such node,
+# no MagicDNS name, or offline. They are separated because each invites a
+# completely different next move, and a single "tailscale is not working"
+# message sends the reader to the admin console for a missing package.
+#
+# Local only: it asks the tailscaled on THIS machine, so it costs milliseconds,
+# needs no credentials, and — the point — runs before any cloud call, so an
+# operator whose node is not up is told so immediately rather than after a
+# minute of gcloud.
+ts_resolve_node() {
+  local host json node
+  host="$(ts_node_hostname)"
+
+  if ! command -v "$TAILSCALE_CMD" >/dev/null 2>&1; then
+    cat >&2 <<EOF
+demo-up: no '${TAILSCALE_CMD}' on PATH.
+
+  The Tailscale access path needs a tailscale client on THIS machine, because
+  MagicDNS is what makes the demo URL resolve here without a hosts file.
+
+      https://tailscale.com/download
+
+  Then join the tailnet and re-run. If you cannot install it, the IAP path is
+  still fully supported:
+
+      make gcp-tf-public ENV=${ENV_KEY}
+EOF
+    return 2
+  fi
+
+  json="$(ts_status_json)"
+  if [ -z "$json" ]; then
+    cat >&2 <<EOF
+demo-up: '${TAILSCALE_CMD} status --json' returned nothing.
+
+  tailscaled is not running here, or this machine is logged out of the tailnet.
+  This says nothing about the demo VM — it is a statement about THIS machine.
+
+      sudo tailscale up
+      tailscale status
+EOF
+    return 2
+  fi
+
+  # .Self is included so the lookup still works when this driver is run FROM
+  # the demo node itself, which is a legitimate way to debug it.
+  node="$(printf '%s' "$json" |
+    jq -c --arg h "$host" \
+      '[.Self // empty] + [(.Peer // {}) | .[]] | map(select((.HostName // "") == $h)) | first // empty' \
+      2>/dev/null || printf '')"
+
+  if [ -z "$node" ]; then
+    local seen
+    seen="$(printf '%s' "$json" |
+      jq -r '[.Self // empty] + [(.Peer // {}) | .[]] | map(.HostName // empty) | join(", ")' \
+        2>/dev/null || printf '')"
+    cat >&2 <<EOF
+demo-up: no node named '${host}' in this tailnet.
+
+  Three causes, and they are distinguishable only from the admin console:
+
+    1. The VM has not joined. Its tailscaled is ephemeral, so a node that has
+       been down long enough is REMOVED from the tailnet rather than shown
+       offline — an absent node is the expected look of a suspended demo VM.
+       Bring the estate up:   make gcp-tf-demo-up ENV=${ENV_KEY}
+    2. The auth key expired, or 'tag:sl-demo' has no tagOwners entry, so the
+       node was never approved. See docs/gcp-demo/RUNBOOK.md § "One-time
+       Tailscale admin console setup".
+    3. An ACL rule hides it from your user. A node you cannot see and a node
+       that does not exist look identical from here.
+
+  Nodes visible to you right now: ${seen:-(none)}
+EOF
+    return 2
+  fi
+
+  TS_FQDN="$(printf '%s' "$node" | jq -r '.DNSName // ""' | sed 's/\.$//')"
+  TS_IP="$(printf '%s' "$node" | jq -r '.TailscaleIPs[0] // ""')"
+  TS_ONLINE="$(printf '%s' "$node" | jq -r 'if .Online == true then "true" else "false" end')"
+
+  if [ -z "$TS_FQDN" ]; then
+    cat >&2 <<EOF
+demo-up: node '${host}' is in the tailnet but has no MagicDNS name.
+
+  MagicDNS is disabled for this tailnet. Without it the node has an IP and no
+  name, and a certificate cannot be issued for it — so 'tailscale serve' has
+  nothing to terminate TLS with and there is no URL to hand over.
+
+  Enable it once, in the admin console:
+      https://login.tailscale.com/admin/dns  ->  MagicDNS: on
+EOF
+    return 2
+  fi
+
+  # Checked AFTER the name, because an offline node still reports its DNSName
+  # and reporting "no name" for an offline node would be a wrong diagnosis.
+  if [ "$TS_ONLINE" != "true" ]; then
+    cat >&2 <<EOF
+demo-up: node '${TS_FQDN}' is in the tailnet but OFFLINE.
+
+  The VM is suspended, or its tailscaled is not running.
+  This is not a name resolution problem and not an ACL problem — the node is
+  known to the tailnet by name, and it is not answering.
+
+      make gcp-tf-demo-status ENV=${ENV_KEY}    # is the VM even running?
+      make gcp-tf-demo-up ENV=${ENV_KEY}        # bring the estate back up
+EOF
+    return 2
+  fi
+
+  return 0
+}
+
+# Does THIS machine actually RESOLVE the node's name?
+#
+# The direct analogue of require_hosts_entry on the IAP path, and it exists for
+# the same reason: a health probe that reaches the dashboard proves nothing
+# about whether a browser here can reach the same URL. The difference is only
+# that the fix is a tailnet setting rather than a line in a file — the failure
+# it prevents, promising a URL that does not resolve on the click, is identical.
+#
+# ts_resolve_node has already established that the node HAS a MagicDNS name.
+# This is the separate question of whether this machine's resolver returns it,
+# which is what a browser will do.
+#
+# getent, not ping or curl: it asks the name-service switch the same question
+# the browser will, so the tailscale resolver, /etc/hosts and nsswitch all
+# count.
+magicdns_resolves() {
+  getent hosts "$TS_FQDN" >/dev/null 2>&1
+}
+
+require_magicdns() {
+  if magicdns_resolves; then
+    log "${TS_FQDN} resolves here — a browser on this machine can reach it"
+    return 0
+  fi
+
+  if [ "${GCP_TF_DEMO_SKIP_MAGICDNS_CHECK:-0}" = "1" ]; then
+    warn "${TS_FQDN} does not resolve here. Continuing because GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1 — a scripted curl against the tailnet IP will still work, a browser will not."
+    return 0
+  fi
+
+  cat >&2 <<EOF
+demo-up: ${TS_FQDN} does not resolve on this machine.
+
+  The node is up and the tailnet knows its name — this check is about THIS
+  machine's resolver, and it runs first precisely so you do not wait for a
+  healthy estate and then discover the browser cannot use it.
+
+  In order of likelihood:
+
+    1. MagicDNS is off for your device. 'tailscale up --accept-dns' turns the
+       tailnet's resolver back on; a device brought up with --accept-dns=false
+       stays on its old DNS and resolves nothing in the tailnet.
+    2. MagicDNS is off for the whole TAILNET:
+       https://login.tailscale.com/admin/dns  ->  MagicDNS: on
+    3. Something local overrode /etc/resolv.conf after tailscaled wrote it.
+       'tailscale status' will still look perfectly healthy.
+
+  Its tailnet IP is ${TS_IP:-unknown}, so a scripted probe can proceed without
+  a resolver:
+
+      GCP_TF_DEMO_SKIP_MAGICDNS_CHECK=1 make gcp-tf-ts-up ENV=${ENV_KEY}
+EOF
+  exit 4
+}
+
+# One HTTP probe at the MagicDNS URL. Status code on stdout, empty string when
+# the request could not be made at all.
+#
+# NO -k, unlike probe_dashboard_status. That is a deliberate difference rather
+# than an inconsistency: the IAP path probes a self-signed in-cluster
+# certificate through a tunnel Google has already authenticated, whereas here
+# the certificate is a real one issued to the MagicDNS name. If it does not
+# verify, HTTPS certs are not enabled for the tailnet — which is a cause worth
+# surfacing, and -k would hide it behind a healthy-looking 200.
+TS_HEALTH_PATH="${GCP_TF_DEMO_TS_HEALTH_PATH:-${HEALTH_PATH}}"
+
+probe_ts_status() {
+  local base="$1"
+  "$CURL_BIN" -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "${base}${TS_HEALTH_PATH}" 2>/dev/null || printf ''
+}
+
+wait_for_ts_dashboard() {
+  local base="$1" waited=0 code=''
+  while [ "$waited" -lt "$HEALTH_WAIT_SECONDS" ]; do
+    code="$(probe_ts_status "$base")"
+    if [ "$code" = "200" ]; then
+      printf '%s' "$code"
+      return 0
+    fi
+    sleep "$HEALTH_INTERVAL_SECONDS"
+    waited=$((waited + HEALTH_INTERVAL_SECONDS))
+  done
+  printf '%s' "$code"
+  return 1
+}
+
+# ── The single coupling to chunk T2's origin mechanism ──────────────────────
+#
+# Everything this file knows about Dex's issuer goes through here, so the
+# orchestrator reconciling T2's real interface at merge has ONE function to
+# read rather than four call sites to find.
+#
+# ASSUMED INTERFACE (scripts/lib/dex-origin.sh, chunk T2 — NOT present in this
+# worktree, so this is a contract stated, not a contract observed):
+#
+#   apply <origin>   claim the origin. Exit 0 on success. Non-zero when another
+#                    origin already holds Dex.
+#   current          print the origin currently in force, or nothing when Dex
+#                    is at its pinned default. Exit 0 either way.
+#   restore          put the pinned default back. Exit 0.
+#   status           human-readable. Exit 0.
+#
+# WHERE IT RUNS is the part most likely to need reconciling. T2 is building it
+# for `make public`, where kubectl is local. On this lane the cluster lives on
+# the demo VM, so the default is to invoke the DELIVERED copy over SSH.
+# GCP_TF_DEMO_DEX_ORIGIN_CMD overrides that with a local command, which is both
+# the escape hatch for a different topology and what makes every branch below
+# testable with no cluster.
+DEX_ORIGIN_REL="${GCP_TF_DEMO_DEX_ORIGIN_REL:-scripts/lib/dex-origin.sh}"
+DEX_ORIGIN_CMD="${GCP_TF_DEMO_DEX_ORIGIN_CMD:-}"
+
+# Checked against the LOCAL checkout even when the call is remote. The payload
+# is `git archive HEAD` of this tree, so a file absent here is absent on the VM
+# — and "T2 has not landed yet" is a far more useful message than a 127 from a
+# remote shell twenty seconds later.
+dex_origin_available() {
+  [ -n "$DEX_ORIGIN_CMD" ] && return 0
+  [ -f "${REPO_ROOT}/${DEX_ORIGIN_REL}" ]
+}
+
+dex_origin() {
+  if [ -n "$DEX_ORIGIN_CMD" ]; then
+    # Word-split deliberately: an operator-supplied command plus its flags.
+    local parts=()
+    read -r -a parts <<<"$DEX_ORIGIN_CMD"
+    "${parts[@]}" "$@"
+    return $?
+  fi
+  local remote
+  printf -v remote 'cd %q && %q %s' "$REMOTE_WORK_DIR" \
+    "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
+  remote_run "$remote"
+}
+
+# Refuse when T2's mechanism is not here.
+#
+# `who` names the caller so the message can say what will break, because the
+# consequence differs: over Tailscale a missing patch means a login that
+# bounces, and behind Funnel it means the same login bouncing on a URL the
+# whole internet can reach.
+require_dex_origin_mechanism() {
+  local who="$1"
+  dex_origin_available && return 0
+  cat >&2 <<EOF
+demo-up: ${who} needs the Dex origin mechanism, and it is not in this checkout.
+
+  Expected: ${REPO_ROOT}/${DEX_ORIGIN_REL}   (chunk T2)
+
+  Serving the dashboard at a new origin without repointing Dex's issuer gives
+  you a dashboard that LOADS and a login that BOUNCES. That presents as a
+  broken application rather than as an origin mismatch, which is the most
+  expensive wrong diagnosis available on this lane.
+
+  Until T2 lands, either use the IAP path — which serves at the origin Dex is
+  already pinned to:
+
+      make gcp-tf-public ENV=${ENV_KEY}
+
+  or point this at an equivalent implementation:
+
+      GCP_TF_DEMO_DEX_ORIGIN_CMD='<cmd>' make gcp-tf-ts-up ENV=${ENV_KEY}
+EOF
+  exit 5
+}
+
+# Read-only conflict check, run BEFORE anything is stood up.
+#
+# Separated from the apply deliberately. `current` mutates nothing, so a demo
+# that is going to be refused is refused before the VM is touched; the write
+# happens later, once the serving path is real. Doing both at the point of
+# apply would mean publishing, serving, and only then discovering that ngrok
+# holds the issuer.
+require_no_conflicting_origin() {
+  local want="$1" holder=""
+  holder="$(dex_origin current 2>/dev/null | tr -d '\r' | tail -1 | tr -d '[:space:]' || true)"
+  [ -n "$holder" ] || return 0
+  [ "$holder" != "$want" ] || return 0
+
+  cat >&2 <<EOF
+demo-up: REFUSING — another origin already holds Dex.
+
+  currently held by: ${holder}
+  this run wants:    ${want}
+
+  Dex has exactly ONE issuer, so these cannot both be live. The other origin is
+  almost certainly an ngrok tunnel from 'make public'; whatever it is, taking
+  the issuer from underneath it breaks that demo's login without warning it.
+
+  Release it first, then re-run:
+
+      ./scripts/public-tunnel.sh down          # if ngrok holds it
+      ${DEX_ORIGIN_REL} restore                # otherwise
+EOF
+  exit 6
+}
+
+# Make the SNI name resolve ON THE VM, so `tailscale serve` can name it as its
+# backend.
+#
+# This is the line that moves the hosts-file burden off every operator's laptop
+# and onto the VM once. The Gateway routes by SNI on DASHBOARD_HOST, so the
+# serve backend must be dialled by that NAME — an IP literal sends no SNI at
+# all and the Gateway closes the connection during the handshake.
+#
+# Idempotent, and it appends rather than rewriting: /etc/hosts on this VM is
+# not ours alone.
+ensure_vm_hosts_alias() {
+  remote_run "grep -qE '^127\\.0\\.0\\.1[[:space:]]+${DASHBOARD_HOST}\$' /etc/hosts \
+    || echo '127.0.0.1 ${DASHBOARD_HOST}' | sudo tee -a /etc/hosts >/dev/null; \
+    getent hosts ${DASHBOARD_HOST} >/dev/null && echo ALIAS_OK || { echo ALIAS_MISSING >&2; exit 3; }" \
+    >/dev/null ||
+    die "could not give ${DASHBOARD_HOST} a loopback alias on ${INSTANCE_NAME}. Without it 'tailscale serve' dials the backend with no SNI name and the Gateway closes the connection mid-handshake, which reads as a dead dashboard."
+}
+
+# `tailscale serve` (tailnet-only) or `tailscale funnel` (public), on the VM.
+#
+# One function for both because they differ in exactly one word and in exactly
+# one property, and writing them twice is how the two drift.
+TS_SERVE_PORT="${GCP_TF_DEMO_TS_SERVE_PORT:-443}"
+
+ensure_ts_serve() {
+  local verb="$1" port="$2" # verb: serve | funnel
+  log "configuring 'tailscale ${verb}' on ${INSTANCE_NAME}: :${TS_SERVE_PORT} -> ${DASHBOARD_HOST}:${port}"
+  remote_run "sudo tailscale ${verb} --bg --https=${TS_SERVE_PORT} \
+    'https+insecure://${DASHBOARD_HOST}:${port}' && echo ${verb^^}_CONFIGURED" ||
+    die "'tailscale ${verb}' failed on ${INSTANCE_NAME}. If it named a certificate, HTTPS certs are not enabled for this tailnet (admin console -> DNS -> HTTPS Certificates). If it named funnel, the tailnet policy has no nodeAttrs entry granting 'funnel' to tag:sl-demo. Neither is fixable from here."
+}
+
+print_ts_instructions() {
+  local url="$1"
+  cat <<EOF
+
+════════════════════════════════════════════════════════════════════
+  Signal Loom demo — ${ENV_KEY}  (Tailscale)
+════════════════════════════════════════════════════════════════════
+
+  URL:      ${url}
+
+  1. There is NOTHING to add to /etc/hosts. MagicDNS resolves this name on
+     every device already on the tailnet, which is the whole reason this is
+     the primary path.
+
+  2. The certificate is a REAL one, issued to the MagicDNS name. No browser
+     warning to click through, unlike the IAP path's self-signed Gateway cert.
+
+  3. Log in through Dex:
+
+         username: ${DEMO_LOGIN_USER}
+         password: ${DEMO_LOGIN_PASS}
+
+  4. Reachable from any device on the tailnet — including a phone — with no
+     tunnel held open in a terminal. Nothing here has to stay running.
+
+  Confirm it from anywhere on the tailnet:
+
+      curl ${url}${TS_HEALTH_PATH}
+
+════════════════════════════════════════════════════════════════════
+EOF
+}
+
+# ── Commands ────────────────────────────────────────────────────────────────
+
+cmd_ts_status() {
+  prepare ts-status
+  local host
+  host="$(ts_node_hostname)"
+
+  printf 'env:       %s\n' "$ENV_KEY"
+  printf 'instance:  %s (%s)\n' "$INSTANCE_NAME" "$(vm_status)"
+  printf 'ts node:   %s\n' "$host"
+
+  if ! ts_resolve_node; then
+    printf 'ts state:  NOT USABLE — see the diagnosis above\n'
+    return 1
+  fi
+
+  printf 'magicdns:  %s\n' "$TS_FQDN"
+  printf 'tailnet ip: %s\n' "${TS_IP:-unknown}"
+  printf 'online:    %s\n' "$TS_ONLINE"
+
+  if magicdns_resolves; then
+    printf 'resolves:  yes — a browser here can reach it\n'
+  else
+    printf 'resolves:  NO — this machine does not resolve %s (MagicDNS off for this device or tailnet)\n' "$TS_FQDN"
+  fi
+
+  if remote_is_publishing "$APP_PORT"; then
+    printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$APP_PORT"
+  else
+    printf 'vm:        NOT publishing on :%s — run: make gcp-tf-ts-up ENV=%s\n' "$APP_PORT" "$ENV_KEY"
+  fi
+
+  if dex_origin_available; then
+    local holder
+    holder="$(dex_origin current 2>/dev/null | tr -d '\r' | tail -1 | tr -d '[:space:]' || true)"
+    printf 'dex origin: %s\n' "${holder:-(pinned default — the IAP origin)}"
+  else
+    printf 'dex origin: UNKNOWN — %s is not in this checkout (chunk T2)\n' "$DEX_ORIGIN_REL"
+  fi
+
+  local base code
+  base="https://${TS_FQDN}"
+  code="$(probe_ts_status "$base")"
+  if [ "$code" = "200" ]; then
+    printf 'dashboard: HEALTHY (%s%s -> 200)\n' "$base" "$TS_HEALTH_PATH"
+  else
+    printf 'dashboard: not answering (%s%s -> %s)\n' "$base" "$TS_HEALTH_PATH" "${code:-no response}"
+  fi
+  return 0
+}
+
+cmd_ts_up() {
+  prepare ts-up
+  local port="$APP_PORT"
+
+  # LOCAL FIRST, before any cloud call, in this order and for the same reason
+  # cmd_public checks /etc/hosts first: these cost milliseconds, and failing
+  # them after publishing would mean waiting a minute to be told about a
+  # setting on this machine.
+  ts_resolve_node || exit 2
+  require_magicdns
+
+  local base="https://${TS_FQDN}"
+
+  # Read-only, and before the estate is touched. Skippable for a scripted probe
+  # that does not care about login, but NOT skippable by default: a dashboard
+  # that loads with a bouncing login is the failure this whole block is built
+  # around.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ]; then
+    warn "GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 — Dex will keep its current issuer. The dashboard will load at ${base} and the LOGIN WILL BOUNCE."
+  else
+    require_dex_origin_mechanism "gcp-tf-ts-up"
+    require_no_conflicting_origin "$base"
+  fi
+
+  ensure_published "$port"
+  ensure_vm_hosts_alias
+  ensure_ts_serve serve "$port"
+
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
+    log "claiming the Dex origin: ${base}"
+    dex_origin apply "$base" ||
+      die "could not repoint Dex at ${base}. The dashboard would load and the login would bounce, so this is a failure rather than a warning."
+  fi
+
+  log "probing ${base}${TS_HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"
+  local code
+  if ! code="$(wait_for_ts_dashboard "$base")"; then
+    {
+      printf '\ndemo-up: the node is up but the dashboard did not answer %s.\n' "$TS_HEALTH_PATH"
+      printf '  last status: %s\n\n' "${code:-(no response)}"
+      printf '  MagicDNS and the tailnet are FINE — this got far enough to ask.\n'
+      printf '  Three things are behind that name and any of them can be the one:\n\n'
+      printf '    1. An EMPTY status usually means the TLS certificate did not verify.\n'
+      printf '       HTTPS certs are not enabled for this tailnet (admin console ->\n'
+      printf '       DNS -> HTTPS Certificates). Nothing in this repo can turn that on.\n'
+      printf '    2. A 502 means tailscale serve reached the VM-side forward and got\n'
+      printf '       nothing. Check the estate:  make gcp-tf-demo-status ENV=%s\n' "$ENV_KEY"
+      printf '    3. A 404 means the Gateway answered and no route matched the SNI\n'
+      printf '       name %s — the loopback alias on the VM is wrong.\n' "$DASHBOARD_HOST"
+    } >&2
+    exit 3
+  fi
+
+  print_ts_instructions "$base"
+  printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n' \
+    "$TS_FQDN" "$TS_HEALTH_PATH" "$code"
+  printf '  SCOPE:  reachable from this TAILNET only. Not from the public internet.\n'
+  printf '          Making it public is a separate, deliberate act:\n'
+  printf '            make gcp-tf-funnel-up ENV=%s\n\n' "$ENV_KEY"
+  log "the demo is live at ${base}. Nothing is being held open — it stays up."
+}
+
+cmd_funnel_up() {
+  prepare funnel-up
+  local port="$APP_PORT"
+
+  ts_resolve_node || exit 2
+  require_magicdns
+
+  local base="https://${TS_FQDN}"
+
+  # NOT skippable here, unlike ts-up. A bouncing login on a tailnet-only URL is
+  # an inconvenience; a bouncing login on a URL the whole internet can reach is
+  # a broken thing published under this estate's name.
+  require_dex_origin_mechanism "gcp-tf-funnel-up"
+  require_no_conflicting_origin "$base"
+
+  cat <<EOF
+
+  ⚠  FUNNEL EXPOSES THIS DEMO TO THE PUBLIC INTERNET.
+
+  Every other access path in this estate is closed by construction: the VM has
+  no external IP, IAP requires a Google identity holding
+  roles/iap.tunnelResourceAccessor, and Tailscale requires membership of this
+  tailnet. Funnel is the ONLY thing here that creates a listener anyone can
+  reach, and it does so under a name with a valid public certificate.
+
+  What is behind it is a demo estate with published credentials
+  (${DEMO_LOGIN_USER} / ${DEMO_LOGIN_PASS}). Treat everything in it as
+  disclosed for as long as this is on.
+
+  Switch it off the moment the demo ends — it does not expire on its own:
+
+      make gcp-tf-funnel-down ENV=${ENV_KEY}
+
+EOF
+
+  ensure_published "$port"
+  ensure_vm_hosts_alias
+  ensure_ts_serve funnel "$port"
+
+  log "claiming the Dex origin: ${base}"
+  dex_origin apply "$base" ||
+    die "could not repoint Dex at ${base}. Refusing to leave a PUBLIC URL whose login bounces — run 'make gcp-tf-funnel-down ENV=${ENV_KEY}' now."
+
+  log "probing ${base}${TS_HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"
+  local code
+  if ! code="$(wait_for_ts_dashboard "$base")"; then
+    {
+      printf '\ndemo-up: funnel is configured and the dashboard did not answer %s.\n' "$TS_HEALTH_PATH"
+      printf '  last status: %s\n\n' "${code:-(no response)}"
+      printf '  A PUBLIC listener may now exist in front of something that does not\n'
+      printf '  work. Take it down before debugging:\n\n'
+      printf '    make gcp-tf-funnel-down ENV=%s\n\n' "$ENV_KEY"
+      printf '  An empty status here most often means the tailnet policy grants no\n'
+      printf "  'funnel' nodeAttr to tag:sl-demo, so the edge is refusing to route.\n"
+    } >&2
+    exit 3
+  fi
+
+  print_ts_instructions "$base"
+  printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n' \
+    "$TS_FQDN" "$TS_HEALTH_PATH" "$code"
+  printf '  SCOPE:  PUBLIC. This URL is reachable from the entire internet.\n'
+  printf '          make gcp-tf-funnel-down ENV=%s\n\n' "$ENV_KEY"
+}
+
+cmd_funnel_down() {
+  prepare funnel-down
+  ts_resolve_node || exit 2
+
+  log "switching off the public funnel listener on ${INSTANCE_NAME}"
+  remote_run "sudo tailscale funnel --https=${TS_SERVE_PORT} off && echo FUNNEL_OFF" ||
+    die "could not switch off funnel on ${INSTANCE_NAME}. The public listener may STILL BE UP. Check by hand: gcloud compute ssh ${INSTANCE_NAME} --zone=${ZONE} --project=${PROJECT_ID} --impersonate-service-account=${OPERATOR_SA} --tunnel-through-iap --command='sudo tailscale funnel status'"
+
+  # Deliberately leaves `tailscale serve` and the Dex origin alone. The demo is
+  # still live on the tailnet at the same URL after this, so restoring the
+  # issuer here would break the thing the operator is still using.
+  printf '\n  Funnel is OFF. The demo is still live for this tailnet at https://%s\n' "$TS_FQDN"
+  printf '  Dex still points there, which is correct — only the PUBLIC listener\n'
+  printf '  was removed. To stop serving entirely: make gcp-tf-public-down ENV=%s\n\n' "$ENV_KEY"
+}
+
 case "${1:-up}" in
   up) cmd_up ;;
   test) cmd_test ;;
@@ -1556,11 +2222,15 @@ case "${1:-up}" in
   public) cmd_public ;;
   public-down) cmd_public_down ;;
   public-status) cmd_public_status ;;
+  ts-status) cmd_ts_status ;;
+  ts-up) cmd_ts_up ;;
+  funnel-up) cmd_funnel_up ;;
+  funnel-down) cmd_funnel_down ;;
   status) cmd_status ;;
   payload)
     shift
     cmd_payload "${1:-}"
     ;;
-  -h | --help | help) sed -n '2,20p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|connect|public|public-down|public-status|status|payload <file>}" ;;
+  -h | --help | help) sed -n '2,24p' "$0" ;;
+  *) die "usage: $(basename "$0") {up|test|connect|ts-up|ts-status|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

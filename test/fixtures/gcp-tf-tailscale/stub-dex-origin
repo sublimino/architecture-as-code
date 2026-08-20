@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# Stub for chunk T2's scripts/lib/dex-origin.sh.
+#
+# T2 is not in this worktree, so this file IS the assumed contract, written
+# executably rather than in a comment — if T2's real interface differs, this is
+# the one place the difference shows up, and the suite goes red rather than
+# quietly testing a shape nobody built.
+#
+#   apply <origin>   claim it. Non-zero when another origin already holds Dex.
+#   current          print the origin in force, or nothing at the pinned default.
+#   restore          put the pinned default back.
+#   status           human-readable.
+#
+# Knobs:
+#   STUB_DEX_LOG        file to append invocations to
+#   STUB_DEX_CURRENT    what `current` prints (empty => pinned default)
+#   STUB_DEX_APPLY_RC   exit code for `apply`
+
+log="${STUB_DEX_LOG:-/dev/null}"
+printf '%s\n' "$*" >>"$log"
+
+case "${1:-}" in
+  current)
+    # Prints an empty line at the default, which is what the caller's
+    # `tail -1 | tr -d '[:space:]'` has to cope with. A stub that printed
+    # nothing at all would let a caller that mishandles whitespace pass.
+    printf '%s\n' "${STUB_DEX_CURRENT:-}"
+    exit 0
+    ;;
+  apply)
+    [ "${STUB_DEX_APPLY_RC:-0}" = "0" ] || {
+      printf 'dex-origin: refusing, %s already holds the issuer\n' "${STUB_DEX_CURRENT:-something}" >&2
+      exit "${STUB_DEX_APPLY_RC}"
+    }
+    printf 'dex-origin: issuer now %s\n' "${2:-}"
+    exit 0
+    ;;
+  restore | status)
+    exit 0
+    ;;
+esac
+
+exit 0

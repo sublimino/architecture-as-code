@@ -53,6 +53,12 @@ const http = axios.create({ baseURL: BASE })
 // cancellation path below has to clear this timer rather than let it fire.
 const DEMO_LATENCY_MS = 120
 
+const LIVE_RUNTIME_AGENT_DETAIL = /^\/?(?:api\/)?agents\/agent-cardvault(?:\?.*)?$/
+
+function requiresLiveAgentDetail(method: string, path: string): boolean {
+  return method.toUpperCase() === 'GET' && LIVE_RUNTIME_AGENT_DETAIL.test(path)
+}
+
 // Coalesce identical concurrent GETs so an accidental render storm (or rapid
 // re-mounts) cannot fan out into hundreds of duplicate backend calls. Only
 // in-flight requests share a promise; sequential and interval refreshes are
@@ -210,7 +216,7 @@ export async function req<T>(
   // when the backend API is unavailable / in development. No call sites change.
   // If a demo route cannot resolve, fail explicitly instead of escaping back to
   // live HTTP and fabricating a "working" demo from partial coverage.
-  if (isDemoMode()) {
+  if (isDemoMode() && !requiresLiveAgentDetail(method, path)) {
     const fake = resolveFake(method, path, config?.data)
     if (fake !== undefined) {
       const settled = await delayedFixture(fake as T, signal)

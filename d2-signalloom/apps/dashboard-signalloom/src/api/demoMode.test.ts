@@ -17,6 +17,7 @@ vi.mock('axios', () => ({
 import { api } from './client'
 import { setDemoMode } from './demoMode'
 import { FAKE_ROUTE_COUNT, resetFakeData, resolveFake } from './fakeData'
+import { setSimulatedPhase } from './supercredSource'
 import type { IssueCredentialResponse, RevokeCredentialResponse } from '../types/api'
 
 const INVENTORY_AGENT_ID = 'tenant-demo:agent-inventory'
@@ -26,6 +27,9 @@ const REPORTER_AGENT_ID = 'tenant-demo:agent-reporter'
 
 describe('demo mode', () => {
   beforeEach(() => {
+    setDemoMode(false)
+    setDemoMode(true)
+    setSimulatedPhase('absent')
     setDemoMode(false)
     requestMock.mockReset()
     requestMock.mockRejectedValue(new Error('API down'))
@@ -189,6 +193,35 @@ describe('demo mode', () => {
       })
       expect((err as Error).message).toContain('Demo fixture not found for GET /agents/tenant-demo:missing-agent')
     }
+  })
+
+  it('bypasses fixture data for live agent-cardvault detail', async () => {
+    setDemoMode(true)
+    const liveAgent = {
+      id: 'agent-cardvault', name: 'Cardvault Agent', type: 'Signal Loom Built',
+      owner: 'platform-security', tenant_id: 'supercred', lifecycle_state: 'enrolled',
+      last_transition_at: null, eu_ai_act_risk_class: 'high',
+      compliance_summary: { total_controls: 0, passing: 0, failing: 0, pending: 0, posture_score: null },
+      created_at: null,
+    }
+    requestMock.mockResolvedValueOnce({ data: liveAgent })
+
+    const agent = await api.agents.get('tok', 'agent-cardvault')
+
+    expect(resolveFake('GET', '/agents/agent-cardvault')).toBeUndefined()
+    expect(agent).toEqual(liveAgent)
+    expect(requestMock).toHaveBeenCalledWith(expect.objectContaining({
+      url: '/api/agents/agent-cardvault',
+      headers: expect.objectContaining({ Authorization: 'Bearer tok' }),
+    }))
+  })
+
+  it('preserves the live API 404 for agent-cardvault before activation', async () => {
+    setDemoMode(true)
+    const unavailable = Object.assign(new Error('Not Found'), { response: { status: 404 } })
+    requestMock.mockRejectedValueOnce(unavailable)
+
+    await expect(api.agents.get('tok', 'agent-cardvault')).rejects.toBe(unavailable)
   })
 
   it('applies demo transitions so a following GET reflects the new lifecycle state', async () => {

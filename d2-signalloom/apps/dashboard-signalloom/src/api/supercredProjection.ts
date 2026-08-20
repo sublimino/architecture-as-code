@@ -176,8 +176,10 @@ export function projectAgentDetail(
   base: AgentResponse | null,
   state: SuperCredDemoState,
 ): AgentResponse | null {
-  if (id !== SUPERCRED_AGENT_ID) return base
-  return buildSuperCredAgent(state)
+  const agent = buildSuperCredAgent(state)
+  if (!agent) return base
+  if (id === SUPERCRED_AGENT_ID) return agent
+  return base
 }
 
 // ─── /compliance ─────────────────────────────────────────────────────────────

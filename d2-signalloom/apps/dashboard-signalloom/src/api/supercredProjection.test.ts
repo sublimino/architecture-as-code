@@ -193,9 +193,17 @@ describe('projectAgentDetail', () => {
     expect(detail!.id).toBe(SUPERCRED_AGENT_ID)
   })
 
+  it('does not synthesize the observed Cardvault identifier', () => {
+    expect(projectAgentDetail('agent-cardvault', null, stateAt('credentialed'))).toBeNull()
+  })
+
   it('passes other agents through untouched', () => {
     const other = baseAgent('tenant-demo:a1')
     expect(projectAgentDetail('tenant-demo:a1', other, stateAt('credentialed'))).toBe(other)
+  })
+
+  it('keeps an unknown detail absent', () => {
+    expect(projectAgentDetail('tenant-demo:missing-agent', null, stateAt('credentialed'))).toBeNull()
   })
 
   it('does not resurrect the agent after teardown', () => {

@@ -614,7 +614,10 @@ test-deployed-staleness: ## Verify the deployed-vs-source guard against a fake k
 test-supervise-port-forward: ## Verify port-forward supervision against fake kubectl/curl clients (no cluster required).
 	bats test/supervise-port-forward.bats
 
-.PHONY: demo-signalloom-supercred-api-test
+.PHONY: demo-signalloom-supercred-runtime-test demo-signalloom-supercred-api-test
+demo-signalloom-supercred-runtime-test: ## Probe Cardvault and agent-cardvault after explicit SuperCred step 1 (cluster required; does not deploy).
+	bats d2-signalloom/test/supercred-step1-runtime.bats
+
 demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).
 	bats d2-signalloom/test/supercred-demo-api.bats
 

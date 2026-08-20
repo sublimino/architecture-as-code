@@ -83,6 +83,22 @@ The dashboard reflects each of these exactly as if the button had been pressed,
 so the second window works for this path too — which is the point of driving
 both from one script.
 
+### Demo data versus runtime activation
+
+The dashboard's **Demo data** toggle is local fixture data for the UI; it does
+not deploy Cardvault or `agent-cardvault`, and it does not fixture the live
+`agent-cardvault` detail. That detail always calls the deployed API, so before
+step 1 its unavailable or 404 response is intentional evidence of absent
+runtime. Runtime resources are intentionally manual: activate them with step 1,
+then verify their availability without changing ownership:
+
+```bash
+make demo-signalloom-supercred-1
+make demo-signalloom-supercred-runtime-test
+```
+
+`make demo-signalloom-up` does not activate these runtime resources.
+
 Repeatability harness:
 
 ```bash

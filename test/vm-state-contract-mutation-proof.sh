@@ -34,71 +34,39 @@ REPO_ROOT="$(cd "${HERE}/.." && pwd)"
 GATE="${REPO_ROOT}/scripts/vm-state/vm-state-contract.sh"
 SUITE="${REPO_ROOT}/test/terraform-vm-state-contract.bats"
 
-# ── The sentinel ────────────────────────────────────────────────────────────
+# ── The sentinel, now shared ────────────────────────────────────────────────
 #
-# Dropped while a real file is mutated, removed on restore. If a previous run
-# was SIGKILLed (a tool timeout escalates to SIGKILL, which no trap survives)
-# the mutated file is still on disk and the sentinel is the only thing that
-# knows. REFUSE TO START. Do NOT auto-repair: a harness that silently restores
-# makes the next run green and hides the fact that a mutated file has been
-# sitting in the tree — and possibly been committed.
+# This harness had a correct, hand-rolled sentinel; it is now the shared rail in
+# test/helpers/mutation-sentinel.bash so that all eight proofs get the same
+# behaviour instead of three of them having it. The rail keeps everything this
+# version did and closes three gaps it had:
 #
-# The name is unique to THIS harness, deliberately. A sentinel shared between
-# harnesses means one harness's restore deletes another's marker, and the second
-# harness then cannot tell that it left a file mutated.
-# .gitignore already covers *mutation-in-progress.
-SENTINEL="${REPO_ROOT}/.vm-state-contract-mutation-in-progress"
+#   * `restore_all` deleted the sentinel BEFORE the hash was compared, so a
+#     FAILED restore exited 2 with no marker left behind — the one case the
+#     sentinel exists for. The rail clears it only on a verified restore.
+#   * The mode was never checked. `cp` onto an existing file keeps the
+#     DESTINATION's mode, so a mutation applied by `mv` from a tempfile restores
+#     byte-identical with the +x bit gone, and sha256 cannot see it.
+#   * A live pid in the sentinel now reads as "a run is in progress", not as a
+#     leaked mutation. They need opposite responses.
+#
+# Naming is unchanged and still unique to this harness: a shared name means one
+# harness's restore deletes another's marker, and the second then cannot tell it
+# left a file mutated. `.gitignore` already covers *mutation-in-progress.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-if [ -e "$SENTINEL" ]; then
-  echo "REFUSING TO START: ${SENTINEL} exists." >&2
-  echo "" >&2
-  echo "  A previous run of this harness did not restore its mutation." >&2
-  echo "  A file under scripts/vm-state/ is probably still mutated." >&2
-  echo "" >&2
-  echo "  This is NOT auto-repaired on purpose. Inspect the damage first:" >&2
-  echo "      git -C ${REPO_ROOT} diff -- scripts/vm-state/" >&2
-  echo "  restore it deliberately, then remove the sentinel." >&2
-  exit 2
-fi
-
-[ -f "$GATE" ]  || { echo "HARNESS ERROR: gate not found at ${GATE}" >&2; exit 2; }
 [ -f "$SUITE" ] || { echo "HARNESS ERROR: suite not found at ${SUITE}" >&2; exit 2; }
 
-# ── Backup, outside the repo ────────────────────────────────────────────────
+ms_guard_init vm-state-contract "$GATE"
+trap ms_guard_on_exit EXIT
 
-BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vmsc-proof.XXXXXX")"
-cp "$GATE" "${BACKUP_DIR}/gate.orig"
-ORIG_HASH="$(sha256sum "$GATE" | cut -d' ' -f1)"
+ORIG_HASH="${MS_SHAS[0]}"
 
 PASS=0
 FAIL=0
 
-restore_all() {
-  cp "${BACKUP_DIR}/gate.orig" "$GATE"
-  rm -f "$SENTINEL"
-}
-
-# The EXIT trap must not rewrite the verdict.
-#
-# Under `set -e` a failing LAST command inside an EXIT trap replaces the script's
-# exit status. That has already turned an 8/8-green run in this repo into a
-# reported failure. So the status is captured first and re-raised explicitly.
-on_exit() {
-  local status=$?
-  restore_all
-  local now
-  now="$(sha256sum "$GATE" | cut -d' ' -f1)"
-  if [ "$now" != "$ORIG_HASH" ]; then
-    echo "*** RESTORE FAILED: ${GATE} does not match its pre-mutation hash." >&2
-    echo "    expected ${ORIG_HASH}" >&2
-    echo "    found    ${now}" >&2
-    rm -rf "$BACKUP_DIR"
-    exit 2
-  fi
-  rm -rf "$BACKUP_DIR"
-  exit "$status"
-}
-trap on_exit EXIT
+restore_all() { ms_guard_restore; }
 
 # ── A sed that cannot silently do nothing ───────────────────────────────────
 #
@@ -112,19 +80,12 @@ trap on_exit EXIT
 # Double-quoting would expand `${pin}` against this harness's own environment,
 # produce a pattern matching nothing, and abort here.
 # shellcheck disable=SC2016
-mutate() { # sed_program
-  local before after
-  before="$(sha256sum "$GATE" | cut -d' ' -f1)"
-  touch "$SENTINEL"
-  sed -i "$1" "$GATE" || { echo "HARNESS ERROR: sed failed: $1" >&2; exit 2; }
-  after="$(sha256sum "$GATE" | cut -d' ' -f1)"
-  if [ "$before" = "$after" ]; then
-    echo "HARNESS ERROR: mutation changed nothing — the pattern no longer matches." >&2
-    echo "               ${1}" >&2
-    echo "               Fix the pattern; do NOT treat the resulting green as a proof." >&2
-    exit 2
-  fi
-}
+#
+# ms_sed arms the sentinel itself, so the mutation can never land with nothing
+# on disk recording that it did. It also separates a sed SYNTAX ERROR from a
+# pattern that no longer matches — this version conflated them into one
+# "HARNESS ERROR", and an unescaped `|` reads identically to a dead guard.
+mutate() { ms_sed "$GATE" "$1"; }
 
 # Runs the suite and reports the NAMES of the tests that failed.
 #

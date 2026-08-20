@@ -3162,19 +3162,68 @@ SURFACE_MAX_AGE_SECONDS="${GCP_TF_DEMO_SURFACE_MAX_AGE_SECONDS:-86400}"
 TS_TEST_TOTAL=0
 TS_TEST_FAILED=0
 TS_TEST_ROWS=""
+TS_TEST_MARK=0
+TS_TEST_STARTED=0
+TS_TEST_SLOWEST_MS=0
+TS_TEST_SLOWEST_NAME=""
+
+# ── Every check reports how close it came to its fence ─────────────────────
+#
+# Each request runs under a hard `--max-time ${TS_TEST_TIMEOUT}` ceiling, and
+# until this was added the run reported the VERDICT and nothing about the
+# margin. That is the same instrumentation hole as scripts/ci/vm-pipeline.sh,
+# which announces `──── TEST: <name> (timeout 900s) ────` and never prints what
+# the stage actually took — so the inner waits are well instrumented, the outer
+# fences are not measured at all, and nobody can say what the headroom is.
+#
+# The distinction worth having: "the suite passed" versus "the suite passed and
+# the slowest check used 6% of its budget". Only the second one can ever tell
+# you the estate is getting slower. A suite whose timings are never recorded
+# cannot report a regression until it has already become a failure — and on a
+# lane about to drop from 16 vCPU to 8, that is the signal most likely to move.
+#
+# WARN, never FAIL, at 60% of budget. This mirrors scripts/lib/wait.sh's own
+# threshold deliberately rather than inventing a second convention: a slow check
+# that still answered correctly is not a broken lane, and failing it would turn
+# a latency signal into an outage.
+TS_TEST_WARN_PERCENT="${GCP_TF_DEMO_TS_TEST_WARN_PERCENT:-60}"
+
+now_ms() { date +%s%3N; }
 
 ts_check() { # ts_check <ok|fail> <name> <detail>
   local state="$1" name="$2" detail="$3"
+  local now ms fence_ms pct budget=""
+  now="$(now_ms)"
+  ms=$((now - TS_TEST_MARK))
+  TS_TEST_MARK="$now"
+  fence_ms=$((TS_TEST_TIMEOUT * 1000))
+  pct=$((ms * 100 / fence_ms))
+
+  if [ "$ms" -gt "$TS_TEST_SLOWEST_MS" ]; then
+    TS_TEST_SLOWEST_MS="$ms"
+    TS_TEST_SLOWEST_NAME="$name"
+  fi
+
+  printf -v budget '[%d.%03ds/%ss %d%%]' \
+    "$((ms / 1000))" "$((ms % 1000))" "$TS_TEST_TIMEOUT" "$pct"
+
   TS_TEST_TOTAL=$((TS_TEST_TOTAL + 1))
   if [ "$state" = "ok" ]; then
-    printf '  PASS  %-34s %s\n' "$name" "$detail"
+    printf '  PASS  %-34s %-18s %s\n' "$name" "$budget" "$detail"
   else
     TS_TEST_FAILED=$((TS_TEST_FAILED + 1))
-    printf '  FAIL  %-34s %s\n' "$name" "$detail" >&2
+    printf '  FAIL  %-34s %-18s %s\n' "$name" "$budget" "$detail" >&2
   fi
+
+  if [ "$pct" -ge "$TS_TEST_WARN_PERCENT" ]; then
+    warn "'${name}' used ${pct}% of its ${TS_TEST_TIMEOUT}s budget. Not a failure — it answered — but this is the check that will time out first if the lane slows down further."
+  fi
+
   TS_TEST_ROWS="${TS_TEST_ROWS}${TS_TEST_ROWS:+,}$(jq -nc \
     --arg n "$name" --arg s "$state" --arg d "$detail" \
-    '{name: $n, status: (if $s == "ok" then "pass" else "fail" end), detail: $d}')"
+    --argjson ms "$ms" --argjson pct "$pct" --argjson fence "$TS_TEST_TIMEOUT" \
+    '{name: $n, status: (if $s == "ok" then "pass" else "fail" end), detail: $d,
+      elapsed_ms: $ms, fence_seconds: $fence, budget_used_percent: $pct}')"
 }
 
 # One request. Body goes to a file, HTTP status goes to stdout, and curl's OWN
@@ -3254,11 +3303,18 @@ write_surface_receipt() {
     --argjson total "$total" \
     --argjson failed "$failed" \
     --argjson checks "[${TS_TEST_ROWS}]" \
+    --argjson slowest_ms "${TS_TEST_SLOWEST_MS:-0}" \
+    --arg slowest_name "${TS_TEST_SLOWEST_NAME:-}" \
+    --argjson fence "${TS_TEST_TIMEOUT:-0}" \
     '{schema: $schema, surface: $surface, env: $env, outcome: $outcome,
       commit: $commit, branch: $branch, detail: $detail,
       written_at: $written_at, written_epoch: $written_epoch,
       checks_total: $total, checks_failed: $failed,
-      checks: (if $surface == "tailnet" then $checks else [] end)}' \
+      checks: (if $surface == "tailnet" then $checks else [] end)}
+     + (if $surface == "tailnet" then
+          {slowest_check: $slowest_name, slowest_ms: $slowest_ms,
+           fence_seconds: $fence}
+        else {} end)' \
     >"$tmp" 2>/dev/null || {
     rm -f "$tmp"
     return 1
@@ -3270,6 +3326,11 @@ write_surface_receipt() {
 cmd_ts_test() {
   require_env ts-test
   capture_source_identity
+
+  # Armed before the first thing that can be timed, so the node-resolution
+  # check reports its own cost rather than inheriting the process start.
+  TS_TEST_STARTED="$(now_ms)"
+  TS_TEST_MARK="$TS_TEST_STARTED"
 
   # Present-but-optional, unlike every other command here. See the block header:
   # this surface needs a NAME and a tailnet, not a project and a service account.
@@ -3445,8 +3506,21 @@ ts_test_verdict() {
     exit_code=1
   fi
 
+  local total_ms
+  total_ms=$(($(now_ms) - TS_TEST_STARTED))
+
   local detail
   detail="$((TS_TEST_TOTAL - TS_TEST_FAILED))/${TS_TEST_TOTAL} remote checks passed against ${base}"
+
+  # The headroom line. Printed on PASS and on FAIL alike, because a run that
+  # failed slowly and a run that failed instantly are different diagnoses: the
+  # first says the lane is degraded, the second says it is absent.
+  printf '    TIMING: %d.%03ds total; slowest check "%s" at %d.%03ds of a %ss fence (%d%%).\n' \
+    "$((total_ms / 1000))" "$((total_ms % 1000))" \
+    "${TS_TEST_SLOWEST_NAME:-none}" \
+    "$((TS_TEST_SLOWEST_MS / 1000))" "$((TS_TEST_SLOWEST_MS % 1000))" \
+    "$TS_TEST_TIMEOUT" \
+    "$((TS_TEST_SLOWEST_MS * 100 / (TS_TEST_TIMEOUT * 1000)))"
 
   if ! write_surface_receipt tailnet "$outcome" \
     "$TS_TEST_TOTAL" "$TS_TEST_FAILED" "$detail"; then

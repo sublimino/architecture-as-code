@@ -26,7 +26,11 @@ setup() {
 	repo="$(cd "$BATS_TEST_DIRNAME/.." && pwd)"
 	tf="$repo/terraform"
 	id_mod="$tf/modules/identity"
-	ci_mod="$tf/modules/ci-runner"
+	# modules/ci-runner was absorbed into modules/compute on 2026-08-20. CI lanes
+	# are now modules/compute with kind = "ci"; this chunk's second module is
+	# therefore compute, and the assertions below follow it rather than being
+	# deleted — dropping them would silently remove coverage rather than move it.
+	ci_mod="$tf/modules/compute"
 	fixtures="$repo/test/fixtures/terraform/identity"
 }
 
@@ -99,12 +103,33 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 	[ -f "$id_mod/README.md" ]
 }
 
-@test "TFID the ci-runner module exists with its required files" {
+@test "TFID the CI lane module exists with its required files" {
 	[ -d "$ci_mod" ]
 	[ -f "$ci_mod/main.tf" ]
 	[ -f "$ci_mod/variables.tf" ]
 	[ -f "$ci_mod/outputs.tf" ]
 	[ -f "$ci_mod/versions.tf" ]
+}
+
+@test "TFID modules/ci-runner is GONE and nothing references it" {
+	# The merge is only finished when the old module cannot be reached. A module
+	# directory left behind is worse than one deleted: `terraform validate`
+	# ignores an uncalled module, so a stale copy diverges silently and the next
+	# person to need a CI lane finds two plausible answers.
+	[ ! -d "$tf/modules/ci-runner" ]
+
+	# And no live HCL still calls it. Comment lines are stripped first, because
+	# the environments root deliberately RECORDS the deletion in a comment and a
+	# naive grep would fire on the record rather than on a reference.
+	run bash -c "grep -rhv -e '^[[:space:]]*#' -e '^[[:space:]]*//' --include='*.tf' -r '$tf' | grep -nE 'modules/ci-runner'"
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
+
+	# Positive control: the corpus that grep just scanned is real. Without this,
+	# a broken --include or a wrong path passes the assertion above by finding
+	# nothing at all.
+	run bash -c "grep -rhv -e '^[[:space:]]*#' -e '^[[:space:]]*//' --include='*.tf' -r '$tf' | grep -c 'modules/compute'"
+	[ "$output" -ge 1 ]
 }
 
 @test "TFID both modules ship a native terraform test" {
@@ -305,7 +330,7 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 			echo "committed absolute home path in $f"
 			return 1
 		}
-	done < <(git -C "$repo" ls-files 'terraform/modules/identity' 'terraform/modules/ci-runner' 'scripts/ci/gcp-tf-*.sh' 'test/terraform-identity.bats' 'test/terraform-ci-lifecycle.bats' 'test/fixtures/terraform' 'test/fixtures/gcp-tf-ci' | sed "s|^|$repo/|")
+	done < <(git -C "$repo" ls-files 'terraform/modules/identity' 'terraform/modules/compute' 'scripts/ci/gcp-tf-*.sh' 'test/terraform-identity.bats' 'test/terraform-ci-lifecycle.bats' 'test/ci-lane-reaper-mutation-proof.sh' 'test/fixtures/terraform' 'test/fixtures/gcp-tf-ci' | sed "s|^|$repo/|")
 
 	# Presence before behaviour: an empty file list would pass the loop above
 	# without reading a single byte.

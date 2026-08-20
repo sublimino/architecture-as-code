@@ -14,6 +14,7 @@ mock_provider "google-beta" {}
 variables {
   project_id            = "CHANGEME-project"
   environment_key       = "demo-1"
+  kind                  = "demo"
   name_prefix           = "sl-demo-1"
   zone                  = "europe-west2-a"
   subnet_self_link      = "projects/CHANGEME-project/regions/europe-west2/subnetworks/sl-demo-1-subnet"
@@ -910,5 +911,429 @@ run "accepts_a_corrected_secret_id_and_tag" {
   assert {
     condition     = google_compute_instance.this.metadata["signalloom-tailscale-tag"] == "tag:sl-demo-2"
     error_message = "a correctly-prefixed tag must be accepted and must reach the instance"
+  }
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CI LANES
+#
+# Migrated from terraform/modules/ci-runner/tests/ci_runner.tftest.hcl, which
+# was deleted with its module on 2026-08-20. Everything that suite asserted
+# about a lane instance is asserted here against modules/compute with
+# `kind = "ci"`, plus the properties that only exist once the two kinds share a
+# module: that a CI lane really is the demo machine, and that a demo lane
+# really does not carry the reaper's selector.
+#
+# ─── The one that matters ──────────────────────────────────────────────────
+#
+# scripts/ci/gcp-tf-reaper.sh SUSPENDS instances and selects them on the
+# `ci-lane` label. This module is the only thing that emits it. So the pair
+# `a_ci_lane_carries_the_reapers_selector` /
+# `a_demo_lane_carries_no_reapers_selector` is a positive-and-negative control
+# and neither half is worth anything alone: the negative is trivially satisfied
+# by a module that emits no labels at all, which is also what a broken
+# implementation produces. Read them together, and never delete one.
+# ═══════════════════════════════════════════════════════════════════════════
+
+run "a_ci_lane_is_the_same_machine_as_a_demo_lane" {
+  command = plan
+
+  variables {
+    environment_key       = "ci-1"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-1"
+    service_account_email = "sl-rt-ci-1@CHANGEME-project.iam.gserviceaccount.com"
+    subnet_self_link      = "projects/CHANGEME-project/regions/europe-west2/subnetworks/sl-ci-1-subnet"
+    network_tag           = "sl-ci-1-node"
+    deletion_protection   = false
+    idle_suspend_minutes  = 45
+    labels = {
+      environment = "ci-1"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  # THE REASON THE MODULES WERE MERGED. modules/ci-runner had no
+  # metadata_startup_script at all, so a CI lane booted a bare box and every fix
+  # to the demo bring-up landed on a machine CI never ran. A CI lane that does
+  # not carry the bring-up is a CI lane testing something the demo is not.
+  #
+  # Asserted as a length rather than a `!= ""`, because an empty file would
+  # satisfy the latter and is the same defect wearing a shorter name.
+  assert {
+    condition     = length(google_compute_instance.this.metadata_startup_script) > 100
+    error_message = "a CI lane must carry the same bring-up startup script as a demo lane; modules/ci-runner carried none, which is why it was removed"
+  }
+
+  # Shielded VM, all three fields. Secure boot alone is not shielded VM.
+  assert {
+    condition = alltrue([
+      one(google_compute_instance.this.shielded_instance_config).enable_secure_boot,
+      one(google_compute_instance.this.shielded_instance_config).enable_vtpm,
+      one(google_compute_instance.this.shielded_instance_config).enable_integrity_monitoring,
+    ])
+    error_message = "a CI lane must be shielded on all three axes, exactly as a demo lane is"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["enable-oslogin"] == "TRUE"
+    error_message = "OS Login must be enforced on a CI lane"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["block-project-ssh-keys"] == "TRUE"
+    error_message = "project-wide SSH keys would bypass OS Login entirely, on a CI lane as much as a demo one"
+  }
+
+  # ISC-183's property, migrated: omitting the service_account block does not
+  # produce an identity-less VM, it produces one running as the default Compute
+  # Engine SA, which holds roles/editor on the whole project.
+  assert {
+    condition     = one(google_compute_instance.this.service_account).email == "sl-rt-ci-1@CHANGEME-project.iam.gserviceaccount.com"
+    error_message = "a CI lane must run as its own per-lane runtime service account"
+  }
+
+  assert {
+    condition     = length(one(google_compute_instance.this.network_interface).access_config) == 0
+    error_message = "a CI lane must have no external IP"
+  }
+
+  # ISC-182's property, migrated, with the name shape that CHANGED. Both kinds
+  # are `sl-<key>-vm` now; `sl-ci-1-runner` was modules/ci-runner's shape and the
+  # reaper's old selector matched exactly that string.
+  assert {
+    condition     = google_compute_instance.this.name == "sl-ci-1-vm"
+    error_message = "a CI lane must use the unified name shape sl-<key>-vm, not modules/ci-runner's sl-<key>-runner"
+  }
+
+  assert {
+    condition     = length(google_compute_instance.this.name) <= 63
+    error_message = "instance name exceeds GCP's 63-character limit"
+  }
+}
+
+run "a_ci_lane_carries_the_reapers_selector" {
+  command = plan
+
+  variables {
+    environment_key       = "ci-1"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-1"
+    service_account_email = "sl-rt-ci-1@CHANGEME-project.iam.gserviceaccount.com"
+    deletion_protection   = false
+    idle_suspend_minutes  = 45
+    labels = {
+      environment = "ci-1"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  # The positive half of the control. scripts/ci/gcp-tf-reaper.sh gate 1 selects
+  # on this label's PRESENCE and gate 2 on its VALUE; if it is absent or wrong,
+  # the reaper silently reaps nothing and lanes bill forever.
+  assert {
+    condition     = google_compute_instance.this.labels["ci-lane"] == "ci-1"
+    error_message = "a CI lane must carry ci-lane = <lane key>; the reaper selects on it"
+  }
+
+  assert {
+    condition     = output.ci_lane_label == "ci-1"
+    error_message = "the emitted ci_lane_label output must equal the lane key"
+  }
+
+  # The reaper's gates 3 and 4 read these two. They come from the env-contract's
+  # mandatory set and must survive the ci-lane merge.
+  assert {
+    condition     = google_compute_instance.this.labels["kind"] == "ci"
+    error_message = "the kind label is the reaper's gate 3; it must survive the ci-lane merge"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.labels["environment"] == "ci-1"
+    error_message = "the environment label is the reaper's gate 4; it must equal the ci-lane label"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.labels["managed-by"] == "terraform"
+    error_message = "the contract's mandatory labels must survive the ci-lane merge"
+  }
+
+  # Migrated from ci_runner.tftest.hcl. The reaper reads its budget off the
+  # instance rather than carrying a duplicate constant, so a lane cannot
+  # disagree with the reaper about its own idle window.
+  assert {
+    condition     = google_compute_instance.this.metadata["idle-suspend-minutes"] == "45"
+    error_message = "the idle suspend budget must be published on the instance for the reaper to read"
+  }
+
+  # Deliberately the opposite of the demo VM.
+  assert {
+    condition     = google_compute_instance.this.deletion_protection == false
+    error_message = "CI lanes must not have deletion protection; a lane that cannot be deleted outlives the branch that needed it and bills quietly"
+  }
+}
+
+run "a_demo_lane_carries_no_reapers_selector" {
+  command = plan
+
+  # Inherits the file-level demo-1 variables. NOTHING is overridden here on
+  # purpose: this is the configuration the live estate actually plans.
+
+  # ─── The safety property, in plan form ─────────────────────────────────────
+  #
+  # sl-demo-1-vm is a running demo. scripts/ci/gcp-tf-reaper.sh gate 1 admits an
+  # instance because it carries this label. If modules/compute ever emitted it
+  # for a demo lane, the reaper would be entitled to suspend that demo — and the
+  # only thing between the two would be gates 3-5, which exist precisely because
+  # nobody should have to rely on a single check for this.
+  #
+  # Read with `a_ci_lane_carries_the_reapers_selector` above. Alone, this
+  # assertion is satisfied by a module that emits no labels at all, which is
+  # indistinguishable from the broken implementation it is supposed to catch.
+  assert {
+    condition     = !contains(keys(google_compute_instance.this.labels), "ci-lane")
+    error_message = "a demo VM must NOT carry the ci-lane label; scripts/ci/gcp-tf-reaper.sh selects instances to SUSPEND on it"
+  }
+
+  assert {
+    condition     = output.ci_lane_label == ""
+    error_message = "the ci_lane_label output must be empty for a demo lane"
+  }
+
+  # And the metadata half. A demo VM advertising an idle-suspend budget invites
+  # exactly the mistake the label design exists to prevent, so the key must be
+  # ABSENT rather than zero — absent is unambiguous, 0 is a value something has
+  # to interpret.
+  assert {
+    condition     = !contains(keys(google_compute_instance.this.metadata), "idle-suspend-minutes")
+    error_message = "a demo VM must not publish an idle-suspend budget at all, not even 0"
+  }
+
+  # The positive control for the two negatives above: this instance DOES carry
+  # labels and metadata, so their emptiness is not what makes the assertions
+  # pass. Without this, a module that emitted nothing would satisfy all three.
+  assert {
+    condition     = google_compute_instance.this.labels["kind"] == "demo"
+    error_message = "positive control: the demo lane must carry the mandatory kind label, or the ci-lane absence above proves nothing"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-environment"] == "demo-1"
+    error_message = "positive control: the demo lane must carry its environment metadata, or the idle-suspend absence above proves nothing"
+  }
+}
+
+run "a_second_ci_lane_produces_its_own_instance_and_selector" {
+  command = plan
+
+  variables {
+    environment_key       = "ci-2"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-2"
+    service_account_email = "sl-rt-ci-2@CHANGEME-project.iam.gserviceaccount.com"
+    deletion_protection   = false
+    idle_suspend_minutes  = 45
+    labels = {
+      environment = "ci-2"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  assert {
+    condition     = google_compute_instance.this.name == "sl-ci-2-vm"
+    error_message = "a second lane must produce its own instance name"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.labels["ci-lane"] == "ci-2"
+    error_message = "a second lane must carry its own ci-lane label"
+  }
+}
+
+# ── Negative tests, each paired with a positive (CONTRACT §7a) ──────────────
+
+run "rejects_an_unknown_lane_kind" {
+  command = plan
+
+  variables {
+    kind = "prod"
+  }
+
+  expect_failures = [var.kind]
+}
+
+run "accepts_the_two_known_lane_kinds" {
+  command = plan
+
+  # The paired positive for the rule above. `demo` is the file-level default and
+  # is exercised by every other run; `ci` is proven by the CI runs above. This
+  # asserts the boundary explicitly so "rejects prod" is not indistinguishable
+  # from "rejects everything".
+  variables {
+    kind = "demo"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.labels["kind"] == "demo"
+    error_message = "the corrected kind must be accepted"
+  }
+}
+
+run "rejects_an_idle_suspend_window_short_enough_to_kill_a_live_run" {
+  command = plan
+
+  variables {
+    idle_suspend_minutes = 1
+  }
+
+  expect_failures = [var.idle_suspend_minutes]
+}
+
+run "accepts_zero_as_the_demo_lane_answer" {
+  command = plan
+
+  # 0 is legal and means "not a reapable lane". This is the paired positive for
+  # the rule above AND the reason the floor of 5 is a precondition rather than a
+  # variable validation — a validation cannot know that 0 is right for a demo
+  # lane and fatal for a CI one.
+  variables {
+    idle_suspend_minutes = 0
+  }
+
+  assert {
+    condition     = !contains(keys(google_compute_instance.this.metadata), "idle-suspend-minutes")
+    error_message = "0 must be accepted and must emit no metadata key at all"
+  }
+}
+
+run "rejects_a_ci_lane_with_no_idle_budget" {
+  command = plan
+
+  # 0 is legal for a demo lane and fatal for a CI one: the metadata key would be
+  # absent, the reaper would have nothing to read, and the lane would run until
+  # somebody looked at the invoice. COMPUTE-RULE-12.
+  variables {
+    environment_key       = "ci-1"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-1"
+    service_account_email = "sl-rt-ci-1@CHANGEME-project.iam.gserviceaccount.com"
+    deletion_protection   = false
+    idle_suspend_minutes  = 0
+    labels = {
+      environment = "ci-1"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  expect_failures = [google_compute_instance.this]
+}
+
+run "rejects_a_deletion_protected_ci_lane" {
+  command = plan
+
+  # COMPUTE-RULE-11. modules/ci-runner hardcoded deletion_protection = false;
+  # making it configurable here without this rule would have silently dropped
+  # that property, and its failure mode is a bill rather than an error.
+  variables {
+    environment_key       = "ci-1"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-1"
+    service_account_email = "sl-rt-ci-1@CHANGEME-project.iam.gserviceaccount.com"
+    deletion_protection   = true
+    idle_suspend_minutes  = 45
+    labels = {
+      environment = "ci-1"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  expect_failures = [google_compute_instance.this]
+}
+
+run "rejects_a_kind_that_disagrees_with_the_merged_label" {
+  command = plan
+
+  # COMPUTE-RULE-07. This is the shape that would let a demo VM acquire a CI
+  # selector: var.kind says "ci" — so the ci-lane label is emitted — while the
+  # environment this was actually built from is a demo. Both derive from one
+  # tfvars entry through modules/env-contract, so they only disagree when
+  # something wired them from different places.
+  variables {
+    kind                 = "ci"
+    idle_suspend_minutes = 45
+    deletion_protection  = false
+    labels = {
+      environment = "demo-1"
+      kind        = "demo"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  expect_failures = [google_compute_instance.this]
+}
+
+run "rejects_a_kind_that_disagrees_with_the_environment_key" {
+  command = plan
+
+  # COMPUTE-RULE-08. The other direction: a `ci` kind on a `demo-` key. CONTRACT
+  # §3 validation rule 3 makes the key prefix equal the kind, so this can only
+  # arise from a key and a kind taken from different entries.
+  variables {
+    environment_key      = "demo-1"
+    kind                 = "ci"
+    name_prefix          = "sl-demo-1"
+    idle_suspend_minutes = 45
+    deletion_protection  = false
+    labels = {
+      environment = "demo-1"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  expect_failures = [google_compute_instance.this]
+}
+
+run "accepts_a_consistent_ci_lane_after_the_corrections" {
+  command = plan
+
+  # The paired positive for all four precondition negatives above. Without it,
+  # a precondition that fired for an unrelated reason — a typo in a condition, a
+  # missing variable — would be indistinguishable from the rule under test.
+  variables {
+    environment_key       = "ci-3"
+    kind                  = "ci"
+    name_prefix           = "sl-ci-3"
+    service_account_email = "sl-rt-ci-3@CHANGEME-project.iam.gserviceaccount.com"
+    deletion_protection   = false
+    idle_suspend_minutes  = 45
+    labels = {
+      environment = "ci-3"
+      kind        = "ci"
+      managed-by  = "terraform"
+      component   = "signalloom"
+    }
+  }
+
+  assert {
+    condition     = google_compute_instance.this.labels["ci-lane"] == "ci-3"
+    error_message = "the corrected, internally consistent CI lane must be accepted"
+  }
+
+  assert {
+    condition     = google_compute_instance.this.name == "sl-ci-3-vm"
+    error_message = "the corrected CI lane must plan its instance"
   }
 }

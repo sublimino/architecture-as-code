@@ -49,7 +49,7 @@ present in `us-east4-a`.
 > `make gcp-tf-plan ENV=demo-1` currently produces a plan that creates **zero
 > resources**. `terraform/environments/main.tf` has one live module,
 > `env_contract`, which declares no resources at all; `network`, `compute`,
-> `edge` and `ci_runner` are all commented out inside its INTEGRATION BLOCK,
+> `edge` is commented out inside its INTEGRATION BLOCK (`ci_runner` was deleted 2026-08-20),
 > along with the `terraform_remote_state` reference to `terraform/platform`.
 >
 > The comment says those modules "do not exist on this branch". That is now

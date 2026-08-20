@@ -190,8 +190,8 @@ suspended_names() {
 	[ "$(suspend_calls)" -ge 1 ]
 
 	# It resumed first, and it suspended the lane it was asked about.
-	grep -q 'instances resume sl-ci-1-runner' "$log"
-	grep -q 'instances suspend sl-ci-1-runner' "$log"
+	grep -q 'instances resume sl-ci-1-vm' "$log"
+	grep -q 'instances suspend sl-ci-1-vm' "$log"
 }
 
 @test "GCPTFCI default test command is the offline Terraform validation gate" {
@@ -277,7 +277,7 @@ suspended_names() {
 	# describes.
 	[ "$status" -eq 130 ]
 	[ "$(suspend_calls)" -ge 1 ]
-	grep -q 'instances suspend sl-ci-1-runner' "$log"
+	grep -q 'instances suspend sl-ci-1-vm' "$log"
 }
 
 # ─── The regression that matters ────────────────────────────────────────────
@@ -368,6 +368,27 @@ suspended_names() {
 }
 
 # ─── The reaper ─────────────────────────────────────────────────────────────
+#
+# THE SELECTOR CHANGED ON 2026-08-20 AND THESE TESTS ARE THE PROOF IT IS SAFE.
+#
+# The reaper used to admit an instance whose NAME matched
+# ^sl-ci-[1-9][0-9]*-runner$ — the shape terraform/modules/ci-runner produced.
+# That module was absorbed into modules/compute, both lane kinds are now
+# `sl-<key>-vm`, and the name gate would have matched nothing: the reaper would
+# have suspended nothing, printed "0 suspended", and exited 0 while every lane
+# billed forever. A silent no-op presents as success, which is why it is the
+# worse of the two failures.
+#
+# The selector is now the `ci-lane` LABEL, emitted by modules/compute for
+# `kind = "ci"` and for nothing else.
+#
+# ─── Why every test below carries BOTH halves ───────────────────────────────
+#
+# "no demo VM was suspended" is trivially satisfied by nothing being suspended
+# at all, which is also exactly what a broken selector produces. So the negative
+# is never asserted alone: every test that proves a demo VM was refused ALSO
+# proves a genuine CI lane was reaped in the same run. One without the other is
+# not evidence, it is the appearance of evidence.
 
 seed_instances() {
 	local old new
@@ -379,90 +400,348 @@ seed_instances() {
 	export STUB_INSTANCE_LIST="$BATS_TEST_TMPDIR/instances.tsv"
 }
 
+# Runs the reaper over the seeded fixture at a threshold that makes every OLD
+# row eligible on age, so the only thing deciding an outcome is a safety gate.
+reap_all() {
+	run bash "$reaper" --idle-minutes "${1:-60}" --project CHANGEME-project
+	[ "$status" -eq 0 ]
+}
+
+# The positive control, factored into a helper so no test can forget it and so a
+# reviewer can see at a glance which tests carry it.
+#
+# Named for what it defends: without a reaped lane in the same run, every
+# "was not suspended" assertion in this file is satisfied by a reaper that does
+# nothing whatsoever — which is exactly what the retired name selector would
+# have degraded into.
+assert_a_real_lane_was_reaped() {
+	grep -q 'instances suspend sl-ci-1-vm' "$log" || {
+		echo "POSITIVE CONTROL FAILED: no genuine CI lane was reaped, so every"
+		echo "negative assertion in this test is vacuous. Suspend log:"
+		cat "$log"
+		return 1
+	}
+}
+
+assert_not_suspended() {
+	local name="$1" n
+	n="$(grep -cE "instances suspend ${name}( |\$)" "$log" || true)"
+	[ "$n" -eq 0 ] || {
+		echo "REAPER SUSPENDED ${name} — it must never be able to."
+		cat "$log"
+		return 1
+	}
+}
+
 @test "GCPTFREAP the adversarial instance list is loaded and non-trivial" {
 	# Presence before behaviour: a reaper test against an empty list would prove
 	# nothing at all and would pass.
 	[ -f "$fixtures/instances.tsv.template" ]
 	seed_instances
 	run bash -c "wc -l < '$STUB_INSTANCE_LIST'"
-	[ "$output" -ge 7 ]
+	[ "$output" -ge 13 ]
+
+	# Each adversarial row is present by name, so a fixture that silently lost
+	# one cannot make the test it exists for pass by absence.
+	grep -q 'sl-ci-1-vm' "$STUB_INSTANCE_LIST"
 	grep -q 'sl-demo-1-vm' "$STUB_INSTANCE_LIST"
+	grep -q 'sl-demo-2-vm' "$STUB_INSTANCE_LIST"
+	grep -q 'sl-demo-3-vm' "$STUB_INSTANCE_LIST"
 	grep -q 'signalloom-ci' "$STUB_INSTANCE_LIST"
-	grep -q 'sl-ci-1-runner' "$STUB_INSTANCE_LIST"
+
+	# And every row carries the full seven PIPE-separated columns. A short row
+	# degrades to an empty kind label, which gate 3 refuses — so a truncated
+	# fixture would make the demo-protection tests pass for the wrong reason.
+	#
+	# The separator is `|` rather than a tab because tab is IFS whitespace and
+	# collapses the empty kind column this fixture deliberately contains; awk's
+	# -F'\t' had the same defect as the reaper's `IFS=$'\t' read`. Asserted here
+	# so a future "tidy up" back to tabs fails loudly.
+	run awk -F'|' 'NF != 7 { bad++ } END { print bad + 0 }' "$STUB_INSTANCE_LIST"
+	[ "$output" -eq 0 ]
+
+	# The empty-kind row is genuinely empty, not merely short. This is the row
+	# that found the tab bug; without it gate 3's absent-label test has no
+	# subject.
+	run awk -F'|' '$1 == "sl-ci-4-vm" { print "[" $6 "]" }' "$STUB_INSTANCE_LIST"
+	[ "$output" = "[]" ]
 }
 
-@test "GCPTFREAP only ci-lane instances are suspended" {
-	# ISC-196.
+# ─── The selector itself, at the source level ───────────────────────────────
+
+@test "GCPTFREAP the selector is the ci-lane LABEL and refuses on its absence" {
+	# The mechanism assertion, placed FIRST so a failure names the missing
+	# mechanism rather than a missing message. CONTRACT §7b case 3.
+	[ -f "$reaper" ]
+
+	# It asks gcloud for the label, and for the two labels the deeper gates read.
+	grep -q 'labels.ci-lane:\*' "$reaper"
+	grep -q 'labels.kind' "$reaper"
+	grep -q 'labels.environment' "$reaper"
+
+	# The absence of the label is a REFUSAL. Matched as a complete line so a
+	# comment describing the rule cannot satisfy the check — this repo has
+	# shipped a guard satisfied by the prose that explained it.
+	run grep -cE '^[[:space:]]*if \[ -z "\$\{lane:-\}" \]; then$' "$reaper"
+	[ "$output" -eq 1 ]
+}
+
+@test "GCPTFREAP no gate ADMITS an instance because of its name" {
+	# The rule that must survive every future edit: a name may only ever take
+	# away. The old ^sl-ci-N-runner$ admission is gone and nothing may replace it.
+	#
+	# Scoped to the executing gate region — `main()` to end of file — rather than
+	# the whole file, because the header comment quotes the retired pattern
+	# verbatim in order to explain why it was retired, and a whole-file grep
+	# would fire on the explanation. That is the exact shape that has bitten this
+	# repo repeatedly: an assertion that is true, of the wrong thing.
+	local body="$BATS_TEST_TMPDIR/reaper-main.sh"
+	sed -n '/^main() {/,$p' "$reaper" >"$body"
+
+	# The extraction is real. Without this, an empty body would pass everything
+	# below it — a scoped grep whose scope resolved to nothing is a green test
+	# measuring nothing.
+	run grep -c 'Gate 1' "$body"
+	[ "$output" -eq 1 ]
+
+	# No name-shaped admission pattern anywhere in the executing body.
+	run grep -nE 'sl-(ci|demo)-' "$body"
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
+
+	# And there is no lane NAME pattern constant left anywhere to admit on.
+	run grep -nE '^readonly LANE_NAME_PATTERN=' "$reaper"
+	[ "$status" -eq 1 ]
+	[ -z "$output" ]
+}
+
+# ─── The safety property, positive and negative in the same test ────────────
+
+@test "GCPTFREAP a demo VM is NEVER suspended, and a real CI lane IS" {
+	# THE test. sl-demo-1-vm is serving a live demo right now.
+	#
+	# Both halves, deliberately in one test so neither can be deleted without the
+	# other going with it. The negative alone is satisfied by a reaper that
+	# suspends nothing.
 	seed_instances
-	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
-	[ "$status" -eq 0 ]
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	grep -q 'instances suspend sl-ci-2-vm' "$log"
+
+	assert_not_suspended sl-demo-1-vm
+	assert_not_suspended sl-demo-2-vm
+	assert_not_suspended sl-demo-3-vm
 
 	local names
 	names="$(suspended_names)"
 	[ -n "$names" ]
-	[[ "$names" == *sl-ci-1-runner* ]]
-	[[ "$names" == *sl-ci-2-runner* ]]
-}
-
-@test "GCPTFREAP a demo VM is NEVER suspended, even when it carries a ci-lane label" {
-	# ISC-197. The fixture's demo rows carry ci-lane labels on purpose: the
-	# gcloud filter alone must not be what protects them.
-	seed_instances
-	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
-	[ "$status" -eq 0 ]
-
-	local names
-	names="$(suspended_names)"
 	[[ "$names" != *demo* ]]
-	run grep -c 'instances suspend sl-demo-1-vm' "$log"
-	[ "$output" -eq 0 ]
-	run grep -c 'instances suspend sl-demo-2-runner' "$log"
-	[ "$output" -eq 0 ]
 }
 
-@test "GCPTFREAP the legacy signalloom-ci runners are NEVER suspended" {
-	# They carry valid ci-1 / ci-2 labels in the fixture, so only the name
-	# allowlist and the explicit denylist stand between them and a suspend.
+@test "GCPTFREAP the LIVE demo sl-demo-1-vm is never suspended" {
+	# Narrowed to ONE instance on purpose, and that instance is the one serving a
+	# live demo right now.
+	#
+	# The broader test above asserts all three demo rows at once, which makes it
+	# unusable as a mutation target for the individual gate-5 markers: a compound
+	# mutation that isolates one marker necessarily lets a DIFFERENT demo row
+	# through, so the broad test goes red for a reason that is not the one under
+	# examination. test/ci-lane-reaper-mutation-proof.sh M8 targets this test
+	# precisely because its subject is a single row.
 	seed_instances
-	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
-	[ "$status" -eq 0 ]
+	reap_all 60
 
-	run grep -cE 'instances suspend signalloom-ci( |$)' "$log"
-	[ "$output" -eq 0 ]
-	run grep -c 'instances suspend signalloom-ci-2' "$log"
-	[ "$output" -eq 0 ]
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-demo-1-vm
+}
+
+@test "GCPTFREAP GATE 3+4+5 a demo VM carrying a VALID ci-lane label is refused" {
+	# sl-demo-2-vm carries ci-lane = ci-1, which passes gates 1 and 2 outright.
+	# Before the selector moved, the instance-NAME gate caught this row. It no
+	# longer can, so this is the test proving the replacement gates carry the
+	# weight the name used to.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-demo-2-vm
+
+	# It was seen and explicitly refused, not merely absent from the listing —
+	# "never considered" and "considered and rejected" are different properties
+	# and only one of them is evidence.
+	[[ "$output" == *"sl-demo-2-vm"* ]]
+	[[ "$output" == *"REFUSED"* ]]
+}
+
+@test "GCPTFREAP GATE 5 a demo VM with fully forged ci labels is still refused" {
+	# sl-demo-3-vm forges kind = ci AND environment = ci-3 to match its ci-lane.
+	# Gates 1, 2, 3 and 4 ALL pass on this row. Only gate 5's demo-marker check
+	# stands between it and a suspend, which is what makes gate 5 load-bearing
+	# rather than the redundant decoration it superficially looks like.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-demo-3-vm
+	[[ "$output" == *"demo-lane markers"* ]]
+}
+
+@test "GCPTFREAP GATE 3 an ABSENT kind label is a refusal, not a default" {
+	# sl-ci-4-vm has an empty kind column — the state a stale five-column listing
+	# degrades to. Gate 3 compares for equality with "ci", so absent fails closed.
+	# A gate written as "refuse if kind == demo" would admit this row.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-4-vm
+	[[ "$output" == *"kind label is <absent>"* ]]
+}
+
+@test "GCPTFREAP GATE 2 a ci-lane value that merely CONTAINS a lane key is refused" {
+	# sl-ci-6-vm carries ci-lane = xci-6. Its environment label agrees, its kind
+	# is ci, and its name carries no demo marker — so gates 3, 4, 5 and 6 all
+	# pass. ONLY the ^...$ anchors on LANE_LABEL_PATTERN reject it.
+	#
+	# This repo has already shipped the unanchored version of this bug: DEMO_ENV
+	# matching inside SL_DEMO_ENV, in a guard that read as correct.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-6-vm
+	[[ "$output" == *"xci-6 is not a CI lane key"* ]]
+}
+
+@test "GCPTFREAP GATE 4 an environment label disagreeing with ci-lane is refused" {
+	# sl-ci-5-vm: ci-lane = ci-5, environment = ci-6. Both are CI keys, so gate 5
+	# cannot fire and gate 4 is genuinely the only thing rejecting this row.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-5-vm
+	[[ "$output" == *"disagrees with ci-lane"* ]]
+}
+
+@test "GCPTFREAP GATE 6 the legacy signalloom-ci runners are NEVER suspended" {
+	# They carry valid ci-1 / ci-2 labels AND kind = ci AND matching environment
+	# labels in the fixture, so gates 1 through 5 all pass. Only the explicit
+	# denylist stands between them and a suspend.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended signalloom-ci
+	assert_not_suspended signalloom-ci-2
+	[[ "$output" == *"protected instance"* ]]
+}
+
+# ─── Past the safety gates: whether to act, not whether it is allowed ───────
+
+@test "GCPTFREAP a SUSPENDED lane is admitted and then left alone on state" {
+	# Realistic: a demo lane is suspended right now for cost, and the gcloud
+	# filter asks for RUNNING. The local status check exists for the case where
+	# that filter silently stops working, so it must still hold.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-7-vm
+	[[ "$output" == *"state is SUSPENDED"* ]]
+}
+
+@test "GCPTFREAP an unreadable start timestamp leaves the lane running" {
+	# The safe failure for a script that turns machines off is to leave them on.
+	seed_instances
+	reap_all 60
+
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-8-vm
+	[[ "$output" == *"unreadable start timestamp"* ]]
 }
 
 @test "GCPTFREAP the idle threshold actually gates: a young lane is left alone" {
-	# ISC-195 as behaviour. sl-ci-9-runner is a genuine, correctly-labelled,
-	# correctly-named lane. The ONLY thing protecting it is the threshold.
+	# sl-ci-9-vm is a genuine, correctly-labelled, correctly-named lane. The ONLY
+	# thing protecting it is the threshold.
 	seed_instances
-	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
-	[ "$status" -eq 0 ]
-	[[ "$output" == *"sl-ci-9-runner"* ]]
-	[[ "$output" == *"under the 60m threshold"* ]]
+	reap_all 60
 
-	run grep -c 'instances suspend sl-ci-9-runner' "$log"
-	[ "$output" -eq 0 ]
+	assert_a_real_lane_was_reaped
+	assert_not_suspended sl-ci-9-vm
+	[[ "$output" == *"sl-ci-9-vm"* ]]
+	[[ "$output" == *"under the 60m threshold"* ]]
 }
 
 @test "GCPTFREAP lowering the threshold reaps the young lane too" {
 	# The paired positive: without it, the previous test is indistinguishable
 	# from a reaper that never suspends anything.
 	seed_instances
-	run bash "$reaper" --idle-minutes 1 --project CHANGEME-project
-	[ "$status" -eq 0 ]
+	reap_all 1
 
-	run grep -c 'instances suspend sl-ci-9-runner' "$log"
+	run grep -c 'instances suspend sl-ci-9-vm' "$log"
 	[ "$output" -ge 1 ]
 
-	# ...and the demo and legacy VMs are STILL untouched at any threshold. This
+	# ...and every protected instance is STILL untouched at any threshold. This
 	# is the structural claim: their protection does not depend on the number.
 	run grep -c 'instances suspend sl-demo' "$log"
 	[ "$output" -eq 0 ]
 	run grep -cE 'instances suspend signalloom-ci' "$log"
 	[ "$output" -eq 0 ]
 }
+
+# ─── Reporting a no-op loudly ───────────────────────────────────────────────
+
+@test "GCPTFREAP the run reports how many rows it listed and how many it admitted" {
+	# A broken selector and an idle estate both print "0 suspended". The counts
+	# are what distinguishes them, and they are the operator-visible signal that
+	# the selector still works at all.
+	seed_instances
+	reap_all 60
+
+	[[ "$output" == *"13 listed"* ]]
+
+	# Exactly the five genuine lanes got past the gates: ci-1, ci-2, and the
+	# suspended, unreadable-timestamp and young ones. A COUNT rather than a
+	# substring, because a substring assertion would hold for any number and the
+	# whole point is that eight adversarial rows were stopped.
+	[[ "$output" == *"5 admitted past the safety gates"* ]]
+}
+
+@test "GCPTFREAP an empty listing is reported as inconclusive, not as success" {
+	# The silent-no-op failure mode in its purest form. The reaper cannot tell a
+	# genuinely idle estate from a selector that stopped matching, so it must say
+	# so rather than let a zero be read as health.
+	: >"$BATS_TEST_TMPDIR/empty.tsv"
+	export STUB_INSTANCE_LIST="$BATS_TEST_TMPDIR/empty.tsv"
+
+	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"no instance in CHANGEME-project carries a ci-lane label at all"* ]]
+	[[ "$output" == *"This is not evidence of either"* ]]
+	[ "$(suspend_calls)" -eq 0 ]
+}
+
+@test "GCPTFREAP a listing where every row is refused says so explicitly" {
+	# Distinct from the empty case: rows arrived and every one was rejected. If a
+	# real lane is running, that means the gates disagree with it — a condition
+	# an operator must be told about rather than left to infer from a zero.
+	seed_instances
+	grep -v 'sl-ci-[1-9]-vm' "$STUB_INSTANCE_LIST" >"$BATS_TEST_TMPDIR/refused.tsv"
+	export STUB_INSTANCE_LIST="$BATS_TEST_TMPDIR/refused.tsv"
+
+	# The filtered list is non-empty, or this test measures the empty case above.
+	run bash -c "wc -l < '$STUB_INSTANCE_LIST'"
+	[ "$output" -ge 5 ]
+
+	run bash "$reaper" --idle-minutes 60 --project CHANGEME-project
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"every one was REFUSED by a"* ]]
+	[ "$(suspend_calls)" -eq 0 ]
+}
+
+# ─── Flags ──────────────────────────────────────────────────────────────────
 
 @test "GCPTFREAP a non-numeric idle threshold is refused" {
 	seed_instances
@@ -476,6 +755,6 @@ seed_instances() {
 	seed_instances
 	run bash "$reaper" --idle-minutes 1 --dry-run --project CHANGEME-project
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"DRY-RUN would suspend sl-ci-1-runner"* ]]
+	[[ "$output" == *"DRY-RUN would suspend sl-ci-1-vm"* ]]
 	[ "$(suspend_calls)" -eq 0 ]
 }

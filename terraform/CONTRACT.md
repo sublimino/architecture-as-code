@@ -23,7 +23,7 @@ merge conflict by definition.
 | F2 envmodel | `feat/gcp-tf-envmodel` | `terraform/modules/env-contract/**`, `terraform/environments/**` (variables + validation + tfvars examples), `test/terraform-environment-keys.bats` |
 | F3 network-compute | `feat/gcp-tf-network-compute` | `terraform/modules/network/**`, `terraform/modules/compute/**`, `test/terraform-network-security.bats` |
 | F4 edge | `feat/gcp-tf-edge` | `terraform/modules/edge/**`, `scripts/gcp-tf/edge-probe-*.sh`, `test/terraform-edge-security.bats` |
-| F5 identity-ci | `feat/gcp-tf-identity-ci` | `terraform/modules/identity/**`, `terraform/modules/ci-runner/**`, `scripts/ci/gcp-tf-ci.sh`, `scripts/ci/gcp-tf-reaper.sh`, `test/terraform-identity.bats`, `test/terraform-ci-lifecycle.bats` |
+| F5 identity-ci | `feat/gcp-tf-identity-ci` | `terraform/modules/identity/**`, `scripts/ci/gcp-tf-ci.sh`, `scripts/ci/gcp-tf-reaper.sh`, `test/terraform-identity.bats`, `test/terraform-ci-lifecycle.bats`, `test/ci-lane-reaper-mutation-proof.sh` |
 | F6 obs-make-docs | `feat/gcp-tf-obs-make-docs` | `terraform/modules/observability/**`, `terraform/platform/**`, `Makefile` (append-only), `terraform/RUNBOOK.md`, `terraform/SECURITY.md`, `terraform/COSTS.md`, `.github/workflows/terraform-validate.yaml`, `test/terraform-make-contract.bats` |
 
 **Shared-file rule.** `Makefile` is owned by F6 alone and is **append-only**: add a clearly
@@ -150,23 +150,36 @@ do the `for_each`. This keeps modules simple and makes a single-environment plan
 | out | `network_tag` | string |
 | out | `subnet_cidr` | string |
 
-### `modules/compute` (F3)
+### `modules/compute` (F3) — serves BOTH lane kinds
+
+Since 2026-08-20 this module builds demo lanes **and** CI lanes. `modules/ci-runner` was
+absorbed into it and deleted; there is no second compute module. A CI lane is a demo lane
+that additionally carries the `ci-lane` label, publishes an idle-suspend budget, and is not
+deletion-protected. Instance names are `sl-<key>-vm` for both kinds.
 
 | Direction | Name | Type |
 |---|---|---|
 | in | `project_id`, `environment_key`, `name_prefix`, `labels` | — |
+| in | `kind` | string — `"demo"` or `"ci"`. **No default**, deliberately: a `demo` default gives a CI lane no `ci-lane` label and it becomes invisible to the reaper forever with no error anywhere; a `ci` default gives a demo VM the label the reaper selects on. Both defaults fail open. |
 | in | `zone` | string |
 | in | `machine_type` | string |
 | in | `boot_disk_gb` | number |
 | in | `subnet_self_link` | string |
 | in | `network_tag` | string |
 | in | `service_account_email` | string |
-| in | `deletion_protection` | bool |
+| in | `deletion_protection` | bool — a CI lane is refused at plan time unless this is `false` |
 | in | `startup_script_path` | string |
+| in | `idle_suspend_minutes` | number (default `0` = disabled, the demo answer). CI lanes must pass ≥ 5. |
 | out | `instance_self_link` | string |
 | out | `instance_name` | string |
 | out | `internal_ip` | string |
 | out | `instance_group_self_link` | string (unmanaged instance group wrapping the VM) |
+| out | `ci_lane_label` | string — the `ci-lane` label value, `""` for a demo lane |
+
+**The `ci-lane` label is a safety interface, not a convenience.** `scripts/ci/gcp-tf-reaper.sh`
+SUSPENDS instances and selects them on it. This module is the only thing that emits it, and its
+lifecycle preconditions require `var.kind`, the env-contract `kind` label and the environment
+key's own prefix to agree before the plan proceeds. Do not weaken that agreement.
 
 ### `modules/edge` (F4)
 
@@ -201,16 +214,23 @@ do the `for_each`. This keeps modules simple and makes a single-environment plan
 | out | `ci_plan_service_account_email` | string |
 | out | `ci_apply_service_account_email` | string |
 
-### `modules/ci-runner` (F5)
+### `modules/ci-runner` (F5) — **DELETED 2026-08-20**
 
-| Direction | Name | Type |
-|---|---|---|
-| in | `project_id`, `environment_key`, `name_prefix`, `labels` | — |
-| in | `zone`, `machine_type`, `boot_disk_gb` | — |
-| in | `subnet_self_link`, `network_tag`, `service_account_email` | — |
-| in | `idle_suspend_minutes` | number |
-| out | `instance_name` | string |
-| out | `instance_self_link` | string |
+Absorbed into `modules/compute`. Recorded here rather than removed outright, because the
+obvious repair for a future "CI lanes need something demo lanes do not" is to bring it back.
+
+**Do not.** The reason the split was removed is that `modules/ci-runner` had no
+`metadata_startup_script` at all, so a CI lane booted a bare box and every fix to the demo
+bring-up landed on a machine CI never ran — CI was green against something that was not the
+demo. Add the difference to `modules/compute` behind `var.kind` instead.
+
+Its two lifecycle preconditions (name length ≤ 63, `ci-lane` label integrity) live on in
+`modules/compute` as COMPUTE-RULE-06 and COMPUTE-RULE-09/10, and its `deletion_protection = false`
+hardcode became COMPUTE-RULE-11 so the property survives the value becoming configurable.
+
+The rename it forced is the safety-critical part: instances are `sl-<key>-vm` now, not
+`sl-<key>-runner`, and `scripts/ci/gcp-tf-reaper.sh` used to select on that name shape. See the
+gate list at the head of that script before touching it.
 
 ### `modules/observability` (F6)
 

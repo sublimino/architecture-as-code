@@ -166,13 +166,38 @@ module "network" {
   egress_public_udp_destinations = var.egress_public_udp_destinations
 }
 
-# ── 3. compute ── the private hardened VM, demo lanes only.
+# ── 3. compute ── the private hardened VM. EVERY lane, demo and CI alike.
+#
+# ─── Why this `for_each` is no longer filtered on kind ──────────────────────
+#
+# It used to read `if v.kind == "demo"`, and CI lanes were built by
+# `module "ci_runner"` from a second module. Andy's decision (2026-08-20) is
+# that a CI environment should BE a demo environment, differing only in that it
+# suspends itself when idle and carries a reaper label — so there is one module
+# and one filter, which is no filter at all.
+#
+# What that fixes is not tidiness. The two modules had diverged in exactly the
+# direction that hurts: modules/ci-runner had no `metadata_startup_script`, so a
+# CI lane booted a bare Debian box and every fix to the demo bring-up landed on
+# a machine CI never ran. CI was green against something that was not the demo.
+#
+# THE FILTER'S REMOVAL IS ALSO A SAFETY EVENT, and it is worth naming here
+# rather than only in the reaper. modules/ci-runner's instance name was
+# `sl-<key>-runner` and scripts/ci/gcp-tf-reaper.sh matched exactly that shape;
+# the name convention WAS the property stopping the reaper reaching a demo VM.
+# Unified lanes are `sl-<key>-vm` for both kinds, so that gate would have
+# matched nothing and the reaper would have suspended nothing while reporting
+# success. The selector moved onto the `ci-lane` label — emitted by
+# modules/compute for `kind = "ci"` and for nothing else — which is derived from
+# this map rather than from a string convention. See the gate list at the head
+# of scripts/ci/gcp-tf-reaper.sh.
 module "compute" {
   source   = "../modules/compute"
-  for_each = { for k, v in local.target_environments : k => v if v.kind == "demo" }
+  for_each = local.target_environments
 
   project_id            = var.project_id
   environment_key       = each.value.environment_key
+  kind                  = each.value.kind
   name_prefix           = each.value.name_prefix
   labels                = each.value.labels
   zone                  = each.value.zone
@@ -183,6 +208,13 @@ module "compute" {
   service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
   deletion_protection   = each.value.deletion_protect
   startup_script_path   = var.startup_script_path
+
+  # Published as instance metadata on CI lanes only; the module emits no key at
+  # all for a demo lane, which is what keeps a demo VM's metadata identical to
+  # what it was before this module served both kinds. The ternary is here rather
+  # than in the module because the module's floor of 5 must not reject the demo
+  # answer of 0, and a variable validation cannot see the lane kind.
+  idle_suspend_minutes = each.value.kind == "ci" ? var.ci_idle_suspend_minutes : 0
 
   # The compute module health-checks and serves on this port, and the network
   # module opens the health-check firewall rule for exactly it. Passing the same
@@ -220,23 +252,21 @@ module "compute" {
 #   enable_cdn                      = var.enable_cdn
 # }
 #
-# # ── 5. ci-runner ── CI lanes only.
-# module "ci_runner" {
-#   source   = "../modules/ci-runner"
-#   for_each = { for k, v in local.target_environments : k => v if v.kind == "ci" }
+# ── 5. ci-runner ── DELETED. There is no fifth module.
 #
-#   project_id            = var.project_id
-#   environment_key       = each.value.environment_key
-#   name_prefix           = each.value.name_prefix
-#   labels                = each.value.labels
-#   zone                  = each.value.zone
-#   machine_type          = each.value.machine_type
-#   boot_disk_gb          = each.value.boot_disk_gb
-#   subnet_self_link      = module.network[each.key].subnet_self_link
-#   network_tag           = module.network[each.key].network_tag
-#   service_account_email = data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]
-#   idle_suspend_minutes  = var.ci_idle_suspend_minutes
-# }
+# `module "ci_runner"` stood here, commented, waiting for `../modules/ci-runner`
+# to be wired up. Both are gone as of 2026-08-20: the module was absorbed into
+# modules/compute and this block's job is done by the unfiltered `for_each` on
+# module "compute" above.
+#
+# Recorded rather than silently deleted because the block's absence is now a
+# TESTED property (test/terraform-ci-lifecycle.bats), and because the obvious
+# repair for a future "CI lanes need something demo lanes do not" is to
+# reintroduce it. Do not. The reason the split was removed is that a CI lane
+# that is not the demo environment is a CI lane testing something the demo is
+# not — and the observable symptom of that was CI booting a bare box with no
+# `metadata_startup_script` at all. Add the difference to modules/compute behind
+# `var.kind` instead.
 
 # ════════════════════════════════════════════════════════════════════════════
 # END INTEGRATION BLOCK

@@ -1,14 +1,46 @@
 # ---------------------------------------------------------------------------
-# Signal Loom demo VM — private, shielded, OS Login only.
+# Signal Loom lane VM — private, shielded, OS Login only.
 #
 # The instance has no external IP and no `access_config` block anywhere in this
 # module. Reachability is exactly two paths: IAP TCP forwarding for SSH, and
 # the HTTPS load balancer for the app port. Everything else is denied by the
 # network module's firewall.
 #
-# This module is the demo VM. CI runners are a separate module
-# (modules/ci-runner, F5) because they are typed differently: disposable,
-# suspendable, and not deletion-protected.
+# ─── One module, two lane kinds. Why the split was removed ──────────────────
+#
+# This module used to build demo VMs only, and `modules/ci-runner` built CI
+# lanes. They were measured against each other and found to be the same machine:
+# identical shielded config, identical OS Login and blocked project keys,
+# identical cloud-platform scope, identical scheduling, identical pd-balanced
+# boot disk, identical subnet and network tag. Everything ci-runner had that
+# this module lacked was five lines; everything this module had that ci-runner
+# lacked was the ENTIRE bootstrap — `metadata_startup_script`, the Tailscale
+# block, configurable deletion protection, the instance group.
+#
+# So a CI lane was a demo lane with the demo removed, which is precisely the
+# wrong way round: the whole value of a CI environment is that it is the demo
+# environment. Two modules meant every fix to the bring-up landed on one of them
+# and CI silently kept testing something else.
+#
+# A CI lane is therefore a lane that ADDITIONALLY:
+#   * carries the `ci-lane = <key>` label, which is what the reaper selects on;
+#   * publishes `idle-suspend-minutes` so the reaper reads its budget off the
+#     instance rather than carrying a duplicate constant;
+#   * is not deletion-protected, because a lane that cannot be deleted outlives
+#     the branch that needed it and quietly bills.
+#
+# ─── The `ci-lane` label is load-bearing, not decoration ────────────────────
+#
+# scripts/ci/gcp-tf-reaper.sh SELECTS on it, and this module is the only thing
+# that emits it. It is emitted for `kind = "ci"` and for nothing else, and the
+# preconditions on the instance below make that a checked property rather than a
+# convention: `var.kind`, the `kind` label the env-contract merged, and the
+# environment key's own prefix must all agree before the plan is allowed to
+# proceed. Three independent sources deriving from one environment definition is
+# what makes "a demo VM cannot carry a CI selector" structural.
+#
+# Read that alongside the reaper's own gate list. It refuses on the same label
+# from the other side, and it refuses anything carrying demo markers regardless.
 # ---------------------------------------------------------------------------
 
 data "google_compute_image" "boot" {
@@ -100,6 +132,34 @@ data "google_secret_manager_secret" "tailscale_authkey" {
 locals {
   instance_name = "${var.name_prefix}-vm"
 
+  # ─── Lane kind, and the three things that must agree about it ─────────────
+  #
+  # `kind` is a field of the frozen environment object (CONTRACT §3), passed
+  # straight through by the root. It is NOT re-derived from the environment key
+  # here, and not defaulted, because both of those fail OPEN: a defaulted kind
+  # would give a CI lane no `ci-lane` label, the reaper would select nothing,
+  # and the lane would bill forever with no error anywhere. A missing value must
+  # fail the plan.
+  is_ci_lane = var.kind == "ci"
+
+  # ─── The reaper's selector ────────────────────────────────────────────────
+  #
+  # Emitted for CI lanes only. `merge` with an empty map rather than a
+  # conditional value, so a demo lane's label set is byte-identical to what it
+  # was before this module learned about CI lanes — an absent key is
+  # unambiguous where an empty-string label is a value something has to
+  # interpret. That is what makes "a demo VM carries no CI selector"
+  # assertable rather than approximately true.
+  ci_lane_labels = local.is_ci_lane ? { ci-lane = var.environment_key } : {}
+
+  instance_labels = merge(var.labels, local.ci_lane_labels)
+
+  # Read by scripts/ci/gcp-tf-reaper.sh. Keeping the threshold on the instance
+  # means a lane cannot disagree with the reaper about its own idle budget.
+  ci_metadata = local.is_ci_lane ? {
+    idle-suspend-minutes = tostring(var.idle_suspend_minutes)
+  } : {}
+
   # ─── Tailscale node identity, decided here rather than in bash ───────────
   #
   # Derived from the environment key so the node name is deterministic and
@@ -159,8 +219,8 @@ resource "google_compute_instance" "this" {
   zone         = var.zone
   machine_type = var.machine_type
 
-  description = "Signal Loom ${var.environment_key} demo VM"
-  labels      = var.labels
+  description = "Signal Loom ${var.environment_key} ${var.kind} VM"
+  labels      = local.instance_labels
   tags        = [var.network_tag]
 
   deletion_protection = var.deletion_protection
@@ -206,7 +266,7 @@ resource "google_compute_instance" "this" {
       image  = data.google_compute_image.boot.self_link
       size   = var.boot_disk_gb
       type   = var.boot_disk_type
-      labels = var.labels
+      labels = local.instance_labels
     }
   }
 
@@ -287,7 +347,7 @@ resource "google_compute_instance" "this" {
     serial-port-enable = "FALSE"
 
     signalloom-environment = var.environment_key
-  }, local.tailscale_metadata)
+  }, local.tailscale_metadata, local.ci_metadata)
 
   metadata_startup_script = file(local.startup_script_file)
 
@@ -296,6 +356,76 @@ resource "google_compute_instance" "this" {
     # publishes a patched image. Without this, every plan after an upstream
     # image release proposes destroying the demo VM.
     ignore_changes = [boot_disk[0].initialize_params[0].image]
+
+    # Migrated verbatim from modules/ci-runner, which this module absorbed.
+    # GCP truncates nothing — it rejects the create — and the rejection arrives
+    # at apply time, after everything upstream of the instance has been built.
+    precondition {
+      condition     = length(local.instance_name) <= 63
+      error_message = "COMPUTE-RULE-06-NAME-LENGTH: instance name '${local.instance_name}' exceeds GCP's 63-character limit."
+    }
+
+    # ─── The reaper's selector, checked from three directions ──────────────
+    #
+    # Migrated and strengthened from modules/ci-runner's `ci-lane` label
+    # integrity precondition. That one asserted the merge had not lost the
+    # label. This asserts the harder property: that the label's PRESENCE is
+    # decided by the environment definition and by nothing else.
+    #
+    # `var.kind` comes from the environment object, `labels["kind"]` comes from
+    # the env-contract module's mandatory label set, and the key prefix is
+    # enforced by env-contract validation rule 3. All three derive from one
+    # tfvars entry, so agreement is free when the wiring is right and
+    # impossible when it is not. A demo VM cannot acquire a CI selector by a
+    # hand-pasted label, a copied module block, or a `for_each` filter someone
+    # widened without thinking — every one of those leaves at least one of the
+    # three disagreeing.
+    # Strict lookup with an empty default, not `lookup(..., var.kind)`. A
+    # forgiving default would make an ABSENT kind label pass, and absent is
+    # exactly the state a caller that bypassed env-contract would be in — which
+    # is the case this precondition exists to catch.
+    precondition {
+      condition     = lookup(var.labels, "kind", "") == var.kind
+      error_message = "COMPUTE-RULE-07-KIND-LABEL-AGREEMENT: var.kind is '${var.kind}' but the merged label set says kind='${lookup(var.labels, "kind", "<absent>")}'. Both derive from the same environment entry via modules/env-contract, so a disagreement means one of them was wired from somewhere else — and the ci-lane label the reaper selects on is decided by var.kind."
+    }
+
+    precondition {
+      condition     = startswith(var.environment_key, "${var.kind}-")
+      error_message = "COMPUTE-RULE-08-KIND-KEY-AGREEMENT: environment_key '${var.environment_key}' does not carry the '${var.kind}-' prefix its kind requires. CONTRACT §3 validation rule 3 makes the key prefix equal the kind; a disagreement here means this module was called with a key and a kind from different entries."
+    }
+
+    # The positive and negative halves of the selector, asserted on the
+    # evaluated label map rather than inferred from the locals that built it.
+    precondition {
+      condition     = local.is_ci_lane == contains(keys(local.instance_labels), "ci-lane")
+      error_message = "COMPUTE-RULE-09-CI-LANE-LABEL: the ci-lane label must be present on a CI lane and ABSENT on a demo lane. scripts/ci/gcp-tf-reaper.sh selects instances to SUSPEND on this label; a demo VM that carries it is a demo VM the reaper is entitled to turn off."
+    }
+
+    precondition {
+      condition     = !local.is_ci_lane || lookup(local.instance_labels, "ci-lane", "") == var.environment_key
+      error_message = "COMPUTE-RULE-10-CI-LANE-VALUE: the ci-lane label must equal the environment key. The reaper matches its value against ^ci-[1-9][0-9]*$ and cross-checks it against the environment label; a mismatch makes the lane unreapable and it bills until somebody notices."
+    }
+
+    # ─── Disposability, which is the whole cost argument for CI lanes ───────
+    #
+    # modules/ci-runner hardcoded `deletion_protection = false` and explained
+    # why in its header. Making it configurable here without this precondition
+    # would silently drop that property: a CI lane applied with the demo
+    # default is a lane nobody can delete, and its failure mode is a bill
+    # rather than an error. The VALUE stays in tfvars where it is reviewable;
+    # what is enforced is that a CI lane cannot be given the demo answer.
+    precondition {
+      condition     = !local.is_ci_lane || var.deletion_protection == false
+      error_message = "COMPUTE-RULE-11-CI-DISPOSABLE: CI lane '${var.environment_key}' must set deletion_protect = false. A lane that cannot be deleted outlives the branch that needed it and bills quietly; that failure has no error message anywhere, which is why it is refused at plan time."
+    }
+
+    # A CI lane with no idle budget is the silent version of a broken reaper:
+    # the metadata key is absent, the reaper has nothing to read, and the lane
+    # runs until somebody looks at the invoice.
+    precondition {
+      condition     = !local.is_ci_lane || var.idle_suspend_minutes >= 5
+      error_message = "COMPUTE-RULE-12-CI-IDLE-BUDGET: CI lane '${var.environment_key}' must publish idle_suspend_minutes >= 5; got ${var.idle_suspend_minutes}. Below 5 the reaper suspends lanes mid-run; at 0 it never suspends them at all."
+    }
   }
 }
 

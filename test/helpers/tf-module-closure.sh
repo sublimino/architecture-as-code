@@ -43,7 +43,7 @@ root="$(cd "$root" && pwd)"
 # Emit the local module sources declared in one directory's *.tf files.
 #
 # Comment lines are stripped first. The environments root carries commented-out
-# `module "edge"` and `module "ci-runner"` blocks; those are not in the graph
+# `module "edge"` blocks; those are not in the graph
 # today, and counting them would make the guard report on configuration that
 # does not exist. Uncommenting one puts it back in the closure on the next run,
 # which is the behaviour we want.

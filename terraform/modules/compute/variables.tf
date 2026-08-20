@@ -8,6 +8,64 @@ variable "environment_key" {
   type        = string
 }
 
+# ---------------------------------------------------------------------------
+# Lane kind — the input that decides whether this VM is reapable
+# ---------------------------------------------------------------------------
+#
+# NO DEFAULT, deliberately, and this is the single most consequential decision
+# in the module's interface.
+#
+# A default of "demo" fails open in the expensive direction: a CI lane whose
+# caller forgot to pass `kind` would plan and apply perfectly, carry no
+# `ci-lane` label, and be invisible to scripts/ci/gcp-tf-reaper.sh forever. The
+# reaper would report "0 suspended" and be telling the truth. Nothing anywhere
+# would error, and the only signal would be the invoice.
+#
+# A default of "ci" fails open in the other direction, which is worse: a demo VM
+# would acquire the label the reaper selects on.
+#
+# So there is no safe default, and the correct answer is to make the caller say
+# which one it is. `kind` is already a field of the frozen environment object
+# (CONTRACT §3), so the root has the value to hand — this adds no new concept,
+# it just stops the module guessing.
+variable "kind" {
+  description = "Lane kind from the environment contract: \"demo\" or \"ci\". Decides whether the instance carries the `ci-lane` label that scripts/ci/gcp-tf-reaper.sh selects on, and whether it publishes an idle-suspend budget. No default — see the argument in variables.tf."
+  type        = string
+
+  validation {
+    condition     = contains(["demo", "ci"], var.kind)
+    error_message = "COMPUTE-RULE-13-KIND: kind must be \"demo\" or \"ci\". It decides whether this instance carries the `ci-lane` label that scripts/ci/gcp-tf-reaper.sh selects on to SUSPEND instances, so an unrecognised value must fail the plan rather than resolve to a guess."
+  }
+}
+
+# ---------------------------------------------------------------------------
+# The idle budget, published on CI lanes only
+# ---------------------------------------------------------------------------
+#
+# Migrated from modules/ci-runner, with one change: the default is 0 rather than
+# 45, and 0 means "not a reapable lane".
+#
+# That inversion is what keeps a demo lane's instance metadata BYTE-IDENTICAL to
+# what it was before this module learned about CI lanes. A demo VM must not
+# publish an idle-suspend budget at all — not 0, not 45 — because the metadata
+# key's presence is a signal the reaper and any future operator tooling will
+# read, and a demo VM advertising an idle budget invites exactly the mistake the
+# whole label design exists to prevent.
+#
+# The floor of 5 is enforced where it can see the lane kind: a `precondition` on
+# the instance, not a `validation` here, because a validation cannot know that 0
+# is legal for a demo lane and fatal for a CI one.
+variable "idle_suspend_minutes" {
+  description = "Idle minutes after which scripts/ci/gcp-tf-reaper.sh may suspend this lane, published as instance metadata so the reaper reads the budget off the instance rather than carrying a duplicate constant. Only consulted when kind is \"ci\"; 0 (the default) means the metadata key is not emitted at all, which is what a demo lane must look like. A CI lane is required by precondition to pass at least 5."
+  type        = number
+  default     = 0
+
+  validation {
+    condition     = var.idle_suspend_minutes == 0 || var.idle_suspend_minutes >= 5
+    error_message = "COMPUTE-RULE-14-IDLE-SUSPEND: idle_suspend_minutes must be 0 (disabled — the demo-lane answer) or at least 5. A value between 1 and 4 suspends CI lanes mid-run, and the run's failure presents as a lost SSH session rather than as a reaper that fired too early."
+  }
+}
+
 variable "name_prefix" {
   description = "Deterministic resource-name prefix supplied by the env-contract module, e.g. \"sl-demo-1\"."
   type        = string
@@ -28,14 +86,19 @@ variable "machine_type" {
   type        = string
   default     = "n2-standard-16"
 
-  # ─── Why this module may assume "demo" without being told ─────────────────
+  # ─── The floor applies to BOTH lane kinds, and that is the point ──────────
   #
-  # The environment object type is frozen (CONTRACT.md §3) and carries no field
-  # this module could read to learn its own `kind`. It does not need one: the
-  # environment root instantiates modules/compute under
-  # `if v.kind == "demo"` and CI lanes go to modules/ci-runner instead, so
-  # every instance this module ever plans is a demo lane. The floor below is
-  # therefore a demo-lane floor by construction rather than by a conditional.
+  # This paragraph used to read "why this module may assume demo without being
+  # told": the root filtered `if v.kind == "demo"` and CI lanes went to
+  # modules/ci-runner, so every instance here was a demo lane by construction.
+  # That module is gone and the filter is gone with it, so the assumption is no
+  # longer available — and it turns out it was never wanted.
+  #
+  # A CI lane exists to run the DEMO bring-up. Sizing it below the demo floor
+  # would make a CI failure ambiguous between a real defect and an undersized
+  # box, which costs more than the machine. modules/ci-runner had no vCPU floor
+  # at all and its tfvars example carried the same n2-standard-16 anyway — the
+  # rule below is what makes that agreement enforced instead of coincidental.
   #
   # ─── Where 8 comes from, and what it is not ───────────────────────────────
   #

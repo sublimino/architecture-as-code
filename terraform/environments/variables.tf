@@ -228,7 +228,7 @@ variable "enable_cdn" {
 }
 
 variable "ci_idle_suspend_minutes" {
-  description = "Idle minutes before a ci-* lane suspends itself. Passed to modules/ci-runner."
+  description = "Idle minutes before a ci-* lane suspends itself. Passed to modules/compute as idle_suspend_minutes, but ONLY for kind = \"ci\" — demo lanes receive 0, which emits no metadata key at all. Published on the instance so scripts/ci/gcp-tf-reaper.sh reads each lane's budget off the lane rather than carrying a duplicate constant."
   type        = number
   default     = 30
 

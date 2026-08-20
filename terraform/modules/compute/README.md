@@ -1,18 +1,47 @@
 # `modules/compute`
 
-The Signal Loom demo VM — private, shielded, OS Login only — plus the unmanaged instance
+The Signal Loom lane VM — private, shielded, OS Login only — plus the unmanaged instance
 group the edge module's backend service consumes.
+
+**One module, two lane kinds.** Demo lanes and CI lanes are both built here.
 
 ## What it creates
 
 | Resource | Notes |
 |---|---|
-| `google_compute_instance` | No `access_config`, Shielded VM fully on, OS Login enforced, per-environment service account. |
+| `google_compute_instance` | No `access_config`, Shielded VM fully on, OS Login enforced, per-environment service account. Named `sl-<key>-vm` for both kinds. |
 | `google_compute_instance_group` | Unmanaged, wraps the single VM, named port `http` → `var.app_port`. |
 | `data.google_compute_image` | Resolves the boot image family to a concrete self-link. |
 
-CI runners are **not** here. They are `modules/ci-runner` (F5), because they are typed
-differently: disposable, suspendable, not deletion-protected.
+## CI lanes used to be a separate module, and merging them was a bug fix
+
+`modules/ci-runner` built CI lanes until 2026-08-20. The two modules were the same machine —
+identical shielded config, OS Login, blocked project keys, cloud-platform scope, scheduling,
+pd-balanced boot disk, subnet and network tag — with one difference that mattered:
+
+**`modules/ci-runner` had no `metadata_startup_script` at all.** A CI lane booted a bare box.
+Every fix to the demo bring-up landed on a machine CI never ran, so CI was green against
+something that was not the demo. That is the whole argument for the merge; tidiness is not.
+
+A CI lane is now a demo lane that additionally:
+
+* carries the `ci-lane = <key>` label, which `scripts/ci/gcp-tf-reaper.sh` **selects on**;
+* publishes `idle-suspend-minutes` as instance metadata, so the reaper reads the budget off
+  the instance rather than carrying a duplicate constant;
+* is not deletion-protected — a lane that cannot be deleted outlives the branch that needed
+  it and quietly bills.
+
+### The `ci-lane` label is a safety interface
+
+The reaper SUSPENDS instances and this module is the only thing that emits the label it
+selects on. Before the merge, the reaper's protection against touching a demo VM was the
+instance NAME shape `sl-<key>-runner`; unified names made that gate match nothing, which would
+have been a silent no-op reported as success.
+
+So the label's presence is a *checked* property rather than a convention. Three preconditions
+require `var.kind`, the env-contract `kind` label and the environment key's prefix to agree
+before the plan proceeds — all three derive from one tfvars entry, so agreement is free when
+the wiring is right and impossible when it is not.
 
 ## Inputs
 
@@ -21,6 +50,7 @@ Per `terraform/CONTRACT.md` §4:
 | Name | Type | Default |
 |---|---|---|
 | `project_id`, `environment_key`, `name_prefix`, `labels` | — | — |
+| `kind` | string | **none** — see below |
 | `zone` | string | — |
 | `machine_type` | string | `"n2-standard-16"` |
 | `boot_disk_gb` | number | `200` |
@@ -29,6 +59,20 @@ Per `terraform/CONTRACT.md` §4:
 | `service_account_email` | string | — |
 | `deletion_protection` | bool | — |
 | `startup_script_path` | string | `""` → module's own `startup/demo-vm.sh` |
+| `idle_suspend_minutes` | number | `0` (disabled — the demo answer; CI lanes must pass ≥ 5) |
+
+### Why `kind` has no default
+
+Both possible defaults fail open, in opposite directions.
+
+`"demo"` means a CI lane whose caller forgot the input plans and applies perfectly, carries no
+`ci-lane` label, and is invisible to the reaper forever. The reaper reports "0 suspended" and
+is telling the truth. Nothing errors; the only signal is the invoice.
+
+`"ci"` means a demo VM acquires the label a suspend script selects on.
+
+There is no safe default, so the caller must say which it is. `kind` is already a field of the
+frozen environment object, so this adds no new concept — it stops the module guessing.
 
 Additive, all optional, all defaulted:
 

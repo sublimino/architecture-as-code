@@ -9,8 +9,8 @@
 #
 # This is a SIBLING of scripts/ci/gcp-ci.sh, not a replacement. That script owns
 # the shared signalloom-ci VMs and the kind-cluster pipeline; this one owns the
-# per-lane Terraform runners built by terraform/modules/ci-runner. Neither file
-# reads or writes the other's state.
+# per-lane Terraform runners built by terraform/modules/compute with
+# `kind = "ci"`. Neither file reads or writes the other's state.
 #
 # ─── The KPI ────────────────────────────────────────────────────────────────
 #
@@ -82,9 +82,12 @@ log() { printf '==> %s\n' "$*"; }
 
 # ── Lane identity ───────────────────────────────────────────────────────────
 #
-# Restricted to CI keys by the same regex terraform/modules/ci-runner enforces.
-# A lane key is the only thing that decides which VM this script touches, so a
-# typo that resolved to a demo VM would be a resume/suspend against production.
+# Restricted to CI keys by the same regex modules/env-contract enforces on the
+# environment map. A lane key is the only thing that decides which VM this script
+# touches, so a typo that resolved to a demo VM would be a resume/suspend against
+# production — and since unification both kinds share one name shape, this regex
+# is the only thing standing between `GCP_TF_CI_KEY=demo-1` and suspending the
+# live demo. It is checked before any gcloud call, and tested for exactly that.
 
 require_lane() {
   [ -n "$CI_KEY" ] || die "GCP_TF_CI_KEY is not set (expected a CI lane key such as ci-1)"
@@ -94,8 +97,16 @@ require_lane() {
   esac
 }
 
+# ─── The name changed with the module merge, and silently ───────────────────
+#
+# `sl-<key>-runner` was terraform/modules/ci-runner's shape. That module is gone;
+# modules/compute names every lane `sl-<key>-vm`, both kinds alike. Leaving the
+# old default here would have produced `describe: not found` on every command —
+# which vm_status correctly reports as NOT_FOUND, and resume_lane correctly
+# treats as "apply the lane first". Loud, at least, unlike the reaper's version
+# of the same drift.
 vm_name() {
-  printf '%s' "${GCP_TF_CI_VM:-sl-${CI_KEY}-runner}"
+  printf '%s' "${GCP_TF_CI_VM:-sl-${CI_KEY}-vm}"
 }
 
 # ── Per-lane lock ───────────────────────────────────────────────────────────
@@ -227,7 +238,7 @@ resume_lane() {
       wait_for_ssh || return 2
       ;;
     NOT_FOUND)
-      die "lane ${CI_KEY} does not exist — apply terraform/modules/ci-runner for this lane first"
+      die "lane ${CI_KEY} does not exist — apply terraform/environments with target_env=${CI_KEY} first"
       ;;
     AUTH_REQUIRED)
       die "gcloud is not authenticated, so lane ${CI_KEY}'s state is UNKNOWN. This is not evidence the lane is missing."

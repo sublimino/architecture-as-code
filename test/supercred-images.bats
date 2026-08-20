@@ -108,6 +108,22 @@ setup() {
 	export KIND_BIN="$bin/kind"
 	export PATH="$bin:$PATH"
 	export SUPERCRED_NODE="osramp-control-plane"
+
+	# Pin the CRI-adoption budget, as signalfusion-images.bats and
+	# kind-load-verified.bats already do (3 and 10 respectively). This suite was
+	# the only one of the three inheriting the production default, which made its
+	# runtime a hostage to that default: the adoption poll sleeps once per
+	# iteration, four images exercise it, and the suite was already documented as
+	# taking about six minutes when the default was 90. Raising the default to
+	# 300 for real 8-vCPU nodes would have taken it past twenty, and a suite
+	# nobody will sit through is a suite that gets skipped.
+	#
+	# 3 is enough to exercise every branch: the tests drive a fake node whose
+	# adoption is decided by fixture state, not by elapsed time, so the only
+	# thing the budget buys here is sleep. Pinning it also makes these tests
+	# independent of a production number that is expected to keep moving as
+	# machine shapes change — which is the property that was actually missing.
+	export SUPERCRED_CRI_ADOPT_TIMEOUT=3
 }
 
 # Every entry in SUPERCRED_IMAGES. Keep in step with that array: verify()

@@ -719,6 +719,35 @@ run_stage \
 # production doing nothing — indistinguishable from a working one right up until
 # an operator cannot reach the demo. The two suites are one guard and run
 # together.
+#
+# ── Standing hypothesis: CI-VM-only failure, cause not found (2026-08-20) ────
+#
+# This stage FAILED on the CI VM while both suites passed clean locally,
+# including the exact non-TAP combined invocation below. Ruled out, with
+# evidence, before giving up on a source-level explanation:
+#
+#   * NOT a defect in either .bats file's assertions — 43/43 ok locally.
+#   * NOT the STAGE_TIMEOUT_SECONDS wrapper — the combined run finishes in
+#     seconds, nowhere near the 1800s default.
+#   * NOT bats version skew. install-ci-tools.sh pins bats 1.14.0 for the CI
+#     VM; this box had 1.13.0. bats-core 1.14.0's own release notes flag a
+#     behaviour change directly relevant to this file's style (helper
+#     functions that wrap `run`, e.g. bring_up() in
+#     supervise-port-forward-knobs.bats): "Resolved issues where the `run`
+#     command was unintentionally suppressing `set -e` behavior in
+#     functions" — upstream's own notes warn this can uncover hidden errors
+#     in existing suites. Built bats-core v1.14.0 from source and re-ran the
+#     identical combined invocation against it: still 43/43 ok. Hypothesis
+#     falsified by direct reproduction, not assumed away.
+#
+# What was NOT available to go further: the actual stage1r-demo-pipeline.txt
+# (or equivalent stderr) from the failing CI VM run. No artifact of that run
+# survived anywhere on the box that investigated this. Best-guess, low
+# confidence, unverified: CI-VM environmental/load flake (e.g. the supervisor
+# kill-timeout race in the knobs suite's busy-loop kubectl stub under
+# contention), not a defect in either suite. If this fails again, capture and
+# keep that file before anything else — that is the one thing this
+# investigation could not get.
 run_stage \
   "Demo pipeline control flow" \
   "stage1r-demo-pipeline.txt" \

@@ -147,10 +147,10 @@ listing_is_truncated() { image_identity_listing_is_truncated; }
 # scripts/check-node-images.sh, which uses 3 for "indeterminate" for the same
 # reason. The CALLER decides policy and must say which of the three it got:
 # scripts/supercred-demo.sh's preflight deliberately continues on 3, because a
-# genuinely absent image does not go unnoticed there — the pods run
-# imagePullPolicy: Never, so it surfaces immediately and unmistakably as
-# ErrImageNeverPull on the workload itself, which is a far better error than a
-# preflight guess. That is a decision made in the open, not a gate lying.
+# genuinely absent image does not go unnoticed there — the pods use
+# imagePullPolicy: IfNotPresent. Kubelet attempts a registry pull for an absent image,
+# so the workload's pull error is the concrete follow-up signal. That is
+# a decision made in the open, not a gate lying.
 verify_images() {
   local mode="${1:-identity}"
   local entry image rc failed=() unverified=()
@@ -492,8 +492,8 @@ case "${1:-load}" in
     case "$VERIFY_RC" in
       0) ;;
       3) warn "COULD-NOT-VERIFY — $NODE's image listing cannot answer whether these
-       images are present. Not a pass and not a failure. A genuinely absent
-       image will surface as ErrImageNeverPull on the workload."
+        images are present. Not a pass and not a failure. A genuinely absent
+        image triggers Kubelet to attempt a registry pull under IfNotPresent."
          exit 3 ;;
       *) fail "SuperCred images are not all present on $NODE — run: make demo-signalloom-supercred-images" ;;
     esac

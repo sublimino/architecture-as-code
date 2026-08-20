@@ -58,6 +58,56 @@ This procedure is the first and only time this slice creates real GCP resources.
 
 Bootstrap keeps its own state in a local `terraform.tfstate` file, and that file is gitignored. Losing it does not delete the bucket, but it does make the bucket unmanaged until the state is re-adopted with `terraform import`; that is a recovery path, not part of the normal bootstrap flow.
 
+## The Tailscale auth-key secret
+
+Only needed if any environment sets `tailscale_enabled = true`. Skip this entirely if you are using the IAP fallback.
+
+This secret is not declared by any Terraform root, and neither is its IAM. Both omissions are deliberate and they have different reasons.
+
+**The secret itself** is created out of band because a `google_secret_manager_secret_version` resource carries its payload in `secret_data`, so declaring one would write the auth key into Terraform state in plain text — a GCS object several principals can read. The key would then be readable by more people than the tailnet it admits to. `test/terraform-tailscale-infra.bats` fails if such a resource ever appears anywhere under `terraform/`.
+
+**Its IAM policy** is granted here, once, by the same human, for the same reason `roles/storage.admin` is not granted on the state bucket: creation and IAM are lifecycle, and lifecycle belongs to the privileged bootstrap step rather than to the identity that runs unattended. Declaring the binding in `modules/compute` — where it briefly lived — requires the deploy identity to hold `secretmanager.secrets.setIamPolicy` on the secret, and an identity that can set a secret's policy can grant itself read of that secret. The deploy identity runs from CI. Granting it there would hand back, through the policy door, exactly the access the out-of-band secret was created to withhold.
+
+Run these once per project, as a human who already holds elevated rights. Everything after this is unattended.
+
+```bash
+PROJECT=sl-port-over-sandbox
+SECRET=sl-demo-tailscale-authkey        # matches tailscale_authkey_secret_id
+
+# 1. The secret, and a version holding a REUSABLE, EPHEMERAL, PRE-APPROVED key
+#    minted at https://login.tailscale.com/admin/settings/keys with tag:sl-demo.
+gcloud secrets create "$SECRET" --project="$PROJECT" --replication-policy=automatic
+printf '%s' 'tskey-auth-…' | gcloud secrets versions add "$SECRET" --project="$PROJECT" --data-file=-
+
+# 2. Each environment's RUNTIME account reads the PAYLOAD. This is the grant the
+#    VM uses at boot, under its own attached identity. One per environment key —
+#    the accounts are created by terraform/platform, so run this after it.
+for ENV in demo-1 demo-2; do
+  gcloud secrets add-iam-policy-binding "$SECRET" --project="$PROJECT" \
+    --member="serviceAccount:sl-rt-${ENV}@${PROJECT}.iam.gserviceaccount.com" \
+    --role=roles/secretmanager.secretAccessor
+done
+
+# 3. The DEPLOY account reads the METADATA only. modules/compute looks the secret
+#    up with a `data` source so that a missing secret fails at PLAN rather than
+#    leaving a VM that silently never joins the tailnet; viewer is what makes
+#    that lookup resolve. It answers "does this secret exist" and cannot answer
+#    "what is in it".
+gcloud secrets add-iam-policy-binding "$SECRET" --project="$PROJECT" \
+  --member="serviceAccount:sl-tf-deploy@${PROJECT}.iam.gserviceaccount.com" \
+  --role=roles/secretmanager.viewer
+```
+
+The asymmetry between steps 2 and 3 is the whole point: the account that applies the estate can prove the key exists and can never read it.
+
+Confirm the result, and note what should NOT be in it:
+
+```bash
+gcloud secrets get-iam-policy "$SECRET" --project="$PROJECT"
+```
+
+No principal should hold `roles/secretmanager.admin`, `secretVersionManager`, or `secretVersionAdder` — the VM reads one key at boot and never needs to add, rotate, destroy or enumerate anything.
+
 ## Why the Real Protection Is IAM
 
 The hard protection on the state bucket is IAM, not configuration flags. `prevent_destroy` and `force_destroy = false` are useful tripwires, but they live in the same configuration that could delete or weaken them, so the same change that destroys the bucket can remove those guards first.

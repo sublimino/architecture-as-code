@@ -628,27 +628,44 @@ build_payload() {
 
   # Verify the artefact, not the mechanism. Cheap, and it is the assertion that
   # survives someone swapping git archive back out for a tar with excludes.
-  # Two deliberate narrowings, both of which this guard got wrong until a real
-  # payload was built from a real checkout on 2026-08-20:
   #
-  #   `.terraform[/-]` rather than a bare `.terraform`. The target is the state
-  #   DIRECTORY (.terraform/ and the per-env .terraform-<key>/). A bare match
-  #   also caught `.terraform.lock.hcl`, which HashiCorp's own guidance says to
-  #   COMMIT — it is the provider dependency lock, and a repo that tracks it is
-  #   correct. The guard then told the operator to untrack it, which is the
-  #   opposite of the right action and is the expensive kind of wrong: an
-  #   authoritative-sounding instruction to break the repo.
+  # `\.terraform[/-]`, and the trailing character class is the whole point.
   #
-  #   `*.example.tfvars` is allowed through. The tfvars exclusion exists because
-  #   a real tfvars names a project and an account; an example file is a
-  #   template that is tracked ON PURPOSE, and shipping it to the VM leaks
-  #   nothing. Excluding it blocked delivery outright rather than dropping a
-  #   file, because this guard refuses rather than filters — by design, and that
-  #   design is what makes a false positive a full stop.
+  # The bare prefix `\.terraform` also matched `.terraform.lock.hcl`, which is
+  # tracked ON PURPOSE — it is the provider pin, four of them are committed at
+  # the repository root and in each Terraform root, and `make gcp-tf-validate`
+  # re-inits when one is missing. So the guard refused every payload the moment
+  # those lock files landed, with a message telling the operator to untrack
+  # something that must stay tracked. `make gcp-tf-demo-up` could not build at
+  # all; measured 2026-08-20 against demo-2.
+  #
+  # What the term is FOR is the state DIRECTORIES: `.terraform/`, the provider
+  # cache, and `.terraform-<env>/`, the per-environment data dirs this repo
+  # gives each lane so two applies cannot share one local state. Both are
+  # gitignored and so cannot appear in `git archive HEAD` unless somebody tracks
+  # one deliberately — which is exactly the case this second line exists to
+  # catch. `[/-]` covers both; a plain `/` would silently stop covering the
+  # per-env dirs, which is the more likely of the two to be tracked by accident
+  # since it is created by a Make variable rather than by terraform itself.
+  #
+  # The `.tfvars` term has the same shape of collision, and is exempted rather
+  # than loosened. This repo uses TWO example conventions:
+  # `terraform/**/*.tfvars.example` ends in `.example` and never matched;
+  # `deploy/gcp/*.example.tfvars` ends in `.tfvars` and always did — so the
+  # committed, reviewed, placeholder-bearing example was reported as leaked
+  # material alongside the lock files. Both forms are exempted, including the
+  # one that never matched, so that neither convention can start failing if the
+  # term above is ever rewritten.
+  #
+  # A LIVE tfvars is still caught, and the exemption cannot be used to smuggle
+  # one: the live files are `deploy/gcp/<project>.tfvars`, they are gitignored,
+  # and `git archive HEAD` carries tracked files only — so this verifier is the
+  # second line, not the first. What it must not do is fire on the tracked file
+  # the repository deliberately ships as documentation.
   local leaked
   leaked="$("$TAR_CMD" -tzf "$out" |
     grep -E '(^|/)(\.git/|\.keys/|node_modules/|\.terraform[/-])|\.tfvars($|\.json$)|\.handoff\.json$|deploy/gcp/deploy-sa$' |
-    grep -vE '(^|/)[^/]*\.example\.tfvars$' |
+    grep -vE '\.example\.tfvars$|\.tfvars\.example$' |
     head -5 || true)"
   if [ -n "$leaked" ]; then
     printf 'demo-up: REFUSING to deliver — excluded material is present in the payload:\n' >&2
@@ -1473,10 +1490,32 @@ CURL_BIN="${GCP_TF_DEMO_CURL:-curl}"
 # would expand empty.
 FORWARD_BIND_ADDRESS="${GCP_TF_DEMO_FORWARD_BIND_ADDRESS:-0.0.0.0}"
 
-# Where the VM records the forward's PID and log, so `public-down` can stop it
-# by PID rather than by a self-matching pattern.
-PF_PID_FILE="${GCP_TF_DEMO_PF_PID_FILE:-/tmp/demo-gateway-pf.pid}"
-PF_LOG="${GCP_TF_DEMO_PF_LOG:-/tmp/demo-gateway-pf.log}"
+# The forward is a systemd UNIT, not a nohup'd process, and the unit name is how
+# it is both started and stopped.
+#
+# `kubectl port-forward` is not a durable tunnel. It dies on apiserver resets and
+# on pod restarts, it exits ZERO when it does, and it says nothing — so the demo
+# that worked at 21:00 is dead at 09:00 with no error anywhere to find. `nohup
+# setsid` (what this used to be) solves a different and smaller problem: it
+# survives the SSH session that started it, and nothing else. It does not survive
+# the process dying, and it does not survive a reboot.
+#
+# ONE unit for every access method, not one per method. The forward is already
+# the single entry point that IAP, Tailscale and Funnel share — giving the
+# Tailscale path a private second forward would fork that, and two forwards
+# racing for the same port is a worse failure than the one being fixed.
+#
+# The unit name replaces the recorded PID as the thing `public-down` stops. That
+# is a strictly stronger identity for the same reason the PID file existed: a
+# `pkill -f 'kubectl port-forward…'` issued over remote_run matches the remote
+# `bash -lc` carrying the command text and kills its own shell. A unit name
+# cannot match anything but the unit.
+PF_UNIT="${GCP_TF_DEMO_PF_UNIT:-signalloom-dashboard-pf}"
+PF_UNIT_PATH="/etc/systemd/system/${PF_UNIT}.service"
+
+# How long to wait for the forward's port after starting the unit. Generous
+# because a cold start also waits for kubectl to reach the apiserver.
+PF_WAIT_SECONDS="${GCP_TF_DEMO_PF_WAIT_SECONDS:-60}"
 
 # One HTTP probe through the tunnel. Returns the status code on stdout, or the
 # empty string when the request could not be made at all.
@@ -1538,6 +1577,21 @@ wait_for_dashboard() {
 # `ss -ltn` on the VM, not a probe from here: from here a closed port and a
 # firewalled port are the same timeout, and this has to tell them apart to give
 # a useful message.
+# What systemd thinks of the forward unit, as a bare word (active / inactive /
+# failed / activating / unknown).
+#
+# Reported ALONGSIDE remote_is_publishing rather than instead of it, and the two
+# are deliberately separate facts. systemd reports `active` the moment the
+# process forks — several seconds before kubectl has an apiserver connection,
+# and forever if it never gets one. So a unit in a Restart=always loop reads
+# `active` while nothing is listening, and a single merged "is it up" line would
+# print that state green. Whenever these two disagree, the disagreement IS the
+# diagnosis.
+forward_unit_state() {
+  remote_run "systemctl is-active ${PF_UNIT}.service 2>/dev/null || true" 2>/dev/null |
+    tr -d '\r' | tr -d '[:space:]'
+}
+
 remote_is_publishing() {
   local port="$1"
   remote_run "ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHING || echo ABSENT" 2>/dev/null \
@@ -1566,50 +1620,147 @@ ensure_published() {
     return 0
   fi
 
-  log "the VM is not publishing on :${port} — starting the supervised forward to ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}:${DASHBOARD_SERVICE_PORT}"
+  log "the VM is not publishing on :${port} — installing ${PF_UNIT}.service for ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}:${DASHBOARD_SERVICE_PORT}"
 
   # 0.0.0.0, not loopback: the operator arrives over an IAP tunnel that connects
   # to the instance's INTERNAL IP, so a forward bound to localhost is reachable
   # only from the VM itself and presents to the tunnel as 4003 'failed to
-  # connect to backend' — indistinguishable from a firewall problem.
+  # connect to backend' — indistinguishable from a firewall problem. The
+  # Tailscale path dials 127.0.0.1, which a wildcard bind already serves, so one
+  # address satisfies both and no method needs its own forward.
   #
-  # Owned by pid 1 so it outlives this SSH session. A forward owned by the
-  # session dies the moment we disconnect, which is the same defect as not
-  # starting one, deferred by a few seconds.
   # No `cd` into the checkout: this needs kubectl and a kubeconfig, not the
   # repository. Anchoring it to the delivery directory would make publishing an
   # already-running estate fail on a VM where the payload had been cleaned up.
   local script
   script=$(cat <<REMOTE
 set -uo pipefail
-# Still NOT set -e. The forward is launched with nohup and the verification is
-# an explicit test below, so an aborting shell would report nothing at all —
-# the caller would see empty stdout and a generic failure with no clue which
-# step went missing.
-#
-# The Service is asserted to EXIST before anything is forwarded. \`kubectl
-# port-forward\` against a missing Service fails a few seconds later with a
-# message about the service, which reads as a broken cluster; saying so here
-# names the namespace and the name that were actually looked for.
-if ! kubectl get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
-  echo "NO_DASHBOARD_SERVICE ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
+# Still NOT set -e. Several probes below are EXPECTED to fail on an estate that
+# is not up yet, and each needs to produce its own message; under errexit the
+# script aborts at the first one and the caller sees empty stdout and a generic
+# non-zero with no clue which step went missing.
+
+KUBECTL="\$(command -v kubectl 2>/dev/null || true)"
+if [ -z "\$KUBECTL" ]; then
+  echo "NO_KUBECTL" >&2
   exit 3
 fi
+
+# The kubeconfig is DISCOVERED, never assumed, and this is the step that makes
+# the difference between a nohup'd process and a unit. The cluster is Kind,
+# created by whichever account the pipeline ran as, so its config lives in that
+# user's HOME — and this command arrives over a login shell that already has it.
+# systemd does not: a unit with no KUBECONFIG runs with HOME=/root, finds
+# nothing, and fails authenticating to localhost:6443, which reads like a broken
+# cluster rather than a missing variable.
+KUBECONFIG_PATH="\${KUBECONFIG:-\${HOME}/.kube/config}"
+if [ ! -r "\$KUBECONFIG_PATH" ]; then
+  echo "NO_KUBECONFIG:\${KUBECONFIG_PATH}" >&2
+  exit 4
+fi
+RUN_USER="\$(id -un)"
+
+# The Service is asserted to EXIST before anything is forwarded, and under
+# Restart=always that check earns its keep twice over. \`kubectl port-forward\`
+# against a missing Service fails a few seconds later with a message about the
+# service, which reads as a broken cluster; and a unit that restarts always
+# turns that into an INFINITE LOOP reported as \`active\`, with the health gate
+# timing out two minutes later having named nothing at all.
+if ! "\$KUBECTL" get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
+  echo "NO_DASHBOARD_SERVICE ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
+  exit 5
+fi
 echo "dashboard=${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}"
-nohup setsid kubectl port-forward -n '${DASHBOARD_NAMESPACE}' 'svc/${DASHBOARD_SERVICE}' \
-  --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT} >${PF_LOG} 2>&1 < /dev/null &
-# The PID is RECORDED, because it is the only thing that can stop this forward
-# without a pattern match. A \`pkill -f 'kubectl port-forward…'\` issued over
-# remote_run matches the remote \`bash -lc\` that carries the command text and
-# kills its own shell — the same self-kill the local tunnel is killed by PID to
-# avoid.
-echo \$! >${PF_PID_FILE}
-sleep 6
-ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHED || { echo NOT_PUBLISHED >&2; exit 4; }
+
+# ExecStart takes an absolute path and no shell metacharacters — systemd does
+# not run a shell, so a \$VAR or a pipe here reaches kubectl as a literal.
+UNIT_BODY="[Unit]
+Description=Signal Loom dashboard port-forward (shared by every access method)
+Documentation=https://github.com/controlplaneio-in-toto/osramp-demo/blob/main/docs/gcp-demo/RUNBOOK.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=\${RUN_USER}
+Environment=KUBECONFIG=\${KUBECONFIG_PATH}
+ExecStart=\${KUBECTL} port-forward --namespace ${DASHBOARD_NAMESPACE} svc/${DASHBOARD_SERVICE} --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT}
+# always, not on-failure: a port-forward that loses its pod exits ZERO, so
+# on-failure would leave the demo dead with the unit reported cleanly finished.
+Restart=always
+RestartSec=5
+# The forward is EXPECTED to die often — a pod roll restarts it several times in
+# a minute. systemd's default rate limit gives up after 5 restarts in 10s and
+# leaves the unit failed, which is worse than the problem it guards against.
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=multi-user.target
+"
+
+# Rewritten and reloaded ONLY when the body actually changes. This is not
+# tidiness: restarting drops every in-flight connection, and Dex runs
+# \`storage: type: memory\`, so a gratuitous restart logs out everyone using the
+# demo right now.
+CHANGED=0
+if [ ! -f ${PF_UNIT_PATH} ] || ! printf '%s' "\$UNIT_BODY" | sudo cmp -s - ${PF_UNIT_PATH}; then
+  printf '%s' "\$UNIT_BODY" | sudo tee ${PF_UNIT_PATH} >/dev/null || { echo "UNIT_WRITE_FAILED" >&2; exit 6; }
+  sudo systemctl daemon-reload || { echo "DAEMON_RELOAD_FAILED" >&2; exit 7; }
+  CHANGED=1
+fi
+echo "unit_changed=\${CHANGED}"
+
+# enable on BOTH branches. It is what links the unit into multi-user.target, so
+# it is what makes the forward come back from a reboot without anyone SSHing in
+# — which is the manual step this whole mechanism exists to delete.
+if [ "\$CHANGED" = "1" ]; then
+  sudo systemctl enable --now ${PF_UNIT}.service >/dev/null 2>&1 || { echo "UNIT_START_FAILED" >&2; exit 8; }
+  sudo systemctl restart ${PF_UNIT}.service || { echo "UNIT_RESTART_FAILED" >&2; exit 8; }
+else
+  sudo systemctl enable ${PF_UNIT}.service >/dev/null 2>&1 || true
+  sudo systemctl is-active --quiet ${PF_UNIT}.service || sudo systemctl start ${PF_UNIT}.service || { echo "UNIT_START_FAILED" >&2; exit 8; }
+fi
+
+# Wait for the LISTENER, not for the unit. systemd reports active the moment the
+# process forks, several seconds before kubectl has an apiserver connection —
+# and forever, if it never gets one. \`active\` is not the property anything
+# downstream needs.
+WAITED=0
+while [ "\$WAITED" -lt ${PF_WAIT_SECONDS} ]; do
+  if ss -ltn 2>/dev/null | grep -q ':${port} '; then
+    echo PUBLISHED
+    exit 0
+  fi
+  sleep 2
+  WAITED=\$((WAITED + 2))
+done
+echo NOT_PUBLISHED >&2
+sudo systemctl status ${PF_UNIT}.service --no-pager --lines=15 >&2 2>/dev/null || true
+exit 9
 REMOTE
 )
-  if ! remote_run "$script"; then
-    die "could not publish ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} on the VM. Is the estate up? Try: make gcp-tf-demo-status ENV=${ENV_KEY}"
+  local rc=0
+  remote_run "$script" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    cat >&2 <<EOF
+
+demo-up: could not publish ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} on ${INSTANCE_NAME}.
+
+  The unit is ${PF_UNIT}.service, at ${PF_UNIT_PATH}.
+  The remote step exited ${rc}, which names the cause:
+
+    3   no kubectl on the VM        — the estate was never deployed here
+    4   no readable kubeconfig      — the Kind cluster belongs to another user
+    5   no ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} service
+                                    — the cluster is up and the app is not.
+                                      Run: make gcp-tf-demo-up ENV=${ENV_KEY}
+    6/7 could not write or reload the unit — sudo is refusing on the VM
+    8   systemd would not start the unit
+    9   the unit started and nothing ever listened on :${port}.
+        systemctl status is above.
+
+EOF
+    exit 7
   fi
 }
 
@@ -1711,20 +1862,31 @@ cmd_public_down() {
   local port="$APP_PORT"
   log "stopping the VM-side forward on :${port}"
 
-  # BY PID, never by pattern — the same rule the local tunnel follows, and for
-  # the same reason. `remote_run` hands this text to a remote `bash -lc`, so the
-  # whole command string becomes that shell's /proc/<pid>/cmdline; a
+  # BY UNIT NAME, never by pattern — the same rule the local tunnel follows, and
+  # for the same reason. `remote_run` hands this text to a remote `bash -lc`, so
+  # the whole command string becomes that shell's /proc/<pid>/cmdline; a
   # `pkill -f 'kubectl port-forward…'` matches its own parent, kills it, and
   # everything after the pkill silently never runs. Measured in this repo as a
   # bare exit 144 with no output at all, which reads as a hung command rather
   # than a self-kill.
   #
-  # ensure_published records the PID for exactly this. A missing PID file is
-  # reported rather than papered over with a pattern sweep: "I do not know what
-  # to stop" is a different answer from "there was nothing to stop", and
+  # This used to stop a PID recorded by ensure_published. A unit name is the same
+  # discipline with a stronger identity: a PID can be recycled by an unrelated
+  # process between publish and teardown, and a stale PID file after a reboot
+  # names something that was never the forward. The unit is also the only thing
+  # that can stop a supervised forward at all — killing the process under
+  # Restart=always just makes systemd start another one five seconds later, so a
+  # PID kill here would now report STOPPED and leave the port bound.
+  #
+  # DISABLE as well as stop: a unit that is merely stopped comes back on the next
+  # reboot, which would make teardown a lie that only shows up hours later.
+  #
+  # An ABSENT unit is reported rather than papered over with a pattern sweep: "I
+  # do not know what to stop" is a different answer from "there was nothing to
+  # stop", and
   # conflating them is how a forward survives a teardown that claimed success.
   remote_run "
-if [ ! -f '${PF_PID_FILE}' ]; then
+if [ ! -f '${PF_UNIT_PATH}' ]; then
   if ss -ltn 2>/dev/null | grep -q ':${port} '; then
     echo 'UNKNOWN_OWNER'
   else
@@ -1732,8 +1894,7 @@ if [ ! -f '${PF_PID_FILE}' ]; then
   fi
   exit 0
 fi
-kill \"\$(cat '${PF_PID_FILE}')\" 2>/dev/null || true
-rm -f '${PF_PID_FILE}'
+sudo systemctl disable --now '${PF_UNIT}.service' >/dev/null 2>&1 || true
 sleep 2
 ss -ltn 2>/dev/null | grep -q ':${port} ' && echo STILL_PUBLISHING || echo STOPPED"
 
@@ -1774,6 +1935,7 @@ cmd_public_status() {
   printf 'env:       %s\n' "$ENV_KEY"
   printf 'instance:  %s (%s)\n' "$INSTANCE_NAME" "$(vm_status)"
   printf 'url:       %s\n' "$origin"
+  printf 'forward:   %s.service is %s\n' "$PF_UNIT" "$(forward_unit_state || true)"
   if remote_is_publishing "$port"; then
     printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
       "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$port"
@@ -2222,6 +2384,7 @@ cmd_ts_status() {
     printf 'resolves:  NO — this machine does not resolve %s (MagicDNS off for this device or tailnet)\n' "$TS_FQDN"
   fi
 
+  printf 'forward:   %s.service is %s\n' "$PF_UNIT" "$(forward_unit_state || true)"
   if remote_is_publishing "$APP_PORT"; then
     printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
       "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$APP_PORT"

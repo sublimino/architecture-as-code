@@ -154,9 +154,9 @@ resource "google_compute_firewall" "allow_iap_ssh" {
 #
 # A SEPARATE rule rather than a second port on allow_iap_ssh, deliberately. SSH
 # and the application are different exposures with different review histories,
-# and a rule named "allow-iap-ssh" that also opens 30754 is a rule whose name
-# lies. Splitting them keeps `gcloud compute firewall-rules list` honest and
-# lets either be removed without touching the other.
+# and a rule named "allow-iap-ssh" that also opens the application is a rule
+# whose name lies. Splitting them keeps `gcloud compute firewall-rules list`
+# honest and lets either be removed without touching the other.
 #
 # ─── Why the app port needs an IAP path at all ──────────────────────────────
 #
@@ -165,17 +165,22 @@ resource "google_compute_firewall" "allow_iap_ssh" {
 # way to a browser is IAP TCP forwarding. Until now that meant SSH plus a
 # manual `-L` forward, because this rule did not exist and only 22 was open.
 #
-# ─── Why the port is load-bearing, and cannot be "any free port" ────────────
+# ─── Which port, and why it is a variable rather than a constant ────────────
 #
-# The dashboard is served through the Envoy Gateway at
-# https://dashboard.osramp.acme.local:30754. Dex pins its local issuer and its
-# callback client to that exact port — `setup_gateway_forward` in
-# scripts/acceptance-test.sh forwards the Gateway's dynamic NodePort to 30754
-# for precisely this reason. A tunnel on any other port reaches the Gateway and
-# then fails the OIDC redirect, which presents as a broken application rather
-# than as a port mismatch. That is why app_port is a per-environment value the
-# operator sets to 30754, and why this rule derives from it rather than
-# hardcoding anything.
+# app_port is the port the VM publishes the dashboard on: a kubectl forward from
+# dashboard-signalloom:8080 in fe-signalloom, which is the single entry point
+# every access method uses. The environments set it to 8080 so that forward is a
+# straight 8080-to-8080, but nothing in this module cares what the number is —
+# the rule derives from the variable, which is what the tftest suite asserts by
+# planning with a non-default value.
+#
+# This comment previously said the port could not be "any free port", because
+# the access path went through the Envoy Gateway and Dex's OIDC callback was
+# pinned to `https://dashboard.osramp.acme.local:30754`. That constraint is gone
+# with that path: Dex's issuer and redirect URI are rendered from PUBLIC_ORIGIN,
+# published by whichever access script is running, so the origin follows the
+# port rather than dictating it. Envoy is still deployed and still the Gateway
+# API ingress — it is simply not what a browser is tunnelled to.
 #
 # ─── Why this does not widen the posture ────────────────────────────────────
 #

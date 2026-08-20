@@ -12,10 +12,18 @@
 #   Dex staticClients redirect  same file
 #   API_JWT_ISSUER (x2)         apps/fe-signalloom, apps/supercred-demo-runner
 #
-#   IAP tunnel        https://dashboard.osramp.acme.local:30754   (the baseline)
+#   IAP tunnel        http://localhost:<port>                     (loopback only)
 #   ngrok             https://<random>.ngrok-free.app
 #   Tailscale         https://<node>.<tailnet>.ts.net             (private)
 #   Tailscale Funnel  https://<node>.<tailnet>.ts.net             (public)
+#
+# Every one of those now terminates at the SAME place: the dashboard's nginx,
+# `dashboard-signalloom:8080` in fe-signalloom, which serves the SPA and proxies
+# /dex/ and /api/ same-origin. IAP used to be the odd one out — it tunnelled to
+# the Envoy Gateway instead, which is why it needed a pinned port, an /etc/hosts
+# line and an SNI-matching hostname. It does not any more, and the consequence
+# for THIS file is that IAP is an ordinary lease-taking method rather than a
+# privileged baseline. See "THE BASELINE IS NOT A METHOD" below.
 #
 # All five fields are already `${PUBLIC_ORIGIN:=<baseline>}` templates resolved
 # by Flux postBuild.substituteFrom from the flux-runtime-info ConfigMap, so
@@ -60,7 +68,22 @@
 DEX_ORIGIN_KUBECTL="${DEX_ORIGIN_KUBECTL:-kubectl}"
 DEX_ORIGIN_FLUX="${DEX_ORIGIN_FLUX:-flux}"
 
-# The resting origin, and therefore the IAP access method's origin.
+# ── THE BASELINE IS NOT A METHOD ─────────────────────────────────────
+#
+# The resting origin. Held by NOBODY.
+#
+# It used to double as "the IAP access method's origin", and that conflation is
+# what made IAP special: because the manifests already defaulted to this value,
+# the IAP path could open a tunnel and skip the origin mechanism entirely — so
+# it never took a lease, and every other method had to work around a publisher
+# it could not see. Now that IAP terminates at the same nginx as everything else
+# it claims `http://localhost:<port>` like any other method, and this value is
+# only ever two things: what `dex_origin_current` reports when nobody has
+# published, and what `restore` writes to hand the demo back.
+#
+# It is the Envoy Gateway's origin because that is what the MANIFESTS default
+# to, not because any access path prefers it. Envoy is still deployed and still
+# the Gateway API ingress; it is simply no longer on the access path.
 #
 # This string must stay identical to the `:=default` in dex.yaml, in
 # apps/fe-signalloom/base/deployment.yaml and in
@@ -120,8 +143,35 @@ DEX_ORIGIN_KEY_SINCE="PUBLIC_ORIGIN_SINCE"
 # query, fragment or trailing slash produces a subtly wrong URL rather than an
 # error: `https://host/` becomes the issuer `https://host//dex`, which Dex
 # serves happily and every token consumer then rejects as a mismatched `iss`.
+#
+# ── Cleartext is allowed on loopback and NOWHERE else ────────────────
+#
+# nginx serves plain HTTP on 8080, so the IAP origin genuinely is
+# `http://localhost:<port>` — the tunnel is the confidentiality boundary there,
+# and Google has already authenticated the caller before a byte reaches it.
+#
+# The same URL shape with a routable host is a different thing entirely: Dex
+# would issue its authorisation code, its ID token and every subsequent bearer
+# over the wire in the clear, and browsers additionally drop `Secure` cookies
+# and refuse `SameSite=None` on a non-secure origin — so the failure is half
+# silent interception and half a login that mysteriously will not stick.
+#
+# Refused at the door rather than warned about. There is no legitimate caller in
+# this estate: Tailscale and Funnel get a real certificate from `tailscale
+# serve`, ngrok terminates TLS at its edge, and IAP is loopback. An origin that
+# is neither loopback nor https is a mistake every time.
+dex_origin_is_loopback() {
+  local host="${1-}"
+  [[ "$host" == "localhost" ]] && return 0
+  # The whole 127.0.0.0/8 block, not just 127.0.0.1. A forward bound to
+  # 127.0.0.2 is equally local and equally safe, and treating it as routable
+  # would refuse a correct origin with a security message — the kind of wrong
+  # refusal that gets a guard disabled rather than fixed.
+  [[ "$host" =~ ^127\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+}
+
 dex_origin_validate() {
-  local origin="${1-}" rest host port reason=""
+  local origin="${1-}" rest host port reason="" insecure=0
 
   if [[ -z "$origin" ]]; then
     reason="origin is empty"
@@ -155,8 +205,27 @@ dex_origin_validate() {
         reason="invalid port '${port}'"
       elif [[ -n "$port" ]] && { (( port < 1 )) || (( port > 65535 )); }; then
         reason="port ${port} is out of range 1-65535"
+      elif [[ "$origin" == http://* ]] && ! dex_origin_is_loopback "$host"; then
+        reason="refusing an insecure origin: '${host}' is not loopback"
+        insecure=1
       fi
     fi
+  fi
+
+  if [[ "$insecure" -eq 1 ]]; then
+    # A DIFFERENT trailer from the malformed-origin case. The generic
+    # "expected scheme://host[:port]" advice is actively misleading here: the
+    # origin IS well formed, and a reader told to check its shape will retype
+    # the same URL and watch it be refused again.
+    echo "ERROR: ${reason}" >&2
+    echo "       Dex would issue its tokens over cleartext to a routable host," >&2
+    echo "       and the browser would drop the Secure session cookie, so this" >&2
+    echo "       fails as an interceptable login that also will not persist." >&2
+    echo "       Use https:// for anything off this machine. http:// is only" >&2
+    echo "       accepted on localhost or 127.0.0.0/8, where the IAP tunnel is" >&2
+    echo "       the confidentiality boundary." >&2
+    echo "       Got: '${origin}'" >&2
+    return 1
   fi
 
   if [[ -n "$reason" ]]; then
@@ -205,6 +274,21 @@ dex_origin_current() {
   printf '%s\n' "$origin"
 }
 
+# The METHOD currently holding the origin, or nothing when nobody holds it.
+#
+# Exposed on the CLI as well as in-process, and that is not symmetry for its own
+# sake — it closes a real hole. `current` deliberately falls back to the baseline
+# so callers never have to distinguish "no ConfigMap" from "resting state", which
+# means an out-of-process caller asking `current` on an idle cluster gets a
+# non-empty origin back and, if it treats non-empty as "somebody has published",
+# refuses itself. scripts/gcp-tf/demo-up.sh did exactly that: every ts-up on a
+# resting cluster would have been refused with "another origin already holds
+# Dex: <the baseline>". It survived because the driver's suite only ever asked a
+# stub, whose `current` prints empty at rest.
+#
+# The fix is for the question to be askable. "Is anyone holding this" is a
+# question about the METHOD key, never about the origin string — which is
+# precisely what dex_origin_is_held already encodes in-process.
 dex_origin_holder() {
   _dex_origin_cm_key "$DEX_ORIGIN_LEASE_NAMESPACE" "$DEX_ORIGIN_KEY_METHOD"
 }
@@ -235,7 +319,12 @@ dex_origin_status() {
 
   echo "origin:  ${origin}"
   if [[ "$origin" == "$DEX_ORIGIN_BASELINE" ]]; then
-    echo "method:  iap (baseline — the resting origin, held by nobody)"
+    # NOT "iap". Naming a method here was true when IAP served at the baseline
+    # and is a lie now that it claims http://localhost:<port> like everything
+    # else — and it is the expensive kind, because an operator reading
+    # "method: iap" on an unheld origin concludes an IAP demo is live and goes
+    # looking for a tunnel to tear down.
+    echo "method:  (none — resting origin, held by nobody)"
     echo "state:   AVAILABLE"
     return 0
   fi
@@ -421,14 +510,16 @@ dex_origin_main() {
     apply)    shift; dex_origin_apply "${1-}" "${2-}" ;;
     restore)  dex_origin_restore ;;
     current)  dex_origin_current ;;
+    holder)   dex_origin_holder; printf '\n' ;;
     status)   dex_origin_status ;;
     validate) shift; dex_origin_validate "${1-}" ;;
     *)
-      echo "Usage: $0 {apply <method> <origin>|restore|current|status|validate <origin>}" >&2
+      echo "Usage: $0 {apply <method> <origin>|restore|current|holder|status|validate <origin>}" >&2
       echo "" >&2
       echo "  apply     Publish <origin> for <method>, or refuse and name the holder" >&2
       echo "  restore   Release the lease and return to ${DEX_ORIGIN_BASELINE}" >&2
-      echo "  current   Print the active origin" >&2
+      echo "  current   Print the active origin (the baseline when nobody holds it)" >&2
+      echo "  holder    Print the access method holding it, or nothing when free" >&2
       echo "  status    Print the active origin, its holder and when it was taken" >&2
       echo "  validate  Check an origin is well formed (no cluster required)" >&2
       return 1

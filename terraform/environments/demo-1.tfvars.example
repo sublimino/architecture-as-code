@@ -177,19 +177,27 @@ environments = {
     allowed_ipv4 = ["192.0.2.0/24", "198.51.100.0/24"]
     allowed_ipv6 = ["2001:db8::/32"]
 
-    # The port the dashboard is actually served on, and it is load-bearing.
+    # The port the VM publishes the dashboard on, and the port the IAP tunnel
+    # therefore targets.
     #
-    # Dex pins its local issuer and its OIDC callback client to 30754 —
-    # `setup_gateway_forward` in scripts/acceptance-test.sh forwards the Envoy
-    # Gateway's dynamic NodePort to exactly that port for this reason. A tunnel
-    # or a backend on any other port reaches the Gateway and then fails the
-    # login redirect, which presents to a user as a broken application rather
-    # than as a port mismatch.
+    # 8080 because that is what the dashboard's nginx listens on
+    # (dashboard-signalloom:8080 in fe-signalloom), and every access method now
+    # forwards to that Service. Matching the two ends means the forward is a
+    # straight 8080-to-8080 and there is one fewer number to get wrong.
+    #
+    # This was 30754 until the access path stopped going through the Envoy
+    # Gateway. That number was genuinely load-bearing then: the Gateway routed
+    # by SNI and Dex's callback was pinned to that exact host:port, so any other
+    # value produced a login that bounced. It is not load-bearing now — Dex's
+    # issuer and redirect URI are rendered from PUBLIC_ORIGIN, which the access
+    # scripts publish, so the origin follows whatever port is opened. Envoy is
+    # still deployed and still the Gateway API ingress; a human simply no longer
+    # browses through it.
     #
     # This one number resolves into three places: modules/network opens it to
     # the IAP range and to the health-check ranges, and modules/compute makes it
     # the instance group's named port that the edge backend service resolves.
-    app_port         = 30754
+    app_port         = 8080
     deletion_protect = true
     labels = {
       tier  = "demo"

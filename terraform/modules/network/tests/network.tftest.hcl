@@ -163,11 +163,16 @@ run "ssh_is_reachable_only_from_the_iap_range" {
 # above still opens 22 and nothing else — a rule named "allow-iap-ssh" that
 # also opened the application would be a rule whose name lies.
 #
-# Run at 30754, the real value, because that number is load-bearing rather than
-# arbitrary: Dex pins its OIDC issuer and callback client to it
-# (`setup_gateway_forward`, scripts/acceptance-test.sh), so a tunnel on any
-# other port reaches the Envoy Gateway and then fails the login redirect. It is
-# passed as a variable here so a hardcoded literal in the module would fail.
+# Run at 30754, which is NOT the value any environment sets, precisely so a
+# hardcoded literal in the module fails here. The environments set app_port to
+# 8080 — the dashboard nginx Service port every access method forwards to — and
+# a rule that quietly opened 8080 regardless of the variable would pass a run
+# pinned to the real value and fail this one.
+#
+# This block used to run at 30754 for the opposite reason: that was then the
+# real value, load-bearing because Dex's callback was pinned to it behind the
+# Envoy Gateway. Dex follows PUBLIC_ORIGIN now, so no port is pinned and the
+# only thing worth asserting is that the rule tracks the variable.
 # ---------------------------------------------------------------------------
 
 run "the_app_port_is_reachable_over_iap_and_only_over_iap" {
@@ -179,7 +184,7 @@ run "the_app_port_is_reachable_over_iap_and_only_over_iap" {
 
   assert {
     condition     = one(google_compute_firewall.allow_iap_app_port.allow).ports == tolist(["30754"])
-    error_message = "the IAP app rule must open exactly the configured app port; 30754 is what Dex's callback is pinned to"
+    error_message = "the IAP app rule must open exactly the configured app port, not a literal of its own"
   }
 
   assert {
@@ -909,9 +914,10 @@ run "opening_udp_egress_changes_no_ingress_rule" {
     egress_public_udp_ports        = ["3478", "41641"]
 
     # Stated explicitly rather than inherited from the file-level default,
-    # because the app-port assertions below name 30754 and 30754 is the value
-    # Dex's OIDC callback is pinned to. Inheriting 8080 here would make those
-    # assertions pass against a number nothing in the estate uses.
+    # because the app-port assertions below name 30754 as a literal. Inheriting
+    # the file-level 8080 — which is also what the environments set — would make
+    # those assertions pass against a rule that hardcoded 8080 and ignored the
+    # variable entirely.
     app_port = 30754
   }
 

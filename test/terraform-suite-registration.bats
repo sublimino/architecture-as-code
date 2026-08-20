@@ -23,12 +23,14 @@ setup_file() {
   export REPO_ROOT
   export MAKEFILE="${REPO_ROOT}/Makefile"
   export FIXTURES="${REPO_ROOT}/test/fixtures/terraform/make"
+  export WORKFLOW="${REPO_ROOT}/.github/workflows/terraform-validate.yaml"
 }
 
 setup() {
   # Presence first, always.
   [ -f "${MAKEFILE}" ]
   [ -d "${FIXTURES}" ]
+  [ -f "${WORKFLOW}" ]
   grep -q '^# END GCP Terraform platform block' "${MAKEFILE}"
 
   STUBDIR="${BATS_TEST_TMPDIR}/stubs"
@@ -67,7 +69,13 @@ STUB
 
   chmod +x "${STUBDIR}/bats" "${STUBDIR}/terraform" "${STUBDIR}/tflint"
   export STUB_RECORD="${RECORD}"
+  export GCP_TF_PROOFS_RUN=/usr/bin/true
   export PATH="${STUBDIR}:${PATH}"
+}
+
+@test "terraform workflow registers GCP Terraform trigger paths" {
+  grep -Fqx '      - "scripts/gcp-tf/**"' "${WORKFLOW}"
+  grep -Fqx '      - "test/fixtures/gcp-tf-*/**"' "${WORKFLOW}"
 }
 
 # Copy the real Makefile, apply one named mutation fixture, and REFUSE to
@@ -186,6 +194,12 @@ disk_test_dirs() {
   run grep -c '^TEST:' "${RECORD}/terraform.log"
   [ "$status" -eq 0 ]
   [ "$output" -ge 1 ]
+}
+
+@test "gcp-tf-validate executes the Dex origin mutation proof" {
+  run env -u GCP_TF_PROOFS_RUN make -C "${REPO_ROOT}" -n gcp-tf-validate
+  [ "$status" -eq 0 ]
+  [[ "${output}" == *"bash test/dex-origin-mutation-proof.sh"* ]]
 }
 
 # ---------------------------------------------------------------------------

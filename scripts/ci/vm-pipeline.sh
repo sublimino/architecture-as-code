@@ -585,10 +585,11 @@ run_stage \
      test/flux-dynamic-labels.bats \
      test/flux-substitution.bats test/gcp-ci-ssh-diagnosis.bats \
      test/gcp-ci-vm-status.bats test/healthcheck.bats \
-     test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
-     test/kind-config-heredoc.bats test/kind-load-verified.bats \
-     test/resourceset-activation-race.bats test/revocation-demo.bats \
-     test/signalfusion-demo.bats test/signalfusion-images.bats \
+      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
+      test/kind-config-heredoc.bats test/kind-load-verified.bats \
+      test/resourceset-activation-race.bats test/resourceset-inputs-declarative.bats \
+      test/revocation-demo.bats \
+      test/signalfusion-demo.bats test/signalfusion-images.bats \
      test/signalloom-local-lifecycle.bats \
      test/signalloom-security-validation-evidence.bats \
      test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \

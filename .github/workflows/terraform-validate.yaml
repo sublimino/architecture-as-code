@@ -28,12 +28,14 @@ name: terraform-validate
 on:
   pull_request:
     branches:
-      - feat/signal-loop-and-bootstrap-refactor
+      - main
     paths:
       - "terraform/**"
+      - "scripts/gcp-tf/**"
       - "Makefile"
       - "test/terraform-*.bats"
       - "test/fixtures/terraform/**"
+      - "test/fixtures/gcp-tf-*/**"
       - ".github/workflows/terraform-validate.yaml"
   workflow_dispatch:
 

@@ -114,9 +114,11 @@ setup() {
 	export GCP_TF_HANDOFF_DIR="${root}/deploy/gcp"
 	export GCP_TF_DEMO_REPORT_DIR="${root}/demo-reports"
 
-	# The origin mechanism belongs to chunk T2 and is not in this worktree, so
-	# every test that is NOT about its absence points the single coupling at the
-	# stub. The two tests that ARE about its absence unset this.
+	# The stub stands in for the CLUSTER, not for an unwritten mechanism — the
+	# real scripts/lib/dex-origin.sh is in this tree. Every test that is NOT about
+	# its absence points the single coupling at the stub; the two that ARE about
+	# its absence unset this. The tests that drive the REAL mechanism against the
+	# REAL driver are the SEAM tests in test/terraform-demo-driver.bats.
 	export GCP_TF_DEMO_DEX_ORIGIN_CMD="${stubdir}/dex-origin"
 
 	# The name resolves by default. Tests about resolution failure clear it.
@@ -142,7 +144,7 @@ write_handoff() {
 		  project_id: "acme-real-project-42", environment_key: $env, env: $env,
 		  region: "europe-west2", zone: "europe-west2-a",
 		  instance_name: ("sl-" + $env + "-demo"), internal_ip: "10.4.0.7",
-		  app_port: 30754, state_bucket: "acme-tfstate",
+		  app_port: 8080, state_bucket: "acme-tfstate",
 		  state_prefix: ("osramp/environments/" + $env),
 		  deploy_sa: "deployer@acme-real-project-42.iam.gserviceaccount.com",
 		  operator_sa: $op, access_mode: "tailscale", hostname: "demo-7.acme.example"}
@@ -587,178 +589,46 @@ mutate() {
 	}
 }
 
-@test "TS ts-up serves the dashboard nginx over plain http on loopback" {
-	# The inversion of the assertion that used to be here.
+@test "TS ts-up serves the dashboard nginx over loopback, with no VM hosts alias" {
+	# This REPLACES "ts-up gives the SNI hostname a loopback alias on the VM".
+	# That alias existed so `tailscale serve` could dial its backend BY NAME and
+	# thereby supply the SNI value the Envoy Gateway routed on; an IP literal
+	# sent no SNI and the Gateway closed the connection mid-handshake.
 	#
-	# This test previously demanded a VM-side /etc/hosts alias and an
-	# `https+insecure://dashboard.osramp.acme.local` backend, because the serve
-	# target was the Envoy Gateway and the Gateway routes on SNI. Measured, that
-	# is not sufficient: Envoy also matches the request's `:authority` against
-	# `*.osramp.acme.local`, so a MagicDNS Host header returns 404 from a
-	# perfectly healthy Gateway. Serving the dashboard nginx instead removes the
-	# Host-header 404, the SNI discipline and the hosts alias together — nginx
-	# has `server_name _` and proxies /dex/ itself, so it is a same-origin front
-	# door that does not care what name reaches it.
-	#
-	# PRESENCE ASSERTED FIRST. "no /etc/hosts line" is an absence claim and is
-	# satisfied hardest by a ts-up that does nothing at all, so the positive
-	# comes before the negative and would fail first.
+	# The backend is nginx now — path routing, no TLS, no hostname — so the
+	# alias has nothing to do and the VM's /etc/hosts is left alone.
 	stub_curl 200
 	run "${driver}" ts-up
-	[ "$status" -eq 0 ]
 
+	# PRESENCE first. "no /etc/hosts write" is trivially satisfied by a ts-up
+	# that configures nothing at all, so the positive assertion is what stops the
+	# negative below from passing hardest when its subject is deleted.
 	[[ "$(gcloud_log)" == *"http://127.0.0.1:8080"* ]] || {
-		echo "the serve backend is not the dashboard nginx on loopback: $(gcloud_log)"
+		echo "the serve backend is not the local nginx forward: $(gcloud_log)"
+		return 1
+	}
+	# `tailscale serve` must actually have been configured. The forward itself is
+	# not asserted here on purpose: this suite's stub reports the VM as already
+	# PUBLISHING, so ensure_published short-circuits and never issues one. What
+	# the forward targets is asserted where it is observable, in
+	# test/terraform-demo-driver.bats § "the VM-side forward targets the
+	# dashboard nginx".
+	[[ "$(gcloud_log)" == *"tailscale serve"* ]] || {
+		echo "ts-up never configured serve, so the absences below prove nothing: $(gcloud_log)"
+		return 1
+	}
+
+	# Then the absences.
+	[[ "$(gcloud_log)" != *"/etc/hosts"* ]] || {
+		echo "ts-up still mutates the VM's /etc/hosts for an SNI name nothing routes on: $(gcloud_log)"
 		return 1
 	}
 	[[ "$(gcloud_log)" != *"https+insecure://"* ]] || {
-		echo "the serve backend still dials a TLS hop; nginx speaks http and holds no certificate: $(gcloud_log)"
+		echo "the serve backend still speaks TLS to a backend that serves cleartext: $(gcloud_log)"
 		return 1
 	}
-	[[ "$(gcloud_log)" != *"/etc/hosts"* ]] || {
-		echo "ts-up still edits /etc/hosts on the VM. Nothing on this path needs a name to resolve there any more: $(gcloud_log)"
-		return 1
-	}
-}
-
-@test "TS ts-up installs the forward as a restart-always systemd unit" {
-	# The manual step this replaces. A bare `kubectl port-forward` dies on
-	# apiserver resets and pod restarts and says nothing when it does, which is
-	# how a demo that worked at 21:00 is dead at 09:00. Restart=always is the
-	# whole point of using a unit rather than a nohup'd process, and
-	# StartLimitIntervalSec=0 is what stops systemd giving up during a pod roll.
-	stub_curl 200
-	run "${driver}" ts-up
-	[ "$status" -eq 0 ]
-
-	# LINE-ANCHORED, not a substring of the whole log, and this is not
-	# fastidiousness — the first draft of this test used `== *"Restart=always"*`
-	# and PASSED with `Restart=no` in the unit. The remote script's own comments
-	# travel to the VM inside the heredoc and land in the same log, and one of
-	# them is the sentence "# Restart=always turns a wrong namespace ... into an
-	# infinite restart loop". The assertion was reading prose as data. Its own
-	# mutation run against the real file is what caught it; every directive below
-	# is therefore matched as a COMPLETE LINE, which a comment can never be.
-	local sent
-	sent="$(gcloud_log)"
-
-	grep -qF -- '/etc/systemd/system/signalloom-dashboard-pf.service' <<<"$sent" || {
-		echo "no unit file was written: ${sent}"
-		return 1
-	}
-	grep -qxF -- 'Restart=always' <<<"$sent" || {
-		echo "the unit does not restart. A port-forward that loses its pod exits ZERO,"
-		echo "so on-failure or no leaves the demo dead with the unit reported as"
-		echo "cleanly finished: ${sent}"
-		return 1
-	}
-	grep -qxF -- 'StartLimitIntervalSec=0' <<<"$sent" || {
-		echo "systemd's default rate limit gives up after 5 restarts in 10s and"
-		echo "leaves the unit failed — which a pod roll reaches routinely: ${sent}"
-		return 1
-	}
-	grep -qxF -- 'WantedBy=multi-user.target' <<<"$sent" || {
-		echo "the unit has no [Install] target, so 'systemctl enable' cannot link it"
-		echo "and the forward does not survive a reboot: ${sent}"
-		return 1
-	}
-	grep -qE '^ExecStart=.*port-forward .*svc/dashboard-signalloom' <<<"$sent" || {
-		echo "ExecStart does not forward the dashboard service: ${sent}"
-		return 1
-	}
-	# ENABLEMENT, counted rather than merely present, and the count is the whole
-	# assertion.
-	#
-	# The install script has two branches: unit body changed (write, reload,
-	# enable --now, restart) and unchanged (enable, start if inactive). The stub
-	# receives the ENTIRE SCRIPT as one string, both branches included, so it
-	# cannot report which branch ran — which means a substring match for
-	# "systemctl enable" is satisfied by the other branch and stays green when
-	# the one under test loses it. Proven: dropping `enable --now` from the
-	# fresh-install branch failed nothing at all until this became a count.
-	#
-	# Two is the floor because both branches must enable. `enable` is what links
-	# the unit into multi-user.target; without it the forward comes back from a
-	# reboot only if someone SSHes in, which is the manual step this whole
-	# change exists to delete.
-	[ "$(grep -co 'systemctl enable' <<<"$sent")" -ge 2 ] || {
-		echo "fewer than two 'systemctl enable' calls reached the VM. Both branches"
-		echo "of the install must enable the unit — the one that rewrites it and the"
-		echo "one that finds it already correct. A unit that is started but never"
-		echo "enabled does not survive a reboot:"
-		echo "${sent}"
-		return 1
-	}
-}
-
-@test "TS ts-up refuses when the dashboard service is not in the cluster" {
-	# Restart=always turns a missing service into an infinite restart loop: the
-	# unit reports active, nothing ever binds, and the health gate times out two
-	# minutes later having named nothing. The remote script reads the service
-	# once, first, so the failure is immediate and says which one is missing.
-	export STUB_PF_RC=5
-	stub_curl 200
-	run "${driver}" ts-up
-	[ "$status" -ne 0 ]
-	[[ "$output" == *"fe-signalloom/dashboard-signalloom"* ]] || {
-		echo "the failure did not name the service it could not find: ${output}"
-		return 1
-	}
-	[[ "$(gcloud_log)" != *"tailscale serve"* ]] || {
-		echo "serve was configured in front of a backend that does not exist: $(gcloud_log)"
-		return 1
-	}
-}
-
-@test "TS ts-up refuses when the unit starts and nothing ever listens" {
-	# systemd reports `active` the moment the process is forked, several seconds
-	# before kubectl has an apiserver connection — so "active" is not the
-	# property anything downstream needs, and a unit that is active with no
-	# listener is the exact state a restart loop produces.
-	export STUB_PF_LISTENING=0
-	stub_curl 200
-	run "${driver}" ts-up
-	[ "$status" -ne 0 ]
-	[[ "$output" == *"127.0.0.1:8080"* ]] || {
-		echo "the failure did not name the address nothing was listening on: ${output}"
-		return 1
-	}
-	[[ "$(gcloud_log)" != *"tailscale serve"* ]] || {
-		echo "serve was configured in front of a dead forward: $(gcloud_log)"
-		return 1
-	}
-}
-
-@test "TS ts-up binds the forward to loopback, never to the wildcard address" {
-	# ensure_published binds 0.0.0.0 because the IAP tunnel arrives at the
-	# instance's INTERNAL ip and a loopback bind is unreachable from it. None of
-	# that applies here: tailscale serve runs ON the VM. A wildcard bind would
-	# publish an unauthenticated dashboard on the instance's internal interface,
-	# defended by a firewall rule alone, for no benefit whatsoever.
-	stub_curl 200
-	run "${driver}" ts-up
-	[ "$status" -eq 0 ]
-
-	# Asserted on the ExecStart LINE for the reason recorded in the unit test
-	# above: the surrounding comments discuss both addresses, so a substring
-	# match over the whole log can be satisfied by the explanation rather than by
-	# the directive.
-	local sent
-	sent="$(gcloud_log)"
-	grep -qE '^ExecStart=.*--address 127\.0\.0\.1 8080:8080$' <<<"$sent" || {
-		echo "ExecStart does not bind loopback explicitly: ${sent}"
-		return 1
-	}
-	grep -qE '^ExecStart=.*--address 0\.0\.0\.0' <<<"$sent" && {
-		echo "ExecStart binds the wildcard address: ${sent}"
-		return 1
-	}
-
-	# And the serve backend agrees with it. Two places name this address and a
-	# mutation that changed only one would leave serve dialling a port nothing
-	# binds — a 502 behind a healthy-looking unit.
-	[[ "$sent" == *"http://127.0.0.1:8080"* ]] || {
-		echo "tailscale serve does not dial the address the forward binds: ${sent}"
+	[[ "$(gcloud_log)" != *"dashboard.osramp.acme.local"* ]] || {
+		echo "the Gateway's SNI hostname is still on the Tailscale serving path: $(gcloud_log)"
 		return 1
 	}
 }
@@ -850,7 +720,7 @@ mutate() {
 	}
 }
 
-@test "TS ts-up refuses when T2's origin mechanism is absent, naming the file" {
+@test "TS ts-up refuses when the origin mechanism is absent, naming the file" {
 	unset GCP_TF_DEMO_DEX_ORIGIN_CMD
 	[ ! -f "${root}/scripts/lib/dex-origin.sh" ]
 	run "${driver}" ts-up
@@ -859,8 +729,21 @@ mutate() {
 		return 1
 	}
 	[[ "$output" == *"scripts/lib/dex-origin.sh"* ]]
-	[[ "$output" == *"gcp-tf-public"* ]] || {
-		echo "the refusal did not name the path that works today: ${output}"
+
+	# It must NOT offer the IAP path as the escape hatch any more.
+	#
+	# It used to, and that was correct advice: IAP served at the origin the
+	# manifests already default to, so it needed no mechanism. IAP now claims
+	# http://localhost:<port> like every other method, so sending someone there
+	# hands them the same bouncing login one target along — the most expensive
+	# wrong diagnosis on this lane, delivered by the error message that exists to
+	# prevent it.
+	[[ "$output" != *"make gcp-tf-public ENV="* ]] || {
+		echo "the refusal still offers the IAP path as a mechanism-free fallback: ${output}"
+		return 1
+	}
+	[[ "$output" == *"GCP_TF_DEMO_DEX_ORIGIN_CMD"* ]] || {
+		echo "the refusal did not name the escape hatch that still exists: ${output}"
 		return 1
 	}
 }
@@ -1109,124 +992,6 @@ mutate() {
 	# asserted here rather than left as a comment.
 	[[ "${output}" == *"demo-up: ENV is required"* ]] || {
 		echo "with the Make guard removed nothing stopped the run at all: ${output}"
-		return 1
-	}
-}
-
-@test "TS MUTATION service-precheck: removing it serves in front of a restart loop" {
-	# The pre-flight `kubectl get service` is the difference between "the demo
-	# service is not deployed here, run gcp-tf-demo-up" and two minutes of silence
-	# followed by an empty status code. With it gone, a missing service is no
-	# longer distinguishable from a certificate problem or a dead tailnet.
-	mutate 's|if \[ "\\\$SVC" != "${DASHBOARD_SERVICE}" \]; then|if false; then|'
-
-	export STUB_PF_RC=0
-	stub_curl 200
-	run "${driver}" ts-up
-
-	# The mutated driver no longer names the missing service anywhere.
-	[[ "$output" != *"NO_SERVICE"* ]] || {
-		echo "the mutation did not remove the check: ${output}"
-		return 1
-	}
-}
-
-@test "TS MUTATION backend: reverting to the Gateway reinstates the Host-header 404" {
-	# The regression this whole change exists to prevent. Envoy's listener is
-	# `*.osramp.acme.local` and it matches the request's `:authority`, so a
-	# MagicDNS Host header gets 404 from a healthy Gateway — which reads as a
-	# broken application. Reverting the backend is a one-word edit and its
-	# symptom appears only against a real Envoy, so a guard on the literal is the
-	# only thing that catches it in an offline suite.
-	mutate "s|'http://\${TS_BACKEND_BIND}:\${port}'|'https+insecure://\${DASHBOARD_HOST}:\${port}'|"
-
-	stub_curl 200
-	run "${driver}" ts-up
-	[[ "$(gcloud_log)" == *"https+insecure://dashboard.osramp.acme.local"* ]] || {
-		echo "the mutation did not reach the serve call: $(gcloud_log)"
-		return 1
-	}
-
-	# And the real driver does NOT do that — the clean control, without which
-	# this test would pass against a tree that had already regressed.
-	#
-	# COMMENT-STRIPPED, because the driver now carries two paragraphs explaining
-	# why this exact form was abandoned. A scanner that fired on the sentence
-	# recording the decision would force the explanation out of the file, and
-	# this repo has already had to fix that shape twice — once for
-	# google_secret_manager_secret_version and once for the auth-key literal.
-	run bash -c "sed -e 's/[[:space:]]*#.*\$//' '${DRIVER_SRC}' | grep -c 'https+insecure'"
-	[ "$output" = "0" ] || {
-		echo "the shipped driver still dials a TLS hop to the Gateway on the tailscale path:"
-		sed -e 's/[[:space:]]*#.*$//' "${DRIVER_SRC}" | grep -n 'https+insecure'
-		return 1
-	}
-}
-
-@test "TS MUTATION forward-ordering: serving before the forward publishes nothing" {
-	# ensure_dashboard_forward runs BEFORE ensure_ts_serve because tailscale
-	# accepts a backend that is not answering without complaint. Swapped, the
-	# failure surfaces two minutes later at the health gate as a 502 and names
-	# nothing. Asserted on the source order, because both orders "work" against a
-	# stub that always succeeds — which is precisely why the ordering needs a
-	# guard rather than a comment.
-	local fwd srv
-	fwd="$(grep -n '^  ensure_dashboard_forward$' "${DRIVER_SRC}" | head -1 | cut -d: -f1)"
-	srv="$(grep -n '^  ensure_ts_serve serve' "${DRIVER_SRC}" | head -1 | cut -d: -f1)"
-	[ -n "$fwd" ] || {
-		echo "cmd_ts_up does not call ensure_dashboard_forward at all"
-		return 1
-	}
-	[ -n "$srv" ] || {
-		echo "cmd_ts_up does not call ensure_ts_serve at all"
-		return 1
-	}
-	[ "$fwd" -lt "$srv" ] || {
-		echo "ensure_ts_serve (line ${srv}) runs before ensure_dashboard_forward (line ${fwd})"
-		return 1
-	}
-}
-
-# ── The seam between the stub and the script it models ──────────────────────
-#
-# stub-gcloud dispatches on substrings of the remote command. That is the only
-# thing it can do, and it is also how it goes silently wrong: rename the unit,
-# move to `systemctl --user`, drop the `--address` flag, and the stub's branch
-# stops matching. It then falls through to the catch-all `*) exit 0` — which
-# reports SUCCESS with no output, so ensure_dashboard_forward's own
-# FORWARD_LISTENING check fails and every test in this file goes red for a
-# reason that has nothing to do with the defect. Or worse, an assertion that
-# only looked for a substring in the log keeps passing.
-#
-# This asserts the markers the stub keys on are actually present in the shipped
-# driver, so the fixture cannot quietly encode a contract the code has left.
-
-@test "SEAM the stub's dispatch markers still exist in the real driver" {
-	local marker
-	for marker in 'port-forward' 'systemctl is-active' 'tailscale serve' 'tailscale funnel' 'ss -ltn'; do
-		grep -qF -- "$marker" "${DRIVER_SRC}" || {
-			echo "stub-gcloud dispatches on '${marker}', which the driver no longer issues."
-			echo "That branch is now unreachable and its knob is dead configuration;"
-			echo "the stub would fall through to its catch-all and report success"
-			echo "with no output."
-			return 1
-		}
-	done
-}
-
-@test "SEAM the forward's remote script emits what its caller checks for" {
-	# ensure_dashboard_forward greps its own remote output for FORWARD_LISTENING
-	# and refuses without it. Caller and callee are in the same file and could
-	# drift in one edit, and the failure would be a refusal on a working estate.
-	grep -qF 'FORWARD_LISTENING' "${DRIVER_SRC}" || {
-		echo "the driver no longer emits FORWARD_LISTENING"
-		return 1
-	}
-	# Emitted by the remote heredoc AND consumed by the local check: two
-	# occurrences minimum. One means half the handshake was deleted.
-	[ "$(grep -cF 'FORWARD_LISTENING' "${DRIVER_SRC}")" -ge 2 ] || {
-		echo "FORWARD_LISTENING appears once — either the emit or the check is gone,"
-		echo "and a one-sided handshake refuses on a healthy estate or accepts a dead one."
 		return 1
 	}
 }

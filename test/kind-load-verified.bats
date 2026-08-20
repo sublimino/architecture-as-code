@@ -622,6 +622,38 @@ setup() {
 	[ "$output" -gt 0 ]
 }
 
+@test "KINDLOAD the recovery PURGES the existing image before importing over it" {
+	# Measured on sl-demo-1, 2026-08-20: netassert-controller:dev was imported
+	# and labelled correctly and the CRI still refused it for 334 seconds,
+	# because a blob already in the content store was an HTML error page rather
+	# than a layer. Docker's copy was intact; only containerd's was holed. An
+	# import on top of that merges into the damaged entry and inherits the hole.
+	#
+	# signalfusion-images.sh has always removed the image first; this script
+	# never did, and that divergence is why one recovery path worked on demo-2
+	# while this one failed twice on demo-1.
+	CONTAINERD_STORE=1 CTR_IMPORT_IMAGE="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	run grep -c "images rm" "$CALL_LOG"
+	[ "$output" -gt 0 ]
+}
+
+@test "KINDLOAD MUTATION the purge happens BEFORE the import, not after" {
+	# Ordering is the entire point. A remove that lands after the import
+	# deletes what was just recovered, and one that never runs leaves the
+	# poison — so asserting both calls exist proves nothing on its own.
+	CONTAINERD_STORE=1 CTR_IMPORT_IMAGE="fake-integration-proxy:dev" \
+		run bash "$script" fake-integration-proxy:dev
+	[ "$status" -eq 0 ]
+	local rm_line import_line
+	rm_line="$(grep -n "images rm" "$CALL_LOG" | head -1 | cut -d: -f1)"
+	import_line="$(grep -n "images import" "$CALL_LOG" | head -1 | cut -d: -f1)"
+	[ -n "$rm_line" ]
+	[ -n "$import_line" ]
+	[ "$rm_line" -lt "$import_line" ]
+}
+
 @test "KINDLOAD content absent and the export failing still fails CLOSED" {
 	# Neither path can deliver. The run must fail and say so — a recovery that
 	# cannot recover must never report success.

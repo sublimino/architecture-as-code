@@ -137,6 +137,38 @@ recover_via_archive() {
   "$DOCKER_BIN" save -o "$tar" "$image" \
     || { warn "docker save failed for $image"; return 1; }
 
+  # ─── Purge before import. Importing over a poisoned entry keeps the poison ──
+  #
+  # Measured on sl-demo-1, 2026-08-20. `netassert-controller:dev` was imported
+  # and labelled correctly, and the CRI still refused it for 334 seconds.
+  # containerd said why:
+  #
+  #   Failed to handle backOff event ... netassert-controller:dev
+  #   error="update image store: get image diffIDs: unexpected media type
+  #          text/html for sha256:e629c886…: not found"
+  #
+  # A blob in the content store was an HTML error page rather than a layer —
+  # the exact `unexpected media type text/html` failure this file's header
+  # describes. Docker's copy was FINE (6 layers, intact); only containerd's was
+  # holed. So the fault is in what survived a previous transfer, not in the
+  # source, and re-importing on top of it merges into the damaged entry and
+  # inherits the hole. `ctr images import` does not replace an existing image
+  # wholesale.
+  #
+  # signalfusion-images.sh has removed the image before importing since it was
+  # written; this file never did. That divergence is the whole reason one
+  # recovery path worked on demo-2 while this one failed twice on demo-1 for
+  # the same image class. Three copies of one model drifting apart is the
+  # defect scripts/lib/image-identity.sh exists to close, and the budget for
+  # this same poll had drifted four ways for the same reason.
+  #
+  # `|| true`: the image legitimately may not be there at all — that is the
+  # ordinary case for a first load, and removing nothing must not fail the run.
+  log "recovery: removing any existing $image on $NODE before import"
+  "$DOCKER_BIN" exec "$NODE" \
+    ctr -n k8s.io images rm "$(canonical_ref "$image")" >/dev/null 2>&1 \
+    || true
+
   log "recovery: importing $image into containerd on $NODE"
   "$DOCKER_BIN" exec -i "$NODE" \
     ctr -n k8s.io images import --all-platforms --digests --snapshotter=overlayfs - <"$tar" \
@@ -220,6 +252,34 @@ recover_via_archive() {
   done
   elapsed=$(( $(date +%s) - started ))
   warn "$image is labelled but the CRI has not adopted the recovered image after ${checks} checks over ${elapsed}s"
+
+  # ─── Say WHY, when containerd already knows ─────────────────────────────
+  #
+  # "has not adopted after N checks over Ns" is a symptom, and on 2026-08-20 it
+  # sent this author to raise the budget from 20 to 300 — which turned a 22
+  # second failure into a 334 second one and fixed nothing, because the image
+  # was corrupt and no budget would ever have been enough.
+  #
+  # containerd had said so the whole time. It logs a diffID failure naming the
+  # unreadable blob, and that error distinguishes the two cases that matter:
+  # SLOW (adoption still in progress, a bigger budget genuinely helps) from
+  # POISONED (a blob is unreadable, waiting is futile and the content must be
+  # purged). Surfacing it costs one journalctl call on a path that has already
+  # given up, and it is the difference between the next person fixing the fault
+  # and the next person tuning a number.
+  local why
+  why="$("$DOCKER_BIN" exec "$NODE" journalctl -u containerd --no-pager -n 200 2>/dev/null \
+    | grep -F "$(canonical_ref "$image")" \
+    | grep -iE 'unexpected media type|get image diffIDs|failed to unpack' \
+    | tail -1)"
+  if [ -n "$why" ]; then
+    warn "containerd says the content is UNUSABLE, not merely slow — no budget fixes this:"
+    warn "  ${why}"
+    warn "a blob in the content store is not a layer (typically an HTML error page from a"
+    warn "failed pull). The image must be purged and re-imported, or rebuilt:"
+    warn "  docker exec ${NODE} ctr -n k8s.io images rm $(canonical_ref "$image")"
+    warn "  then re-run this script, which now purges before importing"
+  fi
   return 1
 }
 

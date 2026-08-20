@@ -1936,25 +1936,69 @@ ts_name_marker() {
 
 # Is the node currently serving? Prints exactly one of: present, absent, unknown.
 #
-# THREE answers, not a boolean, and the third is the whole reason this is not a
-# boolean. `tailscale serve status` prints the literal `No serve config` when
-# there is nothing configured — that string is the ONLY positive evidence of
-# absence available here. An empty reply, an SSH failure, a sudo refusal and a
-# tailscale that is not running all produce no output, and collapsing those into
-# "absent" would make an unreachable node look like a safe one to log out.
+# ─── THREE answers, not a boolean ───────────────────────────────────────────
 #
-# Nothing here shells out more than once: the caller decides what to do with the
-# answer, and the answer is a fact rather than a policy.
+# The third is the whole reason this is not a boolean. Only two things are
+# positive evidence of ABSENCE: `{}` from the JSON form, or the literal
+# `No serve config` from the prose one. An empty reply, an SSH failure, a sudo
+# refusal and a stopped tailscaled all produce nothing — and collapsing those
+# into "absent" would make an unreachable node look like a safe one to log out,
+# which is the exact mistake that wipes a live demo.
+#
+# ─── MEASURED CONTRACT, on the real image ───────────────────────────────────
+#
+# sl-demo-1-vm, idle node, tailscale 1.102.3, 2026-08-20:
+#
+#   $ sudo tailscale serve status
+#   EXIT=0  STDOUT=[No serve config]  STDERR=[]  STDOUT_BYTES=15
+#
+#   $ sudo tailscale serve status --json
+#   {}
+#   EXIT=0
+#
+# Corroborated on demo-2 during the serve-survival experiment, where the same
+# prose string appeared after a logout cycle.
+#
+# ─── Why BOTH forms, in this order ──────────────────────────────────────────
+#
+# `--json` is asked first because `{}` is a far stabler contract than a prose
+# sentence: a future release is much likelier to reword "No serve config" than
+# to stop emitting `{}` for an empty config.
+#
+# The prose form is kept as a FALLBACK rather than deleted, because the reverse
+# risk is real too — an older or stripped build without `--json` would answer
+# nothing, and a JSON-only probe would then return "unknown" and refuse every
+# unforced logout. Asking both means either contract can break on its own and
+# this still returns a usable answer. Both paths are independently tested;
+# neither is dead code standing in for the other.
+#
+# DO NOT loosen either comparison. `{}` is matched after whitespace stripping,
+# and the prose match is on the exact sentence. Widening these to something
+# like "empty" or a substring of the URL is how a serving node starts reading
+# as idle.
 ts_serve_state() {
-  local out
-  out="$(remote_run 'sudo tailscale serve status 2>&1' 2>/dev/null || printf '')"
+  local json prose
 
-  if [ -z "$(printf '%s' "$out" | tr -d '[:space:]')" ]; then
+  json="$(remote_run 'sudo tailscale serve status --json 2>/dev/null' 2>/dev/null || printf '')"
+  json="$(printf '%s' "$json" | tr -d '[:space:]')"
+
+  if [ -n "$json" ]; then
+    if [ "$json" = "{}" ]; then
+      printf 'absent'
+    else
+      printf 'present'
+    fi
+    return 0
+  fi
+
+  prose="$(remote_run 'sudo tailscale serve status 2>&1' 2>/dev/null || printf '')"
+
+  if [ -z "$(printf '%s' "$prose" | tr -d '[:space:]')" ]; then
     printf 'unknown'
     return 0
   fi
 
-  case "$out" in
+  case "$prose" in
     *"No serve config"*) printf 'absent' ;;
     *) printf 'present' ;;
   esac

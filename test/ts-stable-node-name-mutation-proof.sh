@@ -309,6 +309,22 @@ echo "M34 the refusal status collides with die's, as it originally did"
 mutate "$DRIVER" 's@^TS_LOGOUT_REFUSED=97@TS_LOGOUT_REFUSED=2@'
 check "M34 refusal status is distinct" "ts-logout exits 0 when the hand-off file is missing"
 
+# M36-M38 cover the two-form probe. Each form is falsified INDEPENDENTLY,
+# because the whole reason both exist is that either contract may break on its
+# own — and a fallback that is never exercised is just dead code standing in
+# for the path that does the work.
+echo "M36 the empty-JSON literal stops being recognised as idle"
+mutate "$DRIVER" 's@^    if \[ "$json" = "{}" \]; then@    if false; then@'
+check "M36 empty JSON is idle" "an idle node is recognised from --json alone"
+
+echo "M37 the prose fallback is dropped, so a build without --json refuses"
+mutate "$DRIVER" 's@^  prose="$(remote_run .sudo tailscale serve status 2>&1. 2>/dev/null || printf ..)"@  prose=""@'
+check "M37 prose fallback works" "the prose form is a working fallback when --json is unavailable"
+
+echo "M38 the measured contract loses its version provenance"
+mutate "$DRIVER" 's@tailscale 1.102.3@a recent tailscale@'
+check "M38 contract provenance recorded" "the measured serve contract is recorded with its version"
+
 echo "M35 the refusal stops naming the override"
 mutate "$DRIVER" 's@make gcp-tf-ts-logout ENV=${ENV_KEY} FORCE=1   # yes, take the demo down@see the docs@'
 check "M35 refusal names the override" "the refusal explains the consequence and names the override"

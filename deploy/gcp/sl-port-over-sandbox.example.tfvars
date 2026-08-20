@@ -124,12 +124,48 @@ dns_managed_zone = ""
 # reusable + ephemeral + pre-approved, each for a reason:
 #   reusable      the VM re-runs its bootstrap on rebuild; a single-use key
 #                 works exactly once and then fails silently forever after.
-#   ephemeral     Tailscale reaps the node shortly after it goes offline, so
-#                 `make gcp-tf-destroy` does not leave a dead device behind.
-#                 It pairs with the deterministic hostname the module derives
-#                 from the environment key: demo-1 is always "sl-demo-1".
+#   ephemeral     MANDATORY. Not a nicety — see the block below.
 #   pre-approved  device approval is a manual step, and a node that boots at
 #                 03:00 waiting for a human is a node that is simply down.
+#
+# ─── EPHEMERAL IS MANDATORY, and here is the bill for getting it wrong ──────
+#
+# `terraform destroy` removes the GCP instance. NOTHING IN TERRAFORM REMOVES THE
+# TAILNET DEVICE RECORD — Tailscale is not a Terraform-managed resource in this
+# estate and there is no Tailscale API credential anywhere in it (checked:
+# `gcloud secrets list` returns exactly one Tailscale-related secret,
+# sl-demo-tailscale-authkey, which is an auth key and cannot delete devices).
+#
+# So the ONLY two things that ever free the name are:
+#
+#   1. `tailscale logout` before the VM dies. Primary path, wired into
+#      `make gcp-tf-destroy`, plus a systemd ExecStop unit on the VM as the
+#      backstop for hard kills. Neither can cover a VM that is already gone.
+#   2. Tailscale's own reap of an EPHEMERAL node a few minutes after it goes
+#      offline. This is the only mechanism that covers case 1's gap, and it
+#      exists only if the key was minted ephemeral.
+#
+# When both are absent the offline device keeps owning the name and the next
+# build is handed the next free suffix. Measured on 2026-08-18: sl-demo-1 was
+# destroyed and rebuilt, and the new node joined as sl-demo-1-1. The suffix is a
+# function of how many corpses exist, so the URL drifts further every rebuild.
+#
+# THE KEY BEHIND THIS ENVIRONMENT WAS NOT EPHEMERAL, and that is measured rather
+# than inferred from the drift: the stale device was last seen at 02:01:14Z and
+# was still registered at 02:48:51Z — 47 minutes disconnected, well past the
+# ~30-minute reap window. An ephemeral node would have been gone. Re-mint it
+# with `ephemeral ✓` and replace the secret's payload with a new version.
+#
+# Why the fix is not a random hostname suffix: it was considered and rejected.
+# A suffix makes the name unique and unpredictable, and the entire point of this
+# access plane is a URL that can be sent to someone BEFORE the VM has booted.
+# Uniqueness is not the property being defended; stability is.
+#
+# How you find out it went wrong: the startup script asserts the granted
+# MagicDNS name against the requested one and, on a mismatch, logs at ERROR and
+# writes /var/lib/signalloom/tailscale-name-mismatch. `make gcp-tf-demo-status`
+# and `make gcp-tf-ts-status` both read that marker and FAIL on it. It never
+# silently accepts the suffixed name.
 tailscale_enabled           = true
 tailscale_authkey_secret_id = "sl-demo-tailscale-authkey"
 tailscale_tag               = "tag:sl-demo"

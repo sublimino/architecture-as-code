@@ -39,6 +39,24 @@ readonly LOG_TAG="signalloom-bootstrap"
 readonly MARKER="/var/lib/signalloom/.bootstrapped"
 readonly METADATA_ROOT="http://169.254.169.254/computeMetadata/v1"
 
+# Written when this node joins the tailnet under a name that is NOT the one it
+# asked for, and REMOVED on every boot that gets the right name. The path is
+# part of the contract with scripts/gcp-tf/demo-up.sh, which reads it in
+# `status` and `ts-status` and reports a mismatch as a FAILURE; it is stated in
+# docs/gcp-demo/RUNBOOK.md § "The demo URL drifted".
+#
+# A file rather than a log line because the log is on the VM's serial console
+# and nothing reads it. The whole failure this guards against is silent name
+# drift, so the signal has to survive until somebody asks a question.
+#
+# CONTAINS NO KEY MATERIAL, and that is asserted by
+# test/terraform-ts-stable-node-name.bats rather than left to good intentions.
+readonly TS_NAME_MARKER="/var/lib/signalloom/tailscale-name-mismatch"
+
+# The shutdown-time logout unit. See install_tailscale_logout_unit.
+readonly TS_LOGOUT_UNIT_NAME="signalloom-tailscale-logout.service"
+readonly TS_LOGOUT_UNIT="/etc/systemd/system/${TS_LOGOUT_UNIT_NAME}"
+
 log() {
   echo "[${LOG_TAG}] $*"
   logger -t "$LOG_TAG" -- "$*" || true
@@ -239,10 +257,9 @@ install_kubectl() {
 # roles/secretmanager.secretAccessor on that one secret, which modules/compute
 # grants to the runtime service account and to nothing else.
 #
-# The key itself is minted reusable + ephemeral + pre-approved. Ephemeral is the
-# part that pairs with the deterministic hostname below: Tailscale reaps an
-# ephemeral node shortly after it goes offline, so a destroyed demo VM does not
-# leave a stale device in the tailnet, and a rebuilt one reclaims the same name.
+# The key itself MUST be minted reusable + ephemeral + pre-approved, and
+# "ephemeral" is the half that this file cannot enforce and depends on totally.
+# See the long note above bring_tailscale_up for what a non-ephemeral key costs.
 #
 # ─── Egress requirements, stated because they are easy to get wrong ─────────
 #
@@ -423,6 +440,46 @@ fetch_tailscale_authkey() {
 }
 
 # Brings the node up non-interactively.
+#
+# ─── The name is the product, and it is not guaranteed by --hostname ────────
+#
+# THIS COMMENT USED TO CLAIM the rebuilt VM "reclaims sl-demo-1 rather than
+# accumulating sl-demo-1-2, sl-demo-1-3". Nothing implemented that, and the
+# claim is why the drift went unnoticed: a comment asserting an invariant the
+# code does not hold reads as a guarantee to everyone downstream of it.
+#
+# Measured on 2026-08-18, after sl-demo-1 was destroyed and rebuilt:
+#
+#   HostName=sl-demo-1  DNSName=sl-demo-1.taild4da3.ts.net.    online=false
+#   HostName=sl-demo-1  DNSName=sl-demo-1-1.taild4da3.ts.net.  online=true
+#
+# --hostname IS honoured — HostName is identical on both records. What drifts is
+# the MagicDNS name, because `terraform destroy` removes the GCP instance and
+# NOTHING removes the tailnet device record. The corpse still owns the name, so
+# the new node is assigned the next free suffix. The suffix is a function of how
+# many corpses exist, so the URL moves further on every rebuild.
+#
+# That matters here specifically because the whole point of this access plane is
+# a URL that can be sent to somebody BEFORE the VM has booted. A name that is
+# only knowable after the fact is not a name you can put in a calendar invite.
+#
+# ─── The two mechanisms that keep the name, and the one that catches it ─────
+#
+#   1. Removal on teardown, which is the real fix. Primary path: demo-up.sh
+#      runs `tailscale logout` over SSH before `terraform destroy` (wired into
+#      the gcp-tf-destroy target). Backstop for hard kills: the systemd unit
+#      installed by install_tailscale_logout_unit below.
+#   2. An EPHEMERAL auth key, so a node that dies without logging out is reaped
+#      by Tailscale itself a few minutes after it goes offline. This file cannot
+#      verify the key is ephemeral — that is a property of how it was minted,
+#      and it is stated as a requirement in deploy/gcp/*.example.tfvars.
+#   3. assert_tailscale_node_name, below, which is what turns a failure of 1
+#      and 2 from silent drift into a loud, durable signal.
+#
+# A random or hex suffix was considered for the hostname and REJECTED. It fixes
+# collision and destroys the property being defended: the name would be unique
+# and unpredictable, when what is needed is a name that is stable and knowable
+# in advance.
 bring_tailscale_up() {
   local authkey="$1" tag="$2" node_name="$3" want_ssh="$4"
   local args=()
@@ -432,9 +489,9 @@ bring_tailscale_up() {
   # disappears from the tailnet when their account does.
   args+=("--advertise-tags=${tag}")
 
-  # Deterministic, derived from the environment key by Terraform. Predictable
-  # naming is what makes the ephemeral reap predictable too: the rebuilt VM
-  # reclaims sl-demo-1 rather than accumulating sl-demo-1-2, sl-demo-1-3.
+  # Deterministic, derived from the environment key by Terraform. Requested, not
+  # guaranteed — see the long note above. assert_tailscale_node_name checks what
+  # was actually granted.
   args+=("--hostname=${node_name}")
 
   # ─── --accept-dns=false is load-bearing, not tidiness ────────────────────
@@ -465,7 +522,212 @@ bring_tailscale_up() {
     return 0
   }
 
+  # Install the backstop BEFORE asserting the name. The two are independent: a
+  # node that came up under the wrong name still has a device record that must
+  # be released on shutdown, and skipping the unit on the mismatch path would
+  # leave exactly the corpse that caused the mismatch in the first place.
+  install_tailscale_logout_unit
+
+  assert_tailscale_node_name "$node_name" || return 1
+
   log "tailscale is up as ${node_name} (${tag})"
+}
+
+# This node's own MagicDNS name, as the tailnet reports it. Empty when it cannot
+# be read, which is a distinct outcome from a mismatch and is treated as one.
+#
+# --peers=false is load-bearing rather than tidiness. EVERY peer object carries
+# its own "DNSName" field, so against a full status document a first-match
+# extraction returns whichever node the daemon happened to serialise first —
+# which on a healthy tailnet is somebody else's laptop, and the resulting
+# "mismatch" would name a machine that has nothing to do with this one.
+#
+# grep -o then cut, rather than sed: a `sed -n 's/.*"DNSName".*/\1/p'` is greedy
+# and silently binds to the LAST occurrence, so it would keep working right up
+# until the day --peers=false is removed and then be wrong without changing.
+# Taking the FIRST match explicitly is the same cost and does not have that
+# property.
+#
+# No jq anywhere, for the reason stated above fetch_tailscale_authkey: jq is
+# deliberately not a prerequisite of this script.
+tailscale_self_dnsname() {
+  tailscale status --json --peers=false 2>/dev/null |
+    tr -d '\n' |
+    grep -o '"DNSName"[[:space:]]*:[[:space:]]*"[^"]*"' |
+    head -n 1 |
+    sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+# Did the tailnet give us the name we asked for?
+#
+# Logged at ERROR, not WARNING. This file's convention is that WARNING means
+# degradation — a feature that did not come up, on a VM that is otherwise fine.
+# This is not degradation. Tailscale is fully working; it is working under a
+# name nobody can predict, which means every URL handed out in advance is wrong.
+# The estate is up and the deliverable is broken, and those two need different
+# words or the second one is never read.
+#
+# NEVER falls back to accepting the suffixed name. Accepting it would make the
+# node reachable and the drift permanent, which is how sl-demo-1-1 was reached
+# in the first place.
+assert_tailscale_node_name() {
+  local want="$1" got label
+
+  got="$(tailscale_self_dnsname)"
+
+  if [[ -z "$got" ]]; then
+    log "ERROR: joined the tailnet but could not read this node's MagicDNS name"
+    log "ERROR: 'tailscale status --json --peers=false' returned no DNSName"
+    log "ERROR: the name this node answers to is UNVERIFIED; treat any URL"
+    log "ERROR: derived from '${want}' as unconfirmed"
+    write_ts_name_marker "$want" "(unreadable)"
+    return 1
+  fi
+
+  # Trailing-dot safe. The API returns a correct FQDN — "sl-demo-1.tailnet.ts.net."
+  # — and the trailing dot is part of that correctness, not a defect to work
+  # around. Comparing the raw string to a short hostname fails on every healthy
+  # node, so this is the difference between a guard and a permanent false alarm.
+  got="${got%.}"
+
+  # The first label is what matters: the suffix belongs to the tailnet, not to
+  # this node, and hardcoding it here would be the "no literal FQDN" rule broken
+  # in the one place it is easiest to break it.
+  label="${got%%.*}"
+
+  if [[ "$label" == "$want" ]]; then
+    # Clear a marker from an EARLIER boot. Without this a single historical
+    # mismatch makes a healthy VM report failure forever, and a guard that
+    # cannot go back to green is a guard people learn to ignore.
+    rm -f "$TS_NAME_MARKER"
+    log "tailscale node name verified: ${got}"
+    return 0
+  fi
+
+  log "ERROR: tailscale assigned a different name than the one requested"
+  log "ERROR: requested '${want}', got '${label}' (fqdn ${got})"
+  log "ERROR: a stale device record still owns '${want}' in this tailnet."
+  log "ERROR: Nothing in 'terraform destroy' removes a tailnet device, so a"
+  log "ERROR: previously destroyed VM keeps the name and this one is suffixed."
+  log "ERROR: Remove the offline '${want}' device in the admin console, or"
+  log "ERROR: confirm the auth key is EPHEMERAL, then rebuild:"
+  log "ERROR:   https://login.tailscale.com/admin/machines"
+  write_ts_name_marker "$want" "$got"
+  return 1
+}
+
+# The durable half of the signal. Content is read by a human and grepped by
+# demo-up.sh, so the two field names are a contract; the rest is prose.
+#
+# Nothing here interpolates the auth key, and nothing here can: this function is
+# not passed it and is not in a position to see it.
+write_ts_name_marker() {
+  local want="$1" got="$2"
+
+  install -d -m 0755 "$(dirname "$TS_NAME_MARKER")" || return 0
+
+  # 0644: the marker is a diagnosis, not a secret, and demo-up.sh reads it as
+  # whichever unprivileged account OS Login created.
+  cat >"$TS_NAME_MARKER" <<EOF || return 0
+requested: ${want}
+observed:  ${got}
+detected:  $(date --iso-8601=seconds)
+
+This node did not get the MagicDNS name it asked for, so any URL built from
+'${want}' points at the wrong node or at nothing.
+
+Cause: 'terraform destroy' removes the GCP instance and does not remove the
+tailnet device record. The offline device still owns the name, and this node
+was given the next free suffix.
+
+Fix: delete the offline '${want}' device at
+https://login.tailscale.com/admin/machines, and confirm the auth key in Secret
+Manager is EPHEMERAL so the next one is reaped automatically.
+EOF
+  chmod 0644 "$TS_NAME_MARKER" 2>/dev/null || true
+}
+
+# Releases this node's tailnet device record when the machine shuts down.
+#
+# ─── This is the BACKSTOP, not the primary mechanism ────────────────────────
+#
+# The primary removal is demo-up.sh's `ts-logout`, run over SSH before
+# `terraform destroy`. That one is primary because it is observable: it runs on
+# the operator's terminal, its output is on screen, and a destroy is a
+# deliberate act with somebody watching it. This unit covers what that cannot —
+# a hard stop, a preemption, an instance deleted from the console, a destroy run
+# from somewhere else.
+#
+# ─── Why the ordering works, which is the whole subtlety ────────────────────
+#
+# DefaultDependencies is left ON deliberately. It gives this unit the implicit
+# `Before=shutdown.target` and `Conflicts=shutdown.target` that make systemd
+# stop it as part of every shutdown. Shutdown ordering is the INVERSE of start
+# ordering, so the explicit `After=network-online.target tailscaled.service`
+# here means the unit is stopped BEFORE tailscaled stops and BEFORE the network
+# goes — which is precisely the window in which a logout can still reach the
+# coordination server.
+#
+# Turning DefaultDependencies off, as the obvious hand-written version of this
+# unit does, removes the implicit shutdown conflict and the unit is then simply
+# never stopped. It would look installed, enabled and correct, and do nothing.
+#
+# ─── Why every failure is swallowed ─────────────────────────────────────────
+#
+# `ExecStop=-` prefix: a logout that fails because the tailnet is already
+# unreachable, because tailscaled is already down, or because this node was
+# never logged in must not hold a shutdown open or mark the boot failed. The
+# unit's job is to improve the odds of a clean release, never to have an opinion
+# about the shutdown itself. TimeoutStopSec caps the cost of the pathological
+# case at 15 seconds.
+install_tailscale_logout_unit() {
+  # `if ! cat <<HEREDOC ... then`, not `cat <<HEREDOC || { ... }`. The second
+  # form puts an unterminated brace group on the same line as the heredoc
+  # operator, and where the body ends and the group begins is genuinely
+  # ambiguous. This form has no such question.
+  if ! cat >"$TS_LOGOUT_UNIT" <<'UNIT'
+[Unit]
+Description=Release this node's Tailscale device record on shutdown
+Documentation=https://tailscale.com/kb/1099/device-approval
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=-/usr/bin/tailscale logout
+TimeoutStopSec=15
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+  then
+    log "WARNING: could not write ${TS_LOGOUT_UNIT}"
+    log "WARNING: this node will rely on the ephemeral key reap alone"
+    return 0
+  fi
+
+  systemctl daemon-reload || {
+    log "WARNING: systemctl daemon-reload failed; ${TS_LOGOUT_UNIT_NAME} is not active"
+    return 0
+  }
+
+  # enable AND start. `enable` alone only arms it for the NEXT boot, and a
+  # oneshot with RemainAfterExit has to be STARTED for its ExecStop to run at
+  # all — so an enabled-but-never-started unit is the exact shape of a guard
+  # that looks installed and has never once fired.
+  systemctl enable "$TS_LOGOUT_UNIT_NAME" || {
+    log "WARNING: could not enable ${TS_LOGOUT_UNIT_NAME}"
+    return 0
+  }
+
+  systemctl start "$TS_LOGOUT_UNIT_NAME" || {
+    log "WARNING: could not start ${TS_LOGOUT_UNIT_NAME}; its ExecStop will not run"
+    return 0
+  }
+
+  log "${TS_LOGOUT_UNIT_NAME} installed — this node releases its tailnet name on shutdown"
 }
 
 # ---------------------------------------------------------------------------

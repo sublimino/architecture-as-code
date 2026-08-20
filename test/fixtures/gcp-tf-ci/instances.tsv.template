@@ -1,21 +1,79 @@
-# Adversarial instance list for the reaper tests. Tab-separated, matching
-#   gcloud compute instances list --format=value(name,zone,labels.ci-lane,lastStartTimestamp,status)
+# Adversarial instance list for the reaper tests. PIPE-separated, matching
+#   gcloud compute instances list \
+#     --format=value[separator='|'](name,zone,labels.ci-lane,lastStartTimestamp,status,labels.kind,labels.environment)
 #
 # @OLD@ and @NEW@ are substituted at test time with timestamps well past and
 # well inside the idle threshold. Comment lines are stripped by the test.
 #
-# The rows are chosen so that each of the reaper's four gates is the ONLY thing
-# standing between a demo or legacy VM and a suspend call:
+# ─── Why the separator is `|` and not a tab, which is a real bug it caught ──
 #
-#   sl-demo-1-vm      carries ci-lane = demo-1  -> gate 2 (label value) must reject
-#   signalloom-ci     carries a VALID ci-1 label -> gate 3 (name shape) must reject
-#   signalloom-ci-2   carries a VALID ci-2 label -> gate 3 (name shape) must reject
-#   sl-demo-2-runner  name looks lane-shaped     -> gates 2 and 3 must both reject
-#   sl-ci-9-runner    a genuine lane, but young  -> the threshold must reject
-sl-ci-1-runner	europe-west2-a	ci-1	@OLD@	RUNNING
-sl-ci-2-runner	europe-west2-b	ci-2	@OLD@	RUNNING
-sl-demo-1-vm	europe-west2-a	demo-1	@OLD@	RUNNING
-signalloom-ci	europe-west2-a	ci-1	@OLD@	RUNNING
-signalloom-ci-2	europe-west2-a	ci-2	@OLD@	RUNNING
-sl-demo-2-runner	europe-west2-a	demo-2	@OLD@	RUNNING
-sl-ci-9-runner	europe-west2-a	ci-9	@NEW@	RUNNING
+# This file was tab-separated and the reaper read it with `IFS=$'\t' read`.
+# Tab is an IFS *whitespace* character, so bash collapses RUNS of it into one
+# delimiter — and the sl-ci-4-vm row below, whose whole purpose is an EMPTY kind
+# column, therefore parsed as SIX fields with every later column shifted one to
+# the left. `kind` silently received `ci-4`, the environment value.
+#
+# The gate still refused the row, because `ci-4` is not `ci`. That is what makes
+# it worth recording here: the reaper was reading the wrong column and the
+# OUTCOME was identical, so nothing in a green run would ever have shown it.
+# `|` is not IFS whitespace, empty fields survive, and positions are stable.
+# GCP restricts label values, instance names and zones to [a-z0-9_-], so no
+# field can contain the separator.
+#
+# ─── The two columns that were appended, and why they are at the END ────────
+#
+# labels.kind and labels.environment arrived on 2026-08-20 when the reaper's
+# selector moved off the instance NAME and onto the ci-lane label. They are
+# appended rather than inserted so every pre-existing field keeps its position:
+# a stale row with only five columns degrades to an EMPTY kind, and gate 3
+# compares kind for equality with "ci", so an empty value is a refusal. Short
+# rows fail closed, which is the whole reason for the ordering.
+#
+# ─── Each row exists so that exactly ONE gate is the last line of defence ───
+#
+# The gates, from scripts/ci/gcp-tf-reaper.sh:
+#   1 ci-lane label present   2 ci-lane matches ^ci-N$   3 kind label == "ci"
+#   4 environment == ci-lane  5 demo markers refused     6 protected denylist
+#
+#   sl-ci-1-vm        genuine lane, old        -> REAPED. The positive control.
+#   sl-ci-2-vm        genuine lane, old        -> REAPED. Second lane, no contention.
+#   sl-demo-1-vm      honestly labelled demo   -> gates 2, 3, 4 and 5 all reject.
+#                                                 THIS IS THE LIVE DEMO.
+#   sl-demo-2-vm      demo carrying a VALID    -> gates 1 and 2 PASS. Only gates
+#                     ci-lane label               3, 4 and 5 stand between this
+#                                                 row and a suspend. Before the
+#                                                 selector moved, the NAME gate
+#                                                 caught this; it no longer can.
+#   sl-demo-3-vm      demo whose kind AND      -> gates 1, 2, 3 and 4 ALL PASS.
+#                     environment labels have     ONLY gate 5's name check stops
+#                     been forged to match ci     it. This row is the reason
+#                                                 gate 5 is not decoration.
+#   signalloom-ci     legacy runner, valid ci-1-> only gate 6 rejects it.
+#   signalloom-ci-2   legacy runner, valid ci-2-> only gate 6 rejects it.
+#   sl-ci-4-vm        kind label MISSING       -> gate 3 must reject an absent
+#                                                 value, not read it as unset-
+#                                                 and-therefore-fine.
+#   sl-ci-5-vm        environment disagrees    -> only gate 4 rejects it. The
+#                     with ci-lane (ci-6/ci-5)    disagreeing value is itself a
+#                                                 CI key, so gate 5 cannot fire
+#                                                 and gate 4 is genuinely alone.
+#   sl-ci-7-vm        genuine lane, SUSPENDED  -> admitted past every safety gate
+#                                                 and then left alone on state.
+#                                                 Realistic: a demo lane is
+#                                                 suspended right now for cost.
+#   sl-ci-8-vm        unreadable timestamp     -> left alone. The safe failure for
+#                                                 a script that turns machines off
+#                                                 is to leave them on.
+#   sl-ci-9-vm        genuine lane, young      -> only the threshold rejects it.
+sl-ci-1-vm|europe-west2-a|ci-1|@OLD@|RUNNING|ci|ci-1
+sl-ci-2-vm|europe-west2-b|ci-2|@OLD@|RUNNING|ci|ci-2
+sl-demo-1-vm|europe-west2-a|demo-1|@OLD@|RUNNING|demo|demo-1
+sl-demo-2-vm|europe-west2-a|ci-1|@OLD@|RUNNING|demo|demo-2
+sl-demo-3-vm|europe-west2-a|ci-3|@OLD@|RUNNING|ci|ci-3
+signalloom-ci|europe-west2-a|ci-1|@OLD@|RUNNING|ci|ci-1
+signalloom-ci-2|europe-west2-a|ci-2|@OLD@|RUNNING|ci|ci-2
+sl-ci-4-vm|europe-west2-a|ci-4|@OLD@|RUNNING||ci-4
+sl-ci-5-vm|europe-west2-a|ci-5|@OLD@|RUNNING|ci|ci-6
+sl-ci-7-vm|europe-west2-a|ci-7|@OLD@|SUSPENDED|ci|ci-7
+sl-ci-8-vm|europe-west2-a|ci-8|not-a-timestamp|RUNNING|ci|ci-8
+sl-ci-9-vm|europe-west2-a|ci-9|@NEW@|RUNNING|ci|ci-9

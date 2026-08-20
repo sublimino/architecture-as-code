@@ -27,7 +27,11 @@ spec:
         bao.controlplane.io/consumer: cardvault-agent
     spec:
       serviceAccountName: cardvault-agent
-      restartPolicy: OnFailure
+      # Keep each failed credential-chain attempt as a distinct Pod until the
+      # Job TTL expires. Step 4 reads every Job pod for the denial proof; an
+      # OnFailure container restart can discard the only structured log before
+      # the runner collects it.
+      restartPolicy: Never
       containers:
         - name: agent
           image: cardvault-agent:local

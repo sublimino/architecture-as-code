@@ -291,6 +291,20 @@ POLICY
 
 # ─── STEP 2: Credential Chain ───────────────────────────────────────────────
 
+wait_agent_job_terminal() {
+  # `kubectl wait --for=condition=complete` waits its whole deadline after a
+  # Job has already failed.  A failed credential chain is terminal evidence,
+  # not a reason to make the instructor wait five minutes for a timeout.
+  _wait_retry 300 "terminal job/supercred-agent-run -n $NAMESPACE_AGENTS" \
+    "conditions=\$(kubectl -n '$NAMESPACE_AGENTS' get job supercred-agent-run -o jsonpath='{range .status.conditions[*]}{.type}={.status}{\" \"}{end}' 2>/dev/null); [[ \"\$conditions\" == *'Complete=True'* || \"\$conditions\" == *'Failed=True'* ]]" \
+    || return 1
+
+  local conditions
+  conditions="$(kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
+    -o jsonpath='{range .status.conditions[*]}{.type}={.status}{" "}{end}')"
+  [[ "$conditions" == *"Complete=True"* ]]
+}
+
 demo_2() {
   preflight_step1_deployed
   preflight_images
@@ -300,7 +314,7 @@ demo_2() {
   kubectl apply -f d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml
 
   log "waiting for agent job to complete..."
-  wait_k8s_ready job supercred-agent-run -n "$NAMESPACE_AGENTS" --for condition=complete 300 || {
+  wait_agent_job_terminal || {
     log "agent job output:"
     kubectl -n "$NAMESPACE_AGENTS" logs job/supercred-agent-run --tail=50 2>/dev/null || true
     fail "agent credential chain failed"
@@ -520,20 +534,37 @@ $(printf '%s' "$role_delete_out" | indent)"
   # Polling for the pod and reading its log in full is what makes the claim
   # evidenced. --tail is deliberately absent: the whole chain is four lines and
   # the failing one is not always the last.
-  local agent_log="" agent_pod=""
+  local agent_log="" agent_pod="" job_terminal=""
   local deadline="${SUPERCRED_STUN_EVIDENCE_TIMEOUT:-120}"
 
-  # Wait for Job to reach a terminal condition (Complete or Failed)
-  _wait_retry "$deadline" "supercred-agent-run job completed or failed" \
-    "kubectl -n '${NAMESPACE_AGENTS}' get job supercred-agent-run -o jsonpath='{.status.conditions[*].type}' 2>/dev/null | grep -qE 'Complete|Failed'" || true
+  # Collect output while the Job is still alive. Waiting for its terminal
+  # condition first races the controller deleting its failed pod. A restarted
+  # container keeps the useful denial in `--previous`, so inspect both logs.
+  local started_at=$SECONDS
+  while :; do
+    local agent_pods
+    agent_pods="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
+      -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null)" || agent_pods=""
+    for agent_pod in $agent_pods; do
+      local current_log previous_log
+      current_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers --pod-running-timeout=1s 2>/dev/null)" \
+        || current_log=""
+      previous_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers --previous --pod-running-timeout=1s 2>/dev/null)" \
+        || previous_log=""
+      # Only an agent's structured step lines are evidence. kubectl can print
+      # a successful-looking CRI retrieval failure while a terminating pod has
+      # already discarded its logs; never let that overwrite captured proof.
+      [[ "$current_log" == *"[step-"* ]] && agent_log="$current_log"
+      [[ "$previous_log" == *"[step-"* ]] && agent_log="$previous_log"
+    done
 
-  # Extract agent pod and full container logs
-  agent_pod="$(kubectl -n "$NAMESPACE_AGENTS" get pods -l job-name=supercred-agent-run \
-    -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)" || agent_pod=""
-  if [ -n "$agent_pod" ]; then
-    agent_log="$(kubectl -n "$NAMESPACE_AGENTS" logs "$agent_pod" --all-containers 2>/dev/null)" \
-      || agent_log=""
-  fi
+    job_terminal="$(kubectl -n "$NAMESPACE_AGENTS" get job supercred-agent-run \
+      -o "jsonpath={.status.conditions[?(@.type=='Complete')].status}{.status.conditions[?(@.type=='Failed')].status}" \
+      2>/dev/null)" || job_terminal=""
+    [[ "$job_terminal" == *True* ]] && break
+    [ $((SECONDS - started_at)) -ge "$deadline" ] && break
+    sleep 2
+  done
 
   if [ "$(job_condition Complete)" = "True" ]; then
     fail "agent job COMPLETED after the stun — credentials were NOT revoked.

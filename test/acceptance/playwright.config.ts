@@ -13,6 +13,10 @@ const CHANNEL = process.env.PW_CHANNEL ?? "chrome"
 
 export default defineConfig({
   testDir: ".",
+  // Several SuperCred projects mutate the same demo cluster. The runner
+  // deliberately serializes those runs, so parallel Playwright workers would
+  // otherwise cancel one project's active phase from another project.
+  workers: 1,
   timeout: 30_000,
   retries: 1,
   use: {

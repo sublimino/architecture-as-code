@@ -1,0 +1,8 @@
+{
+  "name": "changeme-project-signalloom-audit",
+  "location": "EUROPE-WEST2",
+  "publicAccessPrevention": "enforced",
+  "uniformBucketLevelAccess": { "enabled": true },
+  "versioning": { "enabled": true },
+  "retentionPolicy": { "retentionPeriod": "31536000" }
+}

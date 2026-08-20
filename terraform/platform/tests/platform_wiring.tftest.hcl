@@ -39,19 +39,50 @@ variables {
 # ISC-206 / ISC-207 — evaluated at the composition boundary
 # ---------------------------------------------------------------------------
 
-run "audit_sink_destination_is_not_the_state_bucket" {
-  command = plan
+# ─── Replaced when observability went dormant (2026-08-20) ──────────────────
+#
+# This run asserted that the audit sink's bucket was not the Terraform state
+# bucket, reading `output.log_bucket_name`. That output is dormant with
+# module "observability" (see main.tf), so the run no longer references
+# anything that exists and terraform test fails to even evaluate it.
+#
+# Deleting it and moving on would have been the wrong repair, because the
+# property it protected — "the audit sink never writes into the state bucket" —
+# is real and must come back with the module. It is preserved verbatim below so
+# restoring observability restores its guard in the same edit.
+#
+# What replaces it is the stronger claim for the current configuration, and it
+# is NOT the same assertion weakened: it says no audit sink exists to be
+# misdirected. That distinction matters. An absent output would satisfy a
+# "!= state_bucket" test trivially, which is exactly the vacuous pass the
+# second assertion below was written to prevent — so the honest test for a
+# dormant module is one about dormancy, not a survivor of the old one.
+#
+# run "audit_sink_destination_is_not_the_state_bucket" {
+#   command = plan
+#
+#   assert {
+#     condition     = output.log_bucket_name != var.state_bucket_name
+#     error_message = "The platform root wired the audit sink into the Terraform state bucket."
+#   }
+#
+#   assert {
+#     condition     = output.log_bucket_name != ""
+#     error_message = "The audit bucket name evaluated empty — the assertion above would then pass vacuously against any non-empty state bucket name."
+#   }
+# }
 
-  assert {
-    condition     = output.log_bucket_name != var.state_bucket_name
-    error_message = "The platform root wired the audit sink into the Terraform state bucket."
-  }
-
-  assert {
-    condition     = output.log_bucket_name != ""
-    error_message = "The audit bucket name evaluated empty — the assertion above would then pass vacuously against any non-empty state bucket name."
-  }
-}
+# The dormancy assertion deliberately does NOT live here. `terraform test`
+# observes a plan, and a plan cannot show the absence of a module: there is no
+# address to reference, so any condition written here would either fail to
+# evaluate (the error this replaced) or be a tautology that passes whether or
+# not observability is live. EdgeGuard's edge_dormant.tftest.hcl can assert
+# dormancy only because modules/network publishes health_check_firewall_names
+# for it to count; nothing analogous exists once module "observability" is gone.
+#
+# The guard is in test/terraform-observability-dormant.bats instead, where the
+# resolved module graph is observable and a positive control can prove the check
+# would see a live module if there were one.
 
 # ---------------------------------------------------------------------------
 # ISC-213 / ISC-214 — the channels this root creates reach the alert policies
@@ -178,9 +209,20 @@ run "dns_is_omitted_entirely_when_unconfigured" {
 
   # Everything else must still plan. Domain ownership is a prerequisite Andy
   # supplies later; not having it yet must not block the platform.
+  #
+  # This used to read `output.log_bucket_name != ""`, borrowing the audit
+  # bucket as a proxy for "the rest of the root still planned". That output is
+  # dormant with module "observability" (see main.tf), so the proxy is gone.
+  #
+  # Replaced with a value this root owns directly rather than another borrowed
+  # proxy. notification_channel_ids is built from a resource this file creates
+  # and from var.extra_notification_channel_ids, so it evaluating at all proves
+  # the root planned past the DNS block — which is the only thing this assertion
+  # was ever for. Choosing a locally-owned value also means the next module to
+  # go dormant does not silently break this test the way the last one did.
   assert {
-    condition     = output.log_bucket_name != ""
-    error_message = "the audit sink must plan without DNS"
+    condition     = output.notification_channel_ids != null
+    error_message = "the root must still plan its notification channels when DNS is unconfigured"
   }
 }
 

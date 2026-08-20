@@ -51,6 +51,9 @@ setup_file() {
   export CLOSURE="${REPO_ROOT}/test/helpers/tf-module-closure.sh"
   export TF_ENV_ROOT="${REPO_ROOT}/terraform/environments"
   export TF_PLATFORM_ROOT="${REPO_ROOT}/terraform/platform"
+  # The positive control's anchor: bootstrap declares the Terraform state
+  # bucket, which is the one bucket in this estate that cannot be made dormant.
+  export TF_BOOTSTRAP_ROOT="${REPO_ROOT}/terraform/bootstrap"
   export TF_FIXTURES="${REPO_ROOT}/test/fixtures/terraform/preserve"
   export GCP_FIXTURES="${REPO_ROOT}/test/fixtures/gcp-tf-preserve"
   export STUB_SRC="${GCP_FIXTURES}/stub-gcloud.sh"
@@ -363,25 +366,40 @@ mutate() {
   }
 }
 
-@test "PRESERVE the scanner finds the audit bucket in the platform closure" {
+@test "PRESERVE the scanner finds a real storage bucket in a real closure" {
   # THE POSITIVE CONTROL for the test above, and the reason it means anything.
-  # `modules/observability` really does declare the audit bucket, and it is in
-  # the PLATFORM closure, not the environments one. If the scanner cannot find a
-  # bucket it is standing on, its silence about the environments root is
-  # silence, not evidence.
-  run forbidden_declarations "$TF_PLATFORM_ROOT"
+  # If the scanner cannot find a bucket it is standing on, its silence about the
+  # environments root is silence, not evidence.
+  #
+  # ─── Re-anchored 2026-08-20, and why the move was necessary ───────────────
+  #
+  # This used to stand on modules/observability's audit bucket in the PLATFORM
+  # closure. module "observability" is now deliberately not instantiated (see
+  # terraform/platform/main.tf), so that bucket left the closure and this
+  # control started failing — correctly. It was doing its job: the anchor
+  # disappeared, and it said so instead of passing quietly and leaving every
+  # absence assertion in this file unproven.
+  #
+  # The lesson is about anchor choice, not about observability. A positive
+  # control must stand on something that cannot be switched off by a decision
+  # elsewhere in the repo, or it inherits that decision's blast radius. So it
+  # now stands on terraform/bootstrap's google_storage_bucket.terraform_state —
+  # the Terraform state bucket itself. That is the one bucket in this estate
+  # that cannot be made dormant: every other root stores its state in it, so if
+  # it ever leaves the closure the repository has bigger problems than this
+  # test, and a red control is the correct response to those too.
+  run forbidden_declarations "$TF_BOOTSTRAP_ROOT"
   [ "$status" -eq 0 ] || {
     echo "scan failed: $output"
     return 1
   }
-  [[ "$output" == *"modules/observability"* ]] || {
-    echo "the scanner did not find the audit bucket in the platform closure."
-    echo "either observability moved, or the scanner is broken and every other"
-    echo "absence result in this file is worthless:"
+  [[ "$output" == *"google_storage_bucket"* ]] || {
+    echo "the scanner did not find the state bucket in the bootstrap closure."
+    echo "the scanner is broken and every other absence result in this file is"
+    echo "worthless:"
     echo "$output"
     return 1
   }
-  [[ "$output" == *"google_storage_bucket"* ]]
 }
 
 @test "PRESERVE the two roots' closures are disjoint where it matters" {

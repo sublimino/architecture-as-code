@@ -120,10 +120,23 @@ setup() {
 }
 @test "TEST-1 acceptance preflight validates dashboard readiness semantics" {
   acceptance="$root/scripts/acceptance-test.sh"
-  run grep -F '${DASHBOARD_URL}/readyz' "$acceptance"
+  # Readiness used to be checked inline here against a local $dashboard_ready
+  # variable; 04c341a6 (2026-08-20) delegated the probe itself to
+  # supervise-port-forward.sh's own retry/poll logic (see
+  # test/supervise-port-forward.bats and test/supervise-port-forward-knobs.bats
+  # for ITS behaviour), so that variable no longer exists to grep for. Pinning
+  # to it broke this test the same day it was removed.
+  #
+  # What still has to hold, and what these two greps derive rather than pin:
+  # DASHBOARD_URL feeds the probe URL, and a failed probe -- specifically the
+  # "up" call, not some unrelated PREFLIGHT_FAILED=1 elsewhere in the file --
+  # is not silently swallowed. Coupled to setup_gateway_forward() in
+  # acceptance-test.sh; if that function is restructured, update together.
+  run grep -F 'PF_PROBE_URL="${DASHBOARD_URL}/readyz"' "$acceptance"
   [ "$status" -eq 0 ]
-  run grep -F '[[ "$dashboard_ready" != "ready" ]]' "$acceptance"
+  run grep -A3 -F 'supervise-port-forward.sh" up' "$acceptance"
   [ "$status" -eq 0 ]
+  [[ "$output" == *"PREFLIGHT_FAILED=1"* ]]
 }
 
 @test "TEST-1 acceptance reuses healthy existing local listeners" {
@@ -136,7 +149,14 @@ setup() {
 
 @test "TEST-1 discovers the shared Gateway data-plane Service dynamically" {
   acceptance="$root/scripts/acceptance-test.sh"
-  run grep -F 'kubectl get service -A' "$acceptance"
+  # f9a00af9 (2026-08-20) narrowed the discovery query from `kubectl get
+  # service -A` to `kubectl -n ingress get service`, which is exactly the kind
+  # of kubectl-scope detail that has already changed once and is not what this
+  # test is actually for. What has to stay true is that the Service is found
+  # by the Envoy Gateway's owning-gateway LABEL, not a hardcoded
+  # namespace/name pair -- that's the "dynamically" in this test's name.
+  # Coupled to setup_gateway_forward() in acceptance-test.sh.
+  run grep -F 'gateway.envoyproxy.io/owning-gateway-name=cluster' "$acceptance"
   [ "$status" -eq 0 ]
   run grep -F 'read -r gateway_namespace gateway_service' "$acceptance"
   [ "$status" -eq 0 ]

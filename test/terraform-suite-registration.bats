@@ -75,7 +75,7 @@ STUB
 
 @test "terraform workflow registers GCP Terraform trigger paths" {
   grep -Fqx '      - "scripts/gcp-tf/**"' "${WORKFLOW}"
-  grep -Fqx '      - "test/fixtures/gcp-tf/**"' "${WORKFLOW}"
+  grep -Fqx '      - "test/fixtures/gcp-tf-*/**"' "${WORKFLOW}"
 }
 
 # Copy the real Makefile, apply one named mutation fixture, and REFUSE to

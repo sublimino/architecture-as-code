@@ -94,3 +94,33 @@ output "network_self_links" {
   description = "VPC self-link per environment key."
   value       = { for k, m in module.network : k => m.network_self_link }
 }
+
+# ─── The SSH identity, republished so the hand-off can carry it ──────────────
+#
+# scripts/gcp-tf/demo-up.sh REFUSES to run without an operator service account:
+# without one, every gcloud call below it would run as the human's own
+# principal, and on this estate that fails in a way whose error text names
+# roles/compute.osLoginExternalUser — a permission an external principal cannot
+# grant itself. The diagnosis the error invites is therefore an IAM change
+# nobody has the authority to make.
+#
+# The hand-off writer had NEVER emitted the field — zero occurrences at
+# 435f82fe, zero before this — so every `gcp-tf-ts-*`, `gcp-tf-connect` and
+# `gcp-tf-public` invocation refused until the operator exported
+# GCP_TF_DEMO_OPERATOR_SA by hand. Worse, the refusal's own remedy told them to
+# run `make gcp-tf-handoff`, which is precisely the writer that omitted it: the
+# advice could not work. This output is what makes that advice true.
+#
+# Deliberately NOT a map keyed by environment, unlike its neighbours above. The
+# operator identity is a project-level singleton owned by the platform root
+# (CONTRACT §5b) and is the same for every lane; keying it by environment would
+# imply a per-lane identity that does not exist.
+#
+# Read from the platform root's published output rather than reconstructed from
+# a project id and a naming convention. A string built here would be a second
+# source of truth for an identity this root does not own, and would keep
+# resolving to a plausible-looking address long after the real one moved.
+output "operator_sa" {
+  description = "The identity a human impersonates for IAP SSH into a lane VM. A project-level singleton from the platform root, identical for every environment, and the field demo-up.sh refuses to run without."
+  value       = data.terraform_remote_state.platform.outputs.operator_service_account_email
+}

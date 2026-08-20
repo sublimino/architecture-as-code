@@ -2,6 +2,39 @@
 #
 # Signal Loom demo VM bootstrap.
 #
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║  EDITING THIS FILE DESTROYS AND RECREATES EVERY LANE VM.                   ║
+# ║                                                                           ║
+# ║  Not "may". Not "on some changes". Any byte.                              ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+#
+# modules/compute delivers this file as `metadata_startup_script`, and that
+# attribute is ForceNew in the google provider. Terraform cannot update it in
+# place, so the next `apply` on any lane REPLACES that instance: new boot disk,
+# new tailnet IP, new device record, and the estate on it gone. Four lanes means
+# four replacements and roughly forty minutes of estate rebuild each.
+#
+# A one-word fix to a log message here costs the same as a rewrite. There is no
+# small change to this file.
+#
+# WHAT THIS MEANS IN PRACTICE
+#
+#   * Batch edits. If you are going to touch this, touch it once.
+#   * Never edit it to debug something. SSH in and iterate on the VM, then bring
+#     the finished change back here.
+#   * Anything installed by scripts/gcp-tf/demo-up.sh over SSH survives a reboot
+#     and a stop/start but NOT this, because the disk goes with the instance.
+#     That is why signalloom-tailscale-serve.service is installed in BOTH places
+#     — see install_tailscale_serve_unit.
+#
+# The `metadata` map on the same resource is NOT ForceNew — ordinary metadata
+# keys update in place. So if you need to change a VALUE the script reads (a
+# port, a hostname, a feature flag), add or change a metadata key and read it
+# with metadata_attr, rather than editing the script. That is the difference
+# between a metadata update and a fleet rebuild, and it is why
+# signalloom-app-port is published as metadata instead of being written into
+# this file. Asserted in test/terraform-tailscale-serve-boot.bats.
+#
 # Runs once, as root, via metadata_startup_script. Installs the prerequisites
 # for the Kind-based Signal Loom demo — Docker, kind, kubectl — and stops. It
 # deliberately does NOT deploy the demo: that is the pipeline's job, and a

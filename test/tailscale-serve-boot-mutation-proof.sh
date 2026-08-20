@@ -176,6 +176,19 @@ echo "M13 the driver stops reading the unit the boot path installs"
 mutate "$DRIVER" 's/^ts_serve_unit_state() {$/ts_serve_unit_state_RENAMED() {/'
 check "M13 detector reads the installed unit" "SEAM ts-status reads the unit the boot path installs"
 
+# ── The blast radius must stay documented and stay true ─────────────────────
+echo "M14 the ForceNew warning is deleted in a tidy-up"
+mutate "$STARTUP" 's/ForceNew//g; s/DESTROYS AND RECREATES/updates/; s/REPLACES that instance/updates that instance/'
+check "M14 blast radius documented" "BLAST the startup script states that editing it replaces the VM"
+
+echo "M15 the script moves to the metadata map, silently changing replacement semantics"
+mutate "$COMPUTE_TF" 's/^  metadata_startup_script = file(local.startup_script_file)$/  metadata_startup_script_RENAMED = file(local.startup_script_file)/'
+check "M15 delivery mechanism pinned" "BLAST the script is delivered by metadata_startup_script, not the metadata map"
+
+echo "M16 the port is baked into the script instead of read from metadata"
+mutate "$STARTUP" 's/^  app_port="\$(metadata_attr signalloom-app-port)" || app_port=""$/  app_port="30754"/'
+check "M16 per-lane values stay in metadata" "BLAST values the script READS are metadata, not baked into the script"
+
 echo
 echo "=== restored: the suite must be green again ==="
 restore_all

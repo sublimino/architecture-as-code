@@ -414,3 +414,65 @@ systemctl_log() { cat "${STUB_SYSTEMCTL_LOG}" 2>/dev/null || true; }
 		return 1
 	}
 }
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  BLAST RADIUS — editing the startup script replaces every lane VM
+#
+#  `metadata_startup_script` is ForceNew in the google provider, so any change
+#  to demo-vm.sh makes the next apply DESTROY and recreate that instance: new
+#  boot disk, new tailnet IP, estate gone, ~40 minutes to rebuild. Four lanes,
+#  four replacements.
+#
+#  This is the single most expensive property of that file and it is invisible
+#  from inside it. These tests exist so the next person meets it before their
+#  one-word edit does.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "BLAST the startup script states that editing it replaces the VM" {
+	# A documentation assertion, and named as one rather than dressed up as a
+	# behavioural check. The ForceNew semantics belong to the provider — no test
+	# in this repo can exercise them without a real apply. What CAN be pinned is
+	# that the warning is present and says what the consequence is, which is the
+	# part that keeps getting deleted in a tidy-up.
+	grep -q 'ForceNew' "${STARTUP}" || {
+		echo "the startup script does not mention ForceNew — the next editor has no warning that a one-word change rebuilds the fleet"
+		return 1
+	}
+	grep -qiE 'destroys and recreates|REPLACES that instance' "${STARTUP}" || {
+		echo "the warning does not state the CONSEQUENCE, only the mechanism. 'ForceNew' means nothing to someone who has not hit it."
+		return 1
+	}
+}
+
+@test "BLAST the script is delivered by metadata_startup_script, not the metadata map" {
+	# THE BEHAVIOURAL HALF, and the reason this pair is not just a comment check.
+	#
+	# `metadata_startup_script` is ForceNew; an ordinary `metadata` map entry
+	# named startup-script is NOT. The two are interchangeable to GCE and have
+	# opposite replacement semantics in Terraform, so which one is used is a real
+	# and checkable fact about this module — and moving between them silently
+	# changes whether an edit rebuilds the fleet or updates it in place.
+	grep -qE '^[[:space:]]*metadata_startup_script[[:space:]]*=' "${COMPUTE_TF}" || {
+		echo "modules/compute no longer delivers the script via metadata_startup_script — the documented ForceNew blast radius may no longer be accurate"
+		return 1
+	}
+	# And the inverse: a startup-script key smuggled into the metadata map would
+	# mean two scripts race, and the documented semantics would be wrong.
+	grep -qE '^[[:space:]]*startup-script[[:space:]]*=' "${COMPUTE_TF}" && {
+		echo "a 'startup-script' metadata key exists alongside metadata_startup_script — two delivery paths, and only one of them is documented"
+		return 1
+	}
+	return 0
+}
+
+@test "BLAST values the script READS are metadata, not baked into the script" {
+	# The practical consequence of the blast radius, asserted rather than merely
+	# advised: a per-environment value must be a metadata key, because metadata
+	# updates in place while the script does not. signalloom-app-port is the
+	# worked example — baking the port into the script would have made every
+	# port change a four-VM rebuild.
+	grep -q 'metadata_attr signalloom-app-port' "${STARTUP}" || {
+		echo "the port is not read from metadata — a port change would require rebuilding every lane"
+		return 1
+	}
+}

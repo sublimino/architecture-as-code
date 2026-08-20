@@ -94,9 +94,21 @@ setup() {
 	ts_json="${BATS_TEST_TMPDIR}/ts-status.json"
 	driver="${root}/scripts/gcp-tf/demo-up.sh"
 
-	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/deploy/gcp"
+	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/scripts/lib" "${root}/deploy/gcp"
 	cp "${DRIVER_SRC}" "${driver}"
 	chmod +x "${driver}"
+
+	# The REAL wait.sh, not a stub. The driver sources it relative to its own
+	# location, so a scratch tree without scripts/lib/ makes the driver fail to
+	# start at all — which would read as "every subcommand is broken" rather than
+	# as a missing fixture. Copying the real library also means these tests
+	# exercise the actual backoff and deadline code that runs in production,
+	# rather than a simplified stand-in that could not reproduce its behaviour.
+	cp "${REPO_ROOT}/scripts/lib/wait.sh" "${root}/scripts/lib/wait.sh"
+
+	# wait.sh is chatty by design (⏳ progress, heartbeats). Silenced here so a
+	# test asserting on the driver's own output is not reading the library's.
+	export WAIT_QUIET=1
 
 	# `getent` is stubbed on PATH rather than injected, because magicdns_resolves
 	# asks the name-service switch directly — which is correct, and is exactly
@@ -194,9 +206,35 @@ write_ts_status_without_node() {
 		>"${ts_json}"
 }
 
-stub_curl() { # stub_curl <status-code-to-emit>
-	printf '#!/usr/bin/env bash\nprintf %%s %q\n' "$1" >"${stubdir}/curl-stub"
+# stub_curl <status-code-to-emit>
+#
+# Installed BOTH as the driver's injected curl (GCP_TF_DEMO_CURL, read by
+# probe_ts_status) and as `curl` on PATH, because wait.sh's wait_reachable
+# hardcodes `curl` — correctly, since it is a vendored library with no knowledge
+# of this driver's injection points. Only stubbing one of the two would leave
+# the other reaching the real network for a hostname that does not exist, and
+# the test would pass or hang for reasons unrelated to what it asserts.
+#
+# ─── The exit status is the load-bearing part ───────────────────────────────
+#
+# wait_reachable probes with `curl -fsS`, and `-f` means curl FAILS on any HTTP
+# status >= 400. So the stub has to model the status code in its EXIT STATUS as
+# well as on stdout, or every wait succeeds instantly and the dead-dashboard
+# tests go green against a dashboard that answered 502.
+#
+# 22 is curl's own exit code for `-f` on an HTTP error, and an empty code (a
+# request that could not be made at all — the TLS-failure case) is 35.
+stub_curl() {
+	local code="$1" rc=0
+	case "$code" in
+	2??) rc=0 ;;
+	'') rc=35 ;;
+	*) rc=22 ;;
+	esac
+	printf '#!/usr/bin/env bash\nprintf %%s %q\nexit %d\n' "$code" "$rc" >"${stubdir}/curl-stub"
 	chmod +x "${stubdir}/curl-stub"
+	cp "${stubdir}/curl-stub" "${stubdir}/curl"
+	chmod +x "${stubdir}/curl"
 	export GCP_TF_DEMO_CURL="${stubdir}/curl-stub"
 }
 
@@ -970,7 +1008,12 @@ mutate() {
 # test above goes GREEN. A guard whose test cannot fail is decoration.
 
 @test "TS MUTATION health-gate: accepting any status makes the dead-dashboard test pass" {
-	mutate 's|^    if \[ "\$code" = "200" \]; then$|    if true; then|'
+	# Targets the wait.sh-based gate that replaced the hand-rolled poll. The
+	# previous expression matched `if [ "$code" = "200" ]` inside that loop; when
+	# the loop went, the pattern silently stopped matching anything ANYWHERE and
+	# `mutate` aborted the run — which is exactly what it is built to do, and the
+	# reason this mutation is not just a comment.
+	mutate 's|^  if wait_reachable .*; then$|  if true; then|'
 	stub_curl 000
 	run "${driver}" ts-up
 	[[ "$output" == *"verified before you clicked"* ]] || {
@@ -1657,6 +1700,134 @@ ci_lane_fixture() {
 	gcloud_log | grep -q "serve_unit_changed" || {
 		echo "funnel still installed no unit after the guard was removed — the guard test proves nothing:"
 		gcloud_log
+		return 1
+	}
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  WAIT INSTRUMENTATION
+#
+#  The runtime readiness gate goes through scripts/lib/wait.sh rather than a
+#  hand-rolled poll, so it inherits deadline-based waiting, exponential backoff,
+#  a per-attempt hang fence, a soft warning at 60% of budget, and a WAIT_STAT
+#  line that scripts/cluster-debug.sh can rank against every other wait in the
+#  estate.
+#
+#  The boot-time helper deliberately does NOT use wait.sh — the library arrives
+#  on the VM via deliver_code, long after the startup script runs, so at boot the
+#  file does not exist. That asymmetry is intentional and is asserted below, so
+#  nobody "fixes" it into a dependency that cannot resolve.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "WAIT ts-up's readiness gate emits a WAIT_STAT line" {
+	# Asserted on the real emission, not on a grep of the source. A `grep
+	# wait_reachable demo-up.sh` would pass just as happily against a call whose
+	# output went nowhere.
+	serving_fixture
+	local statfile="${BATS_TEST_TMPDIR}/wait-stats"
+	WAIT_STAT_FILE="${statfile}" run "${driver}" ts-up
+	[ "$status" -eq 0 ] || {
+		echo "ts-up failed: ${output}"
+		return 1
+	}
+	[ -f "${statfile}" ] || {
+		echo "no WAIT_STAT_FILE written — the readiness wait is not instrumented"
+		return 1
+	}
+	grep -q 'WAIT_STAT site=' "${statfile}" || {
+		echo "WAIT_STAT_FILE exists but carries no stat line:"
+		cat "${statfile}"
+		return 1
+	}
+	grep -q "${TS_HEALTH_PATH:-/readyz}" "${statfile}" || {
+		echo "the stat line does not name the health probe, so it is measuring some other wait:"
+		cat "${statfile}"
+		return 1
+	}
+}
+
+@test "WAIT the status code survives the instrumented wait" {
+	# The regression this pins is one this change actually shipped and a test
+	# caught: wait_reachable's own stdout was captured by the command
+	# substitution that reads this function's return value, and the health line
+	# reported `returned 200200`. A doubled status code is the kind of defect
+	# that looks like a rendering quirk and is really a value being concatenated.
+	serving_fixture
+	run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"returned 200 "* ]] || {
+		echo "the health verdict does not carry a clean status code: ${output}"
+		return 1
+	}
+	[[ "$output" == *"200200"* ]] && {
+		echo "the status code was concatenated with the wait's own output: ${output}"
+		return 1
+	}
+	return 0
+}
+
+@test "WAIT a dead dashboard still fails, and names the code rather than a boolean" {
+	# wait_reachable answers a boolean — under `curl -f` a 502, a 404 and a TLS
+	# failure are all just "not yet". The driver must still fetch and report
+	# WHICH, because those three have three different fixes.
+	serving_fixture
+	stub_curl 502
+	run "${driver}" ts-up
+	[ "$status" -ne 0 ] || {
+		echo "ts-up handed over a URL whose dashboard answered 502: ${output}"
+		return 1
+	}
+	[[ "$output" == *"502"* ]] || {
+		echo "the failure did not name the status code, so the reader cannot tell a dead backend from a bad certificate: ${output}"
+		return 1
+	}
+}
+
+@test "WAIT the boot helper does NOT depend on wait.sh, which cannot exist at boot" {
+	# scripts/lib/wait.sh reaches the VM via deliver_code, long after the startup
+	# script has run. A boot-time helper that sourced it would fail on every
+	# freshly built instance — and the lane would come back not serving, which is
+	# the exact failure this whole change removes.
+	local startup="${REPO_ROOT}/terraform/modules/compute/startup/demo-vm.sh"
+	[ -f "$startup" ] || skip "startup script not in this checkout"
+	grep -q 'wait\.sh' "$startup" && {
+		echo "the startup script references wait.sh, which does not exist on the VM at boot"
+		return 1
+	}
+	grep -q 'wait_reachable\|wait_tcp' "$startup" && {
+		echo "the startup script calls a wait.sh primitive that is not loaded at boot"
+		return 1
+	}
+	return 0
+}
+
+@test "MUTATION dropping the instrumented wait makes the WAIT_STAT check pass" {
+	# Replaces the wait.sh call with a bare probe loop's success condition, which
+	# is what "just check the code once" would look like. No wait, no stat line.
+	mutate 's|^  if wait_reachable .*; then$|  if [ "$(probe_ts_status "$base")" = "200" ]; then|'
+	serving_fixture
+	local statfile="${BATS_TEST_TMPDIR}/wait-stats-mut"
+	WAIT_STAT_FILE="${statfile}" run "${driver}" ts-up
+	[ "$status" -eq 0 ]
+	# Written as one plain `if`. The first draft chained `[ ! -f ] || grep && {…}`
+	# around an inner `if`, which is the shape whose truth table nobody can read
+	# at a glance — and an unreadable assertion is one you cannot tell is vacuous.
+	if [ -f "${statfile}" ] && grep -q 'WAIT_STAT site=' "${statfile}"; then
+		echo "a stat line was still emitted after the instrumented wait was removed — the WAIT_STAT assertion is measuring something else:"
+		cat "${statfile}"
+		return 1
+	fi
+	return 0
+}
+
+@test "MUTATION restoring the stdout leak makes the doubled-status-code check pass" {
+	# The exact defect this change shipped and a test caught: without the
+	# redirect, the wait's own probe output is concatenated onto the status code.
+	mutate 's|^  if wait_reachable "\${base}\${TS_HEALTH_PATH}" "\$HEALTH_WAIT_SECONDS" >/dev/null; then$|  if wait_reachable "${base}${TS_HEALTH_PATH}" "$HEALTH_WAIT_SECONDS"; then|'
+	serving_fixture
+	run "${driver}" ts-up
+	[[ "$output" == *"200200"* ]] || {
+		echo "the leak did not reappear after the redirect was removed — the doubled-code assertion proves nothing: ${output}"
 		return 1
 	}
 }

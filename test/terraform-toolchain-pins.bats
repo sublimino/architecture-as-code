@@ -593,6 +593,44 @@ FIXTURE
   printf '%s\n' "$body" | grep -qE '\[ ! -x "\$dest" \]' || {
     echo "bin_place does not verify the destination exists afterwards" >&2
     return 1; }
+
+  # The NOTE must carry the NUMERIC uid, not only the name.
+  #
+  # A live first boot printed "owned by UNKNOWN": GNU stat SUCCEEDS and emits
+  # that literal when the owning uid has no /etc/passwd entry, which is the
+  # normal case for an OS Login principal. Exit status was 0, so the `|| echo`
+  # fallback beside it was dead code. Since the whole finding is that ownership
+  # is nondeterministic across identical rebuilds, a NOTE that cannot name the
+  # owner is a shrug where a datapoint should be.
+  printf '%s\n' "$body" | grep -q '%u' || {
+    echo "the NOTE does not record the numeric uid, so it degrades to" >&2
+    echo "'owned by UNKNOWN' whenever the owner is not in /etc/passwd —" >&2
+    echo "which is exactly when the information matters." >&2
+    return 1; }
+}
+
+@test "the NOTE renders a real owner and mode, including for an unmapped uid" {
+  # Executed against the real format string rather than read, because the defect
+  # being guarded is a rendering one: the previous version was syntactically
+  # fine and produced a useless string.
+  local fmt
+  fmt="$(grep -o "stat -c '[^']*'" "${CI_TOOLS}" | head -1 | sed "s/^stat -c '//; s/'$//")"
+  [ -n "$fmt" ] || { echo "no stat format found in bin_place" >&2; return 1; }
+
+  local rendered
+  rendered="$(stat -c "$fmt" /usr/local/bin 2>/dev/null)" || {
+    echo "the format string does not render: ${fmt}" >&2
+    return 1
+  }
+  # A uid is always a number, so this holds whether or not the name resolves.
+  [[ "$rendered" =~ uid\ [0-9]+ ]] || {
+    echo "rendered NOTE carries no numeric uid: ${rendered}" >&2
+    return 1
+  }
+  [[ "$rendered" =~ mode\ [0-7]+ ]] || {
+    echo "rendered NOTE carries no mode: ${rendered}" >&2
+    return 1
+  }
 }
 
 @test "bin_place really places, really escalates, and really fails — executed" {

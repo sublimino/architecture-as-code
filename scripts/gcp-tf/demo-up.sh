@@ -23,6 +23,20 @@
 # This file is what carries the code across, starts that pipeline, streams it
 # back, collects the report, and decides whether the run passed.
 #
+# ─── One entry point for every access method ────────────────────────────────
+#
+# ts-up, funnel-up, connect and public all forward to the SAME thing: the
+# dashboard's nginx at dashboard-signalloom:8080 in fe-signalloom. So does
+# scripts/public-tunnel.sh, which has always done it this way. See the
+# DASHBOARD_* constants below for what that buys and what it replaced.
+#
+# Each of them publishes a browser-visible ORIGIN and claims it through
+# scripts/lib/dex-origin.sh, because Dex has exactly one issuer and the loser of
+# an unclaimed race presents as a broken login rather than as a collision. IAP is
+# not special here any more — it claims http://localhost:<port> like everything
+# else, where http is safe because the origin is loopback and the IAP tunnel is
+# the confidentiality boundary.
+#
 # It is a SIBLING of scripts/ci/gcp-ci.sh and scripts/ci/gcp-tf-ci.sh. That
 # first one owns the shared signalloom-ci VMs and their kind pipeline; the
 # second owns the per-lane Terraform CI runners. This one owns the human-facing
@@ -127,21 +141,76 @@ SSH_WAIT_INTERVAL="${GCP_TF_DEMO_SSH_WAIT_INTERVAL:-5}"
 TIMEOUT_MINUTES="${GCP_TF_DEMO_TIMEOUT_MINUTES:-90}"
 TIMEOUT_CMD="${GCP_TF_DEMO_TIMEOUT:-timeout}"
 
-# The dashboard's SNI name is a property of the in-cluster Envoy Gateway and of
-# Dex's pinned redirect URI. It is NOT the estate's DNS name, so it is
-# deliberately not read from the hand-off's `hostname` field — those two are
-# different names for different things, and conflating them produces a URL that
-# resolves and then fails TLS on SNI.
+# ── The single entry point ──────────────────────────────────────────────────
+#
+# Every access path in this estate — IAP here, ngrok in scripts/public-tunnel.sh,
+# Tailscale and Funnel below — forwards to the dashboard's nginx and nothing
+# else. nginx serves the built SPA and proxy_passes /dex/, /api/, /afm/, /demo/,
+# /fleet/ and /supercred-api/ to their in-cluster backends, so it is a
+# SAME-ORIGIN front door for the whole application INCLUDING OIDC.
+#
+# This lane used to tunnel to the Envoy Gateway instead, and every painful thing
+# about the IAP path descended from that one choice:
+#
+#   * the tunnel was pinned to 30754, because Dex's callback was pinned to it
+#   * the operator had to add `127.0.0.1 dashboard.osramp.acme.local` to
+#     /etc/hosts, because Envoy routes by SNI
+#   * any other hostname 404'd, because Envoy matches the request's :authority
+#     against `*.osramp.acme.local` — measured: identical SNI, Host:
+#     dashboard.osramp.acme.local -> 200, Host: <node>.ts.net -> 404
+#
+# All three disappear here, and they disappear for the same reason rather than
+# by three separate fixes: nginx routes by PATH and terminates nothing, so there
+# is no name to match and no certificate to satisfy. scripts/public-tunnel.sh
+# has always done it this way and says so in its own header; this is that
+# pattern generalised to every method.
+#
+# Envoy is untouched and still deployed. It remains the Gateway API ingress and
+# part of what the product demonstrates — it is simply no longer what a human
+# browses through.
+DASHBOARD_NAMESPACE="${GCP_TF_DEMO_DASHBOARD_NAMESPACE:-fe-signalloom}"
+DASHBOARD_SERVICE="${GCP_TF_DEMO_DASHBOARD_SERVICE:-dashboard-signalloom}"
+DASHBOARD_SERVICE_PORT="${GCP_TF_DEMO_DASHBOARD_SERVICE_PORT:-8080}"
+
+# The Gateway's SNI hostname. NOT on the access path any more — it is handed to
+# the VM-side pipeline as SL_DEMO_HOSTNAME and nowhere else.
+#
+# It survives the single-entry-point refactor because the pipeline is a
+# different thing from the access path: demo-pipeline.sh stands the estate up
+# and runs the acceptance suite THROUGH the Envoy Gateway, on the resting origin
+# the manifests default to. Envoy is still deployed and still exercised; a human
+# simply no longer browses through it. Deleting this would break the pipeline
+# contract to tidy up a name the access path stopped using.
+#
+# It is deliberately not read from the hand-off's `hostname` field — those two
+# are different names for different things, and conflating them produces a URL
+# that resolves and then fails TLS on SNI.
 DASHBOARD_HOST="${GCP_TF_DEMO_DASHBOARD_HOST:-dashboard.osramp.acme.local}"
 
-# Dex pins its OIDC issuer AND its callback client to this port. See
-# scripts/acceptance-test.sh:setup_gateway_forward — the comment there is the
-# source of truth and says it in one line: "Dex pins its local issuer and
-# callback client to this stable port". Any other local port reaches the
-# Gateway and then fails the login redirect, which presents as a broken
-# application rather than as a port mismatch. That is the whole reason this
-# constant exists rather than being "whatever port is free".
-DEX_PINNED_PORT="${GCP_TF_DEMO_DEX_PORT:-30754}"
+# The LOCAL port a browser will type, and therefore the port the origin carries.
+#
+# Defaults to app_port so both ends of the tunnel match, which is the least
+# surprising thing for anyone reading `--local-host-port`. It is overridable
+# because it no longer HAS to match: nothing pins the callback to a particular
+# port now that Dex's redirect URI follows PUBLIC_ORIGIN, and 8080 is a heavily
+# contended port on a developer's laptop. Whatever it is set to, the origin
+# follows it — that is the invariant, and iap_origin is the one place that
+# keeps it.
+local_tunnel_port() {
+  printf '%s' "${GCP_TF_DEMO_LOCAL_PORT:-$APP_PORT}"
+}
+
+# The origin a browser sees on the IAP path.
+#
+# http, deliberately and not by oversight: nginx serves cleartext on 8080 and
+# the IAP tunnel is the confidentiality boundary — Google authenticates the
+# caller against roles/iap.tunnelResourceAccessor before a byte reaches it.
+# dex-origin.sh accepts http:// on loopback for exactly this reason and refuses
+# it on any routable host, so this construction cannot quietly turn into a
+# cleartext origin somebody else can intercept.
+iap_origin() {
+  printf 'http://localhost:%s' "$(local_tunnel_port)"
+}
 
 DEMO_LOGIN_USER="${GCP_TF_DEMO_LOGIN_USER:-demo-user@signalloom.local}"
 DEMO_LOGIN_PASS="${GCP_TF_DEMO_LOGIN_PASS:-demo-user}"
@@ -966,43 +1035,35 @@ report_verdict() {
 # This is the deliverable the human actually sees, so it is a function of its
 # own and is asserted line by line in test/terraform-demo-driver.bats.
 print_connect_instructions() {
-  local port="$1"
+  local url="$1"
   cat <<EOF
 
 ════════════════════════════════════════════════════════════════════
   Signal Loom demo — ${ENV_KEY}
 ════════════════════════════════════════════════════════════════════
 
-  URL:      https://${DASHBOARD_HOST}:${port}
+  URL:      ${url}
 
-  1. Add this line to /etc/hosts (once per machine):
+  1. There is NOTHING to add to /etc/hosts, and no certificate warning to
+     click through. The tunnel forwards to the dashboard's nginx, which
+     serves the app and proxies /dex/ and /api/ on the same origin — so
+     there is no SNI name to match and no TLS for a browser to object to.
 
-         127.0.0.1 ${DASHBOARD_HOST}
-
-     The dashboard is served by the Envoy Gateway behind an SNI hostname.
-     Browsing to https://localhost:${port} reaches the Gateway and is then
-     rejected at TLS, because the name in the request is not the name the
-     certificate and the route are keyed on.
-
-  2. The certificate is SELF-SIGNED. Your browser will interrupt with a
-     warning. Accept it — there is no public CA in this estate and there is
-     not meant to be.
-
-  3. Log in through Dex:
+  2. Log in through Dex:
 
          username: ${DEMO_LOGIN_USER}
          password: ${DEMO_LOGIN_PASS}
 
-  4. Port ${port} is NOT negotiable. Dex pins its OIDC issuer and its
-     callback client to it. Any other local port reaches the Gateway and then
-     fails the login redirect — which presents as a broken application, not as
-     a port mismatch, and costs an hour before anyone suspects the tunnel.
+  3. The port is not special. Dex's issuer and callback follow this origin,
+     so if ${url} is inconvenient, pick another:
+
+         GCP_TF_DEMO_LOCAL_PORT=<port> make gcp-tf-connect ENV=${ENV_KEY}
 
   Confirm the tunnel BEFORE opening a browser:
 
-      curl -k --resolve ${DASHBOARD_HOST}:${port}:127.0.0.1 https://${DASHBOARD_HOST}:${port}/readyz
+      curl ${url}/readyz
 
-  That prints 'ready' when the estate is up. If it hangs, the tunnel is not
+  That answers 200 when the estate is up. If it hangs, the tunnel is not
   bound. If it connects and 404s, the tunnel is fine and the estate is not.
 
   The tunnel runs in the FOREGROUND below. Ctrl-C closes it.
@@ -1094,34 +1155,48 @@ cmd_test() {
 cmd_connect() {
   prepare connect
 
-  local port="$APP_PORT"
-  if [ "$port" != "$DEX_PINNED_PORT" ]; then
-    if [ "${GCP_TF_DEMO_ALLOW_PORT_MISMATCH:-0}" != "1" ]; then
-      cat >&2 <<EOF
-demo-up: REFUSING to open the tunnel on port ${port}.
+  local port="$APP_PORT" local_port origin
+  local_port="$(local_tunnel_port)"
+  origin="$(iap_origin)"
 
-  The hand-off says app_port=${port}, but Dex pins its OIDC issuer and its
-  callback client to ${DEX_PINNED_PORT}. On any other port the dashboard loads,
-  the login redirect fails, and the result presents as a broken application
-  rather than as a port mismatch — which is an hour of debugging aimed at the
-  wrong layer.
-
-  Fix the estate (terraform/environments app_port) rather than the tunnel. If
-  you genuinely mean to open a non-Dex port:
-
-      GCP_TF_DEMO_ALLOW_PORT_MISMATCH=1 make gcp-tf-connect ENV=${ENV_KEY}
-EOF
-      exit 2
-    fi
-    warn "opening ${port}, not the Dex-pinned ${DEX_PINNED_PORT}. The dashboard login WILL fail."
+  # There is no port refusal here any more, and its absence is the deliberate
+  # part.
+  #
+  # This used to REFUSE any port but 30754, because Dex's callback was pinned
+  # to it. That pin was a property of tunnelling to the Envoy Gateway — the
+  # Gateway routed by SNI on a fixed hostname:port, so the origin could not
+  # move. Now the tunnel reaches nginx and Dex's issuer and redirect URI are
+  # rendered from PUBLIC_ORIGIN, so the origin follows whatever port is opened.
+  # Keeping the check would refuse a correct configuration, which is worse than
+  # not having it: a guard that fires on valid input is a guard that gets
+  # deleted rather than understood.
+  #
+  # The invariant that REPLACES it is that the claimed origin tracks the port
+  # actually opened. That is what iap_origin exists for and what the driver
+  # tests assert against a non-default port.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ]; then
+    warn "GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 — Dex keeps its current issuer. The dashboard will load at ${origin} and the LOGIN WILL BOUNCE."
+  else
+    # `connect` did not need this while IAP served at the origin the manifests
+    # already default to: Dex was issuing for it, so opening a tunnel was the
+    # whole job. IAP now publishes an origin of its own, so skipping the claim
+    # would hand over a dashboard that LOADS and a login that BOUNCES.
+    #
+    # Read-only check first, and before any cloud call — a run that is going to
+    # be refused is refused before the VM is touched.
+    require_dex_origin_mechanism "gcp-tf-connect"
+    require_no_conflicting_origin "$origin"
+    log "claiming the Dex origin: ${origin}"
+    dex_origin apply iap "$origin" ||
+      die "could not repoint Dex at ${origin}. The dashboard would load and the login would bounce, so this is a failure rather than a warning."
   fi
 
   # Printed BEFORE the tunnel, because the tunnel occupies the foreground and
   # anything printed after it would only appear once the operator had already
   # given up and pressed Ctrl-C.
-  print_connect_instructions "$port"
+  print_connect_instructions "$origin"
 
-  log "opening IAP tunnel: localhost:${port} -> ${INSTANCE_NAME}:${port}"
+  log "opening IAP tunnel: localhost:${local_port} -> ${INSTANCE_NAME}:${port}"
 
   # Backgrounded and PROBED, rather than exec'd.
   #
@@ -1138,8 +1213,11 @@ EOF
   local tunnel_err
   tunnel_err="$(mktemp "${TMPDIR:-/tmp}/demo-tunnel.XXXXXX.log")"
 
+  # The two ends are named separately now. They default to the same number, but
+  # only the REMOTE one is fixed by the estate (app_port, and the firewall rule
+  # derived from it); the local one is whatever this machine has free.
   env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute start-iap-tunnel "$INSTANCE_NAME" "$port" \
-    --local-host-port="localhost:${port}" \
+    --local-host-port="localhost:${local_port}" \
     --zone="$ZONE" --project="$PROJECT_ID" \
     --impersonate-service-account="$OPERATOR_SA" 2>"$tunnel_err" &
   local tunnel_pid=$!
@@ -1153,7 +1231,7 @@ EOF
     if ! kill -0 "$tunnel_pid" 2>/dev/null; then
       break # the tunnel died; fall through to the diagnosis
     fi
-    if "$PORT_PROBE" "$port"; then
+    if "$PORT_PROBE" "$local_port"; then
       bound=1
       break
     fi
@@ -1167,18 +1245,152 @@ EOF
     local err
     err="$(strip_impersonation_warning <"$tunnel_err" | tail -5)"
     {
-      printf '\ndemo-up: the tunnel did not bind localhost:%s within %ds.\n' "$port" "$TUNNEL_WAIT_SECONDS"
+      printf '\ndemo-up: the tunnel did not bind localhost:%s within %ds.\n' "$local_port" "$TUNNEL_WAIT_SECONDS"
       printf '\n  gcloud said:\n'
       printf '%s\n' "${err:-(nothing on stderr)}" | while IFS= read -r line; do printf '    %s\n' "$line"; done
     } >&2
+    # The REMOTE port, not the local one. 4003 is about what IAP could not
+    # reach on the far side, and quoting the local port here would send the
+    # reader to look for a firewall rule that has nothing to do with it.
     explain_iap_error "${err}" "$port"
     rm -f "$tunnel_err"
     exit 2
   fi
 
   rm -f "$tunnel_err"
-  log "tunnel is UP on localhost:${port} — the URL above is live. Ctrl-C to close."
+  log "tunnel is UP on localhost:${local_port} — the URL above is live. Ctrl-C to close."
   wait "$tunnel_pid"
+}
+
+# ── The single coupling to the origin mechanism ─────────────────────────────
+#
+# Everything this file knows about Dex's issuer goes through here, so there is
+# ONE function to read rather than a call site per access method to find.
+#
+# INTERFACE (scripts/lib/dex-origin.sh):
+#
+#   apply <method> <origin>  claim the origin on behalf of <method>. Exit 0 on
+#                            success. Non-zero when ANOTHER method holds it.
+#                            The method is NOT optional — the mechanism records
+#                            it so its next refusal can name whose teardown to
+#                            run, and an origin alone cannot answer that.
+#   current                  print the origin currently in force. Exit 0.
+#   restore                  release the lease and return to the resting
+#                            origin. Exit 0.
+#   status                   human-readable. Exit 0.
+#
+# WHERE IT RUNS: on this lane the cluster lives on the demo VM, so the default
+# is to invoke the DELIVERED copy over SSH. GCP_TF_DEMO_DEX_ORIGIN_CMD overrides
+# that with a local command, which is both the escape hatch for a different
+# topology and what makes every branch below testable with no cluster.
+DEX_ORIGIN_REL="${GCP_TF_DEMO_DEX_ORIGIN_REL:-scripts/lib/dex-origin.sh}"
+DEX_ORIGIN_CMD="${GCP_TF_DEMO_DEX_ORIGIN_CMD:-}"
+
+# Checked against the LOCAL checkout even when the call is remote. The payload
+# is `git archive HEAD` of this tree, so a file absent here is absent on the VM
+# — and "T2 has not landed yet" is a far more useful message than a 127 from a
+# remote shell twenty seconds later.
+dex_origin_available() {
+  [ -n "$DEX_ORIGIN_CMD" ] && return 0
+  [ -f "${REPO_ROOT}/${DEX_ORIGIN_REL}" ]
+}
+
+dex_origin() {
+  if [ -n "$DEX_ORIGIN_CMD" ]; then
+    # Word-split deliberately: an operator-supplied command plus its flags.
+    local parts=()
+    read -r -a parts <<<"$DEX_ORIGIN_CMD"
+    "${parts[@]}" "$@"
+    return $?
+  fi
+  local remote
+  printf -v remote 'cd %q && %q %s' "$REMOTE_WORK_DIR" \
+    "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
+  remote_run "$remote"
+}
+
+# Refuse when T2's mechanism is not here.
+#
+# `who` names the caller so the message can say what will break, because the
+# consequence differs: over Tailscale a missing patch means a login that
+# bounces, and behind Funnel it means the same login bouncing on a URL the
+# whole internet can reach.
+require_dex_origin_mechanism() {
+  local who="$1"
+  dex_origin_available && return 0
+  cat >&2 <<EOF
+demo-up: ${who} needs the Dex origin mechanism, and it is not in this checkout.
+
+  Expected: ${REPO_ROOT}/${DEX_ORIGIN_REL}
+
+  Serving the dashboard at a new origin without repointing Dex's issuer gives
+  you a dashboard that LOADS and a login that BOUNCES. That presents as a
+  broken application rather than as an origin mismatch, which is the most
+  expensive wrong diagnosis available on this lane.
+
+  There is no longer a path that sidesteps this. IAP used to serve at the
+  origin the manifests already default to, so it could open a tunnel and skip
+  the mechanism entirely; now that every access method terminates at the same
+  nginx, every one of them publishes an origin of its own and has to claim it.
+
+  Restore the file, or point this at an equivalent implementation:
+
+      GCP_TF_DEMO_DEX_ORIGIN_CMD='<cmd>' make ${who} ENV=${ENV_KEY}
+EOF
+  exit 5
+}
+
+# Read-only conflict check, run BEFORE anything is stood up.
+#
+# Separated from the apply deliberately. `current` mutates nothing, so a demo
+# that is going to be refused is refused before the VM is touched; the write
+# happens later, once the serving path is real. Doing both at the point of
+# apply would mean publishing, serving, and only then discovering that ngrok
+# holds the issuer.
+# The origin the cluster is publishing, and the METHOD holding it. Two separate
+# questions, asked separately on purpose — see below.
+dex_origin_field() {
+  dex_origin "$1" 2>/dev/null | tr -d '\r' | tail -1 | tr -d '[:space:]' || true
+}
+
+require_no_conflicting_origin() {
+  local want="$1" method="" active=""
+
+  # The METHOD decides whether anything is held, NOT the origin.
+  #
+  # `current` falls back to the resting origin when nobody has published, so it
+  # is never empty and "non-empty means somebody holds it" is wrong. This code
+  # made exactly that mistake and it was invisible: the driver's suites asked a
+  # stub whose `current` prints empty at rest, so every test agreed with the
+  # driver while the shipped mechanism disagreed with both. Against the real
+  # thing every ts-up on an idle cluster refused itself, naming the baseline as
+  # the holder.
+  #
+  # Found by driving the real driver against the real mechanism — see
+  # test/terraform-demo-driver.bats § SEAM.
+  method="$(dex_origin_field holder)"
+  [ -n "$method" ] || return 0
+
+  active="$(dex_origin_field current)"
+  [ "$active" != "$want" ] || return 0
+
+  cat >&2 <<EOF
+demo-up: REFUSING — another access method already holds Dex.
+
+  currently held by: ${method}
+  at origin:         ${active}
+  this run wants:    ${want}
+
+  Dex has exactly ONE issuer, so these cannot both be live. The other origin is
+  almost certainly an ngrok tunnel from 'make public'; whatever it is, taking
+  the issuer from underneath it breaks that demo's login without warning it.
+
+  Release it first, then re-run:
+
+      ./scripts/public-tunnel.sh down          # if ngrok holds it
+      ${DEX_ORIGIN_REL} restore                # otherwise
+EOF
+  exit 6
 }
 
 # ── Publishing, and proving it before a human clicks ────────────────────────
@@ -1193,15 +1405,19 @@ EOF
 #   * The VM-side forward is the piece that actually dies. `kubectl
 #     port-forward` drops on apiserver SPDY resets and pod restarts, so a demo
 #     that worked an hour ago frequently has no listener now.
-#   * Even with both ends up, the Gateway selects its route by SNI. A probe
-#     that omits the SNI name gets its connection closed during the TLS
-#     handshake — measured, and it presents as `UNEXPECTED_EOF_WHILE_READING`,
-#     which reads like a broken tunnel rather than a wrong hostname.
+#   * A working tunnel to a healthy dashboard still gives a bouncing login if
+#     Dex is not issuing for this origin, so the origin is claimed as part of
+#     the chain rather than assumed.
+#
+# The third bullet here used to be about SNI: the probe had to carry the
+# Gateway's hostname or the connection was closed mid-handshake. That is gone
+# with the Gateway, along with `--resolve`, `-k` and the /etc/hosts preflight
+# that existed to make a browser agree with the probe.
 #
 # So `public` does the whole chain and refuses to hand over a URL it has not
-# fetched a 200 from: ensure the VM is publishing, open the tunnel, wait for
-# the local bind, then HTTP-probe /readyz through the tunnel WITH the SNI name.
-# Only then is anything printed that invites a click.
+# fetched a 200 from: claim the origin, ensure the VM is publishing, open the
+# tunnel, wait for the local bind, then HTTP-probe /readyz through it. Only
+# then is anything printed that invites a click.
 
 # Everything below is injectable so the control flow is exercisable against
 # stubs with no cluster, no tunnel and no cloud account.
@@ -1209,7 +1425,16 @@ HEALTH_PATH="${GCP_TF_DEMO_HEALTH_PATH:-/readyz}"
 HEALTH_WAIT_SECONDS="${GCP_TF_DEMO_HEALTH_WAIT_SECONDS:-120}"
 HEALTH_INTERVAL_SECONDS="${GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS:-3}"
 CURL_BIN="${GCP_TF_DEMO_CURL:-curl}"
-GATEWAY_LABEL="${GCP_TF_DEMO_GATEWAY_LABEL:-gateway.envoyproxy.io/owning-gateway-name=cluster}"
+
+# GATEWAY_LABEL is GONE, not merely unused.
+#
+# It existed because the forward targeted the Envoy Gateway service, whose name
+# carries a generated hash (envoy-ingress-cluster-6b24dc08) and therefore had to
+# be discovered by label at run time. The forward now targets a Service with a
+# stable, hand-written name, so there is nothing to discover — and with it goes
+# the `read -r ns svc < <(kubectl … -o jsonpath …)` in the remote script, which
+# returned non-zero for want of a trailing newline and aborted that script
+# silently under `set -e`.
 
 # The wildcard bind address, not loopback.
 #
@@ -1228,7 +1453,7 @@ GATEWAY_LABEL="${GCP_TF_DEMO_GATEWAY_LABEL:-gateway.envoyproxy.io/owning-gateway
 # Defined here with the other constants rather than beside its consumer, because
 # it is read inside a heredoc built by ensure_published and a later definition
 # would expand empty.
-GATEWAY_BIND_ADDRESS="${GCP_TF_DEMO_GATEWAY_BIND_ADDRESS:-0.0.0.0}"
+FORWARD_BIND_ADDRESS="${GCP_TF_DEMO_FORWARD_BIND_ADDRESS:-0.0.0.0}"
 
 # Where the VM records the forward's PID and log, so `public-down` can stop it
 # by PID rather than by a self-matching pattern.
@@ -1238,26 +1463,24 @@ PF_LOG="${GCP_TF_DEMO_PF_LOG:-/tmp/demo-gateway-pf.log}"
 # One HTTP probe through the tunnel. Returns the status code on stdout, or the
 # empty string when the request could not be made at all.
 #
-# --resolve rather than /etc/hosts: it sets BOTH the connection target and the
-# TLS SNI name from the URL's hostname, which is exactly the pair the Gateway
-# needs, and it does it without asking the operator to mutate a system file
-# before we have proven there is anything worth pointing at.
-#
-# -k because the Gateway serves a self-signed certificate. This probe is
-# checking liveness through a tunnel that Google has already authenticated; it
-# is not the thing establishing trust.
+# It probes THE EXACT URL it is about to hand over, which it could not do
+# before. The old probe needed `--resolve` to set the connection target and the
+# TLS SNI name to the Gateway's hostname, and `-k` to accept the Gateway's
+# self-signed certificate — so a 200 proved the ESTATE was healthy while saying
+# nothing about whether a browser here could reach the same address. That gap is
+# what require_hosts_entry existed to cover. Probing the browser's own URL
+# closes it at the source rather than guarding it, so both are gone.
 probe_dashboard_status() {
-  local port="$1"
-  "$CURL_BIN" -k -s -o /dev/null -w '%{http_code}' --max-time 10 \
-    --resolve "${DASHBOARD_HOST}:${port}:127.0.0.1" \
-    "https://${DASHBOARD_HOST}:${port}${HEALTH_PATH}" 2>/dev/null || printf ''
+  local origin="$1"
+  "$CURL_BIN" -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "${origin}${HEALTH_PATH}" 2>/dev/null || printf ''
 }
 
 # Poll until the dashboard answers 200, or the deadline expires.
 wait_for_dashboard() {
-  local port="$1" waited=0 code=''
+  local origin="$1" waited=0 code=''
   while [ "$waited" -lt "$HEALTH_WAIT_SECONDS" ]; do
-    code="$(probe_dashboard_status "$port")"
+    code="$(probe_dashboard_status "$origin")"
     if [ "$code" = "200" ]; then
       printf '%s' "$code"
       return 0
@@ -1269,59 +1492,28 @@ wait_for_dashboard() {
   return 1
 }
 
-# Does THIS machine resolve the dashboard's SNI name to loopback?
+# ── There is no hosts-file preflight here any more ──────────────────────────
 #
-# This is not covered by the health probe, and the gap is the dangerous kind.
-# probe_dashboard_status uses `curl --resolve`, which sets the connection target
-# and the SNI name directly and NEVER CONSULTS /etc/hosts. That is correct for a
-# liveness probe — it tests the tunnel and the estate without requiring the
-# operator to mutate a system file first — but it means a 200 says nothing about
-# whether a BROWSER on this machine can reach the same URL.
+# `hosts_entry_present` and `require_hosts_entry` were REMOVED, not disabled,
+# and the distinction matters: a passing check for a constraint that no longer
+# exists is worse than no check, because it teaches the next reader that the
+# constraint is still real.
 #
-# So without this check the target could print "verified before you clicked" and
-# then hand over a URL that fails to resolve the moment it is clicked, which is
-# precisely the promise it exists to keep. It passed unnoticed on the machine
-# this was written on only because /etc/hosts already carried the entry.
+# They existed for one reason. The Gateway routed by SNI on a name that resolves
+# nowhere in the world, so every operator had to add `127.0.0.1
+# dashboard.osramp.acme.local` to /etc/hosts before a browser could reach the
+# demo, and the health probe could not detect its absence because `curl
+# --resolve` never consults /etc/hosts. The URL handed over is now
+# `http://localhost:<port>`, which resolves on every machine ever built, and the
+# probe fetches that exact URL — so there is nothing left for the preflight to
+# assert.
 #
-# getent, not ping or curl: it asks the name-service switch the same question
-# the browser will, so /etc/hosts, nsswitch and any resolver all count.
-hosts_entry_present() {
-  getent hosts "$DASHBOARD_HOST" 2>/dev/null | grep -q '^127\.0\.0\.1'
-}
-
-require_hosts_entry() {
-  if hosts_entry_present; then
-    log "${DASHBOARD_HOST} resolves to loopback — a browser here can reach it"
-    return 0
-  fi
-
-  if [ "${GCP_TF_DEMO_SKIP_HOSTS_CHECK:-0}" = "1" ]; then
-    warn "${DASHBOARD_HOST} does not resolve to loopback. Continuing because GCP_TF_DEMO_SKIP_HOSTS_CHECK=1 — curl --resolve will still work, a browser will not."
-    return 0
-  fi
-
-  cat >&2 <<EOF
-demo-up: ${DASHBOARD_HOST} does not resolve on this machine.
-
-  The tunnel and the estate may both be perfectly healthy — this check is about
-  THIS machine's name resolution, and it runs first precisely so you do not wait
-  for a working tunnel and then discover the browser cannot use it.
-
-  The dashboard is served by the Envoy Gateway behind an SNI hostname, so
-  https://localhost:${APP_PORT} reaches the Gateway and is then rejected at TLS.
-  The name is not optional and it is not a DNS name — it resolves nowhere in the
-  world except a hosts file you control.
-
-  Add it once per machine:
-
-      echo '127.0.0.1 ${DASHBOARD_HOST}' | sudo tee -a /etc/hosts
-
-  Then re-run this target. If you only want a scripted curl and no browser:
-
-      GCP_TF_DEMO_SKIP_HOSTS_CHECK=1 make gcp-tf-public ENV=${ENV_KEY}
-EOF
-  exit 4
-}
+# It is NOT still needed elsewhere on this lane. The one other place a hosts
+# entry was written was ON THE VM (`ensure_vm_hosts_alias`), so `tailscale
+# serve` could dial the Gateway with an SNI name; serve now dials the same nginx
+# forward over loopback HTTP and that function is gone too. The Tailscale and
+# ngrok paths never needed one on the operator's machine at all — MagicDNS and
+# ngrok both hand out real, resolvable names.
 
 # Is the VM publishing the dashboard on its own interface?
 #
@@ -1336,10 +1528,18 @@ remote_is_publishing() {
 
 # Start the VM-side supervised forward if it is not already up. Idempotent.
 #
-# Resolves the Gateway by LABEL rather than by name: Envoy appends a hash to the
-# service name (envoy-ingress-cluster-6b24dc08), so a hardcoded name works until
-# the Gateway is recreated and then fails with "service not found" on a cluster
-# that is perfectly healthy.
+# The target is the dashboard's nginx Service, by NAME. That is the whole
+# refactor in one line: this used to discover the Envoy Gateway's Service by
+# label, because Envoy appends a generated hash to it
+# (envoy-ingress-cluster-6b24dc08) and a hardcoded name breaks the moment the
+# Gateway is recreated. dashboard-signalloom is a hand-written name in a
+# hand-written manifest and cannot acquire a hash, so the discovery step, its
+# failure mode, and the `read -r ns svc < <(kubectl …)` that implemented it are
+# all gone rather than reworked.
+#
+# The forward is 8080-to-8080 in spirit — <local>:8080 — where the Service's
+# port is fixed by the manifest and the VM-side port is app_port. It carries
+# plain HTTP, so nothing here terminates TLS and nothing needs a certificate.
 ensure_published() {
   local port="$1"
 
@@ -1348,7 +1548,7 @@ ensure_published() {
     return 0
   fi
 
-  log "the VM is not publishing on :${port} — starting the supervised forward"
+  log "the VM is not publishing on :${port} — starting the supervised forward to ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}:${DASHBOARD_SERVICE_PORT}"
 
   # 0.0.0.0, not loopback: the operator arrives over an IAP tunnel that connects
   # to the instance's INTERNAL IP, so a forward bound to localhost is reachable
@@ -1364,23 +1564,22 @@ ensure_published() {
   local script
   script=$(cat <<REMOTE
 set -uo pipefail
-# NOT set -e, and NOT a bare \`read\`.
+# Still NOT set -e. The forward is launched with nohup and the verification is
+# an explicit test below, so an aborting shell would report nothing at all —
+# the caller would see empty stdout and a generic failure with no clue which
+# step went missing.
 #
-# kubectl -o jsonpath emits NO trailing newline, so \`read\` consumes the fields
-# and still returns non-zero for want of a line terminator. Under \`set -e\` that
-# aborts the script at this line — before the gateway check, before the
-# forward, before any echo — so the caller sees a completely empty stdout and a
-# generic failure. That cost a diagnosis cycle here; the \`|| true\` and the
-# explicit checks below are what make the failure say which thing was missing.
-read -r ns svc < <(kubectl get service -A -l '${GATEWAY_LABEL}' \
-  -o jsonpath='{.items[0].metadata.namespace} {.items[0].metadata.name}' 2>/dev/null) || true
-if [ -z "\${ns:-}" ] || [ -z "\${svc:-}" ]; then
-  echo "NO_GATEWAY" >&2
+# The Service is asserted to EXIST before anything is forwarded. \`kubectl
+# port-forward\` against a missing Service fails a few seconds later with a
+# message about the service, which reads as a broken cluster; saying so here
+# names the namespace and the name that were actually looked for.
+if ! kubectl get service -n '${DASHBOARD_NAMESPACE}' '${DASHBOARD_SERVICE}' >/dev/null 2>&1; then
+  echo "NO_DASHBOARD_SERVICE ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}" >&2
   exit 3
 fi
-echo "gateway=\${ns}/\${svc}"
-nohup setsid kubectl port-forward -n "\${ns}" "svc/\${svc}" \
-  --address ${GATEWAY_BIND_ADDRESS} ${port}:443 >${PF_LOG} 2>&1 < /dev/null &
+echo "dashboard=${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE}"
+nohup setsid kubectl port-forward -n '${DASHBOARD_NAMESPACE}' 'svc/${DASHBOARD_SERVICE}' \
+  --address ${FORWARD_BIND_ADDRESS} ${port}:${DASHBOARD_SERVICE_PORT} >${PF_LOG} 2>&1 < /dev/null &
 # The PID is RECORDED, because it is the only thing that can stop this forward
 # without a pattern match. A \`pkill -f 'kubectl port-forward…'\` issued over
 # remote_run matches the remote \`bash -lc\` that carries the command text and
@@ -1392,7 +1591,7 @@ ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHED || { echo NOT_PUBLIS
 REMOTE
 )
   if ! remote_run "$script"; then
-    die "could not publish the dashboard on the VM. Is the estate up? Try: make gcp-tf-demo-status ENV=${ENV_KEY}"
+    die "could not publish ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} on the VM. Is the estate up? Try: make gcp-tf-demo-status ENV=${ENV_KEY}"
   fi
 }
 
@@ -1400,24 +1599,39 @@ REMOTE
 cmd_public() {
   prepare public
 
-  local port="$APP_PORT"
-  if [ "$port" != "$DEX_PINNED_PORT" ] && [ "${GCP_TF_DEMO_ALLOW_PORT_MISMATCH:-0}" != "1" ]; then
-    die "refusing to publish on ${port}: Dex pins its OIDC callback to ${DEX_PINNED_PORT}, so login would fail. Fix app_port, or set GCP_TF_DEMO_ALLOW_PORT_MISMATCH=1."
-  fi
+  local port="$APP_PORT" local_port origin
+  local_port="$(local_tunnel_port)"
+  origin="$(iap_origin)"
 
-  # FIRST, and deliberately before any cloud call. It is a local check costing
-  # milliseconds, and failing it after publishing and tunnelling would mean
-  # waiting a minute to be told about a line in a file.
-  require_hosts_entry
+  # The origin claim comes FIRST, before any cloud call, for the same reason the
+  # hosts check used to: a run that is going to be refused because ngrok holds
+  # the issuer should be refused in milliseconds, not after a minute of gcloud
+  # and a live port-forward.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ]; then
+    warn "GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 — Dex keeps its current issuer. The dashboard will load at ${origin} and the LOGIN WILL BOUNCE."
+  else
+    require_dex_origin_mechanism "gcp-tf-public"
+    require_no_conflicting_origin "$origin"
+  fi
 
   ensure_published "$port"
 
-  log "opening IAP tunnel: localhost:${port} -> ${INSTANCE_NAME}:${port}"
+  # Claimed AFTER the estate is publishing, unlike the read-only check above.
+  # Applying restarts Dex, and Dex runs `storage: type: memory` — doing that
+  # before we know the dashboard is being served would log out anyone mid-login
+  # for a demo that then turns out not to come up.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
+    log "claiming the Dex origin: ${origin}"
+    dex_origin apply iap "$origin" ||
+      die "could not repoint Dex at ${origin}. The dashboard would load and the login would bounce, so this is a failure rather than a warning."
+  fi
+
+  log "opening IAP tunnel: localhost:${local_port} -> ${INSTANCE_NAME}:${port}"
   local tunnel_err
   tunnel_err="$(mktemp "${TMPDIR:-/tmp}/demo-tunnel.XXXXXX.log")"
 
   env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute start-iap-tunnel "$INSTANCE_NAME" "$port" \
-    --local-host-port="localhost:${port}" \
+    --local-host-port="localhost:${local_port}" \
     --zone="$ZONE" --project="$PROJECT_ID" \
     --impersonate-service-account="$OPERATOR_SA" 2>"$tunnel_err" &
   local tunnel_pid=$!
@@ -1430,7 +1644,7 @@ cmd_public() {
   local bound=0 waited=0
   while [ "$waited" -lt "$TUNNEL_WAIT_SECONDS" ]; do
     kill -0 "$tunnel_pid" 2>/dev/null || break
-    if "$PORT_PROBE" "$port"; then bound=1; break; fi
+    if "$PORT_PROBE" "$local_port"; then bound=1; break; fi
     waited=$((waited + 1))
     sleep 1
   done
@@ -1439,36 +1653,37 @@ cmd_public() {
     local err
     err="$(strip_impersonation_warning <"$tunnel_err" | tail -5)"
     printf '\ndemo-up: the tunnel did not bind localhost:%s within %ds.\n\n  gcloud said:\n%s\n' \
-      "$port" "$TUNNEL_WAIT_SECONDS" "${err:-    (nothing on stderr)}" >&2
+      "$local_port" "$TUNNEL_WAIT_SECONDS" "${err:-    (nothing on stderr)}" >&2
     explain_iap_error "${err}" "$port"
     rm -f "$tunnel_err"
     exit 2
   fi
 
   # The bit `connect` does not do. A bound port is not a working demo.
-  log "tunnel bound — probing https://${DASHBOARD_HOST}:${port}${HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"
+  log "tunnel bound — probing ${origin}${HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"
   local code
-  if ! code="$(wait_for_dashboard "$port")"; then
+  if ! code="$(wait_for_dashboard "$origin")"; then
     {
       printf '\ndemo-up: the tunnel is up but the dashboard did not answer %s.\n' "$HEALTH_PATH"
       printf '  last status: %s\n\n' "${code:-(no response)}"
       printf '  The tunnel and the firewall are FINE — this got far enough to ask.\n'
-      printf '  What has not: something behind the Gateway. Check the estate:\n\n'
+      printf '  What has not: the dashboard pod behind the forward. Check the estate:\n\n'
       printf '    make gcp-tf-demo-status ENV=%s\n' "$ENV_KEY"
       printf '    make gcp-tf-demo-up ENV=%s      # rebuild and re-test\n\n' "$ENV_KEY"
-      printf '  An empty status usually means curl could not resolve or connect;\n'
-      printf '  a 404 means the Gateway answered but no route matched the SNI name\n'
-      printf '  %s.\n' "$DASHBOARD_HOST"
+      printf '  An empty status means curl could not connect at all, so the\n'
+      printf '  VM-side forward has died since it was started. A 502 or 504 means\n'
+      printf '  nginx is up and its upstream is not. A 404 means nginx answered\n'
+      printf '  and %s is not one of its locations.\n' "$HEALTH_PATH"
     } >&2
     rm -f "$tunnel_err"
     exit 3
   fi
 
   rm -f "$tunnel_err"
-  print_connect_instructions "$port"
+  print_connect_instructions "$origin"
   printf '\n  HEALTH: %s%s returned %s — verified before you clicked.\n\n' \
-    "$DASHBOARD_HOST" "$HEALTH_PATH" "$code"
-  log "the demo is live on localhost:${port}. Ctrl-C to close the tunnel."
+    "$origin" "$HEALTH_PATH" "$code"
+  log "the demo is live at ${origin}. Ctrl-C to close the tunnel."
   wait "$tunnel_pid"
 }
 
@@ -1503,31 +1718,72 @@ kill \"\$(cat '${PF_PID_FILE}')\" 2>/dev/null || true
 rm -f '${PF_PID_FILE}'
 sleep 2
 ss -ltn 2>/dev/null | grep -q ':${port} ' && echo STILL_PUBLISHING || echo STOPPED"
+
+  # Release the lease, but ONLY if this access method is what holds it.
+  #
+  # Unconditional restore would be a lease violation with a friendly name: an
+  # operator running `public-down` on a machine whose IAP demo is already gone
+  # would yank the issuer out from under a live Tailscale or ngrok demo, and the
+  # victim's login would start bouncing with nothing anywhere reporting an
+  # error. Comparing the published origin to our OWN is the check the mechanism
+  # makes available — `current` prints the origin, and if it is not ours then
+  # someone else's teardown owns it.
+  #
+  # Unlike funnel-down, which deliberately keeps the origin because `tailscale
+  # serve` is still standing at the same URL, there is nothing left serving here
+  # once the forward is stopped. Holding the lease past that point would block
+  # every other method for no reason.
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ] && dex_origin_available; then
+    local origin method active
+    origin="$(iap_origin)"
+    method="$(dex_origin_field holder)"
+    active="$(dex_origin_field current)"
+    if [ -z "$method" ]; then
+      log "no Dex origin is held — nothing to release"
+    elif [ "$active" = "$origin" ]; then
+      log "releasing the Dex origin ${origin}"
+      dex_origin restore || warn "could not release the Dex origin. The next access method will be refused and told that '${origin}' holds it."
+    else
+      log "leaving the Dex origin alone — '${method}' holds it at ${active}, not this IAP demo"
+    fi
+  fi
 }
 
 cmd_public_status() {
   prepare public-status
-  local port="$APP_PORT"
+  local port="$APP_PORT" origin
+  origin="$(iap_origin)"
   printf 'env:       %s\n' "$ENV_KEY"
   printf 'instance:  %s (%s)\n' "$INSTANCE_NAME" "$(vm_status)"
-  if hosts_entry_present; then
-    printf 'hosts:     %s -> 127.0.0.1 (a browser here can reach it)\n' "$DASHBOARD_HOST"
-  else
-    printf "hosts:     %s does NOT resolve — add: echo '127.0.0.1 %s' | sudo tee -a /etc/hosts\n" \
-      "$DASHBOARD_HOST" "$DASHBOARD_HOST"
-  fi
+  printf 'url:       %s\n' "$origin"
   if remote_is_publishing "$port"; then
-    printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$port"
+    printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
+      "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$port"
   else
     printf 'vm:        NOT publishing on :%s — run: make gcp-tf-public ENV=%s\n' "$port" "$ENV_KEY"
   fi
+  if dex_origin_available; then
+    # Two fields, because `current` alone cannot say whether anyone holds it —
+    # it reports the resting origin when nobody does. See
+    # require_no_conflicting_origin for what conflating those two cost.
+    local method active
+    method="$(dex_origin_field holder)"
+    active="$(dex_origin_field current)"
+    if [ -n "$method" ]; then
+      printf 'dex origin: %s (held by %s)\n' "$active" "$method"
+    else
+      printf 'dex origin: %s (resting origin — held by nobody)\n' "$active"
+    fi
+  else
+    printf 'dex origin: UNKNOWN — %s is not in this checkout\n' "$DEX_ORIGIN_REL"
+  fi
   local code
-  code="$(probe_dashboard_status "$port")"
+  code="$(probe_dashboard_status "$origin")"
   if [ "$code" = "200" ]; then
-    printf 'local:     tunnel OPEN and healthy (%s%s -> %s)\n' "$DASHBOARD_HOST" "$HEALTH_PATH" "$code"
+    printf 'local:     tunnel OPEN and healthy (%s%s -> %s)\n' "$origin" "$HEALTH_PATH" "$code"
   else
     printf 'local:     no healthy tunnel here (%s%s -> %s)\n' \
-      "$DASHBOARD_HOST" "$HEALTH_PATH" "${code:-no response}"
+      "$origin" "$HEALTH_PATH" "${code:-no response}"
   fi
 }
 
@@ -1574,27 +1830,31 @@ cmd_payload() {
 #      long as the demo is wanted; close the terminal and the demo goes away.
 #      A Tailscale node serves for as long as it is up.
 #
-# What it does NOT remove is the SNI problem itself, and that is the one piece
-# of this block that is genuinely non-obvious.
+# It no longer has to work around the SNI problem either, and that paragraph is
+# worth reading if you remember the previous version of this block.
 #
-#   The dashboard is served by an in-cluster Envoy Gateway that selects its
-#   route by SNI, on the name DASHBOARD_HOST. A request arriving with any other
-#   name in the handshake is closed during TLS — measured, and it presents as
-#   UNEXPECTED_EOF_WHILE_READING, which reads as a broken tunnel rather than as
-#   a wrong hostname. So browsing https://<node>.<tailnet>.ts.net:30754 straight
-#   at the forwarded port fails exactly as https://localhost:30754 does, and
-#   fixing that with a hosts entry would put back the thing we just removed.
+#   This used to serve THROUGH the Envoy Gateway, which selects its route by
+#   SNI. Browsing https://<node>.<tailnet>.ts.net at a Gateway-forwarded port
+#   failed exactly as https://localhost:30754 did, and the workaround was
+#   ensure_vm_hosts_alias: give the Gateway's hostname a loopback alias ON THE
+#   VM so `tailscale serve` could dial its backend by that name and supply the
+#   SNI value. It worked, and it was one more thing to be wrong.
 #
-#   `tailscale serve` is what resolves it. The node terminates TLS itself with a
-#   real, publicly-trusted certificate for its MagicDNS name, and proxies to a
-#   backend we get to name — so the SNI name is supplied ON THE VM, once, by
-#   ensure_vm_hosts_alias, instead of on every operator's laptop forever.
+#   The forward now targets the dashboard's nginx, which routes by PATH over
+#   plain HTTP. There is no name to match, so `tailscale serve` dials
+#   http://127.0.0.1:<port> and the alias — along with the whole class of
+#   handshake failures that read as a dead dashboard — is gone.
+#
+# `tailscale serve` still terminates TLS with a real, publicly-trusted
+# certificate for the MagicDNS name. That is what makes this origin https://
+# while the IAP one is http://, and dex-origin.sh enforces exactly that
+# distinction: cleartext on loopback only.
 #
 # ── The origin changes, and Dex has exactly one issuer ──────────────────────
 #
 # A browser reaching the demo at https://<node>.<tailnet>.ts.net is at a
-# DIFFERENT ORIGIN from https://DASHBOARD_HOST:30754, and Dex pins its OIDC
-# issuer and its callback client to one origin at a time. Left alone, the
+# DIFFERENT ORIGIN from the IAP path's http://localhost:<port>, and Dex pins its
+# OIDC issuer and its callback client to one origin at a time. Left alone, the
 # dashboard loads over Tailscale and the login bounces — which presents as a
 # broken application, not as an origin mismatch, and is the single most
 # expensive failure shape this lane has. Every path below that changes the
@@ -1846,133 +2106,17 @@ wait_for_ts_dashboard() {
   return 1
 }
 
-# ── The single coupling to chunk T2's origin mechanism ──────────────────────
+# ── ensure_vm_hosts_alias is GONE ───────────────────────────────────────────
 #
-# Everything this file knows about Dex's issuer goes through here, so the
-# orchestrator reconciling T2's real interface at merge has ONE function to
-# read rather than four call sites to find.
+# It wrote `127.0.0.1 dashboard.osramp.acme.local` into the VM's /etc/hosts so
+# `tailscale serve` could dial its backend BY NAME and thereby supply the SNI
+# value the Envoy Gateway routed on. An IP literal sends no SNI at all and the
+# Gateway closed the connection mid-handshake, which read as a dead dashboard.
 #
-# ASSUMED INTERFACE (scripts/lib/dex-origin.sh, chunk T2 — NOT present in this
-# worktree, so this is a contract stated, not a contract observed):
-#
-#   apply <origin>   claim the origin. Exit 0 on success. Non-zero when another
-#                    origin already holds Dex.
-#   current          print the origin currently in force, or nothing when Dex
-#                    is at its pinned default. Exit 0 either way.
-#   restore          put the pinned default back. Exit 0.
-#   status           human-readable. Exit 0.
-#
-# WHERE IT RUNS is the part most likely to need reconciling. T2 is building it
-# for `make public`, where kubectl is local. On this lane the cluster lives on
-# the demo VM, so the default is to invoke the DELIVERED copy over SSH.
-# GCP_TF_DEMO_DEX_ORIGIN_CMD overrides that with a local command, which is both
-# the escape hatch for a different topology and what makes every branch below
-# testable with no cluster.
-DEX_ORIGIN_REL="${GCP_TF_DEMO_DEX_ORIGIN_REL:-scripts/lib/dex-origin.sh}"
-DEX_ORIGIN_CMD="${GCP_TF_DEMO_DEX_ORIGIN_CMD:-}"
-
-# Checked against the LOCAL checkout even when the call is remote. The payload
-# is `git archive HEAD` of this tree, so a file absent here is absent on the VM
-# — and "T2 has not landed yet" is a far more useful message than a 127 from a
-# remote shell twenty seconds later.
-dex_origin_available() {
-  [ -n "$DEX_ORIGIN_CMD" ] && return 0
-  [ -f "${REPO_ROOT}/${DEX_ORIGIN_REL}" ]
-}
-
-dex_origin() {
-  if [ -n "$DEX_ORIGIN_CMD" ]; then
-    # Word-split deliberately: an operator-supplied command plus its flags.
-    local parts=()
-    read -r -a parts <<<"$DEX_ORIGIN_CMD"
-    "${parts[@]}" "$@"
-    return $?
-  fi
-  local remote
-  printf -v remote 'cd %q && %q %s' "$REMOTE_WORK_DIR" \
-    "${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}" "$(printf '%q ' "$@")"
-  remote_run "$remote"
-}
-
-# Refuse when T2's mechanism is not here.
-#
-# `who` names the caller so the message can say what will break, because the
-# consequence differs: over Tailscale a missing patch means a login that
-# bounces, and behind Funnel it means the same login bouncing on a URL the
-# whole internet can reach.
-require_dex_origin_mechanism() {
-  local who="$1"
-  dex_origin_available && return 0
-  cat >&2 <<EOF
-demo-up: ${who} needs the Dex origin mechanism, and it is not in this checkout.
-
-  Expected: ${REPO_ROOT}/${DEX_ORIGIN_REL}   (chunk T2)
-
-  Serving the dashboard at a new origin without repointing Dex's issuer gives
-  you a dashboard that LOADS and a login that BOUNCES. That presents as a
-  broken application rather than as an origin mismatch, which is the most
-  expensive wrong diagnosis available on this lane.
-
-  Until T2 lands, either use the IAP path — which serves at the origin Dex is
-  already pinned to:
-
-      make gcp-tf-public ENV=${ENV_KEY}
-
-  or point this at an equivalent implementation:
-
-      GCP_TF_DEMO_DEX_ORIGIN_CMD='<cmd>' make gcp-tf-ts-up ENV=${ENV_KEY}
-EOF
-  exit 5
-}
-
-# Read-only conflict check, run BEFORE anything is stood up.
-#
-# Separated from the apply deliberately. `current` mutates nothing, so a demo
-# that is going to be refused is refused before the VM is touched; the write
-# happens later, once the serving path is real. Doing both at the point of
-# apply would mean publishing, serving, and only then discovering that ngrok
-# holds the issuer.
-require_no_conflicting_origin() {
-  local want="$1" holder=""
-  holder="$(dex_origin current 2>/dev/null | tr -d '\r' | tail -1 | tr -d '[:space:]' || true)"
-  [ -n "$holder" ] || return 0
-  [ "$holder" != "$want" ] || return 0
-
-  cat >&2 <<EOF
-demo-up: REFUSING — another origin already holds Dex.
-
-  currently held by: ${holder}
-  this run wants:    ${want}
-
-  Dex has exactly ONE issuer, so these cannot both be live. The other origin is
-  almost certainly an ngrok tunnel from 'make public'; whatever it is, taking
-  the issuer from underneath it breaks that demo's login without warning it.
-
-  Release it first, then re-run:
-
-      ./scripts/public-tunnel.sh down          # if ngrok holds it
-      ${DEX_ORIGIN_REL} restore                # otherwise
-EOF
-  exit 6
-}
-
-# Make the SNI name resolve ON THE VM, so `tailscale serve` can name it as its
-# backend.
-#
-# This is the line that moves the hosts-file burden off every operator's laptop
-# and onto the VM once. The Gateway routes by SNI on DASHBOARD_HOST, so the
-# serve backend must be dialled by that NAME — an IP literal sends no SNI at
-# all and the Gateway closes the connection during the handshake.
-#
-# Idempotent, and it appends rather than rewriting: /etc/hosts on this VM is
-# not ours alone.
-ensure_vm_hosts_alias() {
-  remote_run "grep -qE '^127\\.0\\.0\\.1[[:space:]]+${DASHBOARD_HOST}\$' /etc/hosts \
-    || echo '127.0.0.1 ${DASHBOARD_HOST}' | sudo tee -a /etc/hosts >/dev/null; \
-    getent hosts ${DASHBOARD_HOST} >/dev/null && echo ALIAS_OK || { echo ALIAS_MISSING >&2; exit 3; }" \
-    >/dev/null ||
-    die "could not give ${DASHBOARD_HOST} a loopback alias on ${INSTANCE_NAME}. Without it 'tailscale serve' dials the backend with no SNI name and the Gateway closes the connection mid-handshake, which reads as a dead dashboard."
-}
+# The backend is nginx now. It routes by path, terminates no TLS and inspects no
+# hostname, so the alias has nothing left to do — and a mutation of the VM's
+# /etc/hosts that is no longer required is not something to leave running "just
+# in case".
 
 # `tailscale serve` (tailnet-only) or `tailscale funnel` (public), on the VM.
 #
@@ -1982,9 +2126,22 @@ TS_SERVE_PORT="${GCP_TF_DEMO_TS_SERVE_PORT:-443}"
 
 ensure_ts_serve() {
   local verb="$1" port="$2" # verb: serve | funnel
-  log "configuring 'tailscale ${verb}' on ${INSTANCE_NAME}: :${TS_SERVE_PORT} -> ${DASHBOARD_HOST}:${port}"
+  # `http://127.0.0.1:<port>`, not `https+insecure://<sni-name>:<port>`.
+  #
+  # Both halves of that change are load-bearing. The scheme is http because the
+  # VM-side forward now carries nginx's cleartext 8080 rather than the Gateway's
+  # TLS 443, so `https+insecure` would fail the handshake against a server that
+  # speaks no TLS. The host is a loopback literal because there is no longer an
+  # SNI name to supply — which is precisely why the /etc/hosts alias above could
+  # be deleted rather than kept.
+  #
+  # This leg being cleartext is not a downgrade: it is loopback ON THE VM,
+  # inside the same machine, and `tailscale serve` still terminates real TLS for
+  # everything that arrives from outside.
+  local backend="http://127.0.0.1:${port}"
+  log "configuring 'tailscale ${verb}' on ${INSTANCE_NAME}: :${TS_SERVE_PORT} -> ${backend}"
   remote_run "sudo tailscale ${verb} --bg --https=${TS_SERVE_PORT} \
-    'https+insecure://${DASHBOARD_HOST}:${port}' && echo ${verb^^}_CONFIGURED" ||
+    '${backend}' && echo ${verb^^}_CONFIGURED" ||
     die "'tailscale ${verb}' failed on ${INSTANCE_NAME}. If it named a certificate, HTTPS certs are not enabled for this tailnet (admin console -> DNS -> HTTPS Certificates). If it named funnel, the tailnet policy has no nodeAttrs entry granting 'funnel' to tag:sl-demo. Neither is fixable from here."
 }
 
@@ -2048,17 +2205,29 @@ cmd_ts_status() {
   fi
 
   if remote_is_publishing "$APP_PORT"; then
-    printf 'vm:        PUBLISHING on %s:%s\n' "$GATEWAY_BIND_ADDRESS" "$APP_PORT"
+    printf 'vm:        PUBLISHING %s/%s on %s:%s\n' \
+      "$DASHBOARD_NAMESPACE" "$DASHBOARD_SERVICE" "$FORWARD_BIND_ADDRESS" "$APP_PORT"
   else
     printf 'vm:        NOT publishing on :%s — run: make gcp-tf-ts-up ENV=%s\n' "$APP_PORT" "$ENV_KEY"
   fi
 
   if dex_origin_available; then
-    local holder
-    holder="$(dex_origin current 2>/dev/null | tr -d '\r' | tail -1 | tr -d '[:space:]' || true)"
-    printf 'dex origin: %s\n' "${holder:-(pinned default — the IAP origin)}"
+    # NOT "the IAP origin" when unheld. IAP claims http://localhost:<port> like
+    # any other method now, so an unheld origin means nobody is publishing —
+    # naming a method would send a reader hunting for a tunnel that does not
+    # exist. And the holder is read from the METHOD key rather than inferred
+    # from the origin string, because `current` reports the resting origin at
+    # rest and is therefore never empty.
+    local method active
+    method="$(dex_origin_field holder)"
+    active="$(dex_origin_field current)"
+    if [ -n "$method" ]; then
+      printf 'dex origin: %s (held by %s)\n' "$active" "$method"
+    else
+      printf 'dex origin: %s (resting origin — held by nobody)\n' "$active"
+    fi
   else
-    printf 'dex origin: UNKNOWN — %s is not in this checkout (chunk T2)\n' "$DEX_ORIGIN_REL"
+    printf 'dex origin: UNKNOWN — %s is not in this checkout\n' "$DEX_ORIGIN_REL"
   fi
 
   local base code
@@ -2097,7 +2266,6 @@ cmd_ts_up() {
   fi
 
   ensure_published "$port"
-  ensure_vm_hosts_alias
   ensure_ts_serve serve "$port"
 
   if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" != "1" ]; then
@@ -2105,9 +2273,9 @@ cmd_ts_up() {
     # `apply <method> <origin>` — the METHOD is not optional. The mechanism
     # records which access method holds the lease so the refusal it gives the
     # next caller can name whose teardown to run; an origin alone cannot answer
-    # that. Chunk T3 was written against an assumed one-argument signature and
-    # this seam was invisible to both suites, because each tested its own side
-    # of it: T3 against a stub, T2 against its own CLI.
+    # that. This was written once against an assumed one-argument signature and
+    # the seam was invisible to both suites, because each tested its own side
+    # of it: the driver against a stub, the mechanism against its own CLI.
     dex_origin apply tailscale "$base" ||
       die "could not repoint Dex at ${base}. The dashboard would load and the login would bounce, so this is a failure rather than a warning."
   fi
@@ -2125,8 +2293,8 @@ cmd_ts_up() {
       printf '       DNS -> HTTPS Certificates). Nothing in this repo can turn that on.\n'
       printf '    2. A 502 means tailscale serve reached the VM-side forward and got\n'
       printf '       nothing. Check the estate:  make gcp-tf-demo-status ENV=%s\n' "$ENV_KEY"
-      printf '    3. A 404 means the Gateway answered and no route matched the SNI\n'
-      printf '       name %s — the loopback alias on the VM is wrong.\n' "$DASHBOARD_HOST"
+      printf '    3. A 404 means nginx answered and %s is not one of its\n' "$TS_HEALTH_PATH"
+      printf '       locations — the dashboard image is older than this checkout.\n'
     } >&2
     exit 3
   fi
@@ -2176,7 +2344,6 @@ cmd_funnel_up() {
 EOF
 
   ensure_published "$port"
-  ensure_vm_hosts_alias
   ensure_ts_serve funnel "$port"
 
   log "claiming the Dex origin: ${base}"

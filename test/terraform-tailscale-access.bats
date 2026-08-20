@@ -114,9 +114,11 @@ setup() {
 	export GCP_TF_HANDOFF_DIR="${root}/deploy/gcp"
 	export GCP_TF_DEMO_REPORT_DIR="${root}/demo-reports"
 
-	# The origin mechanism belongs to chunk T2 and is not in this worktree, so
-	# every test that is NOT about its absence points the single coupling at the
-	# stub. The two tests that ARE about its absence unset this.
+	# The stub stands in for the CLUSTER, not for an unwritten mechanism — the
+	# real scripts/lib/dex-origin.sh is in this tree. Every test that is NOT about
+	# its absence points the single coupling at the stub; the two that ARE about
+	# its absence unset this. The tests that drive the REAL mechanism against the
+	# REAL driver are the SEAM tests in test/terraform-demo-driver.bats.
 	export GCP_TF_DEMO_DEX_ORIGIN_CMD="${stubdir}/dex-origin"
 
 	# The name resolves by default. Tests about resolution failure clear it.
@@ -142,7 +144,7 @@ write_handoff() {
 		  project_id: "acme-real-project-42", environment_key: $env, env: $env,
 		  region: "europe-west2", zone: "europe-west2-a",
 		  instance_name: ("sl-" + $env + "-demo"), internal_ip: "10.4.0.7",
-		  app_port: 30754, state_bucket: "acme-tfstate",
+		  app_port: 8080, state_bucket: "acme-tfstate",
 		  state_prefix: ("osramp/environments/" + $env),
 		  deploy_sa: "deployer@acme-real-project-42.iam.gserviceaccount.com",
 		  operator_sa: $op, access_mode: "tailscale", hostname: "demo-7.acme.example"}
@@ -587,18 +589,46 @@ mutate() {
 	}
 }
 
-@test "TS ts-up gives the SNI hostname a loopback alias on the VM" {
-	# tailscale serve dials its backend by NAME so the Gateway has an SNI value
-	# to route on. An IP literal sends no SNI at all and the Gateway closes the
-	# connection mid-handshake, which reads as a dead dashboard.
+@test "TS ts-up serves the dashboard nginx over loopback, with no VM hosts alias" {
+	# This REPLACES "ts-up gives the SNI hostname a loopback alias on the VM".
+	# That alias existed so `tailscale serve` could dial its backend BY NAME and
+	# thereby supply the SNI value the Envoy Gateway routed on; an IP literal
+	# sent no SNI and the Gateway closed the connection mid-handshake.
+	#
+	# The backend is nginx now — path routing, no TLS, no hostname — so the
+	# alias has nothing to do and the VM's /etc/hosts is left alone.
 	stub_curl 200
 	run "${driver}" ts-up
-	[[ "$(gcloud_log)" == *"/etc/hosts"* ]] || {
-		echo "no loopback alias was created on the VM: $(gcloud_log)"
+
+	# PRESENCE first. "no /etc/hosts write" is trivially satisfied by a ts-up
+	# that configures nothing at all, so the positive assertion is what stops the
+	# negative below from passing hardest when its subject is deleted.
+	[[ "$(gcloud_log)" == *"http://127.0.0.1:8080"* ]] || {
+		echo "the serve backend is not the local nginx forward: $(gcloud_log)"
 		return 1
 	}
-	[[ "$(gcloud_log)" == *"https+insecure://dashboard.osramp.acme.local"* ]] || {
-		echo "the serve backend is not dialled by the SNI name: $(gcloud_log)"
+	# `tailscale serve` must actually have been configured. The forward itself is
+	# not asserted here on purpose: this suite's stub reports the VM as already
+	# PUBLISHING, so ensure_published short-circuits and never issues one. What
+	# the forward targets is asserted where it is observable, in
+	# test/terraform-demo-driver.bats § "the VM-side forward targets the
+	# dashboard nginx".
+	[[ "$(gcloud_log)" == *"tailscale serve"* ]] || {
+		echo "ts-up never configured serve, so the absences below prove nothing: $(gcloud_log)"
+		return 1
+	}
+
+	# Then the absences.
+	[[ "$(gcloud_log)" != *"/etc/hosts"* ]] || {
+		echo "ts-up still mutates the VM's /etc/hosts for an SNI name nothing routes on: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(gcloud_log)" != *"https+insecure://"* ]] || {
+		echo "the serve backend still speaks TLS to a backend that serves cleartext: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(gcloud_log)" != *"dashboard.osramp.acme.local"* ]] || {
+		echo "the Gateway's SNI hostname is still on the Tailscale serving path: $(gcloud_log)"
 		return 1
 	}
 }
@@ -690,7 +720,7 @@ mutate() {
 	}
 }
 
-@test "TS ts-up refuses when T2's origin mechanism is absent, naming the file" {
+@test "TS ts-up refuses when the origin mechanism is absent, naming the file" {
 	unset GCP_TF_DEMO_DEX_ORIGIN_CMD
 	[ ! -f "${root}/scripts/lib/dex-origin.sh" ]
 	run "${driver}" ts-up
@@ -699,8 +729,21 @@ mutate() {
 		return 1
 	}
 	[[ "$output" == *"scripts/lib/dex-origin.sh"* ]]
-	[[ "$output" == *"gcp-tf-public"* ]] || {
-		echo "the refusal did not name the path that works today: ${output}"
+
+	# It must NOT offer the IAP path as the escape hatch any more.
+	#
+	# It used to, and that was correct advice: IAP served at the origin the
+	# manifests already default to, so it needed no mechanism. IAP now claims
+	# http://localhost:<port> like every other method, so sending someone there
+	# hands them the same bouncing login one target along — the most expensive
+	# wrong diagnosis on this lane, delivered by the error message that exists to
+	# prevent it.
+	[[ "$output" != *"make gcp-tf-public ENV="* ]] || {
+		echo "the refusal still offers the IAP path as a mechanism-free fallback: ${output}"
+		return 1
+	}
+	[[ "$output" == *"GCP_TF_DEMO_DEX_ORIGIN_CMD"* ]] || {
+		echo "the refusal did not name the escape hatch that still exists: ${output}"
 		return 1
 	}
 }

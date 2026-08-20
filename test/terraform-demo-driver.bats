@@ -26,6 +26,12 @@ setup_file() {
 	export MAKEFILE="${REPO_ROOT}/Makefile"
 	export DRIVER_SRC="${REPO_ROOT}/scripts/gcp-tf/demo-up.sh"
 	export STUB_SRC="${REPO_ROOT}/test/fixtures/gcp-tf-demo/stub-gcloud"
+	# Shared with test/terraform-tailscale-access.bats rather than copied. The
+	# IAP path now claims an origin through the same mechanism the Tailscale path
+	# does, so two stubs would be two chances to encode two different contracts —
+	# which is the precise defect that let `apply <origin>` and
+	# `apply <method> <origin>` coexist green in this repo.
+	export DEX_STUB_SRC="${REPO_ROOT}/test/fixtures/gcp-tf-tailscale/stub-dex-origin"
 }
 
 # Every target this suite owns. Written once so a target added to the family
@@ -41,24 +47,45 @@ setup() {
 	[ -f "${DRIVER_SRC}" ]
 	[ -x "${DRIVER_SRC}" ]
 	[ -f "${STUB_SRC}" ]
+	[ -f "${DEX_STUB_SRC}" ]
 	grep -q '^# END GCP Terraform platform block' "${MAKEFILE}"
+
+	# The mechanism must be PRESENT before its behaviour is asserted. Without
+	# this, a driver that had lost the IAP origin claim would sail through every
+	# assertion below — the dex log would simply be empty, and an empty log
+	# satisfies nothing and complains about nothing.
+	grep -q 'dex_origin apply iap' "${DRIVER_SRC}" || {
+		echo "the driver never claims an origin for iap — every origin assertion here would be vacuous"
+		return 1
+	}
 
 	ENV_KEY="demo-7"
 	root="${BATS_TEST_TMPDIR}/repo"
 	stubdir="${BATS_TEST_TMPDIR}/bin"
 	log="${BATS_TEST_TMPDIR}/gcloud.log"
+	dexlog="${BATS_TEST_TMPDIR}/dex.log"
 	driver="${root}/scripts/gcp-tf/demo-up.sh"
 
 	mkdir -p "${stubdir}"
 	cp "${STUB_SRC}" "${stubdir}/gcloud"
 	chmod +x "${stubdir}/gcloud"
+	cp "${DEX_STUB_SRC}" "${stubdir}/dex-origin"
+	chmod +x "${stubdir}/dex-origin"
 	: >"${log}"
+	: >"${dexlog}"
 
 	make_repo
 	write_handoff
 
 	export PATH="${stubdir}:${PATH}"
 	export STUB_GCLOUD_LOG="${log}"
+	export STUB_DEX_LOG="${dexlog}"
+	# The real mechanism is not in the fixture checkout, so the single coupling
+	# points at the stub. The two suites that drive the REAL mechanism against
+	# the REAL driver are the SEAM tests in
+	# test/terraform-tailscale-access.bats — a stub here cannot catch a contract
+	# change, and is not asked to.
+	export GCP_TF_DEMO_DEX_ORIGIN_CMD="${stubdir}/dex-origin"
 	export GCP_TF_DEMO_REPO_ROOT="${root}"
 	export GCP_TF_DEMO_ENV="${ENV_KEY}"
 	export GCP_TF_HANDOFF_DIR="${root}/deploy/gcp"
@@ -138,7 +165,9 @@ write_handoff() {
 	# "no operator SA in the hand-off", and the colon form would helpfully
 	# replace that with the default — leaving the no-operator test driving a
 	# fully-configured hand-off and asserting on a refusal that never fired.
-	local port="${1:-30754}" op="${2-sl-operator@acme-real-project-42.iam.gserviceaccount.com}"
+	# 8080 by default: the dashboard nginx Service port, which is what the
+	# environments now set app_port to and what the IAP tunnel targets.
+	local port="${1:-8080}" op="${2-sl-operator@acme-real-project-42.iam.gserviceaccount.com}"
 	jq -n \
 		--arg env "${ENV_KEY}" \
 		--argjson port "${port}" \
@@ -175,6 +204,11 @@ run_make() {
 # Every gcloud invocation the stub recorded, one per line.
 gcloud_log() {
 	cat "${log}" 2>/dev/null || true
+}
+
+# Every dex-origin invocation the stub recorded, one per line.
+dex_log() {
+	cat "${dexlog}" 2>/dev/null || true
 }
 
 # ─── Static properties ──────────────────────────────────────────────────────
@@ -343,7 +377,7 @@ gcloud_log() {
 }
 
 @test "DEMODRIVER a hand-off with no operator SA is refused, naming osLoginExternalUser" {
-	write_handoff 30754 ""
+	write_handoff 8080 ""
 	run "${driver}" up
 	[ "$status" -ne 0 ]
 	[[ "${output}" == *"operator service account"* ]]
@@ -354,7 +388,7 @@ gcloud_log() {
 }
 
 @test "DEMODRIVER GCP_TF_DEMO_OPERATOR_SA overrides an absent hand-off field" {
-	write_handoff 30754 ""
+	write_handoff 8080 ""
 	make_report PASS
 	GCP_TF_DEMO_OPERATOR_SA="override@acme.iam.gserviceaccount.com" run "${driver}" up
 	[ "$status" -eq 0 ]
@@ -740,20 +774,12 @@ gcloud_log() {
 
 # ─── connect: the deliverable the human actually sees ───────────────────────
 
-@test "DEMODRIVER connect prints the URL, the hosts line, the login and the smoke test" {
+@test "DEMODRIVER connect prints the loopback URL, the login and the smoke test" {
 	run "${driver}" connect
 	[ "$status" -eq 0 ]
 
-	[[ "${output}" == *"https://dashboard.osramp.acme.local:30754"* ]] || {
+	[[ "${output}" == *"http://localhost:8080"* ]] || {
 		echo "connect did not print the dashboard URL: ${output}"
-		return 1
-	}
-	[[ "${output}" == *"127.0.0.1 dashboard.osramp.acme.local"* ]] || {
-		echo "connect did not print the exact /etc/hosts line: ${output}"
-		return 1
-	}
-	[[ "${output}" == *"SELF-SIGNED"* ]] || {
-		echo "connect did not warn that the certificate is self-signed: ${output}"
 		return 1
 	}
 	[[ "${output}" == *"demo-user@signalloom.local"* ]]
@@ -761,23 +787,134 @@ gcloud_log() {
 		echo "connect did not print the Dex login: ${output}"
 		return 1
 	}
-	[[ "${output}" == *"curl -k --resolve dashboard.osramp.acme.local:30754:127.0.0.1 https://dashboard.osramp.acme.local:30754/readyz"* ]] || {
+	[[ "${output}" == *"curl http://localhost:8080/readyz"* ]] || {
 		echo "connect did not print the one-line tunnel smoke test: ${output}"
+		return 1
+	}
+
+	# The SNI-era instructions are GONE, and asserted absent rather than merely
+	# not asserted present. They were correct guidance for a tunnel to the Envoy
+	# Gateway and are actively wrong for a tunnel to nginx: an operator who edits
+	# /etc/hosts on this advice has mutated a system file for nothing, and one
+	# who is told to expect a certificate warning and does not get one has been
+	# given a reason to distrust the tool.
+	#
+	# The anti-property is the INSTRUCTION, not the string "/etc/hosts". Saying
+	# "there is nothing to add to /etc/hosts" is the useful half of this change
+	# and has to survive; what must not survive is a line telling anyone to add
+	# one. So both concrete forms are named.
+	[[ "${output}" != *"tee -a /etc/hosts"* ]] || {
+		echo "connect still tells the operator to append to /etc/hosts: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"127.0.0.1 dashboard"* ]] || {
+		echo "connect still prints a hosts line to add: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"SELF-SIGNED"* ]] || {
+		echo "connect still warns about a self-signed certificate on a plain-HTTP URL: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"dashboard.osramp.acme.local"* ]] || {
+		echo "connect still hands over the Gateway's SNI hostname: ${output}"
 		return 1
 	}
 }
 
-@test "DEMODRIVER connect opens the IAP tunnel on the Dex-pinned port at both ends" {
+@test "DEMODRIVER connect opens the IAP tunnel on the app port at both ends" {
 	run "${driver}" connect
 	[ "$status" -eq 0 ]
 	local calls
 	calls="$(gcloud_log)"
-	[[ "${calls}" == *"start-iap-tunnel sl-demo-7-demo 30754"* ]] || {
-		echo "the tunnel was not opened on the remote Dex port: ${calls}"
+	[[ "${calls}" == *"start-iap-tunnel sl-demo-7-demo 8080"* ]] || {
+		echo "the tunnel was not opened on the remote app port: ${calls}"
 		return 1
 	}
-	[[ "${calls}" == *"--local-host-port=localhost:30754"* ]] || {
-		echo "the tunnel was not bound to the local Dex port: ${calls}"
+	[[ "${calls}" == *"--local-host-port=localhost:8080"* ]] || {
+		echo "the tunnel was not bound to the local port: ${calls}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER connect claims http://localhost:<port> for the iap method" {
+	# The IAP path is no longer exempt from the origin lease. It used to be,
+	# because it served at the origin the manifests already default to; it now
+	# publishes an origin of its own and must say so, or the dashboard loads and
+	# the login bounces.
+	run "${driver}" connect
+	[ "$status" -eq 0 ]
+	[[ "$(dex_log)" == *"apply iap http://localhost:8080"* ]] || {
+		echo "connect never claimed the IAP origin: $(dex_log)"
+		return 1
+	}
+}
+
+@test "DEMODRIVER connect refuses when another access method holds the origin" {
+	export STUB_DEX_CURRENT="https://abc123.ngrok.app"
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "connect took the Dex issuer from another live demo"
+		return 1
+	}
+	[[ "${output}" == *"https://abc123.ngrok.app"* ]] || {
+		echo "the refusal did not name the current holder: ${output}"
+		return 1
+	}
+	# And it refuses BEFORE reaching the cloud — this is a read-only check that
+	# costs milliseconds, so failing it after a minute of gcloud would be a
+	# choice, not a constraint.
+	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
+		echo "the tunnel was opened before the origin conflict was checked"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the origin follows a non-default port rather than being pinned" {
+	# This REPLACES the old "connect refuses a port Dex is not pinned to". That
+	# refusal encoded the Gateway's SNI pinning and is deliberately gone; what
+	# takes its place is the property that made removing it safe — the claimed
+	# origin tracks whatever port is actually opened.
+	#
+	# Driven on a non-default port precisely so a hardcoded 8080 in iap_origin
+	# fails here.
+	write_handoff 31555
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "connect refused a perfectly serviceable non-default port: ${output}"
+		return 1
+	}
+	[[ "$(dex_log)" == *"apply iap http://localhost:31555"* ]] || {
+		echo "the claimed origin did not follow the port: $(dex_log)"
+		return 1
+	}
+	[[ "$(gcloud_log)" == *"--local-host-port=localhost:31555"* ]] || {
+		echo "the tunnel did not bind the configured port: $(gcloud_log)"
+		return 1
+	}
+	[[ "${output}" == *"http://localhost:31555"* ]] || {
+		echo "the printed URL did not follow the port: ${output}"
+		return 1
+	}
+}
+
+@test "DEMODRIVER the local port can differ from the app port, and the origin follows it" {
+	# The pin is gone in both directions: 8080 is a heavily contended port on a
+	# developer's laptop, so the local end is overridable. The origin is what a
+	# browser types, so it must track the LOCAL port, never the remote one.
+	write_handoff 8080
+	export GCP_TF_DEMO_LOCAL_PORT=18080
+	run "${driver}" connect
+	[ "$status" -eq 0 ]
+	[[ "$(gcloud_log)" == *"start-iap-tunnel sl-demo-7-demo 8080"* ]] || {
+		echo "the remote end should stay on app_port: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(gcloud_log)" == *"--local-host-port=localhost:18080"* ]] || {
+		echo "the local end did not honour GCP_TF_DEMO_LOCAL_PORT: $(gcloud_log)"
+		return 1
+	}
+	[[ "$(dex_log)" == *"apply iap http://localhost:18080"* ]] || {
+		echo "the origin followed the REMOTE port, not the one a browser types: $(dex_log)"
 		return 1
 	}
 }
@@ -790,7 +927,7 @@ gcloud_log() {
 		echo "connect reported success against a tunnel that never bound"
 		return 1
 	}
-	[[ "${output}" == *"did not bind localhost:30754"* ]] || {
+	[[ "${output}" == *"did not bind localhost:8080"* ]] || {
 		echo "connect did not say the tunnel failed to bind: ${output}"
 		return 1
 	}
@@ -863,20 +1000,42 @@ gcloud_log() {
 	}
 }
 
-@test "DEMODRIVER connect refuses a port Dex is not pinned to" {
-	# A tunnel on any other port reaches the Gateway and then fails the login
-	# redirect, which presents as a broken application rather than a port
-	# mismatch. Refusing is strictly better than an hour aimed at the wrong layer.
-	write_handoff 30755
-	run "${driver}" connect
-	[ "$status" -ne 0 ]
-	[[ "${output}" == *"REFUSING to open the tunnel on port 30755"* ]]
-	[[ "${output}" == *"pins its OIDC issuer"* ]] || {
-		echo "the refusal did not explain the Dex pin: ${output}"
+@test "DEMODRIVER the VM-side forward targets the dashboard nginx, not the Gateway" {
+	# The whole refactor, asserted where it is observable. The forward is built
+	# into a remote script, so the assertion is against the command the driver
+	# actually sends rather than against the source.
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[ "$status" -eq 0 ] || {
+		echo "public failed for an unrelated reason: ${output}"
 		return 1
 	}
-	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
-		echo "the tunnel was opened despite the refusal"
+	local calls
+	calls="$(gcloud_log)"
+	[[ "${calls}" == *"svc/dashboard-signalloom"* ]] || {
+		echo "the forward does not target the dashboard nginx Service: ${calls}"
+		return 1
+	}
+	[[ "${calls}" == *"-n 'fe-signalloom'"* ]] || {
+		echo "the forward does not name the fe-signalloom namespace: ${calls}"
+		return 1
+	}
+	[[ "${calls}" == *"8080:8080"* ]] || {
+		echo "the forward does not land on the Service's 8080: ${calls}"
+		return 1
+	}
+
+	# And the Gateway discovery is GONE, asserted as absence ALONGSIDE the
+	# presence above. On its own "no gateway label" is satisfied by a driver that
+	# forwards nothing at all, which is the inverted-negative shape this repo has
+	# shipped before.
+	[[ "${calls}" != *"owning-gateway-name"* ]] || {
+		echo "the forward still discovers the Envoy Gateway by label: ${calls}"
+		return 1
+	}
+	[[ "${calls}" != *":443"* ]] || {
+		echo "the forward still targets the Gateway's TLS port: ${calls}"
 		return 1
 	}
 }
@@ -1049,16 +1208,57 @@ mutate() {
 	}
 }
 
-@test "DEMODRIVER MUTATION connect-port: dropping the Dex pin opens the wrong port silently" {
-	mutate 's|^  if \[ "\$port" != "\$DEX_PINNED_PORT" \]; then$|  if false; then|'
-	write_handoff 30755
+@test "DEMODRIVER MUTATION iap-origin: pinning the origin back to a literal port goes green" {
+	# The defect this replacement guards against, in its most likely form: a
+	# reader "tidies" iap_origin to a constant. The origin then stops tracking
+	# the port, the dashboard loads on 31555 and Dex is issuing for 8080, and the
+	# login bounces with nothing anywhere reporting an error.
+	#
+	# If the two port-following tests above cannot see this, they are measuring
+	# nothing.
+	mutate "s|^  printf 'http://localhost:%s' \"\$(local_tunnel_port)\"$|  printf 'http://localhost:8080'|"
+	grep -q "printf 'http://localhost:8080'" "${driver}" || {
+		echo "the mutation did not apply — the assertion that follows would be vacuous"
+		return 1
+	}
+	write_handoff 31555
 	run "${driver}" connect
 	[ "$status" -eq 0 ] || {
 		echo "the mutated connect failed for an unrelated reason: ${output}"
 		return 1
 	}
-	[[ "$(gcloud_log)" == *"start-iap-tunnel sl-demo-7-demo 30755"* ]] || {
-		echo "the port guard's test cannot fail — no tunnel was opened even with the guard removed"
+	[[ "$(dex_log)" == *"apply iap http://localhost:8080"* ]] || {
+		echo "the origin-follows-port assertion cannot fail — a pinned origin did not produce a pinned claim: $(dex_log)"
+		return 1
+	}
+}
+
+@test "DEMODRIVER MUTATION iap-origin-claim: dropping it serves a new origin blind" {
+	# The other half: not a wrong origin, but no claim at all. This is exactly
+	# what `connect` did before the refactor, and it was correct then because the
+	# manifests already defaulted to the origin it served. It is silent breakage
+	# now.
+	# `@` as the delimiter, not `|`: the line being matched ENDS in `||` (it is a
+	# continuation into the `die`), so a `|`-delimited expression would terminate
+	# in the middle of the pattern and sed would reject it.
+	#
+	# `: ||` rather than deleting the line, so the `die` continuation still has a
+	# command in front of it. Deleting it outright leaves a dangling `||` and the
+	# driver dies with a syntax error, which would make this test pass for
+	# entirely the wrong reason.
+	mutate 's@^    dex_origin apply iap "\$origin" ||@    : ||@'
+	grep -q '^    : ||$' "${driver}" || {
+		echo "the mutation did not apply — the assertion that follows would be vacuous"
+		return 1
+	}
+	write_handoff 8080
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "the mutated connect failed for an unrelated reason: ${output}"
+		return 1
+	}
+	[[ "$(dex_log)" != *"apply iap"* ]] || {
+		echo "the origin-claim assertion cannot fail — the claim happened even with the call removed: $(dex_log)"
 		return 1
 	}
 }
@@ -1082,7 +1282,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 }
 
 @test "public refuses to hand over a URL when the dashboard never answers" {
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
 	stub_curl 000
 	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=2 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
 	run "${driver}" public
@@ -1097,7 +1297,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 }
 
 @test "public reports the health verdict only after a 200" {
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
 	stub_curl 200
 	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
 	run "${driver}" public
@@ -1112,7 +1312,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	# catch. It must make the RED test above go green, or that test proves
 	# nothing about the gate.
 	mutate 's|if \[ "\$code" = "200" \]; then|if true; then|'
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
 	stub_curl 000
 	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=2 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
 	run "${driver}" public
@@ -1125,7 +1325,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 @test "public-down cannot match its own shell when it kills the forward" {
 	# remote_run hands the whole command to a remote `bash -lc`, so the command
 	# text becomes THAT shell's /proc/<pid>/cmdline. A literal
-	# `pkill -f 'kubectl port-forward.*30754:443'` therefore matches its own
+	# `pkill -f 'kubectl port-forward.*8080:8080'` therefore matches its own
 	# parent and kills it, truncating everything after silently. Measured in this
 	# repo as a bare exit 144.
 	#
@@ -1168,55 +1368,316 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	done
 }
 
-@test "public refuses when this machine cannot resolve the SNI hostname" {
-	# The health probe uses `curl --resolve`, which never consults /etc/hosts, so
-	# a 200 says nothing about whether a BROWSER here can reach the same URL.
-	# Without this check the target prints "verified before you clicked" and then
-	# hands over a URL that fails to resolve on the click — defeating its own
-	# promise. Pointed at a name nothing resolves, so the check has something
-	# real to fail on.
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
+# ── The hosts-file preflight is gone, and that is asserted ──────────────────
+#
+# These three tests REPLACE "public refuses when this machine cannot resolve the
+# SNI hostname", its override, and its mutation proof. That guard existed
+# because the Gateway routed by SNI on a name that resolves nowhere, and because
+# `curl --resolve` never consults /etc/hosts, so a healthy probe said nothing
+# about whether a browser here could reach the same URL.
+#
+# The URL is http://localhost:<port> now and the probe fetches that exact URL, so
+# the gap the guard covered is closed at the source. What has to be asserted in
+# its place is that the closure is real — that the probe and the browser agree —
+# rather than that a check has been deleted.
+
+@test "public probes the EXACT URL it hands over" {
+	# The property that made require_hosts_entry redundant. The old probe hit a
+	# different address from the one it printed (`--resolve` to the Gateway's SNI
+	# name); this one cannot diverge, because there is only one string.
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"probing http://localhost:8080/readyz"* ]] || {
+		echo "public did not probe the loopback URL: ${output}"
+		return 1
+	}
+	[[ "$output" == *"http://localhost:8080/readyz returned 200"* ]] || {
+		echo "the health verdict does not name the URL that was handed over: ${output}"
+		return 1
+	}
+}
+
+@test "public no longer resolves, or asks anyone to resolve, an SNI hostname" {
+	# Asserted on BEHAVIOUR, not on the source. Pointing the (now vestigial)
+	# hostname at something unresolvable used to be fatal; it must now be
+	# irrelevant, because nothing on the access path consults it.
+	#
+	# The variable is still read — it is handed to the VM-side pipeline as
+	# SL_DEMO_HOSTNAME, which genuinely does go through the Gateway — so this is
+	# a statement about the ACCESS path specifically.
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
 	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[ "$status" -eq 0 ] || {
+		echo "an unresolvable SNI hostname still blocks the access path: ${output}"
+		return 1
+	}
+	# The INSTRUCTION, not the string. See the connect test above for why
+	# "there is nothing to add to /etc/hosts" has to be allowed to survive.
+	[[ "$output" != *"tee -a /etc/hosts"* ]] || {
+		echo "public still asks the operator to edit /etc/hosts: ${output}"
+		return 1
+	}
+	[[ "$output" != *"nothing-resolves-here.invalid"* ]] || {
+		echo "public still hands over the SNI hostname: ${output}"
+		return 1
+	}
+}
+
+@test "the driver contains no hosts-file preflight to be re-enabled" {
+	# The absence, asserted directly and ONLY alongside the two behavioural tests
+	# above. On its own "no require_hosts_entry anywhere" is satisfied by a driver
+	# with no public path at all — an assertion that passes hardest when its
+	# subject has been deleted, which is a shape this repo has shipped.
+	grep -q '^cmd_public()' "${DRIVER_SRC}" || {
+		echo "there is no cmd_public — the absence below would prove nothing"
+		return 1
+	}
+	local hits
+	hits="$(grep -nE '^[[:space:]]*(require_hosts_entry|hosts_entry_present)\b' "${DRIVER_SRC}" || true)"
+	[ -z "$hits" ] || {
+		echo "the hosts preflight is back, for a constraint that no longer exists:"
+		echo "$hits"
+		return 1
+	}
+	# The scan must be able to see one, or its silence proves nothing.
+	local control
+	control="$(printf '%s\n' '  require_hosts_entry' |
+		grep -cE '^[[:space:]]*(require_hosts_entry|hosts_entry_present)\b' || true)"
+	[ "$control" -eq 1 ]
+}
+
+# ── The origin lease on the IAP path ────────────────────────────────────────
+
+@test "public claims the origin for iap and refuses when another method holds it" {
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
+	stub_curl 200
+	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
+	run "${driver}" public
+	[ "$status" -eq 0 ]
+	[[ "$(dex_log)" == *"apply iap http://localhost:8080"* ]] || {
+		echo "public never claimed the IAP origin: $(dex_log)"
+		return 1
+	}
+}
+
+@test "public refuses when another access method holds the origin" {
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
+	export STUB_DEX_CURRENT="https://sl-demo-7.example-tailnet.ts.net"
 	stub_curl 200
 	run "${driver}" public
 	[ "$status" -ne 0 ] || {
-		echo "public proceeded with an unresolvable hostname — the browser would fail on the click"
+		echo "public took the Dex issuer from a live Tailscale demo"
 		return 1
 	}
-	[[ "$output" == *"/etc/hosts"* ]] || {
-		echo "the refusal did not name the file to edit: ${output}"
+	[[ "$output" == *"sl-demo-7.example-tailnet.ts.net"* ]] || {
+		echo "the refusal did not name the current holder: ${output}"
 		return 1
 	}
-	# It must fail FIRST — before any cloud call — or the operator waits a minute
-	# to be told about a line in a local file.
 	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
-		echo "the hosts check ran after the tunnel was opened, not before it"
+		echo "the tunnel was opened before the origin conflict was checked"
 		return 1
 	}
 }
 
-@test "the hosts check is overridable for scripted, browserless use" {
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
-	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
-	export GCP_TF_DEMO_SKIP_HOSTS_CHECK=1
-	stub_curl 200
-	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
-	run "${driver}" public
-	[[ "$output" == *"returned 200"* ]] || {
-		echo "the override did not let a browserless run through: ${output}"
+@test "public-down releases the lease only when IAP is what holds it" {
+	# Unconditional restore would be a lease violation with a friendly name: it
+	# would yank the issuer out from under a live Tailscale or ngrok demo whose
+	# login would then start bouncing with nothing reporting an error.
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
+
+	# Ours: iap holds it, at our own origin.
+	export STUB_DEX_CURRENT="http://localhost:8080" STUB_DEX_HOLDER="iap"
+	run "${driver}" public-down
+	[ "$status" -eq 0 ]
+	[[ "$(dex_log)" == *restore* ]] || {
+		echo "public-down held the lease after stopping the forward: $(dex_log)"
+		return 1
+	}
+
+	# Somebody else's.
+	: >"${dexlog}"
+	export STUB_DEX_CURRENT="https://abc123.ngrok.app" STUB_DEX_HOLDER="ngrok"
+	run "${driver}" public-down
+	[ "$status" -eq 0 ]
+	[[ "$(dex_log)" != *restore* ]] || {
+		echo "public-down released an origin held by ngrok: $(dex_log)"
+		return 1
+	}
+
+	# Nobody's. Distinct from both above: there is no lease to release and no
+	# other holder to respect, and reporting either would be wrong.
+	: >"${dexlog}"
+	unset STUB_DEX_CURRENT STUB_DEX_HOLDER
+	run "${driver}" public-down
+	[ "$status" -eq 0 ]
+	[[ "$(dex_log)" != *restore* ]] || {
+		echo "public-down restored an origin nobody had published: $(dex_log)"
+		return 1
+	}
+	[[ "$output" == *"nothing to release"* ]] || {
+		echo "public-down did not say the origin was already free: ${output}"
 		return 1
 	}
 }
 
-@test "MUTATION hosts-check: removing the guard lets an unresolvable host through" {
-	mutate 's|^  require_hosts_entry$|  :|'
-	write_handoff 30754 "op@acme-real-project-42.iam.gserviceaccount.com"
-	export GCP_TF_DEMO_DASHBOARD_HOST="nothing-resolves-here.invalid"
-	stub_curl 200
-	export GCP_TF_DEMO_HEALTH_WAIT_SECONDS=4 GCP_TF_DEMO_HEALTH_INTERVAL_SECONDS=1
-	run "${driver}" public
-	[[ "$output" == *"returned 200"* ]] || {
-		echo "the hosts check's test cannot fail — removing the guard changed nothing: ${output}"
+@test "MUTATION public-down-release: dropping the holder check steals a live origin" {
+	# The check is `elif [ "$active" = "$origin" ]`. Removing it is the plausible
+	# tidy-up, and its consequence is invisible on the machine that does it.
+	mutate 's|^    elif \[ "\$active" = "\$origin" \]; then$|    elif true; then|'
+	grep -q '^    elif true; then$' "${driver}" || {
+		echo "the mutation did not apply — the assertion that follows would be vacuous"
 		return 1
 	}
+	write_handoff 8080 "op@acme-real-project-42.iam.gserviceaccount.com"
+	export STUB_DEX_CURRENT="https://abc123.ngrok.app" STUB_DEX_HOLDER="ngrok"
+	run "${driver}" public-down
+	[[ "$(dex_log)" == *restore* ]] || {
+		echo "the holder check's test cannot fail — the mutated driver still left ngrok's origin alone: $(dex_log)"
+		return 1
+	}
+}
+
+# ── The seam: the REAL driver against the REAL origin mechanism ─────────────
+#
+# Every test above drives dex_origin() through a stub, and every test in
+# test/terraform-dex-origin.bats drives the mechanism through its own CLI. That
+# pairing has already shipped one contract break in this repo: the driver called
+# `apply <origin>` while the mechanism took `apply <method> <origin>`, and both
+# suites were green throughout, because a stub answers whatever it is asked and
+# a CLI test never asks the way its caller does.
+#
+# The single-entry-point change adds a SECOND way for the two to disagree, with
+# exactly that shape. The driver builds `http://localhost:<port>`; the mechanism
+# refuses insecure origins. Get the loopback exemption slightly wrong — anchor it
+# to `127.0.0.1` and forget `localhost` — and the entire IAP path dies at the
+# origin claim while every stubbed test above stays green.
+#
+# So this drives the shipped driver against the shipped mechanism, with only the
+# CLUSTER faked.
+
+@test "SEAM the real mechanism accepts the origin the real driver claims for IAP" {
+	local mech="${REPO_ROOT}/scripts/lib/dex-origin.sh"
+	[ -x "$mech" ] || skip "the origin mechanism is not in this checkout"
+
+	load helpers/fake-cluster-cli.bash
+	fake_cluster_install "${BATS_TEST_TMPDIR}/cluster"
+	fake_cluster_configmap flux-system
+	fake_cluster_configmap inf-signalloom
+	fake_cluster_configmap fe-signalloom
+	export DEX_ORIGIN_OWNER="tester@testhost"
+
+	# The REAL mechanism, not the stub. `dex_origin` execs this command directly,
+	# so the fake kubectl and flux the helper put on PATH are what it talks to.
+	export GCP_TF_DEMO_DEX_ORIGIN_CMD="$mech"
+
+	write_handoff 8080
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "the real mechanism rejected what the real driver claims for IAP: ${output}"
+		return 1
+	}
+
+	# The origin actually landed, which is the difference between "the call
+	# succeeded" and "the demo will work". A validator that accepted the origin
+	# and then wrote nothing would satisfy the exit status alone.
+	local published
+	published="$(fake_cluster_get flux-system PUBLIC_ORIGIN)"
+	[ "$published" = "http://localhost:8080" ] || {
+		echo "the published origin is '${published}', not the driver's IAP origin"
+		return 1
+	}
+	local method
+	method="$(fake_cluster_get flux-system PUBLIC_ORIGIN_METHOD)"
+	[ "$method" = "iap" ] || {
+		echo "the lease records method '${method}', so a later refusal would name the wrong teardown"
+		return 1
+	}
+}
+
+@test "SEAM the real mechanism refuses the driver's origin when another method holds it" {
+	# The lease still excludes concurrent methods when both sides are real. The
+	# stubbed version of this above proves the driver ASKS; this proves the
+	# mechanism ANSWERS, against the same call.
+	local mech="${REPO_ROOT}/scripts/lib/dex-origin.sh"
+	[ -x "$mech" ] || skip "the origin mechanism is not in this checkout"
+
+	load helpers/fake-cluster-cli.bash
+	fake_cluster_install "${BATS_TEST_TMPDIR}/cluster"
+	fake_cluster_configmap flux-system
+	fake_cluster_configmap inf-signalloom
+	fake_cluster_configmap fe-signalloom
+	export DEX_ORIGIN_OWNER="tester@testhost"
+	export GCP_TF_DEMO_DEX_ORIGIN_CMD="$mech"
+
+	# ngrok takes it first, through the mechanism's own CLI.
+	run "$mech" apply ngrok "https://ab-12-34.ngrok-free.app"
+	[ "$status" -eq 0 ]
+
+	write_handoff 8080
+	run "${driver}" connect
+	[ "$status" -ne 0 ] || {
+		echo "IAP took the issuer from a live ngrok demo"
+		return 1
+	}
+	[[ "$output" == *"ab-12-34.ngrok-free.app"* ]] || {
+		echo "the refusal did not name the holder: ${output}"
+		return 1
+	}
+	[[ "$(gcloud_log)" != *"start-iap-tunnel"* ]] || {
+		echo "the tunnel was opened before the conflict was seen"
+		return 1
+	}
+}
+
+@test "SEAM the IAP origin round-trips through apply, current and restore" {
+	local mech="${REPO_ROOT}/scripts/lib/dex-origin.sh"
+	[ -x "$mech" ] || skip "the origin mechanism is not in this checkout"
+
+	load helpers/fake-cluster-cli.bash
+	fake_cluster_install "${BATS_TEST_TMPDIR}/cluster"
+	fake_cluster_configmap flux-system
+	fake_cluster_configmap inf-signalloom
+	fake_cluster_configmap fe-signalloom
+	export DEX_ORIGIN_OWNER="tester@testhost"
+	export GCP_TF_DEMO_DEX_ORIGIN_CMD="$mech"
+
+	write_handoff 8080
+
+	# apply, via the driver.
+	run "${driver}" connect
+	[ "$status" -eq 0 ]
+
+	# current, via the mechanism — the value the driver will compare against on
+	# its own teardown. If these two disagree by so much as a trailing newline,
+	# public-down decides the origin belongs to someone else and never releases
+	# it, and every later access method is refused with no live demo anywhere.
+	run "$mech" current
+	[ "$status" -eq 0 ]
+	[ "$output" = "http://localhost:8080" ] || {
+		echo "current reported '${output}', which the driver's holder check would not match"
+		return 1
+	}
+
+	# restore, via the driver's own teardown.
+	run "${driver}" public-down
+	[ "$status" -eq 0 ] || {
+		echo "public-down failed: ${output}"
+		return 1
+	}
+	run "$mech" current
+	[ "$output" = "https://dashboard.osramp.acme.local:30754" ] || {
+		echo "teardown did not land on the resting origin: ${output}"
+		return 1
+	}
+	fake_cluster_has_key flux-system PUBLIC_ORIGIN_METHOD && {
+		echo "the lease survived teardown — the next access method would be refused"
+		return 1
+	}
+	return 0
 }

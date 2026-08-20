@@ -1800,6 +1800,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	access_mode="$$(v '.access_mode.value // .integration_inputs.value.access_mode')"; \
 	instance_name="$$(v '.instance_name.value // .instance_names.value[$$env] // .compute.value[$$env].instance_name')"; \
 	internal_ip="$$(v '.internal_ip.value // .internal_ips.value[$$env] // .compute.value[$$env].internal_ip')"; \
+	operator_sa="$$(v '.operator_sa.value')"; \
 	deploy_sa='$(strip $(GCP_TF_IMPERSONATE))'; \
 	missing=''; \
 	[ -n "$$project_id" ]      || missing="$$missing project_id(.integration_inputs.value.project_id)"; \
@@ -1810,6 +1811,7 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 	[ -n "$$access_mode" ]     || missing="$$missing access_mode(.integration_inputs.value.access_mode)"; \
 	[ -n "$$instance_name" ]   || missing="$$missing instance_name(.instance_name|.instance_names[<env>])"; \
 	[ -n "$$internal_ip" ]     || missing="$$missing internal_ip(.internal_ip|.internal_ips[<env>])"; \
+	[ -n "$$operator_sa" ]     || missing="$$missing operator_sa(.operator_sa)"; \
 	[ -n '$(strip $(TF_STATE_BUCKET))' ] || missing="$$missing state_bucket(TF_STATE_BUCKET)"; \
 	[ -n "$$deploy_sa" ]       || missing="$$missing deploy_sa(GCP_TF_IMPERSONATE / $(GCP_TF_DEPLOY_SA_FILE))"; \
 	if [ -n "$$missing" ]; then \
@@ -1820,9 +1822,21 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		echo "       Nothing was written. A hand-off with a blank field is worse than no"; \
 		echo "       hand-off at all: the test suite reads it, finds a field it can parse,"; \
 		echo "       and reports on an estate it never reached."; \
-		echo "       Every value here is derived from 'terraform output -json'. An"; \
-		echo "       unresolved field means the root does not publish it — add the output"; \
-		echo "       block to $(TF_ROOT_ENV)/outputs.tf. Do not hand-edit the hand-off."; \
+		echo "       Every value here is derived from 'terraform output -json', which reads"; \
+		echo "       APPLIED STATE — not the .tf files. So there are TWO causes and they"; \
+		echo "       look identical from here:"; \
+		echo; \
+		echo "         a) the root does not declare the output. Add the block to"; \
+		echo "            $(TF_ROOT_ENV)/outputs.tf."; \
+		echo "         b) the root DECLARES it and the state predates it. An output added"; \
+		echo "            but never applied is invisible to 'terraform output'. Check"; \
+		echo "            first, or you will spend the afternoon re-adding a block that is"; \
+		echo "            already there:"; \
+		echo "               grep -n 'output \"<name>\"' $(TF_ROOT_ENV)/outputs.tf"; \
+		echo "            If it is present, the fix is an apply, not an edit:"; \
+		echo "               make gcp-tf-up ENV=$(ENV) TF_STATE_BUCKET=$(TF_STATE_BUCKET)"; \
+		echo; \
+		echo "       Do not hand-edit the hand-off."; \
 		exit 3; \
 	fi; \
 	case "$$app_port" in \
@@ -1843,10 +1857,11 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 		--arg state_bucket '$(strip $(TF_STATE_BUCKET))' \
 		--arg state_prefix '$(GCP_TF_PREFIX)' \
 		--arg deploy_sa "$$deploy_sa" \
+		--arg operator_sa "$$operator_sa" \
 		--arg access_mode "$$access_mode" \
 		--arg hostname "$$hostname" \
 		--arg generated_at "$$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
+		'{schema: $$schema, schema_version: $$schema_version, project_id: $$project_id, environment_key: $$environment_key, env: $$environment_key, region: $$region, zone: $$zone, instance_name: $$instance_name, internal_ip: $$internal_ip, app_port: $$app_port, state_bucket: $$state_bucket, state_prefix: $$state_prefix, deploy_sa: $$deploy_sa, operator_sa: $$operator_sa, access_mode: $$access_mode, hostname: $$hostname, generated_at: $$generated_at}' \
 		> '$(GCP_TF_HANDOFF_FILE)'; \
 	echo "hand-off written: $(GCP_TF_HANDOFF_FILE)"; \
 	echo "The test suite reads this one file and needs no flags. It is untracked:"; \

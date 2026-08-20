@@ -99,6 +99,24 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="${GCP_TF_DEMO_REPO_ROOT:-}"
 [ -n "$REPO_ROOT" ] || REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
+# The shared waiting primitives. Sourced from SCRIPT_DIR, not REPO_ROOT: a test
+# points REPO_ROOT at a scratch tree containing only a copy of this driver, and
+# resolving the library from there would find nothing.
+#
+# Hard-required rather than optional. A `command -v wait_reachable || fallback`
+# here would give this file two waiting implementations, only one of which is
+# ever exercised — and the untested one would be the one that ran on the day the
+# vendored copy went missing. wait.sh is committed at scripts/lib/wait.sh; if it
+# is absent, that is a broken checkout and saying so immediately beats waiting
+# with a silently different set of deadlines.
+# `source=` documents the target for `shellcheck -x`; SC1091 is disabled because
+# the suite runs shellcheck WITHOUT -x and asserts empty output, and an
+# unfollowed source is an info-level note rather than a finding. Same pairing as
+# scripts/olly-adk-web.sh.
+# shellcheck source=../lib/wait.sh
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/../lib/wait.sh"
+
 ENV_KEY="${GCP_TF_DEMO_ENV:-${ENV:-}}"
 HANDOFF_DIR="${GCP_TF_HANDOFF_DIR:-${REPO_ROOT}/deploy/gcp}"
 GCLOUD_CMD="${GCP_TF_DEMO_GCLOUD:-gcloud}"
@@ -413,9 +431,28 @@ demo-up: refusing to run without an operator service account.
   "grant that role", which is not an action you have the authority to take.
   An org-internal service account is not subject to the rule at all.
 
-  Fix either of:
-      make gcp-tf-handoff ENV=${ENV_KEY} TF_STATE_BUCKET=<bucket>   # republish it
-      GCP_TF_DEMO_OPERATOR_SA=<sa>@<project>.iam.gserviceaccount.com make ...
+  Fix, in order of preference:
+
+    1. Republish the hand-off. This works only if the environments root has
+       APPLIED its 'operator_sa' output — the writer emits the field, but
+       'terraform output' reads applied state, so a root that declares the
+       output and has not been applied since still produces a hand-off without
+       it. gcp-tf-handoff says which of the two you are looking at.
+
+           make gcp-tf-handoff ENV=${ENV_KEY} TF_STATE_BUCKET=<bucket>
+
+    2. Supply it directly. Always works, and is the right answer during a
+       rebuild or against a root you are not applying:
+
+           GCP_TF_DEMO_OPERATOR_SA=<sa>@<project>.iam.gserviceaccount.com make ...
+
+       The value is the platform root's 'operator_service_account_email':
+
+           terraform -chdir=terraform/platform output -raw operator_service_account_email
+
+  This message used to offer (1) alone, as a bare "republish it". That advice
+  could not work: the hand-off writer had never emitted 'operator_sa' at all, so
+  it sent every reader to the exact command that had just failed to help them.
 EOF
   exit 2
 }
@@ -2642,17 +2679,53 @@ probe_ts_status() {
     "${base}${TS_HEALTH_PATH}" 2>/dev/null || printf ''
 }
 
+# ─── The readiness gate goes through wait.sh, and the boot helper does not ───
+#
+# This is the RUNTIME half of a deliberate split.
+#
+# The boot-time unit (terraform/modules/compute/startup/demo-vm.sh) polls with a
+# bounded hand-rolled loop, and has to: scripts/lib/wait.sh arrives on the VM
+# via deliver_code, long AFTER the startup script has run, so on a freshly built
+# instance the file does not exist at the moment the serve unit needs it. That
+# loop is measured rather than assumed — 37ms to completion against its 120s
+# ceiling on a live node — because a ceiling nobody has watched burn is where
+# decorative gates hide.
+#
+# Here there is no such constraint, so the instrumented primitive is used. What
+# that buys over the fixed-interval loop this replaces:
+#
+#   * DEADLINE, not attempt count — slow-but-eventually is a pass under load.
+#   * exponential backoff with jitter, instead of a synchronised 5s poll.
+#   * a per-attempt hang fence, so one wedged curl cannot eat the whole budget.
+#   * a one-time ⚠ warning at 60% of budget that does NOT fail the wait.
+#   * a WAIT_STAT line, so `scripts/cluster-debug.sh` can rank this wait against
+#     every other one in the estate. "Is tailscale serve slow on 8 cores" then
+#     has an answer instead of an opinion.
+#
+# The STATUS CODE is still fetched separately afterwards, and that is not
+# redundancy. `wait_reachable` answers a boolean — it uses `curl -f`, so 502,
+# 404 and a TLS failure are all simply "not yet". The caller's diagnosis branches
+# on WHICH of those it was (empty means the certificate did not verify, 502 means
+# serve reached the VM and found nothing, 404 means the dashboard image predates
+# this checkout), and losing that would trade three actionable messages for one
+# useless one. So: wait.sh does the waiting, probe_ts_status supplies the code.
 wait_for_ts_dashboard() {
-  local base="$1" waited=0 code=''
-  while [ "$waited" -lt "$HEALTH_WAIT_SECONDS" ]; do
-    code="$(probe_ts_status "$base")"
-    if [ "$code" = "200" ]; then
-      printf '%s' "$code"
-      return 0
-    fi
-    sleep "$HEALTH_INTERVAL_SECONDS"
-    waited=$((waited + HEALTH_INTERVAL_SECONDS))
-  done
+  local base="$1" code=''
+
+  # stdout redirected, and this is not tidiness. This function's stdout IS its
+  # return value — the caller reads it with `code="$(wait_for_ts_dashboard …)"`
+  # — so anything the wait writes there is concatenated onto the status code.
+  # Caught by a test reporting `returned 200200`: the probe's own output had
+  # been glued to the probe's result. stderr is left alone deliberately, because
+  # the WAIT_STAT line and the slow-wait warning are the instrumentation this
+  # change exists to add.
+  if wait_reachable "${base}${TS_HEALTH_PATH}" "$HEALTH_WAIT_SECONDS" >/dev/null; then
+    printf '%s' "$(probe_ts_status "$base")"
+    return 0
+  fi
+
+  # One probe on the failure path, to name the cause rather than the symptom.
+  code="$(probe_ts_status "$base")"
   printf '%s' "$code"
   return 1
 }

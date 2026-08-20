@@ -2567,6 +2567,181 @@ wait_for_ts_dashboard() {
 # one property, and writing them twice is how the two drift.
 TS_SERVE_PORT="${GCP_TF_DEMO_TS_SERVE_PORT:-443}"
 
+# ── Serving has to survive the machine, not just the session ────────────────
+#
+# `tailscale serve --bg` writes its config into tailscaled's state, so it does
+# survive a reboot on its own. What it does NOT survive is a `tailscale logout`,
+# and this estate performs one on shutdown by design
+# (signalloom-tailscale-logout.service, installed by the startup script) so the
+# next build can reclaim the MagicDNS name. The node then returns online, with
+# the right name, resolving through MagicDNS — and serving nothing. Measured on
+# demo-2; the full account is above cmd_ts_logout.
+#
+# So the serve config is re-asserted at every boot by a unit, for exactly the
+# reason signalloom-dashboard-pf.service exists: "it is what makes the forward
+# come back from a reboot without anyone SSHing in — which is the manual step
+# this whole mechanism exists to delete."
+#
+# THIS IS CONSTRUCTION, NOT A REPAIRING DETECTOR. The distinction matters in
+# this repo, which has shipped guards that fixed their own symptom and thereby
+# hid the broken component. Nothing here inspects a failure and patches it; the
+# unit declares what the machine should be doing, the same way the port-forward
+# unit does. The DETECTOR is ts-status, and it was made able to fail in the same
+# change — a durable serve and an honest health check are two halves of one fix,
+# because either alone still lets a dead URL read as healthy.
+#
+# FUNNEL IS DELIBERATELY EXCLUDED, and this is a security property rather than
+# an oversight. A boot-time unit that re-asserted `tailscale funnel` would
+# restore a PUBLIC internet listener automatically after every reboot, so an
+# operator who ran funnel-up once for a demo would be publishing this estate
+# forever without another decision. Funnel keeps the one-shot behaviour it has
+# always had: it goes on when somebody asks for it and it does not come back by
+# itself. There is a test that fails if a funnel-up ever installs this unit.
+TS_SERVE_UNIT="${GCP_TF_DEMO_TS_SERVE_UNIT:-signalloom-tailscale-serve}"
+TS_SERVE_UNIT_PATH="/etc/systemd/system/${TS_SERVE_UNIT}.service"
+TS_SERVE_HELPER_PATH="/usr/local/sbin/${TS_SERVE_UNIT}"
+
+# How long the boot-time helper waits for tailscaled to finish authenticating
+# before it gives up. Generous: on a cold boot the node has to reach the control
+# plane and be re-approved, which is slower than the unit ordering suggests.
+TS_SERVE_UNIT_WAIT_SECONDS="${GCP_TF_DEMO_TS_SERVE_UNIT_WAIT_SECONDS:-120}"
+
+# Is the boot-time re-assertion in place? Prints a bare word: `enabled`, or
+# whatever systemd says instead (`disabled`, `static`, `masked`), or empty when
+# the question could not be asked at all.
+#
+# `is-enabled` rather than `is-active` — see the comment at its call site in
+# cmd_ts_status. A oneshot with RemainAfterExit reports `active` after a
+# successful run and `inactive` after a failed one, and neither answers the
+# question this exists to ask, which is whether the next boot will serve.
+ts_serve_unit_state() {
+  remote_run "systemctl is-enabled ${TS_SERVE_UNIT}.service 2>/dev/null || true" 2>/dev/null |
+    tr -d '\r' | tr -d '[:space:]'
+}
+
+# Install (or refresh) the boot-time re-assertion of `tailscale serve`.
+#
+# Two files, not one, and the split is deliberate. systemd does not run a shell,
+# so an ExecStart carrying a retry loop would have to be `/bin/bash -c '…'` with
+# the whole loop quoted through a heredoc inside a function — the shape that
+# produces a unit nobody can read and nobody notices is subtly wrong. The unit
+# stays trivial and the logic lives in a script that can be read, run by hand
+# and diffed.
+#
+# The retry loop is not defensive padding. `tailscale serve` against a tailscaled
+# that is running but not yet authenticated fails immediately, and a oneshot with
+# no retry would leave the unit failed and the URL dead for the whole uptime of
+# the machine — reintroducing the exact silent failure this is here to remove.
+#
+# Idempotent by content comparison, like ensure_published: rewriting a unit that
+# is already correct means a daemon-reload and a restart for nothing.
+ensure_ts_serve_unit() {
+  local port="$1"
+  local backend="http://127.0.0.1:${port}"
+
+  log "installing ${TS_SERVE_UNIT}.service on ${INSTANCE_NAME} so serving survives a reboot"
+
+  local script
+  script=$(cat <<REMOTE
+set -uo pipefail
+# Not set -e: the probes below are expected to fail on a node that is still
+# coming up, and each needs to produce its own marker rather than aborting the
+# script with empty stdout.
+
+TAILSCALE_BIN="\$(command -v tailscale 2>/dev/null || true)"
+if [ -z "\$TAILSCALE_BIN" ]; then
+  echo "NO_TAILSCALE" >&2
+  exit 3
+fi
+
+HELPER_BODY="#!/usr/bin/env bash
+# Re-assert this node's tailnet HTTPS listener at boot.
+#
+# WRITTEN BY scripts/gcp-tf/demo-up.sh (ensure_ts_serve_unit). Edit it there.
+#
+# Exists because 'tailscale logout' wipes the serve config and this estate logs
+# out on shutdown so the next build can reclaim the MagicDNS name. Without this
+# the node comes back online, correctly named, serving nothing.
+set -uo pipefail
+
+WAITED=0
+while [ \"\\\$WAITED\" -lt ${TS_SERVE_UNIT_WAIT_SECONDS} ]; do
+  if \${TAILSCALE_BIN} status --json 2>/dev/null | grep -q '\"BackendState\": *\"Running\"'; then
+    break
+  fi
+  sleep 3
+  WAITED=\\\$((WAITED + 3))
+done
+
+exec \${TAILSCALE_BIN} serve --bg --https=${TS_SERVE_PORT} '${backend}'
+"
+
+UNIT_BODY="[Unit]
+Description=Signal Loom tailnet HTTPS listener (tailscale serve)
+Documentation=https://github.com/controlplaneio-in-toto/osramp-demo/blob/main/docs/gcp-demo/RUNBOOK.md
+After=network-online.target tailscaled.service
+Wants=network-online.target
+Requires=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=${TS_SERVE_HELPER_PATH}
+# The helper does its own waiting, so this is a ceiling on a node that never
+# authenticates rather than the mechanism that makes it work.
+TimeoutStartSec=${TS_SERVE_UNIT_WAIT_SECONDS}s
+
+[Install]
+WantedBy=multi-user.target
+"
+
+CHANGED=0
+if [ ! -f ${TS_SERVE_HELPER_PATH} ] || ! printf '%s' "\$HELPER_BODY" | sudo cmp -s - ${TS_SERVE_HELPER_PATH}; then
+  printf '%s' "\$HELPER_BODY" | sudo tee ${TS_SERVE_HELPER_PATH} >/dev/null || { echo "HELPER_WRITE_FAILED" >&2; exit 6; }
+  sudo chmod 0755 ${TS_SERVE_HELPER_PATH} || { echo "HELPER_CHMOD_FAILED" >&2; exit 6; }
+  CHANGED=1
+fi
+
+if [ ! -f ${TS_SERVE_UNIT_PATH} ] || ! printf '%s' "\$UNIT_BODY" | sudo cmp -s - ${TS_SERVE_UNIT_PATH}; then
+  printf '%s' "\$UNIT_BODY" | sudo tee ${TS_SERVE_UNIT_PATH} >/dev/null || { echo "UNIT_WRITE_FAILED" >&2; exit 6; }
+  sudo systemctl daemon-reload || { echo "DAEMON_RELOAD_FAILED" >&2; exit 7; }
+  CHANGED=1
+fi
+echo "serve_unit_changed=\${CHANGED}"
+
+# enable, NOT enable --now. The caller has already applied the serve config
+# directly, so starting the unit here would re-run the same command for no
+# benefit; what is wanted from this step is the multi-user.target link, which is
+# the thing that makes the next boot serve.
+sudo systemctl enable ${TS_SERVE_UNIT}.service >/dev/null 2>&1 || { echo "UNIT_ENABLE_FAILED" >&2; exit 8; }
+
+# Asserted, never assumed. \`systemctl enable\` can exit 0 having done nothing
+# useful for a unit systemd declines to link, and an unverified enable is
+# precisely the shape that reports a durable listener that is not one.
+STATE="\$(sudo systemctl is-enabled ${TS_SERVE_UNIT}.service 2>/dev/null || true)"
+if [ "\$STATE" != "enabled" ]; then
+  echo "UNIT_NOT_ENABLED:\${STATE:-unknown}" >&2
+  exit 9
+fi
+echo SERVE_UNIT_ENABLED
+exit 0
+REMOTE
+)
+
+  local rc=0
+  remote_run "$script" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    # A WARNING and not a die, and the asymmetry is the point. The URL is
+    # already live at this point — ensure_ts_serve applied the serve config
+    # before this ran — so failing here would take down a working handover over
+    # a durability property. What must never happen is this failing SILENTLY,
+    # because the operator would then believe serving survives a reboot when it
+    # does not. It is loud here and it is a permanent line in ts-status.
+    warn "could not install ${TS_SERVE_UNIT}.service on ${INSTANCE_NAME} (step exited ${rc}). The tailnet URL is live NOW and will NOT come back on its own after a reboot or a 'tailscale logout' — the node would return online, correctly named, serving nothing. 'make gcp-tf-ts-status ENV=${ENV_KEY}' reports this on the 'ts serve unit' line. Causes: 3 no tailscale on the VM, 6/7 sudo refused the write or the reload, 8/9 systemd would not enable the unit."
+  fi
+  return 0
+}
+
 ensure_ts_serve() {
   local verb="$1" port="$2" # verb: serve | funnel
   # `http://127.0.0.1:<port>`, not `https+insecure://<sni-name>:<port>`.
@@ -2586,6 +2761,18 @@ ensure_ts_serve() {
   remote_run "sudo tailscale ${verb} --bg --https=${TS_SERVE_PORT} \
     '${backend}' && echo ${verb^^}_CONFIGURED" ||
     die "'tailscale ${verb}' failed on ${INSTANCE_NAME}. If it named a certificate, HTTPS certs are not enabled for this tailnet (admin console -> DNS -> HTTPS Certificates). If it named funnel, the tailnet policy has no nodeAttrs entry granting 'funnel' to tag:sl-demo. Neither is fixable from here."
+
+  # The direct call above is what makes the URL live in this run; the unit is
+  # what makes it live again after the machine restarts. Both, rather than only
+  # the unit, because the direct call is the proven path that already serves
+  # four lanes and a handover should not start depending on a systemd unit
+  # starting correctly to work at all.
+  #
+  # `serve` only. Re-asserting `funnel` at boot would restore a public listener
+  # nobody asked for a second time — see the long note above TS_SERVE_UNIT.
+  if [ "$verb" = "serve" ]; then
+    ensure_ts_serve_unit "$port"
+  fi
 }
 
 print_ts_instructions() {
@@ -2668,10 +2855,25 @@ cmd_ts_status() {
   local ts_name_ok=0
   report_ts_name_marker || ts_name_ok=1
 
-  case "$(ts_serve_state)" in
+  local serve_state
+  serve_state="$(ts_serve_state)"
+  case "$serve_state" in
     present) printf 'ts serve:  configured — the tailnet URL is being served\n' ;;
     absent) printf 'ts serve:  ABSENT — nothing served on the tailnet. Run: make gcp-tf-ts-up ENV=%s\n' "$ENV_KEY" ;;
     *) printf 'ts serve:  UNKNOWN — could not read serve status from %s\n' "$INSTANCE_NAME" ;;
+  esac
+
+  # The FIFTH fact, and it is about the FUTURE rather than the present: a serve
+  # config that nothing re-asserts is one reboot — or one `tailscale logout` —
+  # away from gone, and every other line here would still read green afterwards.
+  # `is-enabled`, not `is-active`: the unit is a oneshot, so `active` says only
+  # that it ran once, while `enabled` is the property that survives a boot.
+  local serve_unit_state
+  serve_unit_state="$(ts_serve_unit_state)"
+  case "$serve_unit_state" in
+    enabled) printf 'ts serve unit: %s.service is enabled — serving comes back after a reboot\n' "$TS_SERVE_UNIT" ;;
+    *) printf 'ts serve unit: %s.service is %s — NOT durable. A reboot or a logout leaves this node online, correctly named and serving nothing. Run: make gcp-tf-ts-up ENV=%s\n' \
+      "$TS_SERVE_UNIT" "${serve_unit_state:-unknown}" "$ENV_KEY" ;;
   esac
 
   printf 'forward:   %s.service is %s\n' "$PF_UNIT" "$(forward_unit_state || true)"
@@ -2710,13 +2912,52 @@ cmd_ts_status() {
     printf 'dashboard: not answering (%s%s -> %s)\n' "$base" "$TS_HEALTH_PATH" "${code:-no response}"
   fi
 
-  # A recorded name mismatch fails this command even when every other line is
-  # green, because every other line CAN be green while the URL is wrong. That
-  # is the whole failure mode.
-  if [ "$ts_name_ok" -ne 0 ]; then
-    printf 'ts state:  FAILED — the node name is not the one this environment publishes\n'
+  # ── The VERDICT, and why it is not just the name marker ────────────────────
+  #
+  # This used to return 0 for everything except a recorded name mismatch. Every
+  # other fact was PRINTED and none of them could fail the command, so a node
+  # that was online, correctly named, resolving, and serving absolutely nothing
+  # exited 0. Measured on sl-ci-1, 2026-08-20:
+  #
+  #   ts serve:  ABSENT — nothing served on the tailnet.
+  #   vm:        NOT publishing on :30754
+  #   dashboard: not answering (https://sl-ci-1.<tailnet>.ts.net/readyz -> 000)
+  #   EXIT=0
+  #
+  # Three lines saying the URL is dead, and a green exit status. Anything that
+  # consumed the status rather than reading the prose — a sweep, a Make target,
+  # a person typing `&& echo ok` — was told the lane was fine. A health check
+  # that cannot see the failure it exists to catch is worse than none, because
+  # it also stops anyone from writing one that can.
+  #
+  # Every fact is still reported SEPARATELY and in full before this runs. The
+  # verdict names which of them failed rather than collapsing them, so the
+  # command still answers "what is wrong" and not merely "something is".
+  local -a failures=()
+  [ "$ts_name_ok" -eq 0 ] || failures+=("the node name is not the one this environment publishes")
+  case "$serve_state" in
+    present) ;;
+    absent) failures+=("nothing is being served on the tailnet") ;;
+    *) failures+=("the serve state could not be read, so this cannot say the URL is live") ;;
+  esac
+  [ "$code" = "200" ] || failures+=("the dashboard did not answer ${TS_HEALTH_PATH} (${code:-no response})")
+
+  if [ "${#failures[@]}" -ne 0 ]; then
+    printf 'ts state:  FAILED — the tailnet URL for %s is not usable\n' "$ENV_KEY"
+    local f
+    for f in "${failures[@]}"; do
+      printf '           - %s\n' "$f"
+    done
     return 1
   fi
+
+  # The serve unit is deliberately NOT a failure. It is a statement about
+  # durability, not about whether the URL works right now, and failing a status
+  # command for a lane that is serving correctly would make this the thing
+  # people learn to ignore. It is loud in the fact list and silent in the
+  # verdict, which is the correct weight for "this works and will not survive a
+  # reboot".
+  printf 'ts state:  OK — %s is served and answering\n' "$base"
   return 0
 }
 

@@ -63,6 +63,21 @@
 #   STUB_TS_SERVE_SILENT   1 => `serve status` fails and prints nothing, which
 #                          is what an unreachable node or a refused sudo does.
 #                          The driver must read this as UNKNOWN, not absent.
+#   STUB_TS_SERVE_UNIT_RC  exit code for the boot-durability install step
+#                          (ensure_ts_serve_unit). The real remote script exits
+#                          3/6/7/8/9 for causes that need different answers — no
+#                          tailscale, sudo refused the write, daemon-reload
+#                          failed, systemd would not enable, enable reported
+#                          success and the unit is still not enabled — so each is
+#                          separately reachable here.
+#   STUB_TS_SERVE_UNIT_CHANGED
+#                          what the install step reports for serve_unit_changed
+#                          (default 0 — an already-correct unit is not rewritten)
+#   STUB_TS_SERVE_UNIT_STATE
+#                          what `systemctl is-enabled` reports to ts-status.
+#                          Default `enabled`, which is the healthy state, so
+#                          every test that is not about durability keeps the
+#                          behaviour it had.
 
 log="${STUB_GCLOUD_LOG:-/dev/null}"
 printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
@@ -95,6 +110,30 @@ case "$argv" in
     # turning it on — which would make funnel-down's test pass against a stub
     # that never modelled it.
     case "$argv" in
+      # FIRST, and the position is load-bearing for a reason that has bitten
+      # this repo before: a remote script's own COMMENTS reach this stub as part
+      # of the command line. ensure_ts_serve_unit's heredoc explains itself by
+      # quoting `tailscale logout` and by embedding a helper that runs
+      # `serve --bg`, so several branches below would match the install step and
+      # answer as though a completely different remote command had been issued.
+      # Matching it first, on a literal that appears only in its own code
+      # (`serve_unit_changed`, which the script echoes) and never in prose,
+      # is what keeps the arms unambiguous.
+      *"serve_unit_changed"*)
+        [ "${STUB_TS_SERVE_UNIT_RC:-0}" = "0" ] || exit "${STUB_TS_SERVE_UNIT_RC}"
+        printf 'serve_unit_changed=%s\n' "${STUB_TS_SERVE_UNIT_CHANGED:-0}"
+        # SERVE_UNIT_ENABLED is ensure_ts_serve_unit's OWN vocabulary. A stub
+        # that answers in a dialect the caller does not speak keeps every test
+        # green while the two disagree.
+        printf 'SERVE_UNIT_ENABLED\n'
+        exit 0
+        ;;
+      # AFTER the install arm, which also contains `systemctl is-enabled` as its
+      # own verification step, and before the generic arms.
+      *"systemctl is-enabled"*)
+        printf '%s\n' "${STUB_TS_SERVE_UNIT_STATE:-enabled}"
+        exit 0
+        ;;
       # BEFORE the `ss -ltn` branch, and that ordering is load-bearing. The
       # forward-install script polls with `ss -ltn` itself, so the generic
       # branch below would swallow the whole thing and answer PUBLISHING

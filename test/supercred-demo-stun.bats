@@ -178,6 +178,54 @@ run_step4() {
 	run bash -c "PATH='$PATH' DOCKER_BIN='$DOCKER_BIN' '$script' 4 2>&1"
 }
 
+@test "truncated image listing warns and continues through the preflight caller" {
+	# Exit 3 from supercred-images.sh is deliberately not a preflight failure: the
+	# node listing cannot prove absence. Exercise the caller, rather than only the
+	# verifier, because an undefined warning helper aborts under set -e here.
+	cat >"$bin/docker" <<'STUB'
+#!/usr/bin/env bash
+printf 'IMAGE TAG IMAGE-ID SIZE\n'
+printf 'docker.io/library/larger-image local abc123 1GB\n'
+printf 'node.status.images is at the kubelet cap\n' >&2
+STUB
+	chmod +x "$bin/docker"
+	write_revoked_agent_log
+
+	run_step4
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"COULD NOT BE VERIFIED (truncated node listing)"* ]]
+	[[ "$output" == *"step 4 complete — agent stunned"* ]]
+	[[ "$output" != *"warn: command not found"* ]]
+}
+
+@test "preflight fallback documentation matches SuperCred image pull policies" {
+	local images_script="$BATS_TEST_DIRNAME/../scripts/supercred-images.sh"
+	local manifest
+	local manifests=(
+		"$BATS_TEST_DIRNAME/../d2-signalloom/apps/cardvault/base/deployment.yaml"
+		"$BATS_TEST_DIRNAME/../d2-signalloom/apps/policy-engine/base/deployment.yaml"
+		"$BATS_TEST_DIRNAME/../d2-signalloom/apps/fe-signalloom/base/agents-cardvault-job.yaml"
+		"$BATS_TEST_DIRNAME/../d2-signalloom/apps/supercred-demo-runner/base/deployment.yaml"
+	)
+
+	run grep -Fq 'imagePullPolicy: IfNotPresent' "$script"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'Kubelet attempts a registry pull for an absent image' "$script"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'imagePullPolicy: IfNotPresent' "$images_script"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'Kubelet attempts a registry pull for an absent image' "$images_script"
+	[ "$status" -eq 0 ]
+	run grep -Fq 'ErrImageNeverPull' "$script"
+	[ "$status" -ne 0 ]
+	run grep -Fq 'ErrImageNeverPull' "$images_script"
+	[ "$status" -ne 0 ]
+	for manifest in "${manifests[@]}"; do
+		run grep -Fq 'imagePullPolicy: IfNotPresent' "$manifest"
+		[ "$status" -eq 0 ]
+	done
+}
+
 # ─── The load-bearing claim: revocation is read back, not assumed ───────────
 
 @test "a fully revoked run succeeds and prints the read-back as evidence" {

@@ -67,6 +67,7 @@ AGENT_POD_NAMESPACE="$NAMESPACE_AGENTS"
 # wget and kubectl, nothing more).
 log() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;36m[supercred]\033[0m %s\n' -1 "$*"; }
 ok()  { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;32m[supercred] ✓\033[0m %s\n' -1 "$*"; }
+warn() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;33m[supercred] WARNING:\033[0m %s\n' -1 "$*" >&2; }
 fail() { TZ=UTC printf '[%(%H:%M:%SZ)T] \033[1;31m[supercred] FAILED:\033[0m %s\n' -1 "$*" >&2; exit 1; }
 
 # Sets AGENT_POD_NAMESPACE to the namespace that actually holds agent-cardvault.
@@ -135,8 +136,8 @@ preflight_images() {
   # (node.status.images is capped at 50 and size-sorted) and simply cannot
   # answer. Blocking on that halted the entire demo on 2026-08-03 against a node
   # that held every image. Continuing is safe HERE specifically because the pods
-  # run imagePullPolicy: Never, so a genuinely absent image surfaces
-  # immediately and unmistakably as ErrImageNeverPull on the workload itself.
+  # use imagePullPolicy: IfNotPresent. Kubelet attempts a registry pull for an absent image,
+  # so the workload's pull error is the concrete follow-up signal.
   #
   # That reasoning does not transfer to the build path, which is why
   # supercred-images.sh `load` treats 3 as a stop rather than a shrug: there,
@@ -146,7 +147,7 @@ preflight_images() {
   "${SCRIPT_DIR}/supercred-images.sh" verify || rc=$?
   case "$rc" in
     0) ok "supercred images present on the node" ;;
-    3) warn "supercred image presence COULD NOT BE VERIFIED (truncated node listing) — continuing; a genuinely absent image will surface as ErrImageNeverPull" ;;
+    3) warn "supercred image presence COULD NOT BE VERIFIED (truncated node listing) — continuing; an absent image triggers a registry pull under IfNotPresent" ;;
     *) fail "supercred images missing or unusable on the kind node
        (kind-loaded :local images do not survive a cluster recreate)
        rebuild + reload them:  make demo-signalloom-supercred-images" ;;

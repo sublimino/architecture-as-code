@@ -35,7 +35,7 @@ on:
       - "Makefile"
       - "test/terraform-*.bats"
       - "test/fixtures/terraform/**"
-      - "test/fixtures/gcp-tf/**"
+      - "test/fixtures/gcp-tf-*/**"
       - ".github/workflows/terraform-validate.yaml"
   workflow_dispatch:
 

@@ -304,6 +304,27 @@ bats_dirs() {
 	fi
 }
 
+@test "Terraform BATS suites are owned by gcp-tf-validate, not vm-pipeline" {
+	local terraform_plan pipeline_text f base
+	run make -C "$repo_root" -n gcp-tf-validate
+	[ "$status" -eq 0 ]
+	terraform_plan="$output"
+
+	pipeline_text="$(sed 's/#.*//' "$pipeline")"
+	for f in "$repo_root"/test/terraform-*.bats; do
+		[ -e "$f" ] || continue
+		base="$(basename "$f")"
+		grep -qF "$base" <<<"$terraform_plan" || {
+			echo "Terraform validation does not execute $base"
+			return 1
+		}
+		if grep -qF "$base" <<<"$pipeline_text"; then
+			echo "$base is owned by gcp-tf-validate and must not be listed in vm-pipeline.sh"
+			return 1
+		fi
+	done
+}
+
 @test "every repo-root bats suite is invoked by the CI pipeline" {
 	# The other half of the same hole. Root-level test/*.bats are named
 	# individually by scripts/ci/vm-pipeline.sh, so one that is never added is
@@ -388,6 +409,10 @@ test-count-floor.bats"
 		[ -e "$f" ] || continue
 		local base
 		base="$(basename "$f")"
+		# Terraform suites are owned dynamically by gcp-tf-validate. The test
+		# immediately above proves that target's ownership and forbids accidental
+		# duplication in the frozen VM pipeline.
+		[[ "$base" == terraform-*.bats ]] && continue
 		grep -qxF "$base" <<< "$root_excluded" && continue
 		grep -qF "$base" <<< "$pipeline_text" || unrun="${unrun}${base} "
 	done

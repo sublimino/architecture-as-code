@@ -290,13 +290,20 @@ environments = {
     allowed_ipv4 = ["192.0.2.0/24"]
     allowed_ipv6 = ["2001:db8::/32"]
 
-    # 30754, not 8080, and this is not a preference. Dex pins its local issuer
-    # and its OIDC callback client to 30754 — `setup_gateway_forward` in
-    # scripts/acceptance-test.sh forwards the Envoy Gateway's dynamic NodePort
-    # to exactly that port for this reason. Serve or tunnel on anything else and
-    # the request reaches the Gateway, then fails the login redirect. The user
-    # sees a broken application; nothing anywhere says "wrong port".
-    app_port = 30754
+    # 8080, and it matches the dashboard's nginx Service port on purpose.
+    #
+    # Every access method — the IAP tunnel here, ngrok, Tailscale, Funnel —
+    # forwards to dashboard-signalloom:8080 in fe-signalloom, which serves the
+    # SPA and proxies /dex/ and /api/ on the same origin. Publishing the VM side
+    # on the same number keeps the forward a straight 8080-to-8080.
+    #
+    # This was 30754, and that was not a preference either: the access path went
+    # through the Envoy Gateway, which routes by SNI, and Dex's callback was
+    # pinned to that exact host:port. Dex's issuer and redirect URI are rendered
+    # from PUBLIC_ORIGIN now, published by whichever access script is running, so
+    # nothing pins a port any more. Envoy stays deployed as the Gateway API
+    # ingress; it is just not what a browser goes through.
+    app_port = 8080
 
     # False, deliberately, and against the .example's `true`. This is a sandbox
     # Andy pays for by the hour; the thing that must stay cheap is tearing it

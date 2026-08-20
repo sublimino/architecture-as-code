@@ -145,6 +145,7 @@ node_modules/
 *.handoff.json
 deploy/gcp/deploy-sa
 demo-reports*/
+demo-surfaces*/
 IGNORE
 
 	# A REAL git repo. `git archive` needs a commit to archive, the STALE test

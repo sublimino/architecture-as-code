@@ -210,6 +210,8 @@ resource "google_compute_firewall" "allow_iap_app_port" {
 }
 
 resource "google_compute_firewall" "allow_health_checks" {
+  count = var.edge_enabled ? 1 : 0
+
   name    = "${var.name_prefix}-allow-health-checks"
   project = var.project_id
   network = google_compute_network.this.id

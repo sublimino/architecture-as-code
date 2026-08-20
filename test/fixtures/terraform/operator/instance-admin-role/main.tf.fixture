@@ -1,0 +1,26 @@
+# BROKEN: the shortcut, taken.
+#
+# roles/compute.instanceAdmin.v1 is the ONLY predefined role carrying
+# compute.instances.suspend, so it is the obvious answer to "the operator cannot
+# suspend a VM" and the one a hurried diff would contain. Measured against the
+# live role definition on 2026-08-20 it holds 529 permissions, including
+# compute.instances.create, .delete, .setMetadata, .setServiceAccount,
+# .attachDisk and compute.disks.delete.
+#
+# That is the whole deploy identity's power over instances, granted to the one
+# credential that also has an interactive sudo shell on every VM — which merges
+# the two blast radii the operator module was split out of deploy-identity to
+# keep apart. google_project_iam_custom_role.instance_lifecycle grants four
+# permissions instead.
+#
+# Note the shape: this fixture is dangerous precisely because it LOOKS smaller
+# than the custom role it replaces. One line in a role list, no permission block
+# to review.
+
+locals {
+  operator_project_roles = [
+    "roles/iap.tunnelResourceAccessor",
+    "roles/compute.osAdminLogin",
+    "roles/compute.instanceAdmin.v1",
+  ]
+}

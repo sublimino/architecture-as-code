@@ -133,6 +133,85 @@ project_scoped_act_as() {
     '
 }
 
+# Emits every estate-mutating permission found inside a
+# google_project_iam_custom_role block, and nothing when the role is clean.
+#
+# The custom role is the operator's only unbounded surface: the role BUDGET in
+# tests/operator_identity.tftest.hcl counts roles, and one role can hold any
+# number of permissions, so `permissions = [... , "compute.instances.delete"]`
+# is a privilege increase that moves no number the budget test reads. The tftest
+# pins the evaluated list; this is the text-level companion, and it reaches a
+# custom role declared in ANY file rather than only the one that feeds
+# local.operator_lifecycle_permissions.
+#
+# Brace depth is tracked so a permission is attributed to the block that
+# declares it and not to the file. Matched on the VERB suffix, so the guard also
+# bites on compute.disks.delete or compute.snapshots.create — resource types
+# nobody thought to enumerate.
+#
+# TWO REGIONS, because the permission list has two legitimate homes. The real
+# module names it in `locals` as operator_lifecycle_permissions and the resource
+# references it (`permissions = local.operator_lifecycle_permissions`), so a
+# scanner that only reads inside the resource block finds NOTHING in the shipped
+# code — which is how the first version of this guard failed: it went red on the
+# real module while passing every fixture, because the fixtures inline the list.
+# The fixtures were changed to keep the inline shape on purpose, so both are
+# covered and neither can rot unnoticed.
+#
+# $1 is an awk regex selecting which permission lines to emit.
+lifecycle_role_scan() {
+	local dir="$1" want="$2" sfx="${3:-}"
+	find "$dir" -type f -name "*.tf${sfx}" -not -path '*/.terraform/*' -print0 2>/dev/null |
+		xargs -0 -r awk -v want="$want" '
+      function flush() { inres = 0; inlist = 0; depth = 0; name = "" }
+      { line = $0; sub(/#.*$/, "", line); sub(/\/\/.*$/, "", line) }
+
+      !inres && !inlist && line ~ /resource[[:space:]]+"google_project_iam_custom_role"/ {
+        inres = 1; depth = 0
+        split(line, parts, "\""); name = parts[4]
+        depth += gsub(/\{/, "{", line); depth -= gsub(/\}/, "}", line)
+        next
+      }
+
+      !inres && !inlist && line ~ /operator_lifecycle_permissions[[:space:]]*=[[:space:]]*\[/ {
+        inlist = 1; depth = 0; name = "operator_lifecycle_permissions"
+        depth += gsub(/\[/, "[", line); depth -= gsub(/\]/, "]", line)
+        if (depth <= 0) flush()
+        next
+      }
+
+      (inres || inlist) {
+        if (line ~ want) {
+          perm = line
+          gsub(/^[[:space:]]*"/, "", perm)
+          gsub(/",?[[:space:]]*$/, "", perm)
+          printf "%s\t%s\t%s\n", FILENAME, name, perm
+        }
+        if (inres) { depth += gsub(/\{/, "{", line); depth -= gsub(/\}/, "}", line) }
+        else       { depth += gsub(/\[/, "[", line); depth -= gsub(/\]/, "]", line) }
+        if (depth <= 0) flush()
+      }
+    '
+}
+
+# Estate-mutating permissions inside a lifecycle permission list. Matched on the
+# VERB suffix, so the guard also bites on compute.disks.delete or
+# compute.snapshots.create — resource types nobody thought to enumerate.
+lifecycle_role_mutating_permissions() {
+	lifecycle_role_scan "$1" \
+		'"[a-zA-Z0-9]+\.[a-zA-Z0-9]+\.(create|insert|delete|update|setMetadata|setIamPolicy|setServiceAccount|attachDisk|detachDisk|setTags|setLabels|addAccessConfig|reset|setMachineType|setDiskAutoDelete)",?[[:space:]]*$' \
+		"${2:-}"
+}
+
+# Every permission literal in a lifecycle permission list, one per line, bare.
+# Used for the PAIRED POSITIVE: an absence guard over a corpus with no
+# permission list in it is satisfied by nothing being there.
+lifecycle_role_permissions() {
+	lifecycle_role_scan "$1" \
+		'^[[:space:]]*"[a-zA-Z0-9]+\.[a-zA-Z0-9]+\.[a-zA-Z0-9]+",?[[:space:]]*$' \
+		"${2:-}" | cut -f3
+}
+
 # ---------------------------------------------------------------------------
 # Presence. Nothing below means anything if the module is not there.
 # ---------------------------------------------------------------------------
@@ -310,6 +389,111 @@ project_scoped_act_as() {
 	[ -n "$hits" ]
 }
 
+# ---------------------------------------------------------------------------
+# The instance-lifecycle custom role holds only what was justified
+#
+# CONTRACT §7b. The tftest suite pins the EVALUATED permission list and is the
+# primary surface; these are the text-level companions, and they reach a custom
+# role declared in any file rather than only the one feeding
+# local.operator_lifecycle_permissions. Both are mutation-proved against the
+# REAL module by test/operator-suspend-mutation-proof.sh.
+# ---------------------------------------------------------------------------
+
+@test "TFOP the operator module declares the instance-lifecycle custom role" {
+	# The paired positive, and it comes first deliberately: every "no forbidden
+	# permission" assertion below is trivially satisfied by a module that declares
+	# no custom role at all — which is also the state in which the operator still
+	# cannot suspend a VM. Asserting the mechanism is PRESENT before asserting
+	# anything about its contents is what stops this whole section passing over
+	# nothing.
+	local declared
+	declared="$(tf_only_lines "$op_mod" |
+		grep -c 'resource[[:space:]]*"google_project_iam_custom_role"[[:space:]]*"instance_lifecycle"' || true)"
+	[ "$declared" -eq 1 ]
+
+	# Complete-line matches, not substrings. CONTRACT §7b shape 1: a substring
+	# search for compute.instances.suspend also matches the prose in main.tf that
+	# explains why it is there, so the guard would stay green with the permission
+	# deleted and only the comment left behind. A permission is a whole list
+	# element on its own line; a comment can never be one.
+	local perms
+	perms="$(lifecycle_role_permissions "$op_mod")"
+	echo "$perms" | grep -qxF 'compute.instances.suspend'
+	echo "$perms" | grep -qxF 'compute.instances.resume'
+	echo "$perms" | grep -qxF 'compute.instances.start'
+	echo "$perms" | grep -qxF 'compute.zoneOperations.get'
+
+	# Exactly four. A count, not a floor: shape 2 in CONTRACT §7b is an assertion
+	# that stays green while something extra is present, and `grep -q` for four
+	# specific strings is satisfied by a role holding forty.
+	[ "$(echo "$perms" | grep -c .)" -eq 4 ]
+}
+
+@test "TFOP the lifecycle custom role grants no estate-mutating permission" {
+	local hits
+	hits="$(lifecycle_role_mutating_permissions "$op_mod")"
+	if [ -n "$hits" ]; then
+		echo "an estate-mutating permission is declared in a custom role:" >&2
+		echo "$hits" >&2
+		echo "This role parks and unparks machines. Creating, deleting or" >&2
+		echo "reconfiguring them belongs to modules/deploy-identity, and a custom" >&2
+		echo "role is the one place a permission can be added without moving any" >&2
+		echo "number the role budget in tests/ reads." >&2
+		return 1
+	fi
+}
+
+@test "TFOP MUTATION an overreaching custom role fixture trips the permission guard" {
+	[ -f "$fixtures/overreaching-custom-role/main.tf.fixture" ]
+	local hits
+	hits="$(lifecycle_role_mutating_permissions "$fixtures/overreaching-custom-role" ".fixture")"
+	[ -n "$hits" ]
+}
+
+@test "TFOP MUTATION the permission guard stays silent on the clean fixture" {
+	# The paired positive. clean/ carries a well-formed custom role, so this also
+	# proves the guard can tell a legitimate suspend/resume role from an
+	# overreaching one — a guard that fired on every custom role would satisfy the
+	# mutation check above while being useless on the real module.
+	[ -f "$fixtures/clean/main.tf.fixture" ]
+	local hits
+	hits="$(lifecycle_role_mutating_permissions "$fixtures/clean" ".fixture")"
+	[ -z "$hits" ]
+
+	# And the scan is not silent because it found no custom role to look in.
+	local perms
+	perms="$(lifecycle_role_permissions "$fixtures/clean" ".fixture")"
+	[ "$(echo "$perms" | grep -c .)" -ge 2 ]
+}
+
+@test "TFOP the operator module grants no predefined instance-admin role" {
+	# roles/compute.instanceAdmin.v1 is the ONLY predefined role carrying
+	# compute.instances.suspend, and it carries 529 permissions to deliver it —
+	# including create, delete, setMetadata, setServiceAccount and attachDisk.
+	# It is the shortcut the custom role exists to avoid, so it is named here
+	# rather than left to the budget count: a reviewer who saw the budget move
+	# from two to three would have no way to tell which of the two changes landed.
+	local role hits
+	for role in \
+		"roles/compute.instanceAdmin" "roles/compute.instanceAdmin.v1"; do
+		hits="$(tf_only_lines "$op_mod" | grep -F "\"${role}\"" || true)"
+		if [ -n "$hits" ]; then
+			echo "forbidden role ${role} appears in the operator module:" >&2
+			echo "$hits" >&2
+			echo "It grants 529 permissions to deliver compute.instances.suspend." >&2
+			echo "google_project_iam_custom_role.instance_lifecycle grants four." >&2
+			return 1
+		fi
+	done
+}
+
+@test "TFOP MUTATION an instance-admin role fixture trips the instance-admin guard" {
+	[ -f "$fixtures/instance-admin-role/main.tf.fixture" ]
+	local hits
+	hits="$(tf_only_lines "$fixtures/instance-admin-role" ".fixture" | grep -F '"roles/compute.instanceAdmin.v1"' || true)"
+	[ -n "$hits" ]
+}
+
 @test "TFOP no legacy role is named anywhere in the operator module" {
 	# CIS GCP Benchmark guidance, and the same reasoning as deploy-identity:
 	# legacy roles are deprecated on Google's schedule, not yours.
@@ -354,13 +538,21 @@ project_scoped_act_as() {
 	grep -q 'roles/iap.tunnelResourceAccessor' "$doc"
 }
 
-@test "TFOP deploy/gcp/README.md documents the operator identity and all three roles" {
+@test "TFOP deploy/gcp/README.md documents the operator identity and all four roles" {
 	local doc="$repo/deploy/gcp/README.md"
 	[ -f "$doc" ]
 	grep -qi 'operator' "$doc"
 	grep -q 'roles/iap.tunnelResourceAccessor' "$doc"
 	grep -q 'roles/compute.osAdminLogin' "$doc"
 	grep -q 'roles/iam.serviceAccountUser' "$doc"
+
+	# The custom role, and the two facts an operator cannot work without: the
+	# permission that actually stops the billing, and the reason the grant may be
+	# absent. A runbook that lists three roles when four are granted sends someone
+	# to the console to work out why suspend still fails.
+	grep -q 'slOperatorInstanceLifecycle' "$doc"
+	grep -q 'compute.instances.suspend' "$doc"
+	grep -q 'iam.roles.create' "$doc"
 }
 
 @test "TFOP the module README states the budget and names the deliberately-absent roles" {

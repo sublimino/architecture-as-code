@@ -10,8 +10,18 @@ output "operator_service_account_email" {
 }
 
 output "granted_roles" {
-  description = "Every role granted to the operator identity at any scope, so a reviewer can diff intent against reality. Three: two project-scoped, one scoped to the runtime service account resources."
+  description = "Every role granted to the operator identity at any scope, so a reviewer can diff intent against reality. Four: two predefined project-scoped roles, one project-scoped custom role holding four permissions, and one scoped to the runtime service account resources."
   value       = sort(local.operator_all_roles)
+}
+
+output "lifecycle_role_permissions" {
+  description = "The exact permission set of the instance-lifecycle custom role, sorted. Four: suspend, resume, start, and the zoneOperations.get that gcloud's synchronous poll depends on. Exposed so a caller can diff the granted verbs without reading the module, and so the difference between this role and roles/compute.instanceAdmin.v1 (529 permissions) is a number a reviewer can see."
+  value       = sort(local.operator_lifecycle_permissions)
+}
+
+output "lifecycle_role_is_managed" {
+  description = "Whether Terraform created the instance-lifecycle custom role. False means the caller could not supply iam.roles.create and the role is a documented manual follow-up — the operator can still tunnel and log in, and still cannot suspend. Reported rather than inferred, because a silently-absent grant is indistinguishable from a working one until the estate needs turning off."
+  value       = var.manage_lifecycle_custom_role
 }
 
 output "project_roles" {

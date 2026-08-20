@@ -16,8 +16,88 @@ data "google_compute_image" "boot" {
   project = var.image_project
 }
 
+# ---------------------------------------------------------------------------
+# The Tailscale auth key, referenced and never declared.
+#
+# The secret is created OUT OF BAND — `gcloud secrets create` plus a version
+# holding a reusable, ephemeral, pre-approved key. It is deliberately not a
+# `resource` here, and that is a security decision rather than a convenience:
+# a `google_secret_manager_secret_version` resource carries its payload in
+# `secret_data`, which means the auth key would be written into Terraform state
+# in plain text and into every plan output that touched it. State lives in a
+# GCS bucket several principals can read. The key would then be readable by more
+# people than the tailnet it admits to.
+#
+# A data source instead gives the one thing that matters at plan time: if
+# tailscale_enabled is true and the secret does not exist, the PLAN fails with
+# "secret not found" rather than the apply failing halfway through, or worse,
+# succeeding and leaving a VM that boots without a tailnet for reasons nobody
+# looks for. The count is what keeps that from being a tax on every environment
+# that never asked for Tailscale — with the feature off, this lookup is not
+# performed at all, so an environment with no secret still plans and applies.
+data "google_secret_manager_secret" "tailscale_authkey" {
+  count = var.tailscale_enabled ? 1 : 0
+
+  project   = var.project_id
+  secret_id = var.tailscale_authkey_secret_id
+}
+
+# SECRET-SCOPED, never project-scoped.
+#
+# `google_secret_manager_secret_iam_member` binds on ONE secret. The available
+# alternative, `google_project_iam_member` with roles/secretmanager.secretAccessor,
+# grants read on EVERY secret in the project — present and future — to a service
+# account attached to a VM that runs demo workloads and pulls public container
+# images. The two lines look almost identical in a diff and differ by the entire
+# blast radius of the project's secret store.
+#
+# Additive by construction: this resource adds one member to one secret's policy
+# and touches nothing else. The authoritative sibling
+# (`google_secret_manager_secret_iam_policy`) would replace that secret's whole
+# policy, silently removing whatever grant lets Andy manage the key himself.
+resource "google_secret_manager_secret_iam_member" "tailscale_authkey_accessor" {
+  count = var.tailscale_enabled ? 1 : 0
+
+  project   = var.project_id
+  secret_id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${var.service_account_email}"
+}
+
 locals {
   instance_name = "${var.name_prefix}-vm"
+
+  # ─── Tailscale node identity, decided here rather than in bash ───────────
+  #
+  # Derived from the environment key so the node name is deterministic and
+  # one-to-one with the environment: demo-1 is always `sl-demo-1`, on every
+  # rebuild. That matters more than it looks for an EPHEMERAL key — an ephemeral
+  # node is reaped by Tailscale shortly after it goes offline, so a VM rebuilt
+  # under the same name reclaims the same identity rather than accumulating
+  # sl-demo-1-1, sl-demo-1-2, sl-demo-1-3 in the tailnet device list.
+  #
+  # Computed in Terraform, not in the startup script, because it is the same
+  # value modules/network derives its network tag from and a second derivation
+  # in bash is a second thing to drift.
+  tailscale_hostname = "sl-${var.environment_key}"
+
+  # Instance metadata carrying the Tailscale CONFIGURATION — never the key.
+  #
+  # Startup scripts and metadata are stored in plain text and readable by anyone
+  # holding compute.instances.get, so what goes here is the NAME of the secret,
+  # not its contents. The VM resolves the name to a value at runtime under its
+  # own attached service account, which is the grant made above.
+  #
+  # Emitted as an empty map when the feature is off, so a non-Tailscale
+  # instance's metadata is byte-identical to what it was before this existed and
+  # the startup script has exactly one signal to read.
+  tailscale_metadata = var.tailscale_enabled ? {
+    signalloom-tailscale-enabled   = "TRUE"
+    signalloom-tailscale-secret-id = var.tailscale_authkey_secret_id
+    signalloom-tailscale-tag       = var.tailscale_tag
+    signalloom-tailscale-hostname  = local.tailscale_hostname
+    signalloom-tailscale-ssh       = var.tailscale_ssh_enabled ? "TRUE" : "FALSE"
+  } : {}
 
   # Falls back to the module's own version-controlled script. A variable
   # default cannot reference path.module, so the choice is made here.
@@ -143,7 +223,13 @@ resource "google_compute_instance" "this" {
     scopes = ["cloud-platform"]
   }
 
-  metadata = {
+  # merge(), not a single literal, so the Tailscale keys are ABSENT rather than
+  # empty when the feature is off. An empty-string metadata value is a value the
+  # startup script would still have to interpret; an absent key is unambiguous,
+  # and it keeps a non-Tailscale instance's metadata identical to what it was
+  # before this feature existed — which is what makes "no Tailscale resource is
+  # planned at all" assertable rather than approximately true.
+  metadata = merge({
     # OS Login: SSH authorisation goes through IAM rather than through keys
     # pasted into project metadata.
     enable-oslogin = "TRUE"
@@ -156,7 +242,7 @@ resource "google_compute_instance" "this" {
     serial-port-enable = "FALSE"
 
     signalloom-environment = var.environment_key
-  }
+  }, local.tailscale_metadata)
 
   metadata_startup_script = file(local.startup_script_file)
 

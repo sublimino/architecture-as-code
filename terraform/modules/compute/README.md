@@ -152,3 +152,59 @@ container that mounts the host filesystem — so `0666` grants root to every loc
 including an OS Login principal holding plain `roles/compute.osLogin` and no sudo. On an
 environment whose demonstration subject is security posture, that is the first thing a hostile
 reviewer would find, and it buys nothing the two mechanisms above do not already provide.
+
+## Tailscale
+
+Off unless `tailscale_enabled = true`. With it false the module plans **no** data source, **no**
+IAM binding and **no** `signalloom-tailscale-*` metadata key — a disabled instance's metadata is
+byte-identical to what it was before this feature existed. That matters because the auth-key
+secret is created **out of band**, so an environment that has not been given one must still plan
+and apply cleanly.
+
+### The auth key is never in metadata, and never in state
+
+Startup scripts **are** instance metadata: stored in plain text, readable by anyone holding
+`compute.instances.get` on the project. So the key is not in the script and not in the metadata.
+What travels there is the **name** of the secret; the VM resolves that name at boot, over the
+metadata server, using a token minted for its own attached service account.
+
+The secret is also not a Terraform `resource`. `google_secret_manager_secret_version` carries its
+payload in `secret_data`, which would write the key into Terraform state in plain text — a GCS
+object several principals can read. A `data` source instead gives the one thing worth having at
+plan time: an enabled environment whose secret is missing fails at **plan**, rather than applying
+and leaving a VM that silently never joins the tailnet.
+
+### The grant is one role on one secret
+
+`google_secret_manager_secret_iam_member` binds on a single secret.
+`google_project_iam_member` with the same role would grant read on **every** secret in the
+project, present and future, to a service account attached to a VM that pulls public container
+images. The two lines look almost identical in a diff and differ by the whole blast radius of the
+project's secret store. `test/terraform-tailscale-access.bats` pins the module's IAM budget at
+exactly one resource of exactly that type.
+
+### Two decisions worth knowing before changing them
+
+**`tailscale_ssh_enabled` defaults to false.** Tailscale SSH is genuinely good — no key
+distribution, no sshd configuration, authorisation as a per-connection ACL rule. It is off here
+because it adds a **second authorisation system that GCP IAM and the GCP audit log cannot see**:
+a principal denied by OS Login can still be admitted by the tailnet ACL, and nothing in
+`gcloud compute instances describe` says so. On an environment whose subject is the posture, that
+is a bad default. It is a default, not a prohibition — set it in a tfvars someone reads. Note the
+asymmetry that makes false cheap: the tailnet still reaches the application on `app_port`, which
+is the thing that was wanted; only the shell falls back to IAP, and IAP for a shell already works.
+
+**`tailscale up --accept-dns=false` is load-bearing.** Accepting MagicDNS rewrites
+`/etc/resolv.conf`. This VM's resolver is the metadata server, and the VPC private zone is what
+points `googleapis.com` at the restricted Private Google Access VIP. Replace the resolver and
+`googleapis.com` resolves publicly, at which point the deny-all egress rule correctly refuses the
+public address and the estate fails with `dial tcp 172.217.x.x:443: i/o timeout` — a failure that
+reads as an over-strict firewall and has nothing to do with the firewall.
+
+### It cannot stop the VM booting
+
+Every failure path in the startup script's Tailscale stage logs a `WARNING` and continues: a
+missing secret, an unreadable one, a denied `pkgs.tailscale.com`, a failed `tailscale up`. A VM
+that will not boot because an optional feature's secret is missing is strictly worse than a VM
+without the feature, and nothing in the estate's bring-up depends on the tailnet. `die` appears
+nowhere in that code path, and the bats suite asserts it.

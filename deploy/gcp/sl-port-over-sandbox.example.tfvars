@@ -85,6 +85,103 @@ iap_members = [
 # certificate and the frontend.
 dns_managed_zone = ""
 
+# ─── Tailscale ──────────────────────────────────────────────────────────────
+#
+# A tailnet node ON the demo VM, so the estate is reachable from Andy's own
+# devices without the IAP tunnel dance. Off by default across the whole tree;
+# these four lines are what turn it on for this environment.
+#
+# PREREQUISITE, and it is out of band on purpose. The auth key is minted by Andy
+# and stored as a Secret Manager secret named below, in this project:
+#
+#     tailscale admin → Settings → Keys → Generate auth key
+#       reusable ✓   ephemeral ✓   pre-approved ✓   tags: tag:sl-demo
+#
+#     printf '%s' "<the key>" | gcloud secrets create sl-demo-tailscale-authkey \
+#       --project sl-port-over-sandbox --data-file=- --replication-policy=automatic
+#
+# Terraform REFERENCES that secret with a data source and grants the runtime
+# service account roles/secretmanager.secretAccessor ON THAT SECRET ALONE. It
+# never declares the secret or its version, because a
+# google_secret_manager_secret_version resource carries its payload in
+# `secret_data` and would write the key into Terraform state in plain text.
+#
+# If the secret does not exist, `tailscale_enabled = true` fails at PLAN with
+# "secret not found" — deliberately, and before anything is created. Leaving the
+# flag false plans and applies exactly as this environment did before.
+#
+# SECOND PREREQUISITE, and it is easy to miss because this file does not set it.
+# The startup script installs Tailscale from pkgs.tailscale.com over public
+# HTTPS, which the egress policy DENIES unless the environment names public
+# destinations in `egress_public_https_destinations`. That variable is absent
+# here on purpose — CONTRACT.md §6 forbids 0.0.0.0/0 in a committed example, and
+# a narrower list would be fiction. The live tfvars this file is copied to
+# already sets it; if yours does not, the install fails, the startup script logs
+# a WARNING naming this exact cause, and the VM boots WITHOUT Tailscale rather
+# than failing to boot. Reading `journalctl -t signalloom-bootstrap` on the box
+# is how you find out.
+#
+# reusable + ephemeral + pre-approved, each for a reason:
+#   reusable      the VM re-runs its bootstrap on rebuild; a single-use key
+#                 works exactly once and then fails silently forever after.
+#   ephemeral     Tailscale reaps the node shortly after it goes offline, so
+#                 `make gcp-tf-destroy` does not leave a dead device behind.
+#                 It pairs with the deterministic hostname the module derives
+#                 from the environment key: demo-1 is always "sl-demo-1".
+#   pre-approved  device approval is a manual step, and a node that boots at
+#                 03:00 waiting for a human is a node that is simply down.
+tailscale_enabled           = true
+tailscale_authkey_secret_id = "sl-demo-tailscale-authkey"
+tailscale_tag               = "tag:sl-demo"
+
+# FALSE, and worth understanding before flipping it.
+#
+# Tailscale SSH would let tailnet principals SSH to this VM with authorisation
+# decided by the tailnet ACL. That is a SECOND authorisation system, and GCP IAM
+# and the GCP audit log cannot see it: a principal denied by OS Login can still
+# be admitted by the ACL, and nothing in `gcloud compute instances describe`
+# says so. On an environment whose entire subject is posture, that is a bad
+# default even though the mechanism itself is well built.
+#
+# The asymmetry that makes false cheap: with it off, the tailnet still gives
+# direct access to the application on app_port, which is the thing that was
+# actually wanted. Only the SHELL falls back to IAP, and IAP for a shell already
+# works today.
+tailscale_ssh_enabled = false
+
+# ─── UDP egress: DERP relay vs direct WireGuard ─────────────────────────────
+#
+# Tailscale works with these EMPTY. It relays every packet through Tailscale's
+# DERP servers over TCP 443, which egress_public_https_destinations already
+# permits. Opening UDP buys a direct path — latency and throughput — not
+# reachability, and a comment claiming otherwise would be wrong.
+#
+#   41641/udp  the node's own direct listener
+#   3478/udp   STUN, how two nodes behind NAT discover a path to each other
+#
+# THE DESTINATIONS BELOW ARE RFC5737 DOCUMENTATION RANGES AND WILL NOT WORK.
+# They are here because CONTRACT.md §6 forbids 0.0.0.0/0 in any committed
+# example, and this file is committed. The honest operational answer is that a
+# direct WireGuard path goes to the PEER's address, which is not knowable in
+# advance — so a real environment sets:
+#
+#     egress_public_udp_destinations = ["0.0.0.0/0"]
+#
+# in its own gitignored tfvars, and accepts what that costs. Stated plainly: UDP
+# is connectionless, so an allowed UDP port is a one-way channel out of the
+# estate that looks identical in the flow logs whether anything answered or not.
+# It is the best exfiltration path this policy contains. What bounds it is that
+# it is scoped by target_service_accounts to this environment's runtime service
+# account, that it is EGRESS only — ingress is entirely unaffected, there is
+# still no external IP, and the only ways in remain IAP on 22 and on app_port —
+# and that the port list is two entries long and countable at a glance.
+#
+# If that trade is not wanted, delete both lines. DERP relaying is the default
+# and it is not a degraded mode; it is how most Tailscale nodes on restrictive
+# networks run permanently.
+egress_public_udp_ports        = ["3478", "41641"]
+egress_public_udp_destinations = ["192.0.2.0/24", "198.51.100.0/24"]
+
 environments = {
   "demo-1" = {
     kind        = "demo"

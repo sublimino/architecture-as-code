@@ -14,6 +14,18 @@
 # compute.instances.get on the project, because startup scripts are stored in
 # instance metadata in plain text.
 #
+# That rule is now load-bearing rather than aspirational: fetch_tailscale_authkey
+# resolves the Tailscale auth key from Secret Manager at boot, under the attached
+# service account, using a token the metadata server mints on the spot. What the
+# instance metadata carries is the NAME of the secret. Nothing here, and nothing
+# in Terraform state, holds the key itself.
+#
+# Tailscale is OPTIONAL and off unless the instance carries
+# signalloom-tailscale-enabled=TRUE. It is access plumbing, not deployment: it
+# joins the node to a tailnet and stops. Every failure path in that stage logs
+# and continues, because a VM that will not boot without an optional feature's
+# secret is worse than a VM without the feature.
+#
 # Egress note: with the network module's defaults this script CANNOT reach
 # download.docker.com or the Kubernetes release servers, because public HTTPS
 # egress is denied until an operator names destinations in
@@ -25,6 +37,7 @@ set -euo pipefail
 readonly KIND_VERSION="v0.24.0"
 readonly LOG_TAG="signalloom-bootstrap"
 readonly MARKER="/var/lib/signalloom/.bootstrapped"
+readonly METADATA_ROOT="http://169.254.169.254/computeMetadata/v1"
 
 log() {
   echo "[${LOG_TAG}] $*"
@@ -72,6 +85,19 @@ fetch_verified() {
   install -m 0755 "${workdir}/payload" "$dest"
   rm -rf "$workdir"
   log "installed ${dest}"
+}
+
+# Reads one instance metadata attribute. Prints nothing and returns non-zero
+# when the key is absent, which is how an optional feature stays optional.
+#
+# --fail matters: without it curl prints the metadata server's 404 body to
+# stdout and exits 0, so an absent key returns the literal text of an error page
+# as though it were the value. That reads as a configured-but-wrong setting
+# rather than as an unset one.
+metadata_attr() {
+  curl --fail --silent --show-error \
+    --header "Metadata-Flavor: Google" \
+    "${METADATA_ROOT}/instance/attributes/$1" 2>/dev/null
 }
 
 # The prerequisites the pipeline cannot bootstrap itself, and nothing more.
@@ -182,6 +208,264 @@ install_kubectl() {
   fetch_verified \
     "https://dl.k8s.io/release/${version}/bin/linux/amd64/kubectl" \
     /usr/local/bin/kubectl
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale
+#
+# Optional, off unless the instance carries signalloom-tailscale-enabled=TRUE.
+# Every failure path below LOGS AND CONTINUES rather than aborting: a VM that
+# fails to boot because an optional feature's secret is missing is strictly
+# worse than a VM without that feature, and the estate's actual bring-up does
+# not depend on the tailnet in any way.
+#
+# ─── Why nothing here uses `|| die` and nothing relies on errexit ───────────
+#
+# `set -e` is active, so an unchecked failure anywhere in this function kills
+# the whole bootstrap before the marker is written. The tempting fixes are both
+# wrong: `install_tailscale || true` at the call site DISABLES errexit for the
+# entire function body (bash suppresses it inside any command that is part of a
+# condition or a `||` list, and that suppression propagates into subshells), so
+# every later step would run on the wreckage of an earlier one. Instead every
+# fallible command carries its own explicit `|| { log; return 0; }`. That is
+# deterministic and does not depend on errexit semantics at all.
+#
+# ─── Where the auth key comes from, and where it is NOT ─────────────────────
+#
+# The key is fetched HERE, at runtime, from Secret Manager, using the token the
+# metadata server mints for this instance's own attached service account. It is
+# not in this file, not in instance metadata, and not in Terraform state. What
+# metadata carries is the NAME of the secret; resolving that name requires
+# roles/secretmanager.secretAccessor on that one secret, which modules/compute
+# grants to the runtime service account and to nothing else.
+#
+# The key itself is minted reusable + ephemeral + pre-approved. Ephemeral is the
+# part that pairs with the deterministic hostname below: Tailscale reaps an
+# ephemeral node shortly after it goes offline, so a destroyed demo VM does not
+# leave a stale device in the tailnet, and a rebuilt one reclaims the same name.
+#
+# ─── Egress requirements, stated because they are easy to get wrong ─────────
+#
+#   * secretmanager.googleapis.com — TCP 443 to the restricted Private Google
+#     Access VIP. Already permitted by allow_egress_google_apis AND resolved to
+#     the VIP by the private DNS zone. Both halves are needed; see the long
+#     comment in modules/network/main.tf about the half that was once missing.
+#   * pkgs.tailscale.com — TCP 443 to the public internet, which is DENIED
+#     unless the environment names destinations in
+#     egress_public_https_destinations. If it does not, the apt install below
+#     fails, this function logs and returns, and the VM boots without Tailscale.
+#   * 41641/udp and 3478/udp — optional. Without them Tailscale still connects,
+#     relaying through DERP over TCP 443 rather than negotiating a direct path.
+install_tailscale() {
+  local enabled secret_id tag node_name want_ssh
+  enabled="$(metadata_attr signalloom-tailscale-enabled)" || enabled=""
+
+  if [[ "$enabled" != "TRUE" ]]; then
+    log "tailscale is not enabled for this instance, skipping"
+    return 0
+  fi
+
+  # Each of these is written by Terraform whenever the feature is on, so a
+  # missing one means the metadata and this script have drifted apart. That is
+  # worth saying out loud rather than defaulting around.
+  secret_id="$(metadata_attr signalloom-tailscale-secret-id)" || secret_id=""
+  tag="$(metadata_attr signalloom-tailscale-tag)" || tag=""
+  node_name="$(metadata_attr signalloom-tailscale-hostname)" || node_name=""
+  want_ssh="$(metadata_attr signalloom-tailscale-ssh)" || want_ssh="FALSE"
+
+  if [[ -z "$secret_id" || -z "$tag" || -z "$node_name" ]]; then
+    log "WARNING: tailscale is enabled but its metadata is incomplete"
+    log "WARNING: secret-id='${secret_id}' tag='${tag}' hostname='${node_name}'"
+    log "WARNING: continuing without tailscale"
+    return 0
+  fi
+
+  install_tailscale_package || return 0
+
+  local authkey
+  authkey="$(fetch_tailscale_authkey "$secret_id")" || return 0
+
+  bring_tailscale_up "$authkey" "$tag" "$node_name" "$want_ssh"
+}
+
+# Installs the tailscale package from the publisher's own apt repository.
+#
+# Deliberately NOT fetch_verified: that function exists for a single binary
+# published alongside a checksum sidecar, and Tailscale publishes neither a
+# standalone binary nor a sidecar for the path taken here. What replaces it is
+# strictly stronger — apt verifies every package against the signing key pinned
+# in signed-by, so a tampered mirror is rejected by apt itself rather than by a
+# hash we happened to remember to check. This is the same shape as
+# install_docker above, on purpose: two apt repositories configured two
+# different ways is how one of them ends up unverified.
+install_tailscale_package() {
+  if command -v tailscale >/dev/null 2>&1; then
+    log "tailscale already present, skipping install"
+    return 0
+  fi
+
+  local distro codename
+  # The distribution is DERIVED from the running image, never assumed — the
+  # same rule and the same measured failure as install_docker. Tailscale
+  # publishes separate repositories for debian and ubuntu, and a hardcoded one
+  # does not fail loudly: apt finds no candidate and reports "Unable to locate
+  # package tailscale", which reads as a network problem.
+  # shellcheck source=/dev/null  # provided by the base image, not by this repo
+  distro="$(. /etc/os-release && echo "$ID")"
+  # shellcheck source=/dev/null  # provided by the base image, not by this repo
+  codename="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+
+  case "$distro" in
+    debian | ubuntu) ;;
+    *)
+      log "WARNING: tailscale packages are published for debian and ubuntu only"
+      log "WARNING: this image reports '${distro}'; continuing without tailscale"
+      return 1
+      ;;
+  esac
+
+  log "installing tailscale for ${distro} ${codename}"
+  install -m 0755 -d /usr/share/keyrings
+
+  curl --fail --silent --show-error --location --retry 3 --retry-delay 2 \
+    --output /usr/share/keyrings/tailscale-archive-keyring.gpg \
+    "https://pkgs.tailscale.com/stable/${distro}/${codename}.noarmor.gpg" \
+    || {
+      log "WARNING: could not fetch the tailscale signing key"
+      log "WARNING: public HTTPS egress to pkgs.tailscale.com is denied unless"
+      log "WARNING: the environment names it in egress_public_https_destinations"
+      return 1
+    }
+  chmod a+r /usr/share/keyrings/tailscale-archive-keyring.gpg
+
+  # Written by hand rather than fetched from the publisher's .list URL. The
+  # fetched file is a convenience that hardcodes the same three fields; writing
+  # them here means the signed-by path is visible in this script, where it can
+  # be reviewed, rather than in a file that arrives over the network.
+  echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/${distro} ${codename} main" \
+    >/etc/apt/sources.list.d/tailscale.list
+
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update -qq || {
+    log "WARNING: apt-get update failed after adding the tailscale repository"
+    return 1
+  }
+  apt-get install -y -qq --no-install-recommends tailscale || {
+    log "WARNING: could not install the tailscale package"
+    return 1
+  }
+
+  systemctl enable --now tailscaled || {
+    log "WARNING: tailscaled did not start"
+    return 1
+  }
+}
+
+# Resolves the auth key from Secret Manager under this instance's own identity.
+# Prints the key on stdout; logs and returns non-zero on every failure.
+#
+# The REST API rather than gcloud: gcloud is not guaranteed present on the base
+# image, and adding it as a prerequisite for an optional feature would move the
+# provisioning line for every environment including the ones that never enable
+# this. curl is already a prerequisite for everything else here.
+fetch_tailscale_authkey() {
+  local secret_id="$1" project bearer response payload
+
+  project="$(curl --fail --silent --show-error \
+    --header "Metadata-Flavor: Google" \
+    "${METADATA_ROOT}/project/project-id" 2>/dev/null)" || {
+    log "WARNING: could not read the project id from the metadata server"
+    return 1
+  }
+
+  # The instance's own access token, minted by the metadata server for the
+  # attached service account. Nothing long-lived is stored anywhere.
+  bearer="$(curl --fail --silent --show-error \
+    --header "Metadata-Flavor: Google" \
+    "${METADATA_ROOT}/instance/service-accounts/default/token" 2>/dev/null \
+    | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || bearer=""
+
+  if [[ -z "$bearer" ]]; then
+    log "WARNING: the metadata server issued no access token for this instance"
+    return 1
+  fi
+
+  response="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+    --header "Authorization: Bearer ${bearer}" \
+    "https://secretmanager.googleapis.com/v1/projects/${project}/secrets/${secret_id}/versions/latest:access" \
+    2>/dev/null)" || {
+    log "WARNING: could not read secret '${secret_id}' from Secret Manager"
+    log "WARNING: the instance service account needs roles/secretmanager.secretAccessor"
+    log "WARNING: on that secret, and the secret must have at least one version"
+    log "WARNING: continuing without tailscale"
+    return 1
+  }
+
+  # The payload is base64 in a JSON field. Parsed with sed rather than jq
+  # because jq is deliberately not a prerequisite of this script — see the
+  # prerequisites comment above install_base_packages.
+  payload="$(printf '%s' "$response" \
+    | sed -n 's/.*"data"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    | base64 -d 2>/dev/null | tr -d '[:space:]')"
+
+  # Shape check, and it is not decoration. A changed response shape, a truncated
+  # read or a sed that matched the wrong field all produce a NON-EMPTY string
+  # that `tailscale up` would accept and reject remotely — so the observable
+  # symptom would be "the node never joined", identical to a missing grant.
+  # Refusing anything that is not a Tailscale key turns that into one clear line.
+  if [[ "$payload" != tskey-* ]]; then
+    log "WARNING: secret '${secret_id}' does not hold a tailscale auth key"
+    log "WARNING: expected a value beginning 'tskey-'; continuing without tailscale"
+    return 1
+  fi
+
+  printf '%s' "$payload"
+}
+
+# Brings the node up non-interactively.
+bring_tailscale_up() {
+  local authkey="$1" tag="$2" node_name="$3" want_ssh="$4"
+  local args=()
+
+  # --advertise-tags makes the node owned by the tailnet ACL rather than by the
+  # user whose key created it. An untagged node inherits that user's access and
+  # disappears from the tailnet when their account does.
+  args+=("--advertise-tags=${tag}")
+
+  # Deterministic, derived from the environment key by Terraform. Predictable
+  # naming is what makes the ephemeral reap predictable too: the rebuilt VM
+  # reclaims sl-demo-1 rather than accumulating sl-demo-1-2, sl-demo-1-3.
+  args+=("--hostname=${node_name}")
+
+  # ─── --accept-dns=false is load-bearing, not tidiness ────────────────────
+  #
+  # Accepting MagicDNS rewrites /etc/resolv.conf. This VM's resolver is the
+  # metadata server, and the VPC private zone is what points googleapis.com at
+  # the restricted Private Google Access VIP. Replace the resolver and
+  # googleapis.com resolves PUBLICLY again — at which point deny_all_egress
+  # correctly refuses the public address and the estate fails with
+  # "dial tcp 172.217.x.x:443: i/o timeout", exactly the failure documented at
+  # length in modules/network/main.tf. That failure reads as an over-strict
+  # firewall and has nothing to do with the firewall.
+  args+=("--accept-dns=false")
+
+  # Off unless the environment asked for it. The argument for and against lives
+  # beside var.tailscale_ssh_enabled in modules/compute/variables.tf; the short
+  # version is that it adds a second authorisation system that GCP IAM and the
+  # GCP audit log cannot see.
+  if [[ "$want_ssh" == "TRUE" ]]; then
+    log "enabling tailscale ssh on this node"
+    args+=("--ssh")
+  fi
+
+  # --auth-key last and passed by value, never echoed. `set -x` is not enabled
+  # anywhere in this script for exactly this reason.
+  tailscale up --auth-key="$authkey" "${args[@]}" || {
+    log "WARNING: 'tailscale up' failed; continuing without tailscale"
+    return 0
+  }
+
+  log "tailscale is up as ${node_name} (${tag})"
 }
 
 # ---------------------------------------------------------------------------
@@ -330,6 +614,20 @@ main() {
   [[ "$(id -u)" -eq 0 ]] || die "must run as root"
 
   install_base_packages
+
+  # Immediately after the base packages, and before the long installs, for one
+  # practical reason: everything install_tailscale needs (curl, ca-certificates,
+  # apt-transport-https) is already present, and a node that joins the tailnet
+  # early is one an operator can watch the REST of this script from. Put it at
+  # the end instead and the only view of a bootstrap that fails at minute six is
+  # the serial console — which this instance disables.
+  #
+  # The `|| log` is belt and braces, not the mechanism. Every fallible step
+  # inside already handles its own failure; this guarantees that a future edit
+  # which forgets to cannot take the whole bootstrap down with it, because the
+  # estate does not depend on the tailnet in any way.
+  install_tailscale || log "WARNING: the tailscale stage failed; continuing"
+
   install_docker
 
   # Both must follow install_docker: the guest agent skips a group that does

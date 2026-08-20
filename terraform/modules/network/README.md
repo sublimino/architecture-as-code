@@ -98,3 +98,36 @@ otherwise allowed" means, and there is no other way to express it. No `allow` ru
 in this module has `0.0.0.0/0` in `source_ranges`, and `test/terraform-network-security.bats`
 asserts exactly that distinction rather than banning the string outright. A guard that banned
 the string would force the default-deny rule out of the tree, which is the wrong outcome.
+
+## Operator-named UDP egress (Tailscale)
+
+`egress_public_udp_ports` and `egress_public_udp_destinations` **both default to the empty
+list**, and the rule is created only when ports are named. With the defaults there is no UDP
+egress to the internet at all — which is the state this module shipped in before the variables
+existed.
+
+They exist for Tailscale: `41641/udp` is the node's direct listener, `3478/udp` is STUN. Opening
+them buys a **direct WireGuard path**. It does **not** buy reachability — with them closed
+Tailscale still connects and relays every packet through Tailscale's DERP servers over TCP 443,
+which `allow_egress_public_https` already permits once destinations are named. So this pair buys
+latency and throughput, and a comment claiming an environment "needs" it to connect would be
+wrong.
+
+**Why it is not folded into `egress_public_ports`.** That list is consumed inside
+`allow { protocol = "tcp" }`. Adding `"41641"` to it opens TCP/41641 — a port nothing listens on
+— while leaving UDP as closed as before: a change that reads as "I opened the port" and grants
+nothing.
+
+**Why both lists must be non-empty together.** `EGRESS-RULE-04` refuses a port list with no
+destinations. A firewall rule carrying ports and an empty `destination_ranges` is not "no
+destinations"; the provider may render it as every destination, which is the opposite of what an
+empty list looks like it means. To close UDP egress entirely, empty the **ports** list — that
+creates no rule at all.
+
+**The cost, stated plainly.** UDP is connectionless, so an allowed UDP port is a one-way channel
+out of the estate that looks identical in the flow logs whether anything answered or not. It is
+the best exfiltration path this policy contains. What bounds it: `target_service_accounts` scopes
+it to one environment's runtime service account, the destinations are a CIDR list rather than
+"the internet" unless someone makes it so, and the port list is short enough to count at a
+glance. **Ingress is entirely unaffected** — Tailscale is outbound-only, so no ingress rule, no
+widened source range and no external IP is involved anywhere in this feature.

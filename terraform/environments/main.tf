@@ -157,6 +157,13 @@ module "network" {
   # them cannot tell what was actually granted.
   egress_public_https_destinations = var.egress_public_https_destinations
   egress_public_ports              = var.egress_public_ports
+
+  # UDP egress, both halves empty by default so no rule is created. Ports and
+  # destinations travel together for the same reason the TCP pair does: opening
+  # a port and naming a destination are halves of one decision, and a reviewer
+  # looking at only one of them cannot tell what was actually granted.
+  egress_public_udp_ports        = var.egress_public_udp_ports
+  egress_public_udp_destinations = var.egress_public_udp_destinations
 }
 
 # ── 3. compute ── the private hardened VM, demo lanes only.
@@ -181,6 +188,14 @@ module "compute" {
   # module opens the health-check firewall rule for exactly it. Passing the same
   # resolved value to both is what keeps them from drifting apart.
   app_port = each.value.app_port
+
+  # Tailscale. Off by default; the auth-key secret is created out of band, so an
+  # environment without one must still plan and apply. With the flag false the
+  # module plans no data source, no IAM binding and no metadata key.
+  tailscale_enabled           = var.tailscale_enabled
+  tailscale_authkey_secret_id = var.tailscale_authkey_secret_id
+  tailscale_tag               = var.tailscale_tag
+  tailscale_ssh_enabled       = var.tailscale_ssh_enabled
 }
 
 # # ── 4. edge ── HTTPS LB, managed cert, Cloud Armor. Demo lanes only; a CI

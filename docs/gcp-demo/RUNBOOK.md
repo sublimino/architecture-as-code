@@ -10,8 +10,8 @@ which one you want is a decision worth making once:
 | | **Tailscale** (primary) | **IAP** (fallback) |
 | :--- | :--- | :--- |
 | Get in with | membership of the tailnet | a Google identity + `roles/iap.tunnelResourceAccessor` |
-| `/etc/hosts` edit | none | one line, per machine, forever |
-| Certificate | real, issued to the MagicDNS name | self-signed; click through the warning |
+| `/etc/hosts` edit | none | none |
+| Certificate | real, issued to the MagicDNS name | none — plain HTTP over the tunnel |
 | Holds a terminal | no | yes — the tunnel is foreground |
 | Works from a phone | yes | no |
 | Target | `make gcp-tf-ts-up ENV=demo-1` | `make gcp-tf-public ENV=demo-1` |
@@ -306,33 +306,36 @@ Before it prints anything it does four checks, in this order and deliberately:
    asks this machine's `tailscaled`, not the cloud. So a suspended VM is
    reported in milliseconds rather than after a minute of `gcloud`.
 3. **Does the node's MagicDNS name resolve *on this machine*?** This is the
-   direct analogue of the IAP path's `/etc/hosts` check and exists for exactly
-   the same reason: the health probe below proves the *dashboard* answers, not
-   that a *browser here* can reach it. Without this check the target would print
-   "verified before you clicked" and then hand over a URL that fails on the
-   click.
+   about *this machine's* resolver, not about the estate: the health probe
+   below proves the *dashboard* answers, not that a *browser here* can reach it.
+   Without this check the target would print "verified before you clicked" and
+   then hand over a URL that fails on the click. (The IAP path once had a
+   `/etc/hosts` analogue of this. It does not any more — it hands over
+   `http://localhost:<port>`, which resolves everywhere.)
 4. **Does `/readyz` return a real HTTP 200 at that URL?** Only then is anything
    clickable printed.
 
 ### Why there is a `tailscale serve` in the middle
 
-The dashboard is served by an in-cluster Envoy Gateway that routes by **SNI** on
-`dashboard.osramp.acme.local`. A request arriving with any other name in the
-handshake is closed during TLS — it presents as `UNEXPECTED_EOF_WHILE_READING`,
-which reads as a broken tunnel rather than a wrong hostname. So browsing
-`https://sl-demo-1.<tailnet>.ts.net:30754` straight at the forwarded port fails
-exactly as `https://localhost:30754` does.
+`tailscale serve` terminates TLS on the node itself, with a real,
+publicly-trusted certificate for its MagicDNS name, and proxies to a backend we
+name — `http://127.0.0.1:<app_port>`, the VM-side forward to the dashboard's
+nginx. So the browser gets HTTPS without anyone installing a certificate, and
+nothing has to hold a tunnel open.
 
-`tailscale serve` is what resolves it. The node terminates TLS itself with a
-real, publicly-trusted certificate for its MagicDNS name and proxies to a
-backend we get to name — so the SNI name is supplied **on the VM**, once,
-automatically, instead of on every operator's laptop forever. `gcp-tf-ts-up`
-adds `127.0.0.1 dashboard.osramp.acme.local` to the VM's `/etc/hosts` for this.
+It used to do more than that. The forward targeted the in-cluster Envoy Gateway,
+which routes by **SNI** on `dashboard.osramp.acme.local`, so `serve` had to dial
+its backend *by that name* and `gcp-tf-ts-up` wrote `127.0.0.1
+dashboard.osramp.acme.local` into the VM's `/etc/hosts` to make that possible. A
+request with any other name in the handshake was closed during TLS and presented
+as `UNEXPECTED_EOF_WHILE_READING`, which reads as a broken tunnel. The forward
+now targets `dashboard-signalloom:8080` — nginx, path routing, no TLS — so there
+is no name to match and the VM's `/etc/hosts` is left alone.
 
 ### The origin changes, and Dex has exactly one issuer
 
 A browser at `https://sl-demo-1.<tailnet>.ts.net` is at a **different origin**
-from `https://dashboard.osramp.acme.local:30754`, and Dex pins its OIDC issuer
+from the IAP path's `http://localhost:8080`, and Dex pins its OIDC issuer
 and callback client to one origin at a time. Left alone the dashboard would load
 and the login would bounce — which presents as a *broken application*, not as an
 origin mismatch.
@@ -405,55 +408,76 @@ make gcp-tf-connect ENV=demo-1     # tunnel only — proves the port binds, noth
 it has proven anything about the far side, and the VM-side `kubectl
 port-forward` is the piece that actually dies.
 
-Both open `gcloud compute start-iap-tunnel <instance> 30754
---local-host-port=localhost:30754` in the **foreground** and print everything
-you need first. Ctrl-C closes it.
+Both open `gcloud compute start-iap-tunnel <instance> 8080
+--local-host-port=localhost:8080` in the **foreground** and print everything you
+need first. Ctrl-C closes it.
 
 ### What you have to do
 
-**1. Add the hosts entry** (once per machine):
+**1. Open** <http://localhost:8080>
 
-```
-127.0.0.1 dashboard.osramp.acme.local
-```
-
-The dashboard is served by the Envoy Gateway behind an **SNI hostname**.
-`https://localhost:30754` reaches the Gateway and is then rejected at TLS,
-because the name in the request is not the name the certificate and the route
-are keyed on.
-
-**2. Accept the certificate.** It is self-signed. There is no public CA in this
-estate and there is not meant to be.
-
-**3. Open** <https://dashboard.osramp.acme.local:30754>
-
-**4. Log in through Dex:**
+**2. Log in through Dex:**
 
 ```
 username: demo-user@signalloom.local
 password: demo-user
 ```
 
+That is the whole list. There is no `/etc/hosts` line and no certificate warning
+— see [What changed, and why there is less to
+do](#what-changed-and-why-there-is-less-to-do) below.
+
 ### Confirm the tunnel before opening a browser
 
 ```bash
-curl -k --resolve dashboard.osramp.acme.local:30754:127.0.0.1 \
-  https://dashboard.osramp.acme.local:30754/readyz
+curl http://localhost:8080/readyz
 ```
 
-`ready` means the estate is up. A hang means the tunnel is not bound. A
-connection that 404s means the tunnel is fine and the estate is not — which is a
-completely different problem and a completely different fix.
+A 200 means the estate is up. A hang means the tunnel is not bound. A connection
+that 404s means the tunnel is fine and the estate is not — which is a completely
+different problem and a completely different fix.
 
-### Port 30754 is not negotiable
+### The port is not pinned
 
-Dex pins its OIDC issuer **and** its callback client to it — see
-`scripts/acceptance-test.sh`, function `setup_gateway_forward`. On any other
-local port the dashboard loads, the login redirect fails, and the result
-presents as a *broken application* rather than as a port mismatch. That costs an
-hour aimed at the wrong layer, so `gcp-tf-connect` refuses to open a different
-port rather than letting you find out. `GCP_TF_DEMO_ALLOW_PORT_MISMATCH=1`
-overrides it if you genuinely mean to.
+If 8080 is taken on your machine — and it very often is — move the local end:
+
+```bash
+GCP_TF_DEMO_LOCAL_PORT=18080 make gcp-tf-connect ENV=demo-1
+```
+
+Dex's issuer and callback follow the origin, so the URL simply becomes
+<http://localhost:18080>. The remote end stays on the estate's `app_port`, which
+is what the IAP firewall rule is derived from.
+
+### What changed, and why there is less to do
+
+This path used to tunnel to the in-cluster **Envoy Gateway**, and everything
+awkward about it descended from that one choice:
+
+* the tunnel was pinned to **30754**, because Dex's callback was pinned to it;
+* you had to add `127.0.0.1 dashboard.osramp.acme.local` to `/etc/hosts`,
+  because Envoy routes by **SNI**;
+* the certificate was self-signed, because it was Envoy's;
+* browsing any other hostname 404'd, because Envoy matches the request's
+  `:authority` against `*.osramp.acme.local`.
+
+The tunnel now reaches `dashboard-signalloom:8080` — the dashboard's **nginx**,
+which serves the app and proxies `/dex/`, `/api/`, `/afm/`, `/demo/`, `/fleet/`
+and `/supercred-api/` on the same origin. It routes by path, terminates no TLS
+and inspects no hostname, so all four of those disappear together.
+`scripts/public-tunnel.sh` (ngrok) has always worked this way; every access
+method now does.
+
+**Envoy is still deployed and still the Gateway API ingress.** It is part of what
+the product demonstrates and the VM-side pipeline still exercises the estate
+through it. It is simply no longer what a human browses through.
+
+Because IAP now publishes an origin of its own rather than serving at the one
+the manifests default to, it claims that origin through the same lease every
+other method uses — so `gcp-tf-connect` and `gcp-tf-public` will **refuse** while
+an ngrok or Tailscale demo is live, and name it. `make gcp-tf-public-down`
+releases the lease when IAP is what holds it, and deliberately leaves it alone
+when it is not.
 
 ---
 
@@ -629,13 +653,15 @@ basis; you would be building a duplicate estate. Run `gcloud auth login`.
 
 ### `REFUSING to open the tunnel on port <n>`
 
-The hand-off's `app_port` is not the Dex-pinned 30754. Fix the estate, not the
-tunnel — see [Port 30754 is not negotiable](#port-30754-is-not-negotiable).
+The hand-off's `app_port` disagrees with what the estate is publishing. Nothing
+pins a port any more — see [The port is not pinned](#the-port-is-not-pinned) —
+so check `make gcp-tf-public-status ENV=<key>` for what the VM is serving.
 
 ### The dashboard loads and the login bounces
 
-Almost always the port. Check the tunnel is on 30754 at *both* ends, and that
-your `/etc/hosts` line is present. The application is fine.
+Almost always the origin. Check `make gcp-tf-public-status ENV=<key>`: if the
+Dex origin is held by another access method, the dashboard loads and the login
+bounces. The application is fine.
 
 ### `backend prefix mismatch — this is CONTRACT §5a firing`
 
@@ -691,8 +717,8 @@ and therefore not in the payload, by construction.
 | `SL_DEMO_WORK_DIR` | absolute path of the delivered checkout |
 | `SL_DEMO_REPORT_DIR` | absolute directory to write reports into |
 | `SL_DEMO_SUMMARY_FILE` | absolute path of the JSON verdict file |
-| `SL_DEMO_APP_PORT` | port to serve the UI on (30754) |
-| `SL_DEMO_HOSTNAME` | dashboard SNI name (`dashboard.osramp.acme.local`) |
+| `SL_DEMO_APP_PORT` | port the VM publishes the dashboard on (8080) |
+| `SL_DEMO_HOSTNAME` | Gateway SNI name for the VM-side pipeline's own acceptance run (`dashboard.osramp.acme.local`) — not on the access path |
 | `SL_DEMO_LOG` | absolute path of the pipeline log on the VM |
 | `SL_DEMO_SOURCE_COMMIT` | short SHA of the **local** checkout |
 | `SL_DEMO_SOURCE_BRANCH` | branch of the local checkout |
@@ -727,7 +753,7 @@ against stubs with no cloud access.
 | `GCP_TF_DEMO_REMOTE_DIR` | `/opt/signalloom/repo` | delivery target on the VM |
 | `GCP_TF_DEMO_REMOTE_USER` | *(empty)* | service account to drop to on the VM; empty means the OS Login user |
 | `GCP_TF_DEMO_ALLOW_DIRTY` | `0` | deliver `HEAD` despite uncommitted changes |
-| `GCP_TF_DEMO_ALLOW_PORT_MISMATCH` | `0` | open a non-Dex port anyway |
+| `GCP_TF_DEMO_LOCAL_PORT` | `app_port` | local end of the tunnel; the origin follows it |
 | `GCP_TF_DEMO_TUNNEL_WAIT_SECONDS` | `20` | how long to wait for the tunnel to bind before diagnosing |
 | `GCP_TF_DEMO_PORT_PROBE` | built-in | how the tunnel's local port is tested |
 | `GCP_TF_DEMO_GCLOUD` | `gcloud` | the gcloud binary, plus flags |

@@ -452,6 +452,95 @@ mutate() {
 	[[ "$output" == *"deriving the node name"* ]]
 }
 
+# ─── Fence headroom, so a slowing lane is visible before it fails ──────────
+
+@test "TIMING every check reports its elapsed time against its fence" {
+	# The instrumentation hole this closes is scripts/ci/vm-pipeline.sh's: it
+	# announces a stage and its timeout and never prints what the stage took,
+	# so the outer fences are unmeasured and nobody can state the headroom.
+	run_driver ts-test
+	[ "$status" -eq 0 ]
+	# Every check line carries a [Ns/Ns N%] budget stamp.
+	local stamped
+	stamped="$(printf '%s\n' "$output" | grep -cE '^  PASS .*\[[0-9]+\.[0-9]{3}s/[0-9]+s [0-9]+%\]')"
+	[ "$stamped" -ge 6 ] || {
+		echo "only ${stamped} check lines carry a budget stamp"
+		return 1
+	}
+	[[ "$output" == *"TIMING:"* ]]
+	[[ "$output" == *"of a 20s fence"* ]]
+}
+
+@test "TIMING the receipt records per-check elapsed and the fence" {
+	# On disk, not just on screen — a number that scrolls past cannot be
+	# compared against next week's run. This is what makes "the lane got slower
+	# after the 16-to-8 vCPU resize" a statement anyone can check.
+	run_driver ts-test
+	[ "$status" -eq 0 ]
+
+	run jq -r '.fence_seconds' "${surfaces}/${ENV_KEY}.tailnet.json"
+	[ "$output" = "20" ]
+
+	# Every check row carries its own budget accounting.
+	run jq -r '[.checks[] | select(has("elapsed_ms") and has("budget_used_percent"))] | length' \
+		"${surfaces}/${ENV_KEY}.tailnet.json"
+	[ "$output" -ge 6 ]
+
+	# ─── PRESENCE IS NOT CORRECTNESS ──────────────────────────────────────
+	#
+	# The check above only proves the KEYS exist, and
+	# test/tailnet-remote-mutation-proof.sh found the hole: hardcoding the
+	# values to 0 left every key in place and the test stayed green, so the
+	# receipt would have recorded a perfect run of instantaneous checks
+	# forever. A timing field that is always zero is worse than no field —
+	# it looks like evidence.
+	#
+	# Summed rather than asserted per row, because a check that does no I/O
+	# genuinely can complete inside a millisecond and round to 0. The run as
+	# a whole cannot.
+	run jq -r '[.checks[].elapsed_ms] | add' "${surfaces}/${ENV_KEY}.tailnet.json"
+	[ "$output" -gt 0 ] || {
+		echo "every check recorded 0ms — the timing is present but measuring nothing"
+		return 1
+	}
+
+	# The slowest check is named, so cluster-debug-style ranking needs no parsing.
+	run jq -r '.slowest_check' "${surfaces}/${ENV_KEY}.tailnet.json"
+	[ -n "$output" ]
+	[ "$output" != "null" ]
+}
+
+@test "TIMING a check near its fence WARNS and still passes" {
+	# The threshold mirrors scripts/lib/wait.sh's 60% deliberately. It must warn
+	# and NOT fail: a slow check that answered correctly is a latency signal,
+	# and failing on it would turn that into a fabricated outage.
+	export GCP_TF_DEMO_TS_TEST_WARN_PERCENT=0
+	run_driver ts-test
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"of its 20s budget"* ]]
+	[[ "$output" == *"time out first if the lane slows down"* ]]
+	[[ "$output" == *"REMOTE PASS"* ]]
+}
+
+@test "TIMING the warn threshold is not fired by a fast healthy run" {
+	# The paired negative. Without it the test above would pass just as happily
+	# against a driver that warned unconditionally, and a warning that always
+	# fires is one nobody reads.
+	run_driver ts-test
+	[ "$status" -eq 0 ]
+	[[ "$output" != *"of its 20s budget"* ]]
+}
+
+@test "TIMING a failing run still reports how long it took" {
+	# A run that failed slowly and one that failed instantly are different
+	# diagnoses — degraded versus absent — so the timing line is printed on
+	# FAIL too, not only on the happy path.
+	export STUB_CURL_RC=7
+	run_driver ts-test
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"TIMING:"* ]]
+}
+
 # ─── The both-surfaces property ─────────────────────────────────────────────
 
 @test "SURFACES both present and passing is the only way to pass" {

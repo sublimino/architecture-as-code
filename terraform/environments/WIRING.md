@@ -29,7 +29,7 @@ module" error that reads like a typo rather than like a sequencing mistake.
 | 1 | `data "terraform_remote_state" "platform"` | F6 owns the producer | the **platform root has been applied** (not merely planned) against `prefix=osramp/platform` | `var.state_bucket_name` | `runtime_service_account_emails` (map keyed by environment key), `dns_managed_zone_name`, `notification_channel_ids` |
 | 2 | `module "network"` | F3 | `terraform/modules/network/` exists **and** step 1 is live | `local.target_environments`, `data.terraform_remote_state.platform.outputs.runtime_service_account_emails[each.key]` | `subnet_self_link`, `network_tag` |
 | 3 | `module "compute"` | F3 | `terraform/modules/compute/` exists **and** step 2 is live | step 2's outputs, `var.startup_script_path` | `instance_group_self_link` |
-| 4 | `module "edge"` | F4 | `terraform/modules/edge/` exists **and** step 3 is live | `module.compute[each.key].instance_group_self_link`, `var.dns_managed_zone`, `var.access_mode`, `var.iap_members` | the LB — nothing downstream |
+| 4 | `module "edge"` | F4 | `terraform/modules/edge/` exists **and** step 3 is live | `module.compute[each.key].instance_group_self_link`, `var.dns_managed_zone`, `var.access_mode`, `var.iap_members` | the LB — **and the health-check firewall rule, which does not exist today; see "Step 4 is now TWO edits" below** |
 | ~~5~~ | ~~`module "ci_runner"`~~ | — | **DELETED 2026-08-20.** `modules/ci-runner` was absorbed into `modules/compute`, so step 3 now covers CI lanes too. Do not reintroduce it — `terraform/CONTRACT.md` §4 records why. | — | — |
 
 There is no step 5. Step 4 is the last.
@@ -41,6 +41,52 @@ exist; there is no plan-time stand-in for it. So the ordering constraint is not
 real apply, against the real bucket, by a human. `terraform/RUNBOOK.md` step 5
 is that apply. Until it has happened, steps 2–5 here cannot produce a plan, and
 the error they produce names a missing output rather than a missing step.
+
+### Step 4 is now TWO edits, and the second one is easy to miss
+
+`module "edge"` is commented out and there is no load balancer anywhere in the
+project. Because of that, `google_compute_firewall.allow_health_checks` in
+`modules/network` — INGRESS from Google's probe ranges `130.211.0.0/22` and
+`35.191.0.0/16` to `app_port` — is **not created for any lane**. It was dead
+ingress surface on all four while nothing could ever arrive from those ranges.
+
+**So reviving the edge means reviving that firewall rule with it**, or the
+backend service will health-check a VM whose network refuses the probe and the
+backend will never turn healthy. The symptom reads as a broken application, not
+as a missing firewall rule, which is exactly why it is written down here.
+
+Both halves come from one place, `local.edge_environments` in `main.tf`:
+
+1. Uncomment the `module "edge"` block. Its `for_each` already reads
+   `local.edge_environments`.
+2. Change that local from `{}` to
+   `{ for k, v in local.target_environments : k => v if v.kind == "demo" }`.
+
+`module "network"` passes `edge_enabled = contains(keys(local.edge_environments), each.key)`,
+so step 2 turns the health-check rule back on for exactly the lanes step 1
+gives an edge to. Do them together.
+
+Doing one without the other **turns a test red rather than failing silently** —
+that is the point, and it is why this is a safety catch rather than a trap:
+
+| You did | What goes red |
+|---|---|
+| Uncommented the module, left the local `{}` | `test/terraform-edge-dormant.bats` → *the environments root instantiates no edge module* |
+| Changed the local, left the module commented | `tests/edge_dormant.tftest.hcl` → `no_lane_has_an_edge`, and the four `*_plans_no_health_check_ingress` runs |
+| Both, correctly | Both of the above go red **and should** — update them in the same commit; they assert the dormant state deliberately, and their failure messages say so. |
+
+Note the third row. When the revival is correct, these guards are *supposed* to
+fail; they are asserting a state you have chosen to leave. Retire them in the
+same change, do not weaken them in place. `test/edge-dormant-mutation-proof.sh`
+retires with them.
+
+Two further consequences of the revival worth knowing before you start. The
+hand-off's `access_mode` currently reports `iap_tunnel`; it resolves back to
+`var.access_mode` on its own, because `local.effective_access_mode` reads the
+same map. And `modules/edge` gates only its **TLS frontend** on `hostname` — the
+backend service, health check, IAP binding and Cloud Armor policy exist whenever
+the module does, which is precisely why the firewall rule is keyed on the module
+being instantiated rather than on `hostname != ""`.
 
 ### The two edge-reachability root variables
 

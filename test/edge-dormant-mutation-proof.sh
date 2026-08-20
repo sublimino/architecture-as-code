@@ -207,6 +207,18 @@ echo "M6  the health-check ingress is created unconditionally again"
 mutate "$NET_MAIN" 's|^  count = var.edge_enabled ? 1 : 0$|  count = 1|'
 check_tf "M6 health-check conditional" "$NET_TF_DIR" "no_edge_means_no_health_check_ingress"
 
+# The same defect, checked at the ROOT this time.
+#
+# M6 proves the module's own suite notices. This proves the root's per-lane runs
+# notice too — that they observe the PLANNED RESOURCE through
+# module.network[...].health_check_firewall_names rather than re-asserting the
+# input the root already passed down. Without this, the root runs could be
+# tautologies: emptiness of local.edge_environments proving emptiness of
+# local.edge_environments.
+echo "M7  the same defect, seen from the root's per-lane runs"
+mutate "$NET_MAIN" 's|^  count = var.edge_enabled ? 1 : 0$|  count = 1|'
+check_tf "M7 root observes the rule" "$ROOT_TF_DIR" "demo_1_plans_no_health_check_ingress"
+
 echo ""
 echo "=== restored: everything must be green again ==="
 if ! bats "$BATS_SUITE" >/dev/null 2>&1; then

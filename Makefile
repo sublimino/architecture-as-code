@@ -1794,8 +1794,8 @@ gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, 
 #
 #   gcp-tf-demo-up    deliver this checkout, stand the estate up, test it
 #   gcp-tf-demo-test  re-run the tests only, against a cluster already standing
-#   gcp-tf-connect    open the tunnel and print the URL, the hosts line and the
-#                     login — the thing the operator actually wants
+#   gcp-tf-connect    open the tunnel, claim the Dex origin, print the URL and
+#                     the login — the thing the operator actually wants
 #
 # All three delegate to scripts/gcp-tf/demo-up.sh. The guards stay HERE, in the
 # same `define`s every other target in this block uses, because a guard in the
@@ -1858,9 +1858,15 @@ gcp-tf-connect: ## Open the IAP tunnel to the demo dashboard and print the URL a
 # connect proves the local port BINDS. That is not the same as a demo that
 # works, because gcloud binds locally before it has proven anything about the
 # far side, and the VM-side kubectl forward is the part that actually dies.
-# gcp-tf-public ensures the VM is publishing, opens the tunnel, waits for the
-# bind, and then fetches /readyz through the tunnel WITH the SNI hostname the
-# Gateway routes on. It prints a URL only after a 200.
+# gcp-tf-public claims the Dex origin, ensures the VM is publishing, opens the
+# tunnel, waits for the bind, and then fetches /readyz at the EXACT URL it is
+# about to hand over. It prints that URL only after a 200.
+#
+# It used to probe with `curl --resolve` against the Gateway's SNI hostname, so a
+# healthy probe said nothing about whether a browser here could reach the same
+# address — which is what the /etc/hosts preflight existed to cover. The tunnel
+# reaches the dashboard's nginx now and the URL is http://localhost:<port>, so
+# the probe and the browser cannot diverge and the preflight is gone.
 .PHONY: gcp-tf-public
 gcp-tf-public: ## Publish the demo dashboard and prove it answers before printing the URL (ENV=<key>).
 	$(gcp_tf_require_env)
@@ -1905,8 +1911,10 @@ gcp-tf-demo-status: ## What the demo VM's state is and what the last run decided
 # `gcp-tf-public` and `gcp-tf-connect` above are NOT deprecated and are not
 # going anywhere — they are the tested fallback, and they are the only path
 # that works for an operator who cannot join the tailnet. Tailscale leads
-# because it removes the /etc/hosts line and the foreground tunnel, which are
-# the two things that make handing this demo to someone else awkward.
+# because it removes the foreground tunnel and works from a phone, which are the
+# two things that make handing this demo to someone else awkward. The /etc/hosts
+# line used to be a third; it is gone from BOTH paths now that every access
+# method forwards to the dashboard's nginx rather than to the Envoy Gateway.
 #
 # Same guards, same `define`s, same shape as the family above. That is
 # deliberate: two implementations of "is ENV valid" drift the moment one of

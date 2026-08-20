@@ -88,6 +88,13 @@ gcp_external_ip() {
 # ── Origin ───────────────────────────────────────────────────────────
 #
 # The single value everything else derives from. Whatever a browser will type.
+#
+# NOTE, for anyone about to wire `nodeport` or `loadbalancer` up: neither has a
+# caller anywhere in this repo today, and both emit `http://<routable-ip>:<port>`
+# — which dex_origin_validate now REFUSES, because Dex would issue its tokens
+# over cleartext to a host anyone can route to. That refusal is deliberate and
+# is asserted in test/terraform-dex-origin.bats. Reaching a browser over those
+# strategies needs TLS in front of them first; it is not a validator to relax.
 origin_for_strategy() {
   local strategy="$1" port="${2:-}"
   case "$strategy" in

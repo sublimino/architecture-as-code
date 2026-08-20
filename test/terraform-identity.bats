@@ -376,6 +376,20 @@ PAT_ACCESS_CONFIG='^[[:space:]]*access_config[[:space:]]*(\{|=)'
 	[ "$status" -eq 0 ]
 }
 
+@test "TFID MUTATION the CI script ledger rejects pipeline drift" {
+	local fixture_root="$BATS_TEST_TMPDIR/ci-estate"
+	local digests="$fixture_root/untouched-scripts.sha256"
+	mkdir -p "$fixture_root/scripts/ci"
+	cp "$repo/test/fixtures/gcp-tf-ci/untouched-scripts.sha256" "$digests"
+	for script in gcp-ci.sh vm-pipeline.sh ci-lock.sh; do
+		cp "$repo/scripts/ci/$script" "$fixture_root/scripts/ci/$script"
+	done
+	printf '\n# unapproved drift\n' >>"$fixture_root/scripts/ci/vm-pipeline.sh"
+
+	run bash -c "cd '$fixture_root' && sha256sum -c '$digests'"
+	[ "$status" -ne 0 ]
+}
+
 # ─── Mutation checks: every guard above is proven able to fail ─────────────
 #
 # Fixture copies only. The real tree is never mutated.

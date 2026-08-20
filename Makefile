@@ -2067,6 +2067,25 @@ gcp-tf-funnel-down: ## Remove the public Funnel listener. The tailnet-only demo 
 # END GCP Terraform platform block
 # ===========================================================================
 
+.PHONY: vm-state-check
+vm-state-check: ## Assert the VM facts the pipeline depends on. Run ON the VM, BEFORE the pipeline.
+	@# OUTSIDE the gcp-tf block, deliberately, and it was placed inside first —
+	@# test/terraform-make-contract.bats caught it as "unprefixed target inside
+	@# the block". Renaming it gcp-tf-vm-state-check would have satisfied that
+	@# guard while making the name a lie: this gate is not a terraform target,
+	@# takes no ENV, touches no state and needs no credentials. It describes the
+	@# machine the pipeline runs ON. The guard was right about the namespace and
+	@# the fix is the namespace, not the name.
+	@#
+	@# No $(GCP_TF_NOCREDS) wrapper for the same reason: unlike every terraform
+	@# target, this one is meant to run on the machine it is describing, and
+	@# stripping the environment there would tell you about a machine nobody uses.
+	@#
+	@# Deliberately NOT wired into scripts/ci/** or scripts/gcp-tf/** — those are
+	@# frozen or owned by another agent and the insertion point needs sequencing.
+	@# The proposed call site is documented in the gate's own header.
+	./scripts/vm-state/vm-state-contract.sh $(if $(FORMAT),--format $(FORMAT))
+
 .PHONY: where
 where: ## Where is Signal Loom right now, and what URL do I hand someone? Read-only, no args.
 	@./scripts/where.sh

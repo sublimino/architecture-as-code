@@ -43,6 +43,26 @@
 #   STUB_TS_FUNNEL_RC      exit code for a remote `tailscale funnel --bg`
 #   STUB_TS_FUNNEL_OFF_RC  exit code for a remote `tailscale funnel ... off`
 #   STUB_NO_WARNING        1 => suppress the impersonation warning
+#   STUB_TS_NAME_MARKER    contents of /var/lib/signalloom/tailscale-name-mismatch
+#                          on the VM. EMPTY by default, which is the healthy
+#                          state — the node got the name it asked for.
+#   STUB_TS_ABSENT         1 => no tailscale client on the VM, so `command -v`
+#                          fails. Models a VM whose optional tailscale stage
+#                          never ran.
+#   STUB_TS_LOGOUT_RC      exit code for a remote `tailscale logout`
+#   STUB_TS_SERVE_JSON     what `tailscale serve status --json` prints.
+#                          Defaults to "{}", which is what the real client
+#                          emits for an empty config (tailscale 1.102.3).
+#   STUB_TS_SERVE_JSON_SILENT
+#                          1 => `--json` fails and prints nothing, modelling a
+#                          build without --json support. Exercises the driver's
+#                          prose fallback.
+#   STUB_TS_SERVE_STATUS   what `tailscale serve status` prints. Defaults to
+#                          "No serve config", the literal that means nothing is
+#                          configured.
+#   STUB_TS_SERVE_SILENT   1 => `serve status` fails and prints nothing, which
+#                          is what an unreachable node or a refused sudo does.
+#                          The driver must read this as UNKNOWN, not absent.
 
 log="${STUB_GCLOUD_LOG:-/dev/null}"
 printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
@@ -124,6 +144,41 @@ case "$argv" in
         printf 'FUNNEL_CONFIGURED\n'
         exit 0
         ;;
+      # THREE serve arms, most specific first, and the ordering is the whole
+      # correctness argument. `serve status --json` contains `serve status`
+      # contains `serve`, so any looser order answers the wrong question — and
+      # the generic arm answering SERVE_CONFIGURED to a read-only status query
+      # is precisely what made every unforced ts-logout look like it was
+      # running against a serving node.
+      *"tailscale serve status --json"*)
+        # `{}` is what the real client emits for an empty config (measured on
+        # tailscale 1.102.3). Default to it so tests that are not about serve
+        # keep the behaviour they had.
+        #
+        # STUB_TS_SERVE_JSON_SILENT models a build with no --json support, which
+        # is the case the driver's prose fallback exists for.
+        [ "${STUB_TS_SERVE_JSON_SILENT:-0}" != "1" ] || exit 1
+        # The default goes through a variable rather than inline. Both obvious
+        # inline spellings are wrong: "${VAR:-\{\}}" keeps the backslashes
+        # literally (\{ is not an escape bash recognises inside double quotes,
+        # so the stub emitted \{\} and every idle node read as SERVING), and
+        # "${VAR:-{}}" ends the expansion at the first brace.
+        serve_json_default='{}'
+        printf '%s\n' "${STUB_TS_SERVE_JSON:-$serve_json_default}"
+        exit 0
+        ;;
+      *"tailscale serve status"*)
+        # `No serve config` is the literal tailscale prints when nothing is
+        # configured, and it is the ONLY positive evidence of absence. Default
+        # to it so every pre-existing test keeps the behaviour it had.
+        #
+        # STUB_TS_SERVE_SILENT models the cases that produce no output at all —
+        # SSH failed, sudo refused, tailscaled is down — which the driver must
+        # treat as "unknown", never as "absent".
+        [ "${STUB_TS_SERVE_SILENT:-0}" != "1" ] || exit 1
+        printf '%s\n' "${STUB_TS_SERVE_STATUS:-No serve config}"
+        exit 0
+        ;;
       *"tailscale serve"*)
         [ "${STUB_TS_SERVE_RC:-0}" = "0" ] || {
           printf 'could not get certificate for this node\n' >&2
@@ -145,6 +200,29 @@ case "$argv" in
         else
           printf 'ABSENT\n'
         fi
+        exit 0
+        ;;
+      # Ordered before the generic catch-all, and each of these three has a
+      # DEFAULT that is the healthy answer, so every existing test keeps the
+      # behaviour it had before these branches existed.
+      *"tailscale-name-mismatch"*)
+        # The name-mismatch marker demo-up.sh reads in `status` and `ts-status`.
+        # Default EMPTY, which is "no mismatch recorded" — the state of every
+        # healthy VM and of every test that is not about this.
+        printf '%s' "${STUB_TS_NAME_MARKER:-}"
+        exit 0
+        ;;
+      *"command -v tailscale"*)
+        # Whether the VM has a tailscale client at all. Default present.
+        [ "${STUB_TS_ABSENT:-0}" != "1" ] || exit 1
+        exit 0
+        ;;
+      *"tailscale logout"*)
+        [ "${STUB_TS_LOGOUT_RC:-0}" = "0" ] || {
+          printf 'logout failed: not logged in\n' >&2
+          exit "${STUB_TS_LOGOUT_RC}"
+        }
+        printf 'LOGGED_OUT\n'
         exit 0
         ;;
       *"echo ready"*) exit 0 ;;

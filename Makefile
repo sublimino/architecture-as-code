@@ -1327,7 +1327,18 @@ GCP_TF_TEST_DIRS_RUN = $(filter-out $(GCP_TF_EXCLUDED_TEST_DIRS),$(GCP_TF_TEST_D
 # Shell mutation proofs owned by the Terraform validation domain. Kept
 # overridable so registration tests can record the target without recursively
 # running a mutation harness under their fake `bats` binary.
-GCP_TF_PROOFS_RUN ?= bash test/dex-origin-mutation-proof.sh
+#
+# GLOB, not a hand-written list, for the same reason GCP_TF_BATS is one: a proof
+# that lands tomorrow must be executed the day it lands, not the day somebody
+# remembers to add it here. A mutation proof nobody runs is worse than absent —
+# it reads as evidence the guards it covers have been falsified.
+#
+# The `&&` chain rather than a `for` loop is deliberate. Under `make -n` a loop
+# prints as unexpanded loop TEXT, so the recipe becomes unreviewable by a dry
+# run and the registration suite can no longer see which proofs are wired in.
+# This form expands to the literal command line that will run.
+GCP_TF_PROOFS = $(wildcard test/*-mutation-proof.sh)
+GCP_TF_PROOFS_RUN ?= $(foreach p,$(GCP_TF_PROOFS),bash $(p) &&) true
 
 # --- Guard rails ------------------------------------------------------------
 #
@@ -1599,6 +1610,36 @@ gcp-tf-destroy: ## Destroy one environment. Requires CONFIRM=<the same key> (ENV
 		exit 2; \
 	fi
 	$(gcp_tf_init_env)
+	@# Release the tailnet name BEFORE the VM goes away, because after it is gone
+	@# there is nothing left to log out from.
+	@#
+	@# `terraform destroy` removes the GCP instance and NOTHING removes the
+	@# tailnet device record. The corpse keeps owning sl-$(ENV), so the next build
+	@# of this environment is handed sl-$(ENV)-1, then -2 — the demo URL drifts
+	@# further on every rebuild, and that URL is the deliverable. Measured
+	@# 2026-08-18: sl-demo-1 rebuilt as sl-demo-1-1.
+	@#
+	@# The leading `-` and the driver's own unconditional exit 0 are BOTH
+	@# deliberate, and they are not redundant: the `-` covers the driver being
+	@# unreachable at all (missing file, non-executable, 127), the driver covers
+	@# everything that happens once it starts. A destroy that can be blocked by a
+	@# best-effort cleanup is a worse failure than the stale device this prevents.
+	@#
+	@# The driver is invoked DIRECTLY rather than through `$(MAKE) gcp-tf-ts-logout`.
+	@# Recursive make appears nowhere else in this file, and it is the one
+	@# construct `make -n` executes anyway instead of printing — so the recursive
+	@# form would both break the local convention and make the destroy recipe
+	@# unreviewable by a dry run.
+	@#
+	@# --force is REQUIRED here and its absence would be a silent regression.
+	@# The driver refuses to log out a node that is currently serving, because
+	@# logout wipes the serve config and leaves a live demo online, correctly
+	@# named and serving nothing. Destroying is the sanctioned case for that, so
+	@# this caller forces. Without the flag the refusal would fire, the leading
+	@# `-` would swallow it, and the logout would be skipped on exactly the
+	@# demos most likely to be standing — reintroducing the drift this whole
+	@# change exists to fix. Asserted by test/terraform-ts-stable-node-name.bats.
+	-@$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout --force
 	TF_DATA_DIR=$(GCP_TF_DATA_DIR) $(GCP_TF_IMPERSONATE_ENV) $(TF) -chdir=$(TF_ROOT_ENV) destroy \
 		-var-file=$(GCP_TF_VAR_FILE) \
 		-var target_env=$(ENV)
@@ -1934,6 +1975,32 @@ gcp-tf-ts-status: ## Is the demo's Tailscale node up, what is its MagicDNS name,
 		exit 2; \
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-status
+
+# Release the tailnet device record. Called by gcp-tf-destroy before the
+# destroy, and exposed as a target so it can be run by hand after a teardown
+# that went around this Makefile.
+#
+# NOT guarded by gcp_tf_require_impersonation, unlike its siblings. That guard
+# `exit 2`s, and the driver treats missing impersonation as one more best-effort
+# miss rather than as an error.
+#
+# This target PROPAGATES the driver's status, unlike the copy of this call
+# inside gcp-tf-destroy. The two callers want opposite things and that is the
+# whole point of the guard: a destroy must never be blocked, and a human
+# running this by hand on a live node must be STOPPED. `tailscale logout` wipes
+# the serve config, so on a standing demo this takes the URL down while leaving
+# the node online and correctly named. FORCE=1 is the way to say you meant it.
+.PHONY: gcp-tf-ts-logout
+gcp-tf-ts-logout: ## Release the demo's Tailscale device record so the next build reclaims the name (ENV=<key>, FORCE=1 to override the live-serve refusal).
+	$(gcp_tf_require_env)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		echo "       The tailnet name was NOT released. Reporting that rather than"; \
+		echo "       exiting 0, because a silent skip here is how a stale device"; \
+		echo "       survives to rename the next build."; \
+		exit 2; \
+	fi
+	@FORCE=$(FORCE) $(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-logout
 
 .PHONY: gcp-tf-ts-up
 gcp-tf-ts-up: ## PRIMARY: serve the demo on the tailnet and prove it answers before printing the URL (ENV=<key>).

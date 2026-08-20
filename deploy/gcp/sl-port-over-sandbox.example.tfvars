@@ -149,12 +149,69 @@ dns_managed_zone = ""
 # reusable + ephemeral + pre-approved, each for a reason:
 #   reusable      the VM re-runs its bootstrap on rebuild; a single-use key
 #                 works exactly once and then fails silently forever after.
-#   ephemeral     Tailscale reaps the node shortly after it goes offline, so
-#                 `make gcp-tf-destroy` does not leave a dead device behind.
-#                 It pairs with the deterministic hostname the module derives
-#                 from the environment key: demo-1 is always "sl-demo-1".
+#   ephemeral     the node is reaped after it goes offline, so a destroyed VM
+#                 does not leave a device behind permanently. Necessary, and —
+#                 see below — nowhere near sufficient on its own.
 #   pre-approved  device approval is a manual step, and a node that boots at
 #                 03:00 waiting for a human is a node that is simply down.
+#
+# ─── The auto-reap is real and it is FAR TOO SLOW. Measured, not assumed ────
+#
+# `terraform destroy` removes the GCP instance. NOTHING IN TERRAFORM REMOVES THE
+# TAILNET DEVICE RECORD — Tailscale is not a Terraform-managed resource in this
+# estate, and there is no Tailscale API credential anywhere in it
+# (`gcloud secrets list` returns exactly one Tailscale-related secret,
+# sl-demo-tailscale-authkey, which is an auth key and cannot delete devices).
+#
+# Until the record goes, the offline corpse still owns the name and the next
+# build of the same environment is handed the next free suffix. Measured
+# 2026-08-18: sl-demo-1 was destroyed and rebuilt, and the new node joined as a
+# suffixed name. The suffix is a function of how many corpses exist, so the URL
+# drifts further on every rebuild.
+#
+# Measured on demo-1 and independently on demo-2, on the CURRENT key:
+#
+#   auto-reap         > 47 min and < 100 min after disconnect
+#   tailscale logout  record GONE in under 5 seconds — removed, not a
+#                     logged-out husk
+#   rejoin            `tailscale up --hostname=sl-demo-1` reclaimed
+#                     sl-demo-1 exactly, tag:sl-demo intact, ON THE SAME
+#                     EXISTING KEY
+#
+# THE KEY IN sl-demo-tailscale-authkey IS FINE. It is reusable, its nodes do
+# reap, and it needs no rotation — do not re-mint it on the strength of a name
+# collision. An earlier draft of this comment claimed the opposite, reasoning
+# from a device still registered 47 minutes after disconnect against a
+# remembered ~30-minute window. 47 minutes is INSIDE the reap window, so that
+# observation proved nothing, and acting on it would have meant rotating a
+# working credential for no reason.
+#
+# What the measurement actually establishes is the SHAPE of the defect: a reap
+# that takes 47-100 minutes is useless against a rebuild cadence measured in
+# minutes. The gap between "VM destroyed" and "name released" is the entire
+# problem, and waiting is not a strategy.
+#
+# So the name is freed EXPLICITLY, and the auto-reap is only a long-stop:
+#
+#   1. `tailscale logout` before the VM dies. PRIMARY, and measured at under 5
+#      seconds. Wired into `make gcp-tf-destroy` ahead of the destroy, with a
+#      systemd ExecStop unit on the VM as the backstop for hard kills.
+#   2. The ephemeral auto-reap, for the teardowns neither of those can reach —
+#      a preempted instance, a console deletion, a destroy run from elsewhere.
+#      Correct but slow; it is what covers you an hour later, not today.
+#
+# Why the fix is not a random hostname suffix: it was considered and rejected.
+# A suffix makes the name unique and unpredictable, and the entire point of this
+# access plane is a URL that can be sent to someone BEFORE the VM has booted.
+# Uniqueness is not the property being defended; stability is.
+#
+# How you find out it went wrong: the startup script asserts the granted
+# MagicDNS name against the requested one and, on a mismatch, logs at ERROR and
+# writes /var/lib/signalloom/tailscale-name-mismatch. `make gcp-tf-demo-status`
+# and `make gcp-tf-ts-status` both read that marker and FAIL on it. It never
+# silently accepts the suffixed name. On a fast rebuild that marker means a
+# previous node has not been released yet — check the admin console for an
+# offline device holding the name, rather than suspecting the key.
 tailscale_enabled           = true
 tailscale_authkey_secret_id = "sl-demo-tailscale-authkey"
 tailscale_tag               = "tag:sl-demo"

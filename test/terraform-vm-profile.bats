@@ -702,12 +702,14 @@ split_firewall_blocks() {
 			echo "missing IAP documentation: $f" >&2
 			return 1
 		}
-		grep -qF 'gcloud compute start-iap-tunnel <instance> 8080' "$f" || {
-			echo "$(basename "$f") does not tunnel to port 8080" >&2
+		local direct_tunnel
+		direct_tunnel="$(grep -A1 -E 'start-iap-tunnel <instance>[[:space:]]+8080[[:space:]]*\\?$' "$f")"
+		[[ "$direct_tunnel" == *'--local-host-port=localhost:8080'* ]] || {
+			echo "$(basename "$f") does not bind direct IAP ports to 8080" >&2
 			return 1
 		}
-		grep -qF 'localhost:8080' "$f" || {
-			echo "$(basename "$f") does not publish localhost:8080" >&2
+		[[ "$direct_tunnel" != *'--local-host-port=localhost:30754'* ]] || {
+			echo "$(basename "$f") binds direct IAP local port to 30754" >&2
 			return 1
 		}
 		! grep -qE '(start-iap-tunnel <instance>|-L )30754' "$f" || {

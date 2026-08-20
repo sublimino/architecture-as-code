@@ -551,12 +551,17 @@ run "accepts_the_corrected_inputs" {
 #
 # Three claims are made in prose elsewhere and enforced here:
 #
-#   1. With the feature off, NOTHING is planned. Not a data source, not an IAM
-#      binding, not a metadata key. An environment with no auth-key secret must
-#      plan and apply exactly as it did before this existed.
-#   2. The secret grant is SECRET-SCOPED. The available alternative — a project
-#      IAM member with the same role — reads almost identically in a diff and
-#      differs by the entire blast radius of the project's secret store.
+#   1. With the feature off, NOTHING is planned. Not a data source, not a
+#      metadata key. An environment with no auth-key secret must plan and apply
+#      exactly as it did before this existed.
+#   2. With the feature on, the secret is looked up READ-ONLY and the lookup is
+#      LOAD-BEARING — the metadata key the VM reads is taken from it, so the
+#      published name is provably the name of a secret that resolved at plan
+#      time. The secret's IAM is granted once by a human and is not declared in
+#      this module at all; the structural half of that claim (no Secret Manager
+#      IAM resource anywhere in the environments root's module closure) is in
+#      test/terraform-tailscale-infra.bats, because a plan cannot assert the
+#      absence of a resource type it would have to name to reference.
 #   3. The auth key is NEVER in metadata. Instance metadata is plain text and
 #      readable by anyone holding compute.instances.get; what travels there is
 #      the NAME of the secret. The whole-file version of that assertion lives in
@@ -588,11 +593,6 @@ run "tailscale_is_off_by_default_and_plans_no_resource" {
   assert {
     condition     = length(data.google_secret_manager_secret.tailscale_authkey) == 0
     error_message = "with tailscale disabled the module must not look the secret up at all; a data source that always runs makes an optional feature mandatory at plan time"
-  }
-
-  assert {
-    condition     = length(google_secret_manager_secret_iam_member.tailscale_authkey_accessor) == 0
-    error_message = "with tailscale disabled no IAM binding may be planned"
   }
 
   # Metadata keys ABSENT, not present-and-empty. An empty-string value is a
@@ -629,10 +629,24 @@ run "tailscale_is_off_by_default_and_plans_no_resource" {
 }
 
 # ---------------------------------------------------------------------------
-# ENABLED: exactly one grant, at secret scope, of exactly one role.
+# ENABLED: the secret is READ, and the read is load-bearing.
+#
+# This run used to assert a `google_secret_manager_secret_iam_member` — one
+# grant, secret-scoped, of exactly one role. Every one of those claims was true
+# and the resource is gone anyway, because it was declared by the wrong owner.
+# Managing the secret's policy from here requires the deploy identity to hold
+# secretmanager.secrets.setIamPolicy on it, and an identity that can setIamPolicy
+# on a secret can grant itself read of that secret. That account runs unattended.
+# See the long comment at the head of ../main.tf, and its precedent at the foot
+# of modules/deploy-identity/main.tf: creation and IAM are lifecycle, and
+# lifecycle belongs to the one-time privileged human step.
+#
+# What survives here is the half that is still this module's business — that the
+# lookup happens, and that it cannot be quietly deleted without breaking the
+# instance.
 # ---------------------------------------------------------------------------
 
-run "enabling_tailscale_grants_secret_accessor_at_secret_scope" {
+run "enabling_tailscale_reads_the_secret_and_the_read_gates_the_instance" {
   command = plan
 
   variables {
@@ -640,61 +654,34 @@ run "enabling_tailscale_grants_secret_accessor_at_secret_scope" {
   }
 
   assert {
-    condition     = length(google_secret_manager_secret_iam_member.tailscale_authkey_accessor) == 1
-    error_message = "enabling tailscale must create exactly one IAM binding"
-  }
-
-  # SECRET SCOPE. The resource TYPE is the control — google_secret_manager_secret_iam_member
-  # binds on one secret, where google_project_iam_member with the same role would
-  # grant read on every secret in the project, present and future, to a service
-  # account attached to a VM that pulls public container images. Asserting the
-  # bound secret_id is how that type choice becomes visible in a test: a
-  # project-scoped binding has no secret_id attribute at all, so this assertion
-  # cannot be satisfied by one.
-  assert {
-    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].secret_id == var.tailscale_authkey_secret_id
-    error_message = "the binding must name the ONE secret holding the auth key. A project-scoped grant of the same role reads almost identically in a diff and differs by the entire blast radius of the project's secret store."
-  }
-
-  assert {
-    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].role == "roles/secretmanager.secretAccessor"
-    error_message = "the role must be roles/secretmanager.secretAccessor — read a version's payload, and nothing else"
-  }
-
-  # secretAccessor and NOT its neighbours. Named individually because each is a
-  # plausible mis-grant with a very different meaning: admin can add versions and
-  # rewrite the key, viewer leaks metadata about every secret it can see, and
-  # secretVersionManager can destroy the version the VM depends on.
-  #
-  # The primitive roles are DELIBERATELY NOT in this list even though they are
-  # the worst possible values here. `test/terraform-identity.bats` greps the
-  # whole terraform tree for a line that is exactly `"roles/owner",` and fails
-  # on it — correctly, because it cannot distinguish a grant from a denylist
-  # entry, and a guard that has to make that distinction is one that gets a
-  # carve-out and then stops working. They are covered instead by the exact
-  # role equality asserted directly above, which admits no value but
-  # secretAccessor.
-  assert {
-    condition = !contains([
-      "roles/secretmanager.admin",
-      "roles/secretmanager.secretVersionManager",
-      "roles/secretmanager.secretVersionAdder",
-      "roles/secretmanager.viewer",
-    ], google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].role)
-    error_message = "the binding holds a role broader than secretAccessor. The VM reads one key at boot; it never needs to add, rotate, destroy or enumerate anything."
-  }
-
-  # The member is the instance's OWN attached identity, not a human and not a CI
-  # principal. This is what makes "the VM fetches it at runtime under its own
-  # service account" true rather than merely intended.
-  assert {
-    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].member == "serviceAccount:${var.service_account_email}"
-    error_message = "the grant must go to the instance's own attached runtime service account"
-  }
-
-  assert {
     condition     = length(data.google_secret_manager_secret.tailscale_authkey) == 1
     error_message = "enabling tailscale must look the secret up, so that a missing secret fails at PLAN rather than leaving a VM that silently never joins the tailnet"
+  }
+
+  # The lookup is a DATA source and stays one. A `resource` of the same name
+  # would put the auth key's payload in state; a `_version` resource is refused
+  # tree-wide by test/terraform-tailscale-infra.bats. Here the property asserted
+  # is narrower and is the one a plan can see: what the module read is the secret
+  # it was told to read, not some other secret in the project.
+  assert {
+    condition     = data.google_secret_manager_secret.tailscale_authkey[0].secret_id == var.tailscale_authkey_secret_id
+    error_message = "the module must look up the ONE secret named by tailscale_authkey_secret_id"
+  }
+
+  # THE EDGE, and the reason this run is not decoration.
+  #
+  # The metadata key the VM reads is taken from the data source rather than from
+  # the variable. The two strings are identical — `secret_id` is a required input
+  # on that data source, not a computed attribute — so this asserts nothing about
+  # the VALUE. It asserts the DEPENDENCY: the instance cannot be planned without
+  # the existence check having resolved first. While the IAM binding lived here
+  # it consumed the data source and that edge came for free. Nothing else
+  # consumes it now, so a future edit that "tidied up an unused data source"
+  # would silently remove the plan-time gate and no other assertion in this file
+  # would notice.
+  assert {
+    condition     = google_compute_instance.this.metadata["signalloom-tailscale-secret-id"] == data.google_secret_manager_secret.tailscale_authkey[0].secret_id
+    error_message = "the secret name published to the VM must come FROM the lookup, so deleting the lookup breaks the instance instead of silently removing the plan-time existence gate"
   }
 }
 
@@ -916,8 +903,8 @@ run "accepts_a_corrected_secret_id_and_tag" {
   }
 
   assert {
-    condition     = google_secret_manager_secret_iam_member.tailscale_authkey_accessor[0].secret_id == "sl-demo-2-tailscale-authkey"
-    error_message = "a bare secret id must be accepted and must reach the binding, or the negatives above prove nothing"
+    condition     = data.google_secret_manager_secret.tailscale_authkey[0].secret_id == "sl-demo-2-tailscale-authkey"
+    error_message = "a bare secret id must be accepted and must reach the lookup, or the negatives above prove nothing"
   }
 
   assert {

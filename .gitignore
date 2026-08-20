@@ -83,6 +83,20 @@ ci-reports*/
 # Written by scripts/gcp-tf/demo-up.sh. Covers demo-reports/ and the
 # demo-reports.prev/ generation it rotates the previous run into.
 demo-reports*/
+# Also written by scripts/gcp-tf/demo-up.sh: one receipt per lane per test
+# surface, read by `make gcp-tf-test-surfaces`.
+#
+# A SIBLING of demo-reports/ rather than a directory inside it, deliberately:
+# rotate_reports() moves REPORT_DIR wholesale to .prev at the start of every
+# on-VM run, so a receipt filed in there would be carried off by the next run
+# and the both-surfaces verdict would report a surface that had just passed as
+# never having run.
+#
+# Ignoring it is NOT cosmetic. demo-up.sh refuses to deliver from a dirty tree,
+# so an untracked receipt here makes the very next `demo-up.sh up` refuse —
+# which is exactly what test/terraform-demo-driver.bats caught when this
+# directory was first added without this line.
+demo-surfaces*/
 d2-signalloom/results.tap
 test/gcp-results/
 test/gcp-5x-results.md

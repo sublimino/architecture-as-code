@@ -7,6 +7,11 @@
 #   demo-up.sh status      # VM state and the verdict on disk, read-only
 #   demo-up.sh payload F   # build the delivery tarball at F and stop
 #
+#   --- The TWO test surfaces ---
+#   demo-up.sh test          # LOCAL-ON-VM: the full suite, over 127.0.0.1
+#   demo-up.sh ts-test       # REMOTE: the transport, over the tailnet. No creds.
+#   demo-up.sh test-surfaces # did BOTH of the above actually run? Asserted.
+#
 #   --- Tailscale, the PRIMARY access path ---
 #   demo-up.sh ts-up       # serve the dashboard on the tailnet, print the URL
 #   demo-up.sh ts-status   # node, MagicDNS name, tailnet IP, dashboard health
@@ -1303,6 +1308,24 @@ run_lane() {
   verdict="$(classify_run_outcome "${REPORT_DIR}/${SUMMARY_NAME}" "$RUN_COMMIT" "$PIPELINE_EXIT")"
   final_exit="$(final_exit_code "$verdict" "$PIPELINE_EXIT")"
   report_verdict "$verdict" "$final_exit" "$PIPELINE_EXIT"
+
+  # File this run as the ON-VM surface, so `test-surfaces` can assert that both
+  # surfaces ran rather than take it on trust.
+  #
+  # It is a SEPARATE file from summary.json rather than a re-read of it, and the
+  # duplication is deliberate: rotate_reports() moves REPORT_DIR wholesale to
+  # .prev at the start of the next run, and REPORT_DIR is not per-lane, so
+  # summary.json cannot answer "did the on-vm surface run for demo-1" once any
+  # other lane has run. The receipt is per-lane and outside that directory.
+  #
+  # `|| warn` and never fatal: the run's own verdict has already been decided
+  # and printed, and failing it here would change a real PASS into a failure
+  # over bookkeeping. The consequence of a missing receipt is that
+  # test-surfaces reports this surface as not having run — which is the honest
+  # answer when the evidence is absent.
+  write_surface_receipt on-vm "$verdict" 1 "$([ "$final_exit" -eq 0 ] && echo 0 || echo 1)" \
+    "on-VM pipeline verdict ${verdict} (exit ${final_exit})" ||
+    warn "could not write the on-vm surface receipt under ${SURFACE_DIR}; 'make gcp-tf-test-surfaces ENV=${ENV_KEY}' will report this surface as not having run"
 
   echo ""
   if [ "$final_exit" -eq 0 ]; then
@@ -3049,9 +3072,506 @@ cmd_funnel_down() {
   printf '  was removed. To stop serving entirely: make gcp-tf-public-down ENV=%s\n\n' "$ENV_KEY"
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+#  THE SECOND TEST SURFACE: the tailnet, from wherever the operator is
+# ════════════════════════════════════════════════════════════════════════════
+#
+# `demo-up.sh test` runs the whole suite ON the VM. Everything it asserts
+# reaches the application over `127.0.0.1` — demo-pipeline.sh's runtime stages
+# make their own `kubectl port-forward`s, and its browser stages drive the
+# VM-local Envoy NodePort. That is the right place for 40-odd stages of unit
+# tests, bats guards, Flux convergence and staleness proofs, and NONE of them
+# care what the transport is.
+#
+# Which is exactly the problem. Four things sit between a healthy in-cluster
+# service and Andy opening the demo on his phone, and the on-VM suite is blind
+# to all four BY CONSTRUCTION, not by omission:
+#
+#   1. The tailnet itself (WireGuard, ACLs, node online, MagicDNS).
+#   2. `tailscale serve`'s TLS termination, with a REAL certificate issued to
+#      the MagicDNS name. There is no certificate at all on the loopback path,
+#      so no on-VM assertion can be about one.
+#   3. The serve -> `http://127.0.0.1:<app_port>` hop, and the supervised
+#      VM-side forward that publishes that port. The on-VM runtime stages
+#      BYPASS that forward — they open their own — so it can be dead all the
+#      way through a green run.
+#   4. Dex's ISSUER. On the VM, Dex is reached at `http://127.0.0.1:<port>/dex`.
+#      Over the tailnet it must be `https://<fqdn>/dex`, and the two are
+#      different OIDC issuers. cmd_ts_up claims that origin and the header of
+#      this file says what happens when the claim is wrong: the dashboard loads
+#      and the login bounces. An on-VM test cannot see that, because on the VM
+#      the issuer it exercises is the one it just created for itself.
+#
+# So this surface deliberately does NOT re-run the on-VM suite over the network.
+# Duplicating 40 stages across the tailnet would be slow and would mostly re-test
+# transport-independent logic. It asserts the five things where the TRANSPORT is
+# the subject, and stops.
+#
+# ─── It needs NO cloud credentials, and that is the point ───────────────────
+#
+# Unlike every other command in this file, this one makes no gcloud call, opens
+# no IAP tunnel and does not SSH anywhere. It is `curl` against a name, from
+# wherever the operator happens to be — which is precisely the user journey
+# being tested. Requiring an operator service account here would mean the test
+# could only be run by someone holding rights the real user does not need, and
+# a test that cannot be run the way the user runs it is testing something else.
+#
+# The hand-off is read when present (for `tailscale_hostname`) and its ABSENCE
+# is not fatal here, again unlike everywhere else: the node name derives from
+# the environment key exactly as terraform/modules/compute/main.tf derives it,
+# and a wrong name fails loudly in ts_resolve_node rather than silently.
+#
+# ─── Concurrency ────────────────────────────────────────────────────────────
+#
+# Four lanes can run this at once. It binds NO local port (every request is
+# outbound), every receipt path carries the environment key, and every temporary
+# file carries the pid. There is no fixed filename anywhere in this block.
+#
+# ─── A dead lane FAILS. It never skips. ─────────────────────────────────────
+#
+# There is no `skip`, no `|| true` around an assertion, and no branch that exits
+# 0 having asserted nothing — ts_test_verdict refuses a run that recorded zero
+# checks. This repo has twice shipped the opposite: a bats suite that all-skipped
+# locally and read as green, and four Playwright specs that matched no project
+# and were skipped with exit 0 and no warning.
+
+TS_TEST_TIMEOUT="${GCP_TF_DEMO_TS_TEST_TIMEOUT:-20}"
+
+# An authenticated API route, reached through the SAME nginx the browser uses.
+#
+# Overridable because a route is a product detail and this file should not be
+# the thing that pins one. Measured against sl-demo-1 on 2026-08-20: anonymous
+# 401, bearer 200.
+TS_TEST_API_PATH="${GCP_TF_DEMO_TS_TEST_API_PATH:-/api/signals/store/stats}"
+
+# Where each surface leaves its receipt.
+#
+# DELIBERATELY NOT under REPORT_DIR. rotate_reports() moves that whole directory
+# to .prev at the start of every on-VM run, so a tailnet receipt filed there
+# would be carried off by the next `demo-up.sh test` — and the both-surfaces
+# verdict would then report a missing tailnet run that had in fact just passed.
+SURFACE_DIR="${GCP_TF_DEMO_SURFACE_DIR:-${REPO_ROOT}/demo-surfaces}"
+
+# How old a receipt may be and still count as "this surface ran".
+#
+# Without a bound, a receipt from a fortnight ago would vouch for a lane rebuilt
+# twice since. 24h is the working default; set it to 0 to disable the check when
+# deliberately comparing runs made far apart.
+SURFACE_MAX_AGE_SECONDS="${GCP_TF_DEMO_SURFACE_MAX_AGE_SECONDS:-86400}"
+
+TS_TEST_TOTAL=0
+TS_TEST_FAILED=0
+TS_TEST_ROWS=""
+
+ts_check() { # ts_check <ok|fail> <name> <detail>
+  local state="$1" name="$2" detail="$3"
+  TS_TEST_TOTAL=$((TS_TEST_TOTAL + 1))
+  if [ "$state" = "ok" ]; then
+    printf '  PASS  %-34s %s\n' "$name" "$detail"
+  else
+    TS_TEST_FAILED=$((TS_TEST_FAILED + 1))
+    printf '  FAIL  %-34s %s\n' "$name" "$detail" >&2
+  fi
+  TS_TEST_ROWS="${TS_TEST_ROWS}${TS_TEST_ROWS:+,}$(jq -nc \
+    --arg n "$name" --arg s "$state" --arg d "$detail" \
+    '{name: $n, status: (if $s == "ok" then "pass" else "fail" end), detail: $d}')"
+}
+
+# One request. Body goes to a file, HTTP status goes to stdout, and curl's OWN
+# exit status is what this returns.
+#
+# Both halves are load-bearing and this repo has been bitten by conflating them:
+# a tool that reports failure in its OUTPUT while exiting 0 makes every
+# `|| fallback` guarding it dead code. `%{http_code}` is `000` when the request
+# could not be made at all, so the status alone cannot distinguish "no TLS
+# handshake" from "nothing listening" — the curl exit code can, and
+# ts_explain_curl below turns it into a diagnosis.
+#
+# NO -k. The certificate is a real one issued to the MagicDNS name; skipping
+# verification would hide a tailnet without HTTPS certificates behind a
+# healthy-looking 200. Cert verification IS one of the things under test.
+ts_fetch() {
+  local url="$1" body="$2"
+  shift 2
+  local code rc=0
+  code="$("$CURL_BIN" -sS -o "$body" -w '%{http_code}' \
+    --max-time "$TS_TEST_TIMEOUT" "$@" "$url" 2>/dev/null)" || rc=$?
+  printf '%s' "${code:-000}"
+  return "$rc"
+}
+
+# curl's exit status, as a sentence about THIS estate.
+#
+# The mapping matters more than it looks. `7` is the whole ci-lane story today:
+# the node is in the tailnet, online, and answering nothing on 443 because
+# `tailscale serve` was never configured on it. Reporting that as a generic
+# "request failed" is what makes an operator go looking at the cluster.
+ts_explain_curl() {
+  case "$1" in
+    0) printf 'request completed' ;;
+    6) printf "curl could not resolve the name (exit 6) — MagicDNS is not answering on THIS machine, though the tailnet knows the node" ;;
+    7) printf "curl could not connect (exit 7) — the node is reachable and NOTHING is listening on :%s. This lane is NOT SERVING: 'tailscale serve' has not been configured on it. Fix with: make gcp-tf-ts-up ENV=%s" "$TS_SERVE_PORT" "$ENV_KEY" ;;
+    28) printf 'curl timed out after %ss (exit 28) — the node accepted the connection and never answered' "$TS_TEST_TIMEOUT" ;;
+    35 | 60) printf 'the TLS handshake or certificate verification FAILED (exit %s) — HTTPS certificates are not enabled for this tailnet (admin console -> DNS -> HTTPS Certificates)' "$1" ;;
+    *) printf 'curl failed with exit %s' "$1" ;;
+  esac
+}
+
+# A single claim out of a JWT payload, without a JWT library.
+#
+# base64url is not base64: `-` and `_` are substituted, and the padding is
+# stripped. Feeding the raw segment to `base64 -d` produces garbage or nothing
+# for a large fraction of real tokens, so both are undone before decoding.
+jwt_claim() {
+  local jwt="$1" claim="$2" payload
+  payload="$(printf '%s' "$jwt" | cut -d. -f2 | tr '_-' '/+')"
+  while [ $((${#payload} % 4)) -ne 0 ]; do payload="${payload}="; done
+  printf '%s' "$payload" | base64 -d 2>/dev/null |
+    jq -r --arg c "$claim" '.[$c] // ""' 2>/dev/null || printf ''
+}
+
+# write_surface_receipt <surface> <outcome> <total> <failed> <detail>
+#
+# One file per lane PER SURFACE, so four lanes times two surfaces never collide,
+# and the temp file carries the pid so two concurrent writers cannot truncate
+# each other's. Returns non-zero if it could not write — a receipt that was not
+# filed must not read as a surface that did not run for some other reason.
+write_surface_receipt() {
+  local surface="$1" outcome="$2" total="$3" failed="$4" detail="$5"
+  mkdir -p "$SURFACE_DIR" 2>/dev/null || return 1
+  local target="${SURFACE_DIR}/${ENV_KEY}.${surface}.json"
+  local tmp="${SURFACE_DIR}/.${ENV_KEY}.${surface}.$$.tmp"
+  jq -n \
+    --arg schema 'signalloom.surface.receipt/v1' \
+    --arg surface "$surface" \
+    --arg env "$ENV_KEY" \
+    --arg outcome "$outcome" \
+    --arg commit "$RUN_COMMIT" \
+    --arg branch "$RUN_BRANCH" \
+    --arg detail "$detail" \
+    --arg written_at "$(date -Iseconds)" \
+    --argjson written_epoch "$(date +%s)" \
+    --argjson total "$total" \
+    --argjson failed "$failed" \
+    --argjson checks "[${TS_TEST_ROWS}]" \
+    '{schema: $schema, surface: $surface, env: $env, outcome: $outcome,
+      commit: $commit, branch: $branch, detail: $detail,
+      written_at: $written_at, written_epoch: $written_epoch,
+      checks_total: $total, checks_failed: $failed,
+      checks: (if $surface == "tailnet" then $checks else [] end)}' \
+    >"$tmp" 2>/dev/null || {
+    rm -f "$tmp"
+    return 1
+  }
+  mv "$tmp" "$target" || return 1
+  return 0
+}
+
+cmd_ts_test() {
+  require_env ts-test
+  capture_source_identity
+
+  # Present-but-optional, unlike every other command here. See the block header:
+  # this surface needs a NAME and a tailnet, not a project and a service account.
+  HANDOFF_FILE="${HANDOFF_DIR}/${ENV_KEY}.handoff.json"
+  if [ -f "$HANDOFF_FILE" ]; then
+    log "reading ${HANDOFF_FILE} for the tailnet hostname"
+  else
+    HANDOFF_FILE=""
+    log "no hand-off for ${ENV_KEY}; deriving the node name as 'sl-${ENV_KEY}', the same way terraform/modules/compute/main.tf does"
+  fi
+
+  echo "════════════════════════════════════════════════════════════"
+  echo "  Signal Loom — REMOTE surface (over the tailnet)"
+  echo "  ENV: ${ENV_KEY}  |  source: ${RUN_BRANCH}@${RUN_COMMIT}"
+  echo "════════════════════════════════════════════════════════════"
+
+  # R1. Is the lane on the tailnet at all? ts_resolve_node emits a full
+  # diagnosis on failure and distinguishes absent / offline / no-MagicDNS, so a
+  # failure here is already specific. It is fatal rather than a recorded check:
+  # every assertion below needs TS_FQDN, and running them against an empty name
+  # would produce four more failures that all say the same thing.
+  if ! ts_resolve_node; then
+    printf '\ndemo-up: %s is NOT REACHABLE on the tailnet — see the diagnosis above.\n' "$ENV_KEY" >&2
+    printf '  This is a FAILURE of the remote surface, not a reason to skip it.\n' >&2
+    write_surface_receipt tailnet FAIL 0 0 "node for ${ENV_KEY} is absent, offline, or has no MagicDNS name" || true
+    exit 2
+  fi
+
+  local base="https://${TS_FQDN}"
+  local work
+  work="$(mktemp -d "${TMPDIR:-/tmp}/sl-tstest-${ENV_KEY}-XXXXXX")"
+  # shellcheck disable=SC2064  # $work is expanded NOW on purpose: the trap must
+  # name this run's directory, not whatever the variable holds when it fires.
+  trap "rm -rf '${work}'" EXIT
+
+  log "node ${TS_FQDN} is online at ${TS_IP}; testing ${base} from this machine"
+  echo ""
+
+  ts_check ok "tailnet node online" "${TS_FQDN} (${TS_IP})"
+
+  # R2. TLS terminates, the certificate verifies, and the front door answers.
+  #
+  # The FIRST check that can distinguish "serving" from "not serving", and the
+  # one that catches today's ci-lane state.
+  local code rc=0
+  code="$(ts_fetch "${base}${TS_HEALTH_PATH}" "${work}/readyz")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    ts_check fail "TLS and ${TS_HEALTH_PATH}" "$(ts_explain_curl "$rc")"
+  elif [ "$code" = "200" ]; then
+    ts_check ok "TLS and ${TS_HEALTH_PATH}" "verified certificate, HTTP ${code}"
+  else
+    ts_check fail "TLS and ${TS_HEALTH_PATH}" "TLS is fine and the answer was HTTP ${code}, not 200. A 502 means 'tailscale serve' reached the VM-side forward and got nothing; a 404 means nginx answered and the path is not one of its locations."
+  fi
+
+  # R3. Dex's issuer IS this origin.
+  #
+  # THE assertion the on-VM suite structurally cannot make, and the one whose
+  # failure mode — a dashboard that loads and a login that bounces — is the
+  # documented reason cmd_ts_up claims an origin at all. A stale issuer from a
+  # previous access method leaves everything else on this page green.
+  local want_issuer="${base}/dex"
+  rc=0
+  code="$(ts_fetch "${base}/dex/.well-known/openid-configuration" "${work}/oidc")" || rc=$?
+  local got_issuer=""
+  if [ "$rc" -ne 0 ]; then
+    ts_check fail "Dex discovery reachable" "$(ts_explain_curl "$rc")"
+  elif [ "$code" != "200" ]; then
+    ts_check fail "Dex discovery reachable" "HTTP ${code} at /dex/.well-known/openid-configuration — nginx is not proxying /dex/ to Dex"
+  else
+    got_issuer="$(jq -r '.issuer // ""' "${work}/oidc" 2>/dev/null || printf '')"
+    ts_check ok "Dex discovery reachable" "HTTP ${code}"
+    if [ "$got_issuer" = "$want_issuer" ]; then
+      ts_check ok "Dex issuer is this origin" "$got_issuer"
+    else
+      ts_check fail "Dex issuer is this origin" "Dex issues for '${got_issuer:-(none)}' but this URL is '${want_issuer}'. The dashboard WILL LOAD HERE AND THE LOGIN WILL BOUNCE. Another access path holds the origin: make gcp-tf-ts-up ENV=${ENV_KEY}"
+    fi
+  fi
+
+  # R4. A real token, minted over this transport.
+  #
+  # Status codes alone would not prove the auth chain works end to end — a 401
+  # is equally consistent with a correct rejection and with a Dex that cannot be
+  # reached. Minting a token here and reading its `iss` claim proves the token
+  # this origin issues is a token for this origin. The password grant, the
+  # public client_id in the form body and the audience scope all mirror
+  # d2-signalloom/test/api-route-liveness.bats deliberately: auth is never
+  # bypassed to make a test easier to write.
+  local token=""
+  rc=0
+  code="$(ts_fetch "${base}/dex/token" "${work}/token" \
+    --data-urlencode 'grant_type=password' \
+    --data-urlencode 'client_id=signalloom-dashboard' \
+    --data-urlencode "username=${DEMO_LOGIN_USER}" \
+    --data-urlencode "password=${DEMO_LOGIN_PASS}" \
+    --data-urlencode 'scope=openid profile email groups audience:server:client_id:signalloom-api')" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    ts_check fail "token minted over the tailnet" "$(ts_explain_curl "$rc")"
+  elif [ "$code" != "200" ]; then
+    ts_check fail "token minted over the tailnet" "HTTP ${code} from ${want_issuer}/token for ${DEMO_LOGIN_USER}"
+  else
+    token="$(jq -r '.id_token // ""' "${work}/token" 2>/dev/null || printf '')"
+    if [ -z "$token" ]; then
+      ts_check fail "token minted over the tailnet" "HTTP 200 but the response carries no id_token"
+    else
+      local iss
+      iss="$(jwt_claim "$token" iss)"
+      if [ "$iss" = "$want_issuer" ]; then
+        ts_check ok "token minted over the tailnet" "id_token iss=${iss}"
+      else
+        ts_check fail "token minted over the tailnet" "the id_token was issued by '${iss:-(unreadable)}', not '${want_issuer}'"
+      fi
+    fi
+  fi
+
+  # R5. The proxy hop reaches the APPLICATION, and auth is enforced across it.
+  #
+  # Two requests, because either one alone is worthless. A 200 with a bearer
+  # proves nginx proxies /api/ to a live backend rather than serving the SPA's
+  # index for every unmatched path. A 401 WITHOUT one proves the API is actually
+  # checking — an open API returns 200 to both, and a suite that only ever sends
+  # the token would call that a pass.
+  local anon auth
+  rc=0
+  anon="$(ts_fetch "${base}${TS_TEST_API_PATH}" "${work}/anon")" || rc=$?
+  if [ "$rc" -ne 0 ]; then
+    ts_check fail "API rejects an anonymous caller" "$(ts_explain_curl "$rc")"
+  elif [ "$anon" = "401" ] || [ "$anon" = "403" ]; then
+    ts_check ok "API rejects an anonymous caller" "HTTP ${anon} at ${TS_TEST_API_PATH}"
+  else
+    ts_check fail "API rejects an anonymous caller" "HTTP ${anon} at ${TS_TEST_API_PATH} with no credentials — expected 401 or 403"
+  fi
+
+  if [ -z "$token" ]; then
+    ts_check fail "API answers an authenticated caller" "no token was minted, so this could not be asked — recorded as a failure rather than skipped, because a question not asked is not a question answered"
+  else
+    rc=0
+    auth="$(ts_fetch "${base}${TS_TEST_API_PATH}" "${work}/auth" \
+      -H "Authorization: Bearer ${token}")" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      ts_check fail "API answers an authenticated caller" "$(ts_explain_curl "$rc")"
+    elif [ "$auth" = "200" ]; then
+      ts_check ok "API answers an authenticated caller" "HTTP ${auth} at ${TS_TEST_API_PATH}"
+    else
+      ts_check fail "API answers an authenticated caller" "HTTP ${auth} at ${TS_TEST_API_PATH} with a valid bearer — a 502 means nginx has no live backend for /api/"
+    fi
+  fi
+
+  ts_test_verdict "$base"
+}
+
+# The one place the remote surface's status is decided, so the printed verdict,
+# the exit code and the receipt on disk cannot disagree.
+ts_test_verdict() {
+  local base="$1" outcome exit_code
+
+  # A run that asserted NOTHING is not a pass. Without this, deleting every
+  # check above would produce a clean exit 0 and a receipt saying PASS — which
+  # is the exact shape that has twice reported green in this repo while
+  # measuring nothing.
+  if [ "$TS_TEST_TOTAL" -eq 0 ]; then
+    printf '\ndemo-up: the remote surface recorded ZERO checks.\n' >&2
+    printf '  Nothing was measured, so nothing passed. This is a failure.\n' >&2
+    write_surface_receipt tailnet ABORTED 0 0 'no checks were recorded' || true
+    exit 2
+  fi
+
+  echo ""
+  if [ "$TS_TEST_FAILED" -eq 0 ]; then
+    outcome=PASS
+    exit_code=0
+  else
+    outcome=FAIL
+    exit_code=1
+  fi
+
+  local detail
+  detail="$((TS_TEST_TOTAL - TS_TEST_FAILED))/${TS_TEST_TOTAL} remote checks passed against ${base}"
+
+  if ! write_surface_receipt tailnet "$outcome" \
+    "$TS_TEST_TOTAL" "$TS_TEST_FAILED" "$detail"; then
+    printf 'demo-up: could not write the tailnet receipt under %s.\n' "$SURFACE_DIR" >&2
+    printf '  The checks above stand, but the both-surfaces verdict would report\n' >&2
+    printf '  this surface as never having run. Failing rather than reporting a\n' >&2
+    printf '  pass that cannot be corroborated.\n' >&2
+    exit 2
+  fi
+
+  if [ "$exit_code" -eq 0 ]; then
+    printf '==> REMOTE PASS — %s\n' "$detail"
+    printf '    Receipt: %s/%s.tailnet.json\n' "$SURFACE_DIR" "$ENV_KEY"
+    printf '    This proves the TRANSPORT. It does not prove the estate:\n'
+    printf '      make gcp-tf-test-surfaces ENV=%s   # did BOTH surfaces run?\n' "$ENV_KEY"
+  else
+    printf '==> REMOTE FAIL — %s\n' "$detail" >&2
+    printf '    Receipt: %s/%s.tailnet.json\n' "$SURFACE_DIR" "$ENV_KEY" >&2
+  fi
+  exit "$exit_code"
+}
+
+# ── The both-surfaces verdict ───────────────────────────────────────────────
+#
+# "Ensure the tests are run locally on VM, and also remotely through the
+# tailnet" is a claim about TWO runs, and neither run can make it alone. A
+# passing on-VM suite says nothing about the tailnet; a passing tailnet suite
+# says nothing about the estate behind it. So the property "both surfaces ran"
+# is asserted HERE, against receipts, rather than assumed by whoever typed the
+# two commands.
+#
+# The failure this closes is not hypothetical for this repo: a run that only
+# exercised one surface, reported as a pass, is indistinguishable from a run
+# that exercised both — unless something reads the artefacts and says so.
+read_surface() { # read_surface <surface>; sets SURFACE_{OUTCOME,AGE,DETAIL,COMMIT}
+  local surface="$1"
+  local file="${SURFACE_DIR}/${ENV_KEY}.${surface}.json"
+  SURFACE_OUTCOME="" SURFACE_AGE="" SURFACE_DETAIL="" SURFACE_COMMIT=""
+  [ -f "$file" ] || return 1
+  jq -e . "$file" >/dev/null 2>&1 || {
+    SURFACE_DETAIL="the receipt is not valid JSON"
+    return 2
+  }
+  local env_in_file
+  env_in_file="$(jq -r '.env // ""' "$file")"
+  if [ "$env_in_file" != "$ENV_KEY" ]; then
+    SURFACE_DETAIL="the receipt describes environment '${env_in_file}', not '${ENV_KEY}'"
+    return 2
+  fi
+  SURFACE_OUTCOME="$(jq -r '.outcome // "UNKNOWN"' "$file")"
+  SURFACE_DETAIL="$(jq -r '.detail // ""' "$file")"
+  SURFACE_COMMIT="$(jq -r '.commit // "unknown"' "$file")"
+  SURFACE_AGE=$(($(date +%s) - $(jq -r '.written_epoch // 0' "$file")))
+  return 0
+}
+
+cmd_surfaces() {
+  require_env test-surfaces
+
+  echo "════════════════════════════════════════════════════════════"
+  echo "  Signal Loom — did BOTH test surfaces run for ${ENV_KEY}?"
+  echo "════════════════════════════════════════════════════════════"
+  echo ""
+
+  local missing=0 failed=0 stale=0 surface rc
+  for surface in on-vm tailnet; do
+    rc=0
+    read_surface "$surface" || rc=$?
+    if [ "$rc" -eq 1 ]; then
+      printf '  MISSING  %-8s no receipt at %s/%s.%s.json\n' \
+        "$surface" "$SURFACE_DIR" "$ENV_KEY" "$surface" >&2
+      missing=$((missing + 1))
+      continue
+    fi
+    if [ "$rc" -ne 0 ]; then
+      printf '  INVALID  %-8s %s\n' "$surface" "$SURFACE_DETAIL" >&2
+      missing=$((missing + 1))
+      continue
+    fi
+    if [ "$SURFACE_MAX_AGE_SECONDS" -gt 0 ] &&
+      [ "$SURFACE_AGE" -gt "$SURFACE_MAX_AGE_SECONDS" ]; then
+      printf '  STALE    %-8s %s, but written %ss ago (limit %ss)\n' \
+        "$surface" "$SURFACE_OUTCOME" "$SURFACE_AGE" "$SURFACE_MAX_AGE_SECONDS" >&2
+      stale=$((stale + 1))
+      continue
+    fi
+    if [ "$SURFACE_OUTCOME" = "PASS" ]; then
+      printf '  PASS     %-8s %s  (%ss ago, %s)\n' \
+        "$surface" "$SURFACE_DETAIL" "$SURFACE_AGE" "$SURFACE_COMMIT"
+    else
+      printf '  %-8s %-8s %s  (%ss ago, %s)\n' \
+        "$SURFACE_OUTCOME" "$surface" "$SURFACE_DETAIL" "$SURFACE_AGE" "$SURFACE_COMMIT" >&2
+      failed=$((failed + 1))
+    fi
+  done
+
+  echo ""
+  if [ "$missing" -eq 0 ] && [ "$failed" -eq 0 ] && [ "$stale" -eq 0 ]; then
+    printf '==> BOTH SURFACES PASSED for %s.\n' "$ENV_KEY"
+    printf '    The estate is tested on the VM AND over the tailnet.\n'
+    exit 0
+  fi
+
+  {
+    printf '==> NOT PROVEN for %s.\n\n' "$ENV_KEY"
+    if [ "$missing" -gt 0 ]; then
+      printf '  A surface with no receipt did not run. That is NOT a pass, and it is\n'
+      printf '  not a skip either — it is an unanswered question:\n\n'
+      printf '    on-vm    make gcp-tf-demo-test ENV=%s     # needs cloud credentials\n' "$ENV_KEY"
+      printf '    tailnet  make gcp-tf-ts-test ENV=%s       # needs only the tailnet\n\n' "$ENV_KEY"
+    fi
+    if [ "$stale" -gt 0 ]; then
+      printf '  A stale receipt describes a run older than %ss. The lane may have been\n' "$SURFACE_MAX_AGE_SECONDS"
+      printf '  rebuilt since. Re-run that surface, or set\n'
+      printf '  GCP_TF_DEMO_SURFACE_MAX_AGE_SECONDS=0 if comparing runs made far apart.\n\n'
+    fi
+  } >&2
+  exit 1
+}
+
 case "${1:-up}" in
   up) cmd_up ;;
   test) cmd_test ;;
+  ts-test) cmd_ts_test ;;
+  test-surfaces) cmd_surfaces ;;
   connect) cmd_connect ;;
   public) cmd_public ;;
   public-down) cmd_public_down ;;
@@ -3069,6 +3589,6 @@ case "${1:-up}" in
     shift
     cmd_payload "${1:-}"
     ;;
-  -h | --help | help) sed -n '2,25p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|connect|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  -h | --help | help) sed -n '2,28p' "$0" ;;
+  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|connect|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

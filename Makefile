@@ -1901,6 +1901,67 @@ gcp-tf-demo-test: ## Re-run the demo tests against a cluster that is already sta
 	fi
 	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' test
 
+# ── The SECOND test surface: remote, over the tailnet ──────────────────────
+#
+# gcp-tf-demo-test above runs the suite ON the VM, over 127.0.0.1. This runs a
+# much smaller suite from HERE, over the tailnet, and asserts only the things
+# where the transport is the subject: the node, the real TLS certificate, Dex's
+# issuer, a token minted across the wire, and an authenticated API call through
+# the same nginx a browser uses. The driver's own header explains at length why
+# the on-VM suite is blind to all five by construction.
+#
+# ─── NO gcp_tf_require_impersonation, and that is deliberate ────────────────
+#
+# Every other target in this family carries that guard because every other
+# target makes a gcloud call. This one makes none: no tunnel, no SSH, no
+# project. It is curl against a MagicDNS name, which is exactly what Andy's
+# phone does. Adding the guard would mean the user journey could only be tested
+# by someone holding credentials the journey does not use — and a test that
+# cannot be run the way the user runs it is testing something else.
+#
+# ENV is still guarded, and still rejects a production-shaped key.
+#
+# Safe to run for all four lanes at once: it binds no local port, and every
+# receipt path carries the environment key.
+.PHONY: gcp-tf-ts-test
+gcp-tf-ts-test: ## REMOTE surface: test the lane from here, over the tailnet. No cloud credentials (ENV=<key>).
+	$(gcp_tf_require_env)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ts-test
+
+# Asserts the PROPERTY, rather than trusting whoever typed the two commands.
+#
+# "Run the tests on the VM and also over the tailnet" is a claim about two runs,
+# and neither run can make it alone. This reads both receipts and passes only
+# when both are present, both name this lane, both are recent and both passed.
+# A surface that never ran is reported as an unanswered question, never as a
+# pass and never as a skip.
+.PHONY: gcp-tf-test-surfaces
+gcp-tf-test-surfaces: ## Assert that BOTH the on-VM and the tailnet surfaces ran and passed (ENV=<key>).
+	$(gcp_tf_require_env)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' test-surfaces
+
+# The composition, and the target a human actually wants to type.
+#
+# Three separate recipe lines, NOT `&&`-chained: each must propagate its own
+# exit status as make's, which a conditional would consume. The surfaces verdict
+# runs last and is what decides the overall result — if either surface above
+# failed to file a receipt, this target fails even though both commands ran.
+.PHONY: gcp-tf-test-both
+gcp-tf-test-both: ## Run BOTH surfaces for one lane — on the VM, then over the tailnet — and assert both ran (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	$(MAKE) --no-print-directory gcp-tf-demo-test ENV='$(ENV)'
+	$(MAKE) --no-print-directory gcp-tf-ts-test ENV='$(ENV)'
+	$(MAKE) --no-print-directory gcp-tf-test-surfaces ENV='$(ENV)'
+
 .PHONY: gcp-tf-connect
 gcp-tf-connect: ## Open the IAP tunnel to the demo dashboard and print the URL and login (ENV=<key>).
 	$(gcp_tf_require_env)

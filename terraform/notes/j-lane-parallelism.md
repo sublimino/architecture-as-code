@@ -419,7 +419,68 @@ verdict, and the in-suite test supplies the echoing issuer to mutate its
 *production*.
 
 The single change that would let one check cover both transports without any of
-this is still the nginx lane-identity header.
+this is the nginx lane-identity header — costed in §3d.
+
+### 3d. The nginx lane-identity header, costed against the real files
+
+Approved in principle. Costed by reading the files rather than estimating, and
+**the producer half is worse than it first looks** — the consumer half is
+genuinely cheap.
+
+**The nginx change itself is trivial, with one trap.**
+`d2-signalloom/apps/dashboard-signalloom/nginx.conf` is 286 lines, one `server`
+block, ~14 locations. Only **two** `add_header` directives exist, both
+cache-control, on `location /assets/` and `location = /index.html`. That matters
+because of nginx's inheritance rule: **a location containing *any* `add_header`
+inherits *none* from its parent.** Everywhere else — including all seven AFM
+locations — one server-level directive covers. So: one line at server level, plus
+two duplicates.
+
+`always` is non-negotiable. Without it nginx emits the header only on a
+success-ish status set, so it would be **absent on exactly the 4xx/5xx responses
+most worth attributing**. A guard that works only when you do not need it.
+
+The inheritance rule is also a trap that will be sprung by someone doing
+something entirely reasonable — adding a cache or CORS header to a third
+location silently drops the lane header there. **A test is required that fails
+when a location gains an `add_header` without also carrying the lane header.**
+Note it is vacuously true until the header lands, so it must be written with the
+header, not before it.
+
+**The producer half is a new value through four layers, and there is an ordering
+constraint.** `nginx.conf` is `COPY`d into the image at build time
+(`Dockerfile:28` → `/etc/nginx/conf.d/default.conf`) and the image is shared
+across all four lanes, so the lane key cannot be baked in. The base image
+(`nginxinc/nginx-unprivileged:1.27-alpine`) ships the standard envsubst
+entrypoint, so `/etc/nginx/templates/` + an `SL_LANE` env var needs no custom
+entrypoint. That part is fine.
+
+What is not fine is where `SL_LANE` comes from. **No lane identity exists in the
+fleet manifests today** — `grep -rniE 'CLUSTER_NAME|LANE_KEY|ENVIRONMENT_KEY'`
+over `d2-osramp-fleet/tenants/base/` returns nothing. The substitution mechanism
+exists and is proven (Flux `postBuild.substituteFrom` from the
+`flux-runtime-info` ConfigMap, already carrying `REGISTRY_BASE`,
+`REGISTRY_INSECURE` and `PUBLIC_ORIGIN`), and there is even a working runtime
+write path into it — `dex_origin apply` does exactly this per lane. So the shape
+is proven; the value simply does not exist yet and must be introduced end to end:
+written at bring-up, carried through `flux-runtime-info`, substituted into the
+dashboard Deployment's env, consumed by envsubst into the nginx template.
+
+And `scripts/lib/dex-origin.sh:342` records the wrinkle, measured 2026-08-03:
+the tenant copies carry `copyFrom: flux-system/flux-runtime-info` but **that copy
+does not reliably propagate an UPDATE** — changing the key in `flux-system`, even
+with a forced ResourceSet reconcile, left both tenant copies on the previous
+value. So the lane key must be present *before* the dashboard first reconciles,
+or the workload needs restarting. That is an ordering constraint on bring-up, not
+a line of YAML.
+
+**Revised estimate.** Consumer side **~2 hours** — small precisely because
+`assert_far_side_lane_identity` returns a verdict rather than a boolean, so an
+unset `SL_LANE` yields an empty header that lands in the existing CANNOT-VERIFY
+branch instead of reading as a match. That property is worth preserving through
+any refactor. Producer side **1 to 1.5 days**, revised up from half a day: it is
+a new end-to-end value through four layers plus a bring-up ordering constraint,
+not an env line on a Deployment.
 
 ## 4. The reaper — CLASHES (latent). NOT fixed; see why
 
@@ -723,6 +784,67 @@ Ranked. Take or leave independently.
    cold init+plan was 14-15s per lane with three running concurrently, so the
    download is not the bottleneck. Low value; listed because the obvious version
    of this idea is actively harmful.
+
+## 9. The gate's failure mode is uniform regardless of cause — a finding
+
+`make gcp-tf-validate` runs `fmt`, `validate`, `tflint` and `terraform test`
+**before** the bats step. Any failure in those kills the gate, and the output
+then reads:
+
+    ok: 0    not ok: 0    exit: 2
+
+**Zero test failures, having run zero tests.** Three different upstream causes
+produced that identical presentation during this work — tflint unused-variable
+findings in `terraform/platform`, a digest-ledger drift on
+`scripts/ci/vm-pipeline.sh`, and a short `override_data` mock in
+`edge_dormant.tftest.hcl`. None was distinguishable from the others, or from a
+clean run, without reading further up the log.
+
+Anyone reading the exit code alone learns nothing about whether the tests ran.
+Anyone reading `not ok: 0` alone concludes they passed. **This was nearly
+reported as a pass, twice, by the person who found it.** Print the `ok` count
+alongside the `not ok` count, always; a zero in the first column is the tell.
+
+## 10. Two diagnoses that pointed at the wrong subject
+
+Both worth recording because the error is the same shape as the bugs this branch
+is about, and because the fix each suggested would have caused harm.
+
+**A short test mock read as production state skew.** `edge_dormant.tftest.hcl`
+failed with `Unsupported attribute` on `terraform/environments/outputs.tf:135`,
+reporting that `data.terraform_remote_state.platform.outputs` "is object with 3
+attributes" and lacks `operator_service_account_email`. The natural reading —
+taken, and wrong — is that the live platform state is missing an output the code
+expects, so the platform root needs applying.
+
+The live state has **fourteen** outputs and includes that key. `terraform test`
+never reads it: the suite carries an `override_data` block, and **an override is
+an exhaustive stand-in, not an overlay** — a key absent from the block does not
+fall through to real remote state, it ceases to exist. The "3 attributes" are the
+*mock's*. The error names the consumer while the fault is in the fixture, which
+is exactly why it reads as skew.
+
+The remedies it suggested were both harmful: applying the platform root would
+have been unnecessary work against a root deliberately kept out of the Makefile,
+and "make the environments root tolerate the absence" would have weakened a real
+output to accommodate a short fixture. **Read the fixture before believing an
+error about the thing it stands in for.**
+
+**A true measurement carried across a rebase.** tflint's unused-variable failures
+in `terraform/platform` were real when measured, and were fixed upstream before
+the rebase that followed. The claim was then repeated in a later report without
+re-measuring. Both this and §9 are the same class: *a true statement about a tree
+that is no longer the tree.*
+
+## 11. Recommendation, not implemented: a low-disk guard at bring-up
+
+The estate is at the validated disk floor (§0). The documented failure mode of a
+full disk is **image-pull errors scattered across unrelated pods** — expensive to
+diagnose because nothing in the symptom names disk. Nothing in the bring-up path
+fails loudly on low disk today.
+
+Deliberately left as a recommendation rather than built here: it belongs in the
+bring-up path, not bolted into a chunk that is otherwise about concurrency.
 
 ## What could not be tested, and what would settle it
 

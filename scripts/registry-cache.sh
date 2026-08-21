@@ -21,7 +21,15 @@ DOCKER_BIN="${DOCKER_BIN:-docker}"
 
 # name | upstream remote URL | containerd certs.d host directory | server URL
 REGISTRY_CACHE_MAPPINGS=(
-  "dockerio|https://registry-1.docker.io|docker.io|https://docker.io"
+  # The server field MUST be the registry API host, not the vanity domain.
+  # https://docker.io/v2/ 302s to the Docker marketing site, which answers
+  # 200 text/html to ANY path. containerd takes a descriptor's mediaType from
+  # the Content-Type, so that HTML page becomes the image record's target and
+  # the image is silently poisoned — surfacing much later, and far away, as
+  # "unexpected media type text/html" during CRI adoption rather than as a
+  # pull failure. registry-1.docker.io returns 401 application/json, which
+  # containerd treats as an ordinary auth failure and never records.
+  "dockerio|https://registry-1.docker.io|docker.io|https://registry-1.docker.io"
   "k8s|https://registry.k8s.io|registry.k8s.io|https://registry.k8s.io"
   "ghcr|https://ghcr.io|ghcr.io|https://ghcr.io"
   "quay|https://quay.io|quay.io|https://quay.io"

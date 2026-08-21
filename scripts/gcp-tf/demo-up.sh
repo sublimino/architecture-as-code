@@ -1163,6 +1163,144 @@ deliver_code() {
   log "delivered to ${REMOTE_WORK_DIR}"
 }
 
+# ── AFM image delivery ───────────────────────────────────────────────────────
+#
+# The one artifact a lane needs that `git archive HEAD` structurally cannot
+# carry.
+#
+# KubeSec-AFM builds from a repo OUTSIDE this one (KUBESEC_AFM_ROOT). The
+# manifests ship — d2-k8s-afm/ is tracked — so every lane has applied a
+# Deployment for an image that was never there, and seven nginx locations
+# (/afm/, /dashboard/, /clusters, /metrics/, /health, /jobs, /webhooks/) point
+# at a Service in a namespace that does not exist. That is why /afm/ was a
+# deterministic 502 on all four lanes and why four acceptance specs skip.
+#
+# ─── Why a saved image and not the source, or a registry ────────────────────
+#
+# VENDORING THE SOURCE was rejected. It is someone else's repository; a copy
+# here has no sync story and silently becomes a fork. It would also add ~1.1GB
+# to the payload and move a multi-stage Next.js + Z3 build onto the critical
+# path of every lane bring-up — strictly more fragile than shipping something
+# already built, for the privilege of building it again on weaker hardware.
+#
+# THE IN-CLUSTER ZOT REGISTRY was rejected because it is not a transport for
+# this hop. Zot lives inside the lane's kind cluster; pushing to it requires
+# being on the VM with the image already in the local daemon, which is the
+# problem, not the solution. It distributes images WITHIN a lane — it is
+# downstream of this step, not an alternative to it.
+#
+# A SHARED REMOTE REGISTRY (Artifact Registry) is the genuinely better answer
+# at higher lane counts: push once, four lanes pull. It is not taken here
+# because it would replace the bare `kubesec-afm:latest` tag in
+# d2-k8s-afm/apps/afm-platform/base/ with a GCP-specific reference, put
+# registry credentials on the kind node, and make `make demo-k8s-afm-up` on a
+# laptop depend on a cloud project. The demo estate is self-contained today and
+# that is worth keeping. Revisit if lanes outgrow four.
+#
+# So: build locally, `docker save`, ship the archive on its OWN scp beside the
+# payload — never inside it, which is what keeps the payload tracked-files-only.
+AFM_REQUIRED="${AFM_REQUIRED:-1}"
+LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz}"
+
+# Deliberately the path scripts/k8s-afm.sh computes for itself by default:
+# ${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz, where REPO_ROOT on the VM is
+# REMOTE_WORK_DIR. Nothing has to pass a variable across the ssh boundary and
+# nothing can disagree about where the file is — the two sides derive the same
+# path from the same rule rather than sharing a constant one of them can drift.
+remote_afm_archive() { printf '%s/.afm-image/kubesec-afm.tar.gz' "$REMOTE_WORK_DIR"; }
+
+# The refusal. Loud, specific, and it names the escape hatch rather than taking
+# it silently — the previous behaviour warned and continued, which meant the
+# only place the missing slice ever surfaced was a 502 in front of an audience.
+refuse_or_warn_no_afm() {
+  local reason="$1"
+  if [ "$AFM_REQUIRED" = "1" ]; then
+    die "cannot deliver the KubeSec-AFM image: ${reason}
+
+  This lane would come up with d2-k8s-afm/ applied and no image behind it:
+  the fe-k8s-afm namespace never becomes ready, and the SEVEN nginx locations
+  that proxy to afm-platform (/afm/, /dashboard/, /clusters, /metrics/,
+  /health, /jobs, /webhooks/) all answer 502. Four acceptance specs
+  (afm-integration, afm-frontend, rbac-analysis, rbac-explorer) skip.
+
+  Fix it by making the image available on THIS machine:
+      KUBESEC_AFM_ROOT=/path/to/kubesec-afm make gcp-tf-demo-up ENV=${ENV_KEY}
+  or point at an archive somebody else produced with 'k8s-afm.sh save':
+      AFM_IMAGE_ARCHIVE=/path/to/kubesec-afm.tar.gz make gcp-tf-demo-up ENV=${ENV_KEY}
+
+  Or state that you accept a lane with no RBAC analysis, which is a choice
+  rather than an accident:
+      AFM_REQUIRED=0 make gcp-tf-demo-up ENV=${ENV_KEY}"
+  fi
+  warn "AFM_REQUIRED=0 — delivering NO AFM image: ${reason}"
+  warn "  /afm/ will answer 502 on this lane and the RBAC pages will show their unreachable banner."
+}
+
+deliver_afm_image() {
+  local archive="$LOCAL_AFM_ARCHIVE"
+
+  # Rebuild whenever the source is here: it is the only input that can be newer
+  # than the last save, and shipping a stale archive would deploy an old binary
+  # while the report is stamped with this commit.
+  if [ -f "${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}/AFM/docker/backend.Dockerfile" ]; then
+    log "building the AFM image archive from source"
+    if ! "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive"; then
+      refuse_or_warn_no_afm "'k8s-afm.sh save' failed against the source checkout"
+      return 0
+    fi
+  elif [ -s "$archive" ]; then
+    log "using the pre-built AFM image archive at ${archive} (no source checkout here)"
+  else
+    refuse_or_warn_no_afm "no KUBESEC_AFM_ROOT checkout and no archive at ${archive}"
+    return 0
+  fi
+
+  local size digest remote_digest dest
+  dest="$(remote_afm_archive)"
+  size="$(wc -c <"$archive" | tr -d '[:space:]')"
+  digest="$(sha256sum "$archive" | cut -d' ' -f1)"
+  log "AFM image archive: ${size} bytes, sha256 ${digest:0:12}"
+
+  # A CONTENT hash for the skip decision, not the byte count used for
+  # verify_delivered_size above. The two answer different questions and the
+  # weaker one is unsafe here: verifying a transfer only has to catch truncation
+  # and emptiness, but SKIPPING a transfer has to establish that the bytes
+  # already there are the RIGHT bytes. Two builds of different AFM commits can
+  # land on the same size, and the cost of being wrong is a lane silently
+  # running a stale binary — the exact failure kind-load-verified.sh's header
+  # records when it moved from tag-equality to identity.
+  remote_digest="$(vm_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || true" |
+    strip_impersonation_warning | tr -d '[:space:]')"
+  if [ -n "$remote_digest" ] && [ "$remote_digest" = "$digest" ]; then
+    log "AFM image already on ${INSTANCE_NAME} with a matching digest — skipping the ${size}-byte transfer"
+    return 0
+  fi
+
+  # Staged through /tmp because the destination directory does not exist yet and
+  # scp will not create it.
+  local staged="/tmp/kubesec-afm-image.$$.tar.gz"
+  log "delivering the AFM image to ${INSTANCE_NAME}:${dest}"
+  vm_scp "$archive" "${INSTANCE_NAME}:${staged}"
+  vm_ssh "mkdir -p $(printf '%q' "$(dirname "$dest")") \
+    && mv -f $(printf '%q' "$staged") $(printf '%q' "$dest")"
+
+  # Same reasoning as verify_delivered_size: an exit status describes the
+  # command, and the only thing that describes the artefact is the artefact.
+  # Verified by DIGEST rather than size because we already paid for the local
+  # one, and because a corrupt 245MB archive fails `docker load` on the VM
+  # twenty minutes later with an error that blames containerd.
+  local landed
+  landed="$(vm_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || echo MISSING" |
+    strip_impersonation_warning | tr -d '[:space:]')"
+  if [ "$landed" = "MISSING" ] || [ -z "$landed" ]; then
+    die "the AFM image is not on ${INSTANCE_NAME} at ${dest} after a transfer that reported success."
+  fi
+  if [ "$landed" != "$digest" ]; then
+    die "the delivered AFM image hashes ${landed:0:12} and ${digest:0:12} was sent. The archive is corrupt in transit; 'docker load' on the VM would fail later and blame containerd."
+  fi
+  log "AFM image delivery verified: sha256 ${landed:0:12} on the VM"
+}
+
 # Creates and hands over EVERY remote path this driver tells the pipeline to
 # write to. Not just the checkout — that omission is what made the first
 # genuinely-addressed bring-up fail.
@@ -1761,6 +1899,11 @@ run_lane() {
 
   set_run_phase "delivering-code"
   deliver_code
+  # AFTER deliver_code, never before: deliver_code does `rm -rf $REMOTE_WORK_DIR`
+  # and the archive lands inside that directory (see remote_afm_archive for why
+  # it lands there). Delivering first would silently throw it away, and the
+  # symptom would be a lane that refuses AFM having just been told it arrived.
+  deliver_afm_image
 
   set_run_phase "pipeline"
   run_pipeline "$stage"

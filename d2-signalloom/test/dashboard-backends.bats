@@ -74,3 +74,41 @@ CONF
   grep -Fq 'NO BACKEND' "$script"
   grep -Fq 'UNAVAILABLE' "$script"
 }
+
+@test "BACKENDS live mode FAILS when there is no cluster to ask" {
+  # The defect this test was written for, measured on the parent commit: with
+  # no reachable cluster, `check_live` returned 1, the caller discarded it with
+  # `|| true`, and the script exited 0 having printed BOTH
+  #
+  #   UNAVAILABLE no reachable cluster — deployment state unproven
+  #   All nginx upstreams are declared and reachable.
+  #
+  # — a confident all-clear about a cluster it never opened a connection to.
+  #
+  # Harmless while the only caller was doctor.sh in front of a human. Not
+  # harmless now that this gates a pipeline stage, where a missing or
+  # misdirected kubeconfig is exactly how a guard becomes decoration: every
+  # backend absent, stage green.
+  KUBECONFIG="$BATS_TEST_TMPDIR/nonexistent-kubeconfig" run "$script" live
+  [ "$status" -ne 0 ]
+  [[ "$output" == *UNPROVEN* ]]
+  # And it must NOT claim the estate is healthy on the way out.
+  [[ "$output" != *"All nginx upstreams are declared and reachable"* ]]
+}
+
+@test "BACKENDS the CI pipeline runs the backend check" {
+  # doctor.sh needs a human to type it. This check was written FOR the
+  # afm-platform incident and, until it was wired in, no pipeline invoked it —
+  # so it caught the bug it was designed for exactly zero times. The Makefile
+  # recipe and the hand-copied CI pipeline must both carry it.
+  #
+  # COMMENT-BLIND, deliberately. Both files explain this wiring at length in
+  # comments containing the literal "check-backends", so `grep -Fq` is satisfied
+  # by the prose that describes the rule even once the rule is gone. Measured:
+  # test/afm-delivery-mutation-proof.sh M9 replaced the pipeline's live
+  # invocation with `true` and this test stayed GREEN, citing the comment above
+  # the line it had just disabled. Anchoring on the INVOCATION rather than the
+  # name is what makes it a guard.
+  grep -Eq '^[^#]*\$\(MAKE\) check-backends' "${repo_root}/Makefile"
+  grep -Eq '^[^#]*make check-backends' "${repo_root}/scripts/ci/vm-pipeline.sh"
+}

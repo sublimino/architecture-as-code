@@ -79,6 +79,8 @@ help: ## Display this help.
 	@printf '  \033[36m%-34s\033[0m %s\n' 'docs/signalloom/audit-trail.md' 'Who writes an audit row, and the rule that decides'
 	@printf '\n\033[1mDebugging first moves\033[0m\n'
 	@printf '  %s\n' 'make doctor                                  full read-only cluster diagnostic'
+	@printf '  %s\n' 'make doctor-node ENV=demo-1                  NODE level: VM, tailnet, docker, zot PUSH, AFM cluster count'
+	@printf '  %s\n' 'make doctor-node-all                         every lane; exit 3 = could not measure, which is NOT a pass'
 	@printf '  %s\n' 'make demo-signalloom-supercred-evidence      what is TRUE of the credential chain, with proof commands'
 	@printf '  %s\n' 'make ci-state / ci-state-2                   what the last run DID, and which file says so (local, no gcloud)'
 	@printf '  %s\n' 'make ci-status / ci-status-2                 CI VM state (SUSPENDED means the last run PASSED)'
@@ -947,6 +949,73 @@ readonly-kubeconfig: ## Create the scoped read-only kubeconfig the terminal uses
 
 .PHONY: doctor
 doctor: cluster-debug ## Alias for the comprehensive cluster diagnostic report.
+
+# ── The NODE doctors ────────────────────────────────────────────────────────
+#
+# `doctor` above is a CLUSTER doctor: it runs against the current kubectl
+# context and sees Kubernetes objects. These run one level DOWN — the GCP
+# instance, the tailnet, docker/containerd, the filesystem, and the two things a
+# green cluster hides: a zot registry that serves happily while it cannot store,
+# and an AFM platform that answers 200 holding zero clusters.
+#
+# ─── Why these are named `doctor-node*` and not `gcp-tf-doctor-node` ────────
+#
+# They take ENV and they reach the cloud, so on that axis they belong to the
+# gcp-tf-* family and they reuse its guards verbatim. But the question an
+# operator has is "what is wrong with this thing", and the answer to that
+# question in this repo starts with `doctor`. Sitting next to `doctor` is worth
+# more than sitting next to `gcp-tf-status`, because the discoverability that
+# matters is at the moment something is broken.
+#
+# The guards ARE the family's: gcp_tf_require_env rejects a malformed key with
+# the same message as its eleven siblings, and gcp_tf_require_impersonation
+# refuses to run as a user identity. Two spellings of "is ENV valid" drift the
+# moment one of them is corrected.
+# Offline, ~2s, no cloud and no cluster. The node doctor's adjudicators are pure
+# functions of the probe's text output, which is what makes states like an
+# unlinked zot blob store or a drifted MagicDNS name testable at all.
+.PHONY: test-node-doctor
+test-node-doctor: ## Verify the node doctor's adjudicators against recorded probe output (no cloud, no cluster).
+	bats test/node-doctor.bats
+
+# Proves that suite can fail. It mutates the real node-doctor scripts in place
+# and requires the suite to go RED at a NAMED test for each of 15 breakages.
+# Run it alone — a concurrent edit in the same checkout lands inside a mutation
+# window and reads exactly like a real finding.
+.PHONY: test-node-doctor-proof
+test-node-doctor-proof: ## Prove test/node-doctor.bats can go RED (mutates the tree in place; run it alone).
+	./test/node-doctor-mutation-proof.sh
+
+.PHONY: doctor-node
+doctor-node: ## Node-level health check for one lane: VM, tailnet, docker, kind, zot push, AFM clusters (ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x './scripts/node-doctor.sh' ]; then \
+		echo "ERROR: ./scripts/node-doctor.sh is missing or not executable."; \
+		exit 2; \
+	fi
+	@./scripts/node-doctor.sh '$(ENV)'
+
+# Sweeps every lane that has a handoff file, and does NOT stop at the first
+# fault. On a four-lane estate the second broken lane is most of the value, and
+# a sweep that exits early makes it invisible.
+#
+# The per-lane verdict is read off the `NODE-DOCTOR <env> <kind> <verdict>` line
+# each run emits as its last line — a machine-readable contract, so the human
+# prose above it stays free to be reworded without breaking the sweep.
+.PHONY: doctor-node-all
+doctor-node-all: ## Run the node doctor against EVERY lane with a handoff file; reports all, fails if any failed.
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x './scripts/node-doctor.sh' ]; then \
+		echo "ERROR: ./scripts/node-doctor.sh is missing or not executable."; \
+		exit 2; \
+	fi
+	@set -o pipefail; ./scripts/node-doctor.sh --all 2>&1 | tee /tmp/doctor-node-all.$$$$.log; rc=$$?; \
+	 echo; \
+	 echo "──────── lane verdicts ────────"; \
+	 grep '^NODE-DOCTOR ' /tmp/doctor-node-all.$$$$.log || echo "  (no lane emitted a verdict line — the sweep did not complete)"; \
+	 rm -f /tmp/doctor-node-all.$$$$.log; \
+	 exit $$rc
 
 .PHONY: olly-down
 olly-down: ## Remove Olly Sentinel replica via shared ResourceSet cleanup.

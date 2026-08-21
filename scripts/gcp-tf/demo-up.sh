@@ -220,6 +220,22 @@ REMOTE_LOG="${GCP_TF_DEMO_REMOTE_LOG:-/opt/signalloom/demo-pipeline.log}"
 # test/gcp-demo-keys-persistence-mutation-proof.sh proves that refusal can fire.
 REMOTE_KEYS_DIR="${GCP_TF_DEMO_REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 
+# The zot registry's blob storage. The SECOND instance of the defect above, and
+# it was invisible until the first was fixed: push-local.sh refused on the key
+# mismatch before it ever reached the registry, so the broken mount had no way
+# to announce itself. With the keys persisted, the very next thing that happened
+# was a 500 on the first blob upload.
+#
+# The mechanism is worse than the keypair's because nothing looks wrong. The
+# Kind node bind-mounts ${REMOTE_WORK_DIR}/.cache/zot to /var/local/
+# osramp-zot-cache, and the zot pod hostPath-mounts that as its storage root.
+# `sudo rm -rf ${REMOTE_WORK_DIR}` unlinks the directory the mount resolves
+# through, so the pod goes on reading a deleted inode: it stays Running, its
+# readiness probe keeps answering 200 on /v2/, `kind get clusters` is happy, and
+# `ls` on the host shows a directory that create-kind-cluster.sh has since
+# recreated. Only a push fails, with a 500 that names nothing.
+REMOTE_ZOT_CACHE="${GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/zot-cache}"
+
 # EMPTY by default, meaning "run as whoever OS Login logged us in as".
 #
 # v1 hardcodes `sudo -u ci` because that VM provisions a `ci` account. This lane
@@ -1451,27 +1467,59 @@ deliver_afm_image() {
 # /opt/signalloom/repo-keys is durable, /opt/signalloom/repo/.keys is not, and a
 # bare prefix test cannot tell them apart. Equality is checked separately since
 # the work dir is not a prefix of itself once a slash is appended.
-assert_keys_dir_is_durable() {
-  local keys="${REMOTE_KEYS_DIR%/}" work="${REMOTE_WORK_DIR%/}"
+assert_dir_is_durable() {
+  local var="$1" dir="${2%/}" what="$3" consequence="$4"
+  local work="${REMOTE_WORK_DIR%/}"
 
-  [ -n "$keys" ] || die "GCP_TF_DEMO_REMOTE_KEYS_DIR is empty. It names the directory the cosign keypair persists in between runs; there is no meaningful default for 'nowhere'."
+  [ -n "$dir" ] || die "${var} is empty. It names ${what}; there is no meaningful default for 'nowhere'."
 
-  case "$keys" in
+  case "$dir" in
     /*) ;;
-    *) die "GCP_TF_DEMO_REMOTE_KEYS_DIR must be an ABSOLUTE path on the VM, got '${keys}'. A relative path resolves against whatever directory the pipeline happens to be standing in, which is the delivered tree — the one place it must not be." ;;
+    *) die "${var} must be an ABSOLUTE path on the VM, got '${dir}'. A relative path resolves against whatever directory the pipeline happens to be standing in, which is the delivered tree — the one place it must not be." ;;
   esac
 
-  if [ "$keys" = "$work" ] || [ "${keys#"${work}/"}" != "$keys" ]; then
-    die "GCP_TF_DEMO_REMOTE_KEYS_DIR (${keys}) is inside GCP_TF_DEMO_REMOTE_DIR (${work}).
+  if [ "$dir" = "$work" ] || [ "${dir#"${work}/"}" != "$dir" ]; then
+    die "${var} (${dir}) is inside GCP_TF_DEMO_REMOTE_DIR (${work}).
 
-The delivery step runs 'sudo rm -rf ${work}' before extracting the payload, so a
-keypair stored there is destroyed on every run. 'make signing-keys' would mint a
-fresh one, and push-local.sh would then refuse to push because the cluster still
-trusts the key the FIRST run bootstrapped it with — with the private half of
-that key gone, which is unrecoverable.
+The delivery step runs 'sudo rm -rf ${work}' before extracting the payload, so
+${what} does not survive a single run.
 
-Point it at a sibling that survives delivery, e.g. ${work%/*}/keys."
+${consequence}
+
+Point it at a sibling that survives delivery, e.g. ${work%/*}/$(basename "$dir")."
   fi
+}
+
+# Both durable paths, checked together, because they are the same defect twice.
+#
+# The keypair was the one that announced itself. The zot cache was found by
+# fixing the keypair: with the signing refusal gone, the very next thing
+# push-local.sh did was fail with a 500 from zot, whose storage is bind-mounted
+# from ${REMOTE_WORK_DIR}/.cache/zot into the Kind node. `rm -rf` had unlinked
+# the directory the mount resolves through, so the registry inside the cluster
+# was reading a deleted inode while the host path looked fine. Measured on
+# sl-demo-1-vm 2026-08-21; the pod logged
+#   local: readdirent /var/lib/zot: no such file or directory
+# for three hours while `ls` on the host showed a perfectly good directory.
+#
+# That is why this is a loop over a list rather than one function per path. The
+# class is "durable VM state stored inside the tree the delivery destroys", and
+# a third instance is likelier than not — ZOT_CACHE_DIR and KEYS_DIR are both
+# plain `?=` Makefile variables defaulting to a relative path, and any other
+# variable of that shape has the same bug waiting in it.
+assert_remote_paths_are_durable() {
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_KEYS_DIR "$REMOTE_KEYS_DIR" \
+    "the cosign keypair that the cluster's flux-system/cosign-pub secret trusts" \
+    "'make signing-keys' would mint a fresh keypair, and push-local.sh would then
+refuse to push because the cluster still trusts the key the FIRST run
+bootstrapped it with — with the private half of that key gone, which is
+unrecoverable."
+
+  assert_dir_is_durable GCP_TF_DEMO_REMOTE_ZOT_CACHE "$REMOTE_ZOT_CACHE" \
+    "the zot registry's blob storage, bind-mounted into the Kind node" \
+    "The running registry keeps a handle on the deleted directory, so every push
+fails with a 500 while the host path looks healthy and 'kind get clusters'
+reports the cluster is fine. Recreating the Kind cluster is the only way back."
 }
 
 provision_remote_paths() {
@@ -1479,7 +1527,7 @@ provision_remote_paths() {
   local log_dir
   log_dir="$(dirname "$REMOTE_LOG")"
 
-  assert_keys_dir_is_durable
+  assert_remote_paths_are_durable
 
   log "provisioning remote paths under $(dirname "$REMOTE_WORK_DIR")"
 
@@ -1491,13 +1539,13 @@ provision_remote_paths() {
   # nothing else — no rm, no install -m, no truncation. chmod 700 because it
   # holds a cosign private key; cosign writes the key file itself 0600, but the
   # directory it lands in is created by us and would otherwise be 0755.
-  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") \
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
-    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") $(printf '%q' "$REMOTE_ZOT_CACHE") \
     && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
     && sudo touch $(printf '%q' "$REMOTE_LOG") \
     && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
-    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
+    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR}, ${REMOTE_ZOT_CACHE} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:
@@ -1748,10 +1796,10 @@ run_pipeline() {
   # pipeline publishes the same dashboard Nginx service for its handover.
   # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q DEMO_ZOT_CACHE_DIR=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
-    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR"
+    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR" "$REMOTE_ZOT_CACHE"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
   # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`

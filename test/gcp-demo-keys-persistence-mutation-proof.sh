@@ -184,26 +184,26 @@ say "── mutations ───────────────────�
 # M1 — the guard is never called. The function stays perfect and unreachable,
 # which is the shape that passes every unit test of the function itself.
 restore_all
-mutate "$UP" '/^  assert_keys_dir_is_durable$/d'
+mutate "$UP" '/^  assert_remote_paths_are_durable$/d'
 expect_red "M1  guard call deleted" "KEYS the guard runs during delivery"
 
 # M2 — the nesting check can never fire. This is the `&&`-where-`||`-was-needed
 # shape, applied deliberately.
 restore_all
-mutate "$UP" 's|^  if \[ "\$keys" = "\$work" \] .*then$|  if false; then|'
+mutate "$UP" 's|^  if \[ "\$dir" = "\$work" \] .*then$|  if false; then|'
 expect_red "M2  nesting check disarmed" "KEYS a keys dir INSIDE the checkout is refused"
 
 # M3 — bare prefix match instead of the slash-terminated one. Accepts nothing
 # new that is dangerous; REFUSES a valid sibling. The failure direction that an
 # operator finds instead of a test.
 restore_all
-mutate "$UP" 's|\[ "\${keys#"\${work}/"}" != "\$keys" \]|[ "${keys#"${work}"}" != "$keys" ]|'
+mutate "$UP" 's|\[ "\${dir#"\${work}/"}" != "\$dir" \]|[ "${dir#"${work}"}" != "$dir" ]|'
 expect_red "M3  bare-prefix nesting check" "KEYS a sibling whose name merely starts with the work dir is ACCEPTED"
 
 # M4 — the absolute-path requirement removed. '.keys' then resolves against the
 # pipeline's cwd, which is the delivered tree.
 restore_all
-mutate "$UP" 's|^    \*) die "GCP_TF_DEMO_REMOTE_KEYS_DIR must be an ABSOLUTE|    *) : "not absolute, tolerated: |'
+mutate "$UP" 's|^    \*) die "\${var} must be an ABSOLUTE|    *) : "not absolute, tolerated: |'
 expect_red "M4  absolute-path check removed" "KEYS a relative keys dir is refused"
 
 # M5 — the empty-value refusal DELETED, not inverted.
@@ -219,7 +219,7 @@ expect_red "M4  absolute-path check removed" "KEYS a relative keys dir is refuse
 # Without that assertion the check would be unreachable-but-passing, which is the
 # state a per-rule deletion sweep exists to find.
 restore_all
-mutate "$UP" '/^  \[ -n "\$keys" \] || die "GCP_TF_DEMO_REMOTE_KEYS_DIR is empty/d'
+mutate "$UP" '/^  \[ -n "\$dir" \] || die "\${var} is empty/d'
 expect_red "M5  empty-value check deleted" "KEYS an empty keys dir is refused, and says so specifically"
 
 # M6 — the shipped default put back INSIDE the checkout. The original defect,
@@ -231,7 +231,7 @@ expect_red "M6  default nested in the checkout" "KEYS the shipped default is dur
 # M7 — the directory is never created on the VM. The pipeline is told to write
 # a private key somewhere that does not exist and is not owned by it.
 restore_all
-mutate "$UP" 's| \$(printf '"'"'%q'"'"' "\$REMOTE_KEYS_DIR") \\$| \\|'
+mutate "$UP" '/sudo mkdir -p/ s| \$(printf '"'"'%q'"'"' "\$REMOTE_KEYS_DIR")||'
 expect_red "M7  keys dir never mkdir'd" "KEYS the keys directory is created and chowned"
 
 # M8 — created but never chowned. /opt/signalloom is root-owned 0755, so this
@@ -243,13 +243,13 @@ expect_red "M8  keys dir never chowned" "KEYS the keys directory is created and 
 # M9 — something deletes the persistent directory. Every other assertion stays
 # green and the defect is exactly restored.
 restore_all
-mutate "$UP" 's|^  assert_keys_dir_is_durable$|  assert_keys_dir_is_durable\n  vm_ssh "sudo rm -rf $(printf '"'"'%q'"'"' "$REMOTE_KEYS_DIR")"|'
+mutate "$UP" 's|^  assert_remote_paths_are_durable$|  assert_remote_paths_are_durable\n  vm_ssh "sudo rm -rf $(printf '"'"'%q'"'"' "$REMOTE_KEYS_DIR")"|'
 expect_red "M9  keys dir wiped during provisioning" "KEYS the keys directory is never deleted or truncated"
 
 # M10 — the driver stops sending the variable. The pipeline then falls back to
 # the checkout and the keypair dies with it, silently.
 restore_all
-mutate "$UP" 's| DEMO_KEYS_DIR=%q'"'"'| '"'"'|'
+mutate "$UP" '/printf -v envs/ s| DEMO_KEYS_DIR=%q||'
 expect_red "M10 DEMO_KEYS_DIR no longer sent" "KEYS the driver sends DEMO_KEYS_DIR"
 
 # M11 — set but not exported. signing-keys, push-local.sh and bootstrap-local
@@ -265,6 +265,42 @@ expect_red "M11 KEYS_DIR set but not exported" "KEYS the pipeline turns DEMO_KEY
 restore_all
 mutate "$PIPE" 's|^if \[\[ -n "\${DEMO_KEYS_DIR:-}" \]\]; then$|if true; then|'
 expect_red "M12 exported even when unset" "KEYS an unset DEMO_KEYS_DIR leaves KEYS_DIR alone"
+
+# M13 — the zot cache default put back inside the checkout. The original defect
+# in its second component, and the one that is silent: the pod stays Running and
+# only a push fails.
+restore_all
+mutate "$UP" 's|GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/zot-cache|GCP_TF_DEMO_REMOTE_ZOT_CACHE:-/opt/signalloom/repo/.cache/zot|'
+expect_red "M13 zot default nested in the checkout" "ZOT the shipped zot cache default is durable"
+
+# M14 — the durability check stops looking at the zot cache. Every keypair
+# assertion stays green; this is the state the branch was in before the zot
+# instance was found.
+restore_all
+mutate "$UP" '/^  assert_dir_is_durable GCP_TF_DEMO_REMOTE_ZOT_CACHE /,/^reports the cluster is fine. Recreating the Kind cluster is the only way back."$/d'
+expect_red "M14 zot dropped from the durability check" "ZOT the durability check covers the zot cache"
+
+# M15 — the zot cache is never created on the VM.
+restore_all
+mutate "$UP" '/sudo mkdir -p/ s| \$(printf '"'"'%q'"'"' "\$REMOTE_ZOT_CACHE")||'
+expect_red "M15 zot cache never created" "ZOT the zot cache directory is created and chowned"
+
+# M16 — the driver stops sending it, so ZOT_CACHE_DIR falls back to the relative
+# path inside the tree.
+restore_all
+mutate "$UP" '/printf -v envs/ s| DEMO_ZOT_CACHE_DIR=%q||'
+expect_red "M16 DEMO_ZOT_CACHE_DIR no longer sent" "ZOT the driver sends DEMO_ZOT_CACHE_DIR"
+
+# M17 — set but not exported. create-kind-cluster.sh is a separate process.
+restore_all
+mutate "$PIPE" 's|^  export ZOT_CACHE_DIR="\${DEMO_ZOT_CACHE_DIR}"$|  ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"|'
+expect_red "M17 ZOT_CACHE_DIR set but not exported" "ZOT the pipeline turns DEMO_ZOT_CACHE_DIR into an exported ZOT_CACHE_DIR"
+
+# M18 — exported unconditionally, so a laptop run points zot at an absolute path
+# that does not exist there.
+restore_all
+mutate "$PIPE" 's|^if \[\[ -n "\${DEMO_ZOT_CACHE_DIR:-}" \]\]; then$|if true; then|'
+expect_red "M18 zot exported even when unset" "ZOT an unset DEMO_ZOT_CACHE_DIR leaves ZOT_CACHE_DIR alone"
 
 # ─── Restore, and prove the restore ─────────────────────────────────────────
 say ""

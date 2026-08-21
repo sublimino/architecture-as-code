@@ -675,6 +675,38 @@ demo-signalloom-supercred-runtime-test: ## Probe Cardvault and agent-cardvault a
 demo-signalloom-supercred-api-test: ## Probe the live /demo-api/ authorization boundary with real Dex tokens (cluster required).
 	bats d2-signalloom/test/supercred-demo-api.bats
 
+# The other two d2-signalloom opt-outs, which until now had no owner at all.
+#
+# EXCLUDED_BATS took dashboard-image.bats and supercred-demo.bats out of the
+# `make -C d2-signalloom test` glob and each carries a careful reason paragraph
+# saying where it belongs instead — "with the image stages", "with the runtime
+# stages, which already port-forward for it". Neither relocation was ever
+# performed. Measured across the whole tree, the only non-comment occurrence of
+# either basename was the EXCLUDED_BATS line removing them: two suites written,
+# reviewed, documented, opted out with a stated destination, and then invoked by
+# nothing whatsoever.
+#
+# That is precisely the defect d2-signalloom/test/bats-registry-coverage.bats
+# exists to end, sitting inside the mechanism meant to end it — an exclusion
+# comment that describes a move nobody made reads as a decision and functions as
+# a deletion. The new test in that suite ("every excluded d2-signalloom bats
+# suite is invoked by another runner") is what makes the omission impossible to
+# repeat; these two targets are what make it true today.
+#
+# A Makefile target, not a CI stage, and deliberately so. Both suites need
+# preconditions CI does not establish — docker plus a populated .keys/ for one,
+# a live policy-engine on localhost:18081 for the other — and inventing a stage
+# that appears to satisfy them would repeat the original error one level up.
+# The repo's standard is already this: bats-registry-coverage.bats accepts that
+# "a script legitimately invoked from a Makefile target is covered too — it need
+# not be a CI stage."
+.PHONY: test-dashboard-image test-supercred-demo
+test-dashboard-image: ## Build the dashboard image and probe it on a host port (docker + populated .keys/ required).
+	bats d2-signalloom/test/dashboard-image.bats
+
+test-supercred-demo: ## Drive the SuperCred demo against a live policy-engine on localhost:18081 (cluster + port-forward required).
+	bats d2-signalloom/test/supercred-demo.bats
+
 .PHONY: demo-signalloom-api-route-liveness
 demo-signalloom-api-route-liveness: ## Assert the RUNNING backends serve every API route the UI calls (cluster required).
 	bats d2-signalloom/test/api-route-liveness.bats

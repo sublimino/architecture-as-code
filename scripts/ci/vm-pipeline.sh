@@ -655,7 +655,9 @@ run_stage \
      test/signalloom-security-validation-evidence.bats \
      test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \
      test/supercred-fleet-demo-harness.bats test/supercred-image-visibility.bats \
+     test/registry-cache-mapping.bats \
      test/supercred-state.bats test/supervise-port-forward.bats \
+     test/supervise-port-forward-eperm.bats \
      test/zot-cache.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)

@@ -73,9 +73,38 @@ setup() {
 	BASE="https://${TS_FQDN}"
 	ISSUER="${BASE}/dex"
 
-	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/deploy/gcp" "${surfaces}"
+	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/scripts/lib" "${root}/deploy/gcp" "${surfaces}"
 	cp "${DRIVER_SRC}" "${driver}"
 	chmod +x "${driver}"
+
+	# ── The driver's library must resolve, or nothing below tests anything ────
+	#
+	# demo-up.sh sources scripts/lib/wait.sh via a path relative to its OWN
+	# location. Copying the driver alone into a fixture tree gives it a layout
+	# where that source fails, and it dies at line 118 before parsing a single
+	# argument:
+	#
+	#   demo-up.sh: line 118: .../scripts/gcp-tf/../lib/wait.sh: No such file or directory
+	#
+	# Every one of the 30 REMOTE/SURFACES/TIMING tests below then failed with a
+	# non-zero status and empty output — which reads as thirty independent
+	# behavioural failures and is one missing file. They were red for this
+	# reason before the AFM work landed and were briefly attributed to it;
+	# the failure set is byte-identical either side of that merge.
+	#
+	# Copied rather than symlinked so the fixture stays a self-contained tree,
+	# and copied as a DIRECTORY so a library gaining a second file does not
+	# silently reintroduce this. Commit 3344670 reached the same conclusion for
+	# the mutated-driver suites — "run mutated drivers in a layout where their
+	# library resolves" — and this is that fix aimed at this suite.
+	cp -a "${REPO_ROOT}/scripts/lib/." "${root}/scripts/lib/"
+
+	# Presence before behaviour. If the library ever moves, this says so here
+	# rather than as thirty assertion failures that name the wrong subject.
+	[ -f "${root}/scripts/lib/wait.sh" ] || {
+		echo "fixture is missing scripts/lib/wait.sh — the driver cannot source its library"
+		return 1
+	}
 
 	for s in tailscale getent; do
 		cp "${FIXTURES}/stub-${s}" "${stubdir}/${s}"

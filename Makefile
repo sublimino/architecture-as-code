@@ -1432,6 +1432,55 @@ GCP_TF_IMPERSONATE ?= $(TF_DEPLOY_SA)
 # differently from a runner that has none.
 GCP_TF_IMPERSONATE_ENV = $(if $(strip $(GCP_TF_IMPERSONATE)),GOOGLE_IMPERSONATE_SERVICE_ACCOUNT='$(strip $(GCP_TF_IMPERSONATE))',)
 
+# --- Untracked state in a linked worktree ------------------------------------
+#
+# Everything above this line that makes a run reach a real estate lives in
+# gitignored files. `git worktree add` carries TRACKED content only, so a fresh
+# worktree has none of it — and the resulting failures name the wrong subsystem.
+#
+# The deploy-sa case is the expensive one and it is worth spelling out, because
+# the guard immediately above does NOT catch it. gcp_tf_require_impersonation
+# refuses only when TF_DEPLOY_SA is non-empty and GCP_TF_IMPERSONATE has been
+# blanked — "configured, and you have overridden it". An absent deploy-sa file
+# makes TF_DEPLOY_SA empty, which takes the second arm: a WARNING. So the run
+# proceeds, terraform applies COMPLETELY and successfully as the human's own
+# principal, and the failure lands afterwards in gcp-tf-handoff as
+# "the terraform outputs do not carry every value the hand-off contract
+# requires ... deploy_sa" — a message whose two suggested causes are both wrong
+# here. A full apply cycle is spent before the diagnosis points at outputs.tf.
+#
+# This guard fires before any of that, and only in a linked worktree: a main
+# checkout with no deploy-sa is a legitimate state that the warning above
+# correctly covers.
+GCP_TF_WORKTREE_SCRIPT ?= scripts/gcp-tf/worktree-bootstrap.sh
+
+#
+# FAIL CLOSED on a missing script. An earlier draft made the whole guard
+# conditional on `[ -x $(GCP_TF_WORKTREE_SCRIPT) ]`, which reads as defensive
+# and is the opposite: with the script absent the guard silently evaluates to
+# nothing and gcp-tf-up proceeds into exactly the apply this exists to stop —
+# observed, in a worktree where the script had not yet been committed. A guard
+# whose absence is indistinguishable from its success is not a guard. This
+# matches the neighbouring gcp-tf-ts-* targets, which refuse rather than skip
+# when their driver script is missing.
+define gcp_tf_require_worktree_state
+	@if [ -z '$(strip $(GCP_TF_IMPERSONATE))' ]; then \
+		if [ ! -x '$(GCP_TF_WORKTREE_SCRIPT)' ]; then \
+			echo "ERROR: $(GCP_TF_WORKTREE_SCRIPT) is missing or not executable, so the"; \
+			echo "       worktree-state guard cannot run. Refusing rather than skipping:"; \
+			echo "       an unprovisioned worktree applies cleanly and then fails in"; \
+			echo "       gcp-tf-handoff blaming $(TF_ROOT_ENV)/outputs.tf."; \
+			exit 2; \
+		fi; \
+		'$(GCP_TF_WORKTREE_SCRIPT)' gate || { \
+			echo "       (refused by '$@' before terraform ran, which is the point:"; \
+			echo "        without this the apply SUCCEEDS and gcp-tf-handoff then blames"; \
+			echo "        $(TF_ROOT_ENV)/outputs.tf for an untracked file's absence.)"; \
+			exit 2; \
+		}; \
+	fi
+endef
+
 # The handoff the test code reads. One file, no flags. Untracked: every value in
 # it names a real project.
 GCP_TF_HANDOFF_DIR ?= deploy/gcp
@@ -1886,6 +1935,7 @@ gcp-tf-up: ## Deploy one environment end to end: plan, summarise, apply that exa
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)
 	$(gcp_tf_require_impersonation)
+	$(gcp_tf_require_worktree_state)
 	@# Refuse to apply a plan this run did not create.
 	@#
 	@# Removing any existing plan file up front is the mechanism: after the plan
@@ -1929,6 +1979,30 @@ gcp-tf-up: ## Deploy one environment end to end: plan, summarise, apply that exa
 	$(MAKE) --no-print-directory gcp-tf-handoff $(GCP_TF_FORWARD)
 
 .PHONY: gcp-tf-handoff
+.PHONY: gcp-tf-worktree-bootstrap
+gcp-tf-worktree-bootstrap: ## Copy this repo's untracked operational state (deploy-sa, tfvars, hand-offs, .keys) from the source checkout into this worktree.
+	@if [ ! -x '$(GCP_TF_WORKTREE_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_WORKTREE_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	@'$(GCP_TF_WORKTREE_SCRIPT)' provision
+
+.PHONY: gcp-tf-worktree-check
+gcp-tf-worktree-check: ## Report whether this worktree carries the untracked state it needs, naming what is absent (ENV=<key> also requires that hand-off).
+	@if [ ! -x '$(GCP_TF_WORKTREE_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_WORKTREE_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	@ENV='$(ENV)' '$(GCP_TF_WORKTREE_SCRIPT)' check
+
+.PHONY: gcp-tf-worktree-status
+gcp-tf-worktree-status: ## Per-item table of this worktree's untracked state against the source checkout, read-only.
+	@if [ ! -x '$(GCP_TF_WORKTREE_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_WORKTREE_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	@'$(GCP_TF_WORKTREE_SCRIPT)' status
+
 gcp-tf-handoff: ## Regenerate deploy/gcp/<env>.handoff.json from current state, read-only (ENV=<key>).
 	$(gcp_tf_require_env)
 	$(gcp_tf_require_state_bucket)

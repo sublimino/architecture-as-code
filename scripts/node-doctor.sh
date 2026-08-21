@@ -6,28 +6,44 @@
 #
 # ═══ HOW THIS RELATES TO `make doctor` ══════════════════════════════════════
 #
-# `make doctor` is scripts/cluster-debug.sh, and it is a CLUSTER doctor. It runs
-# against whatever `kubectl config current-context` points at and reports on
-# namespaces, pods, Flux, ResourceSets, images and the dashboard backends. It is
-# excellent at that and it is blind to everything underneath it, because
-# everything it uses is a Kubernetes API call:
+# `make doctor` is scripts/cluster-debug.sh. It is a good doctor and it is NOT
+# limited to the Kubernetes API — it checks the docker daemon, the kind
+# control-plane container, the registry-cache mirrors, the containerd certs.d
+# hosts.toml files and the zot cache directory's ownership. The gaps below were
+# measured against the script, not assumed from its name.
 #
-#   it cannot see          because
-#   ─────────────────────  ────────────────────────────────────────────────────
-#   the VM at all          it never leaves the Kubernetes API
-#   tailscale              likewise — serve config, node name, boot unit
-#   the lane kind          it does not know a lane exists, let alone which kind
-#   VM/node disk           no node-level filesystem view
-#   docker/containerd      it sees Kubernetes objects, not the runtime under them
-#   whether a push works   it can see the zot POD; the pod is green when the
-#                          blob store is gone
-#   how many clusters      it checks that the AFM backend ANSWERS; a backend
-#   AFM imported           answering 200 with zero clusters passes it
+# The structural one first: cluster-debug has no lane concept. It inspects
+# whatever `kubectl config current-context` and the LOCAL docker point at, so
+# from an operator's machine it cannot reach any of the four lanes at all — it
+# is run ON the VM, by the pipeline. Everything here is addressed by ENV and
+# reaches the lane over IAP.
 #
-# So this is a complement, not a replacement. It runs BELOW the cluster: the
-# instance, the tailnet, the runtime, the filesystem, and the two facts that a
-# green cluster can hide — a registry that serves but cannot store, and a
-# platform that is up and empty.
+# Then the specific ones:
+#
+#   it does not check       and the consequence
+#   ──────────────────────  ──────────────────────────────────────────────────
+#   gcloud, at all          no instance status, labels or metadata — so no lane
+#                           kind, and SUSPENDED is invisible
+#   tailscale               no node-name drift, no serve config, no boot unit
+#   systemd                 a serve unit that is active but not enabled passes
+#   disk capacity           neither `df` nor any filesystem headroom
+#   a real blob PUSH        it checks the zot pod and greps its log for
+#                           `cache.db|permission denied`. The unlinked blob
+#                           store produces neither: the pod is 1/1 Running and
+#                           /v2/ answers 200. Only a push fails.
+#   the bind-mount inode    its cache check is `stat -c '%u:%a'` on ownership,
+#                           guarded by `[[ -e "$zot_cache_dir" ]]` where the
+#                           default is `.cache/zot` — the LOCAL dev path. On a
+#                           lane, whose cache is /opt/signalloom/zot-cache, that
+#                           guard is false and the check silently does not run.
+#   the AFM cluster COUNT   nothing in cluster-debug or check-backends.sh counts
+#                           clusters. A platform answering 200 and holding zero
+#                           passes everything.
+#
+# So this is a complement, not a replacement. It runs BELOW and BESIDE the
+# cluster: the instance and its lane contract, the tailnet, the filesystem, and
+# the two facts a green cluster actively hides — a registry that serves but
+# cannot store, and a platform that is up and empty.
 #
 # ═══ SHAPE ═════════════════════════════════════════════════════════════════
 #

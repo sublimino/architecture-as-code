@@ -73,6 +73,35 @@ case "$argv" in
     exit 0
     ;;
   *"start-iap-tunnel"*)
+    # Record our own pid so a suite can drive the tunnel-ownership check with a
+    # REAL pid rather than a canned one.
+    #
+    # `$$` here is exactly the driver's `$!`: the driver backgrounds
+    # `env SSH_AUTH_SOCK='' gcloud …`, and `env` EXECs this script, so the
+    # process keeps its pid. That makes this the genuine article — a suite
+    # asserting "the socket owner is our tunnel" is comparing against the pid
+    # the driver actually recorded, not against a number the test made up.
+    #
+    # Defaults to /dev/null, so every suite that does not care is unaffected.
+    printf '%s\n' "$$" >"${STUB_TUNNEL_PIDFILE:-/dev/null}"
+
+    # A genuine DESCENDANT, for the half of the ownership check the line above
+    # cannot exercise.
+    #
+    # `$$` here is exactly the driver's `$!`, so a suite driven off it compares
+    # two equal numbers and never walks the process tree. Against a real gcloud
+    # they are not equal: gcloud is a wrapper that runs Python, so the socket is
+    # held by a child. A suite that only ever sees the equal case would stay
+    # green with the ancestry walk collapsed to `[ "$pid" = "$want" ]` — which
+    # would then reject every real tunnel in production.
+    #
+    # The child sleeps well past the driver's check so it is certainly alive
+    # when the ownership probe runs; an exited pid has no ppid to read and would
+    # make the happy-path test flaky rather than wrong.
+    if [ -n "${STUB_TUNNEL_CHILD_PIDFILE:-}" ]; then
+      (sleep 10) &
+      printf '%s\n' "$!" >"${STUB_TUNNEL_CHILD_PIDFILE}"
+    fi
     [ -z "${STUB_TUNNEL_STDERR:-}" ] || printf '%s\n' "${STUB_TUNNEL_STDERR}" >&2
     [ "${STUB_TUNNEL_RC:-0}" = "0" ] || exit "${STUB_TUNNEL_RC}"
     printf 'Listening on port [%s].\n' "$2"

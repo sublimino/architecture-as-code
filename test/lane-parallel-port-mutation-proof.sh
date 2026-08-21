@@ -173,7 +173,7 @@ mutate() {
 # What is given up: collateral damage from a mutation is no longer visible. That
 # is acceptable because these mutations are deliberate breakages — a mutation
 # also breaking a neighbouring test is expected, not a finding.
-FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL}"
+FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL|OWNERSHIP|IDENTITY}"
 failing_tests() {
   bats --filter "$FILTER" "$SUITE" 2>&1 | sed -n 's/^not ok [0-9]* //p'
 }
@@ -270,6 +270,100 @@ check "M5 escape hatch" "PARALLEL the refusal hands over the per-lane escape hat
 echo "M6  the preflight probe is collapsed onto the post-launch probe"
 mutate 's|^PREFLIGHT_PORT_PROBE="\${GCP_TF_DEMO_PREFLIGHT_PORT_PROBE:-default_port_probe}"$|PREFLIGHT_PORT_PROBE="$PORT_PROBE"|'
 check "M6 collapsed probes" "PARALLEL a free port leaves connect completely unchanged"
+
+# ─── M7: connect's ownership check deleted ──────────────────────────────────
+#
+# The port guard and the ownership check answer different questions, and this
+# is what proves the second is not decoration once the first exists. With a
+# per-lane port the collision never happens, the port guard stays silent — and
+# a socket hijacked inside gcloud's authentication window still gets handed
+# over as a healthy tunnel.
+echo "M7  connect's tunnel-ownership check is deleted"
+mutate 's|^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-connect"; then$|  if false; then # MUTATED|'
+check "M7 connect ownership" "OWNERSHIP connect refuses a socket held by ANOTHER lane's tunnel"
+
+# ─── M8: public's ownership check deleted ───────────────────────────────────
+#
+# Separate from M7 for the same reason M2 is separate from M1, and with more at
+# stake: public's health probe would collect its 200 from the other lane's
+# dashboard and print "verified before you clicked".
+echo "M8  public's tunnel-ownership check is deleted"
+mutate 's|^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-public"; then$|  if false; then # MUTATED|'
+check "M8 public ownership" "OWNERSHIP public refuses a hijacked socket BEFORE its health probe"
+
+# ─── M9: unattributable sockets treated as ours ─────────────────────────────
+#
+# The fail-OPEN rewrite, and the most likely one to be introduced in good faith.
+# `ss` is missing on some machines, the check starts refusing, and the obvious
+# "fix" is to let an empty owner list pass. That silently disables the entire
+# mechanism on exactly the hosts where it cannot verify anything — while every
+# presence assertion in the suite still passes.
+echo "M9  an unattributable socket is treated as ours (fail-open)"
+# `#` delimiter: the matched line contains `||`, which with `|` as the delimiter
+# ends the expression early and yields sed's opaque "unknown option to `s'".
+# Same trap as M3 — it bit twice in this file, which is why both now say so.
+mutate 's#^  owners="\$("\$LISTENER_OWNER_PROBE" "\$want" 2>/dev/null \|\| true)"$#  owners="$("$LISTENER_OWNER_PROBE" "$want" 2>/dev/null || true)"; [ -n "$owners" ] || return 0#'
+check "M9 fail-open owners" "OWNERSHIP an unattributable socket is refused, not assumed to be ours"
+
+# ─── M10: the descendant walk collapsed to an equality test ─────────────────
+#
+# Subtle, correct-looking, and it breaks the HAPPY path rather than the failure
+# path — so no refusal test can catch it. `$!` is the pid of the backgrounded
+# `env`; against a real gcloud (a wrapper that runs Python) the socket is held
+# by a descendant, so comparing the two numbers directly rejects every
+# legitimate tunnel. A guard that refuses valid input is a guard somebody
+# deletes, and deleting this one restores the hijack.
+#
+# The expectation is the DESCENDANT test, not the plain accept test, and the
+# distinction is the whole point. `owner-ours` returns a pid EQUAL to
+# tunnel_pid — the stub is exec'd by `env` so it keeps the pid — which means
+# the direct comparison succeeds and the walk is never entered. This mutation
+# was NOT PROVEN against that test, correctly: the suite could not see it. The
+# stub now also records a genuine child pid, and only the walk resolves that.
+echo "M10 the ancestry walk is collapsed to a direct pid comparison"
+mutate 's|^    \[ "\$pid" = "\$want" \] \&\& return 0$|    [ "$pid" = "$want" ] \&\& return 0; return 1|'
+check "M10 descendant walk" "OWNERSHIP connect accepts a socket held by a DESCENDANT of its tunnel"
+
+# ─── M11: connect stops asserting far-side identity ─────────────────────────
+#
+# The layer that generalises. Ownership defends the IAP socket; this is the one
+# shared with every other transport, and deleting it is invisible on the default
+# origin precisely because that origin cannot distinguish lanes anyway.
+echo "M11 connect's far-side identity assertion is deleted"
+mutate 's|^  require_far_side_lane_identity "\$origin" "gcp-tf-connect"$|  : # MUTATED|'
+check "M11 connect far-side" "IDENTITY the default IAP origin reports UNVERIFIED rather than confirming"
+
+# ─── M12: public stops asserting far-side identity ──────────────────────────
+echo "M12 public's far-side identity assertion is deleted"
+mutate 's|^  require_far_side_lane_identity "\$origin" "gcp-tf-public"$|  : # MUTATED|'
+check "M12 public far-side" "IDENTITY the shared far-side primitive exists and both tunnel paths call it"
+
+# ─── M13: CANNOT-VERIFY is promoted to VERIFIED ─────────────────────────────
+#
+# The vacuous-pass rewrite, and the one that turns "we do not know" into "we
+# have confirmed" — the single worst outcome available to an identity check,
+# because every downstream reader now believes the lane was checked.
+echo "M13 an unverifiable origin is reported as confirmed"
+# Targets the REPORTING of the third verdict, not its production, and the first
+# two attempts at this got it wrong in a way worth recording.
+#
+# Neutering lane_origin_is_distinguishing does NOT produce a vacuous pass on its
+# own: control falls through to the empty-issuer branch, which returns
+# CANNOT-VERIFY as well. Both paths converge on 2, so the suite stays green and
+# the mutation looks caught when nothing was tested. Producing the vacuous pass
+# needs the mutation AND an issuer that echoes the origin — which is what the
+# in-suite MUTATION test supplies, and which this harness cannot.
+#
+# What IS reachable from the default setup is the promotion itself: rc=2 being
+# announced as confirmation. That is the actual defect being guarded against —
+# turning "we do not know" into "we have confirmed" — so it is the right thing
+# to mutate.
+#
+# `@` as the delimiter: `|` breaks on the `||` in M3 and M9, and `#` breaks on a
+# `#MUTATED` marker in a replacement. Check the replacement for collisions, not
+# just the pattern.
+mutate 's@^      warn "far-side identity UNVERIFIED for \${ENV_KEY}: \${LANE_IDENTITY_DETAIL}"@      log "far-side identity CONFIRMED: ${LANE_IDENTITY_DETAIL}"@'
+check "M13 vacuous verified" "IDENTITY the default IAP origin reports UNVERIFIED rather than confirming"
 
 echo
 echo "=== restored; verifying the tree is byte-identical to where we started ==="

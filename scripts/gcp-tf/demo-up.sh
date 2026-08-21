@@ -203,6 +203,257 @@ PREFLIGHT_PORT_PROBE="${GCP_TF_DEMO_PREFLIGHT_PORT_PROBE:-default_port_probe}"
 # `require_no_conflicting_origin` cannot catch this — it asks lane B's own
 # cluster whether another ACCESS METHOD holds its issuer, and lane A is a
 # different cluster that it never speaks to.
+# ── Proving the socket is OURS, which is a different claim from "free" ──────
+#
+# require_local_port_free below closes the common case and does not close the
+# race. Between its check and gcloud's bind there is a window — several seconds
+# wide, because gcloud spends that long authenticating before it binds — in
+# which another lane can take the port. The wait loop then probes, the other
+# lane answers, and we are back to reporting a healthy tunnel on the wrong
+# cluster. A per-lane port narrows that window; it does not remove it, and it
+# removes nothing at all if two operators pick the same number.
+#
+# So the binding question is not "is something listening" but "is the thing
+# listening the tunnel I just started for THIS lane". That is answerable
+# locally and exactly: `gcloud compute start-iap-tunnel` was invoked with this
+# lane's INSTANCE_NAME, so if the socket belongs to that process, the far end is
+# this lane by construction.
+#
+# ─── Why provenance, and what far-side attestation can and cannot do here ───
+#
+# The complementary property is far-side attestation: ask through the tunnel who
+# answered, and compare. This estate already does exactly that on ONE path —
+# cmd_ts_test's R3 fetches Dex's discovery document and requires
+# `.issuer` to equal the origin it asked for.
+#
+# That works over the tailnet and cannot work over IAP, for precisely the reason
+# this whole guard exists. The tailnet origin is https://sl-<env>.<tailnet>.ts.net,
+# which embeds the lane key, so a wrong lane answers with an issuer naming
+# ITSELF and the mismatch is caught. The IAP origin is http://localhost:<port>,
+# and every lane defaults to the SAME port — so the issuer string is identical
+# across all four lanes and attests to nothing at all. The colliding port does
+# not merely cause the hijack; it also disarms the one identity check the estate
+# already owns.
+#
+# Nothing else nginx serves distinguishes a lane: HEALTH_PATH (/readyz) returns
+# a bare status code, and the SPA, Dex and the API are byte-identical across
+# lanes because they are built from the same images.
+#
+# So there are two ways to earn far-side attestation over IAP, and they are
+# worth stating because one of them is nearly free:
+#
+#   * make the local port per-lane, which makes the IAP origin lane-specific
+#     and brings the EXISTING Dex issuer check into range on this path too;
+#   * or have nginx return the environment key in a header, which is
+#     path-agnostic and covers both transports at once.
+#
+# Neither replaces this check, and the ordering matters: attestation is
+# TESTIMONY from whatever is on the other end of the socket, while ownership is
+# PROVENANCE of the socket itself. A confused or hostile far side can say
+# anything; a socket's owning pid cannot. Ownership is also the only one of the
+# two that is available before a single byte is exchanged.
+LISTENER_OWNER_PROBE="${GCP_TF_DEMO_LISTENER_OWNER_PROBE:-default_listener_owner}"
+
+# Prints the pids holding a LISTENING socket on port $1, one per line.
+#
+# `ss` reports `pid=` only for sockets the calling user owns, which is exactly
+# the case that matters here: another lane's tunnel, started by the same
+# operator at the same terminal. A socket owned by another user prints no pid,
+# which this treats as "not ours" — the fail-closed direction.
+default_listener_owner() {
+  ss -ltnpH "sport = :$1" 2>/dev/null |
+    grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u
+}
+
+# True when $1 is $2, or any descendant of $2.
+#
+# The walk is not ceremony. `$!` is the pid of the backgrounded `env`, which
+# execs gcloud, which is a wrapper that runs Python — so the pid holding the
+# socket is routinely a descendant rather than the pid we recorded. Comparing
+# only the two numbers would reject our own tunnel every time.
+#
+# `ps -o ppid=`, never `awk` over /proc/PID/stat: the comm field in stat is
+# parenthesised and may contain spaces, so positional parsing silently reads
+# the wrong column for any process whose name has one.
+pid_is_descendant_of() {
+  local pid="$1" want="$2" hops=0
+  while [ -n "$pid" ] && [ "$pid" != "0" ] && [ "$hops" -lt 32 ]; do
+    [ "$pid" = "$want" ] && return 0
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]')"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+# Refuse to hand over a tunnel whose socket we cannot show we own.
+assert_tunnel_is_ours() {
+  local want="$1" tunnel_pid="$2" who="$3" owners owner
+
+  owners="$("$LISTENER_OWNER_PROBE" "$want" 2>/dev/null || true)"
+
+  for owner in $owners; do
+    pid_is_descendant_of "$owner" "$tunnel_pid" && return 0
+  done
+
+  cat >&2 <<EOF
+demo-up: REFUSING — localhost:${want} is not served by this run's tunnel.
+
+  wanted by:     ${who} (ENV=${ENV_KEY})
+  this lane:     ${INSTANCE_NAME}
+  our tunnel:    pid ${tunnel_pid}
+  socket owner:  ${owners:-<none reported>}
+
+  Something bound this port that this invocation did not start, so the port
+  answered our readiness probe on behalf of a process we do not own. In a
+  multi-lane session that is another lane's tunnel, and continuing would hand
+  you a dashboard, a login and a full test run against a DIFFERENT cluster —
+  reporting success the whole way.
+
+  This is the check that does not care whether the ports were chosen well. A
+  per-lane port makes the collision unlikely; this makes acting on one
+  impossible.
+
+  If '<none reported>' above, the socket belongs to another user or 'ss' is
+  unavailable — both are refusals here rather than assumptions, because the
+  question is whether we can PROVE the tunnel is ours, not whether we can find
+  a reason it might be.
+
+      ss -ltnp 'sport = :${want}'
+EOF
+  return 1
+}
+
+# ── The ONE far-side identity primitive, shared by every access path ────────
+#
+# Ownership (above) is inherently local: it proves the socket on THIS machine
+# belongs to the tunnel we started. It cannot be made path-agnostic, because the
+# tailnet path has no local socket of ours to attribute — the connection goes
+# over the tailnet to a remote node. Anything claiming to generalise it would be
+# a different mechanism wearing the same name.
+#
+# What DOES generalise is the other half: does the far side agree it is this
+# lane's origin. cmd_ts_test's R3 has been doing exactly that — fetching Dex's
+# discovery document and requiring `.issuer` to equal the origin it asked for.
+# This is that check, extracted so there is ONE definition of the rule rather
+# than one per transport. A second copy bolted onto a second path is how this
+# model drifts, and drift in an identity check is the failure it exists to stop.
+#
+# ─── THREE answers, not a boolean, and the third is the point ───────────────
+#
+#   0  VERIFIED      the far side named this lane's origin
+#   1  MISMATCH      it named a different one — refuse
+#   2  CANNOT-VERIFY the origin cannot distinguish lanes, so a match proves
+#                    nothing and reporting one would be a lie
+#
+# The third exists because of the defect this whole branch is about. Over the
+# tailnet the origin is https://sl-<env>.<tailnet>.ts.net and embeds the lane
+# key, so a wrong lane answers with an issuer naming ITSELF and the mismatch is
+# caught. Over IAP the origin is http://localhost:<port>, and every lane
+# defaults to the same port — so the string is identical across all four lanes,
+# `got == want` holds no matter which lane answered, and a naive reuse of this
+# check on that path would return VERIFIED for a hijacked socket.
+#
+# That is a vacuous pass, and a vacuous pass in an identity check is worse than
+# no check: it converts "we do not know" into "we have confirmed". So the origin
+# is tested for lane-distinguishing power FIRST, and the answer is refused
+# rather than faked.
+LANE_IDENTITY_DETAIL=""
+
+# An origin can distinguish lanes only if the lane key appears in it.
+#
+# Deliberately a property of the ORIGIN rather than a list of known-bad hosts.
+# A denylist of "localhost" would pass the day someone introduces a second
+# non-distinguishing origin, and the question is not "is this localhost" but
+# "could this string have come from another lane".
+lane_origin_is_distinguishing() {
+  case "$1" in
+    *"$ENV_KEY"*) return 0 ;;
+  esac
+  return 1
+}
+
+# Injectable, like PORT_PROBE and LISTENER_OWNER_PROBE, and for the same reason:
+# every branch of the identity decision has to be drivable with no cluster, no
+# credentials and no network. A check whose failure path can only be seen
+# against a real estate is a check nobody ever sees fail.
+FAR_SIDE_ISSUER_PROBE="${GCP_TF_DEMO_ISSUER_PROBE:-far_side_issuer}"
+
+# Fetch the issuer Dex publishes at an origin. Prints it, or nothing.
+# Separated so the comparison is testable without a cluster.
+far_side_issuer() {
+  local origin="$1" body
+  body="$(mktemp "${TMPDIR:-/tmp}/demo-issuer.XXXXXX.json")"
+  local code
+  code="$("$CURL_BIN" -sS -o "$body" -w '%{http_code}' --max-time 15 \
+    "${origin}/dex/.well-known/openid-configuration" 2>/dev/null || printf '000')"
+  if [ "$code" = "200" ]; then
+    jq -r '.issuer // ""' "$body" 2>/dev/null || printf ''
+  fi
+  rm -f "$body"
+}
+
+assert_far_side_lane_identity() {
+  local origin="$1" want got
+
+  if ! lane_origin_is_distinguishing "$origin"; then
+    LANE_IDENTITY_DETAIL="origin ${origin} does not contain the lane key '${ENV_KEY}', so it is identical across lanes and cannot attest to one"
+    return 2
+  fi
+
+  want="${origin}/dex"
+  got="$("$FAR_SIDE_ISSUER_PROBE" "$origin")"
+
+  if [ -z "$got" ]; then
+    LANE_IDENTITY_DETAIL="no issuer returned at ${origin} — Dex discovery did not answer, so identity is unconfirmed rather than wrong"
+    return 2
+  fi
+  if [ "$got" = "$want" ]; then
+    LANE_IDENTITY_DETAIL="$got"
+    return 0
+  fi
+  LANE_IDENTITY_DETAIL="the estate at ${origin} issues for '${got}', not '${want}'"
+  return 1
+}
+
+# The caller-facing wrapper: fatal on MISMATCH, explicit on CANNOT-VERIFY.
+#
+# CANNOT-VERIFY is a warning rather than a refusal, and that is a judgement
+# rather than a shrug. On the IAP path with the default port it is the NORMAL
+# state today, so failing on it would refuse every correct single-lane run —
+# and a guard that refuses valid input is one somebody deletes. Ownership is
+# what actually defends that path; this is the second layer, and it becomes
+# load-bearing the moment the local port is per-lane.
+require_far_side_lane_identity() {
+  local origin="$1" who="$2" rc=0
+
+  assert_far_side_lane_identity "$origin" || rc=$?
+
+  case "$rc" in
+    0)
+      log "far-side identity CONFIRMED: ${LANE_IDENTITY_DETAIL}"
+      return 0
+      ;;
+    2)
+      warn "far-side identity UNVERIFIED for ${ENV_KEY}: ${LANE_IDENTITY_DETAIL}"
+      warn "  a per-lane local port (GCP_TF_DEMO_LOCAL_PORT) makes this checkable — see require_local_port_free"
+      return 0
+      ;;
+  esac
+
+  cat >&2 <<EOF
+demo-up: REFUSING — the estate answering here is not ${ENV_KEY}.
+
+  wanted by: ${who} (ENV=${ENV_KEY})
+  origin:    ${origin}
+  detail:    ${LANE_IDENTITY_DETAIL}
+
+  Dex publishes the origin its own lane was configured for, so an issuer naming
+  a different origin means a different lane answered. Continuing would run this
+  lane's work against that one and report success.
+EOF
+  exit 9
+}
+
 require_local_port_free() {
   local want="$1" who="$2"
 
@@ -1578,6 +1829,22 @@ cmd_connect() {
     exit 2
   fi
 
+  # The port answered. That is not yet evidence it answered for US — see
+  # assert_tunnel_is_ours. Checked before the URL is called live, because the
+  # next thing that happens is a human clicking it.
+  if ! assert_tunnel_is_ours "$local_port" "$tunnel_pid" "gcp-tf-connect"; then
+    kill "$tunnel_pid" 2>/dev/null || true
+    wait "$tunnel_pid" 2>/dev/null || true
+    rm -f "$tunnel_err"
+    exit 8
+  fi
+
+  # The second layer, and the one that is shared with every other access path.
+  # Ownership proved the socket is ours; this asks the estate on the far end
+  # whether it agrees it is this lane. On the default IAP origin it reports
+  # UNVERIFIED rather than pretending — see assert_far_side_lane_identity.
+  require_far_side_lane_identity "$origin" "gcp-tf-connect"
+
   rm -f "$tunnel_err"
   log "tunnel is UP on localhost:${local_port} — the URL above is live. Ctrl-C to close."
   wait "$tunnel_pid"
@@ -2118,6 +2385,21 @@ cmd_public() {
     rm -f "$tunnel_err"
     exit 2
   fi
+
+  # BEFORE the health probe, not after. The probe below is precisely the thing
+  # that would launder a hijacked socket into a verdict: it would get its 200
+  # from the other lane's healthy dashboard and print "verified before you
+  # clicked" about an estate nobody asked for. See assert_tunnel_is_ours.
+  if ! assert_tunnel_is_ours "$local_port" "$tunnel_pid" "gcp-tf-public"; then
+    kill "$tunnel_pid" 2>/dev/null || true
+    wait "$tunnel_pid" 2>/dev/null || true
+    rm -f "$tunnel_err"
+    exit 8
+  fi
+
+  # Before the health probe, for the same reason ownership is: a 200 collected
+  # through the wrong estate is a verdict about the wrong estate.
+  require_far_side_lane_identity "$origin" "gcp-tf-public"
 
   # The bit `connect` does not do. A bound port is not a working demo.
   log "tunnel bound — probing ${origin}${HEALTH_PATH} (up to ${HEALTH_WAIT_SECONDS}s)"

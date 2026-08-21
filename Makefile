@@ -952,11 +952,13 @@ doctor: cluster-debug ## Alias for the comprehensive cluster diagnostic report.
 
 # ── The NODE doctors ────────────────────────────────────────────────────────
 #
-# `doctor` above is a CLUSTER doctor: it runs against the current kubectl
-# context and sees Kubernetes objects. These run one level DOWN — the GCP
-# instance, the tailnet, docker/containerd, the filesystem, and the two things a
-# green cluster hides: a zot registry that serves happily while it cannot store,
-# and an AFM platform that answers 200 holding zero clusters.
+# `doctor` above inspects the machine it is RUN ON — the current kubectl context
+# plus the local docker. It has no lane concept, so from here it cannot reach
+# any of the four lanes; it is run on the VM by the pipeline. These are
+# addressed by ENV and reach the lane over IAP, and they cover what cluster-debug
+# does not: gcloud (instance status, the lane-kind contract), tailscale, systemd,
+# disk headroom, a REAL zot blob push, and the AFM cluster count. The gap list
+# with its measurements is at the head of scripts/node-doctor.sh.
 #
 # ─── Why these are named `doctor-node*` and not `gcp-tf-doctor-node` ────────
 #

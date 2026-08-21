@@ -412,6 +412,7 @@ push_code() {
     --exclude='ci-reports*' \
     --exclude='test-results' \
     --exclude='playwright-report' \
+    --exclude='.afm-image' \
     -czf "$tarball" .
 
   iap_scp "$tarball" "${VM_NAME}:/tmp/osramp-demo-ci.tar.gz"
@@ -423,6 +424,82 @@ push_code() {
 
   rm -f "$tarball"
   echo "==> Code pushed to ${REMOTE_WORK_DIR}"
+}
+
+# ── Push the KubeSec-AFM image ───────────────────────────────────────
+#
+# The image builds from a repo OUTSIDE this one (KUBESEC_AFM_ROOT), so it can
+# never be in a tarball of this checkout. The d2-k8s-afm/ manifests DO ship, so
+# every CI lane has been applying a Deployment for an image that was not there:
+# fe-k8s-afm never existed, and the seven nginx locations that proxy to
+# afm-platform answered 502. See scripts/gcp-tf/demo-up.sh:deliver_afm_image for
+# why a saved image beats vendoring the source or using a registry.
+#
+# `.afm-image` is EXCLUDED from push_code's tarball above and delivered here
+# instead. It would otherwise ride along implicitly — this path tars the working
+# tree rather than using `git archive` — and an implicit 245MB passenger is one
+# nobody would think to look for when it stops travelling.
+push_afm_image() {
+  local archive="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz}"
+  local afm_src="${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}"
+  # The path scripts/k8s-afm.sh derives for itself on the VM, so no variable has
+  # to cross the ssh boundary and no two sides can disagree about the location.
+  local dest="${REMOTE_WORK_DIR}/.afm-image/kubesec-afm.tar.gz"
+
+  if [ -f "${afm_src}/AFM/docker/backend.Dockerfile" ]; then
+    echo "==> Building the AFM image archive from source..."
+    "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive" || {
+      echo "ERROR: 'k8s-afm.sh save' failed; no AFM image to push." >&2
+      return 1
+    }
+  elif [ -s "$archive" ]; then
+    echo "==> Using the pre-built AFM image archive at ${archive}"
+  elif [ "${AFM_REQUIRED:-1}" = "0" ]; then
+    echo "WARNING: AFM_REQUIRED=0 — pushing NO AFM image. /afm/ will answer 502 on"
+    echo "         this lane and the four AFM acceptance specs will skip." >&2
+    return 0
+  else
+    echo "ERROR: no KUBESEC_AFM_ROOT checkout and no archive at ${archive}." >&2
+    echo "       This lane would deploy d2-k8s-afm/ with no image behind it, and" >&2
+    echo "       /afm/, /dashboard/, /clusters, /metrics/, /health, /jobs and" >&2
+    echo "       /webhooks/ would all answer 502." >&2
+    echo "       Provide the source, or an archive from 'k8s-afm.sh save', or" >&2
+    echo "       accept the gap explicitly with AFM_REQUIRED=0." >&2
+    return 1
+  fi
+
+  local digest remote_digest
+  digest="$(sha256sum "$archive" | cut -d' ' -f1)"
+
+  # A content hash, not a byte count: this decides whether to SKIP a transfer,
+  # which is a claim that the bytes already there are the RIGHT bytes. Two AFM
+  # commits can produce archives of identical size, and being wrong means the
+  # lane silently runs a stale binary.
+  remote_digest="$(iap_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || true" 2>/dev/null \
+    | tr -d '[:space:]')"
+  if [ -n "$remote_digest" ] && [ "$remote_digest" = "$digest" ]; then
+    echo "==> AFM image already on ${VM_NAME} with a matching digest — skipping the transfer"
+    return 0
+  fi
+
+  echo "==> Pushing the AFM image ($(du -h "$archive" | cut -f1)) to ${VM_NAME}..."
+  iap_scp "$archive" "${VM_NAME}:/tmp/kubesec-afm-image.tar.gz"
+  iap_ssh "sudo mkdir -p $(dirname "$dest") && \
+    sudo mv -f /tmp/kubesec-afm-image.tar.gz $(printf '%q' "$dest") && \
+    sudo chown -R ci:ci ${REMOTE_WORK_DIR}/.afm-image"
+
+  # An exit status describes the command; only the artefact describes the
+  # artefact. A corrupt archive fails `docker load` twenty minutes later with an
+  # error that blames containerd.
+  local landed
+  landed="$(iap_ssh "sha256sum $(printf '%q' "$dest") 2>/dev/null | cut -d' ' -f1 || echo MISSING" 2>/dev/null \
+    | tr -d '[:space:]')"
+  if [ "$landed" != "$digest" ]; then
+    echo "ERROR: the AFM image on ${VM_NAME} hashes '${landed:0:12}' and '${digest:0:12}' was sent." >&2
+    echo "       The archive did not survive the transfer. Not proceeding with a corrupt image." >&2
+    return 1
+  fi
+  echo "==> AFM image delivered and verified: sha256 ${landed:0:12}"
 }
 
 # ── Provision (idempotent — safe to run multiple times) ──────────────
@@ -1163,6 +1240,10 @@ cmd_run() {
   # checkout would silently test stale files and preserve deleted paths.
   set_run_phase "pushing-code"
   push_code
+  # AFTER push_code, which does `rm -rf ${REMOTE_WORK_DIR}` — the archive lands
+  # inside that directory. Pushing first would silently delete it, and the lane
+  # would then refuse AFM having just been told the image arrived.
+  push_afm_image || exit 2
 
   # ── Run the pipeline via SSH ──
   echo "==> Running pipeline on VM..."
@@ -1423,7 +1504,7 @@ case "${1:-run}" in
   # push-code is destructive on its own (`rm -rf ${REMOTE_WORK_DIR}`), so it
   # takes the lock too rather than being a quiet back door around it.
   push-code)   ensure_vm_ssh_ready || exit 2
-               trap lock_release EXIT; lock_acquire; push_code ;;
+               trap lock_release EXIT; lock_acquire; push_code; push_afm_image ;;
   lock)        shift; lock_shim
                CI_LOCK_REMOTE_EXEC="$LOCK_SHIM" CI_LOCK_HOLDER="$LOCK_HOLDER_NAME" \
                  CI_LOCK_TOKEN="$LOCK_TOKEN_VALUE" GCP_CI_REMOTE_WORK_DIR="$REMOTE_WORK_DIR" \

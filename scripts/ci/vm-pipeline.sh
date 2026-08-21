@@ -368,6 +368,51 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
 # both the membership and this ordering from the recipe (TOO EARLY).
 ./scripts/agent-trust-local.sh up
 
+# Fifth instance of the hand-copy drift, and the longest-lived: demo-signalloom-up
+# has ended with demo-signalloom-afm-up for as long as that target has existed,
+# and this file never had it. check-ci-build-parity.sh did not flag it because
+# the target sat in that script's DELIBERATE OPT-OUT list — "unavailable: needs
+# the external kubesec-afm source tree, absent on the CI VM" — which was true
+# when it was written and is the reason nobody looked again.
+#
+# It is no longer true. scripts/ci/gcp-ci.sh:push_afm_image delivers a saved
+# image to ${CI_WORK_DIR}/.afm-image/, which is exactly where scripts/k8s-afm.sh
+# looks by default, so the slice is now deployable here with no source checkout.
+# The allowlist entry has been removed with this line, and the two must move
+# together: leaving the entry would let this drift back out silently.
+echo "==> Deploying the KubeSec-AFM slice..."
+make demo-signalloom-afm-up
+
+# ── Assert the deployed estate is WHOLE ───────────────────────────────
+#
+# scripts/check-backends.sh reads nginx.conf's proxy_pass set — which IS the set
+# of backends that must exist — and asserts each resolves to a Service with
+# ready endpoints. It was written for exactly this incident (its header names
+# afm-platform as one of two motivating cases) and then NO pipeline ever called
+# it: the only callers were `make check-backends` and doctor.sh, both of which
+# need a human to run them. A guard nothing invokes is documentation.
+#
+# It runs before the test stages, not as one, and it is fatal. The reason is the
+# cost asymmetry recorded at the top of this file: a missing backend makes
+# stages fail for reasons that name the test rather than the deployment, ~40
+# minutes in. This is the cheapest check in the pipeline and it gates the most
+# expensive ones.
+#
+# Invoked as `make check-backends` rather than as the script directly, so that
+# scripts/check-ci-build-parity.sh can see it: that guard extracts `$(MAKE) x`
+# from the recipe and looks for `make x` here, and a direct `./scripts/...`
+# invocation reads as MISSING even though the work happens. Measured — it
+# reported exactly that on the first draft of this block.
+echo "==> Asserting every dashboard backend is deployed and reachable..."
+if ! make check-backends; then
+  echo "ERROR: the estate is INCOMPLETE — a backend the dashboard proxies to is" >&2
+  echo "       missing or has no ready endpoints (named above)." >&2
+  echo "       This is a SETUP failure, not a test failure. Running the stages now" >&2
+  echo "       would report browser tests as broken and send the reader to the" >&2
+  echo "       tests instead of to the deployment." >&2
+  exit 2
+fi
+
 # ── Run 10-stage test suite ───────────────────────────────────────────
 PIPELINE_PHASE="tests"
 echo "==> [6/7] Running 10-stage test suite..."

@@ -63,6 +63,9 @@ upstreams() {
 }
 
 fail=0
+# Tracked separately from `fail` because they are different answers and the
+# remediation differs. See the verdict block at the bottom.
+could_not_look=0
 
 # ── static: every upstream must be deployable from something in this repo ────
 #
@@ -121,10 +124,33 @@ check_live() {
 
 case "${1:-live}" in
   static) check_static ;;
-  live)   check_static; check_live || true ;;
+  # ─── Why this is `|| could_not_look=1` and not `|| true` ──────────────────
+  #
+  # It was `|| true`, and that made the whole live mode capable of passing
+  # VACUOUSLY. check_live returns 1 without inspecting anything when kubectl
+  # cannot reach a cluster; `|| true` discarded that, `fail` stayed 0, and the
+  # script exited 0 printing "All nginx upstreams are declared and reachable"
+  # — a confident claim about a cluster it had never opened a connection to.
+  #
+  # Harmless while the only caller was doctor.sh in front of a human with the
+  # cluster in front of them. Not harmless now that this gates a pipeline
+  # stage, where a kubeconfig that is missing or points somewhere else is
+  # precisely how a guard turns into decoration: every backend absent, stage
+  # green. This is the failure check-ci-build-parity.sh's header names —
+  # "could not look" written over "looked and found nothing" — and it reaches
+  # the same verdict: both are exit 1, and the distinction lives in the words.
+  live)   check_static; check_live || could_not_look=1 ;;
   *) printf 'usage: check-backends.sh <static|live>\n' >&2; exit 2 ;;
 esac
 
+if [ "$could_not_look" -ne 0 ]; then
+  printf '\n  Deployment state is UNPROVEN, not proven good: there was no reachable\n' >&2
+  printf '  cluster to ask. This is not the same as "all backends are up", and it is\n' >&2
+  printf '  a failure for the same reason — a caller that treats it as a pass has a\n' >&2
+  printf '  guard that reports success hardest when it is looking at nothing.\n' >&2
+  printf '  Check KUBECONFIG and that the cluster is running, then re-run.\n\n' >&2
+  exit 1
+fi
 if [ "$fail" -ne 0 ]; then
   printf '\n  One or more backends the dashboard proxies to are missing.\n' >&2
   printf '  Deploy them before demoing — a missing backend surfaces to the audience\n' >&2

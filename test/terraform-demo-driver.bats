@@ -2351,3 +2351,46 @@ stub_curl() { # stub_curl <status-code-to-emit>
 		return 1
 	}
 }
+
+# ─── AFM delivery: the precondition setup() switches off ────────────────────
+#
+# setup() exports AFM_REQUIRED=0 so the 93 assertions above reach their own
+# subjects rather than aborting on a precondition none of them are about. That
+# is only legitimate if the behaviour it disables is asserted somewhere, and
+# this is that somewhere. Without these, a change that quietly reverted the
+# driver to warn-and-continue would be invisible to this suite — which is the
+# exact shape of the defect the AFM work exists to fix, reintroduced by the
+# accommodation made for it.
+
+@test "DEMODRIVER the up lane REFUSES when no AFM image can be delivered" {
+	make_report PASS
+	# Unset rather than set to 1. AFM_REQUIRED=1 would only prove the default is
+	# honoured when it is named; a driver whose default had flipped back to
+	# permissive would still pass that weaker claim.
+	run env -u AFM_REQUIRED "${driver}" up
+
+	[ "$status" -ne 0 ]
+	[[ "${output}" == *"502"* ]] || {
+		echo "the refusal did not say what breaks: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"AFM_REQUIRED=0"* ]] || {
+		echo "the refusal did not name its opt-out: ${output}"
+		return 1
+	}
+	# It must refuse BEFORE the pipeline runs. A lane that has already been
+	# rebuilt is not saved by a late refusal.
+	[[ "$(gcloud_log)" != *"DEMO_STAGE=full"* ]] || {
+		echo "the driver ran the pipeline anyway; the refusal is a post-mortem, not a gate"
+		return 1
+	}
+}
+
+@test "DEMODRIVER AFM_REQUIRED=0 proceeds and says the lane will 502" {
+	make_report PASS
+	run "${driver}" up
+
+	[ "$status" -eq 0 ]
+	[[ "${output}" == *"AFM_REQUIRED=0"* ]]
+	[[ "${output}" == *"502"* ]]
+}

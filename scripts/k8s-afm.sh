@@ -36,7 +36,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=scripts/lib/wait.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/wait.sh"
-AFM_SOURCE="${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}"
+# Derived as a sibling of this repo, never an absolute path under someone's
+# home. test/terraform-conventions.bats scans for committed developer home
+# directories but its globs do not reach scripts/k8s-afm.sh, so this line sat
+# green while being the original of the two copies that DID trip the guard in
+# scripts/gcp-tf/ and scripts/ci/. Out of the guard's reach is not the same as
+# correct, and leaving it would have made the next copy of it look sanctioned.
+AFM_SOURCE="${KUBESEC_AFM_ROOT:-$(cd "$REPO_ROOT/.." 2>/dev/null && pwd)/kubesec-afm}"
 # Gitignored: a 245MB binary has no business in `git archive HEAD`, and keeping
 # it out is what preserves the payload's tracked-files-only security property.
 AFM_IMAGE_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz}"
@@ -127,6 +133,15 @@ case "$cmd" in
     else
       refuse_no_image
     fi
+    ;;
+  has-source)
+    # Silent predicate: can this machine BUILD the image? Exits 0/1, prints
+    # nothing, touches nothing. It exists so callers can decide whether to
+    # build WITHOUT each carrying its own copy of the default source path —
+    # there were three copies, and two of them were committed developer home
+    # directories that test/terraform-conventions.bats duly caught. One owner
+    # for the default, asked rather than copied.
+    have_afm_source
     ;;
   save)
     # Produce the artifact a lane consumes. Requires the source: this is the

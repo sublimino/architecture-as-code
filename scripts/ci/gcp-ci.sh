@@ -441,12 +441,14 @@ push_code() {
 # nobody would think to look for when it stops travelling.
 push_afm_image() {
   local archive="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz}"
-  local afm_src="${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}"
   # The path scripts/k8s-afm.sh derives for itself on the VM, so no variable has
   # to cross the ssh boundary and no two sides can disagree about the location.
   local dest="${REMOTE_WORK_DIR}/.afm-image/kubesec-afm.tar.gz"
 
-  if [ -f "${afm_src}/AFM/docker/backend.Dockerfile" ]; then
+  # Asked, not re-derived. scripts/k8s-afm.sh owns where the source lives; the
+  # copy that used to be here was both a drift seam and a committed developer
+  # home directory.
+  if "${REPO_ROOT}/scripts/k8s-afm.sh" has-source; then
     echo "==> Building the AFM image archive from source..."
     "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive" || {
       echo "ERROR: 'k8s-afm.sh save' failed; no AFM image to push." >&2

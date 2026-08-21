@@ -235,7 +235,32 @@ REMOTE_USER="${GCP_TF_DEMO_REMOTE_USER:-}"
 # rather than a silent 127 on the VM.
 PIPELINE_REL="${GCP_TF_DEMO_PIPELINE:-scripts/gcp-tf/demo-pipeline.sh}"
 
-REPORT_DIR="${GCP_TF_DEMO_REPORT_DIR:-${REPO_ROOT}/demo-reports}"
+# ─── Per-lane, because four lanes rotate this directory concurrently ────────
+#
+# This defaulted to a single shared ${REPO_ROOT}/demo-reports for every lane.
+# One lane at a time, that is fine. Four lanes at once, it is a data race with
+# no interlock: prepare_report_dir does `rm -rf ${REPORT_DIR}.prev` then
+# `mv $REPORT_DIR ${REPORT_DIR}.prev`, so a lane starting up renames the
+# directory out from under three lanes already writing into it.
+#
+# Measured 2026-08-21 on the first genuine four-lane parallel bring-up. Three of
+# four died and the two spellings of the same race are worth recording, because
+# neither names the cause:
+#
+#   mv: cannot stat '.../demo-reports': No such file or directory
+#   mv: cannot stat '.../demo-reports/.summary.json.tmp': No such file or directory
+#
+# The first is a lane whose directory was rotated away before it could rotate
+# it; the second is a lane whose summary was written into a directory that had
+# already become .prev. Both read as a broken driver rather than as contention.
+#
+# The clash audit in terraform/notes/j-lane-parallelism.md enumerated the shared
+# mutable paths it could find by inspection — the terraform lockfile, the plan
+# file, the state prefix, the local tunnel port — and this was not among them,
+# because the variable was already overridable and therefore looked per-lane.
+# Overridable is not the same as overridden. Only running four lanes at once
+# found it, which is the whole argument for doing so.
+REPORT_DIR="${GCP_TF_DEMO_REPORT_DIR:-${REPO_ROOT}/demo-reports/${ENV_KEY}}"
 SUMMARY_NAME="${GCP_TF_DEMO_SUMMARY_NAME:-summary.json}"
 
 # How long cmd_connect waits for the tunnel to bind before it stops waiting and

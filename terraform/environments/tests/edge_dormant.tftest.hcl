@@ -24,6 +24,20 @@ override_data {
       }
       ci_plan_service_account_email  = "sl-ci-plan@changeme-project.iam.gserviceaccount.com"
       ci_apply_service_account_email = "sl-ci-apply@changeme-project.iam.gserviceaccount.com"
+
+      # An `override_data` block is an EXHAUSTIVE stand-in, not an overlay. A key
+      # that is absent here does not fall through to real remote state — it
+      # ceases to exist, and the root fails to plan with "Unsupported attribute"
+      # pointing at outputs.tf rather than at this file. So every platform output
+      # this root reads must be listed, and adding a new one means touching every
+      # mock block in this directory. The sibling suites carry the same note.
+      #
+      # This one was added by the merge that landed `output "operator_sa"`. Its
+      # author updated the mocks they could see; this file belonged to a
+      # different chunk and was invisible to them, so the collision only appeared
+      # once both branches shared a baseline. That is the integration defect a
+      # shared baseline exists to surface, and it surfaced here.
+      operator_service_account_email = "sl-operator@changeme-project.iam.gserviceaccount.com"
     }
   }
 }

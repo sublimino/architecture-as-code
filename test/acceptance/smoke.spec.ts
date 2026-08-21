@@ -37,7 +37,23 @@ const PAGES: PageCase[] = [
   // become visible. The dedicated "uses the radial cluster graph background"
   // test below asserts the Collusion Pairs heading via role scoping instead.
   { nav: "Collusion & Access", heading: "Collusion & Access", content: ["Remediation Priorities"] },
-  { nav: "RBAC Analysis", heading: "RBAC Analysis", content: ["KubeSec-AFM"] },
+  // "KubeSec-AFM" is deliberately NOT asserted as content here, for the same
+  // reason "Collusion Pairs" is not: the generic getByText matcher finds it in
+  // the wrong place. It is worse than that case, though, because the wrong
+  // place is the FAILURE state.
+  //
+  // The string renders unconditionally in the page's description paragraph
+  // (RbacAnalysisPage.tsx:225) and AGAIN inside the "KubeSec-AFM platform is
+  // not reachable" error banner (:424). So the assertion was satisfied twice
+  // over in precisely the condition it existed to catch: with no AFM deployed,
+  // /afm/ answering 502 and the page showing nothing but an error, this test
+  // passed. It could not fail. It was green on all four lanes while every one
+  // of them served a 502.
+  //
+  // The dedicated "RBAC Analysis renders live AFM data" test below asserts the
+  // healthy state instead, by test id and on elements that exist ONLY when the
+  // backend answered.
+  { nav: "RBAC Analysis", heading: "RBAC Analysis" },
   { nav: "RBAC Explorer", heading: "RBAC Explorer", content: ["KubeSec-AFM RBAC analysis"] },
   { nav: "Agent Trust Topology", heading: "Agent Trust Topology", content: ["Trust relationship plane"] },
   { nav: "Settings", heading: "Settings" },
@@ -95,6 +111,47 @@ test.describe("authenticated dashboard", () => {
     // requirement now, so the absence is the thing worth asserting: a
     // reintroduced backdrop should fail here rather than be noticed by eye.
     await expect(page.getByTestId("ktp-graph-bg")).toHaveCount(0);
+  });
+
+  test("RBAC Analysis renders live AFM data, not its unreachable banner", async ({ page }) => {
+    await page.getByRole("link", { name: "RBAC Analysis", exact: true }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "RBAC Analysis" })).toBeVisible({ timeout: 20_000 });
+
+    // Deliberately NOT behind guards.afmDeployed(). afm-integration,
+    // afm-frontend, rbac-analysis and rbac-explorer all skip themselves when
+    // the slice is absent, which is right for suites that assert on AFM's own
+    // behaviour — but it leaves nobody asserting that the slice is SUPPOSED to
+    // be there. AFM is part of the estate now (Makefile: demo-signalloom-afm-up
+    // is fail-closed), so its absence is a failure, and this is the test that
+    // says so.
+
+    // The banner the page shows when /afm/health did not answer. Asserted
+    // first, by test id, because it is the exact state that used to satisfy the
+    // old string assertion instead of failing it.
+    await expect(
+      page.locator('[data-testid="afm-unreachable"]'),
+      'the RBAC Analysis page is showing "KubeSec-AFM platform is not reachable" — the AFM slice is not deployed, or /afm/ is 502ing',
+    ).toHaveCount(0);
+
+    // The iframe is rendered only when status.reachable is true
+    // (RbacAnalysisPage.tsx:454), so its presence is a live statement about
+    // /afm/health rather than about what got bundled into the SPA.
+    await expect(page.locator('[data-testid="afm-iframe"]')).toBeVisible({ timeout: 20_000 });
+
+    // ── and AFM must actually HOLD something ────────────────────────────────
+    //
+    // Reachability alone is not the bar. A freshly deployed AFM answers
+    // /afm/health with 200 while holding zero clusters — the import CronJob is
+    // on */30 and does not run on creation — and the page then renders
+    // "0 clusters" beside a green dot and an empty embedded dashboard. Every
+    // check above passes in that state. It is a worse failure than the 502
+    // because nothing downstream reports anything wrong.
+    const clusterCount = page.locator('[data-testid="cluster-count"]');
+    await expect(clusterCount).toBeVisible({ timeout: 20_000 });
+    await expect(
+      clusterCount,
+      "AFM is reachable but holds no clusters — the cluster-import Job never completed, so the dashboard is empty",
+    ).not.toHaveText(/^\s*0 clusters\s*$/);
   });
 
   test("DemoToggle widget is visible on every page", async ({ page }) => {

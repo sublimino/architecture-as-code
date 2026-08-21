@@ -516,15 +516,67 @@ demo-signalloom-up: healthcheck ## Start the explicit Signal Loom demo lifecycle
 	SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up
 	./scripts/agent-trust-local.sh up
 	$(MAKE) demo-signalloom-afm-up
+	# ─── The whole-estate assertion, last because it needs everything up ──────
+	#
+	# check-backends reads nginx.conf's proxy_pass set — which IS the set of
+	# backends that must exist — and asserts each one resolves to a Service with
+	# ready endpoints. It was written FOR this incident (its header names
+	# afm-platform as one of the two motivating cases) and then nothing ever
+	# called it outside `make check-backends` and doctor.sh, so it caught the bug
+	# it was designed for exactly zero times.
+	#
+	# Here rather than in a test suite because the tests cannot see this class:
+	# unit tests mock fetch, contract tests mock the upstream, and the BATS
+	# suites assert manifest CONTENT rather than manifest PRESENCE in a cluster.
+	# A backend that was never deployed passes all of them and fails only in a
+	# browser.
+	$(MAKE) check-backends
+
+# ─── Why this target became fail-closed ──────────────────────────────────────
+#
+# It used to warn and continue whenever the AFM source checkout was absent, and
+# the reasoning was sound at the time: the source was the ONLY way to obtain the
+# image, a remote lane could never have it, and taking down an otherwise-healthy
+# bring-up over it would have been a worse trade.
+#
+# That premise is gone. scripts/k8s-afm.sh now accepts a delivered image archive
+# as well as a source checkout, and scripts/gcp-tf/demo-up.sh:deliver_afm_image
+# ships one to every lane, so "AFM is unavailable here" stopped being a fact
+# about the environment and became a fact about this run.
+#
+# What the warning actually bought was silence. The bring-up went green, the
+# lane came up with d2-k8s-afm/ applied and no image behind it, and the ONLY
+# place the missing slice ever surfaced was seven nginx locations answering 502
+# — usually in a browser, usually in front of an audience. A warning in the
+# middle of a twenty-minute log is not a report.
+#
+# AFM_REQUIRED=0 keeps the old behaviour for the case that is still legitimate:
+# a contributor with only this repo cloned, no AFM source and no archive, who
+# genuinely wants the rest of the estate. It is opt-IN because that makes it a
+# decision somebody made rather than an outcome nobody noticed.
+AFM_REQUIRED ?= 1
 
 .PHONY: demo-signalloom-afm-up
-demo-signalloom-afm-up: ## Deploy the KubeSec-AFM slice that the RBAC Explorer reads; warn, do not fail, if its source repo is absent.
+demo-signalloom-afm-up: ## Deploy the KubeSec-AFM slice the RBAC pages read. FAILS if no image is obtainable; AFM_REQUIRED=0 downgrades to a warning.
 	@if ./scripts/k8s-afm.sh preflight >/dev/null 2>&1; then \
 	  $(MAKE) demo-k8s-afm-up; \
+	elif [ "$(AFM_REQUIRED)" = "0" ]; then \
+	  ./scripts/k8s-afm.sh preflight || true; \
+	  echo "WARNING: AFM_REQUIRED=0 — continuing WITHOUT the AFM slice. Signal Loom's"; \
+	  echo "         RBAC Explorer will report \"KubeSec-AFM is not deployed\", the RBAC"; \
+	  echo "         Analysis page shows its unreachable banner, and /afm/ answers 502."; \
 	else \
 	  ./scripts/k8s-afm.sh preflight || true; \
-	  echo "WARNING: continuing WITHOUT the AFM slice. Signal Loom's RBAC Explorer will"; \
-	  echo "         report \"KubeSec-AFM is not deployed\" until the above is resolved."; \
+	  echo ""; \
+	  echo "ERROR: refusing to bring up Signal Loom without the AFM slice."; \
+	  echo "       The RBAC Analysis and RBAC Explorer pages read from it, and SEVEN"; \
+	  echo "       nginx locations proxy to afm-platform.fe-k8s-afm — /afm/, /dashboard/,"; \
+	  echo "       /clusters, /metrics/, /health, /jobs and /webhooks/ would all 502."; \
+	  echo "       This used to be a warning, which is why four lanes shipped that way."; \
+	  echo ""; \
+	  echo "       Provide the image (see the two routes above), or accept the gap"; \
+	  echo "       explicitly:  make demo-signalloom-up AFM_REQUIRED=0"; \
+	  exit 1; \
 	fi
 demo-signalloom-test-config: ## Render and validate Signalloom configuration without a cluster.
 	$(MAKE) -C d2-signalloom test

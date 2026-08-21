@@ -174,3 +174,14 @@ terraform/modules/*/.terraform.lock.hcl
 # repo, reads B's own leaked mutation as a real failure, and the refusal that
 # was supposed to catch it never fires.
 *mutation-in-progress
+
+# The saved KubeSec-AFM image, produced by `scripts/k8s-afm.sh save` and
+# delivered to a lane by scripts/gcp-tf/demo-up.sh:deliver_afm_image.
+#
+# Gitignored deliberately and load-bearingly. The lane payload is
+# `git archive HEAD` — tracked files only — and that property is the security
+# boundary of the whole lane, not an optimisation: it is what guarantees no
+# tfvars, no .keys and no hand-off can ride along. Tracking a 245MB image here
+# would put a binary blob inside that boundary and add ~7x to every payload.
+# The archive travels as its OWN scp, next to the payload, never inside it.
+.afm-image/

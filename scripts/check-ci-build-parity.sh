@@ -127,12 +127,19 @@ ALLOWED=(
   # acceptance spec presses the button, so in CI the build is pure cost. If a
   # spec ever drives Scan Now, delete this entry rather than debugging the pull.
   "netassert-runner-image|runtime-only: built on demand by the Scan Now button, which no CI stage presses"
-  # Deploys the KubeSec-AFM slice from a source repo OUTSIDE this one
-  # (KUBESEC_AFM_ROOT, default /home/andy/src/cp/kubesec-afm). The CI VM
-  # extracts a tarball of this repo alone, so the source is absent by
-  # construction. The target is already warn-not-fail for exactly this reason;
-  # calling it in CI would add a guaranteed warning and nothing else.
-  "demo-signalloom-afm-up|unavailable: needs the external kubesec-afm source tree, absent on the CI VM"
+  # demo-signalloom-afm-up WAS allowlisted here, with the reason "unavailable:
+  # needs the external kubesec-afm source tree, absent on the CI VM". That was
+  # accurate for as long as the only way to obtain the image was to build it
+  # from a checkout the CI VM could not have.
+  #
+  # It is also the reason nobody looked again for months, while all four lanes
+  # served a 502 on /afm/ and four acceptance specs skipped. An opt-out records
+  # a constraint, and a constraint that is no longer true is indistinguishable
+  # from one that is until somebody re-derives it. Removed together with the
+  # mechanism that made it false: scripts/ci/gcp-ci.sh:push_afm_image delivers a
+  # saved image to the lane, and scripts/k8s-afm.sh consumes it with no source
+  # checkout anywhere. The guard reported this entry as STALE ALLOW the moment
+  # vm-pipeline.sh gained the step, which is what made it safe to delete.
 )
 if [ -n "${CI_PARITY_ALLOW+x}" ]; then
   ALLOWED=()

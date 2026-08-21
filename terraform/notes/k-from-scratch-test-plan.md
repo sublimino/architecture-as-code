@@ -17,7 +17,7 @@ the right is what it actually means.
 
 | Symptom | Actual cause |
 | :--- | :--- |
-| `✗ pushing artifact failed: … 500 Internal Server Error` on `localhost:5001` | The in-cluster Zot registry. **Blocks all four lanes at `create-cluster`.** Hit 4/4 lanes and twice on one lane, so it is NOT transient — it was mislabelled as such on a single observation. **This is the open blocker.** |
+| `✗ pushing artifact failed: … 500 Internal Server Error` on `localhost:5001` | The zot blob store lived where a re-delivery wipes it, so the registry kept metadata whose blobs were gone. **Fixed** (same defect as the cosign keypair, one layer down) — but the fix is **unproven end to end**, so this is the first thing to watch in § 5. It aborted 4/4 lanes at `create-cluster` and I mislabelled it "transient" on a single observation before it recurred twice on one lane. |
 | `mv: cannot stat '.../demo-reports'` | Two lanes racing one report directory. Fixed — `REPORT_DIR` now carries `${ENV_KEY}`. If it returns, the lane key has left the *default* in `scripts/gcp-tf/demo-up.sh`. |
 | `Error: error asking for approval: EOF` on destroy | `terraform destroy` is interactive by design. Feed it `yes yes \|` — **`yes` alone emits "y"**, which terraform rejects with "Destroy cancelled". |
 | `4047: Failed to lookup instance` | IAP tunnel racing a just-replaced VM. Wait and retry. |
@@ -27,6 +27,7 @@ the right is what it actually means.
 | gate reports `0 ok, 0 not ok` and exits non-zero | tflint or `terraform test` failed *before* bats ran. **Read the ok/not-ok counts, never the exit code alone.** Three different upstream causes have produced this identical presentation. |
 | A test passes standalone and fails in the full run | Shared state. Give the suite a private `TF_DATA_DIR`; see `test/terraform-observability-dormant.bats`. |
 | A guard goes green after a change that should break it | Check the fixture, not the code. **Five separate failures this session were fixtures short of a newly-required field** — a mock missing a key, a fixture copying one file from a library, stub outputs predating a required field (twice). Every one named the wrong subject. |
+| `git status` shows a modified file nobody edited | **A mutation harness killed mid-run leaves the tree mutated.** Seen twice: `DefaultDependencies=no` left in `demo-vm.sh`, and `far-side identity UNVERIFIED` rewritten to `CONFIRMED` in `demo-up.sh` — the second would have turned "we do not know" into "we have confirmed". Both were caught only because a merge refused on a dirty tree. **`git diff` before any merge, and read what it says rather than assuming it is yours.** |
 
 **The meta-lesson, which cost the most time:** three confident causal stories were
 built on correct observations and were wrong — the mechanism was *reasoned* when
@@ -213,8 +214,10 @@ the 502. `test/acceptance/smoke.spec.ts` asserts `cluster-count` is not
 
 ## 8. Undone, and honestly so
 
-- **The Zot 500 is unexplained and blocks everything.** It is the first thing to
-  fix. Four lanes, two attempts on one lane, same failure.
+- **The Zot 500 has a fix that has never run.** The blob store now persists
+  outside the tree a re-delivery wipes — the same defect as the cosign keypair,
+  one layer down. Until § 5 completes on at least one lane, treat it as
+  plausible rather than proven.
 - **Four static-gate stages fail only on the VM** — `Static guards previously
   invoked by nothing`, `Guard falsification proof`, `Vacuous-assertion lint`,
   `Demo pipeline control flow`. All pass locally at HEAD *and* at the base

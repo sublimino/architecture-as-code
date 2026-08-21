@@ -360,8 +360,66 @@ is verified'", and it is read over SSH, a different channel from the HTTPS path
 an operator actually uses. An operator who only opens the URL consults nothing.
 
 So: the tunnel path is now defended by provenance, the tailnet path by testimony
-plus unique naming, and **neither defends the other**. The single change that
-would cover both is the nginx lane-identity header.
+plus unique naming, and **neither defends the other**.
+
+### 3c. What was made path-agnostic, and what could not be
+
+The ask was to avoid a second copy of the identity model on a second path,
+because drift in an identity check is the failure it exists to stop. The answer
+splits cleanly, and the split is the useful part:
+
+**Ownership cannot generalise.** `assert_tunnel_is_ours` attributes a socket on
+*this* machine to a process *we* started. The tailnet path has no such socket —
+the connection goes over the tailnet to a remote node. Anything claiming to
+generalise it would be a different mechanism reusing the name, which is worse
+than two honest mechanisms.
+
+**Far-side identity does generalise, and it already existed** — inline in
+`cmd_ts_test` R3, coupled to that command's own reporting helpers. It is now
+extracted as `assert_far_side_lane_identity`, in the same file, so there is one
+definition of the rule available to every path rather than one per transport.
+`connect` and `public` call it; **`cmd_ts_test` has NOT been changed** — its
+owner should switch R3 to call the shared primitive, which is a small change
+this work deliberately did not make in someone else's command.
+
+**It returns three values, and the third is the whole reason it is safe to share.**
+
+| | | |
+|---|---|---|
+| `0` | VERIFIED | the far side named this lane's origin |
+| `1` | MISMATCH | it named a different one — fatal |
+| `2` | CANNOT-VERIFY | the origin cannot distinguish lanes, so a match proves nothing |
+
+Without the third, sharing this check would have been actively harmful. Over IAP
+the origin is `http://localhost:<port>` and every lane defaults to the same port,
+so `got == want` holds *no matter which lane answered*. A naive reuse would have
+returned VERIFIED for a hijacked socket — converting "we do not know" into "we
+have confirmed", which is the worst outcome available to an identity check
+because every downstream reader now believes the lane was checked.
+
+An origin is treated as lane-distinguishing only if the lane key appears in it.
+That is deliberately a property of the origin rather than a denylist of known-bad
+hosts: the question is not "is this localhost" but "could this string have come
+from another lane".
+
+MISMATCH is fatal; CANNOT-VERIFY is a warning. That asymmetry is a judgement, not
+a shrug — on the default IAP origin, CANNOT-VERIFY is the *normal* state today,
+and failing on it would refuse every correct single-lane run. Ownership is what
+actually defends that path; this becomes load-bearing the moment the local port
+is per-lane, which is the other reason to take optimisation 4.
+
+**Two mutations in this area were wrong before they were right**, and both
+mistakes are the same shape as the bug being guarded. Neutering the
+distinguishing test does **not** produce a vacuous pass on its own — control
+falls through to the empty-issuer branch, which also returns CANNOT-VERIFY, so
+the suite stays green and the mutation looks caught while nothing was tested.
+Producing the vacuous pass needs the mutation *and* an issuer that echoes the
+origin. The standalone proof therefore mutates the *reporting* of the third
+verdict, and the in-suite test supplies the echoing issuer to mutate its
+*production*.
+
+The single change that would let one check cover both transports without any of
+this is still the nginx lane-identity header.
 
 ## 4. The reaper — CLASHES (latent). NOT fixed; see why
 
@@ -591,6 +649,9 @@ trap and refusing to start if a previous run left a sentinel. Six mutations:
 | M8 | public's ownership check deleted | a health probe that certifies the wrong lane |
 | M9 | unattributable socket treated as ours | fail-open on every host without `ss` |
 | M10 | ancestry walk collapsed to `pid = want` | rejects every REAL tunnel, while the suite stays green |
+| M11 | connect's far-side identity assertion deleted | the shared layer, invisible on an origin that cannot distinguish lanes anyway |
+| M12 | public's far-side identity assertion deleted | the same, on the path that also publishes |
+| M13 | CANNOT-VERIFY reported as confirmation | "we do not know" announced as "we have confirmed" |
 
 M3, M4, M9 and M10 are the ones worth having. M1/M2/M7/M8 are deletions, which
 review catches; the other four leave a guard that *looks* correct.

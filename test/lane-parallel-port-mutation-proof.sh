@@ -173,7 +173,7 @@ mutate() {
 # What is given up: collateral damage from a mutation is no longer visible. That
 # is acceptable because these mutations are deliberate breakages — a mutation
 # also breaking a neighbouring test is expected, not a finding.
-FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL|OWNERSHIP}"
+FILTER="${LANE_PARALLEL_PROOF_FILTER:-PARALLEL|OWNERSHIP|IDENTITY}"
 failing_tests() {
   bats --filter "$FILTER" "$SUITE" 2>&1 | sed -n 's/^not ok [0-9]* //p'
 }
@@ -323,6 +323,47 @@ check "M9 fail-open owners" "OWNERSHIP an unattributable socket is refused, not 
 echo "M10 the ancestry walk is collapsed to a direct pid comparison"
 mutate 's|^    \[ "\$pid" = "\$want" \] \&\& return 0$|    [ "$pid" = "$want" ] \&\& return 0; return 1|'
 check "M10 descendant walk" "OWNERSHIP connect accepts a socket held by a DESCENDANT of its tunnel"
+
+# ─── M11: connect stops asserting far-side identity ─────────────────────────
+#
+# The layer that generalises. Ownership defends the IAP socket; this is the one
+# shared with every other transport, and deleting it is invisible on the default
+# origin precisely because that origin cannot distinguish lanes anyway.
+echo "M11 connect's far-side identity assertion is deleted"
+mutate 's|^  require_far_side_lane_identity "\$origin" "gcp-tf-connect"$|  : # MUTATED|'
+check "M11 connect far-side" "IDENTITY the default IAP origin reports UNVERIFIED rather than confirming"
+
+# ─── M12: public stops asserting far-side identity ──────────────────────────
+echo "M12 public's far-side identity assertion is deleted"
+mutate 's|^  require_far_side_lane_identity "\$origin" "gcp-tf-public"$|  : # MUTATED|'
+check "M12 public far-side" "IDENTITY the shared far-side primitive exists and both tunnel paths call it"
+
+# ─── M13: CANNOT-VERIFY is promoted to VERIFIED ─────────────────────────────
+#
+# The vacuous-pass rewrite, and the one that turns "we do not know" into "we
+# have confirmed" — the single worst outcome available to an identity check,
+# because every downstream reader now believes the lane was checked.
+echo "M13 an unverifiable origin is reported as confirmed"
+# Targets the REPORTING of the third verdict, not its production, and the first
+# two attempts at this got it wrong in a way worth recording.
+#
+# Neutering lane_origin_is_distinguishing does NOT produce a vacuous pass on its
+# own: control falls through to the empty-issuer branch, which returns
+# CANNOT-VERIFY as well. Both paths converge on 2, so the suite stays green and
+# the mutation looks caught when nothing was tested. Producing the vacuous pass
+# needs the mutation AND an issuer that echoes the origin — which is what the
+# in-suite MUTATION test supplies, and which this harness cannot.
+#
+# What IS reachable from the default setup is the promotion itself: rc=2 being
+# announced as confirmation. That is the actual defect being guarded against —
+# turning "we do not know" into "we have confirmed" — so it is the right thing
+# to mutate.
+#
+# `@` as the delimiter: `|` breaks on the `||` in M3 and M9, and `#` breaks on a
+# `#MUTATED` marker in a replacement. Check the replacement for collisions, not
+# just the pattern.
+mutate 's@^      warn "far-side identity UNVERIFIED for \${ENV_KEY}: \${LANE_IDENTITY_DETAIL}"@      log "far-side identity CONFIRMED: ${LANE_IDENTITY_DETAIL}"@'
+check "M13 vacuous verified" "IDENTITY the default IAP origin reports UNVERIFIED rather than confirming"
 
 echo
 echo "=== restored; verifying the tree is byte-identical to where we started ==="

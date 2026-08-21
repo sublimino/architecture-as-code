@@ -2212,3 +2212,121 @@ stub_curl() { # stub_curl <status-code-to-emit>
 		return 1
 	}
 }
+
+# ─── Far-side identity: the half that DOES generalise across transports ─────
+#
+# Ownership is local by nature and cannot cover the tailnet path — there is no
+# socket of ours to attribute. What generalises is asking the far side whether
+# it agrees it is this lane, which cmd_ts_test's R3 has been doing all along.
+# assert_far_side_lane_identity is that rule extracted so there is ONE
+# definition of it rather than one per transport.
+#
+# Its third verdict is the interesting one. Over IAP the origin is
+# http://localhost:<port> and every lane defaults to the same port, so the
+# issuer string is identical across lanes and `got == want` holds no matter who
+# answered. Returning VERIFIED there would convert "we do not know" into "we
+# have confirmed", which is worse than having no check.
+
+@test "IDENTITY the shared far-side primitive exists and both tunnel paths call it" {
+	grep -q 'assert_far_side_lane_identity()' "${DRIVER_SRC}" || {
+		echo "the shared far-side identity primitive is not defined"
+		return 1
+	}
+	grep -q 'require_far_side_lane_identity "\$origin" "gcp-tf-connect"' "${DRIVER_SRC}" || {
+		echo "connect does not assert far-side lane identity"
+		return 1
+	}
+	grep -q 'require_far_side_lane_identity "\$origin" "gcp-tf-public"' "${DRIVER_SRC}" || {
+		echo "public does not assert far-side lane identity"
+		return 1
+	}
+}
+
+@test "IDENTITY the default IAP origin reports UNVERIFIED rather than confirming" {
+	# The default origin is http://localhost:8080 for the fixture lane, which
+	# contains no lane key. A match there proves nothing, so the driver must say
+	# so — and must NOT refuse, because this is the normal state of every
+	# correct single-lane run today.
+	run "${driver}" connect
+	[ "$status" -eq 0 ] || {
+		echo "connect refused on the default origin — the guard is rejecting valid input: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"far-side identity UNVERIFIED"* ]] || {
+		echo "connect did not report that identity was unverifiable on a shared-port origin: ${output}"
+		return 1
+	}
+	[[ "${output}" != *"far-side identity CONFIRMED"* ]] || {
+		echo "connect CLAIMED confirmation on an origin that cannot distinguish lanes: ${output}"
+		return 1
+	}
+}
+
+
+@test "IDENTITY MUTATION dropping the distinguishing test CLAIMS confirmation on a shared-port origin" {
+	# THE anti-vacuity mutation, driven through the real verb rather than by
+	# sourcing the driver — sourcing runs its main dispatch and produces a whole
+	# pipeline's output, which is how the first version of this test failed for
+	# reasons that had nothing to do with the mutation.
+	#
+	# With lane_origin_is_distinguishing neutered, an issuer that simply echoes
+	# whatever origin it was asked about satisfies `got == want`, and the driver
+	# reports CONFIRMED for http://localhost:8080 — a confirmation that would
+	# hold identically for all four lanes. That is the lie the third verdict
+	# exists to prevent, and this is it being told.
+	printf '#!/usr/bin/env bash\nprintf "%%s/dex" "$1"\n' >"${stubdir}/issuer-echo"
+	chmod +x "${stubdir}/issuer-echo"
+	export GCP_TF_DEMO_ISSUER_PROBE="${stubdir}/issuer-echo"
+
+	local mutated="$(mutant_dir)/demo-up-vacuous.sh"
+	sed 's/^  if ! lane_origin_is_distinguishing "\$origin"; then$/  if false; then # MUTATED/' \
+		"${DRIVER_SRC}" >"${mutated}"
+	chmod +x "${mutated}"
+	! diff -q "${DRIVER_SRC}" "${mutated}" >/dev/null || {
+		echo "the mutation changed nothing — the distinguishing branch did not match"
+		return 1
+	}
+
+	run "${mutated}" connect
+	[[ "${output}" == *"far-side identity CONFIRMED"* ]] || {
+		echo "the mutant did not claim confirmation, so the distinguishing test is not what prevents the vacuous pass: ${output}"
+		return 1
+	}
+}
+
+@test "IDENTITY a far side naming a DIFFERENT lane is refused, not warned about" {
+	# The MISMATCH branch, also through the real verb. The distinguishing test is
+	# neutered so the comparison is reached at all (the default IAP origin cannot
+	# distinguish lanes, which is the whole point of the other tests) — and the
+	# issuer then names demo-9 while this run asked for demo-7.
+	#
+	# This is the branch that must be FATAL rather than a warning: a far side
+	# that positively identifies as another lane is not "unverified", it is
+	# wrong, and continuing runs this lane's work against that one.
+	printf '#!/usr/bin/env bash\nprintf "https://sl-demo-9.tail.ts.net/dex"\n' >"${stubdir}/issuer-other"
+	chmod +x "${stubdir}/issuer-other"
+	export GCP_TF_DEMO_ISSUER_PROBE="${stubdir}/issuer-other"
+
+	local mutated="$(mutant_dir)/demo-up-mismatch.sh"
+	sed 's/^  if ! lane_origin_is_distinguishing "\$origin"; then$/  if false; then # MUTATED/' \
+		"${DRIVER_SRC}" >"${mutated}"
+	chmod +x "${mutated}"
+	! diff -q "${DRIVER_SRC}" "${mutated}" >/dev/null || {
+		echo "the mutation changed nothing"
+		return 1
+	}
+
+	run "${mutated}" connect
+	[ "$status" -ne 0 ] || {
+		echo "the driver continued against an estate that identified as another lane: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"is not ${ENV_KEY}"* ]] || {
+		echo "the refusal did not say which lane was expected: ${output}"
+		return 1
+	}
+	[[ "${output}" == *"demo-9"* ]] || {
+		echo "the refusal did not name the lane that actually answered: ${output}"
+		return 1
+	}
+}

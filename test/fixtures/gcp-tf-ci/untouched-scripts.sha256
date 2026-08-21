@@ -30,5 +30,15 @@
 # supervise-port-forward.bats, which is registered the same way for the same
 # reason.
 6288172e347bbd845541dab4a8feb22511e0c378ac8426e8642e650c5f742283  scripts/ci/gcp-ci.sh
-a3c97b2f4c7162ec5dacb29e9b7beae465c5a95571533749ed88a14200496315  scripts/ci/vm-pipeline.sh
+# vm-pipeline.sh re-recorded a FOURTH time, on rebasing the node doctor onto the
+# guard-registration commit. Two accepted changes now coexist in this file: the
+# stage-1g registration of registry-cache-mapping.bats and
+# supervise-port-forward-eperm.bats, and the node doctor's own invocation of
+# test/node-doctor.bats. Both are registrations of suites that would otherwise
+# run nowhere, which is the same reason as the second and third re-records.
+#
+# The rebase merged them without conflict because they touch different lines,
+# and that is precisely why this ledger matters: a clean rebase is not evidence
+# that the result was reviewed. The digest is the thing that noticed.
+52934d5bd7da43fdaf4655ade72ddee4d960404da11bd057ae7b37bdae568a57  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

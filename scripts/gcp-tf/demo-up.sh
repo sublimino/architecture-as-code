@@ -133,6 +133,60 @@ REMOTE_WORK_DIR="${GCP_TF_DEMO_REMOTE_DIR:-/opt/signalloom/repo}"
 REMOTE_REPORT_DIR="${GCP_TF_DEMO_REMOTE_REPORT_DIR:-/opt/signalloom/reports}"
 REMOTE_LOG="${GCP_TF_DEMO_REMOTE_LOG:-/opt/signalloom/demo-pipeline.log}"
 
+# The signing keypair, deliberately a SIBLING of the checkout rather than a
+# directory inside it.
+#
+# ─── The defect this removes ────────────────────────────────────────────────
+#
+# `.keys/` is gitignored, so `git archive HEAD` cannot carry it — that is the
+# tracked-files-only property build_payload depends on and it is correct. The
+# consequence is that the VM has no keypair until `make signing-keys` mints one,
+# and signing-keys writes into $(KEYS_DIR), which resolves to the delivered
+# tree's own `.keys/`. deliver_code opens with `sudo rm -rf $REMOTE_WORK_DIR`.
+#
+# So every run destroyed the previous run's keypair and minted a fresh one:
+#
+#   run 1  mint key A -> push signed by A -> bootstrap-local installs A into
+#          flux-system/cosign-pub. Consistent, and it works.
+#   run 2  rm -rf the tree (and key A with it) -> mint key B -> push-local's
+#          trust preflight finds the cluster trusting A and refuses.
+#
+# Captured on sl-demo-1-vm 2026-08-20: cluster afddf5a2626d87bf, delivered tree
+# 2575de005cbcba9e. A first run always worked and every re-run could not, which
+# is why a retry failed DIFFERENTLY from the original and misdirected the
+# diagnosis.
+#
+# ─── Why a sibling, and why the key outlives the cluster ────────────────────
+#
+# Three lifetimes are in play and the bug was conflating them. The TREE is
+# rebuilt on every delivery. The CLUSTER survives across runs. The KEYPAIR's
+# only job is to make the signer and the verifier agree, and the verifier is the
+# cluster's flux-system/cosign-pub secret — so the keypair must outlive the
+# tree, which is the shortest of the three and the one it was tied to.
+#
+# It also outlives the CLUSTER, which is safe for one specific reason worth
+# stating: trust is always derived key -> cluster, never the reverse.
+# `bootstrap-local` installs the public half into whatever cluster is standing,
+# so a recreated cluster re-derives its trust from the surviving key and the two
+# agree again. The opposite direction is not merely discouraged, it is
+# impossible — the cluster holds only the PUBLIC half, so a cluster can never
+# restore the ability to sign. Confirmed empirically on demo-1: the private half
+# of afddf5a2 existed nowhere on the box once its tree was wiped.
+#
+# Rotating the key whenever the cluster is recreated was therefore rejected. It
+# buys nothing on an estate whose private key never leaves the VM, and every
+# rotation reopens exactly the mismatch window this change closes.
+#
+# ─── The property that must not be lost ─────────────────────────────────────
+#
+# This path must stay OUTSIDE $REMOTE_WORK_DIR. Nested under it, deliver_code's
+# `rm -rf` deletes it again and the defect returns silently — a re-run would
+# mint over a key the cluster already trusts and fail exactly as before. It is
+# an override, so that is one environment variable away; assert_keys_dir_is_
+# durable() below refuses rather than trusting the default to stay correct, and
+# test/gcp-demo-keys-persistence-mutation-proof.sh proves that refusal can fire.
+REMOTE_KEYS_DIR="${GCP_TF_DEMO_REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
+
 # EMPTY by default, meaning "run as whoever OS Login logged us in as".
 #
 # v1 hardcodes `sudo -u ci` because that VM provisions a `ci` account. This lane
@@ -1162,21 +1216,68 @@ deliver_code() {
 # to the pipeline, never restated. test/terraform-env-contract.bats asserts that
 # correspondence, so a path added to the pipeline's environment without being
 # provisioned here fails a test rather than a forty-minute run.
+# The keypair directory must survive the delivery that is about to wipe the
+# checkout. Refuse rather than assume, because the default is one environment
+# variable away from being wrong and being wrong is SILENT.
+#
+# Nested under REMOTE_WORK_DIR, deliver_code's `sudo rm -rf` takes the keys with
+# the tree. `make signing-keys` then mints a fresh pair, and push-local.sh's
+# trust preflight refuses against a cluster that still trusts the old one — the
+# exact defect this file's REMOTE_KEYS_DIR comment describes, restored in full
+# and with no new symptom to distinguish it.
+#
+# Prefix matching on the normalised paths, with a trailing slash on both sides
+# so that a sibling whose name merely STARTS with the work dir is not caught:
+# /opt/signalloom/repo-keys is durable, /opt/signalloom/repo/.keys is not, and a
+# bare prefix test cannot tell them apart. Equality is checked separately since
+# the work dir is not a prefix of itself once a slash is appended.
+assert_keys_dir_is_durable() {
+  local keys="${REMOTE_KEYS_DIR%/}" work="${REMOTE_WORK_DIR%/}"
+
+  [ -n "$keys" ] || die "GCP_TF_DEMO_REMOTE_KEYS_DIR is empty. It names the directory the cosign keypair persists in between runs; there is no meaningful default for 'nowhere'."
+
+  case "$keys" in
+    /*) ;;
+    *) die "GCP_TF_DEMO_REMOTE_KEYS_DIR must be an ABSOLUTE path on the VM, got '${keys}'. A relative path resolves against whatever directory the pipeline happens to be standing in, which is the delivered tree — the one place it must not be." ;;
+  esac
+
+  if [ "$keys" = "$work" ] || [ "${keys#"${work}/"}" != "$keys" ]; then
+    die "GCP_TF_DEMO_REMOTE_KEYS_DIR (${keys}) is inside GCP_TF_DEMO_REMOTE_DIR (${work}).
+
+The delivery step runs 'sudo rm -rf ${work}' before extracting the payload, so a
+keypair stored there is destroyed on every run. 'make signing-keys' would mint a
+fresh one, and push-local.sh would then refuse to push because the cluster still
+trusts the key the FIRST run bootstrapped it with — with the private half of
+that key gone, which is unrecoverable.
+
+Point it at a sibling that survives delivery, e.g. ${work%/*}/keys."
+  fi
+}
+
 provision_remote_paths() {
   local owner="$1"
   local log_dir
   log_dir="$(dirname "$REMOTE_LOG")"
+
+  assert_keys_dir_is_durable
 
   log "provisioning remote paths under $(dirname "$REMOTE_WORK_DIR")"
 
   # mkdir -p on the log's parent AND the report dir; chown -R both; then create
   # the log file itself and hand it over. `install -m` is not used for the log
   # because it must not truncate a log an operator may be tailing across runs.
-  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") \
+  # REMOTE_KEYS_DIR is created here and NEVER emptied. It is the one path in this
+  # function whose CONTENTS must survive, so it gets mkdir -p and a chown and
+  # nothing else — no rm, no install -m, no truncation. chmod 700 because it
+  # holds a cosign private key; cosign writes the key file itself 0600, but the
+  # directory it lands in is created by us and would otherwise be 0755.
+  vm_ssh "sudo mkdir -p $(printf '%q' "$REMOTE_REPORT_DIR") $(printf '%q' "$log_dir") $(printf '%q' "$REMOTE_KEYS_DIR") \
     && sudo chown -R ${owner} $(printf '%q' "$REMOTE_REPORT_DIR") \
+    && sudo chown ${owner} $(printf '%q' "$REMOTE_KEYS_DIR") \
+    && sudo chmod 700 $(printf '%q' "$REMOTE_KEYS_DIR") \
     && sudo touch $(printf '%q' "$REMOTE_LOG") \
     && sudo chown ${owner} $(printf '%q' "$REMOTE_LOG")" \
-    || die "could not provision ${REMOTE_REPORT_DIR} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
+    || die "could not provision ${REMOTE_REPORT_DIR}, ${REMOTE_KEYS_DIR} and ${REMOTE_LOG} on ${INSTANCE_NAME}. The pipeline writes its verdict there and cannot start without them."
 }
 
 # Kustomize uses .git/ as a security boundary for relative path traversal:
@@ -1427,10 +1528,10 @@ run_pipeline() {
   # pipeline publishes the same dashboard Nginx service for its handover.
   # Exporting APP_PORT would couple independent lifecycle owners.
   local envs
-  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q' \
+  printf -v envs 'DEMO_ENV=%q DEMO_STAGE=%q DEMO_WORK_DIR=%q DEMO_REPORT_DIR=%q DEMO_SUMMARY_FILE=%q DEMO_DASHBOARD_HOSTNAME=%q DEMO_PIPELINE_LOG=%q DEMO_SOURCE_COMMIT=%q DEMO_SOURCE_BRANCH=%q DEMO_KEYS_DIR=%q' \
     "$ENV_KEY" "$stage" "$REMOTE_WORK_DIR" "$REMOTE_REPORT_DIR" \
     "${REMOTE_REPORT_DIR}/${SUMMARY_NAME}" "$DASHBOARD_HOST" \
-    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH"
+    "$REMOTE_LOG" "$RUN_COMMIT" "$RUN_BRANCH" "$REMOTE_KEYS_DIR"
 
   # `env VAR=… cmd` with no sudo when no service account is configured. v1 always
   # drops to `ci`; here that account is not guaranteed to exist, and `sudo -u`

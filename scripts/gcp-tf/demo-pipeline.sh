@@ -79,6 +79,42 @@ REPORT_FILENAME="${DEMO_REPORT_FILENAME:-signalloom-demo-report.yaml}"
 PIPELINE_LOG="${DEMO_PIPELINE_LOG:-${HOME}/demo-pipeline.log}"
 STAGE_TIMEOUT_SECONDS="${DEMO_STAGE_TIMEOUT_SECONDS:-1800}"
 
+# ── The signing keypair, which must NOT live in the checkout ─────────────────
+#
+# KEYS_DIR is exported rather than merely set, and it is exported here rather
+# than passed to any single make invocation, because five separate consumers
+# resolve it independently: `make signing-keys` writes it, `make
+# push-local-foundation` and scripts/push-local.sh sign from it, `make
+# bootstrap-local` publishes its PUBLIC half into flux-system/cosign-pub, and
+# the audit-anchor targets sign checkpoints with witness.pem beside it. Setting
+# it on one command line would leave the others resolving somewhere else, which
+# is the same split-brain in a new place.
+#
+# Nothing new is being invented to make this work. scripts/lib/keys.sh already
+# documents an explicit KEYS_DIR as the authoritative source ("An explicit
+# KEYS_DIR wins so the Makefile ... and any deliberate override are
+# authoritative"), and the Makefile's `KEYS_DIR ?=` yields to an environment
+# value. This supplies the value those two mechanisms were already waiting for.
+#
+# ─── Why the default is the checkout, and stays that way ────────────────────
+#
+# Unset — a developer laptop, or test/gcp-demo-pipeline.bats driving a fixture
+# tree — this expands to nothing and every consumer falls back to its existing
+# git-common-dir behaviour. That is deliberately unchanged: on a laptop the
+# checkout IS durable, the shared-worktree problem keys.sh solves is real there,
+# and a hardcoded /opt path would be wrong on a machine that has no /opt/
+# signalloom. The VM is the only environment where the checkout is destroyed
+# between runs, and it is the only one that sends this variable.
+#
+# An empty DEMO_KEYS_DIR is treated as unset rather than as an error, so an
+# older driver that does not send it produces exactly today's behaviour instead
+# of a new failure. That is the compatible direction: the old driver's runs
+# already work once, and this file must not turn "works once" into "does not
+# run".
+if [[ -n "${DEMO_KEYS_DIR:-}" ]]; then
+  export KEYS_DIR="${DEMO_KEYS_DIR}"
+fi
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file

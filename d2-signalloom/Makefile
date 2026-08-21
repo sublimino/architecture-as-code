@@ -85,7 +85,54 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 #                               warm pass was timing luck, not a property.
 #                               Moved to stage 7, which runs after Flux has
 #                               converged; NOT dropped.
-EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats
+#
+#   test/supercred-step1-runtime.bats - a pure RUNTIME probe, and its own header
+#                               says so: it waits on deployment/cardvault in
+#                               inf-signalloom and pod/agent-cardvault in
+#                               fe-signalloom-agents, and deploys neither.
+#                               Those two objects are created in exactly ONE
+#                               place in this repository —
+#                               scripts/supercred-demo.sh step 1 (`kubectl apply
+#                               -k apps/cardvault/base` and `kubectl apply -f
+#                               agents-cardvault.yaml`), reached via `make
+#                               demo-signalloom-supercred-1`. Neither
+#                               scripts/ci/vm-pipeline.sh nor
+#                               scripts/gcp-tf/demo-pipeline.sh ever calls
+#                               either one: they build the supercred IMAGES
+#                               (`make demo-signalloom-supercred-images`) and
+#                               stop there.
+#
+#                               Nor does Flux supply them. apps/cardvault/base
+#                               is named by no kustomization at all, and the
+#                               agent POD is deliberately excluded from
+#                               apps/fe-signalloom/base/kustomization.yaml —
+#                               only agents-cardvault-sa.yaml is there, because
+#                               that Kustomization's targetNamespace would
+#                               relocate the pod out of the namespace its SPIFFE
+#                               ID, SPIRE selectors and OpenBao role all name.
+#                               The comment there states it outright: "the fix is
+#                               to have exactly one creator, and it must be the
+#                               demo script."
+#
+#                               So the glob was running a probe for objects that
+#                               nothing in the pipeline creates, in TWO stages —
+#                               stage1-static, and stage6-flux via
+#                               demo-signalloom-test → demo-signalloom-test-config
+#                               → `$(MAKE) -C d2-signalloom test`. One defect,
+#                               two stage failures, twice per run.
+#
+#                               NOT dropped, and NOT moved to stage 7: stage 7
+#                               does not deploy SuperCred step 1 either, so
+#                               relocating it there would move the failure rather
+#                               than fix it. It keeps its existing owner, the
+#                               root target `demo-signalloom-supercred-runtime-test`
+#                               (Makefile: "cluster required; does not deploy"),
+#                               which is an explicit operator entry point run
+#                               after `make demo-signalloom-supercred-1`. That
+#                               is the only context in which its precondition
+#                               holds, and it is the contract the file's own
+#                               header already asks for.
+EXCLUDED_BATS = test/dashboard-image.bats test/supercred-demo.bats test/supercred-demo-api.bats test/supercred-step1-runtime.bats
 
 bao-test-config: ## Render and validate bounded OpenBao/SPIRE configuration.
 	./test/validate-bao-spire.sh

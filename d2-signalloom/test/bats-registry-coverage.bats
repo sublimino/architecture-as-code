@@ -207,6 +207,124 @@ bats_dirs() {
 	fi
 }
 
+# The text of every runner that can legitimately invoke a d2-signalloom suite,
+# with whole-line comments removed.
+#
+# Comment stripping is the entire point, not tidiness. Both suites this check
+# first caught carry a long, careful reason paragraph in the d2-signalloom
+# Makefile that NAMES them and says where they belong instead. If comments
+# counted, every excluded suite would satisfy this check by virtue of the very
+# comment explaining its exclusion, and the guard would pass hardest on exactly
+# the entries it exists to find.
+#
+# d2-signalloom/Makefile is included as a runner, minus its EXCLUDED_BATS line.
+# Included, because a suite invoked by a dedicated target there is genuinely
+# invoked. Minus that line, because it names every excluded suite by
+# construction — counting it would make this test tautologically green, which is
+# the specific vacuity this file has already been burned by once (see
+# excluded_suites() above).
+runner_text() {
+	local r out=""
+	for r in "$repo_root/Makefile" "$d2_makefile" "${pipelines[@]}"; do
+		[ -f "$r" ] || return 1
+		out="${out}
+$(grep -vE '^[[:space:]]*@?#' "$r" | grep -vE '^EXCLUDED_BATS')"
+	done
+	printf '%s\n' "$out"
+}
+
+# Given a newline-separated list of suite paths, echo the ones no runner invokes.
+# Factored out so the positive and negative controls below exercise THIS code
+# path rather than a re-implementation of it that could drift away from it.
+unregistered_from() {
+	local list="$1" runners="$2" rel base unrun=""
+	while IFS= read -r rel; do
+		[ -n "$rel" ] || continue
+		base="$(basename "$rel")"
+		grep -qF "$base" <<<"$runners" || unrun="${unrun}${rel} "
+	done <<< "$list"
+	printf '%s' "$unrun"
+}
+
+@test "every excluded d2-signalloom bats suite is invoked by another runner" {
+	# The half of the contract the exclusion list could not express.
+	#
+	# Tests 4 and 5 above prove an exclusion names a real file and states a
+	# reason. Neither asks the only question that decides whether coverage
+	# survived the opt-out: does anything still RUN it? Opting a suite out of the
+	# glob without registering it elsewhere is not a relocation, it is a silent
+	# deletion that leaves a reason paragraph behind as an alibi.
+	#
+	# This was not hypothetical when the test was written. Three suites were on
+	# EXCLUDED_BATS; two of them -- dashboard-image.bats and supercred-demo.bats
+	# -- were invoked by nothing at all, each with a reason paragraph naming the
+	# stage it had supposedly moved to. The move was never made.
+	#
+	# It is also the guard for the defect that prompted it, from the other
+	# direction: supercred-step1-runtime.bats is a runtime probe that the glob
+	# was executing in two cluster stages where nothing deploys its objects. The
+	# fix is to exclude it -- and this test is what stops that exclusion from
+	# quietly costing the coverage its owning target still provides.
+	local excluded runners unrun control_positive control_negative
+
+	excluded="$(excluded_suites)"
+	# Assert the mechanism produced a non-empty universe before believing a pass.
+	# An empty exclusion list makes the loop below iterate zero times and report
+	# success, which is how two tests in this very file once passed vacuously.
+	[ -n "${excluded//[[:space:]]/}" ] || {
+		echo "EXCLUDED_BATS parsed as empty -- refusing to report a pass from it"
+		return 1
+	}
+
+	runners="$(runner_text)" || {
+		echo "a runner file named in this guard does not exist"
+		return 1
+	}
+	[ -n "${runners//[[:space:]]/}" ] || {
+		echo "runner text is empty -- every suite would report as unrun"
+		return 1
+	}
+
+	# ── Controls, run against the same function the verdict comes from ────────
+	#
+	# POSITIVE: a name no runner mentions MUST be reported. Without this, a
+	# broken matcher that finds everything returns an empty list and reads as
+	# "all excluded suites are registered" -- a green that means the opposite of
+	# what it says.
+	control_positive="$(unregistered_from "test/there-is-no-suite-by-this-name.bats" "$runners")"
+	[ -n "$control_positive" ] || {
+		echo "positive control failed: a suite invoked by nothing was NOT reported."
+		echo "The check cannot see what it asserts; its pass below is meaningless."
+		return 1
+	}
+
+	# NEGATIVE: a name that IS invoked must NOT be reported, so a matcher that
+	# flags everything is caught too. supercred-demo-api.bats is invoked by the
+	# root Makefile and by both pipelines.
+	control_negative="$(unregistered_from "test/supercred-demo-api.bats" "$runners")"
+	[ -z "$control_negative" ] || {
+		echo "negative control failed: a genuinely invoked suite was reported unrun."
+		echo "  reported: $control_negative"
+		return 1
+	}
+
+	unrun="$(unregistered_from "$excluded" "$runners")"
+
+	if [ -n "$unrun" ]; then
+		echo "Excluded d2-signalloom suite(s) that NO runner invokes:"
+		echo "  $unrun"
+		echo ""
+		echo "Excluding a suite from the 'make -C d2-signalloom test' glob removes"
+		echo "the only thing that ran it. That is a deletion unless something else"
+		echo "picks it up. Give it a target in the root Makefile, or a run_stage in"
+		echo "a pipeline that actually establishes its preconditions -- and verify"
+		echo "the preconditions rather than assuming them: the suite that prompted"
+		echo "this guard failed because it was run in two stages where nothing"
+		echo "deploys the objects it probes."
+		false
+	fi
+}
+
 @test "every proof script under test/ is invoked by something" {
 	# The coverage hole has a third shape. Stages 1g/1h close it for .bats files,
 	# but audit-guard-reintroduction-proof.sh is a shell script, so the bats

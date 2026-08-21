@@ -1274,7 +1274,29 @@ deliver_code() {
 # So: build locally, `docker save`, ship the archive on its OWN scp beside the
 # payload — never inside it, which is what keeps the payload tracked-files-only.
 AFM_REQUIRED="${AFM_REQUIRED:-1}"
-LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz}"
+# PER-LANE, for the same reason REPORT_DIR is (line 279). Four lanes run
+# concurrently from ONE checkout, and this used to default to a single shared
+# path. Each lane rebuilds the archive before delivering it, so lane B's
+# `k8s-afm.sh save` truncates and rewrites the very file lane A is part-way
+# through scp-ing.
+#
+# Measured on a four-lane in-place redeploy at 75868d19: ci-1 built and hashed
+# f91275f4fd69, and by the time its transfer completed the delivered bytes
+# hashed 3a64f0694fa3 — which is what the other three lanes had just written.
+# The far-side digest check caught it and refused, correctly:
+#
+#   the delivered AFM image hashes 3a64f0694fa3 and f91275f4fd69 was sent.
+#   The archive is corrupt in transit
+#
+# "Corrupt in transit" is what it looks like from the receiving end; nothing was
+# wrong with the network. The file changed under the sender. That is worth
+# saying plainly, because the message sends you to look at scp and the fault is
+# a shared path 60 lines up.
+#
+# An explicit AFM_IMAGE_ARCHIVE is still honoured verbatim: a caller naming one
+# path for one lane is unambiguous, and the sharing hazard only exists for the
+# default that every lane computes identically.
+LOCAL_AFM_ARCHIVE="${AFM_IMAGE_ARCHIVE:-${REPO_ROOT}/.afm-image/${ENV_KEY}/kubesec-afm.tar.gz}"
 
 # Deliberately the path scripts/k8s-afm.sh computes for itself by default:
 # ${REPO_ROOT}/.afm-image/kubesec-afm.tar.gz, where REPO_ROOT on the VM is

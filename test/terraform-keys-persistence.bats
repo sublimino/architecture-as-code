@@ -57,15 +57,14 @@ setup() {
 # no matter what the shipped code does — the contract-halves failure this repo
 # has already paid for once.
 run_durability_guard() {
-  local keys="$1" work="$2"
+  local dir="$1" work="$2"
   local harness="${BATS_TEST_TMPDIR}/guard.sh"
 
   {
     echo 'die() { printf "DIED: %s\n" "$*"; exit 9; }'
-    printf 'REMOTE_KEYS_DIR=%q\n' "$keys"
     printf 'REMOTE_WORK_DIR=%q\n' "$work"
-    sed -n '/^assert_keys_dir_is_durable() {/,/^}/p' "${UP}"
-    echo 'assert_keys_dir_is_durable'
+    sed -n '/^assert_dir_is_durable() {/,/^}/p' "${UP}"
+    printf 'assert_dir_is_durable TESTVAR %q "a test path" "a test consequence"\n' "$dir"
     echo 'echo ACCEPTED'
   } >"${harness}"
 
@@ -77,11 +76,17 @@ run_durability_guard() {
   # extraction yields an empty harness, `assert_keys_dir_is_durable` becomes a
   # command-not-found, and a suite that asserts on exit codes could read that as
   # the guard firing. Checked once, explicitly, so the rest can rely on it.
-  run sed -n '/^assert_keys_dir_is_durable() {/,/^}/p' "${UP}"
+  run sed -n '/^assert_dir_is_durable() {/,/^}/p' "${UP}"
   [ "$status" -eq 0 ]
   [ -n "$output" ]
-  printf '%s\n' "$output" | grep -q 'REMOTE_KEYS_DIR'
   printf '%s\n' "$output" | grep -q 'REMOTE_WORK_DIR'
+
+  # And the caller that supplies both real paths to it.
+  local caller
+  caller="$(sed -n '/^assert_remote_paths_are_durable() {/,/^}/p' "${UP}")"
+  [ -n "$caller" ] || { echo "assert_remote_paths_are_durable is not defined" >&2; return 1; }
+  printf '%s\n' "$caller" | grep -q 'REMOTE_KEYS_DIR'
+  printf '%s\n' "$caller" | grep -q 'REMOTE_ZOT_CACHE'
 }
 
 @test "KEYS a sibling of the checkout is accepted" {
@@ -196,7 +201,7 @@ run_durability_guard() {
   body="$(sed -n '/^provision_remote_paths() {/,/^}/p' "${UP}" | grep -v '^[[:space:]]*#')"
   [ -n "$body" ] || { echo "provision_remote_paths is not defined" >&2; return 1; }
 
-  printf '%s\n' "$body" | grep -q 'assert_keys_dir_is_durable' || {
+  printf '%s\n' "$body" | grep -q 'assert_remote_paths_are_durable' || {
     echo "provision_remote_paths never calls the durability guard:" >&2
     printf '%s\n' "$body" >&2
     return 1
@@ -337,6 +342,103 @@ run_durability_guard() {
     return 1
   }
   return 0
+}
+
+# ── The zot blob store: the same defect, found by fixing the first ──────────
+#
+# These are deliberately the same shape as the keypair assertions above rather
+# than a cleverer generalisation over both. The two paths are destroyed by the
+# same `rm -rf` but they FAIL differently — the keypair fails loudly at a guard
+# that names both fingerprints, the zot cache fails as a bare 500 from a pod
+# that is still Running and still passing its readiness probe. A test named
+# after the symptom is worth more here than one line of shared machinery.
+
+@test "ZOT the shipped zot cache default is durable against the shipped work dir" {
+  local zot work
+  zot="$(grep -oE '^REMOTE_ZOT_CACHE="\$\{GCP_TF_DEMO_REMOTE_ZOT_CACHE:-[^}]+\}"' "${UP}" \
+    | sed -E 's/.*:-//; s/\}"$//')"
+  work="$(grep -oE '^REMOTE_WORK_DIR="\$\{GCP_TF_DEMO_REMOTE_DIR:-[^}]+\}"' "${UP}" \
+    | sed -E 's/.*:-//; s/\}"$//')"
+
+  [ -n "$zot" ] || { echo "could not extract the REMOTE_ZOT_CACHE default" >&2; return 1; }
+  [ -n "$work" ] || { echo "could not extract the REMOTE_WORK_DIR default" >&2; return 1; }
+
+  run run_durability_guard "$zot" "$work"
+  [ "$status" -eq 0 ] || {
+    echo "the SHIPPED zot cache default is not durable: zot=${zot} work=${work}" >&2
+    echo "$output" >&2
+    return 1
+  }
+}
+
+@test "ZOT the durability check covers the zot cache, not only the keys" {
+  # The caller must pass BOTH paths. A version that checks only the keypair is
+  # exactly the state this branch shipped in for its first three commits, and
+  # every keypair assertion above stays green in it.
+  local caller
+  caller="$(sed -n '/^assert_remote_paths_are_durable() {/,/^}/p' "${UP}" | grep -v '^[[:space:]]*#')"
+  [ -n "$caller" ] || { echo "assert_remote_paths_are_durable is not defined" >&2; return 1; }
+
+  printf '%s\n' "$caller" | grep -q 'REMOTE_ZOT_CACHE' || {
+    echo "the durability check never looks at the zot cache:" >&2
+    printf '%s\n' "$caller" >&2
+    return 1
+  }
+}
+
+@test "ZOT the zot cache directory is created and chowned on the VM" {
+  local body
+  body="$(sed -n '/^provision_remote_paths() {/,/^}/p' "${UP}" | grep -v '^[[:space:]]*#')"
+  [ -n "$body" ] || { echo "provision_remote_paths is not defined" >&2; return 1; }
+
+  printf '%s\n' "$body" | grep -qE 'mkdir .*REMOTE_ZOT_CACHE' || {
+    echo "the zot cache directory is never created" >&2
+    return 1
+  }
+  printf '%s\n' "$body" | grep -qE 'chown .*REMOTE_ZOT_CACHE' || {
+    echo "the zot cache is created but never chowned; the Kind node bind-mounts" >&2
+    echo "it and the pipeline user must own it" >&2
+    return 1
+  }
+}
+
+@test "ZOT the driver sends DEMO_ZOT_CACHE_DIR to the pipeline" {
+  local sent
+  sent="$(sed -n "/printf -v envs '/,/^\$/p" "${UP}" \
+    | grep -oE "['[:space:]]DEMO_[A-Z_]+=%q" \
+    | sed -E "s/^['[:space:]]//; s/=%q\$//")"
+  [ -n "$sent" ] || { echo "no exported names found at all" >&2; return 1; }
+
+  printf '%s\n' "$sent" | grep -qx 'DEMO_ZOT_CACHE_DIR' || {
+    echo "the driver never sends DEMO_ZOT_CACHE_DIR; ZOT_CACHE_DIR then falls" >&2
+    echo "back to the relative '.cache/zot' inside the tree that gets wiped." >&2
+    return 1
+  }
+}
+
+@test "ZOT the pipeline turns DEMO_ZOT_CACHE_DIR into an exported ZOT_CACHE_DIR" {
+  local code
+  code="$(grep -v '^[[:space:]]*#' "${PIPE}")"
+  [ -n "$code" ] || { echo "stripped every line of ${PIPE}" >&2; return 1; }
+
+  printf '%s\n' "$code" | grep -qE 'export ZOT_CACHE_DIR="\$\{DEMO_ZOT_CACHE_DIR\}"' || {
+    echo "demo-pipeline.sh does not export ZOT_CACHE_DIR from DEMO_ZOT_CACHE_DIR:" >&2
+    printf '%s\n' "$code" | grep -n 'ZOT_CACHE_DIR' >&2
+    return 1
+  }
+}
+
+@test "ZOT an unset DEMO_ZOT_CACHE_DIR leaves ZOT_CACHE_DIR alone" {
+  # Same reasoning as the keys: on a laptop '.cache/zot' inside the checkout is
+  # correct, because nothing there does an rm -rf between runs.
+  local block
+  block="$(sed -n '/^if \[\[ -n "\${DEMO_ZOT_CACHE_DIR:-}" \]\]; then$/,/^fi$/p' "${PIPE}")"
+  [ -n "$block" ] || {
+    echo "ZOT_CACHE_DIR is exported unconditionally, or the guard was reshaped:" >&2
+    grep -n 'ZOT_CACHE_DIR' "${PIPE}" >&2
+    return 1
+  }
+  printf '%s\n' "$block" | grep -q 'export ZOT_CACHE_DIR'
 }
 
 @test "KEYS both scripts are syntactically valid" {

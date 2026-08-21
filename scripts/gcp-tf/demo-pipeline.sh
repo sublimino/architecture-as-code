@@ -115,6 +115,24 @@ if [[ -n "${DEMO_KEYS_DIR:-}" ]]; then
   export KEYS_DIR="${DEMO_KEYS_DIR}"
 fi
 
+# ── The zot blob store, for exactly the same reason ──────────────────────────
+#
+# ZOT_CACHE_DIR is `?=` at Makefile:50 and defaults to the relative '.cache/zot',
+# so unconfigured it lands inside the delivered tree and is destroyed by the same
+# `rm -rf`. Unlike the keypair, the destruction is silent: the Kind node holds a
+# bind mount through the deleted directory, so the zot pod stays Running, keeps
+# answering its readiness probe, and fails only on a blob upload — with a 500
+# that names nothing and a host directory that looks perfectly healthy.
+#
+# NOTE, because this is the part that surprises: the mount is established when
+# the Kind NODE is created, so pointing this somewhere durable does not repair a
+# cluster that already has the broken mount. An existing cluster has to be
+# recreated once. create-kind-cluster.sh prints "already exists; preserving Zot
+# cache at ..." and preserves the broken one.
+if [[ -n "${DEMO_ZOT_CACHE_DIR:-}" ]]; then
+  export ZOT_CACHE_DIR="${DEMO_ZOT_CACHE_DIR}"
+fi
+
 # The verdict file. Derived from REPORT_DIR by default, because that is the
 # contract demo-up.sh documents ("must write DEMO_REPORT_DIR/summary.json"), but
 # overridable so the driver's own GCP_TF_DEMO_SUMMARY_NAME cannot name a file

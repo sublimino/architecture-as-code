@@ -380,11 +380,7 @@ run_stage() {
   local exit_code=0
 
   echo "──── TEST: ${name} (timeout ${STAGE_TIMEOUT_SECONDS}s) ────"
-  # SECONDS is bash's own counter and needs no external command, which matters
-  # because this pipeline runs before its own toolchain is proven.
-  local stage_start="${SECONDS}"
   timeout -k 30s "${STAGE_TIMEOUT_SECONDS}s" bash -c "$*" > "${REPORT_DIR}/${output_file}" 2>&1 || exit_code=$?
-  local elapsed=$(( SECONDS - stage_start ))
   if ((exit_code == 124)); then
     printf '\nTIMEOUT: stage exceeded %ss and was terminated\n' "$STAGE_TIMEOUT_SECONDS" >> "${REPORT_DIR}/${output_file}"
   fi
@@ -394,43 +390,11 @@ run_stage() {
     status="fail"
     ((failures+=1))
   fi
-
-  # ─── Why a stage records its DURATION and its share of the fence ─────────
-  #
-  # Kept byte-for-byte equivalent to record_stage in
-  # scripts/gcp-tf/demo-pipeline.sh, because these two run_stage
-  # implementations are a known duplication in this repo and they have drifted
-  # before. If you change the shape here, change it there.
-  #
-  # scripts/lib/wait.sh emits a WAIT_STAT line for every INNER wait — elapsed,
-  # deadline, ratio — and scripts/cluster-debug.sh ranks them. The OUTER fence
-  # had none of it: a stage announced its budget and never said what it spent,
-  # so a stage at 95% of STAGE_TIMEOUT_SECONDS looked exactly like one at 5%
-  # until the day it crossed and was killed. A `timeout` kill then reads as a
-  # hung test rather than as a budget that was always too tight.
-  #
-  # This is most load-bearing when the machine changes. Halving a lane's vCPU
-  # barely moves the inner waits — they are dominated by image pulls, Flux
-  # reconciliation and DNS, none of which are CPU-bound — but it does move
-  # total stage wall-clock, which is the number nobody had.
-  local budget_pct=0
-  if ((STAGE_TIMEOUT_SECONDS > 0)); then
-    budget_pct=$(( elapsed * 100 / STAGE_TIMEOUT_SECONDS ))
-  fi
-  echo "  ${status^^}: ${name} (exit ${exit_code}, ${elapsed}s of ${STAGE_TIMEOUT_SECONDS}s = ${budget_pct}%)"
-
-  # Warn ONCE past 60% of the fence and keep going — the same soft threshold and
-  # the same intent as WAIT_SOFT_RATIO in scripts/lib/wait.sh. A merely-slow
-  # stage must not fail, and must not pass silently either.
-  if ((budget_pct >= 60)); then
-    printf '⚠ slow: stage %s used %s%% of its %ss budget (%ss). Raise CI_STAGE_TIMEOUT_SECONDS or investigate.\n' \
-      "$name" "$budget_pct" "$STAGE_TIMEOUT_SECONDS" "$elapsed" >&2
-  fi
+  echo "  ${status^^}: ${name} (exit ${exit_code})"
 
   stage_results+=("$(jq -nc \
     --arg n "$name" --arg s "$status" --argjson c "$exit_code" --arg f "$output_file" \
-    --argjson d "$elapsed" --argjson b "$STAGE_TIMEOUT_SECONDS" --argjson p "$budget_pct" \
-    '{name:$n, status:$s, exit_code:$c, file:$f, duration_s:$d, budget_s:$b, budget_pct:$p}')")
+    '{name:$n, status:$s, exit_code:$c, file:$f}')")
 }
 
 # Stage 1: Static contracts (BATS TAP)

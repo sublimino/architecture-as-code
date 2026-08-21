@@ -14,6 +14,6 @@
 # the omission. The suite list in that file is hand-maintained, which is
 # exactly how it drifts — this ledger is the second guard on the same seam.
 # its accepted BATS ownership-guard registration change.
-8c8b16e01876968a3272518b981cfdd648ea2306f74a3fcebcc609ba350e1de8  scripts/ci/gcp-ci.sh
-8f24316ac81aebc461d8685217213fedc4be10586df3e2797d2ed68877689583  scripts/ci/vm-pipeline.sh
+6288172e347bbd845541dab4a8feb22511e0c378ac8426e8642e650c5f742283  scripts/ci/gcp-ci.sh
+3e4ecea7a5e84cbb258af5518c50c1e3863799e0a222815a946fd98d5a6a0744  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

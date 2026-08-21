@@ -1069,9 +1069,19 @@ JSON
     "project_id": "changeme-sandbox", "access_mode": "iap"
   } },
   "instance_name": { "value": "sl-demo-1-vm" },
-  "internal_ip": { "value": "10.10.1.7" }
+  "internal_ip": { "value": "10.10.1.7" },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
 }
 JSON
+  # operator_sa is in HANDOFF_REQUIRED above, so gcp-tf-handoff REFUSES to write
+  # a file without it rather than emitting one with a hole. Omitting it made this
+  # test fail on the refusal instead of on its own subject, which is access_mode
+  # precedence rather than the field set. The fixtures at the top of this file
+  # already carry it; this one predates the field becoming required.
+  #
+  # The comment lives OUT here, not in the heredoc: that body is parsed as JSON,
+  # which has no comment syntax, so a '#' line inside it makes the stub
+  # unparseable and the test fails for a third unrelated reason.
   run env "STUB_TF_OUTPUT_JSON=${outputs}" \
     make -C "${REPO_ROOT}" gcp-tf-handoff ENV=demo-1 TF_STATE_BUCKET=changeme-sandbox-tfstate \
     TF_ROOT_ENV="${fixture}" "$(no_sa_file)" "GCP_TF_IMPERSONATE=${SA_EMAIL}" \

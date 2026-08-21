@@ -117,6 +117,39 @@ REPO_ROOT="${GCP_TF_DEMO_REPO_ROOT:-}"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/../lib/wait.sh"
 
+# ─── This file depends on _wait_retry, which is wait.sh's PRIVATE engine ─────
+#
+# Deliberate, and the reason is the injectable-boundary rule. `wait_reachable`
+# is a three-line convenience wrapper whose probe string hardcodes a literal
+# `curl`, so calling it BYPASSES this file's CURL_BIN injection point and sends
+# the health probe to the real network no matter what a test injected. That is a
+# component that can only be tested against the real system, which is exactly
+# what the boundary rule forbids.
+#
+# `_wait_retry` takes the command as an argument, so the probe can be built from
+# CURL_BIN while every piece of machinery worth having — deadline, exponential
+# backoff with jitter, the per-attempt hang fence, the soft warning at 60%, the
+# heartbeat and the WAIT_STAT line — lives in _wait_retry and is inherited
+# unchanged. Nothing is reimplemented here.
+#
+# The cost is a dependency on an underscore-prefixed name in a VENDORED file
+# ("DO NOT EDIT HERE. Source of truth: ~/.andy_sync/includes/wait.sh"). A
+# re-vendor that renames or removes it would otherwise fail as
+# "_wait_retry: command not found" at the moment of a health check, i.e. during
+# a demo. Asserted here instead, at load, so the message names the cause.
+#
+# The generically right fix is a WAIT_CURL override upstream in wait.sh, in the
+# same family as WAIT_ATTEMPT_TIMEOUT and WAIT_DEADLINE_SCALE. That is a change
+# to a shared library and needs Andy's say-so, so it is proposed rather than
+# taken; this guard is what makes the interim coupling safe rather than silent.
+if ! declare -F _wait_retry >/dev/null 2>&1; then
+  printf 'demo-up: %s defines no _wait_retry.\n' "${SCRIPT_DIR}/../lib/wait.sh" >&2
+  printf '  This file drives that function directly so the health probe can go\n' >&2
+  printf '  through CURL_BIN rather than wait_reachable'"'"'s hardcoded curl.\n' >&2
+  printf '  A re-vendor has renamed or removed it. See the note above this check.\n' >&2
+  exit 2
+fi
+
 ENV_KEY="${GCP_TF_DEMO_ENV:-${ENV:-}}"
 HANDOFF_DIR="${GCP_TF_HANDOFF_DIR:-${REPO_ROOT}/deploy/gcp}"
 GCLOUD_CMD="${GCP_TF_DEMO_GCLOUD:-gcloud}"
@@ -3269,7 +3302,17 @@ wait_for_ts_dashboard() {
   # been glued to the probe's result. stderr is left alone deliberately, because
   # the WAIT_STAT line and the slow-wait warning are the instrumentation this
   # change exists to add.
-  if wait_reachable "${base}${TS_HEALTH_PATH}" "$HEALTH_WAIT_SECONDS" >/dev/null; then
+  # _wait_retry, NOT wait_reachable. The wrapper's probe string hardcodes a
+  # literal `curl`; this one is built from CURL_BIN, so an injected transport is
+  # actually used. See the long note beside the source of wait.sh.
+  #
+  # The probe is byte-for-byte wait_reachable's, with `curl` replaced by
+  # "${CURL_BIN}" — same flags, same hang fence, same semantics: `-f` makes any
+  # HTTP status >= 400 a failure, which is what makes this a readiness wait
+  # rather than a reachability one.
+  local url="${base}${TS_HEALTH_PATH}"
+  if _wait_retry "$HEALTH_WAIT_SECONDS" "reachable ${url}" \
+    "'${CURL_BIN}' -fsS --max-time ${WAIT_ATTEMPT_TIMEOUT:-10} -o /dev/null '${url}'" >/dev/null; then
     printf '%s' "$(probe_ts_status "$base")"
     return 0
   fi

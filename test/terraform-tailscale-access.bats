@@ -110,6 +110,11 @@ setup() {
 	# test asserting on the driver's own output is not reading the library's.
 	export WAIT_QUIET=1
 
+	# Where a bypassed bare `curl` records itself. See stub_curl.
+	CURL_TRIPWIRE_LOG="${BATS_TEST_TMPDIR}/curl-tripwire.log"
+	export CURL_TRIPWIRE_LOG
+	: >"${CURL_TRIPWIRE_LOG}"
+
 	# `getent` is stubbed on PATH rather than injected, because magicdns_resolves
 	# asks the name-service switch directly — which is correct, and is exactly
 	# why the answer cannot be handed to it in a variable.
@@ -233,9 +238,27 @@ stub_curl() {
 	esac
 	printf '#!/usr/bin/env bash\nprintf %%s %q\nexit %d\n' "$code" "$rc" >"${stubdir}/curl-stub"
 	chmod +x "${stubdir}/curl-stub"
-	cp "${stubdir}/curl-stub" "${stubdir}/curl"
-	chmod +x "${stubdir}/curl"
 	export GCP_TF_DEMO_CURL="${stubdir}/curl-stub"
+
+	# ─── A WORKING `curl` on PATH used to be installed here. It was a mistake ──
+	#
+	# When the health gate moved to wait.sh I called `wait_reachable`, whose
+	# probe string hardcodes a literal `curl` and therefore bypasses
+	# GCP_TF_DEMO_CURL entirely. This suite kept passing — because I had also
+	# copied the stub to `curl` on PATH, which satisfied the bypass and hid it
+	# completely. The injectable boundary was gone and every test here said it
+	# was fine.
+	#
+	# The gap surfaced in test/terraform-tailnet-remote.bats, whose stub is named
+	# `curl-remote` and which therefore had nothing to satisfy the bypass with.
+	#
+	# So the working stub is replaced by a TRIPWIRE that fails loudly. The driver
+	# now drives `_wait_retry` with a probe built from CURL_BIN, so nothing
+	# should ever invoke a bare `curl`; if something does, this makes it an
+	# attributable failure instead of a silent dependency on the real network.
+	printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >>"%s"\nprintf "TRIPWIRE: bare curl invoked; the injected transport was bypassed\\n" >&2\nexit 66\n' \
+		"${CURL_TRIPWIRE_LOG}" >"${stubdir}/curl"
+	chmod +x "${stubdir}/curl"
 }
 
 # A node that is actually SERVING.
@@ -1013,7 +1036,8 @@ mutate() {
 	# the loop went, the pattern silently stopped matching anything ANYWHERE and
 	# `mutate` aborted the run — which is exactly what it is built to do, and the
 	# reason this mutation is not just a comment.
-	mutate 's|^  if wait_reachable .*; then$|  if true; then|'
+	mutate 's|^  if _wait_retry .*$|  if true; then|'
+	mutate '/^    "'"'"'\${CURL_BIN}'"'"' -fsS --max-time/d'
 	stub_curl 000
 	run "${driver}" ts-up
 	[[ "$output" == *"verified before you clicked"* ]] || {
@@ -1804,7 +1828,8 @@ ci_lane_fixture() {
 @test "MUTATION dropping the instrumented wait makes the WAIT_STAT check pass" {
 	# Replaces the wait.sh call with a bare probe loop's success condition, which
 	# is what "just check the code once" would look like. No wait, no stat line.
-	mutate 's|^  if wait_reachable .*; then$|  if [ "$(probe_ts_status "$base")" = "200" ]; then|'
+	mutate 's|^  if _wait_retry .*$|  if [ "$(probe_ts_status "$base")" = "200" ]; then|'
+	mutate '/^    "'"'"'\${CURL_BIN}'"'"' -fsS --max-time/d'
 	serving_fixture
 	local statfile="${BATS_TEST_TMPDIR}/wait-stats-mut"
 	WAIT_STAT_FILE="${statfile}" run "${driver}" ts-up
@@ -1823,11 +1848,40 @@ ci_lane_fixture() {
 @test "MUTATION restoring the stdout leak makes the doubled-status-code check pass" {
 	# The exact defect this change shipped and a test caught: without the
 	# redirect, the wait's own probe output is concatenated onto the status code.
-	mutate 's|^  if wait_reachable "\${base}\${TS_HEALTH_PATH}" "\$HEALTH_WAIT_SECONDS" >/dev/null; then$|  if wait_reachable "${base}${TS_HEALTH_PATH}" "$HEALTH_WAIT_SECONDS"; then|'
+	mutate 's|" >/dev/null; then$|"; then|'
 	serving_fixture
 	run "${driver}" ts-up
 	[[ "$output" == *"200200"* ]] || {
 		echo "the leak did not reappear after the redirect was removed — the doubled-code assertion proves nothing: ${output}"
+		return 1
+	}
+}
+
+@test "TRANSPORT no test in this suite invoked a bare curl" {
+	# The boundary this suite silently lost once already. A working `curl` on
+	# PATH satisfied wait_reachable's hardcoded probe and hid the fact that
+	# GCP_TF_DEMO_CURL had stopped being consulted on the health path.
+	[ -f "${CURL_TRIPWIRE_LOG}" ] || {
+		echo "the tripwire log is missing; setup() did not install it"
+		return 1
+	}
+	[ ! -s "${CURL_TRIPWIRE_LOG}" ] || {
+		echo "a bare 'curl' was invoked — the injected transport was bypassed:"
+		cat "${CURL_TRIPWIRE_LOG}"
+		return 1
+	}
+}
+
+@test "MUTATION calling wait_reachable again bypasses CURL_BIN and trips the wire" {
+	# Proves the tripwire is load-bearing rather than decorative: reintroduce the
+	# exact regression — the convenience wrapper whose probe hardcodes `curl` —
+	# and watch a bare curl get invoked.
+	mutate 's|^  if _wait_retry .*$|  if wait_reachable "${base}${TS_HEALTH_PATH}" "$HEALTH_WAIT_SECONDS" >/dev/null; then|'
+	mutate '/^    "'"'"'\${CURL_BIN}'"'"' -fsS --max-time/d'
+	serving_fixture
+	run "${driver}" ts-up
+	[ -s "${CURL_TRIPWIRE_LOG}" ] || {
+		echo "wait_reachable did NOT invoke a bare curl — the tripwire cannot detect the bypass it exists for"
 		return 1
 	}
 }

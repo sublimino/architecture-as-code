@@ -286,7 +286,23 @@ validate_owner_pid() {
       ;;
   esac
 
-  if ! kill -0 "$owner_pid" 2>/dev/null; then
+  # `kill -0` answers TWO questions with one exit status: "does this pid exist"
+  # and "am I allowed to signal it". EPERM and ESRCH are indistinguishable here,
+  # and the default owner is pid 1 — chosen precisely because systemd outlives
+  # everything, but owned by root while the pipeline runs as an unprivileged
+  # service account. Measured on the CI VM as that user:
+  #
+  #   $ kill -0 1   -> bash: kill: (1) - Operation not permitted   rc=1
+  #   $ ps -p 1     -> 1 root Ss systemd                           (very alive)
+  #
+  # So the most-alive process on the box was rejected as dead, and the publish
+  # stage failed in ZERO seconds without attempting any work.
+  #
+  # /proc is the authority on existence, and pid_is_zombie below already reads
+  # it, so this introduces no new dependency. Order matters: try the cheap
+  # syscall first and only consult /proc when it says no, which keeps the
+  # common path unchanged.
+  if ! kill -0 "$owner_pid" 2>/dev/null && [ ! -e "/proc/${owner_pid}" ]; then
     fail "OWNER_PID must be a live numeric pid at 'up' time; received [${owner_pid}]"
   fi
 

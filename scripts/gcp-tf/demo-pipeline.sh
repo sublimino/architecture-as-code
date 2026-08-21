@@ -1103,8 +1103,26 @@ overall="PASS"
   # tree" or "the contract broke again".
   printf '  "source_origin": %s,\n' "$(json_str "$SOURCE_ORIGIN")"
   printf '  "env": %s,\n' "$(json_str "$DEMO_ENV_KEY")"
-  printf '  "demo_published": true,\n'
-  printf '  "demo_url": %s,\n' "$(json_str "$demo_url")"
+  # DERIVED, never asserted. This printed the literal `true` unconditionally
+  # while publish_rc — set right where publish_dashboard runs — was recorded in
+  # the stage table and read by nothing. On ci-1 that produced a verdict
+  # claiming "demo_published": true beside a stage6d-publish that had failed in
+  # zero seconds, which is the vacuous-pass shape this repo exists to hunt: a
+  # report contradicting its own evidence, in the direction of good news.
+  #
+  # The ABORT path at the top of this file hardcodes `false`, so neither path
+  # ever reflected what actually happened.
+  if [ "${publish_rc:-1}" -eq 0 ]; then
+    printf '  "demo_published": true,\n'
+    printf '  "demo_url": %s,\n' "$(json_str "$demo_url")"
+  else
+    printf '  "demo_published": false,\n'
+    # The URL is emitted as null rather than omitted: a consumer that reads
+    # .demo_url must see "there is no dashboard", not a plausible address that
+    # nothing is serving. Publishing failed, so the address is a fiction.
+    printf '  "demo_url": null,\n'
+    printf '  "demo_publish_exit_code": %d,\n' "${publish_rc:-1}"
+  fi
   printf '  "demo_user": %s,\n' "$(json_str "$DEMO_USER")"
   printf '  "demo_password": %s,\n' "$(json_str "$DEMO_PASSWORD")"
   printf '  "dashboard_port": %d,\n' "$DASHBOARD_LOCAL_PORT"

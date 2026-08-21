@@ -532,6 +532,30 @@ dex_log() {
 
 # ─── The payload ────────────────────────────────────────────────────────────
 
+@test "DEMODRIVER PARALLEL the report directory is per-lane, not shared" {
+	# Four lanes rotate this directory concurrently. prepare_report_dir does
+	# `rm -rf $REPORT_DIR.prev` then `mv $REPORT_DIR $REPORT_DIR.prev`, so a
+	# shared default lets a starting lane rename the directory out from under
+	# three lanes already writing into it.
+	#
+	# Measured on the first genuine four-lane parallel bring-up, 2026-08-21:
+	# three of four died with two spellings of one race, neither naming the
+	# cause — "mv: cannot stat '.../demo-reports'" and "mv: cannot stat
+	# '.../demo-reports/.summary.json.tmp'". Both read as a broken driver.
+	#
+	# The lane key must appear in the DEFAULT, not merely be overridable: the
+	# clash audit missed this precisely because an overridable variable looks
+	# per-lane, and overridable is not the same as overridden.
+	run bash -c "grep -E '^REPORT_DIR=' '${DRIVER_SRC}'"
+	[ "$status" -eq 0 ]
+	[[ "$output" == *'${ENV_KEY}'* ]] || {
+		echo "REPORT_DIR's default does not carry the lane key:" >&2
+		echo "$output" >&2
+		echo "four concurrent lanes would rotate one shared directory" >&2
+		return 1
+	}
+}
+
 @test "DEMODRIVER the payload carries the code and excludes every secret" {
 	local out="${BATS_TEST_TMPDIR}/payload.tar.gz"
 	run "${driver}" payload "${out}"

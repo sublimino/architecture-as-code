@@ -73,9 +73,23 @@ setup() {
 	BASE="https://${TS_FQDN}"
 	ISSUER="${BASE}/dex"
 
-	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/deploy/gcp" "${surfaces}"
+	mkdir -p "${stubdir}" "${root}/scripts/gcp-tf" "${root}/scripts/lib" \
+		"${root}/deploy/gcp" "${surfaces}"
 	cp "${DRIVER_SRC}" "${driver}"
 	chmod +x "${driver}"
+
+	# The REAL wait.sh. demo-up.sh sources it relative to its OWN location, so a
+	# scratch tree without scripts/lib/ makes the driver die on line 1 with
+	# "No such file or directory" before it parses a single argument. Every
+	# assertion in this suite then fails on absent output, which reads as "the
+	# remote surface has been deleted" rather than as "the fixture is
+	# incomplete". That is exactly how 30 tests in this suite broke, and the
+	# wrong diagnosis (that they were bypassing the stub and hitting the live
+	# estate) was far more alarming than the real one.
+	#
+	# The real library, not a stub: these tests then exercise the same backoff
+	# and deadline code that runs in production.
+	cp "${REPO_ROOT}/scripts/lib/wait.sh" "${root}/scripts/lib/wait.sh"
 
 	for s in tailscale getent; do
 		cp "${FIXTURES}/stub-${s}" "${stubdir}/${s}"
@@ -83,6 +97,32 @@ setup() {
 	done
 	cp "${FIXTURES}/stub-curl-remote" "${stubdir}/curl-remote"
 	chmod +x "${stubdir}/curl-remote"
+
+	# ─── THE TRIPWIRE: this suite must never reach the real network ─────────
+	#
+	# The transport is injected as GCP_TF_DEMO_CURL, so nothing here should ever
+	# invoke a bare `curl`. But "should" is the word that precedes every silent
+	# regression: wait.sh's wait_reachable builds its probe with a HARDCODED
+	# `curl`, and any future call to it — or to anything else that shells out by
+	# name — would quietly resolve to /usr/bin/curl and probe the live estate.
+	#
+	# A stub named `curl` that WORKED would paper over exactly that, and would
+	# let the suite go green on a day the real lane happened to be healthy while
+	# testing nothing it claims to test. So this one does the opposite: it
+	# records the attempt and FAILS. A bypass becomes a loud, attributable test
+	# failure naming the URL, instead of an invisible dependency on production.
+	CURL_TRIPWIRE_LOG="${BATS_TEST_TMPDIR}/curl-tripwire.log"
+	export CURL_TRIPWIRE_LOG
+	: >"${CURL_TRIPWIRE_LOG}"
+	cat >"${stubdir}/curl" <<-TRIPWIRE
+		#!/usr/bin/env bash
+		printf '%s\n' "\$*" >>"${CURL_TRIPWIRE_LOG}"
+		printf 'TRIPWIRE: a bare \`curl\` was invoked. This suite injects its transport\n' >&2
+		printf '  as GCP_TF_DEMO_CURL and must never touch the real network.\n' >&2
+		printf '  argv: %s\n' "\$*" >&2
+		exit 66
+	TRIPWIRE
+	chmod +x "${stubdir}/curl"
 
 	write_ts_status "${TS_HOST}" true
 
@@ -658,4 +698,97 @@ mutate() {
 	run "${driver}" test-surfaces
 	[ "$status" -eq 0 ]
 	[[ "$output" == *"BOTH SURFACES PASSED"* ]]
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  THE INJECTABLE TRANSPORT MUST STAY INJECTABLE
+#
+#  Andy's standing rule: every external dependency must be overridable, and a
+#  component that can only be tested against the real system is one nobody
+#  tests. This suite injects its HTTP transport as GCP_TF_DEMO_CURL.
+#
+#  The regression these guard against is specific and has already happened once.
+#  wait.sh's `wait_reachable` builds its probe with a HARDCODED `curl`, so
+#  swapping a hand-rolled poll for it silently bypassed CURL_BIN on the health
+#  path. Nothing failed at the time — the suite that covered that path had a
+#  working `curl` on PATH, which papered the gap over completely.
+#
+#  So: a bare `curl` is a tripwire that fails, and its log is asserted empty.
+# ─────────────────────────────────────────────────────────────────────────────
+
+@test "TRANSPORT no test in this suite invoked a bare curl" {
+	# Runs after every other test in the file has had its turn at the tripwire
+	# — bats executes in file order — so an empty log here is a statement about
+	# the whole suite, not about this test.
+	[ -f "${CURL_TRIPWIRE_LOG}" ] || {
+		echo "the tripwire log is missing; setup() did not install the tripwire"
+		return 1
+	}
+	[ ! -s "${CURL_TRIPWIRE_LOG}" ] || {
+		echo "a bare 'curl' was invoked — the injected transport was bypassed and this suite reached for the real network:"
+		cat "${CURL_TRIPWIRE_LOG}"
+		return 1
+	}
+}
+
+@test "TRANSPORT the health probe is built from CURL_BIN, not a literal curl" {
+	# Behavioural, not a grep of the driver. The tripwire exits 66 and records
+	# its argv, so if the probe resolved to a bare `curl` this test's own run
+	# would leave a line in the log.
+	local before after
+	before="$(wc -c <"${CURL_TRIPWIRE_LOG}")"
+	run_driver ts-test
+	after="$(wc -c <"${CURL_TRIPWIRE_LOG}")"
+	[ "$before" = "$after" ] || {
+		echo "driving ts-test invoked a bare curl:"
+		cat "${CURL_TRIPWIRE_LOG}"
+		return 1
+	}
+}
+
+@test "TRANSPORT the driver drives _wait_retry, so the probe carries CURL_BIN" {
+	# The mechanism assertion. wait_reachable's probe string cannot carry
+	# CURL_BIN — it hardcodes `curl` — so a driver that called it would be
+	# structurally unable to honour the injection point regardless of what the
+	# fixtures do.
+	grep -qE '^\s*if _wait_retry ' "${DRIVER_SRC}" || {
+		echo "the driver no longer drives _wait_retry directly"
+		return 1
+	}
+	grep -qE '_wait_retry .*\\?$' "${DRIVER_SRC}" && grep -qF '${CURL_BIN}' "${DRIVER_SRC}" || {
+		echo "the probe passed to _wait_retry does not carry CURL_BIN"
+		return 1
+	}
+	grep -qE '^\s*if wait_reachable ' "${DRIVER_SRC}" && {
+		echo "the driver calls wait_reachable, whose probe hardcodes curl and bypasses CURL_BIN"
+		return 1
+	}
+	return 0
+}
+
+@test "TRANSPORT a missing _wait_retry is refused at load, not at demo time" {
+	# The cost of depending on a private name in a VENDORED library. Without
+	# this check a re-vendor that renamed it would surface as
+	# "_wait_retry: command not found" during a health check — i.e. mid-demo.
+	local scratch="${BATS_TEST_TMPDIR}/revendored"
+	mkdir -p "${scratch}/scripts/gcp-tf" "${scratch}/scripts/lib" "${scratch}/deploy/gcp"
+	cp "${DRIVER_SRC}" "${scratch}/scripts/gcp-tf/demo-up.sh"
+	chmod +x "${scratch}/scripts/gcp-tf/demo-up.sh"
+	# A wait.sh that has everything EXCEPT the private engine.
+	sed 's/^_wait_retry() {/_wait_retry_RENAMED() {/' \
+		"${REPO_ROOT}/scripts/lib/wait.sh" >"${scratch}/scripts/lib/wait.sh"
+	grep -q '_wait_retry_RENAMED' "${scratch}/scripts/lib/wait.sh" || {
+		echo "the re-vendor simulation did not apply — this test would be vacuous"
+		return 1
+	}
+
+	run env GCP_TF_DEMO_REPO_ROOT="${scratch}" "${scratch}/scripts/gcp-tf/demo-up.sh" ts-status
+	[ "$status" -ne 0 ] || {
+		echo "the driver started against a wait.sh with no _wait_retry: ${output}"
+		return 1
+	}
+	[[ "$output" == *"_wait_retry"* ]] || {
+		echo "the refusal does not name the missing function: ${output}"
+		return 1
+	}
 }

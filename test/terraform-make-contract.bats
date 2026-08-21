@@ -1069,7 +1069,8 @@ JSON
     "project_id": "changeme-sandbox", "access_mode": "iap"
   } },
   "instance_name": { "value": "sl-demo-1-vm" },
-  "internal_ip": { "value": "10.10.1.7" }
+  "internal_ip": { "value": "10.10.1.7" },
+  "operator_sa": { "value": "sl-operator@changeme-sandbox.iam.gserviceaccount.com" }
 }
 JSON
   run env "STUB_TF_OUTPUT_JSON=${outputs}" \

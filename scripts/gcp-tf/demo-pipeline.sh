@@ -733,6 +733,7 @@ run_stage \
      test/gcp-ci-vm-status.bats test/healthcheck.bats \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
+     test/node-doctor.bats \
      test/resourceset-activation-race.bats test/revocation-demo.bats \
      test/signalfusion-demo.bats test/signalfusion-images.bats \
      test/signalloom-local-lifecycle.bats \

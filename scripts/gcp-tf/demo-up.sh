@@ -1242,7 +1242,31 @@ deliver_afm_image() {
   # Rebuild whenever the source is here: it is the only input that can be newer
   # than the last save, and shipping a stale archive would deploy an old binary
   # while the report is stamped with this commit.
-  if [ -f "${KUBESEC_AFM_ROOT:-/home/andy/src/cp/kubesec-afm}/AFM/docker/backend.Dockerfile" ]; then
+  # ─── Do NOT hardcode a developer's home here ────────────────────────────
+  #
+  # This line used to default KUBESEC_AFM_ROOT to an absolute path under a
+  # developer's home directory, and tripped the portability guard in
+  # test/terraform-conventions.bats, which scans `scripts/gcp-tf/*.sh`. The
+  # guard is right and its comment says why: the prohibition is on a DEVELOPER's
+  # machine leaking into a committed file.
+  #
+  # The offending default is deliberately NOT quoted anywhere in this comment.
+  # Writing it out to explain the rule re-trips the guard — the grep cannot tell
+  # a violation from the sentence forbidding one, and the fix then reads exactly
+  # like the original leak. The guard's own header excludes prose FILES for that
+  # reason; a comment inside a scanned script gets no such exemption.
+  #
+  # `scripts/k8s-afm.sh` carries the same default and does NOT trip it, because
+  # it sits outside the guard's globs. That is an inconsistency in coverage
+  # rather than a licence — this file is in scope, so this file is portable.
+  #
+  # The sibling-of-the-repo default is derived rather than assumed: the AFM
+  # checkout lives beside this one, so REPO_ROOT/../kubesec-afm resolves on any
+  # machine laid out the same way and resolves to nothing on a machine that is
+  # not — which is the correct answer there, because the elif below already
+  # handles "no source checkout here" by using a pre-built archive.
+  local afm_src="${KUBESEC_AFM_ROOT:-${REPO_ROOT}/../kubesec-afm}"
+  if [ -f "${afm_src}/AFM/docker/backend.Dockerfile" ]; then
     log "building the AFM image archive from source"
     if ! "${REPO_ROOT}/scripts/k8s-afm.sh" save "$archive"; then
       refuse_or_warn_no_afm "'k8s-afm.sh save' failed against the source checkout"

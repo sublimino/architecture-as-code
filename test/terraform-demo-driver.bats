@@ -150,6 +150,27 @@ setup() {
 	chmod +x "${stubdir}/owner-ours" "${stubdir}/owner-descendant" \
 		"${stubdir}/owner-theirs" "${stubdir}/owner-none"
 	export GCP_TF_DEMO_LISTENER_OWNER_PROBE="${stubdir}/owner-ours"
+
+	# ─── Why this suite opts OUT of the AFM requirement ─────────────────────
+	#
+	# AFM_REQUIRED defaults to 1, and the driver now REFUSES a run it cannot
+	# deliver the KubeSec-AFM image to — deliberately, because the previous
+	# warn-and-continue shipped lanes whose /rbac-analysis page had no backend
+	# and let seven nginx locations answer 502 with nobody told.
+	#
+	# This harness has no AFM source checkout and no archive, so every `up` here
+	# would refuse, and roughly twenty tests in this file would fail on the
+	# refusal rather than on the thing they assert. None of them is about AFM:
+	# they cover ssh-agent handling, operator impersonation, payload
+	# construction, tunnel ownership and run classification.
+	#
+	# Setting it to 0 is the documented, deliberate opt-out — the same one the
+	# refusal text names — and stating it here makes the choice visible instead
+	# of leaving a suite that quietly depends on AFM being absent. AFM delivery
+	# has its own coverage in test/k8s-afm-preflight.bats and
+	# test/afm-delivery-mutation-proof.sh; duplicating it here would test it
+	# against stubs that cannot exercise it.
+	export AFM_REQUIRED=0
 }
 
 # A fixture checkout carrying one of everything the exclusion list names, so

@@ -254,6 +254,25 @@ run_make() {
 }
 
 # Every gcloud invocation the stub recorded, one per line.
+# Where a mutated copy of the driver has to live for it to run at all.
+#
+# The driver does `source "${SCRIPT_DIR}/../lib/wait.sh"`, so a copy dropped in
+# a flat temp dir dies on line 118 with "No such file or directory" before it
+# reaches any guard. That failure presents as the mutant REFUSING, which is
+# indistinguishable from the guard under test still working — so a mutation
+# test would report "the mutant refused anyway" and the natural reading is that
+# the mutation failed, not that the harness did.
+#
+# Mirroring the layout — <dir>/gcp-tf/<mutant> beside a <dir>/lib symlink —
+# makes the relative source resolve against the REAL library, so the mutant is
+# the real driver with exactly one thing changed.
+mutant_dir() {
+	local d="${BATS_TEST_TMPDIR}/mut"
+	mkdir -p "${d}/gcp-tf"
+	ln -sfn "${REPO_ROOT}/scripts/lib" "${d}/lib"
+	printf '%s' "${d}/gcp-tf"
+}
+
 gcloud_log() {
 	cat "${log}" 2>/dev/null || true
 }
@@ -1981,7 +2000,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	# port held by another lane, the driver must be observed to sail through and
 	# claim success — which is exactly what it did before the fix, and is why a
 	# collision was never noticed.
-	local mutated="${BATS_TEST_TMPDIR}/demo-up-mutated.sh"
+	local mutated="$(mutant_dir)/demo-up-mutated.sh"
 	sed 's/^  require_local_port_free "\$local_port" "gcp-tf-connect"$/  : # MUTATED: guard call deleted/' \
 		"${DRIVER_SRC}" >"${mutated}"
 	chmod +x "${mutated}"
@@ -2145,7 +2164,7 @@ stub_curl() { # stub_curl <status-code-to-emit>
 	# another process, the driver must be OBSERVED to sail through and declare a
 	# live tunnel — which is what it did before this fix, and is why a hijack
 	# was never noticed.
-	local mutated="${BATS_TEST_TMPDIR}/demo-up-hijack.sh"
+	local mutated="$(mutant_dir)/demo-up-hijack.sh"
 	sed 's/^  if ! assert_tunnel_is_ours "\$local_port" "\$tunnel_pid" "gcp-tf-connect"; then$/  if false; then # MUTATED: ownership check removed/' \
 		"${DRIVER_SRC}" >"${mutated}"
 	chmod +x "${mutated}"

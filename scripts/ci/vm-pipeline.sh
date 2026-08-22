@@ -797,6 +797,20 @@ run_stage \
   "Exec-probe ban in test files" \
   "stage1k-exec-probe-ban.tap" \
   "cd ${WORK_DIR} && bats --tap test/no-exec-probes-in-tests.bats"
+
+# Stage 1m: agent-trust probe shape (BATS TAP)
+#
+# Asserts planner-egress-denied still POLLS its denial against a deadline
+# rather than sampling it once. Sampling once runs inside the window where a
+# new pod is still unconfined, which made the probe report a security hole
+# that did not exist on every single run until da2b58f5. Static, no cluster,
+# no network, ~1s. Registered here as well as in demo-pipeline.sh because this
+# file is a hand-maintained duplicate and a stage added to only one of them
+# runs in only one lane.
+run_stage \
+  "Agent-trust probe shape" \
+  "stage1m-agent-trust-probe-shape.tap" \
+  "cd ${WORK_DIR} && bats --tap test/agent-trust-probe-shape.bats"
 # Stage 1o: Vacuous-assertion lint
 #
 # Item 3 on the leverage-ordered fix list in Andy's silent-failure note:

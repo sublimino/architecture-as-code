@@ -764,6 +764,14 @@ run_stage \
   "stage1k-exec-probe-ban.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/no-exec-probes-in-tests.bats"
 
+# Static, no cluster: asserts planner-egress-denied still POLLS its denial
+# rather than sampling it once. The live CronJob is the real detector, but it
+# only detects on a deployed estate — this goes red in seconds instead.
+run_stage \
+  "Agent-trust probe shape" \
+  "stage1m-agent-trust-probe-shape.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/agent-trust-probe-shape.bats"
+
 run_stage \
   "RBAC subject resolution" \
   "stage1l-rbac-subjects.tap" \

@@ -48,7 +48,28 @@
 #   STUB_NO_WARNING        set to 1 to suppress the impersonation warning
 
 log="${STUB_GCLOUD_LOG:-/dev/null}"
-printf '%s\tSSH_AUTH_SOCK=[%s]\n' "$*" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
+
+# ONE LINE PER INVOCATION, with embedded newlines escaped.
+#
+# The ssh-agent and impersonation guards in terraform-demo-driver.bats are
+# written as `gcloud_log | grep -v <property>` and require the result to be
+# empty — an assertion whose unit is THE LINE. But `compute ssh --command` is
+# routinely handed a multi-line shell script, so logging `$*` verbatim made a
+# SINGLE call occupy dozens of lines, only the first of which carried the argv
+# and therefore the flags being checked. Every continuation line then read as a
+# separate gcloud call with no impersonation and no empty SSH_AUTH_SOCK, and
+# the guards failed while naming, as the offending "call", a fragment of a
+# comment from the middle of a remote heredoc.
+#
+# Flattening here makes the log's unit match the assertions' unit, which is
+# what both were always meant to be: one record per CALL. It STRENGTHENS the
+# guards rather than relaxing them — before this, a genuine unimpersonated call
+# could hide on the second line of a multi-line command and be scanned as
+# though it were part of the previous call's payload.
+#
+# Substring assertions elsewhere in the suite are unaffected: every one of them
+# matches a flag or an argument, which is on the argv itself.
+printf '%s\tSSH_AUTH_SOCK=[%s]\n' "${*//$'\n'/\\n}" "${SSH_AUTH_SOCK-@UNSET@}" >>"$log"
 
 argv="$*"
 

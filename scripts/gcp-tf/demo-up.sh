@@ -1013,6 +1013,29 @@ ensure_vm_ready() {
   case "$status" in
     RUNNING)
       log "${INSTANCE_NAME} is already running"
+      # RUNNING is not the same as REACHABLE, and this branch used to assume it
+      # was. GCE reports RUNNING as soon as the instance object exists, well
+      # before the guest's sshd is listening and before IAP can reach port 22 —
+      # so the assumption holds for a VM that has been up a while and fails for
+      # one `terraform apply` created a minute ago. That is exactly the VM the
+      # documented loop hands over:
+      #
+      #   make gcp-tf-up ENV=ci-1 && make gcp-tf-demo-up ENV=ci-1
+      #
+      # Measured on ci-1 on 2026-08-22: VM created 18:28:32, guest booted
+      # 18:28:49, delivery attempted ~18:29:46 (~74s after creation) and died
+      # with `4003: 'failed to connect to backend'. (Failed to connect to port
+      # 22)` out of gcloud scp — a raw Python traceback from inside the delivery
+      # step, blaming the transfer for a VM that simply had not finished
+      # booting. The same SSH succeeded by hand seven minutes later.
+      #
+      # The resume and start branches below always waited, because there it is
+      # obvious that a wait is needed. The one branch without it is the one the
+      # from-scratch loop always takes, which is why this went unnoticed for as
+      # long as a human was slow enough to sit between the two commands.
+      #
+      # On an already-warm VM this costs one successful SSH round trip.
+      wait_for_ssh || return 2
       ;;
     SUSPENDED)
       log "resuming suspended ${INSTANCE_NAME}"

@@ -78,10 +78,19 @@ fan_out() {
 		) &
 	done
 	wait
+	# `grep -c` PRINTS the count on stdout and separately EXITS 1 when that count
+	# is zero. So `$(grep -c ... || echo 0)` appends a second line and yields
+	# "0\n0", which then explodes in the arithmetic below with
+	# `syntax error in expression (error token is "0")`. The || looks like
+	# defensive shell and is the entire defect — it fires exactly in the SUCCESS
+	# case, so the harness died only when every lane passed.
 	local bad
-	bad="$(grep -cv '=0$' "$rc_file" 2>/dev/null || echo 0)"
+	bad="$(grep -cv '=0$' "$rc_file" 2>/dev/null)" || true
+	bad="${bad//[^0-9]/}"
+	bad="${bad:-0}"
 	log "  ${phase}: $(tr '\n' ' ' <"$rc_file")"
-	return "$((bad > 0 ? 1 : 0))"
+	[ "$bad" -gt 0 ] && return 1
+	return 0
 }
 
 do_destroy() { ( cd "$REPO_ROOT" && yes yes | make gcp-tf-destroy ENV="$1" CONFIRM="$1"; exit "${PIPESTATUS[1]}" ); }

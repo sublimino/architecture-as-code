@@ -208,11 +208,31 @@ collect_probe() {
 #                          on all four lanes on 2026-08-21
 #   VM 000, tailnet 200    something ELSE is answering this URL. The worst of
 #                          the four, and invisible to either probe alone.
+# The `|| printf '000'` this used to end with printed a SECOND 000: curl's
+# `-w '%{http_code}'` already emits 000 when the connection fails, and it also
+# exits non-zero, so both halves fired and the function returned `000000`.
+# Measured on ci-1 on 2026-08-22 — the doctor printed
+#
+#   ✗ / -> 000000 (unexpected status)
+#
+# and `000000` matches no arm of nd_http_explain, so the 000 sentence written
+# for exactly this case was dead code. The verdict stayed correct (nd_verdict_http
+# fails anything that is not 200), so this only ever cost the diagnosis — but the
+# diagnosis is the whole product of a doctor.
+#
+# It hid because reproducing it needs curl to FAIL. A 502 — the state measured
+# on all four lanes on 2026-08-21 — is a SUCCESSFUL curl, so the fallback never
+# fired and the seam looked healthy for as long as the lanes were merely broken
+# rather than unreachable.
+#
+# curl's own output is now the single source of the code, and the fallback only
+# covers it emitting nothing at all (killed before it could write).
 probe_tailnet() {
-  local path="$1"
+  local path="$1" code
   command -v curl >/dev/null 2>&1 || { printf 'UNKNOWN'; return; }
-  curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
-    "https://${TS_FQDN}${path}" 2>/dev/null || printf '000'
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "https://${TS_FQDN}${path}" 2>/dev/null)"
+  printf '%s' "${code:-000}"
 }
 
 run_one() {

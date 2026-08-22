@@ -492,6 +492,70 @@ with_field() {
   [[ "$(nd_http_explain 502 vm)" == *"nginx"* ]]
 }
 
+# ─── The seam between the two halves above ──────────────────────────────────
+#
+# nd_http_explain is exercised with a hand-written `000` and probe_tailnet was
+# exercised with nothing at all, so both halves were green while the chain
+# between them was broken. Measured on ci-1 on 2026-08-22, the doctor printed
+#
+#   ✗ / -> 000000 (unexpected status)
+#
+# `000000` is not a status code. curl's `-w '%{http_code}'` ALREADY prints 000
+# when the connection fails, and probe_tailnet appended a second one with
+# `|| printf '000'`. No arm of nd_http_explain matches the result, so it fell
+# through to `*)` and the purpose-written 000 sentence — "the name did not
+# resolve, or nothing is served on it" — was dead code in the one case it was
+# written for.
+#
+# It survived because the failure it hides needs curl to FAIL. On 2026-08-21
+# the lanes answered a real 502, and a 502 is a SUCCESSFUL curl (rc=0), so the
+# fallback never fired and the seam looked fine.
+#
+# The stub is in the shape curl really has, and both halves of that shape are
+# load-bearing: it prints 000 AND exits non-zero. Measured live against an
+# unroutable address on 2026-08-22: `code=000 rc=28`. A stub that only exited
+# non-zero without printing would not reproduce the defect at all.
+lift_probe_tailnet() {   # the entry script runs its arg parser on source
+	eval "$(awk '/^probe_tailnet\(\) \{/,/^\}/' "$ENTRY")"
+}
+stub_failing_curl() {
+	local stub="$BATS_TEST_TMPDIR/bin"
+	mkdir -p "$stub"
+	printf '%s\n' '#!/usr/bin/env bash' 'printf 000' 'exit 28' >"$stub/curl"
+	chmod +x "$stub/curl"
+	printf '%s' "$stub"
+}
+
+@test "HTTP a probe whose curl fails emits ONE status code, not two" {
+	lift_probe_tailnet
+	local stub; stub="$(stub_failing_curl)"
+	PATH="${stub}:$PATH" TS_FQDN=example.invalid run probe_tailnet /
+	[ "$output" = "000" ]
+}
+
+@test "HTTP what a failing probe emits is a code nd_http_explain understands" {
+	# The assertion that would have caught it. Whatever probe_tailnet emits has
+	# to survive the adjudicator it is fed to — testing the two ends against
+	# each other's assumptions is what neither half did.
+	lift_probe_tailnet
+	local stub; stub="$(stub_failing_curl)"
+	PATH="${stub}:$PATH" TS_FQDN=example.invalid run probe_tailnet /
+	[ "$(nd_http_explain "$output" tailnet)" != "unexpected status" ]
+	[[ "$(nd_http_explain "$output" tailnet)" == *"no response"* ]]
+}
+
+@test "HTTP a probe with no curl at all is still UNKNOWN, not 000" {
+	# The positive control for the pair above: the fix must not collapse
+	# "could not measure" into "measured, nothing there". Those are the two
+	# answers this whole file exists to keep apart.
+	lift_probe_tailnet
+	local empty="$BATS_TEST_TMPDIR/empty"
+	mkdir -p "$empty"
+	PATH="$empty" TS_FQDN=example.invalid run probe_tailnet /
+	[ "$output" = "UNKNOWN" ]
+	[ "$(nd_verdict_http "$output")" = "UNKNOWN" ]
+}
+
 @test "HTTP the entry point flags a tailnet 200 over a dead VM as another lane answering" {
   # The worst of the four VM/tailnet pairings and the one neither probe can see
   # alone: the URL answers while this lane does not.

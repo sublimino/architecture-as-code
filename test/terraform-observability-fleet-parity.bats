@@ -125,8 +125,20 @@ trivy-system" ]
 @test "FLEETOBS no push path names the raw fleet tree as a default argument" {
 	# The generalisation: any `${1:-d2-osramp-fleet}` anywhere in the script is
 	# the same latent bug wearing a different function name.
+	#
+	# Positive control FIRST, and it is not ceremony. A lone `[ "$status" -ne 0 ]`
+	# on a grep passes identically for the reason we want (the pattern is absent)
+	# and for three reasons we do not: $push is unset, $push names a file that
+	# does not exist, or grep is not on PATH. All three exit non-zero and all
+	# three read as "the defect is gone". So prove this grep can still SEE this
+	# file before trusting its silence about it.
+	run grep -c '^[a-z_][a-z_]*()' "$push"
+	[ "$status" -eq 0 ]
+	[ "$output" -gt 0 ]
+
 	run grep -n '\${1:-d2-osramp-fleet}' "$push"
 	[ "$status" -ne 0 ]
+	[ -z "$output" ]
 }
 
 @test "FLEETOBS MUTATION the publisher guard can see an unfiltered fallback" {

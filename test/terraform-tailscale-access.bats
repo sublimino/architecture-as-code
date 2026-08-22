@@ -1880,6 +1880,16 @@ ci_lane_fixture() {
 	mutate '/^    "'"'"'\${CURL_BIN}'"'"' -fsS --max-time/d'
 	serving_fixture
 	run "${driver}" ts-up
+	# The driver's exit STATUS is deliberately not constrained: the mutation
+	# above rewrites the health path, and whether ts-up then succeeds or fails
+	# is not the property under test. Its OUTPUT is asserted, and that is not
+	# ceremony either — `run` always returns 0, so without this the only failable
+	# line in the test is the tripwire check below, and an empty tripwire reads
+	# as "no bare curl was invoked" whether the driver bypassed CURL_BIN or
+	# never ran at all. A driver that dies at parse time from a bad `mutate`
+	# anchor produces exactly that silence. Requiring output distinguishes
+	# "ran and stayed clean" from "never ran".
+	[ -n "$output" ]
 	[ -s "${CURL_TRIPWIRE_LOG}" ] || {
 		echo "wait_reachable did NOT invoke a bare curl — the tripwire cannot detect the bypass it exists for"
 		return 1

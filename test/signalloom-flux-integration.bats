@@ -65,8 +65,38 @@ setup() {
 
   grep -Fq 'ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"' "$push"
   grep -Fq 'TEMP_FLEET_DIR="$(mktemp -d)"' "$push"
-  grep -Fq 'infra/monitoring|d2-infra/components/monitoring' "$push"
-  grep -Fq 'infra/trivy-system|d2-infra/components/trivy-system' "$push"
+
+  # The two `infra/<tenant>|d2-infra/components/<tenant>` literals this used to
+  # grep for were deleted on 2026-08-22, deliberately. They were a SECOND copy of
+  # the tenant list, maintained beside the one in the fleet ResourceSet and free
+  # to drift from it — and drift is exactly what broke the estate: the fleet
+  # declared four tenants while the push side published two, so monitoring and
+  # trivy-system reconciled forever against NAME_UNKNOWN.
+  #
+  # push_foundation now DERIVES its artifact list from the tenants the fleet
+  # actually declares, so the two sides cannot disagree. Asserting the literals
+  # would now be asserting the defect. Assert the derivation instead, and assert
+  # the profile's actual behaviour through the same library the script uses.
+  grep -Fq 'fleet_infra_tenants' "$push"
+
+  source "$repo_root/scripts/lib/fleet-source.sh"
+
+  # true: all four tenants survive, so all four infra artifacts get pushed.
+  run fleet_source_dir "$repo_root/d2-osramp-fleet" "$BATS_TEST_TMPDIR/on" true
+  [ "$status" -eq 0 ]
+  run fleet_infra_tenants "$output/tenants/base/infra.yaml"
+  [[ "$output" == *"monitoring"* ]]
+  [[ "$output" == *"trivy-system"* ]]
+
+  # false: only the fleet artifact differs — the component sources are still
+  # present on disk for the optional profile, they are simply not published.
+  run fleet_source_dir "$repo_root/d2-osramp-fleet" "$BATS_TEST_TMPDIR/off" false
+  [ "$status" -eq 0 ]
+  run fleet_infra_tenants "$output/tenants/base/infra.yaml"
+  [[ "$output" != *"monitoring"* ]]
+  [[ "$output" != *"trivy-system"* ]]
+  [ -d "$repo_root/d2-infra/components/monitoring" ]
+  [ -d "$repo_root/d2-infra/components/trivy-system" ]
 }
 
 @test "observability flag controls reconciliation waits" {

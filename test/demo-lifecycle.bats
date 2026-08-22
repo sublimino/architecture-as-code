@@ -148,10 +148,25 @@ SCRIPT
   command -v yq >/dev/null || skip "yq is required"
   local name
   for name in signalloom-infra signalloom-apps; do
-    run yq -e "select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") | (.spec.inputs | length) > 0" \
+    # `eval-all` + array collection rather than a bare `select … | … > 0`,
+    # because the bare form's OUTPUT is yq-version-dependent on a MULTI-document
+    # file, and this file holds three documents.
+    #
+    # Measured on both sides rather than assumed:
+    #   yq v4.53.2 (developer box) -> `true`
+    #   yq v4.44.6 (the CI VM, pinned by install-ci-tools.sh)
+    #     -> `false\n---\ntrue\n---\nfalse`, one result per document
+    #
+    # So `[ "$output" = "true" ]` passed locally and failed on CI while the YAML
+    # was correct in both places — a green developer box certifying a red stage.
+    # Collecting matches into an array first yields ONE value on both versions,
+    # and counting them asserts the same property more directly: exactly one
+    # document is this ResourceSet, and it has a non-empty input list.
+    run yq eval-all -e \
+      "[select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") | select((.spec.inputs | length) > 0)] | length" \
       "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
     [ "$status" -eq 0 ]
-    [ "$output" = "true" ]
+    [ "$output" = "1" ]
   done
 }
 

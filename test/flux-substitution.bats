@@ -119,7 +119,54 @@ EOF
   # The quieter half of the same lie. A kinds list matching no CRD, or a context
   # pointing at a cluster with no Flux, examines nothing -- and "nothing was
   # wrong with the nothing I looked at" is not a pass.
-  run env FLUX_SUBST_KINDS=nosuchkind.example.com \
+  #
+  # kubectl is STUBBED rather than reached for, and that is the point of this
+  # edit. The property under test is "zero objects scanned is not a pass", which
+  # has nothing to do with whether a cluster exists — but the unstubbed form
+  # silently depended on one, and the dependency ran the wrong way round from
+  # what anybody would guess:
+  #
+  #   cluster reachable  -> kubectl returns "doesn't have a resource type",
+  #                         check-flux-substitution.sh:91-93 treats that as the
+  #                         tolerable case, falls through to :181, prints
+  #                         "ZERO Flux objects", exit 2.   TEST PASSES
+  #   no cluster         -> kubectl fails to CONNECT, which is not the tolerable
+  #                         case, so :95-102 prints "kubectl failed while
+  #                         scanning" and exits 2 EARLY. The string this test
+  #                         greps for is never printed.  TEST FAILS
+  #
+  # So it passed on any box with a kind cluster up and failed on a freshly torn
+  # down CI VM — while living in a stage documented as "static: no cluster, no
+  # docker, no network". Measured both ways: local (context kind-osramp) passes,
+  # the ci-1 VM at stage-1g time fails, and the same VM passes once its cluster
+  # is up. Stubbing removes the dependency instead of hiding it behind a skip,
+  # which would have made the test disappear on exactly the runner that needs it.
+  # The stub SUCCEEDS and returns an empty item list. That distinction is the
+  # whole test, and getting it wrong is silent:
+  #
+  # A first version of this stub emitted "the server doesn't have a resource
+  # type" and exited 1 — the tolerable-CRD-absent case. That reaches :91-93,
+  # which returns early WITHOUT setting kubectl_ok=1, so the guard then went red
+  # at :181 on `kubectl_ok -eq 0` and the test passed. It passed for the wrong
+  # reason: it was exercising "kubectl never succeeded", not "kubectl succeeded
+  # and there was nothing there", while carrying the second name. Caught by
+  # deleting `[ "${scanned}" -eq 0 ]` from :181 and watching the test stay
+  # GREEN — the mutation the test exists to catch, undetected.
+  #
+  # Exiting 0 with {"items":[]} sets kubectl_ok=1 and leaves scanned at 0, so
+  # the zero-scanned condition is the ONLY thing holding the guard red and
+  # removing it now turns this test red.
+  local bin="${BATS_TEST_TMPDIR}/bin"
+  mkdir -p "$bin"
+  cat >"$bin/kubectl" <<'STUB'
+#!/usr/bin/env bash
+# A successful scan that found nothing — NOT a failed scan.
+echo '{"apiVersion":"v1","kind":"List","items":[]}'
+exit 0
+STUB
+  chmod +x "$bin/kubectl"
+
+  run env PATH="$bin:$PATH" FLUX_SUBST_KINDS=nosuchkind.example.com \
     bash "${REPO_ROOT}/scripts/check-flux-substitution.sh"
   [ "$status" -eq 2 ]
   [[ "$output" == *"ZERO Flux objects"* ]]

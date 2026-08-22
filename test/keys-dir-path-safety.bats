@@ -233,7 +233,36 @@ setup() {
   # Everything above compares two make expansions against each other, so two
   # paths broken in the same way agree. These two do not consult make's
   # arithmetic at all, and are what catches that case.
-  if [ "${keydir##*/}" != ".keys" ]; then
+  # The anchor's job is to be independent of make's arithmetic, NOT to insist on
+  # one directory name. Those were the same thing while '.keys' was the only
+  # location; they stopped being the same thing when the remote lanes started
+  # overriding KEYS_DIR on purpose.
+  #
+  # scripts/gcp-tf/demo-up.sh:221 sets REMOTE_KEYS_DIR=/opt/signalloom/keys and
+  # exports it as DEMO_KEYS_DIR; scripts/gcp-tf/demo-pipeline.sh:115 re-exports
+  # it as KEYS_DIR; the Makefile's `KEYS_DIR ?=` yields to the environment. That
+  # location is deliberate and load-bearing: it must be DURABLE, and the
+  # delivered tree it would otherwise live in is REPLACED on every run
+  # (demo-up.sh:1559 — "created here and NEVER emptied"). So on every CI and
+  # demo VM the last component is 'keys', and this anchor failed a correct tree.
+  #
+  # An explicit KEYS_DIR is therefore the anchor when one is set. That keeps the
+  # property the anchor exists for — the comparison is against an environment
+  # value or a literal, never against a second make expansion, so two expansions
+  # broken the same way still cannot agree their way past it — while no longer
+  # encoding one lane's directory name as a universal invariant.
+  local anchor="${KEYS_DIR:-}"
+  if [ -n "$anchor" ]; then
+    if [ "$keydir" != "$anchor" ]; then
+      echo "ANCHOR (explicit KEYS_DIR): the signing key directory is" >&2
+      echo "    $keydir" >&2
+      echo "but KEYS_DIR is explicitly set to" >&2
+      echo "    $anchor" >&2
+      echo "The recipe must write cosign.pub into the directory the environment" >&2
+      echo "named, or the fleet sub-make stats a file nothing produced." >&2
+      return 1
+    fi
+  elif [ "${keydir##*/}" != ".keys" ]; then
     echo "ANCHOR (name): the signing key directory is" >&2
     echo "    $keydir" >&2
     echo "whose last component is '${keydir##*/}', not '.keys'. Both expansions" >&2

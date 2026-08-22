@@ -286,8 +286,21 @@ mutate() {
 @test "REMOTE every receipt path carries the environment key" {
 	# Four lanes, two surfaces, eight files, no collisions. A fixed filename
 	# here would make concurrent lanes overwrite each other's evidence.
+	#
+	# Paired positive FIRST, on the same principle as the check-ignore test
+	# above. The assertion below is "no SURFACE_DIR reference lacks ENV_KEY",
+	# and an empty first grep satisfies it perfectly — which is what happens if
+	# DRIVER_SRC moves, if the variable is renamed, or if the receipt block is
+	# deleted outright. Deleting the thing under test must not be the easiest
+	# way to pass. So require that the driver still contains receipt paths at
+	# all before asserting anything about their shape.
+	run grep -cE 'SURFACE_DIR}/' "${DRIVER_SRC}"
+	[ "$status" -eq 0 ]
+	[ "$output" -gt 0 ]
+
 	run bash -c "grep -nE 'SURFACE_DIR}/' '${DRIVER_SRC}' | grep -v 'ENV_KEY'"
 	[ "$status" -ne 0 ]
+	[ -z "$output" ]
 }
 
 @test "REMOTE no check can only ever pass" {

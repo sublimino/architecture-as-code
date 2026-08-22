@@ -2086,6 +2086,8 @@ run_lane() {
     "on-VM pipeline verdict ${verdict} (exit ${final_exit})" ||
     warn "could not write the on-vm surface receipt under ${SURFACE_DIR}; 'make gcp-tf-test-surfaces ENV=${ENV_KEY}' will report this surface as not having run"
 
+  ensure_tailnet_target_durable
+
   echo ""
   if [ "$final_exit" -eq 0 ]; then
     echo "==> PASS — the estate is standing and tested."
@@ -2711,6 +2713,57 @@ demo-up: could not publish ${DASHBOARD_NAMESPACE}/${DASHBOARD_SERVICE} on ${INST
 EOF
     exit 7
   fi
+}
+
+# Leave the tailnet URL with something behind it, after the lane has finished.
+#
+# ─── The gap this closes ───────────────────────────────────────────────────
+#
+# The two halves of the tailnet access path were installed by different things,
+# and only one of them ran on a deploy:
+#
+#   serve half     signalloom-tailscale-serve.service, written by the VM's
+#                  STARTUP SCRIPT — so it is present on every VM from birth,
+#                  unconditionally, pointing at 127.0.0.1:APP_PORT whether or
+#                  not anything is listening there.
+#   backend half   signalloom-dashboard-pf.service, written by ensure_published
+#                  — which only ever ran from ts-up, public and funnel-up.
+#
+# So every VM booted advertising a URL and serving nothing, and `up` completing
+# was not enough to make that URL work. Measured on 2026-08-22: three lanes
+# answered 502 with a valid serve config and no listener on 30754 at all, while
+# the on-VM suite scored 29/29 — because that suite asserts over 127.0.0.1 on
+# the VM, and the tailnet is a separate path nothing in it depends on.
+#
+# This is the half of the pair that was missing. It is CONSTRUCTION, not a
+# repairing detector: it does not inspect a 502 and patch it, it declares what
+# the machine should be doing, the same way the serve unit does.
+#
+# ─── Why it cannot fail the run ────────────────────────────────────────────
+#
+# The verdict has already been decided, printed and filed by the time this
+# runs. A lane that tested green must not be reported as a failure because a
+# port-forward could not be installed — that is bookkeeping overriding the
+# run's own result, and it is the same reasoning write_surface_receipt is
+# non-fatal for.
+#
+# THE SUBSHELL IS LOAD-BEARING, not style. ensure_published ends its failure
+# path with `exit 7`, not `return 7` — it was written for callers that should
+# die with it. A bare `ensure_published … || warn …` would therefore terminate
+# THIS script, turning a passing lane into a silent exit 7 after the PASS line
+# had already been printed. Running it in a subshell contains that exit and
+# leaves its status to be read.
+#
+# It stays quiet on the happy path: ensure_published already returns early with
+# its own log line when the VM is publishing, which it is on any lane that has
+# just deployed successfully.
+ensure_tailnet_target_durable() {
+  local rc=0
+  ( ensure_published "$APP_PORT" ) || rc=$?
+  [ "$rc" -eq 0 ] && return 0
+
+  warn "the estate is up but the tailnet URL has no backend: could not install ${PF_UNIT}.service for :${APP_PORT} on ${INSTANCE_NAME} (step exited ${rc}). 'tailscale serve' on this VM proxies to 127.0.0.1:${APP_PORT} and is installed at boot regardless, so https://sl-${ENV_KEY}.<tailnet>.ts.net will answer 502 until this is fixed. The cause is named above. Retry with: make gcp-tf-ts-up ENV=${ENV_KEY}"
+  return 0
 }
 
 # `public` — the whole chain, proven, then handed over.

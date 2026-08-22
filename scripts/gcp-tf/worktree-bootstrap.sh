@@ -81,6 +81,22 @@
 #   FORCE=1                 Overwrite destinations that are newer than source.
 #   LINK=1                  Symlink the `input` class instead of copying it.
 #   ENV=<key>               Also require deploy/gcp/<key>.handoff.json in `check`.
+#   REQUIRE_ALSO=<lines>    Extra paths this particular caller cannot run without,
+#                           one per line, as `<path>` or `<path>|<consequence>`.
+#                           Repo-relative, or absolute for things outside the tree.
+#
+# WHY REQUIRE_ALSO EXISTS — it is the reconciliation, not a convenience
+#
+# The manifest's `required` column is deliberately conservative, because `check`
+# gates `gcp-tf-up` and a main checkout without a lane tfvars or without .keys is
+# a legitimate, supported state. A caller with a STRICTER need — the four-lane
+# loop signs images and passes a specific tfvars as GCP_TF_VAR_FILE, so neither is
+# optional for it — used to carry its own second copy of "is the file there, and
+# what breaks without it". Two implementations of one invariant is the drift this
+# repo punishes: they diverge, and the one nobody is looking at is the one that
+# stops matching reality. A caller's stricter required-set is a PARAMETER of this
+# check, not a reason to write another one, so it is passed in and travels the
+# same code path, producing the same `MISSING` + `Consequence:` message.
 #
 set -euo pipefail
 
@@ -227,6 +243,34 @@ cmd_check() {
     fi
   done <<EOF
 $(manifest_rows)
+EOF
+
+  # Extras this particular caller cannot run without. Same loop body, same two
+  # printf lines, deliberately: the value of routing a caller's stricter
+  # required-set through here rather than letting it check for itself is that
+  # there is exactly ONE piece of code in this repo that decides what a missing
+  # piece of untracked state looks like when it is reported.
+  local abs
+  while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    rel="${row%%|*}"
+    why="${row#*|}"
+    # A bare path (no `|`) leaves `why` equal to the whole entry.
+    [ "$why" != "$row" ] || why="required by the caller that ran this check"
+    # Absolute entries are for state that lives outside the repo — KUBESEC_AFM_ROOT
+    # is a separate clone, not a file under REPO_ROOT, and prefixing it would
+    # produce a path that exists nowhere and a message naming it wrongly.
+    case "$rel" in
+      /*) abs="$rel" ;;
+      *)  abs="${REPO_ROOT}/${rel}" ;;
+    esac
+    if [ ! -e "$abs" ]; then
+      problems=$((problems + 1))
+      printf '\n  MISSING  %s\n' "$rel" >&2
+      printf '           Consequence: %s\n' "$why" >&2
+    fi
+  done <<EOF
+${REQUIRE_ALSO:-}
 EOF
 
   # A hand-off is required only when a caller has named the environment it needs.
@@ -439,7 +483,9 @@ main() {
       cmd_check
       ;;
     -h|--help|help)
-      sed -n '2,95p' "$0" | sed 's/^# \{0,1\}//'
+      # The header block, however long it is. A hardcoded line range silently
+      # truncates the help the first time the header grows — which it just did.
+      awk 'NR>1 && /^#/ {sub(/^# ?/,""); print; next} NR>1 {exit}' "$0"
       ;;
     *) die "unknown command '${cmd}' (expected: check | status | provision)" ;;
   esac

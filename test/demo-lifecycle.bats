@@ -170,27 +170,27 @@ SCRIPT
   # file for exactly the reason the file is now correct. yq parses YAML and does
   # not see comments.
   command -v yq >/dev/null || skip "yq is required"
-  # signalloom.yaml holds THREE documents, and `yq` in single-document mode
-  # evaluates the expression once per document, so what lands in $output depends
-  # on how the local yq treats a `select` that matches nothing. v4.53.2 emits
-  # one line ("true"); v4.44.6 — the version on the CI VM image, which
-  # install-ci-tools.sh does not pin because it does not install yq at all —
-  # emits three ("false", "true", "false", document-separated). Same file, same
-  # expression, same correct answer inside it, and `[ "$output" = "true" ]`
-  # fails on one of them. That skew is the whole reason this test was red on the
-  # VM and green on every developer box.
-  #
-  # `ea` (eval-all) reads all documents as one sequence, so the expression is
-  # evaluated ONCE and yields exactly one scalar on both versions. The `length
-  # == 1` clause is a strengthening that comes free with the collection: it also
-  # asserts the named ResourceSet appears exactly once, which the per-document
-  # form could not say.
   local name
   for name in signalloom-infra signalloom-apps; do
-    run yq ea -e "[.] | map(select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") | .spec.inputs | length) | (length == 1 and .[0] > 0)" \
+    # `eval-all` + array collection rather than a bare `select … | … > 0`,
+    # because the bare form's OUTPUT is yq-version-dependent on a MULTI-document
+    # file, and this file holds three documents.
+    #
+    # Measured on both sides rather than assumed:
+    #   yq v4.53.2 (developer box) -> `true`
+    #   yq v4.44.6 (the CI VM, pinned by install-ci-tools.sh)
+    #     -> `false\n---\ntrue\n---\nfalse`, one result per document
+    #
+    # So `[ "$output" = "true" ]` passed locally and failed on CI while the YAML
+    # was correct in both places — a green developer box certifying a red stage.
+    # Collecting matches into an array first yields ONE value on both versions,
+    # and counting them asserts the same property more directly: exactly one
+    # document is this ResourceSet, and it has a non-empty input list.
+    run yq eval-all -e \
+      "[select(.kind == \"ResourceSet\" and .metadata.name == \"$name\") | select((.spec.inputs | length) > 0)] | length" \
       "$root/d2-osramp-fleet/tenants/local/signalloom.yaml"
     [ "$status" -eq 0 ]
-    [ "$output" = "true" ]
+    [ "$output" = "1" ]
   done
 }
 

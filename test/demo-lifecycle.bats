@@ -105,7 +105,31 @@ SCRIPT
 @test "Signal Loom startup checks foundation health before activation" {
   run make -n demo-signalloom-up
 
-  [ "$status" -eq 0 ]
+  # `make -n` is NOT a dry run here. demo-signalloom-up recurses, and the
+  # sub-make resolves the KubeSec-AFM image before printing any recipe line at
+  # all. That resolution needs a SEPARATE checkout, located via KUBESEC_AFM_ROOT
+  # or at <repo>/../kubesec-afm — and from a git worktree the default resolves
+  # under ~/src/.worktrees/..., whose parent holds no sibling clone. So this test
+  # is green in the source checkout and green on the CI VM, and red in any
+  # worktree whose shell has not exported the variable, for a reason that has
+  # nothing whatever to do with the recipe ORDER it exists to assert.
+  #
+  # It swallowed the explanation, too: make prints a long diagnostic naming both
+  # routes, `run` captured it into $output, and the bare `[ "$status" -eq 0 ]`
+  # then failed showing NONE of it. A blank failure with a shell-state cause is
+  # how this got attributed to an unrelated commit that does not touch this test
+  # — the toggle was measured at one commit, both ways: exported -> ok, unset ->
+  # not ok, with the file byte-identical.
+  #
+  # Skip only for THAT cause, and only after saying so. Any other non-zero
+  # status is a real failure and prints what make actually said.
+  if [ "$status" -ne 0 ]; then
+    if [[ "$output" == *"no way to obtain the KubeSec-AFM image here"* ]]; then
+      skip "no KubeSec-AFM checkout reachable — export KUBESEC_AFM_ROOT. This test asserts recipe ORDER, not image availability"
+    fi
+    printf 'make -n demo-signalloom-up exited %s:\n%s\n' "$status" "$output" >&2
+    return 1
+  fi
   health_line=$(printf '%s\n' "$output" | grep -n -F './scripts/healthcheck.sh' | cut -d: -f1)
   up_line=$(printf '%s\n' "$output" | grep -n -F './scripts/signalloom-local.sh up' | cut -d: -f1)
   [ -n "$health_line" ]

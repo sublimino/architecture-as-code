@@ -11,6 +11,8 @@ mode="${1:-all}"
 ENABLE_OBSERVABILITY="${ENABLE_OBSERVABILITY:-false}"
 
 REGISTRY="${REGISTRY:-localhost:5001/acme}"
+# shellcheck source=scripts/lib/fleet-source.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/fleet-source.sh"
 # shellcheck source=scripts/lib/keys.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/keys.sh"
 KEYS_DIR="$(keys_dir)"
@@ -201,39 +203,71 @@ run_parallel_push() {
   fi
 }
 
-push_foundation() {
-  local fleet_path="d2-osramp-fleet"
-  local -a artifacts=(
-    "infra/cert-manager|d2-infra/components/cert-manager"
-    "infra/ingress|d2-infra/components/ingress"
-  )
+# The fleet directory to publish, filtered for ENABLE_OBSERVABILITY.
+#
+# EVERY path that publishes the fleet artifact must obtain its directory here.
+# This used to be an inline case inside push_foundation, which meant
+# `push-local.sh fleet` — reached by `make push-local-fleet` from
+# scripts/ci/vm-pipeline.sh, demo-agent-trust-up and demo-signalloom-up —
+# republished the UNFILTERED tree and silently reinstated the monitoring and
+# trivy-system tenants an hour after bootstrap had correctly excluded them. See
+# scripts/lib/fleet-source.sh for the full incident and the live evidence.
+#
+# Memoised via TEMP_FLEET_DIR so `all` mode, which publishes the fleet once via
+# push_foundation, does not pay for a second copy — and so the cleanup trap has
+# a single directory to remove.
+resolve_fleet_path() {
+  if [[ "${ENABLE_OBSERVABILITY}" == "true" ]]; then
+    printf '%s\n' "d2-osramp-fleet"
+    return 0
+  fi
+  if [[ -z "${TEMP_FLEET_DIR}" ]]; then
+    TEMP_FLEET_DIR="$(mktemp -d)"
+  fi
+  # Not `local x="$(...)"` — `local` swallows the exit status, so a refusal from
+  # fleet_source_dir would be discarded by errexit and the caller would push an
+  # unfiltered fleet. Declaration and assignment stay on separate lines.
+  local resolved
+  resolved="$(fleet_source_dir "d2-osramp-fleet" "${TEMP_FLEET_DIR}" "${ENABLE_OBSERVABILITY}")"
+  printf '%s\n' "$resolved"
+}
 
-  case "${ENABLE_OBSERVABILITY}" in
-    true)
-      artifacts+=(
-        "infra/monitoring|d2-infra/components/monitoring"
-        "infra/trivy-system|d2-infra/components/trivy-system"
-      )
-      ;;
-    false)
-      TEMP_FLEET_DIR="$(mktemp -d)"
-      cp -a d2-osramp-fleet/. "${TEMP_FLEET_DIR}"
-      fleet_path="${TEMP_FLEET_DIR}"
-      sed -i '/    - tenant: "monitoring"/,/      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"/d' "${fleet_path}/tenants/base/infra.yaml"
-      sed -i '/    - tenant: "trivy-system"/,/      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"/d' "${fleet_path}/tenants/base/infra.yaml"
-      ;;
-    *)
-      echo "ENABLE_OBSERVABILITY must be true or false" >&2
-      return 64
-      ;;
-  esac
+push_foundation() {
+  local fleet_path
+  fleet_path="$(resolve_fleet_path)"
+
+  # The artifact list is DERIVED from the tenants the fleet actually declares,
+  # not maintained alongside it. That is the invariant the incident violated:
+  # a Kustomization may never reference an `infra/<tenant>` source that this
+  # same run does not push. Deriving one from the other makes the two sides
+  # incapable of disagreeing, rather than merely agreeing today.
+  local -a artifacts=()
+  local tenant
+  while IFS= read -r tenant; do
+    [[ -n "$tenant" ]] || continue
+    test -d "d2-infra/components/${tenant}" || {
+      echo "FATAL: fleet declares tenant '${tenant}' but d2-infra/components/${tenant}" >&2
+      echo "       does not exist, so its OCIRepository could never be satisfied." >&2
+      return 1
+    }
+    artifacts+=( "infra/${tenant}|d2-infra/components/${tenant}" )
+  done < <(fleet_infra_tenants "${fleet_path}/tenants/base/infra.yaml")
+
+  ((${#artifacts[@]} > 0)) || {
+    echo "FATAL: no infra tenants resolved from ${fleet_path}; refusing to push" >&2
+    return 1
+  }
 
   push_fleet "$fleet_path"
   run_parallel_push foundation "${artifacts[@]}"
 }
 
 push_fleet() {
-  push_and_sign "fleet" "${1:-d2-osramp-fleet}"
+  local fleet_path="${1:-}"
+  if [[ -z "$fleet_path" ]]; then
+    fleet_path="$(resolve_fleet_path)"
+  fi
+  push_and_sign "fleet" "$fleet_path"
 }
 
 push_agent_trust() {

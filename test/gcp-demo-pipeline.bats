@@ -92,6 +92,43 @@ setup() {
 	reports="$BATS_TEST_TMPDIR/reports"
 	make_fake_repo "$work"
 
+	# ── Neutralise the AMBIENT DEMO_* environment before setting our own ──────
+	#
+	# This suite runs as stage 1r of scripts/gcp-tf/demo-pipeline.sh, and
+	# scripts/gcp-tf/demo-up.sh:1821 exports ELEVEN DEMO_* variables into the
+	# environment that stage inherits. The driver under test reads the same
+	# names, so any one this setup does not override is silently supplied by the
+	# run that is executing us.
+	#
+	# DEMO_SUMMARY_FILE was the one that bit, and it bit invisibly for months.
+	# demo-pipeline.sh:141 is
+	#     SUMMARY_FILE="${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}"
+	# so an explicit DEMO_SUMMARY_FILE OUTRANKS the DEMO_REPORT_DIR this setup
+	# carefully points at a sandbox. On the CI VM the driver-under-test therefore
+	# wrote its verdict to the OUTER run's summary path and left
+	# "$reports/summary.json" absent, and every assertion that reads it failed —
+	# while `run bash "$script"` still exited 0, because nothing had gone wrong
+	# from the driver's point of view. Nine tests red on the VM, all 43 green on
+	# any developer box, for two years' worth of "environmental flake".
+	#
+	# Reproduced deterministically before this fix was written:
+	#     DEMO_SUMMARY_FILE=/tmp/x.json bats test/gcp-demo-pipeline.bats -> 9 failures
+	#                                   bats test/gcp-demo-pipeline.bats -> 0 failures
+	# which is exactly the nine the VM reported.
+	#
+	# It also means the suite was WRITING to the live run's summary file. A test
+	# clobbering the verdict of the pipeline running it is a worse bug than the
+	# red stage that revealed it.
+	#
+	# Unset as a CLASS rather than naming the eleven: the next variable added to
+	# demo-up.sh must not be able to reintroduce this, and a hand list is the
+	# artefact that omits by default.
+	local _demo_var
+	while IFS= read -r _demo_var; do
+		[ -n "$_demo_var" ] || continue
+		unset "$_demo_var"
+	done < <(compgen -v | grep '^DEMO_' || true)
+
 	export DEMO_WORK_DIR="$work"
 	export DEMO_REPORT_DIR="$reports"
 	export DEMO_PIPELINE_LOG="$BATS_TEST_TMPDIR/pipeline.log"

@@ -92,42 +92,39 @@ setup() {
 	reports="$BATS_TEST_TMPDIR/reports"
 	make_fake_repo "$work"
 
-	# ── Neutralise the AMBIENT DEMO_* environment before setting our own ──────
+	# ── Neutralise the caller's DEMO_* namespace before configuring our own ────
 	#
-	# This suite runs as stage 1r of scripts/gcp-tf/demo-pipeline.sh, and
-	# scripts/gcp-tf/demo-up.sh:1821 exports ELEVEN DEMO_* variables into the
-	# environment that stage inherits. The driver under test reads the same
-	# names, so any one this setup does not override is silently supplied by the
-	# run that is executing us.
+	# This suite runs as a STAGE of the very driver it tests, and that driver
+	# exports its own configuration into every stage: scripts/gcp-tf/demo-up.sh
+	# builds a `DEMO_ENV=… DEMO_REPORT_DIR=… DEMO_SUMMARY_FILE=… DEMO_KEYS_DIR=…`
+	# envelope and runs the pipeline inside it. So on the CI VM every one of
+	# those variables is live in THIS process, and the stub run below inherits
+	# them.
 	#
-	# DEMO_SUMMARY_FILE was the one that bit, and it bit invisibly for months.
-	# demo-pipeline.sh:141 is
-	#     SUMMARY_FILE="${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}"
-	# so an explicit DEMO_SUMMARY_FILE OUTRANKS the DEMO_REPORT_DIR this setup
-	# carefully points at a sandbox. On the CI VM the driver-under-test therefore
-	# wrote its verdict to the OUTER run's summary path and left
-	# "$reports/summary.json" absent, and every assertion that reads it failed —
-	# while `run bash "$script"` still exited 0, because nothing had gone wrong
-	# from the driver's point of view. Nine tests red on the VM, all 43 green on
-	# any developer box, for two years' worth of "environmental flake".
+	# DEMO_SUMMARY_FILE is the one that bites, because demo-pipeline.sh:141
+	# resolves it as `${DEMO_SUMMARY_FILE:-${REPORT_DIR}/summary.json}` — it is
+	# read in PREFERENCE to DEMO_REPORT_DIR, not derived from it. Overriding
+	# DEMO_REPORT_DIR alone therefore does not redirect the verdict: the stub
+	# pipeline wrote its summary.json straight into the REAL run's
+	# /opt/signalloom/reports/summary.json, and every assertion here looked for a
+	# file that was never created. Nine tests failed exactly that way on the CI
+	# VM and passed locally, where no DEMO_* is set at all — which is why it read
+	# as an unreproducible VM flake for two sessions. It is deterministic:
+	# exporting DEMO_SUMMARY_FILE reproduces all nine failures, by number, on any
+	# machine.
 	#
-	# Reproduced deterministically before this fix was written:
-	#     DEMO_SUMMARY_FILE=/tmp/x.json bats test/gcp-demo-pipeline.bats -> 9 failures
-	#                                   bats test/gcp-demo-pipeline.bats -> 0 failures
-	# which is exactly the nine the VM reported.
+	# The stub also OVERWRITING the live run's verdict file is the worse half. A
+	# mid-run poll of that file read a fabricated PASS/ABORTED belonging to a
+	# stub in a temp directory.
 	#
-	# It also means the suite was WRITING to the live run's summary file. A test
-	# clobbering the verdict of the pipeline running it is a worse bug than the
-	# red stage that revealed it.
-	#
-	# Unset as a CLASS rather than naming the eleven: the next variable added to
-	# demo-up.sh must not be able to reintroduce this, and a hand list is the
-	# artefact that omits by default.
-	local _demo_var
-	while IFS= read -r _demo_var; do
-		[ -n "$_demo_var" ] || continue
-		unset "$_demo_var"
-	done < <(compgen -v | grep '^DEMO_' || true)
+	# Unset the whole namespace rather than the single variable. The leak is
+	# structural — a driver that exports its config into its stages — so naming
+	# today's offender would let the next variable the driver adds reintroduce it
+	# in silence.
+	local _inherited
+	for _inherited in $(compgen -v | grep '^DEMO_' || true); do
+		unset "$_inherited"
+	done
 
 	export DEMO_WORK_DIR="$work"
 	export DEMO_REPORT_DIR="$reports"
@@ -507,6 +504,27 @@ script_code() {
 	[ "$(summary_field overall)" = "PASS" ]
 	[ "$(summary_number failed)" -eq 0 ]
 	[ "$(summary_number total_stages)" -ge 20 ]
+}
+
+@test "DEMOPIPE ENVLEAK an inherited DEMO_SUMMARY_FILE is neutralised by setup" {
+	# Half one: the neutralisation actually happened. On the CI VM this variable
+	# arrives already set, from the driver that is running this suite as one of
+	# its own stages.
+	[ -z "${DEMO_SUMMARY_FILE:-}" ]
+
+	# Half two, which is what stops half one being decoration: re-introduce
+	# exactly the leak the VM produces and watch the verdict land in the leaked
+	# path while DEMO_REPORT_DIR gets nothing. This is the mechanism behind nine
+	# failures in this file on the CI VM, and it is the reason the unset above is
+	# not a superstition. Should demo-pipeline.sh ever stop preferring
+	# DEMO_SUMMARY_FILE over DEMO_REPORT_DIR, this half goes red and the unset
+	# can be retired deliberately rather than left as a rule nobody can justify.
+	local leak="$BATS_TEST_TMPDIR/leaked-summary.json"
+	rm -rf "$reports"
+	run env DEMO_SUMMARY_FILE="$leak" bash "$script"
+	[ "$status" -eq 0 ]
+	[ -f "$leak" ]
+	[ ! -f "$reports/summary.json" ]
 }
 
 @test "DEMOPIPE ORDER cheap static gates run before any cluster work" {

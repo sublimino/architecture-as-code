@@ -201,9 +201,13 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      # 120s, not 30s: the control probe below may wait for the CNI to program
-      # this pod's rules before the real assertion can run at all.
-      activeDeadlineSeconds: 120
+      # 240s, not 120s: the probe below spends two bounded waits back to back —
+      # up to 60s for the OpenBao control, then up to 90s polling the denial
+      # until the CNI has programmed this pod's rules. 120s could expire
+      # mid-poll and turn a healthy cluster into a DeadlineExceeded pod, which
+      # reads as a failure with no termination message to explain it. Stays
+      # under the 300s schedule tick so a slow run cannot lap itself.
+      activeDeadlineSeconds: 240
       template:
         metadata: {labels: {agent-trust.signalloom.io/probe: planner-egress-denied, app.kubernetes.io/name: agent-trust-planner, app.kubernetes.io/component: probe}}
         spec:
@@ -221,16 +225,31 @@ spec:
                   # NetworkPolicy rules shortly AFTER it starts running, so an
                   # `nc` fired at t=0 reaches anything and this probe reported
                   # "arbitrary planner egress unexpectedly reachable" — a
-                  # security hole that does not exist. Observed 2026-08-12:
-                  # this probe failed on every run, while an identically
-                  # labelled pod given 20s to settle was correctly denied.
+                  # security hole that does not exist.
                   #
-                  # A denial is only evidence once enforcement is live, so
-                  # prove that first. The planner is ALLOWED to reach OpenBao,
-                  # so that path succeeding is a positive control: it shows the
-                  # rules for THIS pod are programmed. Only then does a refused
-                  # 1.1.1.1 mean the policy denied it rather than the CNI not
-                  # having caught up.
+                  # THE OPENBAO CONTROL CANNOT DETECT THAT WINDOW, which is why
+                  # the previous version of this probe still failed on every
+                  # single run. The planner is ALLOWED to reach OpenBao, so an
+                  # unconfined pod reaches it too — the control is satisfied
+                  # identically whether the rules are programmed or absent, so
+                  # it distinguishes nothing about confinement and passes at
+                  # t=0 while the pod is still wide open. Measured on the live
+                  # cluster 2026-08-22, two pods identical but for a settle:
+                  #   control-then-immediately   1.1.1.1:443 REACHABLE
+                  #   control-then-sleep-10      1.1.1.1:443 refused
+                  # The hole was in the probe, not in the NetworkPolicy.
+                  #
+                  # Only the denial itself distinguishes confined from
+                  # unconfined, so POLL THE DENIAL rather than sampling it once.
+                  # Enforcement is eventually-consistent: reachable-then-refused
+                  # is the CNI catching up and is a pass, while still reachable
+                  # at the deadline is a genuine hole. A refusal never reverts,
+                  # so polling cannot launder a real failure into a pass.
+                  #
+                  # The OpenBao control is KEPT, for the one thing it does
+                  # prove: that the allow-path works at all. Without it a pod
+                  # with no network whatsoever would refuse 1.1.1.1 and be
+                  # reported as correctly-denied.
                   #
                   # Fails UNVERIFIED rather than passing if the control never
                   # comes up — same fail-closed vocabulary as the rest of the
@@ -245,11 +264,16 @@ spec:
                     fi
                     sleep 2
                   done
+                  denial_deadline=$(( $(date +%s) + 90 ))
+                  while nc -z -w 5 1.1.1.1 443; do
+                    if [ "$(date +%s)" -ge "$denial_deadline" ]; then
+                      now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                      printf '{"observed_at":"%s","outcome":"fail","reason":"arbitrary planner egress unexpectedly reachable"}' "$now" > /dev/termination-log
+                      exit 1
+                    fi
+                    sleep 2
+                  done
                   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                  if nc -z -w 5 1.1.1.1 443; then
-                    printf '{"observed_at":"%s","outcome":"fail","reason":"arbitrary planner egress unexpectedly reachable"}' "$now" > /dev/termination-log
-                    exit 1
-                  fi
                   printf '{"observed_at":"%s","outcome":"pass","reason":"arbitrary planner egress denied"}' "$now" > /dev/termination-log
               terminationMessagePolicy: File
               securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: ["ALL"]}}

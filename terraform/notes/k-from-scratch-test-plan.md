@@ -35,6 +35,71 @@ it should have been *run*. In each case one command settled it. Prefer measuring
 
 ---
 
+## 0b. Where this actually stands (2026-08-22)
+
+**Why this has taken days, stated plainly.** Every cycle fixed a real defect and
+uncovered the next one behind it. That is progress, but it is *serial* progress
+against a stack of independent faults, and each one costs a ~40-minute lane run
+to observe. The blockers, in the order they were hit:
+
+| # | Blocker | Status | Commit |
+| :--- | :--- | :--- | :--- |
+| 1 | Zot 500 — blob store inside the tree a re-delivery wipes | FIXED, proven | `57771c46` |
+| 2 | `netassert-controller` corrupt blob — docker.io fallback was the *marketing site*, serving 200 text/html that containerd recorded as the image mediaType | FIXED, proven | `adca5639` |
+| 3 | AFM archive — one local path shared by four concurrent lanes; one lane truncated the file another was mid-scp | FIXED, proven | `829109bd` |
+| 4 | `infra-controllers` never Ready — observability tenants were re-published by three unfiltered paths, so source-controller thrashed `NAME_UNKNOWN` forever and starved real reconciles (12h21m vs a 600s deadline) | FIXED, proven | `814824a8` |
+| 5 | 5-6 test stages still failing | IN PROGRESS | — |
+
+**The measurable trajectory**, which is the honest answer to "are we getting
+anywhere":
+
+```
+run 1   4/4 lanes ABORT at push-local        (Zot)
+run 2   3/4 lanes ABORT at create-cluster    (netassert)
+run 3   3/4 lanes ABORT at [5/8]             (Flux starvation)
+run 4   4/4 lanes REACH REPORT, 24/29        <- current
+```
+
+`ABORTED` and `FAIL` are not the same verdict and the distinction is the whole
+story: ABORTED means the estate never converged, FAIL means it converged and ran
+its tests. **As of run 4 every lane converges.** What remains is test failures,
+not infrastructure collapse.
+
+### The remaining 6, and a correction that matters
+
+They are IDENTICAL on all four lanes, which is itself the signal — the lanes no
+longer diverge on timing or luck.
+
+| Stage | Exit | Status |
+| :--- | :--- | :--- |
+| `Vacuous-assertion lint` | 1 | ROOT-CAUSED — 3 real hollow assertions |
+| `Vacuous-assertion lint falsification` | 1 | same cause; tests 38/39 just run the checker |
+| `Static guards previously invoked by nothing` | 1 | open |
+| `Guard falsification proof` | 3 | open — exit 3 is UNKNOWN>0, cases the harness *could not run* |
+| `Demo pipeline control flow` | 1 | open |
+| `CI build parity with demo-signalloom-up` | 1 | open, found late — was missing from every earlier list |
+
+**Correction, recorded because the wrong version was believed for a day:** these
+were called "VM-only failures" in § 8 below. That is FALSE for at least the
+vacuous-assertion pair, which fail in a clean local worktree at base:
+
+```
+$ git status --porcelain          # empty
+$ ./scripts/check-vacuous-assertions.sh
+exit 1, 3 findings
+```
+
+The three findings are real hollow assertions that arrived from sibling lanes —
+and **one of them came from a commit merged the same day** (`814824a8`, the
+observability fix). It was merged after its own suite passed 13/13.
+
+That is the process lesson worth more than the fix: **a green suite is not
+evidence the suite asserts anything.** `check-vacuous-assertions.sh` is the tool
+that distinguishes those two, and it was not being run before merging. It is now
+the gate for anything landing on this branch.
+
+---
+
 ## 1. Preconditions
 
 ```bash

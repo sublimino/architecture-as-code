@@ -2762,7 +2762,16 @@ ensure_tailnet_target_durable() {
   ( ensure_published "$APP_PORT" ) || rc=$?
   [ "$rc" -eq 0 ] && return 0
 
-  warn "the estate is up but the tailnet URL has no backend: could not install ${PF_UNIT}.service for :${APP_PORT} on ${INSTANCE_NAME} (step exited ${rc}). 'tailscale serve' on this VM proxies to 127.0.0.1:${APP_PORT} and is installed at boot regardless, so https://sl-${ENV_KEY}.<tailnet>.ts.net will answer 502 until this is fixed. The cause is named above. Retry with: make gcp-tf-ts-up ENV=${ENV_KEY}"
+  # NO URL IS CONSTRUCTED HERE, deliberately, and the omission is the point.
+  #
+  # An earlier version of this warning spelled out the MagicDNS name it
+  # expected. That is precisely what the remote surface forbids: this file
+  # cannot know which tailnet the operator is on, so a name built from a
+  # literal suffix promises a URL that may not exist and silently outlives a
+  # tailnet rename. The real name comes from `tailscale status --json` at run
+  # time, and ts-status is the command that reports it — so this names the
+  # command rather than guessing its output.
+  warn "the estate is up but the tailnet URL has no backend: could not install ${PF_UNIT}.service for :${APP_PORT} on ${INSTANCE_NAME} (step exited ${rc}). 'tailscale serve' on this VM is installed at boot regardless and proxies to 127.0.0.1:${APP_PORT}, so this lane's tailnet URL will answer 502 until this is fixed — on the tailnet, but serving nothing. The cause is named above. Check the name and the serve config with: make gcp-tf-ts-status ENV=${ENV_KEY}   Retry with: make gcp-tf-ts-up ENV=${ENV_KEY}"
   return 0
 }
 

@@ -1356,14 +1356,76 @@ orc_ci_unpinned() {
 # ---- meta -----------------------------------------------------------------
 _ROOT_BATS_EXCLUDED='supercred-images.bats agent-trust-lifecycle.bats deployed-staleness.bats signalloom-flux-integration.bats signalloom-preflight.bats test-count-floor.bats'
 
+# A suite is REGISTERED if any runner invokes it, and this tree has three
+# runners — not one. The oracle knew about the first only, and so reported 34
+# violations against a tree in which all 34 suites do in fact run. That is a
+# false positive in the harness whose entire purpose is finding false negatives,
+# and it was not free: a non-zero count here means the property does not hold at
+# baseline, which sends META-UNREGISTERED-SUITE, META-UNINVOKED-PROOF and
+# META-PROOF-COMMENT-ONLY to UNKNOWN and the whole stage to exit 3. Three guards
+# unproven, and the stage red, because the oracle could not see two runners.
+#
+# Measured at the commit this comment was written:
+#   34 reported, of which
+#   32  test/terraform-*.bats, invoked by the Makefile GLOB (GCP_TF_BATS at
+#       Makefile:1517, `$(sort $(wildcard test/terraform-*.bats))`). The glob is
+#       the tree's PREFERRED registration mechanism — AGENTS guidance tells
+#       authors to name a new suite test/terraform-*.bats precisely so it is
+#       picked up without editing a hand list.
+#    2  gcp-demo-pipeline.bats and supervise-port-forward-knobs.bats, invoked by
+#       scripts/gcp-tf/demo-pipeline.sh stage 1r.
+#    0  genuinely unregistered.
+#
+# The glob is matched as a PATTERN rather than by expanding it here. Expanding
+# it would make this oracle agree with the Makefile by construction — both
+# listing whatever is on disk — so a deleted glob would still look registered.
+# Requiring the glob's literal text keeps the check pointed at the MECHANISM: if
+# somebody replaces it with a hand list, these suites become unregistered again
+# and this oracle says so, which is the same fixed-point argument stage 1h makes.
+_meta_suite_runners() {
+	printf '%s\n' "$PIPELINE" scripts/gcp-tf/demo-pipeline.sh
+}
+
 orc_meta_unreg_suite() {
-	local n=0 f base body
-	body="$(sed 's/#.*//' "$PIPELINE")"
+	local n=0 f base body r glob_present=0
+	body=""
+	while IFS= read -r r; do
+		[ -n "$r" ] || continue
+		[ -f "$r" ] || continue
+		body+="$(sed 's/#.*//' "$r")"$'\n'
+	done < <(_meta_suite_runners)
+
+	# The Makefile glob, as a literal. Comments stripped so a commented-out glob
+	# does not vouch for 32 suites.
+	#
+	# The comment-stripped text is materialised into a VARIABLE first and matched
+	# with a here-string, NOT piped into `grep -q`. This file runs under
+	# `set -o pipefail`, and `grep -q` exits the instant it matches, which closes
+	# the pipe and kills `sed` with SIGPIPE (141). pipefail then reports 141 as
+	# the pipeline's status, so the `if` is FALSE precisely BECAUSE the pattern
+	# was found — the more certainly it matches, the more reliably it fails.
+	#
+	# Measured, because it is not the sort of thing to take on trust: with the
+	# pipe form, `grep -cF` on the same file reported 1 while glob_present stayed
+	# 0 in the same invocation. Standalone the pipe form works, since an
+	# interactive shell has no pipefail — which is exactly how it would have
+	# shipped green from a developer box and reported 32 phantom violations on
+	# the CI VM.
+	local _mk
+	_mk="$(sed 's/#.*//' Makefile 2>/dev/null || true)"
+	if grep -qF 'wildcard test/terraform-*.bats' <<< "$_mk"; then
+		glob_present=1
+	fi
+
 	for f in test/*.bats; do
 		[ -e "$f" ] || continue
 		base="$(basename "$f")"
 		case " $_ROOT_BATS_EXCLUDED " in *" $base "*) continue ;; esac
-		grep -qF "$base" <<< "$body" || n=$((n + 1))
+		if grep -qF "$base" <<< "$body"; then continue; fi
+		case "$base" in
+			terraform-*.bats) [ "$glob_present" -eq 1 ] && continue ;;
+		esac
+		n=$((n + 1))
 	done
 	printf '%s' "$n"
 }

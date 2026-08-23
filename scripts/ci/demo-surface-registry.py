@@ -134,15 +134,40 @@ PREFIX_CONST = re.compile(
 )
 
 
+def _norm(text: str) -> str:
+    """Lowercase and strip separators, so signalFusionDemo.ts matches signalfusion."""
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
 def ui_prefix_for(demo_type: str, spa_dir: Path) -> str:
-    """The prefix the SPA actually calls for this demo, or '' if none does."""
+    """The prefix the SPA actually calls for this demo, or '' if none does.
+
+    ── Why the match is on the demo TOKEN, not on the server path ───────────
+    #
+    The first version linked a SPA module to a demo by looking for the literal
+    `/api/demo/<demo_type>` in its text. That string only reliably appears in
+    the modules' DOC COMMENTS, describing the nginx rewrite. So the gate's
+    correctness rested on a comment: rewrite the prose and the demo resolves to
+    no prefix, is reported NO_CLIENT_PATH, and a perfectly good demo goes RED.
+
+    Measured, not supposed. With the in-flight signalfusion fix applied two
+    ways -- comment retained vs comment reworded -- the extractor returned
+    `/demo-api/signalfusion` and then nothing at all, from identical WORKING
+    code. A guard whose verdict flips on a comment edit is a guard that will
+    eventually cry wolf and get switched off.
+
+    Matching the normalised demo token against the filename and the body has no
+    such dependency: `signalFusionDemo.ts` carries `signalfusion` in its NAME,
+    which no prose edit removes.
+    """
     if not spa_dir.is_dir():
         return ""
+    token = _norm(demo_type)
     for src in sorted(spa_dir.glob("*.ts")):
         if src.name.endswith(".test.ts"):
             continue  # tests assert on legacy spellings; they are not the client
         text = src.read_text(encoding="utf-8", errors="replace")
-        if f"/api/demo/{demo_type}" not in text:
+        if token not in _norm(src.name) and token not in _norm(text):
             continue
         m = PREFIX_CONST.search(text)
         if m:

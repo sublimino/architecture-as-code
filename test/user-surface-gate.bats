@@ -248,6 +248,30 @@ run_gate() {
   [[ "$output" == *"signalfusion"*$'\t'"/api/demo/signalfusion"* ]]
 }
 
+# Regression: the client↔demo linkage must not depend on a COMMENT.
+#
+# The first version matched a SPA module to a demo by finding the literal
+# `/api/demo/<type>` in its text — a string that, in the real modules, lives
+# only in doc comments describing the nginx rewrite. Measured against the
+# in-flight signalfusion fix written two ways, identical WORKING code resolved
+# to `/demo-api/signalfusion` with the comment and to NOTHING without it. The
+# second would have reported a correctly-fixed demo as NO_CLIENT_PATH.
+#
+# So this fixture mentions the server path NOWHERE. Only the filename carries
+# the demo token, which is what no prose edit can remove.
+@test "client prefix resolves with no server path anywhere in the module" {
+  local reg; reg="$(write_registry signalfusion)"
+  cat > "$BATS_TEST_TMPDIR/spa/signalFusionDemo.ts" <<'EOF'
+/** All signal-fusion calls go through this prefix. */
+const SF_DEMO_API = '/demo-api/signalfusion'
+EOF
+  rm -f "$BATS_TEST_TMPDIR/spa/signalfusionDemo.ts"
+  run python3 "$REGISTRY_TOOL" "$reg" "$BATS_TEST_TMPDIR/spa"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *$'\t'"/demo-api/signalfusion" ]]
+  [[ "$output" != *"/api/demo/signalfusion" ]]
+}
+
 # A demo the server serves and no client calls is unreachable from the UI.
 # Each half's own tests are green about its own side; only comparing them sees
 # it, which is exactly the blind spot that produced this whole slice.

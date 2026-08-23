@@ -18,6 +18,8 @@ suite="test/signalfusion-runner-contract.bats"
 deploy="$d2/apps/supercred-demo-runner/base/deployment.yaml"
 dockerfile="$d2/apps/supercred-demo-runner/Dockerfile"
 route="$d2/apps/fe-signalloom/base/gateway-route.yaml"
+nginx_conf="$d2/apps/dashboard-signalloom/nginx.conf"
+sf_client="$d2/apps/dashboard-signalloom/src/api/signalFusionDemo.ts"
 runner_py="$d2/apps/fe-signalloom/src/demo_runner.py"
 script="$repo_root/scripts/signalfusion-demo.sh"
 extra_rbac="$d2/apps/supercred-demo-runner/base/mutation-probe-rbac.yaml"
@@ -112,26 +114,46 @@ m_drop_lib_copy() {
 	must_sed '\|^COPY scripts/lib |d' "$dockerfile" '^COPY scripts/lib '
 }
 
-m_drop_route() {
-	save "$route"
-	python3 - "$route" <<-'PY'
-		import sys, yaml
+m_drop_nginx_rewrite() {
+	save "$nginx_conf"
+	must_sed '\|rewrite \^/demo-api/signalfusion|d' "$nginx_conf" 'rewrite \^/demo-api/signalfusion'
+}
+
+# Order matters: the SuperCred rewrite is unconditional on /demo-api, so if it
+# comes first every Signal Fusion path is rewritten onto the supercred mount.
+# The result is a 404 from the correct pod, which reads as an app bug.
+m_swap_rewrite_order() {
+	save "$nginx_conf"
+	python3 - "$nginx_conf" <<-'PY'
+		import re, sys
 		p = sys.argv[1]
-		docs = list(yaml.safe_load_all(open(p)))
-		for d in docs:
-		    if d and d.get("kind") == "HTTPRoute" and d["metadata"]["name"] == "signalloom-api":
-		        before = len(d["spec"]["rules"])
-		        d["spec"]["rules"] = [
-		            r for r in d["spec"]["rules"]
-		            if not any(m.get("path", {}).get("value") == "/api/demo/signalfusion"
-		                       for m in r.get("matches", []))
-		        ]
-		        assert len(d["spec"]["rules"]) < before, "signalfusion rule not found"
-		open(p, "w").write(yaml.safe_dump_all(docs, sort_keys=False))
+		lines = open(p).read().split("\n")
+		sf = next(i for i, l in enumerate(lines) if re.search(r'rewrite \^/demo-api/signalfusion', l))
+		sc = next(i for i, l in enumerate(lines) if re.search(r'rewrite \^/demo-api\(', l))
+		assert sf < sc, "expected signalfusion rewrite to precede supercred"
+		lines[sf], lines[sc] = lines[sc], lines[sf]
+		open(p, "w").write("\n".join(lines))
 	PY
 }
 
-m_route_wrong_backend() {
+# Rewrite onto the wrong demo type's mount.
+m_nginx_wrong_target() {
+	save "$nginx_conf"
+	must_sed 's|rewrite \^/demo-api/signalfusion(/\.\*) /api/demo/signalfusion\$1 break;|rewrite ^/demo-api/signalfusion(/.*) /api/demo/supercred$1 break;|' \
+		"$nginx_conf" 'rewrite \^/demo-api/signalfusion\(/\.\*\) /api/demo/signalfusion'
+}
+
+# The original defect, restored: point the client back at the runner's internal
+# mount, which the gateway hands to fe-signalloom.
+m_client_uses_internal_mount() {
+	save "$sf_client"
+	must_sed "s|^const SF_DEMO_API = '/demo-api/signalfusion'|const SF_DEMO_API = '/api/demo/signalfusion'|" \
+		"$sf_client" "^const SF_DEMO_API = '/demo-api/signalfusion'"
+}
+
+# The ISC-14 breach this fix originally shipped, and which only a live-cluster
+# test caught.
+m_add_gateway_route() {
 	save "$route"
 	python3 - "$route" <<-'PY'
 		import sys, yaml
@@ -140,54 +162,12 @@ m_route_wrong_backend() {
 		hit = False
 		for d in docs:
 		    if d and d.get("kind") == "HTTPRoute" and d["metadata"]["name"] == "signalloom-api":
-		        for r in d["spec"]["rules"]:
-		            if any(m.get("path", {}).get("value") == "/api/demo/signalfusion"
-		                   for m in r.get("matches", [])):
-		                r["backendRefs"][0]["name"] = "fe-signalloom-api"
-		                hit = True
-		assert hit, "signalfusion rule not found"
-		open(p, "w").write(yaml.safe_dump_all(docs, sort_keys=False))
-	PY
-}
-
-# The substring trap this suite was written against: rename the Service the
-# route points at, keeping the old name as a prefix of the new one.
-m_route_backend_substring() {
-	save "$route"
-	python3 - "$route" <<-'PY'
-		import sys, yaml
-		p = sys.argv[1]
-		docs = list(yaml.safe_load_all(open(p)))
-		hit = False
-		for d in docs:
-		    if d and d.get("kind") == "HTTPRoute" and d["metadata"]["name"] == "signalloom-api":
-		        for r in d["spec"]["rules"]:
-		            if any(m.get("path", {}).get("value") == "/api/demo/signalfusion"
-		                   for m in r.get("matches", [])):
-		                r["backendRefs"][0]["name"] = "supercred-demo-runner-v2"
-		                hit = True
-		assert hit, "signalfusion rule not found"
-		open(p, "w").write(yaml.safe_dump_all(docs, sort_keys=False))
-	PY
-}
-
-# Narrow the general rule until the two prefixes converge, making precedence
-# order-dependent. Nothing else in the tree would notice.
-m_converge_prefixes() {
-	save "$route"
-	python3 - "$route" <<-'PY'
-		import sys, yaml
-		p = sys.argv[1]
-		docs = list(yaml.safe_load_all(open(p)))
-		hit = False
-		for d in docs:
-		    if d and d.get("kind") == "HTTPRoute" and d["metadata"]["name"] == "signalloom-api":
-		        for r in d["spec"]["rules"]:
-		            for m in r.get("matches", []):
-		                if m.get("path", {}).get("value") == "/api":
-		                    m["path"]["value"] = "/api/demo/signalfusion"
-		                    hit = True
-		assert hit, "/api rule not found"
+		        d["spec"]["rules"].insert(0, {
+		            "matches": [{"path": {"type": "PathPrefix", "value": "/api/demo/signalfusion"}}],
+		            "backendRefs": [{"name": "supercred-demo-runner", "port": 8000}],
+		        })
+		        hit = True
+		assert hit, "signalloom-api route not found"
 		open(p, "w").write(yaml.safe_dump_all(docs, sort_keys=False))
 	PY
 }
@@ -250,8 +230,8 @@ m_grant_portforward() {
 }
 
 m_move_artifact() {
-	save "$route"
-	rm -f "$route"
+	save "$nginx_conf"
+	rm -f "$nginx_conf"
 }
 
 echo "baseline (unmutated):"
@@ -262,10 +242,11 @@ run_case "1  drop SIGNALFUSION_DEMO_CWD from the deployment"      m_drop_cwd
 run_case "2  point SIGNALFUSION_DEMO_CWD at /wrong"               m_wrong_cwd
 run_case "3  stop COPYing signalfusion-demo.sh into the image"    m_drop_script_copy
 run_case "4  stop COPYing scripts/lib into the image"             m_drop_lib_copy
-run_case "5  delete the /api/demo/signalfusion route rule"        m_drop_route
-run_case "6  point the route back at fe-signalloom-api"           m_route_wrong_backend
-run_case "7  rename the route backend (substring trap)"           m_route_backend_substring
-run_case "8  narrow /api until the prefixes converge"             m_converge_prefixes
+run_case "5  delete the nginx signalfusion rewrite"               m_drop_nginx_rewrite
+run_case "6  put the unconditional supercred rewrite first"       m_swap_rewrite_order
+run_case "7  rewrite signalfusion onto the supercred mount"       m_nginx_wrong_target
+run_case "8  point the client back at the runner's mount"         m_client_uses_internal_mount
+run_case "8b add a Gateway route to the runner (ISC-14)"          m_add_gateway_route
 run_case "9  drop SIGNAL_INGEST_URL from the deployment"          m_drop_ingest_url
 run_case "10 make the script ignore SIGNAL_INGEST_URL"            m_script_ignores_url
 run_case "11 clear the script's executable bit"                   m_script_not_executable

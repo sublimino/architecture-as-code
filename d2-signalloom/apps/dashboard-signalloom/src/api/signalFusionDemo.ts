@@ -17,10 +17,21 @@ export type { DemoStep, DemoRunView, DemoRunLogChunk, DemoRunnerStatus }
  * All signal-fusion demo calls go through this prefix.
  *
  * nginx routes `/demo-api/signalfusion/` to the demo-runner pod (rewriting to
- * `/api/demo/signalfusion$1`). In the main app the routes are mounted
- * directly at `/api/demo/signalfusion/`.
+ * `/api/demo/signalfusion$1`).
+ *
+ * This constant used to read `/api/demo/signalfusion` — the runner's internal
+ * mount — while the comment above described the proxy. That is not a cosmetic
+ * disagreement: the gateway's signalloom-api HTTPRoute matches PathPrefix /api
+ * and hands it to fe-signalloom, so every act was answered by the Discovery
+ * Portal, whose image carries no scripts/ tree and neither kubectl nor curl.
+ * All three returned 503 demo_root_unresolved on a live lane.
+ *
+ * It must stay browser-facing. Pointing it back at /api/ does not fail loudly
+ * — it silently re-targets the wrong pod, which is why
+ * d2-signalloom/test/signalfusion-runner-contract.bats asserts the prefix here
+ * against the rewrite in nginx.conf rather than trusting either alone.
  */
-const SF_DEMO_API = '/api/demo/signalfusion'
+const SF_DEMO_API = '/demo-api/signalfusion'
 
 function authHeaders(token?: string): HeadersInit | undefined {
   return token ? { Authorization: `Bearer ${token}` } : undefined

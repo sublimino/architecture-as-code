@@ -405,7 +405,7 @@ case "${1:-}" in
     done
     exit "$rc" ;;
   *)
-    printf '%s' "$1" | grep -Eq '^(demo|ci)-[1-9][0-9]*$' \
+    grep -Eq '^(demo|ci)-[1-9][0-9]*$' <<<"$1" \
       || die "'$1' is not a valid environment key (expected demo-N or ci-N)"
     run_one "$1"
     exit $? ;;

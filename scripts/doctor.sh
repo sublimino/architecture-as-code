@@ -128,7 +128,7 @@ else
 fi
 
 NODE_STATUS=$(kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}')
-if echo "${NODE_STATUS}" | grep -qv "Ready"; then
+if grep -qv "Ready" <<<"${NODE_STATUS}"; then
   fail "Node(s) not Ready"
 else
   ok "All nodes Ready"

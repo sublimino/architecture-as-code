@@ -68,6 +68,20 @@
 #       at all, and this scanner cleared all 623 files of the tree it was in.
 #       Six shapes were checked. This was a seventh.
 #
+#   kubectl -n "$ns" logs "job/$negative" | grep -Fq 'denied as expected'
+#       Under `set -o pipefail` this returns FALSE PRECISELY WHEN IT MATCHES.
+#       grep -q exits at its first hit, closes the pipe, the producer takes
+#       SIGPIPE, and pipefail promotes that 141 to the pipeline's status — so a
+#       PRESENT denial marker reads as ABSENT and a security proof announces a
+#       breached boundary that was in fact holding. Every rule above it
+#       describes a check that CANNOT FAIL; this one describes a check that can
+#       report the OPPOSITE OF THE TRUTH, which is strictly worse, because a
+#       vacuous check wastes a reader's confidence while an inverted one spends
+#       it on a false answer. Four instances are known in this tree. Three were
+#       fixed one at a time as they surfaced (897e1f04, 071b989f, 160cbdd3) and
+#       the fourth was found by accident while writing an unrelated function,
+#       which is the argument for a rule rather than a fourth code comment.
+#
 # ─── The rules ──────────────────────────────────────────────────────────────
 #
 #   VAC001  a `>= 0` comparison on a monotonic counter inside a readiness
@@ -84,6 +98,10 @@
 #   VAC007  `mapfile -t arr < <(cmd)` feeding a `for` loop, with no emptiness
 #           check on arr. mapfile DISCARDS cmd's status, so a failed cmd yields
 #           an empty array, a zero-iteration loop, and a silent pass.
+#   VAC008  `cmd | grep -q PAT` under `set -o pipefail`, where the pipeline's
+#           status is consumed as a VERDICT. grep -q exits on match, the
+#           producer takes SIGPIPE, and 141 becomes the pipeline's status — a
+#           match reports as no-match.
 #
 # ─── What this does NOT check, stated so nobody has to discover it ──────────
 #
@@ -99,7 +117,7 @@
 # AGENTS.md and docs/deploying-a-backend-service.md quote these anti-patterns in
 # order to warn about them.
 #
-# More generally: a pass here means these seven shapes are absent, and says
+# More generally: a pass here means these eight shapes are absent, and says
 # nothing about an eighth way a check can be hollow. The success message says so
 # rather than claiming the tree's assertions are sound. VAC007 was added after
 # the six-rule version reported SCANNED CLEAN over a guard that passed with no
@@ -625,11 +643,255 @@ scan_unguarded_array_loop() {
 	done
 }
 
+# ── VAC008: `cmd | grep -q` under pipefail, where the status is a verdict ───
+#
+# `grep -q` exits the instant it matches. That closes the pipe, the producer
+# takes SIGPIPE, and `set -o pipefail` promotes the resulting 141 to the status
+# of the whole pipeline. So the pipeline answers FALSE PRECISELY WHEN THE
+# PATTERN IS PRESENT — not sometimes hollow, but actively inverted.
+#
+# ─── Measured, because none of this is visible from the code ───────────────
+#
+# `set -o pipefail; { echo MARKER; seq 1 N; } | grep -Fq MARKER`, 200 trials:
+#
+#     N=100        inverted  71/200      uname -a  | grep -q      0/200
+#     N=1000       inverted  75/200      ps aux    | grep -q      0/200
+#     N=30000      inverted 200/200      env       | grep -q     13/200
+#
+# Three things follow, and the rule's shape is built on them:
+#
+#   * It is a RACE, not a size threshold. 100 lines of trailing output already
+#     loses a third of the time, so "the output here is small" is not a defence
+#     — `env` is a few kilobytes and still inverted 13 times in 200.
+#   * There is NO SAFE PRODUCER. A shell builtin looks immune (`printf` of a
+#     1.2MB variable: 0/200) right up until it is not — at 3MB the same
+#     pipeline returns 141 with PIPESTATUS=(141 0). So the rule cannot excuse
+#     `printf`/`echo` the way VAC007 excuses a re-expansion of shell state; the
+#     odds simply move with runtime data size, which is exactly the parameter
+#     nobody is watching. scripts/bao-spire-proof.sh says it best about its own
+#     instance: "it never fired here because the log is short enough that grep
+#     consumes it all, which is exactly the kind of luck that stops holding in
+#     production".
+#   * It does not reproduce under the Claude Code Bash tool, whose shell has
+#     SIGPIPE set to SIG_IGN (`grep SigIgn /proc/self/status` -> bit 12).
+#     Ignored dispositions are inherited, so a pipeline typed straight into
+#     that harness returns 0 while an identical one inside `bash -c` returns
+#     141. No script ever runs in the harness shell, so the mechanism is live
+#     everywhere it matters and invisible in the one place someone would go to
+#     check it. That is why the proof of this rule is STATIC — see the note in
+#     test/vacuous-assertions.bats.
+#
+# ─── Why the rule is scoped to a VERDICT, and not to the bare shape ────────
+#
+# The bare shape occurs 77 times in this tree under pipefail. Firing on all 77
+# would produce either a muted linter or 77 allowlist entries, which is the
+# same thing with extra ceremony. The 77 split cleanly, and the split is not a
+# convenience — it is the difference between a wrong ANSWER and a wrong BRANCH:
+#
+#   64  the status chooses between two ordinary actions, neither of which
+#       refuses: install-or-skip in install-ci-tools.sh, create-or-reuse,
+#       report-this-message-or-that-one in supercred-images.sh. An inversion
+#       here reinstalls a tool that was already present, or prints the less
+#       apt of two diagnostics. Wasteful and loud, and it self-corrects.
+#
+#   13  the status IS the verdict. It decides an abort, a refusal, a
+#       non-zero return, or it is a bare statement whose status errexit, bats
+#       or an implicit function return hands straight to the caller. An
+#       inversion here is a wrong answer delivered with confidence — a
+#       "SETUP failure" declared over a healthy cluster, a NetworkPolicy
+#       capability gate reporting UNVERIFIED on a cluster that has it, a
+#       revocation demo mis-reading its own agent log.
+#
+# All four historically-fixed instances are in the second group, so the scope
+# is the repo's own revealed preference and not a line drawn to fit. The 64 are
+# a real and deliberate gap: they are documented here rather than silently
+# dropped, and tightening this rule to reach them is a follow-on with a known
+# cost, not an oversight.
+#
+# `head`, `grep -m1`, `sed q` and any other consumer that closes the pipe early
+# behave identically and are NOT covered. `grep -q` is the dominant instance
+# and the one with four proven defects behind it; the others are follow-on work
+# and are named here so the next person does not have to rediscover them.
+#
+# ─── The two false-positive classes, handled in the rule and not the allowlist
+#
+#   1. A PIPELINE QUOTED AS DATA. `remote_run "ss -ltn | grep -q ..."` is a
+#      command string executed by another host's shell under its own options,
+#      and `mutate 's#... | grep -Eq ...#...#'` is the text a mutation harness
+#      substitutes. Neither is a pipeline of this file. Every quoted span is
+#      blanked before the line is read, which also stops the abort-detector
+#      matching the word `exit` inside the message string "guard went red
+#      (exit $mutated_status) but ..." — prose parsed as code, in a guard whose
+#      subject is guards.
+#   2. THE SECOND BAR OF `||`. `grep -Fq PAT file || grep -Fq PAT other` reads
+#      FILES. There is no producer and no status to lose, and a naive `\| grep`
+#      flags it.
+#
+# Both are structural classes rather than one-off judgements, so the honest
+# place for them is the rule. This rule therefore ships with NO allowlist
+# entries: every finding it raised over this tree was a true positive and was
+# fixed.
+scan_pipefail_early_exit_grep() {
+	local f
+	while read -r f; do
+		[ -n "$f" ] || continue
+		awk -v FNAME="$f" '
+			function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+
+			# Blank every quoted span, preserving length and the UNQUOTED
+			# structure, so that a pipeline quoted as data is not read as a
+			# pipeline of this file. See false-positive class 1 above.
+			function unquote(s,   out, i, c, q, n) {
+				out = ""; q = ""; n = length(s)
+				for (i = 1; i <= n; i++) {
+					c = substr(s, i, 1)
+					if (q == "") {
+						# A trailing backslash is a line CONTINUATION, not an
+						# escape. Blanking it stopped statements joining, so a
+						# four-line `if` was judged a bare statement and
+						# reported the right finding for the wrong reason.
+						if (c == "\\" && i == n) { out = out "\\"; continue }
+						if (c == "\\") { out = out "  "; i++; continue }
+						if (c == "'"'"'" || c == "\"") { q = c; out = out " "; continue }
+						out = out c
+						continue
+					}
+					if (q == "\"" && c == "\\") { out = out "  "; i++; continue }
+					if (c == q) { q = ""; out = out " "; continue }
+					out = out " "
+				}
+				return out
+			}
+
+			# Does this line end the run, or hand a failure upwards? Runs on
+			# UNQUOTED text only.
+			function isabort(s) {
+				if (s ~ /(^|[ \t;&|({])exit([ \t]|$)/) return 1
+				if (s ~ /(^|[ \t;&|({])return[ \t]+[1-9]/) return 1
+				if (s ~ /(^|[ \t;&|({])(die|fail|fatal|refuse|abort)([ \t]|$)/) return 1
+				if (s ~ /(^|[ \t;&|({])false[ \t]*($|;)/) return 1
+				return 0
+			}
+
+			function iscont(s) { return (s ~ /(\\|\||&&|\|\|)[ \t]*$/) }
+
+			{ L[NR] = $0 }
+
+			END {
+				hd = ""
+				for (i = 1; i <= NR; i++) {
+					t = trim(L[i])
+					if (hd != "") { HD[i] = 1; if (t == hd) hd = ""; continue }
+					if (match(t, /<<-?[ \t]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*["'"'"']?/)) {
+						h = substr(t, RSTART, RLENGTH); sub(/<<-?[ \t]*/, "", h); gsub(/["'"'"']/, "", h)
+						hd = h
+					}
+				}
+				for (i = 1; i <= NR; i++) U[i] = unquote(L[i])
+
+				# Is pipefail in effect, and is a bare failure fatal?
+				#
+				# For a Makefile the answer is not in the recipes at all:
+				# `SHELL = /usr/bin/env bash -o pipefail` at the top puts every
+				# recipe line under it. Looking only for `set -o pipefail`
+				# reads this repo Makefile as unaffected, and its two ENV-key
+				# gates are exactly the shape.
+				pf = 0
+				ee = (FNAME ~ /\.bats$/) ? 1 : 0
+				if (FNAME ~ /(Makefile|\.mk)$/) {
+					for (i = 1; i <= NR; i++) {
+						t = trim(L[i]); if (t ~ /^#/) continue
+						if (t ~ /^(SHELL|\.SHELLFLAGS)[ \t]*[:+?]?=/ && t ~ /pipefail/) pf = 1
+						if (t ~ /^\.SHELLFLAGS[ \t]*[:+?]?=/ && t ~ /-[A-Za-z]*e/) ee = 1
+					}
+				}
+
+				for (i = 1; i <= NR; i++) {
+					if (HD[i]) continue
+					t = trim(L[i])
+					if (t !~ /^#/ && FNAME !~ /(Makefile|\.mk)$/) {
+						if (U[i] ~ /(^|[ \t;&|({])set[ \t]+-[A-Za-z]*o[ \t]+pipefail/) pf = 1
+						if (U[i] ~ /(^|[ \t;&|({])set[ \t]+-[A-Za-z]*e[A-Za-z]*([ \t]|$)/) ee = 1
+					}
+					if (!pf || t ~ /^#/) continue
+
+					u = U[i]
+					if (u !~ /(^|[^|])\|[ \t]*(command[ \t]+)?grep[ \t]+-[A-Za-z]*q/) continue
+					if (u ~ /\|\|[ \t]*(command[ \t]+)?grep[ \t]+-[A-Za-z]*q/) continue
+
+					# The whole logical statement, so an `if` split over four
+					# lines is judged as the one condition it is.
+					s = i
+					while (s > 1) {
+						p = s - 1
+						while (p > 1 && (trim(L[p]) == "" || trim(L[p]) ~ /^#/)) p--
+						if (HD[p]) break
+						if (iscont(U[p])) { s = p } else break
+					}
+					e = i
+					while (e < NR && iscont(U[e])) e++
+					joined = ""
+					for (k = s; k <= e; k++) joined = joined " " trim(U[k])
+					joined = trim(joined)
+
+					why = ""
+					if (joined ~ /^(if|elif|while|until)([ \t]|$)/) {
+						# Only a verdict if the branch it selects REFUSES.
+						# Choosing between two ordinary actions is not this rule.
+						for (k = e + 1; k <= NR && k <= e + 14; k++) {
+							if (HD[k]) continue
+							g = trim(U[k])
+							if (g == "" || trim(L[k]) ~ /^#/) continue
+							if (g ~ /^(fi|else|elif|done)([ \t]|$)/) break
+							if (isabort(g)) { why = "the branch it selects refuses at line " k; break }
+						}
+					} else if (match(joined, /(\|\||&&)[ \t]*[^ \t]/)) {
+						cons = substr(joined, RSTART)
+						sub(/^(\|\||&&)[ \t]*/, "", cons)
+						if (isabort(cons)) {
+							why = "the || / && consequence on the same statement refuses"
+						} else if (cons ~ /^\{/) {
+							for (k = e + 1; k <= NR && k <= e + 12; k++) {
+								if (HD[k]) continue
+								g = trim(U[k])
+								if (g == "" || trim(L[k]) ~ /^#/) continue
+								if (g ~ /^\}/) break
+								if (isabort(g)) { why = "the || / && block refuses at line " k; break }
+							}
+						}
+					} else {
+						# A bare statement. Nothing branches on it, so its
+						# status IS the answer: errexit aborts the script, bats
+						# fails the test, and a function last statement returns
+						# it to the caller.
+						nx = e + 1
+						while (nx <= NR && (trim(L[nx]) == "" || trim(L[nx]) ~ /^#/)) nx++
+						if (nx <= NR && trim(L[nx]) ~ /^\}[ \t]*$/)
+							why = "it is the last statement of the enclosing function, so its status is the return value"
+						else if (FNAME ~ /\.bats$/)
+							why = "a bare failing command fails the bats test, so its status is the verdict"
+						else if (ee)
+							why = "errexit is set, so a bare non-zero status aborts the script"
+					}
+
+					if (why == "") continue
+					printf "%d\t%s\t%s\t%s\n", i, trim(L[i]), why, FNAME
+				}
+			}
+		' "$f"
+	done < <(shell_files) | while IFS=$'\t' read -r lineno text why file; do
+		emit VAC008 "$file" "$lineno" "$text" \
+			"grep -q exits at the first match, the producer takes SIGPIPE, and pipefail makes 141 the pipeline's status — so a MATCH reports as no-match, and here ${why}" \
+			"$text"
+	done
+}
+
 scan_ready_expr
 scan_wait_condition
 scan_tautologies
 scan_bats_bodies
 scan_unguarded_array_loop
+scan_pipefail_early_exit_grep
 
 # ── Allowlist ───────────────────────────────────────────────────────────────
 
@@ -736,5 +998,5 @@ fi
 # Name what was checked. "All clear" over a rule set of six reads as a general
 # guarantee about the tree's assertions, which this is not: it says these six
 # shapes are absent, and nothing about any other way a check can be hollow.
-ok "no VAC001-VAC007 findings in ${FILE_COUNT} files (${SUPPRESSED} allowlisted)."
-printf '           (seven shapes are checked; a check can still be hollow in an eighth way.)\n\n'
+ok "no VAC001-VAC008 findings in ${FILE_COUNT} files (${SUPPRESSED} allowlisted)."
+printf '           (eight shapes are checked; a check can still be hollow in a ninth way.)\n\n'

@@ -37,7 +37,7 @@ case "$args" in
 
   # Namespace resolution: `{.items[0].metadata.name}` and nothing else.
   *"get pod -l signalloom.ai/supercred=true -o jsonpath={.items[0].metadata.name}")
-    if printf '%s' "$args" | grep -q 'fe-signalloom-agents' && [ -n "${STUB_PODS}" ]; then
+    if grep -q 'fe-signalloom-agents' <<<"$args" && [ -n "${STUB_PODS}" ]; then
       printf '%s' "${STUB_PODS%%=*}"
       exit 0
     fi

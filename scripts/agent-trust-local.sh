@@ -408,8 +408,9 @@ network_dataplane_preflight() {
     printf 'UNVERIFIED: no CNI daemonset is present for dataplane probes\n' >&2
     return 1
   }
-  kubectl api-resources --api-group=networking.k8s.io -o name 2>/dev/null \
-    | grep -Eq '^networkpolicies(\.networking\.k8s\.io)?$' || {
+  local netpol_api
+  netpol_api="$(kubectl api-resources --api-group=networking.k8s.io -o name 2>/dev/null || true)"
+  grep -Eq '^networkpolicies(\.networking\.k8s\.io)?$' <<<"$netpol_api" || {
     printf 'UNVERIFIED: NetworkPolicy API is unavailable for dataplane probes\n' >&2
     return 1
   }

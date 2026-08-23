@@ -84,7 +84,7 @@ suite_test_fails() {
 
   # A pattern that matched NO test exits 0 with no test lines, which would read
   # as "the guard did not fire" when the truth is "there is no such guard".
-  if ! printf '%s' "$out" | grep -qE '^(ok|not ok) '; then
+  if ! grep -qE '^(ok|not ok) ' <<<"$out"; then
     echo "    HARNESS FAULT: no test matched /${pattern}/" >&2
     return 2
   fi

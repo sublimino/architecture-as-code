@@ -109,7 +109,7 @@ scan() {
 BODY
 	scan
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"no VAC001-VAC007 findings"* ]]
+	[[ "$output" == *"no VAC001-VAC008 findings"* ]]
 }
 
 @test "VACUOUS the scanner never modifies what it scans" {
@@ -621,6 +621,232 @@ main() {
 	for workload in "${requested[@]}"; do
 		check_workload "$workload"
 	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+# ── VAC008: `cmd | grep -q` under pipefail, where the status is a verdict ───
+#
+# Every rule above describes a check that CANNOT FAIL. This one describes a
+# check that can report the OPPOSITE OF THE TRUTH: `grep -q` exits at its first
+# match, the producer takes SIGPIPE, and pipefail promotes 141 to the
+# pipeline's status, so the pipeline answers FALSE PRECISELY WHEN IT MATCHES.
+#
+# ─── Why these proofs are STATIC, and must stay that way ───────────────────
+#
+# The obvious way to test this rule is to trigger the inversion and watch a
+# guard get it wrong. That test would PASS WHILE TRIGGERING NOTHING under the
+# Claude Code Bash tool, whose shell has SIGPIPE set to SIG_IGN
+# (`grep SigIgn /proc/self/status` -> 0000000000001000, bit 12 = signal 13).
+# Ignored dispositions are inherited, so the identical pipeline returns 0 there
+# and 141 inside `bash -c`. A runtime proof of this rule can therefore be
+# exactly the vacuous shape the rule exists to catch, reproduced inside the
+# rule's own suite.
+#
+# So the RED/GREEN/CONTROL proofs below drive the SCANNER over fixture text and
+# never execute a fixture. The one behavioural test is the MECHANISM control
+# immediately below, and it refuses unless it actually observed the inversion.
+
+@test "VAC008 MECHANISM the inversion is real, or this rule has no subject" {
+	# The positive control for the rule's entire premise. A negative result is
+	# worthless until the mechanism is known to have been exercised, so "it did
+	# not invert" FAILS here rather than passing quietly.
+	#
+	# `bash -c` is load-bearing, not style: see the note above. Every real
+	# script is a nested shell at the default disposition, so the mechanism is
+	# live everywhere it matters and invisible in the one place — the harness
+	# shell — where no script is ever run.
+	run bash -c 'set -o pipefail; { echo MARKER; seq 1 300000; } | grep -Fq MARKER; echo "rc=$?"'
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"rc=141"* ]]
+}
+
+@test "VAC008 RED on a refusal gated by a piped grep -q" {
+	cat >"$fixture/setup-gate.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+verify_infra() {
+  if ! kubectl -n flux-system get resourceset infra -o jsonpath='{.spec.inputs}' | grep -q 'tenant'; then
+    echo "ERROR: infra was never activated" >&2
+    exit 2
+  fi
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC008"* ]]
+	[[ "$output" == *"setup-gate.sh"* ]]
+	[[ "$output" == *"MATCH reports as no-match"* ]]
+}
+
+@test "VAC008 RED says WHY the status is a verdict, not merely that it is one" {
+	# A finding that does not name the refusal makes the reader re-derive the
+	# argument, and a rule people re-derive is a rule they mute.
+	cat >"$fixture/gate.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+check() {
+  kubectl api-resources -o name | grep -Eq '^networkpolicies$' || {
+    echo 'UNVERIFIED: NetworkPolicy API unavailable' >&2
+    return 1
+  }
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"the || / && block refuses at line"* ]]
+}
+
+@test "VAC008 RED on a bare pipeline under errexit" {
+	# The earliest form of the bao-spire-proof defect: nothing branches on it,
+	# so errexit makes the status the whole script's verdict.
+	cat >"$fixture/proof.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+kubectl -n demo logs job/negative | grep -Fq 'denied as expected'
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC008"* ]]
+	[[ "$output" == *"errexit is set"* ]]
+}
+
+@test "VAC008 RED on a function's trailing pipeline, which returns its status" {
+	cat >"$fixture/publishing.sh" <<'SH'
+#!/usr/bin/env bash
+set -o pipefail
+remote_is_publishing() {
+  remote_run "ss -ltn" | grep -q PUBLISHING
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"last statement of the enclosing function"* ]]
+}
+
+@test "VAC008 RED in a Makefile, where pipefail comes from SHELL and not from set" {
+	# A Makefile never says `set -o pipefail`. `SHELL = env bash -o pipefail`
+	# puts every recipe under it, and a rule that only looks for the `set` form
+	# reads the whole file as unaffected.
+	cat >"$fixture/Makefile" <<'MK'
+SHELL = /usr/bin/env bash -o pipefail
+.SHELLFLAGS = -ec
+
+guard:
+	@printf '%s' '$(ENV)' | grep -Eq '^demo-[1-9][0-9]*$$' || { \
+		echo "ERROR: bad ENV"; \
+		exit 2; \
+	}
+MK
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC008"* ]]
+	[[ "$output" == *"Makefile"* ]]
+}
+
+@test "VAC008 CONTROL does not fire without pipefail" {
+	# Without pipefail the pipeline reports grep's status, which is the answer
+	# actually being asked for. There is no defect here at all.
+	cat >"$fixture/nopf.sh" <<'SH'
+#!/usr/bin/env bash
+set -eu
+gate() {
+  kubectl get pods | grep -q Running || return 1
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC008 CONTROL does not fire when the status only picks between two actions" {
+	# THE control that decides whether this rule survives contact with the tree.
+	# The bare shape occurs 77 times here under pipefail; 64 of them look like
+	# this. An inversion reinstalls a tool that was already installed, or
+	# rebuilds a cluster that already existed — wasteful, loud, self-correcting.
+	# A rule that fires on all 77 is a rule somebody switches off in a week.
+	cat >"$fixture/branchy.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+ensure_cluster() {
+  if kind get clusters 2>/dev/null | grep -qx "$name"; then
+    echo "reusing $name"
+  else
+    kind create cluster --name "$name"
+  fi
+}
+ensure_go() {
+  if ! go version 2>/dev/null | grep -q "go${GO_VERSION}"; then
+    install_go
+  fi
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC008 CONTROL does not fire on a pipeline quoted as data" {
+	# `remote_run "... | grep -q ..."` is a command string executed by another
+	# host's shell under its own options, and a sed replacement in a mutation
+	# harness is the text being substituted. Neither is a pipeline of this file,
+	# and reporting one names a line that contains no pipeline at all.
+	cat >"$fixture/quoted.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+probe() {
+  remote_run "ss -ltn 2>/dev/null | grep -q ':8080 ' && echo UP || echo DOWN" || return 1
+}
+del_gate() { mutate 's#^  printf "$lane" | grep -Eq "$PATTERN" && return 0$#  false#'; }
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC008 CONTROL does not fire on the second bar of ||" {
+	# `grep -Fq PAT file || grep -Fq PAT other` reads FILES. There is no
+	# producer and no status to lose, and a naive `\| grep` flags it.
+	cat >"$fixture/orbar.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+validate() {
+  grep -Fq 'spire-server' "$controllers" || grep -Fq 'spire-agent' "$agent" || return 1
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC008 CONTROL does not fire on a grep that reads to EOF" {
+	# The repo's own earlier fix (071b989f) was `grep -q` -> `grep >/dev/null`.
+	# Without -q grep consumes the whole stream, so the producer never takes
+	# SIGPIPE and the pipeline's status is the honest one. Flagging this would
+	# flag the fix.
+	cat >"$fixture/toeof.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+gate() {
+  kubectl get pods | grep -F Running >/dev/null || return 1
+  docker exec node ctr images ls -q | awk -v i="$img" '$1 == i { f = 1 } END { exit !f }' || return 1
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC008 GREEN once the producer's output is captured first" {
+	# The fix form. No pipe, so no early close, no SIGPIPE, and the producer's
+	# status is preserved in the assignment where it can be handled on purpose.
+	cat >"$fixture/fixed.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+verify_infra() {
+  local inputs
+  inputs="$(kubectl -n flux-system get resourceset infra -o jsonpath='{.spec.inputs}' 2>/dev/null || true)"
+  if ! grep -q 'tenant' <<<"$inputs"; then
+    echo "ERROR: infra was never activated" >&2
+    exit 2
+  fi
 }
 SH
 	scan

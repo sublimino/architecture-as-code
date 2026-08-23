@@ -464,7 +464,7 @@ verify_against_sidecar() { # file sidecar_url
     return 1
   }
   expected="$(printf '%s\n' "$sums" | awk -v n="$name" '$2 == n { print $1 }' | head -1)"
-  if ! printf '%s' "$expected" | grep -qE '^[0-9a-f]{64}$'; then
+  if ! grep -qE '^[0-9a-f]{64}$' <<<"$expected"; then
     log "ERROR: ${sidecar_url} carries no sha256 entry for ${name}"
     return 1
   fi

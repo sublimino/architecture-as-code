@@ -58,6 +58,30 @@
 # could tell those apart, and the outage was misattributed to a young planner
 # pod that had nothing to do with it.
 #
+# ── If you ever exercise a REAL rotation, decode the token's kid ───────────
+#
+# The SPIRE agent CACHES JWT-SVIDs. For roughly a minute after
+# `localauthority jwt activate`, a workload still presents a token signed by the
+# PREVIOUS authority — so a login succeeds, and it tells you nothing about the
+# rotation you just triggered.
+#
+# Measured 2026-08-23: an activate-then-login test PASSED and was nearly
+# reported as "live-JWKS survives rotation". It was invalid. Decoding the token
+# header showed `kid` was still the OLD authority. The control arm passed for
+# the same wrong reason, so the two agreed and both were meaningless. Only after
+# the agent's cache turned over (t+1min, kid flipped) did the arms separate:
+# snapshot FAILED with "no known key successfully validated the token
+# signature", live-JWKS SUCCEEDED.
+#
+# So: a rotation test that checks only the login's exit status proves nothing.
+# Assert which kid signed the token before believing either outcome:
+#
+#   cut -d. -f1 <jwt> | tr '_-' '/+' | base64 -d    # -> {"alg":"ES256","kid":...}
+#
+# This suite compares SPIRE's published bundle against OpenBao's config and
+# never mints a token, so it is not exposed to the caching. The warning is here
+# because this is where someone will come to add a rotation test.
+#
 # ── The trap this suite must not fall into ─────────────────────────────────
 #
 # Do NOT reduce any of this to a count comparison. Measured on a drifted lane

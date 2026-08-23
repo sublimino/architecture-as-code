@@ -230,6 +230,45 @@ func TestExpectDeniedTreatsIdentityDenialAsSuccess(t *testing.T) {
 	}
 }
 
+// A denial proof must distinguish "SPIRE refused this identity" from "the
+// fetch broke". Both are non-nil errors, and treating the second as the first
+// is the shape this repo's own AGENTS.md names: `nc` cannot tell a firewall
+// from a typo, and a gate that always passes is a wait that can never succeed
+// wearing a different hat.
+//
+// The stakes are asymmetric. If a broken socket, a missing binary, an
+// unreachable agent or a crash-looping SPIRE all read as "denied as expected",
+// then bao-spire-negative-proof reports a security boundary holding at exactly
+// the moments it is least able to observe one — and scripts/bao-spire-proof.sh
+// greps for that marker as its only positive evidence of denial.
+//
+// Each input below is a real failure seen on a lane, not an invented string.
+func TestExpectDeniedRejectsFailuresThatAreNotDenials(t *testing.T) {
+	for _, notADenial := range []string{
+		"rpc error: code = Unavailable desc = connection error: desc = \"transport: Error while dialing: dial unix /run/spire/sockets/agent.sock: connect: no such file or directory\"",
+		"exec: \"/usr/local/bin/signalloom-spire-proof\": executable file not found in $PATH",
+		"rpc error: code = DeadlineExceeded desc = context deadline exceeded",
+		"x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority",
+		"",
+	} {
+		var stdout strings.Builder
+		broken := func(string, ...string) ([]byte, error) {
+			return []byte(notADenial), errors.New("exit status 1")
+		}
+		// runWithPause with a no-op pause, not run(): a non-denial exhausts all
+		// 30 attempts, so the real one-second backoff makes this 30s per input
+		// and ~145s for the table. The retry COUNT is what the behaviour needs,
+		// not the wall time.
+		code := runWithPause([]string{"expect-denied"}, &stdout, io.Discard, broken, func(time.Duration) {})
+		if code == 0 {
+			t.Fatalf("a non-denial failure was accepted as proof of denial: %q", notADenial)
+		}
+		if strings.Contains(stdout.String(), "denied as expected") {
+			t.Fatalf("a non-denial failure emitted the denial marker: %q", notADenial)
+		}
+	}
+}
+
 func TestProbeSVIDWritesOnlyTokenFreeSubjectEvidence(t *testing.T) {
 	const subject = "spiffe://signalloom.demo/platform/signalloom/tenant/acme/project/payments/agent/planner"
 	evidencePath := filepath.Join(t.TempDir(), "termination-log")

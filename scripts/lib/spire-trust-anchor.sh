@@ -74,6 +74,103 @@ spire_jwt_svid_keys() {
   done
 }
 
+# ── The server/agent persistence split, and why bao_up refuses ─────────────
+#
+# spire-server's data_dir (/run/spire/data) has NO volume and NO PVC, so the
+# sqlite datastore and the CA private keys live in the container's writable
+# layer. A restart — eviction, node pressure, image bump, any pod-template edit
+# — gives a NEW CA, NEW JWT signing keys and NO registration entries.
+#
+# spire-agent's data_dir is a hostPath (/var/lib/spire-agent/data), so it
+# SURVIVES that restart and reloads a bundle for the CA that no longer exists.
+#
+# The two disagree, and the agent crash-loops on
+#
+#   x509svid: could not verify leaf certificate:
+#   x509: certificate signed by unknown authority
+#
+# bao_up could not fix this. It deletes the join-token Secret and the agent pod,
+# which is right, but never clears the node directory — so the replacement pod
+# reloads the same stale bundle and crashes identically, forever. Diagnosed on
+# kind-osramp 2026-08-23 after a deliberate spire-server restart; recovered by
+# hand, twice.
+#
+# This REFUSES rather than repairing, deliberately. Clearing the directory needs
+# node access, which is `docker exec` on kind and `gcloud compute ssh` on GCP —
+# there is no portable in-cluster way to do it that does not involve running a
+# privileged pod, which is a poor trade in this repo. A recovery command that
+# silently half-works is worse than one that refuses and says what to run.
+#
+# The right permanent fix is a design decision, NOT taken here: either give
+# spire-server a PVC so its CA survives (and the agent's cache stays valid), or
+# make a server restart explicitly wipe the agent's hostPath. Both change the
+# lane's failure semantics; see d2-agent-trust/AGENTS.md.
+SPIRE_AGENT_DATA_HOSTPATH="${SPIRE_AGENT_DATA_HOSTPATH:-/var/lib/spire-agent/data}"
+
+_spire_agent_logs() {
+  kubectl -n "$1" logs -l app.kubernetes.io/name=spire-agent --tail=80 2>/dev/null
+}
+
+# Has the agent actually attested to the server that is running NOW?
+#
+# Asserts the positive marker rather than the absence of an error: an agent that
+# logs nothing at all has not attested either, and "no error yet" is exactly how
+# a still-starting pod looks. Reads into a variable rather than piping into
+# `grep -q`, which under pipefail can report 141 when the match succeeds early.
+assert_spire_agent_trusts_server() {
+  local namespace="$1" deadline logs
+  deadline=$((SECONDS + ${DEMO_AGENT_ATTEST_TIMEOUT:-120}))
+  while :; do
+    logs="$(_spire_agent_logs "$namespace" || true)"
+    grep -Fq 'Starting Workload and SDS APIs' <<<"$logs" && return 0
+    ((SECONDS >= deadline)) && break
+    sleep 2
+  done
+
+  if grep -Fq 'certificate signed by unknown authority' <<<"$logs"; then
+    cat >&2 <<EOF
+SPIRE agent is holding a stale trust bundle and cannot attest to this server.
+
+Cause: spire-server's data directory is ephemeral (no volume, no PVC), so it was
+rebuilt with a NEW CA. The agent's data directory is a hostPath, so it survived
+and still trusts the OLD CA. This is not recoverable by re-running bao-up: it
+deletes the Secret and the pod but never clears the node directory, so every
+replacement pod reloads the same stale bundle.
+
+Recovery, in this order — the third step is the one bao-up cannot do for you:
+
+  1. kubectl -n $namespace delete secret spire-agent-join-token --ignore-not-found
+  2. kubectl -n $namespace delete pod -l app.kubernetes.io/name=spire-agent --wait=true
+  3. clear ${SPIRE_AGENT_DATA_HOSTPATH} ON THE NODE:
+       kind: docker exec <node> sh -c 'rm -rf ${SPIRE_AGENT_DATA_HOSTPATH}/*'
+             (node name: kubectl get nodes -o name)
+       GCP:  gcloud compute ssh <instance> --zone <zone> --command \\
+               "sudo rm -rf ${SPIRE_AGENT_DATA_HOSTPATH}/*"
+  4. re-run: make demo-bao-up
+
+Join tokens are single-use, so every crash-loop restart burns one. Do not reuse
+a token from a previous attempt; step 4 generates a fresh one.
+EOF
+  else
+    cat >&2 <<EOF
+SPIRE agent did not attest within ${DEMO_AGENT_ATTEST_TIMEOUT:-120}s: it never logged
+"Starting Workload and SDS APIs", so no workload on this lane can obtain an SVID.
+
+This is asserted positively on purpose — an agent that logs nothing has not
+attested, and treating silence as success is how a dead identity plane reports
+healthy. Inspect with:
+
+  kubectl -n $namespace logs -l app.kubernetes.io/name=spire-agent --tail=80
+  kubectl -n $namespace get pods -l app.kubernetes.io/name=spire-agent
+
+If the logs mention "certificate signed by unknown authority", the agent is
+holding a stale bundle from a rebuilt server; see
+${SPIRE_AGENT_DATA_HOSTPATH} in d2-agent-trust/AGENTS.md.
+EOF
+  fi
+  return 1
+}
+
 # The key ID SPIRE is signing JWT-SVIDs with RIGHT NOW.
 #
 # spire_jwt_svid_keys returns the whole validation SET, which across a rotation
@@ -82,6 +179,23 @@ spire_jwt_svid_keys() {
 # from OpenBao is a pending outage, whereas the ACTIVE key missing from OpenBao
 # is a current one. On 2026-08-14 nobody could tell those apart and the outage
 # was attributed to an unrelated pod.
+#
+# ── Do NOT set `socket_path` in server.conf to make this reachable ─────────
+#
+# Every spire-server CLI call in this repo uses SPIRE's DEFAULT admin socket,
+# /tmp/spire-server/private/api.sock — this file's readers, demo-lifecycle.sh's
+# `token generate` and `entry create`, and pipeline stage 6e.
+#
+# While validating the oidc-discovery-provider sidecar on 2026-08-23 the obvious
+# move was `socket_path = "/run/spire/private/api.sock"` in server.conf so the
+# sidecar could share a volume there. It broke EVERY one of those calls at once
+# with `dial unix /tmp/spire-server/private/api.sock: no such file or directory`,
+# including the drift guard itself.
+#
+# The correct shape is to mount the shared emptyDir AT the default path and
+# leave server.conf untouched — the sidecar gets its socket, the CLI keeps
+# working, and the diff shrinks to the Deployment. If you find yourself
+# "tidying" an explicit socket_path back in, this is what it costs.
 #
 # Lives here, beside the other SPIRE reads, rather than in the test that wants
 # it: every kubectl in this seam belongs to this file. test/no-exec-probes-in-

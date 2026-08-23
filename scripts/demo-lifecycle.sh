@@ -97,6 +97,12 @@ bao_up() {
   kubectl -n "$BAO_NAMESPACE" delete secret spire-agent-join-token --ignore-not-found
   kubectl -n "$BAO_NAMESPACE" delete pod -l app.kubernetes.io/name=spire-agent --ignore-not-found --wait=true
   bootstrap_spire_agent_join_token
+  # Everything below assumes the agent can actually talk to THIS server. If
+  # spire-server was rebuilt, the agent's hostPath still trusts the old CA and
+  # crash-loops — and re-running bao-up cannot fix it, because nothing here
+  # clears that directory. Refuse with the recovery sequence instead of pressing
+  # on to register entries and sync keys against an identity plane that is down.
+  assert_spire_agent_trusts_server "$BAO_NAMESPACE"
   # OpenBao uses ephemeral local storage in this demo. Re-run its idempotent
   # bootstrap after reconciliation so a restarted server regains JWT auth.
   kubectl -n "$BAO_NAMESPACE" delete job openbao-spire-bootstrap --ignore-not-found --wait=true

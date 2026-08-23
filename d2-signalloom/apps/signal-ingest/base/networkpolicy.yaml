@@ -50,6 +50,19 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: fe-signalloom
+        # supercred-demo-runner drives the Signal Fusion three-act demo, which
+        # POSTs observations and GETs actors here. It talks to the Service
+        # directly rather than through `kubectl port-forward`, so the traffic
+        # arrives from THIS pod and needs a rule -- unlike the runner's
+        # policy-engine traffic, which arrives from the apiserver and needs
+        # none. Egress half: allow-supercred-demo-runner-egress.
+        #
+        # Both selectors sit in ONE `from:` list, so either source is admitted
+        # to port 8082. Splitting them into two rules would be equivalent here;
+        # keeping one rule keeps the port stated once.
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: supercred-demo-runner
       ports:
         - protocol: TCP
           port: 8082

@@ -180,7 +180,7 @@ run_gate() {
   start_stub '{"supercred":{"status":"healthy"}}'
   run_gate "$reg" --execute
   [ "$status" -eq 0 ]
-  [[ "$output" == *"terminal state: succeeded"* ]]
+  [[ "$output" == *"step 1: succeeded"* ]]
   [[ "$output" == *"ran step"* ]]
 }
 
@@ -201,6 +201,33 @@ run_gate() {
   USER_SURFACE_RUN_TIMEOUT=6 run_gate "$reg" --execute
   [ "$status" -eq 1 ]
   [[ "$output" == *"RAN_TIMEOUT"* ]]
+}
+
+# --all-steps is what makes --execute able to catch the SuperCred class. That
+# demo failed at act 2 with act 1 green, so a gate driving only the first act
+# reports PASS over a demo the principal can see is broken. The stub fails
+# every act, so a gate that stopped after act 1 would still go red here --
+# which is why the assertion is on the STEP NUMBER reached, not on the verdict.
+@test "--all-steps drives every advertised act, not just the first" {
+  local reg; reg="$(write_registry supercred)"
+  start_stub '{"supercred":{"status":"healthy"}}'
+  run_gate "$reg" --all-steps
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"driving all 2 act(s)"* ]]
+  [[ "$output" == *"step 1: succeeded"* ]]
+  [[ "$output" == *"step 2: succeeded"* ]]
+}
+
+# The regression that matters: act 1 green, act 2 red. This is SuperCred's
+# exact shape, and the default single-step mode cannot see it.
+@test "--all-steps fails on a later act even when the first act passes" {
+  local reg; reg="$(write_registry supercred)"
+  start_stub '{"supercred":{"status":"failsecond"}}'
+  run_gate "$reg" --all-steps
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"step 1: succeeded"* ]]
+  [[ "$output" == *"RAN_FAILED"* ]]
+  [[ "$output" == *"SuperCred class"* ]]
 }
 
 # ─── 4. Enumeration is DERIVED — a new demo cannot be silently uncovered. ───

@@ -22,7 +22,7 @@ type to how its surface should behave:
      "signalfusion": {"status": "incapable"}}
 
 Modes: healthy · incapable (200 + script_available false) · missing (404) ·
-forbidden (403) · error503 · nosteps · runfails · runhangs
+forbidden (403) · error503 · nosteps · runfails · failsecond · runhangs
 """
 
 from __future__ import annotations
@@ -147,6 +147,10 @@ class Handler(BaseHTTPRequestHandler):
                 status = "running"
             elif run["mode"] == "runfails":
                 status = "failed"
+            elif run["mode"] == "failsecond":
+                # Act 1 passes, act 2 fails -- SuperCred's exact shape, and the
+                # one a single-step gate sails straight past.
+                status = "failed" if run["run_id"].endswith("-2") else "succeeded"
             else:
                 status = "succeeded"
             out = {"run_id": run["run_id"], "status": status}

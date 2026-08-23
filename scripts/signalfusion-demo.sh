@@ -153,8 +153,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     evidence = a.get('evidence_chain', [])
@@ -217,8 +224,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     print(f\"  Actor: {a.get('id', 'unknown')}\")
@@ -285,8 +299,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(f\"{actors[0].get('confidence', 0):.2f}\")
@@ -307,8 +328,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(actors[0].get('id', ''))
@@ -389,8 +417,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(f\"{actors[0].get('confidence', 0):.2f}\")
@@ -403,8 +438,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     print(f\"  Actor: {a.get('id', 'unknown')}\")
@@ -451,8 +493,15 @@ import sys, json
 d = json.load(sys.stdin)
 # /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
 # which raises AttributeError on a list -- swallowed by the 2>/dev/null at
-# the call site, so every act after the first reported "run Act 1 first"
-# while the actor it wanted was sitting in the response it had just read.
+# the call site, so every act after the first blamed the operator for not
+# running Act 1, while the actor it wanted sat in the response it had read.
+# NOTE: keep this comment free of double-quote characters. These blocks are
+# embedded in a double-quoted shell string (python3 -c), so one of them closes
+# that string early and mangles the program -- silently, because 2>/dev/null
+# hides the resulting SyntaxError and the caller falls back to an empty value.
+# That exact mistake shipped here once: the comment quoted an error message,
+# actor_id came back empty, and the kernel observation was stored with no
+# actor_hint, so it correlated with nothing and Act 3 reported no evidence.
 actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(actors[0].get('id', ''))

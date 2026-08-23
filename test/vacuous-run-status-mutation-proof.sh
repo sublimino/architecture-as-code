@@ -68,7 +68,6 @@ DRIVER_REL="scripts/gcp-tf/demo-up.sh"
 TS_REL="test/terraform-tailscale-access.bats"
 DD_REL="test/terraform-demo-driver.bats"
 
-SENTINEL="${REPO_ROOT}/.vacuous-run-status-mutation-proof.RUNNING"
 SAFE="${TMPDIR:-/tmp}/osramp-vacuous-run-status-proof"
 
 BATS_BIN="${BATS_BIN:-$(command -v bats || true)}"
@@ -82,26 +81,28 @@ if [ -z "$BATS_BIN" ]; then
 	exit 2
 fi
 
-# ── Refuse, never repair ────────────────────────────────────────────────────
-if [ -e "$SENTINEL" ]; then
-	red "REFUSING TO START: a previous run left a sentinel."
-	say ""
-	say "  $SENTINEL"
-	say ""
-	say "  That run was killed while the tree was mutated, so the working tree may"
-	say "  still contain a deliberately broken driver or an out-of-date test file."
-	say "  This harness will NOT repair it: auto-repair is how a broken component"
-	say "  ships green, and you would have no way to tell a repaired tree from one"
-	say "  that was never damaged."
-	say ""
-	say "  Pristine copies were left here:"
-	say ""
-	cat "$SENTINEL" 2>/dev/null | sed 's/^/    /'
-	say ""
-	say "  Restore each file from that directory by hand, confirm with"
-	say "  'git status', delete the sentinel, then re-run."
-	exit 2
-fi
+# ── Refuse, never repair — via the shared rail ──────────────────────────────
+#
+# The sentinel was `.vacuous-run-status-mutation-proof.RUNNING`. Unique, which
+# was the important part, but the `.RUNNING` suffix is NOT matched by the
+# `*mutation-in-progress` glob in .gitignore — so an interrupted run left an
+# untracked marker that a `git add -A` would have committed, announcing a
+# mutated tree to everyone who pulled. The rail's name falls under the existing
+# glob. See test/helpers/mutation-sentinel.bash.
+#
+# This harness mutates scripts/gcp-tf/demo-up.sh, which two OTHER proofs also
+# mutate, and the gate chains all three with `&&`.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
+
+ms_guard_init vacuous-run-status "$DRIVER_REL" "$TS_REL" "$DD_REL"
+
+# Armed for the WHOLE run, not per-mutation. This harness does not apply a
+# single sed and undo it; it swaps whole files between a "control" and a
+# "repaired" variant repeatedly, so the tree is in a deliberately altered state
+# for essentially the entire execution. There is no window in which a kill would
+# be harmless.
+ms_guard_arm "vacuity proof: driver + tailscale/demo-driver suites swapped"
 
 mkdir -p "$SAFE"
 rm -f "${SAFE:?}"/*

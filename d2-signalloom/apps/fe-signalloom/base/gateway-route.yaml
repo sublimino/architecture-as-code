@@ -45,6 +45,33 @@ spec:
       namespace: ingress
       sectionName: https
   rules:
+    # The Signal Fusion demo runs SCRIPTS, so it is served by the demo runner,
+    # not by the Discovery Portal. Both processes mount the same router set
+    # (demo_runner.install_demo_runner_api registers the supercred AND the
+    # signalfusion router), so before this rule existed /api/demo/signalfusion
+    # was answered by fe-signalloom — which replied, correctly, with
+    # 503 demo_root_unresolved: its image is `COPY src/ .` into /app, carrying
+    # no scripts/ tree and neither kubectl nor curl. It could never have run
+    # the demo; the runner already can, and already runs SuperCred this way.
+    #
+    # This rule MUST precede nothing in particular: Gateway API resolves
+    # overlapping PathPrefix matches by longest prefix, not by order, so
+    # /api/demo/signalfusion beats /api regardless of position. It is placed
+    # first for readability only. The precedence relationship is asserted by
+    # d2-signalloom/test/signalfusion-runner-contract.bats so that narrowing
+    # /api until the two prefixes converge fails a test instead of silently
+    # making this order-dependent.
+    #
+    # No rewrite: the runner mounts these routes at /api/demo/signalfusion
+    # already, unlike the dashboard's /demo-api/ block which rewrites onto
+    # /api/demo/supercred.
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /api/demo/signalfusion
+      backendRefs:
+        - name: supercred-demo-runner
+          port: 8000
     - matches:
         - path:
             type: PathPrefix

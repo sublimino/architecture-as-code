@@ -67,6 +67,35 @@ spec:
             # manifest rather than only in the Dockerfile.
             - name: SUPERCRED_DEMO_CWD
               value: /repo
+            # The same root for the Signal Fusion three-act demo, which this
+            # process also serves (install_demo_runner_api mounts both
+            # routers). Separate variable because DemoConfig resolves each
+            # demo type's root independently: with this unset, /weave returned
+            # 503 demo_root_unresolved on all three acts while SuperCred was
+            # fine. Restated here rather than inherited from the Dockerfile ENV
+            # for the same reason SUPERCRED_DEMO_CWD is — the contract belongs
+            # where it is operated. d2-signalloom/test/signalfusion-runner-
+            # contract.bats asserts the two copies stay equal.
+            - name: SIGNALFUSION_DEMO_CWD
+              value: /repo
+            # signalfusion-demo.sh port-forwards svc/signal-ingest when it runs
+            # from a laptop. In-cluster that would require `create
+            # pods/portforward` — a verb that grants reach to any port on any
+            # pod in the namespace, far more than a demo needs, and it is not
+            # granted to this ServiceAccount. This pod can already resolve the
+            # Service, so it is pointed straight at it and the port-forward is
+            # skipped.
+            #
+            # Bare Service name, not an FQDN, and deliberately so. signal-ingest
+            # is pulled into the fe-signalloom namespace by that app's own
+            # kustomization (`- ../../signal-ingest/base`), which is where this
+            # runner also lives — same-namespace DNS therefore always resolves
+            # and survives a namespace rename, whereas a hardcoded FQDN would
+            # not. Note this is NOT inf-signalloom: the script's NAMESPACE_INFRA
+            # default names that namespace, it exists, and signal-ingest is not
+            # in it. A plausible-looking FQDN there resolves to nothing.
+            - name: SIGNAL_INGEST_URL
+              value: http://signal-ingest:8082
             # Resolves the kind node name (${CLUSTER_NAME}-control-plane) for
             # the `docker` shim that answers the script's image preflight.
             # One of the five variables demo_runner.py forwards to the child.

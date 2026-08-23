@@ -125,6 +125,24 @@ spec:
       ports:
         - protocol: TCP
           port: 8000
+    # signal-ingest, same namespace: the Signal Fusion three-act demo's only
+    # data plane. All three acts POST observations and GET actors over this.
+    #
+    # This is a DIRECT rule, and it is the exception to the reasoning above
+    # about policy-engine. That call deliberately rides the API-server
+    # port-forward tunnel so no direct rule is needed; here the opposite trade
+    # was taken, because the port-forward equivalent costs `create
+    # pods/portforward` in this namespace -- reach to any port on any pod in
+    # it, including fe-signalloom's and Postgres's client ports. One TCP/8082
+    # rule to one Service is a far smaller grant than the verb that would
+    # replace it. SIGNAL_INGEST_URL in deployment.yaml is the other half.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signal-ingest
+      ports:
+        - protocol: TCP
+          port: 8082
     # kube-apiserver. Every kubectl call the demo makes, plus the port-forward
     # tunnel, rides this. Both ports are required for the same reason
     # allow-netassert-runner-egress lists both: kindnet evaluates service

@@ -40,10 +40,25 @@ indent() { sed 's/^/    /'; }
 
 # ─── Port-forward management ─────────────────────────────────────────────────
 # Background port-forward to signal-ingest service, cleaned up on exit.
+#
+# Only needed when the script runs OUTSIDE the cluster — a laptop, `make
+# demo-signalfusion`, CI. When it runs as the in-cluster demo runner the
+# Service is already reachable by DNS, and SIGNAL_INGEST_URL is set to it.
+#
+# That override is a privilege decision, not a convenience. `kubectl
+# port-forward` requires `create pods/portforward` in the target namespace,
+# which lets the holder reach ANY port on ANY pod there — a genuine lateral
+# grant, handed to a ServiceAccount so that a demo can talk to a Service it
+# can already resolve. Skipping the port-forward is what keeps that verb off
+# the runner's Role.
 
 PF_PID=""
 
 start_port_forward() {
+  # Already have a direct route to the Service: nothing to forward.
+  if [ -n "${SIGNAL_INGEST_URL:-}" ]; then
+    return 0
+  fi
   if [ -n "$PF_PID" ] && kill -0 "$PF_PID" 2>/dev/null; then
     return 0
   fi
@@ -66,7 +81,10 @@ trap 'stop_port_forward' EXIT
 
 # ─── API helpers ──────────────────────────────────────────────────────────────
 
-INGEST_URL="http://localhost:${SIGNAL_INGEST_LOCAL_PORT}"
+# Defaults to the port-forwarded localhost endpoint, which is what every
+# out-of-cluster caller wants. The in-cluster runner sets SIGNAL_INGEST_URL to
+# the Service DNS name and start_port_forward then no-ops — see above.
+INGEST_URL="${SIGNAL_INGEST_URL:-http://localhost:${SIGNAL_INGEST_LOCAL_PORT}}"
 
 api_post() {
   local path="$1"; shift
@@ -92,6 +110,20 @@ preflight_cluster() {
 
 preflight_signal_ingest() {
   log "preflight: verifying signal-ingest is deployed"
+  # With a direct Service URL, ask the Service rather than the API server.
+  #
+  # This is not a shortcut around missing RBAC, it is the better question. The
+  # rollout check below infers reachability from a Deployment's status; a
+  # successful /healthz IS reachability, which is the thing the acts actually
+  # depend on. It also needs no read on Deployments — the in-cluster runner has
+  # none in this namespace, so the API-server form would fail preflight on a
+  # signal-ingest that is up and answering.
+  if [ -n "${SIGNAL_INGEST_URL:-}" ]; then
+    wait_reachable "${INGEST_URL}/healthz" 60 \
+      || fail "signal-ingest not reachable at ${INGEST_URL} — ensure the signal-ingest service is running"
+    ok "signal-ingest reachable at ${INGEST_URL}"
+    return 0
+  fi
   wait_k8s_exists deployment "$SIGNAL_INGEST_SVC" -n "$NAMESPACE_INFRA" 10 \
     || fail "signal-ingest not deployed — ensure the signal-ingest service is running"
   wait_rollout "$SIGNAL_INGEST_SVC" -n "$NAMESPACE_INFRA" 60 \

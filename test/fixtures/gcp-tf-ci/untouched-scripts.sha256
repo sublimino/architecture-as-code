@@ -43,5 +43,11 @@
 # Fifth re-record: registration of test/lane-private-paths.bats, the guard for
 # the shared-local-path class that corrupted a 244MB AFM archive in transit.
 # Same reason as the second, third and fourth — a suite nothing would invoke.
-6d04c3696679eaf44bfa12c5db71452211d9dce1483613a986be97d928efa1c5  scripts/ci/vm-pipeline.sh
+# Sixth re-record: 54048643 registered test/agent-trust-probe-shape.bats in BOTH
+# pipelines -- the correct thing to do, and the same reason as the second through
+# fifth. The ledger was not re-recorded with it, so TFID 24 was left red on the
+# feature branch and stayed red through two subsequent merges. Recorded here with
+# the reason, as this file's header requires. The guard did its job; the merge did
+# not run it.
+0ee567135e8c8c0ab656a70bfb5cab8c74e8e5d9e22f76250be3761e5dd25fd3  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

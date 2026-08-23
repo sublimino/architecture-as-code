@@ -27,284 +27,51 @@ set -euo pipefail
 DOCKER_BIN="${DOCKER_BIN:-docker}"
 KIND_BIN="${KIND_BIN:-kind}"
 CLUSTER_NAME="${CLUSTER_NAME:-osramp}"
-NODE="${SIGNALFUSION_NODE:-${CLUSTER_NAME}-control-plane}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=scripts/lib/source-id.sh
 source "${REPO_ROOT}/scripts/lib/source-id.sh"
 # shellcheck source=scripts/lib/image-identity.sh
 source "${REPO_ROOT}/scripts/lib/image-identity.sh"
+# shellcheck source=scripts/lib/demo-images.sh
+source "${REPO_ROOT}/scripts/lib/demo-images.sh"
+
+# ─── Configuration for the shared library ──────────────────────────────────
+
+DEMO_LOG_PREFIX="signalfusion-images"
+NODE="${SIGNALFUSION_NODE:-${CLUSTER_NAME}-control-plane}"
+DEMO_NODE="$NODE"
+DEMO_CRI_ADOPT_TIMEOUT="${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}"
+PLATFORM="${SIGNALFUSION_PLATFORM:-$(demo_host_platform)}"
 
 # image-name|build-context|dockerfile (fields after image-name are repo-root
 # relative; dockerfile is optional and defaults to <context>/Dockerfile)
-SIGNALFUSION_IMAGES=(
+DEMO_IMAGES=(
   "signal-ingest:local|d2-signalloom/apps/signal-ingest|"
 )
 
-log()  { printf '\033[1;36m[signalfusion-images]\033[0m %s\n' "$*"; }
-ok()   { printf '\033[1;32m[signalfusion-images] ✓\033[0m %s\n' "$*"; }
-warn() { printf '\033[1;33m[signalfusion-images] !\033[0m %s\n' "$*" >&2; }
-fail() { printf '\033[1;31m[signalfusion-images] FAILED:\033[0m %s\n' "$*" >&2; exit 1; }
+# Backward-compat aliases: tests and callers may reference the old names.
+log()  { demo_log "$@"; }
+ok()   { demo_ok "$@"; }
+warn() { demo_warn "$@"; }
+fail() { demo_fail "$@"; }
+image_name()       { demo_image_name "$@"; }
+image_context()    { demo_image_context "$@"; }
+image_dockerfile() { demo_image_dockerfile "$@"; }
+host_platform()    { demo_host_platform "$@"; }
+image_on_node()    { demo_image_on_node "$@"; }
+listing_is_truncated() { demo_listing_is_truncated "$@"; }
+verify_images()    { demo_verify_images "$@"; }
+build_id_args()    { demo_build_id_args "$@"; }
+build_images()     { demo_build_images "$@"; }
+kind_load_all()    { demo_kind_load_all "$@"; }
+reload_via_archive() { demo_reload_via_archive "$@"; }
 
-image_name() {
-  local image context dockerfile
-  IFS='|' read -r image context dockerfile <<<"$1"
-  printf '%s' "$image"
-}
-
-image_context() {
-  local image context dockerfile
-  IFS='|' read -r image context dockerfile <<<"$1"
-  printf '%s' "$context"
-}
-
-image_dockerfile() {
-  local image context dockerfile
-  IFS='|' read -r image context dockerfile <<<"$1"
-  printf '%s' "$dockerfile"
-}
-
-# kind nodes run the host architecture; pin it explicitly so a multi-arch base
-# image cannot resolve to a platform the node cannot execute.
-host_platform() {
-  case "$(uname -m)" in
-    x86_64|amd64)  printf 'linux/amd64' ;;
-    aarch64|arm64) printf 'linux/arm64' ;;
-    *)             printf 'linux/amd64' ;;
-  esac
-}
-PLATFORM="${SIGNALFUSION_PLATFORM:-$(host_platform)}"
-
-# ─── Verification ───────────────────────────────────────────────────────────
-
-# True when the CRI can actually run *an* image under this tag. Deliberately NOT
-# `ctr images ls`. See supercred-images.sh for the full explanation of why.
-#
-# Presence only — it says nothing about WHICH image, which is why it is no
-# longer the gate.
-image_on_node() {
-  image_identity_invalidate
-  image_identity_present_on_node "$1"
-}
-
-listing_is_truncated() { image_identity_listing_is_truncated; }
-
-# verify_images MODE   — MODE is `identity` (default) or `presence`.
-#
-# Exit: 0 PASS, 1 FAIL, 3 COULD-NOT-VERIFY. Three outcomes, never two — see
-# scripts/supercred-images.sh's verify_images for why an unanswerable question
-# gets its own answer rather than being folded into either neighbour.
-verify_images() {
-  local mode="${1:-identity}"
-  local entry image rc failed=() unverified=()
-
-  # One sample of the node for the whole set.
-  image_identity_invalidate
-  image_identity_read_node || true
-
-  for entry in "${SIGNALFUSION_IMAGES[@]}"; do
-    image="$(image_name "$entry")"
-    rc=0; image_identity_verify "$image" || rc=$?
-
-    if [ "$mode" = "presence" ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ]; then
-      ok "$image present on $NODE (presence only — identity not checked)"
-      continue
-    fi
-
-    case "$rc" in
-      0) ok   "PASS  $IMAGE_IDENTITY_DETAIL" ;;
-      2) warn "COULD-NOT-VERIFY  $IMAGE_IDENTITY_DETAIL"; unverified+=("$image") ;;
-      *) warn "FAIL  $IMAGE_IDENTITY_DETAIL";             failed+=("$image") ;;
-    esac
-  done
-
-  if ((${#failed[@]} > 0)); then
-    warn "FAIL on $NODE: ${failed[*]}"
-    return 1
-  fi
-  if ((${#unverified[@]} > 0)); then
-    warn "COULD-NOT-VERIFY on $NODE: ${unverified[*]}"
-    return 3
-  fi
-  return 0
-}
-
-# ─── Build ──────────────────────────────────────────────────────────────────
-
-build_id_args() {
-  local image="$1" args=()
-  mapfile -t args < <(source_id_build_args "${image%%:*}" 2>/dev/null) || return 0
-  ((${#args[@]})) || return 0
-  printf '%s\n' "${args[@]}"
-}
-
-build_images() {
-  local entry image context dockerfile id_args
-  local target_arch="${PLATFORM##*/}"
-  for entry in "${SIGNALFUSION_IMAGES[@]}"; do
-    image="$(image_name "$entry")"
-    context="$(image_context "$entry")"
-    dockerfile="$(image_dockerfile "$entry")"
-    mapfile -t id_args < <(build_id_args "$image")
-    log "building $image ($PLATFORM)"
-    if [ -n "$dockerfile" ]; then
-      "$DOCKER_BIN" build --platform "$PLATFORM" --build-arg "TARGETARCH=${target_arch}" ${id_args[@]+"${id_args[@]}"} -f "$REPO_ROOT/$dockerfile" -t "$image" "$REPO_ROOT/$context" \
-        || fail "docker build failed for $image via $dockerfile"
-    else
-      "$DOCKER_BIN" build --platform "$PLATFORM" --build-arg "TARGETARCH=${target_arch}" ${id_args[@]+"${id_args[@]}"} -t "$image" "$REPO_ROOT/$context" \
-        || fail "docker build failed for $image"
-    fi
-  done
-  ok "built ${#SIGNALFUSION_IMAGES[@]} image(s)"
-}
-
-# ─── Load ───────────────────────────────────────────────────────────────────
-
-kind_load_all() {
-  local entry names=()
-  for entry in "${SIGNALFUSION_IMAGES[@]}"; do names+=("$(image_name "$entry")"); done
-  log "loading into kind cluster $CLUSTER_NAME: ${names[*]}"
-  # Not sufficient — this script exists because `kind load` exits 0 having
-  # transferred nothing — but not worthless either, and it used to be discarded
-  # outright. A load that ANNOUNCED failure before a mismatch is a different bug
-  # report from one that claimed success.
-  KIND_LOAD_EXIT=0
-  "$KIND_BIN" load docker-image --name "$CLUSTER_NAME" "${names[@]}" || KIND_LOAD_EXIT=$?
-  [ "$KIND_LOAD_EXIT" -eq 0 ] || warn "kind load exited $KIND_LOAD_EXIT"
-}
-
-reload_via_archive() {
-  local image="$1" context="$2" dockerfile="${3:-}"
-
-  # Label-first, before the rebuild below. Same reasoning and same measurement as
-  # supercred-images.sh: on the node the content store held images the CRI could
-  # not run (ctr=102, crictl=40, disk 9%), and the recovery that fixed them moved
-  # 0.0 B — the label was missing, not the bytes. One shared implementation in
-  # scripts/lib/image-identity.sh rather than a third copy of the logic, because
-  # three copies of a model drifting apart is exactly how this class of defect
-  # came back the last time.
-  if image_identity_adopt_if_present "$image" "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}"; then
-    log "recovery: content was already on $NODE — labelled it CRI-managed, no rebuild needed"
-    return 0
-  fi
-
-  local tar
-  tar="$(mktemp -t "signalfusion-${image%%:*}-XXXXXX.tar")"
-  # shellcheck disable=SC2064  # expand $tar now, not at trap time
-  trap "rm -f '$tar'" RETURN
-
-  log "recovery: rebuilding $image directly into an archive"
-  if [ -n "$dockerfile" ]; then
-    "$DOCKER_BIN" buildx build \
-      --platform "$PLATFORM" \
-      --provenance=false --sbom=false \
-      --output "type=docker,dest=$tar" \
-      -f "$REPO_ROOT/$dockerfile" \
-      -t "$image" "$REPO_ROOT/$context" \
-      || { warn "buildx archive build failed for $image via $dockerfile"; return 1; }
-  else
-    "$DOCKER_BIN" buildx build \
-      --platform "$PLATFORM" \
-      --provenance=false --sbom=false \
-      --output "type=docker,dest=$tar" \
-      -t "$image" "$REPO_ROOT/$context" \
-      || { warn "buildx archive build failed for $image"; return 1; }
-  fi
-
-  log "recovery: importing $image into containerd on $NODE"
-  "$DOCKER_BIN" exec "$NODE" \
-    ctr -n k8s.io images rm "docker.io/library/${image%%:*}:${image##*:}" >/dev/null 2>&1 \
-    || true
-  "$DOCKER_BIN" exec -i "$NODE" \
-    ctr -n k8s.io images import --all-platforms --snapshotter=overlayfs - <"$tar" \
-    || { warn "ctr import failed for $image"; return 1; }
-
-  "$DOCKER_BIN" exec "$NODE" \
-    ctr -n k8s.io images label "docker.io/library/${image%%:*}:${image##*:}" \
-      io.cri-containerd.image=managed >/dev/null \
-    || { warn "could not label $image as CRI-managed"; return 1; }
-
-  # The wait is on IDENTITY where identity is knowable: a presence poll would be
-  # satisfied on its first iteration by the very stale image the recovery was
-  # sent to replace.
-  local waited=0 rc
-  while [ "$waited" -lt "${SIGNALFUSION_CRI_ADOPT_TIMEOUT:-${IMAGE_IDENTITY_ADOPT_CHECKS:-300}}" ]; do
-    image_identity_invalidate
-    rc=0; image_identity_verify "$image" || rc=$?
-    [ "$rc" -eq 0 ] && return 0
-    [ "$rc" -eq 2 ] && [ "$IMAGE_IDENTITY_PRESENT" = "yes" ] && return 0
-    sleep 1
-    waited=$((waited + 1))
-  done
-
-  if "$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images ls -q 2>/dev/null \
-      | grep -Fqx "docker.io/library/${image%%:*}:${image##*:}"; then
-    warn "$image is in the content store and labelled, but the CRI has not adopted it after ${waited}s — slow unpack, not a failed import; re-run"
-  else
-    warn "$image is not in the content store after ${waited}s — the import itself failed"
-  fi
-  return 1
-}
+# Also expose the image list under its old name for anything that reads it.
+SIGNALFUSION_IMAGES=("${DEMO_IMAGES[@]}")
 
 load_images() {
-  kind_load_all
-
-  local entry image context dockerfile recovered=0 rc
-  for entry in "${SIGNALFUSION_IMAGES[@]}"; do
-    image="$(image_name "$entry")"
-    context="$(image_context "$entry")"
-    dockerfile="$(image_dockerfile "$entry")"
-
-    image_identity_invalidate
-    rc=0; image_identity_verify "$image" || rc=$?
-    [ "$rc" -eq 0 ] && continue
-
-    # A MISMATCH is never recovered from. Re-importing the right image and then
-    # reporting success leaves the loader that dropped the transfer in place —
-    # which is exactly how the 2026-08-17 defect stayed invisible. Verify and
-    # fail; verify_images below turns this into a non-zero exit with both IDs.
-    if [ "$IMAGE_IDENTITY_OUTCOME" = "MISMATCH" ]; then
-      warn "$image on $NODE is a DIFFERENT image from the local build — NOT recovering"
-      continue
-    fi
-    # Likewise for a question the data cannot answer.
-    [ "$rc" -eq 2 ] && continue
-
-    warn "$image did not reach $NODE via kind load (exit ${KIND_LOAD_EXIT:-0}) — attempting recovery"
-    reload_via_archive "$image" "$context" "$dockerfile" || true
-    recovered=1
-  done
-  [ "$recovered" -eq 1 ] && log "recovery attempted; re-verifying"
-
-  rc=0; verify_images identity || rc=$?
-  case "$rc" in
-    3)
-      warn "COULD-NOT-VERIFY — $NODE's listing cannot answer whether these images are
-       the ones just built. Neither a pass nor a failure; no claim is being made
-       about what is running.
-       Inspect with:
-         docker exec $NODE crictl images --no-trunc"
-      exit 3
-      ;;
-    0) : ;;
-    *)
-      fail "Signal Fusion images on $NODE are absent, or are NOT the image just
-       built locally.
-       Nothing has been repaired. A gate that reloads on a mismatch and then
-       reports success hides the broken loader — which is how a stale binary ran
-       under a green pipeline on 2026-08-17.
-       Do NOT compare docker's .Id against the crictl IMAGE ID column. On the
-       containerd image store those are different KINDS of digest — manifest
-       versus config — so they never match, for correct images or wrong ones.
-       Identity is the rootfs diffID list. See scripts/lib/image-identity.sh.
-       Inspect with — these compare the axis that IS comparable:
-         docker image inspect --format '{{range .RootFS.Layers}}{{println .}}{{end}}' signal-ingest:local
-         docker exec $NODE crictl inspecti signal-ingest:local | jq -r '.info.imageSpec.rootfs.diff_ids[]'
-       And for presence only, which is a different question:
-         docker exec $NODE crictl images
-       Then retry:  make demo-signalloom-signalfusion-images"
-      ;;
-  esac
-  ok "PASS — all Signal Fusion images on $NODE are the images just built locally"
+  demo_load_images
+  demo_ok "PASS — all Signal Fusion images on $DEMO_NODE are the images just built locally"
 }
 
 # ─── Dispatch ───────────────────────────────────────────────────────────────
@@ -318,10 +85,10 @@ case "${1:-load}" in
     verify_images presence || VERIFY_RC=$?
     case "$VERIFY_RC" in
       0) ;;
-      3) warn "COULD-NOT-VERIFY — $NODE's image listing cannot answer. Not a pass and
+      3) warn "COULD-NOT-VERIFY — $DEMO_NODE's image listing cannot answer. Not a pass and
        not a failure; a genuinely absent image surfaces as ErrImageNeverPull."
          exit 3 ;;
-      *) fail "Signal Fusion images are not all present on $NODE — run: make demo-signalloom-signalfusion-images" ;;
+      *) fail "Signal Fusion images are not all present on $DEMO_NODE — run: make demo-signalloom-signalfusion-images" ;;
     esac
     ;;
   # IDENTITY, for callers that hold the local images and need to know the node
@@ -331,7 +98,7 @@ case "${1:-load}" in
     case "$VERIFY_RC" in
       0) ;;
       3) exit 3 ;;
-      *) fail "Signal Fusion images on $NODE are not the images this checkout builds — run: make demo-signalloom-signalfusion-images" ;;
+      *) fail "Signal Fusion images on $DEMO_NODE are not the images this checkout builds — run: make demo-signalloom-signalfusion-images" ;;
     esac
     ;;
   *)

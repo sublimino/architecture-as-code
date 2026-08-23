@@ -7,14 +7,23 @@
 #
 # ═══ Why this exists ════════════════════════════════════════════════════════
 #
-# On 2026-08-23 the demo lane scored 29/29 PASS while BOTH shipped demos were
-# dead at the URL the principal opens. Measured, not inferred:
+# On 2026-08-23 the demo lane scored 29/29 PASS while the principal found two
+# broken demos by hand. Measured at the tailnet origin, not inferred:
 #
-#     POST /api/demo/supercred/runs    -> 503 demo_root_unresolved
-#     POST /api/demo/signalfusion/runs -> 503 demo_root_unresolved
-#     GET  /api/demo/<either>/status   -> 200 {"script_available":false}
+#   Signal Fusion   GET /api/demo/signalfusion/status
+#                     -> 200 {"script_available":false}   (the SPA's own path)
+#   SuperCred       GET /demo-api/status -> 200, script_available TRUE
+#                     but the run history holds three runs of step 2, each
+#                     status=failed exit_code=1, dying in the agent job on
+#                     "OpenBao login returned 400: no known key successfully
+#                     validated the token signature"
 #
-# Nothing in the 29 stages could see it. Of those stages exactly one drove a
+# Note how DIFFERENT those two are, because the gate's shape follows from it.
+# Signal Fusion is not wired up. SuperCred is wired up, reports itself healthy,
+# answers 200 on every GET — and does not complete. No amount of reachability
+# checking finds the second one; only running it does.
+#
+# Nothing in the 29 stages could see either. Of those stages exactly one drove a
 # browser, and the pipeline's own notion of the demo is
 # `http://${DASHBOARD_HOSTNAME}:${DASHBOARD_LOCAL_PORT}/` — a port-forward to
 # localhost. The suite proved the estate CONVERGED. It never proved the product
@@ -22,11 +31,17 @@
 #
 # ═══ The four design rules, each tied to how we got here ════════════════════
 #
-# 1. REAL SURFACE. The base URL is the lane's tailnet origin. No 127.0.0.1, no
-#    port-forward, no stub, no fixture. A gate that can pass against localhost
-#    cannot see a Gateway/HTTPRoute defect, and an HTTPRoute defect is exactly
-#    what was wrong: there is no /api/demo rule, so the generic /api rule
-#    swallows both demos into a backend with no scripts and no kubectl.
+# 1. REAL SURFACE, AT THE CLIENT'S PREFIX. The base URL is the lane's tailnet
+#    origin — no 127.0.0.1, no port-forward, no stub. And each demo is probed
+#    where its SPA calls, which is NOT uniform: supercred goes through
+#    /demo-api (nginx rewrites to the runner pod), signalfusion goes straight
+#    to /api/demo/signalfusion.
+#
+#    This gate's own first live run got that wrong and reported SuperCred
+#    BROKEN by probing /api/demo/supercred, which routes to fe-signalloom —
+#    a pod that deliberately carries no demo scripts, on a path no client
+#    calls. Right verdict by luck, wrong evidence, and the evidence is what
+#    someone acts on.
 #
 # 2. DERIVED ENUMERATION. Surfaces come from demo_runner.DEMO_CONFIGS via
 #    scripts/ci/demo-surface-registry.py, never from a list in this file. A new
@@ -67,6 +82,13 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 REGISTRY_SOURCE="${REGISTRY_SOURCE:-${REPO_ROOT}/d2-signalloom/apps/fe-signalloom/src/demo_runner.py}"
 REGISTRY_TOOL="${REGISTRY_TOOL:-${SCRIPT_DIR}/demo-surface-registry.py}"
+# The client half. Each demo is probed at the prefix its SPA actually calls,
+# which is NOT uniform: supercred goes through /demo-api (nginx rewrites it to
+# the runner pod), signalfusion goes straight to /api/demo/signalfusion. This
+# gate's own first run reported SuperCred BROKEN by probing the server prefix
+# for both — a path no client uses, which lands on fe-signalloom, which has no
+# demo scripts by design. See demo-surface-registry.py for the full account.
+SPA_API_DIR="${SPA_API_DIR:-${REPO_ROOT}/d2-signalloom/apps/dashboard-signalloom/src/api}"
 
 BASE_URL="${USER_SURFACE_BASE_URL:-}"
 DEMO_USER="${USER_SURFACE_USER:-demo-user@signalloom.local}"
@@ -160,7 +182,7 @@ log "  registry : ${REGISTRY_SOURCE#"${REPO_ROOT}/"}"
 log ""
 
 # ─── Enumerate ──────────────────────────────────────────────────────────────
-registry_out="$(python3 "$REGISTRY_TOOL" "$REGISTRY_SOURCE" 2>&1)"
+registry_out="$(python3 "$REGISTRY_TOOL" "$REGISTRY_SOURCE" "$SPA_API_DIR" 2>&1)"
 if [ $? -ne 0 ] || [ -z "$registry_out" ]; then
   log "GATE CANNOT RUN: demo surface enumeration failed."
   log "$registry_out"
@@ -172,7 +194,7 @@ fi
 
 demo_count="$(printf '%s\n' "$registry_out" | wc -l | tr -d ' ')"
 log "Enumerated ${demo_count} demo surface(s) from the registry:"
-printf '%s\n' "$registry_out" | while IFS=$'\t' read -r t l _; do log "  · ${l} (/api/demo/${t})"; done
+printf '%s\n' "$registry_out" | while IFS=$'\t' read -r t l _ pfx; do log "  · ${l} — probed at ${pfx:-<NO CLIENT PREFIX>}"; done
 log ""
 
 TOKEN="$(mint_token)"
@@ -192,30 +214,30 @@ log ""
 #
 # Prints `VERDICT` on the last line; detail goes to stdout above it.
 probe_demo() {
-  local demo_type="$1" label="$2"
+  local demo_type="$1" label="$2" pfx="$3"
   local resp code body
 
-  resp="$(http GET "/api/demo/${demo_type}/status" "$TOKEN" "")"
+  resp="$(http GET "${pfx}/status" "$TOKEN" "")"
   code="$(printf '%s' "$resp" | tail -n1)"
   body="$(printf '%s' "$resp" | sed '$d')"
 
   case "$code" in
-    000) fail_detail "transport failure reaching ${BASE_URL}/api/demo/${demo_type}/status"
+    000) fail_detail "transport failure reaching ${BASE_URL}${pfx}/status"
          echo UNREACHABLE; return ;;
-    404) fail_detail "GET /api/demo/${demo_type}/status -> 404"
+    404) fail_detail "GET ${pfx}/status -> 404"
          fail_detail "the route does not exist at this origin — the demo is NOT DEPLOYED,"
          fail_detail "or no HTTPRoute sends this path to a backend that serves it."
          echo NOT_DEPLOYED; return ;;
     401|403)
-         fail_detail "GET /api/demo/${demo_type}/status -> ${code} with a valid superadmin token"
+         fail_detail "GET ${pfx}/status -> ${code} with a valid superadmin token"
          fail_detail "$(printf '%s' "$body" | head -c 200)"
          echo UNAUTHORIZED; return ;;
-    5*)  fail_detail "GET /api/demo/${demo_type}/status -> ${code}"
+    5*)  fail_detail "GET ${pfx}/status -> ${code}"
          fail_detail "error code: $(printf '%s' "$body" | jfield error.code)"
          fail_detail "$(printf '%s' "$body" | jfield error.message | head -c 300)"
          echo BROKEN; return ;;
     200) : ;;
-    *)   fail_detail "GET /api/demo/${demo_type}/status -> unexpected ${code}"
+    *)   fail_detail "GET ${pfx}/status -> unexpected ${code}"
          echo BROKEN; return ;;
   esac
 
@@ -224,7 +246,7 @@ probe_demo() {
   local available
   available="$(printf '%s' "$body" | jfield script_available)"
   if [ "$available" != "true" ]; then
-    fail_detail "GET /api/demo/${demo_type}/status -> 200, but script_available=${available:-<absent>}"
+    fail_detail "GET ${pfx}/status -> 200, but script_available=${available:-<absent>}"
     fail_detail "the surface answers and reports itself INCAPABLE of running the demo."
     fail_detail "this is the 200-with-an-error-inside case: a browser shows a page,"
     fail_detail "every act fails. Usual causes: the *_DEMO_CWD env var is unset on the"
@@ -235,7 +257,7 @@ probe_demo() {
 
   # Steps must enumerate: a capable runner with no steps is a demo a human
   # cannot drive, and it would otherwise pass every check above.
-  resp="$(http GET "/api/demo/${demo_type}/steps" "$TOKEN" "")"
+  resp="$(http GET "${pfx}/steps" "$TOKEN" "")"
   code="$(printf '%s' "$resp" | tail -n1)"
   body="$(printf '%s' "$resp" | sed '$d')"
   local nsteps
@@ -243,7 +265,7 @@ probe_demo() {
 try: print(len(json.load(sys.stdin).get("steps") or []))
 except Exception: print(0)' 2>/dev/null)"
   if [ "$code" != "200" ] || [ "${nsteps:-0}" -lt 1 ]; then
-    fail_detail "GET /api/demo/${demo_type}/steps -> ${code}, ${nsteps:-0} step(s)"
+    fail_detail "GET ${pfx}/steps -> ${code}, ${nsteps:-0} step(s)"
     fail_detail "the demo advertises no acts, so there is nothing a human could run."
     echo BROKEN; return
   fi
@@ -254,11 +276,11 @@ except Exception: print(0)' 2>/dev/null)"
   fi
 
   # ─── Execute: the only mode that proves COMPLETION ────────────────────────
-  resp="$(http POST "/api/demo/${demo_type}/runs" "$TOKEN" "{\"step\":\"${EXEC_STEP}\"}")"
+  resp="$(http POST "${pfx}/runs" "$TOKEN" "{\"step\":\"${EXEC_STEP}\"}")"
   code="$(printf '%s' "$resp" | tail -n1)"
   body="$(printf '%s' "$resp" | sed '$d')"
   if [ "$code" != "202" ]; then
-    fail_detail "POST /api/demo/${demo_type}/runs {step:${EXEC_STEP}} -> ${code}"
+    fail_detail "POST ${pfx}/runs {step:${EXEC_STEP}} -> ${code}"
     fail_detail "error code: $(printf '%s' "$body" | jfield error.code)"
     fail_detail "$(printf '%s' "$body" | jfield error.message | head -c 300)"
     echo BROKEN; return
@@ -276,7 +298,7 @@ except Exception: print(0)' 2>/dev/null)"
   deadline=$(( SECONDS + RUN_TIMEOUT ))
   while [ "$SECONDS" -lt "$deadline" ]; do
     sleep 5
-    resp="$(http GET "/api/demo/${demo_type}/runs/${run_id}" "$TOKEN" "")"
+    resp="$(http GET "${pfx}/runs/${run_id}" "$TOKEN" "")"
     code="$(printf '%s' "$resp" | tail -n1)"
     body="$(printf '%s' "$resp" | sed '$d')"
     [ "$code" != "200" ] && continue
@@ -306,13 +328,25 @@ failures=0
 checked=0
 summary=""
 
-while IFS=$'\t' read -r demo_type label _script; do
+while IFS=$'\t' read -r demo_type label _script pfx; do
   [ -z "$demo_type" ] && continue
   if [ -n "$ONLY_DEMO" ] && [ "$demo_type" != "$ONLY_DEMO" ]; then continue; fi
   checked=$(( checked + 1 ))
 
-  log "──── ${label}  (/api/demo/${demo_type}) ────"
-  out="$(probe_demo "$demo_type" "$label")"
+  log "──── ${label}  (${pfx:-<NO CLIENT PREFIX>}) ────"
+  if [ -z "$pfx" ]; then
+    # The server serves this demo and no SPA module calls it. Each half of the
+    # contract is green about its own side; only comparing them sees this.
+    log "        the server registry lists this demo, but NO client module calls it."
+    log "        it is unreachable from the UI — a surface with no user path is broken,"
+    log "        and neither the server tests nor the SPA tests can see it alone."
+    log "    VERDICT: NO_CLIENT_PATH — FAILED"
+    failures=$(( failures + 1 ))
+    summary="${summary}${label}|NO_CLIENT_PATH"$'\n'
+    log ""
+    continue
+  fi
+  out="$(probe_demo "$demo_type" "$label" "$pfx")"
   verdict="$(printf '%s' "$out" | tail -n1)"
   printf '%s\n' "$(printf '%s' "$out" | sed '$d')"
 

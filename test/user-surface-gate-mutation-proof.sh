@@ -187,6 +187,15 @@ check "M10 client linkage matched on a doc-comment string" \
   '        if token not in _norm(src.name) and token not in _norm(text):' \
   '        if f"/api/demo/{demo_type}" not in text:'
 
+# M11 — the gate that would have sailed past SuperCred: drive only the first
+# act. Act 1 was green while act 2 failed, so this is the difference between
+# catching that outage and reporting PASS over it.
+check "M11 --all-steps drives only the first act" \
+  "--all-steps fails on a later act even when the first act passes" \
+  "$GATE" \
+  '    fail_detail "driving all ${#step_ids[@]} act(s) in order: ${step_ids[*]}"' \
+  '    step_ids=("${step_ids[0]}")'
+
 # M9 — a demo no client can reach must not be waved through.
 check "M9  demo with no client module silently skipped" \
   "a demo with no client module is NO_CLIENT_PATH" \

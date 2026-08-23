@@ -99,11 +99,13 @@ RUN_TIMEOUT="${USER_SURFACE_RUN_TIMEOUT:-900}"
 EXECUTE=0
 ONLY_DEMO=""
 EXEC_STEP="${USER_SURFACE_STEP:-1}"
+ALL_STEPS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-url) BASE_URL="$2"; shift 2 ;;
     --execute)  EXECUTE=1; shift ;;
+    --all-steps) EXECUTE=1; ALL_STEPS=1; shift ;;
     --demo)     ONLY_DEMO="$2"; shift 2 ;;
     --step)     EXEC_STEP="$2"; shift 2 ;;
     -h|--help)  sed -n '2,60p' "${BASH_SOURCE[0]}"; exit 0 ;;
@@ -276,24 +278,64 @@ except Exception: print(0)' 2>/dev/null)"
   fi
 
   # ─── Execute: the only mode that proves COMPLETION ────────────────────────
-  resp="$(http POST "${pfx}/runs" "$TOKEN" "{\"step\":\"${EXEC_STEP}\"}")"
+  #
+  # Which STEPS run is the difference between catching the SuperCred outage and
+  # sailing past it. That demo failed at step 2 — step 1 succeeded — so a gate
+  # that drives only the first act would have reported PASS over a demo the
+  # principal could see was broken. --all-steps drives every act the demo
+  # advertises, in registry order, and stops at the first that does not reach
+  # `succeeded`. That is what "assert completion" has to mean for a five-act
+  # demo; running act one is a smoke test wearing a gate's clothes.
+  local -a step_ids=()
+  if [ "$ALL_STEPS" -eq 1 ]; then
+    mapfile -t step_ids < <(printf '%s' "$body" | python3 -c 'import json,sys
+try:
+    for st in json.load(sys.stdin).get("steps") or []: print(st["step_id"])
+except Exception: pass' 2>/dev/null)
+    if [ "${#step_ids[@]}" -eq 0 ]; then
+      fail_detail "--all-steps requested but no step ids could be read from /steps"
+      echo BROKEN; return
+    fi
+    fail_detail "driving all ${#step_ids[@]} act(s) in order: ${step_ids[*]}"
+  else
+    step_ids=("$EXEC_STEP")
+  fi
+
+  local step verdict
+  for step in "${step_ids[@]}"; do
+    verdict="$(run_one_step "$demo_type" "$pfx" "$step")"
+    printf '%s\n' "$(printf '%s' "$verdict" | sed '$d')"
+    case "$(printf '%s' "$verdict" | tail -n1)" in
+      STEP_OK) : ;;
+      *) echo "$(printf '%s' "$verdict" | tail -n1)"; return ;;
+    esac
+  done
+  echo PASS
+}
+
+# Drive ONE act to a terminal state. Prints detail, then a last line of
+# STEP_OK | BROKEN | RAN_FAILED | RAN_TIMEOUT.
+run_one_step() {
+  local demo_type="$1" pfx="$2" step="$3"
+  local resp code body run_id deadline status
+
+  resp="$(http POST "${pfx}/runs" "$TOKEN" "{\"step\":\"${step}\"}")"
   code="$(printf '%s' "$resp" | tail -n1)"
   body="$(printf '%s' "$resp" | sed '$d')"
   if [ "$code" != "202" ]; then
-    fail_detail "POST ${pfx}/runs {step:${EXEC_STEP}} -> ${code}"
+    fail_detail "POST ${pfx}/runs {step:${step}} -> ${code}"
     fail_detail "error code: $(printf '%s' "$body" | jfield error.code)"
     fail_detail "$(printf '%s' "$body" | jfield error.message | head -c 300)"
     echo BROKEN; return
   fi
 
-  local run_id deadline status
   run_id="$(printf '%s' "$body" | jfield run_id)"
   [ -z "$run_id" ] && run_id="$(printf '%s' "$body" | jfield id)"
   if [ -z "$run_id" ]; then
-    fail_detail "run accepted (202) but no run id in the response body — cannot poll to completion"
+    fail_detail "step ${step} accepted (202) but no run id in the body — cannot poll to completion"
     echo BROKEN; return
   fi
-  fail_detail "run ${run_id} accepted; polling to a terminal state (max ${RUN_TIMEOUT}s)"
+  fail_detail "step ${step}: run ${run_id} accepted; polling (max ${RUN_TIMEOUT}s)"
 
   deadline=$(( SECONDS + RUN_TIMEOUT ))
   while [ "$SECONDS" -lt "$deadline" ]; do
@@ -306,17 +348,18 @@ except Exception: print(0)' 2>/dev/null)"
     case "$status" in
       running) continue ;;
       succeeded)
-        fail_detail "run ${run_id} reached terminal state: succeeded"
-        echo PASS; return ;;
+        fail_detail "step ${step}: succeeded"
+        echo STEP_OK; return ;;
       failed|cancelled|timed_out)
-        fail_detail "run ${run_id} reached terminal state: ${status}"
+        fail_detail "step ${step}: terminal state ${status}"
         fail_detail "exit_code=$(printf '%s' "$body" | jfield exit_code) error=$(printf '%s' "$body" | jfield error | head -c 200)"
         fail_detail "the demo STARTED and did not complete — deployed, reachable, broken at runtime."
+        fail_detail "this is the SuperCred class: reachable, script_available=true, fails mid-run."
         echo RAN_FAILED; return ;;
       *) continue ;;
     esac
   done
-  fail_detail "run ${run_id} still not terminal after ${RUN_TIMEOUT}s — treated as a failure"
+  fail_detail "step ${step}: run ${run_id} not terminal after ${RUN_TIMEOUT}s — treated as a failure"
   echo RAN_TIMEOUT
 }
 

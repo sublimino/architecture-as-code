@@ -229,7 +229,7 @@ check "M5 suspended kind" "LANE a demo lane found SUSPENDED is a FAIL, because n
 # check — it breaks the REPORTING of every check that could not run. A lane
 # nobody measured exits 0 and prints HEALTHY.
 echo "M6  a run with UNKNOWNs and no failures exits 0 and calls itself healthy"
-mutate "$LIB" 's|^  elif \[ "\$ND_UNKNOWN" -gt 0 \]; then verdict=UNKNOWN; rc=3$|  elif false; then verdict=UNKNOWN; rc=3|'
+mutate "$LIB" 's|^  elif \[ "\$ND_UNKNOWN" -gt 0 \][[:space:]]*; *then verdict=UNKNOWN;[[:space:]]*rc=3$|  elif false; then verdict=UNKNOWN; rc=3|'
 check "M6 unknown laundered" "SUMMARY an UNKNOWN with no failures exits 3, and is NOT reported as a pass"
 
 # ─── M7: the push check drops the read-back ─────────────────────────────────

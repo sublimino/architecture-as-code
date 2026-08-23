@@ -2120,6 +2120,17 @@ run_lane() {
 
   ensure_tailnet_target_durable
 
+  # AFTER the backend is durable, because the fallback reconfigures `tailscale
+  # serve` and would otherwise race the unit that points serve at the app port.
+  #
+  # `|| warn` and NEVER fatal, and that is a requirement rather than caution: a
+  # lane inside a Let's Encrypt rate-limit window must still finish its run and
+  # still be acceptance-tested. Turning a certificate outage into a failed
+  # deploy would block the whole suite on a condition we already expect and
+  # cannot fix for up to 168h.
+  assert_tailnet_cert_state ||
+    warn "could not determine this lane's TLS certificate state; the tailnet URL may be serving over plain HTTP without that being recorded. Check: journalctl -u tailscaled | grep getCertPEM"
+
   echo ""
   if [ "$final_exit" -eq 0 ]; then
     echo "==> PASS — the estate is standing and tested."
@@ -2986,6 +2997,39 @@ release_own_tailnet_origin() {
   log "releasing this lane's own tailnet Dex origin so the pipeline runs at the resting origin"
   dex_origin restore ||
     warn "could not release this lane's tailnet Dex origin. The browser stage drives the resting origin and the SPA checks the token issuer against the origin it was served from, so that stage may fail on an issuer mismatch rather than on anything it is testing. Release it by hand with: ${DEX_ORIGIN_REL} restore"
+}
+
+# ─── Determine and RECORD this lane's TLS certificate state ─────────────────
+#
+# Runs scripts/gcp-tf/tailscale-cert-state.sh on the VM out of the delivered
+# tree. See that file's header for why the journal is the source of truth and
+# `tailscale cert`'s exit status is never consulted — it EXITS 0 when issuance
+# fails with a 429, so gating on it reports a certificate that does not exist.
+#
+# Called from the deploy path rather than from the boot path on purpose. The
+# certificate RESTORE has to beat tailscaled's first request at boot+42s; this
+# does not — it only has to happen before anything asserts on the tailnet
+# surface, and running it here keeps it in the delivered tree where it can be
+# fixed without replacing a VM.
+#
+# NEVER FATAL. A lane inside a rate-limit window is expected to come up on the
+# HTTP fallback and must still be acceptance-tested; see the call site.
+assert_tailnet_cert_state() {
+  local script="${REMOTE_WORK_DIR}/scripts/gcp-tf/tailscale-cert-state.sh"
+  local rc=0 out
+
+  # `sudo`: it reads the journal and reconfigures serve.
+  # `2>&1`: the loud warnings go to stderr inside the script, and they are the
+  # entire point of running it — dropping them would leave the fallback silent,
+  # which is the one outcome this is not allowed to have.
+  out="$(remote_run "sudo SIGNALLOOM_APP_PORT=$(printf '%q' "$APP_PORT") bash $(printf '%q' "$script") 2>&1")" || rc=$?
+
+  [ -n "$out" ] && printf '%s\n' "$out"
+
+  if [ "$rc" -ne 0 ]; then
+    warn "the certificate-state probe exited ${rc} on ${INSTANCE_NAME}. This lane's TLS posture is UNKNOWN — it may be serving HTTPS, may be on the plain-HTTP fallback, or may be serving nothing. Determine it with: make gcp-tf-ts-status ENV=${ENV_KEY}"
+    return 1
+  fi
 
   return 0
 }

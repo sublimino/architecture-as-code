@@ -99,5 +99,18 @@
 #     SPIRE published 5 keys, OpenBao held 5, ONE was common, and the active
 #     signing key was absent. A count comparison is green in that state. The
 #     guard is set-membership only, deliberately.
-0ccd6e237fd0b38294128510162158597677d1cbd557c97c8984feb97e502296  scripts/ci/vm-pipeline.sh
+#   * Second change in the same accepted piece of work: registration of
+#     test/spire-openbao-drift-fixture.bats in the stage-1g list of BOTH
+#     pipelines. No new stage suffix and no new openreports row -- 1g is already
+#     mapped -- which is the cheapest correct way to add a suite here.
+#
+#     It is offline and fixture-driven, and it exists because the LIVE stage 6e
+#     cannot catch the defect it catches. Its fixtures are the real 5-vs-5,
+#     one-in-common key sets captured from a naturally drifted kind-osramp, and
+#     it fails when set membership is replaced by a count comparison. Proved by
+#     mutation: swapping the membership loop for `((spire_n == bao_n))` turns
+#     test 1 red and leaves the other three green. Stage 6e would NOT catch that
+#     mutant, because the counts matched both during the outage and after the
+#     repair -- 5 before, 5 after.
+185e380997722383bc616b83bda907864460ef549112b2453ffe176d785c9184  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

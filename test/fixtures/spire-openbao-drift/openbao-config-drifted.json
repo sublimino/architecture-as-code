@@ -1,0 +1,11 @@
+{
+  "data": {
+    "jwt_validation_pubkeys": [
+      "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEqKdD1Fy1YGX75noglJoyiZDyEXoc\nYutqquKL4dBlCM/+HG92IiCk9aAs8e9NmCr3/H0TpYt6NkoKLHy4rOnqAA==\n-----END PUBLIC KEY-----",
+      "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAECTWPHz9MMVkRLqs/Fq6x6mHeb8tx\nKzEkeyw7HETcYdD0SrdfwjRonOxBUU1yTpHbNw/f7nKZVeKGcafQv6ciuA==\n-----END PUBLIC KEY-----",
+      "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEoN76ejcvkfTFX/XoxwDweY835Ldf\nD6xKNkRUIeCbTdiypiLzmZhK4ohd6KAGP87w1Xkl8qB/xWFmWsmOtYBIig==\n-----END PUBLIC KEY-----",
+      "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE238RPB8aXXvyuHIGT0lJWBYcfBFM\nUxtcl7En7nRkcrAjhu2W9NLjQxb9umGKZQlTD0Y+It2r3SApKBFgNrMumQ==\n-----END PUBLIC KEY-----",
+      "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEs3EQET1koRlLInZ0Ch5U4ldKV7ri\nK9CbKVS972d3qAUqjFT3lTNTS7W4mPpfpJe/x2evFG0nvVqcMdWWr1vd3g==\n-----END PUBLIC KEY-----"
+    ]
+  }
+}

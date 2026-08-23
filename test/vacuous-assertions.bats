@@ -109,7 +109,7 @@ scan() {
 BODY
 	scan
 	[ "$status" -eq 0 ]
-	[[ "$output" == *"no VAC001-VAC006 findings"* ]]
+	[[ "$output" == *"no VAC001-VAC007 findings"* ]]
 }
 
 @test "VACUOUS the scanner never modifies what it scans" {
@@ -419,6 +419,210 @@ BODY
 	run kubectl rollout status deployment/demo
 	[ "$status" -eq 0 ]
 BODY
+	scan
+	[ "$status" -eq 0 ]
+}
+
+# ── VAC007: a loop fed by a mapfile whose command's status was discarded ────
+#
+# The shape that got past the six-rule version. `mapfile -t arr < <(cmd)`
+# discards cmd's status; mapfile succeeds having read zero lines; the `for` over
+# `arr` runs zero times; every check in the body reports nothing. Found in
+# assert_openbao_accepts_spire_jwt_keys, which passed with KUBECONFIG=/nonexistent
+# while this scanner cleared all 623 files around it.
+#
+# The CONTROLs matter more here than for any other rule, because the bare shape
+# is ordinary bash and occurs 26 times in this repo. A rule that fires on all of
+# them is a rule that gets switched off.
+
+@test "VAC007 RED on an unguarded mapfile feeding a verification loop" {
+	cat >"$fixture/staleness.sh" <<'SH'
+main() {
+	local requested=()
+	mapfile -t requested < <(source_id_workloads)
+	local workload
+	for workload in "${requested[@]}"; do
+		check_workload "$workload"
+	done
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC007"* ]]
+	[[ "$output" == *"staleness.sh"* ]]
+	[[ "$output" == *"runs zero times"* ]]
+}
+
+@test "VAC007 RED names the loop line, not just the mapfile line" {
+	# The mapfile is not the defect on its own — the pairing is. A finding that
+	# does not say which loop goes empty makes the reader re-derive the argument
+	# every time, and a rule people have to re-derive is a rule they mute.
+	cat >"$fixture/staleness.sh" <<'SH'
+check_all() {
+	mapfile -t items < <(list_items)
+	for i in "${items[@]}"; do
+		verify "$i" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"the loop at line 3"* ]]
+}
+
+@test "VAC007 RED does not need a trailing || to fire" {
+	# THE point of the rule's shape. mapfile succeeds whether or not the command
+	# did, so the status is discarded with the `||` and without it. A rule keyed
+	# on `|| return 1` would be nearly a no-op in this tree: of the 26
+	# process-substitution mapfiles here only two carry one, both are benign, and
+	# the one real defect has none.
+	cat >"$fixture/nopipe.sh" <<'SH'
+gate() {
+	mapfile -t keys < <(kubectl get secrets -o name)
+	for k in "${keys[@]}"; do
+		[ -n "$k" ] || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC007"* ]]
+}
+
+@test "VAC007 CONTROL does not fire when the array is splatted into arguments" {
+	# An empty array here means "no extra arguments". gcloud still runs and still
+	# fails on its own merits, so nothing is silenced. This is what six of the
+	# unguarded sites in this repo do, including all four in
+	# scripts/gcp-tf/demo-up.sh.
+	cat >"$fixture/args.sh" <<'SH'
+vm_ssh() {
+	local args=()
+	mapfile -t args < <(gcloud_common)
+	gcloud compute ssh "$INSTANCE_NAME" "${args[@]}" --command="$1"
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 CONTROL does not fire when the count is checked" {
+	cat >"$fixture/guarded.sh" <<'SH'
+gate() {
+	mapfile -t keys < <(spire_jwt_svid_keys "$ns")
+	((${#keys[@]} > 0)) || {
+		printf 'refusing to compare: SPIRE returned no keys\n' >&2
+		return 1
+	}
+	for k in "${keys[@]}"; do
+		verify "$k" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 CONTROL a comment between the mapfile and its guard is not a defect" {
+	# The window counts CODE lines. scripts/supercred-images.sh:205 has a correct
+	# `((${#args[@]})) || return 0` ten lines below its mapfile, behind a
+	# nine-line comment explaining the docker failure that motivated it. A naive
+	# six-LINE window calls that a defect and is wrong.
+	cat >"$fixture/commented.sh" <<'SH'
+gate() {
+	mapfile -t args < <(source_id_build_args "$image")
+	# Return with NO output when there are no args, rather than falling through
+	# to printf. `printf '%s\n'` runs its format once even with zero arguments,
+	# so an image with no marker emitted a single blank line here; mapfile in
+	# the caller turned that into a one-element array holding "", and docker
+	# received an empty positional argument alongside the build context:
+	#
+	#   docker: 'docker build' requires 1 argument   (it had been handed two)
+	#
+	# Every SuperCred image failed to build, starting at cardvault:local.
+	((${#args[@]})) || return 0
+	for a in "${args[@]}"; do
+		validate "$a" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 CONTROL does not fire on a re-expansion of shell state" {
+	# `printf '%s\n' "${AGENTS[@]}"` re-emits an array the script already holds.
+	# There is no external state, no status worth propagating, and nothing
+	# discarded. scripts/signalloom-agents.sh does exactly this, twice.
+	cat >"$fixture/reexpand.sh" <<'SH'
+pick() {
+	mapfile -t picked < <(printf '%s\n' "${AGENTS[@]}")
+	for entry in "${picked[@]}"; do
+		create_agent "$entry" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 CONTROL does not fire on a here-string or a file redirect" {
+	# Neither has a command whose status could be discarded. `mapfile <<<"$var"`
+	# reads a variable the caller already has, and `mapfile <file` reads a file
+	# the shell itself opens — a failure to open is a failure of the redirect,
+	# which the shell DOES report.
+	cat >"$fixture/redirects.sh" <<'SH'
+compare() {
+	mapfile -t spire_keys <<<"$spire_out"
+	for k in "${spire_keys[@]}"; do
+		[ -n "$k" ] || return 1
+	done
+	mapfile -t offenders </tmp/audit.txt
+	for o in "${offenders[@]}"; do
+		report "$o" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 CONTROL a same-named array in an unrelated function is not the loop" {
+	# The forward scan stops at the end of the enclosing body. Without that, an
+	# arg-builder would borrow the `for` from whatever function happened to come
+	# next and report a defect neither one has.
+	cat >"$fixture/separate.sh" <<'SH'
+build_args() {
+	local args=()
+	mapfile -t args < <(source_id_build_args "$image")
+	docker build "${args[@]}" -t "$image" .
+}
+
+validate_all() {
+	local args=(a b c)
+	for a in "${args[@]}"; do
+		validate "$a" || return 1
+	done
+}
+SH
+	scan
+	[ "$status" -eq 0 ]
+}
+
+@test "VAC007 GREEN once the empty case is refused" {
+	cat >"$fixture/staleness.sh" <<'SH'
+main() {
+	local requested=()
+	mapfile -t requested < <(source_id_workloads)
+	if [ "${#requested[@]}" -eq 0 ]; then
+		printf 'CANNOT VERIFY: the workload list came back EMPTY\n' >&2
+		exit 2
+	fi
+	local workload
+	for workload in "${requested[@]}"; do
+		check_workload "$workload"
+	done
+}
+SH
 	scan
 	[ "$status" -eq 0 ]
 }

@@ -200,6 +200,67 @@ setup() {
 	[[ "$output" != *"fresh"* ]]
 }
 
+@test "an EMPTY workload list is CANNOT VERIFY, not an empty pass" {
+	# The degenerate case of the failure this whole guard exists to catch, and
+	# the one it was itself committing until 2026-08-23.
+	#
+	# `mapfile -t requested < <(source_id_workloads)` reports MAPFILE's status,
+	# never the command's — mapfile succeeds having read zero lines from a
+	# command that failed outright. `requested` stayed empty, the per-workload
+	# loop ran ZERO times, DRIFT and UNVERIFIED both stayed 0, and the script
+	# printed "every checked workload is running the current working tree"
+	# having checked nothing. It had already reported VERIFIED FRESH once while
+	# a 25-hour-stale portal served 404s, over a list that did not contain it;
+	# an empty list is that same list narrowed all the way down.
+	#
+	# The fixture is a SYMLINK to the real script, not a copy. SCRIPT_DIR is
+	# derived from BASH_SOURCE, and `pwd` is logical, so the symlink's directory
+	# is what gets sourced — which lets the library be stubbed while the code
+	# under test stays byte-identical to the shipped file. A copied script is a
+	# fixture that drifts, and a drifted fixture proves a property of itself.
+	local shadow="$BATS_TEST_TMPDIR/shadow"
+	mkdir -p "$shadow/lib"
+	ln -s "$script" "$shadow/check-deployed-staleness.sh"
+	cat >"$shadow/lib/source-id.sh" <<-'STUB'
+		# Models source_id_workloads erroring, or its input moving: no output,
+		# and — this is the shape — no failure that mapfile would propagate.
+		source_id_workloads() { return 0; }
+	STUB
+
+	run "$shadow/check-deployed-staleness.sh"
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"CANNOT VERIFY"* ]]
+	[[ "$output" == *"EMPTY"* ]]
+	[[ "$output" == *"NOT a pass"* ]]
+	# An empty list must not be the quietest of the three outcomes.
+	[[ "$output" != *"fresh"* ]]
+	[[ "$output" != *"every checked workload is running the current working tree"* ]]
+}
+
+@test "the empty-list refusal is reached before the cluster preflight" {
+	# Ordering matters, and it is the opposite of the --list case above. --list
+	# answers a question about the REPO and must work with no cluster; this one
+	# is a refusal to make any claim at all, so it must fire whether or not a
+	# cluster happens to be reachable. If it sat after the preflight, the same
+	# empty list would report "no reachable cluster" on a laptop and a silent
+	# pass in CI, which is two different stories from one defect.
+	local shadow="$BATS_TEST_TMPDIR/shadow2"
+	mkdir -p "$shadow/lib"
+	ln -s "$script" "$shadow/check-deployed-staleness.sh"
+	cat >"$shadow/lib/source-id.sh" <<-'STUB'
+		source_id_workloads() { return 0; }
+	STUB
+
+	# Cluster deliberately UNREACHABLE. If the empty check ran second, this would
+	# report the cluster instead — a true statement about the wrong fault, which
+	# sends the reader to the cluster while the workload list stays broken.
+	export CLUSTER_STATUS=1
+	run "$shadow/check-deployed-staleness.sh"
+	[ "$status" -eq 2 ]
+	[[ "$output" == *"EMPTY"* ]]
+	[[ "$output" != *"no reachable cluster"* ]]
+}
+
 # ─── Precedence and vacuity ────────────────────────────────────────────────
 
 @test "no outcome other than a real match ever exits 0" {

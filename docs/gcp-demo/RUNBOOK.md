@@ -628,6 +628,55 @@ The verdict is always on disk at `demo-reports/summary.json`, stamped with the
 branch and commit it describes. Read that file, not the VM's state — suspending
 is what a pass looks like *and* what a manual cleanup looks like.
 
+### `certificate signed by unknown authority` — SPIRE agent after a server restart
+
+**Symptom.** `make demo-bao-up` refuses with *"SPIRE agent is holding a stale
+trust bundle"*, or the lane looks healthy but no workload can get an SVID and
+`kubectl -n inf-bao logs -l app.kubernetes.io/name=spire-agent` shows a
+crash-loop on:
+
+```
+x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority
+```
+
+**Cause.** spire-server's data directory has **no volume and no PVC**, so a pod
+restart rebuilds it with a NEW CA and NO registration entries. spire-agent's
+data directory is a **hostPath**, so it survives and still trusts the OLD CA.
+Any spire-server restart triggers this: eviction, node pressure, an image bump,
+or any edit to its pod template.
+
+**Re-running `demo-bao-up` does not fix it.** It deletes the join-token Secret
+and the agent pod but never clears the node directory, so the replacement pod
+reloads the same stale bundle. Join tokens are single-use, so each crash-loop
+restart burns one and the symptom drifts into token errors that point away from
+the cause.
+
+**Recovery.** Step 3 is the one the tooling cannot do for you — it needs node
+access, which is why `bao-up` refuses and prints this rather than half-doing it.
+
+```bash
+kubectl -n inf-bao delete secret spire-agent-join-token --ignore-not-found
+kubectl -n inf-bao delete pod -l app.kubernetes.io/name=spire-agent --wait=true
+
+# 3. clear the stale bundle ON THE NODE
+gcloud compute ssh <instance> --zone <zone> \
+  --command 'sudo rm -rf /var/lib/spire-agent/data/*'
+# kind equivalent:
+#   docker exec "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')" \
+#     sh -c 'rm -rf /var/lib/spire-agent/data/*'
+
+make demo-bao-up    # fresh join token, re-register the identity, re-sync OpenBao
+```
+
+**Then check OpenBao.** A new CA means new JWT signing keys, so OpenBao's
+`jwt_validation_pubkeys` snapshot is stale too and every SPIFFE login fails with
+`no known key successfully validated the token signature`. `demo-bao-up`
+re-syncs it; confirm with `bats test/spire-openbao-trust-drift.bats`, which is
+also pipeline stage 6e.
+
+Root cause and the open design decision (PVC for the server, versus wiping the
+agent on server restart): `d2-agent-trust/AGENTS.md` → Pitfalls.
+
 ### Tailscale path — the five things that go wrong
 
 Every row below is a state `gcp-tf-ts-up` and `gcp-tf-funnel-up` distinguish and

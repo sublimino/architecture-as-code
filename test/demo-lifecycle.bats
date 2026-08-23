@@ -15,6 +15,18 @@ if [[ "$*" == *get* ]]; then
     unknown) printf 'api unavailable' >&2; exit 1 ;;
   esac
 fi
+if [[ "$*" == *logs* && "$*" == *spire-agent* ]]; then
+  case "${KUBECTL_AGENT_STATE:-attested}" in
+    attested)
+      printf 'level=info msg="Starting Workload and SDS APIs" address=/run/spire/sockets/agent.sock\n' ;;
+    stale-bundle)
+      # The exact crash a rebuilt spire-server produces: the agent still holds a
+      # bundle for the CA that no longer exists, on its hostPath.
+      printf 'level=error msg="Agent crashed" error="create attestation client: failed to dial: x509svid: could not verify leaf certificate: x509: certificate signed by unknown authority"\n' ;;
+    silent)
+      printf '' ;;
+  esac
+fi
 if [[ "$*" == *exec* ]]; then
   if [[ "$*" == *'token generate'* ]]; then
     printf 'Token: local-demo-token\n'
@@ -242,4 +254,48 @@ SCRIPT
     "$root/scripts/demo-lifecycle.sh" bao-up
   [ "$status" -eq 0 ]
   [ "$(grep -Fo -- '-----BEGIN PUBLIC KEY-----' "$log" | wc -l)" -eq 2 ]
+}
+
+# ── The recovery gap these three tests close (2026-08-23) ──────────────────
+#
+# spire-server's data_dir has NO volume, so a pod restart gives a NEW CA and
+# loses every registration entry. spire-agent's data_dir is a hostPath, so it
+# SURVIVES and keeps a bundle for the CA that no longer exists. The two
+# disagree, the agent crash-loops on "certificate signed by unknown authority",
+# and bao_up could not fix it — it deletes the Secret and the pod but never
+# clears the node directory, so the agent reloads the stale bundle every time.
+#
+# Recovery needs `rm -rf /var/lib/spire-agent/data/*` ON THE NODE, which is
+# `docker exec` on kind and `gcloud ssh` on GCP. bao_up therefore REFUSES and
+# prints the sequence rather than half-doing it: a recovery command that
+# silently half-works is worse than one that refuses.
+
+@test "SPIREREC bao-up refuses when the agent cannot trust the rebuilt server" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
+    KUBECTL_AGENT_STATE=stale-bundle DEMO_AGENT_ATTEST_TIMEOUT=1 \
+    "$root/scripts/demo-lifecycle.sh" bao-up
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'stale trust bundle'* ]]
+}
+
+# The refusal is only useful if it says what to run. An operator hitting this at
+# 2am should not have to derive the node path from first principles.
+@test "SPIREREC the refusal names the node directory that must be cleared" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
+    KUBECTL_AGENT_STATE=stale-bundle DEMO_AGENT_ATTEST_TIMEOUT=1 \
+    "$root/scripts/demo-lifecycle.sh" bao-up
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'/var/lib/spire-agent/data'* ]]
+  [[ "$output" == *'docker exec'* ]]
+  [[ "$output" == *'gcloud'* ]]
+}
+
+# An agent that says nothing is not an agent that attested. Without this, a
+# logs call returning empty would sail past the marker check.
+@test "SPIREREC bao-up refuses when the agent reports nothing at all" {
+  run env PATH="$bin:$PATH" KUBECTL_LOG="$log" KUBECTL_STATE=empty \
+    KUBECTL_AGENT_STATE=silent DEMO_AGENT_ATTEST_TIMEOUT=1 \
+    "$root/scripts/demo-lifecycle.sh" bao-up
+  [ "$status" -ne 0 ]
+  [[ "$output" == *'did not attest'* ]]
 }

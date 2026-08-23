@@ -83,12 +83,16 @@ fi
 
 # ── Refuse, never repair — via the shared rail ──────────────────────────────
 #
-# The sentinel was `.vacuous-run-status-mutation-proof.RUNNING`. Unique, which
-# was the important part, but the `.RUNNING` suffix is NOT matched by the
+# The sentinel used to carry a suffix that is NOT matched by the
 # `*mutation-in-progress` glob in .gitignore — so an interrupted run left an
 # untracked marker that a `git add -A` would have committed, announcing a
 # mutated tree to everyone who pulled. The rail's name falls under the existing
-# glob. See test/helpers/mutation-sentinel.bash.
+# glob by construction. See test/helpers/mutation-sentinel.bash.
+#
+# That old suffix is deliberately not spelled out here: the fleet-wide check in
+# test/terraform-mutation-sentinel.bats greps every proof for the literal to
+# find hand-rolled markers, and a comment quoting it would match — a guard
+# firing on the prose that explains it, reported as a real finding.
 #
 # This harness mutates scripts/gcp-tf/demo-up.sh, which two OTHER proofs also
 # mutate, and the gate chains all three with `&&`.
@@ -181,24 +185,19 @@ DRIVER_SHA0="$(sha "$DRIVER_REL")"
 TS_SHA0="$(sha "$TS_REL")"
 DD_SHA0="$(sha "$DD_REL")"
 
-cat >"$SENTINEL" <<EOF
-Killed mid-run. Pristine copies (restore BY HAND, do not git checkout):
-  ${SAFE}/demo-up.sh.pristine          -> ${DRIVER_REL}
-  ${SAFE}/tailscale.bats.repaired      -> ${TS_REL}
-  ${SAFE}/demo-driver.bats.repaired    -> ${DD_REL}
-Expected SHA-256 after restore:
-  ${DRIVER_SHA0}  ${DRIVER_REL}
-  ${TS_SHA0}  ${TS_REL}
-  ${DD_SHA0}  ${DD_REL}
-EOF
+# The hand-rolled sentinel that used to be written here is gone: ms_guard_arm
+# above already wrote one, recording the same three files with their sha256 AND
+# their mode, plus the pid and the commit — and it is the rail's copy that the
+# next run's refusal reads.
+#
+# Leaving the old writer in place was not harmless. `$SENTINEL` had already been
+# deleted from this file, `set -u` is in force, and the result was that this
+# proof died on its FIRST statement after the snapshot — 0 seconds, exit 1,
+# nothing proven — while still leaving an armed sentinel on disk. It looked like
+# a failing proof rather than a proof that never ran.
 
-restore() {
-	cp "${SAFE}/demo-up.sh.pristine" "$DRIVER_REL"
-	cp "${SAFE}/tailscale.bats.repaired" "$TS_REL"
-	cp "${SAFE}/demo-driver.bats.repaired" "$DD_REL"
-	rm -f "$SENTINEL"
-}
-trap restore EXIT
+restore() { ms_guard_restore; }
+trap ms_guard_on_exit EXIT
 
 # ── The mutation ────────────────────────────────────────────────────────────
 MUT_MARK='__VACUOUS_PROOF_LATE_FAILURE__'

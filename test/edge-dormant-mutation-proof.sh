@@ -48,20 +48,29 @@ BATS_SUITE="test/terraform-edge-dormant.bats"
 ROOT_TF_DIR="terraform/environments"
 NET_TF_DIR="terraform/modules/network"
 
-BACKUP="$(mktemp -d)"
-trap 'restore_all; rm -rf "$BACKUP"' EXIT
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# An EXIT trap was the whole protection here, and it does not survive SIGKILL —
+# which is what a tool timeout escalates to. The helper leaves a marker that
+# outlives a hard kill, REFUSES to start on top of one rather than repairing
+# it, and verifies the restore on content AND mode.
+#
+# The old backup copied the whole $EDGE_TESTS DIRECTORY and put it back with
+# `rm -rf` + `cp -R`. Only one file in it is ever touched — M3 deletes
+# iap_access.tftest.hcl — so that file is guarded by name instead. This is
+# narrower on purpose: a directory restore cannot verify anything, whereas the
+# rail records the file's sha256 and mode and CHECKS them, which is what turns
+# "M3 deleted a file and something put it back" into evidence.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-mkdir -p "$BACKUP/$(dirname "$ROOT_MAIN")" "$BACKUP/$(dirname "$NET_MAIN")"
-cp "$ROOT_MAIN" "$BACKUP/$ROOT_MAIN"
-cp "$NET_MAIN" "$BACKUP/$NET_MAIN"
-cp -R "$EDGE_TESTS" "$BACKUP/edge-tests"
+EDGE_TEST_DELETED="${EDGE_TESTS}/iap_access.tftest.hcl"
 
-restore_all() {
-  cp "$BACKUP/$ROOT_MAIN" "$ROOT_MAIN"
-  cp "$BACKUP/$NET_MAIN" "$NET_MAIN"
-  rm -rf "$EDGE_TESTS"
-  cp -R "$BACKUP/edge-tests" "$EDGE_TESTS"
-}
+ms_guard_init edge-dormant "$ROOT_MAIN" "$NET_MAIN" "$EDGE_TEST_DELETED"
+trap ms_guard_on_exit EXIT
+
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -71,26 +80,26 @@ FAIL=0
 # A non-matching pattern no-ops while returning 0, so the mutation never lands,
 # the suite stays green, and the harness reports "guard did not fire" — a false
 # finding that looks exactly like a real one.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+mutate() { ms_sed "$1" "$2"; }
 
 # Same contract as mutate(), for the one edit sed cannot express: stripping the
 # leading "# " from a multi-line block. The perl is the same expression the bats
 # suite uses, so the two cannot drift in what "uncommenting the block" means.
+#
+# perl is not ms_sed, so the sentinel is armed BY HAND here — before the write,
+# never after. A SIGKILL landing between the mutation and the assert would
+# otherwise leave the file broken with nothing recording it.
 uncomment_edge_block() {
-  local file="$1" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
+  local file="$1"
+  ms_guard_arm "uncomment the module \"edge\" block — ${file}"
   perl -0pi -e 's/^# module "edge" \{\n(.*?)^# \}$/my $b=$1; $b =~ s{^# ?}{}gm; "module \"edge\" {\n$b}"/sme' "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
+  # ms_assert_mutated makes the same no-op refusal as the old md5 comparison,
+  # against the sha256 the rail recorded at init.
+  if ! ms_assert_mutated "$file"; then
     echo "HARNESS ERROR: the commented module \"edge\" block was not uncommented." >&2
     echo "               Its shape in ${file} has changed; fix this harness AND" >&2
     echo "               the matching helper in ${BATS_SUITE}." >&2
@@ -188,7 +197,15 @@ check_bats "M2 positive control" "the module graph is readable and names the mod
 # ── The path back must not rot ──────────────────────────────────────────────
 
 echo "M3  one of the six edge test suites is deleted"
-rm -f "$EDGE_TESTS/iap_access.tftest.hcl"
+# A deletion, not a sed, so the sentinel is armed by hand and before the write.
+# ms_assert_mutated cannot follow it — it hashes the file, and the file is the
+# thing that has just gone — so the deletion is asserted directly.
+ms_guard_arm "delete ${EDGE_TEST_DELETED}"
+rm -f "$EDGE_TEST_DELETED"
+[ ! -f "$EDGE_TEST_DELETED" ] || {
+  echo "HARNESS ERROR: ${EDGE_TEST_DELETED} is still present after rm -f." >&2
+  exit 2
+}
 check_bats "M3 re-enable path" "the edge module and its six test suites still exist"
 
 # ── The root's derived state ────────────────────────────────────────────────

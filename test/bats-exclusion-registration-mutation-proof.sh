@@ -56,25 +56,7 @@ ROOT_MK="${REPO_ROOT}/Makefile"
 D2_MK="${REPO_ROOT}/d2-signalloom/Makefile"
 SUITE="${REPO_ROOT}/d2-signalloom/test/bats-registry-coverage.bats"
 TEST_NAME='every excluded d2-signalloom bats suite is invoked by another runner'
-SENTINEL="${REPO_ROOT}/.bats-exclusion-registration-mutation-proof.inprogress"
-
 BATS_BIN="${BATS_BIN:-bats}"
-
-ROOT_MK_BACKUP=""
-D2_MK_BACKUP=""
-
-restore() {
-  local rc=$?
-  trap - EXIT INT TERM
-  [ -n "$ROOT_MK_BACKUP" ] && [ -s "$ROOT_MK_BACKUP" ] && cp "$ROOT_MK_BACKUP" "$ROOT_MK" 2>/dev/null
-  [ -n "$D2_MK_BACKUP" ] && [ -s "$D2_MK_BACKUP" ] && cp "$D2_MK_BACKUP" "$D2_MK" 2>/dev/null
-  rm -f "$ROOT_MK_BACKUP" "$D2_MK_BACKUP" 2>/dev/null
-  rm -f "$SENTINEL" 2>/dev/null
-  # Explicit exit with the captured status. Under errexit a failing last command
-  # in an EXIT trap REPLACES the status the script asked for, and this repo has
-  # already lost a run with 8/8 green stages to precisely that.
-  exit "$rc"
-}
 
 fail() {
   printf 'bats-exclusion-registration-mutation-proof: %s\n' "$*" >&2
@@ -88,28 +70,6 @@ fail() {
 [ -f "$SUITE" ] || fail "no suite at ${SUITE}"
 command -v "$BATS_BIN" >/dev/null 2>&1 || fail "bats is not on PATH"
 
-if [ -e "$SENTINEL" ]; then
-  printf 'bats-exclusion-registration-mutation-proof: REFUSING TO RUN.\n' >&2
-  printf '\n' >&2
-  printf 'A sentinel from a previous run is present:\n  %s\n' "$SENTINEL" >&2
-  printf '\n' >&2
-  printf 'That run died (SIGKILL, or the machine went away) while these files were\n' >&2
-  printf 'MUTATED, and its EXIT trap never restored them:\n' >&2
-  printf '  %s\n  %s\n' "$ROOT_MK" "$D2_MK" >&2
-  printf '\n' >&2
-  printf 'Check them before doing anything else:\n' >&2
-  printf '  git diff -- Makefile d2-signalloom/Makefile\n' >&2
-  printf '\n' >&2
-  printf 'A diff that deletes a `bats d2-signalloom/test/...` line, or that empties\n' >&2
-  printf 'EXCLUDED_BATS, is this harness leftovers rather than a real change.\n' >&2
-  printf '\n' >&2
-  printf 'This script does NOT repair it for you on purpose: repairing would\n' >&2
-  printf 'overwrite anything you have done to those files since, and would hide the\n' >&2
-  printf 'fact that a run died. Restore what you want, then remove the sentinel:\n' >&2
-  printf '  rm %s\n' "$SENTINEL" >&2
-  exit 1
-fi
-
 # The named test must exist and must be the ONLY thing the filter selects.
 # A `-f` regex matching nothing makes bats exit 0 having run zero tests, and
 # every mutation below would then read as "the suite still passed" — a harness
@@ -117,15 +77,32 @@ fi
 selected="$("$BATS_BIN" -f "$TEST_NAME" --count "$SUITE" 2>/dev/null || true)"
 [ "$selected" = "1" ] || fail "filter selected '${selected:-0}' tests, expected exactly 1 — has the test been renamed?"
 
-ROOT_MK_BACKUP="$(mktemp "${TMPDIR:-/tmp}/Makefile.root.orig.XXXXXX")"
-D2_MK_BACKUP="$(mktemp "${TMPDIR:-/tmp}/Makefile.d2.orig.XXXXXX")"
-cp "$ROOT_MK" "$ROOT_MK_BACKUP"
-cp "$D2_MK" "$D2_MK_BACKUP"
-printf 'in progress since %s (pid %s)\n' "$(date -Is)" "$$" > "$SENTINEL"
-trap restore EXIT INT TERM
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# A sentinel from a previous run means that run died (SIGKILL, or the machine
+# went away) with these Makefiles MUTATED and its EXIT trap never reached. The
+# rail REFUSES to start on top of it rather than repairing — repairing would
+# overwrite anything done to those files since, and would hide that a run died.
+#
+# Three things the hand-rolled version this replaces could not do. Its marker
+# ended in a suffix `.gitignore` does not match, so an interrupted run followed
+# by `git add -A` would have committed it. Its restore was
+# `[ -s "$BACKUP" ] && cp ...`, which SILENTLY SKIPS a missing backup and
+# silently installs a damaged one. And it removed the marker unconditionally, so
+# a restore that failed left a mutated tree with nothing recording it.
+#
+# ms_guard_on_exit keeps the one thing that version got right and this repo has
+# already lost a run to: the status is captured FIRST and re-raised, so a
+# failing last command in the trap cannot rewrite an 8/8-green verdict.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-printf 'bats-exclusion-registration-mutation-proof: originals saved to\n  %s\n  %s\n' \
-  "$ROOT_MK_BACKUP" "$D2_MK_BACKUP"
+ms_guard_init bats-exclusion-registration "$ROOT_MK" "$D2_MK"
+trap ms_guard_on_exit EXIT INT TERM
+
+printf 'bats-exclusion-registration-mutation-proof: originals saved under\n  %s\n' \
+  "$MS_BACKUP_DIR"
 
 # The test must be GREEN before anything is broken. Without this a test that was
 # already failing would make every mutation below look detected, and the harness
@@ -140,10 +117,7 @@ printf 'baseline green.\n'
 FAILURES=0
 CHECKED=0
 
-restore_all() {
-  cp "$ROOT_MK_BACKUP" "$ROOT_MK"
-  cp "$D2_MK_BACKUP" "$D2_MK"
-}
+restore_all() { ms_guard_restore; }
 
 # prove <label> <file> <sed-expression> [expected-output-regex]
 #
@@ -158,6 +132,12 @@ prove() {
   CHECKED=$((CHECKED + 1))
 
   restore_all
+  # Armed by hand, and BEFORE the write. This deliberately does NOT use ms_sed:
+  # ms_sed ABORTS on a no-op, and this harness reports a no-op as a HOLE and
+  # keeps going, so that one dead pattern does not hide the verdict on every
+  # mutation after it. The sentinel is what ms_sed would have provided; the
+  # no-op policy below is this harness's own and is left as it was.
+  ms_guard_arm "${label}: ${target}"
   before="$(md5sum <"$target")"
   sed -i "$expr" "$target"
   after="$(md5sum <"$target")"

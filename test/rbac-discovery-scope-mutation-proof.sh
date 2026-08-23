@@ -64,9 +64,6 @@ cd "$REPO_ROOT"
 ORACLE_REL="test/guard-falsification-proof.sh"
 GRANT_REL="d2-osramp-fleet/tenants/local/signalloom.yaml"
 
-SENTINEL="${REPO_ROOT}/.rbac-discovery-scope-mutation-proof.RUNNING"
-SAFE="${TMPDIR:-/tmp}/osramp-rbac-discovery-scope-proof"
-
 red() { printf '\033[1;31m%s\033[0m\n' "$*"; }
 grn() { printf '\033[1;32m%s\033[0m\n' "$*"; }
 say() { printf '%s\n' "$*"; }
@@ -76,49 +73,43 @@ if ! command -v python3 >/dev/null 2>&1; then
 	exit 2
 fi
 
-if [ -e "$SENTINEL" ]; then
-	red "REFUSING TO START: a previous run left a sentinel."
-	say "  $SENTINEL"
-	say "  The working tree may still contain a mutated ${ORACLE_REL} or"
-	say "  ${GRANT_REL}. This harness will NOT repair it. Pristine copies, if any:"
-	cat "$SENTINEL" 2>/dev/null | sed 's/^/    /'
-	say "  Restore by hand, confirm with 'git status', delete the sentinel, re-run."
-	exit 2
-fi
-
-mkdir -p "$SAFE"
-rm -f "${SAFE:?}"/*
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# The marker this replaces ended in a suffix that `.gitignore` does NOT match —
+# the glob there is `*mutation-in-progress`. One `git add -A` during an
+# interrupted run would have COMMITTED a file announcing the tree was mutated.
+# Every sentinel minted through the rail falls under the existing glob by
+# construction.
+#
+# The old suffix is deliberately not spelled out here. The fleet-wide check in
+# test/terraform-mutation-sentinel.bats greps every proof for that literal to
+# find hand-rolled markers, and a comment quoting it would match — a guard
+# firing on the prose that explains it, reported as a real finding.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 
-cp "$ORACLE_REL" "${SAFE}/oracle.pristine"
-cp "$GRANT_REL" "${SAFE}/grant.pristine"
 ORACLE_SHA0="$(sha "$ORACLE_REL")"
 GRANT_SHA0="$(sha "$GRANT_REL")"
 ORACLE_MODE0="$(stat -c '%a' "$ORACLE_REL")"
 GRANT_MODE0="$(stat -c '%a' "$GRANT_REL")"
 
-write_sentinel() {
-	cat >"$SENTINEL" <<EOF
-Killed mid-run. Pristine copies (restore BY HAND, do not git checkout):
-  ${SAFE}/oracle.pristine  -> ${ORACLE_REL}
-  ${SAFE}/grant.pristine   -> ${GRANT_REL}
-Expected SHA-256 after restore:
-  ${ORACLE_SHA0}  ${ORACLE_REL}
-  ${GRANT_SHA0}  ${GRANT_REL}
-EOF
-}
-write_sentinel
+ms_guard_init rbac-discovery-scope "$ORACLE_REL" "$GRANT_REL"
+trap ms_guard_on_exit EXIT
 
-restore() {
-	cp "${SAFE}/oracle.pristine" "$ORACLE_REL"
-	cp "${SAFE}/grant.pristine" "$GRANT_REL"
-	chmod "$ORACLE_MODE0" "$ORACLE_REL"
-	chmod "$GRANT_MODE0" "$GRANT_REL"
-	rm -f "$SENTINEL"
+# ms_guard_restore reapplies the recorded mode and then VERIFIES it, so the two
+# explicit chmods the old restore carried are subsumed rather than dropped.
+restore() { ms_guard_restore; }
+
+# re-arm: restore, then re-write the sentinel, because a successful restore
+# clears it and this harness runs more than one mutation against the same
+# targets. A kill between them must still leave a marker.
+rearm() {
+	ms_guard_restore
+	ms_guard_arm "rbac discovery scope: next mutation"
 }
-rearm() { restore; write_sentinel; }
-trap restore EXIT
 
 # ── Extract-and-run the REAL function ───────────────────────────────────────
 run_oracle() {
@@ -158,7 +149,11 @@ fi
 say ""
 say "=== mutation A: revert the search-path widening (d2-signalloom only) ===="
 BEFORE="$(grep -c 'd2-signalloom", "d2-osramp-fleet"' "$ORACLE_REL" || true)"
-sed -i 's/"d2-signalloom", "d2-osramp-fleet"\]/"d2-signalloom"]/' "$ORACLE_REL"
+# ms_sed rather than a bare `sed -i`: it ARMS the sentinel before the write, so
+# a kill here leaves a marker, and it refuses a no-op instead of letting the
+# occurrence counts below be the only thing standing between a non-matching
+# pattern and a verdict about correct code.
+ms_sed "$ORACLE_REL" 's/"d2-signalloom", "d2-osramp-fleet"\]/"d2-signalloom"]/'
 AFTER="$(grep -c 'd2-signalloom", "d2-osramp-fleet"' "$ORACLE_REL" || true)"
 if [ "$BEFORE" -ne 1 ] || [ "$AFTER" -ne 0 ]; then
 	red "THE MUTATION DID NOT APPLY AS EXPECTED (before=${BEFORE}, after=${AFTER})."
@@ -187,7 +182,7 @@ say "=== mutation B: fixed oracle, but the real grant is removed ============="
 say "    (fe-signalloom-agents -> agents-ns-mutated, whole-file, so the"
 say "     substring the oracle searches for is gone from every occurrence)"
 BEFORE="$(grep -c 'fe-signalloom-agents' "$GRANT_REL" || true)"
-sed -i 's/fe-signalloom-agents/agents-ns-mutated/g' "$GRANT_REL"
+ms_sed "$GRANT_REL" 's/fe-signalloom-agents/agents-ns-mutated/g'
 AFTER="$(grep -c 'fe-signalloom-agents' "$GRANT_REL" || true)"
 say "  occurrences of the literal before/after: ${BEFORE} / ${AFTER}"
 if [ "$BEFORE" -lt 20 ] || [ "$AFTER" -ne 0 ]; then
@@ -211,7 +206,16 @@ else
 fi
 
 # ── Restore and prove it ────────────────────────────────────────────────────
-restore
+#
+# ms_guard_finish is restore + verify + drop the pristine copies, which is what
+# the old `restore` followed by `rm -rf` did — with the verification in the
+# middle rather than absent. The trap is then disarmed because the work is done.
+# A failure is counted as a finding rather than swallowed: the tree is still
+# mutated, and the sentinel is deliberately still on disk to say so.
+if ! ms_guard_finish; then
+	red "  RESTORE FAILED — the tree is NOT clean; the sentinel has been kept."
+	FINDINGS=$((FINDINGS + 1))
+fi
 trap - EXIT
 
 say ""
@@ -239,7 +243,9 @@ for pair in "${ORACLE_REL}:${ORACLE_SHA0}:${ORACLE_MODE0}" "${GRANT_REL}:${GRANT
 		FINDINGS=$((FINDINGS + 1))
 	fi
 done
-rm -rf "${SAFE:?}"
+# The pristine copies are the rail's now, and ms_guard_finish above dropped
+# them — but only because the restore VERIFIED. A failed restore keeps them,
+# because at that point they are the only clean copies left.
 
 say ""
 say "=== summary ==============================================================="

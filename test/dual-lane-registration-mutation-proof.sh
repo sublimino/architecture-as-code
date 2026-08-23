@@ -54,29 +54,9 @@ SUITE="${REPO_ROOT}/test/terraform-dual-lane-registration.bats"
 DEMO="${REPO_ROOT}/scripts/gcp-tf/demo-pipeline.sh"
 VM="${REPO_ROOT}/scripts/ci/vm-pipeline.sh"
 KNOBS="${REPO_ROOT}/test/supervise-port-forward-knobs.bats"
-SENTINEL="${REPO_ROOT}/.dual-lane-registration-mutation-proof.inprogress"
-
 BATS_BIN="${BATS_BIN:-bats}"
 
-SUITE_BACKUP=""
-DEMO_BACKUP=""
-VM_BACKUP=""
 KNOBS_RENAMED=0
-
-restore() {
-  local rc=$?
-  trap - EXIT INT TERM
-  [ -n "$SUITE_BACKUP" ] && [ -s "$SUITE_BACKUP" ] && cp "$SUITE_BACKUP" "$SUITE" 2>/dev/null
-  [ -n "$DEMO_BACKUP" ] && [ -s "$DEMO_BACKUP" ] && cp "$DEMO_BACKUP" "$DEMO" 2>/dev/null
-  [ -n "$VM_BACKUP" ] && [ -s "$VM_BACKUP" ] && cp "$VM_BACKUP" "$VM" 2>/dev/null
-  [ "$KNOBS_RENAMED" -eq 1 ] && [ -f "${KNOBS}.renamed" ] && mv "${KNOBS}.renamed" "$KNOBS" 2>/dev/null
-  rm -f "$SUITE_BACKUP" "$DEMO_BACKUP" "$VM_BACKUP" 2>/dev/null
-  rm -f "$SENTINEL" 2>/dev/null
-  # Explicit exit with the CAPTURED status. Under errexit a failing last command
-  # in an EXIT trap REPLACES the status the script asked for, and this repo has
-  # already lost a run with 8/8 green stages to precisely that.
-  exit "$rc"
-}
 
 fail() {
   printf 'dual-lane-registration-mutation-proof: %s\n' "$*" >&2
@@ -90,22 +70,6 @@ fail() {
 [ -f "$VM" ] || fail "no CI pipeline at ${VM}"
 [ -f "$KNOBS" ] || fail "no allowlisted suite at ${KNOBS}"
 command -v "$BATS_BIN" >/dev/null 2>&1 || fail "bats is not on PATH"
-
-if [ -e "$SENTINEL" ]; then
-  printf 'dual-lane-registration-mutation-proof: REFUSING TO RUN.\n' >&2
-  printf '\nA sentinel from a previous run is present:\n  %s\n' "$SENTINEL" >&2
-  printf '\nThat run died (SIGKILL, or the machine went away) while these were\n' >&2
-  printf 'MUTATED, and its EXIT trap never restored them:\n' >&2
-  printf '  %s\n  %s\n  %s\n' "$SUITE" "$DEMO" "$VM" >&2
-  printf '\nA %s.renamed may also exist. Check before doing anything else:\n' "$KNOBS" >&2
-  printf '  git status --porcelain\n' >&2
-  printf '  git diff -- scripts/gcp-tf/demo-pipeline.sh scripts/ci/vm-pipeline.sh\n' >&2
-  printf '\nA diff that drops a .bats name from a run_stage list, or that empties\n' >&2
-  printf 'SINGLE_LANE_ALLOWED, is this harness leftovers rather than a real change.\n' >&2
-  printf '\nThis script does NOT repair it for you on purpose. Restore what you want,\n' >&2
-  printf 'then remove the sentinel:\n  rm %s\n' "$SENTINEL" >&2
-  exit 1
-fi
 
 # Every test this harness claims to cover must EXIST and be selected by exactly
 # one filter. `bats --filter` matching nothing exits 0 having run zero tests, so
@@ -125,17 +89,51 @@ for t in "${TESTS[@]}"; do
     || fail "filter '${t}' selected '${selected:-0}' tests, expected exactly 1 — renamed?"
 done
 
-SUITE_BACKUP="$(mktemp "${TMPDIR:-/tmp}/dual-lane.suite.orig.XXXXXX")"
-DEMO_BACKUP="$(mktemp "${TMPDIR:-/tmp}/dual-lane.demo.orig.XXXXXX")"
-VM_BACKUP="$(mktemp "${TMPDIR:-/tmp}/dual-lane.vm.orig.XXXXXX")"
-cp "$SUITE" "$SUITE_BACKUP"
-cp "$DEMO" "$DEMO_BACKUP"
-cp "$VM" "$VM_BACKUP"
-printf 'in progress since %s (pid %s)\n' "$(date -Is)" "$$" > "$SENTINEL"
-trap restore EXIT INT TERM
+# ── The shared safety rail ────────────────────────────────────────────
+#
+# A sentinel from a previous run means that run died (SIGKILL, or the machine
+# went away) with these files MUTATED and its EXIT trap never reached. The rail
+# REFUSES to start on top of it rather than repairing: a diff that drops a .bats
+# name from a run_stage list, or that empties SINGLE_LANE_ALLOWED, is harness
+# leftovers rather than a real change, and only a human should decide which.
+#
+# Three things the hand-rolled version this replaces could not do. Its marker
+# ended in a suffix `.gitignore` does not match. Its restore was
+# `[ -s "$BACKUP" ] && cp ...`, which SILENTLY SKIPS a missing backup and
+# silently installs a damaged one. And it removed the marker unconditionally, so
+# a restore that failed left a mutated tree with nothing recording it.
+#
+# $KNOBS is guarded too even though it is RENAMED rather than edited: the rail
+# then verifies it came back, and reports it by name if it did not.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-printf 'dual-lane-registration-mutation-proof: originals saved to\n  %s\n  %s\n  %s\n' \
-  "$SUITE_BACKUP" "$DEMO_BACKUP" "$VM_BACKUP"
+ms_guard_init dual-lane-registration "$SUITE" "$DEMO" "$VM" "$KNOBS"
+
+# The rename is this harness's own business, so the trap is a wrapper.
+#
+# The rename is undone FIRST. The rail would restore $KNOBS from its pristine
+# copy, but a stray ${KNOBS}.renamed left beside it is a second copy of a bats
+# suite — and the registry guards in this very suite count suites on disk.
+#
+# The subshell preserves the verdict: ms_guard_on_exit reads `$?` to decide the
+# script's status, and by then `$?` is the status of the `mv` above it. This
+# harness has the strongest reason in the tree to get that right — it is the one
+# that lost an 8/8-green run to a trap rewriting its own exit status.
+cleanup() {
+  local status=$?
+  if [ "$KNOBS_RENAMED" -eq 1 ] && [ -f "${KNOBS}.renamed" ]; then
+    mv "${KNOBS}.renamed" "$KNOBS" 2>/dev/null
+    KNOBS_RENAMED=0
+  fi
+  (exit "$status")
+  ms_guard_on_exit
+}
+trap cleanup EXIT INT TERM
+
+printf 'dual-lane-registration-mutation-proof: originals saved under\n  %s\n' \
+  "$MS_BACKUP_DIR"
 
 printf '\n──── BASELINE: the whole suite must be green before any mutation ────\n'
 if ! "$BATS_BIN" "$SUITE" >/dev/null 2>&1; then
@@ -148,13 +146,15 @@ FAILURES=0
 CHECKED=0
 
 restore_all() {
-  cp "$SUITE_BACKUP" "$SUITE"
-  cp "$DEMO_BACKUP" "$DEMO"
-  cp "$VM_BACKUP" "$VM"
+  # The rename is undone BEFORE the rail restores, for the reason given on the
+  # trap above: $KNOBS is guarded, so the rail would put it back from its
+  # pristine copy and leave ${KNOBS}.renamed sitting beside it as a second copy
+  # of a bats suite — which the registry guards in this suite count.
   if [ "$KNOBS_RENAMED" -eq 1 ]; then
     [ -f "${KNOBS}.renamed" ] && mv "${KNOBS}.renamed" "$KNOBS"
     KNOBS_RENAMED=0
   fi
+  ms_guard_restore
 }
 
 # prove <label> <test-name> <expected-output-regex> <mutate-fn>
@@ -169,6 +169,11 @@ prove() {
   CHECKED=$((CHECKED + 1))
 
   restore_all
+  # Armed by hand, and BEFORE the mutation runs. The mutators below are a mix of
+  # seds and renames, so ms_sed cannot arm on their behalf; without this a kill
+  # between "$mutate" and the assertions would leave the tree broken with
+  # nothing on disk recording that a harness did it.
+  ms_guard_arm "${label}: ${test_name}"
   before="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | md5sum; md5sum "$SUITE" "$DEMO" "$VM")"
   "$mutate"
   after="$(cd "$REPO_ROOT" && git status --porcelain 2>/dev/null | md5sum; md5sum "$SUITE" "$DEMO" "$VM")"

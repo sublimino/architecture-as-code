@@ -49,7 +49,12 @@ ENTRY="scripts/node-doctor.sh"
 # dozen guards at once while they all still read as green assertions.
 TARGETS=("$LIB" "$PROBE" "$DEMO" "$CI" "$ENTRY" "$SUITE")
 
-# ─── The sentinel ───────────────────────────────────────────────────────────
+command -v bats >/dev/null 2>&1 || { echo "HARNESS ERROR: bats is not installed" >&2; exit 2; }
+for f in "$SUITE" "${TARGETS[@]}"; do
+  [[ -f "$f" ]] || { echo "HARNESS ERROR: $f not found" >&2; exit 2; }
+done
+
+# ─── The sentinel, now the shared one ───────────────────────────────────────
 #
 # Matched by `*mutation-in-progress` in .gitignore. Its presence means a
 # previous run died holding a mutation, so the tree cannot be trusted to be the
@@ -57,66 +62,32 @@ TARGETS=("$LIB" "$PROBE" "$DEMO" "$CI" "$ENTRY" "$SUITE")
 # it found would make the broken state invisible, which is the same defect as a
 # guard that repairs what it detects.
 #
-# Note the limit of this, honestly: an EXIT trap survives SIGTERM and does NOT
-# survive SIGKILL. A `kill -9` leaves the tree mutated AND leaves this sentinel,
-# which is the case it exists for.
-SENTINEL="$REPO_ROOT/.node-doctor-mutation-in-progress"
+# The limit, stated honestly: an EXIT trap survives SIGTERM and does NOT survive
+# SIGKILL. A `kill -9` leaves the tree mutated AND leaves the sentinel, which is
+# the case it exists for. What the shared rail adds over the hand-rolled version
+# it replaces is that a LIVE second run is told apart from a dead one, and that
+# a FAILED restore KEEPS the sentinel — the old `cleanup` deleted it
+# unconditionally, so a restore that did not work left a mutated tree with
+# nothing recording it. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-if [[ -e "$SENTINEL" ]]; then
-  cat >&2 <<EOF
-HARNESS REFUSING TO START.
-
-  A sentinel from a previous run is present:
-    $SENTINEL
-
-  That run died while the node doctor was MUTATED, so the working tree may
-  contain deliberately broken code. This harness will not repair it for you: an
-  auto-repair would make the broken state invisible and the next green run
-  would be measuring code nobody has looked at.
-
-  It records the backups it was restoring from. Inspect, restore by hand, then
-  delete the sentinel:
-
-$(sed 's/^/    /' "$SENTINEL" 2>/dev/null || echo "    <sentinel is unreadable>")
-EOF
-  exit 2
-fi
-
-command -v bats >/dev/null 2>&1 || { echo "HARNESS ERROR: bats is not installed" >&2; exit 2; }
-for f in "$SUITE" "${TARGETS[@]}"; do
-  [[ -f "$f" ]] || { echo "HARNESS ERROR: $f not found" >&2; exit 2; }
-done
-
-BACKUP="$(mktemp -d)"
-declare -A ORIG_HASH ORIG_MODE
-{
-  printf 'started: %s\n' "$(date -Is)"
-  printf 'backups: %s\n' "$BACKUP"
-} >"$SENTINEL"
+# Still read by the end-of-run content check below.
+#
+# The matching ORIG_MODE map is gone with the hand-rolled restore that was its
+# only consumer: the rail records each file's mode at init and VERIFIES it on
+# restore, so a second copy here would be a duplicate that nothing compares.
+declare -A ORIG_HASH
 for f in "${TARGETS[@]}"; do
-  cp -p "$f" "$BACKUP/$(basename "$f")"
   ORIG_HASH["$f"]="$(sha256sum "$f" | cut -d' ' -f1)"
-  ORIG_MODE["$f"]="$(stat -c '%a' "$f")"
-  printf 'file   : %s  sha256=%s  mode=%s\n' "$f" "${ORIG_HASH[$f]}" "${ORIG_MODE[$f]}" >>"$SENTINEL"
 done
 
-restore() {
-  local f
-  for f in "${TARGETS[@]}"; do
-    # `cp` onto the existing inode, not `mv` from the tempfile. mv replaces the
-    # inode and carries the TEMPFILE's mode across — restoring the bytes exactly
-    # while dropping the executable bit.
-    cp "$BACKUP/$(basename "$f")" "$f"
-    chmod "${ORIG_MODE[$f]}" "$f"
-  done
-}
+ms_guard_init node-doctor "${TARGETS[@]}"
+trap ms_guard_on_exit EXIT
 
-cleanup() {
-  restore
-  rm -f "$SENTINEL"
-  rm -rf "$BACKUP"
-}
-trap cleanup EXIT
+# The rail restores content and mode and then VERIFIES both. The old loop did
+# the `cp` + `chmod` half and reported nothing.
+restore() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -124,25 +95,24 @@ FAIL=0
 # A sed that cannot silently do nothing. A non-matching pattern no-ops while
 # printing success, and in a proof harness that ships as "every mutation was
 # caught" against a tree that was never mutated.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(sha256sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(sha256sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+mutate() { ms_sed "$1" "$2"; }
 
 # Appends a line to a file — for the mutations that ADD something forbidden
 # rather than break something present. Same no-op refusal as mutate().
+#
+# An append is not ms_sed, so the sentinel is armed BY HAND and BEFORE the
+# write: a kill landing between the append and the assert would otherwise leave
+# the file broken with nothing recording it.
 append_mutation() {
-  local file="$1" line="$2" before after
-  before="$(sha256sum "$file" | cut -d' ' -f1)"
+  local file="$1" line="$2"
+  ms_guard_arm "append to ${file}: ${line}"
   printf '%s\n' "$line" >>"$file"
-  after="$(sha256sum "$file" | cut -d' ' -f1)"
-  [[ "$before" != "$after" ]] || { echo "HARNESS ERROR: append changed nothing in ${file}" >&2; exit 2; }
+  ms_assert_mutated "$file" ||
+    { echo "HARNESS ERROR: append changed nothing in ${file}" >&2; exit 2; }
 }
 
 # Reports the NAMES of failing tests, never `not ok <n>` numbers. Inserting a

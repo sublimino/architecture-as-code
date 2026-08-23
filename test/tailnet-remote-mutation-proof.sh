@@ -41,23 +41,7 @@ set -eo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DRIVER="${REPO_ROOT}/scripts/gcp-tf/demo-up.sh"
 SUITE="${REPO_ROOT}/test/terraform-tailnet-remote.bats"
-BACKUP="$(mktemp "${TMPDIR:-/tmp}/demo-up.sh.orig.XXXXXX")"
-
 BATS_BIN="${BATS_BIN:-bats}"
-
-restore() {
-  local rc=$?
-  trap - EXIT INT TERM
-  if [ -s "$BACKUP" ]; then
-    cp "$BACKUP" "$DRIVER" || true
-    chmod +x "$DRIVER" || true
-  fi
-  rm -f "$BACKUP" || true
-  # Explicit exit with the captured status. Under errexit a failing last
-  # command in an EXIT trap REPLACES the status the script asked for, and this
-  # repo has already lost a run with 8/8 green stages to precisely that.
-  exit "$rc"
-}
 
 fail() {
   printf 'tailnet-remote-mutation-proof: %s\n' "$*" >&2
@@ -70,10 +54,31 @@ fail() {
 [ -f "$SUITE" ] || fail "no suite at ${SUITE}"
 command -v "$BATS_BIN" >/dev/null 2>&1 || fail "bats is not on PATH"
 
-cp "$DRIVER" "$BACKUP"
-trap restore EXIT INT TERM
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# $DRIVER is shared with two other proofs, and on 2026-08-23 one of them was
+# killed at a tool timeout and left it MUTATED. This harness then ran, took that
+# mutated file as its own "pristine" copy, and put the mutation back on the way
+# out — a clean-looking run over a sabotaged tree. The per-proof sentinel is what
+# stops a leak from being invisible, and the refusal names the pid and whether
+# it is still alive, which is the difference between "wait" and "inspect".
+#
+# Two things the hand-rolled backup here could not do. Its restore was
+# `[ -s "$BACKUP" ] && cp ...`, which SILENTLY SKIPS when the backup has gone
+# and silently installs a damaged one — the rail verifies the pristine copy's
+# sha256 before trusting it. And it verified nothing afterwards, so a restore
+# that dropped the mode was indistinguishable from one that worked.
+#
+# ms_guard_on_exit keeps the property the old trap was written for: the status
+# is captured FIRST and re-raised, so a failing last command cannot rewrite the
+# verdict. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-printf 'tailnet-remote-mutation-proof: original driver saved to %s\n' "$BACKUP"
+ms_guard_init tailnet-remote "$DRIVER"
+trap ms_guard_on_exit EXIT INT TERM
+
+printf 'tailnet-remote-mutation-proof: original driver saved under %s\n' "$MS_BACKUP_DIR"
 
 # The suite must be GREEN before anything is broken. Without this a suite that
 # was already failing would make every mutation below look detected, and the
@@ -97,8 +102,13 @@ prove() {
   local label="$1" expr="$2" before after
   CHECKED=$((CHECKED + 1))
 
-  cp "$BACKUP" "$DRIVER"
-  chmod +x "$DRIVER"
+  ms_guard_restore
+  # Armed by hand, and BEFORE the write. This deliberately does NOT use ms_sed:
+  # ms_sed ABORTS on a no-op, and this harness reports a no-op as a HOLE and
+  # carries on, so one dead pattern cannot hide the verdict on every mutation
+  # after it. The sentinel is what ms_sed would have provided; the no-op policy
+  # below is this harness's own and is left exactly as it was.
+  ms_guard_arm "${label}"
   before="$(md5sum <"$DRIVER")"
   sed -i "$expr" "$DRIVER"
   after="$(md5sum <"$DRIVER")"

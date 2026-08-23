@@ -72,66 +72,41 @@ cd "$REPO_ROOT"
 DRIVER="scripts/gcp-tf/demo-up.sh"
 SUITE="test/terraform-demo-driver.bats"
 
-# ─── The sentinel ───────────────────────────────────────────────────────────
+[[ -f "$DRIVER" ]] || { echo "HARNESS ERROR: $DRIVER not found" >&2; exit 2; }
+[[ -f "$SUITE" ]] || { echo "HARNESS ERROR: $SUITE not found" >&2; exit 2; }
+
+# ─── The sentinel, now the shared one ───────────────────────────────────────
 #
 # Matched by `*mutation-in-progress` in .gitignore. Its presence means a
 # previous run died holding a mutation, so the tree cannot be trusted to be the
 # real thing. REFUSE — never auto-repair. A harness that silently restored what
 # it found would make the broken state invisible, which is the same defect as a
 # guard that repairs what it detects.
-SENTINEL="$REPO_ROOT/.lane-parallel-port-mutation-in-progress"
+#
+# $DRIVER is shared with two other proofs, which is why this one is not
+# hypothetical: on 2026-08-23 this harness was killed at a tool timeout part-way
+# through M4 and left `require_local_port_free` MOVED to after the Dex repoint —
+# a plausible-looking diff that reads as somebody's refactor, not as harness
+# debris. The rail's contribution over the hand-rolled version it replaces is
+# that a LIVE second run is told apart from a dead one, and that a FAILED
+# restore keeps the sentinel instead of deleting it.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-if [[ -e "$SENTINEL" ]]; then
-  cat >&2 <<EOF
-HARNESS REFUSING TO START.
-
-  A sentinel from a previous run is present:
-    $SENTINEL
-
-  That run died while ${DRIVER} was MUTATED, so the working tree may contain a
-  deliberately broken driver. This harness will not repair it for you: an
-  auto-repair would make the broken state invisible and the next green run
-  would be measuring code nobody has looked at.
-
-  It records the backup it was restoring from. Inspect, restore by hand, then
-  delete the sentinel:
-
-$(sed 's/^/    /' "$SENTINEL" 2>/dev/null || echo "    <sentinel is unreadable>")
-EOF
-  exit 2
-fi
-
-[[ -f "$DRIVER" ]] || { echo "HARNESS ERROR: $DRIVER not found" >&2; exit 2; }
-[[ -f "$SUITE" ]] || { echo "HARNESS ERROR: $SUITE not found" >&2; exit 2; }
-
-BACKUP="$(mktemp -d)"
-cp -p "$DRIVER" "$BACKUP/demo-up.sh"
-
+# Still read by the end-of-run content check below.
+#
+# The matching ORIG_MODE is gone with the hand-rolled restore that was its only
+# consumer: the rail records the mode at init and VERIFIES it on restore, so a
+# second copy here would be a duplicate that nothing compares.
 ORIG_HASH="$(sha256sum "$DRIVER" | cut -d' ' -f1)"
-ORIG_MODE="$(stat -c '%a' "$DRIVER")"
 
-{
-  printf 'driver : %s\n' "$REPO_ROOT/$DRIVER"
-  printf 'backup : %s\n' "$BACKUP/demo-up.sh"
-  printf 'sha256 : %s\n' "$ORIG_HASH"
-  printf 'mode   : %s\n' "$ORIG_MODE"
-  printf 'started: %s\n' "$(date -Is)"
-} >"$SENTINEL"
+ms_guard_init lane-parallel-port "$DRIVER"
+trap ms_guard_on_exit EXIT
 
-restore() {
-  # `cp` onto the existing inode, not `mv` from the tempfile. mv replaces the
-  # inode and carries the TEMPFILE's mode across — restoring the bytes exactly
-  # while dropping the executable bit.
-  cp "$BACKUP/demo-up.sh" "$DRIVER"
-  chmod "$ORIG_MODE" "$DRIVER"
-}
-
-cleanup() {
-  restore
-  rm -f "$SENTINEL"
-  rm -rf "$BACKUP"
-}
-trap cleanup EXIT
+# The rail restores content and mode and then VERIFIES both, keeping the
+# sentinel if either is wrong. The old `cp` + `chmod` pair did the first half.
+restore() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -139,16 +114,11 @@ FAIL=0
 # A sed that cannot silently do nothing. A non-matching pattern no-ops while
 # printing success, and in a proof harness that ships as "every mutation was
 # caught" against a tree that was never mutated.
-mutate() {
-  local expr="$1" before after
-  before="$(sha256sum "$DRIVER" | cut -d' ' -f1)"
-  sed -i "$expr" "$DRIVER"
-  after="$(sha256sum "$DRIVER" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${DRIVER}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+mutate() { ms_sed "$DRIVER" "$1"; }
 
 # Reports the NAMES of failing tests, never `not ok <n>` numbers. Inserting a
 # test renumbers everything below it, and a harness that reports NOT PROVEN for

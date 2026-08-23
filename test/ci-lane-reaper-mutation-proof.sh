@@ -49,35 +49,6 @@ cd "$REPO_ROOT"
 REAPER="scripts/ci/gcp-tf-reaper.sh"
 SUITE="test/terraform-ci-lifecycle.bats"
 
-# ─── The sentinel ───────────────────────────────────────────────────────────
-#
-# Uniquely named, matched by `*mutation-in-progress` in .gitignore. Its presence
-# means a previous run died holding a mutation, so the tree cannot be trusted to
-# be the real thing. REFUSE — never auto-repair. A harness that silently
-# restores what it found would make the broken state invisible, which is the
-# same defect as a guard that repairs what it detects (CONTRACT §6).
-SENTINEL="$REPO_ROOT/.ci-lane-reaper-mutation-in-progress"
-
-if [[ -e "$SENTINEL" ]]; then
-  cat >&2 <<EOF
-HARNESS REFUSING TO START.
-
-  A sentinel from a previous run is present:
-    $SENTINEL
-
-  That run died while ${REAPER} was MUTATED, so the working tree may contain a
-  deliberately broken reaper. This harness will not repair it for you: an
-  auto-repair would make the broken state invisible and the next green run
-  would be measuring code nobody has looked at.
-
-  It records the backup it was restoring from. Inspect, restore by hand, then
-  delete the sentinel:
-
-$(sed 's/^/    /' "$SENTINEL" 2>/dev/null || echo "    <sentinel is unreadable>")
-EOF
-  exit 2
-fi
-
 [[ -f "$REAPER" ]] || {
   echo "HARNESS ERROR: $REAPER not found" >&2
   exit 2
@@ -87,50 +58,45 @@ fi
   exit 2
 }
 
-BACKUP="$(mktemp -d)"
-cp -p "$REAPER" "$BACKUP/reaper.sh"
+# ─── The sentinel, now the shared one ───────────────────────────────────────
+#
+# Uniquely named, matched by `*mutation-in-progress` in .gitignore. Its presence
+# means a previous run died holding a mutation, so the tree cannot be trusted to
+# be the real thing. REFUSE — never auto-repair. A harness that silently
+# restores what it found would make the broken state invisible, which is the
+# same defect as a guard that repairs what it detects (CONTRACT §6).
+#
+# The hand-rolled version this replaces got all of that right and still had two
+# gaps the shared rail closes. It could not tell a LIVE second run from a dead
+# one, so a concurrent invocation read as a leaked mutation and sent the reader
+# to inspect a tree nothing was wrong with. And its `cleanup` removed the
+# sentinel UNCONDITIONALLY, so a restore that failed left a mutated tree with
+# nothing recording that fact — the exact state the sentinel exists to make
+# visible. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-# Both axes, recorded before anything is touched.
+# Both axes, recorded before anything is touched — still read by the
+# end-of-run verification below.
 ORIG_HASH="$(sha256sum "$REAPER" | cut -d' ' -f1)"
 ORIG_MODE="$(stat -c '%a' "$REAPER")"
 
-{
-  printf 'reaper : %s\n' "$REPO_ROOT/$REAPER"
-  printf 'backup : %s\n' "$BACKUP/reaper.sh"
-  printf 'sha256 : %s\n' "$ORIG_HASH"
-  printf 'mode   : %s\n' "$ORIG_MODE"
-  printf 'started: %s\n' "$(date -Is)"
-} >"$SENTINEL"
+ms_guard_init ci-lane-reaper "$REAPER"
+trap ms_guard_on_exit EXIT
 
-restore() {
-  # `cp` onto the existing inode, not `mv` from the tempfile. mv replaces the
-  # inode and carries the TEMPFILE's mode across — restoring the bytes exactly
-  # while dropping the executable bit, which is how this failure was found.
-  cp "$BACKUP/reaper.sh" "$REAPER"
-  chmod "$ORIG_MODE" "$REAPER"
-}
-
-cleanup() {
-  restore
-  rm -f "$SENTINEL"
-  rm -rf "$BACKUP"
-}
-trap cleanup EXIT
+# The rail restores content and mode and then VERIFIES both, keeping the
+# sentinel if either is wrong. The old `cp` + `chmod` pair did the first half.
+restore() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
 
 # A sed that cannot silently do nothing.
-mutate() {
-  local expr="$1" before after
-  before="$(sha256sum "$REAPER" | cut -d' ' -f1)"
-  sed -i "$expr" "$REAPER"
-  after="$(sha256sum "$REAPER" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${REAPER}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+mutate() { ms_sed "$REAPER" "$1"; }
 
 # Reports the NAMES of failing tests, never `not ok <n>` numbers. Inserting a
 # test renumbers everything below it, and a harness that reports NOT PROVEN for

@@ -320,8 +320,10 @@ SIGNALLOOM_SKIP_PREPARE=1 ./scripts/signalloom-local.sh up || {
   # tests.
   #
   # Half a recovery is worse than none. Say what actually happened and stop.
-  if ! kubectl -n flux-system get resourceset signalloom-infra \
-       -o jsonpath='{.spec.inputs}' 2>/dev/null | grep -q 'tenant'; then
+  local infra_inputs
+  infra_inputs="$(kubectl -n flux-system get resourceset signalloom-infra \
+    -o jsonpath='{.spec.inputs}' 2>/dev/null || true)"
+  if ! grep -q 'tenant' <<<"$infra_inputs"; then
     echo "ERROR: signalloom-infra was never activated — its inputs are empty." >&2
     echo "       This is a SETUP failure, not a test failure. The test stages" >&2
     echo "       would run against a cluster with no infra and report stages" >&2

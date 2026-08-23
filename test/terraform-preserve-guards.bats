@@ -306,7 +306,7 @@ mutate() {
   # Existence before content: prove the stripped source still contains the code
   # this test is about, so the absence below is an absence in real code rather
   # than in an empty string.
-  printf '%s\n' "$code" | grep -q 'secrets versions list' || {
+  grep -q 'secrets versions list' <<<"$code" || {
     echo "the version-listing call is missing from the stripped source;"
     echo "this test would be scanning nothing"
     return 1

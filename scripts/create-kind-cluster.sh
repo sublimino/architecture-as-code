@@ -36,7 +36,8 @@ prepare_zot_cache() {
 # Ensure the pull-through caches (and the shared kind network) exist first.
 registry_cache_up
 
-if "$KIND_BIN" get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
+EXISTING_CLUSTERS="$("$KIND_BIN" get clusters 2>/dev/null || true)"
+if grep -qx "$CLUSTER_NAME" <<<"$EXISTING_CLUSTERS"; then
   prepare_zot_cache
   registry_cache_configure_node "${CLUSTER_NAME}-control-plane"
   echo "Kind cluster $CLUSTER_NAME already exists; preserving Zot cache at $ZOT_CACHE_DIR"

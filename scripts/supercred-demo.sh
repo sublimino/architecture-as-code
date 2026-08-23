@@ -580,9 +580,9 @@ $(printf '%s' "$agent_log" | indent)"
   log "agent output after revocation (full, verbatim):"
   printf '%s\n' "$agent_log" | indent
 
-  if printf '%s' "$agent_log" | grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[13])'; then
+  if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[13])' <<<"$agent_log"; then
     ok "confirmed: the agent reached SPIFFE but was DENIED credentials — that is the stun"
-  elif printf '%s' "$agent_log" | grep -q 'FAILED'; then
+  elif grep -q 'FAILED' <<<"$agent_log"; then
     # A failure at a different step means the demo broke, not that the stun
     # worked. Saying so beats claiming a revocation the output does not support.
     fail "the agent job failed, but NOT at the credential step, so this run does not

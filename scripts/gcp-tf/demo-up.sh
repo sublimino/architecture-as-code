@@ -2588,8 +2588,9 @@ forward_unit_state() {
 
 remote_is_publishing() {
   local port="$1"
-  remote_run "ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHING || echo ABSENT" 2>/dev/null \
-    | grep -q PUBLISHING
+  local publishing
+  publishing="$(remote_run "ss -ltn 2>/dev/null | grep -q ':${port} ' && echo PUBLISHING || echo ABSENT" 2>/dev/null || true)"
+  grep -q PUBLISHING <<<"$publishing"
 }
 
 # Start the VM-side supervised forward if it is not already up. Idempotent.

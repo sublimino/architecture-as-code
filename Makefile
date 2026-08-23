@@ -1581,7 +1581,7 @@ define gcp_tf_require_env
 		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$ — demo-1, demo-2, ci-1."; \
 		exit 2; \
 	fi
-	@printf '%s' '$(ENV)' | grep -Eq '^(demo|ci)-[1-9][0-9]*$$' || { \
+	@grep -Eq '^(demo|ci)-[1-9][0-9]*$$' <<<'$(ENV)' || { \
 		echo "ERROR: ENV='$(ENV)' is not a valid environment key."; \
 		echo "       Keys match ^(demo|ci)-[1-9][0-9]*\$$."; \
 		echo "       'prod-1' is rejected on purpose: this platform builds demo and"; \
@@ -1909,7 +1909,7 @@ gcp-tf-ci: ## Plan the CI environment lane (CI=<ci-N>). Delegates to gcp-tf-plan
 		echo "ERROR: CI is required for '$@'. Usage: make $@ CI=ci-1"; \
 		exit 2; \
 	fi
-	@printf '%s' '$(CI)' | grep -Eq '^ci-[1-9][0-9]*$$' || { \
+	@grep -Eq '^ci-[1-9][0-9]*$$' <<<'$(CI)' || { \
 		echo "ERROR: CI='$(CI)' is not a valid CI environment key (^ci-[1-9][0-9]*\$$)."; \
 		echo "       This lane runs CI environments only; use ENV= for a demo."; \
 		exit 2; \

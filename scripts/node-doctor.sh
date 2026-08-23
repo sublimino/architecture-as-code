@@ -235,6 +235,59 @@ probe_tailnet() {
   printf '%s' "${code:-000}"
 }
 
+# ─── Telling the four 000s apart ────────────────────────────────────────────
+#
+# `000` is not a diagnosis, it is the absence of one, and FOUR quite different
+# states all produce it. curl's EXIT STATUS separates them, and it costs nothing
+# because curl already computed it. Measured 2026-08-23 against the live estate:
+#
+#   state                         http_code  curl exit  measured on
+#   HTTPS answering                 200          0      sl-demo-1 (has a cert)
+#   MagicDNS name does not resolve  000          6      sl-nope-9 (invented)
+#   nothing listening on the port   000          7      sl-ci-1 over http :80
+#   connection never completes      000         28      sl-ci-1 over https :443
+#
+# The last one is the state this whole change exists around: the node IS on the
+# tailnet, tailscaled IS listening on 443, and it cannot present a certificate,
+# so the connection stalls and curl times out with connect=0.000000. From a bare
+# `%{http_code}` it is byte-identical to "not on the tailnet at all" — which is
+# precisely how a certificate outage gets misdiagnosed as a networking failure.
+#
+# 35 is included with 28 because curl reports an SSL connect error rather than a
+# timeout when the far side rejects the handshake promptly rather than stalling.
+# Both mean "TLS did not complete", which is the distinction that matters here.
+probe_tailnet_detail() {
+  local scheme="$1" path="$2" port_suffix="$3" code rc
+  command -v curl >/dev/null 2>&1 || { printf 'UNKNOWN:0'; return; }
+  code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
+    "${scheme}://${TS_FQDN}${port_suffix}${path}" 2>/dev/null)"
+  rc=$?
+  printf '%s:%s' "${code:-000}" "$rc"
+}
+
+# Classifies the tailnet surface into ONE of five named states.
+#
+# Deliberately not folded into nd_verdict_http: that function answers "is this
+# HTTP code good", and the question here is "which of several mutually
+# exclusive situations are we in", which no single status code can answer.
+# HTTP_FALLBACK in particular must be its OWN value — not a pass, because the
+# intended HTTPS posture is absent, and not the generic failure arm, because
+# the estate IS serving and the rest of the suite must carry on against it.
+nd_classify_tailnet() {
+  local https_detail="$1" http_detail="$2"
+  local https_code="${https_detail%%:*}" https_rc="${https_detail##*:}"
+  local http_code="${http_detail%%:*}"
+
+  if [ "$https_code" = "200" ]; then printf 'HTTPS_OK'; return; fi
+  if [ "$http_code" = "200" ]; then printf 'HTTP_FALLBACK'; return; fi
+
+  case "$https_rc" in
+    6)     printf 'NAME_UNRESOLVED' ;;
+    28|35) printf 'TLS_NEVER_COMPLETES' ;;
+    *)     printf 'NOTHING_SERVING' ;;
+  esac
+}
+
 run_one() {
   local env_key="$1"
   load_handoff "$env_key"
@@ -292,6 +345,42 @@ run_one() {
     # shouting about: the URL is answering and this lane is not what is behind it.
     if [ "$t_root" = "200" ] && [ "$v_root" != "200" ]; then
       nd_fail "the tailnet URL answers 200 while ${INSTANCE_NAME} itself answers ${v_root} on :${APP_PORT}. Something OTHER than this lane is behind that URL — check the MagicDNS name above for suffix drift."
+    fi
+
+    # ─── Which of the five tailnet states is this? ──────────────────────────
+    #
+    # Only runs when the plain probe already said "not 200", so the healthy
+    # path costs one extra curl and the broken path gains a real diagnosis
+    # instead of a bare 000.
+    if [ "$t_root" != "200" ]; then
+      local https_detail http_detail tailnet_state
+      https_detail="$(probe_tailnet_detail https / '')"
+      http_detail="$(probe_tailnet_detail http / '')"
+      tailnet_state="$(nd_classify_tailnet "$https_detail" "$http_detail")"
+
+      case "$tailnet_state" in
+        HTTP_FALLBACK)
+          # ITS OWN STATE, and nd_degraded rather than nd_warn is the whole of
+          # it. Not a pass — the intended HTTPS posture is absent, and a green
+          # summary would turn a certificate outage into a clean run. Not the
+          # generic failure arm either — the estate IS serving, every other
+          # check against it is meaningful, and the suite must carry on rather
+          # than abort on a condition we may be EXPECTING and cannot fix for up
+          # to 168h. And NOT nd_warn: that counter already carries an 85%-full
+          # disk, and it does not move the summary verdict at all, so routing
+          # this through it would leave the lane reporting HEALTHY.
+          nd_degraded "serving over HTTP because the certificate is unavailable — http://${TS_FQDN}/ answers 200, https://${TS_FQDN}/ does not. Tailnet traffic is WireGuard-encrypted so this is usable, but it is NOT the intended posture. Cause and retry-after: /var/lib/signalloom/tailscale-cert-state.json on ${INSTANCE_NAME}, or 'journalctl -u tailscaled | grep getCertPEM'. The Let's Encrypt window is per exact DNS name, so this lane's retry-after says nothing about any other lane."
+          ;;
+        TLS_NEVER_COMPLETES)
+          nd_fail "the TLS handshake to https://${TS_FQDN}/ never completes (curl times out with connect=0). The node is on the tailnet and tailscaled is listening, but it has NO CERTIFICATE to present — from curl alone this is byte-identical to not being on the tailnet at all. No HTTP fallback is configured either. Check 'journalctl -u tailscaled | grep getCertPEM' on ${INSTANCE_NAME} for a 429 and its retry-after."
+          ;;
+        NAME_UNRESOLVED)
+          nd_fail "${TS_FQDN} does not resolve from here (curl exit 6). Either this machine is not on the tailnet, or the node's MagicDNS name has drifted from the one this lane expects."
+          ;;
+        NOTHING_SERVING)
+          nd_fail "nothing is served on ${TS_FQDN} — the connection is refused (curl exit 7). The node may be on the tailnet with no 'tailscale serve' configuration at all."
+          ;;
+      esac
     fi
   fi
 

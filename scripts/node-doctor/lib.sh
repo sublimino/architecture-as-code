@@ -35,6 +35,13 @@ ND_PASS=0
 ND_FAIL=0
 ND_WARN=0
 ND_UNKNOWN=0
+# DEGRADED is its own accumulator rather than a reuse of ND_WARN, and that is
+# the whole point of it. WARN already has a producer — nd_verdict_disk returns
+# it at ND_DISK_WARN_PCT — and folding "serving, but not in the intended
+# posture" into the same counter would mean an 85%-full disk and a lost TLS
+# certificate reach the summary as the same fact. See nd_summary for why this
+# is not FAIL either.
+ND_DEGRADED=0
 
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   ND_RED=$'\033[0;31m'; ND_GRN=$'\033[0;32m'; ND_YEL=$'\033[0;33m'
@@ -47,6 +54,10 @@ nd_header() { printf '\n%s%s── %s ──%s\n' "$ND_BLD" "$ND_CYA" "$1" "$ND_
 nd_pass()   { printf '  %s✓%s %s\n' "$ND_GRN" "$ND_RST" "$1"; ND_PASS=$((ND_PASS + 1)); }
 nd_fail()   { printf '  %s✗%s %s\n' "$ND_RED" "$ND_RST" "$1"; ND_FAIL=$((ND_FAIL + 1)); }
 nd_warn()   { printf '  %s⚠%s %s\n' "$ND_YEL" "$ND_RST" "$1"; ND_WARN=$((ND_WARN + 1)); }
+# "The thing is up and serving, but NOT in the posture it is supposed to be in."
+# A distinct glyph from both ✓ and ⚠ because the reader's eye is the first
+# consumer of this and the two must not blur.
+nd_degraded() { printf '  %s◐%s %s\n' "$ND_YEL" "$ND_RST" "$1"; ND_DEGRADED=$((ND_DEGRADED + 1)); }
 # Deliberately NOT a warning. "?" reads as "we do not know", which is the whole
 # point; a "⚠" next to it would invite the reader to treat it as a soft pass.
 nd_unknown() { printf '  %s?%s %s\n' "$ND_YEL" "$ND_RST" "$1"; ND_UNKNOWN=$((ND_UNKNOWN + 1)); }
@@ -60,6 +71,7 @@ nd_report() {
     PASS)    nd_pass    "$message" ;;
     FAIL)    nd_fail    "$message" ;;
     WARN)    nd_warn    "$message" ;;
+    DEGRADED) nd_degraded "$message" ;;
     UNKNOWN) nd_unknown "$message" ;;
     # An adjudicator returning something else is a bug in this file, and it must
     # not be silently swallowed into a pass.
@@ -444,17 +456,40 @@ nd_verdict_vm_status() {
 nd_summary() {
   local env_key="$1" kind="$2" verdict rc
 
-  if   [ "$ND_FAIL" -gt 0 ];    then verdict=FAIL;    rc=1
-  elif [ "$ND_UNKNOWN" -gt 0 ]; then verdict=UNKNOWN; rc=3
-  else                               verdict=PASS;    rc=0
+  # DEGRADED sits between FAIL and UNKNOWN, and it carries rc=0 while every
+  # other non-PASS verdict carries a non-zero one. Both halves of that are
+  # deliberate and neither is obvious.
+  #
+  # It is not PASS because the lane is NOT in its intended posture and a green
+  # summary would launder that away — a lost TLS certificate would read as a
+  # clean run, which is the vacuous-pass shape this repo keeps paying for.
+  #
+  # It is not FAIL because the lane IS serving and every other check against it
+  # is meaningful. The one condition this exists for — a Let's Encrypt 429 —
+  # cannot be fixed for up to 168h, and the standing requirement is that it must
+  # not block acceptance testing of everything else.
+  #
+  # rc is what gates: `make doctor-node-all` propagates it, so a non-zero rc
+  # here would fail the sweep and therefore the suite, which is the outcome that
+  # was explicitly ruled out. Visibility is carried by the VERDICT TOKEN on the
+  # machine-readable line and by the prose below, not by the exit status.
+  if   [ "$ND_FAIL" -gt 0 ];     then verdict=FAIL;     rc=1
+  elif [ "$ND_DEGRADED" -gt 0 ]; then verdict=DEGRADED; rc=0
+  elif [ "$ND_UNKNOWN" -gt 0 ];  then verdict=UNKNOWN;  rc=3
+  else                                verdict=PASS;     rc=0
   fi
 
   nd_header "SUMMARY"
-  printf '  pass=%d  fail=%d  warn=%d  unknown=%d\n' \
-    "$ND_PASS" "$ND_FAIL" "$ND_WARN" "$ND_UNKNOWN"
+  printf '  pass=%d  fail=%d  warn=%d  unknown=%d  degraded=%d\n' \
+    "$ND_PASS" "$ND_FAIL" "$ND_WARN" "$ND_UNKNOWN" "$ND_DEGRADED"
   case "$verdict" in
     PASS) printf '  %s%sHEALTHY%s — every check ran and passed.\n' "$ND_GRN" "$ND_BLD" "$ND_RST" ;;
     FAIL) printf '  %s%sFAULTS FOUND%s — %d check(s) failed. See above.\n' "$ND_RED" "$ND_BLD" "$ND_RST" "$ND_FAIL" ;;
+    DEGRADED) printf '  %s%sSERVING, BUT NOT AS INTENDED%s — %d check(s) degraded.\n' \
+                "$ND_YEL" "$ND_BLD" "$ND_RST" "$ND_DEGRADED"
+              printf '  This is NOT a pass. The lane is up and the rest of the suite can run\n'
+              printf '  against it, which is why this does not fail the sweep — but it is not\n'
+              printf '  in the posture it is supposed to be in. See the degraded line above.\n' ;;
     UNKNOWN) printf '  %s%sNOT FULLY MEASURED%s — nothing failed, but %d check(s) could not run.\n' \
                "$ND_YEL" "$ND_BLD" "$ND_RST" "$ND_UNKNOWN"
              printf '  This is NOT a pass. A check that could not run has told you nothing.\n' ;;
@@ -463,8 +498,11 @@ nd_summary() {
   # The sweep contract. One machine-readable line, always last, always emitted —
   # `make doctor-node-all` greps for exactly this rather than parsing the prose
   # above it, so the prose stays free to be reworded.
-  printf 'NODE-DOCTOR %s %s %s pass=%d fail=%d warn=%d unknown=%d\n' \
-    "$env_key" "$kind" "$verdict" "$ND_PASS" "$ND_FAIL" "$ND_WARN" "$ND_UNKNOWN"
+  # degraded= is APPENDED rather than inserted. Existing consumers match on a
+  # prefix of this line — test/node-doctor.bats pins the exact text up to
+  # unknown=N — so a new field at the end is additive and an inserted one is not.
+  printf 'NODE-DOCTOR %s %s %s pass=%d fail=%d warn=%d unknown=%d degraded=%d\n' \
+    "$env_key" "$kind" "$verdict" "$ND_PASS" "$ND_FAIL" "$ND_WARN" "$ND_UNKNOWN" "$ND_DEGRADED"
   return "$rc"
 }
 

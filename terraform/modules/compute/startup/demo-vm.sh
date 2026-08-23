@@ -145,6 +145,51 @@ readonly TS_SERVE_HTTPS_PORT="443"
 # Ceiling on the boot-time wait for tailscaled to finish authenticating.
 readonly TS_SERVE_WAIT_SECONDS="120"
 
+# ─── Tailscale certificate persistence ──────────────────────────────────────
+#
+# tailscaled keeps its Let's Encrypt certificate here. This directory is on the
+# BOOT DISK, so `terraform destroy` takes it and the next build asks ACME for a
+# brand new certificate — while the MagicDNS name, which is what Let's Encrypt
+# rate-limits, survives the rebuild untouched. Five issuances per 168h per exact
+# name, so roughly five rebuilds exhaust the allowance and the lane then serves
+# no TLS at all (measured: both sl-demo-1 and sl-ci-1 answering 000, tailscaled
+# logging `getCertPEM: 429 ... too many certificates (5) already issued`).
+readonly TS_CERT_DIR="/var/lib/tailscale/certs"
+
+# Written when a restore was EXPECTED and did not happen, removed on every
+# success. Same mechanism and same reasoning as TS_NAME_MARKER: the failure this
+# guards against is silent — a failed restore looks exactly like a first-ever
+# boot, tailscaled cheerfully requests a new certificate, and the only visible
+# consequence arrives days later as a 429 on a lane nobody was rebuilding. The
+# marker is what turns that into a question somebody can answer.
+#
+# CONTAINS NO KEY MATERIAL — it holds a reason string. Asserted in
+# test/terraform-tailscale-cert-persistence.bats rather than left to intentions.
+readonly TS_CERT_MARKER="/var/lib/signalloom/tailscale-cert-restore-failed"
+
+# The renewal-capture timer. tailscaled renews at roughly 60 days; without a
+# save path the bucket would hold the original certificate forever and every
+# rebuild after the first renewal would restore an EXPIRED one — which fails
+# closed in a much more confusing way than having no certificate at all.
+readonly TS_CERT_SAVE_UNIT_NAME="signalloom-tailscale-cert-save.service"
+readonly TS_CERT_SAVE_UNIT="/etc/systemd/system/${TS_CERT_SAVE_UNIT_NAME}"
+readonly TS_CERT_SAVE_TIMER_NAME="signalloom-tailscale-cert-save.timer"
+readonly TS_CERT_SAVE_TIMER="/etc/systemd/system/${TS_CERT_SAVE_TIMER_NAME}"
+readonly TS_CERT_SAVE_HELPER="/usr/local/sbin/signalloom-tailscale-cert-save"
+
+# GCS JSON API, reached through the Private Google Access VIP. Measured from
+# sl-ci-1-vm under the estate's default-deny egress:
+#
+#   $ getent hosts storage.googleapis.com
+#   199.36.153.8..11  restricted.googleapis.com storage.googleapis.com
+#   $ curl -o /dev/null -w '%{http_code}' https://storage.googleapis.com/
+#   400
+#
+# 400 rather than a timeout is the point: the request completed. The estate's
+# allow_egress_google_apis rule already covers 199.36.153.8/30, so certificate
+# persistence needs NO new firewall rule and no new egress destination.
+readonly TS_CERT_GCS_API="https://storage.googleapis.com"
+
 log() {
   echo "[${LOG_TAG}] $*"
   logger -t "$LOG_TAG" -- "$*" || true
@@ -386,7 +431,7 @@ install_kubectl() {
 #   * 41641/udp and 3478/udp — optional. Without them Tailscale still connects,
 #     relaying through DERP over TCP 443 rather than negotiating a direct path.
 install_tailscale() {
-  local enabled secret_id tag node_name want_ssh
+  local enabled secret_id tag node_name want_ssh cert_bucket cert_prefix
   enabled="$(metadata_attr signalloom-tailscale-enabled)" || enabled=""
 
   if [[ "$enabled" != "TRUE" ]]; then
@@ -402,6 +447,13 @@ install_tailscale() {
   node_name="$(metadata_attr signalloom-tailscale-hostname)" || node_name=""
   want_ssh="$(metadata_attr signalloom-tailscale-ssh)" || want_ssh="FALSE"
 
+  # The certificate store is OPTIONAL and deliberately not part of the
+  # completeness check below: an estate that has not created the bucket must
+  # still join the tailnet exactly as it did before this existed. Empty means
+  # "no persistence", which is the pre-existing behaviour, not a fault.
+  cert_bucket="$(metadata_attr signalloom-tailscale-cert-bucket)" || cert_bucket=""
+  cert_prefix="$(metadata_attr signalloom-tailscale-cert-prefix)" || cert_prefix=""
+
   if [[ -z "$secret_id" || -z "$tag" || -z "$node_name" ]]; then
     log "WARNING: tailscale is enabled but its metadata is incomplete"
     log "WARNING: secret-id='${secret_id}' tag='${tag}' hostname='${node_name}'"
@@ -409,12 +461,35 @@ install_tailscale() {
     return 0
   fi
 
+  # BEFORE install_tailscale_package, and the ordering is the entire mechanism
+  # rather than a preference. install_tailscale_package ends with
+  # `systemctl enable --now tailscaled`, and the certificate has to already be
+  # on disk when tailscaled starts looking. Measured on sl-ci-1-vm:
+  #
+  #   boot            2026-08-22 17:55:23
+  #   cert request    2026-08-22T17:56:05   cert("sl-ci-1.taild4da3.ts.net")
+  #
+  # 42 seconds after boot. Anything that restores later than that — including
+  # every path in scripts/gcp-tf/demo-up.sh, which cannot even SSH in that
+  # early — arrives after tailscaled has already spent one of the five
+  # issuances Let's Encrypt allows per 168h for this exact DNS name. Moving
+  # this call below install_tailscale_package does not fail any obvious test;
+  # it just quietly restores the old behaviour, which is why
+  # test/terraform-tailscale-cert-persistence.bats asserts the ORDER.
+  restore_tailscale_certs "$cert_bucket" "$cert_prefix"
+
   install_tailscale_package || return 0
 
   local authkey
   authkey="$(fetch_tailscale_authkey "$secret_id")" || return 0
 
   bring_tailscale_up "$authkey" "$tag" "$node_name" "$want_ssh"
+
+  # After the node is up, so the save helper's first run has a real cert to
+  # find. Installing the timer is cheap and idempotent; it is what carries a
+  # RENEWED certificate (roughly every 60 days) back to the bucket, and without
+  # it persistence would work exactly once and then silently rot.
+  install_tailscale_cert_save_unit "$cert_bucket" "$cert_prefix"
 }
 
 # Installs the tailscale package from the publisher's own apt repository.
@@ -549,6 +624,341 @@ fetch_tailscale_authkey() {
   fi
 
   printf '%s' "$payload"
+}
+
+# Mints an access token for the instance's own attached service account.
+#
+# Split out of fetch_tailscale_authkey rather than duplicated because both the
+# Secret Manager read and the GCS read need exactly this, and a second copy is a
+# second place for the metadata path to be wrong. Nothing long-lived is stored:
+# the token is minted per call and lives in a shell variable.
+instance_access_token() {
+  local bearer
+  bearer="$(curl --fail --silent --show-error \
+    --header "Metadata-Flavor: Google" \
+    "${METADATA_ROOT}/instance/service-accounts/default/token" 2>/dev/null \
+    | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')" || bearer=""
+
+  [[ -n "$bearer" ]] || return 1
+  printf '%s' "$bearer"
+}
+
+# Marks a restore as failed, loudly and durably.
+#
+# The estate must NEVER treat "could not restore" as "nothing to restore". Those
+# two produce the identical next action from tailscaled — request a fresh
+# certificate — and the identical appearance on the VM, but only one of them is
+# spending a resource that regenerates at five per week. So the failure is
+# recorded on disk, in the same place and the same shape as the node-name
+# mismatch marker, and the caller carries on: a lane that cannot restore its
+# certificate should still come up, still join the tailnet, and still be
+# diagnosable, rather than aborting the bootstrap over an optional feature.
+ts_cert_restore_failed() {
+  local reason="$1"
+
+  install -d -m 0755 "$(dirname "$TS_CERT_MARKER")" 2>/dev/null || true
+  printf '%s\n' "$reason" >"$TS_CERT_MARKER" 2>/dev/null || true
+
+  log "WARNING: ${reason}"
+  log "WARNING: this node will request a NEW Let's Encrypt certificate."
+  log "WARNING: Let's Encrypt allows 5 per 168h for one exact DNS name, and the"
+  log "WARNING: name outlives the disk — so repeated rebuilds exhaust it and the"
+  log "WARNING: lane then completes no TLS handshake at all (curl reports 000)."
+  log "WARNING: marker written to ${TS_CERT_MARKER}"
+  return 0
+}
+
+# Restores this node's TLS certificate from the durable bucket, before
+# tailscaled has had any opportunity to ask ACME for a new one.
+#
+# ─── What is restored, and what is deliberately NOT ─────────────────────────
+#
+# Restored: everything under /var/lib/tailscale/certs — the <fqdn>.crt, the
+# <fqdn>.key, and acme-account.key.pem. The account key is included because
+# re-registering an ACME account on every boot is itself a rate-limited
+# operation (and shows up in the log as "registered ACME account" each time);
+# carrying it costs one object and removes that entirely.
+#
+# NOT restored: /var/lib/tailscale/tailscaled.state, which holds the node's
+# identity. Persisting the whole state directory was considered and REJECTED —
+# it looks attractive because it would also pin the node identity and might
+# address the name-drift-to-sl-demo-1-1 problem, but it fights a deliberate
+# design decision this estate has already made. signalloom-tailscale-logout
+# runs `tailscale logout` at shutdown specifically to RELEASE the device record
+# so the next build can reclaim the name. A state file captured after that
+# logout is logged out and restores nothing; a state file captured before it
+# would reinstate an identity the estate just deliberately released. The
+# certificate has no such conflict: it is keyed on the DNS name, the estate
+# already guarantees the node comes back under that same name, and a valid
+# certificate for that name is valid no matter which device record presents it.
+#
+# The object names are discovered by LISTING the prefix rather than composed
+# from the hostname, because the file name is the node's fully-qualified
+# MagicDNS name and this script does not know the tailnet suffix at boot — it
+# has not joined yet. Listing also means a tailnet rename does not silently
+# restore a certificate for the wrong name: there would simply be no match.
+restore_tailscale_certs() {
+  local bucket="$1" prefix="$2"
+
+  if [[ -z "$bucket" || -z "$prefix" ]]; then
+    # Not a failure and NOT marked as one. Persistence is opt-in; an estate that
+    # has not created the bucket behaves exactly as it did before this existed.
+    log "tailscale certificate persistence is not configured, skipping restore"
+    return 0
+  fi
+
+  log "restoring tailscale certificates from gs://${bucket}/${prefix}/"
+
+  local bearer
+  bearer="$(instance_access_token)" || {
+    ts_cert_restore_failed "no access token for the instance service account, so gs://${bucket}/${prefix}/ could not be read"
+    return 0
+  }
+
+  local listing
+  listing="$(curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+    --header "Authorization: Bearer ${bearer}" \
+    "${TS_CERT_GCS_API}/storage/v1/b/${bucket}/o?prefix=${prefix}%2F" 2>/dev/null)" || {
+    ts_cert_restore_failed "could not list gs://${bucket}/${prefix}/ — the runtime service account needs roles/storage.objectAdmin on that prefix, and the bootstrap root grants it with an IAM condition anchored on \"objects/${prefix}/\""
+    return 0
+  }
+
+  # Object names out of the JSON listing, one per line. sed rather than jq
+  # because jq is deliberately not a prerequisite of this script — the same
+  # reasoning fetch_tailscale_authkey records for the Secret Manager response.
+  local names
+  names="$(printf '%s' "$listing" \
+    | tr ',' '\n' \
+    | sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')"
+
+  if [[ -z "$names" ]]; then
+    # An empty prefix is the legitimate first-ever boot for this lane. Saying so
+    # explicitly matters: it is the ONE case where requesting a new certificate
+    # is correct, and it must not be confused with the failure paths above.
+    log "gs://${bucket}/${prefix}/ is empty — first boot for this lane"
+    log "tailscaled will request a certificate and the save timer will store it"
+    rm -f "$TS_CERT_MARKER" 2>/dev/null || true
+    return 0
+  fi
+
+  install -d -m 0700 "$TS_CERT_DIR" || {
+    ts_cert_restore_failed "could not create ${TS_CERT_DIR}"
+    return 0
+  }
+
+  local name base encoded restored=0 failed=0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    base="${name##*/}"
+    [[ -n "$base" ]] || continue
+
+    # %2F, because the object name contains a slash and the JSON API takes it as
+    # a single path segment. An unencoded slash produces a 404 that reads as a
+    # missing object rather than as a malformed request.
+    encoded="${prefix}%2F${base}"
+
+    if curl --fail --silent --show-error --retry 3 --retry-delay 2 \
+      --header "Authorization: Bearer ${bearer}" \
+      --output "${TS_CERT_DIR}/${base}" \
+      "${TS_CERT_GCS_API}/storage/v1/b/${bucket}/o/${encoded}?alt=media" 2>/dev/null; then
+      chmod 0600 "${TS_CERT_DIR}/${base}" 2>/dev/null || true
+      restored=$((restored + 1))
+    else
+      # Remove the partial. curl --fail still creates the output file, and a
+      # truncated .key is worse than an absent one: tailscaled would fail to
+      # parse it rather than fall through to requesting a certificate.
+      rm -f "${TS_CERT_DIR}/${base}" 2>/dev/null || true
+      failed=$((failed + 1))
+    fi
+  done <<<"$names"
+
+  if [[ "$failed" -gt 0 ]]; then
+    ts_cert_restore_failed "restored ${restored} of $((restored + failed)) objects from gs://${bucket}/${prefix}/ — an incomplete certificate set is not usable"
+    return 0
+  fi
+
+  # A certificate without its key, or a key without its certificate, is not a
+  # usable pair and tailscaled will request a new one anyway. Better to say so
+  # here than to report a successful restore and be contradicted by a 429.
+  local have_crt have_key
+  have_crt="$(find "$TS_CERT_DIR" -maxdepth 1 -name '*.crt' -type f 2>/dev/null | head -n 1)"
+  have_key="$(find "$TS_CERT_DIR" -maxdepth 1 -name '*.key' -type f 2>/dev/null | head -n 1)"
+
+  if [[ -z "$have_crt" || -z "$have_key" ]]; then
+    ts_cert_restore_failed "gs://${bucket}/${prefix}/ holds no complete certificate pair (crt='${have_crt}' key='${have_key}')"
+    return 0
+  fi
+
+  rm -f "$TS_CERT_MARKER" 2>/dev/null || true
+  log "restored ${restored} certificate objects into ${TS_CERT_DIR}"
+  log "tailscaled will reuse the existing certificate instead of asking ACME"
+}
+
+# Installs the timer that carries a renewed certificate back to the bucket.
+#
+# A TIMER rather than a shutdown hook. The shutdown path is exactly where this
+# estate has already been bitten — signalloom-tailscale-logout only fires when
+# systemd stops the unit cleanly, and a `terraform destroy` that deletes the
+# instance does not always give it that chance. Renewal happens at roughly day
+# 60 on a machine that is up, so a periodic save catches it; a shutdown-only
+# save would miss every renewal on a lane that is eventually hard-killed, and
+# would miss it silently.
+install_tailscale_cert_save_unit() {
+  local bucket="$1" prefix="$2"
+
+  if [[ -z "$bucket" || -z "$prefix" ]]; then
+    log "tailscale certificate persistence is not configured, no save timer"
+    return 0
+  fi
+
+  # Quoted heredoc plus explicit substitution of the two coordinates, so the
+  # helper on disk contains no expansions this script did not intend. Written
+  # with `if ! cat` for the reason install_tailscale_logout_unit records.
+  if ! cat >"$TS_CERT_SAVE_HELPER" <<CERTSAVE
+#!/usr/bin/env bash
+# WRITTEN BY terraform/modules/compute/startup/demo-vm.sh
+# (install_tailscale_cert_save_unit). Edit it there, not here.
+#
+# Uploads this node's Tailscale certificate to the durable bucket whenever it
+# changes, so a rebuild can restore it instead of spending one of Let's
+# Encrypt's five-per-168h issuances for this node's exact DNS name.
+set -uo pipefail
+
+BUCKET="${bucket}"
+PREFIX="${prefix}"
+CERT_DIR="${TS_CERT_DIR}"
+GCS_API="${TS_CERT_GCS_API}"
+STAMP_DIR="/var/lib/signalloom/tailscale-cert-uploaded"
+
+log() { echo "[signalloom-cert-save] \$*"; }
+
+BEARER="\$(curl --fail --silent --show-error \\
+  --header 'Metadata-Flavor: Google' \\
+  'http://169.254.169.254/computeMetadata/v1/instance/service-accounts/default/token' 2>/dev/null \\
+  | sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\\([^"]*\\)".*/\\1/p')"
+
+if [ -z "\$BEARER" ]; then
+  log "WARNING: no access token; cannot save the certificate"
+  exit 0
+fi
+
+install -d -m 0700 "\$STAMP_DIR" 2>/dev/null || true
+
+# Nothing to do before tailscaled has obtained a certificate. This is the
+# normal state on a rate-limited lane and is NOT an error.
+if [ ! -d "\$CERT_DIR" ]; then
+  exit 0
+fi
+
+uploaded=0
+for f in "\$CERT_DIR"/*; do
+  [ -f "\$f" ] || continue
+  base="\$(basename "\$f")"
+
+  # Upload only on change. The certificate is stable for ~60 days, so an
+  # unconditional upload every tick would be thousands of pointless writes and
+  # would bury the one that matters in the audit log.
+  sum="\$(md5sum "\$f" 2>/dev/null | cut -d' ' -f1)"
+  stamp="\$STAMP_DIR/\$base"
+  if [ -f "\$stamp" ] && [ "\$(cat "\$stamp" 2>/dev/null)" = "\$sum" ]; then
+    continue
+  fi
+
+  # --data-binary rather than --upload-file: the latter implies PUT and would
+  # need -X POST to override it, and a method override layered on top of an
+  # implied method is the kind of detail that works until curl changes its mind.
+  # --data-binary is a POST natively, which is what uploadType=media expects.
+  # The payload is a few kilobytes, so reading it into memory costs nothing.
+  if curl --fail --silent --show-error --retry 3 --retry-delay 2 \\
+    --header "Authorization: Bearer \$BEARER" \\
+    --header 'Content-Type: application/octet-stream' \\
+    --data-binary "@\$f" \\
+    "\$GCS_API/upload/storage/v1/b/\$BUCKET/o?uploadType=media&name=\$PREFIX%2F\$base" \\
+    >/dev/null 2>&1; then
+    printf '%s' "\$sum" > "\$stamp"
+    uploaded=\$((uploaded + 1))
+    log "saved \$base to gs://\$BUCKET/\$PREFIX/"
+  else
+    # Loud, and it does NOT write a stamp — so the next tick retries rather
+    # than recording a success that never happened.
+    log "WARNING: could not save \$base to gs://\$BUCKET/\$PREFIX/"
+    log "WARNING: the next rebuild of this lane will request a NEW certificate"
+    log "WARNING: and Let's Encrypt allows only 5 per 168h for this exact name"
+  fi
+done
+
+if [ "\$uploaded" -gt 0 ]; then
+  log "saved \$uploaded object(s); a rebuild of this lane will now reuse them"
+fi
+CERTSAVE
+  then
+    log "WARNING: could not write ${TS_CERT_SAVE_HELPER}"
+    log "WARNING: a renewed certificate will NOT be carried to the bucket, so a"
+    log "WARNING: rebuild after renewal will request a new one"
+    return 0
+  fi
+
+  chmod 0700 "$TS_CERT_SAVE_HELPER" || {
+    log "WARNING: could not chmod ${TS_CERT_SAVE_HELPER}"
+    return 0
+  }
+
+  if ! cat >"$TS_CERT_SAVE_UNIT" <<UNIT
+[Unit]
+Description=Save this node's Tailscale TLS certificate to durable storage
+Documentation=https://letsencrypt.org/docs/rate-limits/
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=${TS_CERT_SAVE_HELPER}
+UNIT
+  then
+    log "WARNING: could not write ${TS_CERT_SAVE_UNIT}"
+    return 0
+  fi
+
+  # OnBootSec gives tailscaled time to obtain a certificate on a first-ever
+  # boot; OnUnitActiveSec then catches a renewal within the hour. Persistent=true
+  # so a lane that is suspended across its renewal window still saves on resume
+  # rather than waiting a further full interval.
+  if ! cat >"$TS_CERT_SAVE_TIMER" <<UNIT
+[Unit]
+Description=Periodically save this node's Tailscale TLS certificate
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+  then
+    log "WARNING: could not write ${TS_CERT_SAVE_TIMER}"
+    return 0
+  fi
+
+  systemctl daemon-reload || {
+    log "WARNING: systemctl daemon-reload failed; ${TS_CERT_SAVE_TIMER_NAME} is not active"
+    return 0
+  }
+
+  # enable AND start, for the reason install_tailscale_logout_unit records: an
+  # enabled-but-never-started timer is armed for the NEXT boot only, which is
+  # the exact shape of a guard that looks installed and has never fired.
+  systemctl enable "$TS_CERT_SAVE_TIMER_NAME" || {
+    log "WARNING: could not enable ${TS_CERT_SAVE_TIMER_NAME}"
+    return 0
+  }
+
+  systemctl start "$TS_CERT_SAVE_TIMER_NAME" || {
+    log "WARNING: could not start ${TS_CERT_SAVE_TIMER_NAME}"
+    return 0
+  }
+
+  log "${TS_CERT_SAVE_TIMER_NAME} installed — renewals are carried to gs://${bucket}/${prefix}/"
 }
 
 # Brings the node up non-interactively.

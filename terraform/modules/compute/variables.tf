@@ -297,6 +297,26 @@ variable "tailscale_authkey_secret_id" {
   }
 }
 
+variable "tailscale_cert_bucket_name" {
+  description = "Bucket holding this node's Tailscale TLS certificate across VM rebuilds, published to the VM as the signalloom-tailscale-cert-bucket metadata attribute. Defaults to \"\", which disables the boot-time restore and leaves tailscaled requesting a fresh certificate on every rebuild — the behaviour that exhausted Let's Encrypt's five-per-168h limit for a MagicDNS name that outlives the disk. Declared in terraform/bootstrap so it survives `gcp-tf-destroy`, which refuses to run against that root; see google_storage_bucket.tailnet_certs there. This is a bucket NAME, not a credential: the VM authenticates with its own metadata-minted access token."
+  type        = string
+  default     = ""
+}
+
+variable "tailscale_cert_prefix" {
+  description = "Object prefix within tailscale_cert_bucket_name that this node reads and writes, normally the environment key. The bootstrap root grants each runtime service account objectAdmin CONDITIONED on its own prefix, so this value must match the key used there or the VM's reads and writes are denied. Defaults to \"\", which disables the restore for the same reason an empty bucket name does."
+  type        = string
+  default     = ""
+
+  validation {
+    # A prefix containing "/" or ".." would silently widen or escape the IAM
+    # condition's startsWith anchor, which is a security boundary rather than a
+    # path-tidiness question — so this is refused at plan rather than at the API.
+    condition     = var.tailscale_cert_prefix == "" || can(regex("^[a-z0-9][a-z0-9-]*$", var.tailscale_cert_prefix))
+    error_message = "COMPUTE-RULE-08-CERT-PREFIX: tailscale_cert_prefix must be lowercase alphanumeric with hyphens and no slashes or dots, or \"\" to disable certificate persistence. The bootstrap root's IAM condition anchors on \".../objects/<prefix>/\"; a value containing a slash or \"..\" changes what that anchor matches and is therefore a change to a security boundary, not a formatting preference."
+  }
+}
+
 variable "tailscale_tag" {
   description = "ACL tag applied to this node at `tailscale up --advertise-tags`. A tagged node is owned by the tailnet policy rather than by the user whose auth key created it, which is what makes the node's access reviewable in the ACL file and survivable when that user leaves."
   type        = string

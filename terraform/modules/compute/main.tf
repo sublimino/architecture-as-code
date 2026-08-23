@@ -206,13 +206,27 @@ locals {
   # object), the script runs before any code is delivered to the VM, and a
   # default baked into bash would be a second place for the port to live and the
   # one that is wrong after somebody changes the tfvars.
+  #
+  # signalloom-tailscale-cert-bucket and -cert-prefix carry the durable
+  # certificate store (see google_storage_bucket.tailnet_certs in
+  # terraform/bootstrap). Both are BUCKET COORDINATES, not credentials — the VM
+  # authenticates to GCS with the access token its own metadata server mints for
+  # the attached service account, exactly as fetch_tailscale_authkey already does
+  # for Secret Manager. Nothing secret enters instance metadata or Terraform
+  # state, which is the same property the auth-key path was built to have.
+  #
+  # Emitted as "" rather than omitted when persistence is disabled: the startup
+  # script then has one signal to test instead of having to distinguish "absent"
+  # from "empty", and metadata_attr already returns non-zero for an absent key.
   tailscale_metadata = var.tailscale_enabled ? {
-    signalloom-tailscale-enabled   = "TRUE"
-    signalloom-tailscale-secret-id = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
-    signalloom-tailscale-tag       = var.tailscale_tag
-    signalloom-tailscale-hostname  = local.tailscale_hostname
-    signalloom-tailscale-ssh       = var.tailscale_ssh_enabled ? "TRUE" : "FALSE"
-    signalloom-app-port            = tostring(var.app_port)
+    signalloom-tailscale-enabled     = "TRUE"
+    signalloom-tailscale-secret-id   = data.google_secret_manager_secret.tailscale_authkey[0].secret_id
+    signalloom-tailscale-tag         = var.tailscale_tag
+    signalloom-tailscale-hostname    = local.tailscale_hostname
+    signalloom-tailscale-ssh         = var.tailscale_ssh_enabled ? "TRUE" : "FALSE"
+    signalloom-tailscale-cert-bucket = var.tailscale_cert_bucket_name
+    signalloom-tailscale-cert-prefix = var.tailscale_cert_prefix
+    signalloom-app-port              = tostring(var.app_port)
   } : {}
 
   # Falls back to the module's own version-controlled script. A variable

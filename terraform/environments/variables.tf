@@ -354,3 +354,9 @@ variable "tailscale_ssh_enabled" {
   type        = bool
   default     = false
 }
+
+variable "tailnet_cert_bucket_name" {
+  description = "Name of the Tailscale certificate bucket created by terraform/bootstrap. This root does NOT create it — only bootstrap may create a bucket (test/terraform-state-protection.bats enforces that consuming roots declare none), and the whole purpose of the bucket is to outlive `make gcp-tf-destroy ENV=<key>`, which destroys everything this root owns. Empty string disables the boot-time certificate restore, which is the pre-existing behaviour: tailscaled then requests a new Let's Encrypt certificate on every rebuild, and Let's Encrypt allows five per 168h for a MagicDNS name that outlives the disk."
+  type        = string
+  default     = ""
+}

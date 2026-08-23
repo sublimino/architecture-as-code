@@ -35,21 +35,29 @@ SCRIPT="scripts/gcp-tf/worktree-bootstrap.sh"
 MAKEFILE="Makefile"
 BATS_SUITE="test/terraform-worktree-bootstrap.bats"
 
-BACKUP="$(mktemp -d)"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# The comment that used to sit here said the trap "does NOT run on SIGKILL, so
+# a -9 during a mutation leaves the tree modified — check `git status`". That
+# was accurate and it was not enough: it asked a human to notice, and the whole
+# failure mode is that nobody does. The helper leaves a marker that outlives a
+# hard kill, REFUSES to start on top of one rather than repairing it, and
+# verifies the restore on content AND mode.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-restore_all() {
-  cp "$BACKUP/worktree-bootstrap.sh" "$SCRIPT"
-  cp "$BACKUP/Makefile" "$MAKEFILE"
-  chmod +x "$SCRIPT"
-}
+ms_guard_init worktree-bootstrap "$SCRIPT" "$MAKEFILE"
+trap ms_guard_on_exit EXIT
 
-# The trap runs on SIGTERM and normal exit alike. It does NOT run on SIGKILL,
-# so a -9 during a mutation leaves the tree modified — check `git status` if
-# this harness is ever killed hard.
-trap 'restore_all; rm -rf "$BACKUP"' EXIT
+# The rail restores mode as well as content, so the explicit `chmod +x` the old
+# restore_all carried is now redundant rather than removed on a hunch: the
+# recorded mode is reapplied and then verified.
+restore_all() { ms_guard_restore; }
 
-cp "$SCRIPT" "$BACKUP/worktree-bootstrap.sh"
-cp "$MAKEFILE" "$BACKUP/Makefile"
+# The pristine copies, for the end-of-run comparison below.
+PRISTINE_SCRIPT="${MS_BACKUP_DIR}/${SCRIPT}"
+PRISTINE_MAKEFILE="${MS_BACKUP_DIR}/${MAKEFILE}"
 
 PASS=0
 FAIL=0
@@ -60,18 +68,11 @@ FAIL=0
 # the suite stays green, and the harness reports "guard did not fire" — a false
 # finding that looks exactly like a real one, and one that sends somebody to
 # "fix" working code.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    echo "               The construct it targets has moved. Fix this harness," >&2
-    echo "               do not assume the guard is fine." >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal verbatim and adds two things: it tells a sed SYNTAX
+# ERROR apart from a pattern that no longer matches, and it ARMS the sentinel
+# before touching the file so no call site can forget.
+mutate() { ms_sed "$1" "$2"; }
 
 # Reports the NAMES of failing tests, not the `not ok <n>` numbers: inserting a
 # test renumbers everything below it, and a harness that reports NOT PROVEN for
@@ -234,12 +235,12 @@ echo "  GREEN"
 # left", and cmp against the backup states exactly that — correct whether the
 # work is committed, staged, or dirty.
 restore_failed=0
-cmp -s "$BACKUP/worktree-bootstrap.sh" "$SCRIPT" || restore_failed=1
-cmp -s "$BACKUP/Makefile" "$MAKEFILE" || restore_failed=1
+cmp -s "$PRISTINE_SCRIPT" "$SCRIPT" || restore_failed=1
+cmp -s "$PRISTINE_MAKEFILE" "$MAKEFILE" || restore_failed=1
 if [ "$restore_failed" -ne 0 ]; then
   echo "HARNESS ERROR: a mutated file was not restored to its pre-run content" >&2
-  diff "$BACKUP/worktree-bootstrap.sh" "$SCRIPT" | head -20 >&2 || true
-  diff "$BACKUP/Makefile" "$MAKEFILE" | head -20 >&2 || true
+  diff "$PRISTINE_SCRIPT" "$SCRIPT" | head -20 >&2 || true
+  diff "$PRISTINE_MAKEFILE" "$MAKEFILE" | head -20 >&2 || true
   exit 2
 fi
 echo "  every mutated file matches its pre-run content"

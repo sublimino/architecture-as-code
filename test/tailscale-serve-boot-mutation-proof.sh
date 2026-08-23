@@ -40,20 +40,21 @@ STARTUP="terraform/modules/compute/startup/demo-vm.sh"
 DRIVER="scripts/gcp-tf/demo-up.sh"
 COMPUTE_TF="terraform/modules/compute/main.tf"
 
-BACKUP="$(mktemp -d)"
-trap 'restore_all; rm -rf "$BACKUP"' EXIT
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# An EXIT trap was the whole protection here, and it does not survive SIGKILL —
+# which is what a tool timeout escalates to. A hard kill leaves these files
+# mutated, the &&-chained gate carries on, and the leak reads as content lost in
+# a merge. The helper adds the marker that outlives a hard kill, refuses to
+# start on top of one, and verifies the restore on content AND mode.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-mkdir -p "$BACKUP/$(dirname "$STARTUP")" "$BACKUP/$(dirname "$DRIVER")" \
-  "$BACKUP/$(dirname "$COMPUTE_TF")"
-cp "$STARTUP" "$BACKUP/$STARTUP"
-cp "$DRIVER" "$BACKUP/$DRIVER"
-cp "$COMPUTE_TF" "$BACKUP/$COMPUTE_TF"
+ms_guard_init tailscale-serve-boot "$STARTUP" "$DRIVER" "$COMPUTE_TF"
+trap ms_guard_on_exit EXIT
 
-restore_all() {
-  cp "$BACKUP/$STARTUP" "$STARTUP"
-  cp "$BACKUP/$DRIVER" "$DRIVER"
-  cp "$BACKUP/$COMPUTE_TF" "$COMPUTE_TF"
-}
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -62,16 +63,11 @@ FAIL=0
 # returning 0, so the mutation never lands, the suite stays green, and the
 # harness reports "guard did not fire" — a false finding that looks exactly like
 # a real one, and one that invites somebody to go and "fix" working code.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things the local version could not: it
+# tells a sed SYNTAX ERROR apart from a pattern that no longer matches, and it
+# ARMS the sentinel before touching the file, so no call site can forget.
+mutate() { ms_sed "$1" "$2"; }
 
 # Names, not `not ok <n>` numbers: inserting two tests in the middle of a suite
 # renumbers everything below them, and every expectation here would silently

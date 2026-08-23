@@ -87,32 +87,19 @@ MAKEFILE="Makefile"
 SUITE="test/keys-dir-path-safety.bats"
 TESTNAME="KEYSPATH the COSIGN_PUB handed to the fleet sub-make names the file signing-keys writes"
 
-SENTINEL="${REPO_ROOT}/.keys-path-agreement-mutation-in-progress"
-
-if [ -e "$SENTINEL" ]; then
-  cat >&2 <<-EOF
-	REFUSING TO START: a previous run of this harness did not finish.
-
-	  sentinel: $SENTINEL
-	  $(cat "$SENTINEL" 2>/dev/null || true)
-
-	${MAKEFILE} may still be mutated. This harness will not repair it for you:
-	a proof harness that silently fixes what it finds is how a broken tree goes
-	green. Restore ${MAKEFILE} from the backup directory named above (or from
-	git, once you have confirmed nothing else in the tree is uncommitted), then
-
-	  rm $SENTINEL
-
-	and re-run.
-	EOF
-  exit 2
-fi
-
 [ -f "$MAKEFILE" ] || { echo "no ${MAKEFILE} at ${REPO_ROOT}" >&2; exit 2; }
 [ -f "$SUITE" ] || { echo "no ${SUITE} at ${REPO_ROOT}" >&2; exit 2; }
 
-BACKUP="$(mktemp -d)"
-cp "$MAKEFILE" "$BACKUP/Makefile"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# Its presence means a previous run died holding a mutation, so the tree cannot
+# be trusted. REFUSE — never auto-repair: a proof harness that silently fixes
+# what it finds is how a broken tree goes green. What the rail adds over the
+# hand-rolled marker it replaces is that a LIVE second run is distinguished from
+# a dead one, and that a FAILED restore KEEPS the sentinel rather than deleting
+# it in an unconditional cleanup. See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
 # Recorded before anything is touched, and compared again at the end. Content
 # alone is not enough: a restore that pipes bytes through a temp file can put
@@ -125,19 +112,24 @@ ORIG_MODE="$(stat -c '%a' "$MAKEFILE")"
 NOKEYS_ROOT="$(mktemp -d)"
 NOKEYS_DIR="${NOKEYS_ROOT}/.keys"
 
-restore_all() {
-  cp "$BACKUP/Makefile" "$MAKEFILE"
-}
+ms_guard_init keys-path-agreement "$MAKEFILE"
 
+restore_all() { ms_guard_restore; }
+
+# This harness owns one temp directory the rail knows nothing about, so the trap
+# is a wrapper rather than ms_guard_on_exit directly.
+#
+# The subshell is what preserves the verdict. ms_guard_on_exit reads `$?` to
+# decide the script's status, and by the time it is called that `$?` is the
+# status of the `rm` above it — so the exit code is re-established first.
+# Without it a successful cleanup would silently rewrite every failing run to 0.
 cleanup() {
-  restore_all
-  rm -rf "$BACKUP" "$NOKEYS_ROOT"
-  rm -f "$SENTINEL"
+  local status=$?
+  rm -rf "$NOKEYS_ROOT"
+  (exit "$status")
+  ms_guard_on_exit
 }
 trap cleanup EXIT
-
-printf 'started %s by pid %s\n  mutating: %s\n  backup:   %s/Makefile\n' \
-  "$(date -Is)" "$$" "${REPO_ROOT}/${MAKEFILE}" "$BACKUP" > "$SENTINEL"
 
 PASS=0
 FAIL=0
@@ -164,16 +156,19 @@ PRISTINE_EXPANSIONS="$(expansions)"
 # changed, the hash moved, `mutate` was satisfied — and the thing under test
 # never saw it. So the mutation must also move something make expands, or this
 # is a HARNESS ERROR rather than a verdict about the guard.
+#
+# The first level is now ms_sed, which makes the same no-op refusal and adds two
+# things: it tells a sed SYNTAX ERROR apart from a pattern that no longer
+# matches, and it ARMS the sentinel before touching the file so no call site can
+# forget. The rail generalises the second level as ms_sed_effective, but the
+# local check is kept verbatim: it compares against PRISTINE_EXPANSIONS — the
+# expansion of the UNMUTATED Makefile, captured once — where ms_sed_effective
+# compares against whatever the previous call left. Identical while every
+# mutation is preceded by a restore, and not identical if that ever stops being
+# true, so the stronger of the two stays.
 mutate() {
-  local expr="$1" before after now
-  before="$(sha256sum "$MAKEFILE" | cut -d' ' -f1)"
-  sed -i "$expr" "$MAKEFILE"
-  after="$(sha256sum "$MAKEFILE" | cut -d' ' -f1)"
-  if [ "$before" = "$after" ]; then
-    echo "HARNESS ERROR: mutation matched nothing, ${MAKEFILE} unchanged:" >&2
-    echo "  $expr" >&2
-    exit 2
-  fi
+  local expr="$1" now
+  ms_sed "$MAKEFILE" "$expr"
   now="$(expansions)"
   if [ "$now" = "$PRISTINE_EXPANSIONS" ]; then
     echo "HARNESS ERROR: ${MAKEFILE} changed but make's expansion did not." >&2

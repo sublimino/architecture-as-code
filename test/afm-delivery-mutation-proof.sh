@@ -45,47 +45,29 @@ PIPELINE="scripts/ci/vm-pipeline.sh"
 SUITE_AFM="test/k8s-afm-preflight.bats"
 SUITE_BACKENDS="d2-signalloom/test/dashboard-backends.bats"
 
-# Unique to THIS harness, per the contract in .gitignore. A shared sentinel is
-# worse than none: another harness's restore would delete this one's marker, so
-# the next run would read a leaked mutation as a genuine regression and the
-# refusal that exists to catch it would never fire.
-SENTINEL="test/.afm-delivery-mutation-in-progress"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# The sentinel is unique to THIS harness, per the contract in .gitignore. A
+# shared sentinel is worse than none: another harness's restore would delete
+# this one's marker, so the next run would read a leaked mutation as a genuine
+# regression and the refusal that exists to catch it would never fire.
+#
+# Two things the hand-rolled version this replaces could not do. Its restore was
+# `[ -f "$BACKUP/$f" ] && cp ...`, which SILENTLY SKIPS when the backup has gone
+# and silently installs corruption when it is damaged — and the rail's own
+# backup directory has been reaped mid-run by an external cleaner, so that is a
+# measured hazard rather than a hypothetical. And its trap removed the sentinel
+# UNCONDITIONALLY, so a restore that failed left a mutated tree with nothing
+# recording it. The rail verifies the pristine copy's sha256 before trusting it,
+# and keeps the sentinel when the restore does not verify.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-if [ -e "$SENTINEL" ]; then
-  cat >&2 <<EOF
-REFUSING TO START: $SENTINEL exists.
+ms_guard_init afm-delivery "$AFM_SH" "$MAKEFILE" "$BACKENDS" "$PIPELINE"
+trap ms_guard_on_exit EXIT
 
-A previous run of this harness was killed while a REAL file was deliberately
-broken, so the repository is very likely still mutated. Traps do not survive
-SIGKILL, which is what a tool timeout escalates to.
-
-This harness does NOT repair, on purpose: a guard that silently fixes the thing
-it is measuring makes the next run green and hides the damage. Inspect and
-restore by hand, then delete the sentinel:
-
-    git diff -- $AFM_SH $MAKEFILE $BACKENDS $PIPELINE
-    git checkout -- <whichever of those is mutated>
-    rm $SENTINEL
-EOF
-  exit 2
-fi
-
-BACKUP="$(mktemp -d)"
-: > "$SENTINEL"
-trap 'restore_all; rm -f "$SENTINEL"; rm -rf "$BACKUP"' EXIT
-
-for f in "$AFM_SH" "$MAKEFILE" "$BACKENDS" "$PIPELINE"; do
-  mkdir -p "$BACKUP/$(dirname "$f")"
-  cp "$f" "$BACKUP/$f"
-done
-
-restore_all() {
-  local f
-  for f in "$AFM_SH" "$MAKEFILE" "$BACKENDS" "$PIPELINE"; do
-    [ -f "$BACKUP/$f" ] && cp "$BACKUP/$f" "$f"
-  done
-  return 0
-}
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -95,16 +77,11 @@ FAIL=0
 # A non-matching pattern no-ops while returning 0, so the mutation never lands,
 # the suite stays green, and the harness reports "guard did not fire" — a false
 # finding that looks exactly like a real one.
-mutate() {
-  local file="$1" expr="$2" before after
-  before="$(md5sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(md5sum "$file" | cut -d' ' -f1)"
-  if [[ "$before" == "$after" ]]; then
-    echo "HARNESS ERROR: mutation did not change ${file}: ${expr}" >&2
-    exit 2
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+mutate() { ms_sed "$1" "$2"; }
 
 # Reports the NAMES of the tests that failed, not the `not ok <n>` numbers.
 # Inserting a test in the middle of a suite renumbers everything below it, so

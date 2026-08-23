@@ -15,8 +15,12 @@
 #
 # Pristine copies are taken before anything is touched and restored by a trap on
 # EXIT, INT, TERM and HUP. That trap survives Ctrl-C and `kill`, but NOT
-# SIGKILL — a `kill -9` here leaves the tree mutated. If that happens:
-#     git checkout -- scripts/push-local.sh scripts/lib/fleet-source.sh
+# SIGKILL. A `kill -9` still leaves the tree mutated — no trap can be written
+# that prevents it — so the shared rail below leaves a SENTINEL that outlives
+# the kill, and the next run REFUSES to start rather than measuring a tree
+# nobody has looked at. The refusal prints the exact command that tells a leaked
+# mutation from a real regression; do not reach for `git checkout` first, it
+# would also revert unrelated uncommitted work in this tree.
 #
 # Deliberately no `set -e` and no `set -o pipefail`: a mutation harness spends
 # its life running commands that are SUPPOSED to fail, and errexit turns each
@@ -32,18 +36,31 @@ PUSH="scripts/push-local.sh"
 LIB="scripts/lib/fleet-source.sh"
 SUITE="test/terraform-observability-fleet-parity.bats"
 
-BACKUP="$(mktemp -d)"
-cp "$PUSH" "$BACKUP/push-local.sh"
-cp "$LIB" "$BACKUP/fleet-source.sh"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# An EXIT trap was the whole protection here, and it does not survive SIGKILL —
+# which is what a tool timeout escalates to. The helper leaves a marker that
+# outlives a hard kill, REFUSES to start on top of one rather than repairing
+# it, and verifies the restore on content AND mode.
+#
+# ms_guard_on_exit captures $? FIRST and re-raises it, which is the same
+# invariant the old `return 0` was protecting: under errexit a failing last
+# command in an EXIT trap replaces the status the script asked for, and this
+# repo has watched 8/8 green report failure that way. It adds the other half —
+# a PASSING run whose restore failed is promoted to a harness error rather than
+# handing the next proof in the &&-chain a mutated file and calling it green.
+#
+# The signal list is kept: EXIT alone does not fire for an untrapped SIGTERM.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${ROOT}/test/helpers/mutation-sentinel.bash"
 
-restore() {
-  cp "$BACKUP/push-local.sh" "$ROOT/$PUSH" 2>/dev/null
-  cp "$BACKUP/fleet-source.sh" "$ROOT/$LIB" 2>/dev/null
-  rm -rf "$BACKUP" 2>/dev/null
-  # Never let the trap's own last command decide the exit status.
-  return 0
-}
-trap restore EXIT INT TERM HUP
+ms_guard_init observability-fleet-parity "$PUSH" "$LIB"
+trap ms_guard_on_exit EXIT INT TERM HUP
+
+# The rail's pristine copies, mirrored under their repo-relative paths.
+PUSH_PRISTINE="${MS_BACKUP_DIR}/${PUSH}"
+LIB_PRISTINE="${MS_BACKUP_DIR}/${LIB}"
 
 PASS=0
 FAIL=0
@@ -77,10 +94,15 @@ assert_mutated() {
   return 0
 }
 
-reset_files() {
-  cp "$BACKUP/push-local.sh" "$ROOT/$PUSH"
-  cp "$BACKUP/fleet-source.sh" "$ROOT/$LIB"
-}
+reset_files() { ms_guard_restore; }
+
+# Every mutation below is applied by python3, not by ms_sed, so the sentinel is
+# armed BY HAND and BEFORE the write. A mutation applied with no marker on disk
+# leaves nothing behind when the run is killed — which is the entire hole the
+# sentinel exists to close. reset_files disarms on a successful restore, so each
+# mutation re-arms with its own label; the label is what the next run's refusal
+# prints.
+arm() { ms_guard_arm "$1"; }
 
 echo "=== baseline: the suite must be GREEN before any mutation ==="
 if bats "$SUITE" >/dev/null 2>&1; then
@@ -97,6 +119,7 @@ fi
 # 2026-08-22. This is the mutation that matters: it is not a hypothetical, it is
 # the code that shipped and broke three of four lanes.
 echo "=== M1 push_fleet defaults to the unfiltered d2-osramp-fleet ==="
+arm "M1 push_fleet defaults to the unfiltered fleet"
 python3 - "$PUSH" <<'PY'
 import re, sys
 p = sys.argv[1]
@@ -105,7 +128,7 @@ new = 'push_fleet() {\n  push_and_sign "fleet" "${1:-d2-osramp-fleet}"\n}\n'
 s2 = re.sub(r'^push_fleet\(\) \{.*?^\}\n', new, s, count=1, flags=re.S | re.M)
 sys.exit(0 if s2 != s else 1) if s2 == s else open(p, 'w').write(s2)
 PY
-if assert_mutated M1 "$PUSH" "$BACKUP/push-local.sh"; then
+if assert_mutated M1 "$PUSH" "$PUSH_PRISTINE"; then
   expect_red M1 "every fleet publisher resolves its path through the filter"
   expect_red M1 "no push path names the raw fleet tree as a default argument"
 fi
@@ -113,6 +136,7 @@ reset_files
 
 # ── M2 — the two sides stop being derived from one list ─────────────────────
 echo "=== M2 push_foundation carries a hardcoded artifact list again ==="
+arm "M2 push_foundation hardcodes its artifact list"
 python3 - "$PUSH" <<'PY'
 import re, sys
 p = sys.argv[1]
@@ -124,7 +148,7 @@ s2 = s.replace(
 if s2 != s:
     open(p, 'w').write(s2)
 PY
-if assert_mutated M2 "$PUSH" "$BACKUP/push-local.sh"; then
+if assert_mutated M2 "$PUSH" "$PUSH_PRISTINE"; then
   expect_red M2 "the filtered fleet's tenants are exactly what foundation pushes"
 fi
 reset_files
@@ -133,6 +157,7 @@ reset_files
 # This is the silent-no-op class: without the pre-check, a sed whose pattern no
 # longer matches removes nothing and returns success.
 echo "=== M3 the absent-before assertion is dropped from _fleet_strip_tenant ==="
+arm "M3 absent-before assertion dropped"
 python3 - "$LIB" <<'PY'
 import re, sys
 p = sys.argv[1]
@@ -144,7 +169,7 @@ s2 = re.sub(
 if s2 != s:
     open(p, 'w').write(s2)
 PY
-if assert_mutated M3 "$LIB" "$BACKUP/fleet-source.sh"; then
+if assert_mutated M3 "$LIB" "$LIB_PRISTINE"; then
   # NOT "refuses a fleet it cannot edit" — that case is caught by the
   # present-AFTER check (the drifted line is still there once sed no-ops), so it
   # stays green under this mutation and would have made M3 a false negative.
@@ -156,6 +181,7 @@ reset_files
 
 # ── M4 — the stray-reference sweep is removed ───────────────────────────────
 echo "=== M4 the post-filter stray-reference sweep is disabled ==="
+arm "M4 stray-reference sweep disabled"
 python3 - "$LIB" <<'PY'
 import sys
 p = sys.argv[1]
@@ -168,7 +194,7 @@ s2 = s.replace(
 if s2 != s:
     open(p, 'w').write(s2)
 PY
-if assert_mutated M4 "$LIB" "$BACKUP/fleet-source.sh"; then
+if assert_mutated M4 "$LIB" "$LIB_PRISTINE"; then
   expect_red M4 "the filter refuses a tenant that reappears elsewhere"
 fi
 reset_files
@@ -178,6 +204,7 @@ reset_files
 # "the filter silently did nothing", which is the failure this whole suite is
 # about.
 echo "=== M5 OBSERVABILITY_TENANTS is emptied ==="
+arm "M5 OBSERVABILITY_TENANTS emptied"
 python3 - "$LIB" <<'PY'
 import sys
 p = sys.argv[1]
@@ -187,7 +214,7 @@ s2 = s.replace('OBSERVABILITY_TENANTS=(monitoring trivy-system)',
 if s2 != s:
     open(p, 'w').write(s2)
 PY
-if assert_mutated M5 "$LIB" "$BACKUP/fleet-source.sh"; then
+if assert_mutated M5 "$LIB" "$LIB_PRISTINE"; then
   expect_red M5 "observability=false strips monitoring and trivy-system"
   expect_red M5 "the observability tenant list is the single source of truth"
 fi

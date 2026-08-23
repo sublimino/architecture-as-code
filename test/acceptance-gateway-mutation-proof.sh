@@ -42,9 +42,6 @@ BATS_FILE="test/signalloom-test-1-harness.bats"
 READY_TEST='TEST-1 acceptance preflight validates dashboard readiness semantics'
 DISCOVERY_TEST='TEST-1 discovers the shared Gateway data-plane Service dynamically'
 
-SENTINEL="${REPO_ROOT}/.acceptance-gateway-mutation-proof.RUNNING"
-SAFE="${TMPDIR:-/tmp}/osramp-acceptance-gateway-proof"
-
 BATS_BIN="${BATS_BIN:-$(command -v bats || true)}"
 
 red() { printf '\033[1;31m%s\033[0m\n' "$*"; }
@@ -56,57 +53,46 @@ if [ -z "$BATS_BIN" ]; then
 	exit 2
 fi
 
-if [ -e "$SENTINEL" ]; then
-	red "REFUSING TO START: a previous run left a sentinel."
-	say "  $SENTINEL"
-	say "  The working tree may still contain a mutated ${TARGET_REL}. This"
-	say "  harness will NOT repair it. Pristine copy, if present:"
-	cat "$SENTINEL" 2>/dev/null | sed 's/^/    /'
-	say "  Restore by hand, confirm with 'git status', delete the sentinel, re-run."
-	exit 2
-fi
-
-mkdir -p "$SAFE"
-rm -f "${SAFE:?}"/*
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# The marker this replaces ended in a suffix that `.gitignore` does NOT match —
+# the glob there is `*mutation-in-progress`. One `git add -A` during an
+# interrupted run would have COMMITTED a file announcing the tree was mutated.
+# Every sentinel minted through the rail falls under the existing glob by
+# construction.
+#
+# The old suffix is deliberately not spelled out here. The fleet-wide check in
+# test/terraform-mutation-sentinel.bats greps every proof for that literal to
+# find hand-rolled markers, and a comment quoting it would match — a guard
+# firing on the prose that explains it, reported as a real finding.
+#
+# The rail also verifies the restore on content AND mode, which matters more
+# here than anywhere: apply_mutation_ready below replaces the target via `mv`
+# from a fresh temp file, so the executable bit is dropped on every mutation and
+# a content-only check reads that as a clean restore.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
 sha() { sha256sum "$1" | cut -d' ' -f1; }
 
-cp "$TARGET_REL" "${SAFE}/acceptance-test.sh.pristine"
 SHA0="$(sha "$TARGET_REL")"
 MODE0="$(stat -c '%a' "$TARGET_REL")"
 
-cat >"$SENTINEL" <<EOF
-Killed mid-run. Pristine copy (restore BY HAND, do not git checkout):
-  ${SAFE}/acceptance-test.sh.pristine  -> ${TARGET_REL}
-Expected SHA-256 after restore:
-  ${SHA0}  ${TARGET_REL}
-EOF
+ms_guard_init acceptance-gateway "$TARGET_REL"
+trap ms_guard_on_exit EXIT
 
-restore() {
-	cp "${SAFE}/acceptance-test.sh.pristine" "$TARGET_REL"
-	# cp of an EXISTING destination keeps the destination's current mode, not
-	# the source's — and apply_mutation_ready below replaces the target via
-	# `mv` from a freshly-created temp file, which takes the temp file's
-	# umask-derived mode (644) and silently drops the executable bit. Content
-	# went back to byte-identical the first time this ran; the mode did not,
-	# and `git status` caught it as a dangling mode-only diff after a run that
-	# reported zero findings. chmod here is the actual fix, not a courtesy.
-	chmod "$MODE0" "$TARGET_REL"
-	rm -f "$SENTINEL"
-}
-# re-arm: restore, then rewrite the sentinel so a kill between mutation A and
-# mutation B is still recoverable — restore() removes the sentinel, and this
-# harness runs two independent mutations against the same target.
+# ms_guard_restore reapplies the recorded mode and then VERIFIES it, so the
+# explicit chmod the old restore carried is subsumed rather than dropped.
+restore() { ms_guard_restore; }
+
+# re-arm: restore, then re-write the sentinel, because a successful restore
+# clears it and this harness runs two independent mutations against the same
+# target. A kill between mutation A and mutation B must still leave a marker.
 rearm() {
-	restore
-	cat >"$SENTINEL" <<EOF
-Killed mid-run. Pristine copy (restore BY HAND, do not git checkout):
-  ${SAFE}/acceptance-test.sh.pristine  -> ${TARGET_REL}
-Expected SHA-256 after restore:
-  ${SHA0}  ${TARGET_REL}
-EOF
+	ms_guard_restore
+	ms_guard_arm "mutation B: Gateway discovery loses its label selector"
 }
-trap restore EXIT
 
 run_named() { # <exact test name> ; echoes PASS | FAIL | NOMATCH
 	local name="$1" rc=0 out
@@ -141,7 +127,13 @@ done
 # readiness probe, not the sibling one a few lines above tied to the
 # already-listening refusal. Isolation matters: this must move ONLY the
 # readiness test, not the discovery test.
+#
+# awk into a temp file, not ms_sed, so the sentinel is armed BY HAND and BEFORE
+# the write. A kill landing between the `mv` and the assertions below would
+# otherwise leave acceptance-test.sh short one PREFLIGHT_FAILED line with
+# nothing on disk recording that a harness did it.
 apply_mutation_ready() {
+	ms_guard_arm "mutation A: readiness-probe failure silently ignored"
 	awk '
 		found { found = 0; next }
 		/could not establish supervised shared Gateway forward/ { found = 1 }
@@ -227,7 +219,16 @@ else
 fi
 
 # ── Restore and prove it ────────────────────────────────────────────────────
-restore
+#
+# ms_guard_finish is restore + verify + drop the pristine copy, which is what
+# the old `restore` followed by `rm -rf` did — with the verification in the
+# middle rather than absent. The trap is then disarmed because the work is done.
+# A failure here is counted as a finding rather than swallowed: the tree is
+# still mutated, and the sentinel is deliberately still on disk to say so.
+if ! ms_guard_finish; then
+	red "  RESTORE FAILED — the tree is NOT clean; the sentinel has been kept."
+	FINDINGS=$((FINDINGS + 1))
+fi
 trap - EXIT
 
 say ""
@@ -251,7 +252,9 @@ else
 	red "       got  ${GOT_MODE}"
 	FINDINGS=$((FINDINGS + 1))
 fi
-rm -rf "${SAFE:?}"
+# The pristine copy is the rail's now, and ms_guard_finish drops it — but only
+# once the restore has VERIFIED. A failed restore keeps it, because at that
+# point it is the only clean copy left and the next run's refusal points at it.
 
 say ""
 say "=== summary ==============================================================="

@@ -50,32 +50,9 @@ UP="scripts/gcp-tf/demo-up.sh"
 PIPE="scripts/gcp-tf/demo-pipeline.sh"
 SUITE="test/terraform-keys-persistence.bats"
 
-SENTINEL="${REPO_ROOT}/.keys-persistence-mutation-in-progress"
-
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 grn()   { printf '\033[32m%s\033[0m\n' "$*"; }
 say()   { printf '%s\n' "$*"; }
-
-if [ -e "$SENTINEL" ]; then
-  cat >&2 <<-EOF
-	REFUSING TO START: a previous run of this harness did not finish.
-
-	  sentinel: $SENTINEL
-	  $(cat "$SENTINEL" 2>/dev/null || true)
-
-	${UP} and/or ${PIPE} may still be mutated. This harness will NOT repair them
-	for you: a proof harness that silently fixes what it finds is how a broken
-	tree goes green, and a leftover mutation reads as a merge regression to the
-	next gate that runs. Restore both files from the backup directory named
-	above (or from git, once you have confirmed nothing else in the tree is
-	uncommitted), then
-
-	  rm $SENTINEL
-
-	and re-run.
-	EOF
-  exit 2
-fi
 
 for f in "$UP" "$PIPE" "$SUITE"; do
   [ -f "$f" ] || { echo "no ${f} at ${REPO_ROOT}" >&2; exit 2; }
@@ -83,9 +60,22 @@ done
 
 command -v bats >/dev/null 2>&1 || { echo "bats is not on PATH" >&2; exit 2; }
 
-BACKUP="$(mktemp -d)"
-cp "$UP"   "$BACKUP/demo-up.sh"
-cp "$PIPE" "$BACKUP/demo-pipeline.sh"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# Its presence means a previous run died holding a mutation, so the tree cannot
+# be trusted. REFUSE — never auto-repair: a proof harness that silently fixes
+# what it finds is how a broken tree goes green, and a leftover mutation reads
+# as a merge regression to the next gate that runs.
+#
+# ${UP} is shared with two other proofs, so the per-proof sentinel name is
+# load-bearing — a shared marker would let one proof's restore clear another's
+# evidence. The rail also tells a LIVE second run apart from a dead one (the
+# hand-rolled version this replaces could not, so a concurrent invocation read
+# as a leaked mutation), and it KEEPS the sentinel when a restore fails, where
+# the old `cleanup` deleted it unconditionally.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
 # Recorded before anything is touched and compared again at the end. Content
 # alone is not enough: a restore that pipes bytes through a temp file can put
@@ -95,20 +85,10 @@ UP_MODE="$(stat -c '%a' "$UP")"
 PIPE_HASH="$(sha256sum "$PIPE" | cut -d' ' -f1)"
 PIPE_MODE="$(stat -c '%a' "$PIPE")"
 
-restore_all() {
-  cp "$BACKUP/demo-up.sh"       "$UP"
-  cp "$BACKUP/demo-pipeline.sh" "$PIPE"
-}
+ms_guard_init gcp-demo-keys-persistence "$UP" "$PIPE"
+trap ms_guard_on_exit EXIT
 
-cleanup() {
-  restore_all
-  rm -rf "$BACKUP"
-  rm -f "$SENTINEL"
-}
-trap cleanup EXIT
-
-printf 'started %s by pid %s\n  mutating: %s\n            %s\n  backup:   %s\n' \
-  "$(date -Is)" "$$" "${REPO_ROOT}/${UP}" "${REPO_ROOT}/${PIPE}" "$BACKUP" > "$SENTINEL"
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
@@ -117,21 +97,16 @@ FAIL=0
 # refactor would otherwise leave the file untouched, the suite green, and this
 # harness reporting a dead guard — a false finding that looks exactly like a
 # real one and costs a day.
-mutate() {
-  local file="$1" expr="$2"
-  local before after
-  before="$(sha256sum "$file" | cut -d' ' -f1)"
-  sed -i "$expr" "$file"
-  after="$(sha256sum "$file" | cut -d' ' -f1)"
-  if [ "$before" = "$after" ]; then
-    red "  ABORT: the mutation changed nothing in ${file}."
-    say  "         expression: ${expr}"
-    say  "         The pattern no longer matches. This is a defect in the HARNESS,"
-    say  "         not a verdict about the guard — a no-op mutation runs the suite"
-    say  "         against correct code and reports the guard as dead."
-    exit 3
-  fi
-}
+#
+# ms_sed keeps that refusal and adds two things: it tells a sed SYNTAX ERROR
+# apart from a pattern that no longer matches, and it ARMS the sentinel before
+# touching the file so no call site can forget.
+#
+# The abort status moves from 3 to the rail's MS_EXIT_HARNESS=2. That is not
+# cosmetic: the rail reserves 3 for MS_EXIT_LEAKED — "a previous run died with a
+# mutation on disk" — and a local no-op exiting 3 would have been indexed as
+# that entirely different condition.
+mutate() { ms_sed "$1" "$2"; }
 
 # Run the suite and require that a SPECIFICALLY NAMED test failed.
 #

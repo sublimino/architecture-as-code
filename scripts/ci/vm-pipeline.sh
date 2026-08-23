@@ -995,6 +995,19 @@ run_stage \
   "stage7b-adversarial.tap" \
   "cd ${WORK_DIR} && bats --tap test/api-adversarial.bats"
 
+# Calibration for the post-deploy user-surface gate (scripts/ci/user-surface-gate.sh).
+# Offline and stub-driven — no cluster, no tailnet — so it belongs in both lanes
+# and is registered in both. It proves the gate can tell its verdicts apart, not
+# that any demo works.
+#
+# The gate's LIVE stage is demo-lane only: it needs a tailnet origin serving the
+# demo, which this lane is not known to have. That asymmetry is real coverage
+# missing from this lane, recorded here rather than left to be discovered.
+run_stage \
+  "User-surface gate calibration (offline)" \
+  "stage7c-user-surface-gate.tap" \
+  "cd ${WORK_DIR} && bats --tap test/user-surface-gate.bats"
+
 # Stage 8: Browser journey (Playwright → JUnit XML)
 run_stage \
   "Dex and complete dashboard journey matrix" \

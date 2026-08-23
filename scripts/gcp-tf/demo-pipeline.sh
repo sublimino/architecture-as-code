@@ -1084,6 +1084,21 @@ run_stage \
   "stage7b-adversarial.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/api-adversarial.bats"
 
+# Calibration for the user-surface gate that runs at stage 9. Offline and
+# stub-driven: it proves the gate can tell its verdicts apart — green when a
+# surface works, and a DISTINCT red for not-deployed, unauthorized, capable-but-
+# stepless, 503, and started-then-failed. It proves nothing about any demo, and
+# must never be read as if it did; stage 9 against the real origin is the only
+# thing here that is evidence about the product.
+#
+# It earns its place because the gate's first draft was stuck RED — a repr bug
+# made a WORKING demo compare unequal to `true` — and a gate that cannot pass
+# gets switched off, at which point the coverage it advertises is fiction.
+run_stage \
+  "User-surface gate calibration (offline)" \
+  "stage7c-user-surface-gate.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/user-surface-gate.bats"
+
 # ═══ Tier 4: the browser journey. ════════════════════════════════════════════
 run_stage \
   "Dex and complete dashboard journey matrix" \
@@ -1098,6 +1113,37 @@ run_stage \
   "cd ${WORK_DIR} && \
    PLAYWRIGHT_JUNIT_OUTPUT_FILE=${REPORT_DIR}/stage8b-smoke.xml \
    ./scripts/acceptance-test.sh smoke.spec.ts live-data.spec.ts"
+
+# ═══ Tier 5: the user surface, over the origin a human actually opens. ══════
+#
+# Every stage above this line proves the estate CONVERGED. None of them prove
+# the PRODUCT WORKS, and on 2026-08-23 that distinction cost us two dead demos
+# on a lane that scored 29/29 — SuperCred and Signal Fusion both answering
+# `503 demo_root_unresolved` at the URL the principal was presenting from.
+#
+# The reason no stage could see it is visible two hundred lines up: this
+# pipeline's own idea of the demo is
+# `http://${DASHBOARD_HOSTNAME}:${DASHBOARD_LOCAL_PORT}/`, a port-forward. The
+# defect was an absent /api/demo HTTPRoute rule, so the generic /api rule
+# swallowed both demos into a backend with no scripts and no kubectl. A
+# port-forward goes underneath the Gateway and cannot observe that layer at
+# all. Neither can a stub, and neither can a unit test.
+#
+# So this stage resolves the node's REAL tailnet origin and drives every demo
+# the server registry knows about through it. Readiness mode: strictly GETs, no
+# cluster mutation, safe on a lane someone may be presenting from. It asserts
+# each surface is reachable, reports itself capable, and enumerates its acts —
+# which is exactly the assertion both outages would have failed.
+#
+# It FAILS rather than skips when there is no tailnet origin. A skip here would
+# restore the blind spot in the one place built to remove it, and a gate that
+# quietly opts out is worse than no gate: it reports coverage it does not have.
+run_stage \
+  "User-facing demo surfaces over the real tailnet origin" \
+  "stage9-user-surface.txt" \
+  "cd ${WORK_DIR} && \
+   origin=\$(./scripts/ci/resolve-tailnet-origin.sh) && \
+   ./scripts/ci/user-surface-gate.sh --base-url \"\${origin}\""
 
 # ── Phase: report ────────────────────────────────────────────────────────────
 PIPELINE_PHASE="report"

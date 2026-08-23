@@ -117,6 +117,19 @@ _ENV_ALLOWLIST = (
     "AGENT_NAMESPACE_CANDIDATES",
     "KUBERNETES_SERVICE_HOST",
     "KUBERNETES_SERVICE_PORT",
+    # Signal Fusion's signal-ingest endpoint. Without it the demo script falls
+    # back to its localhost default and port-forwards svc/signal-ingest, which
+    # needs `create pods/portforward` this ServiceAccount does not have -- and
+    # deliberately does not have, since that verb reaches any port on any pod in
+    # the namespace.
+    #
+    # Measured, on a live lane, AFTER the deployment already carried the
+    # variable: the pod had it and the child did not, so the script took its
+    # out-of-cluster branch and died in preflight looking for
+    # deployment/signal-ingest in the wrong namespace. Nothing static could see
+    # this -- the manifest was right, the image was right, the code was right,
+    # and the value was dropped in between by this tuple.
+    "SIGNAL_INGEST_URL",
 )
 
 # Constants the runner SETS for the child, as opposed to values it forwards from

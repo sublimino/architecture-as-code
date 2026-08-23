@@ -296,6 +296,39 @@ signalfusion_default_script() {
 	grep -Eq 'SIGNAL_INGEST_URL' "$demo_script"
 }
 
+@test "SIGNALFUSION-CONTRACT the ingest URL survives the child-env allowlist" {
+	# The gap that a correct manifest, a correct image and correct code still
+	# leave open. demo_runner spawns the script with a FIXED allowlist, not
+	# os.environ, so a variable can be set on the pod and absent from the child.
+	#
+	# Silent in both directions: the manifest reads correctly, and `kubectl exec`
+	# shows the value, because an interactive exec inherits the pod's full
+	# environment. Only the spawned script goes without. Observed on a live lane
+	# AFTER the deployment already carried SIGNAL_INGEST_URL -- the script took
+	# its out-of-cluster branch and failed preflight in the wrong namespace.
+	#
+	# Derived, not restated: every SIGNAL_* variable the deployment sets must
+	# appear in the allowlist, so the next one added is covered without editing
+	# this test.
+	local -a set_vars
+	mapfile -t set_vars < <(
+		grep -oE '^[[:space:]]*- name: SIGNAL_[A-Z_]+' "$runner_deploy" \
+			| sed 's/.*- name: //' | sort -u
+	)
+	# The extractor must find something, or this passes over an empty list.
+	[ "${#set_vars[@]}" -ge 1 ]
+
+	local missing=0 v
+	for v in "${set_vars[@]}"; do
+		if ! grep -Eq "^[[:space:]]*\"${v}\",[[:space:]]*$" "$demo_runner_py"; then
+			echo "deployment sets ${v} but demo_runner._ENV_ALLOWLIST drops it;" >&2
+			echo "  the pod will have it and the spawned script will not" >&2
+			missing=1
+		fi
+	done
+	[ "$missing" -eq 0 ]
+}
+
 @test "SIGNALFUSION-CONTRACT no port-forward permission was granted to make this work" {
 	# The negative half of the test above. If someone later "fixes" a
 	# port-forward failure by granting the verb, this fails and points at the

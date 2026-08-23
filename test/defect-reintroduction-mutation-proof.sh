@@ -73,7 +73,6 @@ INSTALLER="scripts/ci/install-ci-tools.sh"
 MAKEFILE="Makefile"
 TS_BATS="test/terraform-tailscale-access.bats"
 
-SENTINEL="${REPO_ROOT}/.defect-reintroduction-mutation-in-progress"
 SAFE="${TMPDIR:-/tmp}/osramp-defect-reintroduction-proof"
 
 BATS_BIN="${BATS_BIN:-$(command -v bats || true)}"
@@ -92,27 +91,25 @@ command -v python3 >/dev/null 2>&1 || {
 	exit 2
 }
 
-# ── Refuse, never repair ────────────────────────────────────────────────────
-if [ -e "$SENTINEL" ]; then
-	red "REFUSING TO START: a previous run left a sentinel."
-	say ""
-	sed 's/^/    /' "$SENTINEL" 2>/dev/null
-	say ""
-	say "  That run was killed while a REAL file was mutated. The working tree may"
-	say "  still hold a deliberately broken driver, installer, Makefile or bats"
-	say "  suite. This harness will NOT repair it — auto-repair is how a broken"
-	say "  component ships green, and you would have no way to tell a repaired"
-	say "  tree from one that was never damaged."
-	say ""
-	say "  If the PID above is still alive, a harness is MID-RUN and this refusal"
-	say "  is correct; wait for it. If it is gone, restore each file from the"
-	say "  backup path by hand, confirm with 'git status' and the SHA-256 values"
-	say "  recorded above, delete the sentinel, then re-run."
-	exit 2
-fi
+# ── Refuse, never repair — via the shared rail ──────────────────────────────
+#
+# The refusal that used to be written out here said the right things, and could
+# not act on the most important one: it told the reader "if the PID above is
+# still alive, a harness is MID-RUN and this refusal is correct; wait for it",
+# and then left them to check by hand. The rail records the pid AND that pid's
+# /proc start time, so a recycled pid cannot masquerade as a live one, and it
+# prints WHICH case it is looking at — wait, or inspect.
+#
+# $DRIVER is shared with three other proofs and a hard kill leaving it mutated
+# has already happened in this tree, so the per-proof sentinel name matters:
+# one proof's restore must not be able to clear another's evidence.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
+# $SAFE now holds only this harness's captured bats output; the pristine
+# copies are the rail's, under $MS_BACKUP_DIR.
 mkdir -p "$SAFE"
-rm -f "${SAFE:?}"/*.pristine
 
 declare -A PRISTINE_SHA=()
 for f in "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"; do
@@ -120,37 +117,22 @@ for f in "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"; do
 		red "CANNOT RUN: ${f} is missing. Nothing below would be measurable."
 		exit 2
 	}
-	cp "$f" "${SAFE}/$(basename "$f").pristine"
 	PRISTINE_SHA["$f"]="$(sha "$f")"
 done
 
-restore_all() {
-	local f
-	for f in "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"; do
-		cp "${SAFE}/$(basename "$f").pristine" "$f"
-	done
-	rm -f "$SENTINEL"
-}
-trap restore_all EXIT
+ms_guard_init defect-reintroduction "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"
+trap ms_guard_on_exit EXIT
+
+restore_all() { ms_guard_restore; }
 
 FINDINGS=0
 CURRENT=""
 
-sentinel_write() { # <description> <file>
-	{
-		printf 'defect-reintroduction-mutation-proof.sh is MID-RUN or was KILLED.\n'
-		printf 'pid:      %s\n' "$$"
-		printf 'started:  %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-		printf 'mutation: %s\n' "$1"
-		printf 'file:     %s\n' "$2"
-		printf 'backups:  %s\n' "$SAFE"
-		printf 'restore each file from <backups>/<basename>.pristine, expected SHA-256:\n'
-		local f
-		for f in "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"; do
-			printf '  %s  %s\n' "${PRISTINE_SHA[$f]}" "$f"
-		done
-	} >"$SENTINEL"
-}
+# The rail's marker, armed before each mutation with a label naming the defect
+# being re-introduced and the file it lands in. That label is what the next
+# run's refusal prints, and it is the difference between "something mutated the
+# driver" and "M3 was re-introducing the tunnel-before-cert defect".
+sentinel_write() { ms_guard_arm "$1 — $2"; }
 
 # apply <file> <description> <python-transform>
 #
@@ -187,7 +169,12 @@ open(p,'w').write(out)
 	return 0
 }
 
-unmutate() { cp "${SAFE}/$(basename "$1").pristine" "$1"; }
+# Single-file restore from the rail's pristine copy. MS_BACKUP_DIR mirrors each
+# guarded file under its full repo-relative path, so this cannot collide the way
+# a basename-keyed backup can — a sibling proof managing three files called
+# main.tf hit exactly that, and nine mutations reported "changed nothing"
+# because they had been applied to the wrong content.
+unmutate() { cp "${MS_BACKUP_DIR}/$1" "$1"; }
 
 LAST_OUT="${SAFE}/last-bats-output.txt"
 
@@ -517,7 +504,7 @@ for f in "$DRIVER" "$INSTALLER" "$MAKEFILE" "$TS_BATS"; do
 	fi
 done
 [ "$restore_ok" -eq 1 ] && say "  all four files byte-identical to their pre-run state."
-rm -f "${SAFE:?}"/*.pristine "$LAST_OUT"
+rm -f "$LAST_OUT"
 
 say ""
 if [ "$FINDINGS" -eq 0 ]; then

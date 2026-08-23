@@ -22,23 +22,31 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.." || exit 2
 
 GATE="scripts/ci/user-surface-gate.sh"
 REG="scripts/ci/demo-surface-registry.py"
-BACKUP_DIR="$(mktemp -d)"
 FAILURES=0
 # Counted, never hardcoded: a literal here drifts the moment a mutation is added,
 # and a proof that misreports its own size is a small version of the problem this
 # whole slice is about.
 CHECKS=0
 
-cp "$GATE" "${BACKUP_DIR}/gate.bak" || exit 2
-cp "$REG"  "${BACKUP_DIR}/reg.bak"  || exit 2
 GATE_SUM="$(sha256sum "$GATE" | cut -d' ' -f1)"
 REG_SUM="$(sha256sum "$REG"   | cut -d' ' -f1)"
 
-restore() {
-  cp "${BACKUP_DIR}/gate.bak" "$GATE"
-  cp "${BACKUP_DIR}/reg.bak"  "$REG"
-}
-trap 'restore; rm -rf "$BACKUP_DIR"' EXIT
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# An EXIT trap was the whole protection here, and it does not survive SIGKILL —
+# which is what a tool timeout escalates to. A hard kill leaves these two files
+# mutated, the &&-chained gate carries on into the next proof, and the leak
+# reads as content lost in a merge. The helper leaves a marker that outlives the
+# kill, REFUSES to start on top of one rather than repairing it, and verifies
+# the restore on content AND mode.
+# See test/helpers/mutation-sentinel.bash.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "$(pwd)/test/helpers/mutation-sentinel.bash"
+
+ms_guard_init user-surface-gate "$GATE" "$REG"
+trap ms_guard_on_exit EXIT
+
+restore() { ms_guard_restore; }
 
 # apply_mutation <file> <old-literal> <new-literal>
 #
@@ -52,8 +60,14 @@ trap 'restore; rm -rf "$BACKUP_DIR"' EXIT
 # Asserts the edit CHANGED the file: a no-op mutation leaves the original code
 # in place, the test then passes for the RIGHT reason, and a harness without
 # this check reports it as a vacuous assertion.
+#
+# The sentinel is armed BY HAND here and BEFORE the write: the mutation is a
+# python3 rewrite rather than an ms_sed, so the rail cannot arm on this call
+# site's behalf, and a kill between the write and the check below would leave
+# the file broken with nothing on disk recording that a harness did it.
 apply_mutation() {
   local file="$1" old="$2" new="$3" before after
+  ms_guard_arm "${file}: ${old} -> ${new}"
   before="$(sha256sum "$file" | cut -d' ' -f1)"
   python3 -c '
 import sys

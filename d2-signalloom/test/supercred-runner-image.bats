@@ -22,17 +22,42 @@ setup() {
   [ -f "$runner" ]
 
   local missing=0 script
-  # Each `_repo_root() / "scripts" / "<name>"` in demo_runner is a script the
-  # API can execute at runtime.
-  while read -r script; do
+  # Each script demo_runner can exec at runtime, in BOTH spellings it uses:
+  #
+  #   _repo_root() / "scripts" / "<name>"     the Path-join form
+  #   default_script="scripts/<name>"          the DemoConfig form
+  #
+  # The second was added when the runner grew a second demo type and this
+  # extractor was not widened with it, so signalfusion-demo.sh -- which
+  # demo_runner will happily exec -- was invisible here. This test passed for
+  # the entire life of that defect while all three Signal Fusion acts 503'd on
+  # a live lane, which is the precise failure the test was written to prevent.
+  #
+  # The count assertion below is the part that makes widening stick: matching
+  # "at least the ones we know about" is how the first spelling silently became
+  # the only one covered.
+  local -a scripts
+  mapfile -t scripts < <(
+    {
+      grep -oE '"scripts"[[:space:]]*/[[:space:]]*"[a-z0-9._-]+\.sh"' "$runner" \
+        | grep -oE '"[a-z0-9._-]+\.sh"'
+      grep -oE '"scripts/[a-z0-9._-]+\.sh"' "$runner" \
+        | sed 's|"scripts/|"|'
+    } | tr -d '"' | sort -u
+  )
+
+  # Guard the extractor itself. If a refactor changes the spelling again, this
+  # drops rather than reporting a clean run over an empty list.
+  [ "${#scripts[@]}" -ge 3 ]
+
+  for script in "${scripts[@]}"; do
     [ -z "$script" ] && continue
     if ! grep -Fq "COPY scripts/${script} " "$dockerfile"; then
       echo "demo_runner.py can execute scripts/${script}, but the runner Dockerfile never COPYs it" >&2
       echo "  the endpoint that uses it will 503 in-cluster while working from a terminal" >&2
       missing=1
     fi
-  done < <(grep -oE '"scripts"[[:space:]]*/[[:space:]]*"[a-z0-9._-]+"' "$runner" \
-             | grep -oE '"[a-z0-9._-]+\.sh"' | tr -d '"' | sort -u)
+  done
 
   [ "$missing" -eq 0 ]
 }

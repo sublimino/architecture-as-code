@@ -300,6 +300,27 @@ main() {
 	if [ "${#requested[@]}" -eq 0 ]; then
 		mapfile -t requested < <(source_id_workloads)
 	fi
+	# `mapfile -t arr < <(cmd)` reports MAPFILE's status, never cmd's. mapfile
+	# succeeds having read zero lines from a command that failed outright, so an
+	# errored or relocated source_id_workloads left `requested` empty, the
+	# per-workload loop below ran ZERO times, DRIFT and UNVERIFIED both stayed 0,
+	# and this script printed "every checked workload is running the current
+	# working tree" having checked nothing at all.
+	#
+	# That is the degenerate case of the failure this guard has already been
+	# caught committing once: it reported VERIFIED FRESH while a 25-hour-stale
+	# portal served 404s — truthfully, about a list that did not contain it (see
+	# the WORKLOAD_TOPOLOGY note above). An empty list is that same list narrowed
+	# all the way down, and it must not be the quietest outcome of the three.
+	#
+	# CANNOT VERIFY rather than DRIFT, deliberately: nothing has been shown to be
+	# stale. The question was not answered.
+	if [ "${#requested[@]}" -eq 0 ]; then
+		printf '\n'
+		unk "CANNOT VERIFY: the workload list came back EMPTY — nothing would be checked."
+		printf '           No claim is being made about the deployed workloads. This is NOT a pass.\n\n' >&2
+		exit 2
+	fi
 
 	# Preflight is separate from the per-workload loop on purpose. If the cluster
 	# is unreachable, every workload would otherwise fail individually with a

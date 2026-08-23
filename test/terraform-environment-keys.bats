@@ -142,6 +142,14 @@ setup_file() {
 	# catches the constructs that would make it need credentials at all.
 	local files f
 	mapfile -t files < <(find "${tf_src}" -name '*.tftest.hcl' -type f)
+	# Same guard as its sibling above, and for the same reason: `mapfile -t arr
+	# < <(cmd)` reports MAPFILE's status, so a find that errored or a tf_src that
+	# moved leaves `files` empty, the loop below runs zero times, and this test
+	# reports that no .tftest.hcl requires credentials by not looking at any.
+	[ "${#files[@]}" -ge 2 ] || {
+		echo "expected at least two .tftest.hcl files, found ${#files[@]}" >&2
+		return 1
+	}
 	local body
 	for f in "${files[@]}"; do
 		body="$(code_only "$f")"

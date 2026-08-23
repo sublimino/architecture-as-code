@@ -27,7 +27,7 @@
 #
 # ── Entries ─────────────────────────────────────────────────────────────────
 #
-# There are none. Every finding from the first run over this tree was a true
+# Every finding from VAC001-VAC006's first run over this tree was a true
 # positive and was fixed, not excused:
 #
 #   test/audit-anchor-keys-path.bats     grep "must not match" tests that passed
@@ -38,3 +38,19 @@
 #   d2-osramp-apps/test/osramp.bats      two `run verify` lines and no status
 #                                        check: green whether NATS was up, down,
 #                                        or the cluster unreachable
+#
+# VAC007 found four. Two were real and were fixed
+# (scripts/check-deployed-staleness.sh, test/terraform-environment-keys.bats).
+# The two below are the same shape in a PRODUCER: a function whose whole job is
+# to emit a list on stdout, where empty is a legitimate answer rather than a
+# swallowed failure, and where the caller — not the producer — is the place that
+# has to refuse. In both cases every caller already does, at the line named. The
+# rule cannot see across a call frame, so this is the honest use of an
+# exception rather than a rule tightened until it fits.
+#
+# Both entries are anchored on the mapfile line, so they go stale the moment
+# either function is restructured, which is exactly when the reasoning above
+# needs rereading.
+
+VAC007 | scripts/lib/spire-trust-anchor.sh | mapfile -t encoded_pems | producer: openbao_jwt_validation_keys emits OpenBao's validation keys, and holding none is a real cluster state rather than a discarded error. Its only non-test caller, assert_openbao_accepts_spire_jwt_keys, refuses loudly on empty at the `[[ -n "$bao_out" ]]` guard ("OpenBao holds NO JWT validation keys at all") before comparing anything. Guarding here as well would turn a reportable state into a library-level abort.
+VAC007 | test/helpers/toolchain-contract.bash | mapfile -t names | producer: contract_remote_path_vars emits name/variable pairs for callers to assert over. Both callers in test/terraform-env-contract.bats already refuse on empty — `[ -n "$output" ]` at line 426 and `[ -n "$pairs" ] || { echo "no exported name/variable pairs found"; return 1; }` at line 483 — so the emptiness check exists, one frame up, in the tests that would otherwise go vacuous.

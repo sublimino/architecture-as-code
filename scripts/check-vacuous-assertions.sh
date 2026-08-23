@@ -57,6 +57,17 @@
 #       sibling tests failed VISIBLY for that reason and were fixed. This one
 #       passed. The passing one was the dangerous one.
 #
+#   mapfile -t spire_keys < <(spire_jwt_svid_keys "$ns")
+#       In assert_openbao_accepts_spire_jwt_keys, the one assert that exists to
+#       catch silent identity-plane failure. mapfile reports MAPFILE's status,
+#       never the command's — it succeeds having read zero lines from a kubectl
+#       that could not reach anything. The membership loop below it then ran
+#       zero times and the function returned 0, announcing "OpenBao accepts
+#       every key SPIRE publishes" having read NEITHER side. Reproduced
+#       2026-08-23 with KUBECONFIG=/nonexistent: it passed against no cluster
+#       at all, and this scanner cleared all 623 files of the tree it was in.
+#       Six shapes were checked. This was a seventh.
+#
 # ─── The rules ──────────────────────────────────────────────────────────────
 #
 #   VAC001  a `>= 0` comparison on a monotonic counter inside a readiness
@@ -70,6 +81,9 @@
 #   VAC005  a bats @test with no assertion and no failable command at all.
 #   VAC006  a bats `run` whose $status and $output are never examined. `run`
 #           captures the exit code precisely so it CANNOT fail the test.
+#   VAC007  `mapfile -t arr < <(cmd)` feeding a `for` loop, with no emptiness
+#           check on arr. mapfile DISCARDS cmd's status, so a failed cmd yields
+#           an empty array, a zero-iteration loop, and a silent pass.
 #
 # ─── What this does NOT check, stated so nobody has to discover it ──────────
 #
@@ -85,9 +99,11 @@
 # AGENTS.md and docs/deploying-a-backend-service.md quote these anti-patterns in
 # order to warn about them.
 #
-# More generally: a pass here means these six shapes are absent, and says
-# nothing about a seventh way a check can be hollow. The success message says so
-# rather than claiming the tree's assertions are sound.
+# More generally: a pass here means these seven shapes are absent, and says
+# nothing about an eighth way a check can be hollow. The success message says so
+# rather than claiming the tree's assertions are sound. VAC007 was added after
+# the six-rule version reported SCANNED CLEAN over a guard that passed with no
+# cluster, which is the argument for phrasing it that way and not "all clear".
 #
 # ─── The allowlist ──────────────────────────────────────────────────────────
 #
@@ -468,10 +484,152 @@ scan_bats_bodies() {
 	done
 }
 
+# ── VAC007: a loop fed by a mapfile whose command's status was discarded ────
+#
+# `mapfile -t arr < <(cmd)` throws cmd's exit status away. mapfile reports its
+# OWN status, which is 0 whenever it could open the substitution — so it
+# succeeds having read zero lines from a command that failed outright. `arr` is
+# then empty, the `for` loop over it runs zero times, and every check inside
+# that loop reports nothing. The caller reads that as a pass.
+#
+# ─── Why this does NOT key on `|| return 1` ────────────────────────────────
+#
+# Because the `||` is not the defect and never was. mapfile succeeds either
+# way, so the status is discarded with the `||` and without it. In this tree
+# that rule would be close to a no-op: of 26 process-substitution mapfiles only
+# two carry a `||`, both are benign (each is immediately followed by a real
+# `((${#args[@]})) || return 0`), and the one genuine defect —
+# check-deployed-staleness.sh — has no `||` at all. Keying on it would flag the
+# two safe sites and miss the unsafe one.
+#
+# ─── The three clauses, and why the bare shape is not enough ───────────────
+#
+# The bare shape is ordinary bash and occurs 26 times here. A rule that fires
+# on all 26 is a rule somebody switches off in a week, so each clause below
+# exists to drop a category of legitimate use:
+#
+#   1. NO EMPTINESS CHECK within six CODE lines. Comments and blank lines do
+#      not consume the window. scripts/supercred-images.sh:205 has a correct
+#      `((${#args[@]})) || return 0` ten lines below, behind a nine-line
+#      comment explaining the docker failure that motivated it; a naive line
+#      window calls that a defect and is wrong.
+#
+#   2. THE ARRAY MUST DRIVE A LOOP. Splatted into an argument list —
+#      `gcloud "${args[@]}" compute ssh …` — an empty array means "no extra
+#      arguments", the command still runs, and it still fails on its own
+#      merits. Nothing is silenced. Driving a `for`, an empty array silences
+#      every check in the body. That difference IS the shape, and it is what
+#      separates the six arg-builders here from the two real defects.
+#
+#   3. THE SUBSTITUTED COMMAND MUST BE ABLE TO FAIL. `< <(printf '%s\n'
+#      "${AGENTS[@]}")` re-expands an array the script already holds. There is
+#      no external state, no status worth propagating, and nothing to discard.
+scan_unguarded_array_loop() {
+	local f
+	while read -r f; do
+		[ -n "$f" ] || continue
+		awk -v FNAME="$f" '
+			function trim(s) { sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); return s }
+			# Parens opened minus parens closed, so a substitution spanning
+			# several lines (test/helpers/toolchain-contract.bash:73) is treated
+			# as the one statement it is.
+			function pdelta(s,   a, b, c) {
+				c = s; a = gsub(/\(/, "(", c)
+				c = s; b = gsub(/\)/, ")", c)
+				return a - b
+			}
+			# Buffered rather than streamed: both the guard window and the loop
+			# are AFTER the line being judged. HD marks heredoc bodies, which are
+			# data — see the note above scan_bats_bodies.
+			{
+				L[NR] = $0
+				t = trim($0)
+				if (heredoc != "") { HD[NR] = 1; if (t == heredoc) heredoc = ""; next }
+				if (match(t, /<<-?[ \t]*["'"'"']?[A-Za-z_][A-Za-z0-9_]*["'"'"']?/)) {
+					h = substr(t, RSTART, RLENGTH); sub(/<<-?[ \t]*/, "", h); gsub(/["'"'"']/, "", h)
+					heredoc = h
+				}
+			}
+			END {
+				for (i = 1; i <= NR; i++) {
+					if (HD[i]) continue
+					t = trim(L[i])
+					if (t ~ /^#/) continue
+					if (t !~ /^(mapfile|readarray)[ \t]/) continue
+					# Only a process substitution. `mapfile < file` and
+					# `mapfile <<< "$var"` have no command whose status could be
+					# discarded, so they are a different thing entirely.
+					if (t !~ /<[ \t]*<\(/) continue
+
+					# The array name: the last bare word before the redirect.
+					pre = t; sub(/<[ \t]*<\(.*$/, "", pre)
+					nm = ""; nw = split(pre, w, /[ \t]+/)
+					for (j = nw; j >= 1; j--) {
+						if (w[j] == "") continue
+						if (w[j] ~ /^-/) break
+						nm = w[j]; break
+					}
+					# Unnamed (mapfile defaults to MAPFILE) or unparseable: say
+					# nothing rather than guess. Under-reporting beats crying wolf.
+					if (nm !~ /^[A-Za-z_][A-Za-z0-9_]*$/) continue
+
+					# Clause 3: a command that could actually have failed.
+					cmd = t; sub(/^.*<[ \t]*\(/, "", cmd); sub(/^[ \t]*/, "", cmd)
+					split(cmd, cw, /[ \t]+/)
+					if (cw[1] ~ /^(printf|echo|seq|:|true)$/) continue
+
+					# End of the mapfile statement.
+					stmt = i; depth = pdelta(L[i])
+					while (depth > 0 && stmt < NR) { stmt++; depth += pdelta(L[stmt]) }
+
+					# Clause 1: an emptiness check within six CODE lines.
+					guarded = 0; seen = 0
+					for (k = i; k <= NR; k++) {
+						g = L[k]
+						if (g ~ ("\\$\\{#" nm "\\[")) { guarded = 1; break }
+						if (g ~ ("-[zn][ \t]+\"?\\$\\{" nm "\\[[@*]\\]\\}")) { guarded = 1; break }
+						if (k <= stmt) continue
+						gt = trim(g)
+						if (gt == "" || gt ~ /^#/) continue
+						seen++
+						if (seen > 6) break
+					}
+					if (guarded) continue
+
+					# Clause 2: the array drives a loop. Bounded by the end of the
+					# enclosing function or @test body, and by 60 lines, so a
+					# same-named array far away in an unrelated function cannot
+					# manufacture a finding.
+					loopline = 0; loopev = ""
+					for (k = stmt + 1; k <= NR && k <= stmt + 60; k++) {
+						if (HD[k]) continue
+						ft = trim(L[k])
+						if (ft ~ /^\}[ \t]*$/) break
+						if (ft ~ /^#/) continue
+						if (ft !~ /^(for|while)[ \t]/) continue
+						# Anchored so that `id_args[@]` does not satisfy a rule
+						# about `args`.
+						if (ft !~ ("(^|[^A-Za-z0-9_])" nm "\\[[@*]\\]")) continue
+						loopline = k; loopev = ft; break
+					}
+					if (loopline == 0) continue
+
+					printf "%d\t%s\t%d\t%s\t%s\n", i, t, loopline, loopev, FNAME
+				}
+			}
+		' "$f"
+	done < <(shell_files) | while IFS=$'\t' read -r lineno text loopline loopev file; do
+		emit VAC007 "$file" "$lineno" "$text" \
+			"mapfile discards the command's exit status — a failed command leaves the array empty, the loop at line ${loopline} runs zero times, and every check inside it reports nothing" \
+			"$text  ->  ${loopev}"
+	done
+}
+
 scan_ready_expr
 scan_wait_condition
 scan_tautologies
 scan_bats_bodies
+scan_unguarded_array_loop
 
 # ── Allowlist ───────────────────────────────────────────────────────────────
 
@@ -578,5 +736,5 @@ fi
 # Name what was checked. "All clear" over a rule set of six reads as a general
 # guarantee about the tree's assertions, which this is not: it says these six
 # shapes are absent, and nothing about any other way a check can be hollow.
-ok "no VAC001-VAC006 findings in ${FILE_COUNT} files (${SUPPRESSED} allowlisted)."
-printf '           (six shapes are checked; a check can still be hollow in a seventh way.)\n\n'
+ok "no VAC001-VAC007 findings in ${FILE_COUNT} files (${SUPPRESSED} allowlisted)."
+printf '           (seven shapes are checked; a check can still be hollow in an eighth way.)\n\n'

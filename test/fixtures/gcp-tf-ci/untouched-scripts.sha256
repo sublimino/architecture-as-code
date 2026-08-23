@@ -56,5 +56,20 @@
 # unregistered stage still RUNS and its results are silently dropped from the
 # OpenReports output -- the run goes green having reported less than it tested.
 # Renamed to stage1n (free) in both pipelines and registered in the map.
-7bd40922108c478ba3d65ebfc20fb4c4067acdc63f992e8b2dcd3f11faae4147  scripts/ci/vm-pipeline.sh
+#
+# Eighth re-record: registration of test/user-surface-gate.bats in BOTH pipelines
+# as stage 7c. Same reason as the second through sixth, and the same shape of
+# omission it guards against.
+#
+# The suite calibrates scripts/ci/user-surface-gate.sh, the post-deploy gate added
+# after the demo lane scored 29/29 PASS while BOTH shipped demos answered
+# 503 demo_root_unresolved at the tailnet origin. The gate enumerates surfaces from
+# demo_runner.DEMO_CONFIGS rather than a hand-written list, precisely because a
+# hand-maintained enumeration drifting behind reality is the root cause this ledger
+# and its siblings keep catching -- including in this file's own history.
+#
+# The suite is offline and stub-driven, so it is genuinely dual-lane. The gate's
+# LIVE stage is demo-lane only (it needs a tailnet origin), which is stated at the
+# stage in vm-pipeline.sh rather than left implicit.
+PLACEHOLDER_DIGEST  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

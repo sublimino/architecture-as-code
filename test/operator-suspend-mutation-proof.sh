@@ -50,73 +50,36 @@ TFTEST="terraform/modules/operator-identity/tests/operator_identity.tftest.hcl"
 BATS_SUITE="test/terraform-operator-access.bats"
 MODULE_DIR="terraform/modules/operator-identity"
 
-SENTINEL="$REPO_ROOT/.operator-suspend-mutation-in-progress"
+# ── The shared safety rail ──────────────────────────────────────────────────
+#
+# This harness already had a correct, uniquely-named sentinel; it is now the
+# shared rail so all eight proofs behave identically instead of three of them
+# doing so. The name is unchanged. What the rail adds here:
+#
+#   * The old trap did `rm -f "$SENTINEL"` unconditionally, so a FAILED restore
+#     removed the very marker that a failed restore exists to leave behind.
+#     The rail clears it only after verification passes.
+#   * Restore is verified on MODE as well as content. `cp` onto an existing
+#     file keeps the destination's mode.
+#   * A live pid now reads as "a run is in progress" rather than as a leak.
+#   * The refusal prints a `git show <commit>:<path> | diff` that actually runs
+#     from any directory, instead of a `git checkout` hedged with a warning.
+# shellcheck source=helpers/mutation-sentinel.bash
+source "${REPO_ROOT}/test/helpers/mutation-sentinel.bash"
 
-# ── Refuse to run on top of a leaked mutation ───────────────────────────────
-if [[ -e "$SENTINEL" ]]; then
-	cat >&2 <<-EOF
-		REFUSING TO RUN: a previous mutation run did not finish.
+ms_guard_init operator-suspend "$MAIN" "$TFTEST"
+ms_guard_arm "operator-identity permission guards"
+trap ms_guard_on_exit EXIT
 
-		  sentinel: $SENTINEL
-		  $(cat "$SENTINEL" 2>/dev/null || true)
-
-		The files below are probably still MUTATED in your working tree. Anything
-		that fails right now is this harness's doing, not a regression.
-
-		  $MAIN
-		  $TFTEST
-
-		Restore them yourself and delete the sentinel:
-
-		  git diff -- $MAIN $TFTEST      # confirm the damage first
-		  git checkout -- $MAIN $TFTEST  # ONLY if you have no other uncommitted
-		                                 # work in that module
-		  rm $SENTINEL
-
-		This harness will not repair the tree for you. A run that silently fixed
-		its own mess would hide that it was interrupted, and you would never learn
-		that a destructive step is being killed part-way. CONTRACT §7b.
-	EOF
-	exit 3
-fi
-
-BACKUP="$(mktemp -d)"
-cp "$MAIN" "$BACKUP/main.tf"
-cp "$TFTEST" "$BACKUP/tftest.hcl"
-
-MAIN_HASH_BEFORE="$(sha256sum "$MAIN" | cut -d' ' -f1)"
-TFTEST_HASH_BEFORE="$(sha256sum "$TFTEST" | cut -d' ' -f1)"
-
-printf 'started %s by pid %s\n' "$(date -Is)" "$$" > "$SENTINEL"
-
-restore_all() {
-	cp "$BACKUP/main.tf" "$MAIN"
-	cp "$BACKUP/tftest.hcl" "$TFTEST"
-}
-
-trap 'restore_all; rm -rf "$BACKUP"; rm -f "$SENTINEL"' EXIT
+restore_all() { ms_guard_restore; }
 
 PASS=0
 FAIL=0
 
-# A sed that cannot silently do nothing.
-#
-# A non-matching pattern no-ops while returning 0, so the mutation never lands,
-# the suite stays green, and the harness reports "guard did not fire" — a false
-# finding that looks exactly like a real one. Compare hashes and abort.
-mutate() {
-	local file="$1" expr="$2" before after
-	before="$(sha256sum "$file" | cut -d' ' -f1)"
-	sed -i "$expr" "$file"
-	after="$(sha256sum "$file" | cut -d' ' -f1)"
-	if [[ "$before" == "$after" ]]; then
-		printf '*** ABORT: mutation changed nothing in %s\n' "$file" >&2
-		printf '           expression: %s\n' "$expr" >&2
-		printf '           A no-op mutation would make every check below report\n' >&2
-		printf '           a dead guard that is actually fine.\n' >&2
-		exit 2
-	fi
-}
+# A sed that cannot silently do nothing — and that separates a sed SYNTAX ERROR
+# from a pattern that no longer matches. This version conflated the two into one
+# ABORT, and an unescaped `|` inside s|…|…| reads exactly like a dead guard.
+mutate() { ms_sed "$1" "$2"; }
 
 # Names of failing bats tests, not `not ok <n>` numbers. Inserting a test in the
 # middle renumbers everything below it, which silently repoints every
@@ -289,18 +252,16 @@ check "removed role" "the_tunnel_and_login_roles_are_granted_at_project_scope" "
 restore_all
 
 # ── Restoration, verified ───────────────────────────────────────────────────
+#
+# Content AND mode. The hash-only version could not see a mode-only diff, which
+# is what a mutation applied through a tempfile leaves behind.
 echo
-MAIN_HASH_AFTER="$(sha256sum "$MAIN" | cut -d' ' -f1)"
-TFTEST_HASH_AFTER="$(sha256sum "$TFTEST" | cut -d' ' -f1)"
-
-if [[ "$MAIN_HASH_BEFORE" != "$MAIN_HASH_AFTER" || "$TFTEST_HASH_BEFORE" != "$TFTEST_HASH_AFTER" ]]; then
+if ! ms_guard_verify; then
 	printf '*** RESTORATION FAILED — the working tree is NOT as it was found.\n' >&2
-	printf '    %s\n      before %s\n      after  %s\n' "$MAIN" "$MAIN_HASH_BEFORE" "$MAIN_HASH_AFTER" >&2
-	printf '    %s\n      before %s\n      after  %s\n' "$TFTEST" "$TFTEST_HASH_BEFORE" "$TFTEST_HASH_AFTER" >&2
 	exit 2
 fi
-printf 'restored: %s sha256 %s\n' "$MAIN" "$MAIN_HASH_AFTER"
-printf 'restored: %s sha256 %s\n' "$TFTEST" "$TFTEST_HASH_AFTER"
+printf 'restored:\n'
+ms_guard_report
 
 echo
 echo "proven: ${PASS}   NOT proven: ${FAIL}"

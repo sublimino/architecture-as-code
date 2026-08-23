@@ -3,6 +3,9 @@
 Canonical agent onboarding doc. Read this first, then the per-slice AGENTS.md
 for whichever D2 installation you're working on.
 
+For the full documentation map, including the GCP lanes and the debugging
+guides, see [`docs/README.md`](docs/README.md).
+
 ## Repository Purpose
 
 Monorepo for the OSRAMP / Signal Loom demo platform. Hosts multiple independent
@@ -45,9 +48,22 @@ to miss. Both were finished, tested and undeployed for days:
 | Fleet Manager | `make demo-signalloom-fleet-up` (applied directly, not via Flux) | `/fleet` in the dashboard, through nginx `/fleet-api/` |
 | `afm-platform` | `make demo-k8s-afm-up` — opt-in; neither `make up` nor `demo-signalloom-up` brings it | `/rbac-analysis` and `/rbac-explorer`, plus seven nginx prefixes and the API's server-side `httpx` call |
 
-`make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT` (default
-`/home/andy/src/cp/kubesec-afm`), not from anything in this repo — on a machine
-without that checkout it fails at `docker build`.
+`make demo-k8s-afm-up` builds its image from `$KUBESEC_AFM_ROOT`, not from
+anything in this repo. The default is the **sibling of the repository root**,
+`<repo>/../kubesec-afm` (`scripts/k8s-afm.sh:45`). On a machine without that
+checkout it fails at `docker build`.
+
+CAUTION: FROM A GIT WORKTREE THAT DEFAULT RESOLVES TO A PATH THAT DOES NOT
+EXIST. A worktree lives outside the source checkout, so its parent holds no
+`kubesec-afm`. Export the variable before you build:
+
+```bash
+export KUBESEC_AFM_ROOT=/path/to/kubesec-afm
+```
+
+`make gcp-tf-worktree-check` reports this, and
+[`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) explains the rest
+of the worktree state a fresh checkout is missing.
 
 Before adding a backend service of your own, read
 [`docs/deploying-a-backend-service.md`](docs/deploying-a-backend-service.md): four
@@ -111,14 +127,60 @@ make demo-<slice>-down      # Remove (keeps foundation)
 | Command | Scope |
 |---------|-------|
 | `make test` | End-to-end BATS against running cluster |
-| `make acceptance-test` | Playwright browser tests — signalloom + k8s-afm, 68 tests / 9 specs |
+| `make acceptance-test` | Playwright browser tests — signalloom + k8s-afm |
 | `make demo-signalloom-api-test` | FastAPI contract + integration |
 | `make attested-test` | Test suite under witness attestation |
 
-## Remote CI — two GCP VMs
+**Do not quote a spec or test count for the acceptance suite.** Every prose
+count in this repo has drifted, twice. `test/acceptance/SPEC-REGISTRY.tsv` is
+the source of truth: it names, for every spec on disk, where that spec actually
+runs. `test/acceptance-spec-coverage.bats` (CI stage 1c) cross-checks each row
+against `playwright.config.ts`, the Makefile and `scripts/ci/vm-pipeline.sh` in
+both directions, so a stale row fails as loudly as a missing one.
 
-Full 9-stage e2e runs against a real cluster, on persistent VMs that suspend
-between runs (~£0.02/day idle). Full operating guide, including the traps that
+CAUTION: PLAYWRIGHT SILENTLY IGNORES A SPEC THAT NO PROJECT CLAIMS. It reports
+a smaller total and gives no warning. The registry marks such a spec `unwired`,
+which is the only mechanism that makes the omission visible.
+
+## The GCP estate — four lanes
+
+The repository also runs on GCP, as four independent **lanes**: `demo-1`,
+`demo-2`, `ci-1` and `ci-2`. Terraform provisions a lane; a separate step
+builds the **estate** that runs on it. Every command takes `ENV=<lane>`.
+
+```bash
+make gcp-tf-up        ENV=demo-1              # plan, review, apply, write the hand-off
+make gcp-tf-demo-up   ENV=demo-1              # deliver the code, build the estate, test it
+make gcp-tf-ts-up     ENV=demo-1              # serve it on the tailnet; prints the URL
+make doctor-node      ENV=demo-1              # node-level health for one lane
+make doctor-node-all                          # every lane that has a hand-off file
+make gcp-tf-destroy   ENV=demo-1 CONFIRM=demo-1
+```
+
+| Document | Read it for |
+| :--- | :--- |
+| [`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) | Zero to a dashboard in a browser, step by step |
+| [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md) | The lanes, the health tooling, and the traps that misreport their cause |
+| [`docs/gcp-demo/INCIDENTS-2026-08.md`](docs/gcp-demo/INCIDENTS-2026-08.md) | Five blockers, each with the measurement that found it |
+
+The traps that cost the most time are in `OPERATIONS.md`. Four of them:
+
+- `yes` emits `y`; `terraform destroy` needs exactly `yes`.
+- `unset SSH_AUTH_SOCK` before any `gcloud compute ssh`, ad-hoc calls included.
+- `make -n` executes any recipe line containing `$(MAKE)`, for real.
+- Let's Encrypt allows five certificates per exact DNS name per 168 hours, and
+  each lane holds its own clock.
+
+## The older CI lane — two GCP VMs
+
+This is a **separate system** from the four GCP lanes above. It predates them,
+it uses its own VMs (`signalloom-ci`, `signalloom-ci-2`), and it is driven by
+`scripts/ci/gcp-ci.sh` rather than by Terraform.
+
+It runs the full e2e pipeline against a real cluster, on persistent VMs that
+suspend between runs (~£0.02/day idle). `scripts/ci/vm-pipeline.sh` has 8
+numbered stages and 27 stage reports once sub-stages are counted (`stage1b`
+through `stage8b`). The full operating guide, including the traps that
 misreport their own cause, is in [`scripts/ci/README.md`](scripts/ci/README.md).
 
 | Command | What it does |
@@ -180,8 +242,9 @@ the checklist that stops the last of those recurring.
 
 ```
 osramp-demo/
-├── Makefile                 # 162 documented targets — `make help`
+├── Makefile                 # 232 documented targets — `make help`
 ├── AGENTS.md                # This file (shared foundation)
+├── docs/README.md           # Documentation index — start here for anything else
 ├── d2-signalloom/DESIGN.md   # Visual design guide (dashboard SPA)
 ├── scripts/                 # Lifecycle, build, and test scripts
 ├── .keys/                   # cosign + witness keys (gitignored, generated)
@@ -307,7 +370,7 @@ ResourceSets activated via `kubectl patch resourceset <name> --type merge`
 `tenants/base/*.yaml` ships as a literal `[]`, and the activation script
 injects concrete values directly — that path never goes through envsubst.
 Only inputs declared inline with `${VAR}` in a base ResourceSet (currently
-just `tenants/base/infra.yaml`) are exposed to this race.
+just `d2-osramp-fleet/tenants/base/infra.yaml`) are exposed to this race.
 
 **Annotation convention** — every `kustomization.yaml` and any other Flux
 resource YAML containing `${VAR}` carries a `# FLUX ENVSUBST:` header stating
@@ -329,8 +392,8 @@ reached and isn't) is exactly how this incident happened.
 - **Commits**: conventional commits with slice scope — `feat(signalloom):`, `fix(osramp):`, `test(k8s-afm):`
 - **Signing**: all images and OCI artifacts are cosign-signed, and Flux refuses to
   reconcile an unsigned one — that half is machine-enforced. Commit GPG signing is
-  the intent but is **not** enforced and most history is unsigned (`git log
-  --pretty='%h %G? %s'` reports `N` on 199 of the last 200 commits). Match the
+  the intent but is **not** enforced and the history is unsigned (`git log
+  --pretty='%h %G? %s'` reports `N` on all of the last 200 commits). Match the
   branch you are on rather than assuming: a bare `git commit` on a branch whose
   history is unsigned launches pinentry against a tty the agent harness cannot
   reach and blocks until timeout — use `--no-gpg-sign` there.

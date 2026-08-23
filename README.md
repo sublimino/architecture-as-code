@@ -1,6 +1,8 @@
 # OSRAMP demo for Acme Co.
 
-OSRAMP (Open Source Risk and Asset Management Platform) is a tiered framework for managing the risk of open source software in a regulated environment. This repository is a working demo of it, built for Acme Co., an investment banking firm that is the fictional client for this proof of concept. Everything runs locally on a [kind](https://kind.sigs.k8s.io/) cluster with open source tooling only, and the same pipeline runs in GitHub Actions.
+OSRAMP (Open Source Risk and Asset Management Platform) is a tiered framework for managing the risk of open source software in a regulated environment. This repository is a working demo of it, built for Acme Co., an investment banking firm that is the fictional client for this proof of concept. The demo runs locally on a [kind](https://kind.sigs.k8s.io/) cluster with open source tooling only, the same pipeline runs in GitHub Actions, and the same stack also runs on GCP across four independent lanes.
+
+> **Start here for anything not in this file:** [`docs/README.md`](docs/README.md) is the documentation index. It maps every document to the question it answers, in the order a newcomer needs them: what this is, how to run it, how to debug it.
 
 The problem it addresses: every third-party package an organization ingests crosses its trust boundary and drags the package's own supply chain in with it. Scanners then bury teams in CVE findings, most of which are not exploitable in context. OSRAMP answers with SBOMs, signed attestations for every pipeline step, VEX documents that record triage decisions once and share them everywhere, and policy that gates promotion on evidence instead of on a green checkbox someone hopes is meaningful.
 
@@ -119,6 +121,9 @@ Local mode keeps the whole model intact without GitHub: `make push-local` pushes
 | `policy/` | The witness promotion policy generator output and the Kyverno image verification policy. |
 | `agent/` | The Phase 4 remediation harness and its guardrails document. |
 | `vex/out/` | Generated VEX demo artifacts (SBOMs, scans, statements); not committed. |
+| `terraform/` | The GCP estate: three Terraform roots (bootstrap, platform, environments) and the per-lane environment model. See [terraform/README.md](terraform/README.md) and [terraform/CONTRACT.md](terraform/CONTRACT.md). |
+| `deploy/gcp/` | The real project inputs and the per-lane hand-off files. Most of its contents are gitignored operational state. See [deploy/gcp/README.md](deploy/gcp/README.md). |
+| `docs/` | All documentation, indexed by [docs/README.md](docs/README.md). |
 
 ## Getting started
 
@@ -230,6 +235,31 @@ in the fleet policy. Design doc:
 [olly-replica/agentic-sre-design-doc.md](olly-replica/agentic-sre-design-doc.md);
 component detail in [olly-replica/README.md](olly-replica/README.md).
 
+### Running it on GCP (four lanes)
+
+The same stack runs on Google Cloud as four independent **lanes**: `demo-1`,
+`demo-2`, `ci-1` and `ci-2`. Terraform provisions a lane, and a second step
+builds the **estate** that runs on its VM. Each lane owns one VM, one Tailscale
+node and one hand-off file, and the four share only a project, a state bucket
+and a CPU quota.
+
+```bash
+export TF_STATE_BUCKET=<your-state-bucket>
+
+make gcp-tf-up      ENV=demo-1               # plan, review, apply, write the hand-off
+make gcp-tf-demo-up ENV=demo-1               # deliver the code, build the estate, test it
+make gcp-tf-ts-up   ENV=demo-1               # serve it on the tailnet; prints the URL
+make doctor-node    ENV=demo-1               # node-level health for that lane
+
+make gcp-tf-destroy ENV=demo-1 CONFIRM=demo-1
+./scripts/gcp-tf/teardown-verify.sh          # believe the destroy only after this
+```
+
+The VM bills until it is gone, so the teardown is not optional.
+[`docs/gcp-demo/RUNBOOK.md`](docs/gcp-demo/RUNBOOK.md) is the step-by-step
+operator path, and [`docs/gcp-demo/OPERATIONS.md`](docs/gcp-demo/OPERATIONS.md)
+covers the lanes, the health tooling and the traps.
+
 ### GHCR-published mode (staging and production clusters)
 
 The same fleet definitions run against GHCR-published artifacts: the `push-artifacts` and `push-images` workflows publish and cosign-sign everything under `ghcr.io/<owner>/<repo>`, staging clusters verify the keyless OIDC identity of the exact publishing workflow and branch, and production clusters track `latest-stable` from the release workflow. The canonical identity in the manifests is `acme-co/osramp`; a fork updates the `REGISTRY_BASE`/`IMAGE_BASE` values in `d2-osramp-fleet/clusters/*/flux-system/runtime-info.yaml` and the verify subjects to its own owner, then runs `make -C d2-osramp-fleet bootstrap-staging` with a `read:packages` PAT.
@@ -249,6 +279,12 @@ The same pipeline runs in GitHub Actions, so local and CI behavior match. The ro
 The component-local workflows inside `d2-osramp-apps`, `d2-infra`, and `d2-osramp-fleet` remain intact to support their current logical ownership boundaries and any future extraction justified by CI, release or access-control needs.
 
 ## Validation status
+
+> **HISTORICAL.** Both runs below predate the GCP lanes and much of the current
+> tree. They record what was true on their dates, not what is true today. For a
+> current verdict, run `make doctor-node-all` and
+> `make gcp-tf-surfaces-report`, which derive their answers from the estate
+> rather than from prose.
 
 The historical validation run on 2026-07-09 covered the full signed local GitOps loop, all eight OSRAMP end-to-end tests, the VEX demo, witness-attested evidence, governance demos, and the interactive console. The latest V2.5 browser baseline on 2026-07-26 passed four tests (Grafana and SignalLoom) and failed four tests because the Archivista and Olly customer-portal services were unavailable. See [TESTING.md](TESTING.md) and [HUMAN_VALIDATION.md](HUMAN_VALIDATION.md) for reproducible commands and review evidence.
 

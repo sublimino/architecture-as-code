@@ -57,12 +57,20 @@ answers which question before you need it at speed.
 
 | You want to | Read |
 |---|---|
-| Bring up the first environment, step by step, from nothing | `RUNBOOK.md` |
-| Know which threat a given resource or guard exists to stop | `SECURITY.md` |
-| Answer "what does a demo cost if we leave it running?" | `COSTS.md` |
-| Understand why the tree is shaped this way, or change an interface | `CONTRACT.md` |
-| Know what "done" means and what has actually been verified | `ISA.md` |
+| Bring up the first environment, step by step, from nothing | [`RUNBOOK.md`](RUNBOOK.md) |
+| Know which threat a given resource or guard exists to stop | [`SECURITY.md`](SECURITY.md) |
+| Answer "what does a demo cost if we leave it running?" | [`COSTS.md`](COSTS.md) |
+| Understand why the tree is shaped this way, or change an interface | [`CONTRACT.md`](CONTRACT.md) |
+| Know what "done" means and what has actually been verified | [`ISA.md`](ISA.md) |
+| Operate and debug the four live lanes | [`../docs/gcp-demo/OPERATIONS.md`](../docs/gcp-demo/OPERATIONS.md) |
+| Stand a lane up as an operator, not as a Terraform author | [`../docs/gcp-demo/RUNBOOK.md`](../docs/gcp-demo/RUNBOOK.md) |
+
+NOTE: This directory's `RUNBOOK.md` covers `demo-1` from the Terraform author's
+side. `../docs/gcp-demo/RUNBOOK.md` covers any lane from the operator's side,
+through to a dashboard in a browser. They overlap deliberately and neither
+replaces the other.
 
 Per-chunk hand-off notes — including what each build agent could not satisfy and why — are in
-`notes/`. Read those before assuming an unmet criterion is an oversight; most are deliberate
-boundary decisions recorded at the time.
+[`notes/`](notes/README.md). **Read [`notes/README.md`](notes/README.md) first: it labels which
+notes are historical and which are current.** Read a note before assuming an unmet criterion is
+an oversight; most are deliberate boundary decisions recorded at the time.

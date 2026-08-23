@@ -870,8 +870,11 @@ Tailscale path:
 
 | File | Why |
 | :--- | :--- |
-| `deploy/gcp/README.md` | the estate's own documentation |
-| `terraform/CONTRACT.md` | what the Terraform roots guarantee |
-| `scripts/ci/README.md` | the *other* GCP lane (CI VMs), and its traps |
+| [`OPERATIONS.md`](OPERATIONS.md) | the four lanes, the health tooling, and the traps that misreport their cause |
+| [`INCIDENTS-2026-08.md`](INCIDENTS-2026-08.md) | five blockers of August 2026, each with the measurement that found it |
+| [`../../deploy/gcp/README.md`](../../deploy/gcp/README.md) | the estate's own documentation |
+| [`../../terraform/CONTRACT.md`](../../terraform/CONTRACT.md) | what the Terraform roots guarantee |
+| [`../../scripts/ci/README.md`](../../scripts/ci/README.md) | the *other* GCP lane (CI VMs), and its traps |
+| [`../../terraform/notes/README.md`](../../terraform/notes/README.md) | the build-notes index; most of the series is historical |
 | `test/terraform-demo-driver.bats` | what the IAP lane is actually proven to do |
 | `test/terraform-tailscale-access.bats` | what the Tailscale lane is actually proven to do |

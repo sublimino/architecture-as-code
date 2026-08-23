@@ -720,10 +720,32 @@ run_stage \
 # 29 suites that no runner invoked until vm-pipeline.sh named them. Measured
 # across the tree at the time: 68 .bats suites present, 35 executed, 33 executed
 # by nothing at all — and all 33 passed. They were not broken, they were unasked.
+#
+# ── The half-registration that this list had, and its guard ─────────────────
+#
+# The orphan guard asks "does ANY runner invoke this suite", and that is the
+# right question for an orphan. It is the wrong question for a LANE: a suite
+# named here and not in scripts/ci/vm-pipeline.sh (or the reverse) is invoked,
+# reported as covered, and runs in exactly one of the two lanes. Measured across
+# both files: 50 suites in both, 4 in one — and two of those four were plain
+# omissions rather than decisions.
+#
+#   * test/acceptance-gateway-forward.bats was registered as vm-pipeline stage
+#     1c2 and never here. Its own registration comment describes it as offline,
+#     no cluster, ~1s.
+#   * test/resourceset-inputs-declarative.bats was added to the vm-pipeline 1g
+#     list beside resourceset-activation-race.bats and not to this one.
+#
+# Both verified green offline in this worktree (5/5 and 5/5) before being named
+# here, so neither is being registered on the assumption that it passes.
+# test/terraform-dual-lane-registration.bats is the second guard on this seam:
+# it fails when a suite appears in one pipeline and not the other, unless the
+# asymmetry is allowlisted there with a stated reason.
 run_stage \
   "Static guards previously invoked by nothing" \
   "stage1g-unregistered-guards.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap \
+     test/acceptance-gateway-forward.bats \
      test/audit-anchor-keys-path.bats \
      test/bao-spire-proof.bats test/ci-lock.bats \
      test/ci-path-anchoring.bats test/ci-state-locality.bats \
@@ -734,7 +756,8 @@ run_stage \
      test/k8s-afm-preflight.bats test/keys-dir-path-safety.bats \
      test/kind-config-heredoc.bats test/kind-load-verified.bats \
      test/node-doctor.bats \
-     test/resourceset-activation-race.bats test/revocation-demo.bats \
+     test/resourceset-activation-race.bats test/resourceset-inputs-declarative.bats \
+     test/revocation-demo.bats \
      test/signalfusion-demo.bats test/signalfusion-images.bats \
      test/signalloom-local-lifecycle.bats \
      test/signalloom-security-validation-evidence.bats \

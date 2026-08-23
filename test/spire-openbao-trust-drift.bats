@@ -33,9 +33,24 @@
 # show` on a live lane reported an active authority expiring at 02:34:38 and a
 # prepared one at 14:34:48 -- a 12h00m10s gap, which is ca_ttl/2 for ca_ttl=24h.
 #
+# Stated as a rule so the next person does not reach for the 24h figure and be
+# wrong by four hours in the UNSAFE direction:
+#
+#     PREPARE at ca_ttl/2        BREAK at ca_ttl*5/6
+#
 # So with a 24h ca_ttl the timeline after a sync is:
 #     t+12h  SPIRE publishes a second key. Logins still work.
 #     t+20h  SPIRE starts SIGNING with it. EVERY login fails.
+#
+# ── Why no interval is written down anywhere ───────────────────────────────
+#
+# server.conf sets no ca_ttl, so the rotation period is whatever the SPIRE
+# BUILD defaults to. It can therefore change on an image bump with no config
+# change and no review — a periodic re-sync tuned to today's 24h would silently
+# become wrong the day SPIRE ships a different default. That is an argument
+# against choosing an interval at all rather than against any particular one,
+# and it is why this file asserts AGREEMENT between the two live artefacts and
+# never a duration. Nothing here needs updating if ca_ttl changes.
 #
 # The two failure modes below map onto those two moments, and they are separated
 # on purpose. "A rotation is pending" is an 8-hour warning; "the active key is

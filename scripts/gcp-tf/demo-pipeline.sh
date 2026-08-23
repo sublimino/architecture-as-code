@@ -761,6 +761,7 @@ run_stage \
      test/signalfusion-demo.bats test/signalfusion-images.bats \
      test/signalloom-local-lifecycle.bats \
      test/signalloom-security-validation-evidence.bats \
+     test/spire-openbao-drift-fixture.bats \
      test/supercred-crictl-shim.bats test/supercred-demo-stun.bats \
      test/supercred-fleet-demo-harness.bats test/supercred-image-visibility.bats \
      test/lane-private-paths.bats \

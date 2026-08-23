@@ -74,6 +74,43 @@ spire_jwt_svid_keys() {
   done
 }
 
+# The key ID SPIRE is signing JWT-SVIDs with RIGHT NOW.
+#
+# spire_jwt_svid_keys returns the whole validation SET, which across a rotation
+# is deliberately more than one key. This narrows it to the single authority
+# that actually signs, because the two answer different questions: a key missing
+# from OpenBao is a pending outage, whereas the ACTIVE key missing from OpenBao
+# is a current one. On 2026-08-14 nobody could tell those apart and the outage
+# was attributed to an unrelated pod.
+#
+# Lives here, beside the other SPIRE reads, rather than in the test that wants
+# it: every kubectl in this seam belongs to this file. test/no-exec-probes-in-
+# tests.bats enforces that, and the reason is not tidiness — a `kubectl exec`
+# inside a test cannot distinguish "the property failed" from "the probe
+# failed", which is how a distroless image once silently disarmed the cardvault
+# auth test while it stayed green.
+spire_active_jwt_authority_kid() {
+  local namespace="$1" shown
+  shown="$(kubectl -n "$namespace" exec deployment/spire-server -- \
+    /opt/spire/bin/spire-server localauthority jwt show)" || return 1
+  awk '/^Active JWT authority:/{f=1} f&&/Authority ID:/{print $3; exit}' <<<"$shown"
+}
+
+# base64(DER) for one specific SPIRE JWT-SVID key, selected by kid, in the same
+# encoding as spire_jwt_svid_keys so the two are directly comparable.
+spire_jwt_key_der_for_kid() {
+  local namespace="$1" kid="$2" bundle x y
+  bundle="$(kubectl -n "$namespace" exec deployment/spire-server -- \
+    /opt/spire/bin/spire-server bundle show -format spiffe)" || return 1
+  IFS=$'\t' read -r x y < <(jq -r --arg k "$kid" '
+    .keys[] | select(.use == "jwt-svid" and .kid == $k) | [.x, .y] | @tsv' <<<"$bundle")
+  [[ -n "$x" && -n "$y" ]] || {
+    printf 'SPIRE bundle publishes no JWT-SVID key with kid %s\n' "$kid" >&2
+    return 1
+  }
+  _spire_jwk_to_der_b64 "$x" "$y"
+}
+
 # Every key OpenBao will currently accept a JWT-SVID signature from, one per
 # line, in the same encoding as spire_jwt_svid_keys.
 openbao_jwt_validation_keys() {
@@ -119,10 +156,39 @@ sync_openbao_jwt_validation() {
 # Binding assertions alone could not catch this: bound_subject, bound_audiences
 # and the SPIRE selectors were all still exactly right while every login failed.
 assert_openbao_accepts_spire_jwt_keys() {
-  local namespace="$1" token="$2" key held found
+  local namespace="$1" token="$2" key held found spire_out bao_out
   local -a spire_keys=() bao_keys=()
-  mapfile -t spire_keys < <(spire_jwt_svid_keys "$namespace") || return 1
-  mapfile -t bao_keys < <(openbao_jwt_validation_keys "$namespace" "$token") || return 1
+  # `mapfile -t arr < <(cmd) || return 1` reports MAPFILE's status, never cmd's.
+  # mapfile succeeds having read zero lines, so a failed kubectl left spire_keys
+  # empty, the membership loop below never executed, and this function returned
+  # 0 — announcing "OpenBao accepts every key SPIRE publishes" having read
+  # NEITHER side. Reproduced 2026-08-23 with KUBECONFIG=/nonexistent: this
+  # assert passed against no cluster at all.
+  #
+  # That is the same defect scripts/check-flux-substitution.sh was fixed for
+  # (see its note in scripts/ci/vm-pipeline.sh), reappearing in the one assert
+  # that exists to catch silent identity-plane failure. It mattered here more
+  # than it did there: this function was about to become a pipeline stage, and a
+  # stage that cannot fail is worse than an absent one because it reads as
+  # coverage.
+  #
+  # Command substitution DOES propagate status, and both readers already
+  # `|| return 1` on a failed kubectl, so this checks each read before comparing
+  # anything. The emptiness guards are belt-and-braces: `mapfile <<<""` yields
+  # one empty element, which the `-n` filter below would skip straight back into
+  # a vacuous pass.
+  spire_out="$(spire_jwt_svid_keys "$namespace")" || return 1
+  bao_out="$(openbao_jwt_validation_keys "$namespace" "$token")" || return 1
+  [[ -n "$spire_out" ]] || {
+    printf 'refusing to compare: SPIRE returned no JWT-SVID keys\n' >&2
+    return 1
+  }
+  [[ -n "$bao_out" ]] || {
+    printf 'OpenBao holds NO JWT validation keys at all: auth/jwt/config was never synced or has been wiped, and every SPIFFE login fails\n' >&2
+    return 1
+  }
+  mapfile -t spire_keys <<<"$spire_out"
+  mapfile -t bao_keys <<<"$bao_out"
   for key in ${spire_keys[@]+"${spire_keys[@]}"}; do
     [[ -n "$key" ]] || continue
     found=false

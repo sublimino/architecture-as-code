@@ -216,6 +216,19 @@ const stageMap = [
   { file: 'stage4-dashboard.json', parser: parseGoJson,    source: 'go-test-dashboard-api',      category: 'api' },
   { file: 'stage5-harness.tap',    parser: parseTap,       source: 'bats-harness-contract',      category: 'harness' },
   { file: 'stage6-flux.tap',       parser: parseTap,       source: 'flux-convergence',           category: 'gitops' },
+  // Stage 6e. 'security', not 'meta': it asserts a property of the running
+  // product -- that OpenBao still trusts the keys SPIRE is signing JWT-SVIDs
+  // with -- and its failure means all four SPIFFE roles cannot authenticate.
+  // That belongs beside the runtime negatives in the report, not with the
+  // harness self-checks.
+  //
+  // This row is load-bearing. A TAP stage with no entry here still RUNS, and
+  // its results are silently dropped from the OpenReports artifact, so the run
+  // reports less than it tested -- test/ci-terminal-state.bats CITERM 46 fails
+  // on exactly that. Adding the stage and forgetting the row would reproduce
+  // the shape of the very defect stage 6e exists to catch: a capability that
+  // runs and is heard by nothing.
+  { file: 'stage6e-spire-trust-drift.tap', parser: parseTap, source: 'bats-spire-openbao-trust-drift', category: 'security' },
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
   { file: 'stage7b-adversarial.tap', parser: parseTap,    source: 'bats-adversarial-api',       category: 'security' },
   { file: 'stage7c-user-surface-gate.tap', parser: parseTap, source: 'bats-user-surface-gate', category: 'meta' },

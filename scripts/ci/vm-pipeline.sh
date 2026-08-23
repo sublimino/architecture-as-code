@@ -974,6 +974,33 @@ run_stage \
   "stage6c-flux-substitution.txt" \
   "cd ${WORK_DIR} && ./scripts/check-flux-substitution.sh"
 
+# Stage 6e: does OpenBao still trust the keys SPIRE is signing with?
+#
+# `assert_openbao_accepts_spire_jwt_keys` has existed in scripts/lib/spire-trust-
+# anchor.sh since the 2026-08-14 outage and was invoked by exactly one caller,
+# scripts/agent-trust-local.sh -- not by this file and not by
+# scripts/gcp-tf/demo-pipeline.sh. Meanwhile the sync that seeds OpenBao's
+# jwt_validation_pubkeys runs ONCE at bring-up (scripts/demo-lifecycle.sh:81)
+# and nothing re-syncs. SPIRE rotates on ca_ttl (24h here, confirmed on a live
+# lane rather than taken from the default): it publishes a successor at
+# ca_ttl/2 = 12h and starts SIGNING with it at 5/6 ca_ttl = 20h, at which point
+# all four SPIFFE roles fail to log in. Both lanes went green through all of it.
+#
+# Placed after stage 6c and before the runtime stages for the same reason 6b
+# and 6c are placed where they are -- it reads LIVE objects so it cannot sit in
+# the 1x gates, and running it ahead of 7/7b/7c means a stale trust anchor is
+# reported as itself rather than as a scatter of runtime probe failures. That
+# misattribution is exactly what happened on 2026-08-14.
+#
+# Registered in scripts/ci/openreports-convert.sh. Without that row the stage
+# would run and its TAP would be parsed by nothing, which
+# test/ci-terminal-state.bats CITERM 46 fails on -- and which would reproduce
+# this defect's own shape one layer up in the reporting.
+run_stage \
+  "SPIRE/OpenBao JWT trust drift" \
+  "stage6e-spire-trust-drift.tap" \
+  "cd ${WORK_DIR} && bats --tap test/spire-openbao-trust-drift.bats"
+
 # Stage 7: Runtime negatives (BATS TAP)
 run_stage \
   "Gateway, probes, Dex, and NetworkPolicy runtime negatives" \

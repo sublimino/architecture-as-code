@@ -71,5 +71,33 @@
 # The suite is offline and stub-driven, so it is genuinely dual-lane. The gate's
 # LIVE stage is demo-lane only (it needs a tailnet origin), which is stated at the
 # stage in vm-pipeline.sh rather than left implicit.
-2466ae17aee3dcce232c123c0655388aa753e7a2afa8842f0f51ed50176e79be  scripts/ci/vm-pipeline.sh
+# Ninth re-record: registration of test/spire-openbao-trust-drift.bats in BOTH
+# pipelines as stage 6e, with its row in scripts/ci/openreports-convert.sh.
+#
+# Same reason as the second through eighth, and the sharpest instance of it so
+# far. `assert_openbao_accepts_spire_jwt_keys` has been in
+# scripts/lib/spire-trust-anchor.sh since the 2026-08-14 outage it was written
+# for. Its ONLY caller was scripts/agent-trust-local.sh. Neither pipeline ran
+# it. Meanwhile the sync that seeds OpenBao's jwt_validation_pubkeys runs once,
+# at bring-up (scripts/demo-lifecycle.sh:81), and nothing re-syncs -- so SPIRE
+# rotates on its 24h ca_ttl and every lane loses SPIFFE authentication for all
+# four roles about 20h after bring-up while both lanes report green. The
+# capability to catch it existed the whole time and no runner named it.
+#
+# Two further things were found in the wiring and are recorded here because the
+# ledger is where an accepted change states what it actually contains:
+#
+#   * The assert was VACUOUS. `mapfile -t arr < <(cmd) || return 1` reports
+#     mapfile's status, never cmd's, so an unreachable cluster produced an empty
+#     key list, an unexecuted comparison loop, and a return 0. Verified with
+#     KUBECONFIG=/nonexistent: it PASSED against no cluster. Wiring that version
+#     in would have added two stages incapable of going red. Fixed, and the
+#     suite carries a falsification test that fails against the old form.
+#     scripts/check-vacuous-assertions.sh does not catch this shape.
+#
+#   * The drift is not a count mismatch. Measured on a genuinely drifted lane:
+#     SPIRE published 5 keys, OpenBao held 5, ONE was common, and the active
+#     signing key was absent. A count comparison is green in that state. The
+#     guard is set-membership only, deliberately.
+0ccd6e237fd0b38294128510162158597677d1cbd557c97c8984feb97e502296  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

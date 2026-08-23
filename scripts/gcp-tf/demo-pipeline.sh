@@ -1014,6 +1014,43 @@ run_stage \
   "stage6c-flux-substitution.txt" \
   "cd ${WORK_DIR} && ./scripts/check-flux-substitution.sh"
 
+# Stage 6e: does OpenBao still trust the keys SPIRE is signing with?
+#
+# ── Why this stage did not exist until 2026-08-23 ──────────────────────────
+#
+# `assert_openbao_accepts_spire_jwt_keys` has been in scripts/lib/spire-trust-
+# anchor.sh since the 2026-08-14 outage, invoked by exactly ONE caller
+# (scripts/agent-trust-local.sh) and by neither pipeline. The sync that seeds
+# OpenBao runs once, at bring-up, from scripts/demo-lifecycle.sh:81. Nothing
+# re-syncs and nothing re-checked, so every lane drifted GREEN roughly a day
+# after bring-up, forever. Fifth instance in this repo of a capability that
+# exists and is not named by the hand-maintained runner lists -- see the stage
+# 1g/1h notes above for the previous four.
+#
+# ── Why HERE, before the runtime stages ───────────────────────────────────
+#
+# Placement is the whole diagnostic value. Four roles authenticate through this
+# mount -- agent-trust-planner, agent-trust-triage, signalloom-cardvault-agent,
+# signalloom-fe-signalloom -- and when the trust anchor is stale they all fail
+# identically, with a signature error that names no cause. On 2026-08-14 that
+# presented as two failing probes and a coincidentally young planner pod, and
+# the pod had nothing to do with it. Running this BEFORE stages 7/7b/7c means
+# the run says "OpenBao no longer trusts SPIRE" instead of leaving someone to
+# infer it from a scatter of unrelated-looking runtime failures.
+#
+# Needs the cluster (it reads SPIRE's live bundle and OpenBao's live config),
+# so it cannot sit in the 1x static gates.
+#
+# The suite deliberately does NOT skip when the cluster is unreachable: both
+# pipelines guarantee a converged cluster by this point, so unreachable is a
+# lane failure. It also carries its own falsification test, because the library
+# assert was itself vacuous until 2026-08-23 -- `mapfile < <(cmd) || return 1`
+# swallows cmd's status, so it passed against no cluster at all.
+run_stage \
+  "SPIRE/OpenBao JWT trust drift" \
+  "stage6e-spire-trust-drift.tap" \
+  "cd ${WORK_DIR} && ${BATS_BIN} --tap test/spire-openbao-trust-drift.bats"
+
 # The d2-signalloom suite, and it is HERE rather than in tier 0 for a reason
 # worth stating: `make -C d2-signalloom test` GLOBS d2-signalloom/test/*.bats,
 # and that glob includes runtime.bats, test-1-runtime.bats and

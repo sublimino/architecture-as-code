@@ -3200,6 +3200,7 @@ assert_tailnet_cert_state() {
     warn "the certificate-state probe exited ${rc} on ${INSTANCE_NAME}. This lane's TLS posture is UNKNOWN — it may be serving HTTPS, may be on the plain-HTTP fallback, or may be serving nothing. Determine it with: make gcp-tf-ts-status ENV=${ENV_KEY}"
     return 1
   fi
+}
 
 # ─── Determine and RECORD this lane's TLS certificate state ─────────────────
 #

@@ -17,13 +17,16 @@ described "68 tests across 9 specs in four projects" long after the config had
 grown to six projects and 70 tests in 12 files, which is why the registry exists
 in a form that can fail a build.
 
-In summary, as of 2026-08-13:
+In summary, as of 2026-08-23 — 18 specs, 8 projects. Verify against the
+registry before you act on this table:
 
 | Where | Specs |
 | --- | --- |
 | CI stage 8 | `signalloom-test-1.spec.ts` |
-| CI stage 8b | `smoke.spec.ts` |
+| CI stage 8b | `smoke.spec.ts`, `live-data.spec.ts` |
 | `make demo-signalloom-supercred-two-window` | `supercred-two-window.spec.ts` |
+| `make demo-signalloom-supercred-stream` | `supercred-log-streaming.spec.ts` |
+| `make demo-signalloom-supercred-stream-harness` | `supercred-log-streaming-harness.spec.ts` |
 | `make acceptance-test` only | `afm-frontend`, `afm-integration`, `credential-lifecycle`, `rbac-analysis`, `rbac-explorer`, `signalloom-login`, `supercred-evidence-lifecycle`, `supercred-ui-lifecycle` |
 | Nowhere — matches no project `testMatch` | `cluster.spec.ts`, `dashboard-journey.spec.ts`, `supercred-live-pages.spec.ts`, `supercred-page.spec.ts` |
 

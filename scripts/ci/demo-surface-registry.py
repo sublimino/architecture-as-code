@@ -33,6 +33,7 @@ this cannot parse is a hard error with a non-zero exit, never an empty list.
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -105,16 +106,65 @@ def extract(source: str) -> list[tuple[str, str, str]]:
     return demos
 
 
+# ── The client half of the contract ─────────────────────────────────────────
+#
+# Knowing a demo's SERVER route is not enough to probe it as a human does, and
+# assuming otherwise produced a false verdict in this gate's own first run.
+#
+# The two shipped demos do not share a user-facing prefix:
+#
+#   supercred     SPA calls /demo-api            -> nginx rewrites to /api/demo/supercred
+#   signalfusion  SPA calls /api/demo/signalfusion  (straight through the Gateway)
+#
+# Probing the server prefix for BOTH reported SuperCred BROKEN — because
+# /api/demo/supercred through the Gateway lands on fe-signalloom, which has no
+# scripts BY DESIGN and is a path no client uses. Right verdict, wrong
+# evidence, and the wrong evidence would have sent someone to fix routing that
+# is working as intended.
+#
+# So the prefix is derived from the CLIENT too. For each demo the server knows
+# about, find the SPA module that references /api/demo/<demo_type>, and take
+# the prefix constant that module actually calls through. A demo the SPA never
+# mentions is reported with an empty prefix, and the gate fails on it: that is
+# a surface the server serves and no client can reach, which is exactly as
+# broken as the reverse and just as invisible to either half alone.
+PREFIX_CONST = re.compile(
+    r"^\s*(?:export\s+)?const\s+\w*DEMO_API\w*\s*(?::\s*[\w<>\[\]| ]+)?\s*=\s*['\"]([^'\"]+)['\"]",
+    re.MULTILINE,
+)
+
+
+def ui_prefix_for(demo_type: str, spa_dir: Path) -> str:
+    """The prefix the SPA actually calls for this demo, or '' if none does."""
+    if not spa_dir.is_dir():
+        return ""
+    for src in sorted(spa_dir.glob("*.ts")):
+        if src.name.endswith(".test.ts"):
+            continue  # tests assert on legacy spellings; they are not the client
+        text = src.read_text(encoding="utf-8", errors="replace")
+        if f"/api/demo/{demo_type}" not in text:
+            continue
+        m = PREFIX_CONST.search(text)
+        if m:
+            return m.group(1).rstrip("/")
+    return ""
+
+
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print(f"usage: {Path(argv[0]).name} <path-to-demo_runner.py>", file=sys.stderr)
+    if len(argv) not in (2, 3):
+        print(
+            f"usage: {Path(argv[0]).name} <path-to-demo_runner.py> [spa-api-dir]",
+            file=sys.stderr,
+        )
         return 2
     path = Path(argv[1])
     if not path.is_file():
         print(f"demo registry source not found: {path}", file=sys.stderr)
         return 2
+    spa_dir = Path(argv[2]) if len(argv) == 3 else None
     for demo_type, label, script in extract(path.read_text(encoding="utf-8")):
-        print(f"{demo_type}\t{label}\t{script}")
+        prefix = ui_prefix_for(demo_type, spa_dir) if spa_dir else f"/api/demo/{demo_type}"
+        print(f"{demo_type}\t{label}\t{script}\t{prefix}")
     return 0
 
 

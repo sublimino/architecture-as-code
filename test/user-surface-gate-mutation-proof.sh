@@ -24,6 +24,10 @@ GATE="scripts/ci/user-surface-gate.sh"
 REG="scripts/ci/demo-surface-registry.py"
 BACKUP_DIR="$(mktemp -d)"
 FAILURES=0
+# Counted, never hardcoded: a literal here drifts the moment a mutation is added,
+# and a proof that misreports its own size is a small version of the problem this
+# whole slice is about.
+CHECKS=0
 
 cp "$GATE" "${BACKUP_DIR}/gate.bak" || exit 2
 cp "$REG"  "${BACKUP_DIR}/reg.bak"  || exit 2
@@ -71,6 +75,7 @@ open(path, "w").write(s.replace(old, new, 1))
 # check <label> <test-name> <file> <old-literal> <new-literal>
 check() {
   local label="$1" test_name="$2" file="$3" old="$4" new="$5"
+  CHECKS=$(( CHECKS + 1 ))
   printf '\n──── %s\n' "$label"
   restore
   if ! apply_mutation "$file" "$old" "$new"; then
@@ -106,8 +111,8 @@ check "M1  accept any 200 as healthy (drop the script_available check)" \
 check "M2  hand-written demo list instead of registry enumeration" \
   "a demo added to the registry alone is probed and FAILS the gate" \
   "$GATE" \
-  'registry_out="$(python3 "$REGISTRY_TOOL" "$REGISTRY_SOURCE" 2>&1)"' \
-  "$(printf 'registry_out="supercred\tSuperCred\ts.sh\nsignalfusion\tSignal Fusion\ts.sh"')"
+  'registry_out="$(python3 "$REGISTRY_TOOL" "$REGISTRY_SOURCE" "$SPA_API_DIR" 2>&1)"' \
+  "$(printf 'registry_out="supercred\tSuperCred\ts.sh\t/api/demo/supercred\nsignalfusion\tSignal Fusion\ts.sh\t/api/demo/signalfusion"')"
 
 # M3 — a zero-demo registry passing vacuously is how a gate reports coverage
 # over nothing at all.
@@ -149,6 +154,23 @@ check "M7  terminal 'failed' treated as success" \
   '      failed|cancelled|timed_out)' \
   '      cancelled|timed_out)'
 
+# M8 — assume the client calls the server prefix. This is the exact defect the
+# gate shipped with for one run: it reported SuperCred BROKEN at
+# /api/demo/supercred, a path no client uses and which is broken by design.
+check "M8  client prefix assumed equal to the server prefix" \
+  "the real SPA prefixes are read per-demo" \
+  "$REG" \
+  '    for src in sorted(spa_dir.glob("*.ts")):' \
+  '    return f"/api/demo/{demo_type}"
+    for src in sorted(spa_dir.glob("*.ts")):'
+
+# M9 — a demo no client can reach must not be waved through.
+check "M9  demo with no client module silently skipped" \
+  "a demo with no client module is NO_CLIENT_PATH" \
+  "$GATE" \
+  '  if [ -z "$pfx" ]; then' \
+  '  if [ "$pfx" = "__never_matches__" ]; then'
+
 restore
 echo ""
 echo "════ RESTORATION ═══════════════════════════════════════════════════"
@@ -166,5 +188,5 @@ if [ "$FAILURES" -ne 0 ]; then
   echo "MUTATION PROOF FAILED: ${FAILURES} mutation(s) went unnoticed or the harness erred."
   exit 1
 fi
-echo "MUTATION PROOF PASSED: all 7 mutations were caught by a named test."
+echo "MUTATION PROOF PASSED: all ${CHECKS} mutations were caught by a named test."
 exit 0

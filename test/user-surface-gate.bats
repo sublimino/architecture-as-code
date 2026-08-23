@@ -62,6 +62,12 @@ start_stub() {
 }
 
 # $1..$n : demo types to declare in the generated registry.
+#
+# Writes BOTH halves of the contract: the server registry, and one SPA module
+# per demo declaring the prefix that demo is called at. Both are needed because
+# the gate now probes the CLIENT prefix — the two are not the same string, and
+# assuming they were is what made this gate's first live run report SuperCred
+# broken at a path no client uses.
 write_registry() {
   {
     echo 'from types import MappingProxyType'
@@ -77,12 +83,27 @@ write_registry() {
     echo '    }'
     echo ')'
   } > "$BATS_TEST_TMPDIR/demo_runner.py"
+
+  mkdir -p "$BATS_TEST_TMPDIR/spa"
+  for d in "$@"; do
+    {
+      printf '// all calls for this demo go to /api/demo/%s\n' "$d"
+      printf "export const DEMO_API = '/api/demo/%s'\n" "$d"
+    } > "$BATS_TEST_TMPDIR/spa/${d}Demo.ts"
+  done
   echo "$BATS_TEST_TMPDIR/demo_runner.py"
+}
+
+# Drop a demo's SPA module, leaving the server half declaring a demo no client
+# can reach.
+orphan_client() {
+  rm -f "$BATS_TEST_TMPDIR/spa/${1}Demo.ts"
 }
 
 run_gate() {
   local reg="$1"; shift
   REGISTRY_SOURCE="$reg" REGISTRY_TOOL="$REGISTRY_TOOL" \
+    SPA_API_DIR="$BATS_TEST_TMPDIR/spa" \
     run "$GATE" --base-url "$BASE" "$@"
 }
 
@@ -205,6 +226,39 @@ run_gate() {
   [ "$status" -eq 0 ]
   [[ "$output" == *"supercred"* ]]
   [[ "$output" == *"signalfusion"* ]]
+}
+
+# ─── 4b. The CLIENT half of the contract. ───────────────────────────────────
+#
+# Regression test for a false verdict this gate produced against the live lane.
+# It probed the SERVER prefix for every demo, so SuperCred was reported BROKEN
+# at /api/demo/supercred — a path no client calls, which routes to
+# fe-signalloom, which has no demo scripts BY DESIGN. The demo was fine at the
+# path a human actually uses.
+#
+# The two prefixes are genuinely different per demo and must be read from the
+# SPA, never assumed. Asserting the exact strings is the point: a change that
+# silently unified them would restore the false verdict.
+@test "the real SPA prefixes are read per-demo and are NOT the server prefix" {
+  run python3 "$REGISTRY_TOOL" \
+    "${BATS_TEST_DIRNAME}/../d2-signalloom/apps/fe-signalloom/src/demo_runner.py" \
+    "${BATS_TEST_DIRNAME}/../d2-signalloom/apps/dashboard-signalloom/src/api"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"supercred"*$'\t'"/demo-api"* ]]
+  [[ "$output" == *"signalfusion"*$'\t'"/api/demo/signalfusion"* ]]
+}
+
+# A demo the server serves and no client calls is unreachable from the UI.
+# Each half's own tests are green about its own side; only comparing them sees
+# it, which is exactly the blind spot that produced this whole slice.
+@test "a demo with no client module is NO_CLIENT_PATH, not silently skipped" {
+  local reg; reg="$(write_registry supercred signalfusion)"
+  orphan_client signalfusion
+  start_stub '{"supercred":{"status":"healthy"},"signalfusion":{"status":"healthy"}}'
+  run_gate "$reg"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"NO_CLIENT_PATH"* ]]
+  [[ "$output" == *"NO client module calls it"* ]]
 }
 
 # ─── 5. The gate refuses to run rather than passing vacuously. ──────────────

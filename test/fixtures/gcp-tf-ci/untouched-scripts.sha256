@@ -71,5 +71,5 @@
 # The suite is offline and stub-driven, so it is genuinely dual-lane. The gate's
 # LIVE stage is demo-lane only (it needs a tailnet origin), which is stated at the
 # stage in vm-pipeline.sh rather than left implicit.
-PLACEHOLDER_DIGEST  scripts/ci/vm-pipeline.sh
+2466ae17aee3dcce232c123c0655388aa753e7a2afa8842f0f51ed50176e79be  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

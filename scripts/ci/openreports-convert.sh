@@ -218,6 +218,7 @@ const stageMap = [
   { file: 'stage6-flux.tap',       parser: parseTap,       source: 'flux-convergence',           category: 'gitops' },
   { file: 'stage7-runtime.tap',    parser: parseTap,       source: 'bats-runtime-negatives',     category: 'security' },
   { file: 'stage7b-adversarial.tap', parser: parseTap,    source: 'bats-adversarial-api',       category: 'security' },
+  { file: 'stage7c-user-surface-gate.tap', parser: parseTap, source: 'bats-user-surface-gate', category: 'meta' },
   { file: 'stage8-browser.xml',    parser: parseJunitXml,  source: 'playwright-browser-journey', category: 'e2e' },
   { file: 'stage8b-smoke.xml',     parser: parseJunitXml,  source: 'playwright-page-smoke',      category: 'e2e' },
 ];

@@ -229,6 +229,11 @@ m_grant_portforward() {
 	YAML
 }
 
+m_drop_from_allowlist() {
+	save "$runner_py"
+	must_sed '/^    "SIGNAL_INGEST_URL",$/d' "$runner_py" '^    "SIGNAL_INGEST_URL",$'
+}
+
 m_move_artifact() {
 	save "$nginx_conf"
 	rm -f "$nginx_conf"
@@ -252,6 +257,7 @@ run_case "10 make the script ignore SIGNAL_INGEST_URL"            m_script_ignor
 run_case "11 clear the script's executable bit"                   m_script_not_executable
 run_case "12 rename DemoConfig.default_script"                    m_rename_default_script
 run_case "13 grant pods/portforward to the runner SA"             m_grant_portforward
+run_case "13b drop SIGNAL_INGEST_URL from the child allowlist" m_drop_from_allowlist
 run_case "14 remove an artifact the suite reads"                  m_move_artifact
 
 echo

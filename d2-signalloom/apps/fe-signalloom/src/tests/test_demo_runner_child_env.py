@@ -52,6 +52,24 @@ REQUIRED_IN_CLUSTER_ENV = {
     "KUBERNETES_SERVICE_PORT": "API server port; InClusterConfig requires it alongside the host",
 }
 
+# Demo CONFIGURATION the runner's own deployment sets for the script's benefit.
+# Distinct from the block above, which is about reaching the API server at all.
+#
+# A variable here is set on the POD by base/deployment.yaml and is useless
+# unless it also reaches the CHILD. That gap is silent in both directions: the
+# manifest looks correct, `kubectl exec` shows the value (an interactive exec
+# inherits the pod's full environment), and only the spawned script sees it
+# missing. Observed on a live lane 2026-08-23 -- SIGNAL_INGEST_URL was set on
+# the pod, absent from the child, so signalfusion-demo.sh took its
+# out-of-cluster branch and failed preflight hunting a Deployment in a
+# namespace that does not hold it.
+REQUIRED_DEMO_CONFIG_ENV = {
+    "SIGNAL_INGEST_URL": (
+        "signal-ingest endpoint for the Signal Fusion acts; without it the script "
+        "port-forwards instead, which needs pods/portforward the runner is not granted"
+    ),
+}
+
 # Keys the child must NEVER receive. The allowlist is a security boundary, and
 # the fix for the defect above is to widen it by name -- switching to
 # os.environ would hand the demo script the API's own signing material.
@@ -73,6 +91,7 @@ def pod_like_environ(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
         "KUBERNETES_SERVICE_PORT": "443",
         "CLUSTER_NAME": "kind-osramp",
         "AGENT_NAMESPACE_CANDIDATES": "fe-signalloom-agents fe-signalloom",
+        "SIGNAL_INGEST_URL": "http://signal-ingest:8082",
     }
     for key, value in injected.items():
         monkeypatch.setenv(key, value)
@@ -168,6 +187,31 @@ def test_required_keys_are_actually_reachable_from_a_real_pod_environment() -> N
     # Guards the inverse mistake: a REQUIRED_IN_CLUSTER_ENV entry naming a
     # variable the allowlist can never supply would make this suite unfixable.
     assert set(REQUIRED_IN_CLUSTER_ENV) <= set(demo_runner._ENV_ALLOWLIST)
+    assert set(REQUIRED_DEMO_CONFIG_ENV) <= set(demo_runner._ENV_ALLOWLIST)
+
+
+def test_child_receives_the_demo_configuration_the_deployment_sets(
+    pod_like_environ: dict[str, str],
+) -> None:
+    """A value the manifest sets for the script must reach the script.
+
+    Asserted against a REAL spawned child rather than against _ENV_ALLOWLIST,
+    for the reason this file exists: the tuple is the current implementation of
+    the requirement, not the requirement. Reading the value out of a process the
+    runner actually started is the only form that cannot pass while the script
+    still sees nothing.
+    """
+    observed = _child_observed_env(demo_runner._child_env())
+    for key, why in REQUIRED_DEMO_CONFIG_ENV.items():
+        assert key in observed, (
+            f"the child never receives {key} ({why}). The deployment sets it on the "
+            f"pod, `kubectl exec` would show it, and only the spawned script goes "
+            f"without -- add it to demo_runner._ENV_ALLOWLIST."
+        )
+        assert observed[key] == pod_like_environ[key], (
+            f"{key} reached the child as {observed[key]!r}, not the pod's "
+            f"{pod_like_environ[key]!r} -- a placeholder is as bad as an absence here."
+        )
 
 
 def test_unset_variables_are_omitted_rather_than_blanked(

@@ -792,7 +792,7 @@ run_stage \
 # only detects on a deployed estate — this goes red in seconds instead.
 run_stage \
   "Agent-trust probe shape" \
-  "stage1m-agent-trust-probe-shape.tap" \
+  "stage1n-agent-trust-probe-shape.tap" \
   "cd ${WORK_DIR} && ${BATS_BIN} --tap test/agent-trust-probe-shape.bats"
 
 run_stage \

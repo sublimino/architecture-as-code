@@ -270,13 +270,26 @@ D1_TEST="the driver exports no name under a prefix the pipeline cannot read"
 D1_TEST2="every variable demo-up.sh exports is read by demo-pipeline.sh"
 expect_green "$D1_TESTS_FILE" "$D1_TEST"
 expect_green "$D1_TESTS_FILE" "$D1_TEST2"
-if apply "$DRIVER" "rename the nine exported DEMO_* names to SL_DEMO_*" '
+# A FLOOR, not an equality. The original read `== 9` and went UNPROVEN the
+# moment the driver legitimately grew a tenth and eleventh name
+# (DEMO_KEYS_DIR and DEMO_ZOT_CACHE_DIR, added by the cosign-key and zot
+# blob-store persistence fixes). Equality makes a correct addition look like
+# anchor drift, and a refusal every time the code improves trains people to
+# ignore the refusal.
+#
+# The assertion exists to stop a VACUOUS mutation -- renaming zero or two names
+# would model a typo against a defect that was total. A floor preserves that
+# guarantee and survives growth, and the no-op check below closes the gap the
+# floor alone leaves.
+if apply "$DRIVER" "rename every exported DEMO_* name to SL_DEMO_*" '
 import re
 i = s.index("printf -v envs \x27DEMO_ENV=%q")
 j = s.index("\n", i)
 line = s[i:j]
-assert line.count("DEMO_") == 9, "expected 9 exported names, found %d" % line.count("DEMO_")
+n = line.count("DEMO_")
+assert n >= 9, "expected at least 9 exported names, found %d" % n
 out = s[:i] + line.replace("DEMO_", "SL_DEMO_") + s[j:]
+assert out != s, "the rename changed nothing -- anchors have drifted"
 '; then
 	expect_red "$D1_TESTS_FILE" "$D1_TEST"
 	expect_red "$D1_TESTS_FILE" "$D1_TEST2"

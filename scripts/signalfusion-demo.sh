@@ -137,7 +137,7 @@ preflight_act1_completed() {
   local actors
   actors=$(api_get "/api/v1/actors" 2>/dev/null) || fail "cannot reach signal-ingest — run Act 1 first"
   local count
-  count=$(printf '%s' "$actors" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('actors',[])))" 2>/dev/null) || count=0
+  count=$(printf '%s' "$actors" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d if isinstance(d,list) else d.get('actors',[])))" 2>/dev/null) || count=0
   [ "$count" -gt 0 ] || fail "no provisional actors found — run Act 1 first"
   ok "Act 1 state verified ($count actor(s) present)"
 }
@@ -151,7 +151,11 @@ preflight_act2_completed() {
   has_kernel=$(printf '%s' "$actors" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     evidence = a.get('evidence_chain', [])
     for e in evidence:
@@ -211,7 +215,11 @@ demo_1() {
   printf '%s\n' "$actors" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     print(f\"  Actor: {a.get('id', 'unknown')}\")
     print(f\"  Status: {a.get('status', 'unknown')}\")
@@ -275,7 +283,11 @@ demo_2() {
   confidence_before=$(printf '%s' "$actors_before" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(f\"{actors[0].get('confidence', 0):.2f}\")
 else:
@@ -293,7 +305,11 @@ else:
   actor_id=$(printf '%s' "$actors_before" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(actors[0].get('id', ''))
 " 2>/dev/null) || actor_id=""
@@ -353,7 +369,11 @@ EOF
   confidence_after=$(printf '%s' "$actors_after" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(f\"{actors[0].get('confidence', 0):.2f}\")
 else:
@@ -363,7 +383,11 @@ else:
   printf '%s\n' "$actors_after" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 for a in actors:
     print(f\"  Actor: {a.get('id', 'unknown')}\")
     print(f\"  Status: {a.get('status', 'unknown')}\")
@@ -407,7 +431,11 @@ demo_3() {
   actor_id=$(printf '%s' "$actors" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
-actors = d.get('actors', [])
+# /api/v1/actors returns a BARE ARRAY. This used to read d.get('actors', [])
+# which raises AttributeError on a list -- swallowed by the 2>/dev/null at
+# the call site, so every act after the first reported "run Act 1 first"
+# while the actor it wanted was sitting in the response it had just read.
+actors = d if isinstance(d, list) else d.get('actors', [])
 if actors:
     print(actors[0].get('id', ''))
 " 2>/dev/null) || actor_id=""

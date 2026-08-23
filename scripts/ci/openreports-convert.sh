@@ -179,6 +179,7 @@ const stageMap = [
   // resolves to a ServiceAccount and a Role that exist -- so it is 'contract'
   // alongside 1g, not 'meta'.
   { file: 'stage1l-rbac-subjects.tap', parser: parseTap, source: 'bats-rbac-subject-resolution', category: 'contract' },
+  { file: 'stage1n-agent-trust-probe-shape.tap', parser: parseTap, source: 'bats-agent-trust-probe-shape', category: 'meta' },
   //
   // Stage 1m (vocabulary seam mutation proof) is deliberately NOT mapped, for
   // the identical reason as 1i below: its output is prose -- "ok <label>" plus a

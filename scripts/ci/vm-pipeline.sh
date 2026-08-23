@@ -809,7 +809,7 @@ run_stage \
 # runs in only one lane.
 run_stage \
   "Agent-trust probe shape" \
-  "stage1m-agent-trust-probe-shape.tap" \
+  "stage1n-agent-trust-probe-shape.tap" \
   "cd ${WORK_DIR} && bats --tap test/agent-trust-probe-shape.bats"
 # Stage 1o: Vacuous-assertion lint
 #

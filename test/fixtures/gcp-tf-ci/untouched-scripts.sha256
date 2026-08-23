@@ -49,5 +49,12 @@
 # feature branch and stayed red through two subsequent merges. Recorded here with
 # the reason, as this file's header requires. The guard did its job; the merge did
 # not run it.
-0ee567135e8c8c0ab656a70bfb5cab8c74e8e5d9e22f76250be3761e5dd25fd3  scripts/ci/vm-pipeline.sh
+# Seventh re-record: stage suffix collision. 54048643 added
+# stage1m-agent-trust-probe-shape.tap while stage1m-seam-mutation-proof.txt
+# already held that suffix, and the report was never registered in
+# scripts/ci/openreports-convert.sh. Per that guard's own comment, an
+# unregistered stage still RUNS and its results are silently dropped from the
+# OpenReports output -- the run goes green having reported less than it tested.
+# Renamed to stage1n (free) in both pipelines and registered in the map.
+7bd40922108c478ba3d65ebfc20fb4c4067acdc63f992e8b2dcd3f11faae4147  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

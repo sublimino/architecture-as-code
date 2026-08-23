@@ -97,9 +97,20 @@ variable "labels" {
 }
 
 variable "create_deploy_identity" {
-  description = "Create the Terraform deploy service account alongside the state bucket. False when you only want the bucket, or when the caller lacks the IAM rights to create it."
+  description = <<-EOT
+    Create the Terraform deploy service account alongside the state bucket.
+
+    Opt-in rather than default-on, and the reason is the interaction with
+    deploy_impersonators: the deploy identity rejects an empty impersonator list,
+    because an account nobody can assume is inert while still holding
+    projectIamAdmin. Defaulting this to true with an empty impersonator list
+    therefore made a bare `terraform plan` fail on a contradiction between two
+    defaults, which is a bad first experience and teaches nothing.
+
+    Set true AND name deploy_impersonators together. They are one decision.
+  EOT
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "deploy_account_id" {
@@ -112,4 +123,84 @@ variable "deploy_impersonators" {
   description = "IAM principals permitted to impersonate the deploy identity. Impersonation only; no key is ever created."
   type        = list(string)
   default     = []
+}
+
+# ---------------------------------------------------------------------------
+# Tailscale certificate store
+# ---------------------------------------------------------------------------
+#
+# See the long comment above google_storage_bucket.tailnet_certs in main.tf for
+# why this bucket is created by THIS root and not beside the VM that uses it.
+
+variable "tailnet_cert_bucket_name" {
+  description = "Globally-unique name of the bucket holding each lane's Tailscale TLS certificate across VM rebuilds. Defaults to the empty string, which creates NO bucket and NO grant and leaves the startup script's restore step disabled. Set it and every rebuild reuses the existing certificate instead of spending one of Let's Encrypt's five-per-168h issuances for the node's exact DNS name."
+  type        = string
+  default     = ""
+
+  validation {
+    # Checked here rather than at the API: otherwise a typo surfaces during
+    # apply, after the plan has been reviewed and approved, which is the worst
+    # moment to discover it.
+    condition     = var.tailnet_cert_bucket_name == "" || can(regex("^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$", var.tailnet_cert_bucket_name))
+    error_message = "tailnet_cert_bucket_name validation failed: must be a valid GCS bucket name (3-63 chars, lowercase letters, digits, dots, hyphens and underscores, starting and ending alphanumeric), or \"\" to disable certificate persistence."
+  }
+
+  validation {
+    # A name suggesting it holds the tailnet auth key would invite someone to
+    # drop that key here later "since the bucket is already there". This
+    # bucket's IAM grants every lane write access to its own prefix, which is
+    # right for a TLS certificate and wrong for the credential that joins the
+    # tailnet — that one lives in Secret Manager, read at boot by
+    # fetch_tailscale_authkey, and is never written by a VM.
+    condition     = !can(regex("authkey|auth-key|tskey", var.tailnet_cert_bucket_name))
+    error_message = "tailnet_cert_bucket_name validation failed: the name must not suggest it holds a Tailscale auth key. This bucket is writable by every lane's runtime account within its own prefix, which is not an appropriate home for the credential that joins the tailnet."
+  }
+
+  validation {
+    # Co-locating certificates with Terraform state repeats the mistake the
+    # audit-bucket comment above already refuses: one deletion would take both
+    # the state and the certificates it provisioned.
+    condition     = var.tailnet_cert_bucket_name == "" || var.tailnet_cert_bucket_name != var.state_bucket_name
+    error_message = "tailnet_cert_bucket_name validation failed: it must not be the Terraform state bucket. One deletion would destroy both the state and the certificates, and the state bucket's IAM is written for state objects, not for per-lane TLS private keys."
+  }
+}
+
+variable "tailnet_cert_bucket_location" {
+  description = "Location for the Tailscale certificate bucket. Regional by default rather than multi-region: the payload is a few kilobytes read once per boot, so replication buys nothing and a single region keeps the key in one stated jurisdiction."
+  type        = string
+  default     = "us-east4"
+}
+
+variable "tailnet_cert_writers" {
+  description = "Lane key to IAM principal, e.g. { demo-1 = \"serviceAccount:sl-rt-demo-1@<project>.iam.gserviceaccount.com\" }. Each entry receives roles/storage.objectAdmin CONDITIONED on that lane's own object prefix. The KEY must equal the environment key the VM is given as its cert prefix, or the condition denies every read and write. Supplied explicitly rather than read from the platform root's state because bootstrap runs FIRST — the runtime accounts do not exist yet when this applies, and a binding may legally name a principal that does not exist."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition = alltrue([
+      for principal in values(var.tailnet_cert_writers) :
+      can(regex("^(user|group|serviceAccount|principal|principalSet):.+$", principal))
+    ])
+    error_message = "tailnet_cert_writers validation failed: every value must start with one of user:, group:, serviceAccount:, principal:, or principalSet:."
+  }
+
+  validation {
+    condition = alltrue([
+      for principal in values(var.tailnet_cert_writers) :
+      !can(regex("^(?:[^:]+:)?(?:allUsers|allAuthenticatedUsers)$", principal))
+    ])
+    error_message = "tailnet_cert_writers validation failed: entries must not be allUsers or allAuthenticatedUsers. This bucket holds TLS private keys."
+  }
+
+  validation {
+    # The key is interpolated into the IAM condition's startsWith anchor. A key
+    # containing a slash, a quote or ".." changes what that anchor matches,
+    # which is a change to a security boundary rather than a formatting
+    # preference.
+    condition = alltrue([
+      for lane in keys(var.tailnet_cert_writers) :
+      can(regex("^[a-z0-9][a-z0-9-]*$", lane))
+    ])
+    error_message = "tailnet_cert_writers validation failed: every KEY must be lowercase alphanumeric with hyphens and no slashes, dots or quotes. The key is interpolated into the IAM condition that confines a lane to its own object prefix."
+  }
 }

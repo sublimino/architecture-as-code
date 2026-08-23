@@ -77,6 +77,10 @@ trap ms_guard_on_exit EXIT
 # `chmod +x` the old restore_all carried is redundant rather than dropped.
 restore_all() { ms_guard_restore; }
 
+# The pristine copies, for the end-of-run comparison below.
+PRISTINE_LOOP="${MS_BACKUP_DIR}/${LOOP}"
+PRISTINE_DELEGATE="${MS_BACKUP_DIR}/${DELEGATE}"
+
 PASS=0
 FAIL=0
 
@@ -281,12 +285,12 @@ done
 # harness even starts, and `git status --porcelain` would report failure on a
 # correct run. The invariant this harness owns is "what I found is what I left".
 restore_failed=0
-cmp -s "$BACKUP/four-lane-loop.sh" "$LOOP" || restore_failed=1
-cmp -s "$BACKUP/worktree-bootstrap.sh" "$DELEGATE" || restore_failed=1
+cmp -s "$PRISTINE_LOOP" "$LOOP" || restore_failed=1
+cmp -s "$PRISTINE_DELEGATE" "$DELEGATE" || restore_failed=1
 if [ "$restore_failed" -ne 0 ]; then
   echo "HARNESS ERROR: a mutated file was not restored to its pre-run content" >&2
-  diff "$BACKUP/four-lane-loop.sh" "$LOOP" | head -20 >&2 || true
-  diff "$BACKUP/worktree-bootstrap.sh" "$DELEGATE" | head -20 >&2 || true
+  diff "$PRISTINE_LOOP" "$LOOP" | head -20 >&2 || true
+  diff "$PRISTINE_DELEGATE" "$DELEGATE" | head -20 >&2 || true
   exit 2
 fi
 echo "  every mutated file matches its pre-run content"

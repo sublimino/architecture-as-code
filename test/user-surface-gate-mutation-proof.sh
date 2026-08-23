@@ -164,6 +164,15 @@ check "M8  client prefix assumed equal to the server prefix" \
   '    return f"/api/demo/{demo_type}"
     for src in sorted(spa_dir.glob("*.ts")):'
 
+# M10 — revert the client<->demo linkage to matching the server path, which in
+# the real modules appears only in a doc comment. This is the exact fragility
+# measured against the in-flight signalfusion fix.
+check "M10 client linkage matched on a doc-comment string" \
+  "client prefix resolves with no server path anywhere in the module" \
+  "$REG" \
+  '        if token not in _norm(src.name) and token not in _norm(text):' \
+  '        if f"/api/demo/{demo_type}" not in text:'
+
 # M9 — a demo no client can reach must not be waved through.
 check "M9  demo with no client module silently skipped" \
   "a demo with no client module is NO_CLIENT_PATH" \

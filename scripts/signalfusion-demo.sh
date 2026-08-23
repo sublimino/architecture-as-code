@@ -314,38 +314,56 @@ if actors:
     print(actors[0].get('id', ''))
 " 2>/dev/null) || actor_id=""
 
+  # The actor_hint, not the actor id. Correlation matches observations whose
+  # actor_hint is EQUAL (rules.go: `a.actor_hint == b.actor_hint`), and the
+  # engine derives the id as "actor-" + hint (engine.go:168). Posting the id
+  # here would store an observation that correlates with nothing, so Act 2
+  # would "succeed" and Act 3 would still find no kernel evidence.
+  local actor_hint
+  actor_hint="${actor_id#actor-}"
+
   local kernel_observation
+  # POST /api/v1/observations takes an ARRAY of model.Observation, and every
+  # field below is required by Observation.Validate(): id, timestamp, layer,
+  # fidelity, source, confidence, raw_evidence_ref, description. Labels are
+  # map[string]string, so the nested process and syscall detail this demo
+  # narrates is flattened into strings -- a nested value fails the decode
+  # before Validate ever runs.
+  #
+  # This used to POST a differently-shaped body to a collectors/observe path
+  # that has never existed: the service registers exactly eleven routes
+  # (handlers.go:54-64) and that is not among them. It 404s, so Act 2 could
+  # never complete and Act 3 could never start.
   kernel_observation=$(cat <<EOF
-{
-  "layer": "endpoint_host",
-  "fidelity": "definitive",
-  "source": "ebpf-kernel-collector",
-  "actor_hint": "${actor_id}",
-  "observation": {
-    "type": "unix_socket_communication",
-    "socket_path": "/var/run/shadow-agent/inference.sock",
-    "process": {
-      "pid": 4821,
-      "comm": "shadow-agent",
-      "ppid": 1,
-      "uid": 0
+[
+  {
+    "id": "kernel-ebpf-$(TZ=UTC printf '%(%Y%m%d%H%M%S)T' -1)",
+    "timestamp": "$(TZ=UTC printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1)",
+    "layer": "endpoint_host",
+    "fidelity": "definitive",
+    "source": "ebpf-kernel-collector",
+    "confidence": 0.95,
+    "actor_hint": "${actor_hint}",
+    "raw_evidence_ref": "ebpf://kernel/unix_socket/4821",
+    "labels": {
+      "type": "unix_socket_communication",
+      "socket_path": "/var/run/shadow-agent/inference.sock",
+      "process": "shadow-agent",
+      "pid": "4821",
+      "peer_process": "ollama-server",
+      "peer_pid": "4900",
+      "uid": "0",
+      "bytes_transferred": "2457600",
+      "syscalls": "connect,sendmsg,recvmsg"
     },
-    "peer_process": {
-      "pid": 4900,
-      "comm": "ollama-server",
-      "ppid": 1
-    },
-    "bytes_transferred": 2457600,
-    "syscalls": ["connect", "sendmsg", "recvmsg"],
-    "timestamp": "$(TZ=UTC printf '%(%Y-%m-%dT%H:%M:%SZ)T' -1)"
-  },
-  "summary": "Unix socket communication: shadow-agent (PID 4821) to ollama-server via /var/run/shadow-agent/inference.sock — 2.3MB transferred, invisible at network layer"
-}
+    "description": "Unix socket communication: shadow-agent (PID 4821) to ollama-server via /var/run/shadow-agent/inference.sock — 2.3MB transferred, invisible at network layer"
+  }
+]
 EOF
 )
 
   local inject_result
-  inject_result=$(api_post "/api/v1/collectors/observe" -d "$kernel_observation") \
+  inject_result=$(api_post "/api/v1/observations" -d "$kernel_observation") \
     || fail "failed to inject kernel observation"
   log "kernel observation injected:"
   printf '%s\n' "$inject_result" | python3 -m json.tool 2>/dev/null | indent || printf '%s\n' "$inject_result" | indent

@@ -112,5 +112,29 @@
 #     test 1 red and leaves the other three green. Stage 6e would NOT catch that
 #     mutant, because the counts matched both during the outage and after the
 #     repair -- 5 before, 5 after.
-185e380997722383bc616b83bda907864460ef549112b2453ffe176d785c9184  scripts/ci/vm-pipeline.sh
+# Tenth re-record, and the first that is NOT a suite registration. b7e68e42 added
+# VAC008 to scripts/check-vacuous-assertions.sh and fixed the thirteen findings it
+# raised. One of them is in this file's stage-6 SETUP gate:
+#
+#   -  if ! kubectl -n flux-system get resourceset signalloom-infra \
+#   -       -o jsonpath='{.spec.inputs}' 2>/dev/null | grep -q 'tenant'; then
+#   +  infra_inputs="$(kubectl ... -o jsonpath='{.spec.inputs}' 2>/dev/null || true)"
+#   +  if ! grep -q 'tenant' <<<"$infra_inputs"; then
+#
+# vm-pipeline.sh runs under `set -o pipefail`. `grep -q` exits at its first match,
+# closing the pipe; the producer takes SIGPIPE; pipefail promotes 141 to the
+# pipeline's status. So the ORIGINAL line answered "inputs do not contain tenant"
+# PRECISELY WHEN THEY DID — and the branch it gates does `exit 2` with
+# "signalloom-infra was never activated", aborting a correctly-activated lane and
+# sending the reader to a SETUP failure that had not happened. Measured on this
+# machine: the same shape inverts 200/200 times once the producer has ~30k lines
+# left to write, and 13/200 for something as small as `env`. It is a race, not a
+# size threshold, so the gate was not reliably wrong — which is worse.
+#
+# Recorded rather than reverted because the alternative is an allowlist entry
+# saying "known inverted verdict, not fixed", which scripts/vacuous-assertions.allow
+# explicitly refuses: a finding you cannot justify in a clause is a defect, not an
+# exception. NEEDS CI-OWNER REVIEW — the header above requires acceptance before a
+# re-record, and this one was authored with the reason stated but not yet accepted.
+4babac666e2462459fb3acb91f3e46cddc935277be97e81bf4638dbc4293354d  scripts/ci/vm-pipeline.sh
 a7c2a04f032b8079452e0bea146d3975a5729eb496c375c125ecc03e0cb4dee5  scripts/ci/ci-lock.sh

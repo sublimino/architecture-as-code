@@ -725,7 +725,9 @@ scan_unguarded_array_loop() {
 #      subject is guards.
 #   2. THE SECOND BAR OF `||`. `grep -Fq PAT file || grep -Fq PAT other` reads
 #      FILES. There is no producer and no status to lose, and a naive `\| grep`
-#      flags it.
+#      flags it. Handled by ONE character — the `[^|]` in the detector — and
+#      deliberately NOT by a second exclusion clause, which was tried and
+#      deleted for suppressing real findings; see the note at the detector.
 #
 # Both are structural classes rather than one-off judgements, so the honest
 # place for them is the rule. This rule therefore ships with NO allowlist
@@ -815,9 +817,21 @@ scan_pipefail_early_exit_grep() {
 					}
 					if (!pf || t ~ /^#/) continue
 
+					# The `[^|]` is the whole of false-positive class 2 and is
+					# not decoration: it is what stops the SECOND bar of `||`
+					# reading as a pipe, so `grep -Fq PAT a || grep -Fq PAT b`
+					# — which reads FILES and has no producer — never matches.
+					#
+					# A separate `if (u ~ /\|\|.*grep -q/) continue` line did
+					# the same job for one commit and was deleted: it was not
+					# merely redundant, it SUPPRESSED REAL FINDINGS. It keyed on
+					# `||` appearing anywhere in the line, so
+					# `cmd | grep -q X || grep -Fq Y "$cache" || return 1`
+					# — a genuine piped verdict with a file-reading fallback —
+					# was skipped whole. Found by deleting each clause in turn
+					# and checking which deletions no test noticed.
 					u = U[i]
 					if (u !~ /(^|[^|])\|[ \t]*(command[ \t]+)?grep[ \t]+-[A-Za-z]*q/) continue
-					if (u ~ /\|\|[ \t]*(command[ \t]+)?grep[ \t]+-[A-Za-z]*q/) continue
 
 					# The whole logical statement, so an `if` split over four
 					# lines is judged as the one condition it is.

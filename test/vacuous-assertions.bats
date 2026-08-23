@@ -817,6 +817,29 @@ SH
 	[ "$status" -eq 0 ]
 }
 
+@test "VAC008 RED on a real pipe that shares its line with a file-reading ||" {
+	# The regression test for a clause that was deleted. An exclusion keyed on
+	# `||` appearing ANYWHERE in the line skipped this whole statement, so a
+	# genuine piped verdict with a file-reading fallback went unreported. The
+	# detector's `[^|]` handles the second bar without swallowing the first.
+	#
+	# Found by deleting each clause of the rule in turn and asking which
+	# deletions no test objected to. This one nothing objected to, because it
+	# was doing no work that the detector was not already doing — and one thing
+	# the detector was NOT doing, which was losing findings.
+	cat >"$fixture/both.sh" <<'SH'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+gate() {
+  kubectl get pods | grep -q Running || grep -Fq 'fallback' "$cache" || return 1
+}
+SH
+	scan
+	[ "$status" -eq 1 ]
+	[[ "$output" == *"VAC008"* ]]
+	[[ "$output" == *"both.sh"* ]]
+}
+
 @test "VAC008 CONTROL does not fire on a grep that reads to EOF" {
 	# The repo's own earlier fix (071b989f) was `grep -q` -> `grep >/dev/null`.
 	# Without -q grep consumes the whole stream, so the producer never takes

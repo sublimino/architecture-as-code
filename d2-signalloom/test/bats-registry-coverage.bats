@@ -398,8 +398,42 @@ unregistered_from() {
 	# "Terraform BATS suites are owned by gcp-tf-validate" already asks, using
 	# the same mechanism. `-n` prints the recipe without executing it, and
 	# GCP_TF_PROOFS_RUN is overridable precisely so this stays cheap.
+	#
+	# ── `env -u GCP_TF_PROOFS_RUN`, and why it is not decoration ────────────
+	#
+	# That overridability is exactly what makes this second source of truth
+	# switchable off from OUTSIDE the repository. Makefile:1543 declares
+	#
+	#     GCP_TF_PROOFS_RUN ?= $(foreach p,$(GCP_TF_PROOFS),bash $(p) &&) true
+	#
+	# and `?=` DEFERS TO THE ENVIRONMENT. An exported GCP_TF_PROOFS_RUN wins,
+	# the expanded plan then names no proof at all, and every glob-registered
+	# proof is reported as invoked by nothing. Measured in this worktree at
+	# b18cb545, with no source change of any kind:
+	#
+	#     $ bats --filter 'every proof script under test/ is invoked by \
+	#         something' d2-signalloom/test/bats-registry-coverage.bats
+	#     ok 1
+	#     $ GCP_TF_PROOFS_RUN=true bats --filter '...' ...
+	#     not ok 1
+	#     # Proof/test script(s) that no runner invokes:
+	#     #   test/acceptance-gateway-mutation-proof.sh ... (20 of them)
+	#
+	# Twenty false accusations from an environment variable. That is the
+	# cry-wolf failure the paragraph above says this half exists to PREVENT,
+	# and it is worse than the false positive it replaced: a reader who has
+	# been told the glob mechanism is trustworthy has no reason to suspect
+	# their own shell.
+	#
+	# test/terraform-suite-registration.bats already learned this — it exports
+	# GCP_TF_PROOFS_RUN=/usr/bin/true in setup() to stop the real proofs firing
+	# under its stubs, and every one of its three `make -n` reads is spelled
+	# `env -u GCP_TF_PROOFS_RUN`. The same author wrote both files and hardened
+	# only one, which is the same asymmetry the comment further down this test
+	# records about stripping comments. Ask make about the REPOSITORY's
+	# registration, never the caller's environment.
 	local validate_plan
-	run make -C "$root" -n gcp-tf-validate
+	run env -u GCP_TF_PROOFS_RUN make -C "$root" -n gcp-tf-validate
 	[ "$status" -eq 0 ] || {
 		echo "could not expand 'make -n gcp-tf-validate' (exit ${status}):"
 		echo "$output"
@@ -471,6 +505,42 @@ unregistered_from() {
 		echo "'make gcp-tf-validate' then runs with no registration step at all."
 		false
 	fi
+}
+
+@test "the proof-invocation check ignores an inherited GCP_TF_PROOFS_RUN" {
+	# The positive control for the `env -u GCP_TF_PROOFS_RUN` in the test above.
+	# Without it that hardening is an unverified claim in a comment, and the
+	# comment would keep asserting the invariant it had stopped enforcing.
+	#
+	# This runs the real test in a child bats with the variable exported to the
+	# value test/terraform-suite-registration.bats uses in its own setup(), which
+	# is the realistic leak: an agent or a runner that neutralised the proofs for
+	# speed, then ran the registry suite in the same shell.
+	local filter='every proof script under test/ is invoked by something'
+
+	# Assert the filter selects something first. `bats --filter` matching nothing
+	# exits 0 printing "1..0", so a renamed test would turn this control into a
+	# guaranteed pass that proves nothing -- the exact shape this file exists for.
+	run bats --count --filter "$filter" "$BATS_TEST_FILENAME"
+	[ "$status" -eq 0 ]
+	[ "$output" = "1" ] || {
+		echo "filter '$filter' selected ${output} test(s), expected exactly 1."
+		echo "The test it names was probably renamed; this control is now blind."
+		return 1
+	}
+
+	run env GCP_TF_PROOFS_RUN=/usr/bin/true \
+		bats --tap --filter "$filter" "$BATS_TEST_FILENAME"
+	[ "$status" -eq 0 ] || {
+		echo "An exported GCP_TF_PROOFS_RUN turned the proof-invocation check red."
+		echo "Makefile:1543 declares it with ?=, which defers to the environment,"
+		echo "so the expanded plan names no proof and every glob-registered proof"
+		echo "is accused of being invoked by nothing. Read the repository's"
+		echo "registration with 'env -u GCP_TF_PROOFS_RUN make -n', not the"
+		echo "caller's environment."
+		echo "$output"
+		return 1
+	}
 }
 
 @test "Terraform BATS suites are owned by gcp-tf-validate, not vm-pipeline" {

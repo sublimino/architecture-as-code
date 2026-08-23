@@ -16,10 +16,13 @@
 #
 # What was actually measured, in the running cluster, before anything changed:
 #
-#   * src/api/signalFusionDemo.ts calls /api/demo/signalfusion. The live
-#     HTTPRoute signalloom-api had ONE rule, `/api -> fe-signalloom-api:8000`,
-#     so Signal Fusion was served by fe-signalloom -- NOT by the demo runner
-#     that serves SuperCred.
+#   * src/api/signalFusionDemo.ts called /api/demo/signalfusion -- the runner's
+#     INTERNAL mount -- while its own docstring described a /demo-api/
+#     proxy. The live HTTPRoute signalloom-api had ONE rule,
+#     `/api -> fe-signalloom-api:8000`, so Signal Fusion was served by
+#     fe-signalloom, NOT by the demo runner that serves SuperCred. nginx's
+#     /demo-api/ block rewrote unconditionally to /api/demo/supercred, so the
+#     documented path would not have worked either.
 #   * fe-signalloom's image is `WORKDIR /app` + `COPY src/ .`. In the running
 #     pod, /app/scripts and /repo both did not exist, and the only one of
 #     {kubectl, curl, bash} present was bash. It cannot execute a demo script.
@@ -46,8 +49,13 @@
 #   * the Dockerfile's COPY destination is compared against the path
 #     demo_runner.py computes (env value + DemoConfig.default_script), not
 #     against a string repeated from it;
-#   * the route backend is compared against the Service the runner actually
-#     publishes, not against a hardcoded name.
+#   * the client's base prefix is compared against the rewrite in nginx.conf,
+#     so neither end can be re-pointed on its own.
+#
+# One more thing this suite learned the hard way: the first attempt at the fix
+# added a Gateway HTTPRoute to the runner, which is forbidden by ISC-14 and was
+# caught only by a LIVE-cluster test, a full pipeline run later. That
+# prohibition is now also asserted statically here, at commit time.
 #
 # Matchers are ANCHORED. An earlier guard in this repo matched an object name
 # as a substring, so renaming the object left all five of its tests green.
@@ -58,7 +66,8 @@ setup() {
 	runner_deploy="$d2/apps/supercred-demo-runner/base/deployment.yaml"
 	runner_dockerfile="$d2/apps/supercred-demo-runner/Dockerfile"
 	runner_service="$d2/apps/supercred-demo-runner/base/service.yaml"
-	gateway_route="$d2/apps/fe-signalloom/base/gateway-route.yaml"
+	nginx_conf="$d2/apps/dashboard-signalloom/nginx.conf"
+	sf_client="$d2/apps/dashboard-signalloom/src/api/signalFusionDemo.ts"
 	demo_runner_py="$d2/apps/fe-signalloom/src/demo_runner.py"
 	demo_script="$repo_root/scripts/signalfusion-demo.sh"
 }
@@ -107,7 +116,8 @@ signalfusion_default_script() {
 	[ -f "$runner_deploy" ]
 	[ -f "$runner_dockerfile" ]
 	[ -f "$runner_service" ]
-	[ -f "$gateway_route" ]
+	[ -f "$nginx_conf" ]
+	[ -f "$sf_client" ]
 	[ -f "$demo_runner_py" ]
 	[ -f "$demo_script" ]
 }
@@ -186,76 +196,79 @@ signalfusion_default_script() {
 	grep -Eq '^[[:space:]]*source[[:space:]]+"\$\{SCRIPT_DIR\}/lib/wait\.sh"' "$demo_script"
 }
 
-@test "SIGNALFUSION-CONTRACT the gateway routes /api/demo/signalfusion to the runner" {
-	# The route is the half that decides WHICH pod answers, and it was the
-	# reason the variable looked like the whole story. Parsed as YAML, and the
-	# backend is compared against the Service the runner actually publishes.
-	run python3 - "$gateway_route" "$runner_service" <<-'PY'
-		import sys, yaml
+@test "SIGNALFUSION-CONTRACT nginx rewrites the browser prefix onto the runner's mount" {
+	# The half that decides WHICH pod answers. Signal Fusion is proxied by the
+	# dashboard's nginx, exactly as SuperCred is, because ISC-14 forbids a
+	# Gateway route to the runner (see the test below).
+	#
+	# Both rewrites are asserted, in order: the signalfusion one must come
+	# first, because the SuperCred rewrite is unconditional on /demo-api and
+	# would otherwise swallow every Signal Fusion path and send it to
+	# /api/demo/supercred/signalfusion/... -- a 404 from the right pod, which
+	# looks nothing like a routing bug.
+	run python3 - "$nginx_conf" <<-'PY'
+		import re, sys
 
-		route_path, service_path = sys.argv[1], sys.argv[2]
+		conf = open(sys.argv[1]).read()
 
-		with open(route_path) as fh:
-		    routes = [d for d in yaml.safe_load_all(fh) if d and d.get("kind") == "HTTPRoute"]
-		with open(service_path) as fh:
-		    services = [d for d in yaml.safe_load_all(fh) if d and d.get("kind") == "Service"]
-
-		assert len(services) == 1, f"expected exactly one runner Service, got {len(services)}"
-		svc_name = services[0]["metadata"]["name"]
-		svc_port = services[0]["spec"]["ports"][0]["port"]
-
-		api = [r for r in routes if r["metadata"]["name"] == "signalloom-api"]
-		assert len(api) == 1, "expected exactly one signalloom-api HTTPRoute"
-
-		rules = api[0]["spec"]["rules"]
-		matched = [
-		    r for r in rules
-		    for m in r.get("matches", [])
-		    if m.get("path", {}).get("value") == "/api/demo/signalfusion"
-		]
-		assert matched, "no rule matches /api/demo/signalfusion"
-		assert len(matched) == 1, "more than one rule matches /api/demo/signalfusion"
-
-		rule = matched[0]
-		for m in rule["matches"]:
-		    assert m["path"]["type"] == "PathPrefix", m["path"]["type"]
-
-		backends = rule["backendRefs"]
-		assert len(backends) == 1, backends
-		assert backends[0]["name"] == svc_name, (backends[0]["name"], svc_name)
-		assert backends[0]["port"] == svc_port, (backends[0]["port"], svc_port)
+		sf = re.search(r'^\s*rewrite\s+\^/demo-api/signalfusion\(/\.\*\)\s+/api/demo/signalfusion\$1\s+break;',
+		               conf, re.M)
+		sc = re.search(r'^\s*rewrite\s+\^/demo-api\(/\.\*\)\s+/api/demo/supercred\$1\s+break;',
+		               conf, re.M)
+		assert sf, "no /demo-api/signalfusion rewrite in nginx.conf"
+		assert sc, "no /demo-api -> supercred rewrite in nginx.conf"
+		assert sf.start() < sc.start(), (
+		    "the signalfusion rewrite must precede the unconditional supercred one; "
+		    f"found at {sf.start()} and {sc.start()}"
+		)
 		print("ok")
 	PY
 	[ "$status" -eq 0 ]
 	[[ "$output" == *ok* ]]
 }
 
-@test "SIGNALFUSION-CONTRACT the signalfusion prefix outranks the catch-all /api rule" {
-	# Gateway API resolves overlapping PathPrefix matches by longest prefix, so
-	# this holds regardless of rule order -- but only while the general rule is
-	# genuinely shorter. If someone narrowed /api to /api/demo, the two would
-	# still differ; if they ever converge, precedence becomes order-dependent
-	# and this demo breaks in a way no other test would name.
-	run python3 - "$gateway_route" <<-'PY'
-		import sys, yaml
+@test "SIGNALFUSION-CONTRACT the client calls the browser-facing prefix, not the runner's mount" {
+	# The other end of the same wire. Pointing this back at /api/demo/... is
+	# not a loud failure: /api goes to the gateway and is served by
+	# fe-signalloom, which answers 503 demo_root_unresolved. That is the exact
+	# defect this suite exists for, so it is asserted against the nginx rewrite
+	# rather than as a standalone string.
+	run grep -Eo "^const SF_DEMO_API = '[^']+'" "$sf_client"
+	[ "$status" -eq 0 ]
+	[[ "$output" == "const SF_DEMO_API = '/demo-api/signalfusion'" ]]
 
-		with open(sys.argv[1]) as fh:
-		    routes = [d for d in yaml.safe_load_all(fh) if d and d.get("kind") == "HTTPRoute"]
+	# And the prefix the client uses must be one nginx actually rewrites.
+	local prefix
+	prefix="$(printf '%s' "$output" | sed "s|.*'\(.*\)'|\1|")"
+	grep -Fq "rewrite ^${prefix}(/.*) /api/demo/signalfusion\$1 break;" "$nginx_conf"
+}
 
-		api = next(r for r in routes if r["metadata"]["name"] == "signalloom-api")
-		prefixes = [
-		    m["path"]["value"]
-		    for r in api["spec"]["rules"]
-		    for m in r.get("matches", [])
-		    if m.get("path", {}).get("type") == "PathPrefix"
-		]
+@test "SIGNALFUSION-CONTRACT no Gateway route targets the runner (ISC-14)" {
+	# Restates ISC-14 statically, next to the change most likely to breach it.
+	# supercred-demo-api.bats asserts this against a LIVE cluster, so it cannot
+	# fail until a lane is standing -- which is how a breaching manifest got as
+	# far as a full pipeline run before anything objected.
+	#
+	# A route here would put the demo control plane on the internet beside the
+	# dashboard, bypassing the nginx block that forwards the bearer.
+	run python3 - "$d2" <<-'PY'
+		import pathlib, sys, yaml
 
-		sf = "/api/demo/signalfusion"
-		assert sf in prefixes, prefixes
-		overlapping = [p for p in prefixes if p != sf and sf.startswith(p)]
-		assert overlapping, f"expected a general /api rule to coexist, got {prefixes}"
-		for p in overlapping:
-		    assert len(p) < len(sf), f"{p} is not shorter than {sf}"
+		d2 = pathlib.Path(sys.argv[1])
+		hits = []
+		for path in d2.rglob("*.yaml"):
+		    try:
+		        docs = list(yaml.safe_load_all(path.read_text()))
+		    except yaml.YAMLError:
+		        continue
+		    for doc in docs:
+		        if not isinstance(doc, dict) or doc.get("kind") != "HTTPRoute":
+		            continue
+		        for rule in doc["spec"].get("rules", []):
+		            for ref in rule.get("backendRefs", []):
+		                if ref.get("name") == "supercred-demo-runner":
+		                    hits.append(f'{path.name}:{doc["metadata"]["name"]}')
+		assert not hits, f"HTTPRoute targets the runner directly, breaching ISC-14: {hits}"
 		print("ok")
 	PY
 	[ "$status" -eq 0 ]

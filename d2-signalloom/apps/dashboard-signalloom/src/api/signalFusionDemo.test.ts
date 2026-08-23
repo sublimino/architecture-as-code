@@ -70,8 +70,29 @@ describe('fetchSignalFusionSteps', () => {
     globalThis.fetch = fn
     await fetchSignalFusionSteps(TOKEN)
     const url = fn.mock.calls[0][0] as string
-    expect(url).toContain('/api/demo/signalfusion/')
+    expect(url).toContain('/demo-api/signalfusion/')
     expect(url).not.toContain('supercred')
+  })
+
+  // These assertions used to read `/api/demo/signalfusion/`, which is the
+  // runner's INTERNAL mount, and they passed against the defect that took all
+  // three acts down on a live lane: the gateway matches PathPrefix /api and
+  // hands it to fe-signalloom, so nothing under /api ever reaches the runner.
+  // The browser-facing prefix is /demo-api/, proxied by the dashboard's nginx.
+  //
+  // A `toContain` check cannot tell those two apart on intent alone -- both
+  // contain the word signalfusion -- so the prefix is pinned exactly here, and
+  // the internal mount is asserted ABSENT. The other half of this contract, that
+  // nginx actually rewrites this prefix, lives in
+  // d2-signalloom/test/signalfusion-runner-contract.bats; neither side can
+  // verify it alone.
+  it('uses the browser-facing proxy prefix, never the runner mount', async () => {
+    const fn = mockFetch(200, { steps: [] })
+    globalThis.fetch = fn
+    await fetchSignalFusionSteps(TOKEN)
+    const url = fn.mock.calls[0][0] as string
+    expect(url.startsWith('/demo-api/signalfusion/')).toBe(true)
+    expect(url).not.toContain('/api/demo/')
   })
 })
 
@@ -86,7 +107,7 @@ describe('startSignalFusionRun', () => {
     expect(result.status).toBe('running')
 
     const [url, opts] = fn.mock.calls[0]
-    expect(url).toContain('/api/demo/signalfusion/runs')
+    expect(url).toContain('/demo-api/signalfusion/runs')
     expect(JSON.parse(opts.body as string)).toEqual({ step: '1' })
   })
 })
@@ -127,6 +148,6 @@ describe('resetSignalFusion', () => {
     expect(result.run_id).toBe('reset1')
 
     const url = fn.mock.calls[0][0] as string
-    expect(url).toContain('/api/demo/signalfusion/reset')
+    expect(url).toContain('/demo-api/signalfusion/reset')
   })
 })

@@ -159,6 +159,23 @@ write_lane_harness() { # write_lane_harness <ensure_published-exit-status>
 		ensure_published() { log_call "ensure_published:\$1"; return ${pub_rc}; }
 		ensure_ts_serve_unit() { log_call "ensure_ts_serve_unit:\$1"; return 0; }
 
+		# ─── The origin mechanism, stubbed at the REMOTE boundary ──────────
+		#
+		# dex_origin() shells out to the delivered copy over SSH. Left real,
+		# every test in this file would attempt a gcloud IAP connection to a VM
+		# that does not exist, and the suite would be measuring the timeout.
+		#
+		# Stubbed HERE rather than by exporting GCP_TF_DEMO_DEX_ORIGIN_CMD so
+		# that dex_origin_available(), release_own_tailnet_origin() and
+		# ensure_tailnet_origin_claimed() all run their REAL bodies — those are
+		# the subject. Only the wire is fake.
+		dex_origin()       { log_call "dex_origin:\$*"; return \${STUB_DEX_ORIGIN_RC:-0}; }
+		dex_origin_field() { printf '%s' "\${STUB_HOLDER:-}"; }
+		ts_fqdn_from_vm() {
+			[ -n "\${STUB_FQDN:-}" ] || return 1
+			printf '%s' "\${STUB_FQDN}"
+		}
+
 		warn() { printf 'WARN: %s\n' "\$*" >&2; }
 		log()  { printf '==> %s\n' "\$*"; }
 
@@ -168,6 +185,16 @@ write_lane_harness() { # write_lane_harness <ensure_published-exit-status>
 		ZONE=zone
 		OPERATOR_SA=sa
 		APP_PORT=30754
+
+		# Defaults, so the happy path is the happy path. Each is overridable
+		# from the test via the environment, which is how the RED cases below
+		# steer the branch under test.
+		#
+		# `\${VAR=default}` and NOT `\${VAR:=default}`. The colon form treats
+		# EMPTY as absent, so \`STUB_FQDN='' run_lane_harness\` — the case that
+		# tests a VM which cannot report its name — would silently be handed the
+		# default and test the happy path instead. Caught by that test failing.
+		: "\${STUB_FQDN=sl-ci-2.tailnet-example.ts.net}"
 		PIPELINE_EXIT=0
 		REPORT_DIR="${WORK}"
 		SUMMARY_NAME=summary.json
@@ -314,6 +341,236 @@ run_lane_harness() { run bash "${WORK}/harness.sh"; }
 	}
 }
 
+# ─── The other half of a working tailnet URL: the ORIGIN ────────────────────
+#
+# A durable backend makes the URL answer. It does not make it usable.
+#
+# Reproduced on sl-demo-1 on 2026-08-23, with the backend healthy and `/`
+# answering 200:
+#
+#     /dex/auth?...redirect_uri=https://sl-demo-1.<tailnet>.ts.net/callback
+#       -> 302 -> /dex/auth/local -> 400
+#          Unregistered redirect_uri ("https://sl-demo-1.<tailnet>.ts.net/callback")
+#
+# So the assertions below deliberately do NOT test that anything returns 200.
+# A 200 on `/` is exactly what the broken state produced, and a suite that
+# accepted it would have certified this bug.
+
+@test "ORIGIN the deploy lane claims the tailnet origin, not just the backend" {
+	write_lane_harness 0
+	run_lane_harness
+
+	grep -q '^dex_origin:apply tailscale https://' "${CALL_LOG}" || {
+		echo "run_lane installed the backend and never told Dex the tailnet origin is"
+		echo "legitimate. The URL would answer 200 and the login would bounce with"
+		echo "'Unregistered redirect_uri' — which is what a 200 does not prove."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "ORIGIN the claimed origin is the name the VM reports, as https, with no trailing dot" {
+	# `.Self.DNSName` is fully qualified and ends in a dot. An origin carrying
+	# that dot is refused by dex_origin_validate, so the whole claim would fail
+	# at the door — and the lane would warn about the wrong thing.
+	STUB_FQDN='sl-ci-2.tailnet-example.ts.net' write_lane_harness 0
+	STUB_FQDN='sl-ci-2.tailnet-example.ts.net' run_lane_harness
+
+	grep -qx 'dex_origin:apply tailscale https://sl-ci-2.tailnet-example.ts.net' "${CALL_LOG}" || {
+		echo "the claimed origin is not exactly https://<the name the VM reported>."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "ORIGIN the method is 'tailscale', the same name ts-up takes" {
+	# Not cosmetic. The method is what a refusal quotes back at the next access
+	# path, so a lane claiming under any other name would make
+	# 'make gcp-tf-ts-up' refuse itself and name a holder no teardown documents.
+	write_lane_harness 0
+	run_lane_harness
+
+	grep -q '^dex_origin:apply tailscale ' "${CALL_LOG}" || {
+		echo "the deploy lane claims under a method name that is not 'tailscale'."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+	grep -q 'dex_origin apply tailscale' "${DRIVER_SRC}" || {
+		echo "the driver no longer applies under 'tailscale' anywhere"
+		return 1
+	}
+}
+
+@test "ORIGIN a backend that could not be installed does NOT get an origin claimed" {
+	# Publishing an origin for a URL with nothing behind it converts a 502 into
+	# a 502 that has also taken the lease, so the next access method is refused
+	# and named a holder that serves nothing.
+	write_lane_harness 8
+	run_lane_harness
+
+	! grep -q '^dex_origin:apply' "${CALL_LOG}" || {
+		echo "the backend failed to install and the lane claimed the origin anyway,"
+		echo "taking the lease on behalf of a URL that answers 502."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "ORIGIN claiming the origin cannot turn a passing lane red" {
+	# Same reasoning as the backend: the verdict is already decided and filed.
+	STUB_DEX_ORIGIN_RC=1 write_lane_harness 0
+	STUB_DEX_ORIGIN_RC=1 run_lane_harness
+
+	[ "$status" -eq 0 ] || {
+		echo "a failed origin claim changed the run's exit status to ${status}"
+		echo "output: ${output}"
+		return 1
+	}
+}
+
+@test "ORIGIN an origin that could not be claimed WARNS, naming the bouncing login" {
+	# The half that matters. A silent failure here is a lane reporting PASS over
+	# a URL that loads and cannot be logged into.
+	STUB_DEX_ORIGIN_RC=1 write_lane_harness 0
+	STUB_DEX_ORIGIN_RC=1 run_lane_harness
+
+	[[ "$output" == *"WARN:"* ]] || {
+		echo "the origin claim failed and the lane said NOTHING. output: ${output}"
+		return 1
+	}
+	[[ "$output" == *"BOUNCE"* || "$output" == *"bounce"* ]] || {
+		echo "the warning does not say the login will bounce, so a reader cannot tell"
+		echo "this from a cosmetic failure. output: ${output}"
+		return 1
+	}
+}
+
+@test "ORIGIN a VM that cannot report its tailnet name WARNS and publishes nothing" {
+	# ts_fqdn_from_vm returning empty must not become the origin 'https://'.
+	STUB_FQDN='' write_lane_harness 0
+	STUB_FQDN='' run_lane_harness
+
+	! grep -q '^dex_origin:apply' "${CALL_LOG}" || {
+		echo "the name could not be read and an origin was published anyway."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+	[[ "$output" == *"WARN:"* ]] || {
+		echo "the name could not be read and the lane said nothing. output: ${output}"
+		return 1
+	}
+}
+
+@test "ORIGIN GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 skips the claim and says the login will bounce" {
+	GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 write_lane_harness 0
+	GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 run_lane_harness
+
+	! grep -q '^dex_origin:apply' "${CALL_LOG}" || {
+		echo "the skip knob was set and the origin was claimed anyway."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+	[[ "$output" == *"BOUNCE"* ]] || {
+		echo "the skip path does not warn that the login will bounce, which is the"
+		echo "one thing that makes the knob safe to use. output: ${output}"
+		return 1
+	}
+}
+
+# ─── Not breaking the path every test uses ──────────────────────────────────
+#
+# Claiming REPLACES: PUBLIC_ORIGIN is one value, because the SPA validates the
+# ID token's `iss` against the origin it was served from (oidc.tsx). The
+# estate's browser journey drives the RESTING origin, so a lane still holding
+# the tailnet origin would fail that stage on an issuer mismatch and blame the
+# dashboard. These assert the two things that keep them apart.
+
+@test "ORDER the pipeline runs BEFORE the origin moves" {
+	write_lane_harness 0
+	run_lane_harness
+
+	local pipeline_line claim_line
+	pipeline_line="$(grep -n '^run_pipeline$' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	claim_line="$(grep -n '^dex_origin:apply' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	[ -n "$pipeline_line" ] && [ -n "$claim_line" ] || {
+		echo "expected both a pipeline run and an origin claim in the log."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+	[ "$pipeline_line" -lt "$claim_line" ] || {
+		echo "the origin moved BEFORE the pipeline ran. The browser stage drives the"
+		echo "resting origin, so it would fail on an issuer mismatch and name the"
+		echo "dashboard rather than the origin."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "RELEASE a lane holding its OWN tailnet origin releases it before the pipeline" {
+	STUB_HOLDER=tailscale write_lane_harness 0
+	STUB_HOLDER=tailscale run_lane_harness
+
+	local restore_line pipeline_line
+	restore_line="$(grep -n '^dex_origin:restore$' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	pipeline_line="$(grep -n '^run_pipeline$' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	[ -n "$restore_line" ] || {
+		echo "a lane already holding the tailnet origin did not release it, so the"
+		echo "browser stage would run against a Dex issuing for a different origin."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+	[ "$restore_line" -lt "$pipeline_line" ] || {
+		echo "the release happened AFTER the pipeline, which is too late to help it."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "RELEASE a FUNNEL lease is never released by a deploy" {
+	# funnel publishes the IDENTICAL URL, so a substring or prefix match on the
+	# holder would release it. It is a deliberate PUBLIC listener with its own
+	# teardown, and a deploy is not consent to end it.
+	STUB_HOLDER=funnel write_lane_harness 0
+	STUB_HOLDER=funnel run_lane_harness
+
+	! grep -q '^dex_origin:restore$' "${CALL_LOG}" || {
+		echo "a deploy released a FUNNEL lease. That is a public URL whose login this"
+		echo "just broke, with nothing in the output saying so."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "RELEASE another method's lease is never released by a deploy" {
+	for holder in ngrok iap tailscale-funnel xtailscale; do
+		STUB_HOLDER="$holder" write_lane_harness 0
+		: >"${CALL_LOG}"
+		STUB_HOLDER="$holder" run_lane_harness
+
+		! grep -q '^dex_origin:restore$' "${CALL_LOG}" || {
+			echo "a deploy released a lease held by '${holder}'. Only this lane's own"
+			echo "'tailscale' lease may be released; the holder match must be exact."
+			echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+			return 1
+		}
+	done
+}
+
+@test "RELEASE an unheld origin is not restored, so an idle cluster is left alone" {
+	# dex_origin_current falls back to the resting origin, so "non-empty means
+	# somebody holds it" is wrong — that exact mistake made every ts-up on an
+	# idle cluster refuse itself. The holder KEY is the only question.
+	STUB_HOLDER='' write_lane_harness 0
+	STUB_HOLDER='' run_lane_harness
+
+	! grep -q '^dex_origin:restore$' "${CALL_LOG}" || {
+		echo "a deploy restored an origin nobody was holding, restarting Dex — which"
+		echo "runs storage: type: memory — and logging out every in-flight session."
+		echo "calls made: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
 # ─── Positive controls ──────────────────────────────────────────────────────
 #
 # Every assertion above is proved able to go RED by mutating the driver copy.
@@ -380,6 +637,94 @@ run_lane_harness() { run bash "${WORK}/harness.sh"; }
 	mutate 's/ port-forward --namespace/ proxy --namespace/'
 	! grep -q 'ExecStart=.*port-forward' "${driver}" || {
 		echo "the mutation did not change the ExecStart; the guard is untested"
+		return 1
+	}
+}
+
+@test "MUTATION removing the origin claim from the deploy lane goes RED" {
+	mutate 's/^    ensure_tailnet_origin_claimed$/    : # claim removed/'
+	write_lane_harness 0
+	run_lane_harness
+
+	! grep -q '^dex_origin:apply' "${CALL_LOG}" || {
+		echo "the claim call was removed and the lane still claimed an origin — the"
+		echo "ORIGIN tests are not connected to the code they claim to test"
+		return 1
+	}
+}
+
+@test "MUTATION removing the release from the deploy lane goes RED" {
+	mutate 's/^  release_own_tailnet_origin$/  : # release removed/'
+	STUB_HOLDER=tailscale write_lane_harness 0
+	STUB_HOLDER=tailscale run_lane_harness
+
+	! grep -q '^dex_origin:restore$' "${CALL_LOG}" || {
+		echo "the release call was removed and the lane still restored — the RELEASE"
+		echo "tests are not connected to the code they claim to test"
+		return 1
+	}
+}
+
+@test "MUTATION RENAMING the claimed method away from 'tailscale' is caught" {
+	# The rename case specifically. A guard that matched the method name as a
+	# SUBSTRING of some longer string would stay green through this, and the
+	# lane would take its lease under a name no teardown documents.
+	mutate 's/dex_origin apply tailscale "\$base"/dex_origin apply tailnet "$base"/'
+	write_lane_harness 0
+	run_lane_harness
+
+	! grep -q '^dex_origin:apply tailscale ' "${CALL_LOG}" || {
+		echo "the method was renamed and the assertion did not notice; it is matching"
+		echo "something other than the method actually applied"
+		return 1
+	}
+}
+
+@test "MUTATION relaxing the holder match to a substring is caught" {
+	# The specific way this goes wrong: `case`/`==` with a glob, or a grep,
+	# instead of an exact compare. Any of them release a FUNNEL lease.
+	mutate 's/\[ "\$method" = "tailscale" \] || return 0/[[ "$method" == *tailscale* ]] || return 0/'
+	STUB_HOLDER=funnel write_lane_harness 0
+	STUB_HOLDER=funnel run_lane_harness
+
+	# funnel does not contain "tailscale", so prove the mutation with a holder
+	# that DOES — otherwise this control would pass without the guard moving.
+	: >"${CALL_LOG}"
+	STUB_HOLDER=tailscale-funnel run_lane_harness
+	grep -q '^dex_origin:restore$' "${CALL_LOG}" || {
+		echo "the mutation did not loosen the match, so the exactness assertion above"
+		echo "is not proving anything"
+		return 1
+	}
+}
+
+@test "MUTATION moving the origin claim ahead of the pipeline is caught" {
+	# Proves the ORDER assertion is load-bearing rather than true by accident.
+	mutate 's/^  release_own_tailnet_origin$/  ensure_tailnet_origin_claimed/'
+	write_lane_harness 0
+	run_lane_harness
+
+	local pipeline_line claim_line
+	pipeline_line="$(grep -n '^run_pipeline$' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	claim_line="$(grep -n '^dex_origin:apply' "${CALL_LOG}" | head -1 | cut -d: -f1)"
+	[ -n "$claim_line" ] && [ "$claim_line" -lt "$pipeline_line" ] || {
+		echo "the mutation did not move a claim ahead of the pipeline, so the ORDER"
+		echo "assertion is untested. calls: $(tr '\n' ' ' <"${CALL_LOG}")"
+		return 1
+	}
+}
+
+@test "MUTATION dropping the trailing-dot strip from the VM name is caught" {
+	# The dot is what dex_origin_validate refuses. Proves the strip is real code
+	# and not an accident of the stub.
+	grep -q 'out="\${out%\.}"' "${DRIVER_SRC}" || {
+		echo "ts_fqdn_from_vm no longer strips the trailing dot from .Self.DNSName;"
+		echo "the origin would be refused as malformed at the door"
+		return 1
+	}
+	mutate 's/  out="\${out%\.}"/  : # strip removed/'
+	! grep -q 'out="\${out%\.}"' "${driver}" || {
+		echo "the mutation did not remove the strip; the guard is untested"
 		return 1
 	}
 }

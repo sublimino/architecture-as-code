@@ -2080,6 +2080,15 @@ run_lane() {
   # symptom would be a lane that refuses AFM having just been told it arrived.
   deliver_afm_image
 
+  # AFTER deliver_code, and that ordering is not cosmetic: dex_origin() invokes
+  # the DELIVERED copy at ${REMOTE_WORK_DIR}/${DEX_ORIGIN_REL}, and deliver_code
+  # does `rm -rf $REMOTE_WORK_DIR` first. Asking before delivery reaches a path
+  # that does not exist yet and reads as "nobody holds the origin" — which is
+  # the one answer that makes this step silently do nothing.
+  #
+  # BEFORE run_pipeline, because the browser stage it protects is inside it.
+  release_own_tailnet_origin
+
   set_run_phase "pipeline"
   run_pipeline "$stage"
 
@@ -2783,7 +2792,13 @@ EOF
 ensure_tailnet_target_durable() {
   local rc=0
   ( ensure_published "$APP_PORT" ) || rc=$?
-  [ "$rc" -eq 0 ] && return 0
+  if [ "$rc" -eq 0 ]; then
+    # The backend is only HALF of a working tailnet URL. See
+    # ensure_tailnet_origin_claimed for the other half and why a 200 on `/`
+    # never proved it.
+    ensure_tailnet_origin_claimed
+    return 0
+  fi
 
   # NO URL IS CONSTRUCTED HERE, deliberately, and the omission is the point.
   #
@@ -2795,6 +2810,183 @@ ensure_tailnet_target_durable() {
   # time, and ts-status is the command that reports it — so this names the
   # command rather than guessing its output.
   warn "the estate is up but the tailnet URL has no backend: could not install ${PF_UNIT}.service for :${APP_PORT} on ${INSTANCE_NAME} (step exited ${rc}). 'tailscale serve' on this VM is installed at boot regardless and proxies to 127.0.0.1:${APP_PORT}, so this lane's tailnet URL will answer 502 until this is fixed — on the tailnet, but serving nothing. The cause is named above. Check the name and the serve config with: make gcp-tf-ts-status ENV=${ENV_KEY}   Retry with: make gcp-tf-ts-up ENV=${ENV_KEY}"
+  return 0
+}
+
+# This VM's own tailnet FQDN, asked of the VM.
+#
+# NOT ts_resolve_node, and the difference is the whole reason this exists.
+# ts_resolve_node reads `tailscale status --json` on the OPERATOR's machine and
+# exits 2 when there is no local tailscale client or MagicDNS is off here. That
+# is right for ts-up, which is a human asking to browse the demo from this
+# machine. It is wrong for the deploy lane: `up` runs from hosts that are not on
+# the tailnet at all, and making a green deploy depend on the operator's laptop
+# being logged in would fail lanes for a reason that has nothing to do with the
+# estate they just built.
+#
+# The VM is the authority on its own name in any case. That is the same reason
+# ensure_tailnet_target_durable's warning constructs no URL: the tailnet's
+# MagicDNS suffix is not this file's to guess, and a literal `.ts.net` domain
+# baked in here would silently outlive a tailnet rename and publish an origin
+# nobody can reach.
+#
+# Prints NOTHING and returns non-zero when the name cannot be read, rather than
+# printing a bare "https://" that a caller would go on to publish as an origin.
+ts_fqdn_from_vm() {
+  local out
+  # `.Self.DNSName` is fully qualified and ends in a dot — `sl-demo-1.<tailnet>.
+  # ts.net.` — and a trailing dot in an origin is exactly the malformed input
+  # dex_origin_validate refuses ("origin must not contain a path or a trailing
+  # slash" is its sibling case). Stripped here so the refusal never has to fire.
+  out="$(remote_run 'tailscale status --json | jq -r .Self.DNSName' 2>/dev/null |
+    tr -d '\r' | tail -1 | tr -d '[:space:]')" || return 1
+  out="${out%.}"
+  # `jq -r` prints the string `null` for a missing key, which is a perfectly
+  # good hostname as far as everything downstream is concerned.
+  [ -n "$out" ] && [ "$out" != "null" ] || return 1
+  printf '%s' "$out"
+}
+
+# Tell Dex the tailnet origin is legitimate, as part of the deploy.
+#
+# ─── Why a durable backend was never enough ────────────────────────────────
+#
+# ensure_tailnet_target_durable closed the 502: the URL now has something behind
+# it. What it did not do is make that URL usable, and the failure it leaves is
+# the more expensive of the two because it looks like the demo works. Measured
+# on sl-demo-1 on 2026-08-23, with a healthy serve config and a live backend:
+#
+#     GET /                                              200
+#     GET /dex/auth?...redirect_uri=https://sl-demo-1.<tailnet>.ts.net/callback
+#       -> 302 -> /dex/auth/local -> 400
+#          Unregistered redirect_uri ("https://sl-demo-1.<tailnet>.ts.net/callback")
+#
+# The dashboard loads and the login bounces — the exact failure
+# GCP_TF_DEMO_SKIP_DEX_ORIGIN's warning has described for every other access
+# path since it was written. The tailnet path simply never claimed an origin:
+# demo-up.sh calls `dex_origin apply` on the connect, public, ts-up and funnel-up
+# paths and nowhere in the deploy lane.
+#
+# ─── Why the ISSUER has to move, and a redirect URI is not enough ──────────
+#
+# The obvious cheaper fix — add the tailnet callback to the static redirectURIs
+# list in dex.yaml, which IS a list and would genuinely accept several — does not
+# work, and it is worth writing down why so it is not tried again.
+#
+# d2-signalloom/apps/dashboard-signalloom/src/auth/oidc.tsx builds its OIDC
+# metadata from the browser's own location:
+#
+#     const AUTHORITY = `${window.location.origin}/dex`
+#     metadata: { issuer: AUTHORITY, ... }
+#
+# so the SPA VALIDATES the ID token's `iss` against the origin it is being served
+# from. A browser on the tailnet therefore demands `iss` =
+# https://<node>.<tailnet>.ts.net/dex, and only Dex's single `issuer` field can
+# supply that. Registering the callback alone would move the failure from a 400
+# at the redirect to a silent token rejection after a successful password entry,
+# which is strictly worse to diagnose.
+#
+# That is also precisely what dex_origin_validate's refusals are protecting and
+# why none of them are relaxed here: ONE origin at a time is a property of OIDC
+# as this dashboard consumes it, not a limitation of the mechanism.
+#
+# ─── What this must not break ──────────────────────────────────────────────
+#
+# Claiming REPLACES; PUBLIC_ORIGIN is one value. The estate's browser journey
+# (scripts/acceptance-test.sh) drives https://dashboard.osramp.acme.local:30754,
+# which is the resting origin, so a lane holding the tailnet origin would fail
+# that stage. Two things keep them apart, and neither is a weakened guard:
+#
+#   ORDER      this runs from ensure_tailnet_target_durable, AFTER run_pipeline
+#              and after the verdict is filed. The suite has already finished at
+#              the baseline by the time the origin moves.
+#   RELEASE    release_own_tailnet_origin drops this lane's own `tailscale` lease
+#              at the START of the next run, so every pipeline begins at the
+#              resting origin however the previous one ended.
+#
+# A lease held by any OTHER method is left alone and dex_origin_apply refuses,
+# which is the designed behaviour: an ngrok or funnel demo must not have its
+# issuer taken by a deploy.
+#
+# ─── Non-fatal, like everything else after the verdict ─────────────────────
+#
+# Same reasoning as its caller: the run's result is already decided, printed and
+# filed. A lane that tested green is not turned red because an origin could not
+# be published. It WARNS, naming the recovery command, because a non-fatal step
+# that says nothing when it fails is how a lane reports PASS over a login that
+# bounces — which is the whole history of this file.
+ensure_tailnet_origin_claimed() {
+  if [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ]; then
+    warn "GCP_TF_DEMO_SKIP_DEX_ORIGIN=1 — Dex keeps its current issuer. This lane's tailnet URL will load the dashboard and the LOGIN WILL BOUNCE with 'Unregistered redirect_uri'. Claim it by hand with: make gcp-tf-ts-up ENV=${ENV_KEY}"
+    return 0
+  fi
+
+  if ! dex_origin_available; then
+    warn "the estate is up and the Dex origin mechanism (${DEX_ORIGIN_REL}) is not in this checkout, so this lane's tailnet URL will load the dashboard and the LOGIN WILL BOUNCE. Restore the file and re-run, or claim it by hand: make gcp-tf-ts-up ENV=${ENV_KEY}"
+    return 0
+  fi
+
+  local fqdn
+  if ! fqdn="$(ts_fqdn_from_vm)"; then
+    warn "the estate is up but ${INSTANCE_NAME} could not report its tailnet name ('tailscale status --json' returned no .Self.DNSName), so the Dex origin was NOT claimed and a login over the tailnet would bounce. The VM may not be on the tailnet at all. Check with: make gcp-tf-ts-status ENV=${ENV_KEY}"
+    return 0
+  fi
+
+  local base="https://${fqdn}"
+  log "claiming the Dex origin for the tailnet: ${base}"
+  # `tailscale`, matching cmd_ts_up. The method name is what a later refusal
+  # quotes back at the next access path, so this lane's automatic claim must be
+  # indistinguishable from the one ts-up takes — otherwise `make gcp-tf-ts-up`
+  # on a lane that just deployed would refuse itself, naming a holder no
+  # documented teardown mentions.
+  dex_origin apply tailscale "$base" ||
+    warn "the estate is up and the Dex origin could NOT be repointed at ${base}. The dashboard will load there and the LOGIN WILL BOUNCE. Most often another access method holds the issuer — 'make gcp-tf-demo-status ENV=${ENV_KEY}' names the holder, and ${DEX_ORIGIN_REL} restore releases it."
+
+  return 0
+}
+
+# Drop this lane's OWN tailnet lease before the pipeline runs.
+#
+# ensure_tailnet_origin_claimed leaves every deployed lane holding the tailnet
+# origin, which is the point. The cost is that the estate's browser journey
+# drives https://dashboard.osramp.acme.local:30754 — the resting origin — and
+# the SPA validates the ID token's `iss` against whatever origin it was served
+# from (see oidc.tsx). A second run against a lane still holding the tailnet
+# origin would therefore fail its browser stage, and the failure would name the
+# dashboard rather than the origin.
+#
+# So the lane is made idempotent at BOTH ends: every pipeline starts at the
+# resting origin, and every successful deploy ends on the tailnet.
+#
+# ─── Why only `tailscale`, and why this is not a steal ─────────────────────
+#
+# The holder is checked, and ONLY this lane's own automatic method is released.
+# `dex_origin restore` unconditionally would take the issuer from an ngrok demo
+# or, far worse, from a funnel — a listener the whole internet can reach whose
+# login this would silently break, with nothing in the output saying so. The
+# lease exists precisely to make that collision visible; releasing without
+# reading the holder would be this file defeating it.
+#
+# `funnel` publishes the identical URL and is still NOT released here, for the
+# same reason it is a separate method name: it is a deliberate public act with
+# its own teardown, and a deploy is not consent to end it.
+#
+# Non-fatal throughout. Failing a deploy over this would trade the browser stage
+# it protects for the whole run.
+release_own_tailnet_origin() {
+  [ "${GCP_TF_DEMO_SKIP_DEX_ORIGIN:-0}" = "1" ] && return 0
+  dex_origin_available || return 0
+
+  local method
+  method="$(dex_origin_field holder)"
+  # Anchored, not a substring test. `funnel` must not match here, and neither
+  # must any future method whose name merely contains this one.
+  [ "$method" = "tailscale" ] || return 0
+
+  log "releasing this lane's own tailnet Dex origin so the pipeline runs at the resting origin"
+  dex_origin restore ||
+    warn "could not release this lane's tailnet Dex origin. The browser stage drives the resting origin and the SPA checks the token issuer against the origin it was served from, so that stage may fail on an issuer mismatch rather than on anything it is testing. Release it by hand with: ${DEX_ORIGIN_REL} restore"
+
   return 0
 }
 

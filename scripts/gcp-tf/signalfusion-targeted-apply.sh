@@ -33,6 +33,7 @@ PROJECT="${PROJECT:-sl-port-over-sandbox}"
 SA="${SA:-sl-operator@sl-port-over-sandbox.iam.gserviceaccount.com}"
 REMOTE_DIR="${REMOTE_DIR:-/opt/signalloom/repo}"
 NS_APPS="${NS_APPS:-fe-signalloom}"
+REMOTE_KEYS_DIR="${REMOTE_KEYS_DIR:-/opt/signalloom/keys}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
@@ -57,6 +58,7 @@ FILES=(
 	"d2-signalloom/apps/dashboard-signalloom/src/api/signalFusionDemo.ts"
 	"d2-signalloom/apps/fe-signalloom/src/demo_runner.py"
 	"scripts/signalfusion-demo.sh"
+	"scripts/gcp-tf/signalfusion-remote-apply.sh"
 )
 
 sync_files() {
@@ -91,29 +93,9 @@ verify_sync() {
 
 build_and_roll() {
 	echo "==> pushing manifests, rebuilding two images, rolling two workloads"
-	ssh_vm "
-		set -eo pipefail
-		cd '$REMOTE_DIR'
-		echo '--- manifests -> OCI artifact ---'
-		make push-local-signalloom
-		echo '--- runner image ---'
-		make demo-signalloom-supercred-runner-image
-		echo '--- dashboard image ---'
-		make signalloom-dashboard-image
-		echo '--- reconcile Flux so the new manifests land ---'
-		for t in inf-signalloom/infra-configs ${NS_APPS}/apps; do
-		  ns=\${t%%/*}; name=\${t##*/}
-		  src=\$(kubectl get kustomization \"\$name\" -n \"\$ns\" -o jsonpath='{.spec.sourceRef.name}' 2>/dev/null || true)
-		  [ -n \"\$src\" ] && flux reconcile source oci \"\$src\" -n \"\$ns\" >/dev/null 2>&1 || true
-		  flux reconcile kustomization \"\$name\" -n \"\$ns\" >/dev/null 2>&1 || true
-		done
-		echo '--- roll ONLY the two workloads ---'
-		kubectl -n '$NS_APPS' rollout restart deploy/supercred-demo-runner deploy/dashboard-signalloom
-		kubectl -n '$NS_APPS' rollout status deploy/supercred-demo-runner --timeout=180s
-		kubectl -n '$NS_APPS' rollout status deploy/dashboard-signalloom --timeout=180s
-		echo '--- Dex untouched: age of the Dex pod ---'
-		kubectl -n inf-signalloom get pods -l app.kubernetes.io/name=dex -o custom-columns=NAME:.metadata.name,AGE:.status.startTime --no-headers 2>/dev/null || true
-	"
+	# One level of quoting. The remote body is a FILE (shipped in FILES above),
+	# not a string wrapping a second shell -- see that file's header for why.
+	ssh_vm "sudo chmod 0755 '$REMOTE_DIR/scripts/gcp-tf/signalfusion-remote-apply.sh' && REPO_DIR='$REMOTE_DIR' NS_APPS='$NS_APPS' KEYS_DIR='$REMOTE_KEYS_DIR' bash '$REMOTE_DIR/scripts/gcp-tf/signalfusion-remote-apply.sh'"
 }
 
 case "$MODE" in

@@ -167,10 +167,12 @@ OPENSSL
 
 # ── No new vacuous mapfile patterns ──────────────────────────────────────────
 
-@test "no test file uses the vacuous mapfile pattern" {
+@test "no test file uses the vacuous mapfile-or-return pattern" {
   # The pattern `mapfile -t arr < <(cmd) || return 1` is vacuous: mapfile
-  # always returns 0 regardless of cmd's exit status.
+  # always returns 0 regardless of cmd's exit status, so `|| return 1` is
+  # dead code. Plain `mapfile < <(cmd)` without the error guard is fine in
+  # tests where the caller checks the array contents directly.
   local count
-  count="$(grep -rn 'mapfile.*< <(' "$root/test/" --include='*.bats' 2>/dev/null | wc -l)"
+  count="$(grep -rn 'mapfile.*< <(.*) *|| *return' "$root/test/" --include='*.bats' 2>/dev/null | wc -l)"
   [ "$count" -eq 0 ]
 }

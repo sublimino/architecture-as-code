@@ -17,7 +17,17 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import { colors } from '../styles/tokens'
 import HelpHint from './HelpHint'
 import PixelLoader from './PixelLoader'
-import StreamingLogBlock, { stripAnsi } from './StreamingLogBlock'
+import StreamingLogBlock from './StreamingLogBlock'
+// These four were defined here. Signal Fusion needed all four, so they moved to
+// a module both panels import rather than becoming a second copy that drifts —
+// see demoRunPresentation.ts. Behaviour is unchanged; the definitions are the
+// same ones, relocated.
+import {
+  RUN_STATUS_COLORS,
+  describeRunnerError,
+  logTail,
+  runStartedAt,
+} from './demoRunPresentation'
 import { useAuth0 } from '../auth/oidc'
 import { invalidateSuperCredState } from '../api/supercredSource'
 import {
@@ -92,14 +102,6 @@ const STEP_HELP: Record<string, string> = {
   '5': 'Destructive. Deletes the agent pod, its jobs and its SPIRE entry from every namespace they can land in. Watch it disappear everywhere except Audit Trail, which still holds the record of what happened — that is the point.',
 }
 
-const RUN_STATUS_COLORS: Record<string, string> = {
-  running: colors.cyanLoom,
-  succeeded: colors.tealLoom,
-  failed: colors.red,
-  timed_out: colors.amber,
-  cancelled: colors.amber,
-}
-
 /** How often an in-flight run's STATUS is re-read. Fast enough to feel live. */
 const POLL_MS = 500
 
@@ -133,9 +135,6 @@ const LOG_IDLE_FLOOR_MS = 300
 /** Bound on the post-run log drain, so a runner that never reports eof cannot spin. */
 const MAX_DRAIN_READS = 20
 
-/** Lines of output kept on screen when a run fails. */
-const LOG_TAIL_LINES = 12
-
 // recordStunAudit() used to live here. It POSTed the audit event from the
 // browser after phase 4 succeeded, which made the record of a cluster-mutating
 // action contingent on things that have nothing to do with the cluster: a tab
@@ -157,57 +156,11 @@ const LOG_TAIL_LINES = 12
 // pod relabel or the OpenBao lease revocation, which belong to the SuperCred
 // proxy, and claiming them here is what made the old row a fabrication.
 
-/**
- * When a run began, in epoch ms, or undefined if the runner did not say.
- *
- * Read from the runner's own stamp rather than from this component's mount, so
- * a run adopted from another browser — or from before this page load, which is
- * routine when the instructor refreshes mid-phase — shows its true age instead
- * of restarting the clock at zero and understating how long the audience has
- * been waiting.
- */
-function runStartedAt(run: DemoRunView | null): number | undefined {
-  if (!run?.started_at) return undefined
-  const ms = Date.parse(run.started_at)
-  return Number.isNaN(ms) ? undefined : ms
-}
-
-// stripAnsi is imported rather than kept here: the streaming block has to
-// strip the same escape bytes, and two copies of that regex is two places for
-// the runner's colour convention to drift out of agreement with the display.
-function logTail(log: string): string {
-  return stripAnsi(log).split('\n').filter(line => line.trim() !== '').slice(-LOG_TAIL_LINES).join('\n')
-}
-
 interface Props {
   /** Same visibility flag the sidebar uses — gates the mutating controls only. */
   superadmin: boolean
   /** Re-query live agent state. Wired to the page's own discovery call. */
   onRefreshClients: () => void | Promise<void>
-}
-
-// A failed status call has three very different causes, and reporting all of
-// them as "not reachable" sends the instructor to debug the network when the
-// actual answer is "sign in again".
-//
-// The 401 case is not hypothetical and not rare. Dex runs `storage: memory`, so
-// it regenerates its signing keys on every restart — and it restarts whenever
-// the published origin changes, which is exactly what `make public` does. Any
-// browser tab open across that boundary holds a token signed by keys that no
-// longer exist, so the API rejects it. The demo runner is perfectly healthy;
-// the session is stale. Telling the instructor it is "not reachable" during a
-// live demo is the worst possible moment to be wrong about which.
-function describeRunnerError(runnerError: string): string {
-  if (/\b401\b|invalid_token|token is invalid/i.test(runnerError)) {
-    return 'Your session is no longer valid, so the demo runner rejected the request '
-      + '(the demo runner itself is fine). This happens when Dex restarts — publishing '
-      + 'or tearing down a public URL does exactly that. Sign out and back in, then retry.'
-  }
-  if (/\b403\b|superadmin_required|forbidden/i.test(runnerError)) {
-    return 'You are signed in, but this account is not a superadmin, so the run controls '
-      + 'are refused by the server.'
-  }
-  return `The demo runner is not reachable (${runnerError}).`
 }
 
 export default function SuperCredInstructorPanel({ superadmin, onRefreshClients }: Props) {

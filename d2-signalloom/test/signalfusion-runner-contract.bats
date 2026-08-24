@@ -68,6 +68,7 @@ setup() {
 	runner_service="$d2/apps/supercred-demo-runner/base/service.yaml"
 	nginx_conf="$d2/apps/dashboard-signalloom/nginx.conf"
 	sf_client="$d2/apps/dashboard-signalloom/src/api/signalFusionDemo.ts"
+	sf_page="$d2/apps/dashboard-signalloom/src/pages/SignalFusionPage.tsx"
 	demo_runner_py="$d2/apps/fe-signalloom/src/demo_runner.py"
 	demo_script="$repo_root/scripts/signalfusion-demo.sh"
 }
@@ -118,6 +119,7 @@ signalfusion_default_script() {
 	[ -f "$runner_service" ]
 	[ -f "$nginx_conf" ]
 	[ -f "$sf_client" ]
+	[ -f "$sf_page" ]
 	[ -f "$demo_runner_py" ]
 	[ -f "$demo_script" ]
 }
@@ -241,6 +243,72 @@ signalfusion_default_script() {
 	local prefix
 	prefix="$(printf '%s' "$output" | sed "s|.*'\(.*\)'|\1|")"
 	grep -Fq "rewrite ^${prefix}(/.*) /api/demo/signalfusion\$1 break;" "$nginx_conf"
+}
+
+@test "SIGNALFUSION-CONTRACT the dashboard offers exactly the acts the runner registers" {
+	# The third half of the wire, and the one that failed silently for the whole
+	# life of the feature. SignalFusionPage keyed its per-act help
+	# 'inferred'/'attested'/'issued'; SIGNAL_FUSION_STEPS is keyed '1'/'2'/'3'.
+	# Every lookup missed against a live runner, so the help the page exists to
+	# show never rendered — and nothing failed, because the code falls back to
+	# the runner's one-line description rather than throwing.
+	#
+	# The dashboard's unit tests could not catch it: the page and its fixtures
+	# were keyed the same wrong way, so both halves agreed with each other and
+	# disagreed only with the server, which no vitest file reads.
+	#
+	# Both lists are DERIVED — the Python registry's keys and the TS constant's
+	# elements — so re-keying either end alone fails here.
+	run python3 - "$demo_runner_py" "$sf_page" "$demo_script" <<-'PY'
+		import re, sys
+
+		runner_src, page_src, script_src = (open(p).read() for p in sys.argv[1:4])
+
+		# Keys of the SIGNAL_FUSION_STEPS mapping: `"N": DemoStep(step_id="N", ...)`.
+		block = re.search(r'SIGNAL_FUSION_STEPS[^=]*=\s*MappingProxyType\((.*?)\n\)\n',
+		                  runner_src, re.S)
+		assert block, "could not find the SIGNAL_FUSION_STEPS registry in demo_runner.py"
+		runner_ids = re.findall(r'step_id="([^"]+)"', block.group(1))
+		assert runner_ids, "the registry extractor found no step ids -- it would pass vacuously"
+
+		page_block = re.search(r'SIGNAL_FUSION_ACT_IDS\s*=\s*\[([^\]]*)\]', page_src)
+		assert page_block, "could not find SIGNAL_FUSION_ACT_IDS in SignalFusionPage.tsx"
+		page_ids = re.findall(r"'([^']+)'", page_block.group(1))
+		assert page_ids, "the page extractor found no act ids -- it would pass vacuously"
+
+		assert runner_ids == page_ids, (
+		    f"the dashboard offers acts {page_ids} but the runner registers {runner_ids}; "
+		    "a mismatch is silent -- the per-act help simply never renders"
+		)
+
+		# And the script must actually dispatch on those ids, or the runner would
+		# register acts it cannot execute.
+		case_block = re.search(r'case\s+"\$\{1:-\}"\s+in(.*?)esac', script_src, re.S)
+		assert case_block, "could not find the argument dispatch in signalfusion-demo.sh"
+		script_ids = re.findall(r'^\s*([0-9]+)\)', case_block.group(1), re.M)
+		assert script_ids == runner_ids, (
+		    f"signalfusion-demo.sh dispatches on {script_ids} but the runner registers {runner_ids}"
+		)
+		print("ok")
+	PY
+	[ "$status" -eq 0 ]
+	[[ "$output" == *ok* ]]
+}
+
+@test "SIGNALFUSION-CONTRACT the shell fallback names the script the runner execs" {
+	# When the runner has no script, the page tells the instructor what to type.
+	# SuperCred names a make target; Signal Fusion has none, so it names the
+	# script -- which must be the SAME script demo_runner.py would have run, or
+	# the advice sends them somewhere the demo does not live.
+	local default_script fallback
+	default_script="$(signalfusion_default_script)"
+	[ -n "$default_script" ]
+
+	run grep -Eo 'return `\./[^ ]+ \$\{stepId\}`' "$sf_client"
+	[ "$status" -eq 0 ]
+	fallback="$(printf '%s' "$output" | sed -E 's|^return `\./||; s| \$\{stepId\}`$||')"
+	[ -n "$fallback" ]
+	[ "$fallback" = "$default_script" ]
 }
 
 @test "SIGNALFUSION-CONTRACT no Gateway route targets the runner (ISC-14)" {

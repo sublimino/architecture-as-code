@@ -33,6 +33,23 @@ export type { DemoStep, DemoRunView, DemoRunLogChunk, DemoRunnerStatus }
  */
 const SF_DEMO_API = '/demo-api/signalfusion'
 
+/**
+ * What to type when the runner cannot execute the demo itself.
+ *
+ * SuperCred's equivalent names a make target (`make demo-signalloom-supercred-N`).
+ * Signal Fusion has none: demo_runner.py's DemoConfig for this demo carries
+ * `default_script="scripts/signalfusion-demo.sh"` and execs it directly, and
+ * the script dispatches on its first argument. Naming a make target that does
+ * not exist would leave an instructor with a shell worse off than with no
+ * advice at all.
+ *
+ * d2-signalloom/test/signalfusion-runner-contract.bats joins this string to the
+ * runner's own `default_script`, so the two cannot drift apart.
+ */
+export function shellCommandForAct(stepId: string): string {
+  return `./scripts/signalfusion-demo.sh ${stepId}`
+}
+
 function authHeaders(token?: string): HeadersInit | undefined {
   return token ? { Authorization: `Bearer ${token}` } : undefined
 }

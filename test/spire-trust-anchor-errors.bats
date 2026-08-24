@@ -96,6 +96,32 @@ KUBECTL
   [[ "$output" == *"cannot read SPIRE"* ]] || [[ "$output" == *"no P-256 JWT-SVID"* ]]
 }
 
+@test "sync_openbao_jwt_validation fails when PEM conversion fails" {
+  # kubectl returns a valid SPIRE bundle, but openssl is broken
+  cat >"$stub/kubectl" <<'KUBECTL'
+#!/usr/bin/env bash
+if [[ "$*" == *"spire-server"* ]]; then
+  cat <<'JSON'
+{"keys":[{"kty":"EC","crv":"P-256","x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU","y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0","use":"jwt-svid","kid":"test-kid-1"}]}
+JSON
+  exit 0
+fi
+exit 0
+KUBECTL
+  chmod +x "$stub/kubectl"
+
+  # openssl stub that always fails
+  printf '#!/usr/bin/env bash\necho "openssl error" >&2; exit 1\n' >"$stub/openssl"
+  chmod +x "$stub/openssl"
+
+  run env PATH="$stub:$PATH" bash -c "
+    source '$root/scripts/lib/spire-trust-anchor.sh'
+    sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
+  "
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"PEM conversion failed"* ]] || [[ "$output" == *"openssl"* ]]
+}
+
 @test "sync_openbao_jwt_validation fails when OpenBao write fails" {
   # kubectl stub: first call returns a valid SPIRE bundle, subsequent calls fail
   # (simulating openbao unreachable for the write)

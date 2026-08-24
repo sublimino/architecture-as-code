@@ -1,0 +1,135 @@
+# CronJob: periodic SPIRE → OpenBao JWT key re-sync
+#
+# SPIRE rotates its CA on ca_ttl (default 24h). At ca_ttl*5/6 = 20h, the new
+# key starts signing JWTs while OpenBao still holds a snapshot of the old keys.
+# Every SPIFFE login fails until the snapshot is refreshed.
+#
+# This CronJob runs every 8 hours — at least twice in the 20h window before
+# drift causes an outage. Even if one run fails, the next run at t+8h still
+# lands before the 20h deadline.
+#
+# The CronJob sources spire-trust-anchor.sh from a ConfigMap and calls
+# sync_openbao_jwt_validation, which reads SPIRE's current JWT-SVID keys via
+# `kubectl exec` and writes them to OpenBao's auth/jwt/config.
+#
+# Long-term fix: switch to jwks_url (see terraform/notes/l-jwks-url-upgrade-path.md).
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: spire-openbao-sync
+  labels:
+    app.kubernetes.io/name: spire-openbao-sync
+    app.kubernetes.io/part-of: signalloom-bao-proof
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-openbao-sync
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-openbao-sync
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-openbao-sync
+subjects:
+  - kind: ServiceAccount
+    name: spire-openbao-sync
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-openbao-sync-script
+data:
+  sync.sh: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    NAMESPACE="${NAMESPACE:-inf-bao}"
+    BAO_ROOT_TOKEN="${BAO_ROOT_TOKEN:-signalloom-demo-root-token}"
+
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    # shellcheck source=scripts/lib/spire-trust-anchor.sh
+    source "${SCRIPT_DIR}/spire-trust-anchor.sh" 2>/dev/null \
+      || source /scripts/spire-trust-anchor.sh 2>/dev/null \
+      || { printf 'FATAL: cannot source spire-trust-anchor.sh\n' >&2; exit 1; }
+
+    printf '[%s] spire-openbao-sync: starting key sync in namespace %s\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$NAMESPACE"
+
+    if sync_openbao_jwt_validation "$NAMESPACE" "$BAO_ROOT_TOKEN"; then
+      printf '[%s] spire-openbao-sync: SUCCESS\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    else
+      printf '[%s] spire-openbao-sync: FAILED — see errors above\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&2
+      exit 1
+    fi
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spire-openbao-sync
+  labels:
+    app.kubernetes.io/name: spire-openbao-sync
+    app.kubernetes.io/part-of: signalloom-bao-proof
+spec:
+  schedule: "0 */8 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 120
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: spire-openbao-sync
+        spec:
+          serviceAccountName: spire-openbao-sync
+          restartPolicy: Never
+          containers:
+            - name: sync
+              image: bitnami/kubectl:1.31
+              command: ["bash", "/scripts/sync.sh"]
+              env:
+                - name: NAMESPACE
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.namespace
+                - name: BAO_ROOT_TOKEN
+                  value: signalloom-demo-root-token
+              volumeMounts:
+                - name: sync-script
+                  mountPath: /scripts/sync.sh
+                  subPath: sync.sh
+                - name: trust-anchor-lib
+                  mountPath: /scripts/spire-trust-anchor.sh
+                  subPath: spire-trust-anchor.sh
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                allowPrivilegeEscalation: false
+                capabilities: {drop: ["ALL"]}
+          volumes:
+            - name: sync-script
+              configMap:
+                name: spire-openbao-sync-script
+                defaultMode: 0755
+            - name: trust-anchor-lib
+              configMap:
+                name: spire-trust-anchor-lib
+                defaultMode: 0644

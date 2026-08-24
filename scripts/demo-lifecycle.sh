@@ -110,6 +110,12 @@ bao_up() {
   wait_k8s_ready job openbao-spire-bootstrap -n "$BAO_NAMESPACE" --for condition=complete 600
   register_spire_proof_identity
   configure_openbao_jwt_validation
+  # Publish the trust-anchor library as a ConfigMap so the spire-openbao-sync
+  # CronJob can mount it. The CronJob re-syncs keys every 8h to survive past
+  # the 20h SPIRE CA rotation deadline.
+  kubectl -n "$BAO_NAMESPACE" create configmap spire-trust-anchor-lib \
+    --from-file=spire-trust-anchor.sh="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/spire-trust-anchor.sh" \
+    --dry-run=client -o yaml | kubectl apply -f -
 }
 bao_down() { delete_slice "$BAO_NAMESPACE" inf-bao; }
 signalloom_up() {

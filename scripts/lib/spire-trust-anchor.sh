@@ -57,18 +57,27 @@ _der_b64_to_pem() {
 # SPIRE publishes both the outgoing and the incoming key across a rotation, so
 # this is a set, never a single value.
 spire_jwt_svid_keys() {
-  local namespace="$1" bundle jwk x y
+  local namespace="$1" bundle jwk_out jwk x y
   local -a jwks=()
   bundle="$(kubectl -n "$namespace" exec deployment/spire-server -- \
-    /opt/spire/bin/spire-server bundle show -format spiffe)" || return 1
-  mapfile -t jwks < <(jq -r '
-    .keys[] | select(.use == "jwt-svid" and .kty == "EC" and .crv == "P-256")
-    | [.x, .y] | @tsv' <<<"$bundle")
-  ((${#jwks[@]} > 0)) || {
-    printf 'SPIRE bundle contains no P-256 JWT-SVID validation key\n' >&2
+    /opt/spire/bin/spire-server bundle show -format spiffe)" || {
+    printf 'SPIRE server unreachable: kubectl exec to deployment/spire-server in namespace %s failed — is the pod running?\n' "$namespace" >&2
     return 1
   }
+  jwk_out="$(jq -r '
+    .keys[] | select(.use == "jwt-svid" and .kty == "EC" and .crv == "P-256")
+    | [.x, .y] | @tsv' <<<"$bundle")" || {
+    printf 'SPIRE bundle is not valid JSON or jq extraction failed\n' >&2
+    return 1
+  }
+  [[ -n "$jwk_out" ]] || {
+    printf 'SPIRE bundle contains no P-256 JWT-SVID validation key — the bundle has %d total keys but none match use=jwt-svid, kty=EC, crv=P-256\n' \
+      "$(jq '.keys | length' <<<"$bundle" 2>/dev/null || echo '?')" >&2
+    return 1
+  }
+  mapfile -t jwks <<<"$jwk_out"
   for jwk in "${jwks[@]}"; do
+    [[ -n "$jwk" ]] || continue
     IFS=$'\t' read -r x y <<<"$jwk"
     _spire_jwk_to_der_b64 "$x" "$y" || return 1
   done
@@ -244,23 +253,51 @@ openbao_jwt_validation_keys() {
 }
 
 # Point OpenBao at the keys SPIRE is signing with now.
+#
+# Uses command substitution to propagate spire_jwt_svid_keys exit status. The
+# previous `mapfile < <(cmd)` form swallowed failures: mapfile always returns 0
+# regardless of cmd's exit, so a failed kubectl left keys empty, the emptiness
+# guard said "refusing to write an empty set" — correct refusal, but the error
+# message named the symptom (empty) not the cause (SPIRE unreachable).
 sync_openbao_jwt_validation() {
-  local namespace="$1" token="$2" key pem csv
+  local namespace="$1" token="$2" key_out key pem csv i
   local -a keys=() pems=()
-  mapfile -t keys < <(spire_jwt_svid_keys "$namespace")
-  ((${#keys[@]} > 0)) || {
-    printf 'refusing to write an empty JWT validation key set to OpenBao\n' >&2
+  key_out="$(spire_jwt_svid_keys "$namespace")" || {
+    printf 'sync_openbao_jwt_validation: cannot read SPIRE JWT-SVID keys — aborting before writing to OpenBao\n' >&2
+    printf 'Consequence: OpenBao keeps its current jwt_validation_pubkeys (stale keys are better than no keys)\n' >&2
+    printf 'Recovery: fix the SPIRE read above, then re-run sync_openbao_jwt_validation or make demo-bao-up\n' >&2
     return 1
   }
+  [[ -n "$key_out" ]] || {
+    printf 'sync_openbao_jwt_validation: SPIRE returned successfully but produced no keys — refusing to write an empty jwt_validation_pubkeys to OpenBao\n' >&2
+    printf 'Consequence: every SPIFFE login would fail immediately with "no known key successfully validated the token signature"\n' >&2
+    return 1
+  }
+  mapfile -t keys <<<"$key_out"
+  i=0
   for key in "${keys[@]}"; do
-    pem="$(_der_b64_to_pem "$key")" || return 1
+    [[ -n "$key" ]] || continue
+    pem="$(_der_b64_to_pem "$key")" || {
+      printf 'sync_openbao_jwt_validation: PEM conversion failed for key %d of %d — is openssl installed and working?\n' "$((i+1))" "${#keys[@]}" >&2
+      return 1
+    }
     pems+=("$pem")
+    ((i++))
   done
+  ((${#pems[@]} > 0)) || {
+    printf 'sync_openbao_jwt_validation: all %d keys from SPIRE were empty after filtering — refusing to write\n' "${#keys[@]}" >&2
+    return 1
+  }
   printf -v csv '%s,' "${pems[@]}"
   csv="${csv%,}"
   kubectl -n "$namespace" exec deployment/openbao -- env \
     BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
-    bao write auth/jwt/config jwt_validation_pubkeys="$csv"
+    bao write auth/jwt/config jwt_validation_pubkeys="$csv" || {
+    printf 'sync_openbao_jwt_validation: OpenBao refused the key write — check BAO_TOKEN validity and openbao pod health\n' >&2
+    printf 'Recovery: kubectl -n %s exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<token> bao status\n' "$namespace" >&2
+    return 1
+  }
+  printf 'sync_openbao_jwt_validation: wrote %d JWT validation key(s) to OpenBao auth/jwt/config\n' "${#pems[@]}"
 }
 
 # The gate. Both sides are derived from the artefacts that actually decide —

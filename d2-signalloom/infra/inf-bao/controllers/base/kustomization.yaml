@@ -9,3 +9,6 @@ resources:
   # controller Deployment.  Bootstrap and policy remain in configs, which
   # intentionally waits for this controller slice.
   - spire-openbao-config.yaml
+  # Periodic re-sync of SPIRE JWT keys → OpenBao. Runs every 8h to survive
+  # the 20h SPIRE CA rotation deadline. Bridge fix until jwks_url ships.
+  - spire-openbao-sync-cronjob.yaml

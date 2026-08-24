@@ -23,10 +23,21 @@ import type { ProvisionalActor, CoverageStatement } from '../api/weaveApi'
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 
+// Step ids are '1', '2', '3' because that is what the runner emits:
+// demo_runner.py's SIGNAL_FUSION_STEPS registry is keyed '1'/'2'/'3' and
+// scripts/signalfusion-demo.sh dispatches on `case "${1:-}" in 1|2|3`.
+//
+// These fixtures previously said 'inferred'/'attested'/'issued'. Every
+// assertion below passed against them and none could have failed on the defect
+// they were hiding: the page's own ACT_DESCRIPTIONS map was keyed the same way,
+// so the two halves agreed with each other and disagreed with the server. The
+// visible consequence on a live lane was that the per-act help never rendered —
+// the lookup missed and the code fell back to the runner's one-line
+// description rather than throwing.
 const STEPS: DemoStep[] = [
-  { step_id: 'inferred', title: 'Inferred', description: 'Deploy, seed collectors, correlate' },
-  { step_id: 'attested', title: 'Attested', description: 'Kernel observation — detect the agent' },
-  { step_id: 'issued', title: 'Issued', description: 'Promote to issued identity, revoke' },
+  { step_id: '1', title: 'Inferred', description: 'Deploy, seed collectors, correlate' },
+  { step_id: '2', title: 'Attested', description: 'Kernel observation — detect the agent' },
+  { step_id: '3', title: 'Issued', description: 'Promote to issued identity, revoke' },
 ]
 
 const IDLE_STATUS: DemoRunnerStatus = {
@@ -37,8 +48,8 @@ const IDLE_STATUS: DemoRunnerStatus = {
 
 const RUN_SUCCEEDED: DemoRunView = {
   run_id: 'run-001',
-  step_id: 'inferred',
-  kind: 'signalfusion',
+  step_id: '1',
+  kind: 'step',
   status: 'succeeded',
   started_at: '2026-08-16T10:00:00Z',
   finished_at: '2026-08-16T10:00:30Z',
@@ -106,8 +117,8 @@ describe('SignalFusionPage', () => {
     vi.spyOn(sfDemo, 'fetchSignalFusionStatus').mockResolvedValue(IDLE_STATUS)
     vi.spyOn(sfDemo, 'startSignalFusionRun').mockResolvedValue({
       run_id: 'run-001',
-      step_id: 'inferred',
-      kind: 'signalfusion',
+      step_id: '1',
+      kind: 'step',
       status: 'running',
       started_at: '2026-08-16T10:00:00Z',
       finished_at: null,
@@ -130,16 +141,16 @@ describe('SignalFusionPage', () => {
   it('renders three act buttons after steps load', async () => {
     renderPage()
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
-    expect(screen.getByTestId('sf-act-attested')).toBeInTheDocument()
-    expect(screen.getByTestId('sf-act-issued')).toBeInTheDocument()
+    expect(screen.getByTestId('sf-act-2')).toBeInTheDocument()
+    expect(screen.getByTestId('sf-act-3')).toBeInTheDocument()
   })
 
   it('shows act descriptions', async () => {
     renderPage()
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
     // The button or its surrounding area should show the title
     expect(screen.getByText('Inferred')).toBeInTheDocument()
@@ -154,13 +165,13 @@ describe('SignalFusionPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
 
-    await user.click(screen.getByTestId('sf-act-inferred'))
+    await user.click(screen.getByTestId('sf-act-1'))
 
     await waitFor(() => {
-      expect(sfDemo.startSignalFusionRun).toHaveBeenCalledWith('inferred', 'test-token')
+      expect(sfDemo.startSignalFusionRun).toHaveBeenCalledWith('1', 'test-token')
     })
   })
 
@@ -170,8 +181,8 @@ describe('SignalFusionPage', () => {
     vi.spyOn(sfDemo, 'fetchSignalFusionStatus').mockResolvedValue({
       active: {
         run_id: 'run-active',
-        step_id: 'inferred',
-        kind: 'signalfusion',
+        step_id: '1',
+        kind: 'step',
         status: 'running',
         started_at: '2026-08-16T10:00:00Z',
         finished_at: null,
@@ -184,13 +195,13 @@ describe('SignalFusionPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
 
     // All act buttons should be disabled
-    expect(screen.getByTestId('sf-act-inferred')).toBeDisabled()
-    expect(screen.getByTestId('sf-act-attested')).toBeDisabled()
-    expect(screen.getByTestId('sf-act-issued')).toBeDisabled()
+    expect(screen.getByTestId('sf-act-1')).toBeDisabled()
+    expect(screen.getByTestId('sf-act-2')).toBeDisabled()
+    expect(screen.getByTestId('sf-act-3')).toBeDisabled()
   })
 
   // ─── Log output ─────────────────────────────────────────────────────────
@@ -200,10 +211,10 @@ describe('SignalFusionPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
 
-    await user.click(screen.getByTestId('sf-act-inferred'))
+    await user.click(screen.getByTestId('sf-act-1'))
 
     await waitFor(() => {
       const logPanel = screen.getByTestId('sf-log-output')
@@ -220,10 +231,10 @@ describe('SignalFusionPage', () => {
     renderPage()
 
     await waitFor(() => {
-      expect(screen.getByTestId('sf-act-inferred')).toBeInTheDocument()
+      expect(screen.getByTestId('sf-act-1')).toBeInTheDocument()
     })
 
-    await user.click(screen.getByTestId('sf-act-inferred'))
+    await user.click(screen.getByTestId('sf-act-1'))
 
     await waitFor(() => {
       expect(screen.getByTestId('sf-error')).toBeInTheDocument()

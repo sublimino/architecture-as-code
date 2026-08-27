@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: swarm-governor
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "governor"
+spec:
+  type: ClusterIP
+  selector:
+    app: swarm-governor
+  ports:
+    - port: 8080
+      targetPort: 8080
+      protocol: TCP

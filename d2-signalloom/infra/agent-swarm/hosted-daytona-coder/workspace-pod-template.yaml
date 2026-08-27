@@ -1,0 +1,67 @@
+# Template for spawned workspace pods.
+#
+# The workspace manager creates pods from this template when a human pairing
+# session is requested. Each pod shares the cpai-worktree-pvc with the
+# CPAI Engineer agent so the human works on the same code.
+apiVersion: v1
+kind: Pod
+metadata:
+  # name: daytona-ws-{id} — set dynamically by workspace manager.
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: daytona-workspace
+    app.kubernetes.io/component: workspace
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: hosted-daytona-coder
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: pairing
+    signalloom.ai/harness: daytona-devbox
+    signalloom.ai/model: human
+spec:
+  serviceAccountName: hosted-daytona-coder
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containers:
+    - name: workspace
+      image: mcr.microsoft.com/devcontainers/go:1.22
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          # Configure Git safe directory for shared PVC.
+          git config --global --add safe.directory /workspace
+          # Start code-server if available, otherwise keep alive for SSH.
+          if command -v code-server >/dev/null 2>&1; then
+            exec code-server --bind-addr 0.0.0.0:8443 --auth none --disable-telemetry /workspace
+          else
+            echo "code-server not available; workspace ready for SSH access."
+            exec sleep infinity
+          fi
+      ports:
+        - name: vscode
+          containerPort: 8443
+        - name: ssh
+          containerPort: 2222
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop: ["ALL"]
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: tmp
+          mountPath: /tmp
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+  volumes:
+    - name: workspace
+      persistentVolumeClaim:
+        claimName: cpai-worktree-pvc
+    - name: tmp
+      emptyDir: {}
+  restartPolicy: Never

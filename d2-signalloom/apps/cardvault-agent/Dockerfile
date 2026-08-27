@@ -1,7 +1,8 @@
 FROM golang:1.24-alpine AS build
 WORKDIR /src
-COPY main.go go.mod ./
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/cardvault-agent .
+COPY go.mod ./
+COPY *.go ./
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/cardvault-agent .
 
 FROM ghcr.io/spiffe/spire-agent:1.11.1 AS spire
 

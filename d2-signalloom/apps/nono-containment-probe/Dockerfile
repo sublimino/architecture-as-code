@@ -1,0 +1,14 @@
+FROM golang:1.22-alpine AS build
+WORKDIR /src
+COPY go.mod ./
+COPY *.go ./
+RUN CGO_ENABLED=0 GOFLAGS=-buildvcs=false go build -trimpath -ldflags="-s -w" -o /out/nono-containment-probe .
+
+FROM cgr.dev/chainguard/wolfi-base:latest
+RUN apk add --no-cache nono
+COPY --from=build /out/nono-containment-probe /usr/local/bin/nono-containment-probe
+COPY nono-profiles/probe.toml /etc/nono/probe.toml
+RUN mkdir -p /workspace && \
+    echo "nono-containment-probe: workspace test file" > /workspace/test.txt
+USER 65532:65532
+ENTRYPOINT ["nono", "--profile", "/etc/nono/probe.toml", "--", "/usr/local/bin/nono-containment-probe"]

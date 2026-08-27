@@ -30,6 +30,7 @@ type agent struct {
 	baoAddr      string
 	baoRole      string
 	cardvaultURL string
+	claimURL     string
 	spireSocket  string
 	audience     string
 	invoke       commandRunner
@@ -64,6 +65,7 @@ func entry(args []string, stdout, stderr io.Writer) int {
 	baoAddr := fs.String("bao-addr", envOr("BAO_ADDR", "http://openbao.inf-bao.svc.cluster.local:8200"), "OpenBao address")
 	baoRole := fs.String("bao-role", envOr("BAO_ROLE", "signalloom-cardvault-agent"), "OpenBao JWT role")
 	cardvaultURL := fs.String("cardvault-url", envOr("CARDVAULT_URL", "http://cardvault.inf-signalloom.svc.cluster.local:8080"), "Cardvault service URL")
+	claimURL := fs.String("claim-url", envOr("CLAIM_URL", "http://fe-signalloom.inf-signalloom.svc.cluster.local:3000"), "Signal Loom claim API base URL")
 	socket := fs.String("socket", "/run/spire/sockets/agent.sock", "SPIRE agent socket path")
 	audience := fs.String("audience", "openbao", "JWT-SVID audience")
 
@@ -75,6 +77,7 @@ func entry(args []string, stdout, stderr io.Writer) int {
 		baoAddr:      *baoAddr,
 		baoRole:      *baoRole,
 		cardvaultURL: *cardvaultURL,
+		claimURL:     *claimURL,
 		spireSocket:  *socket,
 		audience:     *audience,
 		invoke:       combinedOutput,
@@ -109,6 +112,16 @@ func (a *agent) runDemo(stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, "[step-2] OpenBao token acquired (policies: signalloom-cardvault-agent)")
+
+	// Step 2a: Auto-claim with Signal Loom (best-effort — does not block the demo)
+	spiffeID := "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent"
+	if a.claimURL != "" {
+		if claimErr := a.autoClaim(spiffeID, token); claimErr != nil {
+			fmt.Fprintf(stdout, "[step-2a] auto-claim skipped: %v\n", claimErr)
+		} else {
+			fmt.Fprintln(stdout, "[step-2a] auto-claim registered with Signal Loom")
+		}
+	}
 
 	// Step 3: Read credentials from OpenBao KV
 	username, password, err := a.readCredentials(token)

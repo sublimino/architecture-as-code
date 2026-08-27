@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: swarm-governor
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "governor"
+    signalloom.ai/harness: "go-a2a"
+    signalloom.ai/model: "claude-sonnet-4"
+    signalloom.ai/tenant: "controlplane"
+    signalloom.ai/project: "osramp"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: swarm-governor
+  template:
+    metadata:
+      labels:
+        app: swarm-governor
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "governor"
+        signalloom.ai/harness: "go-a2a"
+        signalloom.ai/model: "claude-sonnet-4"
+        signalloom.ai/tenant: "controlplane"
+        signalloom.ai/project: "osramp"
+    spec:
+      serviceAccountName: swarm-governor
+      automountServiceAccountToken: false
+      containers:
+        - name: swarm-governor
+          image: swarm-governor:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: GOVERNOR_NAMESPACE
+              value: fe-signalloom-agents
+            - name: MAX_TOKEN_BUDGET
+              value: "250000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

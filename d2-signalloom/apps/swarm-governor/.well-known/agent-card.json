@@ -1,0 +1,20 @@
+{
+  "name": "swarm-governor",
+  "description": "Swarm coordinator. Evaluates task complexity, discovers agents via A2A protocol, and dispatches sub-tasks with token budgets.",
+  "url": "http://swarm-governor.fe-signalloom-agents.svc:8080",
+  "version": "1.0.0",
+  "capabilities": [
+    {
+      "name": "dispatch",
+      "description": "Evaluate and dispatch tasks to specialist agents"
+    },
+    {
+      "name": "discover",
+      "description": "Discover agent capabilities via A2A cards"
+    },
+    {
+      "name": "coordinate",
+      "description": "Coordinate multi-agent task execution"
+    }
+  ]
+}

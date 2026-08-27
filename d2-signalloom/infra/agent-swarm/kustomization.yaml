@@ -4,3 +4,4 @@ resources:
   - namespace.yaml
   - rbac.yaml
   - ebpf-sentinel-rbac.yaml
+  - networkpolicy.yaml

@@ -2453,3 +2453,18 @@ swarm-openbao-role: ## Configure the glob-bound JWT auth role for agent swarm in
 	@echo "--- Waiting for setup job ---"
 	kubectl wait --for=condition=complete job/openbao-agent-generic-role-setup -n inf-bao --timeout=60s || \
 		echo "WARNING: Job not complete yet — check with: kubectl logs job/openbao-agent-generic-role-setup -n inf-bao"
+
+# ── Agent Swarm (Tier 1 + Tier 2) ──────────────────────────────────────
+
+.PHONY: swarm-prompt-summarizer-image
+swarm-prompt-summarizer-image: ## Build prompt-commit-summarizer image (Tier 1 stateless prompt function).
+	docker build -t prompt-commit-summarizer:latest d2-signalloom/apps/prompt-commit-summarizer
+	kind load docker-image --name $(CLUSTER_NAME) prompt-commit-summarizer:latest
+
+.PHONY: swarm-triage-worker-image
+swarm-triage-worker-image: ## Build triage-ci-worker image (Tier 2 deterministic worker).
+	docker build -t triage-ci-worker:latest d2-signalloom/apps/triage-ci-worker
+	kind load docker-image --name $(CLUSTER_NAME) triage-ci-worker:latest
+
+.PHONY: swarm-prompt-triage-images
+swarm-prompt-triage-images: swarm-prompt-summarizer-image swarm-triage-worker-image ## Build both Tier 1+2 agent swarm images.

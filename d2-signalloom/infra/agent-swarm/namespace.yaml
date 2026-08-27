@@ -1,0 +1,15 @@
+# Agent swarm namespace — ensures fe-signalloom-agents exists with the
+# labels the platform uses for discovery and policy scoping.
+#
+# The namespace may already exist (created by Flux or `make up`); this
+# manifest is idempotent and adds the signalloom.ai labels that the
+# swarm infrastructure depends on.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fe-signalloom-agents
+  labels:
+    signalloom.ai/managed: "true"
+    signalloom.ai/tier: "agents"
+    app.kubernetes.io/part-of: signalloom-swarm

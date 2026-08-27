@@ -1,0 +1,62 @@
+# Knative GitHubSource adapter — receives GitHub webhook events and
+# publishes them as CloudEvents to the agent swarm broker.
+#
+# The webhook secret is a placeholder; replace with a real secret before
+# pointing a GitHub repo's webhook configuration at this endpoint.
+#
+# Requires: github.com/knative/eventing-github (GitHubSource CRD).
+# Install: kubectl apply -f https://github.com/knative-extensions/eventing-github/releases/download/knative-v1.16.0/github.yaml
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: github-webhook-secret
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: github-source
+    app.kubernetes.io/part-of: signalloom-swarm
+type: Opaque
+stringData:
+  # PLACEHOLDER — replace before configuring a real webhook.
+  accessToken: "ghp_PLACEHOLDER_REPLACE_ME"
+  secretToken: "signalloom-demo-webhook-secret"
+---
+# The GitHubSource CRD is part of knative-extensions/eventing-github.
+# This manifest is a template — it will fail to apply until the CRD is
+# installed. The Makefile target handles install order.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: github-source-template
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: github-source
+    app.kubernetes.io/part-of: signalloom-swarm
+data:
+  # Template for when the GitHubSource CRD is available:
+  github-source-spec: |
+    apiVersion: sources.knative.dev/v1alpha1
+    kind: GitHubSource
+    metadata:
+      name: signalloom-github-source
+      namespace: fe-signalloom-agents
+    spec:
+      eventTypes:
+        - push
+        - pull_request
+        - issues
+        - check_run
+      ownerAndRepository: "controlplaneio/osramp-demo"
+      accessToken:
+        secretKeyRef:
+          name: github-webhook-secret
+          key: accessToken
+      secretToken:
+        secretKeyRef:
+          name: github-webhook-secret
+          key: secretToken
+      sink:
+        ref:
+          apiVersion: eventing.knative.dev/v1
+          kind: Broker
+          name: agent-swarm-broker

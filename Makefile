@@ -2410,3 +2410,46 @@ where: ## Where is Signal Loom right now, and what URL do I hand someone? Read-o
 .PHONY: where-probe
 where-probe: ## Same as 'where', but also curls each address and reports the status code.
 	@./scripts/where.sh --probe
+
+# ===========================================================================
+# Agent Swarm infrastructure
+# ===========================================================================
+
+KNATIVE_VERSION ?= v1.16.0
+
+.PHONY: swarm-infra-up
+swarm-infra-up: ## Apply Knative + agent namespace + RBAC for the agent swarm.
+	@echo "--- Applying agent swarm namespace + RBAC ---"
+	kubectl apply -k d2-signalloom/infra/agent-swarm/
+	@echo "--- Applying Knative Serving CRDs ---"
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-crds.yaml" 2>/dev/null || \
+		echo "WARNING: Knative Serving CRDs not available — skipping (install manually)"
+	@echo "--- Applying Knative Serving core ---"
+	kubectl apply -f "https://github.com/knative/serving/releases/download/knative-$(KNATIVE_VERSION)/serving-core.yaml" 2>/dev/null || \
+		echo "WARNING: Knative Serving core not available — skipping"
+	@echo "--- Applying Knative Eventing CRDs ---"
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-crds.yaml" 2>/dev/null || \
+		echo "WARNING: Knative Eventing CRDs not available — skipping"
+	@echo "--- Applying Knative Eventing core ---"
+	kubectl apply -f "https://github.com/knative/eventing/releases/download/knative-$(KNATIVE_VERSION)/eventing-core.yaml" 2>/dev/null || \
+		echo "WARNING: Knative Eventing core not available — skipping"
+	@echo "--- Applying Knative local manifests (broker, github-source template) ---"
+	kubectl apply -k d2-signalloom/infra/knative/ 2>/dev/null || \
+		echo "WARNING: Knative local manifests need Knative CRDs — apply after CRDs are ready"
+	@echo "--- Agent swarm infrastructure applied ---"
+
+.PHONY: swarm-infra-down
+swarm-infra-down: ## Tear down agent swarm infrastructure (keeps the cluster).
+	@echo "--- Removing Knative local manifests ---"
+	-kubectl delete -k d2-signalloom/infra/knative/ 2>/dev/null
+	@echo "--- Removing agent swarm namespace + RBAC ---"
+	-kubectl delete -k d2-signalloom/infra/agent-swarm/ 2>/dev/null
+	@echo "--- Agent swarm infrastructure removed ---"
+
+.PHONY: swarm-openbao-role
+swarm-openbao-role: ## Configure the glob-bound JWT auth role for agent swarm in OpenBao.
+	@echo "--- Applying OpenBao agent generic role ---"
+	kubectl apply -f d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml -n inf-bao
+	@echo "--- Waiting for setup job ---"
+	kubectl wait --for=condition=complete job/openbao-agent-generic-role-setup -n inf-bao --timeout=60s || \
+		echo "WARNING: Job not complete yet — check with: kubectl logs job/openbao-agent-generic-role-setup -n inf-bao"

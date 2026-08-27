@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prod-deploy-gate
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "gate"
+    signalloom.ai/harness: "go-gate"
+    signalloom.ai/model: "deterministic"
+    signalloom.ai/tenant: "controlplane"
+    signalloom.ai/project: "osramp"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prod-deploy-gate
+  template:
+    metadata:
+      labels:
+        app: prod-deploy-gate
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "gate"
+        signalloom.ai/harness: "go-gate"
+        signalloom.ai/model: "deterministic"
+        signalloom.ai/tenant: "controlplane"
+        signalloom.ai/project: "osramp"
+    spec:
+      serviceAccountName: prod-deploy-gate
+      automountServiceAccountToken: false
+      containers:
+        - name: prod-deploy-gate
+          image: prod-deploy-gate:latest
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: GATE_HMAC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: prod-deploy-gate-secrets
+                  key: hmac-secret
+            - name: GATE_WEBHOOK_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: prod-deploy-gate-config
+                  key: webhook-url
+                  optional: true
+            - name: GATE_TIMEOUT
+              value: "30m"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

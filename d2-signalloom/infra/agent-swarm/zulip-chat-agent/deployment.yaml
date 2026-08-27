@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zulip-chat-agent
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "chatops"
+    signalloom.ai/harness: "bun-zulip"
+    signalloom.ai/model: "claude-sonnet-4"
+    signalloom.ai/tenant: "controlplane"
+    signalloom.ai/project: "osramp"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: zulip-chat-agent
+  template:
+    metadata:
+      labels:
+        app: zulip-chat-agent
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "chatops"
+        signalloom.ai/harness: "bun-zulip"
+        signalloom.ai/model: "claude-sonnet-4"
+        signalloom.ai/tenant: "controlplane"
+        signalloom.ai/project: "osramp"
+    spec:
+      serviceAccountName: zulip-chat-agent
+      automountServiceAccountToken: false
+      containers:
+        - name: zulip-chat-agent
+          image: zulip-chat-agent:latest
+          env:
+            - name: ZULIP_URL
+              valueFrom:
+                secretKeyRef:
+                  name: zulip-chat-agent-secrets
+                  key: zulip-url
+            - name: ZULIP_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: zulip-chat-agent-secrets
+                  key: zulip-email
+            - name: ZULIP_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: zulip-chat-agent-secrets
+                  key: zulip-api-key
+            - name: ZULIP_STREAM
+              value: cpai-swarms
+            - name: ZULIP_BOT_NAME
+              value: swarm-bot
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL

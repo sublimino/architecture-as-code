@@ -1,0 +1,17 @@
+{
+  "name": "zulip-chat-agent",
+  "version": "1.0.0",
+  "description": "Interactive ChatOps bot for Zulip — maps tasks to topics, streams execution progress via in-place message editing",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch run src/index.ts",
+    "typecheck": "bun x tsc --noEmit"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "@types/bun": "^1.2.0"
+  }
+}

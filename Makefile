@@ -1340,6 +1340,17 @@ demo-signalloom-fleet-up: demo-signalloom-fleet-image ## TEST ESCAPE HATCH ONLY 
 demo-signalloom-fleet-down: ## Remove the hand-applied Fleet Manager (Flux restores it on the next reconcile).
 	kubectl delete -k d2-signalloom/apps/fleet-manager/base --ignore-not-found
 
+.PHONY: swarm-cpai-engineer-image swarm-daytona-coder-image swarm-coding-images
+swarm-cpai-engineer-image: ## Build and kind-load the cpai-engineer image (Tier 4A in-cluster sandboxed coding).
+	docker build -t cpai-engineer:local d2-signalloom/apps/cpai-engineer
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh cpai-engineer:local
+
+swarm-daytona-coder-image: ## Build and kind-load the hosted-daytona-coder workspace manager image (Tier 4B).
+	docker build -t hosted-daytona-coder:local d2-signalloom/apps/hosted-daytona-coder
+	CLUSTER_NAME=$(CLUSTER_NAME) ./scripts/kind-load-verified.sh hosted-daytona-coder:local
+
+swarm-coding-images: swarm-cpai-engineer-image swarm-daytona-coder-image ## Build both coding harness images.
+
 .PHONY: check-backends
 check-backends: ## Assert every backend the dashboard proxies to is declared and deployed.
 	./scripts/check-backends.sh live

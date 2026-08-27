@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - service-account.yaml
+  - rbac.yaml
+  - deployment.yaml
+  - service.yaml
+# workspace-pod-template.yaml is a reference template for dynamically created
+# workspace pods, not a directly-deployed resource. The workspace manager
+# creates pods from this template at runtime via the K8s API.

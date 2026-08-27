@@ -1,0 +1,193 @@
+# Default-deny + selective allow for the agent swarm namespace.
+#
+# Pattern follows inf-signalloom/configs/base/networkpolicy.yaml:
+# default-deny first, then per-service allowlists. Every agent pod
+# is denied all ingress/egress by default; allow rules are additive.
+#
+# The swarm namespace is fe-signalloom-agents. Agents need:
+#   - DNS (kube-system kube-dns, UDP+TCP 53)
+#   - Egress to inf-bao (SPIRE agent socket, OpenBao API on 8200)
+#   - Egress to fe-signalloom (Signal Loom claim API via proxy on 8080)
+#   - Intra-namespace (A2A discovery, governor→worker dispatch)
+#   - The stun sentinel needs hostNetwork (handled via DaemonSet spec,
+#     not NetworkPolicy — it runs on the node network)
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: fe-signalloom-agents
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# All agent pods can talk to each other within the namespace.
+# This enables A2A discovery (governor → worker agent cards)
+# and inter-agent task dispatch.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              signalloom.ai/agent: "true"
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              signalloom.ai/agent: "true"
+---
+# DNS egress — required for all pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: fe-signalloom-agents
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# Egress to inf-bao: SPIRE (8081) + OpenBao (8200).
+# Every agent authenticates via SPIFFE SVID → OpenBao JWT.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-identity-plane-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: inf-bao
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8200
+---
+# Egress to fe-signalloom: Signal Loom claim API via
+# fake-integration-proxy (8080) and dashboard (3000/5173).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-signalloom-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 5173
+---
+# Egress to signal-ingest in fe-signalloom for observation
+# posting (workspace-connector pattern, port 8082).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-signal-ingest-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: signal-ingest
+      ports:
+        - protocol: TCP
+          port: 8082
+---
+# Ingress from fe-signalloom: the dashboard and proxy need
+# to reach agent pods for status polling, A2A card reads,
+# and stun commands.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-signalloom-ingress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      signalloom.ai/agent: "true"
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: fe-signalloom
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# The prompt-commit-summarizer and triage-ci-worker need
+# HTTPS egress to external LLM endpoints and GitHub API.
+# Scoped to Knative-triggered agents only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-api-egress
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchExpressions:
+      - key: signalloom.ai/role
+        operator: In
+        values: ["summarizer", "triage", "chatops"]
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 443

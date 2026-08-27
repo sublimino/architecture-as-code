@@ -12,3 +12,9 @@ resources:
   # Periodic re-sync of SPIRE JWT keys → OpenBao. Runs every 8h to survive
   # the 20h SPIRE CA rotation deadline. Bridge fix until jwks_url ships.
   - spire-openbao-sync-cronjob.yaml
+  # Generic glob-bound JWT auth role for the agent swarm. One role serves
+  # all agents; identity-templated policy scopes secrets per SPIFFE ID.
+  - openbao-agent-generic-role.yaml
+  # SPIRE registration entries for the agent swarm — label-based attestation
+  # so any pod with signalloom.ai/agent=true gets a SPIFFE SVID.
+  - spire-agent-swarm-entries.yaml

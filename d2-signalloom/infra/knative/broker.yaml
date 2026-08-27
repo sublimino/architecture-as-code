@@ -1,0 +1,25 @@
+# Knative Eventing Broker for the agent swarm namespace.
+#
+# All agent-originated events flow through this broker. Triggers (not
+# defined here — each agent type brings its own) subscribe to specific
+# CloudEvent types and route them to the appropriate agent service.
+#
+# The InMemoryChannel backend is fine for the demo; production would use
+# KafkaChannel or NATSChannel.
+---
+apiVersion: eventing.knative.dev/v1
+kind: Broker
+metadata:
+  name: agent-swarm-broker
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: agent-swarm-broker
+    app.kubernetes.io/part-of: signalloom-swarm
+  annotations:
+    eventing.knative.dev/broker.class: MTChannelBasedBroker
+spec:
+  config:
+    apiVersion: v1
+    kind: ConfigMap
+    name: config-br-defaults
+    namespace: knative-eventing

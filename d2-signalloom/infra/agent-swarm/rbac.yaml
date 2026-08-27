@@ -1,0 +1,109 @@
+# ServiceAccounts for the ten demo agents in the agent swarm.
+#
+# Each agent type gets its own SA so SPIRE can issue a unique SPIFFE ID
+# (spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/<name>) and
+# OpenBao can scope secrets per identity via the glob-bound JWT role.
+#
+# Labels follow the signalloom.ai/ convention:
+#   signalloom.ai/agent: "true"    — discovery selector
+#   signalloom.ai/role: <role>     — agent's functional role
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prompt-commit-summarizer
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: summarizer
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: triage-ci-worker
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: ci-worker
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: zulip-chat-agent
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: chat
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cpai-engineer
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: engineer
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hosted-daytona-coder
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: coder
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: swarm-governor
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: governor
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prod-deploy-gate
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: deploy-gate
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-cardvault
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: cardvault
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: nono-containment-probe
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: containment
+    app.kubernetes.io/part-of: signalloom-swarm
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: signalloom-stun-sentinel
+  namespace: fe-signalloom-agents
+  labels:
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: sentinel
+    app.kubernetes.io/part-of: signalloom-swarm

@@ -1,0 +1,28 @@
+# Knative Eventing — CRDs + core controller.
+#
+# Pinned to v1.16.0. Same install model as serving: the Makefile target
+# applies upstream URLs; this file is the kustomize-local marker.
+#
+# To apply manually:
+#   kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.0/eventing-crds.yaml
+#   kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.16.0/eventing-core.yaml
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knative-eventing
+  labels:
+    app.kubernetes.io/part-of: knative
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knative-eventing-install-marker
+  namespace: knative-eventing
+  labels:
+    app.kubernetes.io/name: knative-eventing
+    app.kubernetes.io/part-of: signalloom-swarm
+data:
+  eventing-version: "v1.16.0"
+  eventing-crds-url: "https://github.com/knative/eventing/releases/download/knative-v1.16.0/eventing-crds.yaml"
+  eventing-core-url: "https://github.com/knative/eventing/releases/download/knative-v1.16.0/eventing-core.yaml"

@@ -1,0 +1,40 @@
+# Knative Serving — CRDs + core controller.
+#
+# Pinned to v1.16.0. In production, vendor the YAML or use a Flux
+# OCIRepository; the raw URL is acceptable for a demo cluster that
+# rebuilds from scratch on every `make up`.
+#
+# The two-file split (CRDs first, then core) is Knative's own install
+# order — CRDs must exist before the controller Deployment references them.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: knative-serving
+  labels:
+    app.kubernetes.io/part-of: knative
+---
+# CRDs — applied as a remote resource by kustomize.
+# In a real deployment, download and commit these; for the demo, reference
+# the upstream release directly.
+#
+# To apply manually:
+#   kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.16.0/serving-crds.yaml
+#   kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.16.0/serving-core.yaml
+#
+# This file is a placeholder that creates the namespace and a marker
+# ConfigMap so kustomize has a local resource to reconcile. The actual
+# Knative install is driven by the Makefile target `swarm-infra-up` which
+# applies the upstream URLs directly with kubectl.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knative-serving-install-marker
+  namespace: knative-serving
+  labels:
+    app.kubernetes.io/name: knative-serving
+    app.kubernetes.io/part-of: signalloom-swarm
+data:
+  serving-version: "v1.16.0"
+  serving-crds-url: "https://github.com/knative/serving/releases/download/knative-v1.16.0/serving-crds.yaml"
+  serving-core-url: "https://github.com/knative/serving/releases/download/knative-v1.16.0/serving-core.yaml"

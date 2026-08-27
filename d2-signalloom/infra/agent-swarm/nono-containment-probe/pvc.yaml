@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nono-probe-workspace
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: nono-containment-probe
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "probe"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 64Mi

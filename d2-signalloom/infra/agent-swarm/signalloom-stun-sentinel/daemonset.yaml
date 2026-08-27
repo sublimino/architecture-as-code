@@ -1,0 +1,66 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: stun-sentinel
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: stun-sentinel
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "sentinel"
+    signalloom.ai/harness: "go-ebpf"
+    signalloom.ai/model: "deterministic"
+    signalloom.ai/tenant: "controlplane"
+    signalloom.ai/project: "osramp"
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: stun-sentinel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: stun-sentinel
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "sentinel"
+        signalloom.ai/harness: "go-ebpf"
+        signalloom.ai/model: "deterministic"
+        signalloom.ai/tenant: "controlplane"
+        signalloom.ai/project: "osramp"
+    spec:
+      serviceAccountName: stun-sentinel
+      hostPID: true
+      hostNetwork: true
+      tolerations:
+        - operator: Exists
+      containers:
+        - name: sentinel
+          image: stun-sentinel:latest
+          env:
+            - name: WATCH_NAMESPACE
+              value: "fe-signalloom-agents"
+            - name: CGROUP_ROOT
+              value: "/host-cgroup"
+          securityContext:
+            privileged: false
+            capabilities:
+              add:
+                - SYS_ADMIN
+                - NET_ADMIN
+              drop:
+                - ALL
+          volumeMounts:
+            - name: cgroup
+              mountPath: /host-cgroup
+              readOnly: false
+          resources:
+            limits:
+              memory: 128Mi
+              cpu: 200m
+            requests:
+              memory: 64Mi
+              cpu: 100m
+      volumes:
+        - name: cgroup
+          hostPath:
+            path: /sys/fs/cgroup
+            type: Directory

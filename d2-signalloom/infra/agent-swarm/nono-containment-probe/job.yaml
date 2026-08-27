@@ -1,0 +1,57 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: nono-containment-probe
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: nono-containment-probe
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: "probe"
+    signalloom.ai/harness: "go-nono"
+    signalloom.ai/model: "deterministic"
+    signalloom.ai/tenant: "controlplane"
+    signalloom.ai/project: "osramp"
+spec:
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nono-containment-probe
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: "probe"
+        signalloom.ai/harness: "go-nono"
+        signalloom.ai/model: "deterministic"
+        signalloom.ai/tenant: "controlplane"
+        signalloom.ai/project: "osramp"
+    spec:
+      serviceAccountName: nono-containment-probe
+      restartPolicy: Never
+      containers:
+        - name: probe
+          image: nono-containment-probe:latest
+          env:
+            - name: PROBE_READ_PATH
+              value: "/workspace/test.txt"
+            - name: PROBE_WRITE_PATH
+              value: "/workspace/probe-result.txt"
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            limits:
+              memory: 64Mi
+              cpu: 100m
+            requests:
+              memory: 32Mi
+              cpu: 50m
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: nono-probe-workspace

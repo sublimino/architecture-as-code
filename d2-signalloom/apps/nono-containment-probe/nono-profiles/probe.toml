@@ -1,0 +1,33 @@
+# nono Landlock profile for the containment probe.
+# Allows only /workspace for read/write; everything else is denied at the
+# kernel LSM layer.
+
+[landlock]
+# ABI version 1+ (Linux 5.13+)
+abi = 1
+
+[[landlock.rules]]
+# Allow read+write inside /workspace only.
+path = "/workspace"
+access = ["read_file", "write_file", "read_dir", "make_reg"]
+
+[[landlock.rules]]
+# Allow reading shared libraries and the binary itself (required for execution).
+path = "/usr/lib"
+access = ["read_file", "read_dir", "execute"]
+
+[[landlock.rules]]
+# Allow reading /etc for resolver config (but NOT /etc/shadow — Landlock
+# denies anything not explicitly listed, and we only allow the dir listing).
+path = "/etc"
+access = ["read_dir"]
+
+[[landlock.rules]]
+# Allow /proc (needed for Go runtime).
+path = "/proc"
+access = ["read_file", "read_dir"]
+
+[[landlock.rules]]
+# Allow /tmp for Go runtime temp files.
+path = "/tmp"
+access = ["read_file", "write_file", "read_dir", "make_reg"]

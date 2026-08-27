@@ -151,3 +151,16 @@ bootstrap-drift: ## Regenerate bootstrap SQL and compare it with the committed c
 
 netassert-config-drift: ## Compare the committed netassert config against its ConfigMap-generator copy.
 	bash ./test/check-netassert-config-drift.sh
+
+# --- Swarm interactive agent images ---
+
+swarm-zulip-image: ## Build zulip-chat-agent image
+	docker build -t zulip-chat-agent:latest apps/zulip-chat-agent
+
+swarm-governor-image: ## Build swarm-governor image
+	docker build -t swarm-governor:latest apps/swarm-governor
+
+swarm-deploy-gate-image: ## Build prod-deploy-gate image
+	docker build -t prod-deploy-gate:latest apps/prod-deploy-gate
+
+swarm-interactive-images: swarm-zulip-image swarm-governor-image swarm-deploy-gate-image ## Build all swarm interactive agent images

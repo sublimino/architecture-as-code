@@ -1,0 +1,45 @@
+{
+  "name": "cpai-engineer",
+  "description": "Kubernetes-native stateful coding workspace with Landlock kernel sandboxing. Receives coding tasks and executes them headlessly using OpenCode/Claude Sonnet 4 inside a nono sandbox cage.",
+  "url": "http://cpai-engineer.fe-signalloom.svc.cluster.local:8084",
+  "version": "1.0.0",
+  "protocol": "a2a/1.0",
+  "capabilities": {
+    "tasks": true,
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "skills": [
+    {
+      "id": "code-refactor",
+      "name": "Code Refactoring",
+      "description": "Refactor code following best practices, guided by LLM reasoning inside a sandboxed environment."
+    },
+    {
+      "id": "bug-fix",
+      "name": "Bug Fixing",
+      "description": "Diagnose and fix bugs in a Git repository, producing commits with changes."
+    },
+    {
+      "id": "code-review",
+      "name": "Code Implementation",
+      "description": "Implement new features or improvements based on natural language instructions."
+    }
+  ],
+  "authentication": {
+    "schemes": ["bearer"],
+    "credentials": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cpai-engineer"
+  },
+  "provider": {
+    "organization": "ControlPlane",
+    "url": "https://control-plane.io"
+  },
+  "labels": {
+    "signalloom.ai/agent": "true",
+    "signalloom.ai/role": "implementer",
+    "signalloom.ai/harness": "opencode-cpai",
+    "signalloom.ai/model": "claude-sonnet-4",
+    "signalloom.ai/tenant": "controlplane",
+    "signalloom.ai/project": "osramp"
+  }
+}

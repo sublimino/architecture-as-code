@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: cpai-engineer
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: cpai-engineer
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+    app.kubernetes.io/managed-by: signalloom-governor
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: implementer
+    signalloom.ai/harness: opencode-cpai
+    signalloom.ai/model: claude-sonnet-4
+    signalloom.ai/tenant: controlplane
+    signalloom.ai/project: osramp
+    signalloom.ai/state: idle
+  annotations:
+    signalloom.ai/stunned-at: ""
+    signalloom.ai/stun-reason: ""
+    signalloom.ai/agent-display-name: "CPAI Engineer"
+    signalloom.ai/description: "In-cluster sandboxed coding harness using OpenCode + nono Landlock."
+spec:
+  serviceName: cpai-engineer
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cpai-engineer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cpai-engineer
+        app.kubernetes.io/component: agent
+        app.kubernetes.io/part-of: signalloom
+        signalloom.ai/agent: "true"
+        signalloom.ai/role: implementer
+        signalloom.ai/harness: opencode-cpai
+        signalloom.ai/model: claude-sonnet-4
+        signalloom.ai/tenant: controlplane
+        signalloom.ai/project: osramp
+        signalloom.ai/state: idle
+    spec:
+      serviceAccountName: cpai-engineer
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: agent
+          image: cpai-engineer:local
+          ports:
+            - name: http
+              containerPort: 8084
+          env:
+            - name: WORKSPACE_DIR
+              value: /workspace
+            - name: NONO_PROFILE
+              value: strict
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: anthropic-api-key
+                  key: api-key
+                  optional: true
+          securityContext:
+            allowPrivilegeEscalation: false
+            # readOnlyRootFilesystem: false — nono writes to /tmp at runtime.
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: cpai-worktree-pvc
+        - name: tmp
+          emptyDir: {}

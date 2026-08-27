@@ -1,0 +1,14 @@
+# Nono Landlock sandbox profile: strict
+#
+# This profile confines the coding agent to the workspace and tmp directories.
+# All filesystem access outside these paths is denied by the kernel (Linux
+# Landlock LSM). Network access is restricted to localhost only.
+
+[landlock]
+# Filesystem access
+allow_read = ["/workspace", "/tmp", "/usr/lib", "/lib"]
+allow_write = ["/workspace", "/tmp"]
+
+# Network access
+allow_connect = ["127.0.0.1:*"]
+deny_connect = ["0.0.0.0/0"]

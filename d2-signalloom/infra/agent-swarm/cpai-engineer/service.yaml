@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cpai-engineer
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: cpai-engineer
+    app.kubernetes.io/component: agent
+    app.kubernetes.io/part-of: signalloom
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: cpai-engineer
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+      protocol: TCP

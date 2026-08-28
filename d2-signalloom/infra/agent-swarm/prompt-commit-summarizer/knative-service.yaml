@@ -34,6 +34,13 @@ spec:
               value: "http://litellm.inf-bao.svc.cluster.local:4000/v1/chat/completions"
             - name: LLM_MODEL
               value: "gemini-2.5-flash"
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
+              readOnly: true
           resources:
             requests:
               cpu: 50m
@@ -53,3 +60,52 @@ spec:
               port: 8080
             initialDelaySeconds: 1
             periodSeconds: 5
+        # OpenBao Agent sidecar — fetches secrets via SPIFFE JWT auth
+        - name: openbao-agent
+          image: openbao/openbao:2.1.0
+          args:
+            - agent
+            - -config=/etc/openbao/agent.hcl
+          env:
+            - name: SPIFFE_ID
+              value: "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/prompt-commit-summarizer"
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /run/spire/sockets
+              readOnly: true
+            - name: openbao-agent-config
+              mountPath: /etc/openbao
+              readOnly: true
+            - name: vault-secrets
+              mountPath: /vault/secrets
+            - name: bao-home
+              mountPath: /home/openbao
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+      volumes:
+        - name: spiffe-workload-api
+          csi:
+            driver: "csi.spiffe.io"
+            readOnly: true
+        - name: openbao-agent-config
+          configMap:
+            name: prompt-commit-summarizer-openbao-config
+        - name: vault-secrets
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: bao-home
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi

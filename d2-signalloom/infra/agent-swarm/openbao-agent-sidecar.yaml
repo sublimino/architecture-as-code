@@ -1,0 +1,366 @@
+---
+# OpenBao Agent sidecar patch template for the agent swarm.
+#
+# Apply this as a strategic-merge patch (or reference from kustomization.yaml)
+# to add SPIFFE-authenticated OpenBao secret retrieval to any agent deployment.
+#
+# The sidecar:
+#   1. Reads the SPIFFE JWT-SVID from the CSI driver socket
+#   2. Authenticates to OpenBao via the signalloom-agent-generic JWT role
+#   3. Renders secrets to /vault/secrets/<env-var-name> files
+#   4. The main container reads secrets from those files
+#
+# Prerequisites:
+#   - SPIRE CSI driver installed (csi.spiffe.io)
+#   - OpenBao JWT auth method configured with signalloom-agent-generic role
+#   - Agent-specific secrets seeded at secret/data/agents/<spiffe-id>/<key>
+#   - Per-agent openbao-agent-config ConfigMap with template stanzas
+#
+# Pattern lifted from agent-cardvault/deployment-overlay.yaml and generalised
+# for any agent that needs remote API credentials.
+
+# ─── Sidecar ConfigMap Template ───────────────────────────────────────────────
+#
+# Each agent that uses this sidecar needs its own ConfigMap with the agent.hcl
+# that includes template stanzas for its specific secrets. The base auto_auth
+# config is identical across all agents; only the template blocks differ.
+#
+# Base agent.hcl (common to all agents):
+#
+#   vault {
+#     address = "http://openbao.inf-bao.svc.cluster.local:8200"
+#   }
+#
+#   auto_auth {
+#     method "jwt" {
+#       config = {
+#         path = "/run/spire/sockets/agent.sock"
+#         role = "signalloom-agent-generic"
+#       }
+#     }
+#
+#     sink "file" {
+#       config = {
+#         path = "/home/openbao/.bao-token"
+#       }
+#     }
+#   }
+#
+#   template_config {
+#     exit_on_retry_failure = true
+#   }
+#
+#   # Per-agent template stanzas — example for an agent needing ANTHROPIC_API_KEY:
+#   #
+#   # template {
+#   #   contents     = "{{ with secret \"secret/data/agents/{{ env \"SPIFFE_ID\" }}/anthropic/api-key\" }}{{ .Data.data.value }}{{ end }}"
+#   #   destination  = "/vault/secrets/ANTHROPIC_API_KEY"
+#   #   error_on_missing_key = true
+#   # }
+
+# ─── Sidecar Container Spec ──────────────────────────────────────────────────
+#
+# Paste this container block into any agent's pod spec alongside the main
+# container. The volumes section below must also be added.
+#
+# containers:
+#   - name: openbao-agent
+#     image: openbao/openbao:2.1.0
+#     args:
+#       - agent
+#       - -config=/etc/openbao/agent.hcl
+#     env:
+#       - name: SPIFFE_ID
+#         valueFrom:
+#           fieldRef:
+#             fieldPath: metadata.annotations['signalloom.ai/spiffe-id']
+#     volumeMounts:
+#       - name: spiffe-workload-api
+#         mountPath: /run/spire/sockets
+#         readOnly: true
+#       - name: openbao-agent-config
+#         mountPath: /etc/openbao
+#         readOnly: true
+#       - name: vault-secrets
+#         mountPath: /vault/secrets
+#       - name: bao-home
+#         mountPath: /home/openbao
+#     securityContext:
+#       runAsNonRoot: true
+#       readOnlyRootFilesystem: true
+#       allowPrivilegeEscalation: false
+#       capabilities:
+#         drop: ["ALL"]
+#     resources:
+#       requests:
+#         cpu: 10m
+#         memory: 32Mi
+#       limits:
+#         cpu: 50m
+#         memory: 64Mi
+#
+# ─── Required Volumes ─────────────────────────────────────────────────────────
+#
+# volumes:
+#   - name: spiffe-workload-api
+#     csi:
+#       driver: "csi.spiffe.io"
+#       readOnly: true
+#   - name: openbao-agent-config
+#     configMap:
+#       name: <agent-name>-openbao-config   # per-agent ConfigMap
+#   - name: vault-secrets
+#     emptyDir:
+#       medium: Memory
+#       sizeLimit: 1Mi
+#   - name: bao-home
+#     emptyDir:
+#       medium: Memory
+#       sizeLimit: 1Mi
+
+# ─── Concrete Patch: prompt-commit-summarizer ─────────────────────────────────
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prompt-commit-summarizer-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: prompt-commit-summarizer
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/llm/api-key" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/LLM_API_KEY"
+      error_on_missing_key = true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: triage-ci-worker-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: triage-ci-worker
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/github/token" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/GITHUB_TOKEN"
+      error_on_missing_key = true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: zulip-chat-agent-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: zulip-chat-agent
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/zulip/api-key" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/ZULIP_API_KEY"
+      error_on_missing_key = true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cpai-engineer-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: cpai-engineer
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/ANTHROPIC_API_KEY"
+      error_on_missing_key = true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prod-deploy-gate-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: prod-deploy-gate
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/gate/hmac-secret" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/GATE_HMAC_SECRET"
+      error_on_missing_key = true
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: swarm-governor-openbao-config
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: swarm-governor
+    signalloom.ai/component: credential-sidecar
+data:
+  agent.hcl: |
+    vault {
+      address = "http://openbao.inf-bao.svc.cluster.local:8200"
+    }
+
+    auto_auth {
+      method "jwt" {
+        config = {
+          path = "/run/spire/sockets/agent.sock"
+          role = "signalloom-agent-generic"
+        }
+      }
+
+      sink "file" {
+        config = {
+          path = "/home/openbao/.bao-token"
+        }
+      }
+    }
+
+    template_config {
+      exit_on_retry_failure = true
+    }
+
+    template {
+      contents     = <<-EOT
+      {{ with secret "secret/data/agents/{{ env "SPIFFE_ID" }}/anthropic/api-key" }}{{ .Data.data.value }}{{ end }}
+      EOT
+      destination  = "/vault/secrets/ANTHROPIC_API_KEY"
+      error_on_missing_key = true
+    }

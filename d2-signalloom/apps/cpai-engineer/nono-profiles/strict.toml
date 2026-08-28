@@ -6,9 +6,10 @@
 
 [landlock]
 # Filesystem access
-allow_read = ["/workspace", "/tmp", "/usr/lib", "/lib"]
+allow_read = ["/workspace", "/tmp", "/usr/lib", "/lib", "/run/spire/sockets"]
 allow_write = ["/workspace", "/tmp"]
 
-# Network access
-allow_connect = ["127.0.0.1:*"]
+# Network access — localhost for OpenBao sidecar loopback proxy (8200),
+# plus the SPIRE workload API socket for SVID refresh.
+allow_connect = ["127.0.0.1:*", "127.0.0.1:8200"]
 deny_connect = ["0.0.0.0/0"]

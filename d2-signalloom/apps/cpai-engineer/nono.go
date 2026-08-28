@@ -70,8 +70,5 @@ func (n *NonoWrapper) buildArgs(name string, args ...string) []string {
 // CommandString returns the full nono command as a string for logging.
 func (n *NonoWrapper) CommandString(name string, args ...string) string {
 	full := n.buildArgs(name, args...)
-	parts := make([]string, 0, len(full)+1)
-	parts = append(parts, "nono")
-	parts = append(parts, full...)
 	return fmt.Sprintf("nono %s", strings.Join(full, " "))
 }

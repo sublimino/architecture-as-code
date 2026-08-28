@@ -6,7 +6,7 @@
 
 [landlock]
 # Filesystem access
-allow_read = ["/workspace", "/tmp", "/usr/lib", "/lib", "/run/spire/sockets"]
+allow_read = ["/workspace", "/tmp", "/usr/lib", "/lib", "/run/spire/sockets", "/vault/secrets"]
 allow_write = ["/workspace", "/tmp"]
 
 # Network access — localhost for OpenBao sidecar loopback proxy (8200),

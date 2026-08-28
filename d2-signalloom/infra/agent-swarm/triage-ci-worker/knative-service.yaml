@@ -27,6 +27,13 @@ spec:
           ports:
             - containerPort: 8080
               protocol: TCP
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           env:
             - name: PORT
               value: "8080"

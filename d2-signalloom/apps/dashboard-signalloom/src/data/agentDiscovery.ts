@@ -26,6 +26,7 @@
  */
 
 import { TRUST_DOMAIN, spiffeId, type Provenance } from './credentialInventory'
+import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
 
 // ─── Label contract ─────────────────────────────────────────────────────────
 
@@ -152,78 +153,8 @@ function proxyRecordToDiscovery(
 // ─── Demo fixtures ──────────────────────────────────────────────────────────
 
 /**
- * Offline fixture set. Uses real trust domain and realistic label values
- * so the demo teaches the right mental model.
+ * Offline fixture set. Delegates to the centralised FAKE_SWARM_AGENTS so
+ * all demo surfaces (discovery, credential inventory, audit timeline) share
+ * one canonical set of 10 agents.
  */
-export const DEMO_AGENTS: AgentDiscoveryRecord[] = [
-  {
-    pod_name: 'prompt-commit-summarizer-7f8d4',
-    namespace: 'fe-signalloom-agents',
-    service_account: 'prompt-commit-summarizer',
-    spiffe_id: spiffeId('fe-signalloom-agents', 'prompt-commit-summarizer'),
-    tenant: 'acme-corp',
-    project: 'osramp-core',
-    role: 'summarizer',
-    harness: 'claude-code',
-    model: 'claude-sonnet-4',
-    state: 'active',
-    created_at: new Date().toISOString(),
-    provenance: 'demo',
-  },
-  {
-    pod_name: 'triage-ci-worker-3a2b1',
-    namespace: 'fe-signalloom-agents',
-    service_account: 'triage-ci-worker',
-    spiffe_id: spiffeId('fe-signalloom-agents', 'triage-ci-worker'),
-    tenant: 'acme-corp',
-    project: 'osramp-core',
-    role: 'ci-worker',
-    harness: 'openai-codex',
-    model: 'gpt-4.1',
-    state: 'active',
-    created_at: new Date().toISOString(),
-    provenance: 'demo',
-  },
-  {
-    pod_name: 'swarm-governor-9c4e2',
-    namespace: 'fe-signalloom-agents',
-    service_account: 'swarm-governor',
-    spiffe_id: spiffeId('fe-signalloom-agents', 'swarm-governor'),
-    tenant: 'acme-corp',
-    project: 'osramp-core',
-    role: 'governor',
-    harness: 'claude-code',
-    model: 'claude-opus-4',
-    state: 'active',
-    created_at: new Date().toISOString(),
-    provenance: 'demo',
-  },
-  {
-    pod_name: 'agent-cardvault-1d5f7',
-    namespace: 'fe-signalloom-agents',
-    service_account: 'agent-cardvault',
-    spiffe_id: spiffeId('fe-signalloom-agents', 'agent-cardvault'),
-    tenant: 'acme-corp',
-    project: 'pci-compliance',
-    role: 'cardvault',
-    harness: 'claude-code',
-    model: 'claude-sonnet-4',
-    state: 'claimed',
-    created_at: new Date().toISOString(),
-    provenance: 'demo',
-  },
-  {
-    pod_name: 'signalloom-stun-sentinel-node1',
-    namespace: 'fe-signalloom-agents',
-    service_account: 'signalloom-stun-sentinel',
-    spiffe_id: spiffeId('fe-signalloom-agents', 'signalloom-stun-sentinel'),
-    tenant: 'platform',
-    project: 'signalloom-infra',
-    role: 'sentinel',
-    harness: null,
-    model: null,
-    state: 'active',
-    created_at: new Date().toISOString(),
-    provenance: 'demo',
-  },
-]
+export const DEMO_AGENTS: AgentDiscoveryRecord[] = FAKE_SWARM_AGENTS

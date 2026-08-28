@@ -37,16 +37,25 @@ type TimelineItem =
   | { kind: 'violation'; ts: string; violation: ViolationResponse }
 
 const EVENT_TYPE_COLORS: Record<string, string> = {
-  enrollment:                  colors.cyanLoom,
-  state_transition:            colors.irisViolet,
-  violation_detected:          colors.red,
-  compliance_check:            'var(--cyan)',
-  token_issued:                colors.tealLoom,
-  token_refused:               colors.amber,
-  tenant_created:              colors.cyanLoom,
-  user_provisioned:            'var(--teal)',
-  directory_connected:         'var(--violet)',
-  discovery_enroll_requested:  colors.amber,
+  enrollment:                         colors.cyanLoom,
+  state_transition:                   colors.irisViolet,
+  violation_detected:                 colors.red,
+  compliance_check:                   'var(--cyan)',
+  token_issued:                       colors.tealLoom,
+  token_refused:                      colors.amber,
+  tenant_created:                     colors.cyanLoom,
+  user_provisioned:                   'var(--teal)',
+  directory_connected:                'var(--violet)',
+  discovery_enroll_requested:         colors.amber,
+  // Swarm lifecycle events
+  'swarm.agent.claimed':              colors.cyanLoom,
+  'swarm.agent.released':             colors.muted,
+  'swarm.credential.fetched':         colors.tealLoom,
+  'swarm.credential.rotated':         colors.tealLoom,
+  'swarm.nono.sandbox_entered':       colors.irisViolet,
+  'swarm.nono.violation_blocked':     colors.red,
+  'swarm.sentinel.stun_triggered':    colors.amber,
+  'swarm.sentinel.stun_released':     colors.cyanLoom,
 }
 
 function EventTypeTag({ type }: { type: string }) {
@@ -77,6 +86,11 @@ const EVENT_TYPES = [
   'agent.created', 'agent.transitioned', 'agent.stunned',
   'agent.credential_issued', 'agent.credential_revoked',
   'violation.acknowledged', 'compliance.reassess_requested',
+  // Swarm lifecycle events
+  'swarm.agent.claimed', 'swarm.agent.released',
+  'swarm.credential.fetched', 'swarm.credential.rotated',
+  'swarm.nono.sandbox_entered', 'swarm.nono.violation_blocked',
+  'swarm.sentinel.stun_triggered', 'swarm.sentinel.stun_released',
   // Legacy vocabulary from migration 007, retained for historical rows.
   'enrollment', 'state_transition', 'violation_detected', 'compliance_check',
   'token_issued', 'token_refused',

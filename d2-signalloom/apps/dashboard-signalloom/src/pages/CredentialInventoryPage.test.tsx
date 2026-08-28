@@ -478,19 +478,19 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     await user.type(screen.getByTestId('identity-search'), 'cardvault')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
     expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
-    expect(screen.getByTestId('identity-count')).toHaveTextContent('1 of 2 identities shown')
+    expect(screen.getByTestId('identity-count')).toHaveTextContent('1 of 12 identities shown')
   })
 
   it('searches every identity column the reader can see, not just the name', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     // A selector value — visible in the table, and in no other field.
     await user.type(screen.getByTestId('identity-search'), 'sa:cardvault-agent')
@@ -501,7 +501,7 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     await user.selectOptions(screen.getByTestId('identity-state-filter'), 'revoked')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
@@ -512,22 +512,22 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'live')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
     expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
 
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
-    await waitFor(() => expect(identityRows()).toHaveLength(1))
-    expect(identityRows()[0]).toHaveTextContent('fe-signalloom')
+    // 11 config-only entries (fe-signalloom + 10 swarm; cardvault-agent is live-merged).
+    await waitFor(() => expect(identityRows()).toHaveLength(11))
   })
 
   it('offers an identity empty state that says which zero this is, and undoes itself', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     await user.type(screen.getByTestId('identity-search'), 'no-such-workload')
     await waitFor(() => expect(identityRows()).toHaveLength(0))
@@ -541,7 +541,7 @@ describe('CredentialInventoryPage — filtering', () => {
     // reason the toolbar is a DataTable prop rather than markup above it.
     const clear = screen.getByRole('button', { name: 'Clear filters' })
     await user.click(clear)
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
     expect(screen.queryByTestId('identity-empty')).toBeNull()
   })
 
@@ -549,14 +549,14 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     await user.type(screen.getByTestId('identity-search'), 'cardvault')
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
     await waitFor(() => expect(identityRows()).toHaveLength(0))
 
     await user.click(screen.getByTestId('identity-count-clear'))
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
     expect(screen.getByTestId('identity-search')).toHaveValue('')
     expect(screen.getByTestId('identity-source-filter')).toHaveValue('all')
   })
@@ -565,7 +565,7 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(identityRows()).toHaveLength(2))
+    await waitFor(() => expect(identityRows()).toHaveLength(12))
 
     expect(screen.queryByTestId('identity-count-clear')).toBeNull()
     await user.selectOptions(screen.getByTestId('identity-state-filter'), 'active')
@@ -578,11 +578,11 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
     await user.type(screen.getByTestId('credential-search'), 'fe-signalloom-api')
     await waitFor(() => expect(credentialRows()).toHaveLength(3))
-    expect(screen.getByTestId('credential-count')).toHaveTextContent('3 of 6 credentials shown')
+    expect(screen.getByTestId('credential-count')).toHaveTextContent('3 of 36 credentials shown')
   })
 
   // Found by writing this suite: searching "cardvault" returns FOUR of the six
@@ -594,10 +594,10 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
     await user.type(screen.getByTestId('credential-search'), 'cardvault.inf-signalloom')
-    await waitFor(() => expect(credentialRows()).toHaveLength(2))
+    await waitFor(() => expect(credentialRows()).toHaveLength(12))
     expect(credentialRows().every((r) => /service-token/.test(r.textContent ?? ''))).toBe(true)
   })
 
@@ -605,19 +605,20 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
     await user.type(screen.getByTestId('credential-search'), 'openbao-lease')
-    await waitFor(() => expect(credentialRows()).toHaveLength(2))
+    await waitFor(() => expect(credentialRows()).toHaveLength(12))
   })
 
   it('narrows the credentials by source', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
     await user.selectOptions(screen.getByTestId('credential-source-filter'), 'live')
+    // Only the live-discovered cardvault-agent's 3 credentials.
     await waitFor(() => expect(credentialRows()).toHaveLength(3))
     expect(credentialRows().every((r) => /cardvault/.test(r.textContent ?? ''))).toBe(true)
   })
@@ -626,23 +627,23 @@ describe('CredentialInventoryPage — filtering', () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod()] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
     await user.type(screen.getByTestId('credential-search'), 'no-such-credential')
     await waitFor(() => expect(credentialRows()).toHaveLength(0))
     expect(screen.getByTestId('credential-inventory-empty')).toHaveTextContent('No credential matches those filters')
 
     await user.click(screen.getByTestId('credential-count-clear'))
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
   })
 
   it('combines the status select with search rather than letting one win', async () => {
     const user = userEvent.setup()
     mockAgentFetch({ agents: [cardvaultPod({ state: 'stunned' })] })
     renderPage()
-    await waitFor(() => expect(credentialRows()).toHaveLength(6))
+    await waitFor(() => expect(credentialRows()).toHaveLength(36))
 
-    // Stunned revokes cardvault's three; fe-signalloom's three stay active.
+    // Stunned revokes cardvault's three; the other 33 stay active.
     await user.selectOptions(screen.getByTestId('credential-status-filter'), 'revoked')
     await waitFor(() => expect(credentialRows()).toHaveLength(3))
 

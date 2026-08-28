@@ -5,8 +5,9 @@
 > secret injection, the sidecar pattern, SPIFFE identity chain, credential
 > lifecycle, nono sandbox integration, and production hardening gaps.
 >
-> Branch: `feat/swarm-credentials-nono`
-> Date: 2026-08-27
+> **Parent proposal:** [[Proposal — Secure Agent Swarm Architecture, OpenBao SPIFFE Registration, and Signal Loom Auto-Claim Demo Fleet [Claude Sonnet 4 / OpenCode CPAI] (2026-Q3)]]
+> **Branch:** `feat/signal-loop-and-bootstrap-refactor`
+> **Date:** 2026-08-28
 
 ---
 

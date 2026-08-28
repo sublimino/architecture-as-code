@@ -1,0 +1,362 @@
+# FLUX ENVSUBST: YES — registry settings AND spec.inputs below are substituted
+# by the tenants Kustomization, exactly as in tenants/base/agent-trust.yaml.
+#
+# This ResourceSet deploys the 10-agent Signal Loom swarm into the
+# fe-signalloom-agents namespace. Each agent gets its own Flux Kustomization
+# so it can be individually suspended, reconciled, or removed.
+#
+# The base agent-swarm kustomization (d2-signalloom/infra/agent-swarm/) owns
+# the namespace, shared RBAC, and NetworkPolicies. Each agent subdirectory
+# owns its own workload manifests.
+#
+# Agent inventory (10):
+#   Tier 1  prompt-commit-summarizer   KnativeService
+#   Tier 2  triage-ci-worker           KnativeService
+#   Tier 3  zulip-chat-agent           Deployment
+#   Tier 4A cpai-engineer              StatefulSet + PVC
+#   Tier 4B hosted-daytona-coder       Deployment + RBAC
+#   Tier 5  swarm-governor             Deployment + Service
+#   Tier 5  prod-deploy-gate           Deployment + Service
+#   Tier 6  agent-cardvault            Deployment overlay
+#   Tier 7  nono-containment-probe     Job + PVC
+#   Tier 8  signalloom-stun-sentinel   DaemonSet
+apiVersion: fluxcd.controlplane.io/v1
+kind: ResourceSet
+metadata:
+  name: agent-swarm
+  namespace: flux-system
+  annotations:
+    fluxcd.controlplane.io/reconcileEvery: "5m"
+spec:
+  dependsOn:
+    - apiVersion: fluxcd.controlplane.io/v1
+      kind: ResourceSet
+      name: signalloom-infra
+      namespace: flux-system
+      ready: true
+      readyExpr: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      name: infra-configs
+      namespace: inf-bao
+      ready: true
+      readyExpr: status.conditions.exists(e, e.type == 'Ready' && e.status == 'True')
+  inputs:
+    - tenant: "agent-swarm"
+      tag: "${ARTIFACT_TAG}"
+      environment: "${ENVIRONMENT}"
+      artifactSubjectWorkflow: "${ARTIFACT_SUBJECT_WORKFLOW}"
+      artifactSubjectGitRef: "${ARTIFACT_SUBJECT_GIT_REF}"
+  resources:
+    # ── Namespace ──────────────────────────────────────────────────────
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: fe-signalloom-agents
+        labels:
+          signalloom.ai/managed: "true"
+          signalloom.ai/tier: "agents"
+          signalloom.ai/agent: "true"
+          app.kubernetes.io/part-of: signalloom-swarm
+
+    # ── Flux identity ─────────────────────────────────────────────────
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata: {name: agent-swarm-flux, namespace: fe-signalloom-agents}
+
+    # ── ClusterRole: namespace discovery + create ─────────────────────
+    # Kubernetes RBAC does not apply resourceNames to create, so the
+    # create verb is global; mutation/deletion is restricted to the
+    # single namespace owned by this slice.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-swarm-flux-namespaces}
+      rules:
+        - apiGroups: [""]
+          resources: [namespaces]
+          verbs: [get, list, watch, create]
+        - apiGroups: [""]
+          resources: [namespaces]
+          resourceNames: [fe-signalloom-agents]
+          verbs: [get, update, patch, delete]
+
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata: {name: agent-swarm-flux-namespaces}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-namespaces}
+      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+
+    # ── ClusterRole: workload management ──────────────────────────────
+    # Covers all workload kinds used by swarm agents: Deployments,
+    # StatefulSets, Jobs, DaemonSets, Services, ConfigMaps, Secrets,
+    # PVCs, ServiceAccounts, NetworkPolicies, RBAC.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-swarm-flux-workloads}
+      rules:
+        - apiGroups: [""]
+          resources: [configmaps, pods, secrets, serviceaccounts, services, persistentvolumeclaims]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [apps]
+          resources: [deployments, replicasets, statefulsets, daemonsets]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [batch]
+          resources: [jobs, cronjobs]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [networking.k8s.io]
+          resources: [networkpolicies]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [roles, rolebindings]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [serving.knative.dev]
+          resources: [services, revisions, routes, configurations]
+          verbs: [get, list, watch, create, update, patch, delete]
+
+    # ── RoleBinding: workloads in fe-signalloom-agents ────────────────
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata: {name: agent-swarm-flux, namespace: fe-signalloom-agents}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+
+    # ── OCI source for agent-swarm artifacts ──────────────────────────
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: OCIRepository
+      metadata: {name: agent-swarm, namespace: fe-signalloom-agents}
+      spec:
+        interval: 5m
+        serviceAccountName: agent-swarm-flux
+        url: "oci://${REGISTRY_BASE}/signalloom/agent-swarm"
+        insecure: ${REGISTRY_INSECURE}
+        ref: {tag: << inputs.tag >>}
+        verify:
+          provider: cosign
+          matchOIDCIdentity:
+            - issuer: ^https://token\.actions\.githubusercontent\.com$
+              subject: ^https://github\.com/acme-co/osramp/\.github/workflows/<< inputs.artifactSubjectWorkflow >>\.yaml@<< inputs.artifactSubjectGitRef >>$
+
+    # ── Base infrastructure Kustomization ─────────────────────────────
+    # Deploys namespace, shared RBAC, and NetworkPolicies from the base
+    # agent-swarm kustomization before any individual agents.
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-swarm-base
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/component: "base"
+      spec:
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm
+        prune: true
+
+    # ── Per-agent Kustomizations ──────────────────────────────────────
+    # Each agent has its own Kustomization so it can be individually
+    # suspended, reconciled, or removed via Flux.
+
+    # 1. prompt-commit-summarizer (Tier 1 — KnativeService)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-prompt-commit-summarizer
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "prompt-commit-summarizer"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/prompt-commit-summarizer
+        prune: true
+
+    # 2. triage-ci-worker (Tier 2 — KnativeService)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-triage-ci-worker
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "triage-ci-worker"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/triage-ci-worker
+        prune: true
+
+    # 3. zulip-chat-agent (Tier 3 — Deployment)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-zulip-chat-agent
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "zulip-chat-agent"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/zulip-chat-agent
+        prune: true
+
+    # 4. cpai-engineer (Tier 4A — StatefulSet + PVC)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-cpai-engineer
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "cpai-engineer"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/cpai-engineer
+        prune: true
+
+    # 5. hosted-daytona-coder (Tier 4B — Deployment + RBAC)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-hosted-daytona-coder
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "hosted-daytona-coder"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/hosted-daytona-coder
+        prune: true
+
+    # 6. swarm-governor (Tier 5 — Deployment + Service)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-swarm-governor
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "swarm-governor"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/swarm-governor
+        prune: true
+
+    # 7. prod-deploy-gate (Tier 5 — Deployment + Service)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-prod-deploy-gate
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "prod-deploy-gate"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/prod-deploy-gate
+        prune: true
+
+    # 8. agent-cardvault (Tier 6 — Deployment overlay)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-cardvault
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "agent-cardvault"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/agent-cardvault
+        prune: true
+
+    # 9. nono-containment-probe (Tier 7 — Job + PVC)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-nono-containment-probe
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "nono-containment-probe"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/nono-containment-probe
+        prune: true
+
+    # 10. signalloom-stun-sentinel (Tier 8 — DaemonSet)
+    - apiVersion: kustomize.toolkit.fluxcd.io/v1
+      kind: Kustomization
+      metadata:
+        name: agent-signalloom-stun-sentinel
+        namespace: fe-signalloom-agents
+        labels:
+          signalloom.ai/agent: "true"
+          signalloom.ai/agent-name: "signalloom-stun-sentinel"
+      spec:
+        dependsOn: [{name: agent-swarm-base}]
+        serviceAccountName: agent-swarm-flux
+        interval: 30m
+        retryInterval: 5m
+        wait: true
+        timeout: 5m
+        sourceRef: {kind: OCIRepository, name: agent-swarm}
+        path: ./d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel
+        prune: true

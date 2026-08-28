@@ -8,3 +8,4 @@ resources:
   - apps.yaml
   - olly.yaml
   - agent-trust.yaml
+  - agent-swarm.yaml

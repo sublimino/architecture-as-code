@@ -2479,3 +2479,25 @@ swarm-triage-worker-image: ## Build triage-ci-worker image (Tier 2 deterministic
 
 .PHONY: swarm-prompt-triage-images
 swarm-prompt-triage-images: swarm-prompt-summarizer-image swarm-triage-worker-image ## Build both Tier 1+2 agent swarm images.
+
+# ── Agent Swarm — Flux Deploy/Remove ────────────────────────────────
+
+.PHONY: swarm-deploy
+swarm-deploy: ## Deploy all 10 swarm agents via Flux reconciliation.
+	scripts/swarm-deploy.sh deploy
+
+.PHONY: swarm-deploy-%
+swarm-deploy-%: ## Deploy a specific swarm agent (e.g., make swarm-deploy-cpai-engineer).
+	scripts/swarm-deploy.sh deploy "$*"
+
+.PHONY: swarm-remove
+swarm-remove: ## Remove all swarm agents (suspend Flux + delete workloads).
+	scripts/swarm-deploy.sh remove
+
+.PHONY: swarm-remove-%
+swarm-remove-%: ## Remove a specific agent (e.g., make swarm-remove-cpai-engineer).
+	scripts/swarm-deploy.sh remove "$*"
+
+.PHONY: swarm-status
+swarm-status: ## Show Flux reconciliation status for all swarm agents.
+	scripts/swarm-deploy.sh status

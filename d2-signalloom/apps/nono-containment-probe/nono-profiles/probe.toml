@@ -31,3 +31,10 @@ access = ["read_file", "read_dir"]
 # Allow /tmp for Go runtime temp files.
 path = "/tmp"
 access = ["read_file", "write_file", "read_dir", "make_reg"]
+
+[[landlock.rules]]
+# Allow reading SPIRE agent socket for SVID retrieval inside the sandbox.
+# The probe needs to verify its own SPIFFE identity as part of containment
+# auditing. Network deny rules below still block everything else.
+path = "/run/spire/sockets"
+access = ["read_file", "read_dir"]

@@ -80,10 +80,21 @@ oauth2-proxy:
 # ==============================================================================
 # LLM PROVIDER
 # ==============================================================================
-# The credential itself is owned elsewhere — the secret named below currently
-# holds the literal string "mock-anthropic-key" and a separate workstream
-# replaces it. Nothing here creates, reads or rotates it; this only points the
-# generated ModelConfig at the agreed name so that work slots in unchanged.
+# The credential itself is owned by the kagent-credentials workstream, which
+# seeds it from OpenBao into Secret/kagent-anthropic-key in BOTH the kagent and
+# fe-signalloom-agents namespaces — the CRD requires the secret to be in the
+# same namespace as the ModelConfig that references it, and there is one in
+# each. Nothing here creates, reads or rotates it.
+#
+# The three halves of the agreed contract, all of which this file must match:
+#   secret name  kagent-anthropic-key
+#   data key     ANTHROPIC_API_KEY   (NOT `api-key`, which the old stub used)
+#   type         Opaque
+#
+# Verified live: the controller stamps
+#   env: ANTHROPIC_API_KEY -> secretKeyRef{name: kagent-anthropic-key,
+#                                          key: ANTHROPIC_API_KEY}
+# into every agent Deployment it mints.
 providers:
   default: anthropic
   anthropic:
@@ -102,6 +113,52 @@ providers:
 controller:
   replicas: 1
   loglevel: "info"
+  agentImage:
+    # ─── The registry the agent RUNTIME images come from ────────────────────
+    #
+    # This is not the controller's own image (that is controller.image, and it
+    # stays on cr.kagent.dev). It is the registry the controller stamps into
+    # every Deployment it mints from an Agent CR, and it governs TWO images:
+    #
+    #   kagent-dev/kagent/app         the Python runtime (`runtime: python`)
+    #   kagent-dev/kagent/golang-adk  the Go runtime     (`runtime: go`)
+    #
+    # golang-adk is hardcoded in the controller binary — it appears nowhere in
+    # the chart (`rg golang-adk` over the whole chart returns nothing), there is
+    # no values.schema.json, and the controller ConfigMap carries no ADK key.
+    # Only its REGISTRY is configurable, via templates/controller-configmap.yaml:
+    #
+    #   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry
+    #                      | default .Values.registry }}
+    #
+    # ─── Why it has to move ─────────────────────────────────────────────────
+    #
+    # cr.kagent.dev does not carry golang-adk at all. Not a bad digest, not a
+    # network fault — the repository does not exist:
+    #
+    #   repository cr.kagent.dev/kagent-dev/kagent/golang-adk not found:
+    #   name unknown: repository name not known to registry
+    #
+    # while controller, ui, app and skills-init all resolve there. All eight of
+    # Signal Loom's agents declare `runtime: go`, so on the chart's default
+    # registry every one of them reconciles correctly, gets a real Deployment,
+    # and then sits in ImagePullBackOff. ghcr.io carries golang-adk (including
+    # the exact index digest the controller pins, sha256:e01479…, which is
+    # golang-adk:0.9.9 — verified by matching its platform manifests) and it
+    # carries `app` too, so moving this one key moves both runtimes coherently.
+    #
+    # Scoped to agentImage rather than set on the chart-global `registry`: the
+    # global would also relocate controller, ui and skills-init, which are
+    # published to cr.kagent.dev and are working. Minimum blast radius for the
+    # defect actually being worked around.
+    #
+    # ghcr.io is additionally one of the five hosts scripts/registry-cache.sh
+    # mirrors, and cr.kagent.dev is not — so this also moves the agent runtime
+    # onto the pull-through cache instead of the open internet.
+    #
+    # Revert to the chart default once upstream publishes golang-adk to
+    # cr.kagent.dev.
+    registry: ghcr.io
   resources:
     requests:
       cpu: 100m

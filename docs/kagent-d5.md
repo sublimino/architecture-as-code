@@ -36,7 +36,6 @@ stack could not produce.
 This section is a snapshot and dates quickly; `make demo-kagent-test` is the
 current answer. At the time of writing, verified against the cluster:
 
-<<<<<<< HEAD
 - **Seven of eight compile; one does not.** Only `kagent-commit-summariser`
   fails, and only because `github-tool` does not exist. The other three that
   used to fail — `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool` —
@@ -54,7 +53,7 @@ current answer. At the time of writing, verified against the cluster:
   the stub manifests were replaced by the chart, so it cannot be reapplied over
   the real key. The credential now comes from OpenBao via
   `Secret/kagent-anthropic-key` in both `kagent` and `fe-signalloom-agents`.
-=======
+
 - **Seven of eight agents compile. Six of them work.** The two numbers are
   deliberately kept apart, because the gap between them is the entire subject of
   this document. `kagent-chaos-prober` reports `Accepted=True Ready=True` with a
@@ -76,7 +75,6 @@ current answer. At the time of writing, verified against the cluster:
   comment recording what was removed and why — which is precisely the case the
   forbidden-literal guard has to tolerate, and does (see "a guard matched the
   comment explaining the absence", below).
->>>>>>> test/kagent-truth-up
 
 Claims about *declarative structure* — the Agent CRs, their tool bindings,
 SPIFFE naming, the OpenBao path mapping — are verified on disk and in the
@@ -222,11 +220,10 @@ Two properties of kagent 0.9.9 kept that invisible:
 guard this. Verify by hand with `tools/list` against the tool server; a missing
 tool returns JSON-RPC `-32602 tool 'x' not found`.
 
-<<<<<<< Updated upstream
 Previous revisions of this document described five. Eight are defined on disk
 (`d2-signalloom/infra/agent-swarm/kagent-*/`), deployed by
 `scripts/kagent-agents.sh`, and asserted by the test suites.
-=======
+
 ### The layer none of our checks reach
 
 Everything above — tool existence, tool callability, CRD schemas, reconciliation
@@ -259,7 +256,6 @@ asserts on model output. **Treat agent prose as unverified until a human or a
 tool has checked it against the cluster.**
 
 ## The Model Credential
->>>>>>> Stashed changes
 
 Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
 

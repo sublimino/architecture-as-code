@@ -20,6 +20,13 @@
 #      unreachable or mis-parsed server reads as "all 21 tools are missing" —
 #      a true-looking verdict for an entirely wrong reason. mcp_tools_list
 #      therefore fails loudly on an empty list rather than returning it.
+#
+#      Note the direction: for a guard shaped "every requested tool must be
+#      present", an empty list is a false RED, not a false green — you get a
+#      wall of missing tools and misdiagnose the agents instead of the parser.
+#      Invert the guard ("no requested tool is absent from an empty set") and
+#      the same silence becomes a false green. Either way the check has
+#      measured nothing, which is why it is an error and not a value.
 
 # Start a port-forward to a Service and set MCP_PORT / MCP_PF_PID.
 # The caller's teardown() is responsible for killing MCP_PF_PID.
@@ -138,6 +145,8 @@ mcp_tools_list() {
 # and complete the handshake. Sets MCP_PORT / MCP_PF_PID / MCP_SESSION.
 #
 # CALL THIS DIRECTLY. NEVER INSIDE `$( )`.
+# The general rule, for the next person writing a port-forward helper:
+# STATE ASSIGNED INSIDE A COMMAND SUBSTITUTION DOES NOT SURVIVE IT.
 # A command substitution runs in a subshell, so MCP_PF_PID would be set there
 # and lost on return — leaving a port-forward that teardown cannot kill and bats
 # will not exit while it lives. The first draft of this file combined connect

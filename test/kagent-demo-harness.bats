@@ -194,6 +194,27 @@ setup() {
   # instead of quietly counting as evidence. And guarded: a mid-generation
   # artefact has git_commit and lacks BOTH terminal keys. Anything else missing
   # its count is malformed and still fails.
+  #
+  # ─── SUPERSEDED AT MERGE — delete this branch, keep the shape checks ──────
+  #
+  # kagent-tests-docs has the better fix on their branch (29920a46): the
+  # harness writes its heartbeat to a `.inprogress` sidecar and os.replace()s
+  # the published artefact only once the counts are known. The published file
+  # is then ALWAYS complete — during a run it is the PREVIOUS artefact, a true
+  # statement about a real earlier run rather than a half-written one about
+  # this run — so the mid-generation state never reaches a reader and this
+  # branch becomes unreachable.
+  #
+  # Their reasoning for preferring it, which is correct and is why this should
+  # go rather than stay as belt-and-braces: A SKIP IS INDISTINGUISHABLE FROM A
+  # PASS IN A SUMMARY LINE. Leaving an unreachable skip in place would leave
+  # the exact shape this branch spent the session deleting.
+  #
+  # Kept here only because their harness change is not in this tree yet; with
+  # this tree's harness the skip is still load-bearing. Delete the `skip` and
+  # its enclosing `if` when their commit lands. The two malformed-shape checks
+  # below stay — with atomic publish those shapes only occur if the artefact is
+  # genuinely malformed, which is precisely when they should fail.
   if [ "$(jq -r 'has("test_assertions_passed")' "$PROOF_FILE")" != "true" ]; then
     jq -e 'has("git_commit")' "$PROOF_FILE" >/dev/null || {
       echo "artefact has neither a git_commit nor an assertion count; it is malformed,"

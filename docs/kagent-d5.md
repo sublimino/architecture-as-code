@@ -216,6 +216,15 @@ Two properties of kagent 0.9.9 kept that invisible:
 - The hand-written CRDs it replaced declared
   `x-kubernetes-preserve-unknown-fields: true`, so nothing validated.
 
+Compressed to the one line worth remembering:
+
+> **An absent server fails loudly; absent tools on a present server are
+> accepted silently.**
+
+That asymmetry is the whole reason a tool-existence guard had to exist at all.
+The loud half needed no test — the controller already refuses to compile the
+agent and says so. Only the silent half did.
+
 `d2-signalloom/test/kagent-chart.bats` and the tool-existence contract test now
 guard this. Verify by hand with `tools/list` against the tool server; a missing
 tool returns JSON-RPC `-32602 tool 'x' not found`.

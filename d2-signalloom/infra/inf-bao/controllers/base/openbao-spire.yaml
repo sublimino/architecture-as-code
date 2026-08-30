@@ -49,6 +49,27 @@ spec:
       port: 8200
       targetPort: http
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: spire-server-data
+  labels:
+    app.kubernetes.io/name: spire-server
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName is deliberately UNSET so the cluster's default class is
+  # used. Both lanes are kind, whose default is `standard`
+  # (rancher.io/local-path, WaitForFirstConsumer, no volume expansion). Pinning
+  # the name here would make this slice unschedulable on any cluster that names
+  # its default differently, and the failure mode of getting it wrong is a
+  # Pending pod, which is loud. Note the class does NOT support expansion: 1Gi
+  # is what this gets for its lifetime. SPIRE's datastore is a handful of
+  # registration rows and its CA journal — the live one is ~2MB — so the
+  # headroom is three orders of magnitude, not a guess.
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,6 +78,15 @@ metadata:
     app.kubernetes.io/name: spire-server
 spec:
   replicas: 1
+  # Recreate, NOT the default RollingUpdate, and this is load-bearing rather
+  # than stylistic. The data volume below is ReadWriteOnce, so a rolling update
+  # deadlocks against itself: the replacement pod cannot attach a volume the
+  # outgoing pod still holds, maxUnavailable keeps the outgoing pod alive
+  # waiting for the replacement to become ready, and the rollout hangs until
+  # somebody scales to zero by hand. Landing the PVC without this line is worse
+  # than landing neither.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: spire-server
@@ -74,10 +104,32 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /run/spire/config
+            - name: data
+              mountPath: /run/spire/data
       volumes:
         - name: config
           configMap:
             name: spire-server-config
+        - name: data
+          # server.conf's data_dir. This holds BOTH halves of the server's
+          # identity — the sqlite datastore (registration entries, the CA
+          # journal) and KeyManager "disk"'s keys.json (the CA private keys) —
+          # so without a volume a restart issues a brand new CA and forgets
+          # every registration.
+          #
+          # That alone would be recoverable. What made it terminal is the
+          # asymmetry with spire-agent, whose data_dir is a hostPath and
+          # therefore DID survive: the agent reloaded a bundle for a CA that no
+          # longer existed and crash-looped on "certificate signed by unknown
+          # authority" indefinitely — 1528 restarts over 6d19h on kind-osramp,
+          # each burning one of its single-use join tokens. Recovery needed node
+          # access to clear the agent's directory, which is why
+          # scripts/lib/spire-trust-anchor.sh refuses to attempt it in-cluster.
+          #
+          # This makes the server the durable side, matching the agent, so the
+          # CA the agent already trusts is still the CA after a restart.
+          persistentVolumeClaim:
+            claimName: spire-server-data
 ---
 apiVersion: v1
 kind: Service

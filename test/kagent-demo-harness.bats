@@ -95,19 +95,51 @@ setup() {
     return 1
   }
 
-  run jq -e '(.status == "STARTED" or .status == "COMPLETED") and .git_commit != null' "$PROOF_FILE"
-  [ "$status" -eq 0 ]
+  # FAILED belongs in this list. The inherited version accepted only STARTED or
+  # COMPLETED, so an artefact honestly recording a failed run was rejected as
+  # malformed while a stale COMPLETED one from an older commit sailed through —
+  # pressure, however unintentional, to leave the flattering artefact in place.
+  run jq -e '(.status == "STARTED" or .status == "COMPLETED" or .status == "FAILED") and .git_commit != null' "$PROOF_FILE"
+  [ "$status" -eq 0 ] || {
+    echo "proof artefact has no usable status/git_commit:"
+    jq -c '{status, git_commit, test_status}' "$PROOF_FILE"
+    return 1
+  }
 
-  # Freshness. The artefact is git-tracked, so without this assertion the
-  # committed copy answers for every future run on every future commit.
+  # FRESHNESS, expressed as "does this evidence still apply", not as
+  # "was it generated at HEAD".
+  #
+  # Requiring proof_sha == HEAD is unachievable for a git-tracked artefact:
+  # regenerating it produces a change, committing that change moves HEAD, and
+  # the artefact is stale again the instant it lands. An assertion no correct
+  # workflow can satisfy gets suppressed rather than fixed.
+  #
+  # The property that actually matters is that nothing the evidence describes
+  # has changed since it was taken. Diff the recorded commit against the
+  # WORKING TREE (not HEAD) over the kagent surface, so uncommitted edits
+  # invalidate it too.
   proof_sha="$(jq -r '.git_commit' "$PROOF_FILE")"
-  head_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
-  [ "$proof_sha" = "$head_sha" ] || {
-    echo "proof artefact was generated at commit '$proof_sha', HEAD is '$head_sha'"
-    echo "it is evidence about a tree that is no longer checked out"
+  git -C "$REPO_ROOT" rev-parse --verify --quiet "${proof_sha}^{commit}" >/dev/null || {
+    echo "proof artefact names commit '$proof_sha', which is not in this repository"
     echo "regenerate with: scripts/kagent-harness-exec.sh"
     return 1
   }
+
+  changed="$(git -C "$REPO_ROOT" diff --name-only "$proof_sha" -- \
+    'd2-signalloom/infra/kagent' \
+    'd2-signalloom/infra/agent-swarm' \
+    'd2-signalloom/test/kagent-contract.bats' \
+    'test/kagent-*.bats' \
+    'scripts/kagent-*.sh' \
+    'docs/kagent-d5.md' 2>/dev/null || true)"
+
+  if [ -n "$changed" ]; then
+    echo "the proof artefact was generated at '$proof_sha'; these kagent files"
+    echo "have changed since, so it is evidence about a different tree:"
+    printf '  %s\n' $changed
+    echo "regenerate with: scripts/kagent-harness-exec.sh"
+  fi
+  [ -z "$changed" ]
 }
 
 @test "kagent-demo: proof artefact lists exactly the Agent CRs the cluster has" {

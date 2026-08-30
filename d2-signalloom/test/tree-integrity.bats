@@ -65,6 +65,36 @@ setup() {
   # The general guard. A file that will not parse reports no tests, and bats
   # exits 0 over the remaining files — so the suite silently shrinks. Catches
   # conflict markers, syntax errors, a mangled shebang, a truncated write.
+  #
+  # ─── SCOPED TO THIS DIRECTORY DELIBERATELY. DO NOT WIDEN. ──────────────────
+  #
+  # Widening to the whole tree is the obvious improvement — the appeal of this
+  # guard is that it catches ANY cause, so covering more files looks strictly
+  # better. It is not. Measured over `git ls-files '*.bats'`, ten files fire,
+  # and only one of them is what this guard is for:
+  #
+  #   d2-osramp-apps/test/_helper.bats                    @test=0   --count=0
+  #   .../test_helper/bats-assert/test/assert.bats        @test=2   --count=err
+  #   .../test_helper/bats-assert/test/assert_line.bats   @test=31  --count=err
+  #   ...and 7 more vendored bats-assert suites
+  #
+  # Two different things, and the second is the trap:
+  #   - `_helper.bats` declares no tests because it IS a helper. Correct to skip.
+  #   - the nine vendored suites declare 2-31 REAL tests each and still fail to
+  #     load, because their `load test_helper` resolves relative to their own
+  #     directory and cannot be invoked from the repo root.
+  #
+  # A file with real tests reporting zero for an ENVIRONMENTAL reason is, at
+  # this guard, indistinguishable from one corrupted by conflict markers. Ten
+  # firing at once is precisely the pressure that gets an assertion weakened —
+  # someone appends `|| true`, or drops the floor below — and the guard that
+  # catches the real defect leaves with it. Found by kagent-real-chart when they
+  # ran this logic against their tree; confirmed identical on mine.
+  #
+  # If you do widen it, the discriminator is `@test` count versus load count:
+  #   grep >= 1 and --count 0  ->  "does not load in THIS context"  (suspicious)
+  #   both 0                   ->  "not a suite"                    (fine)
+  # and even then only inside directories this repo owns, never vendored ones.
   failed=""
   count=0
   for f in "${BATS_TEST_DIRNAME}"/*.bats; do

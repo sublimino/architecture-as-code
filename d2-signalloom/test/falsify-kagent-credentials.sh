@@ -125,6 +125,9 @@ SCRIPT_REL="scripts/kagent-credentials.sh"
 INV_REL="scripts/kagent-invoke.sh"
 MC_REL="d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
 CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
+OLLY_LLM_REL="scripts/olly-llm-secret.sh"
+OLLY_PDI_REL="scripts/olly-pdi-secret.sh"
+OLLY_SUITE="d2-signalloom/test/olly-secret-argv.bats"
 ENVLIB_REL="scripts/lib/env-file.sh"
 ENV_SUITE="d2-signalloom/test/env-file.bats"
 SEC_SUITE="d2-signalloom/test/no-tracked-secrets.bats"
@@ -462,6 +465,31 @@ m_key_name_drift() {
 }
 run_case "the ModelConfig asks for a key name sync does not produce" \
   "$CRED_SUITE" "the ModelConfig asks for exactly the key sync provides" m_key_name_drift
+
+# -- 12. Credentials in argv (the olly scripts) -------------------------------
+# Argv is world-readable at /proc/<pid>/cmdline and lands in shell history.
+# Reverting to --from-literal is a one-word edit, which is exactly why this
+# needs a permanent guard rather than the one-off check that verified the fix.
+m_olly_llm_literal() {
+  backup "$OLLY_LLM_REL"
+  mutate_sed "$OLLY_LLM_REL" 's|--from-file=LLM_API_KEY="${_olly_llm_staging}/LLM_API_KEY"|--from-literal=LLM_API_KEY="${LLM_API_KEY:-}"|'
+}
+run_case "the LLM API key goes back into argv via --from-literal" \
+  "$OLLY_SUITE" "the LLM API key never reaches a command line" m_olly_llm_literal
+
+m_olly_pdi_literal() {
+  backup "$OLLY_PDI_REL"
+  mutate_sed "$OLLY_PDI_REL" 's|--from-file=SERVICENOW_PASSWORD="${_pdi_staging}/SERVICENOW_PASSWORD"|--from-literal=SERVICENOW_PASSWORD="${SERVICENOW_PASSWORD}"|'
+}
+run_case "the ServiceNow password goes back into argv via --from-literal" \
+  "$OLLY_SUITE" "the ServiceNow password never reaches a command line" m_olly_pdi_literal
+
+m_olly_no_cleanup() {
+  backup "$OLLY_LLM_REL"
+  mutate_sed "$OLLY_LLM_REL" 's|^rm -rf "${_olly_llm_staging}"$|: # leaked|'
+}
+run_case "the staged LLM key is left on disk" \
+  "$OLLY_SUITE" "the staged LLM key does not outlive the run" m_olly_no_cleanup
 
 # ── Report ───────────────────────────────────────────────────────────────────
 printf '\n════════════════════════════════════════════════════════════════\n'

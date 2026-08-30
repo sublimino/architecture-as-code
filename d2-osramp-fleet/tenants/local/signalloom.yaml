@@ -146,6 +146,57 @@ spec:
         - kind: ServiceAccount
           name: spire-openbao-sync
           namespace: inf-bao
+    # ── spire-agent-swarm-entries: identity for the swarm registration Job ──
+    #
+    # Same placement reasoning as spire-openbao-sync directly above, and the
+    # same consequence if it is moved into the controllers slice: the whole
+    # slice deadlocks on the privilege-escalation dry run.
+    #
+    # A DEDICATED ServiceAccount rather than reusing spire-openbao-sync. The two
+    # need identical verbs today, so sharing one would work and would be one
+    # fewer object — but they are different workloads with different lifecycles
+    # (a one-shot bootstrap Job and an 8-hourly CronJob), and a shared identity
+    # means narrowing the permissions of either one silently re-scopes the
+    # other. d2-signalloom/test/least-privilege.bats reasons per-workload.
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: spire-agent-swarm-entries
+        namespace: inf-bao
+        labels:
+          app.kubernetes.io/name: spire-agent-swarm-entries
+          app.kubernetes.io/part-of: signalloom-bao-proof
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: spire-agent-swarm-entries
+        namespace: inf-bao
+      rules:
+        # register-entries.sh reaches the SPIRE admin socket by exec'ing into
+        # the spire-server pod, so it needs pods/exec; `deployment/spire-server`
+        # resolves through the apps get, and `kubectl wait` reads the same.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
+        - apiGroups: [""]
+          resources: ["pods/exec"]
+          verbs: ["create"]
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get", "list", "watch"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: spire-agent-swarm-entries
+        namespace: inf-bao
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: spire-agent-swarm-entries
+      subjects:
+        - kind: ServiceAccount
+          name: spire-agent-swarm-entries
+          namespace: inf-bao
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet

@@ -147,3 +147,123 @@ job_script() { # manifest
 	created="$(grep -cF 'auth/jwt/role/signalloom-agent-generic' "$script" || true)"
 	[ "$created" -gt 0 ]
 }
+
+# ── spire-agent-swarm-entries: four compounding defects, none of which ever ran
+#
+# The Job registered the SPIFFE identities for the agent swarm and had never
+# once started: `command: ["/bin/sh","-c"]` on the DISTROLESS spire-server
+# image. Behind that sat three more — a removed `-registrationUDSPath` flag,
+# pointed at the agent's socket directory rather than the server's admin socket,
+# from a pod that mounted no server socket at all — and over the top,
+# `2>/dev/null || echo "(entry may already exist, continuing)"`, which would
+# have printed reassurance over a total failure had it ever executed.
+#
+# Each assertion below pins one of them.
+
+swarm_manifest() { printf '%s' "$root/d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml"; }
+
+swarm_script() {
+	yq -N -r 'select(.kind == "ConfigMap" and .metadata.name == "spire-agent-swarm-entries-config")
+	          | .data["register-entries.sh"]' "$(swarm_manifest)"
+}
+
+@test "the swarm-entries Job reaches spire-server by kubectl exec, not by running its binary" {
+	# Defect 1. The spire-server image is distroless: any `command` that is a
+	# shell dies with `exec: "/bin/sh": ... no such file or directory` before a
+	# single line of the script runs.
+	run yq -N -r 'select(.kind == "Job" and .metadata.name == "spire-agent-swarm-entries-setup")
+	              | .spec.template.spec.containers[]
+	              | [.image, (.command | join(" "))] | @tsv' "$(swarm_manifest)"
+	[ "$status" -eq 0 ]
+	row="$(sed '/^[[:space:]]*$/d' <<<"$output")"
+	[[ "$row" != *"spiffe/spire-server"* ]]
+	[[ "$row" == *"kubectl"* ]]
+
+	# and the script must actually use kubectl exec against the Deployment
+	run swarm_script
+	[ "$status" -eq 0 ]
+	[[ "$output" == *"kubectl -n \"\$NAMESPACE\" exec deployment/spire-server"* ]]
+}
+
+@test "no container in the inf-bao controllers slice pins a dead bitnami tag" {
+	# docker.io/bitnami removed its versioned tags in 2025, so `bitnami/kubectl:1.31`
+	# resolves to NotFound — an ImagePullBackOff, not a network error. Both this
+	# Job and the spire-openbao-sync CronJob carried that pin; neither had ever
+	# run, so nothing surfaced it.
+	#
+	# Matches `bitnami/` but not `bitnamilegacy/`, which is the live relocation.
+	offenders=""
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		hits="$(grep -nE 'image:[[:space:]]*(docker\.io/)?bitnami/' "$f" || true)"
+		[ -n "$hits" ] && offenders="${offenders}${f#"$root"/}: ${hits}"$'\n'
+	done < <(find "$root/d2-signalloom/infra/inf-bao" -type f -name '*.yaml' | sort)
+
+	if [ -n "$offenders" ]; then
+		echo "dead docker.io/bitnami tag pinned (use bitnamilegacy/):"
+		echo "$offenders"
+	fi
+	[ -z "$offenders" ]
+}
+
+@test "the registration script does not use the removed registrationUDSPath flag" {
+	# Defects 2 and 3. Exec'ing into the server pod reaches SPIRE's DEFAULT
+	# admin socket; naming a socket explicitly is what broke every spire-server
+	# CLI call in this repo once already (see spire-trust-anchor.sh).
+	run swarm_script
+	[ "$status" -eq 0 ]
+	script="$output"
+
+	# Comments are stripped before matching, and that is not a convenience.
+	# The script explains WHY it does not set the flag, naming it — so a naive
+	# grep matches the explanation and reports the defect it was told is
+	# absent. The first version of this test failed for exactly that reason.
+	# d2-signalloom/test/bats-registry-coverage.bats strips comments for the
+	# same reason; a guard that can be satisfied, or tripped, by prose is not
+	# reading the code.
+	code="$(grep -vE '^[[:space:]]*#' <<<"$script")"
+
+	uds="$(grep -n 'registrationUDSPath' <<<"$code" || true)"
+	[ -z "$uds" ]
+
+	sockets="$(grep -n '/run/spire/sockets' <<<"$code" || true)"
+	[ -z "$sockets" ]
+
+	# and the Job must mount no socket volume at all
+	run yq -N -r 'select(.kind == "Job" and .metadata.name == "spire-agent-swarm-entries-setup")
+	              | [.spec.template.spec.volumes[].name] | join(",")' "$(swarm_manifest)"
+	[ "$status" -eq 0 ]
+	[ "$(sed '/^[[:space:]]*$/d' <<<"$output")" = "register-script" ]
+}
+
+@test "the registration script does not swallow errors" {
+	# Defect 4, and the one that made the other three survivable-looking. A Job
+	# that prints "(entry may already exist, continuing)" over a container that
+	# cannot start is the false-green shape this whole slice has been cleared of.
+	run swarm_script
+	[ "$status" -eq 0 ]
+	script="$output"
+
+	swallowed="$(grep -nE '2>/dev/null[[:space:]]*\|\|[[:space:]]*(echo|true)|\|\|[[:space:]]*true[[:space:]]*$' <<<"$script" || true)"
+	[ -z "$swallowed" ]
+
+	# errexit must be on, so any unexpected failure fails the Job
+	[[ "$script" == *"set -euo pipefail"* ]]
+}
+
+@test "the registration script asserts the entries exist afterwards" {
+	# The lead assertion: a Job that exits 0 having created nothing is exactly
+	# where this started. Verified live by mutation — with the create call
+	# replaced by `:`, the Job failed and named the absent SPIFFE ID.
+	run swarm_script
+	[ "$status" -eq 0 ]
+	script="$output"
+
+	[[ "$script" == *"Verifying every entry is present"* ]]
+	[[ "$script" == *"entry show"* ]]
+	# it must be able to fail: a non-zero exit guarded by the missing set
+	[[ "$script" == *"exit 1"* ]]
+
+	verify="$(grep -cE 'missing\+=\(' <<<"$script" || true)"
+	[ "$verify" -gt 0 ]
+}

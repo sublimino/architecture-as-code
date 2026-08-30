@@ -59,3 +59,52 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+---
+# The two workloads in this namespace that talk to the Kubernetes API.
+#
+# default-deny above blocks all egress, and neither of these had ever run — the
+# privilege-escalation deadlock in the controllers slice stopped Flux applying
+# them at all — so nothing exercised this gap. The swarm-entries Job registered
+# its FIRST SPIRE entry and then died on
+#
+#   error: dial tcp 10.96.0.1:443: connect: connection timed out
+#
+# which is the API server, not SPIRE. Left unfixed it is worse than a clean
+# failure: entries are created up to the point of the timeout, so the Job fails
+# having done PART of its work.
+#
+# Both reach kube-apiserver by `kubectl exec` into spire-server, and nothing
+# else outbound beyond DNS (granted by allow-bao-spire-and-portal above).
+#
+# One policy with matchExpressions rather than the one-per-workload files used
+# in inf-signalloom: these two are the same capability ("may speak to the API
+# server") and listing them together makes that set auditable in one place
+# instead of implied by the existence of two files. Adding a third kubectl
+# workload must be a deliberate edit here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kubectl-clients-apiserver-egress
+  labels:
+    app.kubernetes.io/part-of: signalloom-bao-proof
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - spire-agent-swarm-entries
+          - spire-openbao-sync
+  policyTypes:
+    - Egress
+  egress:
+    # The ClusterIP 10.96.0.1:443 DNATs to the kind node's real apiserver on
+    # :6443, and kindnet evaluates the policy on the POST-DNAT target — so this
+    # must be scoped by port rather than by the ClusterIP, which would never
+    # match. Identical rationale to allow-netassert-controller-egress in
+    # inf-signalloom; see the comment there.
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443

@@ -101,7 +101,18 @@ spec:
           restartPolicy: Never
           containers:
             - name: sync
-              image: bitnami/kubectl:1.31
+              # bitnamiLEGACY, not bitnami. Bitnami removed the versioned tags
+              # from docker.io/bitnami in 2025, so `bitnami/kubectl:1.31` now
+              # resolves to NotFound. This CronJob had never run — it was in the
+              # set the privilege-escalation deadlock stopped Flux from ever
+              # applying — so the dead pin was never exercised and nothing
+              # reported it. Left unfixed, the 8-hourly JWT re-sync this CronJob
+              # exists to perform would ImagePullBackOff forever, and the 20h
+              # CA-rotation outage it prevents would return unannounced.
+              #
+              # Do NOT swap this for registry.k8s.io/kubectl: that image is
+              # distroless and cannot run `bash /scripts/sync.sh`.
+              image: docker.io/bitnamilegacy/kubectl:1.31
               command: ["bash", "/scripts/sync.sh"]
               env:
                 - name: NAMESPACE

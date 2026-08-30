@@ -60,6 +60,23 @@ spec:
   resources:
     requests:
       storage: 1Gi
+  # ⚠ APPLYING THIS TO A RUNNING CLUSTER IS NOT FREE. READ THE MIGRATION
+  #   SECTION IN scripts/lib/spire-trust-anchor.sh FIRST.
+  #
+  # A new PVC is an EMPTY volume, so spire-server starts on it, mints a fresh CA
+  # and an empty registration table — exactly once. That strands the agent's
+  # hostPath cache on the old CA and deletes every entry, i.e. it triggers the
+  # outage this change exists to prevent, on the way to preventing it. On a
+  # cluster whose trust chain was repaired by hand, it discards the repair.
+  #
+  # Two routes, both documented at the reference above: pre-seed the volume
+  # node-side for zero CA change, or accept the one-time break and run the full
+  # recovery. A FRESH cluster needs neither — there is nothing to preserve.
+  #
+  # This warning is here, on the object that causes it, rather than only in the
+  # library someone reads while debugging: by the time you are reading
+  # spire-trust-anchor.sh you have usually already applied this.
+  #
   # storageClassName is deliberately UNSET so the cluster's default class is
   # used. Both lanes are kind, whose default is `standard`
   # (rancher.io/local-path, WaitForFirstConsumer, no volume expansion). Pinning

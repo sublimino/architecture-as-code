@@ -348,13 +348,30 @@ bao kv get -field=value ${path}" >"$staged" 2>/dev/null || true
   Run '${0##*/} seed' first, with ANTHROPIC_API_KEY exported."
   fi
 
+  # `replace --force`, not `apply`.
+  #
+  # `apply` MERGES. A Secret of this name previously existed carrying the
+  # placeholder under the key `api-key`, and applying a new object with the key
+  # ANTHROPIC_API_KEY leaves the old one in place — reproduced against the live
+  # cluster, keys afterwards: ['ANTHROPIC_API_KEY', 'api-key'].
+  #
+  # That is the worst available state. The Secret exists, is non-empty, and
+  # contains a real credential, so every presence check passes — while a
+  # consumer naming the other key silently reads a 33-byte placeholder. It also
+  # defeats a test that samples one entry: jq sorts keys, so `to_entries[0]`
+  # returns ANTHROPIC_API_KEY and reports healthy while the credential actually
+  # in use is the mock.
+  #
+  # `replace --force` deletes and recreates, so the object contains exactly the
+  # keys named here and nothing inherited. Verified to work whether or not the
+  # Secret already exists.
   log "==> Projecting into Secret/${SECRET_NAME} (key ${SECRET_KEY}), ${len} bytes"
   for ns in $SECRET_NAMESPACES; do
     log "    + namespace ${ns}"
     "$KUBECTL" create secret generic "$SECRET_NAME" \
       -n "$ns" \
       --from-file="${SECRET_KEY}=${staged}" \
-      --dry-run=client -o yaml | "$KUBECTL" apply -f - >/dev/null
+      --dry-run=client -o yaml | "$KUBECTL" replace --force -f - >/dev/null
   done
 
   rm -f "$staged"
@@ -396,18 +413,54 @@ bao kv get -field=value ${path}" 2>/dev/null || true)"
   log ""
   log "=== Kubernetes: the Secret the kagent chart consumes ==="
   log ""
-  printf '  %-24s %-24s %-8s %s\n' "NAMESPACE" "SECRET" "KEY" "BYTES"
+  printf '  %-22s %-22s %-19s %-7s %s\n' "NAMESPACE" "SECRET" "KEY" "BYTES" "VERDICT"
   for ns in $SECRET_NAMESPACES; do
-    b64len="$("$KUBECTL" get secret "$SECRET_NAME" -n "$ns" \
-                -o "jsonpath={.data.${SECRET_KEY}}" 2>/dev/null || true)"
-    if [ -n "$b64len" ]; then
-      len="$(printf '%s' "$b64len" | base64 -d 2>/dev/null | wc -c | tr -d ' ')"
-      printf '  %-24s %-24s %-8s %s\n' "$ns" "$SECRET_NAME" "$SECRET_KEY" "$len"
-    else
-      printf '  %-24s %-24s %-8s %s\n' "$ns" "$SECRET_NAME" "$SECRET_KEY" "absent"
+    # EVERY key is examined, not just the one we expect. A stray second key
+    # holding the placeholder is invisible to a check that looks only at
+    # ${SECRET_KEY}, and a consumer naming the stray key reads the placeholder
+    # while every presence check reports healthy.
+    local keys="" k kb64 klen verdict
+    keys="$("$KUBECTL" get secret "$SECRET_NAME" -n "$ns" -o json 2>/dev/null \
+              | jq -r '.data // {} | keys[]' 2>/dev/null || true)"
+
+    if [ -z "$keys" ]; then
+      printf '  %-22s %-22s %-19s %-7s %s\n' "$ns" "$SECRET_NAME" "$SECRET_KEY" "-" "ABSENT"
       overall=1
+      continue
     fi
+
+    for k in $keys; do
+      kb64="$("$KUBECTL" get secret "$SECRET_NAME" -n "$ns" -o "jsonpath={.data.${k}}" 2>/dev/null || true)"
+      _shield_on
+      out="$(printf '%s' "$kb64" | base64 -d 2>/dev/null || true)"
+      klen="${#out}"
+      verdict="ok"
+      # No key in this Secret may carry the retired placeholder, whatever it is
+      # called. This is the assertion the two-key incident needed.
+      if [ "$out" = "$RETIRED_MOCK" ]; then verdict="PLACEHOLDER"; overall=1; fi
+      _shield_off
+      if [ "$k" != "$SECRET_KEY" ] && [ "$verdict" = "ok" ]; then
+        # Not the key the ModelConfig asks for. Harmless only until something
+        # names it.
+        verdict="UNEXPECTED-KEY"
+        overall=1
+      fi
+      [ "$klen" -lt "$MIN_KEY_LEN" ] && { verdict="TOO-SHORT"; overall=1; }
+      printf '  %-22s %-22s %-19s %-7s %s\n' "$ns" "$SECRET_NAME" "$k" "$klen" "$verdict"
+    done
   done
+
+  # The two halves of the contract, compared rather than each assumed.
+  local mc_key
+  mc_key="$(yq -r '.spec.apiKeySecretKey // ""' \
+              "${SWARM_DIR}/kagent-k8s-reader/modelconfig.yaml" 2>/dev/null || true)"
+  log ""
+  log "  ModelConfig requests key : ${mc_key:-<unset>}"
+  log "  sync provides key        : ${SECRET_KEY}"
+  if [ "$mc_key" != "$SECRET_KEY" ]; then
+    log "  MISMATCH — the consumer asks for a key the producer does not create."
+    overall=1
+  fi
 
   log ""
   log "The credential value is never printed. Equal SHA256 prefixes across rows"

@@ -362,3 +362,26 @@ render_images() {
   first="$(grep -n 'apply -k .*agent-swarm/kagent-' "$s" | head -1 | cut -d: -f1)"
   [ -n "$pre" ] && [ -n "$first" ] && [ "$pre" -lt "$first" ]
 }
+
+@test "kagent-chart: Signal Loom's tenancy labels reach controller-minted agent pods" {
+  # The controller builds each agent's Deployment itself and propagates NOTHING
+  # from the Agent CR or its ServiceAccount, so an agent pod carried only
+  # kagent's own labels. Two things in this repo select signalloom.ai/agent=true
+  # and both silently missed every agent pod: the agent-swarm NetworkPolicies
+  # (whose default-deny has podSelector {} and so catches everything, leaving an
+  # unlabelled pod with NO allow policy — every packet dropped, surfacing as
+  # `i/o timeout` on a 1/1 Running, Accepted=True, Ready=True pod), and
+  # pod-based /agents discovery.
+  #
+  # Asserted against the rendered ConfigMap, not the values file. The chart
+  # joins the map into a comma-separated k=v string sorted alphabetically
+  # (templates/controller-configmap.yaml), and only the render proves the key
+  # is emitted at all — the whole block is behind an `if and .Values...` guard
+  # that silently produces nothing if the path is misspelled.
+  rendered="$(render base)"
+  echo "$rendered" | grep -q 'DEFAULT_AGENT_POD_LABELS:'
+  labels="$(echo "$rendered" | sed -n 's/^ *DEFAULT_AGENT_POD_LABELS: "\(.*\)"$/\1/p')"
+  [ -n "$labels" ]
+  case ",$labels," in *",signalloom.ai/agent=true,"*) ;; *) return 1 ;; esac
+  case ",$labels," in *",signalloom.ai/harness=kagent,"*) ;; *) return 1 ;; esac
+}

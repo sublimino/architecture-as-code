@@ -37,6 +37,11 @@ setup() {
   chmod +x "${STUB_DIR}/kubectl"
   export KUBECTL="${STUB_DIR}/kubectl"
 
+  # These suites test the A2A client, not the credential precondition. Set here
+  # rather than inherited from the caller's shell: a test that only passes
+  # because of an exported variable is a test that passes on my machine.
+  export KAGENT_SKIP_CREDENTIAL_CHECK=1
+
   SERVER_PID=""
 }
 

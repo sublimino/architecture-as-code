@@ -65,6 +65,11 @@ STUB
   # Set, so no port-forward is attempted and the test never touches the network.
   export KAGENT_A2A_BASE="http://127.0.0.1:8083"
 
+  # These suites test the A2A client, not the credential precondition. Set here
+  # rather than inherited from the caller's shell: a test that only passes
+  # because of an exported variable is a test that passes on my machine.
+  export KAGENT_SKIP_CREDENTIAL_CHECK=1
+
   OK_REPLY='{"jsonrpc":"2.0","id":"1","result":{"status":{"state":"completed"},"artifacts":[{"artifactId":"a1","parts":[{"kind":"text","text":"There are 21 namespaces in the cluster."}]}]}}'
 }
 
@@ -234,4 +239,35 @@ STUB
   [ "$status" -eq 0 ]
   [[ "$output" == *"--agent"* ]]
   [[ "$output" == *"--prompt"* ]]
+}
+
+# ─── The credential precondition ──────────────────────────────────────────────
+
+@test "kagent-invoke: fails loudly when the model credential Secret is absent" {
+  # This is the half of the contract that does NOT no-op. Seeding tolerates a
+  # missing optional key (matching olly-llm-secret.sh); invoking does not,
+  # because an agent with no credential fails several layers down as an opaque
+  # JSON-RPC error that reads like a broken agent.
+  unset KAGENT_SKIP_CREDENTIAL_CHECK
+  export SIGNALLOOM_ENV_FILE="${BATS_TEST_TMPDIR}/absent.env"
+  # kubectl stub answers `get agent` but returns nothing for `get secret`.
+  export CURL_STUB_REPLY="$OK_REPLY"
+  run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no model credential"* ]]
+  [[ "$output" == *".env"* ]]
+  [[ "$output" == *"demo-kagent-credentials"* ]]
+  # And it must stop BEFORE invoking, not report the problem after the fact.
+  posted="$(grep -F 'POST' "$CURL_ARGV_LOG" 2>/dev/null || true)"
+  [ -z "$posted" ]
+}
+
+@test "kagent-invoke: the credential guidance names the resolved .env path" {
+  # Naming "some .env somewhere" is what makes the worktree bug so confusing.
+  # The message must name the file it actually consulted.
+  unset KAGENT_SKIP_CREDENTIAL_CHECK
+  export SIGNALLOOM_ENV_FILE="${BATS_TEST_TMPDIR}/named.env"
+  run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"${BATS_TEST_TMPDIR}/named.env"* ]]
 }

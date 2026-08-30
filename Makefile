@@ -877,10 +877,14 @@ demo-kagent-demo: ## Run the interactive Kagent D5 walkthrough demo.
 
 .PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke
 
-# Requires ANTHROPIC_API_KEY in the environment. There is no fallback: the whole
-# point is that the demo refuses to run on a placeholder rather than degrading
-# to one silently. The key is never written to disk, to git, or to argv.
-demo-kagent-credentials: ## Store $$ANTHROPIC_API_KEY in OpenBao (SPIFFE-scoped) and project it into the kagent Secret.
+# Reads ANTHROPIC_API_KEY from .env at the MAIN checkout root (gitignored), or
+# from the environment, which takes precedence. Resolved via git rather than
+# $$PWD so it works from a linked worktree, where .env does not exist.
+#
+# No-ops with guidance when no key is configured, matching olly-llm-secret.sh:
+# a missing optional credential must not break `make up`. The loud failure is in
+# demo-kagent-invoke, where the key is genuinely required.
+demo-kagent-credentials: ## Store ANTHROPIC_API_KEY (.env or environment) in OpenBao and project it into the kagent Secret.
 	./scripts/kagent-credentials.sh seed
 	./scripts/kagent-credentials.sh sync
 	./scripts/kagent-credentials.sh verify

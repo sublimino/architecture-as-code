@@ -1,7 +1,7 @@
 {
-  "task_id": "FINAL",
-  "timestamp": "2026-08-30T17:01:55Z",
-  "git_commit": "b5b00100",
+  "task_id": "P0",
+  "timestamp": "2026-08-30T17:00:11Z",
+  "git_commit": "e9d0b77f",
   "cluster_info": "\u001b[0;32mKubernetes control plane\u001b[0m is running at \u001b[0;33mhttps://127.0.0.1:46565\u001b[0m",
   "kagent_pods": [
     "kagent-controller-55c5c686fd-lsgjh:Running",
@@ -19,10 +19,6 @@
     "kagent-network-auditor",
     "kagent-security-analyst"
   ],
-  "status": "FAILED",
-  "proof_path": "/home/andy/src/cp/osramp-demo/.kagent-preflight-proof.json",
-  "test_status": "FAIL",
-  "test_assertions_passed": 68,
-  "test_assertions_failed": 2,
-  "test_assertions_skipped": 0
+  "status": "STARTED",
+  "proof_path": "/home/andy/src/.worktrees/osramp-demo/feat/kagent-upstream-chart/.kagent-preflight-proof.json"
 }

@@ -1,7 +1,7 @@
 {
   "task_id": "P0",
-  "timestamp": "2026-08-30T16:34:31Z",
-  "git_commit": "0b6e958b",
+  "timestamp": "2026-08-30T16:47:49Z",
+  "git_commit": "10617869",
   "cluster_info": "\u001b[0;32mKubernetes control plane\u001b[0m is running at \u001b[0;33mhttps://127.0.0.1:46565\u001b[0m",
   "kagent_pods": [
     "kagent-controller-55c5c686fd-lsgjh:Running",
@@ -22,6 +22,6 @@
   "status": "FAILED",
   "proof_path": "/home/andy/src/.worktrees/osramp-demo/test/kagent-truth-up/.kagent-preflight-proof.json",
   "test_status": "FAIL",
-  "test_assertions_passed": 51,
+  "test_assertions_passed": 56,
   "test_assertions_failed": 5
 }

@@ -1,18 +1,13 @@
 {
   "task_id": "P0",
-  "timestamp": "2026-08-30T14:59:34Z",
-  "git_commit": "f0f331b2",
+  "timestamp": "2026-08-30T15:51:51Z",
+  "git_commit": "8848d125",
   "cluster_info": "\u001b[0;32mKubernetes control plane\u001b[0m is running at \u001b[0;33mhttps://127.0.0.1:46565\u001b[0m",
   "kagent_pods": [
-    "kagent-controller-9bc59d6cf-ql522:Running",
-    "kagent-grafana-mcp-6ffcfccb5d-x798c:Running",
+    "kagent-controller-5f55b45fb9-wznmm:Running",
     "kagent-postgresql-6b89965687-nd9r9:Running",
-    "kagent-querydoc-cbbcc598f-bsr2g:Running",
     "kagent-tools-56494b5564-8dgtr:Running",
-    "kagent-ui-68c94c4ddd-v8lvf:Running",
-    "observability-agent-79c456d8b4-7526h:Running",
-    "promql-agent-656b54d46f-mbbgn:Running",
-    "promql-agent-67b8f6556b-nqkk8:Completed"
+    "kagent-ui-68c94c4ddd-v8lvf:Running"
   ],
   "agent_crs": [
     "kagent-chaos-prober",
@@ -27,6 +22,6 @@
   "status": "FAILED",
   "proof_path": "/home/andy/src/.worktrees/osramp-demo/test/kagent-truth-up/.kagent-preflight-proof.json",
   "test_status": "FAIL",
-  "test_assertions_passed": 53,
-  "test_assertions_failed": 8
+  "test_assertions_passed": 55,
+  "test_assertions_failed": 6
 }

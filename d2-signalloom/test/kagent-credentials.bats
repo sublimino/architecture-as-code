@@ -478,3 +478,50 @@ _placeholder_hits() {
     return 1
   }
 }
+
+@test "kagent-credentials: the stub refuses an output query it does not understand" {
+  # The stub's own guard. Both earlier defects in it returned EMPTY for a query
+  # it mishandled, and empty is a legal answer — "key absent", "list empty" — so
+  # its silence was indistinguishable from a real state. An unrecognised query
+  # whose stdout is consumed now fails loudly instead.
+  run "${STUB_DIR}/kubectl" get configmap something -o jsonpath='{.data.nope}'
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unhandled output-producing query"* ]]
+}
+
+@test "kagent-credentials: the stub still succeeds silently for exit-code-only commands" {
+  # The other half. `create`, `apply`, `delete` and friends are simulated
+  # correctly by returning 0 with no output; failing them would break every test
+  # here for no benefit. The split is whether the caller reads stdout.
+  run "${STUB_DIR}/kubectl" apply -f -
+  [ "$status" -eq 0 ]
+  run "${STUB_DIR}/kubectl" delete secret foo -n bar
+  [ "$status" -eq 0 ]
+}
+
+@test "kagent-credentials: the rendered manifest actually reaches the replace step" {
+  # The pipeline `create --dry-run -o yaml | replace --force -f -` was carrying
+  # an EMPTY manifest under the old stub, and every test still passed because
+  # they asserted on argv rather than on the pipe having content. Assert the
+  # producer emits a Secret, so "replace was called" also means "with something".
+  rendered="$("${STUB_DIR}/kubectl" create secret generic kagent-anthropic-key \
+                -n kagent --from-file=ANTHROPIC_API_KEY=/dev/null \
+                --dry-run=client -o yaml)"
+  [ -n "$rendered" ]
+  [[ "$rendered" == *"kind: Secret"* ]]
+}
+
+@test "kagent-credentials: sync's create|replace pipeline completes without SIGPIPE" {
+  # 141 is 128+13, SIGPIPE: the reader did not drain stdin, so the producer died
+  # and pipefail propagated it. It read as "sync failed" with no error message.
+  # Latent while the stub emitted nothing — there was nothing to write, so no
+  # signal. Assert the exact code, because a bare non-zero check would not
+  # distinguish this from a real failure.
+  export KUBECTL_STUB_BAO_VALUE="$FAKE_KEY"
+  run "$SCRIPT" sync
+  [ "$status" -ne 141 ] || {
+    echo "sync died of SIGPIPE: the -f - reader is not draining stdin"
+    return 1
+  }
+  [ "$status" -eq 0 ]
+}

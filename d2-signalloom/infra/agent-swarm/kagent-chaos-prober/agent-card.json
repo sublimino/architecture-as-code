@@ -3,7 +3,7 @@
   "name": "kagent-chaos-prober",
   "role": "chaos",
   "description": "Injects controlled pod disruptions to test recovery SLA",
-  "spiffeId": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/kagent-chaos-prober",
+  "spiffeId": "spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-chaos-prober",
   "harness": "kagent",
   "runtime": "go",
   "openbaoPath": "/secret/data/signalloom/agents/kagent-chaos-prober",

@@ -127,8 +127,39 @@ ServiceAccount ever stops being named after the agent, the governance UI renders
 identity SPIRE never issued.
 
 Two independent assertions in `d2-signalloom/test/kagent-contract.bats` hold that
-invariant on disk (Agent name == ServiceAccount name; agent-card `spiffeId` ends in
-`/sa/<that name>`), and `test/kagent-credentials.bats` holds it against the cluster.
+invariant on disk (Agent name == ServiceAccount name; the agent-card `spiffeId`
+matches `spiffe://<domain>/ns/<ns>/sa/<that name>` in full), and
+`test/kagent-credentials.bats` holds it against the cluster.
+
+### Trust domain: `signalloom.demo`
+
+The canonical SPIFFE trust domain is **`signalloom.demo`**, declared once in
+`d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml` — the
+manifest that renders the `spire-server-config` ConfigMap. The tests derive the
+expected domain from that file rather than hardcoding it, so changing SPIRE's
+domain automatically requires the agent cards to follow.
+
+All 8 `agent-card.json` files previously advertised
+`spiffe://osramp.acme.local/...`, which was never an identity — `osramp.acme.local`
+is the Gateway DNS name (`dashboard.osramp.acme.local`, `*.osramp.acme.local`) and
+had been pasted into the SPIFFE authority field. Three independent checks agreed:
+
+- OpenBao's JWT roles bind `bound_subject` to `spiffe://signalloom.demo/...`
+  (14 occurrences, none for the other domain). A card advertising
+  `osramp.acme.local` therefore named a credential OpenBao would **reject** — the
+  cards did not merely disagree with SPIRE, they described something that could
+  not work.
+- Live SPIRE registration entries are all `spiffe://signalloom.demo/...`,
+  including entries in `fe-signalloom-agents` itself.
+- Across tracked files, `spiffe://signalloom.demo` appears 132 times against 8 for
+  `spiffe://osramp.acme.local` — and those 8 were exactly these cards.
+
+The `/ns/fe-signalloom-agents/sa/<agent>` path was verified correct on all 8
+before the change, so the authority was the only wrong segment. Fixed.
+
+Unrelated and still outstanding: `signalloom.local` appears as `trustDomain:` in
+`d2-signalloom/agents/*.yaml` and `apps/fleet-manager/base/fleet-config.yaml`.
+That is a third domain, outside the kagent surface and not covered by these tests.
 
 ## Tests & verification
 
@@ -163,6 +194,35 @@ Agent CRs discovered through `fake-integration-proxy`.
   omitted from `scripts/kagent-test.sh`, so `make demo-kagent-test` reported green
   while it was red. It is now included: either the script grows that interface or
   the suite is rewritten against the one it has — but the mismatch is visible.
+
+### Three ways these suites have produced false green
+
+Each of these was hit for real while building the kagent suites. All three
+produce a **passing** result, which is why they are worth writing down: a test
+that fails tells you about itself, a test that falsely passes does not.
+
+1. **A `bats -f` filter matching zero tests exits 0.** A mutation harness that
+   breaks a guard and then runs `bats -f '<name>'` to see it fail reads the
+   exit 0 as "nothing guards this" and *acquits a guard that works perfectly*.
+   The filter matching at least one test is a precondition and must be checked
+   before the result is interpreted — count the `ok`/`not ok` lines and treat
+   zero as an error, not as a verdict.
+
+2. **A positional index over a map silently changes what is tested.** Reading a
+   Secret with `jq '.data | to_entries[0].value'` tests whichever key sorts
+   first. When `kagent-anthropic-key` grew a second key, `ANTHROPIC_API_KEY`
+   (real) sorted ahead of `api-key` (still the mock, and the one the ModelConfig
+   actually names) — so the assertion passed while the credential in use was a
+   placeholder. **Assert over every key; never a positional index.** The general
+   form: if a collection can grow, an index into it is a silent rebinding.
+
+3. **Mutating into an already-red suite proves nothing.** Falsifying the SPIFFE
+   trust-domain assertion by pointing one card at `spiffe://wrong.example`
+   produced a red — but the failure named a *different* card, because the suite
+   was already failing on the first one alphabetically and never reached the
+   mutation. A falsification must start from green: fix everything, confirm the
+   suite passes, then break exactly one thing and check the failure names the
+   thing you broke.
 
 ### The proof artefact
 

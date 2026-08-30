@@ -123,13 +123,38 @@ controller:
     #   kagent-dev/kagent/app         the Python runtime (`runtime: python`)
     #   kagent-dev/kagent/golang-adk  the Go runtime     (`runtime: go`)
     #
-    # golang-adk is hardcoded in the controller binary — it appears nowhere in
-    # the chart (`rg golang-adk` over the whole chart returns nothing), there is
-    # no values.schema.json, and the controller ConfigMap carries no ADK key.
-    # Only its REGISTRY is configurable, via templates/controller-configmap.yaml:
+    # ─── The reference is SPLIT, and that is the whole trick ────────────────
+    #
+    # The image reference the controller stamps into an agent Deployment is
+    # assembled from two sources, and only one of them is ours:
+    #
+    #   <IMAGE_REGISTRY> / kagent-dev/kagent/golang-adk @ sha256:e01479…
+    #   \_____________/   \_________________________________________/
+    #     from THIS key            hardcoded in the controller binary
+    #
+    # So "golang-adk is hardcoded" and "a chart value redirects it" are both
+    # true and are not in tension. The repository path and the digest cannot be
+    # changed from here at all — `rg golang-adk` over the whole chart returns
+    # nothing, there is no values.schema.json, and the controller ConfigMap
+    # carries no ADK key. The registry prefix is the one component that is
+    # configurable, via templates/controller-configmap.yaml:
     #
     #   IMAGE_REGISTRY: {{ .Values.controller.agentImage.registry
     #                      | default .Values.registry }}
+    #
+    # The consequence worth stating plainly, because it is what makes this
+    # comprehensible rather than magic: THE DIGEST DOES NOT CHANGE. Before and
+    # after, the agents run sha256:e01479b52280b0eae9e2808cc68392ba98fd7377
+    # 82496ff256847257e6bb8ed1. Same bytes, same content, different host. This
+    # is not a substitution of one image for another, and nothing is being
+    # re-pinned or trusted differently — the identical artifact is simply
+    # fetched from the registry that actually publishes it.
+    #
+    # Proven by experiment rather than read off the template, because the
+    # `default` chain has two ends and only a running controller settles which
+    # one won: patching IMAGE_REGISTRY to ghcr.io and re-reconciling one Agent
+    # CR changed the minted Deployment image to
+    # ghcr.io/kagent-dev/kagent/golang-adk@sha256:e01479…, digest untouched.
     #
     # ─── Why it has to move ─────────────────────────────────────────────────
     #
@@ -155,6 +180,25 @@ controller:
     # ghcr.io is additionally one of the five hosts scripts/registry-cache.sh
     # mirrors, and cr.kagent.dev is not — so this also moves the agent runtime
     # onto the pull-through cache instead of the open internet.
+    #
+    # ─── This is the SECOND registry-inference defect in this one chart ─────
+    #
+    # The other is in values-observability.yaml: grafana-mcp defaults to
+    # `registry: mcp`, which renders the unqualified reference
+    # `mcp/grafana:latest`. Both are the same class of bug — the chart assumes
+    # a registry component that the consumer's tooling then has to infer:
+    #
+    #   golang-adk   a registry that is NAMED and does not serve the image
+    #   grafana-mcp  a registry that is OMITTED and has to be guessed as
+    #                docker.io, which scripts/lib/image-identity.sh guesses
+    #                wrong for two-segment names
+    #
+    # They surface completely differently — one as ImagePullBackOff on every
+    # agent, one as a preload FAIL that blames the image loader — which is why
+    # they were found separately and days of debugging apart in principle. The
+    # shared lesson is the cheap one: for any image this chart deploys, write
+    # the registry out in full and verify the resulting reference resolves,
+    # rather than trusting the chart's default to be both present and correct.
     #
     # Revert to the chart default once upstream publishes golang-adk to
     # cr.kagent.dev.

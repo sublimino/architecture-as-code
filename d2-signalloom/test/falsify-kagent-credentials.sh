@@ -218,7 +218,7 @@ YAML
   MUTATED+=("$CTRL_REL"); return 0
 }
 run_case "the placeholder Secret is restored to a manifest" \
-  "$CRED_SUITE" "the retired mock placeholder survives nowhere as a value" m_mock_returns
+  "$CRED_SUITE" "the retired placeholder survives in no applyable file" m_mock_returns
 
 # ── 3. The ModelConfig contract ──────────────────────────────────────────────
 m_nested() {

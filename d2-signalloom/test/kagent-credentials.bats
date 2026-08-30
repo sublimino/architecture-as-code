@@ -140,43 +140,52 @@ STUB
   [ -z "$leaked" ]
 }
 
-@test "kagent-credentials: the retired mock placeholder survives nowhere as a value" {
-  # The mock Secret is not merely superseded, it is deleted. Leaving it in a
-  # manifest means the next `kubectl apply -k` silently overwrites a real key
-  # with a fake one and every presence check still passes.
-  #
-  # Scoped to non-comment lines. Prose naming the retired value — the comment in
-  # controller.yaml explaining why the Secret is absent, the header of this file
-  # — cannot be applied to a cluster and is worth keeping. A YAML `key: "value"`
-  # or a shell assignment can be, and is what this catches. Comment lines are
-  # identified the same way in YAML and shell: # after optional whitespace.
-  #
+# The hazard is not the string, it is a file that can be APPLIED or EXECUTED
+# carrying the string as a value. `kubectl apply -k` on a manifest that still
+# declares the placeholder silently overwrites a real operator-supplied key with
+# a fake one, and every presence check downstream still reports healthy.
+#
+# So the guard is scoped by what a file can do, not by an exemption list that
+# grows a hole every time prose mentions the value. Markdown explaining the
+# history is not a hazard; a YAML `key: value` or a shell assignment is. Within
+# the scanned types, comment lines are exempt — identified identically in YAML,
+# shell and Make: # after optional whitespace.
+_placeholder_hits() {
+  local root="$1"
+  grep -rIF 'mock-anthropic-key-for-local-demo' \
+    --include='*.yaml' --include='*.yml' --include='*.json' \
+    --include='*.sh' --include='*.bats' --include='Makefile' \
+    --exclude-dir=.git \
+    --exclude="$(basename "$BATS_TEST_FILENAME")" \
+    "$root" 2>/dev/null | grep -vE '^[^:]+:[[:space:]]*#' || true
+}
+
+@test "kagent-credentials: the retired placeholder survives in no applyable file" {
   # This file excludes itself: it necessarily contains the string it hunts.
-  hits="$(grep -rIF 'mock-anthropic-key-for-local-demo' \
-            --exclude-dir=.git \
-            --exclude="$(basename "$BATS_TEST_FILENAME")" \
-            "$REPO_ROOT" \
-          | grep -vE '^[^:]+:[[:space:]]*#' || true)"
+  hits="$(_placeholder_hits "$REPO_ROOT")"
   [ -z "$hits" ]
 }
 
-@test "kagent-credentials: that guard is armed — it fires on a planted value" {
+@test "kagent-credentials: that guard is armed — it fires on a planted manifest" {
   # A grep-based negative assertion passes identically whether the tree is clean
-  # or the pattern is wrong. This plants the literal on a non-comment line in a
-  # scratch tree and requires the same expression to catch it, so a green result
-  # above means "absent", not "unsearchable".
+  # or the pattern is broken, and both of the traps below have already bitten
+  # this suite once: the exclusion list silently swallowed a real hit, and the
+  # detector matched its own source. Planting decoys makes a green result above
+  # mean "absent" rather than "unsearchable".
   planted="${BATS_TEST_TMPDIR}/planted"
   mkdir -p "$planted"
   printf 'stringData:\n  api-key: "mock-anthropic-key-for-local-demo"\n' >"${planted}/decoy.yaml"
-  printf '# api-key: "mock-anthropic-key-for-local-demo"\n' >"${planted}/prose.yaml"
+  printf 'K="mock-anthropic-key-for-local-demo"\n'                        >"${planted}/decoy.sh"
+  printf '# api-key: "mock-anthropic-key-for-local-demo"\n'               >"${planted}/commented.yaml"
+  printf 'the old value was `mock-anthropic-key-for-local-demo` in prose\n' >"${planted}/notes.md"
 
-  hits="$(grep -rIF 'mock-anthropic-key-for-local-demo' "$planted" \
-          | grep -vE '^[^:]+:[[:space:]]*#' || true)"
-  [ -n "$hits" ]
-  [[ "$hits" == *"decoy.yaml"* ]]
-  # ...and does not fire on the commented one, or the exemption is a hole big
-  # enough to hide a real credential in.
-  [[ "$hits" != *"prose.yaml"* ]]
+  hits="$(_placeholder_hits "$planted")"
+  [[ "$hits" == *"decoy.yaml"* ]] || { echo "guard misses a YAML value"; return 1; }
+  [[ "$hits" == *"decoy.sh"* ]]   || { echo "guard misses a shell assignment"; return 1; }
+  # ...and the two exemptions are exemptions, not holes wide enough to hide a
+  # real credential in.
+  [[ "$hits" != *"commented.yaml"* ]] || { echo "comment exemption not applied"; return 1; }
+  [[ "$hits" != *"notes.md"* ]]       || { echo "prose exemption not applied"; return 1; }
 }
 
 # ─── The ModelConfig contract ─────────────────────────────────────────────────

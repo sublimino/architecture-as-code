@@ -49,6 +49,27 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@if command -v bats >/dev/null 2>&1; then \
 		bats $$(ls test/*.bats | grep -vxF -f <(printf '%s\n' $(EXCLUDED_BATS))); \
 	fi
+	@# The falsification half of test/spire-server-durability.bats. That suite
+	@# asserts spire-server's CA is on a PVC and its Deployment is Recreate;
+	@# this injects each defect in turn and requires the suite to go RED, so a
+	@# guard that has quietly stopped being able to fail cannot keep reporting
+	@# durability the cluster no longer has.
+	@#
+	@# Registered here rather than in a pipeline on purpose. The two sibling
+	@# proofs live in scripts/ci/vm-pipeline.sh (frozen) and
+	@# scripts/gcp-tf/demo-pipeline.sh (a live bring-up); this one is a static
+	@# manifest guard with no cluster dependency, so it belongs with the other
+	@# static gates and costs ~20s. A Makefile target counts as a runner for
+	@# test/bats-registry-coverage.bats, which is what fails if this line is
+	@# ever removed -- an unregistered proof is reported, not silently dropped.
+	@#
+	@# It mutates three tracked manifests and restores them from a backup keyed
+	@# on full relative path, verifying sha256 equality before it exits, with
+	@# the restore on an EXIT/INT/TERM trap so a kill does not leave the tree
+	@# mutated.
+	@if command -v bats >/dev/null 2>&1; then \
+		bash ./test/spire-durability-mutation-proof.sh; \
+	fi
 
 # Suites deliberately not run by `make test`, each with its reason. Asserted
 # against reality by test/bats-registry-coverage.bats: an entry naming a file

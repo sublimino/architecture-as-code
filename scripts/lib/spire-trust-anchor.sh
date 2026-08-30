@@ -85,35 +85,69 @@ spire_jwt_svid_keys() {
 
 # ── The server/agent persistence split, and why bao_up refuses ─────────────
 #
-# spire-server's data_dir (/run/spire/data) has NO volume and NO PVC, so the
-# sqlite datastore and the CA private keys live in the container's writable
-# layer. A restart — eviction, node pressure, image bump, any pod-template edit
-# — gives a NEW CA, NEW JWT signing keys and NO registration entries.
+# HISTORY, kept because the failure is still reachable and this is the clearest
+# statement of it. spire-server's data_dir (/run/spire/data) had NO volume and
+# NO PVC, so the sqlite datastore and the CA private keys lived in the
+# container's writable layer. A restart — eviction, node pressure, image bump,
+# any pod-template edit — gave a NEW CA, NEW JWT signing keys and NO
+# registration entries.
 #
 # spire-agent's data_dir is a hostPath (/var/lib/spire-agent/data), so it
-# SURVIVES that restart and reloads a bundle for the CA that no longer exists.
+# SURVIVES that restart and reloaded a bundle for the CA that no longer existed.
 #
-# The two disagree, and the agent crash-loops on
+# The two disagreed, and the agent crash-looped on
 #
 #   x509svid: could not verify leaf certificate:
 #   x509: certificate signed by unknown authority
 #
 # bao_up could not fix this. It deletes the join-token Secret and the agent pod,
 # which is right, but never clears the node directory — so the replacement pod
-# reloads the same stale bundle and crashes identically, forever. Diagnosed on
+# reloaded the same stale bundle and crashed identically, forever. Diagnosed on
 # kind-osramp 2026-08-23 after a deliberate spire-server restart; recovered by
-# hand, twice.
+# hand, twice. Worst observed state: CrashLoopBackOff, 1528 restarts over
+# 6d19h, each one burning a single-use join token.
 #
-# This REFUSES rather than repairing, deliberately. Clearing the directory needs
-# node access, which is `docker exec` on kind and `gcloud compute ssh` on GCP —
-# there is no portable in-cluster way to do it that does not involve running a
-# privileged pod, which is a poor trade in this repo. A recovery command that
-# silently half-works is worse than one that refuses and says what to run.
+# ── The design decision HAS now been taken: the server got the PVC ─────────
 #
-# The right permanent fix is a design decision, NOT taken here: either give
-# spire-server a PVC so its CA survives (and the agent's cache stays valid), or
-# make a server restart explicitly wipe the agent's hostPath. Both change the
-# lane's failure semantics; see d2-agent-trust/AGENTS.md.
+# This block used to end "the right permanent fix is a design decision, NOT
+# taken here: either give spire-server a PVC so its CA survives, or make a
+# server restart explicitly wipe the agent's hostPath". The first option was
+# chosen and implemented.
+#
+# d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml now declares a
+# 1Gi ReadWriteOnce PersistentVolumeClaim `spire-server-data` mounted at
+# data_dir, and the Deployment uses `strategy: Recreate` — a RollingUpdate
+# Deployment holding an RWO volume deadlocks against its own upgrade, so the two
+# are one change. Both halves are pinned by
+# d2-signalloom/test/spire-server-durability.bats, whose assertions DERIVE the
+# mount path from server.conf rather than restating it, so moving data_dir,
+# keys_path or the sqlite connection_string out from under the volume fails the
+# suite instead of silently un-persisting the CA.
+#
+# The server is therefore the durable side too, matching the agent: a restart
+# keeps its CA, its JWT signing keys and its registration entries, and the
+# agent's cached bundle stays valid. Verified on kind-osramp 2026-08-30 — trust
+# bundle sha256 and both localauthority IDs byte-identical across a pod delete,
+# 3/3 registration entries retained, agent Running at 0 restarts throughout, and
+# the fe-signalloom SPIFFE→OpenBao positive proof green afterwards.
+#
+# ── Why the refusal below STAYS ────────────────────────────────────────────
+#
+# The recovery text is still correct and this still refuses rather than
+# repairing, because the failure remains reachable:
+#
+#   * clusters built before this change, whose spire-server has no PVC;
+#   * a cluster whose PVC was deleted or re-provisioned. The storage class is
+#     rancher.io/local-path with a Delete reclaim policy and node-local storage,
+#     so removing the PVC — or losing the node — destroys the CA exactly as
+#     thoroughly as the container layer did;
+#   * any future edit that moves data_dir out from under the mount.
+#
+# Clearing the agent directory still needs node access, which is `docker exec`
+# on kind and `gcloud compute ssh` on GCP — there is no portable in-cluster way
+# to do it that does not involve running a privileged pod, which is a poor trade
+# in this repo. A recovery command that silently half-works is worse than one
+# that refuses and says what to run. See also d2-agent-trust/AGENTS.md.
 SPIRE_AGENT_DATA_HOSTPATH="${SPIRE_AGENT_DATA_HOSTPATH:-/var/lib/spire-agent/data}"
 
 _spire_agent_logs() {
@@ -140,11 +174,24 @@ assert_spire_agent_trusts_server() {
     cat >&2 <<EOF
 SPIRE agent is holding a stale trust bundle and cannot attest to this server.
 
-Cause: spire-server's data directory is ephemeral (no volume, no PVC), so it was
-rebuilt with a NEW CA. The agent's data directory is a hostPath, so it survived
-and still trusts the OLD CA. This is not recoverable by re-running bao-up: it
-deletes the Secret and the pod but never clears the node directory, so every
-replacement pod reloads the same stale bundle.
+Cause: spire-server was rebuilt with a NEW CA. The agent's data directory is a
+hostPath, so it survived and still trusts the OLD CA. This is not recoverable by
+re-running bao-up: it deletes the Secret and the pod but never clears the node
+directory, so every replacement pod reloads the same stale bundle.
+
+CHECK THIS FIRST. spire-server is supposed to be durable — it mounts the PVC
+spire-server-data at its data_dir precisely so a restart cannot change the CA.
+Seeing this message means that protection is absent or was bypassed:
+
+  kubectl -n $namespace get pvc spire-server-data
+  kubectl -n $namespace get deploy spire-server -o yaml | grep -A3 'name: data'
+
+No PVC, or a "data" volume that is not persistentVolumeClaim-backed, means this
+cluster predates the fix (or lost it) and is exhibiting the original defect. A
+Bound PVC alongside a fresh CA means the VOLUME was replaced rather than the
+pod: the storage class is local-path with a Delete reclaim policy and node-local
+storage, so deleting the PVC or losing the node destroys the CA just as
+thoroughly. Either way the agent recovery below is the same.
 
 Recovery, in this order — the third step is the one bao-up cannot do for you:
 

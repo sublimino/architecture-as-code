@@ -36,24 +36,6 @@ stack could not produce.
 This section is a snapshot and dates quickly; `make demo-kagent-test` is the
 current answer. At the time of writing, verified against the cluster:
 
-- **Seven of eight compile; one does not.** Only `kagent-commit-summariser`
-  fails, and only because `github-tool` does not exist. The other three that
-  used to fail — `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool` —
-  no longer apply: those agents were re-pointed at `kagent-tool-server`, so
-  `github-tool` is the last dangling reference in the swarm.
-  The CR-kind observation still stands and is the reason all eight failed
-  originally: the controller resolves `RemoteMCPServer.kagent.dev`, not the
-  `MCPServer` CRs the original manifests declared.
-- **Seven compiling is NOT seven working.** `kagent-chaos-prober` is
-  `Accepted=True Ready=True` with a Running pod and two fictional tools. The
-  number that means something is **6 of 8** — agents whose every tool name was
-  verified by calling it. See "Deferred (2)" below.
-- **The placeholder credential is gone.** `base/controller.yaml` — which carried
-  the literal `mock-anthropic-key-for-local-demo` — was deleted wholesale when
-  the stub manifests were replaced by the chart, so it cannot be reapplied over
-  the real key. The credential now comes from OpenBao via
-  `Secret/kagent-anthropic-key` in both `kagent` and `fe-signalloom-agents`.
-
 - **Seven of eight agents compile. Six of them work.** The two numbers are
   deliberately kept apart, because the gap between them is the entire subject of
   this document. `kagent-chaos-prober` reports `Accepted=True Ready=True` with a
@@ -71,10 +53,14 @@ current answer. At the time of writing, verified against the cluster:
   all eight failed to compile initially.
 - **The placeholder credential is gone.** `mock-anthropic-key-for-local-demo` no
   longer appears as a live assignment anywhere; the key is supplied by the
-  operator through OpenBao. `infra/kagent/base/controller.yaml` retains only a
-  comment recording what was removed and why — which is precisely the case the
-  forbidden-literal guard has to tolerate, and does (see "a guard matched the
-  comment explaining the absence", below).
+  operator through OpenBao as `Secret/kagent-anthropic-key`, in both `kagent`
+  and `fe-signalloom-agents`. On **this** branch
+  `infra/kagent/base/controller.yaml` does not survive at all — it was deleted
+  wholesale with the rest of the stub manifests, so there is no comment for the
+  forbidden-literal guard to tolerate here. (The guard's comment-stripping is
+  still doing real work: the literal appears in this file's own prose,
+  describing what was removed, and the guard correctly scopes itself to
+  manifests. See "a guard matched the comment explaining the absence", below.)
 
 Claims about *declarative structure* — the Agent CRs, their tool bindings,
 SPIFFE naming, the OpenBao path mapping — are verified on disk and in the

@@ -176,67 +176,44 @@ setup() {
   # literal, independent of what the suites did. 23 was never the number of
   # tests in this repo. A fabricated figure inside an artefact named "proof" is
   # the worst kind of vacuity: it is quoted downstream as a measurement.
-  # ─── This suite runs INSIDE the harness that writes the artefact ─────────
+  # ─── The artefact is always complete; no mid-generation state exists ─────
   #
-  # scripts/kagent-harness-exec.sh writes git_commit and the cluster inventory
-  # BEFORE running the suites (line ~32), and test_status /
-  # test_assertions_passed only AFTER they finish (lines ~77-78). So during a
-  # harness run the artefact on disk genuinely has no count yet, `jq` returned
-  # the -1 default, and this test failed with
+  # This test used to fail on every harness run: kagent-harness-exec.sh wrote
+  # git_commit up front and the counts only after the suites finished, so the
+  # artefact it inspected had no count yet and jq returned the -1 default.
+  # I worked around it with a skip. kagent-tests-docs fixed it properly instead
+  # — the harness now writes a .inprogress sidecar and os.replace()s the
+  # published file only once the counts are known, so a reader always sees a
+  # COMPLETE artefact (during a run, the previous one: a true statement about a
+  # real earlier run rather than a half-written one about this run).
   #
-  #   proof artefact claims -1 passes out of at most 65 tests
+  # The skip is therefore deleted rather than kept as belt-and-braces, for
+  # their reason: A SKIP IS INDISTINGUISHABLE FROM A PASS IN A SUMMARY LINE.
+  # An unreachable skip would leave the exact shape this work removed.
   #
-  # every single time — the harness could never produce a green artefact of
-  # itself, and re-running only ever moved the failure around. That is a
-  # self-reference, not a defect in the artefact.
-  #
-  # Skipped rather than passed, so it shows up in the output as unmeasured
-  # instead of quietly counting as evidence. And guarded: a mid-generation
-  # artefact has git_commit and lacks BOTH terminal keys. Anything else missing
-  # its count is malformed and still fails.
-  #
-  # ─── SUPERSEDED AT MERGE — delete this branch, keep the shape checks ──────
-  #
-  # kagent-tests-docs has the better fix on their branch (29920a46): the
-  # harness writes its heartbeat to a `.inprogress` sidecar and os.replace()s
-  # the published artefact only once the counts are known. The published file
-  # is then ALWAYS complete — during a run it is the PREVIOUS artefact, a true
-  # statement about a real earlier run rather than a half-written one about
-  # this run — so the mid-generation state never reaches a reader and this
-  # branch becomes unreachable.
-  #
-  # Their reasoning for preferring it, which is correct and is why this should
-  # go rather than stay as belt-and-braces: A SKIP IS INDISTINGUISHABLE FROM A
-  # PASS IN A SUMMARY LINE. Leaving an unreachable skip in place would leave
-  # the exact shape this branch spent the session deleting.
-  #
-  # Kept here only because their harness change is not in this tree yet; with
-  # this tree's harness the skip is still load-bearing. Delete the `skip` and
-  # its enclosing `if` when their commit lands. The two malformed-shape checks
-  # below stay — with atomic publish those shapes only occur if the artefact is
-  # genuinely malformed, which is precisely when they should fail.
+  # The two malformed-artefact checks below are KEPT. Under atomic publish
+  # those shapes can only occur if the artefact is genuinely malformed, which
+  # is precisely when they should fail.
   if [ "$(jq -r 'has("test_assertions_passed")' "$PROOF_FILE")" != "true" ]; then
     jq -e 'has("git_commit")' "$PROOF_FILE" >/dev/null || {
-      echo "artefact has neither a git_commit nor an assertion count; it is malformed,"
-      echo "not mid-generation"
+      echo "artefact has neither a git_commit nor an assertion count; it is malformed"
       return 1
     }
-    [ "$(jq -r 'has("test_status")' "$PROOF_FILE")" = "false" ] || {
-      echo "artefact records a test_status but no assertion count — the harness"
-      echo "writes both together, so this artefact was not written by it"
-      return 1
-    }
-    skip "artefact is mid-generation (this suite runs inside the harness that writes it)"
+    echo "artefact has a git_commit but no assertion count. With atomic publish"
+    echo "that state is unreachable, so this artefact was not written by"
+    echo "scripts/kagent-harness-exec.sh"
+    return 1
   fi
 
   claimed="$(jq -r '.test_assertions_passed // -1' "$PROOF_FILE")"
 
-  # The suite list is PARSED OUT OF THE RUNNER, not hand-copied beside it.
-  # It was a copy, and it drifted: the runner grew test/kagent-infra.bats and
+  # ─── The suite list is PARSED OUT OF THE RUNNER, not hand-copied ─────────
+  #
+  # It was a copy and it drifted: the runner grew test/kagent-infra.bats and
   # the copy did not, so the ceiling read 52 while the runner genuinely passed
-  # 64 and this test called the artefact implausible. The artefact was right and
-  # the guard was wrong — the worse direction, because the natural response is
-  # to distrust the measurement, and the measurement was the honest party.
+  # 64 and this test called the artefact implausible. The artefact was right
+  # and the guard was wrong — the worse direction, because the natural response
+  # is to distrust the measurement, and the measurement was the honest party.
   #
   # Parsed rather than sourced: kagent-test.sh RUNS the suites on execution, so
   # sourcing it from inside a test of itself would recurse.
@@ -259,17 +236,11 @@ setup() {
     [ -f "$suite" ] || continue
     n="$(grep -c '^@test ' "$suite" || true)"
     actual=$((actual + n))
-    counted=$((counted + 1))
-  done < <(sed -n '/^SUITES=(/,/^)/p' "$runner" | sed -n 's/^[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p')
+  done
 
-  # A parse that silently matched nothing would make every claim look plausible
-  # against a ceiling of zero — assert the extraction worked before trusting it.
-  [ "$counted" -gt 0 ] || {
-    echo "parsed no suites out of ${runner}; the SUITES array format has changed"
-    echo "and this ceiling is now vacuous rather than merely wrong"
-    return 1
-  }
-
+  # The parse is already asserted above via ${#suites[@]}; a second check on a
+  # `counted` variable survived the merge as a leftover from the other side's
+  # while-loop form and referenced a name nothing sets any more.
   [ "$actual" -gt 0 ]
 
   # Equality is only meaningful for a run that passed. On a failing run the

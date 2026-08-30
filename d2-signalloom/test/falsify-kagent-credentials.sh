@@ -427,6 +427,42 @@ m_invoke_no_cred_check() {
 run_case "invoke stops checking that a model credential exists" \
   "$INV_SUITE" "fails loudly when the model credential Secret is absent" m_invoke_no_cred_check
 
+# ── 11. The two-key Secret ───────────────────────────────────────────────────
+# Found live by a sibling: kagent-anthropic-key held both ANTHROPIC_API_KEY and
+# api-key (the placeholder), and a consumer naming the latter read the mock.
+# Cause: `kubectl apply` MERGES, so a Secret created earlier by another actor
+# keeps its old key. Reproduced against the cluster before fixing.
+m_sync_merges() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|"$KUBECTL" replace --force -f -|"$KUBECTL" apply -f -|'
+}
+run_case "sync goes back to 'apply', which merges and preserves a stale key" \
+  "$CRED_SUITE" "sync replaces the Secret outright rather than merging into it" m_sync_merges
+
+m_verify_one_key_only() {
+  backup "$SCRIPT_REL"
+  # Look only at the key we expect, instead of at every key. A second key
+  # holding the placeholder then becomes invisible — which is exactly how the
+  # incident went unnoticed, since jq sorts keys and the real one sorts first.
+  mutate_sed "$SCRIPT_REL" "s|              | jq -r '.data // {} | keys\[\]' 2>/dev/null || true)\"|              \| jq -r '.data // {} \| keys[] \| select(. == \"'\"$SECRET_KEY\"'\")' 2>/dev/null \|\| true)\"|"
+}
+
+m_verify_ignores_placeholder() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|      if \[ "$out" = "$RETIRED_MOCK" \]; then verdict="PLACEHOLDER"; overall=1; fi|      :|'
+}
+run_case "verify stops flagging a key that holds the placeholder" \
+  "$CRED_SUITE" "verify flags ANY key holding the placeholder, not just the expected one" m_verify_ignores_placeholder
+
+m_key_name_drift() {
+  backup "$MC_REL"
+  # The two halves of the contract drift apart: the ModelConfig asks for the
+  # old name while sync keeps producing the new one.
+  mutate_sed "$MC_REL" 's|^  apiKeySecretKey: ANTHROPIC_API_KEY|  apiKeySecretKey: api-key|'
+}
+run_case "the ModelConfig asks for a key name sync does not produce" \
+  "$CRED_SUITE" "the ModelConfig asks for exactly the key sync provides" m_key_name_drift
+
 # ── Report ───────────────────────────────────────────────────────────────────
 printf '\n════════════════════════════════════════════════════════════════\n'
 printf 'FALSIFICATION RESULTS\n'

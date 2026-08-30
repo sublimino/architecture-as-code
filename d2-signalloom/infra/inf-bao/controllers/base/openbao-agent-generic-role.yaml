@@ -38,15 +38,37 @@ data:
     POLICY
 
     echo "--- Creating JWT auth role: signalloom-agent-generic ---"
-    bao write auth/jwt/role/signalloom-agent-generic \
-      role_type="jwt" \
-      bound_audiences="openbao-supercredential" \
-      bound_claims='{"sub":"spiffe://signalloom.demo/ns/*/sa/*"}' \
-      claim_mappings='{"sub":"sub"}' \
-      user_claim="sub" \
-      token_policies="signalloom-agent-templated" \
-      token_ttl="30m" \
-      token_max_ttl="1h"
+    # The whole payload goes in as JSON on stdin, NOT as k=v arguments.
+    #
+    # `bao write path k=v` sends every value as a STRING. bound_claims and
+    # claim_mappings are map-typed fields, so the k=v form is rejected:
+    #
+    #   Code: 400. Errors:
+    #   * error converting input {"sub":"spiffe://signalloom.demo/ns/*/sa/*"}
+    #     for field "bound_claims": '' expected a map, got 'string'
+    #
+    # The quoting looks right — the value IS valid JSON — which is why this
+    # survived review. The CLI simply never parses it as anything but a string.
+    # `bao write path -` reads a JSON object from stdin and preserves types.
+    #
+    # This Job had therefore NEVER succeeded. It failed at this line on every
+    # run since it was authored, took the Job to BackoffLimitExceeded, and held
+    # inf-bao/infra-controllers not-Ready through its health check — which in
+    # turn blocked inf-bao/infra-configs on dependsOn. Nothing surfaced it
+    # because the policy write on the line above succeeds first, so the log
+    # opens with "Success! Uploaded policy".
+    bao write auth/jwt/role/signalloom-agent-generic - <<'ROLE'
+    {
+      "role_type": "jwt",
+      "bound_audiences": "openbao-supercredential",
+      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/*/sa/*"},
+      "claim_mappings": {"sub": "sub"},
+      "user_claim": "sub",
+      "token_policies": "signalloom-agent-templated",
+      "token_ttl": "30m",
+      "token_max_ttl": "1h"
+    }
+    ROLE
 
     echo "--- Verifying role ---"
     bao read auth/jwt/role/signalloom-agent-generic

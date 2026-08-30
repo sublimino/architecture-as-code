@@ -41,6 +41,7 @@ set -eo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUITE="${REPO_ROOT}/d2-signalloom/test/spire-server-durability.bats"
 RBAC_SUITE="${REPO_ROOT}/d2-signalloom/test/spire-openbao-sync-rbac-placement.bats"
+JOBS_SUITE="${REPO_ROOT}/d2-signalloom/test/inf-bao-bootstrap-jobs.bats"
 
 # The suite the next check() runs against. Set per group rather than threaded
 # through every call, so adding a group cannot silently point at the wrong file.
@@ -51,8 +52,9 @@ CONFIG="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-
 AGENT="${REPO_ROOT}/d2-signalloom/infra/inf-bao/configs/base/spire-agent.yaml"
 SYNC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml"
 FLEET="${REPO_ROOT}/d2-osramp-fleet/tenants/local/signalloom.yaml"
+GENERIC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
 
-ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET")
+ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET" "$GENERIC")
 
 BACKUP_DIR="$(mktemp -d)"
 CHECKS=0
@@ -329,6 +331,40 @@ check "the CronJob drifts out of the controllers slice" \
 	mutate "$SYNC" \
 '  name: spire-openbao-sync-script' \
 '  name: spire-openbao-sync-script-renamed'
+
+CURRENT_SUITE="$SUITE"
+
+# ── Group 3: the inf-bao bootstrap Jobs ────────────────────────────────────
+#
+# openbao-agent-generic-role-setup had never once succeeded, and was invisible
+# behind an unrelated deadlock in the same slice. These mutations establish that
+# the guard notices if it regresses.
+CURRENT_SUITE="$JOBS_SUITE"
+note "4 further mutations against $(basename "$JOBS_SUITE")"
+
+check "map-typed role fields reverted to k=v operands (the 400)" \
+	"not passed as k=v operands" \
+	mutate "$GENERIC" \
+'      "bound_claims": {"sub": "spiffe://signalloom.demo/ns/*/sa/*"},' \
+'      bound_claims={"sub":"spiffe://signalloom.demo/ns/*/sa/*"}'
+
+check "the role write loses its stdin payload" \
+	"feeds its payload from stdin" \
+	mutate "$GENERIC" \
+'    bao write auth/jwt/role/signalloom-agent-generic - <<'"'"'ROLE'"'"'' \
+'    bao write auth/jwt/role/signalloom-agent-generic \'
+
+check "the heredoc terminator is indented, breaking the script" \
+	"is valid shell" \
+	mutate "$GENERIC" \
+'    ROLE' \
+'      ROLE'
+
+check "the role name drifts away from the sidecars that bind it" \
+	"the sidecars bind is the one this Job creates" \
+	mutate "$GENERIC" \
+'auth/jwt/role/signalloom-agent-generic' \
+'auth/jwt/role/signalloom-agent-renamed'
 
 CURRENT_SUITE="$SUITE"
 

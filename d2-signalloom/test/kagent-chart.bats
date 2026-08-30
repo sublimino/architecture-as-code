@@ -290,3 +290,75 @@ render_images() {
   echo "$rendered" | grep -q 'SKILLS_INIT_IMAGE_REGISTRY: "cr.kagent.dev"'
   echo "$(render_images base)" | grep -qxF 'cr.kagent.dev/kagent-dev/kagent/controller:0.9.9'
 }
+
+# ─── The re-pointing, and the guard that keeps it honest ───────────────────
+#
+# Deliberately a STATIC allowlist rather than a live tools/list call: this suite
+# must run without a cluster. kagent-tests-docs owns the live contract test that
+# queries the real server; this is the cheap always-on half. The two are
+# complementary, and if they ever disagree the live one wins — this list is a
+# snapshot and snapshots rot.
+
+@test "kagent-chart: no operational agent requests a tool that does not exist" {
+  # Verified 2026-08-30 by calling each against
+  # http://kagent-tools.kagent:8084/mcp on the live cluster. A missing tool
+  # answers JSON-RPC -32602 `tool 'x' not found`, which is how the fictional
+  # ones were found.
+  # Normalised with an UNQUOTED expansion, which collapses the newline and the
+  # continuation indent into single spaces. Without it the `case` word-boundary
+  # match below silently fails for whichever token happens to sit immediately
+  # before a newline — the pattern needs a literal space on both sides, and a
+  # line break is not one. Caught here: k8s_get_resource_yaml was reported
+  # fictional purely because of where it fell in the string.
+  real="k8s_get_resources k8s_get_available_api_resources k8s_get_resource_yaml
+        k8s_describe_resource k8s_get_events k8s_get_pod_logs"
+  # shellcheck disable=SC2116,SC2086
+  real=" $(echo $real) "
+
+  # Self-check the allowlist before trusting it. An allowlist that lost its
+  # separators would make every tool look fictional (loud), but one that gained
+  # a stray token would make a fictional tool look real (silent) — and this
+  # guard exists precisely to catch the silent direction.
+  [ "$(printf '%s' "$real" | wc -w)" -eq 6 ]
+
+  # The two agents Andy deferred still reference fictional tools by design, and
+  # are excluded BY NAME so that adding a ninth agent cannot slip through.
+  deferred="kagent-chaos-prober kagent-commit-summariser"
+
+  bad=""
+  for f in "${REPO_ROOT}"/d2-signalloom/infra/agent-swarm/kagent-*/agent.yaml; do
+    agent="$(basename "$(dirname "$f")")"
+    case " $deferred " in *" $agent "*) continue ;; esac
+    # toolNames entries are one per line in the block form these files now use.
+    while read -r t; do
+      [ -n "$t" ] || continue
+      case "$real" in *" $t "*) ;; *) bad="${bad} ${agent}:${t}" ;; esac
+    done < <(sed -n '/toolNames:/,/^[^ ]/p' "$f" | sed -n 's/^ *- \([a-z0-9_]*\)$/\1/p')
+  done
+  [ -z "$bad" ]
+}
+
+@test "kagent-chart: the deferred agents are documented, not silently dropped" {
+  doc="${REPO_ROOT}/docs/kagent-d5.md"
+  grep -q 'kagent-chaos-prober' "$doc"
+  grep -q 'kagent-commit-summariser' "$doc"
+  grep -q 'Deferred capabilities' "$doc"
+  # chaos-prober is the dangerous one: it reports Ready while doing nothing.
+  # If that warning ever disappears the doc becomes actively misleading.
+  grep -q 'Accepted=True, Ready=True' "$doc"
+}
+
+@test "kagent-chart: the swarm's RemoteMCPServer is reconciled from the repo" {
+  # It was applied by hand during the migration and wired into nothing, so a
+  # fresh cluster reproduced the original rejection. It must be in the overlay.
+  out="$(kubectl kustomize "${REPO_ROOT}/d2-signalloom/infra/agent-swarm")"
+  echo "$out" | grep -q 'kind: RemoteMCPServer'
+  echo "$out" | grep -q 'name: kagent-tool-server'
+  # The chart's Service and port, not the stub's kagent-tool-server:8080.
+  echo "$out" | grep -q 'http://kagent-tools.kagent:8084/mcp'
+  # And the deploy script must apply it BEFORE any agent that references it.
+  s="${REPO_ROOT}/scripts/kagent-agents.sh"
+  pre="$(grep -n 'apply -k .*infra/agent-swarm"' "$s" | head -1 | cut -d: -f1)"
+  first="$(grep -n 'apply -k .*agent-swarm/kagent-' "$s" | head -1 | cut -d: -f1)"
+  [ -n "$pre" ] && [ -n "$first" ] && [ "$pre" -lt "$first" ]
+}

@@ -27,25 +27,117 @@ Foundation (Kind, Zot, Flux)
 | `make demo-kagent-test` | Run BATS test suites across all 5 verification phases |
 | `make demo-kagent-demo` | Run interactive CLI walkthrough of all 5 agents |
 
-## Five Distinct Agent Types Built for Demonstration
+## The Agent Swarm
 
-1. **K8s Resource Reader (`kagent-k8s-reader`)**:
-   - Single MCP tool (`k8s_get_resources` via built-in `kagent-tool-server`).
-   - Declarative Go ADK runtime (~2s startup, ~128Mi footprint).
-   - Anthropic ModelConfig with OpenBao-managed API key.
-2. **Commit Summariser (`kagent-commit-summariser`)**:
-   - Git commit and PR diff summarisation via `github-tool` MCPServer.
-   - Dual credentials (OpenBao GitHub token + Anthropic LLM key).
-   - Mock test scaffolding for isolated local CI execution.
-3. **Security Analyst (`kagent-security-analyst`)**:
-   - Multi-tool posture agent (K8s query, OSV/CVE vuln database, policy evaluation).
-   - Implements Agent Card contract (`agent-card.kagent-security-analyst.v1.json`) for A2A hand-offs following Olly Sentinel patterns.
-4. **Network Auditor (`kagent-network-auditor`)**:
-   - Specializes in NetworkPolicy rules verification, SPIFFE trust boundaries, and Envoy Gateway route auditing.
-   - Tools: `audit_netpol_rules`, `probe_spiffe_boundaries`, `inspect_envoy_routes`.
-5. **Incident Responder (`kagent-incident-responder`)**:
-   - SRE incident triage, pod restart correlation, and automated remediation patch proposals.
-   - Implements Agent Card contract (`agent-card.kagent-incident-responder.v1.json`) for A2A hand-offs.
+Eight Agent CRs in `fe-signalloom-agents`, all `runtime: go`, all sharing one
+`anthropic-claude` ModelConfig and one namespace-local `RemoteMCPServer`
+(`d2-signalloom/infra/agent-swarm/remotemcpserver.yaml`) pointing at the chart's
+built-in tool server at `http://kagent-tools.kagent:8084/mcp`.
+
+**Every tool name below has been verified by calling it against that server.**
+That sentence is the whole point of this section — see "How this list got wrong"
+at the end.
+
+### Operational (6)
+
+1. **K8s Resource Reader (`kagent-k8s-reader`)** — `k8s_get_resources`,
+   `k8s_get_available_api_resources`. Declarative Go ADK runtime, ~128Mi.
+2. **Incident Responder (`kagent-incident-responder`)** — `k8s_get_events`,
+   `k8s_get_pod_logs`, `k8s_describe_resource`, `k8s_get_resources`. Correlates
+   restarts, exit codes and log tails into a timeline. Read-only: proposes
+   remediation, never applies it. Agent Card contract
+   (`agent-card.kagent-incident-responder.v1.json`) for A2A hand-offs.
+3. **Security Analyst (`kagent-security-analyst`)** — `k8s_get_resources`,
+   `k8s_get_resource_yaml`, `k8s_describe_resource`, `k8s_get_events`. Reports
+   Kubernetes posture from workload security contexts, RBAC and NetworkPolicies.
+   **No CVE or advisory lookup** (see Deferred). Agent Card contract
+   (`agent-card.kagent-security-analyst.v1.json`).
+4. **Network Auditor (`kagent-network-auditor`)** — `k8s_get_resources`,
+   `k8s_get_resource_yaml`, `k8s_describe_resource`. Reports the *declared*
+   network posture: missing default-deny, selectors matching nothing, broad
+   ingress. **Does not probe live reachability, SPIFFE boundaries or Envoy
+   routes** (see Deferred).
+5. **Compliance Checker (`kagent-compliance-checker`)** — `k8s_get_resources`,
+   `k8s_get_resource_yaml`, `k8s_describe_resource`. Reads RBAC, NetworkPolicy
+   and workload manifests and reports policy posture. **Does not run CIS
+   benchmarks** (see Deferred).
+6. **FinOps Optimizer (`kagent-finops-optimizer`)** — `k8s_get_resources`,
+   `k8s_get_resource_yaml`, `k8s_describe_resource`. Reads *declared* requests,
+   limits and PVC inventory and flags unset or implausible values. **Does not
+   measure observed utilisation** (see Deferred).
+
+### Deferred (2) — declared, NOT working
+
+Kept in the repo deliberately rather than deleted. Both reference tools that do
+not exist. **They fail in two different ways, and the difference is the single
+most important thing on this page:**
+
+- `kagent-commit-summariser` names a `RemoteMCPServer` that does not exist
+  (`github-tool`), so it does not compile: `Accepted=False`, no workload. Loud.
+- `kagent-chaos-prober` names the tool server that DOES exist and asks it for
+  two tools that do not. It compiles, reports **`Accepted=True, Ready=True`,
+  and runs a pod** — while being able to do nothing at all. Silent.
+
+Do not read this section's agents as "the broken ones you can see". One of them
+is green on every dashboard in the repo. That is why the count that matters is
+"agents whose tool names were verified against `tools/list`" — currently 6 of 8
+— and not the Ready column.
+
+7. **Chaos Prober (`kagent-chaos-prober`)** — wants `chaos_simulate_latency`,
+   `chaos_probe_recovery`. **Blocker:** the tool server has no chaos tooling of
+   any kind — not a missing backend, no such tool. The nearest real capability
+   is `k8s_delete_resource`, which the tool server's ServiceAccount is denied by
+   design (`kagent-tools.rbac.readOnly: true`). Needs a chaos MCP server that
+   nobody has written, plus a deliberate decision to grant it write access.
+   **Currently `Accepted=True, Ready=True` with a Running pod and zero working
+   tools** — see the warning above.
+8. **Commit Summariser (`kagent-commit-summariser`)** — wants
+   `github_list_commits`, `github_get_commit` via the `github-tool` MCPServer.
+   **Blocker:** no `github_*` tool exists on the built-in server. Needs an
+   external GitHub MCP server wired in as its own `RemoteMCPServer`. The
+   OpenBao-managed GitHub token plumbing is already in place and is not the
+   blocker.
+
+## Deferred capabilities
+
+Capabilities removed from an agent's declaration rather than approximated with
+a tool that does something weaker. Each is blocked on a component that is not
+installed, **not** on agent configuration.
+
+| Capability | Tool that would provide it | Blocker |
+|---|---|---|
+| CIS benchmark scanning | `kubescape_get_configuration_scan`, `kubescape_list_configuration_scans` | Tool exists; **Kubescape operator absent**. Calling it returns `workloadconfigurationscans.spdx.softwarecomposition.kubescape.io` not found. |
+| CVE / advisory lookup | `kubescape_list_vulnerabilities` | Tool exists; **Kubescape operator absent** (`vulnerabilitymanifests` CRD missing). No other CVE/OSV tool on the server. |
+| Observed resource utilisation | `prometheus_query_range_tool`, `prometheus_query_tool` | Tool exists; **no Prometheus reachable** — hardcoded `http://localhost:9090` from the tool pod. |
+| PromQL query generation | `prometheus_promql_tool` | Tool exists; needs an **`OPENAI_API_KEY`** in the tool server (it is LLM-backed). Doubly blocked. |
+| Envoy route inspection | `istio_proxy_config`, `istio_ztunnel_config` | Tools exist; **no Istio installed** (`istioctl` exits 64). |
+| SPIFFE boundary probing | — | **No tool exists** on the server at all. |
+| Live reachability probing | `k8s_check_service_connectivity` | Tool exists; execs a curl pod, which the **read-only tool-server RBAC denies**. |
+
+Installing Kubescape unblocks two rows and re-points two agents; a reachable
+Prometheus unblocks one. Both are cluster-capacity decisions, not agent work.
+
+### How this list got wrong, so it does not happen again
+
+The tool server was a stub until 2026-08-30: `python:3.12-alpine` running
+`http.server`, returning **one hardcoded literal to every POST**. Posting
+`k8s_get_resources` and `totally_made_up_xyz` produced byte-identical output.
+So no tool name in this repo had ever been checked against an implementation,
+and 18 of the 21 requested across the swarm were fictional — including six
+requested from the tool server that genuinely exists.
+
+Two properties of kagent 0.9.9 kept that invisible:
+
+- The controller validates that a `RemoteMCPServer` **exists**, never that the
+  `toolNames` are served by it. An agent requesting nothing but fictional tools
+  still reports `Accepted=True, Ready=True` with a Running pod. **`Ready` means
+  "compiled and running", not "can do anything."**
+- The hand-written CRDs it replaced declared
+  `x-kubernetes-preserve-unknown-fields: true`, so nothing validated.
+
+`d2-signalloom/test/kagent-chart.bats` and the tool-existence contract test now
+guard this. Verify by hand with `tools/list` against the tool server; a missing
+tool returns JSON-RPC `-32602 tool 'x' not found`.
 
 ## The Model Credential
 

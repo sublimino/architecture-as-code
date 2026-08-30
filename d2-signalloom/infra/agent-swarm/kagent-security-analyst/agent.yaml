@@ -10,25 +10,33 @@ metadata:
     signalloom.ai/role: analyst
     signalloom.ai/harness: kagent
 spec:
-  description: Multi-tool security analyst evaluating Kubernetes posture, CVEs, and compliance
+  # CVE analysis dropped, not approximated. It needs kubescape_list_vulnerabilities,
+  # which exists on the server but fails here — the vulnerabilitymanifests CRD is
+  # absent, no Kubescape operator. Nothing else on the real server does CVE or
+  # advisory lookup. Also collapsed from three RemoteMCPServers, two of which
+  # never existed (vuln-db-tool, policy-eval-tool), onto the one that does.
+  description: >-
+    Reads workload, RBAC and NetworkPolicy objects and cluster events, and
+    reports Kubernetes security posture. Does not perform CVE or advisory
+    lookup.
   type: Declarative
   declarative:
     modelConfig: anthropic-claude
     runtime: go
-    systemMessage: "Autonomous security analyst evaluating K8s posture, CVEs, and policy engines."
+    systemMessage: >-
+      You are a Kubernetes security analyst. Use the k8s tools to inspect
+      workload security contexts, RBAC, NetworkPolicies and recent events, and
+      report posture findings with the evidence you read. You have NO
+      vulnerability scanner and NO CVE database: never assert that an image is
+      or is not affected by a CVE. When a question needs scanning you cannot
+      do, say so and stop.
     tools:
       - type: McpServer
         mcpServer:
           name: kagent-tool-server
           kind: RemoteMCPServer
-          toolNames: [k8s_get_resources]
-      - type: McpServer
-        mcpServer:
-          name: vuln-db-tool
-          kind: RemoteMCPServer
-          toolNames: [lookup_cve, query_advisories]
-      - type: McpServer
-        mcpServer:
-          name: policy-eval-tool
-          kind: RemoteMCPServer
-          toolNames: [evaluate_rbac_policy, evaluate_netpol]
+          toolNames:
+            - k8s_get_resources
+            - k8s_get_resource_yaml
+            - k8s_describe_resource
+            - k8s_get_events

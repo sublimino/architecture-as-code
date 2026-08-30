@@ -21,6 +21,20 @@ case "${ACTION}" in
     echo "==> Ensuring target agents namespace '${AGENTS_NS}' exists..."
     kubectl create namespace "${AGENTS_NS}" --dry-run=client -o yaml | kubectl apply -f -
 
+    # The swarm's RemoteMCPServer, BEFORE any agent that references it.
+    #
+    # Ordering is the point. Every Agent CR below names kagent-tool-server, and
+    # an agent applied before it exists compiles to
+    # `RemoteMCPServer.kagent.dev "kagent-tool-server" not found` and reports
+    # Accepted=False. The controller does re-reconcile, so this is eventually
+    # self-correcting — which is exactly why it needs to be ordered rather than
+    # left to luck: a transient Accepted=False on a fresh cluster is
+    # indistinguishable at a glance from the permanent one this replaced, and
+    # that ambiguity is what cost this repo a working demo for a fortnight.
+    echo "==> Applying shared agent-swarm prerequisites (namespace, RBAC, tool server)..."
+    kubectl apply -k "${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
+    wait_k8s_exists remotemcpserver kagent-tool-server -n "${AGENTS_NS}" 60
+
     echo "==> Deploying Agent 1: K8s Resource Reader Agent..."
     kubectl apply -k "${REPO_ROOT}/d2-signalloom/infra/agent-swarm/kagent-k8s-reader"
     wait_k8s_exists agent kagent-k8s-reader -n "${AGENTS_NS}" 30

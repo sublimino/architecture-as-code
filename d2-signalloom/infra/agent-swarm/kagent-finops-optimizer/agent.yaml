@@ -10,17 +10,32 @@ metadata:
     signalloom.ai/role: finops
     signalloom.ai/harness: kagent
 spec:
-  description: Analyzes resource utilization and unused PVC cost efficiency
+  # Scope narrowed deliberately. It previously asked for finops_query_metrics /
+  # finops_identify_waste, neither of which has ever existed. Measuring real
+  # utilisation needs Prometheus, unreachable from the tool server. What is
+  # left is genuine: DECLARED requests/limits and PVC inventory.
+  description: >-
+    Reads declared CPU/memory requests and limits and PersistentVolumeClaim
+    inventory, and flags unset or implausible values. Does not measure
+    observed utilisation.
   type: Declarative
   declarative:
     modelConfig: anthropic-claude
     runtime: go
-    systemMessage: "You are a FinOps optimizer. Recommend resource rightsizing and PVC cleanup."
+    systemMessage: >-
+      You are a Kubernetes resource reviewer. Use the k8s tools to read
+      declared resource requests, limits and PVC inventory, and identify
+      workloads whose declarations are missing or implausible. You have NO
+      metrics backend and cannot see actual CPU, memory or storage
+      consumption. Never state observed usage or a cost figure; reason only
+      from what is declared, and say when a question needs utilisation data
+      you do not have.
     tools:
       - type: McpServer
         mcpServer:
           name: kagent-tool-server
           kind: RemoteMCPServer
           toolNames:
-            - finops_query_metrics
-            - finops_identify_waste
+            - k8s_get_resources
+            - k8s_get_resource_yaml
+            - k8s_describe_resource

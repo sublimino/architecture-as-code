@@ -5,3 +5,6 @@ resources:
   - rbac.yaml
   - ebpf-sentinel-rbac.yaml
   - networkpolicy.yaml
+  # Shared prerequisite for every Agent CR in this namespace — without it they
+  # do not compile. Listed after namespace.yaml because it lives in it.
+  - remotemcpserver.yaml

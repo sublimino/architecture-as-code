@@ -10,15 +10,35 @@ metadata:
     signalloom.ai/role: incident-responder
     signalloom.ai/harness: kagent
 spec:
-  description: Triages cluster incidents, correlates pod restarts, and proposes fixes
+  # A FIFTH agent, beyond the four in the ruling. It is one of the four
+  # kind: MCPServer / referenced-as-RemoteMCPServer mismatches that were in
+  # scope, and it is the only agent in the swarm that loses NOTHING in the
+  # move: events, logs, describe and get are all verified working, and
+  # together they are exactly what its three fictional tools claimed to do.
+  # Trivially revertible if unwanted — see docs/kagent-d5.md.
+  description: >-
+    Triages cluster incidents by reading events, pod logs and workload state,
+    correlates restarts, and proposes remediation. Read-only: it does not
+    apply changes.
   type: Declarative
   declarative:
     modelConfig: anthropic-claude
     runtime: go
-    systemMessage: "Autonomous incident responder triaging crash loops, node events, and alerting."
+    systemMessage: >-
+      You are a Kubernetes incident responder. Use k8s_get_events,
+      k8s_get_pod_logs, k8s_describe_resource and k8s_get_resources to
+      establish what happened: correlate restart counts, exit codes, recent
+      events and log tails into a timeline, then propose a remediation and
+      say what evidence supports it. You have read-only access and cannot
+      apply changes — propose them for a human. Distinguish what you observed
+      from what you inferred.
     tools:
       - type: McpServer
         mcpServer:
-          name: incident-triage-tool
+          name: kagent-tool-server
           kind: RemoteMCPServer
-          toolNames: [triage_alert_events, correlate_restarts, propose_remediation]
+          toolNames:
+            - k8s_get_events
+            - k8s_get_pod_logs
+            - k8s_describe_resource
+            - k8s_get_resources

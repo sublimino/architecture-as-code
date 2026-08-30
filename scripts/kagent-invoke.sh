@@ -41,8 +41,13 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# shellcheck source=scripts/lib/env-file.sh
+. "${REPO_ROOT}/scripts/lib/env-file.sh"
+
 KUBECTL="${KUBECTL:-kubectl}"
 CURL="${CURL:-curl}"
+SECRET_NAME="${KAGENT_SECRET_NAME:-kagent-anthropic-key}"
+SECRET_KEY="${KAGENT_SECRET_KEY:-ANTHROPIC_API_KEY}"
 
 AGENTS_NS="${KAGENT_AGENTS_NAMESPACE:-fe-signalloom-agents}"
 CONTROL_NS="${KAGENT_CONTROL_NAMESPACE:-kagent}"
@@ -107,6 +112,34 @@ if ! "$KUBECTL" get agent "$AGENT" -n "$AGENTS_NS" >/dev/null 2>&1; then
 
   Deployed agents:
 $("$KUBECTL" get agents -n "$AGENTS_NS" -o name 2>/dev/null | sed 's|^|    |' || echo '    (none — run: make demo-kagent-up)')"
+fi
+
+# ─── The model credential must exist. This is where we fail LOUDLY ────────────
+#
+# The credential-seeding target deliberately no-ops when no key is configured,
+# matching this repo's precedent for optional credentials (olly-llm-secret.sh):
+# a missing optional key must not break `make up`.
+#
+# Here it is not optional. Invoking an agent with no model credential produces a
+# provider authentication error several layers down, surfacing as an opaque
+# JSON-RPC failure that reads like a broken agent. Checking first turns that
+# into one sentence naming the file and the command that fixes it.
+#
+# Skippable for the unit tests, which have no cluster and are not testing this.
+if [ "${KAGENT_SKIP_CREDENTIAL_CHECK:-0}" != "1" ]; then
+  if ! "$KUBECTL" get secret "$SECRET_NAME" -n "$AGENTS_NS" \
+        -o "jsonpath={.data.${SECRET_KEY}}" 2>/dev/null | grep -q .; then
+    signalloom_load_env
+    fail "no model credential: Secret/${SECRET_NAME} (key ${SECRET_KEY}) is absent or
+  empty in namespace '${AGENTS_NS}'. ${AGENT} cannot complete a model call.
+
+  Fix it:
+      1. put ANTHROPIC_API_KEY=sk-ant-... in ${SIGNALLOOM_ENV_FILE_RESOLVED:-<repo>/.env}
+      2. make demo-kagent-credentials
+
+  .env is gitignored — the key is never committed.
+  ANTHROPIC_API_KEY currently resolves from: $(signalloom_env_provenance ANTHROPIC_API_KEY)"
+  fi
 fi
 
 # ─── Transport ────────────────────────────────────────────────────────────────

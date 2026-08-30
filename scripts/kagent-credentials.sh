@@ -51,9 +51,34 @@
 # credential this script exists to protect. It is read from the OpenBao pod's
 # own environment when available so it usually stays out of argv anyway.
 
+#
+# WHERE THE KEY COMES FROM
+#
+# `.env` at the main checkout root, key `ANTHROPIC_API_KEY` — the convention
+# this repo already uses (see .env.example, scripts/olly-llm-secret.sh). `.env`
+# is gitignored; the key is never committed. An exported ANTHROPIC_API_KEY takes
+# precedence over the file, and the provenance is printed either way so the
+# source is never a guess.
+#
+# `.env` is resolved from the MAIN checkout via scripts/lib/env-file.sh, not
+# from $PWD — it is untracked, so it does not exist in any linked worktree, and
+# a $PWD-relative read silently reports "no key" while the operator's key sits
+# in the main checkout. See that file for the full explanation.
+#
+# WHY `seed` NO-OPS INSTEAD OF FAILING
+#
+# It matches olly-llm-secret.sh: a missing optional credential must not break
+# `make up` for someone who has not supplied one. The no-op is LOUD — it names
+# the file and the variable — and it writes nothing. The loud FAILURE lives in
+# scripts/kagent-invoke.sh, where the key is genuinely required and doing
+# nothing quietly would be the fake-success mode this branch exists to remove.
+
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+
+# shellcheck source=scripts/lib/env-file.sh
+. "${REPO_ROOT}/scripts/lib/env-file.sh"
 
 KUBECTL="${KUBECTL:-kubectl}"
 BAO_NS="${KAGENT_BAO_NAMESPACE:-inf-bao}"
@@ -65,6 +90,10 @@ AGENTS_NS="${KAGENT_AGENTS_NAMESPACE:-fe-signalloom-agents}"
 SECRET_NAME="${KAGENT_SECRET_NAME:-kagent-anthropic-key}"
 SECRET_KEY="${KAGENT_SECRET_KEY:-ANTHROPIC_API_KEY}"
 SECRET_NAMESPACES="${KAGENT_SECRET_NAMESPACES:-kagent fe-signalloom-agents}"
+
+# The directory the operator's .env lives in, for guidance messages. Resolved
+# from git so it names the MAIN checkout even when this runs from a worktree.
+MAIN_CHECKOUT="$(dirname "$(signalloom_env_file)")"
 
 SECRET_PATHS_CM="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/openbao-secret-paths.yaml"
 SWARM_DIR="${REPO_ROOT}/d2-signalloom/infra/agent-swarm"
@@ -170,34 +199,44 @@ PRE
 
 # ─── seed ─────────────────────────────────────────────────────────────────────
 
+# Guidance printed whenever there is no usable key. Names the file and the
+# variable, so "nothing happened" is never the whole message.
+no_key_guidance() {
+  cat <<EOF
+  The kagent agents will have no model credential and cannot complete a call.
+
+  To wire one up:
+      1. cp .env.example .env          (in ${MAIN_CHECKOUT:-the main checkout})
+      2. set ANTHROPIC_API_KEY=sk-ant-...   in that .env
+      3. rerun 'make demo-kagent-credentials'
+
+  .env is gitignored — the key is never committed.
+  Consulted: ${SIGNALLOOM_ENV_FILE_RESOLVED:-<unresolved>} (present: $([ "${SIGNALLOOM_ENV_LOADED:-0}" = 1 ] && echo yes || echo no))
+  Or export ANTHROPIC_API_KEY directly, which takes precedence over the file.
+  Get a key at https://console.anthropic.com/settings/keys
+EOF
+}
+
 # Validates the operator's key. Runs shielded: every line here expands it.
+#
+# Returns 1 rather than exiting when there is no key at all, so `seed` can
+# no-op-with-guidance per the repo's precedent. A key that is PRESENT but
+# unusable (the retired placeholder, a truncated paste) is still a hard failure:
+# that is a mistake to correct, not an absence to tolerate.
 require_key() {
   _shield_on
   local key="${ANTHROPIC_API_KEY-}" len
-  if [ -z "${ANTHROPIC_API_KEY+set}" ]; then
-    _shield_off
-    fail "ANTHROPIC_API_KEY is not set.
-
-  This demo will not fall back to a placeholder credential. A demo that
-  quietly degrades to a fake key is the failure mode being removed here.
-
-  Supply a real Anthropic API key and re-run:
-
-      export ANTHROPIC_API_KEY='sk-ant-...'
-      make demo-kagent-credentials
-
-  Get a key at https://console.anthropic.com/settings/keys"
-  fi
   # Trailing newlines and shell-copied whitespace are the usual paste damage.
   key="$(printf '%s' "$key" | tr -d '[:space:]')"
   len="${#key}"
-  if [ "$len" -eq 0 ]; then
+
+  if [ -z "${ANTHROPIC_API_KEY+set}" ] || [ "$len" -eq 0 ]; then
     _shield_off
-    fail "ANTHROPIC_API_KEY is set but empty (or whitespace only). Refusing to write an empty credential — it would satisfy every downstream presence check while failing every model call."
+    return 1
   fi
   if [ "$key" = "$RETIRED_MOCK" ]; then
     _shield_off
-    fail "ANTHROPIC_API_KEY is the retired mock placeholder. That value is exactly what this path exists to remove. Export a real key."
+    fail "ANTHROPIC_API_KEY is the retired mock placeholder. That value is exactly what this path exists to remove. Put a real key in ${SIGNALLOOM_ENV_FILE_RESOLVED:-.env}."
   fi
   if [ "$len" -lt "$MIN_KEY_LEN" ]; then
     _shield_off
@@ -205,10 +244,17 @@ require_key() {
   fi
   VALIDATED_KEY="$key"
   _shield_off
+  return 0
 }
 
 cmd_seed() {
-  require_key
+  signalloom_load_env
+  if ! require_key; then
+    log "==> No ANTHROPIC_API_KEY configured; nothing was written to OpenBao."
+    no_key_guidance
+    return 0
+  fi
+  log "==> Credential source: $(signalloom_env_provenance ANTHROPIC_API_KEY)"
 
   local td pod agents remote agent sp
   td="$(trust_domain)"
@@ -374,7 +420,10 @@ bao kv get -field=value ${path}" 2>/dev/null || true)"
 
 cmd_status() {
   local pod
+  signalloom_load_env
   log "=== kagent model credential ==="
+  log "  .env consulted     : ${SIGNALLOOM_ENV_FILE_RESOLVED} (present: $([ "${SIGNALLOOM_ENV_LOADED:-0}" = 1 ] && echo yes || echo no))"
+  log "  credential source  : $(signalloom_env_provenance ANTHROPIC_API_KEY)"
   log "  OpenBao namespace  : ${BAO_NS}"
   log "  kv mount           : ${KV_MOUNT}/ (kv-v2)"
   log "  trust domain       : $(trust_domain)"

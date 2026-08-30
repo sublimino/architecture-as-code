@@ -12,12 +12,9 @@ set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
-fi
+# shellcheck source=scripts/lib/env-file.sh
+. "$(cd "$(dirname "$0")/.." && pwd)/scripts/lib/env-file.sh"
+signalloom_load_env
 
 if [ -z "${LLM_PROVIDER:-}" ]; then
   echo "no LLM_PROVIDER in .env; the sentinel uses its deterministic RCA."

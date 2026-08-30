@@ -14,10 +14,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SANDBOX="${ROOT}/olly-replica/apps/security-sandbox"
 
 enabled=false
-if [ -f "${ROOT}/.env" ]; then
-  # shellcheck disable=SC1091
-  . "${ROOT}/.env"
-fi
+# shellcheck source=scripts/lib/env-file.sh
+. "$(cd "$(dirname "$0")/.." && pwd)/scripts/lib/env-file.sh"
+signalloom_load_env
 case "$(printf '%s' "${SECURITY_SANDBOX_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
   1 | true | yes | on) enabled=true ;;
 esac

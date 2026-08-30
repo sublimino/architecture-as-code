@@ -125,6 +125,9 @@ SCRIPT_REL="scripts/kagent-credentials.sh"
 INV_REL="scripts/kagent-invoke.sh"
 MC_REL="d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
 CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
+ENVLIB_REL="scripts/lib/env-file.sh"
+ENV_SUITE="d2-signalloom/test/env-file.bats"
+SEC_SUITE="d2-signalloom/test/no-tracked-secrets.bats"
 
 # ── 1. The loud-failure contract ─────────────────────────────────────────────
 # Deleting any ONE refusal branch does not make seed accept a bad key: the
@@ -145,7 +148,7 @@ CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
 m_silent_fallback() {
   backup "$SCRIPT_REL"
   mutate_sed "$SCRIPT_REL" \
-    's|^require_key() {|require_key() { VALIDATED_KEY="${ANTHROPIC_API_KEY:-sk-ant-silentfallback-00000000000000000000}"; return 0 # MUTANT|'
+    's|^require_key() {|require_key() { VALIDATED_KEY="${ANTHROPIC_API_KEY:-sk-ant-TEST.silent-fallback-mutant-000000}"; return 0 # MUTANT|'
 }
 run_case "seed silently falls back to a default when the key is unset" \
   "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_silent_fallback
@@ -350,6 +353,76 @@ m_http_escape() {
 }
 run_case "JSON escaping is hand-rolled instead of delegated to jq (over real HTTP)" \
   "$HTTP_SUITE" "a prompt containing quotes, newlines and backslashes survives the wire" m_http_escape
+
+# ── 8. .env resolution (the worktree bug) ───────────────────────────────────
+# .env is gitignored, so it exists only in the main checkout. A $PWD-relative
+# read finds nothing from a worktree and reports "no key configured" — a fake
+# success, with the operator's key two directories away.
+m_env_pwd_relative() {
+  backup "$ENVLIB_REL"
+  # Revert to the idiom every .env reader in this repo used before this branch.
+  mutate_sed "$ENVLIB_REL" 's|^  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" .. common=""|  common=""|'
+}
+run_case "the .env resolver goes back to being \$PWD-relative" \
+  "$ENV_SUITE" "resolves to the MAIN checkout when run from a linked worktree" m_env_pwd_relative
+
+m_env_no_normalise() {
+  backup "$ENVLIB_REL"
+  # Drop the absolute-path normalisation: git returns a relative ".git" from
+  # the main worktree root, which yields "./.env" and breaks on any cd.
+  mutate_sed "$ENVLIB_REL" 's|^  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" .. common=""|  common="$(git rev-parse --git-common-dir 2>/dev/null)" \|\| common=""|'
+}
+run_case "the resolved .env path stops being normalised to absolute" \
+  "$ENV_SUITE" "the path returned from the main checkout is absolute" m_env_no_normalise
+
+m_env_clobbers() {
+  backup "$ENVLIB_REL"
+  # Restore the plain `set -a; . file` behaviour, which clobbers the environment.
+  mutate_sed "$ENVLIB_REL" 's|^    if \[ -n "${!name:-}" \]; then _sig_preset\["$name"\]="${!name}"; fi|    :|'
+}
+run_case "the environment stops winning over the file" \
+  "$ENV_SUITE" "an already-set environment variable wins over the file" m_env_clobbers
+
+m_env_trace_leak() {
+  backup "$ENVLIB_REL"
+  mutate_sed "$ENVLIB_REL" 's|^    \*x\*) held=1; set +x ;;|    *x*) held=1; : ;;|'
+}
+run_case "the .env sourcing xtrace shield is disarmed" \
+  "$ENV_SUITE" "sourcing the file does not leak values into an xtrace" m_env_trace_leak
+
+m_env_override() {
+  backup "$ENVLIB_REL"
+  mutate_sed "$ENVLIB_REL" 's|^  if \[ -n "${SIGNALLOOM_ENV_FILE:-}" \]; then|  if false; then|'
+}
+run_case "SIGNALLOOM_ENV_FILE stops overriding" \
+  "$ENV_SUITE" "SIGNALLOOM_ENV_FILE overrides everything" m_env_override
+
+# ── 9. The tracked-secret guard ──────────────────────────────────────────────
+m_secret_guard_pattern() {
+  backup "$SEC_SUITE"
+  # A pattern that cannot match anything real. The guard then reports a clean
+  # tree forever, which is indistinguishable from actually being clean.
+  mutate_sed "$SEC_SUITE" "s|KEY_SHAPE='sk-ant-\[A-Za-z0-9_-\]{40,}'|KEY_SHAPE='zz-never-matches-anything-zz'|"
+}
+run_case "the tracked-secret guard's pattern is broken" \
+  "$SEC_SUITE" "the guard is armed — a planted real-shaped key is caught" m_secret_guard_pattern
+
+m_secret_guard_scans_untracked() {
+  backup "$SEC_SUITE"
+  # Scan the working directory instead of the git index. .env then trips it on
+  # every run, the guard is switched off, and nothing is guarded at all.
+  mutate_sed "$SEC_SUITE" 's|      | xargs -0 -r grep -lE "$KEY_SHAPE" 2>/dev/null \\|      \| xargs -0 -r grep -lE "$KEY_SHAPE" 2>/dev/null; grep -rlE "$KEY_SHAPE" . 2>/dev/null \\|'
+}
+run_case "the guard scans the working directory instead of the git index" \
+  "$SEC_SUITE" "an untracked file holding a key is NOT flagged" m_secret_guard_scans_untracked
+
+# ── 10. The invoke credential precondition ───────────────────────────────────
+m_invoke_no_cred_check() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if \[ "${KAGENT_SKIP_CREDENTIAL_CHECK:-0}" != "1" \]; then|if false; then|'
+}
+run_case "invoke stops checking that a model credential exists" \
+  "$INV_SUITE" "fails loudly when the model credential Secret is absent" m_invoke_no_cred_check
 
 # ── Report ───────────────────────────────────────────────────────────────────
 printf '\n════════════════════════════════════════════════════════════════\n'

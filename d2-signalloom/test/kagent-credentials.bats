@@ -22,7 +22,7 @@ setup() {
 
   # A key-shaped value that is unmistakable in any output we grep. Not a real
   # credential and never was.
-  FAKE_KEY="sk-ant-api03-BATSCANARY0000000000000000000000000000000000000000"
+  FAKE_KEY="sk-ant-TEST.not-a-real-key.BATSCANARY00000000000000000000"
 
   STUB_DIR="${BATS_TEST_TMPDIR}/bin"
   mkdir -p "$STUB_DIR"
@@ -55,6 +55,11 @@ STUB
   # this it would search a directory the script never writes to and pass for the
   # wrong reason.
   export TMPDIR="$BATS_TEST_TMPDIR"
+
+  # Point the .env resolver at a path that does not exist. Without this, the
+  # resolver correctly finds the MAIN checkout's .env — which now holds Andy's
+  # REAL 108-character key — and every test below would run against it.
+  export SIGNALLOOM_ENV_FILE="${BATS_TEST_TMPDIR}/absent.env"
 }
 
 # ─── The loud-failure contract ────────────────────────────────────────────────
@@ -68,24 +73,33 @@ STUB
   [ -x "$SCRIPT" ]
 }
 
-@test "kagent-credentials: seed with ANTHROPIC_API_KEY unset fails and names the variable" {
+@test "kagent-credentials: seed with ANTHROPIC_API_KEY unset no-ops loudly and writes nothing" {
+  # Decided contract, matching scripts/olly-llm-secret.sh: a missing OPTIONAL
+  # credential must not break `make up`. The no-op is loud — it names the file
+  # and the variable — and it must write nothing at all. The loud FAILURE lives
+  # in kagent-invoke.sh, where the key is genuinely required.
   unset ANTHROPIC_API_KEY
   run "$SCRIPT" seed
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
   [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  [[ "$output" == *".env"* ]]
+  writes="$(grep -c 'kv put' "$KUBECTL_ARGV_LOG" 2>/dev/null || true)"
+  [ "${writes:-0}" = "0" ]
 }
 
-@test "kagent-credentials: seed with ANTHROPIC_API_KEY empty fails, it is not treated as set" {
+@test "kagent-credentials: seed with ANTHROPIC_API_KEY empty no-ops and writes nothing" {
   export ANTHROPIC_API_KEY=""
   run "$SCRIPT" seed
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
   [[ "$output" == *"ANTHROPIC_API_KEY"* ]]
+  writes="$(grep -c 'kv put' "$KUBECTL_ARGV_LOG" 2>/dev/null || true)"
+  [ "${writes:-0}" = "0" ]
 }
 
-@test "kagent-credentials: seed with a whitespace-only key fails rather than writing it" {
+@test "kagent-credentials: seed with a whitespace-only key writes nothing" {
   export ANTHROPIC_API_KEY="   "
   run "$SCRIPT" seed
-  [ "$status" -ne 0 ]
+  [ "$status" -eq 0 ]
   # Nothing may have been written. An empty credential in OpenBao is worse than
   # no credential: it satisfies every presence check downstream.
   writes=""

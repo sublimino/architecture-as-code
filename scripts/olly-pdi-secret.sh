@@ -5,18 +5,17 @@
 # with no .env (or the ServiceNow vars unset) it prints a note and exits 0,
 # so `make up` stays green whether or not a PDI is configured.
 #
-# The .env file is gitignored; credentials never get committed. Copy
+# The .env file is gitignored; credentials never get committed. It is resolved
+# from the MAIN checkout via scripts/lib/env-file.sh, not from $PWD, so this
+# works from a linked worktree too. Set SIGNALLOOM_ENV_FILE to override. Copy
 # .env.example to .env to fill it in.
 set -uo pipefail
 
 cd "$(dirname "$0")/.."
 
-if [ -f .env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . ./.env
-  set +a
-fi
+# shellcheck source=scripts/lib/env-file.sh
+. "$(cd "$(dirname "$0")/.." && pwd)/scripts/lib/env-file.sh"
+signalloom_load_env
 
 if [ -z "${SERVICENOW_URL:-}" ] || [ -z "${SERVICENOW_USER:-}" ] || [ -z "${SERVICENOW_PASSWORD:-}" ]; then
   echo "no ServiceNow PDI credentials in .env; the mapping stub keeps its in-memory ticket store."

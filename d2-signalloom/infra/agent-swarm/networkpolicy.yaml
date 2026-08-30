@@ -23,6 +23,76 @@ spec:
     - Ingress
     - Egress
 ---
+# Kagent controller-minted agent pods.
+#
+# WHY THIS EXISTS, AND WHY IT SELECTS A DIFFERENT LABEL TO EVERY POLICY BELOW.
+#
+# Every other rule in this file selects `signalloom.ai/agent: "true"`. That
+# label is set on the Agent CR and on the ServiceAccount, but the kagent
+# controller builds the agent Deployment's pod template ITSELF and does not
+# propagate it. A controller-minted pod carries only kagent's own labels:
+#
+#   app=kagent  app.kubernetes.io/managed-by=kagent
+#   app.kubernetes.io/name=<agent>  kagent=<agent>
+#
+# So those pods matched `default-deny` (podSelector {} — everything) and NO
+# allow rule, and every packet to or from them was dropped. The symptom was
+# `make demo-kagent-invoke` returning `i/o timeout` — a drop, not a refusal —
+# against a pod that was 1/1 Running with its Agent CR reporting
+# Accepted=True Ready=True. Nothing in the status surface indicated it.
+#
+# The second half of the same defect: `allow-signalloom-ingress` below admits
+# only namespace `fe-signalloom`, while the kagent CONTROLLER — the one caller
+# that matters, since it proxies every A2A invocation — runs in `kagent`.
+# Adding the label alone would not have been enough.
+#
+# The better long-term fix is `spec.declarative.deployment.labels` on the Agent
+# CR, which the real v1alpha2 CRD supports and which would make these pods
+# first-class Signal Loom workloads: the rules below would then apply as
+# written, AND pod-based /agents discovery — which selects on that same label —
+# would stop being blind to every controller-minted agent. Until each Agent CR
+# carries it, this rule keeps the demo working without widening any existing
+# policy. It is deliberately scoped to managed-by=kagent and to port 8080, not
+# a namespace-wide opening.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kagent-managed-agents
+  namespace: fe-signalloom-agents
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: kagent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The controller dials the agent's A2A endpoint from the kagent namespace.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Back to the kagent namespace: the MCP tool server on 8084 and the
+    # controller's own API. Without this the agent accepts the task and then
+    # cannot call a single tool.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kagent
+    # The Kubernetes API. Port-scoped rather than CIDR-scoped: the API
+    # ClusterIP DNATs to the node's :6443 and kindnet evaluates policy
+    # post-DNAT, so a CIDR rule naming the service IP does not match. Same
+    # rationale as allow-kubectl-clients-apiserver-egress in inf-bao.
+    - ports:
+        - protocol: TCP
+          port: 6443
+        - protocol: TCP
+          port: 443
+---
 # All agent pods can talk to each other within the namespace.
 # This enables A2A discovery (governor → worker agent cards)
 # and inter-agent task dispatch.

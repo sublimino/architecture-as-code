@@ -27,18 +27,24 @@ the reasoning behind each assertion.
 
 **Current state.** The real charts have since landed: `kagent 0.9.9` with
 `cr.kagent.dev/kagent-dev/kagent/controller:0.9.9`,
-`ghcr.io/kagent-dev/kagent/tools:0.2.1` and `…/ui:0.9.9`. Ten of the thirteen
-anti-stub assertions flipped green with **no change to the tests** — the tool
-server now discriminates its input, and the controller writes real status
-conditions. Two things are still genuinely broken, and the suites say so:
+`ghcr.io/kagent-dev/kagent/tools:0.2.1` and `…/ui:0.9.9`. **Twelve of the
+thirteen anti-stub assertions now pass with no change to the tests.** The tool
+server discriminates its input, the controller writes real status conditions,
+and it materialises resources it owns — the three properties the placeholder
+stack could not produce.
 
-- **No agent workloads are produced.** The controller reconciles and then fails
-  to compile every Agent CR: `RemoteMCPServer.kagent.dev "kagent-tool-server"
-  not found`. The manifests declare `kind: RemoteMCPServer` inside `MCPServer`
-  CRs, which is not what the controller resolves. All 8 sit at
-  `Accepted=False`.
-- **The model API key reference does not survive being applied.** See
-  "What the agents cannot yet do" below.
+This section is a snapshot and dates quickly; `make demo-kagent-test` is the
+current answer. At the time of writing:
+
+- **Half the swarm reconciles.** Four agents report
+  `Accepted=True / Reconciled` and 8 Agent-owned resources exist. The other four
+  fail to compile because the `RemoteMCPServer` CRs they bind do not exist yet:
+  `github-tool`, `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool`.
+  Only `kagent-tool-server` has been created so far. Note the CR kind — the
+  controller resolves `RemoteMCPServer.kagent.dev`, not the `MCPServer` CRs the
+  original manifests declared, which is why this failed for all eight before.
+- **A placeholder credential survives in a tracked manifest** —
+  `controller.yaml:12`. See "What the agents cannot yet do" below.
 
 Claims about *declarative structure* — the Agent CRs, their tool bindings,
 SPIFFE naming, the OpenBao path mapping — are verified on disk and in the
@@ -110,12 +116,15 @@ Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
      It briefly held *two* keys — the real one plus the original mock `api-key`
      — because `kubectl apply` merges, so a write that set only the new key left
      the placeholder underneath it. Resolved with `replace --force`.
-  2. **`spec.anthropic.apiKeySecret` is silently pruned.** The v1alpha2 CRD
+  2. **`spec.anthropic.apiKeySecret` was silently pruned** — now fixed, and worth
+     keeping on record because the failure mode leaves no trace. The v1alpha2 CRD
      defines `apiKeySecret` and `apiKeySecretKey` at the **top level of `spec`**;
      `spec.anthropic` admits only `baseUrl`/`maxTokens`/`temperature`/`topK`/
-     `topP`. `kubectl apply` succeeds, nothing warns, and the field is dropped —
-     `spec.anthropic` reads back as `{}`. A pruned field fails at run time, not
-     at apply time. `test/kagent-credentials.bats` fails on this deliberately.
+     `topP`. `kubectl apply` succeeded, nothing warned, and the field was
+     dropped — `spec.anthropic` read back as `{}`. A pruned field fails at run
+     time, not at apply time, so nothing between the manifest and the first
+     model call would have told you. `test/kagent-credentials.bats` accepts the
+     reference at either location and fails if it resolves at neither.
   3. `d2-signalloom/infra/kagent/base/controller.yaml:12` still carries the
      literal `mock-anthropic-key-for-local-demo`. The chart now supplies the
      Secret, so that manifest's Secret block is **dead** — the placeholder ships

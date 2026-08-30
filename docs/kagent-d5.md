@@ -2,146 +2,177 @@
 
 ## Overview
 
-Demonstrates CNCF sandbox AI agent framework **Kagent** (`v0.9.9`) running on Signal Loom with full SPIFFE identity issuance and OpenBao ephemeral credential management.
+Demonstrates the CNCF sandbox AI agent framework **Kagent** (`v0.9.9`) running on
+Signal Loom, with agent identity issued through SPIRE and credentials brokered by
+OpenBao.
 
-Replaces ~120-line hand-crafted Knative Serving manifests with declarative ~30-line Custom Resources (`Agent`, `ModelConfig`, `MCPServer` in `kagent.dev/v1alpha2`).
+Replaces ~120-line hand-crafted Knative Serving manifests with declarative ~30-line
+Custom Resources (`Agent`, `ModelConfig`, `MCPServer` in `kagent.dev/v1alpha2`).
 
-## Architecture & Lifecyle
+## Status of this demo — read this before quoting anything below
+
+This document previously described a working Kagent control plane. It was not one.
+Up to commit `f879ec4c` the "control plane" consisted of placeholders:
+
+| Component | What was actually deployed | Consequence |
+|---|---|---|
+| `kagent-controller` | `python:3.12-alpine` running `while True: time.sleep(10)`, readiness probe `sh -c "echo ready"` | Nothing reconciled. All 8 `Agent` CRs sat at `status: null` indefinitely. |
+| `kagent-tool-server` | `python:3.12-alpine` whose `do_POST` wrote **one hardcoded literal for every request** | Tool calls were not dispatched. A call naming `k8s_get_resources` and one naming `totally_made_up_xyz` returned byte-identical JSON. |
+| `kagent-ui` | `nginx:1.27-alpine` serving a static hand-written `index.html` | No product. Deployment readiness was satisfied by nginx starting. |
+| `kagent-anthropic-key` | the literal string `mock-anthropic-key-for-local-demo` | No agent could complete a single model call. |
+
+All 36 Kagent assertions passed against that stack. That is the defect
+`test/kagent-anti-stub.bats` exists to prevent recurring; its file header explains
+the reasoning behind each assertion.
+
+**Current state.** The real upstream Helm charts and real credential wiring are
+being landed separately. Until they merge, treat every claim below about *runtime
+behaviour* as pending. Claims about *declarative structure* — the Agent CRs, their
+tool bindings, SPIFFE naming, the OpenBao path mapping — are verified on disk and
+in the cluster today.
+
+## Architecture & lifecycle
 
 ```
 Foundation (Kind, Zot, Flux)
       │
       ├── inf-bao (SPIRE Server & OpenBao JWT Auth)
-      ├── kagent namespace (Controller, Postgres 18 state store, MCP Tool Server, UI)
-      └── fe-signalloom-agents namespace (5 Declarative Agent CRs with SPIFFE identity)
+      ├── kagent namespace (Controller, Postgres state store, MCP tool server, UI)
+      └── fe-signalloom-agents namespace (8 declarative Agent CRs with SPIFFE identity)
 ```
 
-### Lifecycle Targets
+### Lifecycle targets
 
 | Command | Purpose |
 |---------|---------|
 | `make swarm-kagent-up` | Deploy Kagent CRDs, controller, PostgreSQL, tool server, and UI |
-| `make swarm-kagent-down` | Remove Kagent control plane and CRDs |
-| `make demo-kagent-up` | Deploy all 5 Kagent declarative agents to `fe-signalloom-agents` |
-| `make demo-kagent-down` | Remove Kagent declarative agents |
-| `make demo-kagent-test` | Run BATS test suites across all 5 verification phases |
-| `make demo-kagent-demo` | Run interactive CLI walkthrough of all 5 agents |
+| `make swarm-kagent-down` | Remove the Kagent control plane and CRDs |
+| `make demo-kagent-up` | Deploy all 8 Kagent declarative agents to `fe-signalloom-agents` |
+| `make demo-kagent-down` | Remove the Kagent declarative agents |
+| `make demo-kagent-test-config` | Statically render the CRDs and agent overlays, then run the contract suite — no cluster required |
+| `make demo-kagent-test` | Run every Kagent BATS suite against a live cluster |
+| `make demo-kagent-demo` | Run the interactive CLI walkthrough |
 
-## Five Distinct Agent Types Built for Demonstration
+`swarm-kagent-up` and `swarm-kagent-down` are each declared **twice** in the
+Makefile (around lines 861 and 2490) with identical recipes. GNU make takes the
+last definition and warns; behaviour is unchanged, but the duplication should go.
 
-1. **K8s Resource Reader (`kagent-k8s-reader`)**:
-   - Single MCP tool (`k8s_get_resources` via built-in `kagent-tool-server`).
-   - Declarative Go ADK runtime (~2s startup, ~128Mi footprint).
-   - Anthropic ModelConfig with OpenBao-managed API key.
-2. **Commit Summariser (`kagent-commit-summariser`)**:
-   - Git commit and PR diff summarisation via `github-tool` MCPServer.
-   - Dual credentials (OpenBao GitHub token + Anthropic LLM key).
-   - Mock test scaffolding for isolated local CI execution.
-3. **Security Analyst (`kagent-security-analyst`)**:
-   - Multi-tool posture agent (K8s query, OSV/CVE vuln database, policy evaluation).
-   - Implements Agent Card contract (`agent-card.kagent-security-analyst.v1.json`) for A2A hand-offs following Olly Sentinel patterns.
-4. **Network Auditor (`kagent-network-auditor`)**:
-   - Specializes in NetworkPolicy rules verification, SPIFFE trust boundaries, and Envoy Gateway route auditing.
-   - Tools: `audit_netpol_rules`, `probe_spiffe_boundaries`, `inspect_envoy_routes`.
-5. **Incident Responder (`kagent-incident-responder`)**:
-   - SRE incident triage, pod restart correlation, and automated remediation patch proposals.
-   - Implements Agent Card contract (`agent-card.kagent-incident-responder.v1.json`) for A2A hand-offs.
+## The eight agents
 
-## The Model Credential
+Previous revisions of this document described five. Eight are defined on disk
+(`d2-signalloom/infra/agent-swarm/kagent-*/`), deployed by
+`scripts/kagent-agents.sh`, and asserted by the test suites.
 
-The Anthropic API key is supplied by the operator, stored in OpenBao under a
-path scoped by each agent's own SPIFFE ID, and projected from there into the one
-Kubernetes Secret the kagent controller is contractually required to read.
+Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
+"Tools" below are the `toolNames` each `Agent` CR binds through an `MCPServer`.
 
-```bash
-# 1. put the key in .env at the MAIN checkout root (gitignored, never committed)
-cp .env.example .env      # then set ANTHROPIC_API_KEY=sk-ant-...
-# 2.
-make demo-kagent-credentials          # seed -> sync -> verify
-make demo-kagent-credentials-verify   # evidence without disclosure
-```
+1. **`kagent-k8s-reader`** — MCPServer `kagent-tool-server`; tools
+   `k8s_get_resources`, `k8s_get_available_api_resources`. The only agent with a
+   `ClusterRole` (`kagent-k8s-reader-role`: get/list/watch on pods, services,
+   deployments, namespaces, nodes, events).
+2. **`kagent-commit-summariser`** — MCPServer `github-tool`; tools
+   `github_list_commits`, `github_get_commit`. Reads a GitHub token from the
+   `kagent-github-key` Secret.
+3. **`kagent-security-analyst`** — three MCPServers (`kagent-tool-server`,
+   `vuln-db-tool`, `policy-eval-tool`); tools `k8s_get_resources`, `lookup_cve`,
+   `query_advisories`, `evaluate_rbac_policy`, `evaluate_netpol`. Publishes an A2A
+   Agent Card (`agent-card.kagent-security-analyst.v1.json`).
+4. **`kagent-network-auditor`** — MCPServer `network-probe-tool`; tools
+   `audit_netpol_rules`, `probe_spiffe_boundaries`, `inspect_envoy_routes`.
+5. **`kagent-incident-responder`** — MCPServer `incident-triage-tool`; tools
+   `triage_alert_events`, `correlate_restarts`, `propose_remediation`. Publishes an
+   A2A Agent Card (`agent-card.kagent-incident-responder.v1.json`).
+6. **`kagent-compliance-checker`** — MCPServer `kagent-tool-server`; tools
+   `compliance_check_policies`, `compliance_audit_cis`.
+7. **`kagent-finops-optimizer`** — MCPServer `kagent-tool-server`; tools
+   `finops_query_metrics`, `finops_identify_waste`.
+8. **`kagent-chaos-prober`** — MCPServer `kagent-tool-server`; tools
+   `chaos_probe_recovery`, `chaos_simulate_latency`.
 
-`ANTHROPIC_API_KEY` exported in the environment takes precedence over `.env`;
-the provenance is printed either way, so the source is never a guess.
+### What the agents cannot yet do, and why
 
-**`.env` is resolved from the MAIN checkout, not from `$PWD`.** It is gitignored,
-so it is never checked out into a linked worktree — and a `$PWD`-relative read
-from a worktree finds nothing, reports "no key configured", and exits 0 while
-the operator's key sits in the main checkout. `scripts/lib/env-file.sh` resolves
-it through `git rev-parse --git-common-dir`. `SIGNALLOOM_ENV_FILE` overrides,
-for CI and the GCP lanes where there may be no git repo. All four `.env` readers
-in this repo (`kagent-credentials`, `olly-llm-secret`, `olly-pdi-secret`,
-`security-sandbox`) now share that resolver.
+- **Agent execution requires a model API key the operator must supply.** The
+  `anthropic-claude` `ModelConfig` reads `kagent-anthropic-key`. Until that Secret
+  holds a real Anthropic key, agents can be created and reconciled but cannot
+  complete a model call. `test/kagent-anti-stub.bats` fails while the placeholder
+  is in place, deliberately.
+- **Seven of the eight agent ServiceAccounts hold no RBAC at all.** Only
+  `kagent-k8s-reader` is bound to a Role. The negative RBAC assertions in
+  `test/kagent-adversarial.bats` are therefore true but weak for those seven: they
+  confirm an absence of permissions rather than a drawn boundary. That file states
+  the limit in its header rather than papering over it.
+- **`kagent-tool-server` is referenced by five Agent CRs but is not an `MCPServer`
+  CR** in `fe-signalloom-agents` — it is the control-plane MCP endpoint in the
+  `kagent` namespace. `test/kagent-agents.bats` excludes it by name when resolving
+  MCPServer references.
 
-**Two different behaviours, deliberately.** `make demo-kagent-credentials`
-**no-ops with guidance** when no key is configured, matching
-`scripts/olly-llm-secret.sh`: a missing optional credential must not break
-`make up`. `make demo-kagent-invoke` **fails loudly**, because there the key is
-required and quietly doing nothing is the fake-success mode being removed.
+## OpenBao integration
 
-This replaces a committed Secret containing a 33-byte placeholder with which no
-agent could complete a model call, and which every presence check reported as
-healthy.
+- **Current seam.** Agent workloads map secrets through OpenBao SPIFFE-scoped paths
+  (`secret/data/agents/<spiffe-id>/<key>`), declared in
+  `d2-signalloom/infra/agent-swarm/openbao-secret-paths.yaml`. That ConfigMap has
+  one data key per agent and is asserted key-by-key by the contract suite.
+- **OpenBao Agent compatibility.** The pod templates and `ModelConfig` definitions
+  are shaped so an `openbao-agent` sidecar or injector can render secrets to
+  `/vault/secrets/` on a tmpfs `emptyDir` without modifying the `Agent` CRs or the
+  MCP tool definitions. This is a design property of the manifests; no injector is
+  deployed today.
 
-**No key may ever be tracked by git.** `d2-signalloom/test/no-tracked-secrets.bats`
-fails the build if an Anthropic- or OpenAI-shaped key reaches the git index. It
-scans `git ls-files`, not the working directory — `.env` holding a real key is
-the intended state and must never trip it.
+## SPIFFE identity derivation
 
-| Layer | What holds the credential |
-|---|---|
-| System of record | OpenBao kv-v2, `secret/data/agents/ns/<ns>/sa/<sa>/anthropic/api-key` |
-| Authorisation | Per-agent policy over that prefix only; per-agent JWT role with `bound_subject` = that agent's exact SPIFFE ID, `token_ttl` 15m |
-| Projection | `Secret/kagent-anthropic-key`, key `ANTHROPIC_API_KEY`, in every namespace holding a `ModelConfig` |
+The dashboard builds a SPIFFE ID as `spiffe://<trust-domain>/ns/<ns>/sa/<sa>`, where
+`<sa>` is **derived from the Agent CR's name** — an `Agent.kagent.dev` CR carries no
+ServiceAccount field, so the value is inferred rather than observed. If an agent's
+ServiceAccount ever stops being named after the agent, the governance UI renders an
+identity SPIRE never issued.
 
-**Per-agent roles, not one shared role.** A single role over `secret/data/agents/*`
-would let any agent's SVID read any other agent's credential — credential
-mediation in the diagram, none of its isolation in practice. Verified: a token
-carrying `signalloom-agent-kagent-k8s-reader` reads its own path, and is denied
-both a sibling's path and enumeration of the prefix.
+Two independent assertions in `d2-signalloom/test/kagent-contract.bats` hold that
+invariant on disk (Agent name == ServiceAccount name; agent-card `spiffeId` ends in
+`/sa/<that name>`), and `test/kagent-credentials.bats` holds it against the cluster.
 
-**The Secret must exist in the ModelConfig's own namespace.** Upstream, verbatim:
-*"Must be a reference to the name of a secret in the same namespace as the
-referencing ModelConfig."* Hence two namespaces, not one.
+## Tests & verification
 
-The key never enters `git`, a manifest, argv, or `set -x` output. It crosses
-process boundaries only on stdin, and is staged to a `umask 077` temporary file
-that is removed on exit. `verify` prints path, presence, byte count and a
-truncated SHA256 — never the value.
+Run everything with `make demo-kagent-test` (wraps `scripts/kagent-test.sh`).
 
-> **Limit worth stating:** presence and length cannot distinguish a real key from
-> a well-formed fake. The only proof that the credential works is a successful
-> invocation — which is what `make demo-kagent-invoke` exists for.
+| Suite | Asserts | Does **not** assert |
+|---|---|---|
+| `d2-signalloom/test/kagent-contract.bats` | Declarative size reduction, label and runtime/ModelConfig/tool contract for all 8 agents, OpenBao path-map keys, SPIFFE name derivation, agent-card schema | Anything about a running cluster |
+| `test/kagent-install.bats` | CRDs registered and serving `v1alpha2` with a status subresource; namespace label; controller/postgres/tool-server/UI scheduled with Services carrying ready endpoints; postgres NetworkPolicy selects real pods | That any component *does* anything |
+| `test/kagent-agents.bats` | Exactly 8 Agent CRs; each agent's MCPServer bindings and callable tool names; every referenced MCPServer exists | Reconciliation, execution |
+| `test/kagent-credentials.bats` | ServiceAccounts and their labels; Agent↔ServiceAccount name correspondence; ModelConfig names a model and an existing Secret; GitHub secret wired to the summariser | Whether credentials are usable |
+| `test/kagent-adversarial.bats` | Negative RBAC probes, each gated on the subject existing, plus a **positive control** proving RBAC is evaluated; controller can write `agents/status` but cannot escalate; NetworkPolicy declares Ingress | Boundaries for the seven agents with no RBAC |
+| **`test/kagent-anti-stub.bats`** | **That the control plane is real**: no generic base images, no inline-interpreter containers, no `echo` readiness probes, kagent-published image provenance, tool-server input discrimination, `tools/list` naming, UI is an application, Agent CRs reconciled to non-null status with typed conditions, controller-owned resources, no placeholder model key | — |
+| `test/kagent-infra.bats` | Lifecycle command behaviour of `scripts/kagent-infra.sh` via a stubbed `kubectl` | — |
 
-## Invoking an Agent
+Additionally, `test/acceptance/kagent-agents.spec.ts` drives the dashboard `/agents`
+page with Playwright and expects all eight agent names to render. It opts out of
+demo mode (`login(page, { demoMode: false })`) because the agents exist only as
+Agent CRs discovered through `fake-integration-proxy`.
 
-```bash
-make demo-kagent-invoke AGENT=kagent-k8s-reader \
-     PROMPT="List every namespace in this cluster, then tell me how many there are."
-```
+### Known-red suites
 
-Uses kagent's own A2A surface, nothing bespoke: the controller serves
-`GET /api/a2a/{namespace}/{agent}/.well-known/agent.json` and
-`POST /api/a2a/{namespace}/{agent}/` (JSON-RPC `message/send`) on port 8083 of
-`svc/kagent-controller` — the same surface the `kagent` CLI and the dashboard
-use. Implemented as a dependency-free client so the kagent CLI need not be
-installed.
+- **`test/kagent-anti-stub.bats` — 13/13 failing at `f879ec4c` by design.** Every
+  assertion targets a property the placeholder stack lacks. These flip green when
+  the real charts and credentials land; a passing run against a stub would mean the
+  suite had broken.
+- **`test/kagent-infra.bats` — 4/4 failing.** It tests an interface
+  `scripts/kagent-infra.sh` does not implement: a `KAGENT_INFRA_MANIFEST_DIR`
+  override, `rollout status deployment/<name> --timeout=15s`, exit code 2 on an
+  unknown subcommand, and a `Usage: kagent-infra.sh` string. The script uses a
+  fixed manifest path, `wait_rollout`, exit 1, and `Usage: $0`. The suite was
+  omitted from `scripts/kagent-test.sh`, so `make demo-kagent-test` reported green
+  while it was red. It is now included: either the script grows that interface or
+  the suite is rewritten against the one it has — but the mismatch is visible.
 
-Four distinct failure modes are treated as failures, three of which arrive as
-HTTP 200: a JSON-RPC `error` object; `result.status.state == "failed"`; an HTML
-gateway page served with a 200; and a completed task carrying no text. Checking
-only the status code, or only `.error`, reports the other three as success.
+### The proof artefact
 
-## OpenBao Agent Integration & Future Shaping
+`scripts/kagent-harness-exec.sh` writes `.kagent-preflight-proof.json`, which is
+git-tracked. Because it is committed, a stale copy answers for runs it never
+observed — the committed version recorded commit `ef483f3e`, four pod names that no
+longer existed, five Agent CRs out of eight, and `test_assertions_passed: 23`, a
+figure that was a hardcoded literal in the harness and never matched any run.
 
-- **Current Seam**: Agent workloads map secrets through OpenBao SPIFFE-scoped paths (`secret/data/agents/<spiffe-id>/<key>`), declared in `d2-signalloom/infra/agent-swarm/openbao-secret-paths.yaml`.
-- **OpenBao Agent Compatibility**: Kagent agent pod templates and ModelConfig definitions are designed so that an `openbao-agent` sidecar or injector can render secrets directly to `/vault/secrets/` on tmpfs `emptyDir` mounts without requiring modifications to the `Agent` CRs or MCP tool definitions.
-- **Note**: `openbao-agent-sidecar.yaml` still names a shared `signalloom-agent-generic` role. `kagent-credentials.sh` creates per-agent roles instead, which are strictly narrower; the sidecar template needs its `role =` line updated per agent before it is applied anywhere.
-
-## Tests & Verification
-
-- `d2-signalloom/test/kagent-contract.bats` — Declarative size reduction (strictly fewer than 50 lines) & schema checks across all 5 agents.
-- `test/kagent-install.bats` — CRDs, controller memory limit (≤512Mi), Postgres isolation.
-- `test/kagent-agents.bats` — Declarative Agent CRs (all 5) and MCPServer discovery.
-- `test/kagent-credentials.bats` — ServiceAccounts, SPIFFE labels, OpenBao secret mapping for all 5 agents.
-- `test/kagent-demo-harness.bats` — End-to-end demo walkthrough.
+`test/kagent-demo-harness.bats` now asserts freshness: the artefact must name the
+current `HEAD`, its `agent_crs` must equal the live set exactly, and its pass count
+must match what the runner measured. Regenerate with
+`scripts/kagent-harness-exec.sh` after any run whose evidence you intend to quote.

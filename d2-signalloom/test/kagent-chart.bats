@@ -434,6 +434,26 @@ render_images() {
   # Only the DECLARATION is asserted, exactly as with the count instruction.
   # Whether the model obeys is not tested and is not testable here.
   #
+  # ─── If you change this wording, you are invalidating evidence ───────────
+  #
+  # Obedience was confirmed by hand on 2026-08-30, and those runs are the ONLY
+  # evidence that exists:
+  #
+  #   security-analyst on agent-cardvault — the exact pod it had reported as
+  #     "UID 100, GID 101" — returned "securityContext is ABSENT" three times
+  #     with no UID, WHILE still reporting the true runAsUser: 65532 for
+  #     agent-sir-lancelot. Keeping the true value is the discriminating
+  #     result: blanket suppression would have lost it too.
+  #   finops-optimizer on inf-bao, 3/3 containers with no requests or limits —
+  #     four ABSENTs per container, no figures invented.
+  #
+  # That evidence attaches to THIS WORDING. Edit it and re-run the checks;
+  # this test cannot tell you the instruction stopped working.
+  #
+  # Untested: a PARTIAL absence — agent-cardvault sets a memory limit but no
+  # CPU limit. Both confirmations used wholly-empty blocks, and a gap inside a
+  # populated structure is the likelier place to fabricate.
+  #
   # Scope note: applied to the four posture agents, not all six. kagent-k8s-reader
   # makes no posture claims, and kagent-incident-responder reads events and logs
   # rather than sparse spec fields. This is mechanism-reasoning from ONE

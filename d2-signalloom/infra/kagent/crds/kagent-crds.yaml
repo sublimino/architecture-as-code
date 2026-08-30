@@ -111,9 +111,31 @@ spec:
       - mcp
   scope: Namespaced
   versions:
-    - name: v1alpha1
+    - name: v1alpha2
       served: true
       storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+            status:
+              type: object
+              x-kubernetes-preserve-unknown-fields: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Description
+          type: string
+          jsonPath: .spec.description
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+    - name: v1alpha1
+      served: true
+      storage: false
       schema:
         openAPIV3Schema:
           type: object

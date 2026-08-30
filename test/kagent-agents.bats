@@ -24,8 +24,29 @@ setup() {
   # shellcheck source=test/lib/mcp.bash
   . "${BATS_TEST_DIRNAME}/lib/mcp.bash"
 
-  # An agent may declare tools it knows are not built yet, but only out loud.
-  ROADMAP_ANNOTATION="signalloom.ai/tools-roadmap"
+  # DEFERRED AGENTS — Andy's ruling, recorded by name.
+  #
+  # An earlier draft put this in an Agent CR annotation so the decision lived in
+  # the manifest. Both branches that own those manifests asked for a by-name
+  # list instead, and neither is adding annotations, so an annotation mechanism
+  # would have meant the guard stayed red on a decision that had actually been
+  # made. Reversed deliberately.
+  #
+  # A hardcoded allowlist normally rots into a permanent hole. The test below
+  # ("deferred agents are still genuinely blocked") is what stops that: the
+  # moment any deferred agent's tools DO appear on the server, the deferral is
+  # stale and fails until it is removed. The list can only shrink by itself.
+  DEFERRED_AGENTS="kagent-chaos-prober kagent-commit-summariser"
+  DEFERRED_REASON_kagent_chaos_prober="no chaos_* tool exists on the server"
+  DEFERRED_REASON_kagent_commit_summariser="no github_* tool exists on the server; github-tool RemoteMCPServer is absent"
+}
+
+is_deferred() {
+  local a="$1" d
+  for d in $DEFERRED_AGENTS; do
+    [ "$d" = "$a" ] && return 0
+  done
+  return 1
 }
 
 teardown() {
@@ -38,14 +59,6 @@ requested_tool_pairs() {
     jq -r '.items[] as $a
            | $a.spec.declarative.tools[]?.mcpServer.toolNames[]?
            | "\($a.metadata.name)\t\(.)"' | sort -u
-}
-
-# Agents that have declared, in the manifest, that some of their tools are
-# roadmap items rather than working bindings.
-roadmap_agents() {
-  kubectl get agents -n "${NS}" -o json |
-    jq -r --arg k "$ROADMAP_ANNOTATION" '
-      .items[] | select((.metadata.annotations // {})[$k] != null) | .metadata.name'
 }
 
 # The MCPServer names an agent binds to, comma-joined and sorted.
@@ -191,19 +204,13 @@ agent_tool_names() {
     return 1
   }
 
-  exempt="$(roadmap_agents)"
-
   missing=""
   skipped=""
   checked=0
   while IFS=$'\t' read -r agent tool; do
     [ -n "$agent" ] || continue
 
-    is_exempt=0
-    while IFS= read -r e; do
-      [ -n "$e" ] && [ "$e" = "$agent" ] && is_exempt=1
-    done <<<"$exempt"
-    if [ "$is_exempt" -eq 1 ]; then
+    if is_deferred "$agent"; then
       skipped+="  ${agent} -> ${tool}"$'\n'
       continue
     fi
@@ -216,8 +223,8 @@ agent_tool_names() {
   done <<<"$pairs"
 
   [ "$checked" -gt 0 ] || {
-    echo "every agent is roadmap-exempt, so nothing was actually checked."
-    echo "that is not a pass; remove an exemption or delete the agents."
+    echo "every agent is deferred, so nothing was actually checked."
+    echo "that is not a pass; shorten DEFERRED_AGENTS or delete the agents."
     return 1
   }
 
@@ -226,7 +233,7 @@ agent_tool_names() {
     printf '%s' "$missing"
     echo
     echo "checked ${checked} (agent, tool) pairs against ${n_server} server tools"
-    [ -n "$skipped" ] && { echo "roadmap-exempt, not checked:"; printf '%s' "$skipped"; }
+    [ -n "$skipped" ] && { echo "deferred, not checked:"; printf '%s' "$skipped"; }
     echo
     echo "the controller will still mark these agents Accepted/Ready — a bound"
     echo "tool that does not exist is not a startup error, it is an agent that"
@@ -235,34 +242,58 @@ agent_tool_names() {
   [ -z "$missing" ]
 }
 
-@test "kagent-agents: roadmap tool exemptions are declared with a reason" {
-  # The exemption above is the only way to make the guard quiet, so it must not
-  # be quiet itself. Every exempt agent has to say why, in the manifest, and the
-  # full set is printed on every run so it cannot accumulate unnoticed.
-  exempt="$(roadmap_agents)"
-  if [ -z "$exempt" ]; then
-    echo "no roadmap exemptions in effect — every declared tool is enforced"
+@test "kagent-agents: deferred agents are still genuinely blocked" {
+  # THE ANTI-ROT CLAUSE, and the reason a hardcoded list is acceptable here.
+  # A deferral is a claim that the tools do not exist. If they appear, the claim
+  # is false and the agent must rejoin the enforced set. Without this, the list
+  # is a permanent hole that outlives its reason and nobody notices — which is
+  # the failure this whole suite exists to prevent, in miniature.
+  [ -n "$DEFERRED_AGENTS" ] || {
+    echo "no agents deferred — every declared tool is enforced"
     return 0
-  fi
+  }
 
-  echo "roadmap exemptions currently in effect:"
-  bad=""
-  while IFS= read -r agent; do
+  mcp_kagent_connect "${KAGENT_NS}" || {
+    echo "could not reach the tool server — harness failure, not a verdict"
+    return 1
+  }
+  server_tools="$(mcp_tools_list)" || { echo "$server_tools"; return 1; }
+
+  pairs="$(requested_tool_pairs)"
+  now_available=""
+  unknown_agents=""
+
+  for d in $DEFERRED_AGENTS; do
+    # A deferral naming an agent that no longer exists is also stale.
+    kubectl get agent "$d" -n "${NS}" >/dev/null 2>&1 || {
+      unknown_agents+="$d "
+      continue
+    }
+    reason_var="DEFERRED_REASON_${d//-/_}"
+    echo "deferred: $d — ${!reason_var:-<no reason recorded>}"
+    [ -n "${!reason_var:-}" ] || {
+      echo "  ^ no reason recorded; a deferral must say why"
+      return 1
+    }
+  done
+
+  while IFS=$'\t' read -r agent tool; do
     [ -n "$agent" ] || continue
-    reason="$(kubectl get agent "$agent" -n "${NS}" -o json |
-      jq -r --arg k "$ROADMAP_ANNOTATION" '.metadata.annotations[$k] // ""')"
-    echo "  ${agent}: ${reason:-<no reason given>}"
-    # A bare "true" is not a reason. Require something a human wrote.
-    case "$reason" in
-      "" | "true" | "yes" | "1") bad+="$agent " ;;
-    esac
-  done <<<"$exempt"
+    is_deferred "$agent" || continue
+    if printf '%s\n' "$server_tools" | grep -qxF -- "$tool"; then
+      now_available+="  ${agent} -> ${tool}"$'\n'
+    fi
+  done <<<"$pairs"
 
-  if [ -n "$bad" ]; then
-    echo
-    echo "these agents are exempt with no stated reason: $bad"
-    echo "annotate ${ROADMAP_ANNOTATION} with why the tools do not exist yet,"
-    echo "so the exemption reads as a decision rather than as an oversight"
+  if [ -n "$unknown_agents" ]; then
+    echo "DEFERRED_AGENTS names agents that do not exist: $unknown_agents"
   fi
-  [ -z "$bad" ]
+  if [ -n "$now_available" ]; then
+    echo "these deferred tools now EXIST on the server:"
+    printf '%s' "$now_available"
+    echo "the deferral is stale — remove the agent from DEFERRED_AGENTS so the"
+    echo "tool-existence guard starts enforcing it again"
+  fi
+  [ -z "$unknown_agents" ]
+  [ -z "$now_available" ]
 }

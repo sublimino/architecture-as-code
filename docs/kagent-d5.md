@@ -240,12 +240,35 @@ because each returns something that looks like an answer:
    verdict for entirely the wrong reason. The helper therefore **errors on an
    empty list** instead of returning it.
 
-**Roadmap exemptions.** An agent may declare tools that do not exist yet, but
-only out loud: annotate the Agent CR with `signalloom.ai/tools-roadmap=<reason>`
-and the guard skips it while printing it on every run. A bare `true`/`yes`/`1`
-is rejected — the exemption has to read as a decision, not an oversight. If
-*every* agent were exempt the guard fails rather than passing, because a check
-that skips everything is not a check.
+**Presence is not callability, and this guard only checks presence.** A tool can
+appear in `tools/list` and fail every time it is called. On this cluster
+`kubescape_*`, `prometheus_*` and `istio_*` are all advertised and all
+non-functional — no Kubescape operator (the `vulnerabilitymanifests` CRD is
+absent), no Prometheus (hardcoded `localhost:9090`), no Istio (`istioctl` exits
+64), and `prometheus_promql_tool` additionally wants an `OPENAI_API_KEY`. An
+earlier re-pointing plan aimed four agents at exactly those tools; it would have
+traded "tool does not exist" for "tool exists and always errors", **and this
+guard would have passed it**. The agents were pointed at the verified-working
+`k8s_*` set instead. Closing the gap properly means a `tools/call` probe, which
+needs a per-tool judgement about which calls are safe to make against a live
+cluster — deliberately not attempted here.
+
+**Deferred agents.** `kagent-chaos-prober` and `kagent-commit-summariser` are
+deferred by ruling: no `chaos_*` tool and no `github_*` tool exist on the server.
+They are named in `DEFERRED_AGENTS` in the test, with a recorded reason each.
+
+A hardcoded allowlist normally rots into a permanent hole, so it carries an
+anti-rot clause: **a deferral asserts that the tools do not exist, and fails the
+moment they do.** If a `chaos_*` tool ever appears, the deferral is stale and the
+suite fails until the agent is removed from the list and re-enforced. A deferral
+naming an agent that no longer exists fails too, as does one with no reason. The
+list can only shrink by itself.
+
+An earlier draft put this in an Agent CR annotation, so the decision would live
+in the manifest rather than the test. That was the better shape, but neither
+branch owning those manifests was adding annotations, so it would have meant the
+guard staying red on a decision that had in fact been made. Reversed
+deliberately; the anti-rot clause is what makes the static form safe.
 
 ### Known-red suites
 
@@ -322,9 +345,33 @@ in, that is the signal to ask the question instead.
      nothing and read as "key present but empty". Order the jsonpath arm first
      and require the trailing space (`*"-o json "*`).
 
-   The general rule: a stub must be **more** brittle than the real thing, not
-   less. An unrecognised invocation should abort loudly; returning empty makes
-   the stub agree with every hypothesis.
+   "A stub should be more brittle" was the first attempt at a rule here, and it
+   is the wrong axis — it also fails to describe the second instance at all.
+   Two rules, because these are two mechanisms:
+
+   1. **A stub's failure value must not be something the real thing could
+      legitimately return.** `""`, `0`, `null`, `[]` are almost always legal
+      answers, so a stub that returns one on failure collides with a real state
+      the caller is entitled to observe. Fail loudly instead.
+   2. **A stub must reject queries it does not understand, not fall through.**
+      A `*)` arm returning success is where a *well-formed answer to the wrong
+      question* gets manufactured. The `-o jsonpath` case was a dispatch error,
+      not a fallback-value one; no amount of brittleness would have caught it.
+
+   Applying rule 2 to that stub immediately found two more defects in the same
+   family. `create --dry-run=client -o yaml` was unhandled, so it emitted
+   nothing and the pipeline into `replace --force -f -` carried an **empty
+   manifest** while every test passed — they asserted on argv and never on the
+   pipe having content. Fixing that exposed a fourth: the stub never drained
+   stdin for `-f -`, harmless while it emitted nothing, but once it emitted a
+   real manifest the producer died of **SIGPIPE**, surfacing under `pipefail` as
+   exit **141** with no message. That is now asserted specifically, because a
+   bare non-zero check cannot tell SIGPIPE from a real failure.
+
+   **And the fix can be worse than the bug.** Draining stdin unconditionally
+   hung an entire bats file — `cat` blocks on a terminal or any inherited
+   descriptor that never closes. A silent failure had been traded for a loud
+   one. Drain only genuine pipes (`[ -p /dev/stdin ]`).
 
 3. **A positional index over a map silently changes what is tested.** Reading a
    Secret with `jq '.data | to_entries[0].value'` tests whichever key sorts

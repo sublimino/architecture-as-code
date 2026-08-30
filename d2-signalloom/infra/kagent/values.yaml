@@ -113,6 +113,48 @@ providers:
 controller:
   replicas: 1
   loglevel: "info"
+  agentDeployment:
+    # ─── Signal Loom's tenancy labels must reach the pods, not just the CRs ──
+    #
+    # The controller builds each agent's Deployment itself and does NOT
+    # propagate labels from the Agent CR or its ServiceAccount. So a
+    # controller-minted agent pod carries only kagent's own labels:
+    #
+    #   app=kagent  app.kubernetes.io/managed-by=kagent
+    #   app.kubernetes.io/name=<agent>  app.kubernetes.io/part-of=kagent
+    #   kagent=<agent>
+    #
+    # — and nothing from signalloom.ai/*. Two things in this repo are written
+    # against `signalloom.ai/agent: "true"` and both silently missed every
+    # agent pod as a result:
+    #
+    #   1. The NetworkPolicies in d2-signalloom/infra/agent-swarm. Their
+    #      `default-deny` has podSelector {} and so covers everything, while
+    #      every allow-policy selects signalloom.ai/agent=true. An unlabelled
+    #      agent pod is therefore caught by default-deny with NO allow policy
+    #      applying to it, and every packet drops. The tell is `i/o timeout`
+    #      rather than `connection refused` — a dropped packet, not a missing
+    #      listener — on a pod that is 1/1 Running and Accepted=True Ready=True.
+    #   2. Pod-based /agents discovery, which selects the same label and so
+    #      cannot see any controller-minted agent at all.
+    #
+    # Fixed here rather than by widening the policies or by adding
+    # `spec.declarative.deployment.labels` to each of the eight Agent CRs.
+    # This is one place, it covers every agent the controller mints including
+    # ones added later, and it makes the agents genuinely first-class Signal
+    # Loom workloads so the existing policies apply exactly as written rather
+    # than being loosened to accommodate a gap. Per-agent labels in the Agent
+    # CRD still take precedence, so an individual agent can override.
+    #
+    # Renders as DEFAULT_AGENT_POD_LABELS in the controller ConfigMap
+    # (templates/controller-configmap.yaml), a comma-joined k=v list.
+    #
+    # NOTE this changes the pod template, so existing agent Deployments are
+    # rolled. That is intended and is what makes the label appear.
+    podLabels:
+      signalloom.ai/agent: "true"
+      signalloom.ai/harness: kagent
+      app.kubernetes.io/part-of: signalloom
   agentImage:
     # ─── The registry the agent RUNTIME images come from ────────────────────
     #

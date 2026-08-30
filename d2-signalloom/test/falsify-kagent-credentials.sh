@@ -71,9 +71,22 @@ mutate_sed() {
 
 run_case() {
   local label="$1" suite="$2" test_name="$3"; shift 3
-  local out rc restored_ok="yes" rel
+  local out rc restored_ok="yes" rel matched
 
   printf '\n── %s\n' "$label"
+
+  # A `bats -f` filter that matches no test runs zero tests and exits 0, which
+  # this harness would otherwise report as "the test stayed green — it guards
+  # nothing". That is a false accusation against a working test, and it happened
+  # on the first run: one filter said "placeholder" where the test said
+  # "literal". The filter is now a checked precondition, not an assumption.
+  matched="$(bats "$suite" -f "$test_name" --count 2>/dev/null || echo 0)"
+  if [ "${matched:-0}" -ne 1 ]; then
+    printf '   FILTER MATCHED %s TESTS (expected exactly 1) — result would be meaningless\n' "${matched:-0}"
+    RESULTS+=("INCONCLUSIVE  ${label}  (filter matched ${matched:-0} tests, not 1)")
+    FAIL=$((FAIL + 1)); restore_all; return
+  fi
+
   # The mutation is applied by the caller-supplied function.
   if ! "$@"; then
     RESULTS+=("INCONCLUSIVE  ${label}  (mutation did not apply)")
@@ -114,28 +127,40 @@ MC_REL="d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
 CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
 
 # ── 1. The loud-failure contract ─────────────────────────────────────────────
-m_fallback() {
+# Deleting any ONE of the four refusal branches does not make seed accept a bad
+# key: the branches back each other up (an unset key is also an empty key, an
+# empty key is also a short key). That layering is a property worth having, but
+# it means a single-branch mutation proves nothing about the test.
+#
+# The mutation that models the actual defect — the one this whole task exists to
+# remove — is a silent default substitution. `:-` fires on BOTH unset and empty,
+# so one mutation covers both cases, and the substituted value is deliberately
+# long enough and unlike the placeholder to clear every remaining guard.
+m_silent_fallback() {
   backup "$SCRIPT_REL"
-  # The exact defect being removed: silently substitute a placeholder.
   mutate_sed "$SCRIPT_REL" \
-    's|if \[ -z "${ANTHROPIC_API_KEY+set}" \]; then|if false; then|'
+    's|  local key="${ANTHROPIC_API_KEY-}" len|  local key="${ANTHROPIC_API_KEY:-sk-ant-silentfallback-00000000000000000000}" len|'
 }
-run_case "seed no longer refuses an unset ANTHROPIC_API_KEY" \
-  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_fallback
+run_case "seed silently falls back to a default when the key is unset" \
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_silent_fallback
 
-m_empty() {
-  backup "$SCRIPT_REL"
-  mutate_sed "$SCRIPT_REL" 's|if \[ "$len" -eq 0 \]; then|if false; then|'
-}
-run_case "seed no longer refuses an empty key" \
-  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY empty fails, it is not treated as set" m_empty
+run_case "seed silently falls back to a default when the key is empty" \
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY empty fails, it is not treated as set" m_silent_fallback
 
+run_case "seed silently falls back rather than refusing whitespace" \
+  "$CRED_SUITE" "seed with a whitespace-only key fails rather than writing it" m_silent_fallback
+
+# The placeholder is 33 characters, so the length guard does NOT catch it — this
+# branch is genuinely load-bearing on its own, and the test name here is the one
+# the suite actually uses. (The first run of this harness said "placeholder"
+# where the suite says "literal", matched zero tests, and reported a working
+# test as asserting nothing. Hence the filter precondition above.)
 m_mock() {
   backup "$SCRIPT_REL"
   mutate_sed "$SCRIPT_REL" 's|if \[ "$key" = "$RETIRED_MOCK" \]; then|if false; then|'
 }
 run_case "seed no longer refuses the retired placeholder" \
-  "$CRED_SUITE" "seed refuses the retired mock placeholder even if exported" m_mock
+  "$CRED_SUITE" "seed refuses the retired mock literal even if exported" m_mock
 
 m_short() {
   backup "$SCRIPT_REL"
@@ -288,7 +313,10 @@ run_case "the agent-card precondition is skipped" \
 
 m_prompt_argv() {
   backup "$INV_REL"
-  mutate_sed "$INV_REL" 's|  --data-binary "@${REQ}" \\\\|  --data-binary "$PROMPT" \\\\|'
+  # Anchored on the unique substring rather than the whole line: the trailing
+  # backslash continuation needs three levels of escaping to survive shell ->
+  # sed, and getting it wrong produces a silent no-op that reads as a result.
+  mutate_sed "$INV_REL" 's|--data-binary "@${REQ}"|--data-binary "$PROMPT"|'
 }
 run_case "the prompt is passed in curl argv instead of by file" \
   "$INV_SUITE" "the prompt travels by file, not argv" m_prompt_argv

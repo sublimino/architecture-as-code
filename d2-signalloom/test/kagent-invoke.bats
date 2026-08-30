@@ -165,6 +165,12 @@ STUB
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
   [ "$status" -ne 0 ]
   [[ "$output" == *"invalid x-api-key"* ]]
+  # Mutation testing showed the two assertions above are ALSO satisfied by the
+  # empty-response branch, which dumps the raw body — so they passed even with
+  # the .error check deleted. Asserting the branch's own diagnostic, and the
+  # error code, is what actually pins this to the JSON-RPC error path.
+  [[ "$output" == *"JSON-RPC error"* ]]
+  [[ "$output" == *"-32603"* ]]
 }
 
 @test "kagent-invoke: exits non-zero when the task state is failed" {
@@ -198,6 +204,11 @@ STUB
   export CURL_STUB_REPLY='<html><body>Gateway</body></html>'
   run "$SCRIPT" --agent kagent-k8s-reader --prompt "list namespaces"
   [ "$status" -ne 0 ]
+  # As with the JSON-RPC case: a bare non-zero check passed even with the JSON
+  # validity check deleted, because errexit then killed the run on jq's own
+  # parse failure. That is the right outcome by luck, not by design, and it
+  # produces an unreadable diagnostic. Pin it to the branch that explains itself.
+  [[ "$output" == *"not JSON"* ]]
 }
 
 @test "kagent-invoke: exits non-zero on valid JSON carrying no response text" {

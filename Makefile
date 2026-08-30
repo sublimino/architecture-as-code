@@ -855,6 +855,26 @@ demo-cpai-conversation: ## Run 3-turn aichat conversation e2e test against the C
 demo-cpai-down: ## Remove the CPAI runtime demo namespace.
 	./scripts/cpai-down.sh
 
+##@ Kagent Cloud-Native AI Agents (D5 — CNCF Agent Framework)
+
+.PHONY: swarm-kagent-up swarm-kagent-down demo-kagent-up demo-kagent-down demo-kagent-test demo-kagent-demo demo-kagent-test-config
+swarm-kagent-up: ## Install Kagent v0.9.9 controller, bundled PostgreSQL, and CRDs.
+	./scripts/kagent-infra.sh up
+swarm-kagent-down: ## Remove Kagent controller, bundled PostgreSQL, and CRDs.
+	./scripts/kagent-infra.sh down
+demo-kagent-test-config: ## Statically validate and render Kagent CRDs and agent overlays without a cluster.
+	@kubectl kustomize d2-signalloom/infra/kagent/local >/dev/null
+	@for d in d2-signalloom/infra/agent-swarm/kagent-*; do [ -d "$$d" ] && kubectl kustomize "$$d" >/dev/null; done
+	bats d2-signalloom/test/kagent-contract.bats
+demo-kagent-up: ## Deploy all Kagent agents (K8s Reader, Commit Summariser, Security Analyst).
+	./scripts/kagent-agents.sh deploy
+demo-kagent-down: ## Remove all Kagent agents.
+	./scripts/kagent-agents.sh destroy
+demo-kagent-test: ## Run Kagent agent and infrastructure test suite.
+	./scripts/kagent-test.sh
+demo-kagent-demo: ## Run the interactive Kagent D5 walkthrough demo.
+	./scripts/kagent-demo.sh
+
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
 demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.

@@ -39,6 +39,7 @@ own their own namespaces, images, tests, and lifecycle.
 | `d2-agent-trust/` | Contract-first SPIFFE agent trust hierarchy — A2A identity, OpenBao JWT roles, enforced NetworkPolicy boundaries. Additive: consumes `inf-bao`'s SPIRE and OpenBao rather than deploying its own | `make demo-agent-trust-up` | `d2-agent-trust/AGENTS.md` |
 | `d2-cpai/` | CPAI runtime (aichat-backed conversation demo) | `make demo-cpai-up`, or `make cpai-only` for a minimal foundation | `d2-cpai/README.md` |
 | `olly-replica/` | Olly Sentinel AI SRE replica | `make demo-olly-up` | `olly-replica/README.md` |
+| `d2-kagent` (D5) | CNCF Kagent AI Agent framework (CRDs + declarative swarm + SPIFFE/OpenBao) | `make swarm-kagent-up` && `make demo-kagent-up` | `docs/kagent-d5.md` |
 
 Two services deploy **outside** their slice's `-up` target and are therefore easy
 to miss. Both were finished, tested and undeployed for days:
@@ -84,6 +85,8 @@ make demo-olly-up           # Olly Sentinel
 make demo-bao-up            # OpenBao/SPIRE only
 make demo-agent-trust-up    # SPIFFE agent trust (needs inf-bao ready first)
 make demo-cpai-up           # CPAI runtime
+make swarm-kagent-up        # Kagent CRDs + Control Plane (D5)
+make demo-kagent-up         # Kagent Declarative Agents (D5)
 make demo-signalloom-fleet-up  # Fleet Manager — NOT included in demo-signalloom-up
 
 # 3. Health check

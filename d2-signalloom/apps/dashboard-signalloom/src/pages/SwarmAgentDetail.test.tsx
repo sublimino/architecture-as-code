@@ -190,8 +190,8 @@ describe('SwarmAgentDetail — audit event timeline', () => {
 
     mockApi.agents.get.mockResolvedValue(stunnedAgent)
     mockApi.audit.mockResolvedValue({ events: [], total: 0 })
-    mockApi.violations.mockResolvedValue({ violations: [], total: 0 })
-    mockApi.posture.mockResolvedValue({ posture_score: 42, controls: [] })
+    mockApi.agents.violations.mockResolvedValue({ violations: [], total: 0 })
+    mockApi.compliance.posture.mockResolvedValue({ posture_score: 42, controls: [] })
 
     renderDetail()
 

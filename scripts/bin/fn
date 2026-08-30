@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+if [[ "$1" == "-C" ]]; then
+  shift 2
+fi
+if [[ "$1" == "hermes" ]]; then
+  shift
+fi
+exec /home/andy/.local/bin/hermes "$@"

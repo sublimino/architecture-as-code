@@ -1,16 +1,27 @@
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: kagent-anthropic-key
-  namespace: kagent
-  labels:
-    app.kubernetes.io/name: kagent
-    app.kubernetes.io/component: secrets
-type: Opaque
-stringData:
-  api-key: "mock-anthropic-key-for-local-demo"
----
+# Secret/kagent-anthropic-key is DELIBERATELY NOT DECLARED HERE.
+#
+# It used to be, carrying the literal "mock-anthropic-key-for-local-demo" —
+# 33 bytes with which no agent can complete a model call. Every check that
+# looked at it reported it healthy: right name, right key, non-empty, present.
+# That is the failure mode: a demo whose entire claim is OpenBao credential
+# mediation, silently running on a hardcoded string committed to git.
+#
+# Restoring it would be worse than leaving it, because `kubectl apply -k` on
+# this directory would then overwrite a real operator-supplied credential with
+# the placeholder, and nothing anywhere would fail.
+#
+# The Secret is now created from the operator's environment, by way of OpenBao:
+#
+#     export ANTHROPIC_API_KEY='sk-ant-...'
+#     make demo-kagent-credentials
+#
+# See scripts/kagent-credentials.sh. OpenBao is the system of record; the Secret
+# is a projection of it into each namespace holding a ModelConfig, because the
+# upstream controller resolves apiKeySecret in the ModelConfig's own namespace.
+#
+# Guarded by d2-signalloom/test/kagent-credentials.bats, which fails if the
+# retired literal reappears anywhere in the tree.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

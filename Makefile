@@ -875,6 +875,28 @@ demo-kagent-test: ## Run Kagent agent and infrastructure test suite.
 demo-kagent-demo: ## Run the interactive Kagent D5 walkthrough demo.
 	./scripts/kagent-demo.sh
 
+.PHONY: demo-kagent-credentials demo-kagent-credentials-verify demo-kagent-invoke
+
+# Requires ANTHROPIC_API_KEY in the environment. There is no fallback: the whole
+# point is that the demo refuses to run on a placeholder rather than degrading
+# to one silently. The key is never written to disk, to git, or to argv.
+demo-kagent-credentials: ## Store $$ANTHROPIC_API_KEY in OpenBao (SPIFFE-scoped) and project it into the kagent Secret.
+	./scripts/kagent-credentials.sh seed
+	./scripts/kagent-credentials.sh sync
+	./scripts/kagent-credentials.sh verify
+
+demo-kagent-credentials-verify: ## Show credential path, presence and length in OpenBao and Kubernetes. Never prints the key.
+	./scripts/kagent-credentials.sh verify
+
+AGENT ?= kagent-k8s-reader
+PROMPT ?= List every namespace in this cluster, then tell me how many there are.
+demo-kagent-invoke: ## Invoke one agent through kagent's A2A endpoint. AGENT=<name> PROMPT="<task>"
+	@if [ -z "$(strip $(AGENT))" ]; then \
+	  echo "ERROR: AGENT is empty. Usage: make demo-kagent-invoke AGENT=kagent-k8s-reader PROMPT=\"...\"" >&2; exit 1; fi
+	@if [ -z "$(strip $(PROMPT))" ]; then \
+	  echo "ERROR: PROMPT is empty. Usage: make demo-kagent-invoke AGENT=kagent-k8s-reader PROMPT=\"...\"" >&2; exit 1; fi
+	./scripts/kagent-invoke.sh --agent '$(AGENT)' --prompt '$(PROMPT)'
+
 .PHONY: demo-signalloom-stack-up demo-signalloom-stack-down demo-signalloom-stack-purge demo-signalloom-stack-purge-force
 demo-signalloom-stack-up: demo-signalloom-up demo-signalloom-test ## Compatibility composition; demo-signalloom-up owns the Phase 1 dependency order.
 demo-signalloom-stack-down: demo-signalloom-down ## Remove Signalloom only; never remove shared Bao.

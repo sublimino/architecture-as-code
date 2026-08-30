@@ -198,7 +198,28 @@ OPENSSL
   # always returns 0 regardless of cmd's exit status, so `|| return 1` is
   # dead code. Plain `mapfile < <(cmd)` without the error guard is fine in
   # tests where the caller checks the array contents directly.
-  local count
-  count="$(grep -rn 'mapfile.*< <(.*) *|| *return' "$root/test/" --include='*.bats' 2>/dev/null | wc -l)"
-  [ "$count" -eq 0 ]
+  #
+  # COMMENT LINES ARE EXCLUDED, and that is load-bearing rather than tidy.
+  # Until 2026-08-30 this grep matched any occurrence of the literal, which
+  # included the four lines of prose directly above it and one more in
+  # spire-openbao-trust-drift.bats. The guard therefore reported two hits on a
+  # clean tree and had been failing on every branch since it was written — so
+  # it could never have caught a real occurrence, because it was already red.
+  # A permanently-red guard is worse than no guard: it teaches the reader to
+  # skip it, and it cannot distinguish "someone reintroduced the pattern" from
+  # its own noise. Same shape as the `-registrationUDSPath` guard in this
+  # branch that matched the comment explaining why the flag was absent.
+  #
+  # Matches are collected into a variable and tested with `[ -z ]` rather than
+  # counted: a count tells you the guard fired but not what tripped it, and
+  # the whole failure mode here was not knowing that the hits were its own
+  # prose. The offenders are printed so the next reader sees them immediately.
+  local offenders
+  offenders="$(grep -rn 'mapfile.*< <(.*) *|| *return' "$root/test/" --include='*.bats' 2>/dev/null \
+    | grep -vE ':[0-9]+:[[:space:]]*#' || true)"
+  [ -z "$offenders" ] || {
+    echo "vacuous 'mapfile ... || return' found in non-comment code:"
+    echo "$offenders"
+    return 1
+  }
 }

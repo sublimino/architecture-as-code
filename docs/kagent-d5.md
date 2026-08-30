@@ -34,17 +34,29 @@ and it materialises resources it owns — the three properties the placeholder
 stack could not produce.
 
 This section is a snapshot and dates quickly; `make demo-kagent-test` is the
-current answer. At the time of writing:
+current answer. At the time of writing, verified against the cluster:
 
-- **Half the swarm reconciles.** Four agents report
-  `Accepted=True / Reconciled` and 8 Agent-owned resources exist. The other four
-  fail to compile because the `RemoteMCPServer` CRs they bind do not exist yet:
-  `github-tool`, `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool`.
-  Only `kagent-tool-server` has been created so far. Note the CR kind — the
-  controller resolves `RemoteMCPServer.kagent.dev`, not the `MCPServer` CRs the
-  original manifests declared, which is why this failed for all eight before.
-- **A placeholder credential survives in a tracked manifest** —
-  `controller.yaml:12`. See "What the agents cannot yet do" below.
+- **Seven of eight agents compile. Six of them work.** The two numbers are
+  deliberately kept apart, because the gap between them is the entire subject of
+  this document. `kagent-chaos-prober` reports `Accepted=True Ready=True` with a
+  Running pod and two tools that do not exist — it began compiling the moment
+  its `RemoteMCPServer` appeared, which made it green without making it capable.
+  Quoting the Ready column here would be the exact reading `kagent-anti-stub.bats`
+  exists to prevent.
+- **One dangling reference remains:** `kagent-commit-summariser` binds
+  `github-tool`, which does not exist, so it does not compile at all
+  (`Accepted=False`, no workload). Note the contrast — an absent *server* fails
+  loudly; absent *tools* on a present server are accepted silently. Only the
+  second needed a new test.
+- **Note the CR kind.** The controller resolves `RemoteMCPServer.kagent.dev`,
+  not the `MCPServer` CRs the original manifests declared. That mismatch is why
+  all eight failed to compile initially.
+- **The placeholder credential is gone.** `mock-anthropic-key-for-local-demo` no
+  longer appears as a live assignment anywhere; the key is supplied by the
+  operator through OpenBao. `infra/kagent/base/controller.yaml` retains only a
+  comment recording what was removed and why — which is precisely the case the
+  forbidden-literal guard has to tolerate, and does (see "a guard matched the
+  comment explaining the absence", below).
 
 Claims about *declarative structure* — the Agent CRs, their tool bindings,
 SPIFFE naming, the OpenBao path mapping — are verified on disk and in the

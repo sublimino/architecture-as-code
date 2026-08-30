@@ -23,6 +23,16 @@
 #     Everything is read into a variable first and matched with bash builtins.
 #   * Every scan asserts it actually scanned something, so an empty glob or a
 #     renamed namespace cannot pass as "no offenders found".
+#   * There is a layer below this suite that it cannot reach. Every assertion
+#     here is about the tool layer — images, reconciliation, tool existence,
+#     discrimination. An agent can pass all of it and still be wrong: an
+#     invocation of kagent-incident-responder returned CORRECT tool data with
+#     WRONG ARITHMETIC OVER IT, reporting "16 pods in Error state" directly
+#     above a correct list of 18. Nothing mechanical can catch that, and this
+#     suite does not try. It is recorded because it completes the family:
+#     chaos-prober green with fictional tools, apiKeySecret silently pruned on
+#     apply, and a confident summary over correct data — three failures that
+#     differ only in which layer went quiet.
 #   * Positive markers are preferred over absence-of-error. A component that
 #     logged nothing at all also logged no errors; the stub controller even
 #     prints "Reconciling Agent CRDs..." to stdout, so log greps are worthless

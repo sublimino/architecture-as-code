@@ -251,9 +251,36 @@ of 18. For a demo about risk and governance that is the finding, not a footnote:
 
 Mitigated where it can be — `kagent-incident-responder`'s systemMessage now
 forbids stating a count in prose and tells it to enumerate and let the reader
-count. That reduces the exposure; it does not remove it, and no test here
-asserts on model output. **Treat agent prose as unverified until a human or a
-tool has checked it against the cluster.**
+count.
+
+**Re-run after the change, live, same prompt:** 68 lines, 41 pod bullets, no
+"N pods", no Total, no Summary line. It presented the list and let the reader
+count. Accuracy was also perfect that run — `kubectl` non-Running = 41, agent
+listed 41, missed 0 — but that is one run against a quieter cluster and should
+not be read as caused by the instruction. Only the count suppression reproduced
+deterministically, because it is a behaviour asked for directly.
+
+### The mitigation had the same blind spot as the defect
+
+Raised by the credentials workstream and worth stating plainly: the mitigation
+was itself **undetectable if removed**. It lives in a systemMessage, no test
+asserts on model output, so deleting that paragraph would have failed nothing —
+the only detector was a human running the agent and reading. Same shape as the
+finding, one level up.
+
+That splits into a testable half and an untestable one, and only one of them is
+now closed:
+
+| | Status |
+|---|---|
+| Is the instruction still declared? | **Tested.** `kagent-chart.bats` asserts it, mutation-checked. |
+| Does the model obey it? | **Not tested, and not testable here.** Verified by hand once. |
+
+Do not let the passing test imply the second row. A guard that reads as proving
+more than it does is exactly the failure this page is about.
+
+**Treat agent prose as unverified until a human or a tool has checked it
+against the cluster.**
 
 ## The Model Credential
 

@@ -1,23 +1,27 @@
 {
   "task_id": "P0",
-  "timestamp": "2026-08-30T02:00:15Z",
-  "git_commit": "ef483f3e",
-  "cluster_info": "Kubernetes control plane is running at https://127.0.0.1:46565",
+  "timestamp": "2026-08-30T14:47:10Z",
+  "git_commit": "e9ac9ea3",
+  "cluster_info": "\u001b[0;32mKubernetes control plane\u001b[0m is running at \u001b[0;33mhttps://127.0.0.1:46565\u001b[0m",
   "kagent_pods": [
-    "kagent-controller-7597544d45-gppt6:Running",
-    "kagent-postgres-78847ddb9d-7fgtg:Running",
-    "kagent-tool-server-646786cff4-pvm92:Running",
-    "kagent-ui-575b65c5c9-57qbm:Running"
+    "kagent-controller-9bc59d6cf-ql522:Running",
+    "kagent-postgresql-6b89965687-nd9r9:Running",
+    "kagent-tools-56494b5564-8dgtr:Running",
+    "kagent-ui-68c94c4ddd-v8lvf:Running"
   ],
   "agent_crs": [
+    "kagent-chaos-prober",
     "kagent-commit-summariser",
+    "kagent-compliance-checker",
+    "kagent-finops-optimizer",
     "kagent-incident-responder",
     "kagent-k8s-reader",
     "kagent-network-auditor",
     "kagent-security-analyst"
   ],
-  "status": "COMPLETED",
-  "proof_path": "/home/andy/src/cp/osramp-demo/.kagent-preflight-proof.json",
-  "test_status": "PASS",
-  "test_assertions_passed": 23
+  "status": "FAILED",
+  "proof_path": "/home/andy/src/.worktrees/osramp-demo/test/kagent-truth-up/.kagent-preflight-proof.json",
+  "test_status": "FAIL",
+  "test_assertions_passed": 51,
+  "test_assertions_failed": 9
 }

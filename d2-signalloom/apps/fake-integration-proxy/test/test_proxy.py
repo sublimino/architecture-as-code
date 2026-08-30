@@ -146,6 +146,39 @@ def agent_pod(name, namespace, supercred=False, phase="Running", state="idle",
     }
 
 
+def kagent_cr(name, namespace, model="anthropic-claude", runtime="go",
+              spec_type="Declarative", status=None, display_name=None):
+    """Build an Agent.kagent.dev/v1alpha2 document shaped like the live swarm's.
+
+    `status` defaults to None because that is the deployed reality: nothing
+    reconciles these CRs into running sessions yet, so every one of the eight
+    live agents has `status: null` and a blank READY column.
+    """
+    metadata = {
+        "name": name,
+        "namespace": namespace,
+        "labels": {
+            "signalloom.ai/agent": "true",
+            "signalloom.ai/harness": "kagent",
+            "signalloom.ai/role": "analyst",
+        },
+        "creationTimestamp": "2026-08-29T22:30:09Z",
+    }
+    if display_name:
+        metadata["annotations"] = {"signalloom.ai/agent-display-name": display_name}
+    return {
+        "apiVersion": "kagent.dev/v1alpha2",
+        "kind": "Agent",
+        "metadata": metadata,
+        "spec": {
+            "description": f"{name} declarative agent",
+            "type": spec_type,
+            "declarative": {"modelConfig": model, "runtime": runtime},
+        },
+        "status": status,
+    }
+
+
 def not_found(url, message):
     """A 404 the proxy's handlers will see as a real HTTPError."""
     return error.HTTPError(url, 404, message, {}, io.BytesIO(b""))
@@ -154,10 +187,19 @@ def not_found(url, message):
 class FakeKubernetes:
     """Stand-in for the pod, kustomization and policy-engine calls the proxy makes."""
 
-    def __init__(self, pods_by_namespace, unreachable=()):
+    def __init__(self, pods_by_namespace, unreachable=(), crs_by_namespace=None,
+                 crd_installed=True):
         self.pods_by_namespace = pods_by_namespace
+        # Defaults to empty AND crd_installed stays True, so the CRD list route
+        # answers `{"items": []}` for every pre-existing test. Those tests were
+        # written before the second carrier existed and assert exact agent-id
+        # sets; an empty CRD list keeps them meaningful rather than merely
+        # surviving on a 404 that the lister happens to swallow.
+        self.crs_by_namespace = crs_by_namespace or {}
+        self.crd_installed = crd_installed
         self.unreachable = set(unreachable)
         self.listed_namespaces = []
+        self.listed_cr_namespaces = []
         self.patched_urls = []
         self.evaluations = []
 
@@ -173,6 +215,18 @@ class FakeKubernetes:
         namespace = self._namespace_of(path)
         if namespace in self.unreachable:
             raise not_found(url, "namespace not found")
+        if "/apis/kagent.dev/" in path:
+            if not self.crd_installed:
+                raise not_found(url, "the server could not find the requested resource")
+            crs = self.crs_by_namespace.get(namespace, [])
+            if path.endswith("/agents"):
+                self.listed_cr_namespaces.append(namespace)
+                return {"items": crs}
+            wanted = path.rsplit("/", 1)[-1]
+            for cr in crs:
+                if cr["metadata"]["name"] == wanted:
+                    return cr
+            raise not_found(url, "agent not found")
         pods = self.pods_by_namespace.get(namespace, [])
         if path.endswith("/pods"):
             self.listed_namespaces.append(namespace)
@@ -202,8 +256,9 @@ class FakeKubernetes:
 class AgentNamespaceTestCase(ProxyServerTestCase):
     """Installs a fake Kubernetes for the agent-facing handlers."""
 
-    def install(self, pods_by_namespace, unreachable=(), namespaces=None):
-        fake = FakeKubernetes(pods_by_namespace, unreachable)
+    def install(self, pods_by_namespace, unreachable=(), namespaces=None,
+                crs_by_namespace=None, crd_installed=True):
+        fake = FakeKubernetes(pods_by_namespace, unreachable, crs_by_namespace, crd_installed)
         patches = [
             mock.patch.object(server, "_fetch_kubernetes_json", fake.fetch_json),
             mock.patch.object(server, "_patch_kubernetes_json", fake.patch_json),
@@ -322,6 +377,164 @@ class AgentDiscoveryTest(AgentNamespaceTestCase):
         body = self.request("GET", "/agents")[1]
         self.assertIn("namespace", body)
         self.assertIn(AGENTS_NAMESPACE, body["namespace"])
+
+
+class KagentCrDiscoveryTest(AgentNamespaceTestCase):
+    """An agent has two carriers: a pod, and an Agent.kagent.dev CR.
+
+    Kagent realises a declarative agent as a custom resource that no pod backs
+    until a session runs. Pod-only discovery reported the eight-agent D5 swarm
+    as absent — not as an error, which is what made it hard to see.
+    """
+
+    def test_cr_backed_agents_appear_alongside_pod_backed_ones(self):
+        self.install(
+            {FLUX_NAMESPACE: [agent_pod("agent-cardvault", FLUX_NAMESPACE, supercred=True)]},
+            crs_by_namespace={AGENTS_NAMESPACE: [
+                kagent_cr("kagent-k8s-reader", AGENTS_NAMESPACE),
+                kagent_cr("kagent-security-analyst", AGENTS_NAMESPACE),
+            ]},
+        )
+        status, body = self.request("GET", "/agents")
+        self.assertEqual(200, status)
+        self.assertEqual(
+            {"agent-cardvault", "kagent-k8s-reader", "kagent-security-analyst"},
+            {agent["id"] for agent in body["agents"]},
+        )
+        self.assertNotIn("namespace_errors", body)
+
+    def test_cr_fields_map_onto_the_shared_agent_shape(self):
+        self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-commit-summariser", AGENTS_NAMESPACE),
+        ]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertEqual("kagent-commit-summariser", agent["id"])
+        self.assertEqual("kagent-commit-summariser", agent["name"])
+        self.assertEqual(AGENTS_NAMESPACE, agent["namespace"])
+        self.assertEqual("declarative", agent["type"])
+        self.assertEqual("kagent", agent["framework"])
+        self.assertEqual("anthropic-claude", agent["model"])
+        self.assertEqual("go", agent["runtime"])
+        self.assertEqual("2026-08-29T22:30:09Z", agent["created_at"])
+        # Per-agent ServiceAccount named for the agent — the second half of the
+        # SPIFFE ID the Credential Inventory renders.
+        self.assertEqual("kagent-commit-summariser", agent["service_account"])
+        # A declaration has no pod, so no node and no pod phase. Absent, not
+        # defaulted: a fabricated node name would render as a placement that
+        # never happened.
+        self.assertIsNone(agent["node"])
+        self.assertIsNone(agent["phase"])
+
+    def test_display_name_annotation_wins_over_the_resource_name(self):
+        self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-finops-optimizer", AGENTS_NAMESPACE, display_name="FinOps Optimizer"),
+        ]})
+        agent = self.request("GET", "/agents")[1]["agents"][0]
+        self.assertEqual("kagent-finops-optimizer", agent["id"])
+        self.assertEqual("FinOps Optimizer", agent["name"])
+
+    def test_state_is_absent_when_the_cr_has_no_status(self):
+        # The live cluster's eight agents all carry `status: null` because
+        # nothing reconciles them yet. Reporting "active" there would assert a
+        # liveness that has never been observed.
+        self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-chaos-prober", AGENTS_NAMESPACE),
+        ]})
+        self.assertIsNone(self.request("GET", "/agents")[1]["agents"][0]["state"])
+
+    def test_state_is_derived_when_the_cr_carries_a_ready_condition(self):
+        self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-ready", AGENTS_NAMESPACE,
+                      status={"conditions": [{"type": "Ready", "status": "True"}]}),
+            kagent_cr("kagent-broken", AGENTS_NAMESPACE,
+                      status={"conditions": [{"type": "Ready", "status": "False"}]}),
+        ]})
+        by_id = {a["id"]: a for a in self.request("GET", "/agents")[1]["agents"]}
+        self.assertEqual("active", by_id["kagent-ready"]["state"])
+        self.assertEqual("degraded", by_id["kagent-broken"]["state"])
+
+    def test_a_pod_and_a_cr_with_the_same_name_yield_one_agent(self):
+        # The pod wins: a running pod is observed reality, a CR is a
+        # declaration, and where both exist the observation is the truer record.
+        self.install(
+            {AGENTS_NAMESPACE: [agent_pod("kagent-k8s-reader", AGENTS_NAMESPACE)]},
+            crs_by_namespace={AGENTS_NAMESPACE: [
+                kagent_cr("kagent-k8s-reader", AGENTS_NAMESPACE),
+            ]},
+        )
+        agents = self.request("GET", "/agents")[1]["agents"]
+        self.assertEqual(["kagent-k8s-reader"], [agent["id"] for agent in agents])
+        self.assertEqual("osramp-control-plane", agents[0]["node"])
+        self.assertEqual("custom", agents[0]["framework"])
+
+    def test_an_absent_crd_leaves_pod_discovery_untouched(self):
+        # 404 has exactly one meaning on this route — the CRD is not installed,
+        # which is correct for every deployment predating D5. It must not be
+        # reported as a discovery failure.
+        self.install(
+            {AGENTS_NAMESPACE: [agent_pod("agent-patsy", AGENTS_NAMESPACE)]},
+            crd_installed=False,
+        )
+        status, body = self.request("GET", "/agents")
+        self.assertEqual(200, status)
+        self.assertEqual(["agent-patsy"], [agent["id"] for agent in body["agents"]])
+        self.assertNotIn("namespace_errors", body)
+        self.assertNotIn("error", body)
+
+    def test_a_forbidden_crd_read_is_surfaced_and_keeps_the_pods(self):
+        # The RBAC failure this whole change exists to prevent recurring: without
+        # the agents.kagent.dev grant the list 403s. That must NOT collapse into
+        # "no CR agents" — a short list with no error is unfalsifiable.
+        forbidden = error.HTTPError("http://k8s/agents", 403, "forbidden", {}, io.BytesIO(b""))
+
+        def refuse(base_url, token, context, namespace):
+            raise forbidden
+
+        with mock.patch.object(server, "_list_kagent_agents", refuse):
+            self.install({AGENTS_NAMESPACE: [agent_pod("agent-patsy", AGENTS_NAMESPACE)]})
+            status, body = self.request("GET", "/agents")
+        self.assertEqual(200, status)
+        self.assertEqual(["agent-patsy"], [agent["id"] for agent in body["agents"]])
+        self.assertIn(AGENTS_NAMESPACE, body["namespace_errors"])
+        self.assertIn("agents.kagent.dev", body["namespace_errors"][AGENTS_NAMESPACE])
+        # Pods were still found, so this is a partial failure, not a total one.
+        self.assertNotIn("error", body)
+
+    def test_a_cr_backed_agent_gets_404_not_a_fabricated_verdict(self):
+        """The highest-value test in this change.
+
+        /agents now advertises nine agents, eight of which have no pod. The
+        tempting "fix" for their 404 on detail routes is a CR fallback inside
+        _resolve_agent_namespace. That would hand the policy engine a CR, whose
+        empty container list scores as COMPLIANT — the dashboard would assert a
+        security verdict it never computed, for a workload that has no security
+        context because it has no pod. 404 is under-informative; a fabricated
+        pass is worse than under-informative.
+
+        This test fails the moment someone adds that fallback.
+        """
+        fake = self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-security-analyst", AGENTS_NAMESPACE),
+        ]})
+        status, body = self.request("GET", "/agents/kagent-security-analyst/compliance")
+        self.assertEqual(404, status)
+        self.assertNotIn("compliant", body)
+        # The policy engine must not have been consulted at all — a call with an
+        # empty pod_spec is the fabrication, whatever verdict comes back.
+        self.assertEqual([], fake.evaluations)
+
+    def test_stunning_a_cr_backed_agent_patches_nothing(self):
+        fake = self.install({}, crs_by_namespace={AGENTS_NAMESPACE: [
+            kagent_cr("kagent-network-auditor", AGENTS_NAMESPACE),
+        ]})
+        status, _ = self.request("POST", "/agents/kagent-network-auditor/stun")
+        self.assertEqual(404, status)
+        self.assertEqual([], fake.patched_urls)
+
+    def test_the_cr_list_is_requested_for_every_discovery_namespace(self):
+        fake = self.install({})
+        self.request("GET", "/agents")
+        self.assertEqual([AGENTS_NAMESPACE, FLUX_NAMESPACE], fake.listed_cr_namespaces)
 
 
 class AgentActionNamespaceTest(AgentNamespaceTestCase):

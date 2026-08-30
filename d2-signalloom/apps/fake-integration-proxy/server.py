@@ -54,6 +54,13 @@ DEFAULT_FIXTURES = {
 # to either choice; it is deliberately NOT a workaround that blocks the cleanup.
 DEFAULT_AGENT_DISCOVERY_NAMESPACES = ("fe-signalloom-agents", "fe-signalloom")
 AGENT_DISCOVERY_SELECTOR = "signalloom.ai/agent=true"
+# Kagent (CNCF sandbox) realises an agent as a declarative custom resource rather
+# than a pod, so the same `signalloom.ai/agent=true` identity contract has a second
+# carrier. The group/version is a constant because the CRD serves more than one
+# version — v1alpha1 is still served for older manifests, and reading the wrong one
+# returns an empty list rather than an error, which is the silent-shortfall shape
+# this whole module keeps guarding against.
+KAGENT_API_GROUP_VERSION = "kagent.dev/v1alpha2"
 POLICY_ENGINE_URL = os.environ.get(
     "POLICY_ENGINE_URL", "http://policy-engine.inf-signalloom.svc.cluster.local:8081"
 )
@@ -376,6 +383,130 @@ def _list_agent_pods(
     return items
 
 
+def _kagent_agents_url(base_url: str, namespace: str) -> str:
+    return (
+        f"{base_url}/apis/{KAGENT_API_GROUP_VERSION}"
+        f"/namespaces/{quote(namespace, safe='')}/agents"
+    )
+
+
+def _list_kagent_agents(
+    base_url: str,
+    token: str,
+    context: ssl.SSLContext,
+    namespace: str,
+) -> list[object]:
+    """List Agent.kagent.dev custom resources carrying the agent label.
+
+    Same identity contract as `_list_agent_pods` — `signalloom.ai/agent=true` — on
+    a different carrier. Kagent realises an agent as a declarative CR that no pod
+    backs until a session runs, so pod-only discovery reports a swarm of eight as
+    a swarm of zero.
+
+    A 404 is returned as `[]` and not raised. It has exactly one meaning here: the
+    CRD is not installed in this cluster, which is the correct state for every
+    deployment that predates D5 and for the unit fixtures. Every other status —
+    including the 403 that a missing `agents.kagent.dev` RBAC grant produces —
+    propagates to the caller so it lands in `namespace_errors` and is visible.
+    Collapsing 403 into "no agents" is precisely how the missing grant hid.
+    """
+    try:
+        payload = _fetch_kubernetes_json(
+            f"{_kagent_agents_url(base_url, namespace)}"
+            f"?labelSelector={quote(AGENT_DISCOVERY_SELECTOR, safe='')}",
+            token,
+            context,
+        )
+    except error.HTTPError as exc:
+        if exc.code == 404:
+            return []
+        raise
+    if not isinstance(payload, dict):
+        raise TypeError("kagent agent list payload must be a JSON object")
+    items = payload.get("items", [])
+    if not isinstance(items, list):
+        raise TypeError("kagent agent list items must be a JSON array")
+    return items
+
+
+def _kagent_state(status: object) -> str | None:
+    """Lifecycle state derived from the CR's Ready condition, or None.
+
+    None when `status` is absent or carries no Ready condition. On the live
+    cluster every Agent CR has `status: null` and a blank READY column, because
+    nothing reconciles them into a running session yet. Returning "active" or
+    "ready" there would be a fabrication: the dashboard would assert a liveness
+    the cluster has never observed. None flows through api_compat's
+    `str(discovered.get("state") or "idle")` and renders as idle, which is what
+    an unreconciled declaration actually is.
+    """
+    if not isinstance(status, dict):
+        return None
+    conditions = status.get("conditions")
+    if not isinstance(conditions, list):
+        return None
+    for condition in conditions:
+        if not isinstance(condition, dict) or condition.get("type") != "Ready":
+            continue
+        if condition.get("status") == "True":
+            return "active"
+        return "degraded"
+    return None
+
+
+def _agent_from_kagent_cr(cr: object, namespace: str | None = None) -> dict[str, object] | None:
+    """Project an Agent.kagent.dev CR onto the same record shape as `_agent_from_pod`.
+
+    Deliberately the same keys, so `/agents` consumers stay substrate-agnostic and
+    nothing downstream needs to learn what a CRD is. Fields a CR has no analogue
+    for (`node`, `phase`) stay None rather than being invented.
+    """
+    if not isinstance(cr, dict):
+        return None
+    metadata = cr.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    name = metadata.get("name")
+    if not name:
+        return None
+    labels = metadata.get("labels")
+    annotations = metadata.get("annotations")
+    spec = cr.get("spec")
+    if not isinstance(labels, dict):
+        labels = {}
+    if not isinstance(annotations, dict):
+        annotations = {}
+    if not isinstance(spec, dict):
+        spec = {}
+    declarative = spec.get("declarative")
+    if not isinstance(declarative, dict):
+        declarative = {}
+
+    spec_type = spec.get("type")
+    return {
+        "id": name,
+        "namespace": metadata.get("namespace") or namespace,
+        "name": annotations.get("signalloom.ai/agent-display-name") or name,
+        # "Declarative" -> "declarative". The dashboard groups on this string and
+        # the pod path emits lower-case label values, so casing must match.
+        "type": spec_type.lower() if isinstance(spec_type, str) else None,
+        "framework": labels.get("signalloom.ai/framework") or "kagent",
+        "model": declarative.get("modelConfig"),
+        "runtime": declarative.get("runtime"),
+        "state": _kagent_state(cr.get("status")),
+        "created_at": metadata.get("creationTimestamp"),
+        # A declaration has no pod, so it has no node and no pod phase. Absent
+        # rather than defaulted — the pod path has the same discipline.
+        "node": None,
+        "phase": None,
+        # Per-agent ServiceAccount, named for the agent. This is the second half
+        # of the SPIFFE ID (spiffe://<domain>/ns/<ns>/sa/<sa>) the Credential
+        # Inventory needs; the swarm manifests create one SA per agent under that
+        # name in d2-signalloom/infra/agent-swarm/<agent>/serviceaccount.yaml.
+        "service_account": name,
+    }
+
+
 def _resolve_agent_namespace(
     base_url: str,
     token: str,
@@ -398,6 +529,17 @@ def _resolve_agent_namespace(
     AGENT_DISCOVERY_NAMESPACES without adding its Role yields 403s and a short
     agent list, not wider access; d2-signalloom/test/agent-discovery-rbac.bats
     fails when the two drift apart.
+
+    PODS ONLY, DELIBERATELY — do not add an Agent.kagent.dev fallback here.
+    Both callers consume pod semantics: `_handle_agent_compliance` reads
+    `pod.spec.containers[].securityContext` and posts it to the policy engine,
+    and `_handle_agent_stun` PATCHes pod labels. A CR has no containers, so the
+    policy engine would score an empty list as **passing** — a governance
+    dashboard asserting a compliance verdict it never computed — and the stun
+    PATCH would target a resource `agent-inventory-reader` has no write verb
+    for. A pod-less declaration genuinely has no pod-level compliance; 404 is
+    the honest answer. Pinned by
+    `test_a_cr_backed_agent_gets_404_not_a_fabricated_verdict`.
     """
     candidates = _agent_discovery_namespaces()
     if requested and requested in candidates:
@@ -1324,23 +1466,47 @@ class ProxyHandler(BaseHTTPRequestHandler):
         seen: set[tuple[object, object]] = set()
         namespace_errors: dict[str, str] = {}
         for namespace in namespaces:
-            try:
-                items = _list_agent_pods(base_url, token, context, namespace)
-            except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
-                # One missing or forbidden namespace must not empty the whole
-                # response — the agent may well live in one of the others.
-                namespace_errors[namespace] = str(exc)
-                print(f"agent discovery failed for {namespace}: {exc}", file=sys.stderr, flush=True)
-                continue
-            for pod in items:
-                agent = _agent_from_pod(pod, namespace)
-                if agent is None:
+            # Two carriers, one identity contract. Pods are listed first so a pod
+            # wins the (namespace, id) de-duplication against a same-named CR: a
+            # running pod is observed reality, a CR is a declaration, and where
+            # both exist the observation is the more truthful record.
+            #
+            # Each carrier is attempted independently. A carrier failing in one
+            # namespace records an error against that carrier and leaves the other
+            # carrier's agents in the list — previously one exception dropped the
+            # whole namespace, which would now mean a missing agents.kagent.dev
+            # RBAC grant silently hiding the pods as well.
+            for carrier, lister, mapper in (
+                ("pods", _list_agent_pods, _agent_from_pod),
+                ("agents.kagent.dev", _list_kagent_agents, _agent_from_kagent_cr),
+            ):
+                try:
+                    items = lister(base_url, token, context, namespace)
+                except (OSError, ValueError, TypeError, error.HTTPError, error.URLError, ssl.SSLError) as exc:
+                    # Keyed by namespace, not by (namespace, carrier). The key is
+                    # a published contract — supercredSource.ts reads it — so the
+                    # carrier goes in the message and a second failure in the
+                    # same namespace appends rather than overwriting.
+                    detail = f"{carrier}: {exc}"
+                    existing = namespace_errors.get(namespace)
+                    namespace_errors[namespace] = (
+                        f"{existing}; {detail}" if existing else detail
+                    )
+                    print(
+                        f"agent discovery failed for {namespace} ({carrier}): {exc}",
+                        file=sys.stderr,
+                        flush=True,
+                    )
                     continue
-                key = (agent.get("namespace"), agent.get("id"))
-                if key in seen:
-                    continue
-                seen.add(key)
-                agents.append(agent)
+                for item in items:
+                    agent = mapper(item, namespace)
+                    if agent is None:
+                        continue
+                    key = (agent.get("namespace"), agent.get("id"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    agents.append(agent)
 
         response: dict[str, object] = {
             "agents": agents,
@@ -1349,9 +1515,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
         }
         if namespace_errors:
             response["namespace_errors"] = namespace_errors
-        if namespace_errors and len(namespace_errors) == len(namespaces):
+        # A namespace can now fail on one carrier and succeed on the other, so
+        # "every namespace has an error" no longer means "nothing was found".
+        # State the condition that actually matters: errors occurred and nothing
+        # at all was discovered.
+        if namespace_errors and not agents:
             response["error"] = "; ".join(
-                f"{namespace}: {message}" for namespace, message in namespace_errors.items()
+                f"{source}: {message}" for source, message in namespace_errors.items()
             )
         response.update(_flux_status(base_url, token, context))
         self._json(HTTPStatus.OK, response)

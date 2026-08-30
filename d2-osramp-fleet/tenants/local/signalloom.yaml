@@ -185,6 +185,20 @@ spec:
         - apiGroups: [""]
           resources: ["pods"]
           verbs: ["get", "list", "watch", "patch"]
+        # Kagent realises an agent as an Agent.kagent.dev CR, not a pod, so
+        # discovery has a second carrier and needs a second grant. Without this
+        # the CRD list returns 403, server.py records it in namespace_errors and
+        # the eight declarative agents are simply absent from /agents — a short
+        # list and an exit 0, which is the failure shape this comment exists to
+        # prevent recurring.
+        #
+        # READ-ONLY, and unlike pods above there is no `patch`. The stun flow
+        # writes to pod labels; a declaration has no pod, `_resolve_kagent_agent`
+        # is deliberately not wired into the stun path, and granting write here
+        # would let the proxy mutate the swarm's own definitions.
+        - apiGroups: ["kagent.dev"]
+          resources: ["agents"]
+          verbs: ["get", "list", "watch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:
@@ -1137,6 +1151,14 @@ spec:
         - apiGroups: [""]
           resources: ["pods"]
           verbs: ["get", "list", "watch", "patch"]
+        # Mirrors the kagent.dev grant in fe-signalloom-agents. Read-only, no
+        # `patch`: discovery consults this namespace too (it is the second entry
+        # in AGENT_DISCOVERY_NAMESPACES), and a grant present in one discovery
+        # namespace but not the other produces a list that is correct on one
+        # namespace and silently short on the other.
+        - apiGroups: ["kagent.dev"]
+          resources: ["agents"]
+          verbs: ["get", "list", "watch"]
     - apiVersion: rbac.authorization.k8s.io/v1
       kind: RoleBinding
       metadata:

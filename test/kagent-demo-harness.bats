@@ -177,15 +177,32 @@ setup() {
   # tests in this repo. A fabricated figure inside an artefact named "proof" is
   # the worst kind of vacuity: it is quoted downstream as a measurement.
   claimed="$(jq -r '.test_assertions_passed // -1' "$PROOF_FILE")"
+
+  # The suite list is PARSED OUT OF THE RUNNER, not hand-copied beside it.
+  # It was a copy, and it drifted: the runner grew test/kagent-infra.bats and
+  # the copy did not, so the ceiling read 52 while the runner genuinely passed
+  # 64 and this test called the artefact implausible. The artefact was right and
+  # the guard was wrong — the worse direction, because the natural response is
+  # to distrust the measurement, and the measurement was the honest party.
+  #
+  # Parsed rather than sourced: kagent-test.sh RUNS the suites on execution, so
+  # sourcing it from inside a test of itself would recurse.
+  runner="${REPO_ROOT}/scripts/kagent-test.sh"
+  [ -f "$runner" ] || { echo "runner not found at $runner"; return 1; }
+  mapfile -t suites < <(sed -n '/^SUITES=(/,/^)/p' "$runner" |
+    sed -n 's|.*"\${REPO_ROOT}/\([^"]*\)".*|\1|p')
+
+  # A silent parse failure would leave the ceiling at zero and make every claim
+  # look plausible, so the parse itself is asserted before anything rests on it.
+  [ "${#suites[@]}" -gt 0 ] || {
+    echo "could not parse the SUITES array from ${runner}"
+    echo "the ceiling would be zero and every claimed count would pass"
+    return 1
+  }
+
   actual=0
-  for suite in \
-    "${REPO_ROOT}/d2-signalloom/test/kagent-contract.bats" \
-    "${REPO_ROOT}/test/kagent-install.bats" \
-    "${REPO_ROOT}/test/kagent-agents.bats" \
-    "${REPO_ROOT}/test/kagent-credentials.bats" \
-    "${REPO_ROOT}/test/kagent-demo-harness.bats" \
-    "${REPO_ROOT}/test/kagent-adversarial.bats" \
-    "${REPO_ROOT}/test/kagent-anti-stub.bats"; do
+  for rel in "${suites[@]}"; do
+    suite="${REPO_ROOT}/${rel}"
     [ -f "$suite" ] || continue
     n="$(grep -c '^@test ' "$suite" || true)"
     actual=$((actual + n))
@@ -196,9 +213,19 @@ setup() {
   # Equality is only meaningful for a run that passed. On a failing run the
   # harness legitimately records fewer, and cascading a second failure out of
   # that would just be noise; assert the count is at least plausible instead.
+  # Skips count toward the ceiling but never toward passes, so a PASS run
+  # satisfies passed + skipped == total. Asserting passed == total instead
+  # would fail on any legitimate skip and invite someone to "fix" it by folding
+  # skips back into the pass count — which is the conflation being removed.
+  skipped="$(jq -r '.test_assertions_skipped // 0' "$PROOF_FILE")"
+  accounted=$((claimed + skipped))
+
   test_status="$(jq -r '.test_status // "UNKNOWN"' "$PROOF_FILE")"
   if [ "$test_status" = "PASS" ]; then
-    [ "$claimed" = "$actual" ] || {
+    [ "$accounted" = "$actual" ] || {
+      echo "artefact accounts for ${accounted} of ${actual} tests"
+      echo "  passed:  ${claimed}"
+      echo "  skipped: ${skipped}"
       echo "proof artefact claims ${claimed} assertions passed on a PASS run;"
       echo "the suites it ran contain ${actual} tests"
       echo "regenerate with: scripts/kagent-harness-exec.sh"

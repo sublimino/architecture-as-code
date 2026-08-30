@@ -44,12 +44,31 @@ if ! kubectl get ns olly-replica >/dev/null 2>&1; then
 fi
 
 echo "creating the olly-llm secret (provider=${LLM_PROVIDER} model=${LLM_MODEL:-<default>})"
+
+# LLM_API_KEY goes via a file, not --from-literal.
+#
+# Every argument of a running process is world-readable at /proc/<pid>/cmdline,
+# so --from-literal=LLM_API_KEY="$LLM_API_KEY" exposes the key to any local
+# process for as long as kubectl runs, and puts it in shell history when the
+# command is typed. The file is created under umask 077 and removed on exit;
+# only its PATH reaches argv.
+#
+# The other three are configuration, not credentials, and stay literal.
+umask 077
+_olly_llm_staging="$(mktemp -d "${TMPDIR:-/tmp}/olly-llm.XXXXXX")"
+# shellcheck disable=SC2064  # expand now: the path must survive into the trap.
+trap "rm -rf '${_olly_llm_staging}'" EXIT INT TERM
+printf '%s' "${LLM_API_KEY:-}" >"${_olly_llm_staging}/LLM_API_KEY"
+
 kubectl -n olly-replica create secret generic olly-llm \
   --from-literal=LLM_PROVIDER="${LLM_PROVIDER}" \
   --from-literal=LLM_MODEL="${LLM_MODEL:-}" \
-  --from-literal=LLM_API_KEY="${LLM_API_KEY:-}" \
+  --from-file=LLM_API_KEY="${_olly_llm_staging}/LLM_API_KEY" \
   --from-literal=LLM_URL="${LLM_URL:-}" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+rm -rf "${_olly_llm_staging}"
+trap - EXIT INT TERM
 
 if kubectl -n olly-replica get deploy olly-sentinel >/dev/null 2>&1; then
   echo "restarting olly-sentinel to pick up the LLM configuration"

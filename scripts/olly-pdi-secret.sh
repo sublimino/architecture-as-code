@@ -34,11 +34,25 @@ if ! kubectl get ns olly-replica >/dev/null 2>&1; then
 fi
 
 echo "creating the servicenow-pdi secret (${SERVICENOW_URL})"
+
+# SERVICENOW_PASSWORD goes via a file, not --from-literal. Argv is readable at
+# /proc/<pid>/cmdline by any local process, and lands in shell history when the
+# command is typed. Created under umask 077, removed on exit; only the path
+# reaches argv. URL and USER are not credentials and stay literal.
+umask 077
+_pdi_staging="$(mktemp -d "${TMPDIR:-/tmp}/olly-pdi.XXXXXX")"
+# shellcheck disable=SC2064  # expand now: the path must survive into the trap.
+trap "rm -rf '${_pdi_staging}'" EXIT INT TERM
+printf '%s' "${SERVICENOW_PASSWORD}" >"${_pdi_staging}/SERVICENOW_PASSWORD"
+
 kubectl -n olly-replica create secret generic servicenow-pdi \
   --from-literal=SERVICENOW_URL="${SERVICENOW_URL}" \
   --from-literal=SERVICENOW_USER="${SERVICENOW_USER}" \
-  --from-literal=SERVICENOW_PASSWORD="${SERVICENOW_PASSWORD}" \
+  --from-file=SERVICENOW_PASSWORD="${_pdi_staging}/SERVICENOW_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+rm -rf "${_pdi_staging}"
+trap - EXIT INT TERM
 
 # Restart the stub so it picks up the secret (envFrom is read at start).
 if kubectl -n olly-replica get deploy io-mapping-stub >/dev/null 2>&1; then

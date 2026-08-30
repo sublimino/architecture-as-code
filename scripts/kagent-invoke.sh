@@ -127,8 +127,17 @@ fi
 #
 # Skippable for the unit tests, which have no cluster and are not testing this.
 if [ "${KAGENT_SKIP_CREDENTIAL_CHECK:-0}" != "1" ]; then
-  if ! "$KUBECTL" get secret "$SECRET_NAME" -n "$AGENTS_NS" \
-        -o "jsonpath={.data.${SECRET_KEY}}" 2>/dev/null | grep -q .; then
+  # Read into a variable, never `... | grep -q .`. Under `set -o pipefail`
+  # grep -q exits at the first byte it matches, kubectl takes SIGPIPE, and the
+  # pipeline's status becomes 141 — so a SUCCESSFUL match reports as no-match
+  # and this guard aborts a healthy run with "no model credential". It is a race
+  # between grep exiting and the producer finishing, so it is intermittent: at
+  # the current 108-byte key it did not invert once in 100 trials, which is
+  # exactly what makes it dangerous to leave in. Flagged by
+  # scripts/check-vacuous-assertions.sh as VAC008.
+  _cred="$("$KUBECTL" get secret "$SECRET_NAME" -n "$AGENTS_NS" \
+        -o "jsonpath={.data.${SECRET_KEY}}" 2>/dev/null || true)"
+  if [ -z "$_cred" ]; then
     signalloom_load_env
     fail "no model credential: Secret/${SECRET_NAME} (key ${SECRET_KEY}) is absent or
   empty in namespace '${AGENTS_NS}'. ${AGENT} cannot complete a model call.

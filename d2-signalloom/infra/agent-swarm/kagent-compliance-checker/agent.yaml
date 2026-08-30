@@ -10,17 +10,29 @@ metadata:
     signalloom.ai/role: compliance
     signalloom.ai/harness: kagent
 spec:
-  description: Audits cluster policies and CIS compliance benchmarks
+  # Scope narrowed deliberately. It previously claimed CIS benchmarks and asked
+  # for compliance_check_policies / compliance_audit_cis, neither of which has
+  # ever existed. CIS scanning needs the Kubescape operator, absent here.
+  # See docs/kagent-d5.md "Deferred capabilities".
+  description: >-
+    Reads RBAC, NetworkPolicy and workload manifests from the live API and
+    reports policy posture. Does not run CIS benchmarks.
   type: Declarative
   declarative:
     modelConfig: anthropic-claude
     runtime: go
-    systemMessage: "You are a compliance auditor. Verify Kyverno policies and CIS benchmarks."
+    systemMessage: >-
+      You are a Kubernetes policy auditor. Inspect RBAC bindings,
+      NetworkPolicies and workload security contexts with the k8s tools and
+      report what you find. You have no CIS benchmark scanner and no policy
+      engine: never claim a CIS control passed or failed, and say plainly
+      when a question needs tooling you do not have.
     tools:
       - type: McpServer
         mcpServer:
           name: kagent-tool-server
           kind: RemoteMCPServer
           toolNames:
-            - compliance_check_policies
-            - compliance_audit_cis
+            - k8s_get_resources
+            - k8s_get_resource_yaml
+            - k8s_describe_resource

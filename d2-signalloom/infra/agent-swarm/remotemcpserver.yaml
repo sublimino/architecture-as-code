@@ -1,0 +1,50 @@
+---
+# The swarm's handle on the kagent built-in tool server.
+#
+# Shared prerequisite for every Agent CR in this namespace, which is why it
+# lives here beside namespace.yaml and rbac.yaml rather than in any one agent's
+# directory. Without it, every agent that references kagent-tool-server fails
+# to compile with:
+#
+#   failed to compile agent fe-signalloom-agents/<name>:
+#     RemoteMCPServer.kagent.dev "kagent-tool-server" not found
+#
+# ─── Why a second object, when the chart already creates one ───────────────
+#
+# The kagent chart creates kagent/kagent-tool-server in the kagent namespace.
+# The Agent CRs here reference it by bare name, which resolves in their OWN
+# namespace, so they never see it.
+#
+# The obvious one-line fix — `mcpServer.namespace: kagent` on each Agent — does
+# NOT work, and it is worth knowing why before anyone tries it again. The field
+# exists in the v1alpha2 schema and the CR applies cleanly, and then the
+# controller says:
+#
+#   cross-namespace reference to RemoteMCPServer kagent/kagent-tool-server
+#   is not allowed from namespace fe-signalloom-agents
+#
+# kagent 0.9.9 forbids cross-namespace RemoteMCPServer references outright.
+# Setting the namespace changes the error, not the outcome. A namespace-local
+# object pointing at the same in-cluster URL is the supported shape.
+#
+# Applying just this file moved kagent-k8s-reader, kagent-chaos-prober,
+# kagent-compliance-checker and kagent-finops-optimizer from Accepted=False to
+# Accepted=True, with the controller building each a real Deployment.
+#
+# The URL is the chart's Service, taken from the rendered chart rather than
+# from the old stub manifests: kagent-tools:8084, NOT kagent-tool-server:8080.
+# d2-signalloom/infra/kagent/base/networkpolicy.yaml already permits
+# fe-signalloom-agents -> kagent-tools:8084, so the network path needs nothing.
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: kagent-tool-server
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-tool-server
+    app.kubernetes.io/part-of: signalloom
+spec:
+  url: "http://kagent-tools.kagent:8084/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Signal Loom-local handle on the kagent built-in tool server"

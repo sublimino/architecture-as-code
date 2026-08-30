@@ -10,15 +10,33 @@ metadata:
     signalloom.ai/role: network-auditor
     signalloom.ai/harness: kagent
 spec:
-  description: Audits NetworkPolicies, SPIFFE trust boundaries, and Envoy routes
+  # Two capabilities dropped rather than approximated. SPIFFE boundary probing
+  # has no tool at all on the real server; Envoy route inspection needs
+  # istio_proxy_config / istio_ztunnel_config, which exist but fail here (no
+  # Istio, istioctl exits 64). Reading NetworkPolicy OBJECTS is not the same as
+  # probing enforcement, so the description now says which one this does.
+  # Also moved off the never-existent network-probe-tool RemoteMCPServer.
+  description: >-
+    Reads NetworkPolicy, Service and Ingress objects and reports the declared
+    network posture. Does not probe live reachability, SPIFFE trust
+    boundaries, or Envoy routes.
   type: Declarative
   declarative:
     modelConfig: anthropic-claude
     runtime: go
-    systemMessage: "Autonomous network auditor evaluating NetworkPolicies and SPIFFE reachability."
+    systemMessage: >-
+      You are a Kubernetes network auditor. Read NetworkPolicies, Services and
+      Ingresses with the k8s tools and report gaps in the declared posture:
+      namespaces with no default deny, selectors matching nothing, overly
+      broad ingress. You CANNOT send traffic, so you cannot confirm a policy
+      is actually enforced, and you have no SPIFFE or Envoy tooling. Report
+      what is declared and name what you could not verify.
     tools:
       - type: McpServer
         mcpServer:
-          name: network-probe-tool
+          name: kagent-tool-server
           kind: RemoteMCPServer
-          toolNames: [audit_netpol_rules, probe_spiffe_boundaries, inspect_envoy_routes]
+          toolNames:
+            - k8s_get_resources
+            - k8s_get_resource_yaml
+            - k8s_describe_resource

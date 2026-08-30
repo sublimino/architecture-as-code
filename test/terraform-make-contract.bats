@@ -172,7 +172,7 @@ JSON
 @test "every gcp-tf target exists and is a real make target" {
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
            gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
-           gcp-tf-up gcp-tf-handoff; do
+           gcp-tf-up gcp-tf-handoff gcp-tf-ssh; do
     # -n dry-runs; an undefined target is "No rule to make target".
     run make -C "${REPO_ROOT}" -n "$t"
     [[ "${output}" != *"No rule to make target"* ]] || {
@@ -185,7 +185,7 @@ JSON
 @test "every gcp-tf target is declared .PHONY" {
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
            gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
-           gcp-tf-up gcp-tf-handoff; do
+           gcp-tf-up gcp-tf-handoff gcp-tf-ssh; do
     grep -Eq "^\.PHONY:( .*)? ${t}( |$)" "${MAKEFILE}" || {
       echo "${t} is not declared .PHONY"
       return 1
@@ -198,7 +198,7 @@ JSON
   [ "$status" -eq 0 ]
   for t in gcp-tf-bootstrap gcp-tf-plan gcp-tf-apply gcp-tf-status \
            gcp-tf-test gcp-tf-test-unit gcp-tf-destroy gcp-tf-validate gcp-tf-ci \
-           gcp-tf-up gcp-tf-handoff; do
+           gcp-tf-up gcp-tf-handoff gcp-tf-ssh; do
     [[ "${output}" == *"${t}"* ]] || {
       echo "${t} is missing from make help — it has no '## ' comment"
       return 1
@@ -211,7 +211,7 @@ JSON
 # ---------------------------------------------------------------------------
 
 @test "every environment-scoped target exits non-zero when ENV is unset" {
-  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff; do
+  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff gcp-tf-ssh; do
     run_make "$t"
     [ "$status" -ne 0 ] || {
       echo "${t} succeeded with no ENV"
@@ -235,7 +235,7 @@ JSON
 }
 
 @test "ENV=prod-1 is rejected by every environment-scoped target" {
-  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff; do
+  for t in gcp-tf-plan gcp-tf-apply gcp-tf-status gcp-tf-test gcp-tf-destroy gcp-tf-up gcp-tf-handoff gcp-tf-ssh; do
     run_make "$t" ENV=prod-1 TF_STATE_BUCKET=changeme-tfstate CONFIRM=prod-1
     [ "$status" -ne 0 ] || {
       echo "${t} accepted ENV=prod-1"

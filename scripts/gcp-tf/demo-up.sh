@@ -22,6 +22,7 @@
 #
 #   --- IAP, the fallback ---
 #   demo-up.sh connect     # open the IAP tunnel and print what a human needs
+#   demo-up.sh ssh         # interactive SSH into the VM via IAP
 #   demo-up.sh public      # publish, prove a 200, then hand over the URL
 #   demo-up.sh public-down # stop the VM-side forward
 #
@@ -2158,6 +2159,16 @@ cmd_up() {
 cmd_test() {
   prepare test
   run_lane test
+}
+
+cmd_ssh() {
+  prepare ssh
+  ensure_vm_ready || exit 2
+
+  local args=()
+  mapfile -t args < <(gcloud_common)
+  exec env SSH_AUTH_SOCK='' "${GCLOUD[@]}" compute ssh "$INSTANCE_NAME" \
+    --zone="$ZONE" "${args[@]}" --tunnel-through-iap "$@"
 }
 
 cmd_connect() {
@@ -5056,6 +5067,10 @@ case "${1:-up}" in
   ts-test) cmd_ts_test ;;
   test-surfaces) cmd_surfaces ;;
   connect) cmd_connect ;;
+  ssh)
+    shift
+    cmd_ssh "$@"
+    ;;
   public) cmd_public ;;
   public-down) cmd_public_down ;;
   public-status) cmd_public_status ;;
@@ -5073,5 +5088,5 @@ case "${1:-up}" in
     cmd_payload "${1:-}"
     ;;
   -h | --help | help) sed -n '2,28p' "$0" ;;
-  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|connect|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
+  *) die "usage: $(basename "$0") {up|test|ts-test|test-surfaces|connect|ssh|ts-up|ts-status|ts-logout|funnel-up|funnel-down|public|public-down|public-status|status|payload <file>}" ;;
 esac

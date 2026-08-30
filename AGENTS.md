@@ -152,6 +152,7 @@ builds the **estate** that runs on it. Every command takes `ENV=<lane>`.
 make gcp-tf-up        ENV=demo-1              # plan, review, apply, write the hand-off
 make gcp-tf-demo-up   ENV=demo-1              # deliver the code, build the estate, test it
 make gcp-tf-ts-up     ENV=demo-1              # serve it on the tailnet; prints the URL
+make gcp-tf-ssh       ENV=demo-1              # SSH into the lane VM via IAP (resumes if suspended)
 make doctor-node      ENV=demo-1              # node-level health for one lane
 make doctor-node-all                          # every lane that has a hand-off file
 make gcp-tf-destroy   ENV=demo-1 CONFIRM=demo-1

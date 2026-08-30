@@ -389,7 +389,15 @@ observed — the committed version recorded commit `ef483f3e`, four pod names th
 longer existed, five Agent CRs out of eight, and `test_assertions_passed: 23`, a
 figure that was a hardcoded literal in the harness and never matched any run.
 
-`test/kagent-demo-harness.bats` now asserts freshness: the artefact must name the
-current `HEAD`, its `agent_crs` must equal the live set exactly, and its pass count
-must match what the runner measured. Regenerate with
+`test/kagent-demo-harness.bats` now asserts freshness: the artefact must still
+describe the current tree, its `agent_crs` must equal the live set exactly, and
+its pass count must be consistent with what the runner measured. Regenerate with
 `scripts/kagent-harness-exec.sh` after any run whose evidence you intend to quote.
+
+**Expect the artefact to record one failure more than a fresh run reports**, and
+do not chase it. The freshness test is evaluated *during* the run, at which point
+the artefact on disk is still the previous one — so if any kagent file changed
+since, that test is legitimately red and gets counted. Committing the new
+artefact then makes it green. The artefact therefore cannot record its own
+freshness assertion as passing; it is a self-reference, not a regression. If the
+counts differ by more than that one test, something real has changed.

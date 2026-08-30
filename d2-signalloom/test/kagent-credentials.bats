@@ -437,3 +437,44 @@ _placeholder_hits() {
   [ "$status" -eq 0 ]
   [[ "$output" != *"PLACEHOLDER"* ]]
 }
+
+# ─── The model ID ─────────────────────────────────────────────────────────────
+#
+# The first successful live invocation failed on the MODEL, not the credential:
+#   404 not_found_error {"message":"model: claude-sonnet-4-20250514"}
+# The key was correct, OpenBao was correct, the Secret was correct, the A2A path
+# was correct — and the agent still could not work, because the pinned model is
+# not served to this account.
+#
+# A dead model ID is invisible to everything else in this repo: the manifest
+# parses, the CRD accepts it, `verify` reports the credential healthy, and the
+# Agent CR reports Ready. It only surfaces when an agent actually runs. These
+# tests move the cheap half of that detection to build time.
+
+@test "kagent-credentials: the model is not a known-retired pin" {
+  # Retired pins live here rather than an allowlist of valid ones: the valid set
+  # changes upstream without notice, so an allowlist would fail closed on every
+  # legitimate new model. A deny-list only ever fires on something proven dead.
+  mc="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
+  model="$(yq -r '.spec.model' "$mc")"
+  for retired in claude-sonnet-4-20250514 claude-3-sonnet-20240229; do
+    [ "$model" != "$retired" ] || {
+      echo "model '${model}' is a retired pin; Anthropic returns 404 not_found_error"
+      echo "refresh with: curl -K <cfg> https://api.anthropic.com/v1/models"
+      return 1
+    }
+  done
+}
+
+@test "kagent-credentials: the model is a pinned id, not a floating alias" {
+  # A dated pin is what makes a demo reproducible. '-latest' moves under you
+  # between runs, which is the wrong property for something being demonstrated.
+  mc="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
+  model="$(yq -r '.spec.model' "$mc")"
+  [ -n "$model" ] && [ "$model" != "null" ]
+  [[ "$model" != *"-latest" ]]
+  [[ "$model" =~ -[0-9]{8}$ ]] || {
+    echo "model '${model}' is not a dated pin (expected a trailing YYYYMMDD)"
+    return 1
+  }
+}

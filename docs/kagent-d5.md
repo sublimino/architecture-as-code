@@ -239,20 +239,28 @@ fails tells you about itself; one that answers confidently and wrongly does not.
 Most produce a false green; #1 produces a false *accusation*, which is the same
 defect seen from the other side.
 
-Within that, one sub-shape recurs often enough to name on its own:
+The one question that resolves all seven:
 
-> **A check that did not really run is indistinguishable from a check that
-> passed.**
+> **Before believing a green, ask what would have had to happen for it to be
+> red, and confirm that thing was reachable.**
 
-That is #1 at the harness level (the filter selected nothing) and #6 at the
-controller level (the apply stage was never reached). Two near neighbours: in
-#5 the check ran but its verdict channel was lossy — `bash -n` had a complaint
-and no exit code to carry it — and in #4 the check ran against an already-failing
-baseline, so its result was pre-determined.
+Worked through, it answers each of them without needing to decide what kind of
+failure any of them is:
 
-The practical form of the question, in all four cases: **before believing a
-green, ask what would have had to happen for it to be red, and confirm that
-thing was reachable.**
+- **#1** — the test would have to be selected by the filter. It never was.
+- **#4** — the mutated file would have to be reached by the loop. The suite
+  failed on an earlier one first.
+- **#5** — `bash -n` would have to exit non-zero. For that one fault it never
+  can, at all.
+- **#6** — Flux would have to reach its apply stage. It was failing before it.
+
+An earlier draft of this section sorted these into categories — "the check never
+ran" versus "the check ran but its verdict was lossy" versus "the check ran but
+its stimulus never occurred". Every one of those distinctions turned out to be
+arguable, and two were argued, correctly, after being written down. The
+categories were doing no work that the question above does not do better, so
+they are gone. If you find yourself debating which bucket a new instance belongs
+in, that is the signal to ask the question instead.
 
 1. **A test-filter that matches nothing exits 0.** A mutation harness that breaks
    a guard and runs `bats -f '<name>'` to watch it fail reads the exit 0 as "the

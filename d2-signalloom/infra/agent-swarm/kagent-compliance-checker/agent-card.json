@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "kagent-compliance-checker",
+  "role": "compliance",
+  "description": "Audits cluster policies and CIS compliance benchmarks",
+  "spiffeId": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/kagent-compliance-checker",
+  "harness": "kagent",
+  "runtime": "go",
+  "openbaoPath": "/secret/data/signalloom/agents/kagent-compliance-checker",
+  "capabilities": [
+    "kagent:compliance"
+  ]
+}

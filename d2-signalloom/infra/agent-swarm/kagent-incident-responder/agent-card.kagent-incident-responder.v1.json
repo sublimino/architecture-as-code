@@ -1,0 +1,51 @@
+{
+  "name": "kagent-incident-responder",
+  "description": "Autonomous incident responder agent running on CNCF Kagent with SPIFFE identity and OpenBao credentials. Specializes in real-time incident triage and automated mitigation proposals.",
+  "url": "http://kagent-incident-responder.fe-signalloom-agents.svc.cluster.local:8080/",
+  "version": "0.1.0",
+  "provider": {
+    "organization": "ControlPlane / Signal Loom",
+    "url": "https://github.com/controlplaneio/osramp-demo"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "triage_incident",
+      "name": "Triage cluster incident",
+      "description": "Correlates restart events, evaluates logs, and proposes an action plan.",
+      "tags": ["sre", "incident", "triage", "a2a"],
+      "examples": [
+        "{\"incident_id\": \"inc-2026-001\", \"severity\": \"high\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "spiffe": {
+      "type": "spiffe",
+      "description": "SPIFFE X.509 SVID (spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-incident-responder) issued by SPIRE."
+    },
+    "openbao_jwt": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "OpenBao ephemeral token."
+    },
+    "a2a_authz_ctx": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-AuthZ-CTX",
+      "description": "A2A authorization context."
+    }
+  },
+  "security": [
+    {
+      "spiffe": [],
+      "openbao_jwt": ["read:events", "propose:fix"],
+      "a2a_authz_ctx": ["audit:observe"]
+    }
+  ]
+}

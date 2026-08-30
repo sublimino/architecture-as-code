@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "kagent-commit-summariser",
+  "role": "summariser",
+  "description": "Summarises git commits and PRs using GitHub MCP",
+  "spiffeId": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/kagent-commit-summariser",
+  "harness": "kagent",
+  "runtime": "go",
+  "openbaoPath": "/secret/data/signalloom/agents/kagent-commit-summariser",
+  "capabilities": [
+    "kagent:summariser"
+  ]
+}

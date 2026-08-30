@@ -1,0 +1,14 @@
+---
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: anthropic-claude
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-k8s-reader
+    app.kubernetes.io/part-of: signalloom
+spec:
+  model: claude-sonnet-4-20250514
+  provider: Anthropic
+  anthropic:
+    apiKeySecret: kagent-anthropic-key

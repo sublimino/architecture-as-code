@@ -1,0 +1,26 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-commit-summariser
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-commit-summariser
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: summariser
+    signalloom.ai/harness: kagent
+spec:
+  description: Summarises Git commits and PRs using GitHub API
+  type: Declarative
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: "You are a commit summariser. Fetch commits and diffs using GitHub tool."
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: github-tool
+          kind: RemoteMCPServer
+          toolNames:
+            - github_list_commits
+            - github_get_commit

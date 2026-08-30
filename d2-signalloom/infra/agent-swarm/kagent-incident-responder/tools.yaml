@@ -1,0 +1,10 @@
+---
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: incident-triage-tool
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-incident-responder
+spec:
+  description: Triages alerting events and correlates Kubernetes restart anomalies

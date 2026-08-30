@@ -1,0 +1,26 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-chaos-prober
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-chaos-prober
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: chaos
+    signalloom.ai/harness: kagent
+spec:
+  description: Injects controlled pod disruptions to test recovery SLA
+  type: Declarative
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: "You are a chaos engineering prober. Test pod restart and recovery SLAs."
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: kagent-tool-server
+          kind: RemoteMCPServer
+          toolNames:
+            - chaos_probe_recovery
+            - chaos_simulate_latency

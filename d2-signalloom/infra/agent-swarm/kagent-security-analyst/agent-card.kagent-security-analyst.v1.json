@@ -1,0 +1,51 @@
+{
+  "name": "kagent-security-analyst",
+  "description": "Autonomous security analyst agent running on CNCF Kagent with SPIFFE identity and OpenBao credentials. Gathers read-only evidence across K8s resources, CVE databases, and policy evaluations. Participates in A2A triage chains with narrow-only permission delegation.",
+  "url": "http://kagent-security-analyst.fe-signalloom-agents.svc.cluster.local:8080/",
+  "version": "0.1.0",
+  "provider": {
+    "organization": "ControlPlane / Signal Loom",
+    "url": "https://github.com/controlplaneio/osramp-demo"
+  },
+  "capabilities": {
+    "streaming": true,
+    "pushNotifications": false
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json", "text/plain"],
+  "skills": [
+    {
+      "id": "evaluate_cluster_security_posture",
+      "name": "Evaluate cluster security posture",
+      "description": "Scans namespaces, evaluates RBAC and NetworkPolicies, cross-references CVEs, and produces a structured posture assessment.",
+      "tags": ["security", "k8s", "cve", "rbac", "netpol", "a2a"],
+      "examples": [
+        "{\"namespace\": \"default\", \"depth\": \"comprehensive\"}"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "spiffe": {
+      "type": "spiffe",
+      "description": "SPIFFE X.509 SVID (spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/kagent-security-analyst) issued by SPIRE Workload API."
+    },
+    "openbao_jwt": {
+      "type": "http",
+      "scheme": "bearer",
+      "description": "OpenBao ephemeral token obtained via SPIFFE JWT Auth with signalloom-agent-generic role."
+    },
+    "a2a_authz_ctx": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-AuthZ-CTX",
+      "description": "A2A authorization context propagated and narrowed across agent hops (e.g. Olly -> Kagent Analyst)."
+    }
+  },
+  "security": [
+    {
+      "spiffe": [],
+      "openbao_jwt": ["read:k8s", "read:cve", "read:policy"],
+      "a2a_authz_ctx": ["audit:observe"]
+    }
+  ]
+}

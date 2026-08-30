@@ -69,9 +69,22 @@ mutate_sed() {
   return 0
 }
 
+ONLY="${1:-}"
+
 run_case() {
   local label="$1" suite="$2" test_name="$3"; shift 3
   local out rc restored_ok="yes" rel matched
+
+  # The usage line advertised a filter from the start and never implemented one,
+  # so passing a filter silently ran all 39 cases — which is how a full run
+  # overran a 10-minute budget and had to be killed. A script that exists to
+  # catch claims that are not what they appear should not itself make one.
+  if [ -n "$ONLY" ]; then
+    case "$label" in
+      *"$ONLY"*) ;;
+      *) return ;;
+    esac
+  fi
 
   printf '\n── %s\n' "$label"
 

@@ -230,7 +230,6 @@ setup() {
   fi
 
   claimed="$(jq -r '.test_assertions_passed // -1' "$PROOF_FILE")"
-<<<<<<< HEAD
 
   # The suite list is PARSED OUT OF THE RUNNER, not hand-copied beside it.
   # It was a copy, and it drifted: the runner grew test/kagent-infra.bats and
@@ -251,36 +250,12 @@ setup() {
   [ "${#suites[@]}" -gt 0 ] || {
     echo "could not parse the SUITES array from ${runner}"
     echo "the ceiling would be zero and every claimed count would pass"
-=======
-  # ─── Derived from the runner, not duplicated from it ─────────────────────
-  #
-  # This list used to be a hand-maintained copy of the SUITES array in
-  # scripts/kagent-test.sh, and it drifted the moment a suite was added: the
-  # runner grew test/kagent-infra.bats (4 tests -> 13 on rewrite) and this copy
-  # did not, so the ceiling said 52 while the runner genuinely passed 64. The
-  # artefact was correct and the test calling it implausible was the thing that
-  # was wrong — which is the worst direction for a guard to fail, because the
-  # obvious response is to distrust the measurement.
-  #
-  # Two lists of the same thing is the defect, so there is now one. Parsed
-  # rather than sourced: kagent-test.sh runs a suite on execution, and sourcing
-  # it here would run the whole suite inside a test of itself.
-  local runner="${REPO_ROOT}/scripts/kagent-test.sh"
-  [ -f "$runner" ] || {
-    echo "cannot find the runner at ${runner}; the ceiling cannot be derived"
->>>>>>> fbff9336 (fix(kagent): derive the assertion ceiling from the runner instead of copying it)
     return 1
   }
 
   actual=0
-<<<<<<< HEAD
   for rel in "${suites[@]}"; do
     suite="${REPO_ROOT}/${rel}"
-=======
-  local counted=0 suite
-  while IFS= read -r suite; do
-    suite="${suite//\$\{REPO_ROOT\}/${REPO_ROOT}}"
->>>>>>> fbff9336 (fix(kagent): derive the assertion ceiling from the runner instead of copying it)
     [ -f "$suite" ] || continue
     n="$(grep -c '^@test ' "$suite" || true)"
     actual=$((actual + n))

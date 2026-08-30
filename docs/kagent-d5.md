@@ -54,16 +54,39 @@ path scoped by each agent's own SPIFFE ID, and projected from there into the one
 Kubernetes Secret the kagent controller is contractually required to read.
 
 ```bash
-export ANTHROPIC_API_KEY='sk-ant-...'
+# 1. put the key in .env at the MAIN checkout root (gitignored, never committed)
+cp .env.example .env      # then set ANTHROPIC_API_KEY=sk-ant-...
+# 2.
 make demo-kagent-credentials          # seed -> sync -> verify
 make demo-kagent-credentials-verify   # evidence without disclosure
 ```
 
-There is **no fallback**. With `ANTHROPIC_API_KEY` unset, empty, whitespace, the
-retired placeholder, or implausibly short, `seed` refuses and names the variable.
-This replaces a committed Secret containing the literal
-`mock-anthropic-key-for-local-demo` — 33 bytes with which no agent can complete
-a model call, and which every presence check reported as healthy.
+`ANTHROPIC_API_KEY` exported in the environment takes precedence over `.env`;
+the provenance is printed either way, so the source is never a guess.
+
+**`.env` is resolved from the MAIN checkout, not from `$PWD`.** It is gitignored,
+so it is never checked out into a linked worktree — and a `$PWD`-relative read
+from a worktree finds nothing, reports "no key configured", and exits 0 while
+the operator's key sits in the main checkout. `scripts/lib/env-file.sh` resolves
+it through `git rev-parse --git-common-dir`. `SIGNALLOOM_ENV_FILE` overrides,
+for CI and the GCP lanes where there may be no git repo. All four `.env` readers
+in this repo (`kagent-credentials`, `olly-llm-secret`, `olly-pdi-secret`,
+`security-sandbox`) now share that resolver.
+
+**Two different behaviours, deliberately.** `make demo-kagent-credentials`
+**no-ops with guidance** when no key is configured, matching
+`scripts/olly-llm-secret.sh`: a missing optional credential must not break
+`make up`. `make demo-kagent-invoke` **fails loudly**, because there the key is
+required and quietly doing nothing is the fake-success mode being removed.
+
+This replaces a committed Secret containing a 33-byte placeholder with which no
+agent could complete a model call, and which every presence check reported as
+healthy.
+
+**No key may ever be tracked by git.** `d2-signalloom/test/no-tracked-secrets.bats`
+fails the build if an Anthropic- or OpenAI-shaped key reaches the git index. It
+scans `git ls-files`, not the working directory — `.env` holding a real key is
+the intended state and must never trip it.
 
 | Layer | What holds the credential |
 |---|---|

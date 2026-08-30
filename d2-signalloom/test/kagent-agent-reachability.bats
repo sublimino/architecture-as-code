@@ -86,7 +86,17 @@ cluster_up() {
   local agent out
   agent="$(kubectl get pods -n "$AGENT_NS" -l app.kubernetes.io/managed-by=kagent \
     -o jsonpath='{.items[0].metadata.labels.app\.kubernetes\.io/name}' 2>/dev/null)"
-  [ -n "$agent" ] || skip "no controller-minted agent pods deployed"
+  # NOT a skip. `cluster_up || skip` above already excused the no-cluster case,
+  # so reaching here means the cluster IS up and the agents are simply absent —
+  # which is a real problem, not an inapplicable environment. Skipping would
+  # leave this suite reporting all-ok with zero live coverage, which is the
+  # exact shape this file's header warns about. Raised by kagent-tests-docs on
+  # review; they were right.
+  [ -n "$agent" ] || {
+    echo "cluster is up but no pods carry app.kubernetes.io/managed-by=kagent."
+    echo "the controller has minted no agent workloads, so the demo cannot run."
+    return 1
+  }
 
   out="$(kubectl run "npcheck-pos-$$" -n "$KAGENT_NS" --rm -i --restart=Never \
     --image=busybox:1.36 --timeout=120s -- \
@@ -108,7 +118,17 @@ cluster_up() {
   local agent out
   agent="$(kubectl get pods -n "$AGENT_NS" -l app.kubernetes.io/managed-by=kagent \
     -o jsonpath='{.items[0].metadata.labels.app\.kubernetes\.io/name}' 2>/dev/null)"
-  [ -n "$agent" ] || skip "no controller-minted agent pods deployed"
+  # NOT a skip. `cluster_up || skip` above already excused the no-cluster case,
+  # so reaching here means the cluster IS up and the agents are simply absent —
+  # which is a real problem, not an inapplicable environment. Skipping would
+  # leave this suite reporting all-ok with zero live coverage, which is the
+  # exact shape this file's header warns about. Raised by kagent-tests-docs on
+  # review; they were right.
+  [ -n "$agent" ] || {
+    echo "cluster is up but no pods carry app.kubernetes.io/managed-by=kagent."
+    echo "the controller has minted no agent workloads, so the demo cannot run."
+    return 1
+  }
 
   out="$(kubectl run "npcheck-neg-$$" -n default --rm -i --restart=Never \
     --image=busybox:1.36 --timeout=120s -- \

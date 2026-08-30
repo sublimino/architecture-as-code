@@ -61,6 +61,7 @@ SUITES=(
   "${REPO_ROOT}/test/kagent-adversarial.bats"
   "${REPO_ROOT}/test/kagent-anti-stub.bats"
   "${REPO_ROOT}/test/kagent-infra.bats"
+  "${REPO_ROOT}/d2-signalloom/test/kagent-agent-reachability.bats"
 )
 
 echo "=== Running Kagent Test Suite ==="

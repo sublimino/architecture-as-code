@@ -138,6 +138,91 @@ must exist" below.
   `kagent` namespace. `test/kagent-agents.bats` excludes it by name when resolving
   MCPServer references.
 
+## The Model Credential
+
+The Anthropic API key is supplied by the operator, stored in OpenBao under a
+path scoped by each agent's own SPIFFE ID, and projected from there into the one
+Kubernetes Secret the kagent controller is contractually required to read.
+
+```bash
+# 1. put the key in .env at the MAIN checkout root (gitignored, never committed)
+cp .env.example .env      # then set ANTHROPIC_API_KEY=sk-ant-...
+# 2.
+make demo-kagent-credentials          # seed -> sync -> verify
+make demo-kagent-credentials-verify   # evidence without disclosure
+```
+
+`ANTHROPIC_API_KEY` exported in the environment takes precedence over `.env`;
+the provenance is printed either way, so the source is never a guess.
+
+**`.env` is resolved from the MAIN checkout, not from `$PWD`.** It is gitignored,
+so it is never checked out into a linked worktree — and a `$PWD`-relative read
+from a worktree finds nothing, reports "no key configured", and exits 0 while
+the operator's key sits in the main checkout. `scripts/lib/env-file.sh` resolves
+it through `git rev-parse --git-common-dir`. `SIGNALLOOM_ENV_FILE` overrides,
+for CI and the GCP lanes where there may be no git repo. All four `.env` readers
+in this repo (`kagent-credentials`, `olly-llm-secret`, `olly-pdi-secret`,
+`security-sandbox`) now share that resolver.
+
+**Two different behaviours, deliberately.** `make demo-kagent-credentials`
+**no-ops with guidance** when no key is configured, matching
+`scripts/olly-llm-secret.sh`: a missing optional credential must not break
+`make up`. `make demo-kagent-invoke` **fails loudly**, because there the key is
+required and quietly doing nothing is the fake-success mode being removed.
+
+This replaces a committed Secret containing a 33-byte placeholder with which no
+agent could complete a model call, and which every presence check reported as
+healthy.
+
+**No key may ever be tracked by git.** `d2-signalloom/test/no-tracked-secrets.bats`
+fails the build if an Anthropic- or OpenAI-shaped key reaches the git index. It
+scans `git ls-files`, not the working directory — `.env` holding a real key is
+the intended state and must never trip it.
+
+| Layer | What holds the credential |
+|---|---|
+| System of record | OpenBao kv-v2, `secret/data/agents/ns/<ns>/sa/<sa>/anthropic/api-key` |
+| Authorisation | Per-agent policy over that prefix only; per-agent JWT role with `bound_subject` = that agent's exact SPIFFE ID, `token_ttl` 15m |
+| Projection | `Secret/kagent-anthropic-key`, key `ANTHROPIC_API_KEY`, in every namespace holding a `ModelConfig` |
+
+**Per-agent roles, not one shared role.** A single role over `secret/data/agents/*`
+would let any agent's SVID read any other agent's credential — credential
+mediation in the diagram, none of its isolation in practice. Verified: a token
+carrying `signalloom-agent-kagent-k8s-reader` reads its own path, and is denied
+both a sibling's path and enumeration of the prefix.
+
+**The Secret must exist in the ModelConfig's own namespace.** Upstream, verbatim:
+*"Must be a reference to the name of a secret in the same namespace as the
+referencing ModelConfig."* Hence two namespaces, not one.
+
+The key never enters `git`, a manifest, argv, or `set -x` output. It crosses
+process boundaries only on stdin, and is staged to a `umask 077` temporary file
+that is removed on exit. `verify` prints path, presence, byte count and a
+truncated SHA256 — never the value.
+
+> **Limit worth stating:** presence and length cannot distinguish a real key from
+> a well-formed fake. The only proof that the credential works is a successful
+> invocation — which is what `make demo-kagent-invoke` exists for.
+
+## Invoking an Agent
+
+```bash
+make demo-kagent-invoke AGENT=kagent-k8s-reader \
+     PROMPT="List every namespace in this cluster, then tell me how many there are."
+```
+
+Uses kagent's own A2A surface, nothing bespoke: the controller serves
+`GET /api/a2a/{namespace}/{agent}/.well-known/agent.json` and
+`POST /api/a2a/{namespace}/{agent}/` (JSON-RPC `message/send`) on port 8083 of
+`svc/kagent-controller` — the same surface the `kagent` CLI and the dashboard
+use. Implemented as a dependency-free client so the kagent CLI need not be
+installed.
+
+Four distinct failure modes are treated as failures, three of which arrive as
+HTTP 200: a JSON-RPC `error` object; `result.status.state == "failed"`; an HTML
+gateway page served with a 200; and a completed task carrying no text. Checking
+only the status code, or only `.error`, reports the other three as success.
+
 ## OpenBao integration
 
 - **Current seam.** Agent workloads map secrets through OpenBao SPIFFE-scoped paths
@@ -211,6 +296,23 @@ Additionally, `test/acceptance/kagent-agents.spec.ts` drives the dashboard `/age
 page with Playwright and expects all eight agent names to render. It opts out of
 demo mode (`login(page, { demoMode: false })`) because the agents exist only as
 Agent CRs discovered through `fake-integration-proxy`.
+
+### Known gap: silent re-pointing between real tools
+
+Nothing detects an agent being re-pointed from one **real** tool to another
+real one. That is deliberate, and it is worth stating why so it is not "fixed"
+by reintroducing what used to be here.
+
+Eight tests once pinned each agent's exact `toolNames`. They compared the
+manifest to a copy of the manifest — circular, and green whether or not a
+single named tool existed. Worse, such a test cannot detect the thing it
+appears to: it fails on every *legitimate* re-point until someone edits it to
+match, which trains people to update the expectation without thinking. That is
+ceremony, not detection.
+
+The honest control for "should this agent have that tool" is code review. The
+tests hold the properties a test can actually hold: the tool exists on the
+server, the MCPServer resolves, and the shape is usable.
 
 ### Declared tools must exist
 

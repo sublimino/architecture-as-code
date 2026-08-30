@@ -54,6 +54,15 @@ fi
 
 SUITES=(
   "${REPO_ROOT}/d2-signalloom/test/kagent-contract.bats"
+  # Reachability: the kagent controller must actually be able to open a socket
+  # to a controller-minted agent pod. Registered here rather than left to a
+  # human because the defect it guards was invisible to every other suite --
+  # the pod was 1/1 Running, its Agent CR read Accepted=True Ready=True, all of
+  # kagent-install/agents/anti-stub were green, and `make demo-kagent-invoke`
+  # still returned an i/o timeout because a NetworkPolicy dropped the packets.
+  # d2-signalloom/test/bats-registry-coverage.bats fails if a suite under
+  # test/ is not invoked by anything, which is how this omission was caught.
+  "${REPO_ROOT}/d2-signalloom/test/kagent-agent-reachability.bats"
   "${REPO_ROOT}/test/kagent-install.bats"
   "${REPO_ROOT}/test/kagent-agents.bats"
   "${REPO_ROOT}/test/kagent-credentials.bats"

@@ -414,3 +414,37 @@ render_images() {
   # "no counts" and nothing else may just omit the information entirely.
   grep -q 'let the reader count' "$f"
 }
+
+@test "kagent-chart: every posture agent is told to report absent fields as absent" {
+  # ─── A different, worse failure than the miscount ────────────────────────
+  #
+  # kagent-security-analyst reported `runAsUser: 65532` for a pod whose spec
+  # genuinely sets it — correct — and ALSO reported `UID 100, GID 101` for pods
+  # where runAsUser is absent entirely. Those values appear nowhere in the
+  # 138KB it retrieved. It reads the field accurately when present and invents
+  # a plausible value when missing, presenting both identically.
+  #
+  # That is absence-triggered, not summary-triggered, and it is nastier than
+  # the miscount: the fabrication lands precisely where the security posture is
+  # weakest, which is exactly where an auditor looks. For finops-optimizer and
+  # network-auditor an absent field IS the finding — a fabricated value there
+  # would report healthy sizing, or a policy that is not written, on the very
+  # workloads that have neither.
+  #
+  # Only the DECLARATION is asserted, exactly as with the count instruction.
+  # Whether the model obeys is not tested and is not testable here.
+  #
+  # Scope note: applied to the four posture agents, not all six. kagent-k8s-reader
+  # makes no posture claims, and kagent-incident-responder reads events and logs
+  # rather than sparse spec fields. This is mechanism-reasoning from ONE
+  # observation — deliberately narrower than a swarm-wide rollout, which the
+  # evidence did not support.
+  missing=""
+  for a in kagent-security-analyst kagent-finops-optimizer \
+           kagent-network-auditor kagent-compliance-checker; do
+    f="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/${a}/agent.yaml"
+    [ -f "$f" ] || { missing="${missing} ${a}:absent-file"; continue; }
+    grep -q 'ABSENT' "$f" || missing="${missing} ${a}"
+  done
+  [ -z "$missing" ]
+}

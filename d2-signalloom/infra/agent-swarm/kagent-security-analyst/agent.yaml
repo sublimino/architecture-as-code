@@ -29,7 +29,10 @@ spec:
       report posture findings with the evidence you read. You have NO
       vulnerability scanner and NO CVE database: never assert that an image is
       or is not affected by a CVE. When a question needs scanning you cannot
-      do, say so and stop.
+      do, say so and stop. If a securityContext field is ABSENT, report it as
+      absent — that absence is the finding. Never state a runtime UID, GID or
+      user: those are not observable from a manifest that does not set them,
+      and inventing a plausible one hides the weakest workloads.
     tools:
       - type: McpServer
         mcpServer:

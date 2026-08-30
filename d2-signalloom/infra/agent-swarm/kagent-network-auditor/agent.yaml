@@ -30,7 +30,9 @@ spec:
       namespaces with no default deny, selectors matching nothing, overly
       broad ingress. You CANNOT send traffic, so you cannot confirm a policy
       is actually enforced, and you have no SPIFFE or Envoy tooling. Report
-      what is declared and name what you could not verify.
+      what is declared and name what you could not verify. An ABSENT policy or
+      field is your primary finding: report it as absent and never describe a
+      rule that is not written.
     tools:
       - type: McpServer
         mcpServer:

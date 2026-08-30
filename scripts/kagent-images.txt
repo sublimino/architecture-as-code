@@ -31,14 +31,30 @@ docker.io/library/postgres:18.3-alpine
 # "every always-on image in the list appears in the base render" test in
 # d2-signalloom/test/kagent-chart.bats keeps the two in step in both directions.
 
-# Not referenced by any chart template, and required anyway. The controller
-# materialises each Agent CR into its own Deployment and picks the image from
-# controller.agentImage (repository kagent-dev/kagent/app, registry inherited
-# from the chart-global `registry: cr.kagent.dev`). So it is the image Signal
-# Loom's eight agents in fe-signalloom-agents actually run, and it is invisible
-# to `helm template`. Omitting it makes the install look complete and every
-# reconciled agent sit in ImagePullBackOff.
-cr.kagent.dev/kagent-dev/kagent/app:0.9.9
+# ─── The two agent RUNTIME images, neither of which any chart template names ─
+#
+# The controller materialises each Agent CR into its own Deployment and picks
+# the runtime image itself, so both are invisible to `helm template`. Omitting
+# them makes the install look complete and every reconciled agent sit in
+# ImagePullBackOff. Which of the two is used depends on the Agent CR:
+#
+#   runtime: go      golang-adk   <- all eight of Signal Loom's agents
+#   runtime: python  app          <- the chart's own observability/promql agents
+#
+# Both are on ghcr.io rather than cr.kagent.dev because
+# d2-signalloom/infra/kagent/values.yaml sets
+# `controller.agentImage.registry: ghcr.io` — cr.kagent.dev does not carry
+# golang-adk at all. See that file for the full reasoning; if you change the
+# registry there, change these two lines in the same commit.
+#
+# The controller references golang-adk by DIGEST, not by tag. Preloading the
+# tag still helps — it puts the blobs on the node — but the digest reference is
+# what kubelet resolves, and ghcr.io IS one of the five hosts
+# scripts/registry-cache.sh mirrors, so the digest resolves through the
+# pull-through cache rather than the open internet. That is the difference from
+# cr.kagent.dev, which has no mirror and no cache.
+ghcr.io/kagent-dev/kagent/golang-adk:0.9.9
+ghcr.io/kagent-dev/kagent/app:0.9.9
 
 # controller.skillsInitImage (kagent-dev/kagent/skills-init) is deliberately
 # absent: it is an init container added only to agents that declare

@@ -147,74 +147,6 @@ preload_images() {
 
   log "loading them onto the kind node and proving they arrived"
   "${REPO_ROOT}/scripts/kind-load-verified.sh" "${images[@]}"
-
-  preload_go_adk_runtime
-}
-
-# ─── The Go ADK runtime image, which upstream publishes to the wrong registry ─
-#
-# Every one of Signal Loom's eight agents declares `runtime: go`. For those the
-# controller does NOT use controller.agentImage (kagent-dev/kagent/app — that is
-# the Python runtime, and it is what the chart's own observability-agent and
-# promql-agent get). It uses a separate, compiled-in default:
-#
-#   cr.kagent.dev/kagent-dev/kagent/golang-adk@sha256:<digest>
-#
-# That repository does not exist. Measured directly against the registry:
-#
-#   $ docker pull cr.kagent.dev/kagent-dev/kagent/golang-adk:0.9.9
-#   repository cr.kagent.dev/kagent-dev/kagent/golang-adk not found:
-#   name unknown: repository name not known to registry
-#
-# while app, ui, controller and skills-init all resolve there. The same image
-# IS published to ghcr.io, including the exact digest the controller asks for.
-# So this is an upstream 0.9.9 packaging defect, not a local one, and it is not
-# fixable through values: the reference is not in the chart at all (`rg
-# golang-adk` over the whole chart returns nothing) and the controller
-# ConfigMap only carries IMAGE_* for app and skills-init.
-#
-# Without this, all eight agents reconcile correctly, get real Deployments, and
-# then sit in ImagePullBackOff — which reads as a broken install rather than as
-# a missing upstream repository.
-#
-# The fix pulls from ghcr, retags to the name the controller wants, loads it
-# through the same verified loader as everything else, and then aliases it on
-# the node under the DIGEST reference kubelet resolves. `kind load` re-imports
-# as a single-platform manifest, so the node-side digest differs from the
-# remote one; the alias is what makes IfNotPresent hit. Remove this whole
-# function once upstream publishes golang-adk to cr.kagent.dev.
-preload_go_adk_runtime() {
-  local remote="ghcr.io/kagent-dev/kagent/golang-adk:${CHART_VERSION}"
-  local wanted="cr.kagent.dev/kagent-dev/kagent/golang-adk:${CHART_VERSION}"
-
-  log "preloading the Go ADK agent runtime (upstream publishes it to ghcr.io, not cr.kagent.dev)"
-  "$DOCKER_BIN" image inspect "$remote" >/dev/null 2>&1 \
-    || "$DOCKER_BIN" pull -q "$remote" >/dev/null \
-    || fail "could not pull ${remote}"
-
-  # The digest the controller will name comes from the REMOTE manifest, read
-  # before any retag or load can perturb it.
-  local digest
-  digest="$("$DOCKER_BIN" image inspect "$remote" \
-    --format '{{range .RepoDigests}}{{println .}}{{end}}' 2>/dev/null \
-    | grep '^ghcr.io/kagent-dev/kagent/golang-adk@' | head -1)"
-  digest="${digest#*@}"
-  [ -n "$digest" ] || fail "could not read the remote digest of ${remote}"
-
-  "$DOCKER_BIN" tag "$remote" "$wanted"
-  "${REPO_ROOT}/scripts/kind-load-verified.sh" "$wanted"
-
-  log "  aliasing it on the node as golang-adk@${digest}"
-  "$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images tag \
-    "$wanted" "cr.kagent.dev/kagent-dev/kagent/golang-adk@${digest}" >/dev/null 2>&1 || true
-
-  # Assert rather than assume. `ctr images tag` on an existing alias exits
-  # non-zero, which is why the call above tolerates failure — so the presence
-  # check has to be separate, or a genuinely absent alias would pass silently.
-  "$DOCKER_BIN" exec "$NODE" ctr -n k8s.io images ls -q 2>/dev/null \
-    | grep -qxF "cr.kagent.dev/kagent-dev/kagent/golang-adk@${digest}" \
-    || fail "the golang-adk digest alias is not on ${NODE}; every runtime:go agent will ImagePullBackOff"
-  ok "Go ADK runtime available to the node as golang-adk@${digest}"
 }
 
 # ─── Migrating a cluster that still carries the stub control plane ─────────
@@ -394,10 +326,10 @@ case "${ACTION}" in
     #
     # Helm 4's --wait includes custom resources, and it waits for an Agent CR to
     # report Ready. An Agent only becomes Ready once the controller has compiled
-    # it AND its agent pod is up, which depends on a working model credential —
-    # currently the literal string "mock-anthropic-key". So --wait ties the exit
-    # status of an infrastructure install to whether an LLM API key is valid,
-    # and reports the failure as
+    # it AND its agent pod is up, which depends on a working model credential
+    # supplied by a different workstream from OpenBao. So --wait ties the exit
+    # status of an infrastructure install to whether an LLM API key is valid and
+    # to whether an unrelated agent's tools resolve, and reports the failure as
     #
     #   Error: UPGRADE FAILED: resource Agent/kagent/observability-agent not
     #   ready. status: InProgress ... context deadline exceeded
@@ -472,7 +404,18 @@ case "${ACTION}" in
     ;;
 
   *)
-    echo "Usage: $0 [up|down|status]" >&2
-    exit 1
+    # `Usage: kagent-infra.sh ...` — basename, not $0. The path form is
+    # unstable (it differs between `./scripts/kagent-infra.sh`, an absolute
+    # invocation from a Make recipe, and a bats temp dir), so anything matching
+    # on it matches inconsistently.
+    #
+    # Exit 2, not 1, and it is a contract rather than a preference: 2 is
+    # "wrong usage" as distinct from 1 "the thing you asked for failed". A
+    # caller that cannot tell those apart retries an unretryable typo. This is
+    # the one assertion the original test/kagent-infra.bats made that described
+    # this script rather than the stub architecture it was written against, so
+    # it is honoured rather than rewritten.
+    echo "Usage: $(basename "$0") [up|down|status]" >&2
+    exit 2
     ;;
 esac

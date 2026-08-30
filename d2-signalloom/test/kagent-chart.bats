@@ -186,7 +186,8 @@ render_images() {
   always="$(sed '/^# --- OBSERVABILITY ---$/,$d' "$images")"
   echo "$always" | grep -q '^cr.kagent.dev/kagent-dev/kagent/controller:0.9.9$'
   echo "$always" | grep -q '^cr.kagent.dev/kagent-dev/kagent/ui:0.9.9$'
-  echo "$always" | grep -q '^cr.kagent.dev/kagent-dev/kagent/app:0.9.9$'
+  echo "$always" | grep -q '^ghcr.io/kagent-dev/kagent/app:0.9.9$'
+  echo "$always" | grep -q '^ghcr.io/kagent-dev/kagent/golang-adk:0.9.9$'
   echo "$always" | grep -q '^ghcr.io/kagent-dev/kagent/tools:0.2.1$'
   echo "$always" | grep -q '^docker.io/library/postgres:18.3-alpine$'
 
@@ -213,7 +214,11 @@ render_images() {
   missing=""
   while IFS= read -r img; do
     case "$img" in ''|'#'*) continue ;; esac
-    [ "$img" = "cr.kagent.dev/kagent-dev/kagent/app:0.9.9" ] && continue
+    # The two agent runtime images are supplied by the controller at
+    # agent-compile time and appear in no chart template, by design.
+    case "$img" in
+      ghcr.io/kagent-dev/kagent/app:*|ghcr.io/kagent-dev/kagent/golang-adk:*) continue ;;
+    esac
     echo "$images" | grep -qxF "$img" || missing="${missing} ${img}"
   done < <(sed '/^# --- OBSERVABILITY ---$/,$d' "${REPO_ROOT}/scripts/kagent-images.txt" \
             | grep -vE '^[[:space:]]*(#|$)')
@@ -270,4 +275,18 @@ render_images() {
 
   # The tool server port must be the chart's 8084, not the stub's 8080.
   echo "$policies" | grep -q 'port: 8084'
+}
+
+@test "kagent-chart: the agent runtime registry is overridden to ghcr in the rendered ConfigMap" {
+  # cr.kagent.dev does not carry golang-adk, which is the runtime for every
+  # `runtime: go` agent — i.e. all eight of Signal Loom's. Asserted against the
+  # rendered ConfigMap rather than the values file, because
+  # controller-configmap.yaml derives IMAGE_REGISTRY through a `default` chain
+  # and only the render proves which end of it won.
+  rendered="$(render base)"
+  echo "$rendered" | grep -q 'IMAGE_REGISTRY: "ghcr.io"'
+  # Scoped, not global: the controller, UI and skills-init images must stay on
+  # cr.kagent.dev, where they are published and working.
+  echo "$rendered" | grep -q 'SKILLS_INIT_IMAGE_REGISTRY: "cr.kagent.dev"'
+  echo "$(render_images base)" | grep -qxF 'cr.kagent.dev/kagent-dev/kagent/controller:0.9.9'
 }

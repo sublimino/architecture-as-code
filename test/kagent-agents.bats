@@ -24,29 +24,68 @@ setup() {
   # shellcheck source=test/lib/mcp.bash
   . "${BATS_TEST_DIRNAME}/lib/mcp.bash"
 
-  # DEFERRED AGENTS — Andy's ruling, recorded by name.
+  # DEFERRED AGENTS — two sources, one preferred, and a path from one to the other.
   #
-  # An earlier draft put this in an Agent CR annotation so the decision lived in
-  # the manifest. Both branches that own those manifests asked for a by-name
-  # list instead, and neither is adding annotations, so an annotation mechanism
-  # would have meant the guard stayed red on a decision that had actually been
-  # made. Reversed deliberately.
+  # PREFERRED: an annotation on the Agent CR itself,
+  #   signalloom.ai/tools-roadmap=<reason>
+  # so the decision lives in the manifest it describes and cannot drift from it.
   #
-  # A hardcoded allowlist normally rots into a permanent hole. The test below
-  # ("deferred agents are still genuinely blocked") is what stops that: the
-  # moment any deferred agent's tools DO appear on the server, the deferral is
-  # stale and fails until it is removed. The list can only shrink by itself.
+  # TRANSITIONAL: the DEFERRED_AGENTS list below. It exists because the branches
+  # that own those manifests asked for a by-name list and are not adding
+  # annotations; an annotation-only mechanism would have kept this guard red on
+  # a decision that had actually been made. Entries here should migrate to
+  # annotations and the list should end up empty.
+  #
+  # A hardcoded list normally rots into a permanent hole. Two clauses stop that,
+  # both in "deferred agents are still genuinely blocked" below:
+  #   * the moment a deferred agent's tools DO appear on the server the deferral
+  #     is stale and fails until removed, so the list can only shrink by itself;
+  #   * an agent deferred by BOTH mechanisms is reported as redundant, so the
+  #     migration to annotations finishes rather than leaving two sources of
+  #     truth disagreeing quietly.
+  ROADMAP_ANNOTATION="signalloom.ai/tools-roadmap"
   DEFERRED_AGENTS="kagent-chaos-prober kagent-commit-summariser"
   DEFERRED_REASON_kagent_chaos_prober="no chaos_* tool exists on the server"
   DEFERRED_REASON_kagent_commit_summariser="no github_* tool exists on the server; github-tool RemoteMCPServer is absent"
 }
 
-is_deferred() {
+# Deferred by annotation (preferred) or by list (transitional).
+deferred_by_annotation() {
+  local v
+  v="$(kubectl get agent "$1" -n "${NS}" -o json 2>/dev/null |
+    jq -r --arg k "$ROADMAP_ANNOTATION" '.metadata.annotations[$k] // ""')"
+  [ -n "$v" ]
+}
+
+deferred_by_list() {
   local a="$1" d
   for d in $DEFERRED_AGENTS; do
     [ "$d" = "$a" ] && return 0
   done
   return 1
+}
+
+is_deferred() {
+  deferred_by_annotation "$1" || deferred_by_list "$1"
+}
+
+# The recorded justification, from whichever source declares it.
+deferral_reason() {
+  local a="$1" v var
+  v="$(kubectl get agent "$a" -n "${NS}" -o json 2>/dev/null |
+    jq -r --arg k "$ROADMAP_ANNOTATION" '.metadata.annotations[$k] // ""')"
+  if [ -n "$v" ]; then printf '%s' "$v"; return 0; fi
+  var="DEFERRED_REASON_${a//-/_}"
+  printf '%s' "${!var:-}"
+}
+
+# Every agent currently deferred, by either mechanism.
+all_deferred_agents() {
+  { printf '%s\n' $DEFERRED_AGENTS
+    kubectl get agents -n "${NS}" -o json 2>/dev/null |
+      jq -r --arg k "$ROADMAP_ANNOTATION" '
+        .items[] | select((.metadata.annotations // {})[$k] != null) | .metadata.name'
+  } | sed '/^$/d' | sort -u
 }
 
 teardown() {
@@ -243,15 +282,16 @@ agent_tool_names() {
 }
 
 @test "kagent-agents: deferred agents are still genuinely blocked" {
-  # THE ANTI-ROT CLAUSE, and the reason a hardcoded list is acceptable here.
+  # THE ANTI-ROT CLAUSE, and the reason a hardcoded list is acceptable at all.
   # A deferral is a claim that the tools do not exist. If they appear, the claim
   # is false and the agent must rejoin the enforced set. Without this, the list
   # is a permanent hole that outlives its reason and nobody notices — which is
   # the failure this whole suite exists to prevent, in miniature.
-  [ -n "$DEFERRED_AGENTS" ] || {
+  deferred="$(all_deferred_agents)"
+  if [ -z "$deferred" ]; then
     echo "no agents deferred — every declared tool is enforced"
     return 0
-  }
+  fi
 
   mcp_kagent_connect "${KAGENT_NS}" || {
     echo "could not reach the tool server — harness failure, not a verdict"
@@ -262,20 +302,28 @@ agent_tool_names() {
   pairs="$(requested_tool_pairs)"
   now_available=""
   unknown_agents=""
+  no_reason=""
+  redundant=""
 
-  for d in $DEFERRED_AGENTS; do
+  while IFS= read -r d; do
+    [ -n "$d" ] || continue
     # A deferral naming an agent that no longer exists is also stale.
     kubectl get agent "$d" -n "${NS}" >/dev/null 2>&1 || {
       unknown_agents+="$d "
       continue
     }
-    reason_var="DEFERRED_REASON_${d//-/_}"
-    echo "deferred: $d — ${!reason_var:-<no reason recorded>}"
-    [ -n "${!reason_var:-}" ] || {
-      echo "  ^ no reason recorded; a deferral must say why"
-      return 1
-    }
-  done
+    reason="$(deferral_reason "$d")"
+    src="list"
+    deferred_by_annotation "$d" && src="annotation"
+    if deferred_by_annotation "$d" && deferred_by_list "$d"; then
+      src="annotation+list"
+      redundant+="$d "
+    fi
+    echo "deferred [$src]: $d — ${reason:-<no reason recorded>}"
+    case "$reason" in
+      "" | true | yes | 1) no_reason+="$d " ;;
+    esac
+  done <<<"$deferred"
 
   while IFS=$'\t' read -r agent tool; do
     [ -n "$agent" ] || continue
@@ -285,15 +333,25 @@ agent_tool_names() {
     fi
   done <<<"$pairs"
 
-  if [ -n "$unknown_agents" ]; then
-    echo "DEFERRED_AGENTS names agents that do not exist: $unknown_agents"
-  fi
+  [ -z "$unknown_agents" ] || echo "deferral names agents that do not exist: $unknown_agents"
+  [ -z "$no_reason" ] || {
+    echo "deferred with no stated reason: $no_reason"
+    echo "a deferral must say why, or it reads as an oversight rather than a decision"
+  }
+  [ -z "$redundant" ] || {
+    echo "deferred twice (annotation AND DEFERRED_AGENTS): $redundant"
+    echo "the annotation is the preferred home — drop these from DEFERRED_AGENTS"
+    echo "so there is one source of truth rather than two that can disagree"
+  }
   if [ -n "$now_available" ]; then
     echo "these deferred tools now EXIST on the server:"
     printf '%s' "$now_available"
-    echo "the deferral is stale — remove the agent from DEFERRED_AGENTS so the"
-    echo "tool-existence guard starts enforcing it again"
+    echo "the deferral is stale — un-defer the agent so the tool-existence guard"
+    echo "starts enforcing it again"
   fi
+
   [ -z "$unknown_agents" ]
+  [ -z "$no_reason" ]
+  [ -z "$redundant" ]
   [ -z "$now_available" ]
 }

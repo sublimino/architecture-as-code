@@ -1,5 +1,5 @@
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: MCPServer
 metadata:
   name: vuln-db-tool
@@ -9,7 +9,7 @@ metadata:
 spec:
   description: Read-only query access to OSV / CVE vulnerability database
 ---
-apiVersion: kagent.dev/v1alpha1
+apiVersion: kagent.dev/v1alpha2
 kind: MCPServer
 metadata:
   name: policy-eval-tool

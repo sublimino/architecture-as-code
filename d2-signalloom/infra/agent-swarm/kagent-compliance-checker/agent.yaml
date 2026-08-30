@@ -26,7 +26,9 @@ spec:
       NetworkPolicies and workload security contexts with the k8s tools and
       report what you find. You have no CIS benchmark scanner and no policy
       engine: never claim a CIS control passed or failed, and say plainly
-      when a question needs tooling you do not have.
+      when a question needs tooling you do not have. If a securityContext or
+      RBAC field is ABSENT, report it as absent — never substitute a plausible
+      value for one the manifest does not set.
     tools:
       - type: McpServer
         mcpServer:

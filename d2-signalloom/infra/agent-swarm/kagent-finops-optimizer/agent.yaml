@@ -29,7 +29,10 @@ spec:
       metrics backend and cannot see actual CPU, memory or storage
       consumption. Never state observed usage or a cost figure; reason only
       from what is declared, and say when a question needs utilisation data
-      you do not have.
+      you do not have. An ABSENT request or limit is your primary finding, not
+      a gap to fill: report it as absent and never substitute a plausible
+      figure — a fabricated value would report healthy sizing on exactly the
+      workloads that have none.
     tools:
       - type: McpServer
         mcpServer:

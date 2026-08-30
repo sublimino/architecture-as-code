@@ -279,6 +279,44 @@ now closed:
 Do not let the passing test imply the second row. A guard that reads as proving
 more than it does is exactly the failure this page is about.
 
+### The worse failure: invented values for absent fields
+
+Testing whether the miscount generalised produced the opposite result, and a
+sharper finding. `kagent-security-analyst` was invoked with **no**
+count-suppression instruction and its counts were **correct three times over**
+— "8 out of 9 pods lack `runAsNonRoot: true`", verified against the namespace,
+three for three. So the arithmetic failure does **not** generalise, and rolling
+the count instruction across the swarm on one instance would have been wrong.
+
+What it did instead is worse. For a pod whose spec genuinely sets
+`runAsUser: 65532` it reported exactly that — correct, grounded in the data it
+fetched. For pods where `runAsUser` is **absent**, it supplied `UID 100,
+GID 101` — values appearing nowhere in the 138KB it retrieved. Both were
+presented identically under "Runtime user".
+
+**It reads the field accurately when it exists and invents a plausible value
+when it is missing.** That is absence-triggered, not summary-triggered, and it
+is the more dangerous of the two:
+
+- The fabrication lands **precisely where the posture is weakest**, which is
+  exactly where an auditor looks.
+- For `kagent-finops-optimizer` and `kagent-network-auditor` an absent field
+  **is** the finding. A fabricated value would report healthy sizing, or a
+  policy that is not written, on the very workloads that have neither.
+
+Mitigated on the four posture agents — security-analyst, finops-optimizer,
+network-auditor, compliance-checker — each told that an absent field is the
+finding and never to substitute a plausible value. Not applied to
+`kagent-k8s-reader` (makes no posture claims) or `kagent-incident-responder`
+(reads events and logs, not sparse spec fields). Guarded by
+`kagent-chart.bats`, declaration only, on the same terms as the count
+instruction: **whether the model obeys is untested and untestable here.**
+
+Note this is mechanism-reasoning from **one** observation, applied narrowly.
+The count instruction was deliberately *not* generalised because a second
+observation contradicted it. Two failures, two different scopes, and the
+difference is the evidence rather than the plausibility of the story.
+
 **Treat agent prose as unverified until a human or a tool has checked it
 against the cluster.**
 

@@ -1,0 +1,13 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-p1-probe
+  namespace: kagent
+spec:
+  type: Declarative
+  description: Probe
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: Read only.
+    tools: []

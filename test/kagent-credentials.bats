@@ -49,6 +49,45 @@ setup() {
   [ -z "$missing" ]
 }
 
+@test "kagent-creds: the declared SPIRE trust domain matches the running SPIRE server" {
+  # THE TIE-BREAKER for d2-signalloom/test/kagent-contract.bats. That suite runs
+  # without a cluster, so it reads the trust domain from
+  # infra/inf-bao/controllers/base/spire-openbao-config.yaml and holds the agent
+  # cards to it. That is only sound while the file describes the server that is
+  # actually running — otherwise both halves agree with each other and neither
+  # agrees with reality, which is exactly the shape of the bug being fixed here.
+  # This is the cluster-backed half; it must live in a live suite.
+  config="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
+  [ -f "$config" ] || {
+    echo "SPIRE config not found at $config"
+    return 1
+  }
+  declared="$(sed -n 's/.*server {[^}]*trust_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)"
+  [ -n "$declared" ] || {
+    echo "could not read server trust_domain from $config"
+    return 1
+  }
+
+  live="$(kubectl get cm spire-server-config -n inf-bao -o json 2>/dev/null |
+    jq -r '.data | to_entries[] | .value' |
+    sed -n 's/.*server {[^}]*trust_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+  [ -n "$live" ] || {
+    echo "could not read trust_domain from the live spire-server-config ConfigMap"
+    kubectl get cm -n inf-bao 2>&1 | sed 's/^/  /'
+    return 1
+  }
+
+  [ "$declared" = "$live" ] || {
+    echo "the SPIRE trust domain on disk is not the one the cluster is running"
+    echo "  declared (${config##*/}) : $declared"
+    echo "  live (spire-server-config): $live"
+    echo "every agent-card assertion in kagent-contract.bats is anchored to the"
+    echo "declared value, so this drift would validate cards against a domain"
+    echo "SPIRE does not use — agreeing with the manifest and with nothing else."
+    return 1
+  }
+}
+
 @test "kagent-creds: ModelConfig names an Anthropic model and an existing Secret" {
   # Was: provider == "Anthropic" and nothing else. A ModelConfig pointing at a
   # Secret that does not exist passes that check and fails at first use, which

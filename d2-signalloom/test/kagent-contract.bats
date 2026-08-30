@@ -3,6 +3,27 @@
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+
+  # THE single place this suite learns the SPIFFE trust domain. Not a constant
+  # duplicated into the test — this is the manifest that renders the
+  # spire-server-config ConfigMap, so it is the same declaration the running
+  # SPIRE server reads. Change SPIRE's domain and the agent cards are required
+  # to follow, automatically, with no test edit.
+  #
+  # This suite must run WITHOUT a cluster (`make demo-kagent-test-config`), so
+  # it reads the declaration rather than the live server. The two are tied
+  # together by "declared SPIRE trust domain matches the live SPIRE server" in
+  # test/kagent-credentials.bats, which is what makes reading the file here
+  # trustworthy rather than merely convenient.
+  SPIRE_CONFIG="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
+}
+
+# The server block's trust_domain. Scoped to `server {` deliberately: the agent
+# block declares one too, and a config where they disagree is a real defect that
+# must not be resolved by silently preferring whichever line matched first.
+spire_trust_domain() {
+  [ -f "$SPIRE_CONFIG" ] || return 0
+  sed -n 's/.*server {[^}]*trust_domain[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$SPIRE_CONFIG" | head -1
 }
 
 @test "kagent-contract: Agent CR definitions are strictly fewer than 50 lines each across all agents" {
@@ -155,15 +176,37 @@ setup() {
   [ "$count" -ge 8 ]
 }
 
-@test "kagent-contract: every agent-card spiffeId ends in the agent's own ServiceAccount" {
+@test "kagent-contract: every agent-card spiffeId names this cluster's trust domain and the agent's own ServiceAccount" {
   # Independent second witness on the same invariant. The card's spiffeId is
   # the identity the A2A contract advertises; the SA is the identity SPIRE
   # actually issues against. They must name the same principal.
+  #
+  # THE TRUST DOMAIN IS THE HALF THAT MATTERS MOST, and the earlier version of
+  # this test never looked at it: `"${spiffe_id##*/sa/}" = "$sa_name"` validates
+  # the trailing segment and is satisfied by ANY authority. A card reading
+  # spiffe://osramp.acme.local/ns/…/sa/kagent-k8s-reader passed it cleanly,
+  # while SPIRE runs trust_domain = "signalloom.demo" and would never issue such
+  # an SVID. The trust domain is what makes a SPIFFE ID belong to this cluster
+  # at all; without it the check confirms the surname and ignores the country.
+  expected_domain="$(spire_trust_domain)"
+
+  # Guard the guard. If extraction failed, expected_domain would be empty and
+  # every comparison below would be against "", which must not read as a pass.
+  [ -n "$expected_domain" ] || {
+    echo "could not read trust_domain from ${SPIRE_CONFIG}"
+    return 1
+  }
+  [[ "$expected_domain" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || {
+    echo "trust_domain '$expected_domain' from ${SPIRE_CONFIG} is not a plausible domain"
+    return 1
+  }
+
   count=0
   for card in "${REPO_ROOT}/d2-signalloom/infra/agent-swarm"/kagent-*/agent-card.json; do
     [ -f "$card" ] || continue
     dir="$(dirname "$card")"
     sa_name="$(yq -r 'select(.kind == "ServiceAccount") | .metadata.name' "${dir}/serviceaccount.yaml")"
+    ns_name="$(yq -r 'select(.kind == "ServiceAccount") | .metadata.namespace' "${dir}/serviceaccount.yaml")"
     spiffe_id="$(jq -r '.spiffeId' "$card")"
     card_name="$(jq -r '.name' "$card")"
 
@@ -172,10 +215,34 @@ setup() {
       return 1
     }
 
-    # Compared as a whole trailing segment, not a substring: a plain grep would
-    # let /sa/kagent-k8s-reader-v2 satisfy a check for kagent-k8s-reader.
-    [ "${spiffe_id##*/sa/}" = "$sa_name" ] || {
-      echo "$(basename "$dir"): spiffeId '$spiffe_id' does not end in /sa/$sa_name"
+    # Authority compared as a WHOLE segment — everything between "spiffe://" and
+    # the first "/". A substring test would accept signalloom.demo.evil.com and
+    # evil-signalloom.demo alike; both are different trust domains entirely.
+    rest="${spiffe_id#spiffe://}"
+    [ "$rest" != "$spiffe_id" ] || {
+      echo "$(basename "$dir"): spiffeId '$spiffe_id' does not start with spiffe://"
+      return 1
+    }
+    authority="${rest%%/*}"
+
+    [ "$authority" = "$expected_domain" ] || {
+      echo "$(basename "$dir"): wrong SPIFFE trust domain"
+      echo "  card advertises : $authority"
+      echo "  SPIRE issues in : $expected_domain   (${SPIRE_CONFIG})"
+      echo "  full spiffeId   : $spiffe_id"
+      echo "an SVID for this identity will never be issued: SPIRE mints SVIDs"
+      echo "only within its own trust domain, so any peer validating this card"
+      echo "is checking a name no certificate in this cluster can carry."
+      return 1
+    }
+
+    # Full path, not just the /sa/ tail. The live SPIRE entries are
+    # spiffe://<domain>/ns/<namespace>/sa/<serviceaccount>; asserting the whole
+    # shape means a card cannot name the right agent in the wrong namespace.
+    [ "${spiffe_id}" = "spiffe://${expected_domain}/ns/${ns_name}/sa/${sa_name}" ] || {
+      echo "$(basename "$dir"): spiffeId does not match the identity SPIRE would issue"
+      echo "  card     : $spiffe_id"
+      echo "  expected : spiffe://${expected_domain}/ns/${ns_name}/sa/${sa_name}"
       return 1
     }
     count=$((count + 1))

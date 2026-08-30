@@ -244,11 +244,15 @@ Within that, one sub-shape recurs often enough to name on its own:
 > **A check that did not really run is indistinguishable from a check that
 > passed.**
 
-That is #1 at the harness level (the filter selected nothing), #5 at the tool
-level (`bash -n` had a complaint but no exit code for it), #6 at the controller
-level (the apply stage was never reached), and #4 is its close cousin — the
-check ran, but against an already-failing baseline, so its result was
-pre-determined.
+That is #1 at the harness level (the filter selected nothing) and #6 at the
+controller level (the apply stage was never reached). Two near neighbours: in
+#5 the check ran but its verdict channel was lossy — `bash -n` had a complaint
+and no exit code to carry it — and in #4 the check ran against an already-failing
+baseline, so its result was pre-determined.
+
+The practical form of the question, in all four cases: **before believing a
+green, ask what would have had to happen for it to be red, and confirm that
+thing was reachable.**
 
 1. **A test-filter that matches nothing exits 0.** A mutation harness that breaks
    a guard and runs `bats -f '<name>'` to watch it fail reads the exit 0 as "the

@@ -70,6 +70,18 @@ test: ## Validate the D2 topology, dependency components, and Discovery Portal p
 	@if command -v bats >/dev/null 2>&1; then \
 		bash ./test/spire-durability-mutation-proof.sh; \
 	fi
+	@# The falsification half of test/kagent-credentials.bats, registered for the
+	@# same reason as the spire proof directly above: a proof nothing runs proves
+	@# nothing, and test/bats-registry-coverage.bats fails when one is orphaned.
+	@# It was orphaned -- it arrived with the credential work and no runner named
+	@# it, which turned guard 7 red on a tree where it had been green.
+	@#
+	@# Same discipline as its sibling: it mutates tracked files, restores them
+	@# from a path-keyed backup on an EXIT trap, and verifies sha256 equality
+	@# before exiting, so an interrupt cannot leave the tree mutated.
+	@if command -v bats >/dev/null 2>&1; then \
+		bash ./test/falsify-kagent-credentials.sh; \
+	fi
 
 # Suites deliberately not run by `make test`, each with its reason. Asserted
 # against reality by test/bats-registry-coverage.bats: an entry naming a file

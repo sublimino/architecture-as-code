@@ -1,4 +1,24 @@
 ---
+# ModelConfig for the Kagent declarative agents in fe-signalloom-agents.
+#
+# apiKeySecret and apiKeySecretKey are TOP-LEVEL fields of ModelConfig.spec in
+# kagent.dev/v1alpha2. They were previously nested under `spec.anthropic`, which
+# accepts only baseUrl, maxTokens, temperature, topK and topP — a nested
+# apiKeySecret is pruned by the structural schema, so the controller finds no
+# credential and the agent fails its model call for a reason that points nowhere
+# near this file. Nothing caught it because the CRDs installed in the local kind
+# cluster are stubs using x-kubernetes-preserve-unknown-fields and validate
+# nothing. Checked against helm/kagent-crds at upstream tag v0.9.9.
+#
+# The Secret is resolved in THIS namespace, not in `kagent`. Upstream, verbatim:
+# "Must be a reference to the name of a secret in the same namespace as the
+# referencing ModelConfig." scripts/kagent-credentials.sh projects it into every
+# namespace that holds a ModelConfig for exactly that reason.
+#
+# The Secret is NOT in git. It is derived from the operator's ANTHROPIC_API_KEY
+# by way of OpenBao:
+#     export ANTHROPIC_API_KEY='sk-ant-...'
+#     make demo-kagent-credentials
 apiVersion: kagent.dev/v1alpha2
 kind: ModelConfig
 metadata:
@@ -10,5 +30,8 @@ metadata:
 spec:
   model: claude-sonnet-4-20250514
   provider: Anthropic
-  anthropic:
-    apiKeySecret: kagent-anthropic-key
+  # Stated explicitly rather than inherited from the chart's values.yaml: this
+  # manifest does not own that file, and a default that moves breaks it silently.
+  apiKeySecret: kagent-anthropic-key
+  apiKeySecretKey: ANTHROPIC_API_KEY
+  anthropic: {}

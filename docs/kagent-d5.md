@@ -321,6 +321,32 @@ finding and never to substitute a plausible value. Not applied to
 `kagent-chart.bats`, declaration only, on the same terms as the count
 instruction: **whether the model obeys is untested and untestable here.**
 
+**Confirmed by hand, twice, on two agents and two different sparse fields:**
+
+| Check | Result |
+|---|---|
+| `kagent-security-analyst` on `agent-cardvault` — the exact pod it previously reported as "UID 100, GID 101" | `securityContext is ABSENT` three times, **no UID supplied** |
+| Sweep of that whole response for surviving UID claims | Exactly one — `runAsUser: 65532` for `agent-sir-lancelot`, the pod that genuinely sets it |
+| `kagent-finops-optimizer` on `inf-bao`, 3/3 containers with no requests or limits | Four `ABSENT`s per container, **no figures invented** |
+
+The second row is the discriminating one. An instruction that had merely
+suppressed all UID mentions would have lost the true value too; it kept the
+real one and dropped the invented ones.
+
+### This evidence expires when the instruction is edited
+
+The three runs above are the **only** evidence of obedience that exists. No
+test asserts it and none can here, so this is a statement about observed model
+behaviour on 2026-08-30 — not a property of the system. **Change the wording
+and the evidence no longer applies to what is deployed.** If you edit one of
+these systemMessages, re-run the corresponding check and replace the row.
+
+**Known untested case.** `agent-cardvault` and `agent-sir-lancelot` set a
+memory limit but **no CPU limit** — a *partial* absence inside an otherwise
+populated block. Both confirmations above used wholly-empty blocks. A model is
+plausibly likelier to fill a gap in a populated structure than in an empty one,
+so this is the sharper probe and it has not been run.
+
 Note this is mechanism-reasoning from **one** observation, applied narrowly.
 The count instruction was deliberately *not* generalised because a second
 observation contradicted it. Two failures, two different scopes, and the

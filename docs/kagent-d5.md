@@ -302,20 +302,30 @@ pre-determined.
    suite passes, then break exactly one thing and check the failure names the
    thing you broke.
 
-5. **`bash -n` exits 0 on an unterminated here-document.** It reports it as a
-   *warning on stderr* and returns success:
+5. **`bash -n` misses exactly one syntax fault: the unterminated here-document.**
+   Keep using it — this is a single carve-out, not a reason to distrust the tool.
+   `bash -n` exits **2** on every other malformed construct. The exception is
+   semantic: bash *accepts* a here-doc delimited by EOF, so to bash it is not an
+   error at all but a recoverable oddity, reported as a warning at exit 0.
 
-   ```
-   script.sh: line 52: warning: here-document at line 39 delimited by
-     end-of-file (wanted `ROLE')
-   $ echo $?
-   0
-   ```
+   Measured across nine constructs:
+
+   | script | rc | stderr |
+   |---|---|---|
+   | valid | 0 | *(none)* |
+   | **unterminated heredoc** | **0** | `warning: here-document at line 1 delimited by end-of-file (wanted 'ROLE')` |
+   | unclosed `if` / `while` / `case` / function | 2 | `syntax error: unexpected end of file` |
+   | unclosed quote | 2 | ``unexpected EOF while looking for matching `"'`` |
+   | unclosed paren / arithmetic | 2 | ``unexpected EOF while looking for matching `)'`` |
 
    So `run bash -n "$f"; [ "$status" -eq 0 ]` passes on a script whose heredoc
    silently swallows everything after it. **Assert both channels: exit 0 AND
-   `[ -z "$output" ]`** — bats folds stderr into `$output`. (Reproduced
-   independently while writing this entry; the behaviour is as described.)
+   `[ -z "$output" ]`** — bats folds stderr into `$output`.
+
+   Note the discriminator is the *exit code paired with stderr being non-empty*,
+   never the message text: the unclosed-quote case says "unexpected EOF while
+   looking for matching" too, and does so at rc=2. Exit-0-with-stderr was unique
+   to the heredoc across all nine.
 
    Worst where a script lives in a ConfigMap block scalar, because the
    terminator's real column is decided by YAML indent-stripping: indent it two
@@ -342,10 +352,22 @@ pre-determined.
    make it pass is to delete the explanation. `test/kagent-anti-stub.bats` and
    `bats-registry-coverage.bats` both strip whole-line comments before matching.
 
-   Only *whole-line* comments: a trailing `# …` after a live assignment must not
-   rescue the line. Falsified all four ways — literal present (red), literal
-   replaced by a comment (green), comment plus a restored assignment (red), and
-   a live assignment with a trailing comment (red).
+   Only *whole-line* comments. The fourth case below is what makes that correct
+   rather than merely convenient — and it is the case a naive `sed 's/#.*//'`
+   gets wrong, laundering a live assignment because someone appended a `# TODO`:
+
+   | manifest state | verdict |
+   |---|---|
+   | literal present as a real assignment | red |
+   | literal replaced by an explanatory comment | **green** |
+   | that comment *plus* a restored assignment | red |
+   | live assignment with trailing `# TODO replace` | red |
+
+   Whole-line stripping also removes `#` lines *inside* a YAML block scalar,
+   where they are shell comments in data rather than YAML comments. For a
+   forbidden-literal scan that is the wanted behaviour either way; it would only
+   matter to a guard needing to assert something *about* an embedded script's
+   comments.
 
 ### The proof artefact
 

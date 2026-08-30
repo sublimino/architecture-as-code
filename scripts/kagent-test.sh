@@ -4,8 +4,18 @@ set -euo pipefail
 
 export PATH=/home/andy/src/cp/osramp-demo/scripts/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-KUBECONFIG_PATH="${KUBECONFIG:-${REPO_ROOT}/.kind/kubeconfig}"
-if [ -f "${KUBECONFIG_PATH}" ]; then
+KUBECONFIG_PATH="${KUBECONFIG:-}"
+if [ -z "${KUBECONFIG_PATH}" ]; then
+  if [ -f "${REPO_ROOT}/.kind/kubeconfig" ]; then
+    KUBECONFIG_PATH="${REPO_ROOT}/.kind/kubeconfig"
+  else
+    COMMON_ROOT="$(cd "$REPO_ROOT" && dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo ".")")"
+    if [ -f "${COMMON_ROOT}/.kind/kubeconfig" ]; then
+      KUBECONFIG_PATH="${COMMON_ROOT}/.kind/kubeconfig"
+    fi
+  fi
+fi
+if [ -n "${KUBECONFIG_PATH}" ] && [ -f "${KUBECONFIG_PATH}" ]; then
   export KUBECONFIG="${KUBECONFIG_PATH}"
 fi
 

@@ -40,10 +40,19 @@ set -eo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SUITE="${REPO_ROOT}/d2-signalloom/test/spire-server-durability.bats"
+RBAC_SUITE="${REPO_ROOT}/d2-signalloom/test/spire-openbao-sync-rbac-placement.bats"
+
+# The suite the next check() runs against. Set per group rather than threaded
+# through every call, so adding a group cannot silently point at the wrong file.
+CURRENT_SUITE="$SUITE"
 
 MANIFEST="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-spire.yaml"
 CONFIG="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-config.yaml"
 AGENT="${REPO_ROOT}/d2-signalloom/infra/inf-bao/configs/base/spire-agent.yaml"
+SYNC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml"
+FLEET="${REPO_ROOT}/d2-osramp-fleet/tenants/local/signalloom.yaml"
+
+ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET")
 
 BACKUP_DIR="$(mktemp -d)"
 CHECKS=0
@@ -78,7 +87,7 @@ restore() {
 # looks like ordinary uncommitted work is a genuinely dangerous thing to leave
 # behind in a repo several agents are writing to.
 cleanup() {
-	restore "$MANIFEST" "$CONFIG" "$AGENT"
+	restore "${ALL_FILES[@]}"
 	rm -rf "$BACKUP_DIR"
 }
 trap cleanup EXIT
@@ -101,7 +110,7 @@ PY
 # Run exactly one test out of the suite. bats -f takes a regex over the test
 # name; the names here are prose, so it is anchored on a distinctive fragment.
 run_one() { # name-fragment
-	bats -f "$1" "$SUITE" >/dev/null 2>&1
+	bats -f "$1" "$CURRENT_SUITE" >/dev/null 2>&1
 }
 
 # How many tests a fragment actually selects.
@@ -115,7 +124,7 @@ run_one() { # name-fragment
 # false PASS), but a proof harness whose failure message names the wrong culprit
 # gets ignored, so the arity is checked explicitly and named for what it is.
 fragment_arity() { # name-fragment
-	bats -c -f "$1" "$SUITE" 2>/dev/null
+	bats -c -f "$1" "$CURRENT_SUITE" 2>/dev/null
 }
 
 # name, files-to-back-up, the mutation (a function body), the test that must fail
@@ -146,7 +155,7 @@ check() { # description test-fragment mutation-command...
 	if ! "$@"; then
 		red "$desc -- could not inject the defect; harness is stale"
 		FAILURES=$((FAILURES + 1))
-		restore "$MANIFEST" "$CONFIG" "$AGENT"
+		restore "${ALL_FILES[@]}"
 		return 0
 	fi
 
@@ -160,7 +169,7 @@ check() { # description test-fragment mutation-command...
 
 	# 4. Restore and require green again, so a "red" that was really a broken
 	#    tree cannot be counted as a successful falsification.
-	restore "$MANIFEST" "$CONFIG" "$AGENT"
+	restore "${ALL_FILES[@]}"
 	if ! run_one "$fragment"; then
 		red "$desc -- test did not recover after restore"
 		FAILURES=$((FAILURES + 1))
@@ -171,9 +180,9 @@ command -v bats >/dev/null || { echo "bats is not installed" >&2; exit 1; }
 command -v kubectl >/dev/null || { echo "kubectl is required to render the kustomization" >&2; exit 1; }
 command -v yq >/dev/null || { echo "yq is required" >&2; exit 1; }
 
-backup "$MANIFEST" "$CONFIG" "$AGENT"
+backup "${ALL_FILES[@]}"
 
-note "9 mutations against $(basename "$SUITE") -- one per test, and the suite has $(bats -c "$SUITE") tests"
+note "9 mutations (group 1) against $(basename "$SUITE") -- one per test, and the suite has $(bats -c "$SUITE") tests"
 
 # The mechanism-presence check gets a mutation too. It is the assertion the
 # other six depend on: if data_dir cannot be extracted, every derived comparison
@@ -245,10 +254,88 @@ check "spire-agent data_dir made ephemeral instead" \
             type: DirectoryOrCreate' \
 '          emptyDir: {}'
 
+# ── Group 2: the RBAC placement guard ──────────────────────────────────────
+#
+# This guard exists because the deadlock it catches has landed twice, and the
+# second time a long, correct comment on the FIRST occurrence did not prevent
+# it — a comment is only read by someone already looking at that object. So the
+# guard has to be able to fail, and that is what these mutations establish.
+CURRENT_SUITE="$RBAC_SUITE"
+note "4 further mutations against $(basename "$RBAC_SUITE")"
+
+check "the RBAC is moved back into the flux-reconciled slice (the actual regression)" \
+	"binds a Role it also declares" \
+	mutate "$SYNC" \
+'---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-openbao-sync-script' \
+'---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: spire-openbao-sync
+  namespace: inf-bao
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: spire-openbao-sync
+  namespace: inf-bao
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: spire-openbao-sync
+subjects:
+  - kind: ServiceAccount
+    name: spire-openbao-sync
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-openbao-sync-script'
+
+check "the RoleBinding is dropped from the ResourceSet (CronJob left with no authority)" \
+	"lives in the signalloom-spire-rbac ResourceSet" \
+	mutate "$FLEET" \
+'      kind: RoleBinding
+      metadata:
+        name: spire-openbao-sync
+        namespace: inf-bao' \
+'      kind: RoleBinding
+      metadata:
+        name: spire-openbao-sync-RENAMED
+        namespace: inf-bao'
+
+check "the binding subject drifts off the CronJob ServiceAccount" \
+	"binds the ServiceAccount that the CronJob runs as" \
+	mutate "$FLEET" \
+'      subjects:
+        - kind: ServiceAccount
+          name: spire-openbao-sync
+          namespace: inf-bao' \
+'      subjects:
+        - kind: ServiceAccount
+          name: spire-openbao-sync-typo
+          namespace: inf-bao'
+
+check "the CronJob drifts out of the controllers slice" \
+	"stay in the controllers slice" \
+	mutate "$SYNC" \
+'  name: spire-openbao-sync-script' \
+'  name: spire-openbao-sync-script-renamed'
+
+CURRENT_SUITE="$SUITE"
+
 # ── Byte-for-byte restoration, asserted rather than assumed ────────────────
 note "verifying restoration"
 RESTORE_BAD=0
-for f in "$MANIFEST" "$CONFIG" "$AGENT"; do
+for f in "${ALL_FILES[@]}"; do
 	rel="${f#"${REPO_ROOT}"/}"
 	a="$(sha256sum "${BACKUP_DIR}/${rel}" | cut -d' ' -f1)"
 	b="$(sha256sum "$f" | cut -d' ' -f1)"

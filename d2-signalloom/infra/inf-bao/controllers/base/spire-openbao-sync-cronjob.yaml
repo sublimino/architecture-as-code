@@ -13,41 +13,40 @@
 # `kubectl exec` and writes them to OpenBao's auth/jwt/config.
 #
 # Long-term fix: switch to jwks_url (see terraform/notes/l-jwks-url-upgrade-path.md).
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: spire-openbao-sync
-  labels:
-    app.kubernetes.io/name: spire-openbao-sync
-    app.kubernetes.io/part-of: signalloom-bao-proof
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: spire-openbao-sync
-rules:
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods/exec"]
-    verbs: ["create"]
-  - apiGroups: ["apps"]
-    resources: ["deployments"]
-    verbs: ["get"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: spire-openbao-sync
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: spire-openbao-sync
-subjects:
-  - kind: ServiceAccount
-    name: spire-openbao-sync
+#
+# ── The ServiceAccount, Role and RoleBinding are NOT here. Do not move them
+#    back. ────────────────────────────────────────────────────────────────
+#
+# They live in the `signalloom-spire-rbac` ResourceSet, in
+# d2-osramp-fleet/tenants/local/signalloom.yaml, beside the spire-agent RBAC.
+#
+# This slice reconciles as the namespace-scoped `flux` ServiceAccount, which
+# holds ClusterRole/admin but NOT `escalate` on roles. Creating a RoleBinding
+# therefore makes the API server resolve its roleRef to run the
+# privilege-escalation check, and kustomize-controller server-dry-runs the
+# ENTIRE object set to build its change set BEFORE applying any of it. A dry
+# run never persists the Role, so the RoleBinding fails the lookup with
+#
+#   RoleBinding/inf-bao/spire-openbao-sync not found
+#
+# and that aborts the whole set — so the Role is never applied for real and
+# every later reconcile fails identically. It is a deadlock, not a race: no
+# amount of retrying resolves it.
+#
+# This is the SECOND time the defect has landed. The first was
+# supercred-demo-runner-agents, which left fe-signalloom empty for six
+# consecutive reconciles over twenty minutes; the long comment at the Role in
+# signalloom.yaml is the canonical write-up. Authoring these three objects here
+# reintroduced it and froze the entire inf-bao slice at the last revision that
+# predated this file — nine objects across three files never applied, the
+# CronJob among them, so the 20h JWT-key re-sync this file exists to provide
+# was never actually running. inf-bao/infra-configs blocked behind it on
+# dependsOn, and the agent-trust ResourceSet behind that.
+#
+# Applied from the ResourceSet, the cluster-admin flux-system ServiceAccount
+# binds them with no escalation check, in any order.
+#
+# d2-signalloom/test/spire-openbao-sync-rbac-placement.bats pins this.
 ---
 apiVersion: v1
 kind: ConfigMap

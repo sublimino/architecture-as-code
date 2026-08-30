@@ -82,6 +82,70 @@ spec:
         apiGroup: rbac.authorization.k8s.io
         kind: ClusterRole
         name: signalloom-spire-agent-kubelet
+    # ── spire-openbao-sync: the CronJob's identity, hosted here for the same
+    #    reason as everything else in this ResourceSet ──────────────────────
+    #
+    # The CronJob and its script ConfigMap stay in the inf-bao controllers
+    # slice (d2-signalloom/infra/inf-bao/controllers/base/
+    # spire-openbao-sync-cronjob.yaml). Only the RBAC is here, and that split
+    # is load-bearing rather than tidy.
+    #
+    # That slice reconciles as the namespace-scoped `flux` ServiceAccount,
+    # which holds ClusterRole/admin but NOT `escalate` on roles — so creating
+    # a RoleBinding there makes the API server resolve its roleRef for the
+    # privilege-escalation check, during a dry run in which the Role does not
+    # yet exist. Identical reasoning to supercred-demo-runner-agents below;
+    # see the long comment at that Role for the full write-up.
+    #
+    # Authoring these three in the controllers slice is exactly what froze
+    # inf-bao: `RoleBinding/inf-bao/spire-openbao-sync not found` aborted the
+    # whole change set on every reconcile, so nine objects across three files
+    # were never applied and inf-bao/infra-configs blocked behind it.
+    #
+    # This ResourceSet is the right home rather than signalloom-infra: it has
+    # no inputs, so `namespace: inf-bao` is written once and cannot be
+    # rendered into inf-signalloom as well, which is what templating it off
+    # `<< inputs.tenant >>` would do.
+    - apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: spire-openbao-sync
+        namespace: inf-bao
+        labels:
+          app.kubernetes.io/name: spire-openbao-sync
+          app.kubernetes.io/part-of: signalloom-bao-proof
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: spire-openbao-sync
+        namespace: inf-bao
+      rules:
+        # sync_openbao_jwt_validation reads SPIRE's live JWT-SVID keys and
+        # writes them to OpenBao, both via `kubectl exec` into the two
+        # Deployments — hence pods/exec, and the deployments get it resolves
+        # `deployment/spire-server` through.
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list"]
+        - apiGroups: [""]
+          resources: ["pods/exec"]
+          verbs: ["create"]
+        - apiGroups: ["apps"]
+          resources: ["deployments"]
+          verbs: ["get"]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: spire-openbao-sync
+        namespace: inf-bao
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: spire-openbao-sync
+      subjects:
+        - kind: ServiceAccount
+          name: spire-openbao-sync
+          namespace: inf-bao
 ---
 apiVersion: fluxcd.controlplane.io/v1
 kind: ResourceSet

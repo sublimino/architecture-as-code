@@ -1,5 +1,16 @@
 #!/usr/bin/env bats
 # d2-signalloom/test/kagent-contract.bats — Kagent Declarative Contract & Schema Tests
+#
+# IF YOU ARE ABOUT TO MUTATION-TEST THIS SUITE, START FROM GREEN.
+# Every test here loops over all 8 agent directories in alphabetical order and
+# returns on the first failure, so breaking one file while the suite is ALREADY
+# red gives you a "not ok" that names kagent-chaos-prober — the pre-existing
+# failure wearing your mutation's clothes. It looks like proof and is not.
+# Cost a wasted falsification round on the SPIFFE trust-domain assertion:
+# three mutations to kagent-k8s-reader all reported `card advertises :
+# osramp.acme.local`, which was neither of the values injected.
+# Fix everything first, confirm the suite passes, THEN break exactly one thing
+# and check the failure names the thing you broke.
 
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"

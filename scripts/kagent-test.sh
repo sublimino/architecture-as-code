@@ -68,6 +68,7 @@ echo "=== Running Kagent Test Suite ==="
 
 TOTAL_PASS=0
 TOTAL_FAIL=0
+TOTAL_SKIP=0
 FAILED_SUITES=()
 
 for suite in "${SUITES[@]}"; do
@@ -84,10 +85,21 @@ for suite in "${SUITES[@]}"; do
   bats --tap "$suite" 2>&1 | tee "$tap"
   rc="${PIPESTATUS[0]}"
 
-  pass="$(grep -c '^ok ' "$tap" || true)"
+  # bats renders a SKIPPED test as `ok N <name> # skip <reason>`, so a naive
+  # `grep -c '^ok '` counts skips as passes — and this tally is written into an
+  # artefact named "proof". A suite that skipped everything would report a full
+  # house. Skips are counted separately and never added to the pass total.
+  raw_ok="$(grep -c '^ok ' "$tap" || true)"
+  skip="$(grep -c '^ok .*# skip' "$tap" || true)"
+  pass=$((raw_ok - skip))
   fail="$(grep -c '^not ok ' "$tap" || true)"
   TOTAL_PASS=$((TOTAL_PASS + pass))
   TOTAL_FAIL=$((TOTAL_FAIL + fail))
+  TOTAL_SKIP=$((TOTAL_SKIP + skip))
+  if [ "$skip" -gt 0 ]; then
+    echo "    ${skip} test(s) SKIPPED in this suite — not counted as passes:"
+    grep '^ok .*# skip' "$tap" | sed 's/^/      /'
+  fi
   rm -f "$tap"
 
   if [ "$rc" -ne 0 ] || [ "$fail" -gt 0 ]; then
@@ -96,10 +108,10 @@ for suite in "${SUITES[@]}"; do
 done
 
 echo ""
-echo "=== Kagent D5 summary: ${TOTAL_PASS} passed, ${TOTAL_FAIL} failed ==="
+echo "=== Kagent D5 summary: ${TOTAL_PASS} passed, ${TOTAL_FAIL} failed, ${TOTAL_SKIP} skipped ==="
 # Machine-readable line consumed by scripts/kagent-harness-exec.sh so the proof
 # artefact records a measured number instead of a literal.
-echo "KAGENT_TALLY passed=${TOTAL_PASS} failed=${TOTAL_FAIL}"
+echo "KAGENT_TALLY passed=${TOTAL_PASS} failed=${TOTAL_FAIL} skipped=${TOTAL_SKIP}"
 
 if [ "${#FAILED_SUITES[@]}" -gt 0 ]; then
   echo ""
@@ -108,4 +120,10 @@ if [ "${#FAILED_SUITES[@]}" -gt 0 ]; then
   exit 1
 fi
 
-echo "=== All Kagent D5 tests passed. ==="
+if [ "${TOTAL_SKIP}" -gt 0 ]; then
+  echo "=== All executed tests passed, but ${TOTAL_SKIP} were SKIPPED. ==="
+  echo "A skipped test is not a passing one. Check the list above before"
+  echo "quoting this run as evidence."
+else
+  echo "=== All Kagent D5 tests passed. ==="
+fi

@@ -11,6 +11,17 @@ setup() {
     [ -f "$f" ]
     lines=$(wc -l < "$f")
     [ "$lines" -lt 50 ]
+
+    # "Fewer than 50 lines" is satisfied by an empty file, which would make the
+    # size-reduction claim simultaneously true and worthless. Require the file
+    # to be a real Agent document before its brevity counts for anything.
+    kind="$(yq -r 'select(.kind == "Agent") | .kind' "$f")"
+    [ "$kind" = "Agent" ] || {
+      echo "$f is under 50 lines but declares no Agent document"
+      return 1
+    }
+    [ "$lines" -gt 5 ]
+
     count=$((count + 1))
   done
   [ "$count" -ge 8 ]
@@ -19,23 +30,76 @@ setup() {
 @test "kagent-contract: all Kagent agents declare signalloom.ai/agent label" {
   count=0
   for f in "${REPO_ROOT}/d2-signalloom/infra/agent-swarm"/kagent-*/agent.yaml; do
-    grep -q "signalloom.ai/agent" "$f"
+    # A grep for the bare string also matches a comment that merely mentions the
+    # label, and '.' is a regex wildcard so "signalloomXai/agent" satisfies it.
+    # Read the label's actual value out of the parsed document instead.
+    value="$(yq -r 'select(.kind == "Agent") | .metadata.labels["signalloom.ai/agent"] // "ABSENT"' "$f")"
+    [ "$value" = "true" ] || {
+      echo "$f: signalloom.ai/agent = '$value' (expected \"true\")"
+      return 1
+    }
     count=$((count + 1))
   done
   [ "$count" -ge 8 ]
 }
 
-@test "kagent-contract: K8s Reader uses Go runtime and ModelConfig" {
-  f="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/kagent-k8s-reader/agent.yaml"
-  grep -q "runtime: go" "$f"
-  grep -q "modelConfig: anthropic-claude" "$f"
+@test "kagent-contract: every Kagent agent declares a runtime, a ModelConfig and at least one tool" {
+  # Was "K8s Reader uses Go runtime and ModelConfig": two greps against one of
+  # the eight files. `grep -q "runtime: go"` matches a comment, matches any key
+  # whose name ends in "runtime", and says nothing at all about the other seven
+  # agents. The declarative claim in docs/kagent-d5.md is about all of them.
+  count=0
+  for f in "${REPO_ROOT}/d2-signalloom/infra/agent-swarm"/kagent-*/agent.yaml; do
+    name="$(yq -r 'select(.kind == "Agent") | .metadata.name' "$f")"
+    runtime="$(yq -r 'select(.kind == "Agent") | .spec.declarative.runtime // "ABSENT"' "$f")"
+    model="$(yq -r 'select(.kind == "Agent") | .spec.declarative.modelConfig // "ABSENT"' "$f")"
+    tools="$(yq -r 'select(.kind == "Agent") | (.spec.declarative.tools // []) | length' "$f")"
+
+    [ "$runtime" = "go" ] || {
+      echo "$name: runtime='$runtime' (expected go)"
+      return 1
+    }
+    [ "$model" = "anthropic-claude" ] || {
+      echo "$name: modelConfig='$model' (expected anthropic-claude)"
+      return 1
+    }
+    [ "${tools:-0}" -ge 1 ] || {
+      echo "$name: declares no tools — an agent with no tools cannot act"
+      return 1
+    }
+    count=$((count + 1))
+  done
+  [ "$count" -ge 8 ]
 }
 
 @test "kagent-contract: OpenBao secret path map covers all 8 Kagent agents" {
   cm="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/openbao-secret-paths.yaml"
+  [ -f "$cm" ]
+
+  # `grep -q "${agent}.json:"` treats '.' as a wildcard and matches anywhere in
+  # the file, including inside the 15-line explanatory comment header. Read the
+  # ConfigMap's real data keys once, then check membership exactly.
+  keys="$(yq -r 'select(.kind == "ConfigMap") | .data | keys | .[]' "$cm")"
+  [ -n "$keys" ] || {
+    echo "$cm has no ConfigMap data keys"
+    return 1
+  }
+
+  missing=""
   for agent in kagent-k8s-reader kagent-commit-summariser kagent-security-analyst kagent-network-auditor kagent-incident-responder kagent-compliance-checker kagent-finops-optimizer kagent-chaos-prober; do
-    grep -q "${agent}.json:" "$cm"
+    found=0
+    while IFS= read -r k; do
+      [ "$k" = "${agent}.json" ] && found=1
+    done <<<"$keys"
+    [ "$found" -eq 1 ] || missing+="${agent}.json "
   done
+
+  if [ -n "$missing" ]; then
+    echo "openbao-secret-paths.yaml is missing data keys: $missing"
+    echo "keys present:"
+    printf '  %s\n' $keys
+  fi
+  [ -z "$missing" ]
 }
 
 # ─── ServiceAccount-name derivation (SPIFFE identity integrity) ──────────────

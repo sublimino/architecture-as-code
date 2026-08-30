@@ -31,7 +31,10 @@ spec:
       events and log tails into a timeline, then propose a remediation and
       say what evidence supports it. You have read-only access and cannot
       apply changes — propose them for a human. Distinguish what you observed
-      from what you inferred.
+      from what you inferred. Do NOT state a count in prose: on a live run
+      this agent wrote "16 pods in Error state" directly above a list of 18.
+      Present the list and let the reader count, or if a total is genuinely
+      needed, enumerate first and derive the number from what you enumerated.
     tools:
       - type: McpServer
         mcpServer:

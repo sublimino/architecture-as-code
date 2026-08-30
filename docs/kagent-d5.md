@@ -36,15 +36,23 @@ stack could not produce.
 This section is a snapshot and dates quickly; `make demo-kagent-test` is the
 current answer. At the time of writing:
 
-- **Half the swarm reconciles.** Four agents report
-  `Accepted=True / Reconciled` and 8 Agent-owned resources exist. The other four
-  fail to compile because the `RemoteMCPServer` CRs they bind do not exist yet:
-  `github-tool`, `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool`.
-  Only `kagent-tool-server` has been created so far. Note the CR kind — the
-  controller resolves `RemoteMCPServer.kagent.dev`, not the `MCPServer` CRs the
-  original manifests declared, which is why this failed for all eight before.
-- **A placeholder credential survives in a tracked manifest** —
-  `controller.yaml:12`. See "What the agents cannot yet do" below.
+- **Seven of eight compile; one does not.** Only `kagent-commit-summariser`
+  fails, and only because `github-tool` does not exist. The other three that
+  used to fail — `incident-triage-tool`, `network-probe-tool`, `vuln-db-tool` —
+  no longer apply: those agents were re-pointed at `kagent-tool-server`, so
+  `github-tool` is the last dangling reference in the swarm.
+  The CR-kind observation still stands and is the reason all eight failed
+  originally: the controller resolves `RemoteMCPServer.kagent.dev`, not the
+  `MCPServer` CRs the original manifests declared.
+- **Seven compiling is NOT seven working.** `kagent-chaos-prober` is
+  `Accepted=True Ready=True` with a Running pod and two fictional tools. The
+  number that means something is **6 of 8** — agents whose every tool name was
+  verified by calling it. See "Deferred (2)" below.
+- **The placeholder credential is gone.** `base/controller.yaml` — which carried
+  the literal `mock-anthropic-key-for-local-demo` — was deleted wholesale when
+  the stub manifests were replaced by the chart, so it cannot be reapplied over
+  the real key. The credential now comes from OpenBao via
+  `Secret/kagent-anthropic-key` in both `kagent` and `fe-signalloom-agents`.
 
 Claims about *declarative structure* — the Agent CRs, their tool bindings,
 SPIFFE naming, the OpenBao path mapping — are verified on disk and in the
@@ -190,9 +198,44 @@ Two properties of kagent 0.9.9 kept that invisible:
 guard this. Verify by hand with `tools/list` against the tool server; a missing
 tool returns JSON-RPC `-32602 tool 'x' not found`.
 
+<<<<<<< Updated upstream
 Previous revisions of this document described five. Eight are defined on disk
 (`d2-signalloom/infra/agent-swarm/kagent-*/`), deployed by
 `scripts/kagent-agents.sh`, and asserted by the test suites.
+=======
+### The layer none of our checks reach
+
+Everything above — tool existence, tool callability, CRD schemas, reconciliation
+status — is about the **tool layer**. On 2026-08-30, with all of it green,
+`kagent-incident-responder` returned this:
+
+```
+## Pods in Error State (16 pods):
+  … 18 pods actually listed …
+**Summary**: There are **16 pods in Error state**
+```
+
+Reconciled against `kubectl get pods -A`: **18** were in Error, and the agent
+had **missed none of them**. The tool call was complete and correct. Only the
+model's own arithmetic, in prose, over its own correct data, was wrong.
+
+An operator reads "16 pods require investigation" sitting directly above a list
+of 18. For a demo about risk and governance that is the finding, not a footnote:
+
+- **Every assertion in this repo is on the tool layer.** A wrong number in a
+  summary passes all of them, because nothing we test looks at the prose.
+- It is the same shape as `chaos-prober` and as the pruned `apiKeySecret`: a
+  confident, well-formed output over something that is not there or not true.
+  The three differ only in which layer went quiet.
+
+Mitigated where it can be — `kagent-incident-responder`'s systemMessage now
+forbids stating a count in prose and tells it to enumerate and let the reader
+count. That reduces the exposure; it does not remove it, and no test here
+asserts on model output. **Treat agent prose as unverified until a human or a
+tool has checked it against the cluster.**
+
+## The Model Credential
+>>>>>>> Stashed changes
 
 Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
 

@@ -2217,6 +2217,16 @@ gcp-tf-test-both: ## Run BOTH surfaces for one lane — on the VM, then over the
 	$(MAKE) --no-print-directory gcp-tf-ts-test ENV='$(ENV)'
 	$(MAKE) --no-print-directory gcp-tf-test-surfaces ENV='$(ENV)'
 
+.PHONY: gcp-tf-ssh
+gcp-tf-ssh: ## SSH into the demo VM for debugging via IAP (resumes if suspended, ENV=<key>).
+	$(gcp_tf_require_env)
+	$(gcp_tf_require_impersonation)
+	@if [ ! -x '$(GCP_TF_DEMO_SCRIPT)' ]; then \
+		echo "ERROR: $(GCP_TF_DEMO_SCRIPT) is missing or not executable."; \
+		exit 2; \
+	fi
+	$(GCP_TF_DEMO_ENVIRONMENT) '$(GCP_TF_DEMO_SCRIPT)' ssh $(SSH_ARGS)
+
 .PHONY: gcp-tf-connect
 gcp-tf-connect: ## Open the IAP tunnel to the demo dashboard and print the URL and login (ENV=<key>).
 	$(gcp_tf_require_env)

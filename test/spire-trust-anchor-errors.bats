@@ -119,7 +119,35 @@ KUBECTL
     sync_openbao_jwt_validation inf-bao signalloom-demo-root-token
   "
   [ "$status" -ne 0 ]
-  [[ "$output" == *"PEM conversion failed"* ]] || [[ "$output" == *"openssl"* ]]
+
+  # WHICH guard fires here is not what this test is for, and asserting the
+  # wrong one made it permanently red.
+  #
+  # It used to require "PEM conversion failed" or "openssl". Neither appears,
+  # because a broken openssl breaks key NORMALISATION first: spire_jwt_svid_keys
+  # round-trips each JWK through `openssl pkey` (see the helper near the top of
+  # spire-trust-anchor.sh), so with openssl dead it yields zero keys and sync
+  # aborts at the earlier empty-set guard:
+  #
+  #   "SPIRE returned successfully but produced no keys — refusing to write an
+  #    empty jwt_validation_pubkeys to OpenBao"
+  #
+  # That is the SAFER of the two paths and the one we would choose: it refuses
+  # the write rather than reaching the per-key conversion error. The test was
+  # asserting a message from a code path that a broken openssl can never reach.
+  #
+  # So assert the property that actually matters — it fails loudly and says why,
+  # naming any of the three real diagnostics — rather than pinning one message.
+  # Bare `[ "$status" -ne 0 ]` alone would be too weak: a crash, a missing
+  # function or a syntax error also exit non-zero, and this test exists to prove
+  # the guard fired, not merely that something went wrong.
+  [[ "$output" == *"refusing to write an empty"* ]] \
+    || [[ "$output" == *"PEM conversion failed"* ]] \
+    || [[ "$output" == *"cannot read SPIRE"* ]] || {
+      echo "expected a named sync_openbao_jwt_validation diagnostic, got:"
+      echo "$output"
+      return 1
+    }
 }
 
 @test "sync_openbao_jwt_validation fails when OpenBao write fails" {

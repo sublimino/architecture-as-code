@@ -385,3 +385,32 @@ render_images() {
   case ",$labels," in *",signalloom.ai/agent=true,"*) ;; *) return 1 ;; esac
   case ",$labels," in *",signalloom.ai/harness=kagent,"*) ;; *) return 1 ;; esac
 }
+
+@test "kagent-chart: the count-suppression instruction is still declared" {
+  # ─── What this proves, and precisely what it does not ────────────────────
+  #
+  # PROVES: the mitigation is still present in the agent's declaration, so a
+  # future edit cannot delete it silently.
+  #
+  # DOES NOT PROVE: that the model obeys it. Nothing in this repo asserts on
+  # model output, and this test must not be read as if it did — that reading
+  # would be the same defect the mitigation exists to address, one level up.
+  #
+  # The mitigation is for a live failure where kagent-incident-responder wrote
+  # "16 pods in Error state" directly above a list of 18, with 18 actually in
+  # Error and none missed. Correct tool data, wrong arithmetic over it. Every
+  # other assertion in this repo is on the tool layer and a wrong number in
+  # prose passes all of them.
+  #
+  # Raised by kagent-credentials, who observed that the mitigation was itself
+  # undetectable if removed: the only detector was a human running the agent
+  # and reading. That half IS testable, so it is tested here. The other half —
+  # whether the instruction works — was checked by hand on a re-run (68 lines,
+  # 41 pod bullets, zero counts in prose) and remains a human check by nature.
+  f="${REPO_ROOT}/d2-signalloom/infra/agent-swarm/kagent-incident-responder/agent.yaml"
+  [ -f "$f" ]
+  grep -q 'Do NOT state a count in prose' "$f"
+  # The instruction is only useful with its alternative attached; an agent told
+  # "no counts" and nothing else may just omit the information entirely.
+  grep -q 'let the reader count' "$f"
+}

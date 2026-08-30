@@ -1,0 +1,50 @@
+# d2-signalloom/infra/kagent/values.yaml
+# Kagent v0.9.9 — Signal Loom Demo 5
+# All bundled agents disabled for resource-constrained Kind cluster
+
+# Disable all bundled agents
+argo-rollouts-agent:
+  enabled: false
+cilium-debug-agent:
+  enabled: false
+cilium-manager-agent:
+  enabled: false
+helm-agent:
+  enabled: false
+istio-agent:
+  enabled: false
+k8s-agent:
+  enabled: false
+kgateway-agent:
+  enabled: false
+prometheus-agent:
+  enabled: false
+
+# Provider configuration
+providers:
+  default: anthropic
+  anthropic:
+    apiKeySecretName: kagent-anthropic-key
+
+# Controller resources (helm defaults: 100m/128Mi req, 500m/512Mi limit)
+controller:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# Bundled PostgreSQL (required since v0.8, SQLite removed)
+postgres:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Use Go ADK runtime for faster startup (default since v0.8)
+defaultRuntime: go

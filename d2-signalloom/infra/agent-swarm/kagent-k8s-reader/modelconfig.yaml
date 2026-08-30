@@ -28,7 +28,15 @@ metadata:
     app.kubernetes.io/name: kagent-k8s-reader
     app.kubernetes.io/part-of: signalloom
 spec:
-  model: claude-sonnet-4-20250514
+  # Verified against GET /v1/models with the operator's own key on 2026-08-30.
+  # The previous pin, claude-sonnet-4-20250514, is NOT served to this account:
+  # the agent reached Anthropic successfully and got
+  #   404 not_found_error {"message":"model: claude-sonnet-4-20250514"}
+  # A dead model ID is invisible until an agent actually runs — every manifest
+  # check, the CRD schema, and the credential path all pass regardless.
+  # Refresh the list with: curl -K <cfg> https://api.anthropic.com/v1/models
+  # (put the key in a curl config file; never in argv).
+  model: claude-sonnet-4-5-20250929
   provider: Anthropic
   # Stated explicitly rather than inherited from the chart's values.yaml: this
   # manifest does not own that file, and a default that moves breaks it silently.

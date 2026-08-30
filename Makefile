@@ -2487,6 +2487,12 @@ swarm-infra-down: ## Tear down agent swarm infrastructure (keeps the cluster).
 	-kubectl delete -k d2-signalloom/infra/agent-swarm/ 2>/dev/null
 	@echo "--- Agent swarm infrastructure removed ---"
 
+.PHONY: swarm-kagent-up swarm-kagent-down
+swarm-kagent-up: ## Apply the standalone Kagent control plane.
+	./scripts/kagent-infra.sh up
+swarm-kagent-down: ## Remove the standalone Kagent control plane.
+	./scripts/kagent-infra.sh down
+
 .PHONY: swarm-openbao-role
 swarm-openbao-role: ## Configure the glob-bound JWT auth role for agent swarm in OpenBao.
 	@echo "--- Applying OpenBao agent generic role ---"

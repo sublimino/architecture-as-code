@@ -227,6 +227,31 @@ spire_jwt_svid_keys() {
 # Check `kubectl -n inf-bao get kustomization` is Ready BEFORE choosing Route B.
 # If it is not, Route A is the only route that works, because it never needs to
 # re-register anything.
+#
+# ── Status of that precondition ────────────────────────────────────────────
+#
+# The cascade that blocked it has been cleared in the repo. inf-bao carried FIVE
+# independent defects, every one of which had never run and so was never
+# reported, each masking the next:
+#
+#   1. RoleBinding authored in the slice -> privilege-escalation dry-run
+#      deadlock, aborting the whole change set (fixed: RBAC moved to the
+#      signalloom-spire-rbac ResourceSet);
+#   2. openbao-agent-generic-role-setup passing map-typed fields as k=v ->
+#      HTTP 400 (fixed: JSON on stdin);
+#   3. spire-agent-swarm-entries-setup shelling out in a distroless image, with
+#      a removed flag, at the wrong socket, behind error swallowing (fixed:
+#      kubectl exec, outcome asserted);
+#   4. both kubectl workloads pinned docker.io/bitnami/kubectl:1.31, a tag
+#      Bitnami deleted -> ImagePullBackOff (fixed: bitnamilegacy);
+#   5. no NetworkPolicy egress to kube-apiserver, so kubectl timed out against
+#      10.96.0.1:443 (fixed: allow-kubectl-clients-apiserver-egress).
+#
+# Route B is therefore viable again ONCE THOSE ARE DEPLOYED — which means once
+# the OCI artifact carries them. Until the artifact is republished, the live
+# cluster still has the old manifests and Route B still stops half-done. Verify
+# rather than assume: `kubectl -n inf-bao get kustomization infra-controllers`
+# must be Ready=True before you rely on it.
 SPIRE_AGENT_DATA_HOSTPATH="${SPIRE_AGENT_DATA_HOSTPATH:-/var/lib/spire-agent/data}"
 
 _spire_agent_logs() {

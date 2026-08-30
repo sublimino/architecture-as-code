@@ -53,8 +53,9 @@ AGENT="${REPO_ROOT}/d2-signalloom/infra/inf-bao/configs/base/spire-agent.yaml"
 SYNC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml"
 FLEET="${REPO_ROOT}/d2-osramp-fleet/tenants/local/signalloom.yaml"
 GENERIC="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/openbao-agent-generic-role.yaml"
+SWARM="${REPO_ROOT}/d2-signalloom/infra/inf-bao/controllers/base/spire-agent-swarm-entries.yaml"
 
-ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET" "$GENERIC")
+ALL_FILES=("$MANIFEST" "$CONFIG" "$AGENT" "$SYNC" "$FLEET" "$GENERIC" "$SWARM")
 
 BACKUP_DIR="$(mktemp -d)"
 CHECKS=0
@@ -365,6 +366,43 @@ check "the role name drifts away from the sidecars that bind it" \
 	mutate "$GENERIC" \
 'auth/jwt/role/signalloom-agent-generic' \
 'auth/jwt/role/signalloom-agent-renamed'
+
+CURRENT_SUITE="$SUITE"
+
+# ── Group 4: the swarm-entries Job, four defects that never once executed ──
+CURRENT_SUITE="$JOBS_SUITE"
+note "5 further mutations against the swarm-entries half of $(basename "$JOBS_SUITE")"
+
+check "the Job goes back to running the distroless spire-server image" \
+	"reaches spire-server by kubectl exec" \
+	mutate "$SWARM" \
+'          image: docker.io/bitnamilegacy/kubectl:1.31' \
+'          image: ghcr.io/spiffe/spire-server:1.11.1'
+
+check "the dead docker.io/bitnami tag is pinned again" \
+	"pins a dead bitnami tag" \
+	mutate "$SWARM" \
+'          image: docker.io/bitnamilegacy/kubectl:1.31' \
+'          image: bitnami/kubectl:1.31'
+
+check "the removed -registrationUDSPath flag comes back" \
+	"removed registrationUDSPath flag" \
+	mutate "$SWARM" \
+'        -dns "${sa}.${AGENT_NAMESPACE}.svc.cluster.local"' \
+'        -dns "${sa}.${AGENT_NAMESPACE}.svc.cluster.local" \
+        -registrationUDSPath /run/spire/sockets/registration.sock'
+
+check "error swallowing is reintroduced" \
+	"does not swallow errors" \
+	mutate "$SWARM" \
+'      spire entry create \' \
+'      spire entry create 2>/dev/null || echo "  (entry may already exist, continuing)" \'
+
+check "the outcome assertion is deleted, leaving exit-code-only success" \
+	"asserts the entries exist afterwards" \
+	mutate "$SWARM" \
+'      grep -Fq "$id" <<<"$shown" || missing+=("$id")' \
+'      grep -Fq "$id" <<<"$shown" || true'
 
 CURRENT_SUITE="$SUITE"
 

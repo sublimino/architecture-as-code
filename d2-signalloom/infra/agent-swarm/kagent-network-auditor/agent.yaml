@@ -1,0 +1,24 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-network-auditor
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-network-auditor
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: network-auditor
+    signalloom.ai/harness: kagent
+spec:
+  description: Audits NetworkPolicies, SPIFFE trust boundaries, and Envoy routes
+  type: Declarative
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: "Autonomous network auditor evaluating NetworkPolicies and SPIFFE reachability."
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: network-probe-tool
+          kind: RemoteMCPServer
+          toolNames: [audit_netpol_rules, probe_spiffe_boundaries, inspect_envoy_routes]

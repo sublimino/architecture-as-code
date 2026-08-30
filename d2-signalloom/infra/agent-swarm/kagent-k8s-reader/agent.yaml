@@ -1,0 +1,26 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-k8s-reader
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-k8s-reader
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: reader
+    signalloom.ai/harness: kagent
+spec:
+  description: Reads Kubernetes resources for cluster state queries
+  type: Declarative
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: "You are a Kubernetes cluster state reader. Query resources using k8s tools."
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: kagent-tool-server
+          kind: RemoteMCPServer
+          toolNames:
+            - k8s_get_resources
+            - k8s_get_available_api_resources

@@ -1,0 +1,24 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: kagent-incident-responder
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-incident-responder
+    app.kubernetes.io/part-of: signalloom
+    signalloom.ai/agent: "true"
+    signalloom.ai/role: incident-responder
+    signalloom.ai/harness: kagent
+spec:
+  description: Triages cluster incidents, correlates pod restarts, and proposes fixes
+  type: Declarative
+  declarative:
+    modelConfig: anthropic-claude
+    runtime: go
+    systemMessage: "Autonomous incident responder triaging crash loops, node events, and alerting."
+    tools:
+      - type: McpServer
+        mcpServer:
+          name: incident-triage-tool
+          kind: RemoteMCPServer
+          toolNames: [triage_alert_events, correlate_restarts, propose_remediation]

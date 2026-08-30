@@ -1,0 +1,22 @@
+---
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: github-tool
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-commit-summariser
+spec:
+  description: Provides read-only access to GitHub repositories, commits, and PRs
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-github-key
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/name: kagent-commit-summariser
+    signalloom.ai/component: credentials
+type: Opaque
+stringData:
+  github-token: "mock-github-token-for-scaffolding"

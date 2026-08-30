@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "1.0.0",
+  "name": "kagent-network-auditor",
+  "role": "network",
+  "description": "Audits network policies and probes network latency",
+  "spiffeId": "spiffe://osramp.acme.local/ns/fe-signalloom-agents/sa/kagent-network-auditor",
+  "harness": "kagent",
+  "runtime": "go",
+  "openbaoPath": "/secret/data/signalloom/agents/kagent-network-auditor",
+  "capabilities": [
+    "kagent:network"
+  ]
+}

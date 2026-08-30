@@ -653,12 +653,24 @@ tool_server_connect() {
   sentinel_here="$(grep -c -- "${SELF_SENTINEL}" "$BATS_TEST_FILENAME" || true)"
   [ "${sentinel_here:-0}" -ge 1 ]
 
+  # COMMENT LINES ARE EXCLUDED. A guard that greps for a forbidden token also
+  # matches the comment explaining why the token is gone — so the moment someone
+  # removes the literal and writes "# was mock-anthropic-key-…, now sourced from
+  # OpenBao", this test keeps failing and reports the defect it was just told had
+  # been fixed. The guard would then be the only thing standing between the repo
+  # and a green run, and the obvious way to make it pass is to delete the
+  # comment, which loses the explanation. Strip whole-line comments first.
+  #
+  # Deliberately only whole-line comments: a trailing `# …` after a real value
+  # must NOT rescue a line that still assigns the placeholder.
   local hits
-  hits="$(grep -rn -- 'mock-anthropic-key\|mock-openai-key\|mock-api-key' "${roots[@]}" 2>/dev/null || true)"
+  hits="$(grep -rn -- 'mock-anthropic-key\|mock-openai-key\|mock-api-key' "${roots[@]}" 2>/dev/null |
+    grep -v -E '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
 
   if [ -n "$hits" ]; then
     echo "manifests ship a hardcoded placeholder model key (scanned ${scanned} files):"
     printf '%s\n' "$hits"
+    echo "(whole-line comments are excluded, so this is a real assignment)"
   fi
   [ -z "$hits" ]
 }

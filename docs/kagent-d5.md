@@ -230,14 +230,25 @@ Agent CRs discovered through `fake-integration-proxy`.
   while it was red. It is now included: either the script grows that interface or
   the suite is rewritten against the one it has — but the mismatch is visible.
 
-### Four ways these suites have produced a confident wrong answer
+### Seven ways these suites have produced a confident wrong answer
 
-Each of these was hit for real while building the kagent suites and the
-credential wiring. What they share is not that they fail — it is that they
-**return a plausible verdict instead of an error**. A test that fails tells you
-about itself; one that answers confidently and wrongly does not. Three produce a
-false green; the first produces a false *accusation*, which is the same defect
-seen from the other side.
+Each of these was hit for real while building the kagent suites, the credential
+wiring, and the SPIRE durability work. What they share is not that they fail —
+it is that they **return a plausible verdict instead of an error**. A test that
+fails tells you about itself; one that answers confidently and wrongly does not.
+Most produce a false green; #1 produces a false *accusation*, which is the same
+defect seen from the other side.
+
+Within that, one sub-shape recurs often enough to name on its own:
+
+> **A check that did not really run is indistinguishable from a check that
+> passed.**
+
+That is #1 at the harness level (the filter selected nothing), #5 at the tool
+level (`bash -n` had a complaint but no exit code for it), #6 at the controller
+level (the apply stage was never reached), and #4 is its close cousin — the
+check ran, but against an already-failing baseline, so its result was
+pre-determined.
 
 1. **A test-filter that matches nothing exits 0.** A mutation harness that breaks
    a guard and runs `bats -f '<name>'` to watch it fail reads the exit 0 as "the
@@ -290,6 +301,51 @@ seen from the other side.
    mutation. A falsification must start from green: fix everything, confirm the
    suite passes, then break exactly one thing and check the failure names the
    thing you broke.
+
+5. **`bash -n` exits 0 on an unterminated here-document.** It reports it as a
+   *warning on stderr* and returns success:
+
+   ```
+   script.sh: line 52: warning: here-document at line 39 delimited by
+     end-of-file (wanted `ROLE')
+   $ echo $?
+   0
+   ```
+
+   So `run bash -n "$f"; [ "$status" -eq 0 ]` passes on a script whose heredoc
+   silently swallows everything after it. **Assert both channels: exit 0 AND
+   `[ -z "$output" ]`** — bats folds stderr into `$output`. (Reproduced
+   independently while writing this entry; the behaviour is as described.)
+
+   Worst where a script lives in a ConfigMap block scalar, because the
+   terminator's real column is decided by YAML indent-stripping: indent it two
+   spaces and it still *looks* aligned in the editor, but after extraction it is
+   no longer at column 0. Corollary: extract the script the way the runtime does
+   and check the extracted bytes, never the manifest.
+
+6. **A green result from a stage that was never reached.** A conclusion that Flux
+   would not revert a hand-applied Deployment field rested on an SSA dry-run plus
+   two live reconciles that left the field untouched. Both reconciles were
+   failing *before the apply stage* — nothing was applied, so nothing could be
+   reverted. A code path that never ran reads exactly like a code path that
+   passed. When the blocking error was cleared, Flux reverted the field within
+   seconds and destroyed a SPIRE CA.
+
+   **Before trusting a negative result, confirm the code path you are testing
+   actually executed.** For Flux: compare `status.lastAppliedRevision` against
+   `lastAttemptedRevision`, and treat a sub-second reconcile as a signal that it
+   failed before doing any work.
+
+7. **A guard matched the comment explaining the absence.** A grep for a forbidden
+   token also matches the line documenting why the token is gone, so the guard
+   reports the defect it was just told had been fixed — and the obvious way to
+   make it pass is to delete the explanation. `test/kagent-anti-stub.bats` and
+   `bats-registry-coverage.bats` both strip whole-line comments before matching.
+
+   Only *whole-line* comments: a trailing `# …` after a live assignment must not
+   rescue the line. Falsified all four ways — literal present (red), literal
+   replaced by a comment (green), comment plus a restored assignment (red), and
+   a live assignment with a trailing comment (red).
 
 ### The proof artefact
 

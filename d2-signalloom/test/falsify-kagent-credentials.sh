@@ -127,19 +127,25 @@ MC_REL="d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
 CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
 
 # ── 1. The loud-failure contract ─────────────────────────────────────────────
-# Deleting any ONE of the four refusal branches does not make seed accept a bad
-# key: the branches back each other up (an unset key is also an empty key, an
-# empty key is also a short key). That layering is a property worth having, but
-# it means a single-branch mutation proves nothing about the test.
+# Deleting any ONE refusal branch does not make seed accept a bad key: the
+# branches back each other up (an unset key is also an empty key, an empty key is
+# also a short key). That layering is worth having, but it means a single-branch
+# mutation proves nothing about the test.
 #
-# The mutation that models the actual defect — the one this whole task exists to
-# remove — is a silent default substitution. `:-` fires on BOTH unset and empty,
-# so one mutation covers both cases, and the substituted value is deliberately
-# long enough and unlike the placeholder to clear every remaining guard.
+# Two earlier attempts at this mutation were themselves wrong, and both reported
+# a working test as asserting nothing:
+#   - flipping `if [ -z "${ANTHROPIC_API_KEY+set}" ]` to false: the empty and
+#     length guards still caught it.
+#   - substituting a default into `local key=...`: the `+set` branch tests
+#     whether the variable is set AT ALL, so it fired regardless of the value.
+#
+# The mutation that models the real defect is to remove the validation wholesale
+# and substitute a default — which is precisely the behaviour this task exists to
+# delete. Injected as an early return, so the entire body below it is dead.
 m_silent_fallback() {
   backup "$SCRIPT_REL"
   mutate_sed "$SCRIPT_REL" \
-    's|  local key="${ANTHROPIC_API_KEY-}" len|  local key="${ANTHROPIC_API_KEY:-sk-ant-silentfallback-00000000000000000000}" len|'
+    's|^require_key() {|require_key() { VALIDATED_KEY="${ANTHROPIC_API_KEY:-sk-ant-silentfallback-00000000000000000000}"; return 0 # MUTANT|'
 }
 run_case "seed silently falls back to a default when the key is unset" \
   "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_silent_fallback
@@ -191,7 +197,14 @@ run_case "the xtrace shield is disarmed" \
 m_mock_returns() {
   backup "$CTRL_REL"
   # Someone restores the placeholder Secret.
-  cat >>"${REPO_ROOT}/${CTRL_REL}" <<'YAML'
+  #
+  # The literal is assembled at runtime rather than written out here. Spelling it
+  # in a heredoc would put it on a non-comment line of a tracked file, which is
+  # exactly what the guard hunts — so this harness would trip the very test it is
+  # trying to falsify, permanently, and the failure would look like a real
+  # regression in the tree. Caught on the second run of this harness.
+  local placeholder="mock-anthropic-key""-for-local-demo"
+  cat >>"${REPO_ROOT}/${CTRL_REL}" <<YAML
 ---
 apiVersion: v1
 kind: Secret
@@ -200,7 +213,7 @@ metadata:
   namespace: kagent
 type: Opaque
 stringData:
-  api-key: "mock-anthropic-key-for-local-demo"
+  api-key: "${placeholder}"
 YAML
   MUTATED+=("$CTRL_REL"); return 0
 }

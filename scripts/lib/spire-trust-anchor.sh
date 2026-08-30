@@ -148,6 +148,85 @@ spire_jwt_svid_keys() {
 # to do it that does not involve running a privileged pod, which is a poor trade
 # in this repo. A recovery command that silently half-works is worse than one
 # that refuses and says what to run. See also d2-agent-trust/AGENTS.md.
+#
+# ── MIGRATING AN EXISTING CLUSTER ONTO THE PVC ─────────────────────────────
+#
+# READ THIS BEFORE APPLYING THE PVC TO A RUNNING CLUSTER. The change is not
+# free on the way in, and the cost is exactly the outage it prevents.
+#
+# A new PVC is an EMPTY volume. spire-server starting on it mints a fresh CA and
+# an empty registration table, once — which strands the agent's hostPath cache
+# on the old CA and deletes every entry. So a naive `kubectl apply` of this
+# change TRIGGERS the failure on the way to preventing it, and on a cluster
+# whose trust chain was hand-repaired that discards the repair.
+#
+# There are two honest routes. Pick deliberately; do not discover this.
+#
+# ── Route A: pre-seed the volume, zero CA change (what was done 2026-08-30) ──
+#
+# Copy the running server's data_dir into the PVC BEFORE spire-server ever
+# mounts it. The CA never changes, so the agent never notices and no recovery is
+# needed. The image is DISTROLESS — no shell, no tar — so `kubectl cp` and
+# `kubectl exec ... tar` are both unavailable; the copy has to happen node-side.
+#
+#   1. locate the live data on the node (kind shown; GCP is the same via ssh):
+#        CID=$(docker exec <node> crictl ps --name spire-server -o json \
+#                | jq -r '.containers[0].id')
+#        PID=$(docker exec <node> crictl inspect "$CID" | jq -r '.info.pid')
+#        docker exec <node> cp -a /proc/$PID/root/run/spire/data/. /var/lib/spire-migrate/
+#   2. VERIFY the copy before trusting it. sqlite is live and WAL-mode, so a
+#      raw file copy can tear:  sqlite3 datastore.sqlite3 'PRAGMA integrity_check;'
+#      (reading it also checkpoints the WAL into a single clean file, which is
+#      the artefact you want to seed). Confirm the row counts too:
+#        select count(*) from registered_entries;  select count(*) from ca_journals;
+#   3. create ONLY the PVC, plus a throwaway pod that mounts it, so local-path
+#      provisions the directory. WaitForFirstConsumer means the PVC does not
+#      bind — and the node path does not exist — until something consumes it.
+#   4. copy the verified data into that path node-side and `chown -R 1000:0`
+#      (the SPIRE image runs as uid 1000; local-path provisions the dir 0777
+#      root-owned, so this is belt-and-braces, not strictly required).
+#   5. delete the throwaway pod, THEN apply the Deployment. The server comes up
+#      on a populated volume with its original CA and entries.
+#
+# ── Route B: accept the one-time break, then recover ────────────────────────
+#
+# Simpler, and correct when the entries are reproducible from code — which on
+# this lane they are. Apply the Deployment, then run the full recovery:
+#
+#   1. kubectl -n <ns> delete secret spire-agent-join-token --ignore-not-found
+#   2. clear ${SPIRE_AGENT_DATA_HOSTPATH} ON THE NODE (see the recovery text in
+#      assert_spire_agent_trusts_server below for the exact commands)
+#   3. mint a fresh join token and recreate the Secret —
+#      bootstrap_spire_agent_join_token() in scripts/demo-lifecycle.sh. Join
+#      tokens are SINGLE-USE and every crash-loop restart burns one, so always
+#      mint a new one rather than reusing.
+#   4. re-register the workload entries —
+#      register_spire_proof_identity() in scripts/demo-lifecycle.sh
+#   5. re-run the OpenBao bootstrap, then sync_openbao_jwt_validation() in this
+#      file. The CA is new, so OpenBao's jwt_validation_pubkeys snapshot is
+#      stale and every SPIFFE login fails until it is re-synced.
+#   6. restart the agent and assert with assert_spire_agent_trusts_server().
+#
+# `make demo-bao-up` (bao_up in scripts/demo-lifecycle.sh) performs steps 1 and
+# 3-6 in that order. It CANNOT perform step 2 — that is the whole reason this
+# file refuses rather than repairing — so running it without having cleared the
+# node directory leaves the agent crash-looping on the same stale bundle, which
+# is the state that produced 1528 restarts.
+#
+# ── Route B has a PREREQUISITE that is easy to miss ────────────────────────
+#
+# bao_up calls `wait_kustomization "$BAO_NAMESPACE" infra-configs` BEFORE it
+# reaches register_spire_proof_identity. So if inf-bao/infra-controllers is not
+# Ready, inf-bao/infra-configs never goes Ready either (it dependsOn it), bao_up
+# blocks there, and the entries are never re-registered — the recovery stops
+# half-done, with a fresh CA and an empty registration table.
+#
+# That is not hypothetical: it is the state the namespace was in on 2026-08-30,
+# via the privilege-escalation deadlock described in
+# d2-signalloom/infra/inf-bao/controllers/base/spire-openbao-sync-cronjob.yaml.
+# Check `kubectl -n inf-bao get kustomization` is Ready BEFORE choosing Route B.
+# If it is not, Route A is the only route that works, because it never needs to
+# re-register anything.
 SPIRE_AGENT_DATA_HOSTPATH="${SPIRE_AGENT_DATA_HOSTPATH:-/var/lib/spire-agent/data}"
 
 _spire_agent_logs() {

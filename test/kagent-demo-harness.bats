@@ -213,9 +213,19 @@ setup() {
   # Equality is only meaningful for a run that passed. On a failing run the
   # harness legitimately records fewer, and cascading a second failure out of
   # that would just be noise; assert the count is at least plausible instead.
+  # Skips count toward the ceiling but never toward passes, so a PASS run
+  # satisfies passed + skipped == total. Asserting passed == total instead
+  # would fail on any legitimate skip and invite someone to "fix" it by folding
+  # skips back into the pass count — which is the conflation being removed.
+  skipped="$(jq -r '.test_assertions_skipped // 0' "$PROOF_FILE")"
+  accounted=$((claimed + skipped))
+
   test_status="$(jq -r '.test_status // "UNKNOWN"' "$PROOF_FILE")"
   if [ "$test_status" = "PASS" ]; then
-    [ "$claimed" = "$actual" ] || {
+    [ "$accounted" = "$actual" ] || {
+      echo "artefact accounts for ${accounted} of ${actual} tests"
+      echo "  passed:  ${claimed}"
+      echo "  skipped: ${skipped}"
       echo "proof artefact claims ${claimed} assertions passed on a PASS run;"
       echo "the suites it ran contain ${actual} tests"
       echo "regenerate with: scripts/kagent-harness-exec.sh"

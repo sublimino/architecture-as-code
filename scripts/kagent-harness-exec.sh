@@ -69,12 +69,14 @@ set -e -o pipefail
 TALLY_LINE="$(grep '^KAGENT_TALLY ' "${TEST_LOG}" | tail -1 || true)"
 PASSED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*passed=\([0-9][0-9]*\).*/\1/p')"
 FAILED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*failed=\([0-9][0-9]*\).*/\1/p')"
+SKIPPED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*skipped=\([0-9][0-9]*\).*/\1/p')"
 rm -f "${TEST_LOG}"
 
 # An absent tally means the runner did not get far enough to count anything.
 # Recording 0 is honest; inventing a number is what this replaced.
 PASSED_COUNT="${PASSED_COUNT:-0}"
 FAILED_COUNT="${FAILED_COUNT:-0}"
+SKIPPED_COUNT="${SKIPPED_COUNT:-0}"
 
 # Step 4: Finalize proof file with execution results
 #
@@ -90,6 +92,7 @@ proof['status'] = 'COMPLETED' if ${TEST_STATUS} == 0 else 'FAILED'
 proof['test_status'] = 'PASS' if ${TEST_STATUS} == 0 else 'FAIL'
 proof['test_assertions_passed'] = ${PASSED_COUNT}
 proof['test_assertions_failed'] = ${FAILED_COUNT}
+proof['test_assertions_skipped'] = ${SKIPPED_COUNT}
 tmp = '${PROOF_INPROGRESS}'
 with open(tmp, 'w') as f:
     json.dump(proof, f, indent=2)

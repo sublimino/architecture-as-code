@@ -23,7 +23,28 @@
 printf '%s\n' "$*" >>"${KUBECTL_ARGV_LOG:-/dev/null}"
 
 case " $* " in
-  *" -i "*|*" --stdin "*) cat >>"${KUBECTL_STDIN_LOG:-/dev/null}" ;;
+  # The credential arrives here on stdin; recording it is how the "never in
+  # argv" assertion is shown to be non-vacuous.
+  *" -i "*|*" --stdin "*)
+    cat >>"${KUBECTL_STDIN_LOG:-/dev/null}"
+    ;;
+  # `-f -` reads a manifest on stdin. A stub that does not drain it makes the
+  # PRODUCER die of SIGPIPE, and under `set -o pipefail` the whole pipeline
+  # returns 141 — which surfaces as the script "failing" for no visible reason.
+  #
+  # This was latent until the stub started emitting a real manifest: while it
+  # returned nothing, there was nothing to write, so no SIGPIPE. In other words
+  # the earlier tests were passing an EMPTY pipeline and asserting only on argv.
+  # Fixing one silent-stub defect exposed the next one down.
+  #
+  # Drained ONLY when stdin is genuinely a pipe. An unconditional `cat` blocks
+  # forever on a terminal or on any inherited descriptor that is never closed,
+  # which is how this stub hung a whole bats file — the fix for one silent
+  # failure introducing a loud one. `-p` is the precise test: in the real
+  # pipeline stdin is a pipe, and a direct call from a test is not.
+  *" -f - "*)
+    if [ -p /dev/stdin ]; then cat >/dev/null 2>&1 || true; fi
+    ;;
 esac
 
 args=" $* "
@@ -52,8 +73,37 @@ case "$args" in
   *"get secret"*"-o json "*)
     printf '%s' "${KUBECTL_STUB_SECRET_JSON:-}"
     ;;
+  # `create ... --dry-run=client -o yaml` renders a manifest that is piped into
+  # `replace --force -f -`. The stub used to return nothing here, so the
+  # downstream command received an EMPTY manifest and the tests still passed —
+  # they asserted on argv, never on the pipeline carrying anything. Found by the
+  # unhandled-query guard below, in this file, which is the point of it.
+  *"--dry-run=client"*"-o yaml"*)
+    printf 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: kagent-anthropic-key\ntype: Opaque\n'
+    ;;
   *)
-    :
+    # An unmatched invocation whose STDOUT is consumed is a stub defect, and it
+    # must say so rather than return nothing.
+    #
+    # Returning empty is what made the two earlier bugs in this file so hard to
+    # see: empty is a legal answer — "the key is absent", "the list is empty" —
+    # so the stub's silence is indistinguishable from a real state the caller is
+    # entitled to observe. A loud failure cannot be mistaken for data.
+    #
+    # Commands whose EXIT CODE is what matters (create, apply, delete, exec,
+    # rollout) are a different case: returning 0 silently is the correct
+    # simulation, and failing them would break every test for no benefit. The
+    # split is by whether the caller reads stdout, not by whether the stub
+    # recognised the verb.
+    case "$args" in
+      *" -o "*|*"-field="*|*"--output"*)
+        printf 'kubectl-stub: unhandled output-producing query: %s\n' "$*" >&2
+        exit 64
+        ;;
+      *)
+        :
+        ;;
+    esac
     ;;
 esac
 

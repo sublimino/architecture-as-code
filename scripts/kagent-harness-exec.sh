@@ -13,6 +13,19 @@ fi
 
 TASK_ID="${1:-P0}"
 PROOF_FILE="${REPO_ROOT}/.kagent-preflight-proof.json"
+# The heartbeat is written here, NOT to PROOF_FILE, and PROOF_FILE is replaced
+# atomically only once the counts are known.
+#
+# Previously the artefact was truncated to a countless heartbeat at step 2 and
+# only completed at step 4, so for the whole duration of a run the published
+# artefact had no test_assertions_passed. The suite that validates it runs
+# INSIDE that window, read the absent count as the -1 default, and failed every
+# single time with "claims -1 passes" — a test that could never pass during the
+# only process that generates its input. Publishing atomically means the
+# published artefact is always complete: during a run it is the previous one,
+# which is a true statement about a real earlier run rather than a half-written
+# one about this run.
+PROOF_INPROGRESS="${PROOF_FILE}.inprogress"
 
 echo "==> [Harness] Executing task '${TASK_ID}'..."
 
@@ -36,7 +49,7 @@ proof = {
     'status': 'STARTED',
     'proof_path': '${PROOF_FILE}'
 }
-with open('${PROOF_FILE}', 'w') as f:
+with open('${PROOF_INPROGRESS}', 'w') as f:
     json.dump(proof, f, indent=2)
 "
 
@@ -56,12 +69,14 @@ set -e -o pipefail
 TALLY_LINE="$(grep '^KAGENT_TALLY ' "${TEST_LOG}" | tail -1 || true)"
 PASSED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*passed=\([0-9][0-9]*\).*/\1/p')"
 FAILED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*failed=\([0-9][0-9]*\).*/\1/p')"
+SKIPPED_COUNT="$(printf '%s' "${TALLY_LINE}" | sed -n 's/.*skipped=\([0-9][0-9]*\).*/\1/p')"
 rm -f "${TEST_LOG}"
 
 # An absent tally means the runner did not get far enough to count anything.
 # Recording 0 is honest; inventing a number is what this replaced.
 PASSED_COUNT="${PASSED_COUNT:-0}"
 FAILED_COUNT="${FAILED_COUNT:-0}"
+SKIPPED_COUNT="${SKIPPED_COUNT:-0}"
 
 # Step 4: Finalize proof file with execution results
 #
@@ -70,16 +85,20 @@ FAILED_COUNT="${FAILED_COUNT:-0}"
 # repo. It was then read back by test/kagent-demo-harness.bats and quoted as
 # evidence. It is now whatever the runner actually counted.
 python3 -c "
-import json
-with open('${PROOF_FILE}') as f:
+import json, os
+with open('${PROOF_INPROGRESS}') as f:
     proof = json.load(f)
 proof['status'] = 'COMPLETED' if ${TEST_STATUS} == 0 else 'FAILED'
 proof['test_status'] = 'PASS' if ${TEST_STATUS} == 0 else 'FAIL'
 proof['test_assertions_passed'] = ${PASSED_COUNT}
 proof['test_assertions_failed'] = ${FAILED_COUNT}
-with open('${PROOF_FILE}', 'w') as f:
+proof['test_assertions_skipped'] = ${SKIPPED_COUNT}
+tmp = '${PROOF_INPROGRESS}'
+with open(tmp, 'w') as f:
     json.dump(proof, f, indent=2)
-print('✓ Proof file written at: ' + '${PROOF_FILE}')
+# os.replace is atomic within a filesystem: no reader ever sees a partial file.
+os.replace(tmp, '${PROOF_FILE}')
+print('✓ Proof file published at: ' + '${PROOF_FILE}')
 "
 
 echo "==> [Harness] Task '${TASK_ID}' completed with status: $([ $TEST_STATUS -eq 0 ] && echo 'SUCCESS' || echo 'FAILURE')"

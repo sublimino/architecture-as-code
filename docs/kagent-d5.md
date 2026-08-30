@@ -328,24 +328,34 @@ instruction: **whether the model obeys is untested and untestable here.**
 | `kagent-security-analyst` on `agent-cardvault` — the exact pod it previously reported as "UID 100, GID 101" | `securityContext is ABSENT` three times, **no UID supplied** |
 | Sweep of that whole response for surviving UID claims | Exactly one — `runAsUser: 65532` for `agent-sir-lancelot`, the pod that genuinely sets it |
 | `kagent-finops-optimizer` on `inf-bao`, 3/3 containers with no requests or limits | Four `ABSENT`s per container, **no figures invented** |
+| `kagent-finops-optimizer` on `agent-cardvault` — `requests` populated, `limits` has memory and **no CPU** | `CPU request: 5m`, `Memory request: 16Mi`, `Memory limit: 64Mi`, **`CPU limit: ABSENT`** |
 
-The second row is the discriminating one. An instruction that had merely
+**Three shapes, all held:** wholly-absent (`inf-bao`), absent-vs-present across
+pods (the UID sweep), and absent-*within*-a-populated-block (the last row).
+
+Rows two and four are the discriminating ones. An instruction that had merely
 suppressed all UID mentions would have lost the true value too; it kept the
-real one and dropped the invented ones.
+real one and dropped the invented ones. And in the last row the absent field
+sits **between two correctly-reported ones in the same block** — it did not
+smooth the gap, did not infer a limit from the request, and did not carry the
+memory limit across. It also drew the right conclusion unprompted: *"CPU limits
+are absent in both cases, meaning these workloads have no upper bound on CPU
+consumption and can burst without restriction."*
+
+That third shape was the sharpest remaining probe, on the reasoning that a
+model is likelier to fill a gap in a populated structure than in an empty one.
+It was run and it held.
 
 ### This evidence expires when the instruction is edited
 
-The three runs above are the **only** evidence of obedience that exists. No
-test asserts it and none can here, so this is a statement about observed model
+The four runs above are the **only** evidence of obedience that exists. No test
+asserts it and none can here, so this is a statement about observed model
 behaviour on 2026-08-30 — not a property of the system. **Change the wording
 and the evidence no longer applies to what is deployed.** If you edit one of
 these systemMessages, re-run the corresponding check and replace the row.
 
-**Known untested case.** `agent-cardvault` and `agent-sir-lancelot` set a
-memory limit but **no CPU limit** — a *partial* absence inside an otherwise
-populated block. Both confirmations above used wholly-empty blocks. A model is
-plausibly likelier to fill a gap in a populated structure than in an empty one,
-so this is the sharper probe and it has not been run.
+This is as well evidenced as it can be without asserting on model output. It is
+still not a guarantee.
 
 Note this is mechanism-reasoning from **one** observation, applied narrowly.
 The count instruction was deliberately *not* generalised because a second

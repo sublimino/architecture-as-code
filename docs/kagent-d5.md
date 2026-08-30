@@ -25,11 +25,24 @@ All 36 Kagent assertions passed against that stack. That is the defect
 `test/kagent-anti-stub.bats` exists to prevent recurring; its file header explains
 the reasoning behind each assertion.
 
-**Current state.** The real upstream Helm charts and real credential wiring are
-being landed separately. Until they merge, treat every claim below about *runtime
-behaviour* as pending. Claims about *declarative structure* — the Agent CRs, their
-tool bindings, SPIFFE naming, the OpenBao path mapping — are verified on disk and
-in the cluster today.
+**Current state.** The real charts have since landed: `kagent 0.9.9` with
+`cr.kagent.dev/kagent-dev/kagent/controller:0.9.9`,
+`ghcr.io/kagent-dev/kagent/tools:0.2.1` and `…/ui:0.9.9`. Ten of the thirteen
+anti-stub assertions flipped green with **no change to the tests** — the tool
+server now discriminates its input, and the controller writes real status
+conditions. Two things are still genuinely broken, and the suites say so:
+
+- **No agent workloads are produced.** The controller reconciles and then fails
+  to compile every Agent CR: `RemoteMCPServer.kagent.dev "kagent-tool-server"
+  not found`. The manifests declare `kind: RemoteMCPServer` inside `MCPServer`
+  CRs, which is not what the controller resolves. All 8 sit at
+  `Accepted=False`.
+- **The model API key reference does not survive being applied.** See
+  "What the agents cannot yet do" below.
+
+Claims about *declarative structure* — the Agent CRs, their tool bindings,
+SPIFFE naming, the OpenBao path mapping — are verified on disk and in the
+cluster today.
 
 ## Architecture & lifecycle
 
@@ -91,11 +104,24 @@ Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
 
 ### What the agents cannot yet do, and why
 
-- **Agent execution requires a model API key the operator must supply.** The
-  `anthropic-claude` `ModelConfig` reads `kagent-anthropic-key`. Until that Secret
-  holds a real Anthropic key, agents can be created and reconciled but cannot
-  complete a model call. `test/kagent-anti-stub.bats` fails while the placeholder
-  is in place, deliberately.
+- **Agent execution requires a model API key the operator must supply**, and the
+  reference to it is currently lost on apply. Three separate facts, all live:
+  1. The `kagent-anthropic-key` Secret now holds a real `ANTHROPIC_API_KEY`.
+     It briefly held *two* keys — the real one plus the original mock `api-key`
+     — because `kubectl apply` merges, so a write that set only the new key left
+     the placeholder underneath it. Resolved with `replace --force`.
+  2. **`spec.anthropic.apiKeySecret` is silently pruned.** The v1alpha2 CRD
+     defines `apiKeySecret` and `apiKeySecretKey` at the **top level of `spec`**;
+     `spec.anthropic` admits only `baseUrl`/`maxTokens`/`temperature`/`topK`/
+     `topP`. `kubectl apply` succeeds, nothing warns, and the field is dropped —
+     `spec.anthropic` reads back as `{}`. A pruned field fails at run time, not
+     at apply time. `test/kagent-credentials.bats` fails on this deliberately.
+  3. `d2-signalloom/infra/kagent/base/controller.yaml:12` still carries the
+     literal `mock-anthropic-key-for-local-demo`. The chart now supplies the
+     Secret, so that manifest's Secret block is **dead** — the placeholder ships
+     but nothing consumes it. `test/kagent-anti-stub.bats` fails on it anyway,
+     because a mock credential in a tracked manifest is a hazard whether or not
+     today's topology happens to read it.
 - **Seven of the eight agent ServiceAccounts hold no RBAC at all.** Only
   `kagent-k8s-reader` is bound to a Role. The negative RBAC assertions in
   `test/kagent-adversarial.bats` are therefore true but weak for those seven: they
@@ -195,28 +221,60 @@ Agent CRs discovered through `fake-integration-proxy`.
   while it was red. It is now included: either the script grows that interface or
   the suite is rewritten against the one it has — but the mismatch is visible.
 
-### Three ways these suites have produced false green
+### Four ways these suites have produced a confident wrong answer
 
-Each of these was hit for real while building the kagent suites. All three
-produce a **passing** result, which is why they are worth writing down: a test
-that fails tells you about itself, a test that falsely passes does not.
+Each of these was hit for real while building the kagent suites and the
+credential wiring. What they share is not that they fail — it is that they
+**return a plausible verdict instead of an error**. A test that fails tells you
+about itself; one that answers confidently and wrongly does not. Three produce a
+false green; the first produces a false *accusation*, which is the same defect
+seen from the other side.
 
-1. **A `bats -f` filter matching zero tests exits 0.** A mutation harness that
-   breaks a guard and then runs `bats -f '<name>'` to see it fail reads the
-   exit 0 as "nothing guards this" and *acquits a guard that works perfectly*.
-   The filter matching at least one test is a precondition and must be checked
-   before the result is interpreted — count the `ok`/`not ok` lines and treat
-   zero as an error, not as a verdict.
+1. **A test-filter that matches nothing exits 0.** A mutation harness that breaks
+   a guard and runs `bats -f '<name>'` to watch it fail reads the exit 0 as "the
+   test stayed green under the mutation" — i.e. *this test guards nothing* — and
+   files a false accusation against a guard that works perfectly. The real cause
+   was a filter reading "…retired mock **placeholder**" against a test named
+   "…retired mock **literal**".
 
-2. **A positional index over a map silently changes what is tested.** Reading a
+   The filter matching is a **precondition, not a result**: require
+   `bats "$suite" -f "$name" --count` to equal exactly 1 before applying the
+   mutation, and report anything else as INCONCLUSIVE — never as SURVIVED.
+   Identical hazard in `pytest -k`, `go test -run`, `jest -t`.
+
+2. **A stub that returns a plausible wrong value rather than failing.** Two
+   instances of one family, both of which made tests fail for reasons unrelated
+   to the code under test:
+
+   - *Quoting mangled through a generated heredoc.* A kubectl stub emitted into a
+     `<<'STUB'` heredoc by a Python script lost its escaping, so every query
+     returned empty — and empty is indistinguishable from "the field is absent".
+     The stub is now a real fixture file
+     (`d2-signalloom/test/fixtures/kubectl-stub.sh`), not generated text.
+   - *`-o jsonpath` caught by an `-o json` glob.* A `case` arm matching
+     `*"-o json"*` sits before the jsonpath arm and matches
+     `-o jsonpath={.data.X}` too, because `-o json` is a prefix of `-o jsonpath`.
+     Every scalar query returned the whole Secret object, which decoded to
+     nothing and read as "key present but empty". Order the jsonpath arm first
+     and require the trailing space (`*"-o json "*`).
+
+   The general rule: a stub must be **more** brittle than the real thing, not
+   less. An unrecognised invocation should abort loudly; returning empty makes
+   the stub agree with every hypothesis.
+
+3. **A positional index over a map silently changes what is tested.** Reading a
    Secret with `jq '.data | to_entries[0].value'` tests whichever key sorts
    first. When `kagent-anthropic-key` grew a second key, `ANTHROPIC_API_KEY`
    (real) sorted ahead of `api-key` (still the mock, and the one the ModelConfig
    actually names) — so the assertion passed while the credential in use was a
    placeholder. **Assert over every key; never a positional index.** The general
    form: if a collection can grow, an index into it is a silent rebinding.
+   Chasing this one found a second defect underneath it: `kubectl apply` MERGES,
+   so a stale `api-key` survived beneath a write that only set the new key. The
+   sync now uses `replace --force`, and its verify step compares the key name
+   the ModelConfig *requests* against the key name sync *provides*.
 
-3. **Mutating into an already-red suite proves nothing.** Falsifying the SPIFFE
+4. **Mutating into an already-red suite proves nothing.** Falsifying the SPIFFE
    trust-domain assertion by pointing one card at `spiffe://wrong.example`
    produced a red — but the failure named a *different* card, because the suite
    was already failing on the first one alphabetically and never reached the

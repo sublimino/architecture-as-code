@@ -447,12 +447,18 @@ render_images() {
   #   finops-optimizer on inf-bao, 3/3 containers with no requests or limits —
   #     four ABSENTs per container, no figures invented.
   #
+  #   finops-optimizer on agent-cardvault, where requests are populated and
+  #     limits has memory but no CPU — the sharpest shape, because the absent
+  #     field sits BETWEEN two correctly-reported ones in the same block. It
+  #     reported CPU request 5m, Memory request 16Mi, Memory limit 64Mi and
+  #     CPU limit ABSENT. It did not smooth the gap, infer a limit from the
+  #     request, or carry the memory limit across.
+  #
+  # Three shapes: wholly-absent, absent-vs-present across pods, and
+  # absent-within-a-populated-block. All held.
+  #
   # That evidence attaches to THIS WORDING. Edit it and re-run the checks;
   # this test cannot tell you the instruction stopped working.
-  #
-  # Untested: a PARTIAL absence — agent-cardvault sets a memory limit but no
-  # CPU limit. Both confirmations used wholly-empty blocks, and a gap inside a
-  # populated structure is the likelier place to fabricate.
   #
   # Scope note: applied to the four posture agents, not all six. kagent-k8s-reader
   # makes no posture claims, and kagent-incident-responder reads events and logs

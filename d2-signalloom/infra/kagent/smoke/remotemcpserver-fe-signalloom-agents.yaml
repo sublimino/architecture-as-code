@@ -1,0 +1,70 @@
+---
+# PROPOSED REMEDY — not wired into any kustomization, not applied by
+# scripts/kagent-infra.sh. It is here because it was PROVEN to work during the
+# upstream-chart migration and the agent-swarm workstream needs the finding,
+# not because this change owns fe-signalloom-agents.
+#
+# It IS currently applied to the live kind cluster (applied by hand during
+# verification on 2026-08-30). That is deliberate drift, and this file exists so
+# the drift is written down rather than discovered later.
+#
+# ─── The problem ───────────────────────────────────────────────────────────
+#
+# Under the hand-written CRDs the eight Agent CRs in fe-signalloom-agents had
+# `status: null` forever, because nothing reconciled them. Under the real 0.9.9
+# controller they are reconciled, and five of them fail with:
+#
+#   failed to compile agent fe-signalloom-agents/kagent-<name>:
+#     RemoteMCPServer.kagent.dev "kagent-tool-server" not found
+#
+# The chart does create that object — as `kagent/kagent-tool-server`, in the
+# kagent namespace. The Agent CRs reference it by bare name, which resolves in
+# their own namespace.
+#
+# ─── The fix that does NOT work, and why it is worth recording ─────────────
+#
+# The obvious move is one line: `mcpServer.namespace: kagent`. The field exists
+# in the v1alpha2 schema, the CR applies cleanly, and the controller then says:
+#
+#   cross-namespace reference to RemoteMCPServer kagent/kagent-tool-server
+#   is not allowed from namespace fe-signalloom-agents
+#
+# So kagent 0.9.9 forbids cross-namespace RemoteMCPServer references outright.
+# Adding the namespace field changes the error, not the outcome. Anyone who
+# reaches for it without testing will conclude the tool server is broken.
+#
+# ─── The fix that does work ────────────────────────────────────────────────
+#
+# A namespace-local RemoteMCPServer pointing at the same in-cluster URL. The
+# eight Agent CRs then need NO change at all. Applying just this object moved
+# kagent-k8s-reader, kagent-chaos-prober, kagent-compliance-checker and
+# kagent-finops-optimizer from Accepted=False to Accepted=True, and the
+# controller built each of them a real Deployment.
+#
+# The kagent NetworkPolicy in ../base/networkpolicy.yaml already permits
+# fe-signalloom-agents → kagent-tools:8084, so the network path needs nothing.
+#
+# ─── What this does NOT fix ────────────────────────────────────────────────
+#
+# Four agents fail for a different and deeper reason. kagent-commit-summariser,
+# kagent-incident-responder, kagent-network-auditor and kagent-security-analyst
+# reference github-tool, incident-triage-tool, network-probe-tool,
+# policy-eval-tool and vuln-db-tool as `kind: RemoteMCPServer`, but those five
+# objects are declared as `kind: MCPServer` in
+# d2-signalloom/infra/agent-swarm/*/tools.yaml. Wrong kind, so no
+# RemoteMCPServer of that name exists to find. That is a defect in the agent
+# definitions and is left for their owner to decide — see the KMCP section of
+# ../values.yaml, which shows those five MCPServer CRs also cannot survive the
+# real kmcp schema.
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: kagent-tool-server
+  namespace: fe-signalloom-agents
+  labels:
+    app.kubernetes.io/part-of: signalloom
+spec:
+  url: "http://kagent-tools.kagent:8084/mcp"
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  description: "Signal Loom-local handle on the kagent built-in tool server"

@@ -858,14 +858,26 @@ demo-cpai-down: ## Remove the CPAI runtime demo namespace.
 ##@ Kagent Cloud-Native AI Agents (D5 — CNCF Agent Framework)
 
 .PHONY: swarm-kagent-up swarm-kagent-down demo-kagent-up demo-kagent-down demo-kagent-test demo-kagent-demo demo-kagent-test-config
-swarm-kagent-up: ## Install Kagent v0.9.9 controller, bundled PostgreSQL, and CRDs.
-	./scripts/kagent-infra.sh up
-swarm-kagent-down: ## Remove Kagent controller, bundled PostgreSQL, and CRDs.
-	./scripts/kagent-infra.sh down
-demo-kagent-test-config: ## Statically validate and render Kagent CRDs and agent overlays without a cluster.
+swarm-kagent-up: ## Install the upstream Kagent 0.9.9 charts (controller, tools, UI, PostgreSQL, kmcp). ENABLE_OBSERVABILITY=true adds grafana-mcp, querydoc and observability-agent.
+	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh up
+swarm-kagent-down: ## Uninstall the Kagent release and namespace. CRDs are left in place (removing them cascades to every Agent CR).
+	ENABLE_OBSERVABILITY="$(ENABLE_OBSERVABILITY)" ./scripts/kagent-infra.sh down
+demo-kagent-test-config: ## Statically validate the Kagent namespace overlay, the upstream chart render, and the agent overlays without a cluster.
 	@kubectl kustomize d2-signalloom/infra/kagent/local >/dev/null
+	# The chart render is the half `kubectl kustomize` no longer covers. Once the
+	# control plane came from Helm rather than from base/*.yaml, a values file
+	# that fails to render — or renders something other than what it claims —
+	# was invisible to every static check in this target.
+	@helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+		--version 0.9.9 --namespace kagent \
+		-f d2-signalloom/infra/kagent/values.yaml >/dev/null
+	@helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+		--version 0.9.9 --namespace kagent \
+		-f d2-signalloom/infra/kagent/values.yaml \
+		-f d2-signalloom/infra/kagent/values-observability.yaml >/dev/null
 	@for d in d2-signalloom/infra/agent-swarm/kagent-*; do [ -d "$$d" ] && kubectl kustomize "$$d" >/dev/null; done
 	bats d2-signalloom/test/kagent-contract.bats
+	bats d2-signalloom/test/kagent-chart.bats
 demo-kagent-up: ## Deploy all Kagent agents (K8s Reader, Commit Summariser, Security Analyst).
 	./scripts/kagent-agents.sh deploy
 demo-kagent-down: ## Remove all Kagent agents.
@@ -2513,11 +2525,11 @@ swarm-infra-down: ## Tear down agent swarm infrastructure (keeps the cluster).
 	-kubectl delete -k d2-signalloom/infra/agent-swarm/ 2>/dev/null
 	@echo "--- Agent swarm infrastructure removed ---"
 
-.PHONY: swarm-kagent-up swarm-kagent-down
-swarm-kagent-up: ## Apply the standalone Kagent control plane.
-	./scripts/kagent-infra.sh up
-swarm-kagent-down: ## Remove the standalone Kagent control plane.
-	./scripts/kagent-infra.sh down
+# swarm-kagent-up / swarm-kagent-down are defined once, above, under
+# "Kagent Cloud-Native AI Agents (D5)". A second pair used to be declared here
+# with the same names and different help text; make silently kept whichever
+# came last, so the documented target and the executed target were different
+# objects. Left as a pointer rather than a duplicate.
 
 .PHONY: swarm-openbao-role
 swarm-openbao-role: ## Configure the glob-bound JWT auth role for agent swarm in OpenBao.

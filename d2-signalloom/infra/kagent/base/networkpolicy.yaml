@@ -1,4 +1,31 @@
 ---
+# Signal Loom's own network posture for the kagent namespace.
+#
+# KEPT (not superseded by the upstream chart): kagent 0.9.9 ships no
+# NetworkPolicy of any kind — `helm template ... | rg 'kind: NetworkPolicy'`
+# returns nothing. Everything in this file is Signal Loom's tenancy boundary,
+# not kagent's, so it outlives the stub manifests the chart replaced.
+#
+# ─── The selectors moved, and a silently-dead policy is worse than none ────
+#
+# Both policies below used to select pods the chart does not create:
+#
+#   was  app.kubernetes.io/name=kagent-postgres     is  name=kagent, component=database
+#   was  app.kubernetes.io/name=kagent-tool-server  is  name=kagent-tools
+#
+# A podSelector that matches nothing is not an error and not a warning. The
+# NetworkPolicy object exists, `kubectl get netpol` lists it, and it constrains
+# no traffic whatsoever. Ported as-is onto the real chart these two would have
+# read as an enforced boundary while the database accepted connections from
+# every pod in the namespace.
+#
+# The tool server's port moved too — the chart's Service and containerPort are
+# 8084, not the stub's 8080 — so even a corrected selector would have allowed
+# nothing on the port the tool server actually listens on.
+#
+# Labels below are from the rendered chart, not from memory:
+#   helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+#     --version 0.9.9 -n kagent -f ../values.yaml
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -7,10 +34,13 @@ metadata:
   labels:
     app.kubernetes.io/name: kagent
     app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: signalloom
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: kagent-postgres
+      app.kubernetes.io/name: kagent
+      app.kubernetes.io/instance: kagent
+      app.kubernetes.io/component: database
   policyTypes:
     - Ingress
   ingress:
@@ -18,6 +48,7 @@ spec:
         - podSelector:
             matchLabels:
               app.kubernetes.io/name: kagent
+              app.kubernetes.io/instance: kagent
               app.kubernetes.io/component: controller
       ports:
         - protocol: TCP
@@ -31,18 +62,26 @@ metadata:
   labels:
     app.kubernetes.io/name: kagent
     app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: signalloom
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: kagent-tool-server
+      app.kubernetes.io/name: kagent-tools
+      app.kubernetes.io/instance: kagent
   policyTypes:
     - Ingress
   ingress:
     - from:
+        # Anything inside the kagent namespace: the controller reaches the tool
+        # server to enumerate tools, and the UI proxies through the controller.
         - podSelector: {}
+        # Signal Loom's agents run in their own namespace and reach the tool
+        # server across it via the kagent-tool-server RemoteMCPServer.
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: fe-signalloom-agents
       ports:
+        # 8084 is the chart's tools port. 8085 is its Prometheus metrics port
+        # and is deliberately NOT opened here.
         - protocol: TCP
-          port: 8080
+          port: 8084

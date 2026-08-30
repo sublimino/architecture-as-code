@@ -1,0 +1,112 @@
+# d2-signalloom/infra/kagent/values-observability.yaml
+# Layered on top of values.yaml by scripts/kagent-infra.sh when
+# ENABLE_OBSERVABILITY=true. Never applied on its own.
+#
+# The split follows the repo's existing flag (Makefile:55, `ENABLE_OBSERVABILITY
+# ?= false`, exported) and the decision that the control plane proper —
+# controller, kagent-tools, UI — is unconditional while anything that only
+# exists to talk to Prometheus/Grafana is not. Three components move:
+#
+#   observability-agent  an Agent CR, so a Deployment running kagent/app
+#   grafana-mcp          Deployment, image mcp/grafana:latest
+#   querydoc             Deployment, image ghcr.io/kagent-dev/doc2vec/mcp
+#
+# grafana-mcp additionally emits a RemoteMCPServer pointing at
+# grafana.kagent:3000/api, which does not resolve unless the observability
+# stack is up — a second reason not to deploy it by default.
+#
+# The images these add are preloaded by scripts/kagent-infra.sh from the
+# OBSERVABILITY-marked section of scripts/kagent-images.txt.
+
+# promql-agent is NOT in the brief's list of three, and it is here because the
+# chart has an undeclared dependency that only shows up at reconcile time:
+#
+#   failed to compile agent kagent/observability-agent:
+#     Agent.kagent.dev "promql-agent" not found
+#
+# observability-agent references promql-agent as an Agent-type tool. Nothing in
+# the chart gates one on the other — `observability-agent.enabled: true` with
+# `promql-agent.enabled: false` renders perfectly, installs perfectly, and then
+# sits at Accepted=False forever. It is an observability agent by any reading,
+# so it belongs on the same side of the flag; the alternative is shipping a
+# component that can never reconcile.
+promql-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+observability-agent:
+  enabled: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+grafana-mcp:
+  enabled: true
+  image:
+    # ─── Two chart defaults are wrong for a kind cluster, and one of them
+    #     fails in a way that reads as a broken image loader ──────────────
+    #
+    # The chart default is `registry: mcp`, which renders the reference
+    # `mcp/grafana:latest`. Kubelet normalises that to docker.io/mcp/grafana,
+    # but scripts/lib/image-identity.sh does NOT: its canonical_ref treats any
+    # reference containing a `/` as already fully qualified —
+    #
+    #     case "$repo" in
+    #     */*) printf '%s:%s' "$repo" "$tag" ;;
+    #     *)   printf 'docker.io/library/%s:%s' "$repo" "$tag" ;;
+    #     esac
+    #
+    # — so it handles the one-segment Docker Hub case (postgres →
+    # docker.io/library/postgres) and not the two-segment org case
+    # (mcp/grafana → docker.io/mcp/grafana). Measured, on the preload run:
+    # ctr imported the image and reported `docker.io/mcp/grafana:latest saved`,
+    # then the label step failed with
+    #
+    #     ctr: image "mcp/grafana:latest": not found
+    #     could not label mcp/grafana:latest as CRI-managed
+    #     FAIL — these images ... are absent, or are NOT the image built locally
+    #
+    # which names the image loader for what is really a reference-normalisation
+    # gap one layer down. Writing the registry out in full sidesteps it and is
+    # more correct regardless: the pod spec, scripts/kagent-images.txt and the
+    # node then all say the same string. The helper gap is reported rather than
+    # patched here — it is shared by three call sites and outside this change.
+    registry: docker.io/mcp
+    repository: grafana
+    tag: "latest"
+    # The chart default is `Always`. That discards the whole point of
+    # preloading — every pod start would need Docker Hub reachable from the
+    # node — and on a laptop kind cluster that is the difference between an
+    # offline-capable demo and an ImagePullBackOff.
+    pullPolicy: IfNotPresent
+  grafana:
+    # Points at the in-cluster Grafana the observability stack brings up.
+    url: "grafana.kagent:3000/api"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+querydoc:
+  enabled: true
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi

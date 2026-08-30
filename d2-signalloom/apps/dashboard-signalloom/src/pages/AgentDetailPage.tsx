@@ -1012,7 +1012,7 @@ export default function AgentDetailPage() {
       if (auditData.status === 'fulfilled') setAuditEvents(auditData.value.events)
       if (violationsData.status === 'fulfilled') setViolations(violationsData.value.violations)
       if (postureData.status === 'fulfilled') {
-        const match = postureData.value.agents.find(a => a.agent_id === id)
+        const match = postureData.value?.agents?.find(a => a.agent_id === id)
         setComplianceResults(match?.results ?? [])
       }
 

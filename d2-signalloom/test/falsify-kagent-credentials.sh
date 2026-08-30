@@ -151,13 +151,13 @@ m_silent_fallback() {
     's|^require_key() {|require_key() { VALIDATED_KEY="${ANTHROPIC_API_KEY:-sk-ant-TEST.silent-fallback-mutant-000000}"; return 0 # MUTANT|'
 }
 run_case "seed silently falls back to a default when the key is unset" \
-  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_silent_fallback
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset no-ops loudly and writes nothing" m_silent_fallback
 
 run_case "seed silently falls back to a default when the key is empty" \
-  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY empty fails, it is not treated as set" m_silent_fallback
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY empty no-ops and writes nothing" m_silent_fallback
 
 run_case "seed silently falls back rather than refusing whitespace" \
-  "$CRED_SUITE" "seed with a whitespace-only key fails rather than writing it" m_silent_fallback
+  "$CRED_SUITE" "seed with a whitespace-only key writes nothing" m_silent_fallback
 
 # The placeholder is 33 characters, so the length guard does NOT catch it — this
 # branch is genuinely load-bearing on its own, and the test name here is the one
@@ -360,17 +360,20 @@ run_case "JSON escaping is hand-rolled instead of delegated to jq (over real HTT
 # success, with the operator's key two directories away.
 m_env_pwd_relative() {
   backup "$ENVLIB_REL"
-  # Revert to the idiom every .env reader in this repo used before this branch.
-  mutate_sed "$ENVLIB_REL" 's|^  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" .. common=""|  common=""|'
+  # Must disable the WHOLE git resolution, not just the fast path — the
+  # fallback branch resolves correctly on its own, so a shallower mutation
+  # leaves the resolver working and falsely acquits the test.
+  mutate_sed "$ENVLIB_REL" 's|^  local common="" root=""|  printf "%s/.env" "$PWD"; return 0  # MUTANT|'
 }
 run_case "the .env resolver goes back to being \$PWD-relative" \
   "$ENV_SUITE" "resolves to the MAIN checkout when run from a linked worktree" m_env_pwd_relative
 
 m_env_no_normalise() {
   backup "$ENVLIB_REL"
-  # Drop the absolute-path normalisation: git returns a relative ".git" from
-  # the main worktree root, which yields "./.env" and breaks on any cd.
-  mutate_sed "$ENVLIB_REL" 's|^  common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" .. common=""|  common="$(git rev-parse --git-common-dir 2>/dev/null)" \|\| common=""|'
+  # Emit git's raw answer. From the MAIN worktree root `git rev-parse
+  # --git-common-dir` is the RELATIVE ".git", so dirname is "." and the result
+  # is "./.env" — which happens to work from that directory and breaks on any cd.
+  mutate_sed "$ENVLIB_REL" 's|^  local common="" root=""|  printf "%s/.env" "$(dirname "$(git rev-parse --git-common-dir)")"; return 0  # MUTANT|'
 }
 run_case "the resolved .env path stops being normalised to absolute" \
   "$ENV_SUITE" "the path returned from the main checkout is absolute" m_env_no_normalise
@@ -409,9 +412,9 @@ run_case "the tracked-secret guard's pattern is broken" \
 
 m_secret_guard_scans_untracked() {
   backup "$SEC_SUITE"
-  # Scan the working directory instead of the git index. .env then trips it on
-  # every run, the guard is switched off, and nothing is guarded at all.
-  mutate_sed "$SEC_SUITE" 's|      | xargs -0 -r grep -lE "$KEY_SHAPE" 2>/dev/null \\|      \| xargs -0 -r grep -lE "$KEY_SHAPE" 2>/dev/null; grep -rlE "$KEY_SHAPE" . 2>/dev/null \\|'
+  # Scan the filesystem instead of the git index. .env then trips the guard on
+  # every run — it would be wrong every day, get switched off, and guard nothing.
+  mutate_sed "$SEC_SUITE" 's|git ls-files -z 2>/dev/null|find . -type f -not -path "./.git/*" -print0|g'
 }
 run_case "the guard scans the working directory instead of the git index" \
   "$SEC_SUITE" "an untracked file holding a key is NOT flagged" m_secret_guard_scans_untracked

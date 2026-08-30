@@ -1,13 +1,54 @@
 # d2-signalloom/infra/kagent/values.yaml
-# Kagent v0.9.9 — Signal Loom Demo 5
-# All bundled agents disabled for resource-constrained Kind cluster
+# Values for the UPSTREAM kagent Helm chart, pinned to 0.9.9.
+#
+#   oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds  --version 0.9.9
+#   oci://ghcr.io/kagent-dev/kagent/helm/kagent       --version 0.9.9
+#
+# Installed by scripts/kagent-infra.sh. This file is the ALWAYS-ON baseline:
+# controller, kagent-tools, UI, bundled PostgreSQL and the kmcp controller.
+# The observability components are layered on top by values-observability.yaml
+# only when ENABLE_OBSERVABILITY=true.
+#
+# ─── Why every key below is spelled the way it is ──────────────────────────
+#
+# The previous revision of this file was written against a remembered API
+# rather than a rendered one, and four of its keys were dead. Helm does not
+# warn about an unrecognised value; it silently ignores it, so each of these
+# read as configured and did nothing:
+#
+#   postgres.resources          the chart's path is database.postgres.bundled.resources
+#   defaultRuntime: go          no such top-level key exists in 0.9.9 at all
+#   prometheus-agent.enabled    the chart's agent is called promql-agent
+#   providers.anthropic
+#     .apiKeySecretName         the chart reads apiKeySecretRef (+ apiKeySecretKey)
+#
+# and two bundled agents were never named, so they deployed:
+# cilium-policy-agent and observability-agent. Rendering the chart with the old
+# file produced three Agent CRs on a cluster the file claims runs none.
+#
+# If you change a key here, prove it landed:
+#   helm template kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+#     --version 0.9.9 -n kagent -f values.yaml | rg <the thing you expect>
 
-# Disable all bundled agents
+# ==============================================================================
+# BUNDLED AGENTS — all off
+# ==============================================================================
+# This is a kind cluster on a laptop already carrying ~80 pods. Each bundled
+# agent is an Agent CR that the controller materialises into its own Deployment
+# running cr.kagent.dev/kagent-dev/kagent/app, so "enabled" is a pod, not a
+# config line. Signal Loom supplies its own eight agents in
+# d2-signalloom/infra/agent-swarm/; none of kagent's samples are wanted.
+#
+# The list is exhaustive against 0.9.9. Cross-check after any version bump:
+#   helm show values oci://ghcr.io/kagent-dev/kagent/helm/kagent --version X \
+#     | rg '^[a-z-]+-agent:'
 argo-rollouts-agent:
   enabled: false
 cilium-debug-agent:
   enabled: false
 cilium-manager-agent:
+  enabled: false
+cilium-policy-agent:
   enabled: false
 helm-agent:
   enabled: false
@@ -17,27 +58,93 @@ k8s-agent:
   enabled: false
 kgateway-agent:
   enabled: false
-prometheus-agent:
+promql-agent:
   enabled: false
 
-# Provider configuration
+# observability-agent, grafana-mcp and querydoc are ALSO off here and are
+# turned on by values-observability.yaml. They are listed in both files
+# deliberately: this file must be safe to apply on its own, and a reader
+# should not have to open the overlay to learn the default.
+observability-agent:
+  enabled: false
+grafana-mcp:
+  enabled: false
+querydoc:
+  enabled: false
+
+# OIDC in front of the UI is out of scope for the demo; the chart already
+# defaults this to false, stated here so the security posture is explicit.
+oauth2-proxy:
+  enabled: false
+
+# ==============================================================================
+# LLM PROVIDER
+# ==============================================================================
+# The credential itself is owned elsewhere — the secret named below currently
+# holds the literal string "mock-anthropic-key" and a separate workstream
+# replaces it. Nothing here creates, reads or rotates it; this only points the
+# generated ModelConfig at the agreed name so that work slots in unchanged.
 providers:
   default: anthropic
   anthropic:
-    apiKeySecretName: kagent-anthropic-key
+    provider: Anthropic
+    model: "claude-haiku-4-5"
+    # apiKeySecretRef, NOT apiKeySecretName. templates/modelconfig.yaml renders
+    # `apiKeySecret: {{ .apiKeySecretRef }}` and has no branch for any other
+    # spelling, so the old key left the ModelConfig with no secret reference at
+    # all — visible only as an agent that never gets a model.
+    apiKeySecretRef: kagent-anthropic-key
+    apiKeySecretKey: ANTHROPIC_API_KEY
 
-# Controller resources (helm defaults: 100m/128Mi req, 500m/512Mi limit)
+# ==============================================================================
+# CONTROLLER
+# ==============================================================================
 controller:
+  replicas: 1
+  loglevel: "info"
   resources:
     requests:
       cpu: 100m
       memory: 128Mi
     limits:
+      # Chart default is `cpu: 2`, which is a quarter of this laptop on a node
+      # already running ~80 pods. 500m is enough to reconcile eight Agent CRs.
       cpu: 500m
       memory: 512Mi
 
-# Bundled PostgreSQL (required since v0.8, SQLite removed)
-postgres:
+# ==============================================================================
+# UI
+# ==============================================================================
+ui:
+  replicas: 1
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+# ==============================================================================
+# BUILT-IN TOOL SERVER
+# ==============================================================================
+kagent-tools:
+  enabled: true
+  rbac:
+    create: true
+    # The chart's DEFAULT here is cluster-admin — literally
+    # apiGroups/resources/verbs all "*" plus nonResourceURLs "*" — bound to the
+    # kagent-tools ServiceAccount. On a repo whose subject is Kubernetes
+    # security posture that is not an acceptable default to inherit silently.
+    #
+    # readOnly: true swaps it for a scoped get/list/watch ClusterRole over
+    # pods, services, endpoints, configmaps, serviceaccounts, PVCs, RCs,
+    # namespaces, pods/log, events, apps workloads, batch workloads, ingresses,
+    # networkpolicies and HPAs. That is the same posture the hand-written
+    # base/rbac.yaml encoded in `kagent-reader-role`, which this replaces.
+    readOnly: true
+    # Deliberately NOT granting the tool server read access to Secrets.
+    allowSecrets: false
   resources:
     requests:
       cpu: 50m
@@ -46,5 +153,55 @@ postgres:
       cpu: 500m
       memory: 256Mi
 
-# Use Go ADK runtime for faster startup (default since v0.8)
-defaultRuntime: go
+# ==============================================================================
+# DATABASE
+# ==============================================================================
+# Bundled PostgreSQL. Required since 0.8 — SQLite was removed.
+database:
+  postgres:
+    bundled:
+      enabled: true
+      storage: 500Mi
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 256Mi
+
+# ==============================================================================
+# KMCP — OFF, and this is a blocked decision rather than a preference
+# ==============================================================================
+# kmcp owns mcpservers.kagent.dev. Turning it on means installing the real
+# kmcp-crds MCPServer CRD, which is INCOMPATIBLE with the five MCPServer CRs a
+# different workstream already has in fe-signalloom-agents (github-tool,
+# incident-triage-tool, network-probe-tool, policy-eval-tool, vuln-db-tool).
+#
+# Both incompatibilities were proven against the real upstream schema, using a
+# renamed shadow CRD so no live object was touched:
+#
+#   1. version.  The repo's CRs are apiVersion kagent.dev/v1alpha2. The
+#      upstream CRD serves ONLY v1alpha1 (one entry in spec.versions).
+#        no matches for kind "MCPServerProbe" in version "kagent.dev/v1alpha2"
+#
+#   2. shape.  Corrected to v1alpha1, the body still fails: upstream's spec is
+#      {deployment, httpTransport, stdioTransport, timeout, transportType},
+#      `deployment` is required, and `description` does not exist.
+#        strict decoding error: unknown field "spec.description"
+#
+# Neither is visible today because the hand-written CRD this replaces declared
+# `spec: {type: object, x-kubernetes-preserve-unknown-fields: true}` — a schema
+# that validates nothing at all. The five CRs have never been checked against
+# anything.
+#
+# Installing the real CRD therefore requires deleting mcpservers.kagent.dev
+# first, which cascades to all five of those CRs. That is not this change's
+# call to make, so kmcp stays off and the hand-written CRD is left in place
+# untouched. Nothing else needs it: the tool server the eight agents use is a
+# RemoteMCPServer from the kagent chart, not an MCPServer from kmcp.
+#
+# Turning it on is a two-line change here and in values-crds.yaml, once the
+# five CRs are rewritten to v1alpha1 with a `deployment` block.
+kmcp:
+  enabled: false

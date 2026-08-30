@@ -1,0 +1,24 @@
+# d2-signalloom/infra/kagent/values-crds.yaml
+# Values for the kagent-crds chart, 0.9.9.
+#
+# The kagent-crds chart takes exactly one value: `kmcp.enabled`, a condition on
+# its kmcp-crds dependency. It is false here for the same reason it is false in
+# values.yaml — installing the real MCPServer CRD requires first deleting
+# mcpservers.kagent.dev, which cascades to five MCPServer CRs that a different
+# workstream owns and that cannot survive the real schema. The full evidence,
+# including both validation errors as the API server emitted them, is in the
+# KMCP section of values.yaml.
+#
+# With this off, the chart still installs eight CRDs, a superset of the three
+# the hand-written crds/kagent-crds.yaml declared:
+#
+#   agents.kagent.dev                agentharnesses.kagent.dev
+#   modelconfigs.kagent.dev          memories.kagent.dev
+#   remotemcpservers.kagent.dev      modelproviderconfigs.kagent.dev
+#   toolservers.kagent.dev           sandboxagents.kagent.dev
+#
+# mcpservers.kagent.dev is the one CRD that does NOT come from the chart while
+# this stays false; the pre-existing hand-written one continues to serve it.
+
+kmcp:
+  enabled: false

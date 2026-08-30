@@ -1,14 +1,27 @@
 ---
+# What is left of the hand-rolled kagent manifests after the upstream 0.9.9
+# charts took over: the namespace and Signal Loom's network posture, and
+# nothing else.
+#
+# Applied by scripts/kagent-infra.sh BEFORE `helm install`, so the namespace
+# carries Signal Loom's governance labels rather than the bare one
+# `--create-namespace` would produce.
+#
+# Removed from this list, and why:
+#   ../crds            the kagent-crds chart supersedes it, and provides six
+#                      CRDs the hand-written file never had
+#   serviceaccount.yaml the chart creates kagent-controller, kagent-ui,
+#                      kagent-tools, kagent-postgresql, kagent-kmcp-* itself
+#   rbac.yaml          the chart creates kagent-getter-role / kagent-writer-role
+#                      for the controller, and the tool server's read-only role
+#                      is now `kagent-tools.rbac.readOnly: true` in values.yaml
+#   postgres.yaml      the chart's bundled PostgreSQL replaces it
+#   controller.yaml    stub
+#   tool-server.yaml   stub
+#   ui.yaml            stub
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ../crds
   - namespace.yaml
-  - serviceaccount.yaml
-  - rbac.yaml
-  - postgres.yaml
-  - tool-server.yaml
-  - ui.yaml
-  - controller.yaml
   - networkpolicy.yaml

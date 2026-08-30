@@ -1,0 +1,58 @@
+# Images the upstream kagent 0.9.9 charts reference. Consumed by
+# scripts/kagent-infra.sh, which docker-pulls each one on the host and then
+# hands the set to scripts/kind-load-verified.sh — the same pull-to-host then
+# prove-on-node pattern scripts/foundation-images.txt uses, and for the same
+# reason: `kind load` can exit 0 having transferred nothing.
+#
+# ─── Why these are preloaded rather than left to the mirror ────────────────
+#
+# scripts/registry-cache.sh mirrors exactly five hosts: docker.io,
+# registry.k8s.io, ghcr.io, quay.io and mirror.gcr.io. cr.kagent.dev is not
+# among them and there is no hosts.toml for it on the node, so the three
+# cr.kagent.dev images below would be pulled straight from the internet by
+# every kubelet on every cold cluster, with no cache and no verification that
+# they arrived. Preloading them makes the install deterministic; the ghcr.io
+# and docker.io entries are preloaded alongside them so one list covers the
+# whole control plane rather than two mechanisms covering half each.
+#
+# Lines are `REFERENCE` or `REFERENCE  # comment`. Blank lines and comments are
+# skipped. The OBSERVABILITY marker below splits the file: everything above it
+# is always loaded, everything below it only when ENABLE_OBSERVABILITY=true.
+
+cr.kagent.dev/kagent-dev/kagent/controller:0.9.9
+cr.kagent.dev/kagent-dev/kagent/ui:0.9.9
+ghcr.io/kagent-dev/kagent/tools:0.2.1
+docker.io/library/postgres:18.3-alpine
+
+# ghcr.io/kagent-dev/kmcp/controller:0.3.0 is deliberately absent. kmcp is
+# disabled — see the KMCP section of d2-signalloom/infra/kagent/values.yaml for
+# the two proven schema incompatibilities that block it. Re-add this line in
+# the same change that flips kmcp.enabled back to true; the
+# "every always-on image in the list appears in the base render" test in
+# d2-signalloom/test/kagent-chart.bats keeps the two in step in both directions.
+
+# Not referenced by any chart template, and required anyway. The controller
+# materialises each Agent CR into its own Deployment and picks the image from
+# controller.agentImage (repository kagent-dev/kagent/app, registry inherited
+# from the chart-global `registry: cr.kagent.dev`). So it is the image Signal
+# Loom's eight agents in fe-signalloom-agents actually run, and it is invisible
+# to `helm template`. Omitting it makes the install look complete and every
+# reconciled agent sit in ImagePullBackOff.
+cr.kagent.dev/kagent-dev/kagent/app:0.9.9
+
+# controller.skillsInitImage (kagent-dev/kagent/skills-init) is deliberately
+# absent: it is an init container added only to agents that declare
+# `spec.skills`, and none of Signal Loom's eight do. Add it here if that
+# changes.
+
+# --- OBSERVABILITY ---
+# Only loaded when ENABLE_OBSERVABILITY=true, matching
+# d2-signalloom/infra/kagent/values-observability.yaml.
+# Fully qualified deliberately. The chart renders this as the bare
+# `mcp/grafana:latest`, which scripts/lib/image-identity.sh cannot canonicalise
+# (it only expands single-segment Docker Hub names), so the CRI-adopt label step
+# fails with `ctr: image "mcp/grafana:latest": not found` and the whole preload
+# reports FAIL. values-observability.yaml pins the same fully-qualified string
+# into the pod spec so this file, the render and the node all agree.
+docker.io/mcp/grafana:latest
+ghcr.io/kagent-dev/doc2vec/mcp:1.1.14

@@ -131,6 +131,22 @@ role_verbs() {
 		  | .rules[]? | .verbs[]? ] | .[]" "$canonical"
 }
 
+# Verbs granted for ONE resource, scoped to the rule that names it.
+#
+# role_verbs above flattens every rule's verbs together, which was harmless while
+# the Role had a single rule and is not any more. With a second rule for
+# agents.kagent.dev, a flattened check for `patch` passes even if `patch` had
+# moved off pods and onto agents — the assertion would still be true, of the
+# wrong rule. Per-resource scoping is what keeps each grant's boundary testable.
+role_verbs_for_resource() {
+	yq eval-all "
+		[ .spec.resources[]?
+		  | select(.kind == \"Role\" and .metadata.namespace == \"$1\"
+		      and .metadata.name == \"agent-inventory-reader\")
+		  | .rules[]? | select(.resources[]? == \"$2\")
+		  | .verbs[]? ] | .[]" "$canonical"
+}
+
 @test "no discovery grant gives the proxy a cluster-scoped identity" {
 	run bash -c "yq eval-all '
 		[ .spec.resources[]?
@@ -142,10 +158,15 @@ role_verbs() {
 	[ "$output" -eq 0 ]
 }
 
-@test "every discovery grant is pods-only, read plus patch and nothing more" {
+@test "every discovery grant covers the two agent carriers and nothing more" {
 	# Checks EVERY discovery namespace, not just the tenant. The
 	# fe-signalloom-agents Role was previously unguarded, so a mutating verb
 	# could have been added there without any test objecting.
+	#
+	# Two resources are now in scope, because an agent has two carriers: a pod
+	# (Knative-style workloads) and an Agent.kagent.dev CR (Kagent declarative
+	# agents). server.py's _handle_agents lists both. The allow-list stays
+	# exhaustive — a third resource appearing here is still a failure.
 	local ns authored resources verbs forbidden
 	while read -r ns; do
 		[ -n "$ns" ] || continue
@@ -155,25 +176,38 @@ role_verbs() {
 		[ -n "$resources" ] || { echo "no agent-inventory-reader Role in '$authored'"; return 1; }
 		printf '%s\n' "$resources" | grep -Fxq 'pods' || {
 			echo "'$authored' Role does not grant pods"; return 1; }
+		# Without this the eight declarative agents 403 and vanish from /agents
+		# with no error surfaced to the user — a short list and an exit 0.
+		printf '%s\n' "$resources" | grep -Fxq 'agents' || {
+			echo "'$authored' Role does not grant agents.kagent.dev"; return 1; }
 
-		# Anything beyond pods is out of scope for agent discovery.
-		forbidden="$(printf '%s\n' "$resources" | grep -Fxv 'pods' || true)"
+		# Anything beyond the two carriers is out of scope for agent discovery.
+		forbidden="$(printf '%s\n' "$resources" | grep -Fxv -e 'pods' -e 'agents' || true)"
 		[ -z "$forbidden" ] || { echo "'$authored' Role grants extra resources: $forbidden"; return 1; }
 
-		verbs="$(role_verbs "$authored")"
-		# `patch` is required: POST /agents/<id>/stun relabels the pod, and
-		# without it the button 502s on a 403.
+		# `patch` is required ON PODS: POST /agents/<id>/stun relabels the pod,
+		# and without it the button 502s on a 403. Scoped to the pods rule, not
+		# flattened across the Role — see role_verbs_for_resource.
+		verbs="$(role_verbs_for_resource "$authored" pods)"
 		printf '%s\n' "$verbs" | grep -Fxq 'patch' || {
-			echo "'$authored' Role lacks patch — the stun flow will 403"; return 1; }
+			echo "'$authored' Role lacks patch on pods — the stun flow will 403"; return 1; }
 
-		# Every other mutating verb stays denied: the proxy may relabel an
-		# existing agent, never create, replace or remove one.
+		# ...and denied ON AGENTS. Discovery reads declarations; it must never
+		# rewrite them. _resolve_kagent_agent is deliberately not wired into the
+		# stun path for the same reason.
+		forbidden="$(role_verbs_for_resource "$authored" agents \
+			| grep -Fx -e patch -e create -e update -e delete -e deletecollection -e '*' || true)"
+		[ -z "$forbidden" ] || {
+			echo "'$authored' Role grants write verbs on agents: $forbidden"; return 1; }
+
+		# Every other mutating verb stays denied across the whole Role: the proxy
+		# may relabel an existing agent, never create, replace or remove one.
 		#
 		# Collected into a variable and tested with [ -z ], NOT as `! grep ...`.
 		# A `!`-negated command is exempt from errexit, so the previous
 		# `! grep -Fxq delete` form could never fail this test — it passed with
 		# `delete` and even with `*` injected into the Role.
-		forbidden="$(printf '%s\n' "$verbs" | grep -Fx -e create -e update -e delete -e deletecollection -e '*' || true)"
+		forbidden="$(role_verbs "$authored" | grep -Fx -e create -e update -e delete -e deletecollection -e '*' || true)"
 		[ -z "$forbidden" ] || {
 			echo "'$authored' Role grants forbidden verbs: $forbidden"; return 1; }
 	done < <(discovery_namespaces)

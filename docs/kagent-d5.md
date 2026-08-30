@@ -83,30 +83,27 @@ Previous revisions of this document described five. Eight are defined on disk
 `scripts/kagent-agents.sh`, and asserted by the test suites.
 
 Every agent uses the Go ADK runtime and the `anthropic-claude` `ModelConfig`.
-"Tools" below are the `toolNames` each `Agent` CR binds through an `MCPServer`.
 
-1. **`kagent-k8s-reader`** — MCPServer `kagent-tool-server`; tools
-   `k8s_get_resources`, `k8s_get_available_api_resources`. The only agent with a
-   `ClusterRole` (`kagent-k8s-reader-role`: get/list/watch on pods, services,
-   deployments, namespaces, nodes, events).
-2. **`kagent-commit-summariser`** — MCPServer `github-tool`; tools
-   `github_list_commits`, `github_get_commit`. Reads a GitHub token from the
-   `kagent-github-key` Secret.
-3. **`kagent-security-analyst`** — three MCPServers (`kagent-tool-server`,
-   `vuln-db-tool`, `policy-eval-tool`); tools `k8s_get_resources`, `lookup_cve`,
-   `query_advisories`, `evaluate_rbac_policy`, `evaluate_netpol`. Publishes an A2A
-   Agent Card (`agent-card.kagent-security-analyst.v1.json`).
-4. **`kagent-network-auditor`** — MCPServer `network-probe-tool`; tools
-   `audit_netpol_rules`, `probe_spiffe_boundaries`, `inspect_envoy_routes`.
-5. **`kagent-incident-responder`** — MCPServer `incident-triage-tool`; tools
-   `triage_alert_events`, `correlate_restarts`, `propose_remediation`. Publishes an
-   A2A Agent Card (`agent-card.kagent-incident-responder.v1.json`).
-6. **`kagent-compliance-checker`** — MCPServer `kagent-tool-server`; tools
-   `compliance_check_policies`, `compliance_audit_cis`.
-7. **`kagent-finops-optimizer`** — MCPServer `kagent-tool-server`; tools
-   `finops_query_metrics`, `finops_identify_waste`.
-8. **`kagent-chaos-prober`** — MCPServer `kagent-tool-server`; tools
-   `chaos_probe_recovery`, `chaos_simulate_latency`.
+**Tool bindings are deliberately not enumerated here.** They are in active flux —
+five of the eight were re-pointed at real tools while this document was being
+written — and a list of tool names in prose is a copy of the manifest that goes
+stale silently. `kubectl get agents -n fe-signalloom-agents -o yaml` is the
+answer, and `test/kagent-agents.bats` enforces that every name in it exists on
+the live server.
+
+| Agent | Role | Tools status |
+|---|---|---|
+| `kagent-k8s-reader` | Cluster state queries. The only agent with a `ClusterRole` (`kagent-k8s-reader-role`: get/list/watch on pods, services, deployments, namespaces, nodes, events). | real |
+| `kagent-security-analyst` | Posture assessment. Publishes an A2A Agent Card. | real |
+| `kagent-network-auditor` | NetworkPolicy, SPIFFE boundary and Envoy route auditing. | real |
+| `kagent-incident-responder` | SRE triage and restart correlation. Publishes an A2A Agent Card. | real |
+| `kagent-compliance-checker` | Policy and CIS benchmark checks. | real |
+| `kagent-finops-optimizer` | Cost and waste analysis. | real |
+| `kagent-commit-summariser` | Git commit and PR summarisation via `github-tool`. | **roadmap — no `github_*` tool exists on the server** |
+| `kagent-chaos-prober` | Fault injection and recovery probing. | **roadmap — no chaos tool exists on the server** |
+
+The last two are why `test/kagent-agents.bats` fails today. See "Declared tools
+must exist" below.
 
 ### What the agents cannot yet do, and why
 
@@ -204,7 +201,7 @@ Run everything with `make demo-kagent-test` (wraps `scripts/kagent-test.sh`).
 |---|---|---|
 | `d2-signalloom/test/kagent-contract.bats` | Declarative size reduction, label and runtime/ModelConfig/tool contract for all 8 agents, OpenBao path-map keys, SPIFFE name derivation, agent-card schema | Anything about a running cluster |
 | `test/kagent-install.bats` | CRDs registered and serving `v1alpha2` with a status subresource; namespace label; controller/postgres/tool-server/UI scheduled with Services carrying ready endpoints; postgres NetworkPolicy selects real pods | That any component *does* anything |
-| `test/kagent-agents.bats` | Exactly 8 Agent CRs; each agent's MCPServer bindings and callable tool names; every referenced MCPServer exists | Reconciliation, execution |
+| `test/kagent-agents.bats` | Exactly 8 Agent CRs; every agent's declarative shape (runtime, a server, at least one tool, a ModelConfig); every referenced MCPServer exists; **every requested tool name exists on the live MCP server** | Whether a tool call succeeds |
 | `test/kagent-credentials.bats` | ServiceAccounts and their labels; Agent↔ServiceAccount name correspondence; ModelConfig names a model and an existing Secret; GitHub secret wired to the summariser | Whether credentials are usable |
 | `test/kagent-adversarial.bats` | Negative RBAC probes, each gated on the subject existing, plus a **positive control** proving RBAC is evaluated; controller can write `agents/status` but cannot escalate; NetworkPolicy declares Ingress | Boundaries for the seven agents with no RBAC |
 | **`test/kagent-anti-stub.bats`** | **That the control plane is real**: no generic base images, no inline-interpreter containers, no `echo` readiness probes, kagent-published image provenance, tool-server input discrimination, `tools/list` naming, UI is an application, Agent CRs reconciled to non-null status with typed conditions, controller-owned resources, no placeholder model key | — |
@@ -214,6 +211,41 @@ Additionally, `test/acceptance/kagent-agents.spec.ts` drives the dashboard `/age
 page with Playwright and expects all eight agent names to render. It opts out of
 demo mode (`login(page, { demoMode: false })`) because the agents exist only as
 Agent CRs discovered through `fake-integration-proxy`.
+
+### Declared tools must exist
+
+`Ready` on an Agent CR means **compiled and running**. It does not mean the agent
+can do anything. `kagent-chaos-prober` reports `Accepted=True` / `Ready=True`
+while every tool it binds is unknown to the tool server — the controller does not
+validate `toolNames` against the server, so a fabricated tool name is not a
+startup error, it is an agent that silently cannot act.
+
+`test/kagent-agents.bats` closes that gap by asking the live server. Measured
+when the guard was written: **124 tools available, 3 of the 21 requested
+(agent, tool) pairs present.** Asserted per pair, not per distinct name —
+`k8s_get_resources` is requested by two agents, so a name-wise count reads
+2 of 20 and hides that one satisfied name is doing double duty.
+
+Talking to the server has three traps, all documented in `test/lib/mcp.bash`
+because each returns something that looks like an answer:
+
+1. A bare `tools/list` POST returns **HTTP 400**. The handshake is mandatory —
+   `initialize`, keep the `mcp-session-id` response header, send
+   `notifications/initialized`, then call `tools/list`.
+2. The reply may be **SSE-framed (`data: {...}`) or plain JSON**, varying by
+   call. On `kagent-tools:0.2.1`, `tools/list` answers in plain JSON; a parser
+   assuming SSE reads zero tools and reports "the server offers none".
+3. An empty tool list makes every presence check fail, so an unreachable or
+   mis-parsed server reads as *"all 21 tools are missing"* — a true-looking
+   verdict for entirely the wrong reason. The helper therefore **errors on an
+   empty list** instead of returning it.
+
+**Roadmap exemptions.** An agent may declare tools that do not exist yet, but
+only out loud: annotate the Agent CR with `signalloom.ai/tools-roadmap=<reason>`
+and the guard skips it while printing it on every run. A bare `true`/`yes`/`1`
+is rejected — the exemption has to read as a decision, not an oversight. If
+*every* agent were exempt the guard fails rather than passing, because a check
+that skips everything is not a check.
 
 ### Known-red suites
 

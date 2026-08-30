@@ -1,0 +1,323 @@
+#!/usr/bin/env bash
+# d2-signalloom/test/falsify-kagent-credentials.sh
+#
+# Mutation harness. A green test suite is not evidence that it asserts anything;
+# it is evidence that nothing it looks at is currently broken. This breaks each
+# guarded thing in turn and requires the named test to go red.
+#
+# Two hazards this is built to avoid, both learned the hard way:
+#
+#   1. A killed harness leaves the repo mutated. EXIT traps do not survive
+#      SIGKILL, so restoration cannot rely on the trap alone. Every mutation is
+#      restored from a byte-for-byte backup keyed by FULL PATH (basename keys
+#      collide across the three main.tf-shaped files in any real tree), the
+#      restore is verified by sha256, and the harness refuses to start on a
+#      dirty tree so `git checkout -- .` is always available as a last resort.
+#
+#   2. `set -e` plus a trap rewrites the verdict. errexit is deliberately NOT
+#      enabled around the mutate/run/restore cycle: a failing test IS the
+#      expected outcome and must not abort the run.
+#
+# Usage: d2-signalloom/test/falsify-kagent-credentials.sh [test-name-filter]
+
+set -uo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+cd "$REPO_ROOT"
+
+BACKUP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/falsify.XXXXXX")"
+declare -a MUTATED=()
+
+PASS=0; FAIL=0
+declare -a RESULTS=()
+
+restore_all() {
+  local f rel
+  for rel in "${MUTATED[@]:-}"; do
+    [ -n "$rel" ] || continue
+    f="${BACKUP_DIR}/${rel}"
+    [ -f "$f" ] && cp -p "$f" "${REPO_ROOT}/${rel}"
+  done
+  MUTATED=()
+}
+trap 'restore_all; rm -rf "$BACKUP_DIR"' EXIT INT TERM
+
+# Refuse to run against uncommitted work: a mutation harness that crashes on a
+# dirty tree destroys work that has no other copy.
+if [ -n "$(git status --porcelain)" ]; then
+  echo "REFUSING: working tree is dirty. Commit first — this harness edits files in place." >&2
+  git status --porcelain >&2
+  exit 2
+fi
+
+backup() {
+  local rel="$1"
+  mkdir -p "$(dirname "${BACKUP_DIR}/${rel}")"
+  cp -p "${REPO_ROOT}/${rel}" "${BACKUP_DIR}/${rel}"
+  MUTATED+=("$rel")
+}
+
+# Asserts the edit actually landed. A sed whose pattern does not match is a
+# silent no-op, and the test then "fails to fail" for a reason that has nothing
+# to do with the test.
+mutate_sed() {
+  local rel="$1" expr="$2" before after
+  before="$(sha256sum "${REPO_ROOT}/${rel}" | cut -d' ' -f1)"
+  sed -i "$expr" "${REPO_ROOT}/${rel}"
+  after="$(sha256sum "${REPO_ROOT}/${rel}" | cut -d' ' -f1)"
+  [ "$before" != "$after" ] || { echo "    MUTATION NO-OP: '$expr' did not match in $rel"; return 1; }
+  return 0
+}
+
+run_case() {
+  local label="$1" suite="$2" test_name="$3"; shift 3
+  local out rc restored_ok="yes" rel
+
+  printf '\n── %s\n' "$label"
+  # The mutation is applied by the caller-supplied function.
+  if ! "$@"; then
+    RESULTS+=("INCONCLUSIVE  ${label}  (mutation did not apply)")
+    FAIL=$((FAIL + 1)); restore_all; return
+  fi
+
+  out="$(bats "$suite" -f "$test_name" 2>&1)"; rc=$?
+
+  # Restore, then prove the restore was byte-identical.
+  for rel in "${MUTATED[@]:-}"; do
+    [ -n "$rel" ] || continue
+    local pre post
+    pre="$(sha256sum "${BACKUP_DIR}/${rel}" | cut -d' ' -f1)"
+    cp -p "${BACKUP_DIR}/${rel}" "${REPO_ROOT}/${rel}"
+    post="$(sha256sum "${REPO_ROOT}/${rel}" | cut -d' ' -f1)"
+    [ "$pre" = "$post" ] || restored_ok="NO (${rel})"
+  done
+  MUTATED=()
+
+  if [ "$rc" -ne 0 ]; then
+    printf '   test went RED as required   (restore byte-identical: %s)\n' "$restored_ok"
+    RESULTS+=("KILLED        ${label}")
+    PASS=$((PASS + 1))
+  else
+    printf '   TEST STAYED GREEN — it does not guard this   (restore: %s)\n' "$restored_ok"
+    printf '%s\n' "$out" | tail -5
+    RESULTS+=("SURVIVED      ${label}   <-- test asserts nothing here")
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+CRED_SUITE="d2-signalloom/test/kagent-credentials.bats"
+INV_SUITE="d2-signalloom/test/kagent-invoke.bats"
+HTTP_SUITE="d2-signalloom/test/kagent-invoke-http.bats"
+SCRIPT_REL="scripts/kagent-credentials.sh"
+INV_REL="scripts/kagent-invoke.sh"
+MC_REL="d2-signalloom/infra/agent-swarm/kagent-k8s-reader/modelconfig.yaml"
+CTRL_REL="d2-signalloom/infra/kagent/base/controller.yaml"
+
+# ── 1. The loud-failure contract ─────────────────────────────────────────────
+m_fallback() {
+  backup "$SCRIPT_REL"
+  # The exact defect being removed: silently substitute a placeholder.
+  mutate_sed "$SCRIPT_REL" \
+    's|if \[ -z "${ANTHROPIC_API_KEY+set}" \]; then|if false; then|'
+}
+run_case "seed no longer refuses an unset ANTHROPIC_API_KEY" \
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY unset fails and names the variable" m_fallback
+
+m_empty() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|if \[ "$len" -eq 0 \]; then|if false; then|'
+}
+run_case "seed no longer refuses an empty key" \
+  "$CRED_SUITE" "seed with ANTHROPIC_API_KEY empty fails, it is not treated as set" m_empty
+
+m_mock() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|if \[ "$key" = "$RETIRED_MOCK" \]; then|if false; then|'
+}
+run_case "seed no longer refuses the retired placeholder" \
+  "$CRED_SUITE" "seed refuses the retired mock placeholder even if exported" m_mock
+
+m_short() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|if \[ "$len" -lt "$MIN_KEY_LEN" \]; then|if false; then|'
+}
+run_case "seed no longer refuses a truncated key" \
+  "$CRED_SUITE" "seed refuses an implausibly short key rather than writing a partial one" m_short
+
+# ── 2. The leak contract ─────────────────────────────────────────────────────
+m_argv_leak() {
+  backup "$SCRIPT_REL"
+  # The single most likely real-world regression: someone "simplifies" the
+  # stdin plumbing into a command-line argument.
+  mutate_sed "$SCRIPT_REL" \
+    's|printf '"'"'%s'"'"' "$VALIDATED_KEY" . "$KUBECTL" exec -i -n "$BAO_NS" "$pod" -- sh -ec "$remote"|"$KUBECTL" exec -i -n "$BAO_NS" "$pod" -- sh -ec "$remote --leak=$VALIDATED_KEY" </dev/null|'
+}
+run_case "the key is passed in argv instead of on stdin" \
+  "$CRED_SUITE" "the key never reaches argv of any executed command" m_argv_leak
+
+m_xtrace_leak() {
+  backup "$SCRIPT_REL"
+  # Disarm the xtrace shield.
+  mutate_sed "$SCRIPT_REL" 's|^    \*x\*) _XTRACE_HELD=1; set +x ;;|    *x*) _XTRACE_HELD=1; : ;;|'
+}
+run_case "the xtrace shield is disarmed" \
+  "$CRED_SUITE" "the key never appears in xtrace output" m_xtrace_leak
+
+m_mock_returns() {
+  backup "$CTRL_REL"
+  # Someone restores the placeholder Secret.
+  cat >>"${REPO_ROOT}/${CTRL_REL}" <<'YAML'
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-anthropic-key
+  namespace: kagent
+type: Opaque
+stringData:
+  api-key: "mock-anthropic-key-for-local-demo"
+YAML
+  MUTATED+=("$CTRL_REL"); return 0
+}
+run_case "the placeholder Secret is restored to a manifest" \
+  "$CRED_SUITE" "the retired mock placeholder survives nowhere as a value" m_mock_returns
+
+# ── 3. The ModelConfig contract ──────────────────────────────────────────────
+m_nested() {
+  backup "$MC_REL"
+  mutate_sed "$MC_REL" 's|^  apiKeySecret: kagent-anthropic-key|  anthropic2:\n    apiKeySecret: kagent-anthropic-key|'
+}
+run_case "apiKeySecret is removed from spec top level" \
+  "$CRED_SUITE" "ModelConfig sets apiKeySecret at spec top level, per v1alpha2" m_nested
+
+m_keyname() {
+  backup "$MC_REL"
+  mutate_sed "$MC_REL" 's|^  apiKeySecretKey: ANTHROPIC_API_KEY|  apiKeySecretKey: api-key|'
+}
+run_case "apiKeySecretKey reverts to the old api-key name" \
+  "$CRED_SUITE" "ModelConfig declares apiKeySecretKey explicitly" m_keyname
+
+# ── 4. SPIFFE scoping ────────────────────────────────────────────────────────
+m_flat_path() {
+  backup "$SCRIPT_REL"
+  # A flat path: every agent shares one location, so any SVID reads any key.
+  mutate_sed "$SCRIPT_REL" \
+    's|printf '"'"'ns/%s/sa/%s'"'"' "$AGENTS_NS" "$sa"|printf '"'"'shared'"'"'|'
+}
+run_case "the OpenBao path stops being SPIFFE-scoped" \
+  "$CRED_SUITE" "the OpenBao path is scoped by the agent's own SPIFFE path" m_flat_path
+
+m_unbound_role() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|  bound_subject=spiffe://\${td}/\${sp} \\\\|  bound_subject="" \\\\|'
+}
+run_case "the JWT role stops binding to the agent's SPIFFE ID" \
+  "$CRED_SUITE" "seed writes a JWT role bound to the agent's exact SPIFFE ID" m_unbound_role
+
+# ── 5. Secret materialisation ────────────────────────────────────────────────
+m_one_ns() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|SECRET_NAMESPACES="${KAGENT_SECRET_NAMESPACES:-kagent fe-signalloom-agents}"|SECRET_NAMESPACES="${KAGENT_SECRET_NAMESPACES:-kagent}"|'
+}
+run_case "sync writes the Secret to only one namespace" \
+  "$CRED_SUITE" "sync targets both namespaces the ModelConfigs live in" m_one_ns
+
+m_empty_secret() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|if \[ "${len:-0}" -lt "$MIN_KEY_LEN" \]; then|if false; then|'
+}
+run_case "sync creates a Secret from an empty OpenBao read" \
+  "$CRED_SUITE" "sync refuses to create a Secret when OpenBao returns nothing" m_empty_secret
+
+m_leftover() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|^  rm -f "$staged"$|  : # leaked|'
+}
+run_case "sync leaves the staged plaintext key on disk" \
+  "$CRED_SUITE" "sync leaves no plaintext key on disk after it exits" m_leftover
+
+m_verify_prints() {
+  backup "$SCRIPT_REL"
+  mutate_sed "$SCRIPT_REL" 's|      printf '"'"'  %-8s %-7s %-14s %s\\n'"'"' "yes" "$len" "$digest" "$path"|      printf '"'"'  %-8s %-7s %-14s %s %s\\n'"'"' "yes" "$len" "$digest" "$path" "$out"|'
+}
+run_case "verify prints the credential value" \
+  "$CRED_SUITE" "verify reports presence and length but never the value" m_verify_prints
+
+# ── 6. Invocation ────────────────────────────────────────────────────────────
+m_url() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|AGENT_URL="${BASE}/api/a2a/${AGENTS_NS}/${AGENT}/"|AGENT_URL="${BASE}/api/invoke/${AGENT}"|'
+}
+run_case "the A2A endpoint URL stops matching upstream" \
+  "$INV_SUITE" "posts to the upstream A2A agent endpoint" m_url
+
+m_ignore_state() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if \[ "$state" = "failed" \] .. \[ "$state" = "canceled" \] .. \[ "$state" = "rejected" \]; then|if false; then|'
+}
+run_case "a failed task state is no longer treated as failure" \
+  "$INV_SUITE" "exits non-zero when the task state is failed" m_ignore_state
+
+m_ignore_rpc_error() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if \[ -n "$rpc_error" \]; then|if false; then|'
+}
+run_case "a JSON-RPC error object is ignored" \
+  "$INV_SUITE" "exits non-zero on a JSON-RPC error object" m_ignore_rpc_error
+
+m_ignore_empty() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if \[ -z "$text" \]; then|if false; then|'
+}
+run_case "an empty completed task is reported as success" \
+  "$INV_SUITE" "exits non-zero on valid JSON carrying no response text" m_ignore_empty
+
+m_ignore_nonjson() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if ! jq -e . "$RESP" >/dev/null 2>&1; then|if false; then|'
+}
+run_case "an HTML page served as 200 is accepted as a response" \
+  "$INV_SUITE" "exits non-zero on a 200 that is not JSON" m_ignore_nonjson
+
+m_no_card_check() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|^if \[ "$card_code" != "200" \]; then|if false; then|'
+}
+run_case "the agent-card precondition is skipped" \
+  "$INV_SUITE" "exits non-zero when the agent card is not served" m_no_card_check
+
+m_prompt_argv() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|  --data-binary "@${REQ}" \\\\|  --data-binary "$PROMPT" \\\\|'
+}
+run_case "the prompt is passed in curl argv instead of by file" \
+  "$INV_SUITE" "the prompt travels by file, not argv" m_prompt_argv
+
+# ── 7. Real HTTP ─────────────────────────────────────────────────────────────
+m_http_envelope() {
+  backup "$INV_REL"
+  mutate_sed "$INV_REL" 's|    method: "message/send",|    method: "invoke",|'
+}
+run_case "the JSON-RPC method stops being message/send (over real HTTP)" \
+  "$HTTP_SUITE" "real HTTP round trip returns the agent's text and exits zero" m_http_envelope
+
+m_http_escape() {
+  backup "$INV_REL"
+  # Replace jq's escaping with naive string interpolation — the classic bug.
+  mutate_sed "$INV_REL" \
+    's|  jq -n --arg id "$MSG_ID" --arg text "$PROMPT" .{|  printf '"'"'{"jsonrpc":"2.0","id":"%s","method":"message/send","params":{"message":{"role":"user","messageId":"%s","kind":"message","parts":[{"kind":"text","text":"%s"}]}}}'"'"' "$MSG_ID" "$MSG_ID" "$PROMPT" >"$REQ"; false \&\& jq -n --arg id "$MSG_ID" --arg text "$PROMPT" '"'"'{|'
+}
+run_case "JSON escaping is hand-rolled instead of delegated to jq (over real HTTP)" \
+  "$HTTP_SUITE" "a prompt containing quotes, newlines and backslashes survives the wire" m_http_escape
+
+# ── Report ───────────────────────────────────────────────────────────────────
+printf '\n════════════════════════════════════════════════════════════════\n'
+printf 'FALSIFICATION RESULTS\n'
+printf '════════════════════════════════════════════════════════════════\n'
+for r in "${RESULTS[@]}"; do printf '  %s\n' "$r"; done
+printf '\n  killed: %d    survived/inconclusive: %d\n' "$PASS" "$FAIL"
+
+printf '\n  tree clean after restore: '
+if [ -z "$(git status --porcelain)" ]; then printf 'YES\n'; else printf 'NO\n'; git status --porcelain; fi
+
+[ "$FAIL" -eq 0 ]

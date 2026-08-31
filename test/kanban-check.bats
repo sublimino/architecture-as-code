@@ -58,6 +58,10 @@ EOF
 
   run check duration-check --repo "${target}" --min-sec 0
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+  run check duration-check --repo "${target}" --min-sec nan
+  [ "$status" -eq 2 ]
+  [[ "$output" == *"finite non-negative"* ]]
 }
 
 @test "kanban review-record preserves hostile review data" {

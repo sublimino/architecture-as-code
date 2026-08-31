@@ -124,5 +124,12 @@
     "reviewer": "cpai-opencode",
     "verdict": "fail",
     "reason": "Governor live gate failed: force_reconcile rejects all twenty requests because generated UTC requestedAt is not greater than stored +01:00 lastHandledReconcileAt; no 20/20 proof exists."
+  },
+  "9d859": {
+    "task_id": "9d859",
+    "reviewed_at": "2026-08-31T18:40:08Z",
+    "reviewer": "supervisor",
+    "verdict": "REJECTED",
+    "reason": "Hold until 2026-08-31T20:00:00+01:00: restart cannot safely merge absent P4 source refs; done would falsely certify no durable merge; prompt update cannot resolve 10 non-owned staged P4-shaped changes. Reinspect refs and ownership at timeout."
   }
 }

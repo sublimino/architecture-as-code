@@ -35,13 +35,36 @@ setup() {
 
 stage_harness() {
   HARNESS_ROOT="${BATS_TEST_TMPDIR}/harness-repo"
-  mkdir -p "${HARNESS_ROOT}/scripts"
+  STUB_BIN="${HARNESS_ROOT}/bin"
+  mkdir -p "${HARNESS_ROOT}/scripts" "${STUB_BIN}"
   cp "${REPO_ROOT}/scripts/kagent-harness-exec.sh" "${HARNESS_ROOT}/scripts/"
   cat >"${HARNESS_ROOT}/scripts/kagent-test.sh" <<'EOF'
 #!/usr/bin/env bash
 echo 'KAGENT_TALLY passed=1 failed=0 skipped=0'
 EOF
   chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+  cat >"${STUB_BIN}/kubectl" <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"get pods -n kagent"*)
+    [ "${KUBECTL_STUB_FAIL_PODS:-0}" = "1" ] && exit 73
+    printf 'kagent-controller Running\n'
+    ;;
+  *"get agents -n fe-signalloom-agents"*)
+    [ "${KUBECTL_STUB_FAIL_AGENTS:-0}" = "1" ] && exit 74
+    printf 'kagent-k8s-reader\n'
+    ;;
+  *"cluster-info"*)
+    [ "${KUBECTL_STUB_FAIL_CLUSTER_INFO:-0}" = "1" ] && exit 75
+    printf 'Kubernetes control plane is running\n'
+    ;;
+esac
+EOF
+  chmod +x "${STUB_BIN}/kubectl"
+}
+
+run_harness() {
+  run env KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" "$@"
 }
 
 @test "kagent-demo: harness preserves hostile task IDs as JSON data" {
@@ -52,7 +75,7 @@ EOF
   task_id+="$marker"
   task_id+="').touch(), 'task_id': 'rewritten"
 
-  run "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" "$task_id"
+  run_harness "$task_id"
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [ ! -e "$marker" ] || {
     echo "TASK_ID executed as generated Python source"
@@ -74,12 +97,71 @@ PY
 @test "kagent-demo: harness records ordinary task IDs" {
   stage_harness
 
-  run "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" P0
+  run_harness P0
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 
   run jq -r '.task_id' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
   [ "$status" -eq 0 ]
   [ "$output" = "P0" ]
+}
+
+@test "kagent-demo: harness propagates a failed runner after publishing FAILED proof" {
+  stage_harness
+  cat >"${HARNESS_ROOT}/scripts/kagent-test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo 'KAGENT_TALLY passed=1 failed=1 skipped=0'
+exit 42
+EOF
+  chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+
+  run_harness P0
+  [ "$status" -eq 42 ] || { echo "$output"; return 1; }
+  run jq -e '.status == "FAILED" and .test_status == "FAIL" and .test_assertions_failed == 1' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "kagent-demo: harness rejects missing or malformed runner tallies" {
+  stage_harness
+  for tally in '' 'KAGENT_TALLY passed=1 failed=no skipped=0' 'KAGENT_TALLY passed=1 failed=0 skipped=0 extra'; do
+    printf '#!/usr/bin/env bash\nprintf %%s\\n %q\n' "$tally" >"${HARNESS_ROOT}/scripts/kagent-test.sh"
+    chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+
+    run_harness P0
+    [ "$status" -ne 0 ] || { echo "accepted tally: $tally"; return 1; }
+    run jq -e '.status == "FAILED" and (.proof_errors | index("invalid-tally"))' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+    [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  done
+}
+
+@test "kagent-demo: harness fails proof when a Kubernetes evidence probe fails" {
+  stage_harness
+
+  run env KUBECTL_STUB_FAIL_PODS=1 KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" P0
+  [ "$status" -ne 0 ] || { echo "$output"; return 1; }
+  run jq -e '.status == "FAILED" and (.proof_errors | index("kagent-pods"))' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "kagent-demo: concurrent harness runs retain valid proof and clean isolated sidecars" {
+  stage_harness
+  cat >"${HARNESS_ROOT}/scripts/kagent-test.sh" <<'EOF'
+#!/usr/bin/env bash
+sleep 0.1
+echo 'KAGENT_TALLY passed=1 failed=0 skipped=0'
+EOF
+  chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+
+  KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" first >/dev/null &
+  first_pid=$!
+  KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" second >/dev/null &
+  second_pid=$!
+  wait "$first_pid"
+  wait "$second_pid"
+
+  run jq -e '.status == "COMPLETED" and .test_assertions_passed == 1 and .proof_errors == []' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  leftovers="$(compgen -G "${HARNESS_ROOT}/.kagent-preflight-proof.json.inprogress.*" || true)"
+  [ -z "$leftovers" ] || { echo "orphaned sidecars: $leftovers"; return 1; }
 }
 
 @test "kagent-demo: infra status reports the live control-plane pods" {

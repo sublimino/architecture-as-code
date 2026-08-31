@@ -33,6 +33,7 @@ spec:
       containers:
         - name: cardvault-agent
           image: cardvault-agent:latest
+          imagePullPolicy: Never
           args:
             - --mode=run
             - --bao-addr=http://openbao.inf-bao.svc.cluster.local:8200

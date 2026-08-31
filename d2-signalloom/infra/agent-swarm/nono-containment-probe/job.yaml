@@ -30,6 +30,7 @@ spec:
       containers:
         - name: probe
           image: nono-containment-probe:latest
+          imagePullPolicy: Never
           env:
             - name: PROBE_READ_PATH
               value: "/workspace/test.txt"

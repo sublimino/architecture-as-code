@@ -35,6 +35,7 @@ spec:
       containers:
         - name: sentinel
           image: stun-sentinel:latest
+          imagePullPolicy: Never
           env:
             - name: WATCH_NAMESPACE
               value: "fe-signalloom-agents"

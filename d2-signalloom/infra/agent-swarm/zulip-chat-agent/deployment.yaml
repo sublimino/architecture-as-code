@@ -31,6 +31,7 @@ spec:
       containers:
         - name: zulip-chat-agent
           image: zulip-chat-agent:latest
+          imagePullPolicy: Never
           env:
             - name: ZULIP_URL
               valueFrom:

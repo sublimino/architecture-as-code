@@ -23,17 +23,23 @@
 setup() {
   REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
   SELF="$(basename "$BATS_TEST_FILENAME")"
+  SELF_PATH="${BATS_TEST_FILENAME#"${REPO_ROOT}/"}"
   # Anchored to line start: `=======` under a heading and `>>>>>>>` in prose are
   # common in markdown, and a looser pattern would fire on documentation.
   MARKERS='^(<<<<<<< |=======$|>>>>>>> )'
 }
 
+conflict_hits() {
+  local root="$1" excluded_path="$2"
+  ( cd "$root" && git ls-files -z 2>/dev/null \
+      | xargs -0 -r grep -lE "$MARKERS" 2>/dev/null \
+      | grep -vFx -- "$excluded_path" || true )
+}
+
 @test "tree-integrity: no tracked file carries merge conflict markers" {
   # git ls-files, not the working directory: an untracked scratch file with
   # markers is not a problem, a committed one is.
-  hits="$( cd "$REPO_ROOT" && git ls-files -z 2>/dev/null \
-             | xargs -0 -r grep -lE "$MARKERS" 2>/dev/null \
-             | grep -vF "$SELF" || true )"
+  hits="$(conflict_hits "$REPO_ROOT" "$SELF_PATH")"
   [ -z "$hits" ] || {
     echo "committed conflict markers in:"
     echo "$hits"
@@ -57,6 +63,20 @@ setup() {
   [ -n "$hits" ] || {
     echo "the guard did not catch a planted conflict — its pattern is broken,"
     echo "so every green run above meant 'unsearchable', not 'clean'"
+    return 1
+  }
+}
+
+@test "tree-integrity: a similar tracked filename is not self-filtered" {
+  scratch="${BATS_TEST_TMPDIR}/similar-name"
+  mkdir -p "${scratch}/nested"
+  ( cd "$scratch" && git init -q . && git config user.email t@t && git config user.name t )
+  printf '<<<<<<< HEAD\n=======\n>>>>>>> other\n' >"${scratch}/nested/${SELF}.fixture"
+  ( cd "$scratch" && git add -A )
+
+  hits="$(conflict_hits "$scratch" "nested/${SELF}" || true)"
+  [ "${hits}" = "nested/${SELF}.fixture" ] || {
+    echo "a similarly named tracked file was incorrectly self-filtered: ${hits}"
     return 1
   }
 }

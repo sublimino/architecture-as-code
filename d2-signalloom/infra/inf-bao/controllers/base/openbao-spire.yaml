@@ -104,6 +104,7 @@ spec:
   # than landing neither.
   strategy:
     type: Recreate
+    rollingUpdate: null
   selector:
     matchLabels:
       app.kubernetes.io/name: spire-server

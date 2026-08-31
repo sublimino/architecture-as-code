@@ -1,8 +1,9 @@
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
   name: stun-sentinel
+  namespace: fe-signalloom-agents
   labels:
     app.kubernetes.io/name: stun-sentinel
     signalloom.ai/agent: "true"
@@ -13,9 +14,10 @@ rules:
     verbs: ["get", "list", "watch", "patch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
   name: stun-sentinel
+  namespace: fe-signalloom-agents
   labels:
     app.kubernetes.io/name: stun-sentinel
     signalloom.ai/agent: "true"
@@ -25,6 +27,6 @@ subjects:
     name: stun-sentinel
     namespace: fe-signalloom-agents
 roleRef:
-  kind: ClusterRole
+  kind: Role
   name: stun-sentinel
   apiGroup: rbac.authorization.k8s.io

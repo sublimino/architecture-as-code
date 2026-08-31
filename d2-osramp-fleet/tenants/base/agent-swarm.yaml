@@ -95,7 +95,7 @@ spec:
       metadata: {name: agent-swarm-flux-workloads}
       rules:
         - apiGroups: [""]
-          resources: [configmaps, events, pods, secrets, serviceaccounts, services, persistentvolumeclaims]
+          resources: [configmaps, events, pods, pods/log, secrets, serviceaccounts, services, persistentvolumeclaims]
           verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [apps]
           resources: [deployments, replicasets, statefulsets, daemonsets]

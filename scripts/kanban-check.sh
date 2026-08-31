@@ -97,10 +97,26 @@ case "$subcommand" in
       exceptions=$((exceptions + 1))
       exception_details+=("MISSING PROOF ARTIFACT: .kagent-preflight-proof.json not found on disk")
     else
-      proof_status="$(/usr/bin/python3 -c "import json; p=json.load(open('${proof_file}')); print(p.get('status','UNKNOWN'))" 2>/dev/null || echo "CORRUPT")"
-      if [[ "$proof_status" != "COMPLETED" && "$proof_status" != "STARTED" ]]; then
+      proof_status="$(/usr/bin/python3 - "$proof_file" <<'PY' 2>/dev/null || echo "CORRUPT"
+import json
+import sys
+
+with open(sys.argv[1]) as handle:
+    proof = json.load(handle)
+
+if proof.get("status") != "COMPLETED":
+    print(proof.get("status", "UNKNOWN"))
+elif proof.get("test_status") != "PASS":
+    print("TEST_" + str(proof.get("test_status", "UNKNOWN")))
+elif proof.get("proof_errors"):
+    print("PROOF_ERRORS")
+else:
+    print("VALID")
+PY
+)"
+      if [[ "$proof_status" != "VALID" ]]; then
         exceptions=$((exceptions + 1))
-        exception_details+=("INVALID PROOF ARTIFACT: .kagent-preflight-proof.json status is '${proof_status}'")
+        exception_details+=("INVALID PROOF ARTIFACT: .kagent-preflight-proof.json state is '${proof_status}'")
       fi
     fi
 
@@ -139,7 +155,14 @@ if os.path.exists(ledger_file):
         ledger = json.load(f)
 
 proof_file = os.path.join(repo_root, '.kagent-preflight-proof.json')
-has_proof = os.path.exists(proof_file)
+try:
+    with open(proof_file) as f:
+        proof = json.load(f)
+    has_proof = (proof.get('status') == 'COMPLETED'
+                 and proof.get('test_status') == 'PASS'
+                 and not proof.get('proof_errors'))
+except (OSError, ValueError, TypeError):
+    has_proof = False
 
 failed = []
 checked = 0
@@ -186,7 +209,14 @@ if os.path.exists(ledger_file):
         ledger = json.load(f)
 
 proof_file = os.path.join(repo_root, '.kagent-preflight-proof.json')
-has_proof = os.path.exists(proof_file)
+try:
+    with open(proof_file) as f:
+        proof = json.load(f)
+    has_proof = (proof.get('status') == 'COMPLETED'
+                 and proof.get('test_status') == 'PASS'
+                 and not proof.get('proof_errors'))
+except (OSError, ValueError, TypeError):
+    has_proof = False
 
 failed = []
 checked = 0

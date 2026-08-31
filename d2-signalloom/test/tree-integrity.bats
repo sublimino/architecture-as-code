@@ -30,10 +30,25 @@ setup() {
 }
 
 conflict_hits() {
-  local root="$1" excluded_path="$2"
-  ( cd "$root" && git ls-files -z 2>/dev/null \
-      | xargs -0 -r grep -lE "$MARKERS" 2>/dev/null \
-      | grep -vFx -- "$excluded_path" || true )
+  local root="$1" excluded_path="$2" matches filtered rc
+  matches="$(
+    cd "$root" && git ls-files -z |
+      xargs -0 -r sh -c '
+        pattern="$1"
+        shift
+        grep -lE "$pattern" "$@"
+        rc=$?
+        [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ]
+      ' sh "$MARKERS"
+  )" || return 1
+  [ -n "$matches" ] || return 0
+
+  filtered="$(printf '%s\n' "$matches" | grep -vFx -- "$excluded_path")" || {
+    rc=$?
+    [ "$rc" -eq 1 ] || return "$rc"
+    return 0
+  }
+  printf '%s\n' "$filtered"
 }
 
 @test "tree-integrity: no tracked file carries merge conflict markers" {
@@ -77,6 +92,17 @@ conflict_hits() {
   hits="$(conflict_hits "$scratch" "nested/${SELF}" || true)"
   [ "${hits}" = "nested/${SELF}.fixture" ] || {
     echo "a similarly named tracked file was incorrectly self-filtered: ${hits}"
+    return 1
+  }
+}
+
+@test "tree-integrity: marker scan fails when the Git inventory is unavailable" {
+  scratch="${BATS_TEST_TMPDIR}/not-a-repository"
+  mkdir -p "$scratch"
+
+  run conflict_hits "$scratch" "$SELF_PATH"
+  [ "$status" -ne 0 ] || {
+    echo "marker scan accepted an unavailable Git inventory"
     return 1
   }
 }

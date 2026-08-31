@@ -32,6 +32,8 @@ setup() {
 conflict_hits() {
   local root="$1" excluded_path="$2" matches filtered rc
   matches="$(
+    set -o pipefail
+    # shellcheck disable=SC2016 # Variables expand in the per-xargs shell.
     cd "$root" && git ls-files -z |
       xargs -0 -r sh -c '
         pattern="$1"

@@ -80,8 +80,8 @@ proof = {
     "timestamp": timestamp,
     "git_commit": git_sha,
     "cluster_info": cluster_info.strip(),
-    "kagent_pods": kagent_pods.split(",") if kagent_pods != "none" else [],
-    "agent_crs": agent_crs.split(",") if agent_crs != "none" else [],
+    "kagent_pods": kagent_pods.split(",") if kagent_pods else [],
+    "agent_crs": agent_crs.split(",") if agent_crs else [],
     "proof_errors": proof_errors.split(",") if proof_errors else [],
     "status": "STARTED",
     "proof_path": proof_file,
@@ -120,6 +120,9 @@ else
 fi
 
 if [ "${#PROOF_ERRORS[@]}" -gt 0 ]; then
+  TEST_STATUS=1
+fi
+if [ "${FAILED_COUNT}" -gt 0 ]; then
   TEST_STATUS=1
 fi
 proof_errors="$(IFS=,; printf '%s' "${PROOF_ERRORS[*]}")"

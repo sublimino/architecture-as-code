@@ -33,6 +33,55 @@ setup() {
   PROOF_FILE="${REPO_ROOT}/.kagent-preflight-proof.json"
 }
 
+stage_harness() {
+  HARNESS_ROOT="${BATS_TEST_TMPDIR}/harness-repo"
+  mkdir -p "${HARNESS_ROOT}/scripts"
+  cp "${REPO_ROOT}/scripts/kagent-harness-exec.sh" "${HARNESS_ROOT}/scripts/"
+  cat >"${HARNESS_ROOT}/scripts/kagent-test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo 'KAGENT_TALLY passed=1 failed=0 skipped=0'
+EOF
+  chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+}
+
+@test "kagent-demo: harness preserves hostile task IDs as JSON data" {
+  stage_harness
+  marker="${BATS_TEST_TMPDIR}/task-id-injected"
+  task_id=$'quoted "task"\nline'
+  task_id+=", 'injected': __import__('pathlib').Path('"
+  task_id+="$marker"
+  task_id+="').touch(), 'task_id': 'rewritten"
+
+  run "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" "$task_id"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ ! -e "$marker" ] || {
+    echo "TASK_ID executed as generated Python source"
+    return 1
+  }
+
+  proof="${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  run python3 - "$proof" "$task_id" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as handle:
+    proof = json.load(handle)
+assert proof["task_id"] == sys.argv[2]
+PY
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "kagent-demo: harness records ordinary task IDs" {
+  stage_harness
+
+  run "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" P0
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+
+  run jq -r '.task_id' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ]
+  [ "$output" = "P0" ]
+}
+
 @test "kagent-demo: infra status reports the live control-plane pods" {
   run bash "${REPO_ROOT}/scripts/kagent-infra.sh" status
   [ "$status" -eq 0 ]

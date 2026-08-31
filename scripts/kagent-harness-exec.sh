@@ -37,21 +37,24 @@ KAGENT_PODS="$(/usr/local/bin/kubectl get pods -n kagent --no-headers 2>/dev/nul
 AGENT_CRS="$(/usr/local/bin/kubectl get agents -n fe-signalloom-agents --no-headers 2>/dev/null | awk '{print $1}' | paste -sd, - || echo "none")"
 
 # Step 2: Write structured proof JSON immediately
-python3 -c "
+python3 - "$TASK_ID" "$TIMESTAMP" "$GIT_SHA" "$CLUSTER_INFO" "$KAGENT_PODS" "$AGENT_CRS" "$PROOF_FILE" "$PROOF_INPROGRESS" <<'PY'
 import json
+import sys
+
+task_id, timestamp, git_sha, cluster_info, kagent_pods, agent_crs, proof_file, inprogress = sys.argv[1:]
 proof = {
-    'task_id': '${TASK_ID}',
-    'timestamp': '${TIMESTAMP}',
-    'git_commit': '${GIT_SHA}',
-    'cluster_info': '''${CLUSTER_INFO}'''.strip(),
-    'kagent_pods': '${KAGENT_PODS}'.split(',') if '${KAGENT_PODS}' != 'none' else [],
-    'agent_crs': '${AGENT_CRS}'.split(',') if '${AGENT_CRS}' != 'none' else [],
-    'status': 'STARTED',
-    'proof_path': '${PROOF_FILE}'
+    "task_id": task_id,
+    "timestamp": timestamp,
+    "git_commit": git_sha,
+    "cluster_info": cluster_info.strip(),
+    "kagent_pods": kagent_pods.split(",") if kagent_pods != "none" else [],
+    "agent_crs": agent_crs.split(",") if agent_crs != "none" else [],
+    "status": "STARTED",
+    "proof_path": proof_file,
 }
-with open('${PROOF_INPROGRESS}', 'w') as f:
-    json.dump(proof, f, indent=2)
-"
+with open(inprogress, "w") as handle:
+    json.dump(proof, handle, indent=2)
+PY
 
 # Step 3: Run verification test suite, capturing its output so the tally in the
 # proof artefact is a measurement rather than an assertion of faith.
@@ -84,22 +87,25 @@ SKIPPED_COUNT="${SKIPPED_COUNT:-0}"
 # hand, unconnected to any run, and never equal to the number of tests in the
 # repo. It was then read back by test/kagent-demo-harness.bats and quoted as
 # evidence. It is now whatever the runner actually counted.
-python3 -c "
-import json, os
-with open('${PROOF_INPROGRESS}') as f:
-    proof = json.load(f)
-proof['status'] = 'COMPLETED' if ${TEST_STATUS} == 0 else 'FAILED'
-proof['test_status'] = 'PASS' if ${TEST_STATUS} == 0 else 'FAIL'
-proof['test_assertions_passed'] = ${PASSED_COUNT}
-proof['test_assertions_failed'] = ${FAILED_COUNT}
-proof['test_assertions_skipped'] = ${SKIPPED_COUNT}
-tmp = '${PROOF_INPROGRESS}'
-with open(tmp, 'w') as f:
-    json.dump(proof, f, indent=2)
-# os.replace is atomic within a filesystem: no reader ever sees a partial file.
-os.replace(tmp, '${PROOF_FILE}')
-print('✓ Proof file published at: ' + '${PROOF_FILE}')
-"
+python3 - "$PROOF_INPROGRESS" "$TEST_STATUS" "$PASSED_COUNT" "$FAILED_COUNT" "$SKIPPED_COUNT" "$PROOF_FILE" <<'PY'
+import json
+import os
+import sys
 
-echo "==> [Harness] Task '${TASK_ID}' completed with status: $([ $TEST_STATUS -eq 0 ] && echo 'SUCCESS' || echo 'FAILURE')"
+inprogress, test_status, passed, failed, skipped, proof_file = sys.argv[1:]
+with open(inprogress) as handle:
+    proof = json.load(handle)
+proof["status"] = "COMPLETED" if test_status == "0" else "FAILED"
+proof["test_status"] = "PASS" if test_status == "0" else "FAIL"
+proof["test_assertions_passed"] = int(passed)
+proof["test_assertions_failed"] = int(failed)
+proof["test_assertions_skipped"] = int(skipped)
+with open(inprogress, "w") as handle:
+    json.dump(proof, handle, indent=2)
+# os.replace is atomic within a filesystem: no reader ever sees a partial file.
+os.replace(inprogress, proof_file)
+print("✓ Proof file published at: " + proof_file)
+PY
+
+echo "==> [Harness] Task '${TASK_ID}' completed with status: $([ "$TEST_STATUS" -eq 0 ] && echo 'SUCCESS' || echo 'FAILURE')"
 cat "${PROOF_FILE}"

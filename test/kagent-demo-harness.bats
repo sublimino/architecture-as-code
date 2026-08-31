@@ -48,10 +48,12 @@ EOF
 case "$*" in
   *"get pods -n kagent"*)
     [ "${KUBECTL_STUB_FAIL_PODS:-0}" = "1" ] && exit 73
+    [ "${KUBECTL_STUB_EMPTY_PODS:-0}" = "1" ] && exit 0
     printf 'kagent-controller Running\n'
     ;;
   *"get agents -n fe-signalloom-agents"*)
     [ "${KUBECTL_STUB_FAIL_AGENTS:-0}" = "1" ] && exit 74
+    [ "${KUBECTL_STUB_EMPTY_AGENTS:-0}" = "1" ] && exit 0
     printf 'kagent-k8s-reader\n'
     ;;
   *"cluster-info"*)
@@ -139,6 +141,29 @@ EOF
   run env KUBECTL_STUB_FAIL_PODS=1 KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" P0
   [ "$status" -ne 0 ] || { echo "$output"; return 1; }
   run jq -e '.status == "FAILED" and (.proof_errors | index("kagent-pods"))' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "kagent-demo: harness rejects a passing runner with failed tally" {
+  stage_harness
+  cat >"${HARNESS_ROOT}/scripts/kagent-test.sh" <<'EOF'
+#!/usr/bin/env bash
+echo 'KAGENT_TALLY passed=1 failed=1 skipped=0'
+EOF
+  chmod +x "${HARNESS_ROOT}/scripts/kagent-test.sh"
+
+  run_harness P0
+  [ "$status" -ne 0 ] || { echo "$output"; return 1; }
+  run jq -e '.status == "FAILED" and .test_status == "FAIL" and .test_assertions_failed == 1' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "kagent-demo: harness records empty successful evidence lists as empty" {
+  stage_harness
+
+  run env KUBECTL_STUB_EMPTY_PODS=1 KUBECTL_STUB_EMPTY_AGENTS=1 KUBECTL="${STUB_BIN}/kubectl" "${HARNESS_ROOT}/scripts/kagent-harness-exec.sh" P0
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  run jq -e '.kagent_pods == [] and .agent_crs == [] and .proof_errors == []' "${HARNESS_ROOT}/.kagent-preflight-proof.json"
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
@@ -267,7 +292,9 @@ EOF
   if [ -n "$changed" ]; then
     echo "the proof artefact was generated at '$proof_sha'; these kagent files"
     echo "have changed since, so it is evidence about a different tree:"
-    printf '  %s\n' $changed
+    while IFS= read -r changed_file; do
+      printf '  %s\n' "$changed_file"
+    done <<<"$changed"
     echo "regenerate with: scripts/kagent-harness-exec.sh"
   fi
   [ -z "$changed" ]
@@ -350,6 +377,7 @@ EOF
   # sourcing it from inside a test of itself would recurse.
   runner="${REPO_ROOT}/scripts/kagent-test.sh"
   [ -f "$runner" ] || { echo "runner not found at $runner"; return 1; }
+  # shellcheck disable=SC2016 # The literal ${REPO_ROOT} is the parse target.
   mapfile -t suites < <(sed -n '/^SUITES=(/,/^)/p' "$runner" |
     sed -n 's|.*"\${REPO_ROOT}/\([^"]*\)".*|\1|p')
 

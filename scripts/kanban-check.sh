@@ -4,13 +4,10 @@
 
 set -euo pipefail
 
-export PATH="/home/andy/src/cp/osramp-demo/scripts/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export PATH="${REPO_ROOT}/scripts/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
 UPSTREAM_CHECK="/home/andy/.andy_sync/confExt/skills/ajm-cline-kanban/Tools/kanban-check.sh"
 LEDGER_FILE="${REPO_ROOT}/.kanban-review-ledger.json"
-WORKSPACE_NAME="$(basename "${REPO_ROOT}")"
-SESSIONS_FILE="${HOME}/.cline/kanban/workspaces/${WORKSPACE_NAME}/sessions.json"
-BOARD_FILE="${HOME}/.cline/kanban/workspaces/${WORKSPACE_NAME}/board.json"
 
 MIN_DURATION_SEC=5.0
 
@@ -43,16 +40,27 @@ case "$subcommand" in
 
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --repo) shift; repo="${1:-$repo}" ;;
-        --shortcode) shift; shortcode="${1:-$shortcode}" ;;
-        *) shift ;;
+        --repo)
+          (( $# >= 2 )) || { echo "ERROR: --repo requires a value" >&2; exit 2; }
+          shift
+          repo="$1"
+          ;;
+        --shortcode)
+          (( $# >= 2 )) || { echo "ERROR: --shortcode requires a value" >&2; exit 2; }
+          shift
+          shortcode="$1"
+          ;;
+        *) echo "ERROR: unknown doctor option: $1" >&2; exit 2 ;;
       esac
+      [[ -n "${repo}" && -n "${shortcode}" ]] || {
+        echo "ERROR: doctor options require values" >&2
+        exit 2
+      }
+      shift
     done
 
     RED='\033[0;31m'
     GRN='\033[0;32m'
-    YEL='\033[0;33m'
-    CYN='\033[0;36m'
     RST='\033[0m'
 
     exceptions=0
@@ -135,12 +143,41 @@ PY
     ;;
 
   output-check)
-    python3 -c "
-import json, sys, os
+    repo="${REPO_ROOT}"
+    min_lines=0
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --repo)
+          (( $# >= 2 )) || { echo "ERROR: --repo requires a value" >&2; exit 2; }
+          shift
+          repo="$1"
+          ;;
+        --min-lines)
+          (( $# >= 2 )) || { echo "ERROR: --min-lines requires a value" >&2; exit 2; }
+          shift
+          min_lines="$1"
+          ;;
+        *)
+          echo "ERROR: unknown output-check option: $1" >&2
+          exit 2
+          ;;
+      esac
+      shift
+    done
+    [[ "$min_lines" =~ ^[0-9]+$ ]] || {
+      echo "ERROR: --min-lines must be a non-negative integer" >&2
+      exit 2
+    }
+    python3 - "$repo" "$min_lines" <<'PY'
+import json
+import os
+import sys
 
-sessions_file = '${SESSIONS_FILE}'
-ledger_file = '${LEDGER_FILE}'
-repo_root = '${REPO_ROOT}'
+repo_root, min_lines_raw = sys.argv[1:]
+workspace_name = os.path.basename(os.path.abspath(repo_root))
+sessions_file = os.path.join(os.path.expanduser('~'), '.cline', 'kanban', 'workspaces', workspace_name, 'sessions.json')
+ledger_file = os.path.join(repo_root, '.kanban-review-ledger.json')
+min_lines = int(min_lines_raw)
 
 if not os.path.exists(sessions_file):
     print('WARN: sessions.json not found')
@@ -154,15 +191,17 @@ if os.path.exists(ledger_file):
     with open(ledger_file) as f:
         ledger = json.load(f)
 
+proof_task_id = None
 proof_file = os.path.join(repo_root, '.kagent-preflight-proof.json')
 try:
     with open(proof_file) as f:
         proof = json.load(f)
-    has_proof = (proof.get('status') == 'COMPLETED'
-                 and proof.get('test_status') == 'PASS'
-                 and not proof.get('proof_errors'))
+    if (proof.get('status') == 'COMPLETED'
+            and proof.get('test_status') == 'PASS'
+            and not proof.get('proof_errors')):
+        proof_task_id = proof.get('task_id')
 except (OSError, ValueError, TypeError):
-    has_proof = False
+    pass
 
 failed = []
 checked = 0
@@ -174,7 +213,7 @@ for task_id, s in sessions.items():
         lines = len(s.get('lines', []))
         reviewed = task_id in ledger and ledger[task_id].get('verdict') == 'APPROVED'
         
-        if lines == 0 and not reviewed and not has_proof:
+        if lines < min_lines and not reviewed and task_id != proof_task_id:
             failed.append((task_id, s.get('agentId', 'unknown'), state, lines))
 
 if failed:
@@ -184,15 +223,49 @@ if failed:
     sys.exit(1)
 else:
     print('✓ output-check: PASS')
-"
+PY
     ;;
 
   duration-check)
     min_sec="${MIN_DURATION_SEC}"
-    python3 -c "
-import json, sys, os
+    repo="${REPO_ROOT}"
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --repo)
+          (( $# >= 2 )) || { echo "ERROR: --repo requires a value" >&2; exit 2; }
+          shift
+          repo="$1"
+          ;;
+        --min-sec)
+          (( $# >= 2 )) || { echo "ERROR: --min-sec requires a value" >&2; exit 2; }
+          shift
+          min_sec="$1"
+          ;;
+        *)
+          echo "ERROR: unknown duration-check option: $1" >&2
+          exit 2
+          ;;
+      esac
+      shift
+    done
+    python3 - "$repo" "$min_sec" <<'PY'
+import json
+import math
+import os
+import sys
 
-sessions_file = '${SESSIONS_FILE}'
+repo_root, min_sec_raw = sys.argv[1:]
+workspace_name = os.path.basename(os.path.abspath(repo_root))
+sessions_file = os.path.join(os.path.expanduser('~'), '.cline', 'kanban', 'workspaces', workspace_name, 'sessions.json')
+ledger_file = os.path.join(repo_root, '.kanban-review-ledger.json')
+try:
+    min_sec = float(min_sec_raw)
+except ValueError:
+    print('ERROR: --min-sec must be a finite non-negative number', file=sys.stderr)
+    sys.exit(2)
+if not math.isfinite(min_sec) or min_sec < 0:
+    print('ERROR: --min-sec must be a finite non-negative number', file=sys.stderr)
+    sys.exit(2)
 if not os.path.exists(sessions_file):
     print('WARN: sessions.json not found')
     sys.exit(0)
@@ -200,28 +273,25 @@ if not os.path.exists(sessions_file):
 with open(sessions_file) as f:
     sessions = json.load(f)
 
-ledger_file = '${LEDGER_FILE}'
-repo_root = '${REPO_ROOT}'
-
 ledger = {}
 if os.path.exists(ledger_file):
     with open(ledger_file) as f:
         ledger = json.load(f)
 
+proof_task_id = None
 proof_file = os.path.join(repo_root, '.kagent-preflight-proof.json')
 try:
     with open(proof_file) as f:
         proof = json.load(f)
-    has_proof = (proof.get('status') == 'COMPLETED'
-                 and proof.get('test_status') == 'PASS'
-                 and not proof.get('proof_errors'))
+    if (proof.get('status') == 'COMPLETED'
+            and proof.get('test_status') == 'PASS'
+            and not proof.get('proof_errors')):
+        proof_task_id = proof.get('task_id')
 except (OSError, ValueError, TypeError):
-    has_proof = False
+    pass
 
 failed = []
 checked = 0
-min_sec = float('${min_sec}')
-
 for task_id, s in sessions.items():
     state = s.get('state', '')
     if state in ['awaiting_review', 'completed', 'trash', 'done']:
@@ -231,7 +301,7 @@ for task_id, s in sessions.items():
         dur = (updated - started) / 1000.0 if started and updated else 0.0
         reviewed = task_id in ledger and ledger[task_id].get('verdict') == 'APPROVED'
         
-        if dur < min_sec and not reviewed and not has_proof:
+        if dur < min_sec and not reviewed and task_id != proof_task_id:
             failed.append((task_id, s.get('agentId', 'unknown'), dur, s.get('reviewReason', 'exit')))
 
 if failed:
@@ -241,7 +311,7 @@ if failed:
     sys.exit(1)
 else:
     print(f'✓ duration-check: PASS')
-"
+PY
     ;;
 
   review-record)
@@ -252,12 +322,20 @@ else:
     
     while [[ $# -gt 0 ]]; do
       case "$1" in
-        --task-id) shift; task_id="${1:-}" ;;
-        --verdict) shift; verdict="${1:-}" ;;
-        --reason) shift; reason="${1:-}" ;;
-        --reviewer) shift; reviewer="${1:-}" ;;
-        *) shift ;;
+        --task-id|--verdict|--reason|--reviewer)
+          option="$1"
+          (( $# >= 2 )) || { echo "ERROR: ${option} requires a value" >&2; exit 2; }
+          shift
+          case "$option" in
+            --task-id) task_id="$1" ;;
+            --verdict) verdict="$1" ;;
+            --reason) reason="$1" ;;
+            --reviewer) reviewer="$1" ;;
+          esac
+          ;;
+        *) echo "ERROR: unknown review-record option: $1" >&2; exit 2 ;;
       esac
+      shift
     done
 
     if [[ -z "$task_id" ]]; then
@@ -265,30 +343,59 @@ else:
       exit 1
     fi
 
-    python3 -c "
-import json, os, time
+    python3 - "$LEDGER_FILE" "$task_id" "$verdict" "$reason" "$reviewer" <<'PY'
+import fcntl
+import json
+import os
+import sys
+import tempfile
+import time
 
-ledger_file = '${LEDGER_FILE}'
-ledger = {}
-if os.path.exists(ledger_file):
-    try:
-        with open(ledger_file) as f:
-            ledger = json.load(f)
-    except Exception:
+ledger_file, task_id, verdict, reason, reviewer = sys.argv[1:]
+lock_file = ledger_file + '.lock'
+with open(lock_file, 'a+', encoding='utf-8') as lock:
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    if os.path.exists(ledger_file):
+        try:
+            with open(ledger_file, encoding='utf-8') as handle:
+                ledger = json.load(handle)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f'ERROR: review ledger is unreadable: {exc}', file=sys.stderr)
+            sys.exit(1)
+        if not isinstance(ledger, dict):
+            print('ERROR: review ledger must contain a JSON object', file=sys.stderr)
+            sys.exit(1)
+    else:
         ledger = {}
 
-ledger['${task_id}'] = {
-    'task_id': '${task_id}',
-    'reviewed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-    'reviewer': '${reviewer}',
-    'verdict': '${verdict}',
-    'reason': '''${reason}'''.strip()
-}
+    if task_id in ledger:
+        print(f'ERROR: review already exists for task {task_id}', file=sys.stderr)
+        sys.exit(1)
 
-with open(ledger_file, 'w') as f:
-    json.dump(ledger, f, indent=2)
-print(f'✓ Recorded review for task ${task_id}: ${verdict}')
-"
+    ledger[task_id] = {
+        'task_id': task_id,
+        'reviewed_at': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        'reviewer': reviewer,
+        'verdict': verdict,
+        'reason': reason.strip(),
+    }
+    directory = os.path.dirname(ledger_file) or '.'
+    fd, temporary = tempfile.mkstemp(prefix='.kanban-review-ledger.', dir=directory)
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as handle:
+            json.dump(ledger, handle, indent=2)
+            handle.write('\n')
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, ledger_file)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+print(f'✓ Recorded review for task {task_id}: {verdict}')
+PY
     ;;
 
   review-ledger)

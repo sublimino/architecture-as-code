@@ -20,6 +20,7 @@ resources:
   - ../base/policies.yaml
   - ../base/infra.yaml
   - ../base/agent-trust.yaml
+  - ../base/agent-swarm.yaml
   # OSRAMP and Olly excluded — signalloom-only on this branch:
   # - ../base/apps.yaml
   # - ../base/olly.yaml
@@ -96,6 +97,31 @@ patches:
           metadata:
             name: cosign-pub
             namespace: << inputs.tenant >>
+            annotations:
+              fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"
+  - target:
+      group: fluxcd.controlplane.io
+      version: v1
+      kind: ResourceSet
+      name: agent-swarm
+    patch: |
+      # Index 8: OCIRepository follows Namespace, ServiceAccount, two
+      # ClusterRoles (namespaces, workloads), CRB (namespaces), RoleBinding
+      # (workloads), ClusterRole (cluster-rbac), CRB (cluster-rbac).
+      - op: add
+        path: /spec/resources/8/spec/verify
+        value:
+          provider: cosign
+          secretRef:
+            name: cosign-pub
+      - op: add
+        path: /spec/resources/-
+        value:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: cosign-pub
+            namespace: fe-signalloom-agents
             annotations:
               fluxcd.controlplane.io/copyFrom: "flux-system/cosign-pub"
   - target:

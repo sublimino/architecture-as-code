@@ -7,4 +7,6 @@ resources:
   - networkpolicy.yaml
   # Shared prerequisite for every Agent CR in this namespace — without it they
   # do not compile. Listed after namespace.yaml because it lives in it.
-  - remotemcpserver.yaml
+  # Requires kagent CRDs (kagent.dev/v1alpha2); excluded until the kagent
+  # chart is deployed on the cluster.
+  # - remotemcpserver.yaml

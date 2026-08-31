@@ -95,7 +95,7 @@ spec:
       metadata: {name: agent-swarm-flux-workloads}
       rules:
         - apiGroups: [""]
-          resources: [configmaps, pods, secrets, serviceaccounts, services, persistentvolumeclaims]
+          resources: [configmaps, events, pods, secrets, serviceaccounts, services, persistentvolumeclaims]
           verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [apps]
           resources: [deployments, replicasets, statefulsets, daemonsets]
@@ -107,7 +107,7 @@ spec:
           resources: [networkpolicies]
           verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [rbac.authorization.k8s.io]
-          resources: [roles, rolebindings]
+          resources: [roles, rolebindings, clusterroles, clusterrolebindings]
           verbs: [get, list, watch, create, update, patch, delete]
         - apiGroups: [serving.knative.dev]
           resources: [services, revisions, routes, configurations]
@@ -118,6 +118,28 @@ spec:
       kind: RoleBinding
       metadata: {name: agent-swarm-flux, namespace: fe-signalloom-agents}
       roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-workloads}
+      subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
+
+    # ── ClusterRole + Binding: cluster-scoped resources ─────────────
+    # The sentinel's ebpf-sentinel-rbac.yaml creates a ClusterRole
+    # granting nodes get/list and a ClusterRoleBinding. A namespace
+    # RoleBinding cannot grant cluster-scoped access, and Kubernetes
+    # RBAC escalation prevention requires the creating SA to already
+    # hold any permissions it grants via a ClusterRole.
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRole
+      metadata: {name: agent-swarm-flux-cluster-rbac}
+      rules:
+        - apiGroups: [rbac.authorization.k8s.io]
+          resources: [clusterroles, clusterrolebindings]
+          verbs: [get, list, watch, create, update, patch, delete]
+        - apiGroups: [""]
+          resources: [nodes]
+          verbs: [get, list]
+    - apiVersion: rbac.authorization.k8s.io/v1
+      kind: ClusterRoleBinding
+      metadata: {name: agent-swarm-flux-cluster-rbac}
+      roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: agent-swarm-flux-cluster-rbac}
       subjects: [{kind: ServiceAccount, name: agent-swarm-flux, namespace: fe-signalloom-agents}]
 
     # ── OCI source for agent-swarm artifacts ──────────────────────────
@@ -154,7 +176,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm
+        path: .
         prune: true
 
     # ── Per-agent Kustomizations ──────────────────────────────────────
@@ -178,7 +200,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/prompt-commit-summarizer
+        path: ./prompt-commit-summarizer
         prune: true
 
     # 2. triage-ci-worker (Tier 2 — KnativeService)
@@ -198,7 +220,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/triage-ci-worker
+        path: ./triage-ci-worker
         prune: true
 
     # 3. zulip-chat-agent (Tier 3 — Deployment)
@@ -218,7 +240,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/zulip-chat-agent
+        path: ./zulip-chat-agent
         prune: true
 
     # 4. cpai-engineer (Tier 4A — StatefulSet + PVC)
@@ -238,7 +260,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/cpai-engineer
+        path: ./cpai-engineer
         prune: true
 
     # 5. hosted-daytona-coder (Tier 4B — Deployment + RBAC)
@@ -258,7 +280,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/hosted-daytona-coder
+        path: ./hosted-daytona-coder
         prune: true
 
     # 6. swarm-governor (Tier 5 — Deployment + Service)
@@ -278,7 +300,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/swarm-governor
+        path: ./swarm-governor
         prune: true
 
     # 7. prod-deploy-gate (Tier 5 — Deployment + Service)
@@ -298,7 +320,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/prod-deploy-gate
+        path: ./prod-deploy-gate
         prune: true
 
     # 8. agent-cardvault (Tier 6 — Deployment overlay)
@@ -318,7 +340,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/agent-cardvault
+        path: ./agent-cardvault
         prune: true
 
     # 9. nono-containment-probe (Tier 7 — Job + PVC)
@@ -338,7 +360,7 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/nono-containment-probe
+        path: ./nono-containment-probe
         prune: true
 
     # 10. signalloom-stun-sentinel (Tier 8 — DaemonSet)
@@ -358,5 +380,5 @@ spec:
         wait: true
         timeout: 5m
         sourceRef: {kind: OCIRepository, name: agent-swarm}
-        path: ./d2-signalloom/infra/agent-swarm/signalloom-stun-sentinel
+        path: ./signalloom-stun-sentinel
         prune: true

@@ -53,7 +53,11 @@ else
 fi
 
 if pods_output="$("${KUBECTL}" get pods -n kagent --no-headers 2>&1)"; then
-  KAGENT_PODS="$(printf '%s\n' "${pods_output}" | awk '{print $1":"$3}' | paste -sd, -)"
+  if [ -n "${pods_output}" ]; then
+    KAGENT_PODS="$(printf '%s\n' "${pods_output}" | awk '{print $1":"$3}' | paste -sd, -)"
+  else
+    KAGENT_PODS=""
+  fi
 else
   KAGENT_PODS="none"
   PROOF_ERRORS+=("kagent-pods")
@@ -61,7 +65,11 @@ else
 fi
 
 if agents_output="$("${KUBECTL}" get agents -n fe-signalloom-agents --no-headers 2>&1)"; then
-  AGENT_CRS="$(printf '%s\n' "${agents_output}" | awk '{print $1}' | paste -sd, -)"
+  if [ -n "${agents_output}" ]; then
+    AGENT_CRS="$(printf '%s\n' "${agents_output}" | awk '{print $1}' | paste -sd, -)"
+  else
+    AGENT_CRS=""
+  fi
 else
   AGENT_CRS="none"
   PROOF_ERRORS+=("agent-crs")
@@ -122,7 +130,7 @@ fi
 if [ "${#PROOF_ERRORS[@]}" -gt 0 ]; then
   TEST_STATUS=1
 fi
-if [ "${FAILED_COUNT}" -gt 0 ]; then
+if [ "${TEST_STATUS}" -eq 0 ] && [ "${FAILED_COUNT}" -gt 0 ]; then
   TEST_STATUS=1
 fi
 proof_errors="$(IFS=,; printf '%s' "${PROOF_ERRORS[*]}")"

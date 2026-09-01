@@ -10,11 +10,16 @@ import (
 // cgroupFreezer manages cgroup2 freeze/unfreeze operations for pods.
 type cgroupFreezer struct {
 	cgroupRoot string // typically /sys/fs/cgroup
+	dryRun     bool
 }
 
 // freeze writes "1" to the pod's cgroup.freeze file, freezing all processes.
+// In dry-run mode, it verifies the path plan without mutating the filesystem.
 // It verifies that cgroup.events reports frozen 1 if the control file exists.
 func (f *cgroupFreezer) freeze(cgroupPath string) error {
+	if f.dryRun {
+		return nil
+	}
 	freezeFile := filepath.Join(cgroupPath, "cgroup.freeze")
 	if err := os.WriteFile(freezeFile, []byte("1"), 0644); err != nil {
 		return err
@@ -34,8 +39,12 @@ func (f *cgroupFreezer) freeze(cgroupPath string) error {
 }
 
 // unfreeze writes "0" to the pod's cgroup.freeze file, resuming all processes.
+// In dry-run mode, it verifies the path plan without mutating the filesystem.
 // It verifies that cgroup.events reports frozen 0 if the control file exists.
 func (f *cgroupFreezer) unfreeze(cgroupPath string) error {
+	if f.dryRun {
+		return nil
+	}
 	freezeFile := filepath.Join(cgroupPath, "cgroup.freeze")
 	if err := os.WriteFile(freezeFile, []byte("0"), 0644); err != nil {
 		return err
@@ -75,6 +84,9 @@ func (f *cgroupFreezer) resolvePodCgroup(podUID string) (string, error) {
 		return "", fmt.Errorf("search cgroups under %s: %w", f.cgroupRoot, err)
 	}
 	if cgroupPath == "" {
+		if f.dryRun {
+			return filepath.Join(f.cgroupRoot, "kubepods.slice", "kubepods-burstable-pod"+strings.ReplaceAll(podUID, "-", "_")+".slice"), nil
+		}
 		return "", fmt.Errorf("cgroup for pod %q not found under %s", podUID, f.cgroupRoot)
 	}
 	return cgroupPath, nil

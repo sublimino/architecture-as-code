@@ -41,6 +41,24 @@ spec:
               value: "fe-signalloom-agents"
             - name: CGROUP_ROOT
               value: "/host-cgroup"
+            - name: HEALTH_ADDR
+              value: ":8081"
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 2
+            periodSeconds: 5
           securityContext:
             privileged: false
             capabilities:

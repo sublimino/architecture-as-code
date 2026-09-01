@@ -45,6 +45,7 @@ type tcDropFilter struct {
 	interfaces   func() ([]net.Interface, error)
 	pidForCgroup func(string) (int, error)
 	peerIndex    func(int, string) (int, error)
+	dryRun       bool
 }
 
 func newTCDropFilter() *tcDropFilter {
@@ -65,17 +66,30 @@ func runTC(name string, args ...string) ([]byte, error) {
 func (t *tcDropFilter) findHostVeth(cgroupPath string) (string, error) {
 	pid, err := t.pidForCgroup(cgroupPath)
 	if err != nil {
+		if t.dryRun {
+			return "veth-dryrun-host", nil
+		}
 		return "", fmt.Errorf("find pod PID: %w", err)
 	}
 	peerIndex, err := t.peerIndex(pid, "eth0")
 	if err != nil {
+		if t.dryRun {
+			return "veth-dryrun-host", nil
+		}
 		return "", fmt.Errorf("read eth0 peer index for PID %d: %w", pid, err)
 	}
 	interfaces, err := t.interfaces()
 	if err != nil {
+		if t.dryRun {
+			return "veth-dryrun-host", nil
+		}
 		return "", fmt.Errorf("list host interfaces: %w", err)
 	}
-	return hostInterfaceForPeer(peerIndex, interfaces)
+	veth, err := hostInterfaceForPeer(peerIndex, interfaces)
+	if err != nil && t.dryRun {
+		return fmt.Sprintf("veth-peer%d", peerIndex), nil
+	}
+	return veth, err
 }
 
 func hostInterfaceForPeer(peerIndex int, interfaces []net.Interface) (string, error) {
@@ -192,6 +206,9 @@ func peerIndexOnLockedThread(pid int, iface string, ops namespaceOps) (peerIndex
 }
 
 func (t *tcDropFilter) attachDrop(iface string) error {
+	if t.dryRun {
+		return nil
+	}
 	if out, err := t.run("tc", "qdisc", "add", "dev", iface, "clsact"); err != nil && !strings.Contains(string(out), "File exists") {
 		return tcError("add clsact", iface, out, err)
 	}
@@ -205,6 +222,9 @@ func (t *tcDropFilter) attachDrop(iface string) error {
 }
 
 func (t *tcDropFilter) detachDrop(iface string) error {
+	if t.dryRun {
+		return nil
+	}
 	if out, err := t.run("tc", "filter", "del", "dev", iface, "pref", sentinelIngressPref, "protocol", "all", "ingress", "handle", sentinelIngressHandle, "matchall"); err != nil && !missingTCObject(out) {
 		return tcError("delete Sentinel ingress filter", iface, out, err)
 	}
@@ -215,6 +235,9 @@ func (t *tcDropFilter) detachDrop(iface string) error {
 }
 
 func (t *tcDropFilter) hasDropFilter(iface string) (ingress bool, egress bool, err error) {
+	if t.dryRun {
+		return true, true, nil
+	}
 	inOut, err := t.run("tc", "filter", "show", "dev", iface, "ingress")
 	if err != nil && !missingTCObject(inOut) {
 		return false, false, tcError("show ingress filters", iface, inOut, err)

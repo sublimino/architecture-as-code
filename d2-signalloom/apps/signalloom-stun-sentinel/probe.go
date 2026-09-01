@@ -59,6 +59,7 @@ type PreservedProbeState struct {
 type probePreserver struct {
 	mu        sync.RWMutex
 	preserved map[string]*PreservedProbeState // keyed by pod UID
+	dryRun    bool
 }
 
 func newProbePreserver() *probePreserver {
@@ -200,11 +201,13 @@ func (p *probePreserver) preserve(pod *corev1.Pod, cgroupPath, hostVeth string) 
 	p.preserved[uid] = state
 
 	logEvent(stunEvent{
-		Timestamp: now(),
-		Event:     "probe_preserved",
-		Pod:       pod.Name,
-		Namespace: pod.Namespace,
-		UID:       uid,
+		Timestamp:   now(),
+		Event:       "probe_preserved",
+		Pod:         pod.Name,
+		Namespace:   pod.Namespace,
+		UID:         uid,
+		DryRun:      p.dryRun,
+		ProbesCount: len(probes),
 	})
 
 	return nil
@@ -240,6 +243,7 @@ func (p *probePreserver) release(pod *corev1.Pod, cgroupPath, hostVeth string) e
 		Pod:       pod.Name,
 		Namespace: pod.Namespace,
 		UID:       uid,
+		DryRun:    p.dryRun,
 	})
 
 	return nil

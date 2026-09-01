@@ -4,5 +4,4 @@ kind: Kustomization
 
 resources:
   - serviceaccount.yaml
-  - tools.yaml
   - agent.yaml

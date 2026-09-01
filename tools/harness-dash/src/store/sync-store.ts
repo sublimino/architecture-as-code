@@ -7,16 +7,19 @@ import type {
   SearchQuery,
   SessionMetadata,
   SessionStatus,
+  SessionSummary,
   SyncStoreConfig
 } from '../types';
 import { AdapterRegistry } from '../adapters/registry';
 import { SessionSummarizer } from '../summarizer/summarizer';
+import { TranscriptFormatter } from '../summarizer/transcript-formatter';
 import { DragonCrossReferencer } from '../productivity-dragon/dragon-crossref';
 
 export class SyncStore {
   private sessions: Map<string, SessionMetadata> = new Map();
   private registry = new AdapterRegistry();
   private summarizer = new SessionSummarizer();
+  private formatter = new TranscriptFormatter();
   private dragonCrossref: DragonCrossReferencer;
   private isScanning = false;
   private scanTimer?: ReturnType<typeof setInterval>;
@@ -201,6 +204,84 @@ export class SyncStore {
 
   getSession(id: string): SessionMetadata | undefined {
     return this.sessions.get(id);
+  }
+
+  /**
+   * Returns lightweight session summaries without bulky raw transcript lines (ultra-fast payload)
+   */
+  listSummaries(query?: SearchQuery): SessionSummary[] {
+    const list = this.listSessions(query);
+    return list.map((s) => ({
+      id: s.id,
+      harness: s.harness,
+      deviceId: s.deviceId,
+      hostname: s.hostname,
+      title: s.title,
+      currentGoal: s.currentGoal,
+      status: s.status,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      lastActivityAt: s.lastActivityAt,
+      cwd: s.cwd,
+      gitBranch: s.gitBranch,
+      gitRepo: s.gitRepo,
+      modelsUsed: s.modelsUsed,
+      tokenUsage: s.tokenUsage,
+      subagentCount: s.subagentCount,
+      subordinateActivities: s.subordinateActivities,
+      summary: s.summary,
+      summaryInfo: s.summaryInfo,
+      url: s.url,
+      productivityDragon: s.productivityDragon,
+      tags: s.tags,
+      rawLogPath: s.rawLogPath
+    }));
+  }
+
+  /**
+   * Lazily loads, parses, and human-formats transcript logs on demand
+   */
+  async getSessionTranscript(
+    id: string,
+    tailCount: number = 200
+  ): Promise<{
+    sessionId: string;
+    rawLines: string[];
+    entries: any[];
+    formattedHtml: string;
+    formattedAnsi: string[];
+    totalEvents: number;
+  }> {
+    const session = this.getSession(id);
+    if (!session) {
+      throw new Error(`Session ${id} not found`);
+    }
+
+    // Check if rawLogPath exists on disk
+    let rawLines: string[] = session.lastLines || [];
+    if (session.rawLogPath && existsSync(session.rawLogPath)) {
+      const adapter = this.registry.getAdapter(session.harness);
+      if (adapter) {
+        try {
+          rawLines = await adapter.tailSession(session.rawLogPath, tailCount);
+        } catch {
+          // fallback to cached lastLines
+        }
+      }
+    }
+
+    const entries = this.formatter.parseEntries(rawLines);
+    const formattedHtml = this.formatter.formatToHtml(entries);
+    const formattedAnsi = this.formatter.formatToAnsi(entries, 120);
+
+    return {
+      sessionId: id,
+      rawLines,
+      entries,
+      formattedHtml,
+      formattedAnsi,
+      totalEvents: entries.length
+    };
   }
 
   listSessions(query?: SearchQuery): SessionMetadata[] {

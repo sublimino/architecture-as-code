@@ -127,6 +127,32 @@ export interface HarnessAdapter {
   getLaunchUrl(session: SessionMetadata): string;
 }
 
+export interface SessionSummary {
+  id: string;
+  harness: HarnessType;
+  deviceId: string;
+  hostname: string;
+  title: string;
+  currentGoal?: string;
+  status: SessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  lastActivityAt: string;
+  cwd: string;
+  gitBranch?: string;
+  gitRepo?: string;
+  modelsUsed: string[];
+  tokenUsage: TokenUsageMetrics;
+  subagentCount: number;
+  subordinateActivities?: SubordinateActivity[];
+  summary: string;
+  summaryInfo?: SummaryInfo;
+  url: string;
+  productivityDragon?: ProductivityDragonMatch;
+  tags: string[];
+  rawLogPath?: string;
+}
+
 export interface SyncStoreConfig {
   primaryStoreDir: string;
   obsidianVaultDir?: string;
@@ -144,5 +170,5 @@ export interface DashboardMetrics {
   totalTokens: number;
   totalCostUsd: number;
   totalProductivityDragonXp: number;
-  recentSessions: SessionMetadata[];
+  recentSessions?: SessionMetadata[];
 }

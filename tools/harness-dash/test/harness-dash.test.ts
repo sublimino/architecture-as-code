@@ -1,12 +1,15 @@
 import { describe, expect, it, beforeEach } from 'bun:test';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { SyncStore } from '../src/store/sync-store';
 import { AdapterRegistry } from '../src/adapters/registry';
 import { SessionSummarizer } from '../src/summarizer/summarizer';
+import { AppTokenTracker } from '../src/summarizer/app-token-tracker';
+import { TranscriptFormatter } from '../src/summarizer/transcript-formatter';
 import { DragonCrossReferencer } from '../src/productivity-dragon/dragon-crossref';
 import { TuiDashboardRenderer } from '../src/dashboard/tui';
-import type { SessionMetadata } from '../src/types';
+import type { SessionMetadata, DashboardMetrics } from '../src/types';
 
 describe('Universal AI CLI & Harness Dashboard Suite', () => {
   const tmpDir = path.join(os.tmpdir(), `harness-test-${Date.now()}`);
@@ -358,4 +361,145 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
       }
     }
   });
+
+  it('tracks app model calls, token usage, and live spend in AppTokenTracker', () => {
+    const testTrackerFile = path.join(tmpDir, 'test-app-metrics.json');
+    const tracker = new AppTokenTracker(testTrackerFile);
+    tracker.reset();
+
+    let notificationFired = false;
+    tracker.onUpdate(() => {
+      notificationFired = true;
+    });
+
+    // Record Gemma 4 call
+    const call1 = tracker.recordCall('gemma-4-cerebras', 1000, 200, 250, 'sess-1');
+    expect(call1.costUsd).toBeGreaterThan(0);
+    expect(call1.model).toBe('gemma-4-cerebras');
+    expect(notificationFired).toBe(true);
+
+    // Record Gemini 2.5 Flash call
+    tracker.recordCall('gemini-2.5-flash', 4000, 500, 600, 'sess-2');
+
+    // Record Antigravity call
+    tracker.recordCall('antigravity', 2000, 800, 8000, 'sess-3');
+
+    const metrics = tracker.getMetrics();
+    expect(metrics.totalCalls).toBe(3);
+    expect(metrics.totalInputTokens).toBe(7000);
+    expect(metrics.totalOutputTokens).toBe(1500);
+    expect(metrics.totalCostUsd).toBeGreaterThan(0);
+    expect(metrics.byModel['gemma-4-cerebras'].calls).toBe(1);
+    expect(metrics.byModel['gemini-2.5-flash'].calls).toBe(1);
+    expect(metrics.byModel['antigravity'].calls).toBe(1);
+
+    // Verify disk persistence
+    const reloaded = new AppTokenTracker(testTrackerFile);
+    expect(reloaded.getMetrics().totalCalls).toBe(3);
+    expect(reloaded.getMetrics().totalInputTokens).toBe(7000);
+  });
+
+  it('parses diverse harness JSONL transcripts into human-readable kanban cards and ANSI formatting with TranscriptFormatter', () => {
+    const formatter = new TranscriptFormatter();
+    const rawLines = [
+      JSON.stringify({
+        type: 'USER_INPUT',
+        created_at: '2026-09-01T20:00:00Z',
+        content: 'Please inspect the envoy ingress logs and fix the gateway'
+      }),
+      JSON.stringify({
+        type: 'PLANNER_RESPONSE',
+        created_at: '2026-09-01T20:00:05Z',
+        thinking: 'I need to check the gateway configuration with kubectl',
+        tool_calls: [
+          {
+            name: 'run_command',
+            arguments: {
+              CommandLine: 'kubectl -n d2-infra get gateway',
+              toolSummary: 'Check Gateway status'
+            }
+          }
+        ]
+      }),
+      JSON.stringify({
+        type: 'GENERIC',
+        created_at: '2026-09-01T20:00:10Z',
+        content: 'NAME             CLASS           ADDRESS        PROGRAMMED   AGE\nenvoy-gateway   eg-gatewayclass  192.168.1.100  True         4d'
+      }),
+      JSON.stringify({
+        status: 'ERROR',
+        message: 'Connection timeout to backend port 8080'
+      })
+    ];
+
+    const entries = formatter.parseEntries(rawLines);
+    expect(entries.length).toBeGreaterThanOrEqual(4);
+    expect(entries[0].role).toBe('user');
+    expect(entries[0].content).toContain('inspect the envoy ingress');
+
+    expect(entries.some(e => e.role === 'tool_call' && e.toolName === 'run_command')).toBe(true);
+    expect(entries.some(e => e.role === 'error')).toBe(true);
+
+    // Verify HTML Kanban Rendering
+    const html = formatter.formatToHtml(entries);
+    expect(html).toContain('USER INSTRUCTION');
+    expect(html).toContain('run_command');
+    expect(html).toContain('TOOL RESULT');
+    expect(html).toContain('ERROR');
+
+    // Verify ANSI Terminal Formatting
+    const ansiLines = formatter.formatToAnsi(entries, 120);
+    const ansiJoined = ansiLines.join('\n');
+    expect(ansiJoined).toContain('USER');
+    expect(ansiJoined).toContain('TOOL CALL');
+    expect(ansiJoined).toContain('run_command');
+  });
+
+  it('lazily loads and caches transcripts on demand without loading raw lines into summary list', async () => {
+    const testLogFile = path.join(tmpDir, 'lazy-session.jsonl');
+    await fs.writeFile(testLogFile, [
+      JSON.stringify({ type: 'USER_INPUT', content: 'Run integration test suite' }),
+      JSON.stringify({ type: 'PLANNER_RESPONSE', content: 'Starting test runner' }),
+      JSON.stringify({ type: 'tool_use', name: 'run_command', input: { command: 'bun test' } })
+    ].join('\n'), 'utf-8');
+
+    const session: SessionMetadata = {
+      id: 'lazy-test-sess',
+      harness: 'claude',
+      deviceId: 'dev-box',
+      hostname: 'dev-host',
+      title: 'Lazy Load Verification',
+      titleHistory: [],
+      status: 'completed',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+      cwd: '/home/andy/src/cp/osramp-demo',
+      modelsUsed: ['claude-3-7-sonnet'],
+      tokenUsage: { inputTokens: 1000, outputTokens: 200, totalCostUsd: 0.001 },
+      subagentCount: 0,
+      subordinateActivities: [],
+      summary: 'Verified lazy loading',
+      lastLines: [],
+      rawLogPath: testLogFile,
+      url: 'claude://session/lazy-test-sess',
+      tags: ['lazy']
+    };
+
+    await store.saveSession(session);
+
+    // List summaries: payload should be lean (no lastLines)
+    const summaries = store.listSummaries();
+    const targetSummary = summaries.find(s => s.id === 'lazy-test-sess');
+    expect(targetSummary).toBeDefined();
+    expect((targetSummary as any).lastLines).toBeUndefined();
+
+    // Lazy load transcript on demand
+    const transcriptData = await store.getSessionTranscript('lazy-test-sess', 100);
+    expect(transcriptData.sessionId).toBe('lazy-test-sess');
+    expect(transcriptData.entries.length).toBeGreaterThan(0);
+    expect(transcriptData.formattedHtml).toContain('USER INSTRUCTION');
+    expect(transcriptData.rawLines.length).toBe(3);
+  });
 });
+

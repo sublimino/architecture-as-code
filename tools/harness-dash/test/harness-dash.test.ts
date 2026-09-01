@@ -526,5 +526,53 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     expect(fullText).toContain('Gemini 2.5 Flash');
     expect(fullText).toContain('Token Economy');
   });
+
+  it('persistently caches AI and heuristic summaries to disk and memory to prevent duplicate spend', async () => {
+    const testCacheFile = path.join(tmpDir, 'summary-cache-test.json');
+    const summarizer = new SessionSummarizer(testCacheFile);
+
+    const session: SessionMetadata = {
+      id: 'cache-sess-001',
+      harness: 'claude',
+      deviceId: 'mbp-16',
+      hostname: 'mbp-host',
+      title: 'Cache Verification Session',
+      titleHistory: [],
+      status: 'idle',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastActivityAt: '2026-09-01T20:00:00Z',
+      cwd: '/home/andy/src/cp/osramp-demo',
+      modelsUsed: ['claude-3-7-sonnet'],
+      tokenUsage: { inputTokens: 500, outputTokens: 100, totalCostUsd: 0.001 },
+      subagentCount: 0,
+      subordinateActivities: [],
+      lastLines: [
+        JSON.stringify({ type: 'USER_INPUT', content: 'Implement caching' }),
+        JSON.stringify({ type: 'PLANNER_RESPONSE', content: 'Cached result ready' })
+      ],
+      url: 'claude://session/cache-sess-001',
+      tags: ['cache']
+    };
+
+    // First call: generates summary and caches it
+    const firstSummary = await summarizer.summarizeWithModel(session, 'extractive');
+    expect(firstSummary.text).toBeDefined();
+
+    // Check memory cache
+    const cachedMem = summarizer.getCachedSummary(session, 'extractive');
+    expect(cachedMem).toBeDefined();
+    expect(cachedMem?.text).toBe(firstSummary.text);
+
+    // Reload new summarizer instance from disk cache
+    const reloadedSummarizer = new SessionSummarizer(testCacheFile);
+    const cachedDisk = reloadedSummarizer.getCachedSummary(session, 'extractive');
+    expect(cachedDisk).toBeDefined();
+    expect(cachedDisk?.text).toBe(firstSummary.text);
+
+    // Verify summarizeWithModel returns cached value without re-running
+    const secondSummary = await reloadedSummarizer.summarizeWithModel(session, 'extractive');
+    expect(secondSummary.text).toBe(firstSummary.text);
+  });
 });
 

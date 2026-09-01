@@ -2,9 +2,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SessionMetadata, SummaryInfo, SummaryModelTier } from '../types';
+import { AppTokenTracker } from './app-token-tracker';
 
 export class SessionSummarizer {
   private cerebrasApiKey?: string;
+  public tokenTracker = new AppTokenTracker();
 
   constructor() {
     this.cerebrasApiKey = this.resolveCerebrasApiKey();
@@ -124,8 +126,15 @@ export class SessionSummarizer {
 
     if (model === 'gemma-4-cerebras') {
       try {
-        const text = await this.runCerebrasGemma4(prompt);
+        const { text, usage } = await this.runCerebrasGemma4(prompt);
         const latencyMs = Date.now() - start;
+        this.tokenTracker.recordCall(
+          'gemma-4-cerebras',
+          usage?.prompt_tokens || Math.round(prompt.length / 4),
+          usage?.completion_tokens || Math.round(text.length / 4),
+          latencyMs,
+          session.id
+        );
         return {
           text,
           model: 'gemma-4-cerebras',
@@ -145,6 +154,13 @@ export class SessionSummarizer {
       try {
         const text = await this.runAntigravity(prompt);
         const latencyMs = Date.now() - start;
+        this.tokenTracker.recordCall(
+          'antigravity',
+          Math.round(prompt.length / 4),
+          Math.round(text.length / 4),
+          latencyMs,
+          session.id
+        );
         return {
           text,
           model: 'antigravity',
@@ -164,6 +180,13 @@ export class SessionSummarizer {
       try {
         const text = await this.runGeminiFlash25(prompt);
         const latencyMs = Date.now() - start;
+        this.tokenTracker.recordCall(
+          'gemini-2.5-flash',
+          Math.round(prompt.length / 4),
+          Math.round(text.length / 4),
+          latencyMs,
+          session.id
+        );
         return {
           text,
           model: 'gemini-2.5-flash',
@@ -196,7 +219,7 @@ export class SessionSummarizer {
   /**
    * Cerebras WSE Ultra-Fast Inference (<20ms) with Gemma 4
    */
-  private async runCerebrasGemma4(prompt: string): Promise<string> {
+  private async runCerebrasGemma4(prompt: string): Promise<{ text: string; usage?: any }> {
     const apiKey = this.cerebrasApiKey || this.resolveCerebrasApiKey();
     if (!apiKey) {
       throw new Error('CEREBRAS_API_KEY not found in environment or ~/.hermes/.env');
@@ -235,7 +258,7 @@ export class SessionSummarizer {
     if (!content) {
       throw new Error('Empty response from Cerebras Gemma 4');
     }
-    return content;
+    return { text: content, usage: data.usage };
   }
 
   /**

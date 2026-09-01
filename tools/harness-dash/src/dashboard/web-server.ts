@@ -10,6 +10,9 @@ export class WebDashboardServer {
     this.store.onSessionUpdate((session) => {
       this.broadcastSse({ type: 'session_update', session });
     });
+    this.summarizer.tokenTracker.onUpdate((appMetrics) => {
+      this.broadcastSse({ type: 'app_metrics_update', appMetrics });
+    });
   }
 
   private broadcastSse(data: unknown): void {
@@ -66,7 +69,11 @@ export class WebDashboardServer {
               const stream = new ReadableStream({
                 start: (controller) => {
                   this.sseClients.add(controller);
-                  const initial = { type: 'init', metrics: this.store.getMetrics() };
+                  const initial = {
+                    type: 'init',
+                    metrics: this.store.getMetrics(),
+                    appMetrics: this.summarizer.tokenTracker.getMetrics()
+                  };
                   controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(initial)}\n\n`));
                 },
                 cancel: (controller) => {
@@ -89,7 +96,12 @@ export class WebDashboardServer {
               return Response.json(this.store.getMetrics(), { headers: corsHeaders });
             }
 
-            // REST API: List Sessions (with top 100 limit and server-side search)
+            // REST API: App Token Tracker Metrics
+            if (url.pathname === '/api/app-metrics') {
+              return Response.json(this.summarizer.tokenTracker.getMetrics(), { headers: corsHeaders });
+            }
+
+            // REST API: List Sessions (ultra-fast lightweight summaries with top 100 limit and server-side search)
             if (url.pathname === '/api/sessions') {
               const text = url.searchParams.get('q') || undefined;
               const harness = (url.searchParams.get('harness') as HarnessType) || undefined;
@@ -99,9 +111,21 @@ export class WebDashboardServer {
               const offset = url.searchParams.has('offset') ? parseInt(url.searchParams.get('offset')!, 10) : 0;
 
               const query: SearchQuery = { text, harness, deviceId, status, limit, offset };
-              const sessions = this.store.listSessions(query);
+              const summaries = this.store.listSummaries(query);
               const totalCount = this.store.listSessions({ text, harness, deviceId, status }).length;
-              return Response.json({ sessions, totalCount, limit, offset }, { headers: corsHeaders });
+              return Response.json({ sessions: summaries, totalCount, limit, offset }, { headers: corsHeaders });
+            }
+
+            // REST API: Lazy Transcript Loader with Human-Readable Kanban Parsing
+            if (url.pathname.startsWith('/api/sessions/') && url.pathname.endsWith('/transcript') && req.method === 'GET') {
+              const id = decodeURIComponent(url.pathname.replace('/api/sessions/', '').replace('/transcript', ''));
+              const tail = url.searchParams.has('tail') ? parseInt(url.searchParams.get('tail')!, 10) : 200;
+              try {
+                const transcriptData = await this.store.getSessionTranscript(id, tail);
+                return Response.json(transcriptData, { headers: corsHeaders });
+              } catch (err: any) {
+                return Response.json({ error: err.message }, { status: 404, headers: corsHeaders });
+              }
             }
 
             // REST API: Re-run Prompt / Summarize Session with specified model tier
@@ -267,7 +291,7 @@ export class WebDashboardServer {
 </head>
 <body class="min-h-screen flex flex-col selection:bg-teal-500/30 selection:text-teal-200">
   <!-- Top Navigation Header -->
-  <header class="border-b border-slate-800/80 bg-[#0c1220]/90 backdrop-blur-xl sticky top-0 z-50 px-8 py-4 flex items-center justify-between">
+  <header class="border-b border-slate-800/80 bg-[#0c1220]/90 backdrop-blur-xl sticky top-0 z-50 px-8 py-4 flex items-center justify-between gap-4 flex-wrap">
     <div class="flex items-center gap-4">
       <div class="w-10 h-10 rounded-xl bg-teal-500/15 border border-teal-500/30 flex items-center justify-center text-teal-400 font-bold text-lg shadow-inner">
         ⚡
@@ -285,12 +309,32 @@ export class WebDashboardServer {
       </div>
     </div>
 
+    <!-- App Internal Model Spend Tracker HUD -->
+    <div id="app-token-hud" class="px-3.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center gap-3 text-xs font-mono shadow-inner">
+      <div class="flex items-center gap-1.5 text-amber-300 font-semibold">
+        <span class="animate-pulse">⚡</span>
+        <span class="text-slate-300">App AI Spend:</span>
+        <span id="hud-app-cost" class="text-white font-bold">$0.0000</span>
+      </div>
+      <span class="text-slate-700">|</span>
+      <div class="text-slate-400 text-[11px]">
+        <span id="hud-app-calls" class="text-slate-200 font-bold">0</span> calls
+        (<span id="hud-app-tokens">0</span> tok)
+      </div>
+      <span class="text-slate-700">|</span>
+      <div class="flex items-center gap-1.5 text-[10.5px]">
+        <span id="hud-gemma-calls" class="px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-800/60 font-bold">⚡ Cerebras: 0</span>
+        <span id="hud-agy-calls" class="px-1.5 py-0.5 rounded bg-purple-950/80 text-purple-300 border border-purple-800/60 font-bold">🔮 AGY: 0</span>
+        <span id="hud-gemini-calls" class="px-1.5 py-0.5 rounded bg-teal-950/80 text-teal-300 border border-teal-800/60 font-bold">🌿 Gemini: 0</span>
+      </div>
+    </div>
+
     <!-- Header Actions -->
     <div class="flex items-center gap-3">
-      <button onclick="exportObsidian()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-purple-950/80 hover:bg-purple-900 text-purple-200 border border-purple-700/50 flex items-center gap-2 transition shadow-sm hover:shadow-purple-950/50">
-        <span class="text-sm">🐉</span> Sync Productivity Dragon
+      <button onclick="exportObsidian()" class="px-4 py-2 rounded-lg text-xs font-semibold bg-purple-950/80 hover:bg-purple-900 text-purple-200 border border-purple-700/50 flex items-center gap-2 transition shadow-sm hover:shadow-purple-950/50 cursor-pointer">
+        <span class="text-sm">🐉</span> Sync Obsidian
       </button>
-      <button onclick="refreshData()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition">
+      <button onclick="refreshData()" class="px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center gap-2 transition cursor-pointer">
         <span>🔄</span> Refresh
       </button>
     </div>
@@ -628,10 +672,142 @@ export class WebDashboardServer {
         </div>
 
         <div>
-          <div class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Last Transcript Snippet</div>
-          \${lastLinesHtml}
+          <div class="flex items-center justify-between mb-2">
+            <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">Session Transcript (Lazy Loaded)</div>
+            <!-- Transcript Filter Tabs -->
+            <div class="flex items-center gap-1 bg-[#05080f] p-1 rounded-xl border border-slate-800 text-[11px] font-mono">
+              <button onclick="setTranscriptTab('formatted')" id="tab-btn-formatted" class="px-2.5 py-1 rounded-lg text-white bg-slate-800 font-bold transition shadow-sm cursor-pointer">👁️ Kanban</button>
+              <button onclick="setTranscriptTab('user')" id="tab-btn-user" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer">👤 Prompts</button>
+              <button onclick="setTranscriptTab('tools')" id="tab-btn-tools" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer">🔧 Tools</button>
+              <button onclick="setTranscriptTab('raw')" id="tab-btn-raw" class="px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer">📄 Raw JSONL</button>
+            </div>
+          </div>
+          <div id="transcript-container" class="max-h-[500px] overflow-y-auto space-y-2.5 pr-1">
+            <div class="p-8 text-center text-xs text-teal-300 animate-pulse font-mono glass-card rounded-2xl border border-teal-500/20">
+              ⚡ Loading session transcript on-demand...
+            </div>
+          </div>
         </div>
       \`;
+
+      loadTranscript(s.id);
+    }
+
+    let currentTranscriptData = null;
+    let currentTranscriptTab = 'formatted';
+
+    async function loadTranscript(sessionId) {
+      const container = document.getElementById('transcript-container');
+      if (!container) return;
+      container.innerHTML = \`<div class="p-8 text-center text-xs text-teal-300 animate-pulse font-mono glass-card rounded-2xl border border-teal-500/20">
+        ⚡ Loading session transcript for \${sessionId}...
+      </div>\`;
+
+      try {
+        const res = await fetch('/api/sessions/' + encodeURIComponent(sessionId) + '/transcript?tail=200');
+        if (!res.ok) throw new Error('Transcript not found');
+        const data = await res.json();
+        currentTranscriptData = data;
+        renderTranscriptTabContent();
+      } catch (err) {
+        container.innerHTML = \`<div class="p-6 text-center text-xs text-slate-500 glass-card rounded-xl font-mono">
+          No live transcript available on disk (\${err.message}).
+        </div>\`;
+      }
+    }
+
+    function setTranscriptTab(tab) {
+      currentTranscriptTab = tab;
+      ['formatted', 'user', 'tools', 'raw'].forEach(t => {
+        const btn = document.getElementById('tab-btn-' + t);
+        if (btn) {
+          if (t === tab) {
+            btn.className = 'px-2.5 py-1 rounded-lg text-white bg-teal-500 font-bold text-slate-950 transition shadow-sm cursor-pointer';
+          } else {
+            btn.className = 'px-2.5 py-1 rounded-lg text-slate-400 hover:text-white transition cursor-pointer';
+          }
+        }
+      });
+      renderTranscriptTabContent();
+    }
+
+    function renderTranscriptTabContent() {
+      const container = document.getElementById('transcript-container');
+      if (!container || !currentTranscriptData) return;
+
+      const { entries, rawLines, formattedHtml } = currentTranscriptData;
+
+      if (currentTranscriptTab === 'formatted') {
+        container.innerHTML = formattedHtml || '<div class="p-6 text-center text-xs text-slate-500">No events found.</div>';
+        return;
+      }
+
+      if (currentTranscriptTab === 'user') {
+        const userEntries = (entries || []).filter(e => e.role === 'user');
+        if (userEntries.length === 0) {
+          container.innerHTML = '<div class="p-6 text-center text-xs text-slate-500 glass-card rounded-xl font-mono">No user prompt events in recent snippet.</div>';
+          return;
+        }
+        container.innerHTML = userEntries.map(e => \`
+          <div class="p-4 rounded-xl bg-blue-950/40 border border-blue-800/60 text-xs shadow-sm space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] font-bold text-blue-300 font-mono">
+              <span>👤 User Instruction #\${e.index}</span>
+              \${e.timestamp ? \`<span class="text-[10px] text-slate-500">\${new Date(e.timestamp).toLocaleTimeString()}</span>\` : ''}
+            </div>
+            <div class="text-slate-100 whitespace-pre-wrap leading-relaxed select-text">\${escapeHtml(e.content)}</div>
+          </div>
+        \`).join('');
+        return;
+      }
+
+      if (currentTranscriptTab === 'tools') {
+        const toolEntries = (entries || []).filter(e => e.role === 'tool_call' || e.role === 'tool_result');
+        if (toolEntries.length === 0) {
+          container.innerHTML = '<div class="p-6 text-center text-xs text-slate-500 glass-card rounded-xl font-mono">No tool executions recorded in recent snippet.</div>';
+          return;
+        }
+        container.innerHTML = toolEntries.map(e => \`
+          <div class="p-3.5 rounded-xl bg-[#090e17] border border-slate-800/90 text-xs shadow-inner space-y-1.5">
+            <div class="flex items-center justify-between text-[11px] font-mono">
+              <span class="font-bold text-amber-300">🔧 \${escapeHtml(e.title)}</span>
+              <span class="text-[10px] text-slate-500 font-mono">#\${e.index}</span>
+            </div>
+            <div class="font-mono text-slate-300 text-[11px] bg-[#04070e] p-2.5 rounded-lg border border-slate-900 overflow-x-auto select-text">\${escapeHtml(e.content)}</div>
+          </div>
+        \`).join('');
+        return;
+      }
+
+      if (currentTranscriptTab === 'raw') {
+        const text = (rawLines || []).join('\\n');
+        container.innerHTML = \`<pre class="bg-[#05080f] p-4 rounded-xl text-[11px] font-mono text-slate-300 overflow-x-auto max-h-[460px] leading-relaxed border border-slate-800 select-text">\${escapeHtml(text)}</pre>\`;
+        return;
+      }
+    }
+
+    async function loadAppMetrics() {
+      try {
+        const res = await fetch('/api/app-metrics');
+        const data = await res.json();
+        updateAppHud(data);
+      } catch (e) {
+        console.error('Error loading app metrics', e);
+      }
+    }
+
+    function updateAppHud(appMetrics) {
+      if (!appMetrics) return;
+      document.getElementById('hud-app-cost').textContent = '$' + (appMetrics.totalCostUsd || 0).toFixed(4);
+      document.getElementById('hud-app-calls').textContent = (appMetrics.totalCalls || 0).toLocaleString();
+      document.getElementById('hud-app-tokens').textContent = ((appMetrics.totalInputTokens || 0) + (appMetrics.totalOutputTokens || 0)).toLocaleString();
+
+      const gemma = appMetrics.byModel?.['gemma-4-cerebras']?.calls || 0;
+      const agy = appMetrics.byModel?.['antigravity']?.calls || 0;
+      const gemini = appMetrics.byModel?.['gemini-2.5-flash']?.calls || 0;
+
+      document.getElementById('hud-gemma-calls').textContent = '⚡ Cerebras: ' + gemma;
+      document.getElementById('hud-agy-calls').textContent = '🔮 AGY: ' + agy;
+      document.getElementById('hud-gemini-calls').textContent = '🌿 Gemini: ' + gemini;
     }
 
     async function reSummarize(sessionId, model) {
@@ -654,6 +830,7 @@ export class WebDashboardServer {
             renderSessions();
             renderInspector(data.session);
           }
+          loadAppMetrics();
         }
       } catch (err) {
         console.error('Error re-summarizing', err);
@@ -745,7 +922,13 @@ export class WebDashboardServer {
     sse.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'session_update' || msg.type === 'init') {
+        if (msg.type === 'init') {
+          if (msg.appMetrics) updateAppHud(msg.appMetrics);
+          loadMetrics();
+          loadSessions(false);
+        } else if (msg.type === 'app_metrics_update') {
+          if (msg.appMetrics) updateAppHud(msg.appMetrics);
+        } else if (msg.type === 'session_update') {
           loadMetrics();
           loadSessions(false);
         }
@@ -764,6 +947,7 @@ export class WebDashboardServer {
 
     // Initial load
     loadMetrics();
+    loadAppMetrics();
     loadSessions(true);
   </script>
 </body>

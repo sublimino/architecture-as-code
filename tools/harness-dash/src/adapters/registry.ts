@@ -28,6 +28,10 @@ export class AdapterRegistry {
     return this.adapters.get(harness);
   }
 
+  getAdapter(harness: HarnessType): HarnessAdapter | undefined {
+    return this.adapters.get(harness);
+  }
+
   getAll(): HarnessAdapter[] {
     return Array.from(this.adapters.values());
   }

@@ -188,6 +188,13 @@
     "verdict": "APPROVED",
     "reason": "STUNSWARM-P2-1: CEL ValidatingAdmissionPolicy verified 20/20 BATS tests passing (commit e8e0975b)"
   },
+  "1728d": {
+    "task_id": "1728d",
+    "reviewed_at": "2026-09-02T00:35:18Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "STUNSWARM-P2-2: Declarative Kagent Swarm deployment verified 89/89 tests passing (commit 4ce72f31)"
+  },
   "d316c": {
     "task_id": "d316c",
     "reviewed_at": "2026-09-01T23:13:13Z",

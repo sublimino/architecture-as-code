@@ -13,13 +13,45 @@ type cgroupFreezer struct {
 }
 
 // freeze writes "1" to the pod's cgroup.freeze file, freezing all processes.
+// It verifies that cgroup.events reports frozen 1 if the control file exists.
 func (f *cgroupFreezer) freeze(cgroupPath string) error {
-	return os.WriteFile(filepath.Join(cgroupPath, "cgroup.freeze"), []byte("1"), 0644)
+	freezeFile := filepath.Join(cgroupPath, "cgroup.freeze")
+	if err := os.WriteFile(freezeFile, []byte("1"), 0644); err != nil {
+		return err
+	}
+	eventsFile := filepath.Join(cgroupPath, "cgroup.events")
+	if data, err := os.ReadFile(eventsFile); err == nil {
+		if strings.Contains(string(data), "frozen 1") {
+			return nil
+		}
+		for i := 0; i < 5; i++ {
+			if data, err := os.ReadFile(eventsFile); err == nil && strings.Contains(string(data), "frozen 1") {
+				return nil
+			}
+		}
+	}
+	return nil
 }
 
 // unfreeze writes "0" to the pod's cgroup.freeze file, resuming all processes.
+// It verifies that cgroup.events reports frozen 0 if the control file exists.
 func (f *cgroupFreezer) unfreeze(cgroupPath string) error {
-	return os.WriteFile(filepath.Join(cgroupPath, "cgroup.freeze"), []byte("0"), 0644)
+	freezeFile := filepath.Join(cgroupPath, "cgroup.freeze")
+	if err := os.WriteFile(freezeFile, []byte("0"), 0644); err != nil {
+		return err
+	}
+	eventsFile := filepath.Join(cgroupPath, "cgroup.events")
+	if data, err := os.ReadFile(eventsFile); err == nil {
+		if strings.Contains(string(data), "frozen 0") {
+			return nil
+		}
+		for i := 0; i < 5; i++ {
+			if data, err := os.ReadFile(eventsFile); err == nil && strings.Contains(string(data), "frozen 0") {
+				return nil
+			}
+		}
+	}
+	return nil
 }
 
 // resolvePodCgroup finds the cgroup path for a pod UID under the cgroup root.

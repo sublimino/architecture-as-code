@@ -125,7 +125,7 @@ spec:
             - name: data
               mountPath: /run/spire/data
             - name: sockets
-              mountPath: /run/spire/sockets
+              mountPath: /tmp/spire-server/private
         - name: spire-oidc-provider
           image: ghcr.io/spiffe/oidc-discovery-provider:1.11.1
           args: ["-config", "/run/spire/config/oidc-discovery-provider.conf"]
@@ -136,7 +136,7 @@ spec:
             - name: oidc-config
               mountPath: /run/spire/config
             - name: sockets
-              mountPath: /run/spire/sockets
+              mountPath: /tmp/spire-server/private
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000

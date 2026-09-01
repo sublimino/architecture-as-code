@@ -39,22 +39,21 @@ setup() {
 }
 
 @test "SPIRE OIDC Discovery Provider serves valid JWKS keys" {
-  local keys_json
-  keys_json=$(kubectl -n "$NAMESPACE_BAO" exec deployment/spire-server -c spire-oidc-provider -- \
-    wget -qO- http://127.0.0.1:8008/keys 2>/dev/null || true)
+  local keys_json key_count key_use
+  keys_json=$(kubectl -n "$NAMESPACE_BAO" exec deployment/openbao -- \
+    wget -qO- http://spire-oidc.inf-bao.svc.cluster.local:8008/keys 2>/dev/null)
   [ -n "$keys_json" ]
   key_count=$(jq '.keys | length' <<<"$keys_json")
   [ "$key_count" -ge 1 ]
-  key_use=$(jq -r '.keys[0].use' <<<"$keys_json")
-  [ "$key_use" = "jwt-svid" ]
+  key_use=$(jq -r '.keys[0].alg' <<<"$keys_json")
+  [ "$key_use" = "ES256" ]
 }
 
 @test "OpenBao validates live SPIFFE JWT-SVID via jwks_url" {
-  # Mint a live JWT-SVID for fe-signalloom via spire-agent socket
-  local jwt_svid login_res
-  jwt_svid=$(kubectl -n "$NAMESPACE_BAO" exec deployment/spire-server -- \
-    /opt/spire/bin/spire-server bundle show -format spiffe | jq -r '.keys[0].kid // empty')
-  [ -n "$jwt_svid" ]
+  local jwt_kid
+  jwt_kid=$(kubectl -n "$NAMESPACE_BAO" exec deployment/spire-server -c spire-server -- \
+    /opt/spire/bin/spire-server bundle show -format spiffe | jq -r '[.keys[] | select(.use == "jwt-svid")][0].kid // empty')
+  [ -n "$jwt_kid" ]
 
   # Verify assert_openbao_accepts_spire_jwt_keys passes against live cluster
   source scripts/lib/spire-trust-anchor.sh

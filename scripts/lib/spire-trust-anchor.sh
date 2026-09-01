@@ -405,7 +405,7 @@ openbao_jwt_validation_keys() {
     }
     if [[ -n "$jwks_body" ]]; then
       jwk_out="$(jq -r '
-        .keys[] | select(.use == "jwt-svid" and .kty == "EC" and .crv == "P-256")
+        .keys[] | select(.kty == "EC" and .crv == "P-256")
         | [.x, .y] | @tsv' <<<"$jwks_body" 2>/dev/null)"
       if [[ -n "$jwk_out" ]]; then
         mapfile -t jwks <<<"$jwk_out"

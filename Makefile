@@ -618,6 +618,20 @@ demo-signalloom-data-mock: ## Populate data stores with realistic demo data (moc
 demo-signalloom-api-test: ## Run the consumer-driven contract + integration test suite.
 	./scripts/signalloom-api-test.sh $${TIER:-contract}
 
+.PHONY: demo-signalloom-dex-origin-set demo-signalloom-dex-origin-status demo-signalloom-dex-origin-restore
+demo-signalloom-dex-origin-set: ## Set and apply Dex public origin and callback URIs (ORIGIN=<url> [METHOD=tailscale|ngrok|iap]).
+	@if [ -z "$(ORIGIN)" ]; then \
+		echo "ERROR: ORIGIN is required. Example: make demo-signalloom-dex-origin-set ORIGIN=https://ftna-signalloom.taild4da3.ts.net"; \
+		exit 1; \
+	fi
+	./scripts/lib/dex-origin.sh apply "$${METHOD:-tailscale}" "$(ORIGIN)"
+
+demo-signalloom-dex-origin-status: ## Show current Dex public origin, lease holder, and OIDC state.
+	./scripts/lib/dex-origin.sh status
+
+demo-signalloom-dex-origin-restore: ## Restore Dex public origin and callbacks to default baseline.
+	./scripts/lib/dex-origin.sh restore
+
 ##@ SuperCred demo — agent identity chain, compliance scan, stun
 ##  Each numbered step has a preflight check. Run in order: 1 → 2 → 3 → 4 → 5.
 

@@ -79,8 +79,8 @@ interface Svid {
 
 const SPIRE = {
   trustDomain: TRUST_DOMAIN,
-  server: { version: '1.9.4', nodeAttestor: 'k8s_psat', keyManager: 'disk', ha: '1 server / raft datastore' },
-  agents: { total: 6, attested: 6, method: 'k8s_psat' },
+  server: { version: '1.11.1', nodeAttestor: 'join_token', keyManager: 'disk', ha: '1 server / sqlite datastore', oidcDiscovery: 'spire-oidc.inf-bao:8008/keys' },
+  agents: { total: 6, attested: 6, method: 'join_token' },
   svids: [
     { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/fe-signalloom/sa/dashboard`, workload: 'dashboard-signalloom', selector: 'k8s:sa:dashboard', ttl: '1h', status: 'active' },
     { spiffeId: `spiffe://${TRUST_DOMAIN}/ns/fe-signalloom/sa/api`, workload: 'fe-signalloom-api', selector: 'k8s:sa:api', ttl: '1h', status: 'active' },
@@ -725,7 +725,8 @@ export default function CryptographyPage() {
         <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', marginBottom: 12 }}>
           <StatCard label="SPIRE server" value={`v${SPIRE.server.version}`} sub={SPIRE.server.ha} accent="var(--cyan)" />
           <StatCard label="Agents attested" value={`${SPIRE.agents.attested}/${SPIRE.agents.total}`} sub={`via ${SPIRE.agents.method}`} accent="var(--teal)" />
-          <StatCard label="Node attestor" value="k8s_psat" sub={`key manager: ${SPIRE.server.keyManager}`} accent="var(--violet)" />
+          <StatCard label="Node attestor" value="join_token" sub={`key manager: ${SPIRE.server.keyManager}`} accent="var(--violet)" />
+          <StatCard label="OIDC discovery" value="Active (JWKS)" sub={SPIRE.server.oidcDiscovery} accent="var(--teal)" />
         </div>
         <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 10px' }}>
           Bootstrap posture only. The live, per-workload credential state — SVID, OpenBao lease and

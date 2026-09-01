@@ -26,6 +26,7 @@ spec:
               POLICY
               bao policy write signalloom-fe-signalloom /tmp/policy.hcl
               bao auth enable jwt || true
+              bao write auth/jwt/config jwks_url="http://spire-oidc.inf-bao.svc.cluster.local:8008/keys" || true
               bao write auth/jwt/role/signalloom-fe-signalloom \
                 role_type=jwt bound_audiences=openbao \
                 bound_subject=spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom \

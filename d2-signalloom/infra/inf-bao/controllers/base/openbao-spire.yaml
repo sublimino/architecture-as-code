@@ -124,10 +124,34 @@ spec:
               mountPath: /run/spire/config
             - name: data
               mountPath: /run/spire/data
+            - name: sockets
+              mountPath: /run/spire/sockets
+        - name: spire-oidc-provider
+          image: ghcr.io/spiffe/oidc-discovery-provider:1.11.1
+          args: ["-config", "/run/spire/config/oidc-discovery-provider.conf"]
+          ports:
+            - name: http-oidc
+              containerPort: 8008
+          volumeMounts:
+            - name: oidc-config
+              mountPath: /run/spire/config
+            - name: sockets
+              mountPath: /run/spire/sockets
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
       volumes:
         - name: config
           configMap:
             name: spire-server-config
+        - name: oidc-config
+          configMap:
+            name: spire-oidc-config
+        - name: sockets
+          emptyDir: {}
         - name: data
           # server.conf's data_dir. This holds BOTH halves of the server's
           # identity — the sqlite datastore (registration entries, the CA
@@ -160,3 +184,17 @@ spec:
     - name: grpc
       port: 8081
       targetPort: 8081
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spire-oidc
+  labels:
+    app.kubernetes.io/name: spire-oidc
+spec:
+  selector:
+    app.kubernetes.io/name: spire-server
+  ports:
+    - name: http-oidc
+      port: 8008
+      targetPort: http-oidc

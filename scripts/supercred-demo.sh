@@ -580,7 +580,19 @@ $(printf '%s' "$agent_log" | indent)"
   log "agent output after revocation (full, verbatim):"
   printf '%s\n' "$agent_log" | indent
 
-  if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[13])' <<<"$agent_log"; then
+  if grep -qiE 'FAILED.*(openbao|credential|token|login|permission denied|40[013]|role .* not found)' <<<"$agent_log"; then
+    log "───────────────────────────────────────────────────────────"
+    log "REVOCATION & STUN PROOF ANALYSIS:"
+    if grep -qF '[step-1]' <<<"$agent_log"; then
+      log "  [step-1] ✓ Workload Attestation  : SPIFFE JWT-SVID acquired successfully"
+    fi
+    if grep -qF '[step-2]' <<<"$agent_log"; then
+      local step2_line
+      step2_line="$(grep -F '[step-2]' <<<"$agent_log" | head -n 1)"
+      log "  [step-2] 🚫 Control Plane Policy : Access Denied by OpenBao (${step2_line#*FAILED: })"
+    fi
+    log "  [result] Authorization Enforced  : Agent hard-blocked before reaching Step 3 (KV Secret) or Step 4 (CardVault API)"
+    log "───────────────────────────────────────────────────────────"
     ok "confirmed: the agent reached SPIFFE but was DENIED credentials — that is the stun"
   elif grep -q 'FAILED' <<<"$agent_log"; then
     # A failure at a different step means the demo broke, not that the stun

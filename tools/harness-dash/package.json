@@ -1,0 +1,31 @@
+{
+  "name": "harness-dash",
+  "version": "1.0.0",
+  "description": "Universal AI CLI & Harness Cross-Device Session Tracker, Dashboard, and Productivity Dragon Cross-Referencer",
+  "main": "src/cli.ts",
+  "type": "module",
+  "bin": {
+    "harness-dash": "./bin/harness-dash"
+  },
+  "scripts": {
+    "start": "bun run src/cli.ts",
+    "test": "bun test",
+    "build": "bun build src/cli.ts --target bun --outfile dist/harness-dash"
+  },
+  "keywords": [
+    "ai",
+    "harness",
+    "dashboard",
+    "claude",
+    "antigravity",
+    "codex",
+    "cpai",
+    "omp",
+    "hermes",
+    "happy",
+    "obsidian",
+    "productivity-dragon"
+  ],
+  "author": "ControlPlane & PAI Ecosystem",
+  "license": "Apache-2.0"
+}

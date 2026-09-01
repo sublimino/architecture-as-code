@@ -145,5 +145,26 @@
     "reviewer": "supervisor",
     "verdict": "APPROVED",
     "reason": "Harness smoke test verified green with make healthcheck on integration branch"
+  },
+  "edbcb": {
+    "task_id": "edbcb",
+    "reviewed_at": "2026-09-02T00:13:50Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "STUNSWARM-P1-1: Level-triggered workqueue & exact iflink resolution verified 24/24 Go unit tests passing (commit 39d8517b)"
+  },
+  "0e8b7": {
+    "task_id": "0e8b7",
+    "reviewed_at": "2026-09-01T23:09:37Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "STUNSWARM-P2-1: CEL ValidatingAdmissionPolicy verified 20/20 BATS tests passing (commit e8e0975b)"
+  },
+  "d316c": {
+    "task_id": "d316c",
+    "reviewed_at": "2026-09-01T23:13:13Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "STUNSWARM-P2-3: Unified label ontology & live kernel telemetry verified 2791/2791 Vitest tests passing (commit aa1910b6)"
   }
 }

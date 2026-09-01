@@ -131,5 +131,19 @@
     "reviewer": "supervisor",
     "verdict": "REJECTED",
     "reason": "Hold until 2026-08-31T20:00:00+01:00: restart cannot safely merge absent P4 source refs; done would falsely certify no durable merge; prompt update cannot resolve 10 non-owned staged P4-shaped changes. Reinspect refs and ownership at timeout."
+  },
+  "fb485": {
+    "task_id": "fb485",
+    "reviewed_at": "2026-09-01T22:41:32Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Preflight verified 100% PASS with scripts/sentinel-preflight.sh (commit f8035595)"
+  },
+  "ecde8": {
+    "task_id": "ecde8",
+    "reviewed_at": "2026-09-01T22:41:32Z",
+    "reviewer": "supervisor",
+    "verdict": "APPROVED",
+    "reason": "Harness smoke test verified green with make healthcheck on integration branch"
   }
 }

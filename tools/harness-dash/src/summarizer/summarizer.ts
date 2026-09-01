@@ -1,15 +1,89 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import * as crypto from 'node:crypto';
 import type { SessionMetadata, SummaryInfo, SummaryModelTier } from '../types';
 import { AppTokenTracker } from './app-token-tracker';
+
+export interface SummaryCacheEntry {
+  summaryInfo: SummaryInfo;
+  contentHash: string;
+  cachedAt: string;
+}
 
 export class SessionSummarizer {
   private cerebrasApiKey?: string;
   public tokenTracker = new AppTokenTracker();
+  private cachePath: string;
+  private memoryCache: Map<string, SummaryCacheEntry> = new Map();
 
-  constructor() {
+  constructor(customCachePath?: string) {
     this.cerebrasApiKey = this.resolveCerebrasApiKey();
+    this.cachePath =
+      customCachePath ||
+      path.join(os.homedir(), '.cache', 'harness-dash', 'summary-cache.json');
+    this.loadDiskCache();
+  }
+
+  private loadDiskCache(): void {
+    if (existsSync(this.cachePath)) {
+      try {
+        const raw = readFileSync(this.cachePath, 'utf-8');
+        const data = JSON.parse(raw);
+        if (data && typeof data === 'object') {
+          for (const [key, val] of Object.entries(data)) {
+            this.memoryCache.set(key, val as SummaryCacheEntry);
+          }
+        }
+      } catch {
+        // start with fresh memory cache
+      }
+    }
+  }
+
+  private saveDiskCache(): void {
+    try {
+      const dir = path.dirname(this.cachePath);
+      mkdirSync(dir, { recursive: true });
+      const obj: Record<string, SummaryCacheEntry> = {};
+      for (const [k, v] of this.memoryCache.entries()) {
+        obj[k] = v;
+      }
+      const tmp = `${this.cachePath}.tmp.${Date.now()}`;
+      writeFileSync(tmp, JSON.stringify(obj, null, 2), 'utf-8');
+      renameSync(tmp, this.cachePath);
+    } catch {
+      // cache save is best-effort
+    }
+  }
+
+  public computeContentHash(session: SessionMetadata): string {
+    const tailText = (session.lastLines || []).slice(-15).join('\n');
+    const signature = `${session.id}:${session.title}:${session.lastActivityAt}:${tailText}`;
+    return crypto.createHash('sha256').update(signature).digest('hex').slice(0, 16);
+  }
+
+  public getCachedSummary(session: SessionMetadata, model: SummaryModelTier): SummaryInfo | undefined {
+    const key = `${session.id}:${model}`;
+    const entry = this.memoryCache.get(key);
+    if (!entry) return undefined;
+
+    const currentHash = this.computeContentHash(session);
+    if (entry.contentHash === currentHash) {
+      return entry.summaryInfo;
+    }
+    return undefined;
+  }
+
+  public setCachedSummary(session: SessionMetadata, model: SummaryModelTier, summaryInfo: SummaryInfo): void {
+    const key = `${session.id}:${model}`;
+    const contentHash = this.computeContentHash(session);
+    this.memoryCache.set(key, {
+      summaryInfo,
+      contentHash,
+      cachedAt: new Date().toISOString()
+    });
+    this.saveDiskCache();
   }
 
   private resolveCerebrasApiKey(): string | undefined {
@@ -118,7 +192,19 @@ export class SessionSummarizer {
   /**
    * Executes summarization with a specifically requested model tier
    */
-  async summarizeWithModel(session: SessionMetadata, model: SummaryModelTier): Promise<SummaryInfo> {
+  async summarizeWithModel(
+    session: SessionMetadata,
+    model: SummaryModelTier,
+    forceRefresh: boolean = false
+  ): Promise<SummaryInfo> {
+    // 1. Check persistent cache first if not explicitly forcing a re-run
+    if (!forceRefresh) {
+      const cached = this.getCachedSummary(session, model);
+      if (cached) {
+        return cached;
+      }
+    }
+
     const start = Date.now();
     const rawContext = (session.lastLines || []).join('\n');
     const payloadSize = Buffer.byteLength(rawContext, 'utf-8');
@@ -137,7 +223,7 @@ export class SessionSummarizer {
           latencyMs,
           session.id
         );
-        return {
+        const info: SummaryInfo = {
           text,
           model: 'gemma-4-cerebras',
           modelLabel: 'Gemma 4 (Cerebras WSE)',
@@ -150,6 +236,8 @@ export class SessionSummarizer {
           prompt,
           payloadSize
         };
+        this.setCachedSummary(session, 'gemma-4-cerebras', info);
+        return info;
       } catch (err: any) {
         console.warn(`[Summarizer] Cerebras Gemma 4 failed: ${err.message}, falling back to Gemini 2.5 Flash`);
       }
@@ -168,7 +256,7 @@ export class SessionSummarizer {
           latencyMs,
           session.id
         );
-        return {
+        const info: SummaryInfo = {
           text,
           model: 'antigravity',
           modelLabel: 'Antigravity Pro',
@@ -181,6 +269,8 @@ export class SessionSummarizer {
           prompt,
           payloadSize
         };
+        this.setCachedSummary(session, 'antigravity', info);
+        return info;
       } catch (err: any) {
         console.warn(`[Summarizer] Antigravity model failed: ${err.message}, falling back to Gemini 2.5 Flash`);
       }
@@ -199,7 +289,7 @@ export class SessionSummarizer {
           latencyMs,
           session.id
         );
-        return {
+        const info: SummaryInfo = {
           text,
           model: 'gemini-2.5-flash',
           modelLabel: 'Gemini 2.5 Flash',
@@ -212,6 +302,8 @@ export class SessionSummarizer {
           prompt,
           payloadSize
         };
+        this.setCachedSummary(session, 'gemini-2.5-flash', info);
+        return info;
       } catch (err: any) {
         console.warn(`[Summarizer] Gemini 2.5 Flash failed: ${err.message}, falling back to extractive`);
       }
@@ -219,7 +311,7 @@ export class SessionSummarizer {
 
     // Extractive fallback
     const extractive = this.summarize(session.lastLines, session.title);
-    return {
+    const fallbackInfo: SummaryInfo = {
       text: extractive,
       model: 'extractive',
       modelLabel: 'Extractive Heuristic',
@@ -232,6 +324,8 @@ export class SessionSummarizer {
       prompt,
       payloadSize
     };
+    this.setCachedSummary(session, 'extractive', fallbackInfo);
+    return fallbackInfo;
   }
 
   /**

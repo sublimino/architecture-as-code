@@ -433,7 +433,7 @@ sync_openbao_jwt_validation() {
       return 1
     }
     pems+=("$pem")
-    ((i++))
+    i=$((i + 1))
   done
   ((${#pems[@]} > 0)) || {
     printf 'sync_openbao_jwt_validation: all %d keys from SPIRE were empty after filtering — refusing to write\n' "${#keys[@]}" >&2

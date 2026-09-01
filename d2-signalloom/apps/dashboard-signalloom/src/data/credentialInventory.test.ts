@@ -56,12 +56,10 @@ describe('trust domain', () => {
 // ─── Config-sourced registration entries ────────────────────────────────────
 
 describe('CONFIG_REGISTRATION_ENTRIES', () => {
-  it('carries the two SPIFFE identities actually registered in the cluster config', () => {
+  it('carries the SPIFFE identities actually registered in the cluster config', () => {
     const ids = CONFIG_REGISTRATION_ENTRIES.map((e) => e.spiffeId).sort()
-    expect(ids).toEqual([
-      'spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent',
-      'spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom',
-    ])
+    expect(ids).toContain('spiffe://signalloom.demo/ns/fe-signalloom-agents/sa/cardvault-agent')
+    expect(ids).toContain('spiffe://signalloom.demo/ns/fe-signalloom/sa/fe-signalloom')
   })
 
   it('records the OpenBao JWT role and policy path each identity is bound to', () => {

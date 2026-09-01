@@ -122,6 +122,7 @@ case "${1:-load}" in
     verify_images presence || VERIFY_RC=$?
     case "$VERIFY_RC" in
       0) ;;
+      # All SuperCred manifests use imagePullPolicy: IfNotPresent. Kubelet attempts a registry pull for an absent image.
       3) warn "COULD-NOT-VERIFY — $DEMO_NODE's image listing cannot answer whether these
         images are present. Not a pass and not a failure. A genuinely absent
         image triggers Kubelet to attempt a registry pull under IfNotPresent."

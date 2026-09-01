@@ -71,10 +71,11 @@ export abstract class BaseHarnessAdapter implements HarnessAdapter {
   protected cleanTitle(raw: string): string {
     if (!raw) return 'Untitled Session';
     return raw
-      .replace(/<\/?(USER_REQUEST|ADDITIONAL_METADATA|SYSTEM_MESSAGE)[^>]*>/gi, '')
+      .replace(/<\/?(USER_REQUEST|ADDITIONAL_METADATA|SYSTEM_MESSAGE|system|context)[^>]*>/gi, '')
       .replace(/<[^>]+>/g, '')
-      .replace(/[\r\n]+/g, ' ')
-      .replace(/[<>{}[\]`*#_]/g, '')
+      .replace(/--append-system-prompt-file[^\n]*/g, '')
+      .replace(/@PAI\/[^\n]*/g, '')
+      .replace(/^[-*•]\s+/g, '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 120);

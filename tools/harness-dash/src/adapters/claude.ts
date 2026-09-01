@@ -64,13 +64,37 @@ export class ClaudeAdapter extends BaseHarnessAdapter {
       for (const line of lastLines) {
         try {
           const parsed = JSON.parse(line);
+
+          // 1. Title / User Prompt extraction across Claude Code formats
+          let rawPrompt = '';
           if (parsed.title || parsed.session_name || parsed.custom_title) {
-            const foundTitle = this.cleanTitle(parsed.title || parsed.session_name || parsed.custom_title);
-            if (foundTitle && !titleHistory.includes(foundTitle)) {
-              titleHistory.push(foundTitle);
-              title = foundTitle;
+            rawPrompt = parsed.title || parsed.session_name || parsed.custom_title;
+          } else if (parsed.type === 'last-prompt' && parsed.lastPrompt) {
+            rawPrompt = parsed.lastPrompt;
+          } else if (parsed.display && typeof parsed.display === 'string' && !parsed.display.startsWith('--') && !parsed.display.startsWith('/')) {
+            rawPrompt = parsed.display;
+          } else if (parsed.prompt && typeof parsed.prompt === 'string') {
+            rawPrompt = parsed.prompt;
+          } else if (parsed.type === 'user' || parsed.message?.role === 'user' || parsed.role === 'user') {
+            const content = parsed.message?.content || parsed.content;
+            if (typeof content === 'string') {
+              rawPrompt = content;
+            } else if (Array.isArray(content)) {
+              const textBlock = content.find((c: any) => c.type === 'text' || typeof c === 'string');
+              if (textBlock) {
+                rawPrompt = typeof textBlock === 'string' ? textBlock : textBlock.text || '';
+              }
             }
           }
+
+          if (rawPrompt) {
+            const clean = this.cleanTitle(rawPrompt);
+            if (clean && clean.length > 3 && !clean.startsWith('--') && !clean.startsWith('@PAI') && !titleHistory.includes(clean)) {
+              titleHistory.push(clean);
+              title = clean;
+            }
+          }
+
           if (parsed.cwd) cwd = parsed.cwd;
           if (parsed.gitBranch) gitBranch = parsed.gitBranch;
           if (parsed.model) modelsUsed.add(parsed.model);
@@ -100,6 +124,12 @@ export class ClaudeAdapter extends BaseHarnessAdapter {
         } catch {
           // not json line
         }
+      }
+
+      // If no explicit prompt in tail, synthesize from workspace project & git branch
+      const projectName = path.basename(cwd);
+      if (title.startsWith('Claude Session') && projectName && projectName !== '.' && projectName !== '/' && projectName !== 'andy') {
+        title = gitBranch && gitBranch !== 'HEAD' ? `${projectName} [${gitBranch}]` : projectName;
       }
 
       totalCostUsd = (inputTokens * 0.000003) + (outputTokens * 0.000015);

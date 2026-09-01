@@ -137,8 +137,20 @@ export class SessionSummarizer {
           const file = obj.input?.target_file || obj.input?.path || obj.input?.command;
           if (file) toolActions.push(`${name}: ${String(file).slice(0, 40)}`);
         }
-        if (obj.type === 'USER_INPUT' || obj.role === 'user') {
-          latestGoal = typeof obj.content === 'string' ? obj.content.slice(0, 80) : '';
+        if (obj.type === 'USER_INPUT' || obj.role === 'user' || obj.type === 'user') {
+          const c = obj.content || obj.message?.content;
+          if (typeof c === 'string') {
+            latestGoal = c.replace(/<[^>]+>/g, '').trim().slice(0, 80);
+          } else if (Array.isArray(c)) {
+            const t = c.find((x: any) => x.type === 'text' || typeof x === 'string');
+            if (t) {
+              const textStr = typeof t === 'string' ? t : t.text || '';
+              latestGoal = textStr.replace(/<[^>]+>/g, '').trim().slice(0, 80);
+            }
+          }
+        }
+        if (obj.type === 'last-prompt' && obj.lastPrompt) {
+          latestGoal = String(obj.lastPrompt).replace(/<[^>]+>/g, '').trim().slice(0, 80);
         }
         if (obj.error || (obj.status && obj.status === 'ERROR')) {
           errors.push(obj.error?.message || 'Error occurred');

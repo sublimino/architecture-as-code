@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/name: kagent-commit-summariser
     app.kubernetes.io/part-of: signalloom
     signalloom.ai/agent: "true"
+    signalloom.ai/framework: kagent
     signalloom.ai/role: summariser
     signalloom.ai/harness: kagent
 spec:

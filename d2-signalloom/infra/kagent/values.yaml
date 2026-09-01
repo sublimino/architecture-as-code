@@ -153,6 +153,7 @@ controller:
     # rolled. That is intended and is what makes the label appear.
     podLabels:
       signalloom.ai/agent: "true"
+      signalloom.ai/framework: kagent
       signalloom.ai/harness: kagent
       app.kubernetes.io/part-of: signalloom
   agentImage:

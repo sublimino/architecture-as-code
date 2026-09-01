@@ -193,15 +193,15 @@ agent_tool_names() {
   while IFS= read -r name; do
     [ -n "$name" ] || continue
     [ "$name" = "kagent-tool-server" ] && continue
-    if ! kubectl get mcpserver "$name" -n "${NS}" >/dev/null 2>&1; then
+    if ! kubectl get remotemcpserver "$name" -n "${NS}" >/dev/null 2>&1; then
       missing+="$name "
     fi
   done <<<"$wanted"
 
   if [ -n "$missing" ]; then
-    echo "Agent CRs reference MCPServers that do not exist: $missing"
-    echo "MCPServers present in ${NS}:"
-    kubectl get mcpserver -n "${NS}" --no-headers
+    echo "Agent CRs reference RemoteMCPServers that do not exist: $missing"
+    echo "RemoteMCPServers present in ${NS}:"
+    kubectl get remotemcpserver -n "${NS}" --no-headers
   fi
   [ -z "$missing" ]
 }

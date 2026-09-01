@@ -1,6 +1,6 @@
 ---
 apiVersion: kagent.dev/v1alpha2
-kind: MCPServer
+kind: RemoteMCPServer
 metadata:
   name: github-tool
   namespace: fe-signalloom-agents
@@ -8,6 +8,7 @@ metadata:
     app.kubernetes.io/name: kagent-commit-summariser
 spec:
   description: Provides read-only access to GitHub repositories, commits, and PRs
+  url: "http://github-mcp.kagent:8080/mcp"
 ---
 apiVersion: v1
 kind: Secret

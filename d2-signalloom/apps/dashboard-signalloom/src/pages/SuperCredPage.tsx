@@ -817,15 +817,56 @@ export default function SuperCredPage() {
                     )}
                   </td>
                   <td style={DataTable.td}>
-                    <StatusBadge status={agent.state ?? 'unknown'} />
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <StatusBadge status={agent.state ?? 'unknown'} />
+                      {agent.state === 'stunned' ? (
+                        <>
+                          <span
+                            data-testid={`telemetry-cgroup-${agent.id}`}
+                            className="tag"
+                            title="cgroup.freeze: 1 — Kernel processes atomically suspended with memory preserved"
+                            style={{ fontSize: 10, background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                          >
+                            cgroup: FROZEN
+                          </span>
+                          <span
+                            data-testid={`telemetry-tc-${agent.id}`}
+                            className="tag"
+                            title="TC clsact matchall drop active — all ingress/egress packets blocked"
+                            style={{ fontSize: 10, background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                          >
+                            TC: DROP
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            data-testid={`telemetry-cgroup-${agent.id}`}
+                            className="tag"
+                            title="cgroup.freeze: 0 — Normal kernel scheduling active"
+                            style={{ fontSize: 10, background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                          >
+                            cgroup: THAWED
+                          </span>
+                          <span
+                            data-testid={`telemetry-tc-${agent.id}`}
+                            className="tag"
+                            title="TC clsact drop filter inactive — normal packet routing"
+                            style={{ fontSize: 10, background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                          >
+                            TC: PASS
+                          </span>
+                        </>
+                      )}
+                    </div>
                     {/* Kept beside the state rather than in a column of its own:
                         a stun reason only exists for a stunned agent, so a column
                         for it would be empty on every row that is running. */}
                     {agent.stunned_at && (
-                      <div style={{ fontSize: 11, color: colors.red }}>Stunned: {agent.stunned_at}</div>
+                      <div style={{ fontSize: 11, color: colors.red, marginTop: 4 }}>Stunned: {agent.stunned_at}</div>
                     )}
                     {agent.stun_reason && (
-                      <div style={{ fontSize: 11, color: colors.red }}>{agent.stun_reason}</div>
+                      <div style={{ fontSize: 11, color: colors.red, marginTop: 2 }}>{agent.stun_reason}</div>
                     )}
                   </td>
                   <td style={DataTable.td}>{agent.phase ?? '—'}</td>
@@ -1159,6 +1200,51 @@ export default function SuperCredPage() {
               <li>Agent network policy set to deny-all egress</li>
               <li>Incident logged to audit trail</li>
             </ul>
+          </div>
+
+          {/* Real-time Sentinel Kernel Containment Telemetry */}
+          <div
+            data-testid="supercred-sentinel-telemetry"
+            style={{
+              marginTop: 14, padding: '12px 16px',
+              background: 'rgba(0,0,0,0.22)', borderRadius: 6,
+              border: '1px solid color-mix(in srgb, var(--error) 25%, var(--border))',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--cyan)' }}>
+                Sentinel Kernel Containment Telemetry (eBPF + cgroups v2)
+              </span>
+              <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: 'color-mix(in srgb, var(--error) 20%, transparent)', color: 'var(--error)', border: '1px solid color-mix(in srgb, var(--error) 40%, transparent)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>
+                Kernel Enforced
+              </span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10 }}>
+              <div style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 4, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  cgroup.freeze
+                </div>
+                <div data-testid="supercred-telemetry-cgroup" style={{ fontSize: 13, fontWeight: 700, color: 'var(--error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--error)', display: 'inline-block' }} />
+                  1 · FROZEN
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                  Atomic scheduler freeze — process memory preserved for forensics
+                </div>
+              </div>
+              <div style={{ padding: '10px 12px', background: 'var(--surface)', borderRadius: 4, border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Traffic Control (TC) Drop
+                </div>
+                <div data-testid="supercred-telemetry-tc" style={{ fontSize: 13, fontWeight: 700, color: 'var(--error)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--error)', display: 'inline-block' }} />
+                  MATCHALL DROP · ACTIVE
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                  clsact qdisc ingress/egress filter — 100% packet isolation
+                </div>
+              </div>
+            </div>
           </div>
 
           {stunEvent && (

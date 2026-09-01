@@ -1,12 +1,18 @@
 import { describe, it, expect } from 'vitest'
 import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
+import {
+  AGENT_LABELS,
+  proxyRecordToDiscovery,
+  isKernelContained,
+  type ProxyAgentRecord,
+} from './agentDiscovery'
 
 describe('agentDiscovery — fake swarm agents', () => {
   it('has exactly 10 swarm agents', () => {
     expect(FAKE_SWARM_AGENTS).toHaveLength(10)
   })
 
-  it('every agent has all required label fields', () => {
+  it('every agent has all required orthogonal label fields', () => {
     for (const agent of FAKE_SWARM_AGENTS) {
       expect(agent.pod_name, `pod_name missing for ${agent.service_account}`).toBeTruthy()
       expect(agent.namespace, `namespace missing for ${agent.service_account}`).toBeTruthy()
@@ -15,6 +21,9 @@ describe('agentDiscovery — fake swarm agents', () => {
       expect(agent.tenant, `tenant missing for ${agent.service_account}`).toBeTruthy()
       expect(agent.project, `project missing for ${agent.service_account}`).toBeTruthy()
       expect(agent.role, `role missing for ${agent.service_account}`).toBeTruthy()
+      expect(agent.framework, `framework missing for ${agent.service_account}`).toBeTruthy()
+      expect(agent.state, `state missing for ${agent.service_account}`).toBeTruthy()
+      expect(agent.kernel_telemetry, `kernel_telemetry missing for ${agent.service_account}`).toBeDefined()
       expect(agent.provenance).toBe('demo')
     }
   })
@@ -40,5 +49,58 @@ describe('agentDiscovery — fake swarm agents', () => {
       expect(agent.created_at).toBeTruthy()
       expect(() => new Date(agent.created_at!)).not.toThrow()
     }
+  })
+
+  it('declares the unified orthogonal label ontology keys', () => {
+    expect(AGENT_LABELS.agent).toBe('signalloom.ai/agent')
+    expect(AGENT_LABELS.framework).toBe('signalloom.ai/framework')
+    expect(AGENT_LABELS.harness).toBe('signalloom.ai/harness')
+    expect(AGENT_LABELS.role).toBe('signalloom.ai/role')
+    expect(AGENT_LABELS.tenant).toBe('signalloom.ai/tenant')
+    expect(AGENT_LABELS.state).toBe('signalloom.ai/state')
+  })
+
+  it('normalizes live proxy records with orthogonal labels and Sentinel telemetry', () => {
+    const raw: ProxyAgentRecord = {
+      id: 'kagent-incident-responder',
+      name: 'kagent-incident-responder-pod-1',
+      namespace: 'fe-signalloom-agents',
+      service_account: 'kagent-incident-responder',
+      labels: {
+        'signalloom.ai/agent': 'true',
+        'signalloom.ai/framework': 'kagent',
+        'signalloom.ai/harness': 'kagent-runtime',
+        'signalloom.ai/role': 'responder',
+        'signalloom.ai/tenant': 'controlplane',
+        'signalloom.ai/state': 'stunned',
+      },
+    }
+    const record = proxyRecordToDiscovery(raw, 'live')
+    expect(record.framework).toBe('kagent')
+    expect(record.harness).toBe('kagent-runtime')
+    expect(record.role).toBe('responder')
+    expect(record.tenant).toBe('controlplane')
+    expect(record.state).toBe('stunned')
+    expect(record.kernel_telemetry?.cgroup_frozen).toBe(true)
+    expect(record.kernel_telemetry?.cgroup_state).toBe('frozen')
+    expect(record.kernel_telemetry?.tc_drop_active).toBe(true)
+    expect(isKernelContained(record)).toBe(true)
+  })
+
+  it('reports active agent with thawed cgroup and passing TC filter', () => {
+    const raw: ProxyAgentRecord = {
+      id: 'triage-ci-worker',
+      labels: {
+        'signalloom.ai/agent': 'true',
+        'signalloom.ai/framework': 'custom',
+        'signalloom.ai/role': 'triage',
+        'signalloom.ai/state': 'active',
+      },
+    }
+    const record = proxyRecordToDiscovery(raw, 'live')
+    expect(record.kernel_telemetry?.cgroup_frozen).toBe(false)
+    expect(record.kernel_telemetry?.cgroup_state).toBe('thawed')
+    expect(record.kernel_telemetry?.tc_drop_active).toBe(false)
+    expect(isKernelContained(record)).toBe(false)
   })
 })

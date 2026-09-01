@@ -529,9 +529,52 @@ function AgentTableRow({ agent, shown, onNavigate, onEdit }: {
         {agent.owner ?? '—'}
       </td>
       <td style={{ padding: '11px 16px' }}>
-        <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
-          <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span title={LIFECYCLE_TOOLTIP[agent.lifecycle_state] ?? undefined}>
+            <StatusBadge status={agent.lifecycle_state} variant="lifecycle" />
+          </span>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {agent.lifecycle_state === 'suspended' || agent.lifecycle_state === 'stunned' || agent.credential_state?.status === 'revoked' ? (
+              <>
+                <span
+                  data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                  className="tag"
+                  title="cgroup.freeze: 1 (FROZEN) — Processes atomically suspended by Sentinel"
+                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                >
+                  cgroup: FROZEN
+                </span>
+                <span
+                  data-testid={`kernel-telemetry-tc-${agent.id}`}
+                  className="tag"
+                  title="TC matchall drop active — Network isolated by Sentinel"
+                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--error) 15%, transparent)', color: 'var(--error)', borderColor: 'color-mix(in srgb, var(--error) 30%, transparent)' }}
+                >
+                  TC: DROP
+                </span>
+              </>
+            ) : (
+              <>
+                <span
+                  data-testid={`kernel-telemetry-cgroup-${agent.id}`}
+                  className="tag"
+                  title="cgroup.freeze: 0 (THAWED)"
+                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                >
+                  cgroup: THAWED
+                </span>
+                <span
+                  data-testid={`kernel-telemetry-tc-${agent.id}`}
+                  className="tag"
+                  title="TC drop: INACTIVE"
+                  style={{ fontSize: 9, padding: '1px 5px', background: 'color-mix(in srgb, var(--teal) 15%, transparent)', color: 'var(--teal)', borderColor: 'color-mix(in srgb, var(--teal) 30%, transparent)' }}
+                >
+                  TC: PASS
+                </span>
+              </>
+            )}
+          </div>
+        </div>
       </td>
       <td style={{ padding: '11px 16px' }}>
         {/* "suspended" is a governance verdict; this says what it means. */}

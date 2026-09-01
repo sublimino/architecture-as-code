@@ -23,42 +23,41 @@ func (f *cgroupFreezer) unfreeze(cgroupPath string) error {
 }
 
 // resolvePodCgroup finds the cgroup path for a pod UID under the cgroup root.
-// Kubernetes places pods under kubepods/{qos-class}/pod-{uid} or kubepods/pod-{uid}.
+// It supports both cgroupfs and the nested systemd cgroup-v2 slice layout.
 func (f *cgroupFreezer) resolvePodCgroup(podUID string) (string, error) {
-	// Normalise: Kubernetes uses underscores in cgroup paths for UIDs with hyphens.
-	// The cgroup directory is named "pod-{uid}" or "pod{uid}" depending on the
-	// container runtime. We normalise both sides for matching.
-	sanitised := strings.ReplaceAll(podUID, "-", "_")
-	podPrefixDash := "pod_" + sanitised  // matches "pod-{uid}" after normalisation
-	podPrefixPlain := "pod" + sanitised   // matches "pod{uid}" after normalisation
-
-	// Search order: guaranteed (kubepods/pod-*), burstable, besteffort.
-	searchDirs := []string{
-		filepath.Join(f.cgroupRoot, "kubepods"),
-		filepath.Join(f.cgroupRoot, "kubepods", "burstable"),
-		filepath.Join(f.cgroupRoot, "kubepods", "besteffort"),
-	}
-
-	for _, dir := range searchDirs {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
+	var cgroupPath string
+	err := filepath.WalkDir(f.cgroupRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			name := entry.Name()
-			// Match pod-{uid} with both hyphenated and underscored forms.
-			nameNorm := strings.ReplaceAll(name, "-", "_")
-			if nameNorm == podPrefixDash || nameNorm == podPrefixPlain {
-				candidate := filepath.Join(dir, name)
-				if _, err := os.Stat(filepath.Join(candidate, "cgroup.freeze")); err == nil {
-					return candidate, nil
-				}
-			}
+		if !entry.IsDir() || !podCgroupNameMatches(entry.Name(), podUID) {
+			return nil
 		}
+		if _, err := os.Stat(filepath.Join(path, "cgroup.freeze")); err == nil {
+			cgroupPath = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("search cgroups under %s: %w", f.cgroupRoot, err)
 	}
+	if cgroupPath == "" {
+		return "", fmt.Errorf("cgroup for pod %q not found under %s", podUID, f.cgroupRoot)
+	}
+	return cgroupPath, nil
+}
 
-	return "", fmt.Errorf("cgroup for pod %q not found under %s", podUID, f.cgroupRoot)
+func podCgroupNameMatches(name, podUID string) bool {
+	// cgroupfs names escape UID hyphens as underscores and may retain the
+	// separator after "pod". Systemd cgroup-v2 uses pod<uid>.slice.
+	sanitisedUID := strings.ReplaceAll(podUID, "-", "_")
+	return strings.HasSuffix(name, "-pod"+podUID+".slice") ||
+		strings.HasSuffix(name, "-pod"+sanitisedUID+".slice") ||
+		name == "pod"+podUID+".slice" ||
+		name == "pod"+sanitisedUID+".slice" ||
+		name == "pod"+podUID ||
+		name == "pod-"+podUID ||
+		name == "pod"+sanitisedUID ||
+		name == "pod_"+sanitisedUID
 }

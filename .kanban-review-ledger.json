@@ -153,6 +153,13 @@
     "verdict": "APPROVED",
     "reason": "STUNSWARM-P1-1: Level-triggered workqueue & exact iflink resolution verified 24/24 Go unit tests passing (commit 39d8517b)"
   },
+  "ea5e4": {
+    "task_id": "ea5e4",
+    "reviewed_at": "2026-09-02T00:20:09Z",
+    "reviewer": "antigravity",
+    "verdict": "APPROVED",
+    "reason": "STUNSWARM-P1-2: Liveness probe preservation & dual-direction TC drop verified 28/28 Go tests and 14/14 BATS tests passing (commit 25812897)"
+  },
   "0e8b7": {
     "task_id": "0e8b7",
     "reviewed_at": "2026-09-01T23:09:37Z",

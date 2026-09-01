@@ -1088,3 +1088,55 @@ describe('SuperCred waits say what is running and for how long', () => {
     expect(screen.getByRole('button', { name: /Compliance Scan/ })).toBeEnabled()
   })
 })
+
+describe('Sentinel Kernel Containment Telemetry on SuperCredPage', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks()
+    getAccessTokenSilently.mockResolvedValue('test-token')
+  })
+
+  it('renders real-time Sentinel kernel containment telemetry badges on active and stunned agents', async () => {
+    mockFetch({
+      agents: [
+        cardvault(),
+        cardvault({
+          id: 'agent-cardvault-stunned',
+          name: 'Stunned Cardvault Agent',
+          state: 'stunned',
+          stunned_at: '2026-01-01T00:01:00Z',
+          stun_reason: 'non-compliant securityContext',
+        }),
+      ],
+    })
+    renderPage()
+    await refresh()
+
+    // Active agent: cgroup THAWED, TC PASS
+    const activeCgroup = screen.getByTestId('telemetry-cgroup-agent-cardvault')
+    const activeTc = screen.getByTestId('telemetry-tc-agent-cardvault')
+    expect(activeCgroup).toHaveTextContent('cgroup: THAWED')
+    expect(activeTc).toHaveTextContent('TC: PASS')
+
+    // Stunned agent: cgroup FROZEN, TC DROP
+    const stunnedCgroup = screen.getByTestId('telemetry-cgroup-agent-cardvault-stunned')
+    const stunnedTc = screen.getByTestId('telemetry-tc-agent-cardvault-stunned')
+    expect(stunnedCgroup).toHaveTextContent('cgroup: FROZEN')
+    expect(stunnedTc).toHaveTextContent('TC: DROP')
+  })
+
+  it('renders Sentinel Kernel Containment Telemetry card when an agent is stunned', async () => {
+    vi.spyOn(api.agents, 'stun').mockResolvedValue(stunResponse())
+    mockFetch({ agents: [cardvault()] })
+
+    renderPage()
+    await refresh()
+
+    const stunBtn = await screen.findByRole('button', { name: /Stun Agent/ })
+    await userEvent.click(stunBtn)
+
+    const telemetryCard = await screen.findByTestId('supercred-sentinel-telemetry')
+    expect(telemetryCard).toBeInTheDocument()
+    expect(screen.getByTestId('supercred-telemetry-cgroup')).toHaveTextContent('1 · FROZEN')
+    expect(screen.getByTestId('supercred-telemetry-tc')).toHaveTextContent('MATCHALL DROP · ACTIVE')
+  })
+})

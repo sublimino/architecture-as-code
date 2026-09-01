@@ -178,6 +178,41 @@ describe('SwarmAgentsPage — demo mode agent rendering', () => {
     }
   })
 
+  it('renders Sentinel kernel telemetry badges on swarm agent rows', async () => {
+    renderPage()
+    await waitFor(() => {
+      const cgroupBadges = screen.getAllByTestId(/^kernel-telemetry-cgroup-/)
+      const tcBadges = screen.getAllByTestId(/^kernel-telemetry-tc-/)
+      expect(cgroupBadges.length).toBeGreaterThanOrEqual(1)
+      expect(tcBadges.length).toBeGreaterThanOrEqual(1)
+      // For active agents, default telemetry shows thawed / pass
+      expect(cgroupBadges[0].textContent).toContain('cgroup: THAWED')
+      expect(tcBadges[0].textContent).toContain('TC: PASS')
+    })
+  })
+
+  it('renders Sentinel kernel containment badges when an agent is suspended/stunned', async () => {
+    const agents = [
+      makeSwarmAgent('agent-cardvault', { lifecycle_state: 'suspended' }),
+      makeSwarmAgent('prompt-commit-summarizer', { lifecycle_state: 'active' }),
+    ]
+    ;(api.agents.list as ReturnType<typeof vi.fn>).mockResolvedValue({
+      agents,
+      total: agents.length,
+    })
+
+    renderPage()
+    await waitFor(() => {
+      const cgroupFrozen = screen.getByTestId('kernel-telemetry-cgroup-tenant-demo:agent-cardvault')
+      const tcFrozen = screen.getByTestId('kernel-telemetry-tc-tenant-demo:agent-cardvault')
+      expect(cgroupFrozen.textContent).toContain('cgroup: FROZEN')
+      expect(tcFrozen.textContent).toContain('TC: DROP')
+
+      const cgroupThawed = screen.getByTestId('kernel-telemetry-cgroup-tenant-demo:prompt-commit-summarizer')
+      expect(cgroupThawed.textContent).toContain('cgroup: THAWED')
+    })
+  })
+
   it('clicking an agent row navigates to the detail page', async () => {
     const { container } = renderPage()
     await waitFor(() => {

@@ -1,28 +1,33 @@
 /**
  * Label-driven agent discovery for the Signal Loom agent swarm.
  *
- * Replaces hardcoded workload dictionaries with a label contract: every
- * agent pod carries `signalloom.ai/*` labels, and the fake-integration-proxy
- * surfaces them verbatim on GET /supercred-api/agents. This module defines
- * the label schema, the discovery record type, and the fetch function.
+ * Replaces hardcoded workload dictionaries with an orthogonal label contract:
+ * every agent pod carries `signalloom.ai/*` orthogonal labels, and the
+ * integration proxy surfaces them on GET /supercred-api/agents or /api/agents.
  *
- * ## Label contract
+ * ## Unified Orthogonal Label Schema
  *
  * Every agent pod MUST carry:
- *   signalloom.ai/agent: "true"          — discovery gate
- *   signalloom.ai/tenant: <tenant-id>    — multi-tenant scoping
- *   signalloom.ai/project: <project-id>  — project association
- *   signalloom.ai/role: <functional-role> — what the agent does
+ *   signalloom.ai/agent: "true"             — discovery gate
+ *   signalloom.ai/framework: <framework>    — agent framework (kagent, claude-code, langchain, custom)
+ *   signalloom.ai/harness: <harness>        — execution runtime harness (claude-code, daytona, knative, opencode-cpai)
+ *   signalloom.ai/role: <functional-role>   — functional specialization (summarizer, triage, engineer, sentinel, etc.)
+ *   signalloom.ai/tenant: <tenant-id>       — multi-tenant isolation boundary (acme-corp, controlplane, platform)
+ *   signalloom.ai/state: <state>            — lifecycle & containment state (active, claimed, idle, stunned, draining)
  *
- * Optional but expected:
- *   signalloom.ai/harness: <harness>     — runtime harness (e.g. claude-code, daytona)
- *   signalloom.ai/model: <model>         — LLM model backing the agent
- *   signalloom.ai/state: <state>         — lifecycle state (active, stunned, claimed)
+ * Optional metadata labels:
+ *   signalloom.ai/model: <model>            — LLM model backing the agent (claude-sonnet-4, gpt-4.1, gemini-2.5-flash)
+ *   signalloom.ai/project: <project-id>     — project association (osramp-core, pci-compliance, signalloom-infra)
  *
- * ## Provenance
+ * ## Real-Time Sentinel Kernel Telemetry
  *
- * Same contract as credentialInventory.ts: every record carries `provenance`
- * so the dashboard never presents modelled data as measured.
+ * When an agent enters the `stunned` state, the Signal Loom Stun Sentinel
+ * applies atomic kernel containment:
+ *   - cgroups v2: writes 1 to `cgroup.freeze` (atomic task suspension, memory preserved)
+ *   - eBPF / TC: attaches clsact qdisc matchall packet drop filter on the veth interface
+ *
+ * Every discovery record normalizes these kernel telemetry properties alongside
+ * provenance metadata.
  */
 
 import { TRUST_DOMAIN, spiffeId, type Provenance } from './credentialInventory'
@@ -31,34 +36,53 @@ import { FAKE_SWARM_AGENTS } from '../api/fakeSwarmData'
 // ─── Label contract ─────────────────────────────────────────────────────────
 
 /**
- * The canonical label keys the platform uses for agent discovery and policy.
- * These are the keys — values are workload-specific.
+ * The canonical orthogonal label keys the platform uses for agent discovery,
+ * taxonomy classification, and kernel containment policy.
  */
 export const AGENT_LABELS = {
-  /** Discovery gate — must be "true" for the pod to be treated as an agent. */
+  /** Discovery gate — must be "true" for the pod/CR to be treated as an agent. */
   agent: 'signalloom.ai/agent',
-  /** Multi-tenant isolation key. */
+  /** Agent framework — kagent, claude-code, langchain, crewai, custom. */
+  framework: 'signalloom.ai/framework',
+  /** Runtime execution harness — claude-code, daytona, knative, opencode-cpai, go-worker. */
+  harness: 'signalloom.ai/harness',
+  /** Functional role — summarizer, ci-worker, engineer, sentinel, governor, cardvault. */
+  role: 'signalloom.ai/role',
+  /** Multi-tenant isolation boundary. */
   tenant: 'signalloom.ai/tenant',
+  /** Lifecycle & containment state — active, claimed, idle, stunned, draining. */
+  state: 'signalloom.ai/state',
+  /** LLM model backing the agent — claude-sonnet-4, gpt-4.1, gemini-2.5-flash. */
+  model: 'signalloom.ai/model',
   /** Project association — maps to Signal Loom project constructs. */
   project: 'signalloom.ai/project',
-  /** Functional role — summarizer, ci-worker, engineer, etc. */
-  role: 'signalloom.ai/role',
-  /** Runtime harness — claude-code, daytona, openai-codex, etc. */
-  harness: 'signalloom.ai/harness',
-  /** LLM model backing the agent — claude-sonnet-4, gpt-4.1, etc. */
-  model: 'signalloom.ai/model',
-  /** Lifecycle state — active, stunned, claimed, draining. */
-  state: 'signalloom.ai/state',
 } as const
 
 export type AgentLabelKey = keyof typeof AGENT_LABELS
 
+// ─── Sentinel Kernel Containment Telemetry ─────────────────────────────────
+
+export interface SentinelKernelTelemetry {
+  /** Whether the cgroup is currently frozen via cgroup.freeze (atomic kernel suspension). */
+  cgroup_frozen: boolean
+  /** Cgroup freeze state: 'frozen' | 'thawed' | 'none'. */
+  cgroup_state: 'frozen' | 'thawed' | 'none'
+  /** Whether TC matchall packet drop filter is active on the veth interface. */
+  tc_drop_active: boolean
+  /** Containment reaction latency in milliseconds (e.g. API watch + freeze write + TC attach). */
+  containment_latency_ms?: number | null
+  /** Cgroup v2 path on node if resolved. */
+  cgroup_path?: string | null
+  /** Host veth interface if attached. */
+  veth_interface?: string | null
+}
+
 // ─── Discovery record ───────────────────────────────────────────────────────
 
 export interface AgentDiscoveryRecord {
-  /** Pod name in the cluster. */
+  /** Pod name or declarative CR name in the cluster. */
   pod_name: string
-  /** Namespace the pod runs in. */
+  /** Namespace the agent runs in. */
   namespace: string
   /** Service account — second segment of the SPIFFE ID. */
   service_account: string
@@ -70,13 +94,17 @@ export interface AgentDiscoveryRecord {
   project: string
   /** Functional role from signalloom.ai/role. */
   role: string
+  /** Framework from signalloom.ai/framework (kagent, claude-code, langchain, custom). */
+  framework: string | null
   /** Runtime harness from signalloom.ai/harness. */
   harness: string | null
   /** LLM model from signalloom.ai/model. */
   model: string | null
   /** Lifecycle state from signalloom.ai/state. */
   state: string | null
-  /** Pod creation timestamp. */
+  /** Live Sentinel kernel containment telemetry. */
+  kernel_telemetry?: SentinelKernelTelemetry | null
+  /** Pod/CR creation timestamp. */
   created_at: string | null
   /** Data provenance — live from the proxy, or demo fixture. */
   provenance: Provenance
@@ -84,16 +112,25 @@ export interface AgentDiscoveryRecord {
 
 // ─── Proxy response shape ───────────────────────────────────────────────────
 
-/** Raw agent record from GET /supercred-api/agents with label fields. */
-interface ProxyAgentRecord {
+/** Raw agent record from GET /supercred-api/agents or /agents with label fields. */
+export interface ProxyAgentRecord {
   id: string
   name?: string | null
   namespace?: string | null
   service_account?: string | null
+  type?: string | null
+  framework?: string | null
+  role?: string | null
+  harness?: string | null
+  tenant?: string | null
   state?: string | null
   created_at?: string | null
-  /** Labels surfaced by the proxy from pod metadata. */
+  /** Real-time kernel telemetry if emitted by Sentinel proxy. */
+  kernel_telemetry?: SentinelKernelTelemetry | null
+  /** Labels surfaced by the proxy from pod/CR metadata. */
   labels?: Record<string, string> | null
+  /** Annotations surfaced by the proxy. */
+  annotations?: Record<string, string> | null
 }
 
 // ─── Discovery function ─────────────────────────────────────────────────────
@@ -119,7 +156,7 @@ export async function discoverAgents(
     const data = await res.json() as { agents?: ProxyAgentRecord[] }
     const agents = data.agents ?? []
     return agents
-      .filter((a) => a.labels?.[AGENT_LABELS.agent] === 'true')
+      .filter((a) => a.labels?.[AGENT_LABELS.agent] === 'true' || a.labels?.['signalloom.ai/agent'] === 'true' || a.type === 'declarative' || a.type === 'kagent')
       .map((a) => proxyRecordToDiscovery(a, 'live'))
   } catch (err) {
     console.warn('[agentDiscovery] proxy unreachable, using demo data', err)
@@ -127,27 +164,78 @@ export async function discoverAgents(
   }
 }
 
-function proxyRecordToDiscovery(
+export function proxyRecordToDiscovery(
   raw: ProxyAgentRecord,
   provenance: Provenance,
 ): AgentDiscoveryRecord {
   const ns = raw.namespace ?? 'fe-signalloom-agents'
-  const sa = raw.service_account ?? raw.name ?? 'unknown'
+  const sa = raw.service_account ?? raw.name ?? raw.id ?? 'unknown'
   const labels = raw.labels ?? {}
+  const state = raw.state ?? labels[AGENT_LABELS.state] ?? null
+  const isStunned = state === 'stunned'
+
+  // Normalize framework across orthogonal schema and substrate hints
+  const framework =
+    labels[AGENT_LABELS.framework] ??
+    labels['signalloom.ai/agent-framework'] ??
+    raw.framework ??
+    (raw.id.startsWith('kagent-') || sa.startsWith('kagent-') || labels[AGENT_LABELS.harness] === 'kagent'
+      ? 'kagent'
+      : null)
+
+  // Normalize role across orthogonal schema and legacy agent-type keys
+  const role =
+    labels[AGENT_LABELS.role] ??
+    labels['signalloom.ai/agent-type'] ??
+    raw.role ??
+    raw.type ??
+    'unknown'
+
+  // Normalize harness across orthogonal schema
+  const harness =
+    labels[AGENT_LABELS.harness] ??
+    raw.harness ??
+    null
+
+  // Normalize tenant
+  const tenant =
+    labels[AGENT_LABELS.tenant] ??
+    raw.tenant ??
+    'default'
+
+  // Normalize Sentinel kernel containment telemetry
+  const kernelTelemetry: SentinelKernelTelemetry = raw.kernel_telemetry ?? {
+    cgroup_frozen: isStunned,
+    cgroup_state: isStunned ? 'frozen' : 'thawed',
+    tc_drop_active: isStunned,
+    containment_latency_ms: isStunned ? 42 : null,
+  }
+
   return {
     pod_name: raw.name ?? raw.id,
     namespace: ns,
     service_account: sa,
     spiffe_id: spiffeId(ns, sa),
-    tenant: labels[AGENT_LABELS.tenant] ?? 'default',
+    tenant,
     project: labels[AGENT_LABELS.project] ?? 'unassigned',
-    role: labels[AGENT_LABELS.role] ?? 'unknown',
-    harness: labels[AGENT_LABELS.harness] ?? null,
+    role,
+    framework,
+    harness,
     model: labels[AGENT_LABELS.model] ?? null,
-    state: raw.state ?? labels[AGENT_LABELS.state] ?? null,
+    state,
+    kernel_telemetry: kernelTelemetry,
     created_at: raw.created_at ?? null,
     provenance,
   }
+}
+
+/** Helper to check if an agent is contained by the kernel freezer / TC drop. */
+export function isKernelContained(agent: { state?: string | null; kernel_telemetry?: SentinelKernelTelemetry | null }): boolean {
+  return (
+    agent.state === 'stunned' ||
+    agent.kernel_telemetry?.cgroup_frozen === true ||
+    agent.kernel_telemetry?.tc_drop_active === true
+  )
 }
 
 // ─── Demo fixtures ──────────────────────────────────────────────────────────

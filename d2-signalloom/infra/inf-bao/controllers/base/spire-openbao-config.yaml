@@ -8,8 +8,21 @@ metadata:
   name: spire-server-config
 data:
   server.conf: |
-    server { bind_address = "0.0.0.0" bind_port = "8081" trust_domain = "signalloom.demo" data_dir = "/run/spire/data" }
+    server { bind_address = "0.0.0.0" bind_port = "8081" trust_domain = "signalloom.demo" data_dir = "/run/spire/data" socket_path = "/run/spire/sockets/server.sock" }
     plugins { DataStore "sql" { plugin_data { database_type = "sqlite3" connection_string = "/run/spire/data/datastore.sqlite3" } } KeyManager "disk" { plugin_data { keys_path = "/run/spire/data/keys.json" } } NodeAttestor "join_token" { } }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spire-oidc-config
+data:
+  oidc-discovery-provider.conf: |
+    log_level = "DEBUG"
+    domains = ["spire-oidc", "spire-oidc.inf-bao", "spire-oidc.inf-bao.svc.cluster.local", "localhost", "127.0.0.1"]
+    insecure_addr = "0.0.0.0:8008"
+    server_api {
+      address = "unix:///run/spire/sockets/server.sock"
+    }
 ---
 apiVersion: v1
 kind: ConfigMap

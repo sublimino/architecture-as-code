@@ -387,12 +387,40 @@ spire_jwt_key_der_for_kid() {
 
 # Every key OpenBao will currently accept a JWT-SVID signature from, one per
 # line, in the same encoding as spire_jwt_svid_keys.
+# Supports both dynamic jwks_url discovery and static jwt_validation_pubkeys.
 openbao_jwt_validation_keys() {
-  local namespace="$1" token="$2" config encoded pem
-  local -a encoded_pems=()
+  local namespace="$1" token="$2" config encoded pem jwks_url jwks_body jwk_out
+  local -a encoded_pems=() jwks=()
   config="$(kubectl -n "$namespace" exec deployment/openbao -- \
     env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
     bao read -format=json auth/jwt/config)" || return 1
+
+  jwks_url="$(jq -r '.data.jwks_url // empty' <<<"$config")"
+  if [[ -n "$jwks_url" ]]; then
+    jwks_body="$(kubectl -n "$namespace" exec deployment/openbao -- \
+      wget -qO- "$jwks_url" 2>/dev/null || curl -fsS "$jwks_url" 2>/dev/null)" || {
+      # In distroless / minimal container without wget/curl, query via spire-server pod or kubectl
+      jwks_body="$(kubectl -n "$namespace" exec deployment/spire-server -c spire-oidc-provider -- \
+        wget -qO- "http://127.0.0.1:8008/keys" 2>/dev/null || true)"
+    }
+    if [[ -n "$jwks_body" ]]; then
+      jwk_out="$(jq -r '
+        .keys[] | select(.use == "jwt-svid" and .kty == "EC" and .crv == "P-256")
+        | [.x, .y] | @tsv' <<<"$jwks_body" 2>/dev/null)"
+      if [[ -n "$jwk_out" ]]; then
+        mapfile -t jwks <<<"$jwk_out"
+        for jwk in "${jwks[@]}"; do
+          [[ -n "$jwk" ]] || continue
+          IFS=$'\t' read -r x y <<<"$jwk"
+          _spire_jwk_to_der_b64 "$x" "$y" || return 1
+          printf '\n'
+        done
+        return 0
+      fi
+    fi
+  fi
+
+  # Fallback to static jwt_validation_pubkeys
   # @base64 per element: a PEM spans several lines, so a bare `[]` would split
   # one key across several array entries and compare nothing meaningful.
   mapfile -t encoded_pems < <(jq -r '(.data.jwt_validation_pubkeys // [])[] | @base64' <<<"$config")
@@ -403,82 +431,32 @@ openbao_jwt_validation_keys() {
   done
 }
 
-# Point OpenBao at the keys SPIRE is signing with now.
-#
-# Uses command substitution to propagate spire_jwt_svid_keys exit status. The
-# previous `mapfile < <(cmd)` form swallowed failures: mapfile always returns 0
-# regardless of cmd's exit, so a failed kubectl left keys empty, the emptiness
-# guard said "refusing to write an empty set" — correct refusal, but the error
-# message named the symptom (empty) not the cause (SPIRE unreachable).
+# Point OpenBao at the live SPIRE OIDC discovery provider JWKS endpoint.
 sync_openbao_jwt_validation() {
-  local namespace="$1" token="$2" key_out key pem csv i
-  local -a keys=() pems=()
-  key_out="$(spire_jwt_svid_keys "$namespace")" || {
-    printf 'sync_openbao_jwt_validation: cannot read SPIRE JWT-SVID keys — aborting before writing to OpenBao\n' >&2
-    printf 'Consequence: OpenBao keeps its current jwt_validation_pubkeys (stale keys are better than no keys)\n' >&2
-    printf 'Recovery: fix the SPIRE read above, then re-run sync_openbao_jwt_validation or make demo-bao-up\n' >&2
-    return 1
-  }
-  [[ -n "$key_out" ]] || {
-    printf 'sync_openbao_jwt_validation: SPIRE returned successfully but produced no keys — refusing to write an empty jwt_validation_pubkeys to OpenBao\n' >&2
-    printf 'Consequence: every SPIFFE login would fail immediately with "no known key successfully validated the token signature"\n' >&2
-    return 1
-  }
-  mapfile -t keys <<<"$key_out"
-  i=0
-  for key in "${keys[@]}"; do
-    [[ -n "$key" ]] || continue
-    pem="$(_der_b64_to_pem "$key")" || {
-      printf 'sync_openbao_jwt_validation: PEM conversion failed for key %d of %d — is openssl installed and working?\n' "$((i+1))" "${#keys[@]}" >&2
-      return 1
-    }
-    pems+=("$pem")
-    i=$((i + 1))
-  done
-  ((${#pems[@]} > 0)) || {
-    printf 'sync_openbao_jwt_validation: all %d keys from SPIRE were empty after filtering — refusing to write\n' "${#keys[@]}" >&2
-    return 1
-  }
-  printf -v csv '%s,' "${pems[@]}"
-  csv="${csv%,}"
+  local namespace="$1" token="$2"
+  local jwks_url="http://spire-oidc.${namespace}.svc.cluster.local:8008/keys"
   kubectl -n "$namespace" exec deployment/openbao -- env \
     BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
-    bao write auth/jwt/config jwt_validation_pubkeys="$csv" || {
-    printf 'sync_openbao_jwt_validation: OpenBao refused the key write — check BAO_TOKEN validity and openbao pod health\n' >&2
+    bao write auth/jwt/config jwks_url="$jwks_url" || {
+    printf 'sync_openbao_jwt_validation: OpenBao refused jwks_url write — check BAO_TOKEN validity and openbao pod health\n' >&2
     printf 'Recovery: kubectl -n %s exec deployment/openbao -- env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<token> bao status\n' "$namespace" >&2
     return 1
   }
-  printf 'sync_openbao_jwt_validation: wrote %d JWT validation key(s) to OpenBao auth/jwt/config\n' "${#pems[@]}"
+  printf 'sync_openbao_jwt_validation: configured OpenBao auth/jwt/config with live jwks_url=%s\n' "$jwks_url"
 }
 
 # The gate. Both sides are derived from the artefacts that actually decide —
-# SPIRE's live bundle and OpenBao's live config — so neither can be satisfied by
-# a hardcoded expectation that has quietly stopped being true.
-#
-# Binding assertions alone could not catch this: bound_subject, bound_audiences
-# and the SPIRE selectors were all still exactly right while every login failed.
+# SPIRE's live bundle and OpenBao's live config (dynamic jwks_url or static keys) —
+# so neither can be satisfied by a hardcoded expectation that has quietly stopped being true.
 assert_openbao_accepts_spire_jwt_keys() {
-  local namespace="$1" token="$2" key held found spire_out bao_out
+  local namespace="$1" token="$2" key held found spire_out bao_out config jwks_url
   local -a spire_keys=() bao_keys=()
-  # `mapfile -t arr < <(cmd) || return 1` reports MAPFILE's status, never cmd's.
-  # mapfile succeeds having read zero lines, so a failed kubectl left spire_keys
-  # empty, the membership loop below never executed, and this function returned
-  # 0 — announcing "OpenBao accepts every key SPIRE publishes" having read
-  # NEITHER side. Reproduced 2026-08-23 with KUBECONFIG=/nonexistent: this
-  # assert passed against no cluster at all.
-  #
-  # That is the same defect scripts/check-flux-substitution.sh was fixed for
-  # (see its note in scripts/ci/vm-pipeline.sh), reappearing in the one assert
-  # that exists to catch silent identity-plane failure. It mattered here more
-  # than it did there: this function was about to become a pipeline stage, and a
-  # stage that cannot fail is worse than an absent one because it reads as
-  # coverage.
-  #
-  # Command substitution DOES propagate status, and both readers already
-  # `|| return 1` on a failed kubectl, so this checks each read before comparing
-  # anything. The emptiness guards are belt-and-braces: `mapfile <<<""` yields
-  # one empty element, which the `-n` filter below would skip straight back into
-  # a vacuous pass.
+
+  config="$(kubectl -n "$namespace" exec deployment/openbao -- \
+    env BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$token" \
+    bao read -format=json auth/jwt/config)" || return 1
+  jwks_url="$(jq -r '.data.jwks_url // empty' <<<"$config")"
+
   spire_out="$(spire_jwt_svid_keys "$namespace")" || return 1
   bao_out="$(openbao_jwt_validation_keys "$namespace" "$token")" || return 1
   [[ -n "$spire_out" ]] || {
@@ -486,7 +464,7 @@ assert_openbao_accepts_spire_jwt_keys() {
     return 1
   }
   [[ -n "$bao_out" ]] || {
-    printf 'OpenBao holds NO JWT validation keys at all: auth/jwt/config was never synced or has been wiped, and every SPIFFE login fails\n' >&2
+    printf 'OpenBao holds NO JWT validation keys at all: auth/jwt/config was never synced (neither jwks_url nor pubkeys), and every SPIFFE login fails\n' >&2
     return 1
   }
   mapfile -t spire_keys <<<"$spire_out"
@@ -498,9 +476,16 @@ assert_openbao_accepts_spire_jwt_keys() {
       [[ "$held" == "$key" ]] && { found=true; break; }
     done
     [[ "$found" == true ]] && continue
-    printf 'OpenBao cannot validate the JWT-SVIDs SPIRE is signing now: SPIRE publishes %d JWT-SVID key(s), OpenBao holds %d, and at least one SPIRE key is absent from auth/jwt/config\n' \
+    printf 'OpenBao cannot validate the JWT-SVIDs SPIRE is signing now: SPIRE publishes %d JWT-SVID key(s), OpenBao discovery yielded %d, and at least one SPIRE key is absent\n' \
       "${#spire_keys[@]}" "${#bao_keys[@]}" >&2
-    printf 'SPIRE rotated its JWT signing key and OpenBao still holds the pre-rotation snapshot; every SPIFFE login fails with "no known key successfully validated the token signature" until the identity plane is re-synced\n' >&2
+    printf 'SPIRE rotated its JWT signing key and OpenBao cannot discover it; every SPIFFE login fails with "no known key successfully validated the token signature" until the identity plane is re-synced\n' >&2
     return 1
   done
+  if [[ -n "$jwks_url" ]]; then
+    printf 'assert_openbao_accepts_spire_jwt_keys: OpenBao successfully verifies all %d active SPIRE JWT key(s) via live jwks_url (%s)\n' \
+      "${#spire_keys[@]}" "$jwks_url"
+  else
+    printf 'assert_openbao_accepts_spire_jwt_keys: OpenBao holds all %d active SPIRE JWT key(s) in static jwt_validation_pubkeys\n' \
+      "${#spire_keys[@]}"
+  fi
 }

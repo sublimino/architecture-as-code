@@ -37,8 +37,9 @@ spec:
         request.userInfo.username == 'system:serviceaccount:fe-signalloom:swarm-governor' ||
         request.userInfo.username == 'system:serviceaccount:fe-signalloom-agents:swarm-governor' ||
         request.userInfo.username == 'kubernetes-admin' ||
+        request.userInfo.username == 'kind-osramp' ||
         request.userInfo.username.startsWith('system:admin') ||
-        request.userInfo.groups.exists(g, g == 'system:masters')
+        (has(request.userInfo.groups) && request.userInfo.groups.exists(g, g == 'system:masters'))
     - name: isAgentPod
       expression: >-
         has(object.metadata.labels) &&

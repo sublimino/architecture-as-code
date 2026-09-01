@@ -93,6 +93,38 @@ func TestResolvePodCgroupGuaranteed(t *testing.T) {
 	}
 }
 
+func TestResolvePodCgroupSystemdSlice(t *testing.T) {
+	dir := t.TempDir()
+	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid.slice")
+	if err := os.MkdirAll(podDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	if err != nil || path != podDir {
+		t.Fatalf("resolve systemd cgroup = %q, %v; want %q, nil", path, err, podDir)
+	}
+}
+
+func TestResolvePodCgroupRejectsPartialSystemdUIDMatch(t *testing.T) {
+	dir := t.TempDir()
+	podDir := filepath.Join(dir, "kubelet.slice", "kubelet-kubepods.slice", "kubelet-kubepods-burstable-podtest_uid-extra.slice")
+	if err := os.MkdirAll(podDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(podDir, "cgroup.freeze"), []byte("0"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := (&cgroupFreezer{cgroupRoot: dir}).resolvePodCgroup("test-uid")
+	if err == nil {
+		t.Fatal("partial systemd UID match unexpectedly resolved")
+	}
+}
+
 func TestResolvePodCgroupNotFound(t *testing.T) {
 	dir := t.TempDir()
 	os.MkdirAll(filepath.Join(dir, "kubepods"), 0755)

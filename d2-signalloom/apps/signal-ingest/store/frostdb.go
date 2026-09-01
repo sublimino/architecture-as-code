@@ -28,12 +28,13 @@ const (
 
 // FrostDBStore persists signal observations in an embedded FrostDB (Parquet).
 type FrostDBStore struct {
-	cs     *frostdb.ColumnStore
-	db     *frostdb.DB
-	table  *frostdb.Table
-	engine *query.LocalEngine
-	pool   memory.Allocator
-	mu     sync.RWMutex
+	cs            *frostdb.ColumnStore
+	db            *frostdb.DB
+	table         *frostdb.Table
+	engine        *query.LocalEngine
+	pool          memory.Allocator
+	droppedBefore time.Time
+	mu            sync.RWMutex
 }
 
 // NewFrostDBStore creates a new in-memory FrostDB-backed store.
@@ -191,6 +192,12 @@ func (f *FrostDBStore) Append(ctx context.Context, observations []model.Observat
 func (f *FrostDBStore) QueryRange(ctx context.Context, q Query) ([]model.Observation, error) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+
+	if !f.droppedBefore.IsZero() {
+		if q.After.IsZero() || q.After.Before(f.droppedBefore) {
+			q.After = f.droppedBefore
+		}
+	}
 
 	var results []model.Observation
 
@@ -362,21 +369,12 @@ func float64At(col arrow.Array, i int) float64 {
 }
 
 // DropPartition removes observations before the given time.
-// FrostDB does not expose granule-level deletion in its current API.
-// This implementation rotates blocks, which triggers persistence of completed
-// blocks to storage (if configured), but does not delete individual rows.
-// Documented limitation: DropPartition is a no-op for row-level deletion.
-func (f *FrostDBStore) DropPartition(_ context.Context, _ time.Time) error {
-	// FrostDB's block rotation is internal and automatic. The API does not
-	// expose row-level or time-range deletion. For a production system, this
-	// would be implemented via table recreation or TTL-based block expiry.
-	//
-	// Attempted approaches:
-	// - Table.RotateBlock() is not exported
-	// - No Delete/Truncate API on Table or DB
-	// - Block persistence happens automatically when blocks are full
-	//
-	// This is a documented limitation of the FrostDB PoC integration.
+func (f *FrostDBStore) DropPartition(_ context.Context, before time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if before.After(f.droppedBefore) {
+		f.droppedBefore = before
+	}
 	return nil
 }
 

@@ -152,3 +152,39 @@ func TestFreezeIdempotent(t *testing.T) {
 		t.Errorf("cgroup.freeze: got %q, want %q", string(data), "1")
 	}
 }
+
+func TestFreezeWithCgroupEvents(t *testing.T) {
+	dir := t.TempDir()
+	cgroupFile := filepath.Join(dir, "cgroup.freeze")
+	eventsFile := filepath.Join(dir, "cgroup.events")
+	os.WriteFile(cgroupFile, []byte("0"), 0644)
+	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 1\n"), 0644)
+
+	f := &cgroupFreezer{cgroupRoot: dir}
+	if err := f.freeze(dir); err != nil {
+		t.Fatalf("freeze with events: %v", err)
+	}
+
+	data, _ := os.ReadFile(cgroupFile)
+	if string(data) != "1" {
+		t.Errorf("cgroup.freeze: got %q, want 1", string(data))
+	}
+}
+
+func TestUnfreezeWithCgroupEvents(t *testing.T) {
+	dir := t.TempDir()
+	cgroupFile := filepath.Join(dir, "cgroup.freeze")
+	eventsFile := filepath.Join(dir, "cgroup.events")
+	os.WriteFile(cgroupFile, []byte("1"), 0644)
+	os.WriteFile(eventsFile, []byte("populated 1\nfrozen 0\n"), 0644)
+
+	f := &cgroupFreezer{cgroupRoot: dir}
+	if err := f.unfreeze(dir); err != nil {
+		t.Fatalf("unfreeze with events: %v", err)
+	}
+
+	data, _ := os.ReadFile(cgroupFile)
+	if string(data) != "0" {
+		t.Errorf("cgroup.freeze: got %q, want 0", string(data))
+	}
+}

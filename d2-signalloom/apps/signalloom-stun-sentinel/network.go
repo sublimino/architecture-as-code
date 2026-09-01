@@ -214,9 +214,26 @@ func (t *tcDropFilter) detachDrop(iface string) error {
 	return nil
 }
 
+func (t *tcDropFilter) hasDropFilter(iface string) (ingress bool, egress bool, err error) {
+	inOut, err := t.run("tc", "filter", "show", "dev", iface, "ingress")
+	if err != nil && !missingTCObject(inOut) {
+		return false, false, tcError("show ingress filters", iface, inOut, err)
+	}
+	egOut, err := t.run("tc", "filter", "show", "dev", iface, "egress")
+	if err != nil && !missingTCObject(egOut) {
+		return false, false, tcError("show egress filters", iface, egOut, err)
+	}
+	hasIngress := strings.Contains(string(inOut), sentinelIngressPref) || (strings.Contains(string(inOut), "action drop") && strings.Contains(string(inOut), "ingress"))
+	hasEgress := strings.Contains(string(egOut), sentinelEgressPref) || (strings.Contains(string(egOut), "action drop") && strings.Contains(string(egOut), "egress"))
+	return hasIngress, hasEgress, nil
+}
+
 func missingTCObject(output []byte) bool {
 	message := string(output)
-	return strings.Contains(message, "No such file") || strings.Contains(message, "Cannot find")
+	return strings.Contains(message, "No such file") ||
+		strings.Contains(message, "Cannot find") ||
+		strings.Contains(message, "No such process") ||
+		strings.Contains(message, "Invalid argument")
 }
 
 func tcError(operation, iface string, output []byte, err error) error {

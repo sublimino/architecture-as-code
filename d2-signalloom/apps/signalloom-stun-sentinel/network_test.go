@@ -184,3 +184,33 @@ func TestAttachAndDetachUseOnlySentinelFilters(t *testing.T) {
 		t.Fatalf("tc intent = %#v\nwant %#v", joined, want)
 	}
 }
+
+func TestHasDropFilter(t *testing.T) {
+	tc := newTCDropFilter()
+	tc.run = func(name string, args ...string) ([]byte, error) {
+		direction := args[len(args)-1]
+		if direction == "ingress" {
+			return []byte("filter protocol all pref 49152 matchall handle 0x1\n  action order 1: gact action drop\n"), nil
+		}
+		if direction == "egress" {
+			return []byte("filter protocol all pref 49153 matchall handle 0x2\n  action order 1: gact action drop\n"), nil
+		}
+		return []byte(""), nil
+	}
+
+	ingress, egress, err := tc.hasDropFilter("veth-target")
+	if err != nil || !ingress || !egress {
+		t.Fatalf("hasDropFilter() = (%v, %v, %v); want (true, true, nil)", ingress, egress, err)
+	}
+}
+
+func TestDetachMissingTCObjectsAreIgnored(t *testing.T) {
+	tc := newTCDropFilter()
+	tc.run = func(name string, args ...string) ([]byte, error) {
+		return []byte("RTNETLINK answers: Cannot find device \"veth-gone\""), errors.New("cannot find")
+	}
+
+	if err := tc.detachDrop("veth-gone"); err != nil {
+		t.Fatalf("detachDrop on missing object returned unexpected error: %v", err)
+	}
+}

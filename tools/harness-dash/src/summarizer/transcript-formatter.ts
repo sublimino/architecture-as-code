@@ -43,8 +43,9 @@ export class TranscriptFormatter {
         if (obj.tool_calls && Array.isArray(obj.tool_calls)) {
           for (const call of obj.tool_calls) {
             const toolName = call.name || 'tool';
-            const args = call.arguments || {};
-            const target = args.TargetFile || args.CommandLine || args.toolSummary || args.Query || args.SearchDirectory || '';
+            const args = call.arguments || call.args || {};
+            const target = args.TargetFile || args.CommandLine || args.AbsolutePath || args.toolSummary || args.Query || args.SearchDirectory || args.target_file || args.path || args.command || '';
+            const cleanTarget = typeof target === 'string' ? target.replace(/^["']|["']$/g, '') : '';
             entries.push({
               index: entryIdx,
               timestamp: obj.created_at,
@@ -52,7 +53,7 @@ export class TranscriptFormatter {
               title: `Tool Call: ${toolName}`,
               toolName,
               toolArgs: args,
-              content: target ? String(target) : JSON.stringify(args, null, 2),
+              content: cleanTarget || JSON.stringify(args, null, 2),
               rawJson: line
             });
           }

@@ -177,6 +177,9 @@ export class TuiDashboardRenderer {
       showSubordinates?: boolean;
       selectedIndex?: number;
       inspectedSession?: SessionMetadata | null;
+      isSummarizing?: boolean;
+      summarizingModelLabel?: string;
+      spinnerFrame?: number;
       showHelpModal?: boolean;
       searchQuery?: string;
       termWidth?: number;
@@ -217,7 +220,7 @@ export class TuiDashboardRenderer {
 
     // If inspecting a single session in detail (Single Pane Modal)
     if (options.inspectedSession) {
-      const inspectLines = this.formatInspectorModal(options.inspectedSession, totalWidth, termHeight);
+      const inspectLines = this.formatInspectorModal(options.inspectedSession, totalWidth, termHeight, options);
       lines.push(...inspectLines);
       return { lines, totalWidth };
     }
@@ -359,11 +362,24 @@ export class TuiDashboardRenderer {
     return `${bg}${cells.join(' ')}${reset}`;
   }
 
-  private formatInspectorModal(session: SessionMetadata, width: number, termHeight: number = 40): string[] {
+  private formatInspectorModal(
+    session: SessionMetadata,
+    width: number,
+    termHeight: number = 40,
+    options?: { isSummarizing?: boolean; summarizingModelLabel?: string; spinnerFrame?: number }
+  ): string[] {
     const lines: string[] = [];
-    const modelBadge = session.summaryInfo
-      ? `${this.C_BOLD}${this.C_YELLOW}✨ ${session.summaryInfo.modelLabel} (${session.summaryInfo.costTier})${session.summaryInfo.latencyMs ? ` • ${session.summaryInfo.latencyMs}ms` : ''}${session.summaryInfo.inputTokens !== undefined ? ` • ${session.summaryInfo.inputTokens} in / ${session.summaryInfo.outputTokens} out ($${session.summaryInfo.costUsd?.toFixed(6) || '0.000000'})` : ''}${this.C_RESET}`
-      : `${this.C_DIM}Extractive Heuristic ($0.00)${this.C_RESET}`;
+    const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    const spinner = SPINNER_FRAMES[(options?.spinnerFrame || 0) % SPINNER_FRAMES.length];
+
+    let modelBadge: string;
+    if (options?.isSummarizing) {
+      modelBadge = `${this.C_BOLD}${this.C_YELLOW}${spinner} Synthesizing with ${options?.summarizingModelLabel || 'Gemini 2.5 Flash ($)'}...${this.C_RESET}`;
+    } else if (session.summaryInfo) {
+      modelBadge = `${this.C_BOLD}${this.C_YELLOW}✨ ${session.summaryInfo.modelLabel} (${session.summaryInfo.costTier})${session.summaryInfo.latencyMs ? ` • ${session.summaryInfo.latencyMs}ms` : ''}${session.summaryInfo.inputTokens !== undefined ? ` • ${session.summaryInfo.inputTokens} in / ${session.summaryInfo.outputTokens} out ($${session.summaryInfo.costUsd?.toFixed(6) || '0.000000'})` : ''}${this.C_RESET}`
+    } else {
+      modelBadge = `${this.C_DIM}Extractive Heuristic ($0.00)${this.C_RESET}`;
+    }
 
     lines.push(`${this.C_BOLD}${this.C_CYAN}══ SESSION INSPECTOR ═════════════════════════════════════════════════════════════════${this.C_RESET}`);
     lines.push(`  ID:       ${this.C_BOLD}${session.id}${this.C_RESET} (${this.getHarnessBadge(session.harness)})`);
@@ -379,7 +395,11 @@ export class TuiDashboardRenderer {
 
     lines.push('');
     lines.push(`${this.C_BOLD}AI Summary (${modelBadge}):${this.C_RESET}`);
-    lines.push(`  ${this.C_CYAN}${session.summary || 'No summary available'}${this.C_RESET}`);
+    if (options?.isSummarizing) {
+      lines.push(`  ${this.C_BOLD}${this.C_YELLOW}${spinner} Analyzing recent log snippet and synthesizing on-demand AI summary...${this.C_RESET}`);
+    } else {
+      lines.push(`  ${this.C_CYAN}${session.summary || 'No summary available'}${this.C_RESET}`);
+    }
 
     if (session.subordinateActivities && session.subordinateActivities.length > 0) {
       lines.push('');
@@ -514,6 +534,10 @@ export class TuiDashboardRenderer {
     let selectedIdx = 0;
     let scrollOffset = 0;
     let inspectedSession: SessionMetadata | null = null;
+    let isSummarizing = false;
+    let summarizingModelLabel = '';
+    let spinnerFrame = 0;
+    let spinnerInterval: ReturnType<typeof setInterval> | null = null;
     let isShowingHelp = false;
     let isSearching = false;
     let searchBuffer = currentQuery.text || '';
@@ -529,6 +553,7 @@ export class TuiDashboardRenderer {
     const cleanup = () => {
       isRunning = false;
       if (statusTimer) clearTimeout(statusTimer);
+      if (spinnerInterval) clearInterval(spinnerInterval);
       // Restore main screen buffer & show cursor
       process.stdout.write('\x1b[?25h\x1b[?1049l');
       if (process.stdin.isTTY) {
@@ -577,6 +602,9 @@ export class TuiDashboardRenderer {
       const result = this.render(sessions, metrics, {
         selectedIndex: selectedIdx,
         inspectedSession,
+        isSummarizing,
+        summarizingModelLabel,
+        spinnerFrame,
         showHelpModal: isShowingHelp,
         searchQuery: currentQuery.text,
         termWidth,
@@ -623,13 +651,13 @@ export class TuiDashboardRenderer {
 
     // Listen for background updates
     store.onSessionUpdate(() => {
-      if (!isSearching && !isShowingHelp) renderFrame();
+      if (!isSearching && !isShowingHelp && !isSummarizing) renderFrame();
     });
 
     // Start background polling
     store.startBackgroundScanner(3000);
     setInterval(() => {
-      if (!isSearching && !inspectedSession && !isShowingHelp) renderFrame();
+      if (!isSearching && !inspectedSession && !isShowingHelp && !isSummarizing) renderFrame();
     }, 2000);
 
     // Setup raw keyboard input
@@ -695,10 +723,29 @@ export class TuiDashboardRenderer {
           if (key === '1' || key === '2' || key === '3') {
             const modelTier: SummaryModelTier = key === '1' ? 'gemma-4-cerebras' : key === '2' ? 'antigravity' : 'gemini-2.5-flash';
             const modelLabel = key === '1' ? 'Gemma 4 @ Cerebras ($$$ • Ultra Fast)' : key === '2' ? 'Antigravity ($$ • Deep Analysis)' : 'Gemini 2.5 Flash ($ • Budget)';
-            setStatus(`⚡ Re-running prompt with ${modelLabel}...`, 10000);
-            summarizer.summarizeWithModel(inspectedSession, modelTier).then(async (summaryInfo) => {
+            
+            isSummarizing = true;
+            summarizingModelLabel = modelLabel;
+            spinnerFrame = 0;
+            if (!spinnerInterval) {
+              spinnerInterval = setInterval(() => {
+                spinnerFrame++;
+                renderFrame();
+              }, 80);
+            }
+            setStatus(`⚡ Re-running prompt with ${modelLabel}...`, 15000);
+            renderFrame();
+
+            summarizer.summarizeWithModel(inspectedSession, modelTier, true).then(async (summaryInfo) => {
+              isSummarizing = false;
+              if (spinnerInterval) {
+                clearInterval(spinnerInterval);
+                spinnerInterval = null;
+              }
               if (inspectedSession) {
                 inspectedSession.summary = summaryInfo.text;
+                inspectedSession.summaryInfo = summaryInfo;
+                await store.saveSession(inspectedSession);
                 const tokStr = summaryInfo.inputTokens !== undefined
                   ? ` • ${summaryInfo.inputTokens} in / ${summaryInfo.outputTokens} out ($${summaryInfo.costUsd?.toFixed(6)})`
                   : '';
@@ -707,13 +754,24 @@ export class TuiDashboardRenderer {
                 renderFrame();
               }
             }).catch((err) => {
+              isSummarizing = false;
+              if (spinnerInterval) {
+                clearInterval(spinnerInterval);
+                spinnerInterval = null;
+              }
               setStatus(`⚠️ Summarization error: ${err.message}`);
+              renderFrame();
             });
             return;
           }
 
           if (key === '\u001b' || key === '\r' || key === '\n' || key === ' ' || key === 'i') {
             inspectedSession = null;
+            isSummarizing = false;
+            if (spinnerInterval) {
+              clearInterval(spinnerInterval);
+              spinnerInterval = null;
+            }
             prevBuffer = [];
             process.stdout.write('\x1b[2J\x1b[H');
             renderFrame();
@@ -753,13 +811,53 @@ export class TuiDashboardRenderer {
           if (sessions[selectedIdx]) {
             const targetSess = sessions[selectedIdx];
             inspectedSession = targetSess;
-            store.getSessionTranscript(targetSess.id, 200).then((tData) => {
+
+            // If session only has raw title or default summary, trigger on-demand AI summary with spinner
+            if (!targetSess.summaryInfo || targetSess.summaryInfo.model === 'extractive') {
+              isSummarizing = true;
+              summarizingModelLabel = 'Gemini 2.5 Flash ($)';
+              spinnerFrame = 0;
+              if (!spinnerInterval) {
+                spinnerInterval = setInterval(() => {
+                  spinnerFrame++;
+                  renderFrame();
+                }, 80);
+              }
+            }
+
+            store.getSessionTranscript(targetSess.id, 200).then(async (tData) => {
               if (inspectedSession && inspectedSession.id === targetSess.id) {
                 inspectedSession.lastLines = tData.rawLines;
+
+                // Synthesize summary if needed
+                if (isSummarizing) {
+                  try {
+                    const summaryInfo = await summarizer.summarizeWithModel(inspectedSession, 'gemini-2.5-flash');
+                    inspectedSession.summary = summaryInfo.text;
+                    inspectedSession.summaryInfo = summaryInfo;
+                    await store.saveSession(inspectedSession);
+                  } catch {
+                    // fallback
+                  } finally {
+                    isSummarizing = false;
+                    if (spinnerInterval) {
+                      clearInterval(spinnerInterval);
+                      spinnerInterval = null;
+                    }
+                  }
+                }
+
                 prevBuffer = [];
                 renderFrame();
               }
-            }).catch(() => {});
+            }).catch(() => {
+              isSummarizing = false;
+              if (spinnerInterval) {
+                clearInterval(spinnerInterval);
+                spinnerInterval = null;
+              }
+            });
+
             prevBuffer = [];
             process.stdout.write('\x1b[2J\x1b[H');
             renderFrame();

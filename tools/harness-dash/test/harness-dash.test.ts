@@ -574,5 +574,52 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     const secondSummary = await reloadedSummarizer.summarizeWithModel(session, 'extractive');
     expect(secondSummary.text).toBe(firstSummary.text);
   });
+
+  it('renders animated loading spinner in TUI inspector when an AI summary is being synthesized', () => {
+    const renderer = new TuiDashboardRenderer();
+    const metrics: DashboardMetrics = {
+      totalSessions: 1,
+      activeSessions: 1,
+      totalDevices: 1,
+      harnessBreakdown: { claude: 1, agy: 0, codex: 0, cpai: 0, omp: 0, hermes: 0, happy: 0, custom: 0 },
+      totalTokens: 1000,
+      totalCostUsd: 0.01,
+      totalProductivityDragonXp: 100
+    };
+
+    const session: SessionMetadata = {
+      id: 'spinner-sess-001',
+      harness: 'claude',
+      deviceId: 'host',
+      hostname: 'host',
+      title: 'Testing Spinner',
+      titleHistory: [],
+      status: 'running',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+      cwd: '/test',
+      modelsUsed: [],
+      tokenUsage: { inputTokens: 0, outputTokens: 0, totalCostUsd: 0 },
+      subagentCount: 0,
+      subordinateActivities: [],
+      lastLines: [],
+      url: 'claude://test',
+      tags: []
+    };
+
+    const { lines } = renderer.render([session], metrics, {
+      inspectedSession: session,
+      isSummarizing: true,
+      summarizingModelLabel: 'Gemini 2.5 Flash ($)',
+      spinnerFrame: 2,
+      termWidth: 120,
+      termHeight: 30
+    });
+
+    const fullText = lines.join('\n');
+    expect(fullText).toContain('Synthesizing with Gemini 2.5 Flash ($)');
+    expect(fullText).toContain('Analyzing recent log snippet');
+  });
 });
 

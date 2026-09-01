@@ -18,6 +18,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_SRC="${SCRIPT_DIR}/../d2-signalloom/apps/fe-signalloom/src"
 TIER="${1:-contract}"
+export UV_CACHE_DIR="${UV_CACHE_DIR:-/tmp/uv-cache}"
+export UV_CONFIG_FILE="${UV_CONFIG_FILE:-/dev/null}"
 
 cd "${APP_SRC}"
 

@@ -77,6 +77,14 @@ data:
       agent-cardvault
       nono-containment-probe
       signalloom-stun-sentinel
+      kagent-k8s-reader
+      kagent-commit-summariser
+      kagent-security-analyst
+      kagent-network-auditor
+      kagent-incident-responder
+      kagent-compliance-checker
+      kagent-finops-optimizer
+      kagent-chaos-prober
     )
 
     # One derivation of the server call, so nothing below can disagree about

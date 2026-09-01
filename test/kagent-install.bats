@@ -75,7 +75,7 @@ assert_ready_with_endpoint() {
 }
 
 @test "kagent: CustomResourceDefinitions are registered in cluster" {
-  for crd in agents.kagent.dev modelconfigs.kagent.dev mcpservers.kagent.dev; do
+  for crd in agents.kagent.dev modelconfigs.kagent.dev remotemcpservers.kagent.dev; do
     run kubectl get crd "$crd"
     [ "$status" -eq 0 ]
   done

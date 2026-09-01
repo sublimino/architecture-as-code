@@ -68,7 +68,7 @@ case "${ACTION}" in
     wait_k8s_exists agent kagent-chaos-prober -n "${AGENTS_NS}" 30
 
     echo "==> All 8 Kagent agents deployed to namespace '${AGENTS_NS}':"
-    kubectl get agents,modelconfigs,mcpservers -n "${AGENTS_NS}"
+    kubectl get agents,modelconfigs,remotemcpservers -n "${AGENTS_NS}"
     ;;
 
   destroy)
@@ -87,7 +87,7 @@ case "${ACTION}" in
   status)
     echo "=== Kagent Agents Status in ${AGENTS_NS} ==="
     if kubectl get namespace "${AGENTS_NS}" >/dev/null 2>&1; then
-      kubectl get agents,modelconfigs,mcpservers -n "${AGENTS_NS}" || true
+      kubectl get agents,modelconfigs,remotemcpservers -n "${AGENTS_NS}" || true
     else
       echo "Namespace '${AGENTS_NS}' does not exist."
     fi

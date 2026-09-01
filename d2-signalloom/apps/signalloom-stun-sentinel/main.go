@@ -117,6 +117,18 @@ func (c *controller) processNextWorkItem() bool {
 type stunReconciler struct {
 	freezer *cgroupFreezer
 	tc      *tcDropFilter
+	probes  *probePreserver
+}
+
+func newStunReconciler(freezer *cgroupFreezer, tc *tcDropFilter, probes *probePreserver) *stunReconciler {
+	if probes == nil {
+		probes = newProbePreserver()
+	}
+	return &stunReconciler{
+		freezer: freezer,
+		tc:      tc,
+		probes:  probes,
+	}
 }
 
 func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
@@ -139,21 +151,27 @@ func (r *stunReconciler) reconcile(pod *corev1.Pod) error {
 		if err := r.tc.attachDrop(veth); err != nil {
 			return fmt.Errorf("attach drop filter after freezing pod: %w", err)
 		}
+		if err := r.probes.preserve(pod, cgroupPath, veth); err != nil {
+			return fmt.Errorf("preserve liveness probes: %w", err)
+		}
 		event.Latency = fmt.Sprintf("%.1f", float64(time.Since(start).Microseconds())/1000)
 		logEvent(event)
 		return nil
 	}
 
 	event.Event = "unstun"
-	if err := r.freezer.unfreeze(cgroupPath); err != nil {
-		return fmt.Errorf("unfreeze: %w", err)
-	}
 	veth, err := r.tc.findHostVeth(cgroupPath)
 	if err != nil {
-		return fmt.Errorf("find veth after unfreezing pod: %w", err)
+		return fmt.Errorf("find veth before unfreezing pod: %w", err)
+	}
+	if err := r.probes.release(pod, cgroupPath, veth); err != nil {
+		return fmt.Errorf("release liveness probes: %w", err)
 	}
 	if err := r.tc.detachDrop(veth); err != nil {
 		return fmt.Errorf("detach drop filter: %w", err)
+	}
+	if err := r.freezer.unfreeze(cgroupPath); err != nil {
+		return fmt.Errorf("unfreeze: %w", err)
 	}
 	logEvent(event)
 	return nil
@@ -178,7 +196,11 @@ func main() {
 		informers.WithTweakListOptions(func(options *metav1.ListOptions) { options.LabelSelector = "signalloom.ai/agent=true" }),
 	)
 	informer := factory.Core().V1().Pods().Informer()
-	controller := newController(informer, &stunReconciler{freezer: &cgroupFreezer{cgroupRoot: cgroupRoot}, tc: newTCDropFilter()})
+	controller := newController(informer, newStunReconciler(
+		&cgroupFreezer{cgroupRoot: cgroupRoot},
+		newTCDropFilter(),
+		newProbePreserver(),
+	))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

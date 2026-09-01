@@ -177,6 +177,7 @@ export class TuiDashboardRenderer {
       showSubordinates?: boolean;
       selectedIndex?: number;
       inspectedSession?: SessionMetadata | null;
+      showHelpModal?: boolean;
       searchQuery?: string;
       termWidth?: number;
       termHeight?: number;
@@ -206,6 +207,13 @@ export class TuiDashboardRenderer {
       lines.push(`${this.C_YELLOW}🔍 Search: "${truncateVisible(options.searchQuery, termWidth - 20)}" (Esc to clear)${this.C_RESET}`);
     }
     lines.push('');
+
+    // If displaying Help Cheatsheet Modal
+    if (options.showHelpModal) {
+      const helpLines = this.formatHelpModal(totalWidth, termHeight);
+      lines.push(...helpLines);
+      return { lines, totalWidth };
+    }
 
     // If inspecting a single session in detail (Single Pane Modal)
     if (options.inspectedSession) {
@@ -267,7 +275,7 @@ export class TuiDashboardRenderer {
       : `+${metrics.totalProductivityDragonXp} XP`;
 
     const appSpendStr = appMetrics
-      ? ` | App AI: ${this.C_BOLD}${this.C_YELLOW}$${appMetrics.totalCostUsd.toFixed(4)}${this.C_RESET} (${this.C_GREEN}${appMetrics.totalCalls} calls${this.C_RESET})`
+      ? ` | App AI Spend: ${this.C_BOLD}${this.C_YELLOW}$${appMetrics.totalCostUsd.toFixed(4)}${this.C_RESET} (${this.C_GREEN}${appMetrics.totalCalls} on-demand calls${this.C_RESET})`
       : '';
 
     if (termWidth >= 160) {
@@ -275,7 +283,7 @@ export class TuiDashboardRenderer {
         `${this.C_BG_DARK}  ` +
         `Sessions: ${this.C_BOLD}${this.C_CYAN}${metrics.totalSessions}${this.C_RESET} (${this.C_GREEN}${metrics.activeSessions} active${this.C_RESET}) | ` +
         `Devices: ${this.C_BOLD}${this.C_MAGENTA}${metrics.totalDevices}${this.C_RESET} | ` +
-        `Tokens: ${this.C_BOLD}${formattedTokens}${this.C_RESET} ($${metrics.totalCostUsd.toFixed(2)}) | ` +
+        `Workload: ${this.C_BOLD}${formattedTokens}${this.C_RESET} ($${metrics.totalCostUsd.toFixed(2)}) | ` +
         `Dragon XP: ${this.C_BOLD}${this.C_YELLOW}${formattedXp}${this.C_RESET}` +
         appSpendStr + ` | ` +
         `Harnesses: ${this.C_DIM}claude:${metrics.harnessBreakdown.claude} agy:${metrics.harnessBreakdown.agy} cpai:${metrics.harnessBreakdown.cpai} codex:${metrics.harnessBreakdown.codex} omp:${metrics.harnessBreakdown.omp} hermes:${metrics.harnessBreakdown.hermes}${this.C_RESET}`
@@ -286,7 +294,7 @@ export class TuiDashboardRenderer {
       return (
         `${this.C_BG_DARK}  ` +
         `Sessions: ${this.C_BOLD}${this.C_CYAN}${metrics.totalSessions}${this.C_RESET} (${this.C_GREEN}${metrics.activeSessions} active${this.C_RESET}) | ` +
-        `Tokens: ${this.C_BOLD}${formattedTokens}${this.C_RESET} ($${metrics.totalCostUsd.toFixed(2)})` +
+        `Workload: ${this.C_BOLD}${formattedTokens}${this.C_RESET} ($${metrics.totalCostUsd.toFixed(2)})` +
         appSpendStr + ` | ` +
         `XP: ${this.C_BOLD}${this.C_YELLOW}${formattedXp}${this.C_RESET}`
       );
@@ -296,7 +304,7 @@ export class TuiDashboardRenderer {
       `${this.C_BG_DARK} ` +
       `Sess: ${this.C_BOLD}${this.C_CYAN}${metrics.totalSessions}${this.C_RESET} | ` +
       `Act: ${this.C_GREEN}${metrics.activeSessions}${this.C_RESET} | ` +
-      `Tokens: ${this.C_BOLD}${formattedTokens}${this.C_RESET}` +
+      `Workload: ${this.C_BOLD}${formattedTokens}${this.C_RESET}` +
       appSpendStr
     );
   }
@@ -450,14 +458,51 @@ export class TuiDashboardRenderer {
     return `${diffDays}d ago`;
   }
 
+  private formatHelpModal(width: number, termHeight: number = 40): string[] {
+    const lines: string[] = [];
+    lines.push(`${this.C_BOLD}${this.C_CYAN}══ ⚡ HARNESS-DASH HELP & CHEATSHEET [?] ═══════════════════════════════════════════${this.C_RESET}`);
+    lines.push('');
+    lines.push(`  ${this.C_BOLD}${this.C_YELLOW}NAVIGATION:${this.C_RESET}`);
+    lines.push(`    ${this.C_BOLD}↑ / k${this.C_RESET} or ${this.C_BOLD}↓ / j${this.C_RESET}       Navigate session list up and down`);
+    lines.push(`    ${this.C_BOLD}PgUp / PgDn${this.C_RESET}         Jump 10 rows up / down`);
+    lines.push(`    ${this.C_BOLD}g / G${this.C_RESET}               Jump to top / bottom of session list`);
+    lines.push(`    ${this.C_BOLD}Enter / i / Space${this.C_RESET}   Inspect selected session in detail (lazy-loads log)`);
+    lines.push(`    ${this.C_BOLD}Esc / q${this.C_RESET}             Close modal / Clear search / Quit`);
+    lines.push('');
+    lines.push(`  ${this.C_BOLD}${this.C_YELLOW}SEARCH & FILTERING:${this.C_RESET}`);
+    lines.push(`    ${this.C_BOLD}/${this.C_RESET}                   Interactive live search (title, goal, cwd, summary)`);
+    lines.push(`    ${this.C_BOLD}Tab / h${this.C_RESET}             Cycle harness filter (All → Claude → AGY → CPAI...)`);
+    lines.push(`    ${this.C_BOLD}r${this.C_RESET}                   Trigger instant background harness rescan`);
+    lines.push('');
+    lines.push(`  ${this.C_BOLD}${this.C_YELLOW}ON-DEMAND AI SUMMARIZATION (INSPECTOR MODAL):${this.C_RESET}`);
+    lines.push(`    ${this.C_BOLD}1${this.C_RESET}                   Re-run summary with ${this.C_BOLD}Gemma 4 @ Cerebras${this.C_RESET} ($$$ • Fast ~300ms)`);
+    lines.push(`    ${this.C_BOLD}2${this.C_RESET}                   Re-run summary with ${this.C_BOLD}Antigravity Pro${this.C_RESET} ($$ • Deep Analysis)`);
+    lines.push(`    ${this.C_BOLD}3${this.C_RESET}                   Re-run summary with ${this.C_BOLD}Gemini 2.5 Flash${this.C_RESET} ($ • Budget ~790ms)`);
+    lines.push('');
+    lines.push(`  ${this.C_BOLD}${this.C_YELLOW}INTEGRATIONS & WEB:${this.C_RESET}`);
+    lines.push(`    ${this.C_BOLD}w${this.C_RESET}                   Open Web Control Room in browser (http://localhost:3838)`);
+    lines.push(`    ${this.C_BOLD}o${this.C_RESET}                   Export session cards to Obsidian Productivity Dragon`);
+    lines.push(`    ${this.C_BOLD}?${this.C_RESET}                   Toggle this help cheatsheet popup`);
+    lines.push('');
+    lines.push(this.formatDivider(width));
+    lines.push(`  ${this.C_BOLD}${this.C_CYAN}Token Economy:${this.C_RESET} Background scanning is 100% heuristic ($0.00). AI models run only on inspection.`);
+    lines.push(`  ${this.C_DIM}[Press ?, Esc, Enter, or Space to return to dashboard]${this.C_RESET}`);
+
+    while (lines.length < termHeight - 2) {
+      lines.push('');
+    }
+
+    return lines;
+  }
+
   private formatFooter(rangeInfo: string, termWidth: number = 140): string {
     if (termWidth < 95) {
-      return `${this.C_DIM}[↑/↓] Nav  [Enter] View  [/] Search  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
+      return `${this.C_DIM}[↑/↓] Nav  [Enter] View  [/] Search  [?] Help  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
     }
     if (termWidth < 125) {
-      return `${this.C_DIM}[↑/↓, j/k] Nav  [Enter] Inspect  [/] Search  [Tab] Harness  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
+      return `${this.C_DIM}[↑/↓, j/k] Nav  [Enter] Inspect  [/] Search  [Tab] Harness  [?] Help  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
     }
-    return `${this.C_DIM}Keys: [↑/↓, j/k] Navigate  [Enter/i] Inspect  [/] Search  [Tab/h] Harness  [w] Web  [o] Obsidian  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
+    return `${this.C_DIM}Keys: [↑/↓, j/k] Navigate  [Enter/i] Inspect  [/] Search  [Tab/h] Harness  [?] Help  [w] Web  [o] Obsidian  [q] Quit${this.C_RESET}${this.C_BOLD}${this.C_CYAN}${rangeInfo}${this.C_RESET}`;
   }
 
   /**
@@ -469,6 +514,7 @@ export class TuiDashboardRenderer {
     let selectedIdx = 0;
     let scrollOffset = 0;
     let inspectedSession: SessionMetadata | null = null;
+    let isShowingHelp = false;
     let isSearching = false;
     let searchBuffer = currentQuery.text || '';
     let harnessIdx = 0;
@@ -531,6 +577,7 @@ export class TuiDashboardRenderer {
       const result = this.render(sessions, metrics, {
         selectedIndex: selectedIdx,
         inspectedSession,
+        showHelpModal: isShowingHelp,
         searchQuery: currentQuery.text,
         termWidth,
         termHeight,
@@ -576,13 +623,13 @@ export class TuiDashboardRenderer {
 
     // Listen for background updates
     store.onSessionUpdate(() => {
-      if (!isSearching) renderFrame();
+      if (!isSearching && !isShowingHelp) renderFrame();
     });
 
     // Start background polling
     store.startBackgroundScanner(3000);
     setInterval(() => {
-      if (!isSearching && !inspectedSession) renderFrame();
+      if (!isSearching && !inspectedSession && !isShowingHelp) renderFrame();
     }, 2000);
 
     // Setup raw keyboard input
@@ -616,6 +663,25 @@ export class TuiDashboardRenderer {
             renderFrame();
           }
           return;
+        }
+
+        // Toggle / Close Help Modal
+        if (key === '?') {
+          isShowingHelp = !isShowingHelp;
+          prevBuffer = [];
+          process.stdout.write('\x1b[2J\x1b[H');
+          renderFrame();
+          return;
+        }
+
+        if (isShowingHelp) {
+          if (key === '\u001b' || key === '\r' || key === '\n' || key === ' ' || key === 'q' || key === 'Q') {
+            isShowingHelp = false;
+            prevBuffer = [];
+            process.stdout.write('\x1b[2J\x1b[H');
+            renderFrame();
+            return;
+          }
         }
 
         // Ctrl+C or q to exit

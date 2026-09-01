@@ -486,18 +486,7 @@ line_number() {
 
 @test "every planner-labelled probe also carries the component label that exempts it" {
   local probes="$root/d2-agent-trust/manifests/topology-probes.yaml"
-  run python3 -c '
-import sys, yaml
-bad = []
-for d in yaml.safe_load_all(open(sys.argv[1])):
-    if not d or d.get("kind") != "CronJob":
-        continue
-    labels = d["spec"]["jobTemplate"]["spec"]["template"]["metadata"].get("labels", {})
-    if labels.get("app.kubernetes.io/name") == "agent-trust-planner" \
-       and labels.get("app.kubernetes.io/component") != "probe":
-        bad.append(d["metadata"]["name"])
-print(",".join(bad))
-' "$probes"
+  run yq -o=json 'select(.kind == "CronJob" and .spec.jobTemplate.spec.template.metadata.labels."app.kubernetes.io/name" == "agent-trust-planner" and .spec.jobTemplate.spec.template.metadata.labels."app.kubernetes.io/component" != "probe") | .metadata.name' "$probes"
   [ "$status" -eq 0 ]
   [ -z "$output" ]
 }

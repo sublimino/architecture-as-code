@@ -362,8 +362,8 @@ export class TuiDashboardRenderer {
   private formatInspectorModal(session: SessionMetadata, width: number, termHeight: number = 40): string[] {
     const lines: string[] = [];
     const modelBadge = session.summaryInfo
-      ? `${this.C_BOLD}${this.C_YELLOW}✨ ${session.summaryInfo.modelLabel} (${session.summaryInfo.costTier})${session.summaryInfo.latencyMs ? ` • ${session.summaryInfo.latencyMs}ms` : ''}${this.C_RESET}`
-      : `${this.C_DIM}Gemini 2.5 Flash ($)${this.C_RESET}`;
+      ? `${this.C_BOLD}${this.C_YELLOW}✨ ${session.summaryInfo.modelLabel} (${session.summaryInfo.costTier})${session.summaryInfo.latencyMs ? ` • ${session.summaryInfo.latencyMs}ms` : ''}${session.summaryInfo.inputTokens !== undefined ? ` • ${session.summaryInfo.inputTokens} in / ${session.summaryInfo.outputTokens} out ($${session.summaryInfo.costUsd?.toFixed(6) || '0.000000'})` : ''}${this.C_RESET}`
+      : `${this.C_DIM}Extractive Heuristic ($0.00)${this.C_RESET}`;
 
     lines.push(`${this.C_BOLD}${this.C_CYAN}══ SESSION INSPECTOR ═════════════════════════════════════════════════════════════════${this.C_RESET}`);
     lines.push(`  ID:       ${this.C_BOLD}${session.id}${this.C_RESET} (${this.getHarnessBadge(session.harness)})`);
@@ -699,9 +699,10 @@ export class TuiDashboardRenderer {
             summarizer.summarizeWithModel(inspectedSession, modelTier).then(async (summaryInfo) => {
               if (inspectedSession) {
                 inspectedSession.summary = summaryInfo.text;
-                inspectedSession.summaryInfo = summaryInfo;
-                await store.saveSession(inspectedSession);
-                setStatus(`✓ Summarized with ${summaryInfo.modelLabel} (${summaryInfo.costTier}) in ${summaryInfo.latencyMs}ms`);
+                const tokStr = summaryInfo.inputTokens !== undefined
+                  ? ` • ${summaryInfo.inputTokens} in / ${summaryInfo.outputTokens} out ($${summaryInfo.costUsd?.toFixed(6)})`
+                  : '';
+                setStatus(`✓ Summarized with ${summaryInfo.modelLabel} (${summaryInfo.costTier}) in ${summaryInfo.latencyMs}ms${tokStr}`, 8000);
                 prevBuffer = [];
                 renderFrame();
               }

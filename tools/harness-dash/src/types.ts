@@ -72,6 +72,9 @@ export interface SummaryInfo {
   modelLabel: string;
   costTier: '$' | '$$' | '$$$';
   latencyMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
   generatedAt: string;
   prompt?: string;
   payloadSize?: number;

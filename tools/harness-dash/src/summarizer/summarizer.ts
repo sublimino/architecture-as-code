@@ -128,10 +128,12 @@ export class SessionSummarizer {
       try {
         const { text, usage } = await this.runCerebrasGemma4(prompt);
         const latencyMs = Date.now() - start;
-        this.tokenTracker.recordCall(
+        const inTok = usage?.prompt_tokens || Math.round(prompt.length / 4);
+        const outTok = usage?.completion_tokens || Math.round(text.length / 4);
+        const record = this.tokenTracker.recordCall(
           'gemma-4-cerebras',
-          usage?.prompt_tokens || Math.round(prompt.length / 4),
-          usage?.completion_tokens || Math.round(text.length / 4),
+          inTok,
+          outTok,
           latencyMs,
           session.id
         );
@@ -141,6 +143,9 @@ export class SessionSummarizer {
           modelLabel: 'Gemma 4 (Cerebras WSE)',
           costTier: '$$$',
           latencyMs,
+          inputTokens: inTok,
+          outputTokens: outTok,
+          costUsd: record.costUsd,
           generatedAt: new Date().toISOString(),
           prompt,
           payloadSize
@@ -154,10 +159,12 @@ export class SessionSummarizer {
       try {
         const text = await this.runAntigravity(prompt);
         const latencyMs = Date.now() - start;
-        this.tokenTracker.recordCall(
+        const inTok = Math.round(prompt.length / 4);
+        const outTok = Math.round(text.length / 4);
+        const record = this.tokenTracker.recordCall(
           'antigravity',
-          Math.round(prompt.length / 4),
-          Math.round(text.length / 4),
+          inTok,
+          outTok,
           latencyMs,
           session.id
         );
@@ -167,6 +174,9 @@ export class SessionSummarizer {
           modelLabel: 'Antigravity Pro',
           costTier: '$$',
           latencyMs,
+          inputTokens: inTok,
+          outputTokens: outTok,
+          costUsd: record.costUsd,
           generatedAt: new Date().toISOString(),
           prompt,
           payloadSize
@@ -180,10 +190,12 @@ export class SessionSummarizer {
       try {
         const text = await this.runGeminiFlash25(prompt);
         const latencyMs = Date.now() - start;
-        this.tokenTracker.recordCall(
+        const inTok = Math.round(prompt.length / 4);
+        const outTok = Math.round(text.length / 4);
+        const record = this.tokenTracker.recordCall(
           'gemini-2.5-flash',
-          Math.round(prompt.length / 4),
-          Math.round(text.length / 4),
+          inTok,
+          outTok,
           latencyMs,
           session.id
         );
@@ -193,6 +205,9 @@ export class SessionSummarizer {
           modelLabel: 'Gemini 2.5 Flash',
           costTier: '$',
           latencyMs,
+          inputTokens: inTok,
+          outputTokens: outTok,
+          costUsd: record.costUsd,
           generatedAt: new Date().toISOString(),
           prompt,
           payloadSize
@@ -210,6 +225,9 @@ export class SessionSummarizer {
       modelLabel: 'Extractive Heuristic',
       costTier: '$',
       latencyMs: Date.now() - start,
+      inputTokens: 0,
+      outputTokens: 0,
+      costUsd: 0,
       generatedAt: new Date().toISOString(),
       prompt,
       payloadSize

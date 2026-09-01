@@ -501,5 +501,30 @@ describe('Universal AI CLI & Harness Dashboard Suite', () => {
     expect(transcriptData.formattedHtml).toContain('USER INSTRUCTION');
     expect(transcriptData.rawLines.length).toBe(3);
   });
+
+  it('renders interactive ? help popup modal in TUI with navigation, search, and action shortcuts', () => {
+    const renderer = new TuiDashboardRenderer();
+    const metrics: DashboardMetrics = {
+      totalSessions: 10,
+      activeSessions: 2,
+      totalDevices: 1,
+      harnessBreakdown: { claude: 5, agy: 5, codex: 0, cpai: 0, omp: 0, hermes: 0, happy: 0, custom: 0 },
+      totalTokens: 50000,
+      totalCostUsd: 0.15,
+      totalProductivityDragonXp: 500
+    };
+
+    const { lines } = renderer.render([], metrics, { showHelpModal: true, termWidth: 120, termHeight: 30 });
+    const fullText = lines.join('\n');
+
+    expect(fullText).toContain('HELP & CHEATSHEET [?]');
+    expect(fullText).toContain('NAVIGATION:');
+    expect(fullText).toContain('SEARCH & FILTERING:');
+    expect(fullText).toContain('ON-DEMAND AI SUMMARIZATION');
+    expect(fullText).toContain('Gemma 4 @ Cerebras');
+    expect(fullText).toContain('Antigravity Pro');
+    expect(fullText).toContain('Gemini 2.5 Flash');
+    expect(fullText).toContain('Token Economy');
+  });
 });
 

@@ -651,7 +651,7 @@ export class WebDashboardServer {
           <div class="flex items-center justify-between mb-2">
             <div class="text-xs font-bold text-slate-400 uppercase tracking-wider">AI Summary</div>
             <span id="summary-model-badge" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full \${s.summaryInfo && s.summaryInfo.costTier === '$$$' ? 'bg-amber-950 text-amber-300 border border-amber-800/60 font-semibold' : s.summaryInfo && s.summaryInfo.costTier === '$$' ? 'bg-purple-950 text-purple-300 border border-purple-800/60 font-semibold' : 'bg-teal-950 text-teal-300 border border-teal-800/60 font-semibold'}">
-              ✨ \${s.summaryInfo ? \`\${escapeHtml(s.summaryInfo.modelLabel)} (\${s.summaryInfo.costTier})\${s.summaryInfo.latencyMs ? \` • \${s.summaryInfo.latencyMs}ms\` : ''}\` : 'Gemini 2.5 Flash ($)'}
+              ✨ \${s.summaryInfo ? \`\${escapeHtml(s.summaryInfo.modelLabel)} (\${s.summaryInfo.costTier})\${s.summaryInfo.latencyMs ? \` • \${s.summaryInfo.latencyMs}ms\` : ''}\${s.summaryInfo.inputTokens !== undefined ? \` • \${s.summaryInfo.inputTokens} in / \${s.summaryInfo.outputTokens} out ($\${s.summaryInfo.costUsd ? s.summaryInfo.costUsd.toFixed(6) : '0.000000'})\` : ''}\` : 'Extractive Heuristic ($0.00)'}
             </span>
           </div>
           <div id="summary-content-box" class="p-4 rounded-xl bg-slate-900/90 border border-slate-800 text-xs text-slate-200 leading-relaxed font-normal shadow-inner">

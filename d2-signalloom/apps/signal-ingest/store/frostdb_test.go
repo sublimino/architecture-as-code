@@ -358,18 +358,18 @@ func TestFrostDBStore_DropPartition_DocumentedLimitation(t *testing.T) {
 		t.Fatalf("Append: %v", err)
 	}
 
-	// DropPartition should not error, even though it is a no-op.
+	// DropPartition should exclude data before now.Add(time.Hour).
 	if err := s.DropPartition(context.Background(), now.Add(time.Hour)); err != nil {
 		t.Fatalf("DropPartition: %v", err)
 	}
 
-	// Data should still be present (DropPartition is a no-op for FrostDB).
+	// Data before the dropped threshold should not be returned.
 	got, err := s.QueryRange(context.Background(), Query{})
 	if err != nil {
 		t.Fatalf("QueryRange: %v", err)
 	}
-	if len(got) != 1 {
-		t.Errorf("want 1 (DropPartition is no-op), got %d", len(got))
+	if len(got) != 0 {
+		t.Errorf("want 0 after dropping partition, got %d", len(got))
 	}
 }
 

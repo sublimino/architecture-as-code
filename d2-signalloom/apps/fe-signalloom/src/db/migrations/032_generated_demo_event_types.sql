@@ -229,6 +229,8 @@ BEGIN
         -- 011 carries the same warning; this migration re-learned it.
         'demo.signalfusion.phase_run',
         'demo.signalfusion.reset_requested',
+        'demo.distancelatency.phase_run',
+        'demo.distancelatency.reset_requested',
         'demo.supercred.phase_run',
         'demo.supercred.reset_requested',
         -- ───────────────────────────────────────────────────────────────────

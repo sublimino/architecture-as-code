@@ -228,6 +228,39 @@ SIGNAL_FUSION_STEPS: Mapping[str, DemoStep] = MappingProxyType(
 SIGNAL_FUSION_RESET_STEP_ID = "3"
 
 
+# ── Distance Latency demo configuration ───────────────────────────────────────
+
+_ENV_DL_SCRIPT = "DISTANCELATENCY_DEMO_SCRIPT"
+_ENV_DL_CWD = "DISTANCELATENCY_DEMO_CWD"
+
+DISTANCE_LATENCY_STEPS: Mapping[str, DemoStep] = MappingProxyType(
+    {
+        "1": DemoStep(
+            step_id="1",
+            title="Spatial Topology",
+            description="Discover agent topologies, SPIFFE trust domains, and measure baseline topological distance latencies.",
+        ),
+        "2": DemoStep(
+            step_id="2",
+            title="eBPF Kernel Probes",
+            description="Attach eBPF tracepoints and capture microsecond socket/packet transport delays with zero context switches.",
+        ),
+        "3": DemoStep(
+            step_id="3",
+            title="FrostDB Columnar Stream",
+            description="Stream 31-column Apache Arrow telemetry batches and evaluate real-time CEL latency governance rules.",
+        ),
+        "4": DemoStep(
+            step_id="4",
+            title="Quarantine Cascade",
+            description="Enforce distance-weighted policy actions and sub-millisecond stun isolation without disrupting neighbors.",
+        ),
+    }
+)
+DISTANCE_LATENCY_RESET_STEP_ID = "4"
+
+
+
 @dataclass(frozen=True)
 class DemoConfig:
     """Configuration for one demo type."""
@@ -337,6 +370,15 @@ DEMO_CONFIGS: Mapping[str, DemoConfig] = MappingProxyType(
             env_cwd=_ENV_SF_CWD,
             default_script="scripts/signalfusion-demo.sh",
             label="Signal Fusion",
+        ),
+        "distancelatency": DemoConfig(
+            demo_type="distancelatency",
+            steps=DISTANCE_LATENCY_STEPS,
+            reset_step_id=DISTANCE_LATENCY_RESET_STEP_ID,
+            env_script=_ENV_DL_SCRIPT,
+            env_cwd=_ENV_DL_CWD,
+            default_script="scripts/distancelatency-demo.sh",
+            label="Distance Latency",
         ),
     }
 )
@@ -1781,7 +1823,12 @@ def _spawn_run_for(step_id: str, kind: Literal["step", "reset"], config: DemoCon
 # Build the Signal Fusion router
 sf_router = _build_demo_router(DEMO_CONFIGS["signalfusion"])
 
+# Build the Distance Latency router
+dl_router = _build_demo_router(DEMO_CONFIGS["distancelatency"])
+
 
 def install_demo_runner_api(app: Any) -> None:
     app.include_router(router)
     app.include_router(sf_router)
+    app.include_router(dl_router)
+

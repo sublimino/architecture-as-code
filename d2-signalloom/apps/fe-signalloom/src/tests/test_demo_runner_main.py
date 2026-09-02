@@ -66,6 +66,14 @@ def test_demo_runner_main_exposes_only_demo_runner_and_probe_routes() -> None:
         "/api/demo/signalfusion/runs/{run_id}/stream",
         "/api/demo/signalfusion/reset",
         "/api/demo/signalfusion/status",
+        # Distance Latency demo runner — spatial topology, eBPF probes, FrostDB telemetry, quarantine
+        "/api/demo/distancelatency/steps",
+        "/api/demo/distancelatency/runs",
+        "/api/demo/distancelatency/runs/{run_id}",
+        "/api/demo/distancelatency/runs/{run_id}/log",
+        "/api/demo/distancelatency/runs/{run_id}/stream",
+        "/api/demo/distancelatency/reset",
+        "/api/demo/distancelatency/status",
         "/health",
         "/readyz",
     }

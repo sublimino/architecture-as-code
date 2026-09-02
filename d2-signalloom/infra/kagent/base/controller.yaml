@@ -1,0 +1,9 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kagent-anthropic-key
+  namespace: kagent
+type: Opaque
+stringData:
+  api-key: "mock-anthropic-key-for-local-demo"

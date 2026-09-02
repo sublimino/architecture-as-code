@@ -13,6 +13,7 @@ ARG TARGETARCH
 # worked.
 ENV SUPERCRED_DEMO_CWD=/repo \
     SIGNALFUSION_DEMO_CWD=/repo \
+    DISTANCELATENCY_DEMO_CWD=/repo \
     PYTHONPATH=/repo/d2-signalloom/apps/fe-signalloom/src \
     PIP_NO_CACHE_DIR=1
 
@@ -54,6 +55,8 @@ COPY scripts/supercred-evidence.sh /repo/scripts/supercred-evidence.sh
 # demo_root_unresolved on the live lane. It needs nothing from the repo but
 # scripts/lib/wait.sh below; it applies no manifests.
 COPY scripts/signalfusion-demo.sh /repo/scripts/signalfusion-demo.sh
+# The Distance Latency four-act demo, served at /api/demo/distancelatency
+COPY scripts/distancelatency-demo.sh /repo/scripts/distancelatency-demo.sh
 COPY scripts/lib /repo/scripts/lib
 COPY d2-signalloom/apps/cardvault/base /repo/d2-signalloom/apps/cardvault/base
 COPY d2-signalloom/apps/policy-engine/base /repo/d2-signalloom/apps/policy-engine/base
@@ -64,7 +67,7 @@ COPY d2-signalloom/infra/inf-bao/configs/base/networkpolicy.yaml /repo/d2-signal
 COPY d2-signalloom/apps/fe-signalloom/src /repo/d2-signalloom/apps/fe-signalloom/src
 COPY scripts/supercred-crictl-shim.sh /usr/local/bin/docker
 
-RUN chmod 0755 /repo/scripts/supercred-demo.sh /repo/scripts/supercred-images.sh /repo/scripts/supercred-state.sh /repo/scripts/signalfusion-demo.sh /usr/local/bin/docker \
+RUN chmod 0755 /repo/scripts/supercred-demo.sh /repo/scripts/supercred-images.sh /repo/scripts/supercred-state.sh /repo/scripts/signalfusion-demo.sh /repo/scripts/distancelatency-demo.sh /usr/local/bin/docker \
     && chmod -R a+rX /repo \
     && groupadd --system appgroup \
     && useradd --system --gid appgroup appuser \

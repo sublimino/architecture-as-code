@@ -98,6 +98,9 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     sf_script = tmp_path / "fake-signalfusion-demo.sh"
     _write_fake_script(sf_script)
 
+    dl_script = tmp_path / "fake-distancelatency-demo.sh"
+    _write_fake_script(dl_script)
+
     monkeypatch.setattr(settings, "api_jwt_issuer", "https://issuer.test/dex")
     monkeypatch.setattr(settings, "api_jwt_audience", "signalloom-api")
     monkeypatch.setattr(settings, "api_jwt_authorized_party", "signalloom-dashboard")
@@ -110,6 +113,8 @@ def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
     monkeypatch.setenv("SUPERCRED_DEMO_CWD", str(tmp_path))
     monkeypatch.setenv("SIGNALFUSION_DEMO_SCRIPT", str(sf_script))
     monkeypatch.setenv("SIGNALFUSION_DEMO_CWD", str(tmp_path))
+    monkeypatch.setenv("DISTANCELATENCY_DEMO_SCRIPT", str(dl_script))
+    monkeypatch.setenv("DISTANCELATENCY_DEMO_CWD", str(tmp_path))
     set_pool_for_testing(_ReadyPool())
     try:
         with TestClient(app, raise_server_exceptions=False) as test_client:
@@ -175,6 +180,54 @@ def test_signalfusion_log_readable(client: TestClient) -> None:
     assert "fake-step:1" in log.json()["chunk"]
 
 
+# ── Distance Latency demo type ────────────────────────────────────────────────
+
+def test_distancelatency_steps_returns_four_steps(client: TestClient) -> None:
+    """Distance Latency has exactly four acts."""
+    response = client.get("/api/demo/distancelatency/steps", headers=_bearer(SUPERADMIN_SUBJECT))
+    assert response.status_code == 200
+    steps = response.json()["steps"]
+    step_ids = {s["step_id"] for s in steps}
+    assert step_ids == {"1", "2", "3", "4"}
+
+
+def test_distancelatency_step_titles(client: TestClient) -> None:
+    """Each Distance Latency act has the correct title."""
+    response = client.get("/api/demo/distancelatency/steps", headers=_bearer(SUPERADMIN_SUBJECT))
+    steps = {s["step_id"]: s["title"] for s in response.json()["steps"]}
+    assert steps["1"] == "Spatial Topology"
+    assert steps["2"] == "eBPF Kernel Probes"
+    assert steps["3"] == "FrostDB Columnar Stream"
+    assert steps["4"] == "Quarantine Cascade"
+
+
+def test_distancelatency_run_and_report_success(client: TestClient) -> None:
+    """A Distance Latency act runs and completes successfully."""
+    start = client.post("/api/demo/distancelatency/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
+    assert start.status_code == 202
+    run_id = start.json()["run_id"]
+    finished = _wait_for_terminal_run(client, run_id, "distancelatency")
+    assert finished["status"] == "succeeded"
+    assert finished["exit_code"] == 0
+
+
+def test_distancelatency_unknown_step_rejected(client: TestClient) -> None:
+    """Step 9 is invalid for Distance Latency."""
+    response = client.post("/api/demo/distancelatency/runs", json={"step": "9"}, headers=_bearer(SUPERADMIN_SUBJECT))
+    assert response.status_code == 422
+
+
+def test_distancelatency_log_readable(client: TestClient) -> None:
+    """The log endpoint works for Distance Latency runs."""
+    start = client.post("/api/demo/distancelatency/runs", json={"step": "1"}, headers=_bearer(SUPERADMIN_SUBJECT))
+    run_id = start.json()["run_id"]
+    _wait_for_terminal_run(client, run_id, "distancelatency")
+
+    log = client.get(f"/api/demo/distancelatency/runs/{run_id}/log", headers=_bearer(SUPERADMIN_SUBJECT))
+    assert log.status_code == 200
+    assert "fake-step:1" in log.json()["chunk"]
+
+
 # ── Cross-type isolation ─────────────────────────────────────────────────────
 
 def test_supercred_run_not_visible_under_signalfusion(client: TestClient) -> None:
@@ -189,3 +242,4 @@ def test_supercred_run_not_visible_under_signalfusion(client: TestClient) -> Non
     # but the run should at least exist somewhere
     supercred_response = client.get(f"/api/demo/supercred/runs/{run_id}", headers=_bearer(SUPERADMIN_SUBJECT))
     assert supercred_response.status_code == 200
+

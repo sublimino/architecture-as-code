@@ -24,7 +24,7 @@ const LAYER_COLORS: Record<SignalLayer, string> = {
   application_saas: 'var(--teal)',
   endpoint_host: 'var(--amber)',
   behavioural: 'var(--error)',
-  cloud_control_plane: 'var(--accent)',
+  cloud_control_plane: 'var(--slate-gray)',
   protocol: 'var(--dim)',
 }
 

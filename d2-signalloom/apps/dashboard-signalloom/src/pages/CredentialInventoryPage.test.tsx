@@ -480,7 +480,7 @@ describe('CredentialInventoryPage — filtering', () => {
     renderPage()
     await waitFor(() => expect(identityRows()).toHaveLength(12))
 
-    await user.type(screen.getByTestId('identity-search'), 'cardvault')
+    await user.type(screen.getByTestId('identity-search'), 'cardvault-agent')
     await waitFor(() => expect(identityRows()).toHaveLength(1))
     expect(identityRows()[0]).toHaveTextContent('cardvault-agent')
     expect(screen.getByTestId('identity-count')).toHaveTextContent('1 of 12 identities shown')
@@ -551,7 +551,7 @@ describe('CredentialInventoryPage — filtering', () => {
     renderPage()
     await waitFor(() => expect(identityRows()).toHaveLength(12))
 
-    await user.type(screen.getByTestId('identity-search'), 'cardvault')
+    await user.type(screen.getByTestId('identity-search'), 'cardvault-agent')
     await user.selectOptions(screen.getByTestId('identity-source-filter'), 'config')
     await waitFor(() => expect(identityRows()).toHaveLength(0))
 

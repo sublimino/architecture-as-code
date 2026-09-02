@@ -1377,10 +1377,19 @@ async def _audit_log(
     so the audit row joins the caller's transaction.
     """
     agent_uuid = _try_uuid(agent_id) if agent_id else None
+    clean_detail = dict(detail)
+    if agent_uuid is None and agent_id:
+        if "agent_ref" not in clean_detail:
+            clean_detail["agent_ref"] = agent_id
+        if agent_name is None:
+            agent_name = agent_id
+    elif agent_uuid is not None and agent_id and "agent_ref" not in clean_detail:
+        clean_detail["agent_ref"] = agent_name or str(agent_id)
+
     await executor.execute(
         """INSERT INTO audit_events (tenant_id, event_type, agent_id, agent_name, actor, detail)
            VALUES ($1, $2, $3, $4, $5, $6::jsonb)""",
-        tenant_id, event_type, agent_uuid, agent_name, actor, json.dumps(detail),
+        tenant_id, event_type, agent_uuid, agent_name, actor, json.dumps(clean_detail),
     )
 
 
@@ -1672,16 +1681,19 @@ async def _db_agent_for_credentials(conn: Any, tenant_id: str, agent_id: str) ->
     does not exist.
     """
     agent_uuid = _try_uuid(agent_id)
-    if agent_uuid is None:
-        raise APIError(404, "not_found", "Agent not found")
-
-    row = await conn.fetchrow(
-        "SELECT id, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
-        agent_uuid, tenant_id,
-    )
+    if agent_uuid is not None:
+        row = await conn.fetchrow(
+            "SELECT id, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+            agent_uuid, tenant_id,
+        )
+    else:
+        row = await conn.fetchrow(
+            "SELECT id, name FROM agent_registry WHERE name = $1 AND tenant_id = $2 FOR UPDATE",
+            agent_id, tenant_id,
+        )
     if row is None:
         raise APIError(404, "not_found", "Agent not found")
-    return agent_uuid, str(row["name"])
+    return row["id"], str(row["name"])
 
 
 def _make_agent(
@@ -2322,13 +2334,14 @@ async def create_agent(
     # typed string for ``display_name`` -- which is how ``data-mock.sql`` seeds
     # the pair -- would silently change what GET returns, so the request model
     # needs an explicit optional ``display_name`` first.  Noted, not smuggled in.
+    origin = body.type if body.type in {"Signal Loom Built", "COTS", "Custom"} else "Signal Loom Built"
     try:
         async with _write(pool) as conn:
             row = await conn.fetchrow(
                 """INSERT INTO agent_registry (tenant_id, name, display_name, origin, owner, lifecycle_state, eu_ai_act_risk_class, model_name)
                    VALUES ($1, $2, $3, $4, $5, 'registered', 'limited', 'gpt-5.4-mini')
                    RETURNING *""",
-                tenant_id, body.name, body.name, body.type, body.owner,
+                tenant_id, body.name, body.name, origin, body.owner,
             )
             compliance = await _compliance_summary_for_agent(conn, row["id"])
             await _audit_log(conn, tenant_id, "agent.created", str(row["id"]), body.name, principal.actor, {"source": "api"})
@@ -2455,13 +2468,14 @@ async def get_agent(
         return AgentResponse(**agent)
 
     agent_uuid = _try_uuid(agent_id)
-    if agent_uuid is None:
-        # Non-UUID id (e.g. k8s-style) -- synthesize
-        return AgentResponse(**_synth_agent(tenant_id, agent_id))
-
-    row = await pool.fetchrow(
-        "SELECT * FROM agent_registry WHERE id = $1 AND tenant_id = $2", agent_uuid, tenant_id,
-    )
+    if agent_uuid is not None:
+        row = await pool.fetchrow(
+            "SELECT * FROM agent_registry WHERE id = $1 AND tenant_id = $2", agent_uuid, tenant_id,
+        )
+    else:
+        row = await pool.fetchrow(
+            "SELECT * FROM agent_registry WHERE name = $1 AND tenant_id = $2", agent_id, tenant_id,
+        )
     if row is None:
         return AgentResponse(**_synth_agent(tenant_id, agent_id))
     compliance = await _compliance_summary_for_agent(pool, row["id"])
@@ -2529,41 +2543,37 @@ async def transition_agent(
         )
 
     agent_uuid = _try_uuid(agent_id)
-    if agent_uuid is None:
-        # Non-UUID id with a database: no registry row exists, so from_state is
-        # "registered". Validate the transition before responding.
-        _validate_transition("registered", body.to_state)
-        return TransitionResponse(
-            agent_id=agent_id,
-            from_state="registered",
-            to_state=body.to_state,
-            actor=principal.actor,
-            reason=body.reason,
-            timestamp=now,
-        )
-
     # The read is inside the transaction with the update and the audit row, so
     # the from_state the audit trail records is the state the update actually
     # moved away from.
     async with _write(pool) as conn:
-        row = await conn.fetchrow(
-            "SELECT lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
-            agent_uuid, tenant_id,
-        )
+        if agent_uuid is not None:
+            row = await conn.fetchrow(
+                "SELECT id, lifecycle_state, name FROM agent_registry WHERE id = $1 AND tenant_id = $2 FOR UPDATE",
+                agent_uuid, tenant_id,
+            )
+        else:
+            row = await conn.fetchrow(
+                "SELECT id, lifecycle_state, name FROM agent_registry WHERE name = $1 AND tenant_id = $2 FOR UPDATE",
+                agent_id, tenant_id,
+            )
         from_state = "registered" if row is None else row["lifecycle_state"]
-        agent_name = None if row is None else row["name"]
+        agent_name = agent_id if row is None else row["name"]
         _validate_transition(from_state, body.to_state)
 
         if row is not None:
             await conn.execute(
                 """UPDATE agent_registry SET lifecycle_state = $1, last_transition_at = now()
                    WHERE id = $2 AND tenant_id = $3""",
-                body.to_state, agent_uuid, tenant_id,
+                body.to_state, row["id"], tenant_id,
             )
+            target_agent_id = str(row["id"])
+        else:
+            target_agent_id = agent_id
 
         await _audit_log(
-            conn, tenant_id, "agent.transitioned", agent_id, agent_name, principal.actor,
-            {"from_state": from_state, "to_state": body.to_state, "reason": body.reason},
+            conn, tenant_id, "agent.transitioned", target_agent_id, agent_name, principal.actor,
+            {"from_state": from_state, "to_state": body.to_state, "reason": body.reason, "agent_ref": agent_id},
         )
     return TransitionResponse(
         agent_id=agent_id,

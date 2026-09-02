@@ -1,0 +1,18 @@
+{
+  "timestamp": 1788334064,
+  "proposal": "Proposal \u2014 Signal Loom Live eBPF Network Telemetry Probe (2026-Q3).md",
+  "shortcode": "NETEBPF",
+  "card": "NETEBPF-P1-PRE",
+  "status": "PASS",
+  "git": {
+    "commit": "f571c7188fb0a89140aed52d93fdb2ffd3052737",
+    "branch": "integration/live-ebpf-network-telemetry-v0.1.0"
+  },
+  "checks": {
+    "kernel_btf": true,
+    "cgroup_v2": true,
+    "preflight_script": "PASS",
+    "bats_suite": "5/5 passing",
+    "go_vet_sentinel": "PASS"
+  }
+}

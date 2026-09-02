@@ -93,5 +93,35 @@ func DefaultRules() []Rule {
 			       (b.layer == "cloud_control_plane" && a.layer != "cloud_control_plane")) &&
 			      a.source == b.source && abs(a.timestamp - b.timestamp) <= 300`,
 		},
+		// Live eBPF Network Egress Symmetric Correlation Rules
+		{
+			Name:        "net_ebpf_unauthorized_model_provider_egress",
+			Description: "Live eBPF socket connection to AI model provider correlated with identity authorization under same actor",
+			CEL: `((a.layer == "network_egress" && b.layer == "identity_authorization") ||
+			       (b.layer == "network_egress" && a.layer == "identity_authorization")) &&
+			      a.actor_hint != "" && a.actor_hint == b.actor_hint`,
+		},
+		{
+			Name:        "net_ebpf_c2_exfiltration_burst",
+			Description: "Direct IP or unauthorized egress connection correlated with endpoint host or behavioural anomaly",
+			CEL: `((a.layer == "network_egress" && (b.layer == "endpoint_host" || b.layer == "behavioural")) ||
+			       (b.layer == "network_egress" && (a.layer == "endpoint_host" || a.layer == "behavioural"))) &&
+			      a.actor_hint != "" && a.actor_hint == b.actor_hint && abs(a.timestamp - b.timestamp) <= 300`,
+		},
+		{
+			Name:        "net_ebpf_cross_layer_audit_correlation",
+			Description: "Live eBPF socket trace correlated with cloud control plane audit event within 5 minutes",
+			CEL: `((a.layer == "network_egress" && b.layer == "cloud_control_plane") ||
+			       (b.layer == "network_egress" && a.layer == "cloud_control_plane")) &&
+			      a.actor_hint != "" && a.actor_hint == b.actor_hint && abs(a.timestamp - b.timestamp) <= 300`,
+		},
+		{
+			Name:        "net_ebpf_saas_shadow_agent",
+			Description: "Network egress to AI provider correlated with SaaS application access under same actor hint",
+			CEL: `((a.layer == "network_egress" && b.layer == "application_saas") ||
+			       (b.layer == "network_egress" && a.layer == "application_saas")) &&
+			      a.actor_hint != "" && a.actor_hint == b.actor_hint`,
+		},
 	}
 }
+

@@ -1,0 +1,20 @@
+{
+  "timestamp": 1788334331,
+  "proposal": "Proposal \u2014 Signal Loom Live eBPF Network Telemetry Probe (2026-Q3).md",
+  "shortcode": "NETEBPF",
+  "card": "NETEBPF-P1-GOV",
+  "status": "PASS",
+  "git": {
+    "commit": "48a7b0181c3d26c9b9f72c6461413488d94cd69a",
+    "branch": "integration/live-ebpf-network-telemetry-v0.1.0"
+  },
+  "phase1_certification": {
+    "ebpf_probe_c": "VERIFIED (socket_trace.bpf.c, bpf_sk_cgroup_id, 16MB ringbuf)",
+    "probe_manager_go": "VERIFIED (probe.go, 5/5 tests passing with -race)",
+    "cgroup_attribution": "VERIFIED (tombstone cache 60s TTL, benchmark 66.22 ns/op)",
+    "ai_provider_classifier": "VERIFIED (OpenAI, Anthropic, Ollama, DeepSeek, C2)",
+    "live_collector_signal_ingest": "VERIFIED (collector.go, sequence gap detection, drop alerts)",
+    "fixtures_seed_all": "VERIFIED (SeedAll contains live eBPF flow observations)",
+    "race_detection": "100% PASS (0 data races across all packages)"
+  }
+}

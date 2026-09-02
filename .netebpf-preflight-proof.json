@@ -1,0 +1,23 @@
+{
+  "timestamp": 1788333996,
+  "proposal": "Proposal \u2014 Signal Loom Live eBPF Network Telemetry Probe (2026-Q3).md",
+  "shortcode": "NETEBPF",
+  "card": "NETEBPF-P0",
+  "status": "PASS",
+  "git": {
+    "commit": "949fbfafc9c4b0c8b3d3932c1e4b9dcac3e1743c",
+    "branch": "integration/live-ebpf-network-telemetry-v0.1.0",
+    "clean": true
+  },
+  "foundation": {
+    "kind": "osramp",
+    "flux_objects_ready": 34,
+    "unsubstituted_tokens": 0,
+    "healthcheck": "PASS"
+  },
+  "kernel": {
+    "release": "7.1.3+deb13-amd64",
+    "btf_available": true,
+    "cgroup_v2": true
+  }
+}

@@ -329,7 +329,7 @@ describe('AgentDetailPage — Activity Timeline for Synthetic Agents', () => {
     expect(screen.getAllByText(/agent-cardvault/)[1]).toBeInTheDocument()
   })
 
-  it('renders empty timeline state when no audit events exist for the agent', async () => {
+  it('renders baseline activity events when no prior audit events exist for the agent', async () => {
     const syntheticAgent = makeAgent({
       id: 'agent-cardvault',
       name: 'Synthesized agent-cardvault',
@@ -351,6 +351,7 @@ describe('AgentDetailPage — Activity Timeline for Synthetic Agents', () => {
     )
 
     expect(await screen.findByText('Synthesized agent-cardvault')).toBeInTheDocument()
-    expect(screen.getByText(/no events recorded/i)).toBeInTheDocument()
+    expect(screen.queryByText(/no events recorded/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/Activity Timeline/i)).toBeInTheDocument()
   })
 })

@@ -49,6 +49,7 @@ const NetworkTestsPage = lazy(() => import('./pages/NetworkTestsPage'))
 const AgentTrustTopologyPage = lazy(() => import('./pages/AgentTrustTopologyPage'))
 const WeavePage = lazy(() => import('./pages/WeavePage'))
 const SignalFusionPage = lazy(() => import('./pages/SignalFusionPage'))
+const DistanceLatencyPage = lazy(() => import('./pages/DistanceLatencyPage'))
 const FleetDemoPage = lazy(() => import('./pages/FleetDemoPage'))
 const SignalStorePage = lazy(() => import('./pages/SignalStorePage'))
 const DesignSystemPage = lazy(() => import('./pages/DesignSystemPage'))
@@ -392,6 +393,7 @@ export default function App() {
                 <Route path="/rbac-explorer" element={<ProtectedRoute><RbacExplorerPage /></ProtectedRoute>} />
                 <Route path="/weave" element={<ProtectedRoute><WeavePage /></ProtectedRoute>} />
                 <Route path="/signal-fusion" element={<ProtectedRoute><SignalFusionPage /></ProtectedRoute>} />
+                <Route path="/distance-latency" element={<ProtectedRoute><DistanceLatencyPage /></ProtectedRoute>} />
                 <Route path="/signal-store" element={<ProtectedRoute><SignalStorePage /></ProtectedRoute>} />
                 <Route path="/agent-trust-topology" element={<ProtectedRoute><AgentTrustTopologyPage /></ProtectedRoute>} />
                 <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />

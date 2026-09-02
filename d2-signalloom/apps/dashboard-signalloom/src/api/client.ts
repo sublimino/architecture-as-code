@@ -53,7 +53,7 @@ const http = axios.create({ baseURL: BASE })
 // cancellation path below has to clear this timer rather than let it fire.
 const DEMO_LATENCY_MS = 120
 
-const LIVE_RUNTIME_AGENT_DETAIL = /^\/?(?:api\/)?agents\/agent-cardvault(?:\?.*)?$/
+const LIVE_RUNTIME_AGENT_DETAIL = /^\/?(?:api\/)?agents\/(?:agent-cardvault|kagent-.*)(?:\?.*)?$/
 
 function requiresLiveAgentDetail(method: string, path: string): boolean {
   return method.toUpperCase() === 'GET' && LIVE_RUNTIME_AGENT_DETAIL.test(path)

@@ -1,0 +1,20 @@
+{
+  "timestamp": 1788334712,
+  "proposal": "Proposal \u2014 Signal Loom Live eBPF Network Telemetry Probe (2026-Q3).md",
+  "shortcode": "NETEBPF",
+  "card": "NETEBPF-P2-GOV",
+  "status": "PASS",
+  "git": {
+    "commit": "19c05a956e941064e7fb209d10c5b2b88b6950c3",
+    "branch": "integration/live-ebpf-network-telemetry-v0.1.0"
+  },
+  "full_monorepo_certification": {
+    "kernel_ebpf_c": "VERIFIED (socket_trace.bpf.c, 16MB ringbuf, drop maps)",
+    "sentinel_go_loader": "VERIFIED (probe.go, attribution, tombstone cache, 0 race conditions)",
+    "signal_ingest_collector": "VERIFIED (collector.go, sequence gap detector, drop alert handler)",
+    "frostdb_and_cel": "VERIFIED (gap evaluator, 4 symmetric CEL rules, 0 race conditions)",
+    "dashboard_ui": "VERIFIED (WeavePage.tsx, live telemetry panel, fail-closed gap banner, Vitest 26/26)",
+    "bats_suites": "100% PASS (preflight 5/5, p2-preflight 4/4, adversarial 4/4, spec-coverage 7/7)",
+    "dod_compliance": "100% COMPLETE"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryQAEvidenceV1",
+  "type": "object",
+  "required": ["evidence_id", "candidate_id", "commit_sha", "test_suite_digest", "verdict", "qa_signer_app", "signed_at"],
+  "properties": {
+    "evidence_id": { "type": "string" },
+    "candidate_id": { "type": "string" },
+    "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "test_suite_digest": { "type": "string" },
+    "verdict": { "type": "string", "enum": ["pass", "fail"] },
+    "qa_signer_app": { "type": "string" },
+    "signed_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

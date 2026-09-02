@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryCandidateV1",
+  "type": "object",
+  "required": ["candidate_id", "intent_id", "commit_sha", "branch", "author_app", "created_at"],
+  "properties": {
+    "candidate_id": { "type": "string" },
+    "intent_id": { "type": "string" },
+    "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "branch": { "type": "string" },
+    "author_app": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

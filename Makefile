@@ -671,6 +671,14 @@ test-workspace-acceptance: ## Run the complete Workspace Agentic Identity Stream
 	bats test/workspace-identity-streaming.bats
 	(cd d2-signalloom/apps/workspace-connector && go test ./...)
 
+.PHONY: factory-schemas-validate factory-appraisal-test
+factory-schemas-validate: ## Validate AI-Governed Software Factory JSON schemas.
+	@for f in d2-signalloom/governance/schemas/*.v1.json; do python3 -m json.tool "$$f" >/dev/null && echo "✓ $$f is valid"; done
+
+factory-appraisal-test: ## Run the complete AI-Governed Software Factory governance and appraisal test suite.
+	bats test/software-factory-governance.bats
+	(cd d2-signalloom/apps/factory-appraiser && go test ./...)
+
 .PHONY: check-ci-build-parity
 check-ci-build-parity: ## Fail if CI omits a build or activation step demo-signalloom-up runs (no cluster required).
 	./scripts/check-ci-build-parity.sh

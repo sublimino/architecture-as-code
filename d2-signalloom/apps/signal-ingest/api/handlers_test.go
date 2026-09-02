@@ -296,3 +296,37 @@ func TestQueryObservationsEmptyIsArrayNotNull(t *testing.T) {
 		t.Errorf("empty observations: want `[]` on the wire, got %q", body)
 	}
 }
+
+func TestStream(t *testing.T) {
+	_, mux := newTestHandlers(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/stream", nil).WithContext(ctx)
+	w := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		mux.ServeHTTP(w, req)
+		close(done)
+	}()
+
+	// Allow connect frame to flush
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	if w.Code != http.StatusOK {
+		t.Errorf("stream: want 200, got %d", w.Code)
+	}
+	contentType := w.Header().Get("Content-Type")
+	if !strings.Contains(contentType, "text/event-stream") {
+		t.Errorf("stream: want text/event-stream, got %q", contentType)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "event: connected") {
+		t.Errorf("stream: missing connect frame in %q", body)
+	}
+}
+

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryPromotionV1",
+  "type": "object",
+  "required": ["promotion_id", "release_digest", "commit_sha", "evidence_id", "approver_human", "target_environment", "approved_at"],
+  "properties": {
+    "promotion_id": { "type": "string" },
+    "release_digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "commit_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "evidence_id": { "type": "string" },
+    "approver_human": { "type": "string" },
+    "target_environment": { "type": "string", "enum": ["dev", "demo-1", "demo-2", "ci-1", "ci-2"] },
+    "approved_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

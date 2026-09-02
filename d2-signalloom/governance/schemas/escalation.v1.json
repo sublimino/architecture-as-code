@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryEscalationV1",
+  "type": "object",
+  "required": ["escalation_id", "appraisal_id", "reason", "target_oncall", "escalated_at", "severity"],
+  "properties": {
+    "escalation_id": { "type": "string" },
+    "appraisal_id": { "type": "string" },
+    "reason": { "type": "string" },
+    "target_oncall": { "type": "string" },
+    "escalated_at": { "type": "string", "format": "date-time" },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] }
+  },
+  "additionalProperties": false
+}

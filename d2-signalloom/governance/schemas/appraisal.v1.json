@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryAppraisalV1",
+  "type": "object",
+  "required": ["appraisal_id", "evaluated_at", "active_candidates", "stale_candidates", "status"],
+  "properties": {
+    "appraisal_id": { "type": "string" },
+    "evaluated_at": { "type": "string", "format": "date-time" },
+    "active_candidates": { "type": "array", "items": { "type": "string" } },
+    "stale_candidates": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["healthy", "stalled", "escalated"] }
+  },
+  "additionalProperties": false
+}

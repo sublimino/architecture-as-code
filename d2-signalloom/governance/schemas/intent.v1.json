@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FactoryIntentV1",
+  "type": "object",
+  "required": ["id", "timestamp", "author", "intent_type", "target_repository", "description", "expiry"],
+  "properties": {
+    "id": { "type": "string" },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "author": { "type": "string" },
+    "intent_type": { "type": "string", "enum": ["feature", "bugfix", "refactor", "governance"] },
+    "target_repository": { "type": "string" },
+    "description": { "type": "string" },
+    "expiry": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

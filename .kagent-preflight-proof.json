@@ -1,7 +1,7 @@
 {
   "task_id": "P0",
-  "timestamp": "2026-09-01T23:33:33Z",
-  "git_commit": "8ab05aed",
+  "timestamp": "2026-09-02T00:20:13Z",
+  "git_commit": "01b40630",
   "cluster_info": "Kubernetes control plane is running at https://127.0.0.1:34777",
   "kagent_pods": [
     "kagent-controller-5dfb6bbdfb-zmjtm:Running",
@@ -20,10 +20,10 @@
     "kagent-security-analyst"
   ],
   "proof_errors": [],
-  "status": "COMPLETED",
-  "proof_path": "/home/andy/src/.worktrees/osramp-demo/p2-2-kagent-swarm/.kagent-preflight-proof.json",
-  "test_status": "PASS",
-  "test_assertions_passed": 89,
-  "test_assertions_failed": 0,
+  "status": "FAILED",
+  "proof_path": "/home/andy/src/cp/osramp-demo/.kagent-preflight-proof.json",
+  "test_status": "FAIL",
+  "test_assertions_passed": 88,
+  "test_assertions_failed": 1,
   "test_assertions_skipped": 0
 }

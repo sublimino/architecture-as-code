@@ -663,7 +663,17 @@ run_stage \
      test/registry-cache-mapping.bats \
      test/supercred-state.bats test/supervise-port-forward.bats \
      test/supervise-port-forward-eperm.bats \
-     test/zot-cache.bats"
+     test/zot-cache.bats \
+     test/kagent-adversarial.bats test/kagent-agents.bats \
+     test/kagent-anti-stub.bats test/kagent-credentials.bats \
+     test/kagent-demo-harness.bats test/kagent-infra.bats \
+     test/kagent-install.bats test/kanban-check.bats \
+     test/prompt-commit-summarizer.bats test/signalfusion-dynamic-coverage.bats \
+     test/software-factory-governance.bats test/spire-trust-anchor-errors.bats \
+     test/swarm-credentials.bats test/swarm-demo-script.bats \
+     test/swarm-fleet-acceptance.bats test/swarm-flux-deploy.bats \
+     test/swarm-infra.bats test/triage-ci-worker.bats \
+     test/workspace-identity-streaming.bats"
 
 # Stage 1h: bats registry coverage (BATS TAP)
 #

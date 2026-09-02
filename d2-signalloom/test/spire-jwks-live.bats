@@ -56,7 +56,9 @@ setup() {
   [ -n "$jwt_kid" ]
 
   # Verify assert_openbao_accepts_spire_jwt_keys passes against live cluster
-  source scripts/lib/spire-trust-anchor.sh
+  local repo_root
+  repo_root="$(cd "$(dirname "$BATS_TEST_FILENAME")/../.." && pwd)"
+  source "${repo_root}/scripts/lib/spire-trust-anchor.sh"
   run assert_openbao_accepts_spire_jwt_keys "$NAMESPACE_BAO" signalloom-demo-root-token
   [ "$status" -eq 0 ]
   [[ "$output" == *"live jwks_url"* ]]

@@ -45,6 +45,7 @@ for block in text.split("- target:")[1:]:
 sources = [
     "d2-osramp-fleet/tenants/base/infra.yaml",
     "d2-osramp-fleet/tenants/base/agent-trust.yaml",
+    "d2-osramp-fleet/tenants/base/agent-swarm.yaml",
     "d2-osramp-fleet/tenants/local/signalloom.yaml",
 ]
 actual = {}

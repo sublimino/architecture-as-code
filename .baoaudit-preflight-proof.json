@@ -1,0 +1,22 @@
+{
+  "timestamp": 1788335104,
+  "proposal": "Proposal \u2014 Signal Loom OpenBao & SPIRE Identity Audit Streamer (2026-Q3).md",
+  "shortcode": "BAOAUDIT",
+  "card": "BAOAUDIT-P0",
+  "status": "PASS",
+  "git": {
+    "commit": "81c1ca988baa90110d4dc2a6deaca09f75deef40",
+    "branch": "integration/openbao-spire-audit-streamer-v0.1.0"
+  },
+  "cluster_foundation": {
+    "status": "HEALTHY",
+    "flux_substitutions": "34/34 objects clean",
+    "openbao_pod": "1/1 Running in inf-bao",
+    "spire_server": "2/2 Running in inf-bao",
+    "spire_agent": "1/1 Running in inf-bao"
+  },
+  "toolchains": {
+    "go": "1.26+",
+    "bun": "1.2+"
+  }
+}

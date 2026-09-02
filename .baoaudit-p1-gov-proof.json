@@ -1,0 +1,19 @@
+{
+  "timestamp": 1788335530,
+  "proposal": "Proposal \u2014 Signal Loom OpenBao & SPIRE Identity Audit Streamer (2026-Q3).md",
+  "shortcode": "BAOAUDIT",
+  "card": "BAOAUDIT-P1-GOV",
+  "gate": "Phase 1 Governor Gate Certification",
+  "status": "PASS",
+  "git": {
+    "commit": "7d2c4e70588a1772b5d454b9f90cce0bb834df2f",
+    "branch": "integration/openbao-spire-audit-streamer-v0.1.0"
+  },
+  "verification_summary": {
+    "signal_ingest_race_sweep": "PASS (0 race conditions across all packages)",
+    "baoaudit_receiver": "PASS (non-blocking unixgram + tmpfs tap, 10.23 ns/op, 0 allocs)",
+    "spirea_tracker": "PASS (SVID tracking + abandoned credential sweep, 17.25 ns/op)",
+    "secrets_scrubber": "PASS (6 regex patterns + deterministic HMAC-SHA256 salt anonymizer)",
+    "preflight_bats": "PASS (5/5 tests passing in test/baoaudit-preflight.bats)"
+  }
+}

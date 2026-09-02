@@ -110,8 +110,8 @@ describe('useSignalSummary', () => {
     const { result } = renderHook(() => useSignalSummary())
     await waitForLoaded(result)
 
-    // Fixture covers 5 layers
-    expect(result.current.layerCount).toBe(5)
+    // Fixture covers 6 layers (including cloud_control_plane)
+    expect(result.current.layerCount).toBe(6)
   })
 
   it('handles API error gracefully — returns zeros and error message', async () => {

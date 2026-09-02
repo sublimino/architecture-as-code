@@ -11,7 +11,7 @@ type Rule struct {
 
 // DefaultRules returns the built-in correlation rule set.
 func DefaultRules() []Rule {
-	return []Rule{
+	rules := []Rule{
 		{
 			Name:        "cross_layer_identity",
 			Description: "Two observations from different layers sharing an actor_hint correlate to the same actor",
@@ -123,5 +123,6 @@ func DefaultRules() []Rule {
 			      a.actor_hint != "" && a.actor_hint == b.actor_hint`,
 		},
 	}
+	return append(rules, IdentityAuditRules()...)
 }
 

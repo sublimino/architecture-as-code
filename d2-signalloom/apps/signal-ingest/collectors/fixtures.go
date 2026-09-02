@@ -20,6 +20,7 @@ func SeedAll(baseTime time.Time) []model.Observation {
 	obs = append(obs, ApplicationSaaSFixtures(baseTime)...)
 	obs = append(obs, EndpointHostFixtures(baseTime)...)
 	obs = append(obs, BehaviouralFixtures(baseTime)...)
+	obs = append(obs, CloudControlPlaneFixtures(baseTime)...)
 	obs = append(obs, ScheduledJobFixtures(baseTime)...)
 	return obs
 }
@@ -217,6 +218,47 @@ func ScheduledJobFixtures(baseTime time.Time) []model.Observation {
 				"workload_type":  "batch",
 			},
 			Description: "Regular 5-minute execution pattern from a Kubernetes CronJob — timing regularity without identity signals",
+		},
+	}
+}
+
+// CloudControlPlaneFixtures generates Kubernetes APIServer audit and GCP Cloud Audit observations (definitive).
+func CloudControlPlaneFixtures(baseTime time.Time) []model.Observation {
+	return []model.Observation{
+		{
+			ID:             "cloud-audit-001",
+			Timestamp:      baseTime.Add(5 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "k8s-apiserver-audit",
+			Confidence:     1.0,
+			ActorHint:      "sa-ml-pipeline",
+			RawEvidenceRef: "k8s-audit://default/secrets/vault-token",
+			Labels: map[string]string{
+				"verb":        "get",
+				"resource":    "secrets",
+				"namespace":   "default",
+				"name":        "vault-token",
+				"status_code": "200",
+			},
+			Description: "K8s APIServer audit: get secret default/vault-token by sa-ml-pipeline",
+		},
+		{
+			ID:             "cloud-audit-002",
+			Timestamp:      baseTime.Add(10 * time.Minute),
+			Layer:          model.LayerCloudControlPlane,
+			Fidelity:       model.FidelityDefinitive,
+			Source:         "gcp-cloud-audit",
+			Confidence:     1.0,
+			ActorHint:      "deployer-sa@osramp-demo.iam.gserviceaccount.com",
+			RawEvidenceRef: "gcp-audit://osramp-demo/projects/osramp-demo",
+			Labels: map[string]string{
+				"service_name": "iam.googleapis.com",
+				"method_name":  "google.iam.v1.SetIamPolicy",
+				"project_id":   "osramp-demo",
+				"status_code":  "0",
+			},
+			Description: "GCP Audit: deployer-sa called google.iam.v1.SetIamPolicy on osramp-demo",
 		},
 	}
 }
